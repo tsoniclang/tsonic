@@ -110,7 +110,7 @@ function snapshot() {
     },
     entryPoint: entry, roots: [entry],
     selection: { target: { id: "native", surfaces: [], options: { kind: "record", fields: [] } }, providerId: "native-provider", capabilityIds: [], surfaceIds: [] },
-    contributions: { declarationFiles: [], declarationPolicy: { bundledLibraries: [], installedDeclarations: "none" },
+    contributions: { declarationModules: [], declarationPolicy: { bundledLibraries: [], installedDeclarations: "none" },
       requiredProviderModules: [], compilerExtensions: [], declarationProviders: [], semanticModules: [], safetyProviders: [], dataLayouts: [] },
     platform: { layouts: [] },
   };
@@ -182,7 +182,7 @@ test("named packages, both module roles and both captured file arms preserve exp
   const value = snapshot();
   const additional = peer(value);
   value.packages.files.push({ kind: "virtual", path: "/virtual/prelude.d.ts", owner: additional.id, text: "declare const value: number;" });
-  value.contributions.declarationFiles.push("/virtual/prelude.d.ts");
+  value.contributions.declarationModules.push(additional.module);
   value.packages.packages.find(entry => entry.id === packageId()).dependencies = [
     { name: "library", range: "workspace:*", kind: "dependency", resolved: additional.id },
   ];
@@ -524,10 +524,19 @@ test("extension-table-equality handles missing, extra, three-kind shared exports
     verify(value, [], reverse ? [...entries].reverse() : entries);
   }
 });
-test("contribution-files-resolve and virtual-file-owner-resolves retain their actual source paths", () => {
+test("contributed-declaration-module: a contributed declaration is a declaration-role module of the snapshot, named by its identity; virtual-file-owner-resolves retains its path", () => {
   const absent = snapshot();
-  absent.contributions.declarationFiles = ["/virtual/missing.d.ts"];
-  verify(absent, [issue("contribution-files-resolve", fileSite("/virtual/missing.d.ts"), "/virtual/missing.d.ts")]);
+  const missing = moduleId(packageId(), "src/missing.d.ts");
+  absent.contributions.declarationModules = [missing];
+  verify(absent, [issue("contributed-declaration-module", moduleSite(missing), missing)]);
+  const sourceRole = snapshot();
+  sourceRole.contributions.declarationModules = [sourceRole.entryPoint];
+  verify(sourceRole, [issue("contributed-declaration-module", moduleSite(sourceRole.entryPoint), sourceRole.entryPoint)]);
+  const fileOnly = snapshot();
+  fileOnly.packages.files.push({ kind: "physical", path: "/project/src/zz-file-without-module.d.ts", realPath: "/real/project/src/zz-file-without-module.d.ts", text: "" });
+  const stray = moduleId(packageId(), "src/zz-file-without-module.d.ts");
+  fileOnly.contributions.declarationModules = [stray];
+  verify(fileOnly, [issue("contributed-declaration-module", moduleSite(stray), stray)]);
   const virtual = snapshot();
   virtual.packages.files.push({ kind: "virtual", path: "/virtual/prelude.d.ts", text: "", owner: packageId("/missing") });
   verify(virtual, [issue("virtual-file-owner-resolves", fileSite("/virtual/prelude.d.ts"), packageId("/missing"))]);
@@ -777,7 +786,7 @@ for (const field of ["packages", "dependencies"]) {
     verify(value, [sparseIssue(packageSite(), `component.${field}`)]);
   });
 }
-for (const field of ["declarationFiles", "compilerExtensions", "declarationProviders", "semanticModules", "dataLayouts", "requiredProviderModules"]) {
+for (const field of ["declarationModules", "compilerExtensions", "declarationProviders", "semanticModules", "dataLayouts", "requiredProviderModules"]) {
   test(`stable-order checks sparse contributed ${field} through the same owner traversal`, () => {
     const value = snapshot();
     value.contributions[field] = new Array(1);
@@ -894,7 +903,7 @@ test("fresh real public declarations admit a cast-free consumer and reject exact
     + 'import type { ProjectSnapshot, VerifySnapshot, ExtensionReferenceEntry, SnapshotRule, SnapshotSite } from "./snapshot/contract.js";\n'
     + 'import type { Violation } from "./diag/contract.js";\n'
     + 'export const root = encodePackageId("/project"); export const entry = encodeModuleId({ package: root, path: "src/main.ts" });\n'
-    + 'export const value: ProjectSnapshot = { packages: {fingerprint:"bytes",rootPackage:root,packages:[],components:[],modules:[],files:[],libraryData:[]},entryPoint:entry,roots:[],selection:{target:{id:"target",surfaces:[],options:{kind:"record",fields:[]}},providerId:"provider",capabilityIds:[],surfaceIds:[]},contributions:{declarationFiles:[],declarationPolicy:{bundledLibraries:[],installedDeclarations:"none"},requiredProviderModules:[],compilerExtensions:[],declarationProviders:[],semanticModules:[],safetyProviders:[],dataLayouts:[]},platform:{layouts:[]}};\n'
+    + 'export const value: ProjectSnapshot = { packages: {fingerprint:"bytes",rootPackage:root,packages:[],components:[],modules:[],files:[],libraryData:[]},entryPoint:entry,roots:[],selection:{target:{id:"target",surfaces:[],options:{kind:"record",fields:[]}},providerId:"provider",capabilityIds:[],surfaceIds:[]},contributions:{declarationModules:[],declarationPolicy:{bundledLibraries:[],installedDeclarations:"none"},requiredProviderModules:[],compilerExtensions:[],declarationProviders:[],semanticModules:[],safetyProviders:[],dataLayouts:[]},platform:{layouts:[]}};\n'
     + 'export function consume(snapshot: ProjectSnapshot, references: readonly ExtensionReferenceEntry[]): readonly Violation<SnapshotRule,SnapshotSite>[] { const verify: VerifySnapshot = verifySnapshot; return verify(snapshot,references); }\n'
     + 'export function sparse(snapshot: ProjectSnapshot): readonly Violation<SnapshotRule,SnapshotSite>[] { return verifySnapshot({...snapshot,roots:new Array<ModuleId>(1)},[]); }\n';
   writeFileSync(resolve(stage, "consumer.ts"), source

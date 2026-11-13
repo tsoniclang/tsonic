@@ -7,26 +7,29 @@ export interface ProviderRegistration {
   readonly provider: SourceDeclarationProvider;
 }
 
-/** The ordered loaded registrations of one analysis, in the form a compiler session takes them. */
+/**
+ * The ordered loaded registrations of one analysis, in the form a compiler session takes them, and the declaration
+ * provider registrations indexed by provider identity for the join of a session document to its registration.
+ */
 export class ExtensionTable {
   private readonly entryRows: readonly ExtensionReferenceEntry[];
   private readonly sessionExtensions: readonly CompilerExtension[];
-  private readonly providerRows: readonly ProviderRegistration[];
+  private readonly providerRows: ReadonlyMap<string, ProviderRegistration>;
 
   private constructor(entries: readonly ExtensionReferenceEntry[], extensions: readonly CompilerExtension[],
-    providers: readonly ProviderRegistration[]) {
+    providers: ReadonlyMap<string, ProviderRegistration>) {
     this.entryRows = entries;
     this.sessionExtensions = extensions;
     this.providerRows = providers;
   }
 
   static create(entries: readonly ExtensionReferenceEntry[], extensions: readonly CompilerExtension[],
-    providers: readonly ProviderRegistration[]): ExtensionTable {
+    providers: ReadonlyMap<string, ProviderRegistration>): ExtensionTable {
     return new ExtensionTable(entries, extensions, providers);
   }
   static entries(table: ExtensionTable): readonly ExtensionReferenceEntry[] { return table.entryRows; }
   static extensions(table: ExtensionTable): readonly CompilerExtension[] { return table.sessionExtensions; }
-  static providers(table: ExtensionTable): readonly ProviderRegistration[] { return table.providerRows; }
+  static providers(table: ExtensionTable): ReadonlyMap<string, ProviderRegistration> { return table.providerRows; }
 }
 
 /** One checked program of the SDK with what its capture reads from the snapshot it was opened on. */

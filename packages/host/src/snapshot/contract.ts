@@ -288,7 +288,11 @@ export interface SourceSafetyProvider {
 }
 
 export interface SourceContributions {
-  readonly declarationFiles: readonly string[];
+  /**
+   * The declaration modules that contributions add to every program as roots: each is a declaration-role module of
+   * this snapshot, named by its identity like a root or a bundled library. Its text is its captured file's.
+   */
+  readonly declarationModules: readonly ModuleId[];
   readonly declarationPolicy: SourceDeclarationPolicy;
   readonly requiredProviderModules: readonly RequiredProviderModule[];
   readonly compilerExtensions: readonly ExtensionReference[];
@@ -352,7 +356,7 @@ export type SnapshotRule =
   | "extension-package-resolves"
   | "extension-reference-kinds-exact"
   | "extension-table-equality"
-  | "contribution-files-resolve"
+  | "contributed-declaration-module"
   | "bundled-library-declaration"
   | "bundled-library-unique"
   | "bundled-libraries-order"

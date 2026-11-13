@@ -65,7 +65,7 @@ after(async () => {
 const identityKinds = new Set(["SourceFile", "FunctionDeclaration", "ClassDeclaration", "InterfaceDeclaration", "TypeAliasDeclaration", "EnumDeclaration",
   "EnumMember", "ModuleDeclaration", "VariableDeclaration", "BindingElement", "Parameter", "TypeParameter", "PropertyDeclaration", "MethodDeclaration",
   "GetAccessor", "SetAccessor", "Constructor", "ClassStaticBlockDeclaration", "PropertySignature", "MethodSignature", "CallSignature",
-  "ConstructSignature", "IndexSignature", "FunctionExpression", "ArrowFunction", "ClassExpression", "ExportAssignment"]);
+  "ConstructSignature", "IndexSignature", "FunctionExpression", "ArrowFunction", "ClassExpression", "ExportAssignment", "NamespaceExport"]);
 
 test("K-3236: the authored identity inputs obey the law they state: kinds of F-1, owners before members, ordinals counted across kinds per owner and name", () => {
   const { cases } = JSON.parse(readFileSync(resolve(repository, "test/host-units/fixtures/front/identity-cases.json"), "utf8"));
@@ -107,45 +107,69 @@ test("K-3236: the authored identity inputs obey the law they state: kinds of F-1
   }
 });
 
-test("the identity inputs are complete against the parser: the declaration nodes the checker's parser finds in each source are the rows, kind by kind in preorder, and a named node has its row's name", () => {
+test("the identity inputs agree with the parser: the declaration nodes the checker's parser finds in each source are the rows, kind by kind in preorder; each row's owner is the nearest enclosing node that has a row; each row's name is the name its node gives it", () => {
   const { cases } = JSON.parse(readFileSync(resolve(repository, "test/host-units/fixtures/front/identity-cases.json"), "utf8"));
   const expressions = new Set(["FunctionExpression", "ArrowFunction", "ClassExpression"]);
-  const bindsOneName = new Set(["VariableDeclaration", "Parameter", "BindingElement"]);
+  const holdsNoIdentity = new Set(["VariableDeclaration", "BindingElement"]);
+  const unnamed = new Set(["Constructor", "ClassStaticBlockDeclaration", "CallSignature", "ConstructSignature", "IndexSignature"]);
   let compared = 0;
+  let otherwiseNamed = 0;
   for (const entry of cases) {
     const parsed = parseSources(new Map(Object.entries(entry.files).map(([path, text]) => [path.slice(1), text])));
     const { ast } = parsed;
     for (const [path, rows] of Object.entries(entry.definitions ?? {})) {
       const file = parsed.getSourceFiles().find(candidate => ast.getFileName(candidate) === `/host-gate${path}`);
       assert.notEqual(file, undefined, `${entry.name}: ${path} is parsed`);
-      const found = [];
-      const visit = node => {
-        const kind = ast.kindName(node).replace(/^Kind/u, "");
-        if (identityKinds.has(kind)) {
-          const name = ast.name(node);
-          const identifier = name !== undefined && ast.is.IsIdentifier(name) ? ast.text(name) : null;
-          // One identity per bound name: a declaration that holds a pattern binds no name of its own (the fixture's stated assumption).
-          if (!bindsOneName.has(kind) || identifier !== null) found.push({ kind, name: expressions.has(kind) ? null : identifier });
+      const queries = parsed.getSourceFileQueries(file);
+      // The name a node gives its row, by F-1's name sources: an identifier or private name as written; a string or numeric name by its
+      // text; a computed name by the constant key the checker resolved; no name for a constructor, static block, signature, expression
+      // or pattern holder; the export name for an anonymous default declaration and for an export assignment.
+      const nameOf = (node, kind) => {
+        if (expressions.has(kind) || unnamed.has(kind)) return "";
+        if (kind === "ExportAssignment") return /^export\s*=/u.test(ast.getSourceText(file).slice(ast.pos(node), ast.end(node)).trim()) ? "export=" : "default";
+        const name = ast.name(node);
+        if (name === undefined) return "default";
+        if (ast.is.IsIdentifier(name)) return ast.text(name);
+        if (ast.is.IsPrivateIdentifier(name) || ast.is.IsStringLiteral(name) || ast.is.IsNumericLiteral(name)) {
+          otherwiseNamed += 1;
+          return ast.text(name);
         }
-        ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
+        if (ast.is.IsComputedPropertyName(name)) {
+          otherwiseNamed += 1;
+          const expression = ast.as.AsComputedPropertyName(name).Expression;
+          return ast.is.IsStringLiteral(expression) || ast.is.IsNumericLiteral(expression) ? ast.text(expression)
+            : queries.typeShape.getStringLiteralTypeValue(queries.checker.getTypeAtLocation(expression));
+        }
+        return "";
       };
-      visit(file);
-      const undecided = { ...(entry.undecided ?? {}) };
-      const expected = found.filter(node => {
-        if ((undecided[node.kind] ?? 0) === 0) return true;
-        undecided[node.kind] -= 1;
-        return false;
-      });
-      assert.deepEqual(rows.map(row => row.kind), expected.map(node => node.kind), `${entry.name}: ${path}: one row per declaration node, in preorder`);
+      const found = [];
+      const visit = (node, owner) => {
+        const kind = ast.kindName(node).replace(/^Kind/u, "");
+        const name = identityKinds.has(kind) && kind !== "SourceFile" ? ast.name(node) : undefined;
+        const holdsPattern = name !== undefined && !ast.is.IsIdentifier(name) && (holdsNoIdentity.has(kind) || kind === "Parameter");
+        let inner = owner;
+        // K-3268 items 1 and 2: a variable declaration or binding element that holds a pattern has no identity; a parameter that holds one has.
+        if (identityKinds.has(kind) && !(holdsPattern && holdsNoIdentity.has(kind))) {
+          found.push({ kind, name: kind === "SourceFile" ? null : nameOf(node, kind), owner });
+          inner = found.length - 1;
+        }
+        // The fixture's stated reading of K-3268 item 1: the names a pattern-holding parameter binds stand in the parameter's own owner's
+        // ordinal space, so its pattern is walked under that owner; everything else of the parameter is under the parameter.
+        ast.forEachChild(node, child => { if (child !== undefined) visit(child, holdsPattern && kind === "Parameter" && child === name ? owner : inner); });
+      };
+      visit(file, null);
+      assert.deepEqual(rows.map(row => row.kind), found.map(node => node.kind), `${entry.name}: ${path}: one row per declaration node, in preorder`);
       rows.forEach((row, index) => {
-        const authored = expected[index].name;
-        if (authored !== null && !(row.kind === "ExportAssignment")) assert.equal(row.path.at(-1)[0], authored, `${entry.name}: ${path}: the name of row ${index}`);
-        if (expressions.has(row.kind)) assert.equal(row.path.at(-1)[0], "", `${entry.name}: ${path}: an expression has the empty name`);
+        const node = found[index];
+        if (node.owner === null) return assert.deepEqual(row.path, [], `${entry.name}: ${path}: the module's own row`);
+        assert.equal(row.path.at(-1)[0], node.name, `${entry.name}: ${path}: the name of row ${index} (${row.kind})`);
+        assert.deepEqual(row.path.slice(0, -1), rows[node.owner].path, `${entry.name}: ${path}: the owner of row ${index} (${row.kind} ${JSON.stringify(row.path)})`);
       });
       compared += rows.length;
     }
   }
-  assert.equal(compared > 150, true, "the comparison ran over the rows of every case");
+  assert.equal(compared > 200, true, "the comparison ran over the rows of every case");
+  assert.equal(otherwiseNamed, 8, "the rows named by something other than an identifier are compared too: three string-named modules, a private name, two computed names, a numeric and a quoted member name");
 });
 
 test("the checker package that Host's built output loads is this worktree's own, and it is the one instance these cases use", () => {
@@ -207,7 +231,7 @@ function projectSnapshot({ sourceFiles, libraries, providerPackages = [], declar
     entryPoint: moduleOf(project, `src/${Object.keys(sourceFiles)[0]}`),
     roots: [...Object.keys(sourceFiles).map(name => moduleOf(project, `src/${name}`)), ...otherRoots].sort(),
     selection: { target: { id: "native", surfaces: [], options: { kind: "record", fields: [] } }, providerId: "native-provider", capabilityIds: [], surfaceIds: [] },
-    contributions: { declarationFiles: [], declarationPolicy: { bundledLibraries: libraries.map(library => moduleOf(checker, library.name)).sort(), installedDeclarations },
+    contributions: { declarationModules: [], declarationPolicy: { bundledLibraries: libraries.map(library => moduleOf(checker, library.name)).sort(), installedDeclarations },
       requiredProviderModules, compilerExtensions, declarationProviders, semanticModules: [], safetyProviders: [], dataLayouts: [] },
     platform: { layouts: [] },
   };
@@ -401,14 +425,14 @@ test("caller defects of the extension table and of opening are refused as defect
   const noModule = projectSnapshot({ sourceFiles: plainSources, libraries });
   noModule.roots = [moduleOf(packageOf("/project"), "src/absent.mts")];
   assert.throws(() => front.openCheckedProgram({ extensions: table, navigationCapture }, noModule, preparation),
-    { name: "TypeError", message: "front: a root or bundled library of the snapshot names no module of the snapshot" });
+    { name: "TypeError", message: "front: a root, contributed declaration or bundled library of the snapshot names no module of the snapshot" });
   const noRoot = projectSnapshot({ sourceFiles: plainSources, libraries });
   noRoot.packages.rootPackage = packageOf("/absent");
   assert.throws(() => front.openCheckedProgram({ extensions: table, navigationCapture }, noRoot, preparation),
     { name: "TypeError", message: "front: the snapshot's root package is not among its packages" });
   const twiceRooted = projectSnapshot({ sourceFiles: plainSources, libraries });
-  twiceRooted.contributions.declarationFiles = ["/project/src/util.mts"];
-  assert.equal(openAndCapture(twiceRooted).set.modules.length, 2 + libraries.length, "a file that is a root twice over is one root");
+  twiceRooted.contributions.declarationModules = [twiceRooted.contributions.declarationPolicy.bundledLibraries[0]];
+  assert.equal(openAndCapture(twiceRooted).set.modules.length, 2 + libraries.length, "a module that is a root twice over (a bundled library that is also contributed) is one root");
 });
 
 test("PENDING the checker's message accessor: a session-level diagnostic stops the open as a defect that names the codes, not yet as a refusal with the diagnostic converted", () => {
@@ -434,7 +458,7 @@ test("PENDING the checker's message accessor: a session-level diagnostic stops t
 
 const optionRecord = (policy, changes = {}) => ({ ...Object.fromEntries(optionModule.optionSet(policy).map(option => [option.name, option.value])), ...changes });
 const tableNames = ["module", "moduleResolution", "target", "strict", "noEmit", "noLib", "allowImportingTsExtensions", "allowArbitraryExtensions",
-  "preserveSymlinks", "types", "skipLibCheck", "noUncheckedIndexedAccess", "exactOptionalPropertyTypes", "useDefineForClassFields", "esModuleInterop",
+  "types", "skipLibCheck", "noUncheckedIndexedAccess", "exactOptionalPropertyTypes", "useDefineForClassFields", "esModuleInterop",
   "resolveJsonModule", "allowJs"];
 
 /** A real session on the given files with the captured libraries as roots, under the whole option set with the given changes. */
@@ -452,12 +476,12 @@ function checkedUnder(files, { policy = "none", changes = {}, libraries = bundle
 const main = "/project/src/main.mts";
 const utility = { "/project/src/util.mts": "export function twice(value: number): number { return value * 2; }\n" };
 
-test("the option table is written once: seventeen rows, each named once with its reason; the set has one entry per row in the table's order, and the declaration policy changes one entry", () => {
+test("the option table is written once: sixteen rows, each named once with its reason; the set has one entry per row in the table's order, and the declaration policy changes one entry", () => {
   assert.deepEqual(optionModule.optionTable.map(row => row.name), tableNames);
   assert.equal(new Set(tableNames).size, tableNames.length);
   for (const row of optionModule.optionTable) assert.equal(row.reason.length > 20, true, row.name);
   const constant = { module: "nodenext", moduleResolution: "nodenext", target: "es2024", strict: true, noEmit: true, noLib: true, allowImportingTsExtensions: true,
-    allowArbitraryExtensions: true, preserveSymlinks: true, skipLibCheck: false, noUncheckedIndexedAccess: false, exactOptionalPropertyTypes: false,
+    allowArbitraryExtensions: true, skipLibCheck: false, noUncheckedIndexedAccess: false, exactOptionalPropertyTypes: false,
     useDefineForClassFields: true, esModuleInterop: true, resolveJsonModule: false, allowJs: false };
   for (const [policy, types] of [["package-contract", ["*"]], ["none", []]]) {
     assert.deepEqual(optionModule.optionSet(policy).map(option => option.name), tableNames, policy);
@@ -490,10 +514,6 @@ const rowCases = [
   { row: "allowArbitraryExtensions", opposite: false,
     files: { [main]: "import { sheet } from \"./a.css\";\nexport const d: string = sheet;\n", "/project/src/a.d.css.ts": "export declare const sheet: string;\n" },
     table: [], other: ["TS6263 /project/src/main.mts"] },
-  { row: "preserveSymlinks", opposite: false, sameWithoutLinks: true,
-    files: { [main]: "import { v } from \"dep\";\nexport const d: number = v;\n",
-      "/project/node_modules/dep/package.json": "{ \"name\": \"dep\", \"version\": \"1.0.0\", \"type\": \"module\", \"exports\": { \".\": { \"types\": \"./index.d.mts\" } } }\n",
-      "/project/node_modules/dep/index.d.mts": "export declare const v: number;\n" }, table: [], other: [] },
   { row: "skipLibCheck", opposite: true,
     files: { [main]: "import { x } from \"./bad.mjs\";\nexport const y = x;\n", "/project/src/bad.d.mts": "export declare const x: Missing;\n" },
     table: ["TS2304 /project/src/bad.d.mts"], other: [] },
@@ -525,8 +545,7 @@ test("each constant row decides a checked result: one program per row, checked u
     assert.deepEqual(underOpposite.diagnostics, entry.other, `${entry.row}: under ${JSON.stringify(entry.opposite)}`);
     assert.equal(underOpposite.notSupplied > 0, entry.otherReadsInstalledLibraries === true, `${entry.row}: whether the opposite reads the installed checker's libraries`);
     if (entry.otherFiles !== undefined) assert.deepEqual(underOpposite.files, entry.otherFiles, `${entry.row}: the opposite admits a further program file`);
-    assert.equal(JSON.stringify(underTable) === JSON.stringify(underOpposite), entry.sameWithoutLinks === true,
-      `${entry.row}: the two values differ, except for the one row whose effect needs linked paths, which a session on captured texts does not have`);
+    assert.notEqual(JSON.stringify(underTable), JSON.stringify(underOpposite), `${entry.row}: the two values give different checked results`);
   }
 });
 
@@ -572,4 +591,57 @@ test("the session's configuration is Front's: a configuration file captured at t
   const given = checkedUnder({ [main]: sourceFiles["main.mts"], "/project/tsconfig.json": projectConfiguration });
   assert.deepEqual({ diagnostics: given.diagnostics, readsInstalledLibraries: given.notSupplied > 0 }, { diagnostics: [], readsInstalledLibraries: true },
     "the opposite: a session that is given the project's file takes its options from it, not from the table");
+});
+
+test("a module is its captured path: one text captured under two paths is two modules with distinct identities, and link preservation is no option of the table", () => {
+  assert.equal(tableNames.includes("preserveSymlinks"), false);
+  const text = "export const copy: number = 1;\n";
+  const snapshot = projectSnapshot({ sourceFiles: { "main.mts": "import { copy as a } from \"../../copy-a/x.mjs\";\nimport { copy as b } from \"../../copy-b/x.mjs\";\nexport const sum: number = a + b;\n" },
+    libraries: bundled(), otherPackages: [{ root: "/copy-a", name: "copy-a", modules: { "x.mts": ["source", text, true] } }, { root: "/copy-b", name: "copy-b", modules: { "x.mts": ["source", text, true] } }] });
+  snapshot.packages.files.find(file => file.path === "/copy-b/x.mts").realPath = "/copy-a/x.mts";
+  const { set } = openAndCapture(snapshot);
+  assert.deepEqual(set.modules, snapshotModules(snapshot));
+  const copies = [moduleOf(packageOf("/copy-a"), "x.mts"), moduleOf(packageOf("/copy-b"), "x.mts")];
+  assert.notEqual(copies[0], copies[1]);
+  for (const copy of copies) assert.equal(set.modules.filter(entry => entry.module === copy).length, 1);
+  assert.deepEqual(sessionDiagnostics(snapshot), []);
+});
+
+test("a contributed declaration module is a root of the program: its declarations are visible without an import, and it is a program module", () => {
+  const contributed = { root: "/contributed", name: "contributed", modules: { "globals.d.ts": ["declaration", "declare const contributedGlobal: number;\n"] } };
+  const identity = moduleOf(packageOf("/contributed"), "globals.d.ts");
+  const sourceFiles = { "main.mts": "export const g: number = contributedGlobal;\n" };
+  const captured = projectSnapshot({ sourceFiles, libraries: bundled(), otherPackages: [contributed] });
+  assert.deepEqual(sessionDiagnostics(captured), ["TS2304 /project/src/main.mts"], "captured and not contributed: not a file of the program");
+  assert.equal(openAndCapture(captured).set.modules.some(entry => entry.module === identity), false);
+  const rooted = projectSnapshot({ sourceFiles, libraries: bundled(), otherPackages: [contributed] });
+  rooted.contributions.declarationModules = [identity];
+  assert.deepEqual(sessionDiagnostics(rooted), []);
+  assert.deepEqual(openAndCapture(rooted).set.modules, snapshotModules(rooted));
+  const unknown = projectSnapshot({ sourceFiles, libraries: bundled() });
+  unknown.contributions.declarationModules = [identity];
+  assert.deepEqual(snapshots.verifySnapshot(unknown, []).map(violation => violation.rule), ["contributed-declaration-module"], "the Snapshot verifier refuses it");
+  assert.throws(() => front.openCheckedProgram({ extensions: front.createCheckerExtensions([]), navigationCapture }, unknown, preparation),
+    { name: "TypeError", message: "front: a root, contributed declaration or bundled library of the snapshot names no module of the snapshot" });
+});
+
+// The program R2 named for the provider join. Its outcome was derived before it was run (package W5-7 part A): one identity names one
+// provider in a session, so the open cannot succeed, whoever registers the second provider. The join of a session document therefore never
+// has two candidates of one identity; what stays pending on W3's registrar is the provider that an initializer registers under its own identity.
+test("two providers of one identity never open a program: an extension initializer that registers a provider under the identity of a directly loaded registration is refused by the session", () => {
+  const libraries = bundled();
+  const sourceFiles = { "main.mts": "import { Value } from \"native:thing\";\nimport { Value as Other } from \"native:elsewhere\";\nexport const v: number = Value + Other;\n" };
+  const direct = providerRegistration("/provider-one", declarationProvider("test.provider", "native:thing", "native.thing"));
+  const inner = declarationProvider("test.provider", "native:elsewhere", "native.elsewhere", 9_900_200);
+  const viaInitializer = { reference: reference("/provider-two", "extension"), value: { kind: "compiler-extension",
+    value: { identity: { id: "test.registers.under.a.loaded.identity", version: "1.0.0" }, initialize: context => { context.registerSourceDeclarationProvider(inner); } } } };
+  const snapshot = projectSnapshot({ sourceFiles, libraries, providerPackages: [{ root: "/provider-one", name: "one" }, { root: "/provider-two", name: "two" }],
+    declarationProviders: [direct.reference], compilerExtensions: [viaInitializer.reference] });
+  const deps = { extensions: front.createCheckerExtensions([direct, viaInitializer]), navigationCapture };
+  assert.deepEqual(snapshots.verifySnapshot(snapshot, front.extensionReferencesOf(deps.extensions)), []);
+  const open = () => front.openCheckedProgram(deps, snapshot, preparation);
+  assert.throws(open, error => error instanceof TypeError && error.message.startsWith("front: the session reported diagnostics that name no file (tsts.extension-host:"),
+    "derived: the session reports a session-level diagnostic of the extension host and no program is opened");
+  assert.throws(open, { name: "TypeError", message: "front: the session reported diagnostics that name no file (tsts.extension-host:DUPLICATE_SOURCE_DECLARATION_PROVIDER); the refusal that carries them waits for the checker's message accessor" },
+    "recorded observation: the extension host's code for a second provider of one identity");
 });

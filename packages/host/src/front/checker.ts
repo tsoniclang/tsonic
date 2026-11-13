@@ -12,6 +12,11 @@ import { optionSet } from "./options.js";
 
 const invariant = (message: string): InvariantFailure => ({ owner: "front", query: null, origin: null, message });
 
+/** The key of the join from a session document's provider to the registration that supplied it. */
+function providerKey(identity: { readonly id: string; readonly version: string }): string {
+  return encodeKey([identity.id, identity.version]);
+}
+
 function referenceKey(kind: string, reference: ExtensionReference): string {
   return encodeKey([kind, reference.package, reference.moduleSpecifier, reference.exportId, reference.version]);
 }
@@ -31,7 +36,7 @@ export function createExtensionTable(registrations: readonly CheckerRegistration
   const seen = new Set<string>();
   const entries: ExtensionReferenceEntry[] = [];
   const extensions: CompilerExtension[] = [];
-  const providers: ProviderRegistration[] = [];
+  const providers = new Map<string, ProviderRegistration>();
   const semantics: SourceSemanticsModule[] = [];
   let semanticsPosition: number | null = null;
   registrations.forEach(registration => {
@@ -42,7 +47,11 @@ export function createExtensionTable(registrations: readonly CheckerRegistration
     switch (registration.value.kind) {
       case "compiler-extension": extensions.push(registration.value.value); break;
       case "declaration-provider":
-        providers.push({ reference: registration.reference, provider: registration.value.value });
+        // A second registration of one provider identity is not recorded: a session admits one extension per
+        // identity, so a table that holds two never opens a program.
+        if (!providers.has(providerKey(registration.value.value.identity))) {
+          providers.set(providerKey(registration.value.value.identity), { reference: registration.reference, provider: registration.value.value });
+        }
         extensions.push(providerExtension(registration.value.value));
         break;
       case "semantics-module":
@@ -72,7 +81,7 @@ export interface SessionInputs {
 
 /**
  * The session is on exactly the snapshot's texts: every captured file is a file of the session, and its roots are
- * the snapshot's root modules, its contributed declaration files and its bundled library modules. The options are
+ * the snapshot's root modules, its contributed declaration modules and its bundled library modules. The options are
  * the one option table's. Under them the checker follows no library reference of its own: the bundled library
  * modules that the declaration policy lists are the whole library set of the program, and no text of the installed
  * checker is read. Whether that list is closed under the libraries' own references is stated by the import
@@ -102,14 +111,14 @@ export function sessionInputs(snapshot: ProjectSnapshot): SessionInputs {
   const rootFiles: string[] = [];
   const rooted = new Set<string>();
   const root = (path: string | undefined): void => {
-    if (path === undefined) throw new TypeError("front: a root or bundled library of the snapshot names no module of the snapshot");
+    if (path === undefined) throw new TypeError("front: a root, contributed declaration or bundled library of the snapshot names no module of the snapshot");
     if (!rooted.has(path)) {
       rooted.add(path);
       rootFiles.push(path);
     }
   };
   snapshot.roots.forEach(module => { root(paths.get(module)); });
-  snapshot.contributions.declarationFiles.forEach(root);
+  snapshot.contributions.declarationModules.forEach(module => { root(paths.get(module)); });
   snapshot.contributions.declarationPolicy.bundledLibraries.forEach(module => { root(paths.get(module)); });
   const options: Record<string, boolean | string | readonly string[]> = {};
   optionSet(snapshot.contributions.declarationPolicy.installedDeclarations).forEach(option => { options[option.name] = option.value; });
@@ -172,10 +181,7 @@ export function programModules(deps: CaptureDeps, program: CheckedProgram): Prog
     }
     const document = checked.sourceFacts.getVirtualDeclarationDocument(name);
     if (document === undefined) return throwInvariant(invariant("A file of the opened program is neither a module of the snapshot nor a session document."));
-    // A session admits one extension per identity, and a provider registration enters it under the provider's own
-    // identity: two registrations of one provider do not open a program. So at most one registration matches.
-    const origin = providers.find(registration => registration.provider.identity.id === document.provider.id
-      && registration.provider.identity.version === document.provider.version);
+    const origin = providers.get(providerKey(document.provider));
     if (origin === undefined) return throwInvariant(invariant("A session document names a provider that no loaded registration supplied."));
     const packageName = packageNames.get(origin.reference.package);
     if (packageName === undefined) return throwInvariant(invariant("The registering package of a session document is not a package of the snapshot."));

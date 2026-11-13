@@ -75,13 +75,12 @@ export function verifySnapshotExtensions(snapshot: ProjectSnapshot,
   if (expected.size !== actual.size || [...expected].some(key => !actual.has(key))) {
     add("extension-table-equality", snapshotSite, "extensions");
   }
-  const files = snapshotRows(contributions.declarationFiles, snapshotSite, "declarationFiles", violations);
-  for (const path of files) {
-    if (!packages.filePaths.has(path)) add("contribution-files-resolve", { kind: "file", path }, path);
-  }
   const declarationModules = new Set<ModuleId>();
   for (const module of snapshot.packages.modules) {
     if (module !== undefined && module !== null && module.role === "declaration") declarationModules.add(module.id);
+  }
+  for (const module of snapshotRows(contributions.declarationModules, snapshotSite, "declarationModules", violations)) {
+    if (!declarationModules.has(module)) add("contributed-declaration-module", { kind: "module", module }, module);
   }
   const libraries = new Set<ModuleId>();
   let previousLibrary: ModuleId | null = null;

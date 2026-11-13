@@ -3,7 +3,7 @@ import type { SourceDeclarationPolicy } from "../snapshot/contract.js";
 /** The options Front sets. A name outside this list is not an option of a Host session. */
 export type CheckerOptionName =
   | "module" | "moduleResolution" | "target" | "strict" | "noEmit" | "noLib"
-  | "allowImportingTsExtensions" | "allowArbitraryExtensions" | "preserveSymlinks" | "types"
+  | "allowImportingTsExtensions" | "allowArbitraryExtensions" | "types"
   | "skipLibCheck" | "noUncheckedIndexedAccess" | "exactOptionalPropertyTypes" | "useDefineForClassFields"
   | "esModuleInterop" | "resolveJsonModule" | "allowJs";
 
@@ -30,7 +30,9 @@ export interface CheckerOption {
  * The checker option set of Host, written once. `openCheckedProgram` creates its session with exactly these
  * options. No field of a target selection or of a caller changes a row, and an option that is not a row is not
  * set: where a default of the checker decides a checked type, a retained diagnostic or which imports resolve, the
- * option is a row with its value, so that a change of the checker's default changes nothing here.
+ * option is a row with its value, so that a change of the checker's default changes nothing here. A row exists
+ * only where some program checks differently under its other value: an option that no session on captured texts
+ * can observe (link preservation: captured files have no links, and a module is its captured path) is not a row.
  */
 export const optionTable: readonly CheckerOptionRow[] = [
   { name: "module", value: { kind: "constant", value: "nodenext" },
@@ -49,8 +51,6 @@ export const optionTable: readonly CheckerOptionRow[] = [
     reason: "An import may name a source file by its explicit extension; it is resolved through the one SDK resolver." },
   { name: "allowArbitraryExtensions", value: { kind: "constant", value: true },
     reason: "Admits a statically resolved module that is backed by a declaration file. It is not a dynamic loader, it gives the module no native meaning, and it does not let a module skip provider or source admission." },
-  { name: "preserveSymlinks", value: { kind: "constant", value: true },
-    reason: "A module is identified by its captured path in the snapshot, never by a real path that the file system resolves it to. One physical package captured under two paths is therefore two sets of modules with distinct identities." },
   { name: "types", value: { kind: "installed-declarations" },
     reason: "The wildcard admits every installed declaration package that the snapshot captured when the declaration policy is package-contract. The empty list under the policy none suppresses automatic installed ambient packages; it removes no separately captured bundled or provider file and does not ban explicit module resolution." },
   { name: "skipLibCheck", value: { kind: "constant", value: false },

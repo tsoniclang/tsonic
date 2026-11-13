@@ -1,5 +1,5 @@
 {
- "note": "Identity case inputs for Front (F-1 with Codex's K-3236). Authored from the law, before lowerModuleDefinitions exists. A definition row is its declaration kind (tsts node kind) and its path of [name, ordinal] segments from the module; rows of a file are in the syntax tree's preorder. An export or use group lists [file, path] pairs in canonical order (a bare path where the group is in the same file). A repeated capture of any case must give identical identities: that is a property of a run, asserted where these inputs are run, not a row here. Added after R2's review of W5-4 and K-3250: every source is parsed by the checker in the checking case, and the declaration nodes it finds must equal the rows, kind by kind in preorder; a case's 'undecided' names nodes that have no row yet and 'assumes' a reading that is not ruled.",
+ "note": "Identity case inputs for Front (F-1 with Codex's K-3236). Authored from the law, before lowerModuleDefinitions exists. A definition row is its declaration kind (tsts node kind) and its path of [name, ordinal] segments from the module; rows of a file are in the syntax tree's preorder. An export or use group lists [file, path] pairs in canonical order (a bare path where the group is in the same file). A repeated capture of any case must give identical identities: that is a property of a run, asserted where these inputs are run, not a row here. Added after R2's review of W5-4 and K-3250: every source is parsed by the checker in the checking case, and the declaration nodes it finds must equal the rows, kind by kind in preorder; The readings of K-3268 are applied: a pattern-holding parameter has an identity, a pattern-holding variable declaration or binding element has none, an export assignment always has its node's identity, and an authored namespace export is a declaration.",
  "cases": [
   {
    "name": "type-then-value",
@@ -1000,7 +1000,7 @@
   },
   {
    "name": "authored-export-equals",
-   "rule": "K-3236 and H2: an authored runtime export = is refused; no CommonJS bootstrap. Capture is the same; the refusal is Forms'",
+   "rule": "K-3236 and K-3268 item 7: an authored source export = keeps its node and its identity (export=) in raw capture, for the Forms refusal; it is never a runtime publication, an initializer evaluation or a bootstrap path",
    "files": {
     "/project/src/eq.cts": "const obj = { k: 1 };\nexport = obj;\n"
    },
@@ -1019,13 +1019,19 @@
         0
        ]
       ]
+     },
+     {
+      "kind": "ExportAssignment",
+      "path": [
+       [
+        "export=",
+        0
+       ]
+      ]
      }
     ]
    },
-   "undecided": {
-    "ExportAssignment": 1
-   },
-   "note": "obj#0 is certain. Whether the assignment node of a source-role module has a definition, and that it has no export entry named export=, are rows once Codex answers; the object literal's data property has no identity (F-3)"
+   "note": "The object literal's data property has no identity (F-3). Whether a refused module has an export entry is not stated here: the admitted external declaration form keeps both its definition and its export= entry (external-export-equals)"
   },
   {
    "name": "locals-in-blocks",
@@ -2422,14 +2428,14 @@
       ]
      }
     ]
-   }
+   },
+   "note": "constructor(readonly value: T) is one Parameter node with one row, under the constructor. That node is also what declares the class member value, so the member's declaration identity is Box#0/#0/value#0, not Box#0/value#0"
   },
   {
    "name": "binding-elements",
-   "rule": "F-1: one identity per bound name. A binding element that binds a name has an identity under the nearest declaration that has one",
-   "assumes": "a variable declaration, parameter or binding element that holds a pattern binds no name of its own and has no identity; to be confirmed by Codex (R2 lists the pattern holder as unruled)",
+   "rule": "K-3268 items 1 and 2: one identity per bound name; a parameter that holds a pattern also has its own identity, with the empty name, because the signature and the body name a declaration for every position; a variable declaration or binding element that holds a pattern has none. All are in the owner's one preorder ordinal space; a property selector is not a bound name",
    "files": {
-    "/project/src/a.ts": "interface Shape { a: number; b: [number, number] }\nexport function pick({ a, b: [c, d] }: Shape): number {\n  const [e, { f }] = [a, { f: c + d }];\n  return e + f;\n}\n"
+    "/project/src/a.ts": "interface Shape { a: number; b: [number, number] }\nexport function pick({ a, b: [c, d], a: renamed }: Shape): number {\n  const [e, { f }] = [a + renamed, { f: c + d }];\n  return e + f;\n}\n"
    },
    "definitions": {
     "/project/src/a.ts": [
@@ -2482,6 +2488,19 @@
       ]
      },
      {
+      "kind": "Parameter",
+      "path": [
+       [
+        "pick",
+        0
+       ],
+       [
+        "",
+        0
+       ]
+      ]
+     },
+     {
       "kind": "BindingElement",
       "path": [
        [
@@ -2528,6 +2547,19 @@
         0
        ],
        [
+        "renamed",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "BindingElement",
+      "path": [
+       [
+        "pick",
+        0
+       ],
+       [
         "e",
         0
        ]
@@ -2547,7 +2579,9 @@
       ]
      }
     ]
-   }
+   },
+   "note": "{ a, a: renamed } binds a and renamed: the second element's selector a is not a bound name, so there is no a#1. The element b: [c, d] and the element { f } hold patterns and have no identity; the pattern-holding parameter is pick#0/#0",
+   "reading": "The names bound under the pattern-holding parameter are owned by the function (pick#0/a#0), in the ordinal space the parameter itself is in: K-3268 item 1 says they keep separate identities in 'the existing shared preorder ordinal space, not a new pattern dimension' and does not name their owner. The alternative is that they are owned by the parameter's empty-name identity (pick#0/#0/a#0). With Codex"
   },
   {
    "name": "member-name-sources",
@@ -2784,7 +2818,7 @@
   },
   {
    "name": "renamed-reexports",
-   "rule": "K-3236: the export name is the entry's name, not part of an identity: a re-export under another name selects the original declaration unchanged",
+   "rule": "K-3236 and K-3268 item 8: a re-export under another name selects the original declaration unchanged; an authored namespace export (export * as ns) is a declaration with an identity under its exported name, its export group holds it once, and its binding target is the module it steps to",
    "files": {
     "/project/src/r.ts": "export const original = 1;\n",
     "/project/src/s.ts": "export { original as renamed } from \"./r.js\";\nexport * as ns from \"./r.js\";\n"
@@ -2809,6 +2843,15 @@
      {
       "kind": "SourceFile",
       "path": []
+     },
+     {
+      "kind": "NamespaceExport",
+      "path": [
+       [
+        "ns",
+        0
+       ]
+      ]
      }
     ]
    },
@@ -2834,12 +2877,36 @@
         ]
        ]
       ]
+     ],
+     "ns": [
+      [
+       [
+        "ns",
+        0
+       ]
+      ]
      ]
     }
    },
    "bindings": {
     "/project/src/s.ts": [
-     "the export specifier is a binding; the entry ns has the module r.ts itself as its target, which is not a declaration group; s.ts declares nothing"
+     "the export specifier original as renamed is a binding, not a definition; the namespace export is a definition whose target is the module r.ts itself: no module identity is fabricated for it and no declaration of r.ts is copied or renumbered"
+    ]
+   },
+   "bindingTargets": {
+    "/project/src/s.ts": [
+     {
+      "definition": [
+       [
+        "ns",
+        0
+       ]
+      ],
+      "target": {
+       "kind": "module",
+       "module": "/project/src/r.ts"
+      }
+     }
     ]
    }
   },
