@@ -10,6 +10,7 @@ interface Frame {
   readonly identity: ActiveKey;
   readonly keys: Set<string>;
   readonly advance: () => void;
+  readonly completeCycle: (() => void) | undefined;
 }
 
 type Stop =
@@ -34,7 +35,6 @@ export function createQueryDatabase<Inputs>(inputs: Inputs, limits: QueryLimits)
   const activeKeys = new Map<string, Set<string>>();
   const diagnostics: Diagnostic[] = [];
   let running = false;
-  let recoveryMarker: object | null = null;
 
   function completed<Value>(result: Result<Value>): Result<Value> {
     const retained = retainResult(result);
@@ -71,9 +71,15 @@ export function createQueryDatabase<Inputs>(inputs: Inputs, limits: QueryLimits)
         return throwInvariant({ owner: "query", query: { name: query.name, encodedKey }, origin: null,
           message: `Query cycle ${JSON.stringify(chain)}` });
       }
-      const recover = query.cycle.recover;
-      recoveryMarker = {};
-      deliver(completed(recover(key, chain)));
+      const completeCycle = query.cycle.completeCycle;
+      entry.results.set(encodedKey, completed(completeCycle(key, chain)));
+      let head = requirePresent(frames.at(-1), completionFailure);
+      while (head.identity.query !== query.name || head.identity.encodedKey !== encodedKey) {
+        leave(head);
+        head = requirePresent(frames.at(-1), completionFailure);
+      }
+      const completeHead = requirePresent(head.completeCycle, completionFailure);
+      completeHead();
       return;
     }
     if (active.length >= maximumDepth) {
@@ -84,7 +90,6 @@ export function createQueryDatabase<Inputs>(inputs: Inputs, limits: QueryLimits)
     activeKeys.set(query.name, entered);
     entered.add(encodedKey);
     active.push(attempted);
-    const finality = recoveryMarker;
     const compute = query.compute;
     let next: () => QueryComputation<Inputs, Value> = () => {
       entry.counter.computed += 1;
@@ -93,6 +98,11 @@ export function createQueryDatabase<Inputs>(inputs: Inputs, limits: QueryLimits)
     const frame: Frame = {
       identity: attempted,
       keys: entered,
+      completeCycle: query.cycle === "invariant" ? undefined : () => {
+        const result = requirePresent(entry.results.get(encodedKey), completionFailure);
+        leave(frame);
+        deliver(result);
+      },
       advance: () => {
         const step = next();
         if (step.kind === "dependency") {
@@ -110,7 +120,7 @@ export function createQueryDatabase<Inputs>(inputs: Inputs, limits: QueryLimits)
           if (!requested) throw new TypeError("query: a dependency step must schedule exactly one request");
         } else {
           const result = completed(step);
-          if (finality === recoveryMarker) entry.results.set(encodedKey, result);
+          entry.results.set(encodedKey, result);
           leave(frame);
           deliver(result);
         }

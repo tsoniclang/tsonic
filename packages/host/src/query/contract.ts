@@ -11,7 +11,7 @@ export interface Query<Inputs, Key extends KeyData, Value> {
   readonly compute: (context: QueryContext<Inputs>, key: Key) => QueryComputation<Inputs, Value>;
   readonly cycle:
     | "invariant"
-    | { readonly recover: (key: Key, chain: readonly ActiveKey[]) => Result<Value> };
+    | { readonly completeCycle: (key: Key, chain: readonly ActiveKey[]) => Result<Value> };
 }
 
 export type QueryComputation<Inputs, Value> = Result<Value> | QueryDependency<Inputs, Value>;
