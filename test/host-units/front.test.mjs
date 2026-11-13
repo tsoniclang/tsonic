@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { after, before, test } from "node:test";
 import { checkCoverage } from "../architecture/host/coverage.mjs";
 import { parseSources } from "../architecture/host/import-graph.mjs";
+import { loadFrontFixture, navigationCapture, preparation } from "./fixtures/front/checked-module.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const runtimeFiles = ["index.js", "options.js", "checker.js", "handles.js"].map(name => resolve(repository, "packages/host/dist/front", name));
@@ -19,6 +20,14 @@ let checkerModule;
 let sdk;
 let ids;
 let snapshots;
+let packageOf;
+let moduleOf;
+let bundled;
+let projectSnapshot;
+let openAndCapture;
+let openedModule;
+let lowerDepsFor;
+let checkedModuleOf;
 
 before(async () => {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true, "front tests run under the aggregate resource guard");
@@ -32,6 +41,7 @@ before(async () => {
   sdk = await import("@tsonic/tsts");
   ids = await import("../../packages/host/dist/ids/index.js");
   snapshots = await import("../../packages/host/dist/snapshot/index.js");
+  ({ packageOf, moduleOf, bundled, projectSnapshot, openAndCapture, openedModule, lowerDepsFor, checkedModuleOf } = await loadFrontFixture());
 });
 
 after(async () => {
@@ -180,62 +190,6 @@ test("the checker package that Host's built output loads is this worktree's own,
     "symbolic-link preservation is off, so a linked and a direct path load one instance");
 });
 
-const navigationCapture = { maximumCallableExpressionDepth: 64, maximumCallableSelectionDepth: 64, maximumCallableAliasDeclarations: 64,
-  maximumCallableReceiverDeclarations: 64, maximumCallableReceiverSteps: 64, maximumCallableMemberReferences: 64, maximumLexicalEnvironmentSteps: 64,
-  maximumLexicalEvaluationSteps: 64, maximumSyntaxDepth: 256, maximumCapturedNodesPerModule: 100000, maximumCapturedFactsPerModule: 100000,
-  maximumCapturedEdgesPerModule: 100000 };
-const preparation = { roots: [], files: [], diagnostics: [] };
-const packageOf = root => ids.encodePackageId(root);
-const moduleOf = (owner, path) => ids.encodeModuleId({ package: owner, path });
-const byId = (left, right) => left.id < right.id ? -1 : 1;
-const bundled = () => sdk.getBundledLibraryClosure(["lib.es2024.d.ts"]).map(library => ({ name: library.name, text: library.text }));
-
-/** A verifier-valid snapshot: a project package with source modules, a package holding the bundled libraries, and packages of providers. */
-function projectSnapshot({ sourceFiles, libraries, providerPackages = [], declarationProviders = [], compilerExtensions = [], requiredProviderModules = [],
-  otherPackages = [], extraFiles = {}, installedDeclarations = "none" }) {
-  const project = packageOf("/project");
-  const checker = packageOf("/checker");
-  const packages = [
-    { id: project, name: null, version: null, packageRoot: "/project", sourceRoot: "/project/src", manifestPath: null, dependencies: [], exports: [], pluginEntry: null, libraryEntry: null },
-    { id: checker, name: "checker-libraries", version: "1.0.0", packageRoot: "/checker", sourceRoot: "/checker", manifestPath: "/checker/package.json", dependencies: [], exports: [], pluginEntry: null, libraryEntry: null },
-    ...providerPackages.map(entry => ({ id: packageOf(entry.root), name: entry.name, version: "1.0.0", packageRoot: entry.root, sourceRoot: entry.root,
-      manifestPath: `${entry.root}/package.json`, dependencies: [], exports: [], pluginEntry: `${entry.root}/plugin.js`, libraryEntry: null })),
-    ...otherPackages.map(entry => ({ id: packageOf(entry.root), name: entry.name, version: "1.0.0", packageRoot: entry.root, sourceRoot: entry.root,
-      manifestPath: `${entry.root}/package.json`, dependencies: [], exports: [], pluginEntry: null, libraryEntry: null })),
-  ].sort(byId);
-  const modules = [];
-  const files = [];
-  for (const [name, text] of Object.entries(sourceFiles)) {
-    modules.push({ id: moduleOf(project, `src/${name}`), package: project, path: `/project/src/${name}`, role: "source" });
-    files.push({ kind: "physical", path: `/project/src/${name}`, realPath: `/project/src/${name}`, text });
-  }
-  for (const library of libraries) {
-    modules.push({ id: moduleOf(checker, library.name), package: checker, path: `/checker/${library.name}`, role: "declaration" });
-    files.push({ kind: "virtual", path: `/checker/${library.name}`, text: library.text, owner: checker });
-  }
-  const otherRoots = [];
-  for (const entry of otherPackages) {
-    for (const [name, [role, text, rooted]] of Object.entries(entry.modules)) {
-      modules.push({ id: moduleOf(packageOf(entry.root), name), package: packageOf(entry.root), path: `${entry.root}/${name}`, role });
-      files.push({ kind: "physical", path: `${entry.root}/${name}`, realPath: `${entry.root}/${name}`, text });
-      if (rooted === true) otherRoots.push(moduleOf(packageOf(entry.root), name));
-    }
-  }
-  for (const [path, text] of Object.entries(extraFiles)) files.push({ kind: "physical", path, realPath: path, text });
-  modules.sort(byId);
-  files.sort((left, right) => left.path < right.path ? -1 : 1);
-  return {
-    packages: { fingerprint: "captured", rootPackage: project, packages, modules, files, libraryData: [],
-      components: packages.map(entry => ({ representative: entry.id, packages: [entry.id], dependencies: [] })) },
-    entryPoint: moduleOf(project, `src/${Object.keys(sourceFiles)[0]}`),
-    roots: [...Object.keys(sourceFiles).map(name => moduleOf(project, `src/${name}`)), ...otherRoots].sort(),
-    selection: { target: { id: "native", surfaces: [], options: { kind: "record", fields: [] } }, providerId: "native-provider", capabilityIds: [], surfaceIds: [] },
-    contributions: { declarationModules: [], declarationPolicy: { bundledLibraries: libraries.map(library => moduleOf(checker, library.name)).sort(), installedDeclarations },
-      requiredProviderModules, compilerExtensions, declarationProviders, semanticModules: [], safetyProviders: [], dataLayouts: [] },
-    platform: { layouts: [] },
-  };
-}
-
 function declarationProvider(id, specifier, providerModuleId, rangeStart = 9_900_000) {
   return { identity: { id, version: "1.0.0", extensionContractVersion: sdk.TstsSourceProviderContractVersion, diagnosticRange: { start: rangeStart, end: rangeStart + 99 } },
     declarationMaterialization: "complete",
@@ -246,13 +200,6 @@ function declarationProvider(id, specifier, providerModuleId, rangeStart = 9_900
 const reference = (root, exportId = "provider") => ({ package: packageOf(root), moduleSpecifier: "./plugin.js", exportId, version: "1" });
 const providerRegistration = (root, provider) => ({ reference: reference(root), value: { kind: "declaration-provider", value: provider, roles: [] } });
 
-function openAndCapture(snapshot, registrations = []) {
-  const deps = { extensions: front.createCheckerExtensions(registrations), navigationCapture };
-  assert.deepEqual(snapshots.verifySnapshot(snapshot, front.extensionReferencesOf(deps.extensions)), [], "the case's snapshot is one the snapshot verifier accepts");
-  const opened = front.openCheckedProgram(deps, snapshot, preparation);
-  assert.equal(opened.kind, "ok");
-  return { deps, program: opened.value, set: front.captureProgramModules(deps, opened.value) };
-}
 const plainSources = { "main.mts": "import { twice } from \"./util.mjs\";\nexport const xs: number[] = [twice(1)];\n",
   "util.mts": "export function twice(value: number): number { return value * 2; }\n" };
 const failure = message => ({ owner: "front", query: null, origin: null, message });
@@ -667,35 +614,10 @@ test("a module with a syntax error and a type error opens and is captured: file 
 // Every expected value below was derived by hand from the source text and the identity law, before the lowering existed.
 const addSource = "export function add(a: number, b: number): number { return a + b; }\n";
 
-function checkpointModule(sourceText) {
-  const libraries = bundled();
-  const snapshot = projectSnapshot({ sourceFiles: { "main.ts": sourceText }, libraries });
-  const { deps, program } = openAndCapture(snapshot);
-  const module = moduleOf(packageOf("/project"), "src/main.ts");
-  return { deps, program, module };
-}
-
-function lowerDepsFor(definitions, interner, sourceText) {
-  const byNode = new Map(definitions.rows.map(row => [row.node, row.definition]));
-  return {
-    definitionOf: reference => {
-      assert.equal(reference.module, definitions.module, "every declaration of this program is in its one module");
-      const definition = byNode.get(reference.node);
-      assert.notEqual(definition, undefined, `node ${reference.node} has a definition identity`);
-      return definition;
-    },
-    definitionOfExport: () => assert.fail("no library export is named by this program"),
-    sourceTextOf: () => sourceText, libraries: { sources: [] }, types: interner,
-    typeExpansion: { maximumDepth: 64, maximumVisits: 10000, maximumUnionMembers: 1000, maximumIntersectionMembers: 1000 },
-    literalCapture: { maximumIntermediateBits: 4096, maximumResultBits: 4096, maximumArithmeticWork: 100000 },
-  };
-}
-
-
 test("checkpoint 1: add is opened through the checker and the snapshot, captured, lowered by Front's production operations to HIR the HIR verifier accepts, and equals the independently written expectation", async () => {
   const hir = await import("../../packages/host/dist/ir-hir/index.js");
   const types = await import("../../packages/host/dist/ir-types/index.js");
-  const { deps, program, module } = checkpointModule(addSource);
+  const { deps, program, module } = openedModule(addSource);
   const raw = front.captureModule(deps, program, module);
   assert.equal(raw.kind, "ok");
   // The syntax tree in HIR's preorder: kind, parent and authored origin (UTF-16 offset and length) of every node, by hand.
@@ -787,18 +709,15 @@ test("checkpoint 1: add is opened through the checker and the snapshot, captured
   const reread = hir.parseHir(hir.printHir(value));
   assert.equal(reread.kind, "parsed");
   assert.deepEqual(reread.value, value);
-  // A repeated capture and lowering of the same program gives the same module.
-  const again = checkpointModule(addSource);
-  const rawAgain = front.captureModule(again.deps, again.program, again.module);
-  const definitionsAgain = front.lowerModuleDefinitions(rawAgain.value);
-  assert.deepEqual(definitionsAgain, definitions);
-  assert.deepEqual(front.lowerModule(lowerDepsFor(definitionsAgain.value, types.createTypeInterner(), addSource), rawAgain.value).value, value);
+  // A repeated open, capture and lowering of the same program, through the shared fixture's whole path, gives the same results.
+  const again = checkedModuleOf(addSource);
+  assert.deepEqual([again.module, again.raw, again.definitions, again.exports, again.checked], [module, raw.value, definitions.value, exported.value, value]);
 });
 
 test("checkpoint 1, the development frontier: a module holding a kind whose checked annotation is not written is refused at once by the one check, never lowered in part", async () => {
   const types = await import("../../packages/host/dist/ir-types/index.js");
   const sourceText = "export function negate(a: number): number { return -a; }\n";
-  const { deps, program, module } = checkpointModule(sourceText);
+  const { deps, program, module } = openedModule(sourceText);
   const raw = front.captureModule(deps, program, module);
   assert.equal(raw.kind, "ok", "capture covers every syntax kind");
   const definitions = front.lowerModuleDefinitions(raw.value);
