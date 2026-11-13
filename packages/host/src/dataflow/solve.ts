@@ -30,6 +30,9 @@ const missingForwardTargetEdgeRow: InvariantFailure = ({
 const missingForwardEdgeRow: InvariantFailure = ({
   owner: "dataflow", query: null, origin: null, message: "forward edge row is missing",
 });
+const missingEntry: InvariantFailure = ({
+  owner: "dataflow", query: null, origin: null, message: "the selected entry is not an entry of the body",
+});
 const missingBackwardSuccessorCell: InvariantFailure = ({
   owner: "dataflow", query: null, origin: null, message: "backward successor cell is missing",
 });
@@ -67,6 +70,7 @@ interface Context<State> {
   readonly items: ReadonlyMap<number, WorkItem<State>>;
   readonly queue: Queue<State>;
   readonly reachable: ReadonlySet<number>;
+  readonly start: number;
 }
 
 function enqueue<State>(queue: Queue<State>, item: WorkItem<State>): void {
@@ -145,6 +149,7 @@ function transferred<State>(problem: Problem<State>, statement: MirStatement, st
 function createContext<State>(
   graph: GraphView<MirBlock>,
   traversal: Traversal<MirBlock>,
+  start: number,
   problem: Problem<State>,
   meter: Meter,
 ): DataflowResult<Context<State>> {
@@ -153,11 +158,11 @@ function createContext<State>(
   for (const vertex of graph.nodes) {
     const rowStop = takeWork(meter);
     if (rowStop !== null) return rowStop;
-    if (vertex.index === 0) {
+    if (vertex.index === start) {
       const bottomStop = checkState(problem.lattice, problem.lattice.bottom);
       if (bottomStop !== null) return bottomStop;
     }
-    const boundaryApplies = problem.direction === "forward" ? vertex.index === 0 : vertex.successors.length === 0;
+    const boundaryApplies = problem.direction === "forward" ? vertex.index === start : vertex.successors.length === 0;
     if (!boundaryChecked && traversal.reached.has(vertex.index) && boundaryApplies) {
       const boundaryStop = checkState(problem.lattice, problem.boundary);
       if (boundaryStop !== null) return boundaryStop;
@@ -175,7 +180,7 @@ function createContext<State>(
     items.set(vertex.index, item);
     enqueue(queue, item);
   }
-  return { kind: "complete", value: { meter, cells, items, queue, reachable: traversal.reached } };
+  return { kind: "complete", value: { meter, cells, items, queue, reachable: traversal.reached, start } };
 }
 
 function forwardEdges<State>(context: Context<State>): DataflowResult<ReadonlyMap<number, ForwardEdges<State>>> {
@@ -214,7 +219,7 @@ function forwardStep<State>(
 ): DataflowStop | null {
   const incoming = requirePresent(edges.get(cell.vertex.index), missingForwardEdgeRow);
   let state = problem.lattice.bottom;
-  if (cell.vertex.index === 0) {
+  if (cell.vertex.index === context.start) {
     const boundary = joined(problem.lattice, state, problem.boundary, context.meter);
     if (boundary.kind === "resource-limit") return boundary;
     state = boundary.value;
@@ -331,6 +336,7 @@ function solveDirection<State>(context: Context<State>, problem: Problem<State>)
 
 export function solveProblem<State>(
   body: MirBody,
+  entry: number,
   problem: Problem<State>,
   limits: DataflowLimits,
 ): DataflowResult<FlowSolution<State>> {
@@ -340,20 +346,21 @@ export function solveProblem<State>(
   if (entryStop !== null) return entryStop;
   const graph = buildMirGraph(body, meter);
   if (graph.kind === "resource-limit") return graph;
-  if (graph.value.nodes.length === 0) return { kind: "complete", value: { entry: [], exit: [], reachable: [] } };
-  const traversal = walkGraph(graph.value, [0], meter, false);
+  // The selected entry must be one of the body's entries; no other block stands in for it.
+  const start = requirePresent(Number.isSafeInteger(entry) && entry >= 0 ? body.entries[entry] : undefined, missingEntry).block;
+  const traversal = walkGraph(graph.value, [start], meter, false);
   if (traversal.kind === "resource-limit") return traversal;
-  const context = createContext(graph.value, traversal.value, problem, meter);
+  const context = createContext(graph.value, traversal.value, start, problem, meter);
   if (context.kind === "resource-limit") return context;
   const stop = solveDirection(context.value, problem);
   if (stop !== null) return stop;
-  const entry: State[] = [];
-  const exit: State[] = [];
+  const entryStates: State[] = [];
+  const exitStates: State[] = [];
   const reachable: boolean[] = [];
   for (const cell of context.value.cells.values()) {
-    entry.push(cell.entry);
-    exit.push(cell.exit);
+    entryStates.push(cell.entry);
+    exitStates.push(cell.exit);
     reachable.push(context.value.reachable.has(cell.vertex.index));
   }
-  return { kind: "complete", value: { entry, exit, reachable } };
+  return { kind: "complete", value: { entry: entryStates, exit: exitStates, reachable } };
 }
