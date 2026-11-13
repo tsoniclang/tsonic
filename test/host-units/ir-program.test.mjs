@@ -1643,21 +1643,27 @@ function branching(published) {
   ];
 }
 const underMirLimit = (fixture, maximumWork) => product.verifyModuleBodies(fixture.index, fixture.module, { ...fixture.context, mirVerification: { maximumWork } });
+// The needs below are derived from the records of the fixtures under the MIR contract's charging. Every body pays one
+// unit for the empty set of its width (one level here). The module fixture's body (no local, no place, one block
+// that returns) needs 1. The branching body needs 2: the empty set, and one for block 1, which is not continued into
+// (a switch edge) and receives a set on its one edge. A goto to a block the body does not have adds nothing.
 
 test("ir-program a body past its MIR verification limit refuses the module and names the body", () => {
   const fixture = moduleFixture();
-  completeProgramValue(underMirLimit(fixture, 0), { kind: "complete", violations: [] }, "a body that needs no such work is verified under a limit of zero");
-  branching(fixture.module.bodies[0]);
+  completeProgramValue(underMirLimit(fixture, 1), { kind: "complete", violations: [] }, "the smallest body is verified under its need of one");
   completeProgramValue(underMirLimit(fixture, 0), { kind: "resource-limit", body: fixture.instance, dimension: "work", maximum: 0 },
+    "zero is a limit like any other: below the need the body is refused");
+  branching(fixture.module.bodies[0]);
+  completeProgramValue(underMirLimit(fixture, 1), { kind: "resource-limit", body: fixture.instance, dimension: "work", maximum: 1 },
     "over the limit: the refusal names the body instance and the limit, and carries no finding");
-  assert.equal(underMirLimit(fixture, 1).kind, "complete", "at the exact limit the body is verified to the end");
+  assert.equal(underMirLimit(fixture, 2).kind, "complete", "at the exact limit the body is verified to the end");
 });
 
 test("ir-program a structurally invalid body under its MIR limit is found invalid, not refused", () => {
   const fixture = moduleFixture();
   const block = fixture.module.bodies[0].mir.blocks[0];
   block.terminator = { origin: block.origin, tir: block.tir, kind: "goto", target: 99 };
-  const outcome = underMirLimit(fixture, 0);
+  const outcome = underMirLimit(fixture, 1);
   assert.equal(outcome.kind, "complete", "a defect is a finding of a verification that ran to its end");
   completeProgramValue(outcome.violations.filter(violation => violation.rule === "mir-valid"), [{ rule: "mir-valid", site: { kind: "body", instance: fixture.instance },
     detail: [{ kind: "text", value: "edge-target-resolves" }, { kind: "text", value: "normal" }, { kind: "number", value: 99 }] }],
@@ -1665,16 +1671,16 @@ test("ir-program a structurally invalid body under its MIR limit is found invali
 });
 
 test("ir-program two bodies of one module are metered separately", () => {
-  // Both bodies need one unit: a shared account would pass a limit of one, separate accounts do not.
+  // Both bodies need two units: a shared account would pass a limit of two, separate accounts do not.
   const both = dualInstanceFixture();
   for (const published of both.module.bodies) branching(published);
-  assert.equal(underMirLimit(both, 1).kind, "complete", "each body is charged from zero");
-  completeProgramValue(underMirLimit(both, 0), { kind: "resource-limit", body: both.module.bodies[0].instance, dimension: "work", maximum: 0 },
+  assert.equal(underMirLimit(both, 2).kind, "complete", "each body is charged from zero");
+  completeProgramValue(underMirLimit(both, 1), { kind: "resource-limit", body: both.module.bodies[0].instance, dimension: "work", maximum: 1 },
     "with both over the limit the first body verified is the one named");
   // The first body under the limit and the second over it: the second is named.
   const second = dualInstanceFixture();
   branching(second.module.bodies[1]);
-  completeProgramValue(underMirLimit(second, 0), { kind: "resource-limit", body: second.module.bodies[1].instance, dimension: "work", maximum: 0 },
+  completeProgramValue(underMirLimit(second, 1), { kind: "resource-limit", body: second.module.bodies[1].instance, dimension: "work", maximum: 1 },
     "the refusal names the body that passed its limit, not the first body of the module");
 });
 

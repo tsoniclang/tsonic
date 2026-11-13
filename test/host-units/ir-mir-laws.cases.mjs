@@ -588,12 +588,13 @@ test("the work limit: a body is verified up to its limit and refused past it, ne
   // One diamond under a stable place. The contract's units: one for each incoming edge of a block that is not
   // continued into and receives a set on every edge. Here: the two arms of the loop's branch (blocks 4 and 9),
   // the two arms of the diamond (11 and 12), and the two edges into the merge (13): six. The loop header receives
-  // no set from its back edge and is not charged. The storage pass charges the same account first: 40 units on this
-  // body (3 for the entry set, 10 markers, 27 lookups of uses that depend on their block's start; NEEDS-W4.md has
-  // the count by block). So the body needs 46.
+  // no set from its back edge and is not charged. The storage pass charges the same account first: 135 units on this
+  // body (3 for the entry set, 10 markers, 27 lookups of uses that depend on their block's start; the empty set 1,
+  // the place pass 16 visits, 13 roots and 1 union, and 64 units of the operands enumerated at uses; NEEDS-W4.md has
+  // the count by category). So the body needs 141.
   let body = staged(graph => { checkedThenDiamond(graph, { atMerge: [readView()] }); });
-  assert.deepEqual(under(46), { kind: "complete", violations: [] });
-  assert.deepEqual(under(45), refusal(45));
+  assert.deepEqual(under(141), { kind: "complete", violations: [] });
+  assert.deepEqual(under(140), refusal(140));
   assert.deepEqual(under(0), refusal(0));
   // A refusal is not a finding: the same body with a defect is refused in the same way under the limit, and its
   // defect is reported only by a verification that ran to its end.
@@ -601,23 +602,25 @@ test("the work limit: a body is verified up to its limit and refused past it, ne
   assert.deepEqual(verifyMir(defective, { ...context, limits: { maximumWork: 5 } }), refusal(5));
   assert.deepEqual(found(defective).map(violation => violation.rule), ["checked-place-available"]);
   // Work adds up within one body: a second diamond after the first costs four more (two arms, two edges into its
-  // merge) and three more lookups of the storage pass, and the limit that admitted one diamond refuses two.
+  // merge) and nine more units of the storage pass (three lookups, six of enumerated operands), and the limit that
+  // admitted one diamond refuses two.
   body = staged(graph => {
     checkedThenDiamond(graph, { atMerge: [readView()] });
     graph.blocks[13].terminator = branch(14, 15);
     graph.blocks.push(blockOf(14, [], jump(16)), blockOf(15, [], jump(16)), blockOf(16, [readView()], returns(p(9))));
   });
-  assert.deepEqual(under(53), { kind: "complete", violations: [] });
-  assert.deepEqual(under(52), refusal(52));
-  assert.deepEqual(under(46), refusal(46));
+  assert.deepEqual(under(154), { kind: "complete", violations: [] });
+  assert.deepEqual(under(153), refusal(153));
+  assert.deepEqual(under(141), refusal(141));
   // The account is the body's: verifying two bodies one after the other under the limit of one charges each from zero.
   const one = staged(graph => { checkedThenDiamond(graph, { atMerge: [readView()] }); });
-  for (const turn of [1, 2]) assert.deepEqual(verifyMir(one, { ...context, limits: { maximumWork: 46 } }), { kind: "complete", violations: [] }, `body ${turn}`);
+  for (const turn of [1, 2]) assert.deepEqual(verifyMir(one, { ...context, limits: { maximumWork: 141 } }), { kind: "complete", violations: [] }, `body ${turn}`);
   // The satisfying graph has no stable place. Law 3 charges it 2: the two arms of the loop's branch (blocks 4 and 9)
-  // each receive the empty set on their one edge. The storage pass charges it 28 (3 for the entry set, 7 markers,
-  // 18 lookups). So it needs 30.
-  assert.equal(verifyMir(good(), { ...context, limits: { maximumWork: 30 } }).kind, "complete");
-  assert.deepEqual(verifyMir(good(), { ...context, limits: { maximumWork: 29 } }), refusal(29));
+  // each receive the empty set on their one edge. The storage pass charges it 93 (3 for the entry set, 7 markers,
+  // 18 lookups; the empty set 1, the place pass 11 visits, 10 roots and 1 union, 42 units of enumerated operands).
+  // So it needs 95.
+  assert.equal(verifyMir(good(), { ...context, limits: { maximumWork: 95 } }).kind, "complete");
+  assert.deepEqual(verifyMir(good(), { ...context, limits: { maximumWork: 94 } }), refusal(94));
 });
 
 test("law 3: a value delivered on a suspension's return edge into the local a stable place views ends it on that edge", () => {
@@ -679,15 +682,18 @@ test("the work limit is one boundary for every body: below it a refusal, from it
   // The need of each body is derived from the two charging rules. Blocks are read in reverse postorder, in which
   // the `otherwise` arm of a branch and everything it reaches is read before the other arm: the first body's blocks
   // after 10 are read in the order 12, 15, 11, 14, 16, 13.
-  // First body. Storage pass: 46 (3 for the entry set, 10 markers, 33 lookups; NEEDS-W4.md has them by block). Law 3:
+  // Storage pass (W6's rule; NEEDS-W4.md has the units by block and by category): 159 for the first body = 46 (3 for
+  // the entry set, 10 markers, 33 lookups) + 113 (the empty set 1, 16 place visits, 13 roots, 1 union, 82 units of
+  // enumerated operands); 143 for the second = 42 + 101 (1, 16, 13, 1 and 70).
+  // First body. Law 3:
   // 8 = the loop's two arms (blocks 4 and 9) + one edge into each of blocks 11, 12, 13 and 14 + one place copied in
   // block 14, which adds the view of `o!#2` to a list that block 12 has already extended + one place copied in
   // block 13, which reads the list whose place that copy made available again elsewhere. (A first derivation of 7
   // left out the copy in block 13; the run refused at 53.)
-  // Second body. Storage pass: 42 (3, 10 and 29 lookups). Law 3: 10 = the loop's two arms + one edge into each of
+  // Second body. Law 3: 10 = the loop's two arms + one edge into each of
   // blocks 10 and 11 + the two edges into the merge (block 14) + the two places on each of the two different lists
   // that arrive there.
-  const needs = [46 + 8, 42 + 10];
+  const needs = [159 + 8, 143 + 10];
   const bodies = [
     staged(body => {
       body.blocks[7].terminator = checkOf(12, "o!", 10);

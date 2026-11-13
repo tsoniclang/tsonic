@@ -180,8 +180,11 @@ export interface MirStepRef {
 // (`MirVerificationLimits.maximumWork`): one unit for each set node entered by a marker's change (the building of the
 // entry set from the locals present on entry included), by a meet of two different sets, and by the lookup of a use
 // that depends on its block's start (one lookup for each local in each block); one unit for each block of a sweep
-// after the first; one unit for each outgoing edge of a block that is read again. Not charged: the empty set of the
-// body's width, one node for each level (at most 27), made once before any charge.
+// after the first; one unit for each outgoing edge of a block that is read again; one unit for each node of the empty
+// set of the body's width, charged before it is made. The locals each place reaches are found once per verification:
+// one unit for each place visited, one for each root local of a place on a local, one for each node where a union of
+// two different place sets differs; at a use, one unit for each node entered and one for each local visited when an
+// operand's set is enumerated.
 export type MirStatement = MirSite & (
   | { readonly kind: "assign"; readonly place: PlaceId; readonly value: MirRvalue; readonly step: MirStepRef | null }
   | { readonly kind: "storage-live"; readonly local: LocalId }
