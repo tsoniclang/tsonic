@@ -362,7 +362,7 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
     ...["index.ts", "verify-extensions.ts", "verify-packages.ts", "verify.ts"].map(name => `${host}/snapshot/${name}`),
     ...["index.ts"].map(name => `${host}/step/${name}`),
     ...["database.ts", "index.ts", "memo.ts"].map(name => `${host}/query/${name}`),
-    ...["index.ts", "checker.ts", "handles.ts", "options.ts"].map(name => `${host}/front/${name}`),
+    ...["index.ts", "checker.ts", "handles.ts", "options.ts", "capture.ts", "identities.ts", "lower.ts", "syntax-capture.ts", "syntax-support.ts"].map(name => `${host}/front/${name}`),
     ...["driver.ts", "wiring.ts"].map(name => `${host}/pipeline/${name}`)].sort();
   assert.equal(JSON.stringify(inventory), JSON.stringify(expectedInventory), "the complete actual current root equals the explicit reviewed inventory");
   const graph = deps.graph(files);

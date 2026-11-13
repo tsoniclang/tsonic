@@ -158,7 +158,7 @@ export function openProgram(deps: CaptureDeps, snapshot: ProjectSnapshot, prepar
   if (sessionLevel.length !== 0) {
     throw new TypeError(`front: the session reported diagnostics that name no file (${[...new Set(sessionLevel)].join(", ")}); the refusal that carries them waits for the checker's message accessor`);
   }
-  return ({ kind: "ok", value: OpenedProgram.create(checked, deps.extensions, inputs.modules, inputs.packageNames), diagnostics: [] });
+  return ({ kind: "ok", value: OpenedProgram.create(checked, deps.extensions, inputs.modules, inputs.packageNames, inputs.files), diagnostics: [] });
 }
 
 export function programModules(deps: CaptureDeps, program: CheckedProgram): ProgramModuleSet {

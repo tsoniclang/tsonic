@@ -1,5 +1,6 @@
 import type { Diagnostic, Result } from "../diag/contract.js";
-import type { DefId, LibraryExportIdentity, LibraryModuleIdentity, ModuleId, NodeId, Origin, PackageId, TyId } from "../ids/contract.js";
+import type { DefId, DefinitionSegment, LibraryExportIdentity, LibraryModuleIdentity, ModuleId, NodeId, Origin, PackageId, RawCandidateListId, RawComponentId,
+  RawDataLayoutId, RawMemberTableId, RawMemoryFieldId, RawMemoryLayoutId, RawSignatureId, RawSymbolId, RawTypeId, TyId } from "../ids/contract.js";
 import type { LiteralValue, NativePrimitive, PassingMode, TypeEvidence, TypeExpansionLimits, TypeInterner } from "../ir-types/contract.js";
 import type { HirModule, SourceFile, SyntaxPhase } from "../ir-hir/contract.js";
 import type { LibraryCatalogue, WellKnownSymbol } from "../libraries/contract.js";
@@ -71,17 +72,6 @@ export interface LowerDeps {
   readonly literalCapture: LiteralCaptureLimits;
 }
 
-type RawIdentity<Kind extends string> = number & { readonly rawIdentityKind: Kind };
-
-export type RawTypeId = RawIdentity<"type">;
-export type RawSymbolId = RawIdentity<"symbol">;
-export type RawSignatureId = RawIdentity<"signature">;
-export type RawComponentId = RawIdentity<"component">;
-export type RawMemberTableId = RawIdentity<"member-table">;
-export type RawCandidateListId = RawIdentity<"candidate-list">;
-export type RawDataLayoutId = RawIdentity<"data-layout">;
-export type RawMemoryLayoutId = RawIdentity<"memory-layout">;
-export type RawMemoryFieldId = RawIdentity<"memory-field">;
 
 export interface RawNodeRef {
   readonly module: ModuleId;
@@ -847,6 +837,36 @@ export type LowerModule = (
   deps: LowerDeps,
   module: RawModule,
 ) => Result<HirModule>;
+
+/** The definition identity of one declaration node of a module (F-1 with K-3236, K-3250, K-3268, K-3273). */
+export interface ModuleDefinitionRow {
+  readonly node: NodeId;
+  readonly kind: string;
+  readonly segments: readonly DefinitionSegment[];
+  readonly definition: DefId;
+}
+
+/** Every definition identity of one module, in the syntax tree's preorder; the module's own row first. */
+export interface ModuleDefinitions {
+  readonly module: ModuleId;
+  readonly rows: readonly ModuleDefinitionRow[];
+}
+
+export type LowerModuleDefinitions = (module: RawModule) => Result<ModuleDefinitions>;
+
+/** One exported name of a module and its declaration group, in canonical declaration order. */
+export interface ModuleExportEntry {
+  readonly name: string;
+  readonly definitions: readonly DefId[];
+}
+
+/** The export entries of one module, in ascending order of name. */
+export interface ModuleExports {
+  readonly module: ModuleId;
+  readonly entries: readonly ModuleExportEntry[];
+}
+
+export type LowerModuleExports = (deps: LowerDeps, module: RawModule) => Result<ModuleExports>;
 
 export type ConvertCheckedType = (
   deps: LowerDeps,

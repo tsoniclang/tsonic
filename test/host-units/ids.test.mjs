@@ -128,7 +128,7 @@ for (const path of casePaths) {
 test("ids exact public value inventory contains the thirty-one agreed ports", () => {
   assert.deepEqual(Object.keys(product).sort(), ["decodeBodyId", "decodeComponentId", "decodeDefId", "decodeGroupId",
     "decodeModuleId", "decodePackageId", "encodeBodyId", "encodeComponentId", "encodeDefId", "encodeGroupId",
-    "encodeKey", "encodeModuleId", "encodePackageId", "nodeId", "localId", "blockId", "placeId", "tyId", "sigId", "constId", "candidateListId", "producerId", "boundProducerId", "valueContextId", "originsId", "projectionPathId", "openBoundaryId", "layoutId", "memoryFieldId", "libraryTypeId", "expansionId"].sort());
+    "encodeKey", "encodeModuleId", "encodePackageId", "nodeId", "localId", "blockId", "placeId", "tyId", "sigId", "constId", "candidateListId", "producerId", "boundProducerId", "valueContextId", "originsId", "projectionPathId", "openBoundaryId", "layoutId", "memoryFieldId", "libraryTypeId", "expansionId", "rawTypeId", "rawSymbolId", "rawSignatureId", "rawComponentId", "rawMemberTableId", "rawCandidateListId", "rawDataLayoutId", "rawMemoryLayoutId", "rawMemoryFieldId"].sort());
   assert.deepEqual(casePaths.map(path => basename(path, ".case.json")), ["body-identities", "complete-binding-keys",
     "component-identities", "deep-identity", "deep-key", "definition-identities", "group-identities", "malformed-bodies",
     "malformed-components", "malformed-definitions", "malformed-groups", "malformed-modules", "malformed-packages",
@@ -136,7 +136,7 @@ test("ids exact public value inventory contains the thirty-one agreed ports", ()
 });
 
 test("every numeric identity constructor is total and preserves the exact supplied number", () => {
-  for (const name of ["nodeId", "localId", "blockId", "placeId", "tyId", "sigId", "constId", "candidateListId", "producerId", "boundProducerId", "valueContextId", "originsId", "projectionPathId", "openBoundaryId", "layoutId", "memoryFieldId", "libraryTypeId"]) {
+  for (const name of ["nodeId", "localId", "blockId", "placeId", "tyId", "sigId", "constId", "candidateListId", "producerId", "boundProducerId", "valueContextId", "originsId", "projectionPathId", "openBoundaryId", "layoutId", "memoryFieldId", "libraryTypeId", "rawTypeId", "rawSymbolId", "rawSignatureId", "rawComponentId", "rawMemberTableId", "rawCandidateListId", "rawDataLayoutId", "rawMemoryLayoutId", "rawMemoryFieldId"]) {
     for (const value of [0, -0, -1, 1, 1.5, Number.MAX_SAFE_INTEGER + 1, Number.MIN_VALUE, NaN, Infinity, -Infinity]) {
       assert.equal(Object.is(product[name](value), value), true, name + ": exact numerical carrier");
     }

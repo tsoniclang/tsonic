@@ -661,3 +661,153 @@ test("a module with a syntax error and a type error opens and is captured: file 
     "derived before the run: an expression is expected after the equals sign (TS1109), and a string is not assignable to number (TS2322)");
   assert.deepEqual(openAndCapture(snapshot).set.modules, snapshotModules(snapshot));
 });
+
+// Checkpoint 1 (K-3286): one real program through the SDK, the snapshot and Front's production operations to verified HIR.
+// Every expected value below was derived by hand from the source text and the identity law, before the lowering existed.
+const addSource = "export function add(a: number, b: number): number { return a + b; }\n";
+
+function checkpointModule(sourceText) {
+  const libraries = bundled();
+  const snapshot = projectSnapshot({ sourceFiles: { "main.ts": sourceText }, libraries });
+  const { deps, program } = openAndCapture(snapshot);
+  const module = moduleOf(packageOf("/project"), "src/main.ts");
+  return { deps, program, module };
+}
+
+function lowerDepsFor(definitions, interner, sourceText) {
+  const byNode = new Map(definitions.rows.map(row => [row.node, row.definition]));
+  return {
+    definitionOf: reference => {
+      assert.equal(reference.module, definitions.module, "every declaration of this program is in its one module");
+      const definition = byNode.get(reference.node);
+      assert.notEqual(definition, undefined, `node ${reference.node} has a definition identity`);
+      return definition;
+    },
+    definitionOfExport: () => assert.fail("no library export is named by this program"),
+    sourceTextOf: () => sourceText, libraries: { sources: [] }, types: interner,
+    typeExpansion: { maximumDepth: 64, maximumVisits: 10000, maximumUnionMembers: 1000, maximumIntersectionMembers: 1000 },
+    literalCapture: { maximumIntermediateBits: 4096, maximumResultBits: 4096, maximumArithmeticWork: 100000 },
+  };
+}
+
+const sdkNamesPending = "waits for the SDK's public ScriptKind and LanguageVariant names (W3's export 4afd8286, to be vendored): until then every source file's capture is refused (K-3297, K-3302)";
+
+test("checkpoint 1: add is opened through the checker and the snapshot, captured, lowered by Front's production operations to HIR the HIR verifier accepts, and equals the independently written expectation", { todo: sdkNamesPending }, async () => {
+  const hir = await import("../../packages/host/dist/ir-hir/index.js");
+  const types = await import("../../packages/host/dist/ir-types/index.js");
+  const { deps, program, module } = checkpointModule(addSource);
+  const raw = front.captureModule(deps, program, module);
+  assert.equal(raw.kind, "ok");
+  // The syntax tree in HIR's preorder: kind, parent and authored origin (UTF-16 offset and length) of every node, by hand.
+  const expectedNodes = [
+    ["SourceFile", null, 0, 68], ["FunctionDeclaration", 0, 0, 67], ["ExportKeyword", 1, 0, 6], ["Identifier", 1, 16, 3],
+    ["Parameter", 1, 20, 9], ["Identifier", 4, 20, 1], ["NumberKeyword", 4, 23, 6],
+    ["Parameter", 1, 31, 9], ["Identifier", 7, 31, 1], ["NumberKeyword", 7, 34, 6],
+    ["NumberKeyword", 1, 43, 6], ["Block", 1, 50, 17], ["ReturnStatement", 11, 52, 13], ["BinaryExpression", 12, 59, 5],
+    ["Identifier", 13, 59, 1], ["PlusToken", 13, 61, 1], ["Identifier", 13, 63, 1], ["EndOfFile", 0, 68, 0]];
+  const rawNodes = hir.indexSyntaxTree(raw.value.tree);
+  assert.deepEqual(rawNodes.map(node => [node.kind, node.parent, node.origin.start, node.origin.length]), expectedNodes);
+  assert.deepEqual(rawNodes.map(node => node.id), expectedNodes.map((unusedValue, position) => position), "identities are preorder positions");
+  // Identities (K-3236): the module, add, and its two parameters.
+  const definitions = front.lowerModuleDefinitions(raw.value);
+  assert.equal(definitions.kind, "ok");
+  const definition = segments => ids.encodeDefId({ module, segments: segments.map(([name, ordinal]) => ({ name, ordinal })) });
+  const moduleDefinition = definition([]);
+  const addDefinition = definition([["add", 0]]);
+  const aDefinition = definition([["add", 0], ["a", 0]]);
+  const bDefinition = definition([["add", 0], ["b", 0]]);
+  assert.deepEqual(definitions.value.rows.map(row => [row.node, row.kind, row.definition]),
+    [[0, "SourceFile", moduleDefinition], [1, "FunctionDeclaration", addDefinition], [4, "Parameter", aDefinition], [7, "Parameter", bDefinition]]);
+  const interner = types.createTypeInterner();
+  const lowerDeps = lowerDepsFor(definitions.value, interner, addSource);
+  // The export entry.
+  const exported = front.lowerModuleExports(lowerDeps, raw.value);
+  assert.deepEqual(exported, { kind: "ok", diagnostics: [], value: { module, entries: [{ name: "add", definitions: [addDefinition] }] } });
+  // The checked module.
+  const lowered = front.lowerModule(lowerDeps, raw.value);
+  assert.equal(lowered.kind, "ok");
+  const value = lowered.value;
+  const float64 = types.internType(interner, { kind: "primitive", primitive: "float64" });
+  const addBody = ids.encodeBodyId({ owner: addDefinition, role: "function", ordinal: 0 });
+  const moduleBody = ids.encodeBodyId({ owner: moduleDefinition, role: "module", ordinal: 0 });
+  const local = index => ({ body: addBody, local: index });
+  const nodes = hir.indexSyntaxTree(value.tree);
+  const at = id => nodes.find(node => node.id === id);
+  assert.deepEqual(nodes.map(node => [node.kind, node.parent, node.origin.start, node.origin.length]), expectedNodes, "lowering keeps the tree");
+  assert.equal(at(0).tsonic.definition, moduleDefinition);
+  assert.equal(at(0).tsonic.body, moduleBody);
+  const callable = at(1).tsonic;
+  assert.deepEqual([callable.definition, callable.parent, callable.body, callable.parameters], [addDefinition, moduleDefinition, addBody, []]);
+  assert.equal(callable.signatures.length, 1);
+  assert.deepEqual({ ...callable.signatures[0], signature: null }, { declaration: addDefinition, role: "advertised", signature: null, body: addBody });
+  const signature = types.readSignature(interner, callable.signatures[0].signature);
+  assert.deepEqual([signature.declaration, signature.kind, signature.receiver, signature.result], [addDefinition, "call", null, float64]);
+  assert.deepEqual(signature.parameters, [
+    { declaration: aDefinition, kind: "required", type: float64, passing: "by-value", initializer: null },
+    { declaration: bDefinition, kind: "required", type: float64, passing: "by-value", initializer: null }]);
+  assert.deepEqual(at(3).tsonic, { ...at(3).tsonic, role: "declaration-name", declaration: { kind: "definition", definition: addDefinition } });
+  for (const [parameter, name, index, definitionOfParameter] of [[4, 5, 0, aDefinition], [7, 8, 1, bDefinition]]) {
+    const checked = at(parameter).tsonic;
+    assert.deepEqual([checked.parent, checked.declaration, checked.declaredType, checked.initializer], [addDefinition, { kind: "local", local: local(index) }, { kind: "available", value: float64 }, null]);
+    assert.deepEqual([at(name).tsonic.role, at(name).tsonic.declaration], ["declaration-name", { kind: "local", local: local(index) }]);
+    assert.equal(definitionOfParameter, definitions.value.rows.find(row => row.node === parameter).definition);
+  }
+  for (const typeNode of [6, 9, 10]) assert.deepEqual(at(typeNode).tsonic.type, { kind: "available", value: float64 });
+  assert.deepEqual([at(13).tsonic.role, at(13).tsonic.value.views], ["arithmetic",
+    { read: { kind: "available", value: float64 }, declared: { kind: "available", value: null }, contextual: { kind: "available", value: float64 } }]);
+  for (const [use, index] of [[14, 0], [16, 1]]) assert.deepEqual([at(use).tsonic.role, at(use).tsonic.resolution, at(use).tsonic.value.views], ["value",
+    { kind: "local", local: local(index) },
+    { read: { kind: "available", value: float64 }, declared: { kind: "available", value: null }, contextual: { kind: "available", value: null } }]);
+  for (const plain of [2, 11, 12, 15, 17]) assert.equal(at(plain).tsonic, null);
+  // Bodies and items.
+  assert.deepEqual(value.bodies.map(body => [body.body, body.owner, body.root.id, body.nestedBodies]),
+    [[addBody, addDefinition, 11, []], [moduleBody, moduleDefinition, 0, [addBody]]].sort((left, right) => left[0] < right[0] ? -1 : 1));
+  const addBodyRecord = value.bodies.find(body => body.body === addBody);
+  assert.deepEqual(addBodyRecord.params, [
+    { local: 0, declaration: aDefinition, role: "required", passing: "by-value", initializer: null },
+    { local: 1, declaration: bDefinition, role: "required", passing: "by-value", initializer: null }]);
+  assert.deepEqual(addBodyRecord.locals.map(entry => [entry.id, entry.name, entry.role, entry.declaration, entry.checkerSlot, entry.mutable]), [
+    [0, "a", "parameter", { kind: "item", value: { owner: aDefinition, node: 4 } }, { kind: "available", value: float64 }, true],
+    [1, "b", "parameter", { kind: "item", value: { owner: bDefinition, node: 7 } }, { kind: "available", value: float64 }, true]]);
+  assert.deepEqual(value.items.map(item => [item.definition, item.node]).sort(), [[aDefinition, 4], [bDefinition, 7], [addDefinition, 1]].sort());
+  assert.deepEqual([value.checkerDiagnostics, value.obligations], [[], []]);
+  // The HIR verifier accepts it, and its text form reads back to the same module.
+  const published = types.exportTypes(interner, { maximumWork: 1000000, maximumCreatedRecords: 100000 });
+  assert.equal(published.kind, "complete");
+  const byId = new Map(nodes.map(node => [node.id, node]));
+  const scope = () => ({ classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] });
+  const violations = hir.verifyHir(value, {
+    types: published.value.table,
+    bodyPathOf: body => { const decoded = ids.decodeBodyId(body); return decoded.kind === "decoded" ? decoded.value : null; },
+    definitionPathOf: identity => { const decoded = ids.decodeDefId(identity); return decoded.kind === "decoded" ? decoded.value : null; },
+    bindingScopeOf: scope, bindingScopeAt: scope, nominalOf: () => null, nodeOf: reference => byId.get(reference.value.node) ?? null,
+    localExists: reference => value.bodies.some(body => body.body === reference.body && body.locals[reference.local] !== undefined),
+  });
+  assert.deepEqual(violations, []);
+  const reread = hir.parseHir(hir.printHir(value));
+  assert.equal(reread.kind, "parsed");
+  assert.deepEqual(reread.value, value);
+  // A repeated capture and lowering of the same program gives the same module.
+  const again = checkpointModule(addSource);
+  const rawAgain = front.captureModule(again.deps, again.program, again.module);
+  const definitionsAgain = front.lowerModuleDefinitions(rawAgain.value);
+  assert.deepEqual(definitionsAgain, definitions);
+  assert.deepEqual(front.lowerModule(lowerDepsFor(definitionsAgain.value, types.createTypeInterner(), addSource), rawAgain.value).value, value);
+});
+
+test("checkpoint 1, the development frontier: a module holding a kind whose checked annotation is not written is refused at once by the one check, never lowered in part", { todo: sdkNamesPending }, async () => {
+  const types = await import("../../packages/host/dist/ir-types/index.js");
+  const sourceText = "export function negate(a: number): number { return -a; }\n";
+  const { deps, program, module } = checkpointModule(sourceText);
+  const raw = front.captureModule(deps, program, module);
+  assert.equal(raw.kind, "ok", "capture covers every syntax kind");
+  const definitions = front.lowerModuleDefinitions(raw.value);
+  assert.throws(() => front.lowerModule(lowerDepsFor(definitions.value, types.createTypeInterner(), sourceText), raw.value),
+    { name: "TypeError", message: "front: checked annotation not implemented: PrefixUnaryExpression" });
+});
+
+test("until the SDK's public names are vendored, a source file's capture is refused naming the export it waits on, never filled from a copied table", () => {
+  const { deps, program, module } = checkpointModule(addSource);
+  assert.throws(() => front.captureModule(deps, program, module),
+    { name: "TypeError", message: "front: the language variant 0 needs the SDK's public LanguageVariant names (W3's export, not yet vendored)" });
+});

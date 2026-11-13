@@ -38,21 +38,25 @@ export class OpenedProgram {
   private readonly extensionTable: ExtensionTable;
   private readonly moduleByPath: ReadonlyMap<string, ModuleId>;
   private readonly nameByPackage: ReadonlyMap<PackageId, string | null>;
+  private readonly textByPath: ReadonlyMap<string, string>;
 
   private constructor(checked: CheckedSourceProgram, table: ExtensionTable, modules: ReadonlyMap<string, ModuleId>,
-    packageNames: ReadonlyMap<PackageId, string | null>) {
+    packageNames: ReadonlyMap<PackageId, string | null>, texts: ReadonlyMap<string, string>) {
     this.checkedProgram = checked;
     this.extensionTable = table;
     this.moduleByPath = modules;
     this.nameByPackage = packageNames;
+    this.textByPath = texts;
   }
 
   static create(checked: CheckedSourceProgram, table: ExtensionTable, modules: ReadonlyMap<string, ModuleId>,
-    packageNames: ReadonlyMap<PackageId, string | null>): OpenedProgram {
-    return new OpenedProgram(checked, table, modules, packageNames);
+    packageNames: ReadonlyMap<PackageId, string | null>, texts: ReadonlyMap<string, string>): OpenedProgram {
+    return new OpenedProgram(checked, table, modules, packageNames, texts);
   }
   static checked(program: OpenedProgram): CheckedSourceProgram { return program.checkedProgram; }
   static table(program: OpenedProgram): ExtensionTable { return program.extensionTable; }
   static modules(program: OpenedProgram): ReadonlyMap<string, ModuleId> { return program.moduleByPath; }
   static packageNames(program: OpenedProgram): ReadonlyMap<PackageId, string | null> { return program.nameByPackage; }
+  /** The captured text of each file of the session, by path. */
+  static texts(program: OpenedProgram): ReadonlyMap<string, string> { return program.textByPath; }
 }
