@@ -3,6 +3,8 @@
 //   function grow(a: int32[]): int32 { a.push(0); return 1; }
 //   export function orderGrow(a: int32[], i: () => int32): int32 { a[i()] += grow(a); return a[0]; }
 //   export function orderFixed(a: FixedArray<int32, 4>, i: () => int32): int32 { a[i()] += f(); return a[0]; }
+//   export function orderInPlace(opt: Point | undefined): int32 { opt!.count += (opt = undefined, 1); return 0; }
+//     (`Point` is held in place: the access decision of `count` says so)
 //   export function order(a: int32[], i: () => int32, o: { inner: { x: int32 } },
 //                         opt: { count: int32 } | undefined): int32 {
 //     a[i()] += f();
@@ -13,7 +15,7 @@
 // `policy.bounds` and `policy.absent` are the selected failure kinds ("unwind" | "abort") that Rules
 // has written into the index and narrowing decisions. Integer `+` is selected as a pure operation.
 import { N } from "../names.mjs";
-import { DYNAMIC_KEY, SIG, T, builders, callee, checked, direct, mapped, narrowed, native, selection, signature, typedBody } from "../typed.mjs";
+import { DYNAMIC_KEY, SIG, T, builders, callee, checked, direct, endpoint, mapped, narrowed, native, selection, signature, typedBody } from "../typed.mjs";
 
 const ADD = native("+", "int32", [T.int32, T.int32], T.int32);
 // WT-4 also declares a function `f`; the two are different definitions.
@@ -22,13 +24,14 @@ const SIG_GROW = signature("grow", [["a", T.int32Array]], T.int32);
 const SIG_ORDER_GROW = signature("orderGrow", [["a", T.int32Array], ["i", T.fnVoidToInt32]], T.int32);
 const SIG_ORDER_FIXED = signature("orderFixed", [["a", T.int32Fixed4], ["i", T.fnVoidToInt32]], T.int32);
 const SIG_ORDER_FIXED_BY_REFERENCE = signature("orderFixedByReference", [["a", T.int32Fixed4, "required", null, "byref-readwrite"], ["i", T.fnVoidToInt32]], T.int32);
+const SIG_ORDER_IN_PLACE = signature("orderInPlace", [["opt", T.optCounter]], T.int32);
 const SIG_ORDER = signature("order", [["a", T.int32Array], ["i", T.fnVoidToInt32], ["o", T.outer], ["opt", T.optCounter]], T.int32);
 
 // The indirect call `i()`: the callee is the value of the parameter; no body is known to the caller.
 const callI = (b, local, label) => ({ $: label, ...b.call(b.id("i", local, T.fnVoidToInt32), [], T.int32, () => ({
   callee: { decision: { ...callee("()=>int32", SIG["()=>int32"], [], T.int32).decision,
-    advertised: { declaration: "D[M[P[p];m];()=>int32]", role: "advertised", signature: SIG["()=>int32"], body: null },
-    api: { declaration: "D[M[P[p];m];()=>int32]", role: "api-signature", signature: SIG["()=>int32"], body: null } },
+    advertised: endpoint("()=>int32", "advertised", SIG["()=>int32"], false),
+    api: endpoint("()=>int32", "api-signature", SIG["()=>int32"], false) },
     activation: null, captures: [] }, receiver: null, arguments: [] })) });
 const callF = (b, label) => ({ $: label, ...b.call(b.global("f", "wt6.f", T.unknown), [], T.int32,
   () => ({ callee: callee("wt6.f", SIG_F, [], T.int32), receiver: null, arguments: [] })) });
@@ -43,9 +46,12 @@ const returnFirst = (b, arrayLocal, arrayType, indexLocation, label) =>
     b.read(T.int32, selection(DYNAMIC_KEY, T.int32, T.int32, indexLocation))) });
 
 export function wt6(policy) {
-  // A dense array is held by reference and its extent can change; a fixed array is storage in place.
-  const dense = checked(policy.bounds, N.reference);
-  const fixed = checked(policy.bounds, N.inPlace);
+  // The access decision states the receiver and the extent of the carrier (K-3238 point 1): lowering reads both and
+  // derives neither from the type. A dense array is a reference to a carrier whose extent can change; a fixed array
+  // is storage in place whose extent cannot; the third is a fixed carrier reached through a reference.
+  const dense = checked(policy.bounds, N.reference, N.extentMutable);
+  const fixed = checked(policy.bounds, N.inPlace, N.extentFixed);
+  const fixedByReference = checked(policy.bounds, N.reference, N.extentFixed);
 
   const g = builders("orderGrow");
   const orderGrow = typedBody("orderGrow", { signature: SIG_ORDER_GROW, completion: T.int32,
@@ -74,7 +80,7 @@ export function wt6(policy) {
     locals: [["a", "parameter", T.int32Fixed4], ["i", "parameter", T.fnVoidToInt32]],
     params: [[0, "required", T.int32Fixed4, null, "byref-readwrite"], [1, "required", T.fnVoidToInt32]],
     root: r.block(
-      compoundIndex(r, 0, T.int32Fixed4, dense, callF(r, "f()"), { assignment: "a[i()]+=f()", target: "@target", index: "i()" }),
+      compoundIndex(r, 0, T.int32Fixed4, fixedByReference, callF(r, "f()"), { assignment: "a[i()]+=f()", target: "@target", index: "i()" }),
       returnFirst(r, 0, T.int32Fixed4, direct(N.reference), "a[0]")) });
 
   const b = builders("order");
@@ -108,5 +114,19 @@ export function wt6(policy) {
           { $: "a[0]#write", ...b.element(b.id("a", 0, T.int32Array), b.num("0", T.int32),
             b.write(selection(DYNAMIC_KEY, T.int32, T.int32, dense), T.int32)) },
           "EqualsToken", b.num("0", T.int32), T.int32, T.int32) }))) }) });
-  return { orderGrow, orderFixed, orderFixedByReference, order };
+  // Section 7 part 8, the WT-6 row, for a type held in place: the narrowed place is the variable's own storage.
+  const p = builders("orderInPlace");
+  const orderInPlace = typedBody("orderInPlace", { signature: SIG_ORDER_IN_PLACE, completion: T.int32,
+    locals: [["opt", "parameter", T.optCounter, true]], params: [[0, "required", T.optCounter]],
+    root: p.block(
+      p.expressionStatement({ $: "opt!.count+=", ...p.assign(
+        { $: "@count", ...p.property(
+          { $: "@bang", ...p.nonNull(p.id("opt", 0, T.optCounter), T.counter, narrowed(T.optCounter, T.counter, policy.absent)) },
+          "count", p.readWrite(selection("count", T.int32, T.int32, direct(N.inPlace)), T.int32)) },
+        "PlusEqualsToken",
+        p.paren(p.sequence({ $: "opt=undefined", ...p.assign(p.target("opt", 0, T.optCounter), "EqualsToken",
+          p.global("undefined", "undefined", T.absence), T.absence, T.optCounter) }, p.num("1", T.int32), T.int32), T.int32),
+        T.int32, T.int32, ADD) }),
+      p.returns(p.num("0", T.int32))) });
+  return { orderGrow, orderFixed, orderFixedByReference, orderInPlace, order };
 }

@@ -4,13 +4,15 @@
 // written by hand in fixtures/lower-mir/programs; no expectation is derived from an implementation.
 import assert from "node:assert/strict";
 import { before, test } from "node:test";
-import { T, TABLE, bodyId, def } from "./fixtures/lower-mir/typed.mjs";
+import { ARRAY_STEP, T, TABLE, bodyId, def, verificationContext } from "./fixtures/lower-mir/typed.mjs";
 import {
-  argumentKindsOf, at, blocksWithStatementAt, branchesOn, calleeNameOf, capturedLocalsOf, capturedRootsOf, checkedPlace, checks,
+  argumentConstantOf, argumentKindsOf, at, blocksWithStatementAt, calleeNameOf, capturedLocalsOf, capturedRootsOf, checkedPlace, checks,
   controlPoints, createsClosure, destinationBaseOf, destinationChainOf, destinationFieldOf, destinationRootOf, edgesOf, effects,
-  effectsOn, internalCallsOn, invert, isCall, isInternalCall, nodesOn, operationKindOf, operationName, providedCountsOf, readsField,
-  receiverRootOf, rootLocalOf, storedChainLengthOf, storedRootOf, storesField, valueKindOf, walk, withoutFailureKinds, writesOf,
+  effectsOn, entriesInto, fieldKeyOf, internalCallsOn, invert, isCall, isCompletionBranch, isInternalCall, markersOf, namesStep, nodesOn,
+  operandPlacesOf, operationKindOf, operationName, providedCountsOf, readsField, readsLocal, readsPlace, receiverRootOf, recordsOf, rootLocalOf,
+  storedChainLengthOf, storedRootOf, storesField, storesPlace, valueKindOf, walk, withoutFailureKinds, writesOf,
 } from "./fixtures/lower-mir/observe.mjs";
+import { ACTIVATION, GENERATOR_STEP, activationOf, deep, excluded, firstZero, handles, quotients, scaled } from "./fixtures/lower-mir/programs/added.mjs";
 import { wt1 } from "./fixtures/lower-mir/programs/wt1.mjs";
 import { wt4 } from "./fixtures/lower-mir/programs/wt4.mjs";
 import { wt6 } from "./fixtures/lower-mir/programs/wt6.mjs";
@@ -19,11 +21,13 @@ import { s2, s3, s6 } from "./fixtures/lower-mir/programs/cleanup.mjs";
 import { s1, wt5, wt8, wt9, wt10, wt11 } from "./fixtures/lower-mir/programs/more.mjs";
 
 let lowerToMir;
+let verifyMir;
 let deps;
 
 before(async () => {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true, "lower-mir cases require a guarded admission");
   ({ lowerToMir } = await import("../../packages/host/dist/lower-mir/index.js"));
+  ({ verifyMir } = await import("../../packages/host/dist/ir-mir/index.js"));
   const types = await import("../../packages/host/dist/ir-types/index.js");
   const interner = types.seedTypeInterner(TABLE);
   deps = {
@@ -34,18 +38,28 @@ before(async () => {
   };
 });
 
-/** Lowers one typed body and requires an accepted result with no diagnostic (section 7 part 7: the box originates one diagnostic, the size limit). */
+/**
+ * Lowers one typed body and requires an accepted result with no diagnostic (section 7 part 7: the box originates one
+ * diagnostic, the size limit). Section 7 part 2 has the verifier run at the handoff from lowering: every graph this
+ * bank accepts is also a graph the complete MIR verifier accepts (R1 E-5).
+ */
 const lower = (program, internal = [], limits = null) => {
   const result = lowerToMir(limits === null ? deps : { ...deps, limits }, program.tir, internal);
   assert.equal(result.kind, "ok");
   assert.deepEqual(result.diagnostics, []);
+  assert.deepEqual(verifyMir(result.value, verificationContext(program)).map(violation => `${violation.rule} at ${JSON.stringify(violation.site)}`), []);
   return result.value;
 };
+/** The predicate of a defect raised by lower-mir through Diag: an Error whose cause names the owner (R1 section 4). */
+const defectOfLowerMir = error => error instanceof Error && error.cause !== undefined && error.cause !== null && error.cause.owner === "lower-mir";
 const labelled = (program, nodes) => { const names = invert(program.labels); return nodes.map(node => names.get(node) ?? node); };
 const sourceLocal = (mir, local) => mir.locals.find(candidate => candidate.source !== null && candidate.source.local === local).id;
 const statementsOn = path => path.events.filter(item => item.statement !== null);
 const indexOfEvent = (path, predicate) => path.events.findIndex(predicate);
-const POLICIES = [{ bounds: "unwind", absent: "unwind" }, { bounds: "abort", absent: "abort" }];
+// The two policy values are two facts (the bounds failure and the absent-access failure); every combination runs,
+// and each expectation is computed from the decision it belongs to (R1 E-3).
+const POLICIES = [{ bounds: "unwind", absent: "unwind" }, { bounds: "abort", absent: "abort" },
+  { bounds: "unwind", absent: "abort" }, { bounds: "abort", absent: "unwind" }];
 
 // ---- WT-1 -----------------------------------------------------------------------------------
 
@@ -92,8 +106,9 @@ test("WT-1 count: the loop body runs once per true condition and the body return
 
 for (const policy of POLICIES) {
   const failing = policy.bounds === "abort" ? "abort" : "escape";
+  const failingAbsent = policy.absent === "abort" ? "abort" : "escape";
 
-  test(`WT-6 order (${policy.bounds}): effects and checks execute once, in authored order`, () => {
+  test(`WT-6 order (${policy.bounds}/${policy.absent}): effects and checks execute once, in authored order`, () => {
     const program = wt6(policy).order;
     const mir = lower(program);
     // Section 7 part 8, WT-6: "`i()` before `f()`; the index check of `a[i()] += f()` at the read and, because a call
@@ -110,7 +125,7 @@ for (const policy of POLICIES) {
     assert.equal(checks(mir, program.at("@bang")).length, 1);
   });
 
-  test(`WT-6 order (${policy.bounds}): both checks of a[i()] use the array and index evaluated once`, () => {
+  test(`WT-6 order (${policy.bounds}/${policy.absent}): both checks of a[i()] use the array and index evaluated once`, () => {
     const program = wt6(policy).order;
     const mir = lower(program);
     // Section 7 part 8, WT-6: "a second control point at the store over the same evaluated array and index". R11:
@@ -124,7 +139,7 @@ for (const policy of POLICIES) {
     assert.ok(writesOf(mir, first.parentRoot) <= 1);
   });
 
-  test(`WT-6 order (${policy.bounds}): each check carries the selected failure kind`, () => {
+  test(`WT-6 order (${policy.bounds}/${policy.absent}): each check carries the selected failure kind`, () => {
     const program = wt6(policy).order;
     const mir = lower(program);
     // R1: a check is a control point "with its failure kind: unwinds to a named handler or out of the body, or ends the
@@ -133,12 +148,42 @@ for (const policy of POLICIES) {
     const kinds = Object.fromEntries(["@target", "@bang", "a[0]#read", "a[0]#write"].map(label =>
       [label, checks(mir, program.at(label)).map(point => point.failure)]));
     assert.deepEqual(kinds, {
-      "@target": [failing, failing], "@bang": [failing],
+      "@target": [failing, failing], "@bang": [failingAbsent],
       "a[0]#read": [policy.bounds === "abort" ? "abort" : "handler"], "a[0]#write": [failing],
     });
   });
 
-  test(`WT-6 order (${policy.bounds}): o.inner is read before f() and the store goes into that object`, () => {
+  test(`WT-6 order (${policy.bounds}/${policy.absent}): each read and each store stands where the source evaluates it`, () => {
+    const program = wt6(policy).order;
+    const mir = lower(program);
+    const path = walk(mir);
+    const position = predicate => indexOfEvent(path, predicate);
+    const terminatorOf = point => position(item => item.statement === null && item.block === point.block);
+    // a[i()] += f(). Section 7 part 8, WT-6: "the index check … at the read". The element is read between its first
+    // check and f(), and stored after the second check through the place that check resolved (graph law 3).
+    const [firstCheck, secondCheck] = checks(mir, program.at("@target")).sort((one, other) => terminatorOf(one) - terminatorOf(other));
+    const read = position(item => item.statement !== null && readsPlace(mir, item, firstCheck.record.place));
+    const stored = path.events.findLastIndex(item => storesPlace(mir, item, secondCheck.record.place));
+    const callF = position(item => item.statement === null && item.node === program.at("f()#1"));
+    assert.ok(terminatorOf(firstCheck) < read && read < callF, "the element is read after its check and before f()");
+    assert.ok(callF < terminatorOf(secondCheck) && terminatorOf(secondCheck) < stored, "the element is stored after the second check");
+    // opt!.count += (opt = undefined, 1): `count` is read before the right-hand side is evaluated.
+    const readCount = position(item => item.statement !== null && operandPlacesOf(item).some(place => fieldKeyOf(mir, place) === "count"));
+    const assigned = position(item => item.statement !== null && item.kind === "assign" && item.node === program.at("opt=undefined"));
+    assert.ok(readCount !== -1 && readCount < assigned, "count is read before opt is assigned");
+    // try { return a[0]; } finally { a[0] = 0; }: the result is read before the cleanup stores, and what is returned
+    // is the value read, not the element after the store.
+    const readCheck = checks(mir, program.at("a[0]#read"))[0];
+    const writeCheck = checks(mir, program.at("a[0]#write"))[0];
+    const readFirst = position(item => item.statement !== null && readsPlace(mir, item, readCheck.record.place));
+    const storeFirst = position(item => storesPlace(mir, item, writeCheck.record.place));
+    assert.ok(readFirst !== -1 && readFirst < storeFirst, "a[0] is read before the cleanup stores into it");
+    const returned = path.events.at(-1);
+    assert.equal(returned.kind, "return");
+    assert.equal(readsPlace(mir, returned, readCheck.record.place) || readsPlace(mir, returned, writeCheck.record.place), false);
+  });
+
+  test(`WT-6 order (${policy.bounds}/${policy.absent}): o.inner is read before f() and the store goes into that object`, () => {
     const program = wt6(policy).order;
     const mir = lower(program);
     // Section 7 part 8, WT-6: "`o.inner` read before `f()` and the store into that object". R11: a reference receiver
@@ -154,7 +199,7 @@ for (const policy of POLICIES) {
     assert.equal(storedChainLengthOf(mir, path.events[storeX]), 2);
   });
 
-  test(`WT-6 order (${policy.bounds}): opt is tested once before the right-hand side and is not read again`, () => {
+  test(`WT-6 order (${policy.bounds}/${policy.absent}): opt is tested once before the right-hand side and is not read again`, () => {
     const program = wt6(policy).order;
     const mir = lower(program);
     // Section 7 part 8, WT-6: "`opt` is read and tested once, before the right-hand side. Its type is held by reference,
@@ -171,7 +216,7 @@ for (const policy of POLICIES) {
     assert.equal(writesOf(mir, storedRootOf(mir, path.events[store])), 1);
   });
 
-  test(`WT-6 order (${policy.bounds}): a failing read inside try runs finally only when the failure unwinds`, () => {
+  test(`WT-6 order (${policy.bounds}/${policy.absent}): a failing read inside try runs finally only when the failure unwinds`, () => {
     const program = wt6(policy).order;
     const mir = lower(program);
     // R6: every abnormal exit passes through each enclosing cleanup once. R1 and COMMON-DATA §10: a failure that ends
@@ -183,18 +228,17 @@ for (const policy of POLICIES) {
   });
 
   // Section 7 part 8, WT-6: "in `orderGrow` the callee appends to the same array … in `orderFixed` the extent cannot change
-  // and no second control point is lowered". LowerMir reads no summary. Whether the checked extent can change must be a
-  // fact of the access decision; its name and carrier are with Codex (C-3181; R2 K-1). The three inputs below differ
-  // in the parent's type and the receiver mode only, so these cases state their results and wait for that field.
-  const WAITS_EXTENT = { todo: "waits for C-3181: the decision field that says whether the checked extent can change" };
+  // and no second control point is lowered". LowerMir reads no summary and no type: whether the checked extent can
+  // change is the `extent` of the element access decision (K-3238 point 1; W2's field), set in each input. `order`
+  // above carries the same fact, `mutable` (R1 E-1). These cases run when the MIR verifier reads the field (H2).
 
-  test(`WT-6 orderGrow (${policy.bounds}): a call between the read and the store over a growable carrier: a second control point`, WAITS_EXTENT, () => {
+  test(`WT-6 orderGrow (${policy.bounds}/${policy.absent}): a call between the read and the store over a growable carrier: a second control point`, () => {
     const program = wt6(policy).orderGrow;
     const mir = lower(program);
     assert.deepEqual(labelled(program, nodesOn(walk(mir))), ["i()", "@target", "grow(a)", "@target", "a[0]"]);
   });
 
-  test(`WT-6 orderFixed (${policy.bounds}): a fixed extent held in place: no second control point`, WAITS_EXTENT, () => {
+  test(`WT-6 orderFixed (${policy.bounds}/${policy.absent}): a fixed extent held in place: no second control point`, () => {
     const program = wt6(policy).orderFixed;
     const mir = lower(program);
     assert.deepEqual(labelled(program, nodesOn(walk(mir))), ["i()", "@target", "f()"]);
@@ -204,7 +248,22 @@ for (const policy of POLICIES) {
     assert.equal(checkedPlace(mir, checks(mir)[0]).parentRoot, sourceLocal(mir, 0));
   });
 
-  test(`WT-6 orderFixedByReference (${policy.bounds}): a fixed extent held by reference: no second control point`, WAITS_EXTENT, () => {
+  test(`WT-6 orderInPlace (${policy.bounds}/${policy.absent}): a narrowed type held in place is tested again after the right-hand side`, () => {
+    const program = wt6(policy).orderInPlace;
+    const mir = lower(program);
+    // Section 7 part 8, the WT-6 row, for a type held in place: the place is "resolved again after the right-hand
+    // side and tested against what the variable then holds". The store goes into the variable's own storage.
+    const path = walk(mir);
+    assert.deepEqual(labelled(program, nodesOn(path)), ["@bang", "@bang"]);
+    assert.deepEqual(checks(mir, program.at("@bang")).map(point => point.failure), [failingAbsent, failingAbsent]);
+    const tests = path.events.map((item, index) => item.statement === null && item.kind === "check" ? index : -1).filter(index => index !== -1);
+    const assignment = indexOfEvent(path, item => item.statement !== null && item.kind === "assign" && item.node === program.at("opt=undefined"));
+    const store = path.events.findLastIndex(item => storesField(mir, item, "count"));
+    assert.ok(tests[0] < assignment && assignment < tests[1] && tests[1] < store);
+    assert.equal(storedRootOf(mir, path.events[store]), sourceLocal(mir, 0));
+  });
+
+  test(`WT-6 orderFixedByReference (${policy.bounds}/${policy.absent}): a fixed extent held by reference: no second control point`, () => {
     const program = wt6(policy).orderFixedByReference;
     const mir = lower(program);
     // The receiver mode is "by reference" and the extent is fixed: reference does not mean growable.
@@ -213,15 +272,17 @@ for (const policy of POLICIES) {
   });
 }
 
-test("WT-6: the two failure policies give the same graph except for the failure kind of the same checks", () => {
+test("WT-6: the failure policies give the same graph except for the failure kind of the same checks", () => {
   // WALKTHROUGH-PROGRAMS WT-6: "the MIR differs only in the failure edge of the same test (K-3212 point 3)".
-  const [unwinding, aborting] = POLICIES.map(policy => wt6(policy));
-  for (const name of ["orderGrow", "orderFixed", "orderFixedByReference"])
-    assert.deepEqual(withoutFailureKinds(lower(aborting[name])), withoutFailureKinds(lower(unwinding[name])));
-  // `order` has a cleanup that an unwinding failure enters and a process-ending failure does not; the path that
-  // completes normally is the same under both.
-  const orders = [unwinding, aborting].map(programs => walk(lower(programs.order)).events.map(item => [item.kind, item.node]));
-  assert.deepEqual(orders[1], orders[0]);
+  const [reference, ...others] = POLICIES.map(policy => wt6(policy));
+  const normalPath = programs => walk(lower(programs.order)).events.map(item => [item.kind, item.node]);
+  for (const programs of others) {
+    for (const name of ["orderGrow", "orderFixed", "orderFixedByReference", "orderInPlace"])
+      assert.deepEqual(withoutFailureKinds(lower(programs[name])), withoutFailureKinds(lower(reference[name])));
+    // `order` has a cleanup that an unwinding failure enters and a process-ending failure does not; the path that
+    // completes normally is the same under every policy.
+    assert.deepEqual(normalPath(programs), normalPath(reference));
+  }
 });
 
 // ---- WT-4 -----------------------------------------------------------------------------------
@@ -234,9 +295,8 @@ test("WT-4 f: three entries by supplied count; a default runs only in the entry 
   // R7 and section 7 part 8, WT-4: "`f` has three entries", one per admissible count of supplied fixed arguments.
   // Graph law 7 says they are ordered by supplied count; the cases below find each entry by its count, not by its
   // position or block.
-  assert.deepEqual([...providedCountsOf(mir)].sort(), [0, 1, 2]);
-  const ordered = providedCountsOf(mir);
-  assert.ok(ordered.every((count, index) => index === 0 || count < ordered[index - 1]) || ordered.every((count, index) => index === 0 || count > ordered[index - 1]));
+  // Graph law 7 as the foundation enforces it: the full count first, each next count one less.
+  assert.deepEqual(providedCountsOf(mir), [2, 1, 0]);
   const entryOf = provided => providedCountsOf(mir).indexOf(provided);
   const defaults = provided => internalCalls(walk(mir, { entry: entryOf(provided) })).map(calleeNameOf);
   // WT-4: "the default body runs only for an omitted argument"; "a default that reads an earlier parameter": x's
@@ -277,6 +337,11 @@ test("WT-4 calls: an omitted argument is represented as omitted; a supplied abse
   assert.deepEqual(shape("f(undefined)"), [["value", "omitted"]]);
   assert.deepEqual(shape("f(1)"), [["value", "omitted"]]);
   assert.deepEqual(shape("f(1,2)"), [["value", "value"]]);
+  // The supplied absence is the absence constant; a supplied 1 is the number (R1 section 4).
+  const firstArgument = label => argumentConstantOf(mir, at(mir, programs.calls.at(label), "call")[0], 0);
+  assert.equal(firstArgument("f(null)"), null);
+  assert.equal(firstArgument("f(undefined)"), null);
+  assert.equal(firstArgument("f(1)"), 1n);
   // No default executes at a call site.
   assert.deepEqual(internalCalls(walk(mir)), []);
   // R5: the five calls execute in authored order.
@@ -325,7 +390,6 @@ test("S-7: static initializer and static block run at the class declaration in m
 
 // ---- S-2 ------------------------------------------------------------------------------------
 
-const ITERATION_DONE = def("iterate.done");
 const squash = items => items.filter((item, index) => index === 0 || item !== items[index - 1]);
 
 test("S-2 switch: clauses run in source order with fallthrough; default only when no case matches", () => {
@@ -337,7 +401,7 @@ test("S-2 switch: clauses run in source order with fallthrough; default only whe
   // Each case clause carries the selected equality of its test (NEEDS-W4 G1); the walk answers the test of each clause
   // at the clause's own occurrence, in authored order. Lowering chooses neither the comparison nor the order.
   const run = k => {
-    const path = walk(mir, { decide: point => point.kind !== "switch" ? "normal" : branchesOn(mir, point, ITERATION_DONE) ? true
+    const path = walk(mir, { decide: point => point.kind !== "switch" ? "normal" : isCompletionBranch(point) ? true
       : point.node === program.at("case 1") ? k === 1 : point.node === program.at("case 2") ? k === 2 : "otherwise" });
     assert.equal(path.end, "return");
     return squash(labelled(program, statementsOn(path).filter(item => clauses.has(item.node)).map(item => item.node)));
@@ -346,7 +410,7 @@ test("S-2 switch: clauses run in source order with fallthrough; default only whe
   assert.deepEqual(run(2), ["r+=2"]);
   assert.deepEqual(run(3), ["r=9"]);
   // The tests run in authored order, each once: with no match, case 1 is tested before case 2.
-  const unmatched = walk(mir, { decide: point => point.kind !== "switch" ? "normal" : branchesOn(mir, point, ITERATION_DONE) ? true : false });
+  const unmatched = walk(mir, { decide: point => point.kind !== "switch" ? "normal" : isCompletionBranch(point) ? true : false });
   const tests = unmatched.events.filter(item => item.statement === null && item.kind === "switch" &&
     (item.node === program.at("case 1") || item.node === program.at("case 2"))).map(item => item.node);
   assert.deepEqual(labelled(program, tests), ["case 1", "case 2"]);
@@ -367,12 +431,41 @@ test("S-2 labels: continue outer and break outer leave through each iteration cl
   } });
   assert.equal(path.end, "return");
   assert.deepEqual(answers, []);
-  const trace = path.events.map(item => item.statement === null && operationName(item.record) === def("iterate.next") ? "next"
-    : item.statement === null && operationName(item.record) === def("iterate.finish") ? "finish"
+  const trace = path.events.map(item => item.statement === null && namesStep(item, ARRAY_STEP.next) ? "next"
+    : item.statement === null && namesStep(item, ARRAY_STEP.finish) ? "finish"
     : item.statement !== null && item.node === program.at("r+=v") ? "add" : null).filter(item => item !== null);
   // One addition may be several statements of the same occurrence; they count once.
   assert.deepEqual(trace.filter((item, index) => !(item === "add" && trace[index - 1] === "add")),
     ["next", "next", "add", "next", "finish", "next", "next", "add", "next", "finish", "finish"]);
+  // R6 "in order": `continue outer` closes the inner iteration; `break outer` closes the inner one, then the outer one.
+  const closed = path.events.filter(item => item.statement === null && namesStep(item, ARRAY_STEP.finish)).map(item => item.node);
+  assert.deepEqual(labelled(program, closed), ["for v", "for v", "for row"]);
+  // R10: a binding of an iteration is begun again by each iteration: `row` twice, `v` four times on this path.
+  const begun = local => path.events.filter(item => item.statement !== null && item.kind === "storage-live" && item.record.local === sourceLocal(mir, local)).length;
+  assert.equal(begun(3), 2);
+  assert.equal(begun(4), 4);
+  // Graph law 8: a parameter is present on entry and carries no marker.
+  assert.deepEqual([0, 1].flatMap(parameter => markersOf(mir, sourceLocal(mir, parameter))), []);
+});
+
+test("S-2 steps: every record of an iteration names its step; each loop has one completion branch", () => {
+  const program = s2().program;
+  const mir = lower(program);
+  for (const label of ["for row", "for v"]) {
+    // R4: a protocol step "says which step of which protocol it is; the edge on which an iteration is complete is
+    // identifiable from the record". Graph laws 6 and 9: each step is one record.
+    const records = controlPoints(mir).filter(point => point.node === program.at(label) && point.kind === "invoke");
+    for (const [role, index] of Object.entries(ARRAY_STEP)) {
+      const named = records.filter(point => namesStep(point, index));
+      assert.equal(named.length, 1, `${label} ${role}`);
+      // The record executes the operation of the step it names: the decision's, not one lowering chose (R12).
+      assert.equal(operationName(named[0].record), def(`iterate.${role}`));
+    }
+    assert.equal(records.every(point => point.step !== null), true);
+    const branches = controlPoints(mir).filter(point => point.node === program.at(label) && isCompletionBranch(point));
+    assert.equal(branches.length, 1);
+    assert.equal(namesStep(branches[0], ARRAY_STEP.done), true);
+  }
 });
 
 // ---- S-3 ------------------------------------------------------------------------------------
@@ -387,6 +480,9 @@ for (const variant of ["unwind", "abort"]) {
     const call = at(mir, program.at("risky(n)"), "call");
     assert.equal(call.length, 1);
     assert.equal(call[0].failure, "handler");
+    // The handler edge delivers the thrown value into the storage of `e`, and `throw e` reads it (-102 depends on it).
+    assert.equal(rootLocalOf(mir, call[0].record.unwind.exception), sourceLocal(mir, 1));
+    assert.equal(readsLocal(mir, at(mir, program.at("throw e"), "throw")[0], sourceLocal(mir, 1)), true);
     // `s3(4)` is 4: the normal path executes the call and returns.
     const normal = walk(mir);
     assert.deepEqual(labelled(program, nodesOn(normal)), ["risky(n)"]);
@@ -429,6 +525,8 @@ test("S-6 using: disposal runs once on every exit, after the result is read and 
   const readsLength = item => readsField(mir, item, "length");
   // R5 and graph law 9: the dispose step is emitted once; R6: every exit of the scope passes through it once.
   assert.equal(controlPoints(mir).filter(isDispose).length, 1);
+  // R4: the disposal names its step of the declaration's dispose protocol.
+  assert.equal(namesStep(controlPoints(mir).filter(isDispose)[0], 0), true);
   // S-6 oracle: `s6([], false)` is 0 "with the log holding one entry afterwards (the result is read before disposal)".
   const returned = walk(mir, { decide: point => point.kind === "switch" ? false : "normal" });
   assert.equal(returned.end, "return");
@@ -444,6 +542,12 @@ test("S-6 using: disposal runs once on every exit, after the result is read and 
   // A failure of the construction itself happens before the resource exists: no disposal on that path.
   const unbuilt = walk(mir, { decide: point => point.node === program.at("new Res(log)") ? "unwind" : "normal" });
   assert.equal(unbuilt.events.filter(isDispose).length, 0);
+  // The construction stands inside `try`: its failure goes to the handler, and that path returns from the catch block.
+  assert.equal(at(mir, program.at("new Res(log)"), "call")[0].failure, "handler");
+  assert.equal(unbuilt.end, "return");
+  // R10: the slot of `r` outlives the cleanup that reads it: no end marker of `r` precedes the disposal.
+  const ended = indexOfEvent(returned, item => item.statement !== null && item.kind === "storage-dead" && item.record.local === sourceLocal(mir, 2));
+  assert.ok(ended === -1 || indexOfEvent(returned, isDispose) < ended);
 });
 
 // ---- WT-9 -----------------------------------------------------------------------------------
@@ -457,24 +561,25 @@ test("WT-9 all: handle creation and suspension are separate control points; fina
   const suspension = at(mir, program.at("await"), "await");
   assert.equal(call.length, 1);
   assert.equal(suspension.length, 1);
-  assert.notEqual(call[0].block, suspension[0].block);
   assert.deepEqual(edgesOf(suspension[0].record).map(edge => edge.edge), ["resume", "unwind"]);
+  // R4: the suspension names the await step of its node's protocol.
+  assert.equal(namesStep(suspension[0], 0), true);
+  // Graph law 9: the cleanup's code is emitted in one block, not once per exit.
+  assert.equal(blocksWithStatementAt(mir, program.at("out+=.")).length, 1);
+  const cleanup = blocksWithStatementAt(mir, program.at("out+=."))[0].id;
   // One element, then the iteration is complete.
   let asked = 0;
-  const once = point => point.kind === "switch" && branchesOn(mir, point, ITERATION_DONE) ? (asked++ > 0) : "normal";
-  const finals = path => path.events.filter(item => item.statement !== null && item.node === program.at("out+=.")).length;
+  const once = point => point.kind === "switch" && isCompletionBranch(point) ? (asked++ > 0) : "normal";
   const resumed = walk(mir, { decide: once });
   assert.equal(resumed.end, "return");
   assert.ok(indexOfEvent(resumed, item => item.statement === null && item.node === program.at("load(id)")) <
     indexOfEvent(resumed, item => item.statement === null && item.kind === "await"));
-  assert.ok(finals(resumed) >= 1);
+  assert.equal(entriesInto(resumed, cleanup), 1);
   // R6: an unwinding exit at the suspension passes through the enclosing cleanup once and leaves the body.
   asked = 0;
   const failed = walk(mir, { decide: point => point.kind === "await" ? "unwind" : once(point) });
   assert.equal(failed.end, "unwind");
-  assert.ok(finals(failed) >= 1);
-  // Graph law 9: the cleanup's code is emitted in one block, not once per exit.
-  assert.equal(blocksWithStatementAt(mir, program.at("out+=.")).length, 1);
+  assert.equal(entriesInto(failed, cleanup), 1);
 });
 
 test("WT-9 take: a yield has the three exits resume, consumer finish and unwind", () => {
@@ -483,10 +588,21 @@ test("WT-9 take: a yield has the three exits resume, consumer finish and unwind"
   // COMMON-DATA §4: suspension; resumption; "finite exit … by the consumer finishing it". R3.
   const suspension = at(mir, program.at("yield i"), "yield");
   assert.equal(suspension.length, 1);
-  assert.deepEqual(edgesOf(suspension[0].record).map(edge => edge.edge).slice(0, 2), ["resume", "return"]);
-  const finished = walk(mir, { decide: point => point.kind === "switch" ? true : point.kind === "yield" ? "return" : "normal" });
+  assert.equal(namesStep(suspension[0], 0), true);
+  // No handler encloses the yield: a failure sent in leaves the body.
+  assert.equal(suspension[0].failure, "escape");
+  const incremented = path => path.events.filter(item => item.statement !== null && item.node === program.at("i++")).length;
+  const exit = choice => { let asked = 0; return walk(mir, { decide: point => point.kind === "switch" ? asked++ === 0 : point.kind === "yield" ? choice : "normal" }); };
+  // Resumption continues the loop: the increment runs, the condition is asked again, the body returns.
+  const resumed = exit("resume");
+  assert.equal(resumed.end, "return");
+  assert.ok(incremented(resumed) >= 1);
+  // The consumer finishing leaves at once: nothing of the loop runs after the yield.
+  const finished = exit("return");
   assert.equal(finished.end, "return");
+  assert.equal(incremented(finished), 0);
   assert.deepEqual(labelled(program, nodesOn(finished)), ["yield i"]);
+  assert.equal(exit("unwind").end, "unwind");
 });
 
 test("WT-9 guarded: every exit of a suspension passes through the enclosing cleanup once", () => {
@@ -504,7 +620,7 @@ test("WT-9 guarded: every exit of a suspension passes through the enclosing clea
 // ---- WT-10 ----------------------------------------------------------------------------------
 
 for (const policy of POLICIES) {
-  test(`WT-10 read (${policy.absent}): every narrowed use and every index carries its check`, () => {
+  test(`WT-10 read (${policy.bounds}/${policy.absent}): every narrowed use and every index carries its check`, () => {
     const program = wt10(policy).program;
     const mir = lower(program);
     // Section 7 part 8, WT-10: "every narrowed use carries its check whether or not it will be proved". R1: "no check
@@ -563,8 +679,12 @@ test("WT-5: an erroneous or still-deferred body is a caller defect; an independe
   const programs = wt5();
   // Section 7 part 7: "a body with a deferred decision, a deferred conversion or an error resolution … Thrown as
   // defects, never diagnostics". Part 8, WT-5: "graphs of the others are unaffected".
-  assert.throws(() => lowerToMir(deps, programs.broken.tir, []), TypeError);
-  assert.throws(() => lowerToMir(deps, programs.deferred.tir, []), TypeError);
+  assert.throws(() => lowerToMir(deps, programs.broken.tir, []), defectOfLowerMir);
+  assert.throws(() => lowerToMir(deps, programs.deferred.tir, []), defectOfLowerMir);
+  // Part 7, the other caller defects: "an initializer execution with no supplied body data" (WT-4 `f` without the
+  // data of its two defaults) and "a node kind the admitted vocabulary excludes".
+  assert.throws(() => lowerToMir(deps, wt4().f.tir, []), defectOfLowerMir);
+  assert.throws(() => lowerToMir(deps, excluded().program.tir, []), defectOfLowerMir);
   const mir = lower(programs.independent);
   assert.deepEqual(effects(mir), []);
   assert.equal(walk(mir).end, "return");
@@ -580,6 +700,88 @@ test("S-1: the source of a destructuring is evaluated once", () => {
   assert.equal(labelled(program, nodesOn(walk(mir)))[0], "pair()");
   // Whether a position of the pattern needs a check is the selected access of that binding element, which the typed
   // body does not carry yet (NEEDS-W4 G2); nothing is asserted about checks here.
+});
+
+// ---- clauses that had no case (R1 section 5) and the activation ruling ---------------------------
+
+test("an operation that can fail is a control point with the selected failure kind; a pure one is a statement", () => {
+  // R1, R2, R12; COMMON-DATA §3 Operation. `try { return a / b; } catch { return 0; }` with `/` selected three ways.
+  const { unwinding, aborting, pure } = quotients();
+  const failing = { decide: point => point.kind === "invoke" ? "unwind" : "normal" };
+  let mir = lower(unwinding);
+  assert.deepEqual(at(mir, unwinding.at("a/b")).map(point => [point.kind, point.failure]), [["invoke", "handler"]]);
+  assert.equal(walk(mir, failing).end, "return");
+  mir = lower(aborting);
+  assert.deepEqual(at(mir, aborting.at("a/b")).map(point => [point.kind, point.failure]), [["invoke", "abort"]]);
+  assert.equal(walk(mir, failing).end, "abort");
+  mir = lower(pure);
+  assert.deepEqual(at(mir, pure.at("a/b")), []);
+  assert.equal(statementsOn(walk(mir)).filter(item => valueKindOf(item) === "binary" && item.node === pure.at("a/b")).length, 1);
+});
+
+test("a required parameter before a default: entries for the counts 2 and 1, none for 0", () => {
+  const { program, internal, B_DEFAULT } = scaled();
+  const mir = lower(program, internal);
+  // R7: one entry per admissible count of supplied fixed arguments. `scaled(a, b = 2)` cannot be called with none.
+  assert.deepEqual(providedCountsOf(mir), [2, 1]);
+  const defaults = provided => internalCallsOn(walk(mir, { entry: providedCountsOf(mir).indexOf(provided) })).map(calleeNameOf);
+  assert.deepEqual(defaults(2), []);
+  assert.deepEqual(defaults(1), [B_DEFAULT]);
+});
+
+test("a return out of an iteration passes through its finish step once", () => {
+  const { program } = firstZero();
+  const mir = lower(program);
+  // R6: every transfer out of a scope passes through each enclosing cleanup once. One element, equal to 0.
+  const path = walk(mir, { decide: point => point.kind !== "switch" ? "normal" : isCompletionBranch(point) ? false : true });
+  assert.equal(path.end, "return");
+  const steps = path.events.filter(item => item.statement === null && item.node === program.at("for") && item.step !== null && item.kind === "invoke");
+  assert.equal(steps.filter(item => namesStep(item, ARRAY_STEP.next)).length, 1);
+  assert.equal(steps.filter(item => namesStep(item, ARRAY_STEP.finish)).length, 1);
+  assert.equal(namesStep(steps.at(-1), ARRAY_STEP.finish), true);
+});
+
+test("deep nesting lowers without native recursion in proportion to it", () => {
+  // Section 7 part 7. 20000 nested parentheses around a literal.
+  const mir = lower(deep(20000).program);
+  assert.equal(walk(mir).end, "return");
+  assert.deepEqual(effects(mir), []);
+});
+
+test("activation: the caller records creation, mode and drive; nothing in its graph stands for the callee's activation", () => {
+  const { program } = handles();
+  const mir = lower(program);
+  // K-3239 item 4: one canonical event, the first entry of the callee's execution, per actual handle activation. The
+  // caller records the selected mode and the connection, and never a second activation event.
+  const creation = label => at(mir, program.at(label), "call");
+  const loop = program.at("for v");
+  // Two outer iterations, each driving its handle to one value and then to completion.
+  const outer = [true, true, false];
+  const inner = [false, true, false, true];
+  const path = walk(mir, { decide: point => point.kind !== "switch" ? "normal" : isCompletionBranch(point) ? inner.shift() : outer.shift() });
+  assert.equal(path.end, "return");
+  // Distinct handles from the same creation site: one record, executed once per handle.
+  assert.equal(creation("gen()#loop").length, 1);
+  assert.equal(path.events.filter(item => item.statement === null && item.kind === "call" && item.node === program.at("gen()#loop")).length, 2);
+  assert.equal(activationOf(creation("gen()#loop")[0]), ACTIVATION.deferred);
+  // First drive, repeated drive: one `next` record, a call of the handle's member, run once per drive (two per handle).
+  const drives = path.events.filter(item => item.statement === null && item.node === loop && namesStep(item, GENERATOR_STEP.next));
+  assert.equal(drives.length, 4);
+  assert.equal(new Set(drives.map(item => item.block)).size, 1);
+  assert.equal(drives[0].kind, "call");
+  // An entry that throws under the deferred mode surfaces at the drive, which is not inside the `try`.
+  assert.equal(drives[0].failure, "escape");
+  // A handle never driven: its creation is one record and nothing reads the handle.
+  assert.equal(creation("gen()#idle").length, 1);
+  assert.deepEqual(recordsOf(mir).filter(item => readsLocal(mir, item, sourceLocal(mir, 4))), []);
+  // Immediate mode: one creating call that carries the mode; an entry that throws unwinds it into the handler.
+  assert.equal(creation("fetched(1)").length, 1);
+  assert.equal(activationOf(creation("fetched(1)")[0]), ACTIVATION.atCreation);
+  assert.equal(creation("fetched(1)")[0].failure, "handler");
+  // Nothing in this graph stands for an activation: no call of a body, no suspension, and no step outside the loop's node.
+  assert.deepEqual(recordsOf(mir).filter(isInternalCall), []);
+  assert.deepEqual(effects(mir).filter(point => point.kind === "await" || point.kind === "yield" || point.kind === "delegate"), []);
+  assert.equal(recordsOf(mir).filter(item => item.step !== null).every(item => item.node === loop), true);
 });
 
 // ---- the limit ------------------------------------------------------------------------------

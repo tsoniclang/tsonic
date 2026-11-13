@@ -4,8 +4,16 @@
 import { N } from "./names.mjs";
 
 export const MODULE = "M[P[p];m]";
-export const def = name => `D[${MODULE};${name}]`;
-export const bodyId = (name, role = "function", ordinal = 0) => `B[${def(name)};${role};${ordinal}]`;
+// Every definition and body identity a program names is recorded, so that the MIR verifier's context can answer for it.
+const KNOWN = new Set();
+const OWNERS = new Map();
+const ENDPOINTS = new Map();
+export const def = name => { const id = `D[${MODULE};${name}]`; KNOWN.add(id); return id; };
+export const bodyId = (name, role = "function", ordinal = 0) => {
+  const id = `B[${def(name)};${role};${ordinal}]`;
+  OWNERS.set(id, def(name));
+  return id;
+};
 export const PARAMETRIC = Object.freeze({ kind: "parametric" });
 export const EMPTY_BINDINGS = Object.freeze({ classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] });
 export const instanceOf = (name, role = "function") => ({ body: bodyId(name, role), bindings: PARAMETRIC });
@@ -64,7 +72,9 @@ export const typedOperation = decision => ({ decision, permissionScope: null });
 export const decided = decision => ({ kind: "decided", decision });
 export const operation = decision => decided(typedOperation(decision));
 export const direct = receiver => ({ kind: N.direct, [N.receiver]: receiver });
-export const checked = (failure, receiver) => ({ kind: N.checked, [N.failure]: failure, [N.receiver]: receiver });
+// `extent` is given for an element at a run-time position and for nothing else (a member with a constant key has none).
+export const checked = (failure, receiver, extent = null) =>
+  ({ kind: N.checked, [N.failure]: failure, [N.receiver]: receiver, ...(extent === null ? {} : { [N.extent]: extent }) });
 // The key of an index decision whose key is not a compile-time value is undecided (NEEDS-W4 A8 note).
 export const DYNAMIC_KEY = null;
 export const memberDecision = (key, read, write, location) => ({
@@ -75,8 +85,20 @@ export const selection = (key, read, write, location) =>
 export const narrowed = (source, result, failure) =>
   ({ kind: "narrowed", source, result, proof: { kind: "identity" }, [N.failure]: failure });
 
-export const endpoint = (name, role, signatureId, withBody = true) =>
-  ({ declaration: def(name), role, signature: signatureId, body: withBody ? bodyId(name) : null });
+export const endpoint = (name, role, signatureId, withBody = true) => {
+  const made = { declaration: def(name), role, signature: signatureId, body: withBody ? bodyId(name) : null };
+  const family = ENDPOINTS.get(made.declaration) ?? [];
+  if (!family.some(other => other.role === made.role && other.signature === made.signature && other.body === made.body)) family.push(made);
+  ENDPOINTS.set(made.declaration, family);
+  return made;
+};
+const NO_SCOPE = Object.freeze({ classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] });
+/** The context `verifyMir` needs for a graph lowered from `program`: its typed body, the type table, and the declarations and body owners the programs name. */
+export const verificationContext = program => ({
+  limits: { maximumMergeWork: 1000000 }, source: program.tir, types: TABLE,
+  declarationOf: definition => KNOWN.has(definition) ? { scope: NO_SCOPE, parameterCount: 0, endpoints: ENDPOINTS.get(definition) ?? [] } : null,
+  bodyOwner: body => OWNERS.get(body) ?? null,
+});
 export const mapped = (parameter, argument, passing = "by-value") =>
   ({ kind: "argument", parameter, argument, component: null, passing });
 export const omittedMapping = (parameter, type) => ({ kind: "omitted", parameter, type });
@@ -240,6 +262,19 @@ export const core = (name, operands, result, execution) =>
   selected({ kind: "core", declaration: def(name), bindings: EMPTY_BINDINGS }, operands, result, execution);
 export const library = (name, operands, result, execution) =>
   selected({ kind: "library", declaration: def(name), bindings: EMPTY_BINDINGS }, operands, result, execution);
+/** The position of each step in the iteration protocol below; a record that performs a step names { protocol, step }. */
+export const ARRAY_STEP = Object.freeze({ acquire: 0, next: 1, done: 2, value: 3, finish: 4 });
+/** A body `return ((…(7)…));` with `depth` parentheses. Built without recursion: the sealing walk above is recursive. */
+export function deepBody(name, signatureId, depth) {
+  const program = typedBody(name, { signature: signatureId, completion: T.int32, root: { kind: "Block", statements: list(), multiLine: true, tsonic: null } });
+  const node = (id, parent, rest) => ({ id, origin: { module: MODULE, start: id, length: 1, derived: [] }, parent, flags: [], loc: LOC, ...rest });
+  let expression = node(depth + 2, depth + 1, { kind: "NumericLiteral", text: "7", tokenFlags: [],
+    tsonic: { ...value(T.int32), role: "value", value: { numerator: 7n, denominator: 1n, negativeZero: false } } });
+  for (let id = depth + 1; id >= 2; id -= 1) expression = node(id, id - 1, { kind: "ParenthesizedExpression", expression, tsonic: value(T.int32) });
+  const returned = node(1, 0, { kind: "ReturnStatement", expression, tsonic: null });
+  program.tir.root = node(0, null, { kind: "Block", statements: { loc: LOC, nodes: [returned] }, multiLine: true, tsonic: null });
+  return { ...program, nodeCount: depth + 3 };
+}
 /** The iteration protocol selected for a dense array of `element`: Core steps, with a `finish` step when `finish` is true. */
 export const arrayIteration = (subject, element, { finish = false } = {}) => protocol("iterate", [
   step("acquire", core("iterate.acquire", [subject], T.unknown, invoking(N.failureNone, N.effectRead))),

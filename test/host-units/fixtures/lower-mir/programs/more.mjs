@@ -99,7 +99,7 @@ export function wt10(policy) {
           b.property(b.id("a", 1, T.int32Array), "length", b.read(T.int32, selection("length", T.int32, null, direct(N.reference)))), LESS) },
         b.postfix(b.target("i", 3, T.int32, { kind: "read-write", storage: T.int32, read: T.int32, narrowing: null, evidenceIndex: null }), "PlusPlusToken", T.int32, T.int32, ADD),
         compound(b, 2, { $: "a[i]", ...b.element(b.id("a", 1, T.int32Array), b.id("i", 3, T.int32),
-          b.read(T.int32, selection(DYNAMIC_KEY, T.int32, T.int32, checked(policy.bounds, N.reference)))) }, "sum+=a[i]", ADD, T.int32)) },
+          b.read(T.int32, selection(DYNAMIC_KEY, T.int32, T.int32, checked(policy.bounds, N.reference, N.extentMutable)))) }, "sum+=a[i]", ADD, T.int32)) },
       b.ifElse(guard("guard#1"), b.block(b.expressionStatement(direct0(b, "pure", SIG_PURE, T.void, "pure()")),
         compound(b, 2, narrowedV("o.x#1", "o.x.v#1"), "sum+=o.x.v", ADD, T.int32))),
       b.ifElse(guard("guard#2"), b.block(

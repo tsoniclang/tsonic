@@ -51,9 +51,12 @@ export function constantValue(mir, id) {
 const event = (mir, block, record, statement) => ({
   block: block.id, statement, kind: record.kind, node: record.tir.node,
   failure: statement === null ? failureOf(record) : null,
-  step: statement === null && "step" in record ? record.step : null, record,
+  step: "step" in record ? record.step : null, record,
 });
 
+/** Every statement and terminator of the body, in block order. */
+export const recordsOf = mir => mir.blocks.flatMap(block => [...block.statements.map((statement, index) => event(mir, block, statement, index)),
+  event(mir, block, block.terminator, null)]);
 /** Every control point of the body, in block order. */
 export const controlPoints = mir => mir.blocks.map(block => event(mir, block, block.terminator, null));
 export const effects = mir => controlPoints(mir).filter(point => EFFECT_KINDS.has(point.kind));
@@ -159,11 +162,63 @@ export const operationName = record => {
   const identity = record.operation.decision.operation;
   return identity.kind === "core" || identity.kind === "library" ? identity.declaration : null;
 };
-/** True when `point` is a switch whose operand was produced by an invoke of the named operation. */
-export function branchesOn(mir, point, declaration) {
-  if (point.kind !== "switch" || point.record.operand.kind !== "place") return false;
-  return mir.blocks.some(block => operationName(block.terminator) === declaration && block.terminator.destination === point.record.operand.place);
+/** True when the record names the given step: { protocol, step } as the contract's `MirStepRef`. */
+export const namesStep = (item, stepIndex, protocolIndex = 0) => item.step !== null && item.step.protocol === protocolIndex && item.step.step === stepIndex;
+/** True when `point` is the completion branch of an iteration: a switch that names a step. */
+export const isCompletionBranch = point => point.kind === "switch" && point.step !== null;
+/** The places an item reads: the operands of a statement's value or of a terminator, without its destination. */
+export function operandPlacesOf(item) {
+  const record = item.record;
+  const operands = [];
+  if (item.statement !== null) {
+    if (record.kind !== "assign") return [];
+    const value = record.value;
+    switch (value.kind) {
+      case "use": case "unary": case "convert": operands.push(value.operand); break;
+      case "binary": operands.push(value.left, value.right); break;
+      case "aggregate": operands.push(...(value.aggregate.elements ?? value.aggregate.fields.map(field => field.value))); break;
+      case "address-of": operands.push({ kind: "place", place: value.place }); break;
+      case "closure": operands.push(...value.captures.map(capture => ({ kind: "place", place: capture.place }))); break;
+      default: throw new Error(`Unknown value kind ${value.kind}.`);
+    }
+  } else {
+    switch (record.kind) {
+      case "switch": case "await": case "throw": operands.push(record.operand); break;
+      case "return": if (record.value !== null) operands.push(record.value); break;
+      case "yield": if (record.operand !== null) operands.push(record.operand); break;
+      case "delegate": operands.push(record.iterator); break;
+      case "invoke": operands.push(...record.operands); break;
+      case "call":
+        if (record.callee.kind === "indirect") operands.push(record.callee.operand);
+        if (record.receiver !== null) operands.push(record.receiver);
+        for (const argument of record.arguments) {
+          if (argument.kind === "value") operands.push(argument.operand);
+          else if (argument.kind === "place") operands.push({ kind: "place", place: argument.place });
+        }
+        break;
+      default: break;
+    }
+  }
+  return operands.filter(operand => operand.kind === "place").map(operand => operand.place);
 }
+/** True when the item reads `place` or a place based on it. */
+export const readsPlace = (mir, item, place) => operandPlacesOf(item).some(read => chainOf(mir, read).some(link => link.place === place));
+/** True when the statement stores into `place` or a place based on it. */
+export const storesPlace = (mir, item, place) => item.statement !== null && item.kind === "assign" &&
+  chainOf(mir, item.record.place).some(link => link.place === place);
+/** True when the item reads a place rooted at `local`. */
+export const readsLocal = (mir, item, local) => operandPlacesOf(item).some(read => rootLocalOf(mir, read) === local);
+/** How many times the path enters `block`. */
+export const entriesInto = (path, block) => path.events.filter((item, index) => item.block === block && (index === 0 || path.events[index - 1].block !== block)).length;
+/** The JavaScript value of the constant a call passes at `position`, or undefined when the argument is not a constant. */
+export const argumentConstantOf = (mir, item, position) => {
+  const argument = item.record.arguments[position];
+  return argument.kind === "value" && argument.operand.kind === "constant" ? constantValue(mir, argument.operand.constant) : undefined;
+};
+/** The storage markers of a local, as { kind, block, statement } in block order. */
+export const markersOf = (mir, local) => mir.blocks.flatMap(block => block.statements.map((statement, index) => ({ statement, block: block.id, index }))
+  .filter(item => (item.statement.kind === "storage-live" || item.statement.kind === "storage-dead") && item.statement.local === local)
+  .map(item => ({ kind: item.statement.kind, block: item.block, statement: item.index })));
 /**
  * Every path from an entry, taking each alternative of each switch the first time its block is reached. A block
  * reached again takes an alternative other than its first one, so that every loop is left. Bounded by `limit` paths.

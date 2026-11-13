@@ -9,6 +9,8 @@ export const N = Object.freeze({
   // A2, A3: MemberDecision
   location: "location", direct: "direct", checked: "checked", accessor: "accessor",
   receiver: "receiver", inPlace: "in-place", reference: "reference",
+  // H2: the extent of the carrier of an element access (W2's published name and values; the field lands after A1)
+  extent: "extent", extentFixed: "fixed", extentMutable: "mutable",
   // A5, A6, A7: closure, rest and grown constructions
   closure: "closure", construction: "construction", append: "append",
   // A9: activation of a handle-creating call
