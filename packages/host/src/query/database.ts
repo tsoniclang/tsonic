@@ -2,9 +2,9 @@ import type { Diagnostic, InvariantFailure, Result } from "../diag/contract.js";
 import { requirePresent } from "../diag/index.js";
 import type { KeyData } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
-import type { ClassifyCycle, CycleMember, Database, FactKey, Query, QueryComputation, QueryContext, QueryDependency, QueryLimits, QueryRequest, QueryScheduler, RunResult, TraceEvent } from "./contract.js";
+import type { ClassifyCycle, CycleMember, Database, FactKey, Query, QueryComputation, QueryContext, QueryDependency, QueryLimits, QueryRequest, QueryScheduler, RunResult, TraceEvent, TraceRecording } from "./contract.js";
 import type { MemoTable } from "./memo.js";
-import { leastFact, queryMemo, retainDiagnostics, retainResult, snapshotDiagnostics, snapshotStatistics, snapshotTrace } from "./memo.js";
+import { joinDiagnostics, leastFact, queryMemo, retainDiagnostics, retainRefusal, retainResult, snapshotDiagnostics, snapshotStatistics, snapshotTrace } from "./memo.js";
 
 interface Settlement {
   readonly commit: () => void;
@@ -16,7 +16,8 @@ interface Frame<Witness, Verdict> {
   readonly keys: Set<string>;
   readonly advance: () => void;
   readonly settle: (verdict: Verdict) => Settlement;
-  pending: QueryRequest<Witness> | undefined;
+  pending: { readonly witness: Witness } | undefined;
+  earned: readonly Diagnostic[];
 }
 
 type Stop =
@@ -33,7 +34,7 @@ const pendingFailure: InvariantFailure = ({ owner: "query", query: null, origin:
   message: "A suspended computation must hold the request it is waiting for." });
 
 export function createQueryDatabase<Inputs, Witness, Verdict>(
-  inputs: Inputs, limits: QueryLimits, classifyCycle: ClassifyCycle<Witness, Verdict>,
+  inputs: Inputs, limits: QueryLimits, classifyCycle: ClassifyCycle<Witness, Verdict>, recording: TraceRecording,
 ): Database<Inputs, Witness, Verdict> {
   const maximumRecords = limits.maximumRecords;
   if (!Number.isInteger(maximumRecords) || maximumRecords < 0) {
@@ -45,6 +46,8 @@ export function createQueryDatabase<Inputs, Witness, Verdict>(
   const published: Diagnostic[] = [];
   const abandoned = new Map<string, Map<string, readonly Diagnostic[]>>();
   const trace: TraceEvent[] = [];
+  const recorded = recording === "recorded";
+  const eventUnit = recorded ? 1 : 0;
   let records = 0;
   let running = false;
 
@@ -73,28 +76,32 @@ export function createQueryDatabase<Inputs, Witness, Verdict>(
   }
 
   function abandon(frame: Frame<Witness, Verdict>): void {
-    const earned = requirePresent(frame.pending, pendingFailure).earned;
+    const earned = frame.earned;
     leave(frame);
     forget(frame.fact);
     if (earned.length === 0) records -= 1;
     else {
       const kept = abandoned.get(frame.fact.query) ?? new Map<string, readonly Diagnostic[]>();
       abandoned.set(frame.fact.query, kept);
-      kept.set(frame.fact.encodedKey, earned);
+      kept.set(frame.fact.encodedKey, retainDiagnostics(earned));
     }
-    trace.push({ kind: "completion", fact: frame.fact, outcome: "abandoned" });
+    if (recorded) trace.push({ kind: "completion", fact: frame.fact, outcome: "abandoned" });
   }
 
   function discard(frame: Frame<Witness, Verdict>): void {
     leave(frame);
-    records -= 2;
+    records -= 1 + eventUnit;
   }
 
-  function closeCycle(fact: FactKey): void {
+  function activeFrame(name: string, encodedKey: string): number {
     let head = frames.length - 1;
     for (let frame = requirePresent(frames[head], completionFailure);
-      frame.fact.query !== fact.query || frame.fact.encodedKey !== fact.encodedKey;
+      frame.fact.query !== name || frame.fact.encodedKey !== encodedKey;
       frame = requirePresent(frames[head], completionFailure)) head -= 1;
+    return head;
+  }
+
+  function closeCycle(head: number): void {
     const segment = frames.slice(head);
     const offset = leastFact(segment.map(frame => frame.fact));
     const ordered = [...segment.slice(offset), ...segment.slice(0, offset)];
@@ -112,28 +119,35 @@ export function createQueryDatabase<Inputs, Witness, Verdict>(
     accept: (value: Value, diagnostics: readonly Diagnostic[]) => void, boundary: Boundary, from: FactKey | null): void {
     const encodedKey = encodeKey(key);
     const entry = queryMemo(memo, query, encodedKey);
-    const fact: FactKey = ({ query: query.name, key, encodedKey });
     const deliver = (result: Result<Value>): void => {
       if (result.kind === "refused") boundary.stop = result;
       else accept(result.value, result.diagnostics);
     };
     const cached = entry.results.get(encodedKey);
     if (cached !== undefined) {
-      if (!admit(1, fact, boundary)) return;
-      trace.push({ kind: "dependency", from, to: fact, state: "warm" });
+      if (recorded) {
+        const to = requirePresent(entry.facts.get(encodedKey), completionFailure);
+        if (!admit(1, to, boundary)) return;
+        trace.push({ kind: "dependency", from, to, state: "warm" });
+      }
       entry.counter.hits += 1;
       deliver(cached);
       return;
     }
     const keys = activeKeys.get(query.name);
     if (keys !== undefined && keys.has(encodedKey)) {
-      if (!admit(1, fact, boundary)) return;
-      trace.push({ kind: "dependency", from, to: fact, state: "active" });
-      closeCycle(fact);
+      const head = activeFrame(query.name, encodedKey);
+      if (recorded) {
+        const to = requirePresent(frames[head], completionFailure).fact;
+        if (!admit(1, to, boundary)) return;
+        trace.push({ kind: "dependency", from, to, state: "active" });
+      }
+      closeCycle(head);
       return;
     }
-    if (!admit(4, fact, boundary)) return;
-    trace.push({ kind: "dependency", from, to: fact, state: "cold" }, { kind: "start", fact });
+    const fact: FactKey = ({ query: query.name, key, encodedKey });
+    if (!admit(1 + 3 * eventUnit, fact, boundary)) return;
+    if (recorded) trace.push({ kind: "dependency", from, to: fact, state: "cold" }, { kind: "start", fact });
     const entered = keys ?? new Set<string>();
     activeKeys.set(query.name, entered);
     entered.add(encodedKey);
@@ -145,19 +159,21 @@ export function createQueryDatabase<Inputs, Witness, Verdict>(
     const complete = (result: Result<Value>, outcome: "ok" | "refused" | "cycle-ok" | "cycle-refused"): void => {
       publish(result.diagnostics);
       entry.results.set(encodedKey, result);
+      entry.facts.set(encodedKey, fact);
       forget(fact);
-      trace.push({ kind: "completion", fact, outcome });
+      if (recorded) trace.push({ kind: "completion", fact, outcome });
     };
     const frame: Frame<Witness, Verdict> = {
       fact,
       keys: entered,
       pending: undefined,
+      earned: [],
       settle: verdict => {
         const cycleOutcome = query.cycleOutcome;
         const result = retainResult(cycleOutcome(key, verdict));
         return ({
           commit: () => {
-            publish(requirePresent(frame.pending, pendingFailure).earned);
+            publish(frame.earned);
             complete(result, result.kind === "ok" ? "cycle-ok" : "cycle-refused");
           },
           deliver: () => { deliver(result); },
@@ -174,11 +190,16 @@ export function createQueryDatabase<Inputs, Witness, Verdict>(
               if (!open) throw new TypeError("query: dependency scheduling must be synchronous");
               if (requested) throw new TypeError("query: a dependency step must schedule exactly one request");
               requested = true;
-              frame.pending = ({ witness: request.witness, earned: retainDiagnostics(request.earned) });
+              frame.pending = ({ witness: request.witness });
+              frame.earned = request.earned;
               enter(dependency, dependencyKey, value => { next = () => resume(value); }, boundary, fact);
             } });
           } finally { open = false; }
           if (!requested) throw new TypeError("query: a dependency step must schedule exactly one request");
+        } else if (step.kind === "abandoned") {
+          const diagnostics = retainRefusal(step.diagnostics);
+          frame.earned = joinDiagnostics(step.earned, diagnostics);
+          boundary.stop = ({ kind: "refused", diagnostics });
         } else {
           const result = retainResult(step);
           complete(result, result.kind);

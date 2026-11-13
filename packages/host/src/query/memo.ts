@@ -11,6 +11,7 @@ export interface Counter {
 interface Memo<Value> {
   readonly definition: object;
   readonly results: Map<string, Result<Value>>;
+  readonly facts: Map<string, FactKey>;
   readonly counter: Counter;
 }
 
@@ -30,6 +31,7 @@ export function queryMemo<Inputs, Key extends KeyData, Value, Witness, Verdict>(
     const created: Memo<Value> = {
       definition: query,
       results: new Map(),
+      facts: new Map(),
       counter: { computed: 0, hits: 0 },
     };
     table.set(query.name, created);
@@ -52,13 +54,23 @@ export function retainResult<Value>(result: Result<Value>): Result<Value> {
   switch (result.kind) {
     case "ok":
       return ({ kind: "ok", value: result.value, diagnostics: retainDiagnostics(result.diagnostics) });
-    case "refused": {
-      const diagnostics: [Diagnostic, ...Diagnostic[]] = [result.diagnostics[0]];
-      diagnostics.length = result.diagnostics.length;
-      result.diagnostics.forEach((diagnostic, index) => { diagnostics[index] = diagnostic; });
-      return ({ kind: "refused", diagnostics: (diagnostics) });
-    }
+    case "refused":
+      return ({ kind: "refused", diagnostics: retainRefusal(result.diagnostics) });
   }
+}
+
+export function retainRefusal(supplied: readonly [Diagnostic, ...Diagnostic[]]): readonly [Diagnostic, ...Diagnostic[]] {
+  const diagnostics: [Diagnostic, ...Diagnostic[]] = [supplied[0]];
+  diagnostics.length = supplied.length;
+  supplied.forEach((diagnostic, index) => { diagnostics[index] = diagnostic; });
+  return diagnostics;
+}
+
+export function joinDiagnostics(first: readonly Diagnostic[], second: readonly Diagnostic[]): readonly Diagnostic[] {
+  const all: Diagnostic[] = [];
+  first.forEach(diagnostic => { all.push(diagnostic); });
+  second.forEach(diagnostic => { all.push(diagnostic); });
+  return all;
 }
 
 export function snapshotStatistics(memo: ReadonlyMap<string, Memo<unknown>>): readonly QueryStat[] {

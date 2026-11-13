@@ -21,10 +21,24 @@ export type ClassifyCycle<Witness, Verdict> = (cycle: ClosedCycle<Witness>) => V
 export interface Query<Inputs, Key extends KeyData, Value, Witness, Verdict> {
   readonly name: string;
   readonly compute: (context: QueryContext<Inputs, Witness, Verdict>, key: Key) => QueryComputation<Inputs, Value, Witness, Verdict>;
+  /**
+   * This fact's own result for the verdict the one classifier gave for a closed cycle that contains `key`.
+   * It may depend on the verdict's entry for `key` and on nothing else: it classifies nothing, and its result
+   * must not vary with the member requested first, with other members' results or with any state outside the verdict.
+   */
   readonly cycleOutcome: (key: Key, verdict: Verdict) => Result<Value>;
 }
 
-export type QueryComputation<Inputs, Value, Witness, Verdict> = Result<Value> | QueryDependency<Inputs, Value, Witness, Verdict>;
+export type QueryComputation<Inputs, Value, Witness, Verdict> =
+  | Result<Value>
+  | QueryDependency<Inputs, Value, Witness, Verdict>
+  | QueryAbandonment;
+
+export interface QueryAbandonment {
+  readonly kind: "abandoned";
+  readonly diagnostics: readonly [Diagnostic, ...Diagnostic[]];
+  readonly earned: readonly Diagnostic[];
+}
 
 export interface QueryDependency<Inputs, Value, Witness, Verdict> {
   readonly kind: "dependency";
@@ -83,6 +97,8 @@ export interface Database<Inputs, Witness, Verdict> {
   readonly trace: () => readonly TraceEvent[];
 }
 
+export type TraceRecording = "recorded" | "off";
+
 export type CreateDatabase = <Inputs, Witness, Verdict>(
-  inputs: Inputs, limits: QueryLimits, classifyCycle: ClassifyCycle<Witness, Verdict>,
+  inputs: Inputs, limits: QueryLimits, classifyCycle: ClassifyCycle<Witness, Verdict>, trace: TraceRecording,
 ) => Database<Inputs, Witness, Verdict>;
