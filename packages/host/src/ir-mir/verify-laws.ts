@@ -1,4 +1,5 @@
 import type { Violation } from "../diag/contract.js";
+import type { AccessLocation, CheckRequirement, ReceiverAccess } from "../ir-infer/contract.js";
 import type { BlockId, LocalId, NodeId, PlaceId } from "../ids/contract.js";
 import type {
   MirBlock, MirBody, MirClosureCapture, MirLocal, MirOperand, MirPlaceBase, MirProjection, MirRule, MirRvalue, MirStepRef, MirVerificationContext, MirViolationSite,
@@ -10,10 +11,10 @@ import type { PlaceLocation } from "./verify-storage.js";
 
 // The graph laws a lowered body satisfies beyond reference and type validity. Every check is a pass over the
 // records of the body; none follows paths. Law numbers are those of the lowering specification's list of ten.
-// Law 2 (a statement executes only a pure decision), the receiver half of law 4 and the agreement of a failure
-// kind with its decision need the execution fields of the decision records and are added with them. Law 3 is
-// enforced for every checked place as the contract states it; the stable kind for a fixed extent needs the extent
-// field of the element access decision and is added with it.
+// The decisions a record carries or its node selected say whether an operation is pure, whether it writes, how a
+// control point fails, whether an access needs a check and how its receiver is reached; the graph agrees with them
+// and selects none of it. Law 3 is enforced for every checked place as the contract states it; the stable kind for
+// a fixed extent needs the extent field of the element access decision and is added with it.
 export function verifyLaws(
   body: MirBody, context: MirVerificationContext, nodes: ReadonlyMap<NodeId, SourceNode>, texts: WireTexts,
   places: ReadonlyMap<PlaceId, PlaceLocation>, meter: WorkMeter,
@@ -136,10 +137,14 @@ export function verifyLaws(
   // The local of a parameter that is not passed by value or moved is the caller's storage (the source referent, with
   // no dereference at its uses): other code reaches it from entry. It counts as handed out and as written by that
   // code, so it is never stable and never an index. A parameter passed by value or moved is a private cell.
+  // The receiver is the row of role `this`, one of these rows: its local is found as a parameter's is, by the source
+  // local it names.
   const referents = new Set<LocalId>();
+  const notOwned = new Uint8Array(body.locals.length);
   for (const parameter of context.source.params) if (parameter.passing !== "by-value" && parameter.passing !== "move") referents.add(parameter.local);
   for (const local of body.locals) {
     if (local === undefined || local.source === null || local.source.body !== context.source.body || !referents.has(local.source.local)) continue;
+    notOwned[local.id] = 1;
     writes[local.id] = read(writes, local.id, 0) + 1;
     cellWrites[local.id] = read(cellWrites, local.id, 0) + 1;
     handedOut[local.id] = 1;
@@ -149,6 +154,8 @@ export function verifyLaws(
   // first checked place of each node.
   const stable = new Uint8Array(body.places.length);
   const stableLocal = new Int32Array(body.places.length);
+  // How the check of a checked place fails, by its decision: 1 unwinds, 2 ends the process, 0 when no decision says.
+  const failureOf = new Uint8Array(body.places.length);
   const checkedAt = new Map<number, CheckedBase>();
   for (const [position, place] of body.places.entries()) {
     if (place === undefined || place.base.kind !== "place" && place.base.kind !== "checked") continue;
@@ -172,6 +179,20 @@ export function verifyLaws(
     }
     // A narrowed view of a cell exists only as the result of its check.
     if (place.base.projection.kind === "refined" && place.base.kind !== "checked") reportPlace("refined-under-check", place.id);
+    // Laws 1 and 4, from the decision of the view. A view is checked exactly where its decision requires a check
+    // ("no check is absent because it might be proved", and none is made up); the check fails as the decision says;
+    // a receiver reached by reference is a value captured once: a local's own cell, written once and not handed out.
+    const view = decisionOfView(place.base, sourceOf(place.base.tir));
+    if (view !== null) {
+      if ((view.check.kind === "required") !== (place.base.kind === "checked")) reportPlace("check-place-exact", place.id);
+      if (view.check.kind === "required" && Object.is(place.id, position)) failureOf[position] = view.check.failure === "abort" ? 2 : 1;
+      if (view.receiver === "by-reference") {
+        const cell = read(cellOf, place.base.place, -1);
+        const holder = cell >= 0 ? body.locals[cell] : undefined;
+        const count = read(cellWrites, cell, 0);
+        if (holder === undefined || handedOut[cell] === 1 || (presentOnEntry(holder) ? count !== 0 : count !== 1)) reportPlace("receiver-stable", place.id);
+      }
+    }
     // Law 4: an index, once evaluated, cannot be changed by a later write. It is a constant, or a local whose cell
     // is written once (an entry-present local that the body never writes counts as written once, at entry).
     if (place.base.projection.kind === "index" && place.base.projection.operand.kind === "place") {
@@ -439,7 +460,14 @@ export function verifyLaws(
       if (terminator.kind === "yield" || terminator.kind === "delegate")
         give(terminator.return.target, carried(snapshot(), terminator.return.destination, block.id));
       switch (terminator.kind) {
-        case "call": case "invoke": case "await": case "yield": case "delegate":
+        case "invoke": {
+          // An invocation that only reads ends nothing; one that writes existing storage ends mutable availability.
+          const execution = terminator.operation.decision.execution;
+          if (execution.kind === "invocation" && execution.writesStorage) endMutable();
+          delivered(terminator.destination, block.id);
+          break;
+        }
+        case "call": case "await": case "yield": case "delegate":
           endMutable();
           delivered(terminator.destination, block.id);
           break;
@@ -502,14 +530,23 @@ export function verifyLaws(
     for (const [position, statement] of block.statements.entries()) {
       if (statement.kind === "assign") {
         const source = sourceOf(statement.tir);
-        if (source === undefined || statement.step === null && source.steps.length === 0) continue;
         const value = statement.value;
+        // Law 2: a statement executes only an operation whose decision says it is pure.
+        // An aggregate executes the construction its node selected.
+        if ((value.kind === "unary" || value.kind === "binary" || value.kind === "convert") && value.operation.decision.execution.kind !== "pure"
+          || value.kind === "aggregate" && source !== undefined && !pureConstruction(source)) reportAt("statement-pure", block.id, position);
+        if (source === undefined || statement.step === null && source.steps.length === 0) continue;
         step(statement.step, source, null, value.kind === "unary" || value.kind === "binary" || value.kind === "convert"
           ? texts.operation(value.operation) : null, statement.place, block.id, position);
         continue;
       }
+      // Law 8: a marker is about a slot the body owns. Storage the body does not own carries none, begin or end.
+      if (read(notOwned, statement.local, 0) === 1) {
+        reportAt("storage-marker-exact", block.id, position);
+        continue;
+      }
+      if (statement.kind === "storage-dead") continue;
       // Law 8: a local that is present on entry carries no begin marker.
-      if (statement.kind !== "storage-live") continue;
       const local = densePosition(statement.local, body.locals.length) ? body.locals[statement.local] : undefined;
       if (local !== undefined && (local.role.kind === "parameter" || local.role.kind === "receiver" || local.role.kind === "capture"))
         reportAt("storage-marker-exact", block.id, position);
@@ -524,12 +561,24 @@ export function verifyLaws(
         const place = densePosition(terminator.place, body.places.length) ? body.places[terminator.place] : undefined;
         if (place === undefined || place.base.kind !== "checked" || place.base.tir.body !== terminator.tir.body
           || !Object.is(place.base.tir.node, terminator.tir.node)) reportAt("check-place-exact", block.id, null);
+        // The check fails as its decision says: it unwinds, or it ends the process.
+        const failure = read(failureOf, terminator.place, 0);
+        if (failure === 1 && terminator.unwind.kind === "abort" || failure === 2 && terminator.unwind.kind !== "abort") reportAt("failure-kind-exact", block.id, null);
         break;
       }
       case "call": case "await": case "yield": case "delegate": case "throw":
         if (terminator.unwind.kind !== "handler" && terminator.unwind.kind !== "escape") reportAt("failure-kind-exact", block.id, null);
         break;
-      case "invoke": case "goto": case "switch": case "return": case "unreachable": break;
+      case "invoke": {
+        // Laws 1 and 2: a control point executes an operation whose decision says it is an invocation, and fails as
+        // that decision says: not at all, by unwinding, or by ending the process.
+        const execution = terminator.operation.decision.execution;
+        if (execution.kind === "pure") reportAt("statement-pure", block.id, null);
+        else if (execution.failure === "none" ? terminator.unwind.kind !== "none" : execution.failure === "abort" ? terminator.unwind.kind !== "abort"
+          : terminator.unwind.kind !== "handler" && terminator.unwind.kind !== "escape") reportAt("failure-kind-exact", block.id, null);
+        break;
+      }
+      case "goto": case "switch": case "return": case "unreachable": break;
     }
     // Laws 5 and 9: no effect occurrence, and no completion branch, is emitted twice. The occurrence is the node, the
     // step and the selection executed.
@@ -618,6 +667,42 @@ export function verifyLaws(
     if (!result.branched || read(cellReads, local, 0) !== 1) reportAt("protocol-step-exact", result.block, result.statement);
   }
   return violations;
+}
+
+/** What the decision of a projected place says: whether it requires a check, and how its receiver is reached where the decision is an access. */
+interface ViewDecision {
+  readonly check: CheckRequirement;
+  readonly receiver: ReceiverAccess | null;
+}
+
+/** An access through an accessor is a call, not a view: it decides nothing about a place. */
+function decisionOfLocation(location: AccessLocation): ViewDecision | null {
+  return location.kind === "data" ? { check: location.check, receiver: location.receiver } : null;
+}
+
+/**
+ * The decision of a view. A field carries its member decision. A narrowed view is decided by the narrowing of its
+ * node. Every other view is decided by the access its node selected, when the node selected one.
+ */
+function decisionOfView(base: ProjectedBase, source: SourceNode | undefined): ViewDecision | null {
+  if (base.projection.kind === "field") return decisionOfLocation(base.projection.member.decision.location);
+  if (source === undefined) return null;
+  const payload = source.node.tsonic;
+  if (base.projection.kind === "refined") {
+    const narrowing = payload !== null && "narrowing" in payload ? payload.narrowing : null;
+    return { check: narrowing !== null && narrowing.kind === "narrowed" ? { kind: "required", failure: narrowing.failure } : { kind: "none" }, receiver: null };
+  }
+  if (payload === null || !("selection" in payload) || payload.selection === null || payload.selection.kind !== "decided") return null;
+  return decisionOfLocation(payload.selection.decision.decision.location);
+}
+
+type ProjectedBase = Extract<MirPlaceBase, { readonly kind: "place" | "checked" }>;
+
+/** Whether the construction a node selected is pure. A node that selected none says nothing against a statement. */
+function pureConstruction(source: SourceNode): boolean {
+  const payload = source.node.tsonic;
+  return payload === null || !("construction" in payload) || payload.construction.kind !== "decided"
+    || payload.construction.decision.decision.execution.kind === "pure";
 }
 
 /** The record that wrote the result of a completion test, and whether its one branch was found. */

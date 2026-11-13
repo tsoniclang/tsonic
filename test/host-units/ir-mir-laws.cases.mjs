@@ -9,7 +9,7 @@
 // where `bump` takes its parameter by reference for reading and writing.
 import assert from "node:assert/strict";
 import { before, test } from "node:test";
-import { EMPTY_BINDINGS, PARAMETRIC, T, TABLE, bodyId, builders, def, signature, typedBody, value } from "./fixtures/lower-mir/typed.mjs";
+import { EMPTY_BINDINGS, PARAMETRIC, T, TABLE, bodyId, builders, def, narrowed, signature, typedBody, value } from "./fixtures/lower-mir/typed.mjs";
 
 const SIG_LAWS = signature("laws", [["a", T.int32Array], ["i", T.int32], ["o", T.optInt32, "optional"]], T.int32);
 const SIG_USE = signature("laws.use", [["v", T.int32]], T.void);
@@ -46,25 +46,30 @@ const INDEX = { decision: { key: { kind: "text", value: "index" }, origins: [], 
   getter: null, setter: null, bindings: EMPTY_BINDINGS,
   location: { kind: "data", check: { kind: "required", failure: "unwind" }, receiver: "by-reference" } }, getter: null, setter: null };
 
+// Each `o!` is a narrowing whose check unwinds; so is the element a[i], which is also narrowed.
+const NARROWED = narrowed(T.optInt32, T.int32, "unwind");
+const PURE_OPERATION = { decision: { kind: "selected", operation: { kind: "core", declaration: def("laws.pure"), bindings: EMPTY_BINDINGS },
+  operands: [T.unknown], result: T.int32, execution: { kind: "pure" } }, permissionScope: null };
 const b = builders("laws");
-const source = typedBody("laws", { signature: SIG_LAWS, completion: T.int32,
+const typed = iterate => typedBody("laws", { signature: SIG_LAWS, completion: T.int32,
   locals: [["a", "parameter", T.int32Array], ["i", "parameter", T.int32], ["o", "parameter", T.optInt32], ["v", "binding", T.int32]],
   params: [[0, "required", T.int32Array], [1, "required", T.int32], [2, "optional", T.optInt32]],
   root: b.block(
     { $: "for", ...b.forOf(b.declarationList([b.variable(b.declName("v", 3), 3, T.int32)]), b.id("a", 0, T.int32Array),
       b.block(b.expressionStatement({ $: "use(v)", ...b.call(b.global("use", "laws.use", T.unknown), [{ $: "v", ...b.id("v", 3, T.int32) }], T.void,
-        at => ({ callee: USE_CALLEE, receiver: null, arguments: [{ kind: "provided", parameter: 0, expression: at("v") }] })) })), ITERATE) },
+        at => ({ callee: USE_CALLEE, receiver: null, arguments: [{ kind: "provided", parameter: 0, expression: at("v") }] })) })), iterate) },
     b.expressionStatement({ $: "bump(i)", ...b.call(b.global("bump", "laws.bump", T.unknown), [{ $: "i of bump", ...b.id("i", 1, T.int32) }], T.void,
       at => ({ callee: BUMP_CALLEE, receiver: null, arguments: [{ kind: "provided", parameter: 0, expression: at("i of bump") }] })) }),
-    b.expressionStatement({ $: "o!", ...b.nonNull({ $: "o", ...b.id("o", 2, T.optInt32) }, T.int32, null) }),
-    b.expressionStatement({ $: "o!#2", ...b.nonNull({ $: "o#2", ...b.id("o", 2, T.optInt32) }, T.int32, null) }),
-    b.expressionStatement({ $: "o!#3", ...b.nonNull(b.id("o", 2, T.optInt32), T.int32, null) }),
+    b.expressionStatement({ $: "o!", ...b.nonNull({ $: "o", ...b.id("o", 2, T.optInt32) }, T.int32, NARROWED) }),
+    b.expressionStatement({ $: "o!#2", ...b.nonNull({ $: "o#2", ...b.id("o", 2, T.optInt32) }, T.int32, NARROWED) }),
+    b.expressionStatement({ $: "o!#3", ...b.nonNull(b.id("o", 2, T.optInt32), T.int32, NARROWED) }),
     b.expressionStatement({ $: "await#bare", ...b.awaits(b.id("o", 2, T.optInt32), T.optInt32, AWAIT_BARE) }),
     b.expressionStatement({ $: "await#step", ...b.awaits(b.id("o", 2, T.optInt32), T.optInt32, AWAIT_STEP) }),
     b.expressionStatement({ $: "yield", ...b.yields(b.id("i", 1, T.int32), T.unknown, YIELD) }),
     b.expressionStatement({ $: "yield*", ...b.yields(b.id("a", 0, T.int32Array), T.unknown, DELEGATE, true) }),
     { $: "return", ...b.returns({ $: "a[i]", ...b.element({ $: "a", ...b.id("a", 0, T.int32Array) }, { $: "i", ...b.id("i", 1, T.int32) },
-      { ...value(T.int32), role: "value", selection: { kind: "decided", decision: INDEX } }) }) }) });
+      { ...value(T.int32, { narrowing: NARROWED }), role: "value", selection: { kind: "decided", decision: INDEX } }) }) }) });
+const source = typed(ITERATE);
 
 const BODY = bodyId("laws");
 const site = label => ({ origin: { module: "M[P[p];m]", start: source.at(label), length: 1, derived: [] }, tir: { body: BODY, node: source.at(label) } });
@@ -125,7 +130,7 @@ function good() {
   };
 }
 
-const LAW_RULES = new Set(["failure-kind-exact", "check-place-exact", "check-place-single", "checked-place-available", "checked-place-destination",
+const LAW_RULES = new Set(["failure-kind-exact", "check-place-exact", "statement-pure", "receiver-stable", "check-place-single", "checked-place-available", "checked-place-destination",
   "suspension-admitted", "refined-under-check", "index-operand-stable", "protocol-step-exact",
   "completion-branch-canonical", "entries-exact", "omission-admitted", "storage-marker-exact", "effect-site-unique"]);
 let verifyMir;
@@ -140,7 +145,7 @@ before(async () => {
   const declaration = (name, sig) => ({ scope: { classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] }, parameterCount: 0,
     endpoints: [endpoint(name, "advertised", sig), endpoint(name, "api-body", sig)] });
   const declared = new Map([["laws", SIG_USE], ["laws.use", SIG_USE], ["laws.bump", SIG_BUMP], ["laws.two", SIG_TWO], ["laws.acquire", SIG_USE],
-    ["laws.next", SIG_USE], ["laws.done", SIG_USE], ["laws.value", SIG_USE], ["laws.await", SIG_USE]].map(([name, sig]) => [def(name), declaration(name, sig)]));
+    ["laws.next", SIG_USE], ["laws.done", SIG_USE], ["laws.value", SIG_USE], ["laws.await", SIG_USE], ["laws.pure", SIG_USE]].map(([name, sig]) => [def(name), declaration(name, sig)]));
   context = { limits: { maximumWork: 100000 }, source: source.tir, types: TABLE, declarationOf: definition => declared.get(definition) ?? null,
     bodyOwner: body => body === BODY ? def("laws") : body === bodyId("laws.use") ? def("laws.use") : body === bodyId("laws.bump") ? def("laws.bump") : body === bodyId("laws.two") ? def("laws.two") : null };
 });
@@ -174,13 +179,105 @@ test("the complete verifier's findings on the satisfying graph are recorded, not
 test("law 1: a check whose failure kind says it cannot fail is refused", () => {
   // "a check is a control point with one of three failure kinds (to a handler, out of the body, ending the process)".
   assert.deepEqual(laws(changed(body => { body.blocks[6].terminator.unwind = { kind: "none" }; })), ["failure-kind-exact"]);
-  for (const kind of ["escape", "abort"]) assert.deepEqual(laws(changed(body => { body.blocks[6].terminator.unwind = { kind }; })), []);
+  // The check of a[i] unwinds, as its access decision says: out of the body here, or to a handler.
+  assert.deepEqual(laws(changed(body => { body.blocks[6].terminator.unwind = { kind: "escape" }; })), []);
 });
 
 test("law 1: a call cannot end the process or be unable to fail", () => {
   // A call runs code of its own: its failure unwinds, to a handler or out of the body (COMMON-DATA §4, exit by unwind).
   for (const kind of ["abort", "none"])
     assert.deepEqual(laws(changed(body => { body.blocks[5].terminator.unwind = { kind }; })), ["failure-kind-exact"]);
+});
+
+test("law 1: a control point fails as its decision says", () => {
+  const lawRules = (body, given) => found(body, given).filter(violation => LAW_RULES.has(violation.rule)).map(violation => violation.rule);
+  // The access decision of a[i] says its check unwinds: a check that ends the process disagrees.
+  assert.deepEqual(laws(changed(body => { body.blocks[6].terminator.unwind = { kind: "abort" }; })), ["failure-kind-exact"]);
+  // An invoked operation that cannot fail has no failure arm; one that unwinds has an edge or leaves the body.
+  assert.deepEqual(lawRules(changed(body => { body.blocks[1].terminator.unwind = { kind: "escape" }; }), context), ["failure-kind-exact"]);
+  assert.deepEqual(lawRules(changed(body => { body.blocks[1].terminator.unwind = { kind: "abort" }; }), context), ["failure-kind-exact"]);
+  const invoked = failure => changed(body => {
+    body.blocks[7].terminator = { ...site("return"), kind: "invoke", operation: { ...ACQUIRE, decision: { ...ACQUIRE.decision, execution: { kind: "invocation", writesStorage: false, failure } } },
+      operands: [p(0)], destination: null, next: 10, unwind: { kind: "escape" }, step: null };
+    body.blocks.push({ ...site("return"), id: 10, statements: [], terminator: { ...site("return"), kind: "return", value: p(9) } });
+  });
+  assert.deepEqual(lawRules(invoked("unwind"), context), []);
+  assert.deepEqual(lawRules(invoked("abort"), context), ["failure-kind-exact"]);
+  assert.deepEqual(lawRules(invoked("none"), context), ["failure-kind-exact"]);
+  // A member whose decision says its check ends the process: the check of that view ends the process and does not unwind.
+  const fatal = { decision: { ...INDEX.decision, key: { kind: "text", value: "x" }, location: { kind: "data", check: { kind: "required", failure: "abort" }, receiver: "in-place" } }, getter: null, setter: null };
+  const checkedField = kind => changed(body => {
+    body.places.push(place(11, { kind: "checked", place: 8, projection: { kind: "field", member: fatal }, tir: site("return").tir }, T.int32));
+    body.blocks[7].terminator = { ...site("return"), kind: "check", place: 11, next: 10, unwind: { kind } };
+    body.blocks.push({ ...site("return"), id: 10, statements: [], terminator: { ...site("return"), kind: "return", value: p(9) } });
+  });
+  assert.deepEqual(laws(checkedField("abort")), []);
+  assert.deepEqual(laws(checkedField("escape")), ["failure-kind-exact"]);
+});
+
+test("law 2: a statement executes only a pure operation, and a pure operation is never a control point", () => {
+  // A pure operation as a statement. (It is not an operation of that node; the selection rule says so, not a law.)
+  const statement = operation => changed(body => { body.blocks[7].statements.push(
+    { ...site("return"), kind: "assign", place: 9, value: { kind: "unary", operation, operand: p(5) }, step: null }); });
+  assert.deepEqual(laws(statement(PURE_OPERATION)), []);
+  // An invocation as a statement: it can fail or write, so it is a control point.
+  assert.deepEqual(laws(statement(ACQUIRE)), ["statement-pure"]);
+  // An aggregate at a node that selected no construction: law 2 says nothing of it (the type rules report it).
+  assert.deepEqual(laws(changed(body => { body.blocks[7].statements.push(
+    { ...site("a[i]"), kind: "assign", place: 9, value: { kind: "aggregate", type: T.int32, aggregate: { kind: "array", elements: [] } }, step: null }); })), []);
+  // A pure operation as a control point.
+  assert.deepEqual(laws(changed(body => {
+    body.blocks[7].terminator = { ...site("return"), kind: "invoke", operation: PURE_OPERATION, operands: [p(5)], destination: null, next: 10, unwind: { kind: "none" }, step: null };
+    body.blocks.push({ ...site("return"), id: 10, statements: [], terminator: { ...site("return"), kind: "return", value: p(9) } });
+  })), ["statement-pure"]);
+});
+
+test("law 3: an invocation ends mutable availability only if its decision says it writes existing storage", () => {
+  // a[i] is checked and read in block 7; then an operation is invoked; then a[i] is read again in block 10.
+  const invokedBetween = operation => changed(body => {
+    body.blocks[7].terminator = { ...site("return"), kind: "invoke", operation, operands: [p(4)], destination: null, next: 10, unwind: { kind: "none" }, step: null };
+    body.blocks.push({ ...site("return"), id: 10, statements: [{ ...site("a[i]"), kind: "assign", place: 9, value: { kind: "use", operand: p(10) }, step: null }],
+      terminator: { ...site("return"), kind: "return", value: p(9) } });
+  });
+  // `acquire` only reads: the indexed compound assignment with an overflow check between has one bounds check.
+  assert.deepEqual(laws(invokedBetween(ACQUIRE)), []);
+  // `next` writes existing storage.
+  assert.deepEqual(laws(invokedBetween(NEXT)), ["checked-place-available"]);
+});
+
+test("laws 1 and 4: a view is checked exactly where its decision requires, and a reference receiver is captured once", () => {
+  // An element whose access decision requires a check, as a view with no check.
+  assert.deepEqual(laws(changed(body => { body.places[10].base.kind = "place"; body.blocks[6].terminator = { ...site("a[i]"), kind: "goto", target: 7 }; })),
+    ["check-place-exact"]);
+  // A member that needs no check, as a checked view. (The fixture's member `x` of nothing; only the laws are compared.)
+  const free = { decision: { ...INDEX.decision, key: { kind: "text", value: "x" }, location: { kind: "data", check: { kind: "none" }, receiver: "in-place" } }, getter: null, setter: null };
+  const field = (kind, parent) => changed(body => { body.places.push(place(11, { kind, place: parent, projection: { kind: "field", member: free }, tir: site("return").tir }, T.int32)); });
+  assert.deepEqual(laws(field("place", 8)), []);
+  assert.deepEqual(laws(field("checked", 8)), ["check-place-exact"]);
+  // A view with no decision is held to the forms only: a member reached through an accessor (a call, not a view);
+  // an element at a node that selected no access; a view at a node the body does not have.
+  const through = { decision: { ...INDEX.decision, key: { kind: "text", value: "x" }, location: { kind: "accessor" } }, getter: null, setter: null };
+  const view = (kind, projection, tir) => changed(body => { body.places.push(place(11, { kind, place: 8, projection, tir }, T.int32)); });
+  for (const kind of ["place", "checked"]) {
+    assert.deepEqual(laws(view(kind, { kind: "field", member: through }, site("return").tir)), []);
+    assert.deepEqual(laws(view(kind, { kind: "element", index: 0 }, site("return").tir)), []);
+    assert.deepEqual(laws(view(kind, { kind: "element", index: 0 }, { body: BODY, node: 9999 })), []);
+  }
+  // A narrowed view at a node that has no narrowing, or no typed value at all: no check is required there, so a
+  // checked view is a check that was made up.
+  assert.deepEqual(laws(view("checked", { kind: "refined" }, site("o").tir)), ["check-place-exact"]);
+  assert.deepEqual(laws(view("checked", { kind: "refined" }, site("return").tir)), ["check-place-exact"]);
+  // The receiver of a[i] is reached by reference: it is the saved copy in local 8, written once.
+  // Indexed directly through the parameter `a`, which the body never writes and does not hand out: also captured once.
+  assert.deepEqual(laws(changed(body => { body.places[10].base.place = 0; })), []);
+  // Indexed directly through `a` when `a` is passed by reference: the receiver is held in the caller's storage, which
+  // other code writes. The lowering saves it first, as the satisfying graph does.
+  const byReference = { ...context, source: { ...context.source, params: context.source.params.map((row, position) => position === 0 ? { ...row, passing: "byref-readwrite" } : row) } };
+  assert.deepEqual(found(changed(body => { body.places[10].base.place = 0; }), byReference).filter(violation => LAW_RULES.has(violation.rule)).map(violation => violation.rule),
+    ["receiver-stable"]);
+  // The saved receiver written a second time.
+  assert.deepEqual(laws(changed(body => { body.blocks[6].statements.push({ ...site("a"), kind: "assign", place: 8, value: { kind: "use", operand: p(0) }, step: null }); })),
+    ["receiver-stable"]);
 });
 
 test("law 1: a check names a checked place at its own node", () => {
@@ -193,7 +290,8 @@ test("law 1: a check names a checked place at its own node", () => {
 test("a narrowed view exists only under a checked base", () => {
   // R2's verdict on C4, taken into S2-18: `refined` under a direct base would be a narrowing with no check.
   const add = kind => changed(body => { body.places.push(place(11, { kind, place: 2, projection: { kind: "refined" }, tir: site("o!").tir }, T.int32)); });
-  assert.deepEqual(laws(add("place")), ["refined-under-check"]);
+  // The narrowing of `o!` requires a check, so the same view is also one whose required check is absent.
+  assert.deepEqual(laws(add("place")), ["refined-under-check", "check-place-exact"]);
   assert.deepEqual(laws(add("checked")), []);
 });
 
@@ -290,9 +388,10 @@ test("law 3: mutable availability ends at a call, a store, and a write or marker
     ["checked-place-available"]);
   // A store into a place that is not a local's own cell: here the store into a[i] itself, then a read of it.
   assert.deepEqual(all(changed(body => { body.blocks[7].statements.unshift(STORE()); })), ["checked-place-available"]);
-  // The saved receiver written again.
+  // The saved receiver written again: the reference receiver is no longer a value written once (law 4), and the
+  // write ends the availability of the element under it (law 3).
   assert.deepEqual(all(changed(body => { body.blocks[7].statements.unshift({ ...site("a"), kind: "assign", place: 8, value: { kind: "use", operand: p(0) }, step: null }); })),
-    ["checked-place-available"]);
+    ["receiver-stable", "checked-place-available"]);
   // The storage of the index local ended. The liveness rule reports the same graph; only the law rules are compared.
   assert.deepEqual(laws(changed(body => { body.blocks[7].statements.unshift({ ...site("i"), kind: "storage-dead", local: 7 }); })), ["checked-place-available"]);
 });
@@ -608,16 +707,18 @@ test("malformed bodies: a record that names a row the body does not have is repo
     ["index-operand-stable"]);
   assert.deepEqual(laws(changed(body => { body.places.push(place(11, { kind: "static", definition: def("laws") }, T.int32)); body.places[10].base.projection.operand = p(11); })),
     ["index-operand-stable"]);
-  // A checked place whose parent the body does not have.
-  assert.deepEqual(laws(changed(body => { body.places[10].base.place = 99; })), []);
-  // A checked element of static storage: it is rooted at no local.
+  // A checked place whose parent the body does not have: its reference receiver is no local's cell.
+  assert.deepEqual(laws(changed(body => { body.places[10].base.place = 99; })), ["receiver-stable"]);
+  // A checked element of static storage: it is rooted at no local, so law 3 keeps nothing by a local for it. Its
+  // receiver is reached by reference and is read from the static each time, which other code writes: law 4 refuses
+  // it (the lowering saves the reference in a local written once).
   assert.deepEqual(laws(changed(body => {
     body.places.push(place(11, { kind: "static", definition: def("laws") }, T.int32Array),
       place(12, { kind: "checked", place: 11, projection: { kind: "element", index: 0 }, tir: site("a[i]").tir }, T.int32));
     body.blocks[7].terminator = { ...site("a[i]"), kind: "check", place: 12, next: 10, unwind: { kind: "escape" } };
     body.blocks.push({ ...site("return"), id: 10, statements: [{ ...site("return"), kind: "assign", place: 9, value: { kind: "use", operand: p(12) }, step: null }],
       terminator: { ...site("return"), kind: "return", value: p(9) } });
-  })), []);
+  })), ["receiver-stable"]);
   // A view under a checked place that was not checked: the check of the view reads its parent.
   assert.deepEqual(laws(changed(body => {
     body.places.push(place(11, { kind: "checked", place: 10, projection: { kind: "refined" }, tir: site("a[i]").tir }, T.int32));
@@ -658,9 +759,63 @@ test("the local of a by-reference parameter is the caller's storage: never stabl
   const indexedByParameter = changed(body => { body.places[10].base.projection.operand = p(1); body.blocks.pop(); body.blocks[3].terminator.targets[0].target = 6; });
   assert.deepEqual(lawRules(indexedByParameter, context), []);
   assert.deepEqual(lawRules(indexedByParameter, passed(1, "byref-readwrite")), ["index-operand-stable"]);
+  // The receiver (R1): the same graph over the local of role `receiver`, with the receiver's row passed by value and
+  // by reference. The row of role `this` is a parameter row like the others and its local is found the same way, by
+  // the source local it names (source local 4 here). (The fixture's signature has no receiver; that finding is not a
+  // law rule.)
+  const viewOfReceiver = changed(body => {
+    body.locals.push(local(10, T.optInt32, { kind: "receiver" }, 4));
+    body.places.push(place(11, { kind: "local", local: 10 }, T.optInt32),
+      place(12, { kind: "checked", place: 11, projection: { kind: "refined" }, tir: site("o!").tir }, T.int32));
+    body.blocks[3].terminator.targets[0].target = 6;
+    body.blocks[7].terminator = { ...site("o!"), kind: "check", place: 12, next: 9, unwind: { kind: "escape" } };
+    body.blocks[9].terminator.next = 10;
+    body.blocks.push({ ...site("return"), id: 10, statements: [{ ...site("o!"), kind: "assign", place: 9, value: { kind: "use", operand: p(12) }, step: null }],
+      terminator: { ...site("return"), kind: "return", value: p(9) } });
+  });
+  const receiving = passing => ({ ...context, source: { ...context.source,
+    locals: [...context.source.locals, { ...context.source.locals[2], id: 4, name: "this" }],
+    params: [{ ...context.source.params[2], local: 4, role: "this", passing }, ...context.source.params] } });
+  assert.deepEqual(lawRules(viewOfReceiver, receiving("by-value")), []);
+  assert.deepEqual(lawRules(viewOfReceiver, receiving("byref-readwrite")), ["checked-place-available"]);
+  assert.deepEqual(lawRules(viewOfReceiver, receiving("borrow-shared")), ["checked-place-available"]);
   // `a[ref i]` is supported source: the value of `i` is saved once in a private local and that local is the index.
   // The satisfying graph is that lowering (local 7 is the copy), and it stays valid when `i` is by reference.
   assert.deepEqual(found(good(), passed(1, "byref-readwrite")).filter(violation => LAW_RULES.has(violation.rule)), []);
+});
+
+test("law 8: a storage marker is about a slot the body owns (K-3278)", () => {
+  const passed = (parameter, passing) => ({ ...context, source: { ...context.source,
+    params: context.source.params.map((row, position) => position === parameter ? { ...row, passing } : row) } });
+  const rules = (body, given) => found(body, given).map(violation => violation.rule);
+  // The slot of `a` ends after its last use, before the return.
+  const ended = changed(body => { body.blocks[7].statements.push({ ...site("return"), kind: "storage-dead", local: 0 }); });
+  // Passed by value or moved, the slot is the body's own and may end.
+  assert.deepEqual(rules(ended, context), []);
+  assert.deepEqual(rules(ended, passed(0, "move")), []);
+  // Passed by reference, the local is the caller's storage: the body does not end it. That is the only finding.
+  assert.deepEqual(rules(ended, passed(0, "byref-readwrite")), ["storage-marker-exact"]);
+  assert.deepEqual(rules(ended, passed(0, "borrow-shared")), ["storage-marker-exact"]);
+  // A begin marker on it is refused as on every local present on entry, whatever its passing.
+  const begun = changed(body => { body.blocks[0].statements.unshift({ ...site("for"), kind: "storage-live", local: 0 }); });
+  assert.deepEqual(rules(begun, context), ["storage-marker-exact"]);
+  assert.deepEqual(rules(begun, passed(0, "byref-readwrite")), ["storage-marker-exact"]);
+  // A local that names the source local of a row passed by reference is the caller's storage whatever its role:
+  // the satisfying graph begins local 3, and here a row passed by reference has that source local.
+  const named = { ...context, source: { ...context.source,
+    params: [...context.source.params, { ...context.source.params[1], local: 3, role: "rest", passing: "byref-readwrite" }] } };
+  assert.deepEqual(found(good(), named).filter(violation => violation.rule === "storage-marker-exact").map(violation => violation.site.statement), [0]);
+  // The receiver, whose local names the source local of the row of role `this`: its slot may end when its row is passed by value, and may not when it is passed by reference.
+  const receiverEnded = changed(body => {
+    body.locals.push(local(10, T.optInt32, { kind: "receiver" }, 4));
+    body.blocks[7].statements.push({ ...site("return"), kind: "storage-dead", local: 10 });
+  });
+  const receiving = passing => ({ ...context, source: { ...context.source,
+    locals: [...context.source.locals, { ...context.source.locals[2], id: 4, name: "this" }],
+    params: [{ ...context.source.params[2], local: 4, role: "this", passing }, ...context.source.params] } });
+  const markerRules = (body, given) => found(body, given).filter(violation => violation.rule === "storage-marker-exact").map(violation => violation.rule);
+  assert.deepEqual(markerRules(receiverEnded, receiving("by-value")), []);
+  assert.deepEqual(markerRules(receiverEnded, receiving("byref-readwrite")), ["storage-marker-exact"]);
 });
 
 test("check-place-single compares the views of one node kind by kind", () => {
@@ -792,14 +947,23 @@ test("law 6: the result of a completion test is read by exactly one record, the 
 });
 
 test("law 6: a statement that executes a step's operation is held to the same rule as a control point", () => {
-  const stepStatement = (operation, named) => changed(body => { body.blocks[4].statements.push(
-    { ...site("for"), kind: "assign", place: 3, value: { kind: "unary", operation, operand: p(5) }, step: named }); });
+  // A step is a statement exactly when its decision is pure (law 2). The same source, with a `value` step that is pure:
+  const pureValue = { ...context, source: typed({ ...ITERATE, steps: [...ITERATE.steps.slice(0, 3), { role: "value", operation: PURE_OPERATION, callee: null }] }).tir };
+  const otherPure = { ...PURE_OPERATION, decision: { ...PURE_OPERATION.decision, operation: { ...PURE_OPERATION.decision.operation, declaration: def("laws.done") } } };
+  // Block 4 performs the `value` step as a statement and continues to the loop's body.
+  const stepStatement = (operation, named) => changed(body => {
+    body.blocks[4].statements.push({ ...site("for"), kind: "assign", place: 3, value: { kind: "unary", operation, operand: p(5) }, step: named });
+    body.blocks[4].terminator = { ...site("for"), kind: "goto", target: 5 };
+  });
+  const rules = (body, given) => found(body, given).filter(violation => LAW_RULES.has(violation.rule)).map(violation => violation.rule);
   // It names the step whose operation it executes.
-  assert.deepEqual(laws(stepStatement(VALUE, step(3))), []);
+  assert.deepEqual(rules(stepStatement(PURE_OPERATION, step(3)), pureValue), []);
   // It executes a step's operation and names no step.
-  assert.deepEqual(laws(stepStatement(VALUE, null)), ["protocol-step-exact"]);
+  assert.deepEqual(rules(stepStatement(PURE_OPERATION, null), pureValue), ["protocol-step-exact"]);
   // It names a step and executes another operation.
-  assert.deepEqual(laws(stepStatement(NEXT, step(3))), ["protocol-step-exact"]);
+  assert.deepEqual(rules(stepStatement(otherPure, step(3)), pureValue), ["protocol-step-exact"]);
+  // In the unchanged source the `value` step is an invocation: as a statement it names its step and is refused by law 2.
+  assert.deepEqual(rules(stepStatement(VALUE, step(3)), context), ["statement-pure"]);
 });
 
 /** Block 7 ends in a suspension at the given node (a label, or a site record), continuing to a new block 10 that returns. */

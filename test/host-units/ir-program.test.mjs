@@ -1920,7 +1920,7 @@ for (const kind of ["goto", "unreachable", "switch", "await", "yield", "yield-ab
     else if (kind === "throw") terminator = { kind, operand, unwind };
     else if (kind === "return") terminator = { kind, value: operand };
     else if (kind === "invoke") terminator = { kind, operation: { permissionScope: null, decision: { kind: "selected",
-      operation: { kind: "native-operator", operator: "+", carrier: "uint64" }, operands: [2], result: 2, execution: { kind: "pure" } } },
+      operation: { kind: "native-operator", operator: "+", carrier: "uint64" }, operands: [2], result: 2, execution: { kind: "invocation", writesStorage: false, failure: "unwind" } } },
     operands: [operand], destination: null, next: 0, unwind, step: null };
     else {
       const advertised = { declaration: first.definition, role: "advertised", signature: 0, body: null };

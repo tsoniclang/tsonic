@@ -92,8 +92,31 @@ test("a refusal while a block is open leaves that block as it was and is not a d
   assert.deepEqual(steps.at(-1), ["statement", false]);
   assert.equal(lowering.blocks[0].statements.length, 0);
   assert.equal(lowering.blocks[0].terminator, null, "the terminator after the refusal was not recorded");
-  // The place of a local that has none yet cannot be made any more; the known one is still answered.
-  assert.equal(state.placeOfLocal(lowering, 0), 0);
+  // After the refusal a known place and a known constant are not answered either (R1): a caller that kept going
+  // would otherwise continue with an identity of a graph that is not a body.
+  assert.equal(state.placeOfLocal(lowering, 0), null);
+  assert.equal(state.constantOperand(lowering, 0, literal), null);
+  assert.equal(state.finishBody(lowering), null);
+});
+
+test("after a refusal a cached place and a cached constant are not answered (K-3281)", () => {
+  // Three records fit: a local, its place and a constant. Both identities are cached before the refusal.
+  const lowering = fresh(3);
+  const local = state.newLocal(lowering, 0, { kind: "temporary" }, null, origin);
+  const place = state.placeOfLocal(lowering, local);
+  const constant = state.constantOperand(lowering, 0, literal);
+  assert.equal(state.placeOfLocal(lowering, local), place);
+  assert.deepEqual(state.constantOperand(lowering, 0, literal), constant);
+  assert.deepEqual([place, constant, lowering.records, lowering.refused], [0, { kind: "constant", constant: 0 }, 3, false]);
+  // The fourth record is refused for the size limit.
+  assert.equal(state.newBlock(lowering, site), null);
+  assert.equal(lowering.refused, true);
+  const recorded = () => [lowering.locals.length, lowering.places.length, lowering.constants.size, lowering.blocks.length, lowering.entries.length, lowering.records];
+  const atRefusal = recorded();
+  // Both repeated lookups answer null: no identity lets a caller continue after the refusal.
+  assert.equal(state.placeOfLocal(lowering, local), null);
+  assert.equal(state.constantOperand(lowering, 0, literal), null);
+  assert.deepEqual(recorded(), atRefusal);
   assert.equal(state.finishBody(lowering), null);
 });
 

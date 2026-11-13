@@ -1308,7 +1308,8 @@ test("MIR selected unary operation matches real TIR data, physical operands and 
     evidenceIndex: null, demand: { kind: "always" } };
   const prefix = { ...header(2, 1), kind: "PrefixUnaryExpression", operator: "ExclamationToken",
     operand: { ...header(3, 2), kind: "TrueKeyword", tsonic: { ...value, role: "value" } },
-    tsonic: { ...value, role: "value", operation: { kind: "decided", decision: selected } } };
+    tsonic: { ...value, role: "value", operation: { kind: "decided", decision: selected },
+      narrowing: { kind: "narrowed", source: identities.tyId(1), result: identities.tyId(1), proof: { kind: "identity" }, failure: "unwind" } } };
   const source = { ...context.source, root: { ...context.source.root, statements: { loc: { pos: 0, end: 0 }, nodes: [
     { ...header(1, 0), kind: "ExpressionStatement", expression: prefix, tsonic: null },
     { ...header(4, 0), kind: "ReturnStatement", expression: null, tsonic: null },
@@ -1451,7 +1452,16 @@ for (const kind of ["array", "tuple", "fixed-array"]) {
       origin: local.origin, tir: { body: base.body, node: identities.nodeId(2) }, kind: "invoke", step: null, operation: construction,
       operands: [{ kind: "constant", constant: constant.id }], destination: place.id, next: identities.blockId(1), unwind: { kind: "escape" },
     } }, { ...body.blocks[0], id: identities.blockId(1), statements: [] }] };
-    same(verified(invoked, input), [], "the actual construction is also a selected explicit invoke, with all part/component metadata retained");
+    same(verified(invoked, input), [expectedViolation("statement-pure", { kind: "instruction", block: 0, statement: null })],
+      "a construction whose decision is pure is a statement and never a control point (graph law 2)");
+    const failing = { ...construction, decision: { ...construction.decision, execution: { kind: "invocation", writesStorage: false, failure: "unwind" } } };
+    const failingInput = { ...input, source: { ...source, root: { ...source.root, statements: { ...source.root.statements, nodes: [
+      { ...source.root.statements.nodes[0], expression: { ...expression, tsonic: { ...expression.tsonic, construction: { kind: "decided", decision: failing } } } },
+      source.root.statements.nodes[1],
+    ] } } } };
+    const failingInvoke = { ...invoked, blocks: [{ ...invoked.blocks[0], terminator: { ...invoked.blocks[0].terminator, operation: failing } }, invoked.blocks[1]] };
+    same(verified(failingInvoke, failingInput), [], "the actual construction that can fail is a selected explicit invoke, with all part/component metadata retained");
+    same(verified(body, failingInput), [expectedViolation("statement-pure", at)], "a construction that can fail is not a statement (graph law 2)");
     const wrong = { ...body, constants: [{ ...constant, type: identities.tyId(2), value: { kind: "literal", value: { kind: "string", value: "wrong" } } }] };
     same(verified(wrong, input), [expectedViolation("assignment-type", at)], "physical element type cannot be silently relabelled");
     if (kind === "fixed-array" || kind === "tuple") {
@@ -1609,12 +1619,22 @@ for (const kind of ["object", "record"]) test(`MIR ${kind} aggregate and object-
     origin: local.origin, tir: { body: base.body, node: identities.nodeId(2) }, kind: "invoke", step: null, operation: construction,
     operands: [{ kind: "constant", constant: constant.id }], destination: place.id, next: identities.blockId(1), unwind: { kind: "escape" },
   } }, { ...body.blocks[0], id: identities.blockId(1), statements: [] }] };
-  same(verified(invoked, input), [], "complete member/part/component direct construction invoke");
+  same(verified(invoked, input), [expectedViolation("statement-pure", { kind: "instruction", block: 0, statement: null })],
+    "a construction whose decision is pure is a statement and never a control point (graph law 2)");
+  const failing = { ...construction, decision: { ...construction.decision, execution: { kind: "invocation", writesStorage: false, failure: "unwind" } } };
+  const failingInput = { ...input, source: { ...source, root: { ...source.root, statements: { ...source.root.statements, nodes: [
+    { ...source.root.statements.nodes[0], expression: { ...expression, tsonic: { ...expression.tsonic, construction: { kind: "decided", decision: failing } } } },
+    source.root.statements.nodes[1],
+  ] } } } };
+  const failingInvoke = { ...invoked, blocks: [{ ...invoked.blocks[0], terminator: { ...invoked.blocks[0].terminator, operation: failing } }, invoked.blocks[1]] };
+  same(verified(failingInvoke, failingInput), [], "complete member/part/component direct construction invoke");
+  same(verified(body, failingInput), [expectedViolation("statement-pure", { kind: "instruction", block: 0, statement: 1 })],
+    "a construction that can fail is not a statement (graph law 2)");
   const wrong = { ...body, constants: [{ ...constant, type: identities.tyId(2), value: { kind: "literal", value: { kind: "string", value: "wrong" } } }] };
   same(verified(wrong, input), [expectedViolation("assignment-type", { kind: "instruction", block: 0, statement: 1 })],
     "the aggregate physical operand must have the actual selected construction operand type");
-  const wrongInvoke = { ...invoked, constants: wrong.constants };
-  same(verified(wrongInvoke, input), [expectedViolation("operation-selected", { kind: "instruction", block: 0, statement: null })],
+  const wrongInvoke = { ...failingInvoke, constants: wrong.constants };
+  same(verified(wrongInvoke, failingInput), [expectedViolation("operation-selected", { kind: "instruction", block: 0, statement: null })],
     "the explicit invoke checks the same retained operand type under its existing operation rule");
   for (const [read, write] of [[identities.tyId(1), identities.tyId(2)], [null, identities.tyId(1)],
     [identities.tyId(1), null], [null, null]]) {
@@ -1967,7 +1987,7 @@ test("MIR direct call and selected invoke admit metadata without duplicating Pro
     bindings: { kind: "parametric" } } }] };
   same(verified(direct, context), [], "direct metadata argument has the exact selected API parameter type");
   const selected = { decision: { kind: "selected", operation: { kind: "core", declaration: context.source.owner, bindings: bindingVector },
-    operands: [identities.tyId(1)], result: identities.tyId(0), execution: { kind: "pure" } }, permissionScope: null };
+    operands: [identities.tyId(1)], result: identities.tyId(0), execution: { kind: "invocation", writesStorage: false, failure: "unwind" } }, permissionScope: null };
   const statement = context.source.root.statements.nodes[0];
   const source = { ...context.source, root: { ...context.source.root, statements: { ...context.source.root.statements, nodes: [
     { ...statement, expression: { ...statement.expression, tsonic: { ...statement.expression.tsonic,
@@ -2066,7 +2086,7 @@ for (const kind of ["library", "core", "protocol"]) test(`MIR selected ${kind} i
       { role: "completion", operation: { kind: "completion" }, operands: [], result: identities.tyId(0) },
     ], value: identities.tyId(1), completion: identities.tyId(0), yielded: identities.tyId(1), sent: identities.tyId(1), thrown: identities.tyId(4) }
     : { kind, declaration: definition, bindings: bindingVector };
-  const selected = { decision: { kind: "selected", operation: identity, operands: [identities.tyId(1)], result: identities.tyId(1), execution: { kind: "pure" } }, permissionScope: null };
+  const selected = { decision: { kind: "selected", operation: identity, operands: [identities.tyId(1)], result: identities.tyId(1), execution: { kind: "invocation", writesStorage: false, failure: "unwind" } }, permissionScope: null };
   const expression = setup.context.source.root.statements.nodes[0].expression;
   const source = { ...setup.context.source, root: { ...setup.context.source.root, statements: {
     ...setup.context.source.root.statements, nodes: [{ ...setup.context.source.root.statements.nodes[0], expression: {

@@ -81,11 +81,12 @@ export type MirProjection =
 //     so that is a loop's back edge, and a loop header starts with nothing.
 //   - A checked place is stable when it is the `refined` view of a local's own cell, that cell is written once (never,
 //     for a local present on entry) and the local is not handed out (no address taken, no hand-over by place in a
-//     writing mode, no capture). The local of a parameter that is not passed by value or moved is the caller's
-//     storage, used with no dereference: it is handed out from entry and written by other code, so no view of it is
+//     writing mode, no capture). The local of a parameter or of the receiver that is not passed by value or moved is the
+//     caller's storage, used with no dereference: it is handed out from entry and written by other code, so no view of it is
 //     stable and it is not an index; an index held in such a parameter is first copied into a local written once. Every other checked place is mutable. The second stable kind, the bounds of an
 //     element whose access decision states a fixed extent, is added with that field; until then an `index` view is mutable.
-//   - Mutable availability ends at a `call`, `invoke`, `await`, `yield` or `delegate`; at a value written into a
+//   - Mutable availability ends at a `call`, `await`, `yield` or `delegate`, and at an `invoke` whose decision says
+//     it writes existing storage; at a value written into a
 //     place that is not a local's own cell, or into the cell of a local that is handed out; and at a value written into
 //     the cell of, or a storage marker of, a local that an available place is rooted at or indexed by.
 //   - Stable availability ends only at a value written into the cell of, or a storage marker of, its local.
@@ -104,6 +105,13 @@ export type MirProjection =
 // handed to has been read.
 // A second check of the same place makes it available again. All checked places of one node have one parent and one
 // index: a later check re-resolves the place the first check resolved, through the same saved receiver and index.
+//
+// Where a view is checked, and its receiver (graph laws 1 and 4). The graph selects neither; it agrees with the
+// decision of the view. That decision is the member decision a `field` carries; for a `refined` view the narrowing
+// of its node; for every other view the access its node selected, when the node selected one. A view is `checked`
+// exactly where its decision requires a check: a required check is never absent, and none is added. A receiver that
+// the decision says is reached by reference is the parent of the view, and it is a value captured once: a local's
+// own cell, written once (never, for a local present on entry) and not handed out.
 export type MirPlaceBase =
   | { readonly kind: "local"; readonly local: LocalId }
   | { readonly kind: "static"; readonly definition: DefId }
@@ -148,12 +156,26 @@ export interface MirStepRef {
   readonly step: number;
 }
 
+// What a statement executes (graph law 2). The decision of an operation says whether it is pure. A statement
+// executes only a pure operation: a `unary`, `binary` or `convert` value carries its decision, and an `aggregate`
+// executes the construction its node selected. An operation whose decision is an invocation is an `invoke`
+// terminator, and a pure operation is never one.
+// Storage markers (graph law 8). A marker has one meaning: the lifetime of a slot the body owns. `storage-live`
+// begins an empty slot, ending a present one first; `storage-dead` ends it. A local present on entry (a parameter,
+// the receiver, a capture) carries no begin marker. A local that is storage the body does not own carries no marker
+// at all, begin or end: the local of a parameter or of the receiver that is not passed by value or moved, and a
+// captured location. Such a local is the caller's storage; when the body's access to it ends is not a fact of this
+// record. The slot of a parameter passed by value or moved is the body's own and may end.
 export type MirStatement = MirSite & (
   | { readonly kind: "assign"; readonly place: PlaceId; readonly value: MirRvalue; readonly step: MirStepRef | null }
   | { readonly kind: "storage-live"; readonly local: LocalId }
   | { readonly kind: "storage-dead"; readonly local: LocalId }
 );
 
+// How a control point fails (graph law 1). An `invoke` fails as the decision of its operation says: `none` when it
+// cannot fail, `abort` when it ends the process, `handler` or `escape` when it unwinds. A `check` fails as the
+// decision of its checked place says, with `abort` or with `handler` or `escape`, and never with `none`. A `call`,
+// `await`, `yield`, `delegate` and `throw` unwind.
 export type MirUnwind =
   | { readonly kind: "handler"; readonly exception: PlaceId; readonly target: BlockId }
   | { readonly kind: "escape" }
@@ -288,6 +310,7 @@ export type MirRule =
   | "refined-under-check"
   | "statement-pure"
   | "index-operand-stable"
+  | "receiver-stable"
   | "protocol-step-exact"
   | "completion-branch-canonical"
   | "entries-exact"

@@ -81,6 +81,8 @@ export function newPlace(state: LowerState, base: MirPlaceBase, storage: TyId, o
 
 /** The one place that is the local itself, or null when the lowering is refused. */
 export function placeOfLocal(state: LowerState, local: LocalId): PlaceId | null {
+  // After a refusal a known place is not answered either: no identity is handed to a caller of a refused lowering.
+  if (state.refused) return null;
   const known = state.localPlaces.get(local);
   if (known !== undefined) return known;
   const selected = state.locals[local];
@@ -95,6 +97,7 @@ export function placeOfLocal(state: LowerState, local: LocalId): PlaceId | null 
  * assigned when the body is assembled.
  */
 export function constantOperand(state: LowerState, type: TyId, value: MirConstantValue): MirOperand | null {
+  if (state.refused) return null;
   const key = constantKeyOfMir(type, value);
   if (key === null) return throwInvariant(invariant("a constant's bindings are not complete"));
   const known = state.constants.get(key);
