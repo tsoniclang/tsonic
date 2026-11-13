@@ -345,19 +345,61 @@ test("current Host inventory rejects a file outside the catalogue", () => {
   expect([[path, data]], [at("unknown-module", path)]);
 });
 
-test("pure stage contracts require their genuine Deps first while state and try remain forbidden", () => {
+test("a public stage operation takes its inputs, and injected dependencies only as its own contract's Deps record in first place; state and try remain forbidden", () => {
   const contract = file("infer", "contract.ts");
   const entry = file("infer", "index.ts");
-  const implementation = [entry, 'import type { Run } from "./contract.js"; export const run: Run = (deps, input) => input;'];
-  for (const signature of ['(input: number) => number', '(input: number, deps: InferDeps) => number',
-    '(deps: { readonly bias: number }, input: number) => number', '(deps: number, input: number) => number'])
-    expect([[contract, `export interface InferDeps { readonly bias: number; }\nexport type Run = ${signature};`], implementation], [at("impure-component", contract, 2)]);
-  expect([[contract, 'export interface InferDeps { readonly bias: number; }\nexport type Run = (deps: InferDeps, input: number) => number;'], implementation], []);
+  const record = "export interface InferDeps { readonly bias: number; }\n";
+  const stage = (signature, implementation, preamble = record) => [[contract, `${preamble}export type Run = ${signature};`],
+    [entry, `import type { Run } from "./contract.js";\nexport const run: Run = ${implementation};`]];
+  // Positive: an operation with one ready input and no injected dependency; several inputs; a real dependency record.
+  expect(stage("(input: number) => number", "input => input"), []);
+  expect(stage("(input: number) => number", "input => input", ""), []);
+  expect(stage("(left: number, right: number) => number", "(left, right) => left + right"), []);
+  expect(stage("(deps: InferDeps, input: number) => number", "(deps, input) => input + deps.bias"), []);
+  expect(stage("(other: InferDeps, input: number) => number", "(other, input) => input + other.bias"), []);
+  // Negative: a dependency record that is moved, repeated, alone, inline, not a record, or not named as one.
+  for (const [signature, implementation] of [
+    ["(input: number, deps: InferDeps) => number", "(input, deps) => input + deps.bias"],
+    ["(input: number, other: InferDeps) => number", "(input, other) => input + other.bias"],
+    ["(deps: InferDeps, more: InferDeps, input: number) => number", "(deps, more, input) => input + deps.bias + more.bias"],
+    ["(deps: InferDeps) => number", "deps => deps.bias"],
+    ["() => number", "() => 1"],
+    ["(deps: { readonly bias: number }, input: number) => number", "(deps, input) => input + deps.bias"],
+    ["(deps: number, input: number) => number", "(deps, input) => input + deps"],
+    ["(deps: InferOptions, input: number) => number", "(deps, input) => input + deps.bias"]])
+    expect(stage(signature, implementation, `${record.trimEnd()} export interface InferOptions { readonly bias: number; }\n`), [at("impure-component", contract, 2)]);
+  // Negative: hidden effects, which are dependencies injected outside the record: a callable input, an input record with a
+  // callable member, and a library function handed in instead of used through its owner.
+  expect(stage("(input: number, effect: () => number) => number", "(input, effect) => input + effect()"), [at("impure-component", contract, 2)]);
+  expect(stage("(input: Carrier) => number", "input => input.run()",
+    "export interface Carrier { readonly run: () => number; }\n"), [at("impure-component", contract, 2)]);
+  expect(stage("(input: { run(): number }) => number", "input => input.run()", "\n"), [at("impure-component", contract, 2)]);
+  expect([[file("ir-types", "contract.ts"), "export type Substitute = (input: number) => number;"],
+    [contract, 'import type { Substitute } from "../ir-types/contract.js";\nexport type Run = (input: number, substitute: Substitute) => number;'],
+    [entry, 'import type { Run } from "./contract.js";\nexport const run: Run = (input, substitute) => substitute(input);']], [at("impure-component", contract, 2)]);
+  // Negative: the implementation leaves out or adds a parameter of its contract type, in place or through a named function.
+  expect(stage("(deps: InferDeps, input: number) => number", "deps => deps.bias"), [at("contract-shape", entry, 2)]);
+  expect(stage("(input: number) => number", "(input, extra) => input"), [at("contract-shape", entry, 2)]);
+  expect([[contract, "export type Run = (input: number) => number;"],
+    [entry, 'import type { Run } from "./contract.js";\nfunction original(): number { return 1; }\nexport const run: Run = original;']], [at("contract-shape", entry, 3)]);
+  expect([[contract, "export type Run = (input: number) => number;"], [file("infer", "work.ts"), "export function original(input: number, extra: number): number { return input + extra; }"],
+    [entry, 'import type { Run } from "./contract.js";\nimport { original } from "./work.js";\nexport const run: Run = original;']], [at("contract-shape", entry, 3)]);
+  expect([[contract, "export type Run = (input: number) => number;"], [file("infer", "work.ts"), "export function original(input: number): number { return input; }"],
+    [entry, 'import type { Run } from "./contract.js";\nimport { original } from "./work.js";\nexport const run: Run = original;']], []);
+  // Negative: a one-input operation is still a typed port of the contract. An untyped function, a helper or a table is not public.
+  expect([[contract, "export type Run = (input: number) => number;"], [entry, "export const run = (input: number): number => input;"]], [at("contract-shape", entry)]);
+  expect([[contract, "export type Run = (input: number) => number;"],
+    [entry, 'import type { Run } from "./contract.js";\nexport const run: Run = input => input;\nexport const table: readonly number[] = [1];']], [at("contract-shape", entry, 3)]);
+  expect([[contract, "export type Run = (input: number) => number;"],
+    [entry, 'import type { Run } from "./contract.js";\nexport const run: Run = input => input;\nexport function helper(input: number): number { return input; }']], [at("contract-shape", entry, 3)]);
+  // State and try stay forbidden, for a one-input operation as for any other.
   expect([[file("infer"), "let count = 0;\nexport function run(deps: { readonly bias: number }, input: number): number { count += 1; return input + deps.bias + count; }"]],
     [at("module-state", file("infer"))]);
+  expect([[file("infer"), "let count = 0;\nexport function run(input: number): number { count += 1; return input + count; }"]], [at("module-state", file("infer"))]);
   expect([[file("infer"), "export function run(deps: { readonly bias: number }, input: number): number { return input + deps.bias; }"]], []);
   expect([[file("infer"), 'export function run(deps: { readonly limit: number }, input: number): { readonly kind: "refused"; readonly value: number } { return { kind: "refused", value: input + deps.limit }; }']], []);
   expect([[file("infer"), 'export function run(deps: { readonly limit: number }, input: number): number { try { return input + deps.limit; } catch { return 0; } }']], [at("impure-component", file("infer"))]);
+  expect([[file("infer"), "export function run(input: number): number { try { return input; } catch { return 0; } }"]], [at("impure-component", file("infer"))]);
 });
 
 test("original and emitted component ports require the same genuine owner Deps", () => {
