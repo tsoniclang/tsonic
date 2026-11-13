@@ -16,7 +16,8 @@ import { N } from "../names.mjs";
 import { DYNAMIC_KEY, SIG, T, builders, callee, checked, direct, mapped, narrowed, native, selection, signature, typedBody } from "../typed.mjs";
 
 const ADD = native("+", "int32", [T.int32, T.int32], T.int32);
-const SIG_F = signature("f", [], T.int32);
+// WT-4 also declares a function `f`; the two are different definitions.
+const SIG_F = signature("wt6.f", [], T.int32);
 const SIG_GROW = signature("grow", [["a", T.int32Array]], T.int32);
 const SIG_ORDER_GROW = signature("orderGrow", [["a", T.int32Array], ["i", T.fnVoidToInt32]], T.int32);
 const SIG_ORDER_FIXED = signature("orderFixed", [["a", T.int32Fixed4], ["i", T.fnVoidToInt32]], T.int32);
@@ -28,8 +29,8 @@ const callI = (b, local, label) => ({ $: label, ...b.call(b.id("i", local, T.fnV
     advertised: { declaration: "D[M[P[p];m];()=>int32]", role: "advertised", signature: SIG["()=>int32"], body: null },
     api: { declaration: "D[M[P[p];m];()=>int32]", role: "api-signature", signature: SIG["()=>int32"], body: null } },
     activation: null, captures: [] }, receiver: null, arguments: [] })) });
-const callF = (b, label) => ({ $: label, ...b.call(b.global("f", "f", T.unknown), [], T.int32,
-  () => ({ callee: callee("f", SIG_F, [], T.int32), receiver: null, arguments: [] })) });
+const callF = (b, label) => ({ $: label, ...b.call(b.global("f", "wt6.f", T.unknown), [], T.int32,
+  () => ({ callee: callee("wt6.f", SIG_F, [], T.int32), receiver: null, arguments: [] })) });
 
 const compoundIndex = (b, arrayLocal, arrayType, indexLocation, rhs, labels) =>
   b.expressionStatement({ $: labels.assignment, ...b.assign(
