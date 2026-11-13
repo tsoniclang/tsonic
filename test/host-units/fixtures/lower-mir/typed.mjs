@@ -95,7 +95,7 @@ export const endpoint = (name, role, signatureId, withBody = true) => {
 const NO_SCOPE = Object.freeze({ classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] });
 /** The context `verifyMir` needs for a graph lowered from `program`: its typed body, the type table, and the declarations and body owners the programs name. */
 export const verificationContext = program => ({
-  limits: { maximumMergeWork: 1000000 }, source: program.tir, types: TABLE,
+  limits: { maximumWork: 1000000 }, source: program.tir, types: TABLE,
   declarationOf: definition => KNOWN.has(definition) ? { scope: NO_SCOPE, parameterCount: 0, endpoints: ENDPOINTS.get(definition) ?? [] } : null,
   bodyOwner: body => OWNERS.get(body) ?? null,
 });

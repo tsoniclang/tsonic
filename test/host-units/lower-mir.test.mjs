@@ -38,6 +38,12 @@ before(async () => {
   };
 });
 
+/** The findings of the complete MIR verifier for a lowered graph. A refusal for resources is not a list of findings and fails the case. */
+const verified = (mir, program) => {
+  const outcome = verifyMir(mir, verificationContext(program));
+  assert.equal(outcome.kind, "complete");
+  return outcome.violations;
+};
 /**
  * Lowers one typed body and requires an accepted result with no diagnostic (section 7 part 7: the box originates one
  * diagnostic, the size limit). Section 7 part 2 has the verifier run at the handoff from lowering: every graph this
@@ -47,7 +53,7 @@ const lower = (program, internal = [], limits = null) => {
   const result = lowerToMir(limits === null ? deps : { ...deps, limits }, program.tir, internal);
   assert.equal(result.kind, "ok");
   assert.deepEqual(result.diagnostics, []);
-  assert.deepEqual(verifyMir(result.value, verificationContext(program)).map(violation => `${violation.rule} at ${JSON.stringify(violation.site)}`), []);
+  assert.deepEqual(verified(result.value, program).map(violation => `${violation.rule} at ${JSON.stringify(violation.site)}`), []);
   return result.value;
 };
 /** The predicate of a defect raised by lower-mir through Diag: an Error whose cause names the owner (R1 section 4). */

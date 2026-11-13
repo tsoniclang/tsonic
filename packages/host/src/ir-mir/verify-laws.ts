@@ -4,7 +4,8 @@ import type {
   MirBlock, MirBody, MirClosureCapture, MirLocal, MirOperand, MirPlace, MirRule, MirRvalue, MirStepRef, MirVerificationContext, MirViolationSite,
 } from "./contract.js";
 import { controlEdges, densePosition, findSourceNode } from "./verify-control.js";
-import type { SourceNode, SourceStep, WireTexts } from "./verify-control.js";
+import { chargeWork } from "./verify-control.js";
+import type { SourceNode, SourceStep, WireTexts, WorkMeter } from "./verify-control.js";
 import type { PlaceLocation } from "./verify-storage.js";
 
 // The graph laws a lowered body satisfies beyond reference and type validity. Every check is a pass over the
@@ -15,7 +16,7 @@ import type { PlaceLocation } from "./verify-storage.js";
 // field of the element access decision and is added with it.
 export function verifyLaws(
   body: MirBody, context: MirVerificationContext, nodes: ReadonlyMap<NodeId, SourceNode>, texts: WireTexts,
-  places: ReadonlyMap<PlaceId, PlaceLocation>,
+  places: ReadonlyMap<PlaceId, PlaceLocation>, meter: WorkMeter,
 ): readonly Violation<MirRule, MirViolationSite>[] {
   const violations: Violation<MirRule, MirViolationSite>[] = [];
   // A site record is built only when a finding is reported.
@@ -205,12 +206,7 @@ export function verifyLaws(
   const mutableLocals = new Uint32Array(body.locals.length);
   const stableLocals = new Uint32Array(body.locals.length);
   const superseded = new Set<number>();
-  let work = 0;
-  let exhausted = false;
-  const charge = (units: number): void => {
-    work += units;
-    if (work > context.limits.maximumMergeWork) exhausted = true;
-  };
+  const charge = (units: number): void => { chargeWork(meter, units); };
   const endMutable = (): void => { clock += 1; mutableNow = clock; };
   const endStable = (): void => { clock += 1; stableNow = clock; log = []; visible = 0; };
   const available = (checked: number): boolean => stable[checked] === 1
@@ -371,9 +367,9 @@ export function verifyLaws(
     }
   };
   const chain = (head: number): void => {
-    if (exhausted) return;
+    if (meter.exhausted) return;
     enter(head);
-    for (let position = head; position >= 0 && visited[position] !== 1 && !exhausted;) {
+    for (let position = head; position >= 0 && visited[position] !== 1 && !meter.exhausted;) {
       visited[position] = 1;
       const block = body.blocks[position];
       if (block === undefined) return;
@@ -481,8 +477,6 @@ export function verifyLaws(
   }
   // Blocks left over form a closed ring that nothing enters; each is read once all the same.
   for (const [position, block] of body.blocks.entries()) if (block !== undefined && visited[position] !== 1) chain(position);
-  // The limit was passed: the body is not verified, and the finding says so.
-  if (exhausted) reportBody("merge-work-limit");
 
   // Law 6: a protocol step names its step. A record that names a step executes that step's callee or operation, and
   // a record that executes the callee or operation of a step of its node's protocols names it. A record that names

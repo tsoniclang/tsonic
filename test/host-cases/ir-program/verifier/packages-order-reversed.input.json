@@ -53,6 +53,9 @@
         "maximumIntersectionMembers": 128
       }
     },
+    "mirVerification": {
+      "maximumWork": 100000
+    },
     "analysisLimits": {
       "maximumBlocksPerBody": 128,
       "maximumPlacesPerBody": 128,

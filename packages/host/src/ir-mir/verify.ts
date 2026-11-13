@@ -4,8 +4,9 @@ import { encodeKey } from "../ids/index.js";
 import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, LiteralValue, SelfBinding, TypeBinding, TypeComponent, TypeTable, TypeTerm } from "../ir-types/contract.js";
 import type { ApplicationDecision, EmbeddingDecision, InferenceDeclaration } from "../ir-infer/contract.js";
 import type { MemberSelection, ResolvedCallee, TirBody, TypedOperation } from "../ir-tir/contract.js";
-import type { MirBody, MirConstantValue, MirRule, MirVerificationContext, MirViolationSite } from "./contract.js";
+import type { MirBody, MirConstantValue, MirRule, MirVerification, MirVerificationContext, MirViolationSite } from "./contract.js";
 import { createWireTexts, densePosition, sourceNodes, validOrigin, verifyEdges, verifySelections } from "./verify-control.js";
+import type { WorkMeter } from "./verify-control.js";
 import { placeLocations, verifyStorage, verifyValues } from "./verify-storage.js";
 import { verifyLaws } from "./verify-laws.js";
 import type { SignatureReference } from "./verify-storage.js";
@@ -500,7 +501,9 @@ function decisionReferences(
   return violations;
 }
 
-export function verifyBody(body: MirBody, context: MirVerificationContext): readonly Violation<MirRule, MirViolationSite>[] {
+export function verifyBody(body: MirBody, context: MirVerificationContext): MirVerification {
+  // One account for this body: every pass charges it, and it is not reset between passes.
+  const meter: WorkMeter = { spent: 0, maximum: context.limits.maximumWork, exhausted: false };
   const declarations = new Map<DefId, InferenceDeclaration | null>();
   const owners = new Map<BodyId, DefId | null>();
   const declarationOf = (definition: DefId): InferenceDeclaration | null => {
@@ -529,6 +532,8 @@ export function verifyBody(body: MirBody, context: MirVerificationContext): read
   const decisions = decisionReferences(body, input, types, signatures);
   const violations: Violation<MirRule, MirViolationSite>[] = [];
   for (const family of [rows, values.violations, verifyEdges(body), verifySelections(body, input, nodes, texts), verifyStorage(body, places),
-    verifyLaws(body, input, nodes, texts, places), decisions, verifyTypeReferences(input.types, types, signatures)]) for (const violation of family) violations.push(violation);
-  return violations;
+    verifyLaws(body, input, nodes, texts, places, meter), decisions, verifyTypeReferences(input.types, types, signatures)]) for (const violation of family) violations.push(violation);
+  // Past the limit the body is neither accepted nor found invalid: the findings gathered so far are not an answer.
+  if (meter.exhausted) return { kind: "resource-limit", body: body.body, dimension: "work", maximum: meter.maximum };
+  return { kind: "complete", violations };
 }

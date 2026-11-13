@@ -97,10 +97,9 @@ export type MirProjection =
 // counted once; and where a block must add to a list it does not end, or read a list whose places were made
 // available again elsewhere since, the prefix is copied. The worst case is the number of edges not continued
 // along times the number of stable checked places, which is quadratic when both grow with the body. That work is
-// charged to `MirVerificationLimits.maximumMergeWork`: one unit for each place counted or copied and for each
-// incoming edge of a block not continued into. When the limit is passed, reading stops and the one finding
-// `merge-work-limit` is reported for the body: a refusal for resources, never an acceptance and never a weaker
-// law. Lists are kept only until the block they were handed to has been read.
+// charged to the body's one account (`MirVerificationLimits.maximumWork`): one unit for each place counted or
+// copied and for each incoming edge of a block not continued into. Lists are kept only until the block they were
+// handed to has been read.
 // A second check of the same place makes it available again. All checked places of one node have one parent and one
 // index: a later check re-resolves the place the first check resolved, through the same saved receiver and index.
 export type MirPlaceBase =
@@ -283,7 +282,6 @@ export type MirRule =
   | "check-place-single"
   | "checked-place-available"
   | "checked-place-destination"
-  | "merge-work-limit"
   | "suspension-admitted"
   | "refined-under-check"
   | "statement-pure"
@@ -309,10 +307,19 @@ export type MirViolationSite =
 export type ConstantKeyOfMir = (type: TyId, value: MirConstantValue) => string | null;
 export type PrintMir = (body: MirBody) => string;
 export type ParseMir = (text: string) => TextParseResult<MirBody>;
+// The limit of one body's verification. Verification has one account for each body: every pass that does work
+// beyond one visit of each record charges it, in the units its law text states, and the account starts at zero for
+// each body. `maximumWork` is the most that account may reach. The caller sets it; there is no default.
 export interface MirVerificationLimits {
-  /** The work law 3 may spend where stable checked places meet at a block; the contract's law text defines the unit. */
-  readonly maximumMergeWork: number;
+  readonly maximumWork: number;
 }
+
+// The answer of the verifier for one body. `complete` carries every finding; an empty list is an accepted body.
+// `resource-limit` says that the body's account passed `maximum`: the body is neither accepted nor found
+// invalid, and no finding is reported for it.
+export type MirVerification =
+  | { readonly kind: "complete"; readonly violations: readonly Violation<MirRule, MirViolationSite>[] }
+  | { readonly kind: "resource-limit"; readonly body: BodyId; readonly dimension: "work"; readonly maximum: number };
 
 export interface MirVerificationContext {
   readonly limits: MirVerificationLimits;
@@ -324,4 +331,4 @@ export interface MirVerificationContext {
 export type VerifyMir = (
   body: MirBody,
   context: MirVerificationContext,
-) => readonly Violation<MirRule, MirViolationSite>[];
+) => MirVerification;

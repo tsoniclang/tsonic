@@ -41,6 +41,12 @@ const post = (method, parameters = {}) => new Promise((done, reject) => {
   session.post(method, parameters, (error, result) => error === null ? done(result) : reject(error));
 });
 let product;
+/** The findings of the module-bodies port for a verification that ran to its end; a refusal for resources fails the case. */
+function moduleViolations(index, module, context) {
+  const outcome = product.verifyModuleBodies(index, module, context);
+  assert.equal(outcome.kind, "complete", "the bodies of the module were verified to the end, not refused for resources");
+  return outcome.violations;
+}
 let typeProduct;
 
 function completeProgramValue(actual, expected, label) {
@@ -217,7 +223,7 @@ function evaluate(input) {
         original = original.statements.nodes[0];
       }
       return { complete, chainNodes: count, sharedRoot: Object.is(parsed.value.tree, parsed.value.bodies[0].tir.root),
-        violations: product.verifyModuleBodies(fixture.index, fixture.module, fixture.context) };
+        violations: moduleViolations(fixture.index, fixture.module, fixture.context) };
     }
     case "parse-module": return product.parseModuleBodies(input.index, input.text);
     case "parse-module-sharing": {
@@ -328,11 +334,11 @@ function evaluate(input) {
     }
     case "verify-module-boundary-fixture": {
       const fixture = moduleBoundaryFixture(input.change);
-      return product.verifyModuleBodies(fixture.index, fixture.module, fixture.context);
+      return moduleViolations(fixture.index, fixture.module, fixture.context);
     }
     case "verify-module-fixture": {
       const fixture = moduleFixture();
-      return product.verifyModuleBodies(fixture.index, fixture.module, fixture.context);
+      return moduleViolations(fixture.index, fixture.module, fixture.context);
     }
     case "verify-constant-reference-fixture": {
       const fixture = moduleFixture();
@@ -340,7 +346,7 @@ function evaluate(input) {
         value: { kind: "constant", reference: { initializer: fixture.instance } } });
       fixture.index.bodies[0].mirConstantCount = 1;
       if (input.present) fixture.index.constants.push({ initializer: fixture.instance, value: { kind: "absence", type: 0 } });
-      return product.verifyModuleBodies(fixture.index, fixture.module, fixture.context);
+      return moduleViolations(fixture.index, fixture.module, fixture.context);
     }
     case "verify-module-change-fixture": {
       const fixture = moduleFixture();
@@ -355,17 +361,17 @@ function evaluate(input) {
         } }; break;
         default: throw new Error("Unlisted authored module proof change");
       }
-      return product.verifyModuleBodies(fixture.index, fixture.module, fixture.context);
+      return moduleViolations(fixture.index, fixture.module, fixture.context);
     }
     case "verify-metadata-operation-fixture": {
       const { first } = metadataOperationFixture(input.operationKind, input.fact, input.key);
       return { index: product.verifyProgramIndex(first.index, first.context),
-        module: product.verifyModuleBodies(first.index, first.module, first.context) };
+        module: moduleViolations(first.index, first.module, first.context) };
     }
     case "verify-repeated-metadata-fixture": {
       const { first } = repeatedMetadataFixture(input.uses, input.ownerSize, input.fact);
       return { index: product.verifyProgramIndex(first.index, first.context),
-        module: product.verifyModuleBodies(first.index, first.module, first.context) };
+        module: moduleViolations(first.index, first.module, first.context) };
     }
     case "verify-artifact-index-fixture": {
       const { first } = publishedArtifactFixture(input.change);
@@ -374,17 +380,17 @@ function evaluate(input) {
     case "verify-field-offset-fixture": {
       const { first } = metadataFieldFixture(input.key);
       return { index: product.verifyProgramIndex(first.index, first.context),
-        module: product.verifyModuleBodies(first.index, first.module, first.context) };
+        module: moduleViolations(first.index, first.module, first.context) };
     }
     case "verify-binding-metadata-fixture": {
       const { first } = metadataBindingFixture(input.proof, input.key);
       return { index: product.verifyProgramIndex(first.index, first.context),
-        module: product.verifyModuleBodies(first.index, first.module, first.context) };
+        module: moduleViolations(first.index, first.module, first.context) };
     }
     case "verify-qualified-scopes-fixture": {
       const fixture = dualInstanceFixture();
       return { index: product.verifyProgramIndex(fixture.index, fixture.context),
-        module: product.verifyModuleBodies(fixture.index, fixture.module, fixture.context) };
+        module: moduleViolations(fixture.index, fixture.module, fixture.context) };
     }
     case "verify-module-inventory-fixture": {
       const fixture = moduleFixture();
@@ -397,7 +403,7 @@ function evaluate(input) {
           break;
         default: throw new Error("Unlisted authored module inventory change");
       }
-      return product.verifyModuleBodies(fixture.index, fixture.module, fixture.context);
+      return moduleViolations(fixture.index, fixture.module, fixture.context);
     }
     case "verify-index-fixture": {
       const fixture = moduleFixture();
@@ -572,7 +578,7 @@ test("ir-program missing checked module data retains all index and module-bounda
     detail: [{ kind: "text", value: "missing-module-data" }] };
   completeProgramValue(product.verifyProgramIndex(fixture.index, fixture.context), [missing, { rule: "body-root-resolves",
     site: { kind: "body", instance: fixture.instance }, detail: [{ kind: "number", value: 0 }] }], "the complete source inventory does not drop a body finding");
-  completeProgramValue(product.verifyModuleBodies(fixture.index, fixture.module, fixture.context), [missing],
+  completeProgramValue(moduleViolations(fixture.index, fixture.module, fixture.context), [missing],
     "the complete chunk boundary reports the unavailable checked source once");
 });
 
@@ -1549,7 +1555,7 @@ for (const kind of ["unary", "binary", "convert", "refine", "address-of", "array
     mir.blocks[0].statements[1].value = value;
     const expected = ["unary", "binary", "convert"].includes(kind) ? [{ rule: "mir-valid", site: { kind: "body", instance: first.instance },
       detail: [{ kind: "text", value: "operation-selected" }] }] : [];
-    completeProgramValue(product.verifyModuleBodies(first.index, first.module, first.context), expected,
+    completeProgramValue(moduleViolations(first.index, first.module, first.context), expected,
       "all metadata witnesses are genuine; an operation absent from the actual source retains its complete child finding");
   });
 
@@ -1584,7 +1590,7 @@ for (const kind of ["literal", "definition", "observation", "place", "closure-pa
       expected.push(missing("mir.constants[0].value", key), missing("facts.observations[0].layout.metadata", key));
     }
     if (kind.startsWith("closure-")) expected.push({ rule: "mir-valid", site, detail: [{ kind: "text", value: "operation-selected" }] });
-    completeProgramValue(product.verifyModuleBodies(first.index, first.module, first.context), expected,
+    completeProgramValue(moduleViolations(first.index, first.module, first.context), expected,
       "the complete whole-body result includes every owning publication and child finding without filtering");
   });
 
@@ -1592,21 +1598,21 @@ test("ir-program a mismatched supplied type table retains its complete module-le
   const fixture = moduleFixture();
   const context = { ...fixture.context, facts: { ...fixture.context.facts, types: { ...fixture.index.types,
     terms: [...fixture.index.types.terms, { kind: "primitive", primitive: "bool" }] } } };
-  completeProgramValue(product.verifyModuleBodies(fixture.index, fixture.module, context), [{ rule: "shared-type-table",
+  completeProgramValue(moduleViolations(fixture.index, fixture.module, context), [{ rule: "shared-type-table",
     site: { kind: "module", module: fixture.module.module }, detail: [] }], "the boundary does not silently replace a conflicting supplied table");
 });
 
 test("ir-program a missing complete instantiated chunk retains the exact absent body identity", () => {
   const fixture = dualInstanceFixture();
   const removed = fixture.module.bodies.pop();
-  completeProgramValue(product.verifyModuleBodies(fixture.index, fixture.module, fixture.context), [{ rule: "body-levels-total",
+  completeProgramValue(moduleViolations(fixture.index, fixture.module, fixture.context), [{ rule: "body-levels-total",
     site: { kind: "body", instance: removed.instance }, detail: [{ kind: "text", value: fixture.module.module }] }], "all indexed instances must be present in the supplied chunk");
 });
 
 test("ir-program a copied module publication retains every genuine identity and sharing cofinding", () => {
   const fixture = moduleFixture();
   fixture.module.tree = { ...fixture.module.tree };
-  completeProgramValue(product.verifyModuleBodies(fixture.index, fixture.module, fixture.context), [
+  completeProgramValue(moduleViolations(fixture.index, fixture.module, fixture.context), [
     { rule: "template-body-shared", site: { kind: "body", instance: fixture.instance }, detail: [{ kind: "number", value: 0 }] },
     { rule: "tir-valid", site: { kind: "node", module: fixture.module.module, node: 0 }, detail: [{ kind: "text", value: "module-node-identity" },
       { kind: "text", value: "module tree does not retain its actual source and publication identity" }] },
@@ -1638,7 +1644,7 @@ test("ir-program complete relational member references retain field, method and 
     { id: 1, parent: null, projection: { kind: "method-value", member } }];
   facts.closedArrays = [{ node: 0, kind: "closed", declarations: [], references: [], literals: [], elements: [member] }];
   fixture.answers.set(encodeContextKey(["bindingScopesOf", { kind: "body", instance: fixture.instance }]), new Array(9).fill(fixture.scope));
-  completeProgramValue(product.verifyModuleBodies(fixture.index, fixture.module, fixture.context), [],
+  completeProgramValue(moduleViolations(fixture.index, fixture.module, fixture.context), [],
     "every complete selected record is checked without replaying semantic analysis or losing the exact activation identity");
 });
 
@@ -1674,7 +1680,7 @@ for (const change of ["absent", "present", "duplicate", "argument"]) test(`ir-pr
       { kind: "text", value: "Transports retain complete selected formals, passing modes and effective actual components exactly once." }] },
   ] : [{ rule: "binding-artifact-present", site, detail: [
     { kind: "text", value: "facts.origins.invocations[0].alternatives[0].summary" }, { kind: "text", value: encodeKey([fixture.definition, ["parametric"]]) }] }];
-  completeProgramValue(product.verifyModuleBodies(fixture.index, fixture.module, fixture.context), expected,
+  completeProgramValue(moduleViolations(fixture.index, fixture.module, fixture.context), expected,
     "a borrowed invocation record retains its complete original context and publication result");
 });
 
@@ -1708,7 +1714,7 @@ for (const kind of ["callback", "activation"]) for (const ownerKind of ["body", 
       { kind: "text", value: ownerKind === "summary" ? "cross-owner-qualified" : "producer-resolves" },
       { kind: "text", value: ownerKind === "summary" ? "A formal producer retains a resolving qualified relational owner."
         : "The actual formal producer resolves in its declared foreign arena." }] });
-    completeProgramValue(product.verifyModuleBodies(first.index, first.module, first.context), expected,
+    completeProgramValue(moduleViolations(first.index, first.module, first.context), expected,
       "a genuine empty or unavailable canonical arena cannot invent formal producer zero; all cofindings remain in order");
   });
 
@@ -1719,9 +1725,9 @@ test("ir-program a construction retains its complete actual body instance", () =
   published.facts.origins.constructions = [{ node: 0, root: { body: fixture.bodyId, node: 0 },
     allocation: { body: fixture.bodyId, node: 0 }, implementation: fixture.definition, body: actual, regions: [] }];
   fixture.answers.set(encodeContextKey(["bindingScopesOf", { kind: "body", instance: fixture.instance }]), [fixture.scope]);
-  completeProgramValue(product.verifyModuleBodies(fixture.index, fixture.module, fixture.context), [], "a real instantiated construction resolves its exact complete record");
+  completeProgramValue(moduleViolations(fixture.index, fixture.module, fixture.context), [], "a real instantiated construction resolves its exact complete record");
   fixture.index.bodies.push({ ...fixture.index.bodies[1] });
-  completeProgramValue(product.verifyModuleBodies(fixture.index, fixture.module, fixture.context), [
+  completeProgramValue(moduleViolations(fixture.index, fixture.module, fixture.context), [
     { rule: "body-levels-total", site: { kind: "body", instance: actual }, detail: [{ kind: "text", value: fixture.module.module }] },
     { rule: "binding-artifact-present", site: { kind: "body", instance: fixture.instance }, detail: [
       { kind: "text", value: "facts.origins.constructions[0].body" }, { kind: "text", value: encodeKey([fixture.bodyId, ["instantiated", [[], [], [], []]]]) }] },
@@ -1733,14 +1739,14 @@ test("ir-program a raw location retains its actual selected metadata reference",
   first.module.bodies[0].facts.rawLocations = [{ node: 0, operation: "to-raw", pointee: 1, layout: { metadata: metadata.key, layout: 0 }, context: 0,
     bindings: { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] } }];
   first.answers.set(encodeContextKey(["bindingScopesOf", { kind: "body", instance: first.instance }]), new Array(4).fill(first.scope));
-  completeProgramValue(product.verifyModuleBodies(first.index, first.module, first.context), [], "the complete raw-location record preserves its real pointee, layout and environment");
+  completeProgramValue(moduleViolations(first.index, first.module, first.context), [], "the complete raw-location record preserves its real pointee, layout and environment");
 });
 
 test("ir-program a foreign MIR metadata site retains both materialization and qualified source findings", () => {
   const { first, second } = metadataOperationFixture("size", "present", "layout");
   first.module.bodies[0].mir.blocks[0].statements[1].tir = { body: second.bodyId, node: 0 };
   const site = { kind: "body", instance: first.instance };
-  completeProgramValue(product.verifyModuleBodies(first.index, first.module, first.context), [
+  completeProgramValue(moduleViolations(first.index, first.module, first.context), [
     { rule: "metadata-constant-not-materialised", site, detail: [{ kind: "text", value: "mir.blocks[0].statements[1].value.operand" },
       { kind: "number", value: 0 }, { kind: "text", value: encodeKey([first.definition, ["instantiated", [[], [], [], []]]]) }] },
     { rule: "cross-owner-qualified", site, detail: [{ kind: "text", value: "cross-owner-qualified" }] },
@@ -1753,7 +1759,7 @@ test("ir-program an unavailable parametric closure retains its complete publicat
   first.answers.set(encodeContextKey(["bodyOwner", missing.body]), null);
   first.module.bodies[0].mir.blocks[0].statements[1].value = { kind: "closure", instance: missing, captures: [] };
   const site = { kind: "body", instance: first.instance };
-  completeProgramValue(product.verifyModuleBodies(first.index, first.module, first.context), [
+  completeProgramValue(moduleViolations(first.index, first.module, first.context), [
     { rule: "cross-owner-reference-resolves", site, detail: [{ kind: "text", value: "mir.blocks[0].statements[1].value.instance" },
       { kind: "text", value: encodeKey([missing.body, ["parametric"]]) }] },
     { rule: "mir-valid", site, detail: [{ kind: "text", value: "operation-selected" }] },
@@ -1776,7 +1782,7 @@ test("ir-program a deep authored child mismatch propagates to its containing bod
   fixture.tirInput.source.bodies[0].scopes = [...fixture.module.bodies[0].tir.scopes];
   child.kind = "DebuggerStatement";
   const site = { kind: "body", instance: fixture.instance };
-  completeProgramValue(product.verifyModuleBodies(fixture.index, fixture.module, fixture.context), [
+  completeProgramValue(moduleViolations(fixture.index, fixture.module, fixture.context), [
     { rule: "instance-node-ids-exact", site, detail: [{ kind: "number", value: 1 }, { kind: "text", value: "Block" }] },
     { rule: "tir-valid", site, detail: [{ kind: "text", value: "kind-children-shape" },
       { kind: "text", value: "typed syntax does not retain the authored kind, fields and child presence" }] },
@@ -1790,7 +1796,7 @@ test("ir-program a missing checked body retains the complete source and nested-p
   fixture.tirInput.source.bodies = [];
   const site = { kind: "body", instance: fixture.instance };
   const child = (rule, message) => ({ rule: "tir-valid", site, detail: [{ kind: "text", value: rule }, { kind: "text", value: message }] });
-  completeProgramValue(product.verifyModuleBodies(fixture.index, fixture.module, fixture.context), [
+  completeProgramValue(moduleViolations(fixture.index, fixture.module, fixture.context), [
     { rule: "body-levels-total", site, detail: [{ kind: "text", value: "source" }] },
     child("body-owner", "body identity and owner do not retain the actual original body"),
     child("stable-order", "canonical template publication does not retain actual source body order"),
@@ -1807,7 +1813,7 @@ test("ir-program a separately copied body root retains its actual original root 
   fixture.answers.set(encodeContextKey(["nodeOf", { kind: "body", value: { body: fixture.bodyId, node: 2 } }]), null);
   const site = { kind: "body", instance: fixture.instance };
   const child = (rule, message) => ({ rule: "tir-valid", site, detail: [{ kind: "text", value: rule }, { kind: "text", value: message }] });
-  completeProgramValue(product.verifyModuleBodies(fixture.index, fixture.module, fixture.context), [
+  completeProgramValue(moduleViolations(fixture.index, fixture.module, fixture.context), [
     { rule: "instance-node-ids-exact", site, detail: [{ kind: "number", value: 0 }, { kind: "number", value: 2 }] },
     { rule: "template-body-shared", site, detail: [{ kind: "number", value: 2 }] },
     { rule: "tir-valid", site: { kind: "node", module: fixture.module.module, node: 0 }, detail: [{ kind: "text", value: "binding-vector-complete" },
@@ -1873,7 +1879,7 @@ for (const kind of ["goto", "unreachable", "switch", "await", "yield", "yield-ab
       ? ["call-receiver-exact", "call-arguments-total", "operation-selected"] : ["yield", "yield-absent", "delegate"].includes(kind)
         ? ["call-destination-type"] : kind === "call" || kind === "invoke" ? ["operation-selected"] : [];
     const expected = rules.map(rule => ({ rule: "mir-valid", site: { kind: "body", instance: first.instance }, detail: [{ kind: "text", value: rule }] }));
-    completeProgramValue(product.verifyModuleBodies(first.index, first.module, first.context), expected,
+    completeProgramValue(moduleViolations(first.index, first.module, first.context), expected,
       "the whole real source/metadata/context input retains all child findings, never a filtered success");
   });
 

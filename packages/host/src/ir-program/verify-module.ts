@@ -1,4 +1,4 @@
-import type { ProgramSite, ModuleBodies, ProgramIndex, ProgramVerificationContext, PublishedBody, VerifyModuleBodies } from "./contract.js";
+import type { ModuleBodiesVerification, ProgramSite, ModuleBodies, ProgramIndex, ProgramVerificationContext, PublishedBody, VerifyModuleBodies } from "./contract.js";
 import type { ArgumentTransport, MetadataKey, RelationalOwner, SummaryKey } from "../ir-facts/contract.js";
 import type { MirOperand, MirRvalue, MirSite, MirTerminator } from "../ir-mir/contract.js";
 import type { MemberSelection, ResolvedCallee, TirVerifierInput } from "../ir-tir/contract.js";
@@ -315,7 +315,7 @@ export function verifyPublishedChildren(
   module: ModuleBodies,
   input: TirVerifierInput | null,
   context: ProgramVerificationContext,
-): readonly ProgramViolation[] {
+): ModuleBodiesVerification {
   const violations: ProgramViolation[] = [];
   if (input === null) {
     violations.push({ rule: "tir-valid", site: { kind: "module", module: module.module }, detail: [textDetail("missing-module-data")] });
@@ -333,10 +333,13 @@ export function verifyPublishedChildren(
       for (const child of verifyTir(input, published.tir)) {
         violations.push({ rule: programChildRule("tir-valid", child.rule), site, detail: [textDetail(child.rule), ...child.detail] });
       }
-      for (const child of verifyMir(published.mir, {
-        source: published.tir, types: index.types,
+      const mir = verifyMir(published.mir, {
+        limits: context.mirVerification, source: published.tir, types: index.types,
         declarationOf: input.declarationOf, bodyOwner: context.facts.bodyOwner,
-      })) {
+      });
+      // A body past its limit is the answer for the module: it names the body, and nothing gathered so far is a finding.
+      if (mir.kind === "resource-limit") return { kind: "resource-limit", body: published.instance, dimension: mir.dimension, maximum: mir.maximum };
+      for (const child of mir.violations) {
         violations.push({ rule: programChildRule("mir-valid", child.rule), site, detail: [textDetail(child.rule), ...child.detail] });
       }
     }
@@ -344,7 +347,7 @@ export function verifyPublishedChildren(
       violations.push({ rule: programChildRule("facts-valid", child.rule), site, detail: [textDetail(child.rule), ...child.detail] });
     }
   }
-  return violations;
+  return { kind: "complete", violations };
 }
 
 export const verifyModuleBodies: VerifyModuleBodies = (index, module, context) => {
@@ -360,8 +363,10 @@ export const verifyModuleBodies: VerifyModuleBodies = (index, module, context) =
   if (expectedTypes !== printTypes(context.facts.types) || (input !== null && expectedTypes !== printTypes(input.types))) {
     violations.push({ rule: "shared-type-table", site: { kind: "module", module: module.module }, detail: [] });
   }
-  for (const child of verifyPublishedChildren(index, module, input, context)) violations.push(child);
-  return violations;
+  const children = verifyPublishedChildren(index, module, input, context);
+  if (children.kind === "resource-limit") return children;
+  for (const child of children.violations) violations.push(child);
+  return { kind: "complete", violations };
 };
 
 export function verifyModuleInventory(

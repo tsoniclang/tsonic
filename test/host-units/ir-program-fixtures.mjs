@@ -36,6 +36,7 @@ function exactLookup(supplied) {
 function contextFor(input, lookup) {
   return {
     limits: input.context.limits,
+    mirVerification: input.context.mirVerification,
     modulePathOf: module => lookup("modulePathOf", module),
     definitionPathOf: definition => lookup("definitionPathOf", definition),
     tirOf: module => lookup("tirOf", module),
@@ -165,7 +166,7 @@ export function moduleFixture(path = "src/main.ts", root = "/program") {
     typeExpansion: { maximumDepth: 128, maximumVisits: 10000, maximumUnionMembers: 128, maximumIntersectionMembers: 128 } };
   const analysisLimits = { maximumBlocksPerBody: 128, maximumPlacesPerBody: 128, maximumProjectionDepth: 128,
     maximumOriginAlternatives: 128, maximumRelationalRecordsPerBody: 10000, maximumRelationalReferencesPerBody: 10000 };
-  return { index, module, context: contextFor({ index, context: { limits, analysisLimits } }, lookup), tirInput, instance, definition, bodyId, answers: supplied, scope };
+  return { index, module, context: contextFor({ index, context: { limits, analysisLimits, mirVerification: { maximumWork: 100000 } } }, lookup), tirInput, instance, definition, bodyId, answers: supplied, scope };
 }
 
 export function authoredMethodGraph(module) {

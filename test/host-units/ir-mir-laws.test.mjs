@@ -12,20 +12,22 @@ const SIG_LAWS = signature("laws", [["a", T.int32Array], ["i", T.int32], ["o", T
 const SIG_USE = signature("laws.use", [["v", T.int32]], T.void);
 const SIG_BUMP = signature("laws.bump", [["v", T.int32, "required", null, "byref-readwrite"]], T.void);
 const SIG_TWO = signature("laws.two", [["x", T.optInt32, "optional"], ["y", T.optInt32, "optional"]], T.void);
-const coreOperation = (name, operands, result) => ({ decision: { kind: "selected",
-  operation: { kind: "core", declaration: def(name), bindings: EMPTY_BINDINGS }, operands, result }, permissionScope: null });
-const ACQUIRE = coreOperation("laws.acquire", [T.int32Array], T.unknown);
-const NEXT = coreOperation("laws.next", [T.unknown], T.unknown);
-const DONE = coreOperation("laws.done", [T.unknown], T.bool);
-const VALUE = coreOperation("laws.value", [T.unknown], T.int32);
+// Each step is an invoked operation that cannot fail; only `next` writes existing storage (it advances the iterator).
+const coreOperation = (name, operands, result, writesStorage) => ({ decision: { kind: "selected",
+  operation: { kind: "core", declaration: def(name), bindings: EMPTY_BINDINGS }, operands, result,
+  execution: { kind: "invocation", writesStorage, failure: "none" } }, permissionScope: null });
+const ACQUIRE = coreOperation("laws.acquire", [T.int32Array], T.unknown, false);
+const NEXT = coreOperation("laws.next", [T.unknown], T.unknown, true);
+const DONE = coreOperation("laws.done", [T.unknown], T.bool, false);
+const VALUE = coreOperation("laws.value", [T.unknown], T.int32, false);
 const endpoint = (name, role, sig) => ({ declaration: def(name), role, signature: sig, body: bodyId(name) });
 const USE_CALLEE = { decision: { candidate: 0, advertised: endpoint("laws.use", "advertised", SIG_USE), api: endpoint("laws.use", "api-body", SIG_USE),
   bindings: EMPTY_BINDINGS, implementationBindings: EMPTY_BINDINGS, parameters: [{ kind: "argument", parameter: 0, argument: 0, component: null, passing: "by-value" }],
-  completion: { signature: SIG_USE, completion: T.void, yielded: null, sent: null }, result: T.void },
+  completion: { signature: SIG_USE, completion: T.void, yielded: null, sent: null }, result: T.void, activation: null },
   activation: { body: bodyId("laws.use"), bindings: PARAMETRIC }, captures: [] };
 const callee = (name, sig, parameters) => ({ decision: { candidate: 0, advertised: endpoint(name, "advertised", sig), api: endpoint(name, "api-body", sig),
   bindings: EMPTY_BINDINGS, implementationBindings: EMPTY_BINDINGS, parameters,
-  completion: { signature: sig, completion: T.void, yielded: null, sent: null }, result: T.void },
+  completion: { signature: sig, completion: T.void, yielded: null, sent: null }, result: T.void, activation: null },
   activation: { body: bodyId(name), bindings: PARAMETRIC }, captures: [] });
 const BUMP_CALLEE = callee("laws.bump", SIG_BUMP, [{ kind: "argument", parameter: 0, argument: 0, component: null, passing: "byref-readwrite" }]);
 const TWO_CALLEE = callee("laws.two", SIG_TWO, [{ kind: "argument", parameter: 0, argument: 0, component: null, passing: "by-value" },
@@ -34,7 +36,8 @@ const ITERATE = { kind: "iterate", asynchronous: false, value: T.int32, completi
   steps: [{ role: "acquire", operation: ACQUIRE, callee: null }, { role: "next", operation: NEXT, callee: null },
     { role: "done", operation: DONE, callee: null }, { role: "value", operation: VALUE, callee: null }] };
 const INDEX = { decision: { key: { kind: "text", value: "index" }, origins: [], selectedDeclarations: [], primary: null, read: T.int32, write: T.int32,
-  getter: null, setter: null, bindings: EMPTY_BINDINGS }, getter: null, setter: null };
+  getter: null, setter: null, bindings: EMPTY_BINDINGS,
+  location: { kind: "data", check: { kind: "required", failure: "unwind" }, receiver: "by-reference" } }, getter: null, setter: null };
 
 const b = builders("laws");
 const source = typedBody("laws", { signature: SIG_LAWS, completion: T.int32,
@@ -111,7 +114,7 @@ function good() {
 }
 
 const LAW_RULES = new Set(["failure-kind-exact", "check-place-exact", "check-place-single", "checked-place-available", "checked-place-destination",
-  "merge-work-limit", "suspension-admitted", "refined-under-check", "index-operand-stable", "protocol-step-exact",
+  "suspension-admitted", "refined-under-check", "index-operand-stable", "protocol-step-exact",
   "completion-branch-canonical", "entries-exact", "omission-admitted", "storage-marker-exact", "effect-site-unique"]);
 let verifyMir;
 let printMir;
@@ -126,15 +129,21 @@ before(async () => {
     endpoints: [endpoint(name, "advertised", sig), endpoint(name, "api-body", sig)] });
   const declared = new Map([["laws", SIG_USE], ["laws.use", SIG_USE], ["laws.bump", SIG_BUMP], ["laws.two", SIG_TWO], ["laws.acquire", SIG_USE],
     ["laws.next", SIG_USE], ["laws.done", SIG_USE], ["laws.value", SIG_USE]].map(([name, sig]) => [def(name), declaration(name, sig)]));
-  context = { limits: { maximumMergeWork: 100000 }, source: source.tir, types: TABLE, declarationOf: definition => declared.get(definition) ?? null,
+  context = { limits: { maximumWork: 100000 }, source: source.tir, types: TABLE, declarationOf: definition => declared.get(definition) ?? null,
     bodyOwner: body => body === BODY ? def("laws") : body === bodyId("laws.use") ? def("laws.use") : body === bodyId("laws.bump") ? def("laws.bump") : body === bodyId("laws.two") ? def("laws.two") : null };
 });
 
-const laws = body => verifyMir(body, context).filter(violation => LAW_RULES.has(violation.rule)).map(violation => violation.rule);
+/** The findings of a verification that ran to its end; a refusal for resources is not a list of findings. */
+const found = (body, given = context) => {
+  const outcome = verifyMir(body, given);
+  assert.equal(outcome.kind, "complete");
+  return outcome.violations;
+};
+const laws = body => found(body).filter(violation => LAW_RULES.has(violation.rule)).map(violation => violation.rule);
 /** Every rule the verifier reports, for the cases that assert that a changed graph has its one finding and no other. */
-const all = body => verifyMir(body, context).map(violation => violation.rule);
+const all = body => found(body).map(violation => violation.rule);
 /** The same, for the body taken as asynchronous: a suspension stands only in a body that can suspend. */
-const allAsync = body => verifyMir(body, { ...context, source: { ...context.source, asynchronous: true } }).map(violation => violation.rule);
+const allAsync = body => found(body, { ...context, source: { ...context.source, asynchronous: true } }).map(violation => violation.rule);
 const changed = change => { const body = good(); change(body); return body; };
 
 test("the graph that satisfies the laws has no law violation, and its text form is read back equal", () => {
@@ -147,7 +156,7 @@ test("the graph that satisfies the laws has no law violation, and its text form 
 test("the complete verifier's findings on the satisfying graph are recorded, not hidden", () => {
   // The satisfying graph is written by hand. Findings of rules older than these laws would be defects of this
   // input; the case fails on any, so that they are seen.
-  assert.deepEqual(verifyMir(good(), context).map(violation => `${violation.rule} at ${violation.site.kind}${"block" in violation.site ? ` ${violation.site.block}/${violation.site.statement}` : ""}`), []);
+  assert.deepEqual(found(good()).map(violation => `${violation.rule} at ${violation.site.kind}${"block" in violation.site ? ` ${violation.site.block}/${violation.site.statement}` : ""}`), []);
 });
 
 test("law 1: a check whose failure kind says it cannot fail is refused", () => {
@@ -462,12 +471,37 @@ test("law 3 at a merge: a block reads only the part of a shared list that its ow
   })), []);
 });
 
-test("law 3 at a merge: past the work limit the body is refused, not accepted", () => {
-  const body = staged(graph => { checkedThenDiamond(graph, { atMerge: [readView()] }); });
-  const rules = verifyMir(body, { ...context, limits: { maximumMergeWork: 0 } }).map(violation => violation.rule);
-  assert.deepEqual(rules, ["merge-work-limit"]);
-  // The same body within the limit has no finding.
-  assert.deepEqual(all(body), []);
+test("the work limit: a body is verified up to its limit and refused past it, never accepted and never found invalid", () => {
+  const under = maximumWork => verifyMir(body, { ...context, limits: { maximumWork } });
+  const refusal = maximumWork => ({ kind: "resource-limit", body: BODY, dimension: "work", maximum: maximumWork });
+  // One diamond under a stable place. The contract's units: one for each incoming edge of a block that is not
+  // continued into and receives a set on every edge. Here: the two arms of the loop's branch (blocks 4 and 9),
+  // the two arms of the diamond (11 and 12), and the two edges into the merge (13): six. The loop header receives
+  // no set from its back edge and is not charged.
+  let body = staged(graph => { checkedThenDiamond(graph, { atMerge: [readView()] }); });
+  assert.deepEqual(under(6), { kind: "complete", violations: [] });
+  assert.deepEqual(under(5), refusal(5));
+  assert.deepEqual(under(0), refusal(0));
+  // A refusal is not a finding: the same body with a defect is refused in the same way under the limit, and its
+  // defect is reported only by a verification that ran to its end.
+  const defective = staged(graph => { checkedThenDiamond(graph, { atMerge: [READ()] }); });
+  assert.deepEqual(verifyMir(defective, { ...context, limits: { maximumWork: 5 } }), refusal(5));
+  assert.deepEqual(found(defective).map(violation => violation.rule), ["checked-place-available"]);
+  // Work adds up within one body: a second diamond after the first costs four more (two arms, two edges into its
+  // merge), and the limit that admitted one diamond refuses two.
+  body = staged(graph => {
+    checkedThenDiamond(graph, { atMerge: [readView()] });
+    graph.blocks[13].terminator = branch(14, 15);
+    graph.blocks.push(blockOf(14, [], jump(16)), blockOf(15, [], jump(16)), blockOf(16, [readView()], returns(p(9))));
+  });
+  assert.deepEqual(under(10), { kind: "complete", violations: [] });
+  assert.deepEqual(under(9), refusal(9));
+  assert.deepEqual(under(6), refusal(6));
+  // The account is the body's: verifying two bodies one after the other under the limit of one charges each from zero.
+  const one = staged(graph => { checkedThenDiamond(graph, { atMerge: [readView()] }); });
+  for (const turn of [1, 2]) assert.deepEqual(verifyMir(one, { ...context, limits: { maximumWork: 6 } }), { kind: "complete", violations: [] }, `body ${turn}`);
+  // A body with no block that is entered on several edges with a set needs none of this work.
+  assert.equal(verifyMir(good(), { ...context, limits: { maximumWork: 2 } }).kind, "complete");
 });
 
 test("law 3: a stable place stays available across a suspension; a mutable one does not", () => {
@@ -593,13 +627,13 @@ test("law 5: the completion of a handle is one record: a step has one completion
 
 test("law 10: every record names a node of the typed body", () => {
   // "every record names a node of the typed body": a projected place included.
-  const rules = verifyMir(changed(body => { body.places[10].base.tir = { body: BODY, node: 9999 }; }), context).map(violation => violation.rule);
+  const rules = found(changed(body => { body.places[10].base.tir = { body: BODY, node: 9999 }; })).map(violation => violation.rule);
   assert.ok(rules.includes("tir-node-resolves"));
 });
 
 test("an omission prologue is reachable from its entry: a use in it of a local that was never begun is seen", () => {
   // Reachability starts at every entry (law 7 gives a body several starts).
-  const rules = verifyMir(changed(body => { body.blocks[8].statements[0].value = { kind: "use", operand: p(9) }; }), context).map(violation => violation.rule);
+  const rules = found(changed(body => { body.blocks[8].statements[0].value = { kind: "use", operand: p(9) }; })).map(violation => violation.rule);
   assert.ok(rules.includes("storage-live-before-use"));
 });
 
@@ -614,7 +648,7 @@ test("constants ordered by the published key satisfy the order the verifier requ
     body.blocks[3].terminator.targets[0].constant = 0;
     body.blocks[8].statements[0].value.operand.constant = 1;
   });
-  assert.ok(verifyMir(swapped, context).map(violation => violation.rule).includes("constants-order"));
+  assert.ok(found(swapped).map(violation => violation.rule).includes("constants-order"));
   const repeated = changed(body => { body.constants.push({ ...body.constants[1], id: 2 }); });
-  assert.ok(verifyMir(repeated, context).map(violation => violation.rule).includes("constant-unique"));
+  assert.ok(found(repeated).map(violation => violation.rule).includes("constant-unique"));
 });

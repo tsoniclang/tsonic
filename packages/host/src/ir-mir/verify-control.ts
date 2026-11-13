@@ -140,6 +140,18 @@ export interface SourceNode {
   readonly bodies: ReadonlySet<BodyId>;
 }
 
+/** The account of one body's verification (`MirVerificationLimits`). A pass stops reading once it is exhausted. */
+export interface WorkMeter {
+  spent: number;
+  readonly maximum: number;
+  exhausted: boolean;
+}
+
+export function chargeWork(meter: WorkMeter, units: number): void {
+  meter.spent += units;
+  if (meter.spent > meter.maximum) meter.exhausted = true;
+}
+
 export interface SourceStep {
   readonly role: TirProtocolStep["role"];
   readonly operation: string;
