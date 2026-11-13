@@ -2,7 +2,7 @@ import type { BodyId, CandidateListId, DefId, NodeId, SourceNodeRef } from "../i
 import { encodeKey } from "../ids/index.js";
 import type { CheckedPhase, HirApplication, HirBody, HirCandidate, HirModule, HirNode } from "../ir-hir/contract.js";
 import type { Diagnostic, Violation } from "../diag/contract.js";
-import { childrenOfSyntax, indexSyntaxTree, walkSyntaxTree } from "../ir-hir/index.js";
+import { childrenOfSyntax, hasOverloadEndpoints, indexSyntaxTree, walkSyntaxTree } from "../ir-hir/index.js";
 import type { BindingVerificationInput, BodyInstance, TypeEvidence, TypeRule, TypeTable } from "../ir-types/contract.js";
 import { verifyTypes } from "../ir-types/index.js";
 import type { TirBindingTarget, TirBody, TirModule, TirNode, TirNodeSite, TirRule, TirSite, TirVerifierInput, TypedPhase, VerifyTir, VerifyTirModule } from "./contract.js";
@@ -305,7 +305,8 @@ const declarationInventory = (input: TirVerifierInput): ((definition: DefId) => 
     const existing = declarations.get(definition);
     if (existing !== undefined) return existing;
     const actual = input.declarationOf(definition);
-    const indexed = actual === null ? null : { declaration: actual, endpoints: declarationEndpoints(actual) };
+    const indexed = actual === null ? null
+      : { declaration: actual, endpoints: declarationEndpoints(actual), overloaded: hasOverloadEndpoints(actual.endpoints) };
     declarations.set(definition, indexed);
     return indexed;
   };

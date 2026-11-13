@@ -1205,7 +1205,10 @@ for (const write of [false, true]) test(`MIR preserves the exact selected ${writ
     { ...context.types.signatures[0], id: identities.sigId(2), declaration: setterDefinition, owner: null, receiver: identities.tyId(5), parameters: [parameter(propertyDefinition)] }] };
   const emptyScope = { classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] };
   context.declarations.set(context.source.owner, { scope: emptyScope, parameterCount: 1, endpoints: [] });
-  for (const [definition, count] of [[getterDefinition, 0], [setterDefinition, 1]]) context.declarations.set(definition, { scope: emptyScope, parameterCount: count, endpoints: [] });
+  // Each accessor's endpoint family holds the two rows its activation selects.
+  for (const [definition, count, signature] of [[getterDefinition, 0, 1], [setterDefinition, 1, 2]]) context.declarations.set(definition, {
+    scope: emptyScope, parameterCount: count,
+    endpoints: [endpointFor(definition, signature, "advertised"), endpointFor(definition, signature, "api-signature")] });
   const locals = [{ id: identities.localId(0), storage: identities.tyId(5), role: { kind: "parameter", index: 0 }, source: { body: base.body, local: identities.localId(0) }, origin: base.blocks[0].origin },
     { id: identities.localId(1), storage: identities.tyId(1), role: { kind: "temporary" }, source: null, origin: base.blocks[0].origin }];
   const places = locals.map((local, position) => ({ id: identities.placeId(position), storage: local.storage, base: { kind: "local", local: local.id }, origin: local.origin }));
@@ -1769,6 +1772,58 @@ for (const passing of ["by-value", "move", "byref-readonly", "byref-readwrite", 
   });
 }
 
+const callInstruction = { kind: "instruction", block: 0, statement: null };
+test("MIR an overloaded family's API endpoint cannot stand in for its advertised endpoint", () => {
+  const { body, context } = callSetup();
+  const selected = body.blocks[0].terminator.callee.resolution;
+  selected.decision.advertised = selected.decision.api;
+  same(product.verifyMir(body, context), [expectedViolation("operation-selected", callInstruction)], "implementation as advertised");
+});
+test("MIR a family without an advertised row selects one endpoint as both the advertised and the API endpoint", () => {
+  const { body, context } = callSetup();
+  const selected = body.blocks[0].terminator.callee.resolution;
+  const { advertised, api } = selected.decision;
+  const declared = context.declarations.get(api.declaration);
+  context.declarations.set(api.declaration, { ...declared, endpoints: [api] });
+  selected.decision.advertised = api;
+  same(product.verifyMir(body, context), [], "the one endpoint of an ordinary declaration");
+  selected.decision.advertised = advertised;
+  same(product.verifyMir(body, context), [expectedViolation("operation-selected", callInstruction)], "an advertised row the family does not have");
+  selected.decision.advertised = { ...api, signature: identities.sigId(0) };
+  same(product.verifyMir(body, context), [expectedViolation("operation-selected", callInstruction)], "the same role and body with another signature");
+});
+test("MIR an API endpoint declared by another definition is selected only through the selected declaration's family", () => {
+  const { body, context } = callSetup();
+  const selected = body.blocks[0].terminator.callee.resolution;
+  const other = identities.encodeDefId({ module: body.blocks[0].origin.module, segments: [{ name: "native", ordinal: 0 }] });
+  const foreign = { ...selected.decision.api, declaration: other };
+  const declared = context.declarations.get(selected.decision.advertised.declaration);
+  context.declarations.set(other, { ...declared, endpoints: [foreign] });
+  selected.decision.api = foreign;
+  same(product.verifyMir(body, context), [expectedViolation("operation-selected", callInstruction)], "an unrelated declaration's API endpoint");
+  context.declarations.set(selected.decision.advertised.declaration, { ...declared, endpoints: [...declared.endpoints, foreign] });
+  same(product.verifyMir(body, context), [], "the associated API endpoint of another definition");
+});
+test("MIR an advertised row is a family member by its signature as well as its owner, role and body", () => {
+  const { body, context } = callSetup();
+  const selected = body.blocks[0].terminator.callee.resolution;
+  const declared = context.declarations.get(selected.decision.advertised.declaration);
+  const second = { ...selected.decision.advertised, signature: identities.sigId(0) };
+  context.declarations.set(selected.decision.advertised.declaration, { ...declared, endpoints: [...declared.endpoints, second] });
+  same(product.verifyMir(body, context), [], "the selected row of a two-signature advertised family");
+  context.declarations.set(selected.decision.advertised.declaration, declared);
+  selected.decision.advertised = second;
+  same(product.verifyMir(body, context), [expectedViolation("operation-selected", callInstruction)], "an existing signature the family does not have");
+});
+test("MIR an unresolved selected declaration is reported once as unresolved and has no family to judge", () => {
+  const { body, context } = callSetup();
+  const selected = body.blocks[0].terminator.callee.resolution;
+  const missing = identities.encodeDefId({ module: body.blocks[0].origin.module, segments: [{ name: "missing", ordinal: 0 }] });
+  context.declarations.set(missing, null);
+  selected.decision.advertised = { ...selected.decision.advertised, declaration: missing };
+  same(product.verifyMir(body, context), [expectedViolation("definition-resolves", callInstruction)], "the unresolved declaration only");
+});
+
 test("MIR a source-owned body activation retains its actual full instance and complete physical call", () => {
   const { body, context } = callSetup();
   const selected = body.blocks[0].terminator.callee.resolution;
@@ -1971,6 +2026,13 @@ for (const kind of ["library", "core", "protocol"]) test(`MIR selected ${kind} i
   same(product.verifyMir(wrong, input), [expectedViolation("call-destination-type", at)], "invoke result uses its exact destination carrier");
   const discarded = { ...body, blocks: [{ ...body.blocks[0], terminator: { ...terminator, destination: null } }, body.blocks[1]] };
   same(product.verifyMir(discarded, input), [], "an explicitly discarded invoke result has no invented destination");
+  if (kind === "protocol") {
+    const declared = setup.context.declarations.get(definition);
+    setup.context.declarations.set(definition, { ...declared, endpoints: [] });
+    same(product.verifyMir(body, input), [expectedViolation("operation-selected", at)],
+      "a call step whose endpoints are not in its selected family is one finding for the operation");
+    setup.context.declarations.set(definition, declared);
+  }
   setup.context.declarations.set(definition, null);
   same(product.verifyMir(body, input), Array.from({ length: kind === "protocol" ? 3 : 1 }, () => expectedViolation("definition-resolves", at)),
     "each actual core/API/advertised reference retains its complete missing-definition vector");

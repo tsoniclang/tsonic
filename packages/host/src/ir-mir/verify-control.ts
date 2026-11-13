@@ -1,11 +1,17 @@
 import type { Violation } from "../diag/contract.js";
 import type { BlockId, DefId, NodeId, NodeRef, Origin, PlaceId } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
-import { childrenOfSyntax, walkSyntaxTree } from "../ir-hir/index.js";
+import { callableEndpointKey, childrenOfSyntax, hasOverloadEndpoints, selectedEndpointRoleFaults, walkSyntaxTree } from "../ir-hir/index.js";
+import type { ApplicationDecision } from "../ir-infer/contract.js";
 import type { MemberSelection, ResolvedCallee, TirBody, TirNode, TirProtocol, TypedOperation } from "../ir-tir/contract.js";
 import { wireText } from "./text.js";
 import type { DecisionWires } from "./text-decisions.js";
 import type { MirBlock, MirBody, MirRule, MirSite, MirTerminator, MirUnwind, MirVerificationContext, MirViolationSite } from "./contract.js";
+
+interface EndpointFamily {
+  readonly overloaded: boolean;
+  readonly members: ReadonlySet<string>;
+}
 
 export interface ControlEdge {
   readonly kind: "normal" | "unwind" | "resume" | "suspension-return";
@@ -222,12 +228,30 @@ export function verifySelections(
     }
     if (!known) report("definition-resolves", site);
   };
+  const families = new Map<DefId, EndpointFamily | null>();
+  // Whether the two endpoints of a selection are members of the selected declaration's endpoint family with valid
+  // roles. An unresolved declaration has no family to judge and is reported as unresolved by `definition`.
+  const validSelection = (decision: ApplicationDecision): boolean => {
+    const owner = decision.advertised.declaration;
+    let family = families.get(owner);
+    if (family === undefined) {
+      const declaration = context.declarationOf(owner);
+      family = declaration === null ? null : { overloaded: hasOverloadEndpoints(declaration.endpoints),
+        members: new Set(declaration.endpoints.map(endpoint => callableEndpointKey(endpoint))) };
+      families.set(owner, family);
+    }
+    return family === null || family.members.has(callableEndpointKey(decision.advertised)) &&
+      family.members.has(callableEndpointKey(decision.api)) &&
+      selectedEndpointRoleFaults(family.overloaded, decision.advertised, decision.api) === 0;
+  };
   const member = (selection: MemberSelection, site: MirViolationSite): void => {
     for (const selected of selection.decision.selectedDeclarations) definition(selected, site);
     if (selection.decision.primary !== null) definition(selection.decision.primary, site);
   };
   const operation = (selected: TypedOperation, source: SourceNode | undefined, site: MirViolationSite): void => {
-    if (source !== undefined && !source.operations.has(wireText(operationWire, selected))) report("operation-selected", site);
+    // One finding per operation occurrence: it differs from its source, or one of its call steps is not a valid selection.
+    let selection = source !== undefined && !source.operations.has(wireText(operationWire, selected));
+    if (selection) report("operation-selected", site);
     if (selected.permissionScope !== null && !knownNode(selected.permissionScope)) report("tir-node-resolves", site);
     const identity = selected.decision.operation;
     if (identity.kind === "library" || identity.kind === "core") definition(identity.declaration, site);
@@ -236,11 +260,17 @@ export function verifySelections(
       if (step.operation.kind === "call") {
         definition(step.operation.application.api.declaration, site);
         definition(step.operation.application.advertised.declaration, site);
+        if (!selection && !validSelection(step.operation.application)) {
+          selection = true;
+          report("operation-selected", site);
+        }
       }
     }
   };
   const callee = (selected: ResolvedCallee, source: SourceNode | undefined, site: MirViolationSite): void => {
-    if (source !== undefined && !source.callees.has(wireText(calleeWire, selected))) report("operation-selected", site);
+    // One finding per callee occurrence: it differs from its source, or it is not a valid selection of its family.
+    if (source !== undefined && !source.callees.has(wireText(calleeWire, selected)) || !validSelection(selected.decision))
+      report("operation-selected", site);
     definition(selected.decision.api.declaration, site);
     definition(selected.decision.advertised.declaration, site);
   };

@@ -3886,6 +3886,55 @@ for (const field of ["candidate", "advertised"]) {
       "selected callable endpoints do not belong to their actual declarations and candidate")]);
   });
 }
+const callEndpoints = () => [nodeViolation("call-endpoints", 2,
+  "selected callable endpoints do not belong to their actual declarations and candidate")];
+test("an overloaded family's implementation endpoint cannot stand in for its advertised endpoint", () => {
+  const fixture = callScenario();
+  fixture.decision.advertised = fixture.decision.api;
+  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), callEndpoints());
+});
+test("a family without an advertised row selects one endpoint as both the advertised and the API endpoint", () => {
+  const fixture = callScenario();
+  const family = fixture.declarations.get(fixture.definition).endpoints;
+  const advertised = fixture.decision.advertised;
+  family.splice(family.indexOf(advertised), 1);
+  fixture.decision.advertised = fixture.decision.api;
+  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  fixture.decision.advertised = advertised;
+  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), callEndpoints());
+  fixture.decision.advertised = { ...fixture.decision.api, signature: 1 };
+  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), callEndpoints());
+});
+// A bodiless API signature declared by another definition, as in the inference case of a native binding: the callee is
+// not activated, so no body's completion is involved and only endpoint membership is under test.
+const foreignApi = fixture => {
+  const other = "D[M[P[p];m];native]";
+  const foreign = { declaration: other, role: "api-signature", signature: 4, body: null };
+  fixture.types.signatures.push({ ...fixture.types.signatures[2], id: 4, declaration: other });
+  fixture.declarations.set(other, { scope: fixture.scope, parameterCount: 1, endpoints: [foreign] });
+  fixture.decision.api = foreign;
+  fixture.decision.completion = { ...fixture.decision.completion, signature: 4 };
+  fixture.callee.activation = null;
+  bodyScopes(fixture.input, fixture.body).splice(3, 1);
+  return foreign;
+};
+test("an advertised row is a family member by its signature as well as its owner, role and body", () => {
+  const fixture = callScenario();
+  const family = fixture.declarations.get(fixture.definition).endpoints;
+  family.push({ ...fixture.decision.advertised, signature: 3 });
+  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  family.pop();
+  fixture.decision.advertised = { ...fixture.decision.advertised, signature: 3 };
+  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), callEndpoints());
+});
+test("an API endpoint declared by another definition is selected only through the selected declaration's family", () => {
+  const unrelated = callScenario();
+  foreignApi(unrelated);
+  assertCompleteValue(product.verifyTir(unrelated.input, unrelated.body), callEndpoints());
+  const associated = callScenario();
+  associated.declarations.get(associated.definition).endpoints.push(foreignApi(associated));
+  assertCompleteValue(product.verifyTir(associated.input, associated.body), []);
+});
 test("a nonactivated callee retains actual endpoints but cannot claim captured values without an activation", () => {
   const fixture = callScenario();
   fixture.callee.activation = null;

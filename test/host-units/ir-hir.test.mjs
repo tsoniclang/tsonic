@@ -18,7 +18,7 @@ const moduleIdentity = "M[P[%002Fproject];main.ts]";
 const definitionIdentity = `D[${moduleIdentity}]`;
 const bodyIdentity = `B[${definitionIdentity};module;0]`;
 const tooling = process.env.TSONIC_HOST_TOOLING_ROOT ?? repository;
-const runtimeNames = ["index","pragmas","children","walk","print","parse","verify","verify-syntax","verify-bindings","verify-captures","text-syntax","text-data","text-construction","text-read-0","text-read-1","text-read-2","text-read-3","text-read-4","text-read-5","text-read-6","text-read-7","text-read-8","text-read-9","text-read-syntax-0","text-read-syntax-1","text-read-syntax-2","text-read-syntax-3","text-read-syntax-4","text-read-syntax-5","text-read-syntax-6","text-read-syntax-7","text-read-syntax-8","text-read-syntax-9","text-read-syntax-10","text-read-syntax-11","text-read-syntax-12","text-read-syntax-13","text-readers","text-read-scalars"];
+const runtimeNames = ["index","pragmas","endpoints","children","walk","print","parse","verify","verify-syntax","verify-bindings","verify-captures","text-syntax","text-data","text-construction","text-read-0","text-read-1","text-read-2","text-read-3","text-read-4","text-read-5","text-read-6","text-read-7","text-read-8","text-read-9","text-read-syntax-0","text-read-syntax-1","text-read-syntax-2","text-read-syntax-3","text-read-syntax-4","text-read-syntax-5","text-read-syntax-6","text-read-syntax-7","text-read-syntax-8","text-read-syntax-9","text-read-syntax-10","text-read-syntax-11","text-read-syntax-12","text-read-syntax-13","text-readers","text-read-scalars"];
 const runtimeFiles = runtimeNames.map(name => resolve(repository, `packages/host/dist/ir-hir/${name}.js`));
 const ownedSources = ["contract", "text-read-model", ...runtimeNames].map(name => `packages/host/src/ir-hir/${name}.ts`);
 const inspector = new Session();
@@ -586,8 +586,48 @@ function roundtrip(value, label) {
   return { text, value: decoded.value };
 }
 
-test("HIR public index has exactly the seven current complete data operations", () => {
-  assert.deepStrictEqual(Object.keys(product).sort(), ["childrenOfSyntax", "indexSyntaxTree", "orderPragmaArguments", "parseHir", "printHir", "verifyHir", "walkSyntaxTree"]);
+test("selected endpoint roles: an advertised row for an overloaded family, the same complete endpoint otherwise", () => {
+  const F = `D[${moduleIdentity};f]`;
+  const G = `D[${moduleIdentity};g]`;
+  const H = `D[${moduleIdentity};h]`;
+  const EF = { declaration: F, role: "api-body", signature: 0, body: `B[${F};function;0]` };
+  const EH = { declaration: H, role: "api-signature", signature: 1, body: null };
+  const A1 = { declaration: G, role: "advertised", signature: 2, body: null };
+  const A2 = { declaration: G, role: "advertised", signature: 3, body: null };
+  const EG = { declaration: G, role: "api-body", signature: 4, body: `B[${G};function;0]` };
+  const SG = { declaration: G, role: "api-signature", signature: 5, body: null };
+  for (const [endpoints, expected] of [[[], false], [[EF], false], [[EH], false], [[A1, A2, EG], true], [[EG, A1], true],
+    [new Array(2), false]]) assert.equal(product.hasOverloadEndpoints(endpoints), expected, JSON.stringify(endpoints));
+  const cases = [
+    ["ordinary function, the same endpoint", false, EF, EF, 0],
+    ["ordinary bodiless declaration, the same endpoint", false, EH, EH, 0],
+    ["overloads, first advertised row and the API body", true, A1, EG, 0],
+    ["overloads, second advertised row and the API body", true, A2, EG, 0],
+    ["overloads, an advertised row and a bodiless API signature", true, A1, SG, 0],
+    ["overloads, the implementation used as advertised", true, EG, EG, 1],
+    ["overloads, an advertised row used as the API endpoint", true, A1, A1, 2],
+    ["overloads, both wrong", true, EG, A1, 3],
+    ["ordinary function, an advertised row that is not its endpoint", false, { ...EF, role: "advertised", body: null }, EF, 1],
+    ["ordinary function, the same signature with another body", false, { ...EF, body: `B[${G};function;0]` }, EF, 1],
+    ["ordinary function, the same body with another signature", false, { ...EF, signature: 9 }, EF, 1],
+    ["ordinary function, an API body without a body in both", false, { ...EF, body: null }, { ...EF, body: null }, 2],
+    ["ordinary declaration, an API signature with a body in both", false, { ...EH, body: EF.body }, { ...EH, body: EF.body }, 2],
+    ["ordinary function, an advertised row as the API endpoint", false, EF, { ...EF, role: "advertised", body: null }, 3],
+    ["an overloaded family and an API row declared by another definition: roles hold, membership is the caller's", true, A1, EF, 0],
+    ["two declarations without overloads", false, EF, { ...EF, declaration: H }, 1],
+  ];
+  for (const [label, overloaded, advertised, api, expected] of cases)
+    assert.equal(product.selectedEndpointRoleFaults(overloaded, advertised, api), expected, label);
+  // The one endpoint identity: all four fields of the record, in the canonical key encoding.
+  assert.equal(product.callableEndpointKey(EH), `A4:S${H.length}:${H}S13:api-signatureF1:N`);
+  assert.equal(product.callableEndpointKey(EF), `A4:S${F.length}:${F}S8:api-bodyF0:S${EF.body.length}:${EF.body}`);
+  assert.equal(product.callableEndpointKey({ ...EF }), product.callableEndpointKey(EF));
+  for (const changed of [{ ...EF, declaration: G }, { ...EF, role: "api-signature" }, { ...EF, signature: 1 }, { ...EF, body: null }])
+    assert.notEqual(product.callableEndpointKey(changed), product.callableEndpointKey(EF), JSON.stringify(changed));
+});
+
+test("HIR public index has exactly the ten current complete data operations", () => {
+  assert.deepStrictEqual(Object.keys(product).sort(), ["callableEndpointKey", "childrenOfSyntax", "hasOverloadEndpoints", "indexSyntaxTree", "orderPragmaArguments", "parseHir", "printHir", "selectedEndpointRoleFaults", "verifyHir", "walkSyntaxTree"]);
   assert.deepStrictEqual(readdirSync(resolve(repository, "packages/host/src/ir-hir")).filter(name => name.endsWith(".ts")).sort(),
     ownedSources.map(path => basename(path)).sort());
 });
@@ -1435,8 +1475,8 @@ test("HIR fresh actual declarations retain generic phases, all seven ports and e
       writeFileSync(resolve(stage, owner, name), readFileSync(resolve(source, name)));
   }
   writeFileSync(resolve(stage, "package.json"), JSON.stringify({ type: "module", private: true }));
-  const positive = `import { childrenOfSyntax, indexSyntaxTree, orderPragmaArguments, parseHir, printHir, verifyHir, walkSyntaxTree } from "./ir-hir/index.js";
-import type { HirModule, HirLocal, HirCandidateList, HirVerificationContext, Phase, SyntaxPhase, CheckedPhase, Block, Statement, SourceFile, SyntaxNode, ChildrenOfSyntax, IndexSyntaxTree, OrderPragmaArguments, ParseHir, PrintHir, VerifyHir, WalkSyntaxTree } from "./ir-hir/contract.js";
+  const positive = `import { callableEndpointKey, childrenOfSyntax, hasOverloadEndpoints, indexSyntaxTree, orderPragmaArguments, parseHir, printHir, selectedEndpointRoleFaults, verifyHir, walkSyntaxTree } from "./ir-hir/index.js";
+import type { CallableEndpointKey, EndpointRoleFaults, HasOverloadEndpoints, HirCallableEndpoint, SelectedEndpointRoleFaults, HirModule, HirLocal, HirCandidateList, HirVerificationContext, Phase, SyntaxPhase, CheckedPhase, Block, Statement, SourceFile, SyntaxNode, ChildrenOfSyntax, IndexSyntaxTree, OrderPragmaArguments, ParseHir, PrintHir, VerifyHir, WalkSyntaxTree } from "./ir-hir/contract.js";
 import type { BodyId, DefId, ModuleId, NodeId } from "./ids/contract.js";
 import type { SourceNodeRef } from "./ids/contract.js";
 import { nodeId as issueNode, localId as issueLocal, tyId as issueType, sigId as issueSignature, candidateListId as issueCandidates, expansionId as issueExpansion } from "./ids/index.js";
@@ -1451,6 +1491,12 @@ export function checked(module: HirModule, context: HirVerificationContext) {
 const parse: ParseHir = parseHir; const print: PrintHir = printHir; const verify: VerifyHir = verifyHir;
 const order: OrderPragmaArguments = orderPragmaArguments;
 return { text: print(module), decoded: parse(print(module)), violations: verify(module, context), pragmas: order([]) }; }
+export function roles(endpoints: readonly HirCallableEndpoint[], advertised: HirCallableEndpoint, api: HirCallableEndpoint): EndpointRoleFaults {
+const overloads: HasOverloadEndpoints = hasOverloadEndpoints; const faults: SelectedEndpointRoleFaults = selectedEndpointRoleFaults;
+return faults(overloads(endpoints), advertised, api); }
+export function member(endpoints: readonly HirCallableEndpoint[], endpoint: HirCallableEndpoint): boolean {
+const key: CallableEndpointKey = callableEndpointKey;
+return new Set(endpoints.map(row => key(row))).has(key(endpoint)); }
 export function ownedOutput(text:string) {
 const decoded=parseHir(text);
 if(decoded.kind==="invalid-text")return decoded;

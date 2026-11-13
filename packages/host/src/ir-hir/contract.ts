@@ -3924,6 +3924,22 @@ export interface HirCallableEndpoint {
   readonly body: BodyId | null;
 }
 
+// The identity of one endpoint record: its declaration, role, signature and body.
+export type CallableEndpointKey = (endpoint: HirCallableEndpoint) => string;
+
+// The roles of the two endpoints of one selected application. `overloaded` says whether the endpoint family of the
+// selected declaration has an advertised row. Bit 1: the advertised endpoint is not an advertised row of an overloaded
+// family, or is not the same complete endpoint as the API endpoint of a family without advertised rows. Bit 2: the API
+// endpoint is an advertised row, an API body without a body, or an API signature with one. Membership of the two
+// endpoints in the family is the caller's check.
+export type EndpointRoleFaults = 0 | 1 | 2 | 3;
+export type HasOverloadEndpoints = (endpoints: readonly HirCallableEndpoint[]) => boolean;
+export type SelectedEndpointRoleFaults = (
+  overloaded: boolean,
+  advertised: HirCallableEndpoint,
+  api: HirCallableEndpoint,
+) => EndpointRoleFaults;
+
 export interface HirCandidate {
   readonly ordinal: number;
   readonly declaration: DefId;

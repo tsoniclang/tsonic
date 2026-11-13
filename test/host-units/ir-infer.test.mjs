@@ -1041,6 +1041,8 @@ test("actual formal tables and canonical endpoint associations are independent o
     solution: solved({ ...selected, advertised: { ...selected.advertised, declaration: otherDefinition } }) }, [
     violation("endpoint-agreement", constraintSite(0), "candidate"),
     violation("endpoint-agreement", constraintSite(0), "endpoints"),
+    // The other declaration's family has no advertised row, so its advertised endpoint would have to be the API endpoint itself.
+    violation("api-endpoint-role", constraintSite(0), "advertised"),
   ], "a genuinely different declaration cannot replace the selected original candidate");
 });
 
@@ -1114,6 +1116,63 @@ test("every binder family is checked against the genuine original candidate decl
       violation("qualified-reference", bodySite, "declarations"),
     ], "a missing actual candidate declaration has no invented binder scope");
   }
+});
+
+test("selected endpoint roles follow the endpoint family of the selected declaration", () => {
+  const ordinary = `D[${moduleIdentity};ordinary]`;
+  const bodiless = `D[${moduleIdentity};bodiless]`;
+  const item = owner => ({ kind: "item", value: { owner, node: 0 } });
+  const endpoint = { declaration: ordinary, role: "api-body", signature: 1, body: `B[${ordinary};function;0]` };
+  const declared = { declaration: bodiless, role: "api-signature", signature: 2, body: null };
+  const candidateOf = declaration => ({ ordinal: 0, declaration, appliedSignature: { kind: "available", value: 0 },
+    bindings: { kind: "unavailable", reason: "not-provided" }, conditionalFailure: { kind: "available", value: null }, contributions: [] });
+  const raw = { captured: captureGolden.value, permissionScope: null, callee: 0, receiver: null,
+    typeArguments: [], arguments: [], candidates: 0, result: 0 };
+  const setOf = declaration => ({ ...constraintSet([{ kind: "call", occurrence, application: raw }]),
+    candidates: [{ id: 0, candidates: [candidateOf(declaration)] }] });
+  const applicationOf = (advertised, api) => ({ candidate: 0, advertised, api, bindings: emptyBindings,
+    implementationBindings: emptyBindings, parameters: [], completion: { signature: api.signature, completion: 0, yielded: null, sent: null }, result: 0 });
+  const solved = application => ({ ...completeSolution(), constraints: [{ constraint: { body, index: 0 },
+    decision: { kind: "call", application, operation: null } }] });
+  const records = (declaration, application) => ({ constraints: [setOf(declaration)], solution: solved(application),
+    bindingScopes: [emptyScope, emptyScope],
+    declarations: [[definition, declarationFacts], [ordinary, { scope: emptyScope, parameterCount: 0, endpoints: [endpoint] }],
+      [bodiless, { scope: emptyScope, parameterCount: 0, endpoints: [declared] }]],
+    types: { terms: [{ kind: "primitive", primitive: "int32" }], signatures: [signature,
+      { ...signature, id: 1, declaration: ordinary, owner: item(ordinary) }, { ...signature, id: 2, declaration: bodiless, owner: item(bodiless) }] },
+    nodes: [{ owner: source, ids: [0] }, { owner: item(definition), ids: [0] }, { owner: item(ordinary), ids: [0] }, { owner: item(bodiless), ids: [0] }] });
+  // An ordinary function has one endpoint; the advertised and API endpoints of a call to it are that endpoint.
+  const same = records(ordinary, applicationOf(endpoint, endpoint));
+  ruleCase("api-endpoint-role", same, records(ordinary, applicationOf({ ...endpoint, role: "advertised", body: null }, endpoint)), [
+    violation("endpoint-agreement", constraintSite(0), "endpoints"),
+    violation("api-endpoint-role", constraintSite(0), "advertised"),
+  ], "an advertised row that the ordinary declaration does not have");
+  ruleCase("api-endpoint-role", same, records(ordinary, applicationOf({ ...endpoint, body }, endpoint)), [
+    violation("endpoint-agreement", constraintSite(0), "endpoints"),
+    violation("api-endpoint-role", constraintSite(0), "advertised"),
+  ], "the same signature with another body is not the same endpoint");
+  // A bodiless ordinary declaration: its one API signature is both endpoints.
+  ruleCase("api-endpoint-role", records(bodiless, applicationOf(declared, declared)),
+    records(bodiless, applicationOf(declared, { ...declared, body: `B[${bodiless};function;0]` })), [
+      violation("endpoint-agreement", constraintSite(0), "endpoints"),
+      violation("api-endpoint-role", constraintSite(0), "advertised"),
+      violation("api-endpoint-role", constraintSite(0), "api"),
+    ], "an API signature with a body is neither the same endpoint nor a valid API endpoint");
+  // A family with two advertised rows that differ only in their signature: the selected row is admitted, and a row
+  // with an existing signature that the family does not have is not a member (the endpoint key includes the signature).
+  const [advertised, apiBody] = declarationFacts.endpoints;
+  const second = { ...advertised, signature: 1 };
+  const twoSignatures = application => ({ ...records(definition, application),
+    declarations: [[definition, { ...declarationFacts, endpoints: [...declarationFacts.endpoints, second] }],
+      [ordinary, { scope: emptyScope, parameterCount: 0, endpoints: [endpoint] }]] });
+  fullEqual(product.verifyInference(verificationInput(twoSignatures(applicationOf(second, apiBody)))), [], "the second advertised row is a family member");
+  ruleCase("endpoint-agreement", twoSignatures(applicationOf(advertised, apiBody)),
+    twoSignatures(applicationOf({ ...advertised, signature: 2 }, apiBody)), [violation("endpoint-agreement", constraintSite(0), "endpoints")],
+    "the same owner, role and body with a signature the family does not have");
+  // An overloaded family and an API endpoint of an unrelated declaration: the roles hold and membership refuses it.
+  ruleCase("endpoint-agreement", records(definition, applicationOf(advertised, apiBody)),
+    records(definition, applicationOf(advertised, endpoint)), [violation("endpoint-agreement", constraintSite(0), "endpoints")],
+    "an API endpoint outside the selected declaration's family");
 });
 
 test("bodyless APIs retain their own complete generic environment independently of advertised bindings", () => {
@@ -1426,6 +1485,18 @@ test("saved accessor and helper inputs use genuine endpoint and declaration fact
       { ...signature, id: 1, declaration: null, owner: null }] };
     ruleCase("deferred-invocation", { ...input, types }, { ...input, types, solution: solved(invalid) },
       [violation("deferred-invocation", constraintSite(0), "input")], `${kind} actual endpoint association`);
+    // The family has an advertised row: its implementation endpoint cannot be the candidate's advertised endpoint.
+    const bypass = { ...invocation, input: { ...invocation.input, candidates: [{ ...endpoint, advertised: endpoint.api }] } };
+    ruleCase("deferred-invocation", { ...input, types }, { ...input, types, solution: solved(bypass) },
+      [violation("deferred-invocation", constraintSite(0), "input")], `${kind} implementation endpoint as the advertised endpoint`);
+    // An API signature row with a body is a member of this family and is still not a valid API endpoint. The candidate
+    // input did not apply this half of the API rule before the endpoint-role helper; the solved application always did.
+    const signatureWithBody = { ...declarationFacts.endpoints[2], body };
+    const withMember = { ...input, types,
+      declarations: [[definition, { ...declarationFacts, endpoints: [...declarationFacts.endpoints, signatureWithBody] }]] };
+    const malformed = { ...invocation, input: { ...invocation.input, candidates: [{ ...endpoint, api: signatureWithBody }] } };
+    ruleCase("deferred-invocation", withMember, { ...withMember, solution: solved(malformed) },
+      [violation("deferred-invocation", constraintSite(0), "input")], `${kind} API signature endpoint with a body`);
   }
   const helper = `D[${moduleIdentity};nativeHelper]`;
   const helperSignature = { ...signature, id: 1, declaration: helper, owner: null, parameters: [0, 1].map(index => ({
@@ -2842,7 +2913,8 @@ test("the complete actual producer is strict-isolated against genuine allowed pu
   const areas = JSON.parse(readFileSync(resolve(repository, "test/architecture/quarantine/areas.json"), "utf8"));
   const deps = isolationDeps(tooling, areas.areas.map(area => area.directory));
   const interfaceSources = dependencies.map(name => `packages/host/src/${name}/contract.ts`)
-    .concat(["packages/host/src/ids/index.ts", "packages/host/src/diag/index.ts", "packages/host/src/ir-types/index.ts"]);
+    .concat(["packages/host/src/ids/index.ts", "packages/host/src/diag/index.ts", "packages/host/src/ir-types/index.ts",
+      "packages/host/src/ir-hir/index.ts"]);
   const inventory = dependencies.flatMap(name => deps.enumerate(resolve(repository, `packages/host/src/${name}`)))
     .filter(path => path.endsWith(".ts")).map(path => relative(repository, path).split(sep).join("/"));
   const graph = deps.graph(new Map(inventory.map(path => [path, readFileSync(resolve(repository, path), "utf8")])));

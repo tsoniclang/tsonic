@@ -6,7 +6,7 @@ import type {
   ApplicationArgument, ApplicationDecision, BodyTyping, ConstraintDecision, ConstraintRef, DeferredDecision, EmbeddingDecision, EmbeddingProof, InferRule, InferSite,
   InferVerificationInput, MemberDecision, OperationDecision, SolvedConstraint,
 } from "./contract.js";
-import { encodeKey } from "../ids/index.js";
+import { callableEndpointKey, hasOverloadEndpoints, selectedEndpointRoleFaults } from "../ir-hir/index.js";
 import { printDocument } from "./print.js";
 import { candidateKey, compareContribution, compareNumber, compareText, constraintKey, contributionKey, emit, nodeKey, ordinal } from "./verify-contributions.js";
 import type { Inventory, OwnedConstraint } from "./verify-contributions.js";
@@ -24,19 +24,25 @@ function proofReferences(proof: EmbeddingProof, constraint: ConstraintRef,
     emit(output, "proof-reference", { kind: "proof", constraint, step: proof.conclusion }, "conclusion");
 }
 
-function endpointKey(endpoint: HirCallableEndpoint): string {
-  return encodeKey([endpoint.declaration, endpoint.role, endpoint.signature, endpoint.body]);
-}
-
 function actualEndpoint(input: InferVerificationInput, endpoint: HirCallableEndpoint,
   endpoints: Map<DefId, ReadonlySet<string>>, owner: DefId = endpoint.declaration): boolean {
   let values = endpoints.get(owner);
   if (values === undefined) {
     const declaration = input.declarationOf(owner);
-    values = new Set(declaration === null ? [] : declaration.endpoints.map(endpointKey));
+    values = new Set(declaration === null ? [] : declaration.endpoints.map(endpoint => callableEndpointKey(endpoint)));
     endpoints.set(owner, values);
   }
-  return values.has(endpointKey(endpoint));
+  return values.has(callableEndpointKey(endpoint));
+}
+
+function overloadedDeclaration(input: InferVerificationInput, owner: DefId, overloads: Map<DefId, boolean>): boolean {
+  let overloaded = overloads.get(owner);
+  if (overloaded === undefined) {
+    const declaration = input.declarationOf(owner);
+    overloaded = declaration !== null && hasOverloadEndpoints(declaration.endpoints);
+    overloads.set(owner, overloaded);
+  }
+  return overloaded;
 }
 
 function memberReferences(input: InferVerificationInput, member: MemberDecision, site: InferSite,
@@ -51,7 +57,7 @@ function memberReferences(input: InferVerificationInput, member: MemberDecision,
 
 function mappingReferences(input: InferVerificationInput, decision: ApplicationDecision, site: InferSite,
   arguments_: readonly ApplicationArgument[] | null, operandCount: number | null, endpoints: Map<DefId, ReadonlySet<string>>,
-  bodies: ReadonlyMap<BodyId, BodyTyping>,
+  overloads: Map<DefId, boolean>, bodies: ReadonlyMap<BodyId, BodyTyping>,
   output: Violation<InferRule, InferSite>[]): void {
   const signature = ordinal(decision.api.signature) ? input.types.signatures[decision.api.signature] : undefined;
   if (!actualEndpoint(input, decision.advertised, endpoints) ||
@@ -86,10 +92,10 @@ function mappingReferences(input: InferVerificationInput, decision: ApplicationD
       }
     }
   }
-  if (decision.advertised.role !== "advertised") emit(output, "api-endpoint-role", site, "advertised");
-  if (decision.api.role === "advertised" || decision.api.role === "api-body" && decision.api.body === null ||
-    decision.api.role === "api-signature" && decision.api.body !== null)
-    emit(output, "api-endpoint-role", site, "api");
+  const roles = selectedEndpointRoleFaults(overloadedDeclaration(input, decision.advertised.declaration, overloads),
+    decision.advertised, decision.api);
+  if ((roles & 1) !== 0) emit(output, "api-endpoint-role", site, "advertised");
+  if ((roles & 2) !== 0) emit(output, "api-endpoint-role", site, "api");
   if (decision.completion.signature !== decision.api.signature) emit(output, "endpoint-agreement", site, "completion");
   if (decision.api.body !== null) {
     const body = bodies.get(decision.api.body);
@@ -110,6 +116,7 @@ interface SolutionContext {
   readonly input: InferVerificationInput;
   readonly inventory: Inventory;
   readonly endpoints: Map<DefId, ReadonlySet<string>>;
+  readonly overloads: Map<DefId, boolean>;
   readonly bodies: ReadonlyMap<BodyId, BodyTyping>;
 }
 
@@ -120,7 +127,7 @@ function sameNode(left: NodeRef | null, right: NodeRef | null): boolean {
 function deferredReferences(context: SolutionContext, record: DeferredDecision, constraint: OwnedConstraint | undefined,
   site: InferSite, output: Violation<InferRule, InferSite>[]): void {
   if (constraint === undefined) return;
-  const { input, inventory, endpoints } = context;
+  const { input, inventory, endpoints, overloads } = context;
   const value = constraint.value;
   const invocation = record.invocation;
   const ruleContext = invocation.input.context;
@@ -149,8 +156,9 @@ function deferredReferences(context: SolutionContext, record: DeferredDecision, 
     case "candidate": {
       const candidateInput = invocation.input;
       matches = candidateInput.candidates.every(candidate => ordinal(candidate.ordinal) &&
-        candidate.advertised.declaration === candidate.declaration && candidate.advertised.role === "advertised" &&
-        candidate.api.role !== "advertised" && actualEndpoint(input, candidate.advertised, endpoints, candidate.declaration) &&
+        candidate.advertised.declaration === candidate.declaration &&
+        selectedEndpointRoleFaults(overloadedDeclaration(input, candidate.declaration, overloads), candidate.advertised, candidate.api) === 0 &&
+        actualEndpoint(input, candidate.advertised, endpoints, candidate.declaration) &&
         actualEndpoint(input, candidate.api, endpoints, candidate.declaration));
       if (candidateInput.kind === "accessor-get" || candidateInput.kind === "accessor-set") break;
       if (value.kind !== "call" && value.kind !== "construct") {
@@ -193,7 +201,7 @@ function deferredReferences(context: SolutionContext, record: DeferredDecision, 
 
 function decisionRecords(context: SolutionContext, record: SolvedConstraint, constraint: OwnedConstraint | undefined,
   output: Violation<InferRule, InferSite>[]): void {
-  const { input, inventory, endpoints, bodies } = context;
+  const { input, inventory, endpoints, overloads, bodies } = context;
   const decision = record.decision;
   const site: InferSite = { kind: "constraint", constraint: record.constraint };
   const pending: DecisionWork[] = [];
@@ -235,7 +243,7 @@ function decisionRecords(context: SolutionContext, record: SolvedConstraint, con
     if (task.kind === "proof") proofReferences(task.value, record.constraint, output);
     else if (task.kind === "embedding") {
       if (task.value.kind === "conversion") pending.push({ kind: "proof", value: task.value.proof });
-    } else if (task.kind === "application") mappingReferences(input, task.value, site, task.arguments, task.operandCount, endpoints, bodies, output);
+    } else if (task.kind === "application") mappingReferences(input, task.value, site, task.arguments, task.operandCount, endpoints, overloads, bodies, output);
     else {
       const operation = task.value.operation;
       if (operation.kind === "conversion") pending.push({ kind: "embedding", value: operation.embedding });
@@ -283,7 +291,7 @@ export function verifySolution(input: InferVerificationInput, inventory: Invento
   const endpoints = new Map<DefId, ReadonlySet<string>>();
   const bodies = new Map<BodyId, BodyTyping>();
   for (const body of solution.bodies) if (!bodies.has(body.body)) bodies.set(body.body, body);
-  const context: SolutionContext = { input, inventory, endpoints, bodies };
+  const context: SolutionContext = { input, inventory, endpoints, overloads: new Map(), bodies };
   if (solution.group !== input.group.id) emit(output, "group-ownership", groupSite, "solution");
   const published = new Set<number>();
   let previousVariable: number | null = null;

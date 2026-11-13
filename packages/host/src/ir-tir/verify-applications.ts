@@ -1,6 +1,7 @@
 import type { NodeId } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import type { HirApplication, HirCallableEndpoint, HirCandidate, HirNode, HirProtocolFact } from "../ir-hir/contract.js";
+import { callableEndpointKey, selectedEndpointRoleFaults } from "../ir-hir/index.js";
 import type { ApplicationDecision, InferenceDeclaration, MemberDecision, ParameterMapping, RuleOutcome } from "../ir-infer/contract.js";
 import type { Member, MemberKey, MemberOrigin, MemberTable, Signature, SignatureParameter, TypeTable } from "../ir-types/contract.js";
 import type { MemberSelection, ResolvedCallee, TirApplication, TirArgument, TirNode, TirProtocol, TypedOperation } from "./contract.js";
@@ -9,6 +10,7 @@ import type { TirOccurrenceEmit } from "./verify-occurrences.js";
 export interface TirDeclarationInventory {
   readonly declaration: InferenceDeclaration;
   readonly endpoints: ReadonlySet<string>;
+  readonly overloaded: boolean;
 }
 
 export interface TirCallDeclarations {
@@ -17,11 +19,9 @@ export interface TirCallDeclarations {
   readonly candidates: readonly HirCandidate[] | null;
 }
 
-export const endpointKey = (endpoint: HirCallableEndpoint): string => encodeKey([endpoint.declaration, endpoint.role, endpoint.body]);
-
 export const declarationEndpoints = (declaration: InferenceDeclaration): ReadonlySet<string> => {
   const endpoints = new Set<string>();
-  for (const endpoint of declaration.endpoints) if (endpoint !== undefined) endpoints.add(endpointKey(endpoint));
+  for (const endpoint of declaration.endpoints) if (endpoint !== undefined) endpoints.add(callableEndpointKey(endpoint));
   return endpoints;
 };
 
@@ -41,8 +41,10 @@ export const verifyCallEndpoints = (
   const advertisedSignature = types.signatures[decision.advertised.signature];
   const apiSignature = types.signatures[decision.api.signature];
   let valid = declarations.advertised !== null && declarations.api !== null &&
-    declarations.advertised.endpoints.has(endpointKey(decision.advertised)) &&
-    declarations.api.endpoints.has(endpointKey(decision.api)) &&
+    declarations.advertised.endpoints.has(callableEndpointKey(decision.advertised)) &&
+    declarations.api.endpoints.has(callableEndpointKey(decision.api)) &&
+    declarations.advertised.endpoints.has(callableEndpointKey(decision.api)) &&
+    selectedEndpointRoleFaults(declarations.advertised.overloaded, decision.advertised, decision.api) === 0 &&
     advertisedSignature !== undefined && apiSignature !== undefined;
   if (declarations.candidates !== null) {
     valid = valid && Number.isSafeInteger(decision.candidate) && decision.candidate >= 0 && !Object.is(decision.candidate, -0) &&
