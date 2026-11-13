@@ -1,6 +1,6 @@
 import type { BodyId, BodyPath, CandidateListId, DefId, DefinitionPath, LocalId, LocalRef, LibraryModuleIdentity, ModuleId, NodeId, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { Diagnostic, TextParseResult, Violation } from "../diag/contract.js";
-import type { BindingScope, BindingVector, LiteralTypeValue, LiteralValue, MemberKey, MemberOrigin, NominalDefinition, PassingMode, TypeComponent, TypeParameter, TypeParameterIdentity, TypeTable } from "../ir-types/contract.js";
+import type { ArtifactBindings, BindingScope, BindingVector, LiteralTypeValue, LiteralValue, MemberKey, MemberOrigin, NominalDefinition, PassingMode, TypeComponent, TypeParameter, TypeParameterIdentity, TypeTable } from "../ir-types/contract.js";
 
 export interface TextRange {
   readonly pos: number;
@@ -3897,6 +3897,12 @@ export interface HirAttribute {
   readonly declaration: DefId;
   readonly occurrence: SourceNodeRef;
   readonly arguments: readonly SourceNodeRef[];
+}
+
+export interface DeclarationAttributes {
+  readonly definition: DefId;
+  readonly bindings: ArtifactBindings;
+  readonly attributes: readonly HirAttribute[];
 }
 
 export type HirArgument =

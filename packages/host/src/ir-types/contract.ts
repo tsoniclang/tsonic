@@ -1,6 +1,6 @@
 import type { TyId, SigId, DefId, SourceNodeRef, LocalRef } from "../ids/contract.js";
 import type { TextParseResult, Violation } from "../diag/contract.js";
-import type { TypeTerm, Signature, SignatureInput, TypeTable, BindingVector, TypeParameterIdentity, TypeEvidence } from "./data.js";
+import type { ArtifactBindings, TypeTerm, Signature, SignatureInput, TypeTable, BindingVector, TypeParameterIdentity, TypeEvidence } from "./data.js";
 import type { TypeArena } from "./arena.js";
 export type * from "./data.js";
 
@@ -11,6 +11,19 @@ export interface TypeExpansionLimits {
   readonly maximumVisits: number;
   readonly maximumUnionMembers: number;
   readonly maximumIntersectionMembers: number;
+}
+
+export interface DeclarationRequest {
+  readonly definition: DefId;
+  readonly bindings: ArtifactBindings;
+}
+
+export interface SignatureRequest {
+  readonly definition: DefId;
+  readonly endpoint: "advertised" | "api-signature" | "api-body";
+  // Position among endpoints of this role, in declaration endpoint-vector order.
+  readonly ordinal: number;
+  readonly bindings: ArtifactBindings;
 }
 
 export type TypeTransform<Value> =

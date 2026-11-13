@@ -1,10 +1,10 @@
 import type { Computed, Result } from "../diag/contract.js";
 import type { BodyId, DefId, DefinitionPath, ModuleId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type {
-  ArtifactBindings, BodyInstance, ConstantContext, ConstValue, MemberTable, Signature,
+  ArtifactBindings, BodyInstance, ConstantContext, ConstValue, DeclarationRequest, MemberTable, Signature, SignatureRequest,
   TypeEvidence, TypeExpansionLimits, TypeInterner, TypeParameter, TypeProductionRequest,
 } from "../ir-types/contract.js";
-import type { CheckedPhase, Declaration, DeclarationKind, HirAttribute, HirBody, HirCallableEndpoint, HirModule, TypeNode } from "../ir-hir/contract.js";
+import type { CheckedPhase, Declaration, DeclarationAttributes, DeclarationKind, HirBody, HirCallableEndpoint, HirModule, TypeNode } from "../ir-hir/contract.js";
 import type { InferredSignaturePart } from "../ir-infer/contract.js";
 import type { BoundLibraries } from "../libraries/contract.js";
 
@@ -28,19 +28,6 @@ export interface DefinitionTable {
   readonly definitions: readonly Definition[];
 }
 
-export interface DeclarationRequest {
-  readonly definition: DefId;
-  readonly bindings: ArtifactBindings;
-}
-
-export interface SignatureRequest {
-  readonly definition: DefId;
-  readonly endpoint: "advertised" | "api-signature" | "api-body";
-  // Position among endpoints of this role, in declaration endpoint-vector order.
-  readonly ordinal: number;
-  readonly bindings: ArtifactBindings;
-}
-
 export interface InferredDeclarationRequest {
   readonly signature: InferredSignaturePart;
   readonly bindings: ArtifactBindings;
@@ -62,12 +49,6 @@ export interface Generics {
   readonly classParameters: readonly TypeParameter[];
   readonly methodParameters: readonly TypeParameter[];
   readonly capturedParameters: readonly TypeParameter[];
-}
-
-export interface DeclarationAttributes {
-  readonly definition: DefId;
-  readonly bindings: ArtifactBindings;
-  readonly attributes: readonly HirAttribute[];
 }
 
 export interface EnumMember {
