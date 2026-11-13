@@ -1287,6 +1287,24 @@ test("K-3240: a request states an increment; chunks survive abandonment at the s
   assert.deepEqual(database.stats().find(row => row.name === "X"), { name: "X", computed: 4, hits: 1 });
 });
 
+test("R1: a fact abandoned with a kept chunk and later settled as a cycle member is reported once, in its result", () => {
+  const stop = diagnostic(1, "a.ts", "gate refuses");
+  const kept = diagnostic(2, "b.ts", "earned by A before its first request");
+  let phase = 0;
+  const gate = { name: "gate", errorValue: noCycle,
+    compute: (_, key) => key === 0 ? { kind: "refused", diagnostics: [stop] } : { kind: "ok", value: 1, diagnostics: [] } };
+  const a = { name: "A", errorValue: () => "A-error", compute: context => context.get(gate, phase, { witness: "A", earned: [kept] },
+    () => context.get(b, null, { witness: "A", earned: [] }, value => ({ kind: "ok", value, diagnostics: [] }))) };
+  const b = { name: "B", errorValue: () => "B-error",
+    compute: context => context.get(a, null, { witness: "B", earned: [] }, value => ({ kind: "ok", value, diagnostics: [] })) };
+  const database = product.createDatabase(null, unbounded, errors, "recorded");
+  assert.deepEqual(database.run(a, null), { kind: "refused", diagnostics: [stop] });
+  assert.deepEqual(database.diagnostics(), [stop, kept], "kept for the abandoned attempt");
+  phase = 1;
+  assert.deepEqual(database.run(a, null), { kind: "completed", value: "A-error", diagnostics: [kept] });
+  assert.deepEqual(database.diagnostics(), [stop, kept], "the settled member's result replaces what was kept: once");
+});
+
 test("with the trace off no event exists and a request allocates no record: a fact costs one record, a warm or closing request none", () => {
   const original = Error("defect");
   const leaf = { name: "leaf", errorValue: noCycle, compute: (_, key) => ({ kind: "ok", value: key, diagnostics: [] }) };

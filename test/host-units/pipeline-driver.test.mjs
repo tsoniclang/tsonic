@@ -214,7 +214,7 @@ test("an error-valued answer is delivered unchanged; the driver adds, drops and 
   assert.deepEqual(database.diagnostics(), [detected, own]);
 });
 
-const statedTwice = "A producer stated one diagnostic twice: a pause states only what was earned since the previous pause, and a result only what was earned after the last.";
+const statedTwice = "A producer restated a diagnostic it had already stated: a pause states only what was earned since the previous pause, and a result only what was earned after the last.";
 
 test("a result carries only what was earned after the last pause; the complete list is composed for the producer, which cannot drop a stated diagnostic and may not restate one", () => {
   const found = diagnostic(1, "a.ts", "found before the pause");
@@ -370,6 +370,82 @@ test("K-3240: three pauses, abandoned at the second and at the third and then co
   assert.deepEqual(nested.run(requester, null), { kind: "completed", value: 5, diagnostics: [r1, r2, a1, a2, r3] },
     "in the order earned; the application's diagnostics are the requester's");
   assert.deepEqual(nested.diagnostics(), [r1, r2, r3, a1, a2], "the completed result replaces what the abandoned attempts kept");
+});
+
+test("S-1: the restating check is per producer run; the same diagnostic from two applications, or from an application and its requester, is not a producer defect", () => {
+  const shared = d(1, "found by the application (one object)");
+  const sameObject = driver.nestedRoute({ start: () => ok(1, [shared]), resume: never, route: never, witness: never, answer: value => value });
+  for (const shape of ["two pauses", "one pause, two requests"]) {
+    const requester = driver.defineQuery({ name: `requester ${shape}`,
+      producer: shape === "two pauses"
+        ? { start: () => pause(["n"], 1), resume: (state, answers) => state === 1 ? pause(["n"], 2) : ok(answers[0]) }
+        : { start: () => pause(["n", "n"], 1), resume: (_, answers) => ok(answers[0] + answers[1]) },
+      route: () => sameObject, witness: never, errorValue: noCycle });
+    const database = query.createDatabase(null, unbounded, noCycle, "recorded");
+    assert.deepEqual(database.run(requester, null).diagnostics, [shared, shared],
+      `${shape}: two applications each state it once; one listing remains only through uniqueness by identity at collection`);
+  }
+  const mine = d(2, "the requester's");
+  const echoing = driver.defineQuery({ name: "echoing", producer: { start: () => pause([{}], null, [mine]), resume: () => ok(0) },
+    route: () => driver.nestedRoute({ start: () => ok(1, [mine]), resume: never, route: never, witness: never, answer: value => value }),
+    witness: never, errorValue: noCycle });
+  assert.deepEqual(query.createDatabase(null, unbounded, noCycle, "recorded").run(echoing, null).diagnostics, [mine, mine]);
+  const base = leaf("base", key => ok(key));
+  const restatingApplication = driver.defineQuery({ name: "restating-application", producer: { start: () => pause([{}], null), resume: never },
+    route: () => driver.nestedRoute({ start: () => pause([{}], null, [shared]), resume: () => ok(1, [shared]),
+      route: () => driver.factRoute(base, "k", value => value), witness: () => null, answer: value => value }),
+    witness: never, errorValue: noCycle });
+  assert.throws(() => query.createDatabase(null, unbounded, noCycle, "recorded").run(restatingApplication, null), error => {
+    assert.deepEqual(error.cause, { owner: "pipeline", query: { name: "restating-application", encodedKey: "N" }, origin: null, message: statedTwice });
+    return true;
+  }, "one application that restates in its result what its own pause stated is the defect");
+});
+
+test("R1: rows in a cycle that paused with chunks, one through a nested application, with a requester outside: each member's result is its chunks, for both verdicts", () => {
+  const [a1, a2, n1, b1, rootEarned] = [1, 2, 3, 4, 5].map(number => d(number, `e${number}`));
+  const refusal = d(9, "cycle refused");
+  const cause = { kind: "unit", unit: { request: { query: "classified", key: "c" }, position: { kind: "result" } } };
+  const base = leaf("base", key => ok(key));
+  for (const verdict of ["error", "refused"]) {
+    const application = driver.nestedRoute({ start: () => pause([{}], null, [n1]), resume: never,
+      route: () => driver.factRoute(b, null, value => value), witness: () => "application needs B", answer: value => value });
+    const a = driver.defineQuery({ name: "A",
+      producer: { start: () => pause(["base"], 1, [a1]), resume: state => state === 1 ? pause(["nested"], 2, [a2]) : never() },
+      route: request => request === "base" ? driver.factRoute(base, "x", value => value) : application,
+      witness: () => "A", errorValue: () => "A-error" });
+    const b = driver.defineQuery({ name: "B", producer: { start: () => pause([{}], null, [b1]), resume: never },
+      route: () => driver.factRoute(a, null, value => value), witness: () => "B needs A", errorValue: () => "B-error" });
+    const root = driver.defineQuery({ name: "root", producer: { start: () => pause([{}], null, [rootEarned]), resume: (_, answers) => ok(answers[0]) },
+      route: () => driver.factRoute(a, null, value => value), witness: () => "root", errorValue: noCycle });
+    const database = query.createDatabase(null, unbounded,
+      cycle => cycle.members.map(() => verdict === "error" ? { kind: "error", cause } : { kind: "refused", diagnostic: refusal }), "recorded");
+    if (verdict === "error") {
+      assert.deepEqual(database.run(root, null), { kind: "completed", value: "A-error", diagnostics: [rootEarned] });
+      assert.deepEqual(database.run(a, null), { kind: "completed", value: "A-error", diagnostics: [a1, a2, n1] });
+      assert.deepEqual(database.run(b, null), { kind: "completed", value: "B-error", diagnostics: [b1] });
+      assert.deepEqual(database.diagnostics(), [a1, a2, n1, b1, rootEarned], "each once; warm requests publish nothing");
+    } else {
+      assert.deepEqual(database.run(root, null), { kind: "refused", diagnostics: [a1, a2, n1, refusal] });
+      assert.deepEqual(database.run(a, null), { kind: "refused", diagnostics: [a1, a2, n1, refusal] });
+      assert.deepEqual(database.run(b, null), { kind: "refused", diagnostics: [b1, refusal] });
+      assert.deepEqual(database.diagnostics(), [a1, a2, n1, b1, rootEarned, refusal, refusal],
+        "one classified refusal per member result: the same object is listed once per member until diagnostics are collected by identity");
+    }
+  }
+});
+
+test("R1: a row whose final result is refused after a chunk is memoised whole; two requesters are abandoned; each diagnostic once", () => {
+  const [c1, own, r1, r2] = [1, 2, 3, 4].map(number => d(number, `e${number}`));
+  const base = leaf("base", key => ok(key));
+  const refuses = driver.defineQuery({ name: "refuses", producer: { start: () => pause([{}], null, [c1]), resume: () => refuse([own]) },
+    route: () => driver.factRoute(base, "k", value => value), witness: () => null, errorValue: noCycle });
+  const requester = (name, earned) => driver.defineQuery({ name, producer: { start: () => pause([{}], null, [earned]), resume: never },
+    route: () => driver.factRoute(refuses, null, value => value), witness: () => null, errorValue: noCycle });
+  const database = query.createDatabase(null, unbounded, noCycle, "recorded");
+  assert.deepEqual(database.run(requester("one", r1), null), { kind: "refused", diagnostics: [c1, own] });
+  assert.deepEqual(database.run(requester("two", r2), null), { kind: "refused", diagnostics: [c1, own] });
+  assert.deepEqual(database.diagnostics(), [c1, own, r1, r2]);
+  assert.deepEqual(database.stats().find(row => row.name === "refuses"), { name: "refuses", computed: 1, hits: 1 });
 });
 
 test("what a nested application found within a pause is stated with the next kernel request of that pause", () => {

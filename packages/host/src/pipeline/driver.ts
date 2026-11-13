@@ -82,15 +82,22 @@ function mapResult<From, To>(result: Result<From>, map: (value: From) => To): Re
 
 const refusalFailure: InvariantFailure = ({ owner: "pipeline", query: null, origin: null,
   message: "A refused result must carry its refusing diagnostic." });
-const statedTwice = "A producer stated one diagnostic twice: a pause states only what was earned since the previous pause, and a result only what was earned after the last.";
+const statedTwice = "A producer restated a diagnostic it had already stated: a pause states only what was earned since the previous pause, and a result only what was earned after the last.";
+
+/** One run of one producer: the row's own producer, or one application of a nested route, from its start to its done. */
+interface ProducerRun {
+  seen: Set<Diagnostic> | undefined;
+}
 
 /**
  * One computation of a row. Producers and nested applications state what they earn in chunks (Step); this adapter
  * hands each chunk on to the kernel once, with the computation's next request, its abandonment or its result, and
  * keeps nothing that it has handed on. It adds, drops and repeats no diagnostic.
  *
- * Checked here: the same diagnostic object is not stated twice by the producers of one computation. Not checked
- * until every diagnostic carries its identity: two different objects with one identity.
+ * Checked here, per producer run (the row's producer, or one application of a nested route, from start to done):
+ * the run does not state a diagnostic object it has already stated. Not checked here: the same diagnostic stated
+ * by two different applications or by an application and its requester, and two objects with one identity; both
+ * are left to uniqueness by diagnostic identity where a run's diagnostics are collected.
  */
 export function defineQuery<Inputs, Key extends KeyData, Value, Request, Answer, State, Witness>(
   row: Row<Inputs, Key, Value, Request, Answer, State, Witness>,
@@ -98,21 +105,19 @@ export function defineQuery<Inputs, Key extends KeyData, Value, Request, Answer,
   type Computation = QueryComputation<Inputs, Value, Witness>;
   const compute = (context: QueryContext<Inputs, Witness>, key: Key): Computation => {
     let pending: Diagnostic[] = [];
-    let seen: Set<Diagnostic> | undefined;
 
-    function state(source: readonly Diagnostic[], into: Diagnostic[] | null): void {
+    function note(run: ProducerRun, source: readonly Diagnostic[]): void {
       if (source.length === 0) return;
-      const known = seen ?? new Set<Diagnostic>();
-      seen = known;
+      const known = run.seen ?? new Set<Diagnostic>();
+      run.seen = known;
       source.forEach(diagnostic => {
         if (known.has(diagnostic)) throwInvariant({ owner: "pipeline", query: { name: row.name, encodedKey: encodeKey(key) }, origin: null, message: statedTwice });
         known.add(diagnostic);
-        if (into !== null) into.push(diagnostic);
       });
     }
 
     function earn(source: readonly Diagnostic[]): void {
-      state(source, pending);
+      source.forEach(diagnostic => { pending.push(diagnostic); });
     }
 
     function hand(): readonly Diagnostic[] {
@@ -140,10 +145,8 @@ export function defineQuery<Inputs, Key extends KeyData, Value, Request, Answer,
               return proceed();
             })) });
         }
-        const refused = (diagnostics: readonly [Diagnostic, ...Diagnostic[]]): Computation => {
-          state(diagnostics, null);
-          return ({ kind: "abandoned", diagnostics, earned: hand() });
-        };
+        const refused = (diagnostics: readonly [Diagnostic, ...Diagnostic[]]): Computation =>
+          ({ kind: "abandoned", diagnostics, earned: hand() });
         const nested = selected.apply((application): Progress<Inputs, Result<Answer>, Value, Witness> => {
           const progress = runSteps(application.start(context.inputs), application, result => {
             const outcome = mapResult(result, application.answer);
@@ -151,7 +154,7 @@ export function defineQuery<Inputs, Key extends KeyData, Value, Request, Answer,
             earn(outcome.diagnostics);
             answers.push(outcome.value);
             return proceed();
-          });
+          }, { seen: undefined });
           return progress.kind === "now" ? { kind: "now", value: mapResult(progress.value, application.answer) } : progress;
         });
         if (nested.kind === "later") return nested;
@@ -164,14 +167,18 @@ export function defineQuery<Inputs, Key extends KeyData, Value, Request, Answer,
 
     function runSteps<Request, Answer, State, Produced>(
       initial: Pause<Produced, Request, State>, operations: Operations<Inputs, Request, Answer, State, Produced, Witness>,
-      then: (result: Result<Produced>) => Computation,
+      then: (result: Result<Produced>) => Computation, run: ProducerRun,
     ): Progress<Inputs, Result<Produced>, Value, Witness> {
       for (let step = initial; ;) {
-        if (step.kind === "done") return ({ kind: "now", value: step.value });
+        if (step.kind === "done") {
+          note(run, step.value.diagnostics);
+          return ({ kind: "now", value: step.value });
+        }
         const state = step.paused;
+        note(run, step.earned);
         earn(step.earned);
         const resumed = (answers: readonly Answer[]): Computation =>
-          settle(runSteps(operations.resume(state, answers), operations, then), then);
+          settle(runSteps(operations.resume(state, answers), operations, then, run), then);
         const progress = answerFrom(step.requests[Symbol.iterator](), operations, [], resumed);
         if (progress.kind === "later") return progress;
         step = operations.resume(state, progress.value);
@@ -185,7 +192,7 @@ export function defineQuery<Inputs, Key extends KeyData, Value, Request, Answer,
       return ({ kind: "refused", diagnostics: [requirePresent(last[0], refusalFailure), ...last.slice(1)] });
     };
     const operations = { resume: row.producer.resume, route: row.route, witness: row.witness };
-    return settle(runSteps(row.producer.start(context.inputs, key), operations, finish), finish);
+    return settle(runSteps(row.producer.start(context.inputs, key), operations, finish, { seen: undefined }), finish);
   };
   return ({ name: row.name, compute, errorValue: row.errorValue });
 }
