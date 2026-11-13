@@ -39,7 +39,10 @@ export interface LowerState {
   readonly blocks: OpenBlock[];
   readonly entries: MirEntry[];
   records: number;
-  /** The next record would have passed the size limit. Nothing is recorded after that; the caller stops and builds the refusal. */
+  /**
+   * The next record would have passed the size limit. From then on every primitive answers null and records nothing,
+   * and `finishBody` gives no body: the lowering ends in its one refusal and no partly recorded graph leaves it.
+   */
   refused: boolean;
   current: OpenBlock | null;
 }
@@ -49,10 +52,7 @@ export function createState(body: BodyId, bindings: ArtifactBindings, result: Ty
     entries: [], records: 0, refused: false, current: null };
 }
 
-/**
- * One record of the graph, charged before it is allocated. False when the limit is reached: the record is not made,
- * the identity returned in its place names nothing, and the lowering stops at its next step because `refused` is set.
- */
+/** One record of the graph, charged before it is allocated. False when the limit is reached: the record is not made. */
 function charge(state: LowerState): boolean {
   if (state.refused) return false;
   if (state.records >= state.limits.maximumRecords) {
@@ -63,46 +63,51 @@ function charge(state: LowerState): boolean {
   return true;
 }
 
-export function newLocal(state: LowerState, storage: TyId, role: MirLocalRole, source: LocalRef | null, origin: Origin): LocalId {
-  if (!charge(state)) return localId(0);
+/** A new local, or null when the lowering is refused. */
+export function newLocal(state: LowerState, storage: TyId, role: MirLocalRole, source: LocalRef | null, origin: Origin): LocalId | null {
+  if (!charge(state)) return null;
   const id = localId(state.locals.length);
   state.locals.push({ id, storage, role, source, origin });
   return id;
 }
 
-export function newPlace(state: LowerState, base: MirPlaceBase, storage: TyId, origin: Origin): PlaceId {
-  if (!charge(state)) return placeId(0);
+/** A new place, or null when the lowering is refused. */
+export function newPlace(state: LowerState, base: MirPlaceBase, storage: TyId, origin: Origin): PlaceId | null {
+  if (!charge(state)) return null;
   const id = placeId(state.places.length);
   state.places.push({ id, base, storage, origin });
   return id;
 }
 
-/** The one place that is the local itself. */
-export function placeOfLocal(state: LowerState, local: LocalId): PlaceId {
+/** The one place that is the local itself, or null when the lowering is refused. */
+export function placeOfLocal(state: LowerState, local: LocalId): PlaceId | null {
   const known = state.localPlaces.get(local);
   if (known !== undefined) return known;
   const selected = state.locals[local];
   if (selected === undefined) return throwInvariant(invariant("a place was asked for a local that does not exist"));
   const place = newPlace(state, { kind: "local", local }, selected.storage, selected.origin);
-  state.localPlaces.set(local, place);
+  if (place !== null) state.localPlaces.set(local, place);
   return place;
 }
 
-/** A constant operand. Equal constants are one record; the final identities are assigned when the body is assembled. */
-export function constantOperand(state: LowerState, type: TyId, value: MirConstantValue): MirOperand {
+/**
+ * A constant operand, or null when the lowering is refused. Equal constants are one record; the final identities are
+ * assigned when the body is assembled.
+ */
+export function constantOperand(state: LowerState, type: TyId, value: MirConstantValue): MirOperand | null {
   const key = constantKeyOfMir(type, value);
   if (key === null) return throwInvariant(invariant("a constant's bindings are not complete"));
   const known = state.constants.get(key);
   if (known !== undefined) return { kind: "constant", constant: known.provisional };
-  if (!charge(state)) return { kind: "constant", constant: constId(0) };
+  if (!charge(state)) return null;
   const provisional = constId(state.constants.size);
   state.constants.set(key, { provisional, key, type, value });
   return { kind: "constant", constant: provisional };
 }
 
-/** A new block that nothing has entered yet. */
-export function newBlock(state: LowerState, site: MirSite): BlockId {
-  if (!charge(state)) return blockId(0);
+/** A new block that nothing has entered yet, or null when the lowering is refused. A block is one record with its terminator. */
+export function newBlock(state: LowerState, site: MirSite): BlockId | null {
+  if (!charge(state)) return null;
   const id = blockId(state.blocks.length);
   state.blocks.push({ id, site, statements: [], terminator: null });
   return id;
@@ -110,31 +115,43 @@ export function newBlock(state: LowerState, site: MirSite): BlockId {
 
 /** Makes a block the one that receives statements. The previous block must have been terminated. */
 export function enterBlock(state: LowerState, block: BlockId): void {
+  // After a refusal nothing is entered, ended or added: the caller has one refusal to return, and a state that was
+  // cut short is not a defect of the caller.
+  if (state.refused) return;
   if (state.current !== null) throwInvariant(invariant("a block was entered while another block was open"));
   const selected = state.blocks[block];
   if (selected === undefined || selected.terminator !== null) return throwInvariant(invariant("a block was entered that cannot receive statements"));
   state.current = selected;
 }
 
-export function emitStatement(state: LowerState, statement: MirStatement): void {
+/** Adds a statement to the open block. False when the lowering is refused: nothing was added. */
+export function emitStatement(state: LowerState, statement: MirStatement): boolean {
+  if (state.refused) return false;
   if (state.current === null) return throwInvariant(invariant("a statement was emitted with no open block"));
-  if (!charge(state)) return;
+  if (!charge(state)) return false;
   state.current.statements.push(statement);
+  return true;
 }
 
 /** Ends the open block. After it no block is open. */
 export function terminate(state: LowerState, terminator: MirTerminator): void {
+  if (state.refused) return;
   if (state.current === null) return throwInvariant(invariant("a terminator was emitted with no open block"));
   state.current.terminator = terminator;
   state.current = null;
 }
 
 export function addEntry(state: LowerState, entry: MirEntry): void {
+  if (state.refused) return;
   state.entries.push(entry);
 }
 
-/** Assembles the body: constants take their canonical order and every reference to a constant follows. */
-export function finishBody(state: LowerState): MirBody {
+/**
+ * Assembles the body: constants take their canonical order and every reference to a constant follows. Null when the
+ * lowering was refused: what was recorded until then is not a body.
+ */
+export function finishBody(state: LowerState): MirBody | null {
+  if (state.refused) return null;
   const ordered = [...state.constants.values()].sort((left, right) => left.key < right.key ? -1 : left.key > right.key ? 1 : 0);
   const final = new Map<ConstId, ConstId>();
   const constants: MirConstant[] = [];
