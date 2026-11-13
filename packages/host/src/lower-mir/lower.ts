@@ -1,5 +1,5 @@
-import type { Diagnostic, Result } from "../diag/contract.js";
-import { hostDiagnosticCode, throwInvariant } from "../diag/index.js";
+import type { Diagnostic, InvariantFailure, Result } from "../diag/contract.js";
+import { hostDiagnosticCode, requirePresent, throwInvariant } from "../diag/index.js";
 import type { LocalId, Origin, PlaceId, TyId } from "../ids/contract.js";
 import type { BinaryExpression, Block, Expression, NodeHeader, ReturnStatement, Statement } from "../ir-hir/contract.js";
 import type { MirBody, MirOperand, MirSite, MirUnwind } from "../ir-mir/contract.js";
@@ -23,11 +23,13 @@ import { addEntry, createState, emitStatement, enterBlock, finishBody, newBlock,
 // operation; a return names the return statement.
 //
 // An operand read in place. The operand of a local is its own place, with no copy, while no record emitted between
-// its evaluation and its use can write that local. A local the body owns is written only by a record that names
-// it. The caller's storage (the local of a row not passed by value or moved) can also be written by a control point
-// whose decision says it writes existing storage: before such a control point every operand already evaluated
-// from the caller's storage is saved into a temporary, so that the value used is the one read at its authored
-// position.
+// its evaluation and its use can write that local. A local that is not handed out is written only by a record that
+// names it. A local that is handed out can also be written by a control point whose decision says it writes existing
+// storage: before such a control point every operand already evaluated from a handed-out local is saved into a
+// temporary, so that the value used is the one read at its authored position. The one handed-out kind this lowering
+// admits is the caller's storage (the local of a parameter row not passed by value or moved). When captures, taken
+// addresses or hand-over by place are lowered, every local the verifier's law 3 counts as handed out is in this set,
+// by the same classification.
 //
 // Refusal. The size limit is the state's: a primitive that answers null or false has refused. Every step tests that
 // answer before it makes the next record and the walk ends at the first refusal with the one diagnostic. No record
@@ -40,8 +42,8 @@ import { addEntry, createState, emitStatement, enterBlock, finishBody, newBlock,
 // narrowed and are always demanded. Everything else of the admitted vocabulary is not lowered yet and is refused
 // by `notLoweredYet`, the one check of the frontier; each refusal names what it met.
 
-const invariant = (message: string, origin: Origin | null): never =>
-  throwInvariant({ owner: "lower-mir", query: null, origin, message });
+const failure = (message: string, origin: Origin | null): InvariantFailure => ({ owner: "lower-mir", query: null, origin, message });
+const invariant = (message: string, origin: Origin | null): never => throwInvariant(failure(message, origin));
 
 /** The frontier: a construct of the admitted vocabulary that this lowering does not lower yet. A compiler defect, not a diagnostic. */
 const notLoweredYet = (what: string, origin: Origin): never => invariant(`not lowered yet: ${what}`, origin);
@@ -70,8 +72,8 @@ interface Lowering {
   readonly operands: Evaluated[];
   /** The MIR local of each source local that has one. */
   readonly localOf: Map<LocalId, LocalId>;
-  /** The MIR locals that are the caller's storage. */
-  readonly callerStorage: Set<LocalId>;
+  /** The MIR locals that are handed out: today only the caller's storage. */
+  readonly handedOut: Set<LocalId>;
 }
 
 const siteOf = (body: TirBody, node: NodeHeader): MirSite => ({ origin: node.origin, tir: { body: body.body, node: node.id } });
@@ -82,7 +84,7 @@ export function lowerBody(deps: LowerMirDeps, body: TirBody): Result<MirBody> {
   if (body.asynchronous || body.generator) return notLoweredYet("an asynchronous body or a generator", root.origin);
   if (body.captures.length !== 0) return notLoweredYet("a body that captures", root.origin);
   const lowering: Lowering = { state: createState(body.body, body.bindings, body.completion, deps.limits), body, work: [], operands: [],
-    localOf: new Map(), callerStorage: new Set() };
+    localOf: new Map(), handedOut: new Set() };
   const mir = enter(lowering, root) && walk(lowering) ? finish(deps, lowering) : null;
   return mir === null ? { kind: "refused", diagnostics: [sizeLimit(deps, body)] } : { kind: "ok", value: mir, diagnostics: [] };
 }
@@ -106,7 +108,8 @@ function enter(lowering: Lowering, root: Block<TypedPhase>): boolean {
     if (local === null) return false;
     if (row.role !== "this") parameters += 1;
     lowering.localOf.set(row.local, local);
-    if (row.passing !== "by-value" && row.passing !== "move") lowering.callerStorage.add(local);
+    // The local of a row not passed by value or moved is the caller's storage: handed out from entry.
+    if (row.passing !== "by-value" && row.passing !== "move") lowering.handedOut.add(local);
   }
   const first = newBlock(state, siteOf(body, root));
   if (first === null) return false;
@@ -146,10 +149,7 @@ function statement(lowering: Lowering, node: Statement<TypedPhase>): boolean {
   if (lowering.state.current === null) return true;
   switch (node.kind) {
     case "Block":
-      for (let position = node.statements.nodes.length - 1; position >= 0; position -= 1) {
-        const inner = node.statements.nodes[position];
-        if (inner !== undefined) lowering.work.push({ kind: "statement", node: inner });
-      }
+      for (const inner of [...node.statements.nodes].reverse()) lowering.work.push({ kind: "statement", node: inner });
       return true;
     case "ReturnStatement":
       if (node.expression === null) {
@@ -223,10 +223,10 @@ function temporary(lowering: Lowering, storage: TyId, site: MirSite): PlaceId | 
 /** A temporary as an operand. It is written by one record and by nothing else, so it is read in place and never saved. */
 const held = (place: PlaceId, storage: TyId, site: MirSite): Evaluated => ({ operand: { kind: "place", place }, inPlace: null, storage, site });
 
-/** Saves every operand that was read in place from the caller's storage. False: refused. */
-function saveCallerStorage(lowering: Lowering): boolean {
+/** Saves every waiting operand that was read in place from a local that is handed out. False: refused. */
+function saveHandedOut(lowering: Lowering): boolean {
   for (const [position, pending] of lowering.operands.entries()) {
-    if (pending.inPlace === null || !lowering.callerStorage.has(pending.inPlace)) continue;
+    if (pending.inPlace === null || !lowering.handedOut.has(pending.inPlace)) continue;
     const saved = temporary(lowering, pending.storage, pending.site);
     if (saved === null) return false;
     if (!emitStatement(lowering.state, { ...pending.site, kind: "assign", place: saved, value: { kind: "use", operand: pending.operand }, step: null }))
@@ -238,9 +238,9 @@ function saveCallerStorage(lowering: Lowering): boolean {
 
 function operation(lowering: Lowering, node: BinaryExpression<TypedPhase>, selected: TypedOperation): boolean {
   const { state, body } = lowering;
-  const right = lowering.operands.pop();
-  const left = lowering.operands.pop();
-  if (left === undefined || right === undefined) return invariant("an operation was reached without its two operands", node.origin);
+  // An operation is pushed below its two operands, so both are on the operand stack when it is reached.
+  const right = requirePresent(lowering.operands.pop(), failure("an operation was reached without its right operand", node.origin));
+  const left = requirePresent(lowering.operands.pop(), failure("an operation was reached without its left operand", node.origin));
   const site = siteOf(body, node);
   const execution = selected.decision.execution;
   if (execution.kind === "pure") {
@@ -253,12 +253,13 @@ function operation(lowering: Lowering, node: BinaryExpression<TypedPhase>, selec
   }
   // A control point. Operands evaluated earlier and still waiting are saved first where it could write them; its
   // own two operands are read by the control point itself, before its effect.
-  if (execution.writesStorage && !saveCallerStorage(lowering)) return false;
+  if (execution.writesStorage && !saveHandedOut(lowering)) return false;
   const result = temporary(lowering, selected.decision.result, site);
   if (result === null) return false;
   // The block the control point continues to starts the evaluation of whatever is pending next.
-  const pending = lowering.work[lowering.work.length - 1];
-  const next = newBlock(state, siteOf(body, pending === undefined ? body.root : pending.node));
+  // A value is always pushed above the work that consumes it, so that work is pending.
+  const pending = requirePresent(lowering.work.at(-1), failure("a value was evaluated with nothing to consume it", node.origin));
+  const next = newBlock(state, siteOf(body, pending.node));
   if (next === null) return false;
   // No handler encloses anything this lowering admits: an unwinding failure leaves the body.
   const unwind: MirUnwind = execution.failure === "none" ? { kind: "none" } : execution.failure === "abort" ? { kind: "abort" } : { kind: "escape" };
@@ -270,8 +271,7 @@ function operation(lowering: Lowering, node: BinaryExpression<TypedPhase>, selec
 }
 
 function returns(lowering: Lowering, node: ReturnStatement<TypedPhase>): boolean {
-  const result = lowering.operands.pop();
-  if (result === undefined) return invariant("a return was reached without its value", node.origin);
+  const result = requirePresent(lowering.operands.pop(), failure("a return was reached without its value", node.origin));
   terminate(lowering.state, { ...siteOf(lowering.body, node), kind: "return", value: result.operand });
   return true;
 }

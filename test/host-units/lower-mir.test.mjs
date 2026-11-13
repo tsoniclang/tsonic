@@ -3,8 +3,14 @@
 // and from the program text, and is stated beside the assertion. Inputs are complete typed bodies
 // written by hand in fixtures/lower-mir/programs; no expectation is derived from an implementation.
 import assert from "node:assert/strict";
-import { before, test as declare } from "node:test";
-import { ARRAY_STEP, MODULE, PARAMETRIC, T, TABLE, bodyId, def, typedOperation, verificationContext } from "./fixtures/lower-mir/typed.mjs";
+import { readFileSync, realpathSync } from "node:fs";
+import { Session } from "node:inspector";
+import { basename, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { after, before, test as declare } from "node:test";
+import { checkCoverage } from "../architecture/host/coverage.mjs";
+import { parseSources } from "../architecture/host/import-graph.mjs";
+import { ARRAY_STEP, MODULE, PARAMETRIC, T, TABLE, bodyId, def, native, typedOperation, verificationContext } from "./fixtures/lower-mir/typed.mjs";
 import {
   argumentConstantOf, argumentKindsOf, at, blocksWithStatementAt, calleeNameOf, capturedLocalsOf, capturedRootsOf, checkedPlace, checks,
   controlPoints, createsClosure, destinationBaseOf, destinationChainOf, destinationFieldOf, destinationRootOf, edgesOf, effects,
@@ -34,11 +40,24 @@ const test = (name, ...rest) => {
 };
 let produced;
 let lowerToMir;
+
+// The coverage gate: every runtime file of lower-mir at 100% of lines, branches and functions over this bank and the
+// case modules it loads; the type-only contract is not applicable.
+const repository = fileURLToPath(new URL("../../", import.meta.url));
+const runtimeFiles = ["index", "lower", "state"].map(name => resolve(repository, `packages/host/dist/lower-mir/${name}.js`));
+const session = new Session();
+const post = (method, parameters = {}) => new Promise((done, reject) => {
+  session.post(method, parameters, (error, result) => error === null ? done(result) : reject(error));
+});
 let verifyMir;
 let deps;
 
 before(async () => {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true, "lower-mir cases require a guarded admission");
+  session.connect();
+  await post("Debugger.enable");
+  await post("Profiler.enable");
+  await post("Profiler.startPreciseCoverage", { callCount: true, detailed: true });
   ({ lowerToMir: produced } = await import("../../packages/host/dist/lower-mir/index.js"));
   lowerToMir = (...given) => {
     try {
@@ -57,6 +76,35 @@ before(async () => {
     signatureOf: signature => types.readSignature(interner, signature),
     limits: { maximumRecords: 100000 },
   };
+});
+
+// The cases of the lowering state, loaded after the hook above so that they run under the coverage it records.
+await import("./lower-mir-state.cases.mjs");
+
+after(async () => {
+  try {
+    const capture = await post("Profiler.takePreciseCoverage");
+    const urls = new Set(runtimeFiles.map(path => pathToFileURL(path).href));
+    const result = capture.result.filter(script => urls.has(script.url));
+    const sources = [];
+    for (const script of result) {
+      const actual = await post("Debugger.getScriptSource", { scriptId: script.scriptId });
+      sources.push({ scriptId: script.scriptId, url: script.url, text: actual.scriptSource });
+    }
+    await post("Profiler.stopPreciseCoverage");
+    const report = checkCoverage({ canonical: realpathSync, readText: path => readFileSync(path, "utf8"), parse: parseSources,
+      project: (url, text) => ({ path: fileURLToPath(url), text }) },
+    [...runtimeFiles, resolve(repository, "packages/host/src/lower-mir/contract.ts")], [{ ...capture, result, sources }]);
+    assert.equal(result.length, 3, "each runtime file of lower-mir has source-identified coverage evidence");
+    assert.equal(report.status, "passed", JSON.stringify(report.findings).slice(0, 6000));
+    assert.equal(report.files.filter(file => file.status === "not-applicable").length, 1, "only the type-only contract is not applicable");
+    for (const file of report.files.filter(file => file.status === "covered")) {
+      assert.equal(file.lines, 100, basename(file.path));
+      assert.equal(file.branches, 100, basename(file.path));
+      assert.equal(file.functions, 100, basename(file.path));
+    }
+    assert.equal(report.files.filter(file => file.status === "covered").length, 3);
+  } finally { session.disconnect(); }
 });
 
 /** The findings of the complete MIR verifier for a lowered graph. A refusal for resources is not a list of findings and fails the case. */
@@ -202,7 +250,8 @@ test("first producer: the receiver's row and a body that completes with no value
 });
 
 test("first producer: below the size of its graph a body is refused with one diagnostic at its origin; at that size it is lowered", () => {
-  // 3 locals and 3 places in both forms; 2 statements and 1 block as a statement, 1 statement and 2 blocks as a control point: 9 records.
+  // `add`: 3 locals and 3 places in both forms; 2 statements and 1 block as a statement, 1 statement and 2 blocks as a
+  // control point: 9 records.
   for (const execution of ["pure", "unwinds"]) {
     const program = add(`first.add.float64.${execution}`, T.float64, plus("float64", T.float64, EXECUTIONS[execution]));
     const attempt = maximumRecords => produced({ ...deps, limits: { maximumRecords } }, program.tir, []);
@@ -217,6 +266,55 @@ test("first producer: below the size of its graph a body is refused with one dia
     assert.equal(lowered.kind, "ok");
     assert.deepEqual(lowered.value, lower(program));
   }
+  // Every other shape: the count of records of its graph is the smallest limit that admits it, and every smaller
+  // limit refuses, whichever record the limit falls on (a saved operand, a temporary, a control point's next block).
+  const size = mir => mir.locals.length + mir.places.length + mir.constants.length + mir.blocks.length
+    + mir.blocks.reduce((total, block) => total + block.statements.length, 0);
+  const writes = execution => ({ leaf, sum, group }) =>
+    sum("outer", leaf("a"), group(sum("inner", leaf("b"), leaf("b"), plus("int32", T.int32, execution))), plus("int32", T.int32));
+  for (const program of [nested("first.saved", T.int32, writes(EXECUTIONS.writes), { passing: ["byref-readwrite", "by-value"] }), waitingTemporary(),
+    nested("first.private", T.int32, writes(EXECUTIONS.writes)),
+    shaped("first.method", [["self", "this", T.counter], ["a", "required", T.int32]], T.int32, b => b.block(b.returns(b.id("a", 1, T.int32))), { receiver: T.counter })]) {
+    const records = size(lower(program));
+    for (let maximumRecords = 0; maximumRecords < records; maximumRecords += 1)
+      assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, []).kind, "refused", `${program.tir.body} under ${maximumRecords}`);
+    assert.equal(produced({ ...deps, limits: { maximumRecords: records } }, program.tir, []).kind, "ok");
+  }
+});
+
+/** (a + b) + (b (+) b) with `a` by reference and (+) writing existing storage: the operand waiting at (+) is a temporary. */
+const waitingTemporary = () => nested("first.waiting", T.int32, ({ leaf, sum, group }) => sum("outer", group(sum("first", leaf("a"), leaf("b"), plus("int32", T.int32))),
+  group(sum("second", leaf("b"), leaf("b"), plus("int32", T.int32, EXECUTIONS.writes))), plus("int32", T.int32)), { passing: ["byref-readwrite", "by-value"] });
+
+test("first producer: what a control point that writes cannot change is not saved: a temporary, and a parameter that is moved", () => {
+  // The waiting operand is the temporary of (a + b): it is written by its one record and is not saved.
+  let mir = lower(waitingTemporary());
+  assert.deepEqual(mir.blocks.map(block => [...block.statements.map(record => record.kind), block.terminator.kind]),
+    [["storage-live", "assign", "storage-live", "invoke"], ["storage-live", "assign", "return"]]);
+  assert.deepEqual(mir.blocks[1].statements[1].value.left, { kind: "place", place: 2 });
+  // A parameter that is moved is the body's own cell, as one passed by value.
+  mir = lower(nested("first.moved", T.int32, ({ leaf, sum, group }) => sum("outer", leaf("a"), group(sum("inner", leaf("b"), leaf("b"),
+    plus("int32", T.int32, EXECUTIONS.writes))), plus("int32", T.int32)), { passing: ["move", "by-value"] }));
+  assert.deepEqual(mir.blocks[0].statements.map(record => record.kind), ["storage-live"]);
+  assert.deepEqual(mir.blocks[1].statements[1].value.left, { kind: "place", place: 0 });
+});
+
+test("first producer: a comparison is placed by its decision like any binary operation", () => {
+  const less = native("<", "int32", [T.int32, T.int32], T.bool);
+  const program = shaped("first.less", [["a", "required", T.int32], ["b", "required", T.int32]], T.bool,
+    b => b.block(b.returns({ $: "a<b", ...b.comparison(b.id("a", 0, T.int32), "LessThanToken", b.id("b", 1, T.int32), less) })));
+  const mir = lower(program);
+  assert.deepEqual(mir.blocks[0].statements.map(record => [record.kind, record.tir.node]), [["storage-live", program.at("a<b")], ["assign", program.at("a<b")]]);
+  assert.deepEqual(mir.blocks[0].statements[1].value, { kind: "binary", operation: typedOperation(less), left: { kind: "place", place: 0 }, right: { kind: "place", place: 1 } });
+  assert.equal(mir.locals[2].storage, T.bool);
+});
+
+test("first producer: an identity refinement is no check, and a parenthesized operand is its inner value", () => {
+  const identity = { kind: "identity", type: T.int32 };
+  const program = shaped("first.identity", [["a", "required", T.int32]], T.int32,
+    b => b.block(b.returns(b.paren(b.id("a", 0, T.int32, { value: { narrowing: identity } }), T.int32))));
+  const mir = lower(program);
+  assert.deepEqual([mir.blocks.length, mir.blocks[0].statements, mir.blocks[0].terminator.value], [1, [], { kind: "place", place: 0 }]);
 });
 
 test("first producer: the frontier is one check that names what it met", () => {
@@ -241,6 +339,10 @@ test("first producer: the frontier is one check that names what it met", () => {
   refused(shaped("frontier.outerLocal", [["a", "required", T.int32]], T.int32,
     b => b.block(b.returns({ kind: "Identifier", text: "x", tsonic: { ...b.id("x", 0, T.int32).tsonic, resolution: { kind: "local", local: { body: bodyId("frontier.outer"), local: 0 } } } }))),
     "a local that is not a parameter of the body");
+  refused(shaped("frontier.bodyLocal", [["a", "required", T.int32]], T.int32, b => b.block(b.returns(b.id("x", 1, T.int32))),
+    { extra: { extra: { locals: [{ id: 0, declaration: { kind: "body", value: { body: bodyId("frontier.bodyLocal"), node: 0 } }, name: "a", role: "parameter", capturedFrom: null, mutable: false, storage: T.int32 },
+      { id: 1, declaration: { kind: "body", value: { body: bodyId("frontier.bodyLocal"), node: 0 } }, name: "x", role: "binding", capturedFrom: null, mutable: false, storage: T.int32 }] } } }),
+  "a local that is not a parameter of the body");
   // Values: the arms of the conversion decision that are not the identity, a narrowed use, a selected demand. None
   // is reached by a checkpoint program yet; each is refused, so none looks lowered.
   const converting = typedOperation({ kind: "selected", operation: { kind: "core", declaration: def("frontier.convert"), bindings: { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] } },
@@ -271,6 +373,7 @@ test("first producer: a body that must not be offered is a caller defect, told f
   defect(returning("defect.resolution", () => ({ kind: "Identifier", text: "missing", tsonic: { type: T.int32, convertedType: T.int32, conversion: { kind: "identity" },
     narrowing: null, evidenceIndex: null, demand: { kind: "always" }, role: "value", resolution: { kind: "error", diagnostic: 0 } } })), "an error resolution");
   defect(shaped("defect.end", [["a", "required", T.int32]], T.int32, b => b.block()), "the end of a body that completes with a value is reached");
+  defect(shaped("defect.endUnknown", [["a", "required", T.int32]], T.unknown, b => b.block()), "the end of a body that completes with a value is reached");
 });
 
 // ---- WT-1 -----------------------------------------------------------------------------------

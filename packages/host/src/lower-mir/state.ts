@@ -155,7 +155,8 @@ export function addEntry(state: LowerState, entry: MirEntry): void {
  */
 export function finishBody(state: LowerState): MirBody | null {
   if (state.refused) return null;
-  const ordered = [...state.constants.values()].sort((left, right) => left.key < right.key ? -1 : left.key > right.key ? 1 : 0);
+  // Keys are unique (one record per key), so no two constants compare equal.
+  const ordered = [...state.constants.values()].sort((left, right) => left.key < right.key ? -1 : 1);
   const final = new Map<ConstId, ConstId>();
   const constants: MirConstant[] = [];
   for (const [position, pending] of ordered.entries()) {
