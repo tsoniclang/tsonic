@@ -291,6 +291,7 @@ export interface SourceContributions {
   /**
    * The declaration modules that contributions add to every program as roots: each is a declaration-role module of
    * this snapshot, named by its identity like a root or a bundled library. Its text is its captured file's.
+   * Ascending order of module identity, each module once: the list is a set, and its order carries no meaning.
    */
   readonly declarationModules: readonly ModuleId[];
   readonly declarationPolicy: SourceDeclarationPolicy;
@@ -357,6 +358,8 @@ export type SnapshotRule =
   | "extension-reference-kinds-exact"
   | "extension-table-equality"
   | "contributed-declaration-module"
+  | "contributed-declaration-unique"
+  | "contributed-declarations-order"
   | "bundled-library-declaration"
   | "bundled-library-unique"
   | "bundled-libraries-order"

@@ -537,6 +537,26 @@ test("contributed-declaration-module: a contributed declaration is a declaration
   const stray = moduleId(packageId(), "src/zz-file-without-module.d.ts");
   fileOnly.contributions.declarationModules = [stray];
   verify(fileOnly, [issue("contributed-declaration-module", moduleSite(stray), stray)]);
+  // The list is a set in ascending order of identity, like the bundled set: a repetition and a descending pair are refused,
+  // and the same two modules in ascending order are accepted.
+  const two = snapshot();
+  const library = peer(two);
+  two.packages.packages.find(entry => entry.id === packageId()).dependencies = [{ name: "library", range: "workspace:*", kind: "dependency", resolved: library.id }];
+  two.packages.components.find(entry => entry.representative === packageId()).dependencies = [library.id];
+  const second = moduleId(library.id, "more.d.ts");
+  two.packages.modules.push({ id: second, package: library.id, path: "/library/more.d.ts", role: "declaration" });
+  two.packages.modules.sort((left, right) => left.id < right.id ? -1 : 1);
+  two.packages.files.push({ kind: "physical", path: "/library/more.d.ts", realPath: "/library/more.d.ts", text: "export {};" });
+  two.packages.files.sort((left, right) => left.path < right.path ? -1 : 1);
+  const ascending = [library.module, second].sort();
+  two.contributions.declarationModules = ascending;
+  verify(two, []);
+  const repeated = structuredClone(two);
+  repeated.contributions.declarationModules = [ascending[0], ascending[0]];
+  verify(repeated, [issue("contributed-declaration-unique", moduleSite(ascending[0]), ascending[0])]);
+  const descending = structuredClone(two);
+  descending.contributions.declarationModules = [...ascending].reverse();
+  verify(descending, [issue("contributed-declarations-order", { kind: "snapshot" }, "declarationModules")]);
   const virtual = snapshot();
   virtual.packages.files.push({ kind: "virtual", path: "/virtual/prelude.d.ts", text: "", owner: packageId("/missing") });
   verify(virtual, [issue("virtual-file-owner-resolves", fileSite("/virtual/prelude.d.ts"), packageId("/missing"))]);

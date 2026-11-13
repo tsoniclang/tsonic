@@ -625,9 +625,10 @@ test("a contributed declaration module is a root of the program: its declaration
 });
 
 // The program R2 named for the provider join. Its outcome was derived before it was run (package W5-7 part A): one identity names one
-// provider in a session, so the open cannot succeed, whoever registers the second provider. The join of a session document therefore never
-// has two candidates of one identity; what stays pending on W3's registrar is the provider that an initializer registers under its own identity.
-test("two providers of one identity never open a program: an extension initializer that registers a provider under the identity of a directly loaded registration is refused by the session", () => {
+// provider in a session, so the open cannot succeed. Which registration the session meets first is the session's own order and decides
+// nothing here. The join of a session document therefore never has two candidates of one identity; what stays pending on the registrar
+// (W7's, in the checker SDK) is the provider that an initializer registers under its own identity.
+test("two providers of one identity never open a program: a provider registered by an extension initializer under the identity of a directly loaded registration is refused by the session", () => {
   const libraries = bundled();
   const sourceFiles = { "main.mts": "import { Value } from \"native:thing\";\nimport { Value as Other } from \"native:elsewhere\";\nexport const v: number = Value + Other;\n" };
   const direct = providerRegistration("/provider-one", declarationProvider("test.provider", "native:thing", "native.thing"));

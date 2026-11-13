@@ -79,9 +79,17 @@ export function verifySnapshotExtensions(snapshot: ProjectSnapshot,
   for (const module of snapshot.packages.modules) {
     if (module !== undefined && module !== null && module.role === "declaration") declarationModules.add(module.id);
   }
+  const contributed = new Set<ModuleId>();
+  let previousContributed: ModuleId | null = null;
+  let unorderedContributed = false;
   for (const module of snapshotRows(contributions.declarationModules, snapshotSite, "declarationModules", violations)) {
     if (!declarationModules.has(module)) add("contributed-declaration-module", { kind: "module", module }, module);
+    if (contributed.has(module)) add("contributed-declaration-unique", { kind: "module", module }, module);
+    contributed.add(module);
+    if (previousContributed !== null && module < previousContributed) unorderedContributed = true;
+    previousContributed = module;
   }
+  if (unorderedContributed) add("contributed-declarations-order", snapshotSite, "declarationModules");
   const libraries = new Set<ModuleId>();
   let previousLibrary: ModuleId | null = null;
   let unorderedLibraries = false;

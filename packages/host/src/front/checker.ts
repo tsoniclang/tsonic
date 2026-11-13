@@ -47,8 +47,8 @@ export function createExtensionTable(registrations: readonly CheckerRegistration
     switch (registration.value.kind) {
       case "compiler-extension": extensions.push(registration.value.value); break;
       case "declaration-provider":
-        // A second registration of one provider identity is not recorded: a session admits one extension per
-        // identity, so a table that holds two never opens a program.
+        // A second registration of one provider identity is not recorded here. The table refuses nothing: it is the
+        // session that reports two extensions of one identity, and then no program is opened on this table.
         if (!providers.has(providerKey(registration.value.value.identity))) {
           providers.set(providerKey(registration.value.value.identity), { reference: registration.reference, provider: registration.value.value });
         }
