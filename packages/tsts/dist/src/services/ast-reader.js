@@ -1,4 +1,4 @@
-import { Node_Arguments, Node_Body, Node_Elements, Node_ImportClause, Node_Members, Node_ModifierFlags, Node_ModifierNodes, Node_Parameters, Node_Properties, Node_QuestionToken, Node_Statements, Node_Text, Node_Type, Node_TypeArguments, Node_TypeParameters, SourceFile_FileName, SourceFile_Path, SourceFile_Text, } from "../internal/ast/ast.js";
+import { Node_Arguments, Node_Body, Node_Elements, Node_ImportClause, Node_Members, Node_ModifierFlags, Node_ModifierNodes, Node_Parameters, Node_Properties, Node_QuestionToken, Node_Statements, Node_Text, Node_Type, Node_TypeArguments, Node_TypeParameters, SourceFile_FileName, SourceFile_GetPositionMap, SourceFile_Path, SourceFile_Text, } from "../internal/ast/ast.js";
 import { Node_End, Node_ForEachChild, Node_Name, Node_Pos } from "../internal/ast/spine.js";
 import { KindString } from "../internal/ast/generated/kinds.js";
 import * as casts from "../internal/ast/generated/casts.js";
@@ -7,8 +7,9 @@ import { NodeFlagsBlockScoped, NodeFlagsNone } from "../internal/ast/generated/f
 import { ModifierFlagsAbstract, ModifierFlagsAmbient, ModifierFlagsAsync, ModifierFlagsConst, ModifierFlagsDefault, ModifierFlagsExport, ModifierFlagsOverride, ModifierFlagsPrivate, ModifierFlagsProtected, ModifierFlagsPublic, ModifierFlagsReadonly, ModifierFlagsStatic, } from "../internal/ast/modifierflags.js";
 import { GetCombinedNodeFlags, GetHeritageElements, GetSourceFileOfNode, HasModifier, IsConstAssertion, IsTypeOnlyImportDeclaration, IsTypeOnlyImportOrExportDeclaration, IsVarAwaitUsing, IsVarConst, IsVarLet, IsVarUsing, NodeIsSynthesized } from "../internal/ast/utilities.js";
 import { KindExtendsKeyword, KindImplementsKeyword } from "../internal/ast/generated/kinds.js";
-import { ComputePositionMap, PositionMap_UTF8ToUTF16, } from "../internal/ast/positionmap.js";
-import { GetTokenPosOfNode } from "../internal/scanner/scanner.js";
+import { PositionMap_UTF8ToUTF16 } from "../internal/ast/positionmap.js";
+import { GetTokenPosOfNodeInView } from "../internal/scanner/scanner.js";
+import { GetStringByteView, StringByteViewAt, StringByteViewLen } from "../go/unicode/utf8.js";
 export function createAstReader() {
     const reader = {
         kind: (node) => node?.Kind,
@@ -73,6 +74,7 @@ export function createAstReader() {
         pos: (node) => node === undefined ? -1 : Node_Pos(node),
         end: (node) => node === undefined ? -1 : Node_End(node),
         authoredRange,
+        sourceRange,
         getSourceFile: (node) => GetSourceFileOfNode(node),
         getFileName: (sourceFile) => sourceFile === undefined ? "" : SourceFile_FileName(sourceFile),
         getPath: (sourceFile) => sourceFile === undefined ? "" : SourceFile_Path(sourceFile),
@@ -106,24 +108,71 @@ function authoredRange(node) {
         return Object.freeze({ kind: "synthetic" });
     }
     const positionMap = authoredPositionMap(sourceFile);
-    const start = PositionMap_UTF8ToUTF16(positionMap, GetTokenPosOfNode(node, sourceFile, false));
+    const start = PositionMap_UTF8ToUTF16(positionMap, GetTokenPosOfNodeInView(node, sourceFile, sourceByteView(sourceFile), false));
     const end = PositionMap_UTF8ToUTF16(positionMap, Node_End(node));
     if (start < 0 || end < start) {
         return Object.freeze({ kind: "synthetic" });
     }
     return Object.freeze({ kind: "authored", start, end });
 }
-const authoredPositionMaps = new WeakMap();
+function sourceRange(sourceFile, startByte, endByte) {
+    if (!Number.isSafeInteger(startByte) || startByte < 0 || Object.is(startByte, -0)) {
+        throw new RangeError("sourceRange startByte must be a non-negative safe integer");
+    }
+    if (!Number.isSafeInteger(endByte) || endByte < 0 || Object.is(endByte, -0)) {
+        throw new RangeError("sourceRange endByte must be a non-negative safe integer");
+    }
+    if (startByte > endByte) {
+        throw new RangeError("sourceRange startByte is greater than endByte");
+    }
+    if (sourceFile === undefined) {
+        return { kind: "unavailable" };
+    }
+    const positionMap = authoredPositionMap(sourceFile);
+    const text = SourceFile_Text(sourceFile);
+    if (positionMap.asciiOnly) {
+        if (endByte > text.length) {
+            throw new RangeError("sourceRange endByte is past the end of the source text");
+        }
+        return { kind: "source", start: startByte, end: endByte };
+    }
+    const view = sourceByteView(sourceFile);
+    const byteLength = StringByteViewLen(text, view);
+    if (endByte > byteLength) {
+        throw new RangeError("sourceRange endByte is past the end of the source text");
+    }
+    if (startByte < byteLength && (StringByteViewAt(text, view, startByte) & 0xc0) === 0x80) {
+        throw new RangeError("sourceRange startByte is inside a UTF-8 character");
+    }
+    if (endByte < byteLength && (StringByteViewAt(text, view, endByte) & 0xc0) === 0x80) {
+        throw new RangeError("sourceRange endByte is inside a UTF-8 character");
+    }
+    return {
+        kind: "source",
+        start: PositionMap_UTF8ToUTF16(positionMap, startByte),
+        end: PositionMap_UTF8ToUTF16(positionMap, endByte),
+    };
+}
+// The position map is the source file's own: computed once per file from its
+// whole text by SourceFile_GetPositionMap.
 function authoredPositionMap(sourceFile) {
-    const existing = authoredPositionMaps.get(sourceFile);
+    const map = SourceFile_GetPositionMap(sourceFile);
+    if (map === undefined) {
+        throw new Error("TS-Go position map construction returned no result.");
+    }
+    return map;
+}
+// The UTF-8 byte view of each source file's text, taken on the first request
+// that needs bytes and reused by every later authoredRange and sourceRange
+// request for that file.
+const sourceByteViews = new WeakMap();
+function sourceByteView(sourceFile) {
+    const existing = sourceByteViews.get(sourceFile);
     if (existing !== undefined) {
         return existing;
     }
-    const created = ComputePositionMap(SourceFile_Text(sourceFile));
-    if (created === undefined) {
-        throw new Error("TS-Go position map construction returned no result.");
-    }
-    authoredPositionMaps.set(sourceFile, created);
+    const created = GetStringByteView(SourceFile_Text(sourceFile));
+    sourceByteViews.set(sourceFile, created);
     return created;
 }
 function operatorKindName(node) {

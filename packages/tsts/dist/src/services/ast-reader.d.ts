@@ -16,6 +16,13 @@ export type AstAuthoredRange = {
 } | {
     readonly kind: "synthetic";
 };
+export type AstSourceRange = {
+    readonly kind: "source";
+    readonly start: number;
+    readonly end: number;
+} | {
+    readonly kind: "unavailable";
+};
 export interface AstReader {
     readonly kind: (node: GoPtr<Node>) => Kind | undefined;
     readonly kindName: (node: GoPtr<Node>) => string;
@@ -59,6 +66,13 @@ export interface AstReader {
     readonly end: (node: GoPtr<Node>) => number;
     /** Returns trivia-free UTF-16 offsets into the exact checked source text. */
     readonly authoredRange: (node: GoPtr<Node>) => AstAuthoredRange;
+    /**
+     * Converts a UTF-8 byte range of the exact checked source text to UTF-16 offsets into that text.
+     * Returns `unavailable` when there is no source file. Throws RangeError for an offset that is not a
+     * non-negative safe integer, for a start past the end, for an end past the text, and for an endpoint
+     * inside a UTF-8 character.
+     */
+    readonly sourceRange: (sourceFile: GoPtr<SourceFile>, startByte: number, endByte: number) => AstSourceRange;
     readonly getSourceFile: (node: GoPtr<Node>) => GoPtr<SourceFile>;
     readonly getFileName: (sourceFile: GoPtr<SourceFile>) => string;
     readonly getPath: (sourceFile: GoPtr<SourceFile>) => string;

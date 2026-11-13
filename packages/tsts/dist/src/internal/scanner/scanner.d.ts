@@ -2825,6 +2825,7 @@ export interface SkipTriviaOptions {
 export declare function SkipTrivia(text: string, pos: int): int;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/scanner/scanner.go::func::SkipTriviaEx","kind":"func","status":"implemented","sigHash":"f42acfbbaab25a2aa14a08e991389f62a5072c61df54c5805c5d6b51e941080e","bodyHash":"264f0ba89784e8af4179e796b7094804838591eb6ee18f155ed929dacf112ada"}
+ * @tsgo-override {"category":"runtime-performance","allow":["body"],"reason":"Delegate to skipTriviaInView, the single implementation: after the synthesized-position return it takes one UTF-8 byte view of the text (or uses the view its caller holds) and reads every byte through it; behaviour is identical to the TS-Go body."}
  *
  * Go source:
  * func SkipTriviaEx(text string, pos int, options *SkipTriviaOptions) int {
@@ -2932,6 +2933,7 @@ export declare const mergeConflictMarkerLength: int;
 export declare const maxAsciiCharacter: byte;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/scanner/scanner.go::func::isConflictMarkerTrivia","kind":"func","status":"implemented","sigHash":"9ea6f9f957b7886eeeb5b9323e900e44d6ace7d03a8b8a1b27df3442b47addc4","bodyHash":"8d05e9232b29f7976a75551535369a390faa47616116f73064629084f3a2ae3e"}
+ * @tsgo-override {"category":"runtime-performance","allow":["body"],"reason":"Refuse a negative position, then take one UTF-8 byte view of the text and delegate to isConflictMarkerTriviaInView, the single implementation, which reads every byte through that view; behaviour is identical to the TS-Go body."}
  *
  * Go source:
  * func isConflictMarkerTrivia(text string, pos int) bool {
@@ -2972,6 +2974,7 @@ export declare const maxAsciiCharacter: byte;
 export declare function isConflictMarkerTrivia(text: string, pos: int): bool;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/scanner/scanner.go::func::scanConflictMarkerTrivia","kind":"func","status":"implemented","sigHash":"b334ec17533056d478a1cc632d556d9373722284c91f77eccfd35b2de2441b8f","bodyHash":"8e7392f3a0929d4bc5030cde3ff4a9fb144ec5f40f98c402d6bb8e9dc53aef7a"}
+ * @tsgo-override {"category":"runtime-performance","allow":["body"],"reason":"Take one UTF-8 byte view of the text and delegate to scanConflictMarkerTriviaInView, the single implementation, which reads every byte through that view; behaviour is identical to the TS-Go body."}
  *
  * Go source:
  * func scanConflictMarkerTrivia(text string, pos int, reportError func(diag *diagnostics.Message, pos int, length int, args ...any)) int {
@@ -3008,6 +3011,7 @@ export declare function isConflictMarkerTrivia(text: string, pos: int): bool;
 export declare function scanConflictMarkerTrivia(text: string, pos: int, reportError: ((diag: GoPtr<Message>, pos: int, length: int, ...args: Array<unknown>) => void) | undefined): int;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/scanner/scanner.go::func::isShebangTrivia","kind":"func","status":"implemented","sigHash":"a4154018edaa22762f18889ebf0f1c21a75488c8c3de3256b4e4be0248f9fafc","bodyHash":"2a727f4711cee1e5105f083045903c6bb65019b3e1b6365bdbf58abf6f47aad3"}
+ * @tsgo-override {"category":"runtime-performance","allow":["body"],"reason":"Take one UTF-8 byte view of the text and delegate to isShebangTriviaInView, the single implementation, which reads every byte through that view; behaviour is identical to the TS-Go body."}
  *
  * Go source:
  * func isShebangTrivia(text string, pos int) bool {
@@ -3023,6 +3027,7 @@ export declare function scanConflictMarkerTrivia(text: string, pos: int, reportE
 export declare function isShebangTrivia(text: string, pos: int): bool;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/scanner/scanner.go::func::scanShebangTrivia","kind":"func","status":"implemented","sigHash":"28a213d56556961662565da12a7916edcd4b0948db4de4d905b125da462ac792","bodyHash":"c6a44a836eaea90164d2a1a90c89562e49ebc0b7187ddbea8e43e4fc0b8ee98c"}
+ * @tsgo-override {"category":"runtime-performance","allow":["body"],"reason":"Take one UTF-8 byte view of the text and delegate to scanShebangTriviaInView, the single implementation, which reads every byte through that view; behaviour is identical to the TS-Go body."}
  *
  * Go source:
  * func scanShebangTrivia(text string, pos int) int {
@@ -3090,6 +3095,7 @@ export declare function ScanTokenAtPosition(sourceFile: GoPtr<SourceFile>, pos: 
 export declare function GetRangeOfTokenAtPosition(sourceFile: GoPtr<SourceFile>, pos: int): TextRange;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/scanner/scanner.go::func::GetTokenPosOfNode","kind":"func","status":"implemented","sigHash":"330a29f50e4ee95a9d06155e051769eb55062293a4081c031a75e1bf1255fae4","bodyHash":"13003ccba4e9233d74642a7e76a8fa56a56b9cc7f24ac1e9f0407a02c61461f3"}
+ * @tsgo-override {"category":"runtime-performance","allow":["body"],"reason":"Delegate to tokenPosOfNode, the single implementation shared with GetTokenPosOfNodeInView. It takes no byte view itself; the trivia skip takes one, or uses the view the caller holds, only when it reads bytes. Behaviour is identical to the TS-Go body."}
  *
  * Go source:
  * func GetTokenPosOfNode(node *ast.Node, sourceFile *ast.SourceFile, includeJSDoc bool) int {
@@ -3109,6 +3115,7 @@ export declare function GetRangeOfTokenAtPosition(sourceFile: GoPtr<SourceFile>,
  * }
  */
 export declare function GetTokenPosOfNode(node: GoPtr<Node>, sourceFile: GoPtr<SourceFile>, includeJSDoc: bool): int;
+export declare function GetTokenPosOfNodeInView(node: GoPtr<Node>, sourceFile: GoPtr<SourceFile>, view: utf8.StringByteView, includeJSDoc: bool): int;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/scanner/scanner.go::func::getErrorRangeForArrowFunction","kind":"func","status":"implemented","sigHash":"745fd8ac0c5c82cb873015ab0fb22adbf0a6e10bc1810f5afe445cd1711f1c94","bodyHash":"c3cb3621a2c15d043b28e466edb101b57952189f1f91736414eb3e88a00dbe50"}
  *
