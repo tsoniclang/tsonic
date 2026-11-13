@@ -105,56 +105,6 @@ export function densePosition(value: number, length: number): boolean {
   return Number.isSafeInteger(value) && !Object.is(value, -0) && value >= 0 && value < length;
 }
 
-export interface ControlGraph {
-  readonly vertices: readonly ControlVertex[];
-  readonly reachable: ReadonlySet<number>;
-}
-
-export interface ControlVertex {
-  readonly id: number;
-  readonly block: MirBlock;
-  readonly successors: readonly ControlVertex[];
-  readonly predecessors: readonly ControlVertex[];
-}
-
-export function controlGraph(body: MirBody): ControlGraph {
-  const builders = new Map<number, {
-    readonly vertex: ControlVertex;
-    readonly successors: ControlVertex[];
-    readonly predecessors: ControlVertex[];
-  }>();
-  for (const [position, block] of body.blocks.entries()) {
-    if (block === undefined || !Object.is(block.id, position)) continue;
-    const successors: ControlVertex[] = [];
-    const predecessors: ControlVertex[] = [];
-    const vertex: ControlVertex = { id: position, block, successors, predecessors };
-    builders.set(position, { vertex, successors, predecessors });
-  }
-  for (const from of builders.values()) {
-    for (const edge of controlEdges(from.vertex.block.terminator)) {
-      if (!densePosition(edge.target, body.blocks.length)) continue;
-      const to = builders.get(edge.target);
-      if (to !== undefined) {
-        from.successors.push(to.vertex);
-        to.predecessors.push(from.vertex);
-      }
-    }
-  }
-  // Every entry of the body is a start: an omission prologue is not reachable from block 0.
-  const reachable = new Set<number>();
-  const pending: ControlVertex[] = [];
-  for (const start of [0, ...body.entries.map(entry => entry.block)]) {
-    const entry = densePosition(start, body.blocks.length) ? builders.get(start) : undefined;
-    if (entry !== undefined) pending.push(entry.vertex);
-  }
-  for (const selected of pending) {
-    if (reachable.has(selected.id)) continue;
-    reachable.add(selected.id);
-    for (const successor of selected.successors) pending.push(successor);
-  }
-  return { vertices: Array.from(builders.values(), value => value.vertex), reachable };
-}
-
 export function verifyEdges(body: MirBody): readonly Violation<MirRule, MirViolationSite>[] {
   const violations: Violation<MirRule, MirViolationSite>[] = [];
   const entry = body.blocks[0];

@@ -536,7 +536,8 @@ export function verifyBody(body: MirBody, context: MirVerificationContext): MirV
   const refusal: MirVerification = { kind: "resource-limit", body: body.body, dimension: "work", maximum: meter.maximum };
   const edges = verifyEdges(body);
   const selections = verifySelections(body, input, nodes, texts);
-  const storage = verifyStorage(body, places);
+  const storage = verifyStorage(body, places, meter);
+  if (meter.exhausted) return refusal;
   const laws = verifyLaws(body, input, nodes, texts, places, meter);
   // Past the limit the body is neither accepted nor found invalid: the findings gathered so far are not an answer,
   // and the remaining passes are not run.

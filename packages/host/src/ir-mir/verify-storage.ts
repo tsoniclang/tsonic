@@ -1,9 +1,9 @@
 import type { Violation } from "../diag/contract.js";
 import type { LocalId, NodeId, PlaceId, SigId, TyId } from "../ids/contract.js";
 import type { LiteralTypeValue, LiteralValue, TypeTerm } from "../ir-types/contract.js";
-import type { MirBody, MirLocal, MirOperand, MirRule, MirRvalue, MirTerminator, MirVerificationContext, MirViolationSite } from "./contract.js";
-import { controlGraph, densePosition, findSourceNode } from "./verify-control.js";
-import type { ControlVertex, SourceNode } from "./verify-control.js";
+import type { MirBlock, MirBody, MirLocal, MirOperand, MirRule, MirRvalue, MirTerminator, MirVerificationContext, MirViolationSite } from "./contract.js";
+import { chargeWork, controlEdges, densePosition, findSourceNode, read, reversePostorder } from "./verify-control.js";
+import type { SourceNode, WorkMeter } from "./verify-control.js";
 
 export function rvalueOperands(value: MirRvalue): readonly MirOperand[] {
   switch (value.kind) {
@@ -123,92 +123,276 @@ function placeLocals(body: MirBody, locations: ReadonlyMap<PlaceId, PlaceLocatio
   };
 }
 
-interface Requirement {
-  readonly vertex: ControlVertex;
-  readonly local: MirLocal;
+/**
+ * The locals whose storage is live at one point of a body: a leaf holds one word for 32 locals, a node above holds two
+ * halves. A set is never changed after it is made, and within one pass there is one object for each contents
+ * (`LiveSets`), so two sets are the same object exactly when they hold the same locals, and `meetLive(a, b)` is `a`
+ * itself exactly when every local of `a` is in `b`.
+ */
+export interface LiveSet {
+  readonly id: number;
+  readonly bits: number;
+  readonly low: LiveSet | null;
+  readonly high: LiveSet | null;
+}
+
+/**
+ * The sets of one pass over one body, and the body's account. Every node a change, a meet or a lookup enters is one
+ * unit of that account, charged before the node is read; the unit also pays for the one node (and the one map of a
+ * new first half) that entering it may make. An operation that finds the account exhausted answers null at once:
+ * no further node is entered and nothing more is made, at any depth. `count` is the number of nodes made.
+ */
+export interface LiveSets {
+  readonly meter: WorkMeter;
+  readonly leaves: Map<number, LiveSet>;
+  readonly pairs: Map<number, Map<number, LiveSet>>;
+  count: number;
+}
+
+export function leafOf(sets: LiveSets, bits: number): LiveSet {
+  let found = sets.leaves.get(bits);
+  if (found === undefined) {
+    found = { id: sets.count, bits, low: null, high: null };
+    sets.count += 1;
+    sets.leaves.set(bits, found);
+  }
+  return found;
+}
+
+export function pairOf(sets: LiveSets, low: LiveSet, high: LiveSet): LiveSet {
+  let byHigh = sets.pairs.get(low.id);
+  if (byHigh === undefined) {
+    byHigh = new Map();
+    sets.pairs.set(low.id, byHigh);
+  }
+  let found = byHigh.get(high.id);
+  if (found === undefined) {
+    found = { id: sets.count, bits: 0, low, high };
+    sets.count += 1;
+    byHigh.set(high.id, found);
+  }
+  return found;
+}
+
+/** The set with one local made live or not; `span` is the number of locals the set's tree covers. Null: the account is exhausted. */
+export function withLocal(sets: LiveSets, set: LiveSet, span: number, local: number, live: boolean): LiveSet | null {
+  chargeWork(sets.meter, 1);
+  if (sets.meter.exhausted) return null;
+  if (set.low === null || set.high === null) return leafOf(sets, live ? set.bits | (1 << local) : set.bits & ~(1 << local));
+  const half = span / 2;
+  if (local < half) {
+    const low = withLocal(sets, set.low, half, local, live);
+    return low === null ? null : pairOf(sets, low, set.high);
+  }
+  const high = withLocal(sets, set.high, half, local - half, live);
+  return high === null ? null : pairOf(sets, set.low, high);
+}
+
+/** The locals in both sets. Where both sides are the same object nothing is entered. Null: the account is exhausted. */
+export function meetLive(sets: LiveSets, left: LiveSet, right: LiveSet): LiveSet | null {
+  if (left === right) return left;
+  chargeWork(sets.meter, 1);
+  if (sets.meter.exhausted) return null;
+  if (left.low === null || left.high === null || right.low === null || right.high === null) return leafOf(sets, left.bits & right.bits);
+  const low = meetLive(sets, left.low, right.low);
+  if (low === null) return null;
+  const high = meetLive(sets, left.high, right.high);
+  return high === null ? null : pairOf(sets, low, high);
+}
+
+/** Whether the local is in the set. Null: the account is exhausted. */
+export function liveIn(sets: LiveSets, set: LiveSet, span: number, local: number): boolean | null {
+  let current = set;
+  let width = span;
+  let position = local;
+  for (;;) {
+    chargeWork(sets.meter, 1);
+    if (sets.meter.exhausted) return null;
+    if (current.low === null || current.high === null) return (current.bits & (1 << position)) !== 0;
+    width /= 2;
+    if (position < width) current = current.low;
+    else {
+      current = current.high;
+      position -= width;
+    }
+  }
+}
+
+interface StorageChange {
+  readonly local: LocalId;
+  readonly live: boolean;
+}
+
+interface StorageUse {
+  readonly local: LocalId;
   readonly site: MirViolationSite;
 }
 
-export function verifyStorage(body: MirBody, places: ReadonlyMap<PlaceId, PlaceLocation>): readonly Violation<MirRule, MirViolationSite>[] {
-  const graph = controlGraph(body);
+/** What one block contributes, and what the forward reading knows of it. */
+interface StorageReading {
+  readonly rank: number;
+  readonly block: MirBlock;
+  /** The last marker of each local in the block. */
+  readonly changes: readonly StorageChange[];
+  /** Findings the block's own markers decide. */
+  readonly decided: readonly Violation<MirRule, MirViolationSite>[];
+  /** Uses that no marker of the block precedes: they need the local live where the block starts. */
+  readonly awaiting: readonly StorageUse[];
+  /** The locals live where the block starts, as far as the edges read so far bring them; null until one arrives. */
+  start: LiveSet | null;
+  /** The start set the block still has to be read with; null when it is not waiting. */
+  waiting: LiveSet | null;
+  read: boolean;
+}
+
+/**
+ * Storage liveness (`storage-live-before-use`): a record uses a local only where its storage is live on every path
+ * from a start of the body. One forward fixed point over the judged blocks in reverse postorder: a block's start is
+ * the meet of what its incoming edges bring, a start set only loses locals, and a block is read again only when its
+ * start lost one. The body's account is charged one unit for each set node entered (by a marker's change, by a meet
+ * of two different sets, by the lookup of a use that depends on its block's start), one unit for each block of a
+ * sweep after the first, and one unit for each outgoing edge of a block read again. When the account is exhausted
+ * nothing is reported.
+ */
+export function verifyStorage(
+  body: MirBody, places: ReadonlyMap<PlaceId, PlaceLocation>, meter: WorkMeter,
+): readonly Violation<MirRule, MirViolationSite>[] {
   const locations = placeLocals(body, places);
-  const requirements: Requirement[] = [];
-  const changes = new Map<LocalId, Map<number, boolean>>();
-  const violations: Violation<MirRule, MirViolationSite>[] = [];
-  const violate = (local: LocalId, site: MirViolationSite): void => {
-    violations.push({ rule: "storage-live-before-use", site, detail: [{ kind: "number", value: local }] });
-  };
-  for (const vertex of graph.vertices) {
-    const state = new Map<LocalId, boolean>();
-    const requireLive = (local: MirLocal, site: MirViolationSite): void => {
-      if (!graph.reachable.has(vertex.id)) return;
-      const current = state.get(local.id);
-      if (current === false) violate(local.id, site);
-      else if (current === undefined) requirements.push({ vertex, local, site });
+  const finding = (local: LocalId, site: MirViolationSite): Violation<MirRule, MirViolationSite> =>
+    ({ rule: "storage-live-before-use", site, detail: [{ kind: "number", value: local }] });
+  // An execution starts at block 0 or at the block of any entry. A block that does not stand at its own position is
+  // not read, so what is reachable only through it gets no start and is not judged.
+  const starts = [0, ...body.entries.map(entry => entry.block)];
+  const rankOf = new Int32Array(body.blocks.length).fill(-1);
+  const readings: StorageReading[] = [];
+  // Per local, for the block or the record being read: `markedIn` and `usedIn` hold the number of the block and of
+  // the record that last marked and last used the local, `liveAfter` what its last marker left.
+  const markedIn = new Int32Array(body.locals.length);
+  const liveAfter = new Uint8Array(body.locals.length);
+  const usedIn = new Int32Array(body.locals.length);
+  let record = 0;
+  for (const ordered of reversePostorder(body, starts)) {
+    const block = ordered.block;
+    if (!Object.is(block.id, ordered.position)) continue;
+    const serial = readings.length + 1;
+    const marked: LocalId[] = [];
+    const decided: Violation<MirRule, MirViolationSite>[] = [];
+    const awaiting: StorageUse[] = [];
+    const requireLive = (local: LocalId, site: MirViolationSite): void => {
+      if (markedIn[local] !== serial) awaiting.push({ local, site });
+      else if (liveAfter[local] === 0) decided.push(finding(local, site));
     };
     const use = (operands: readonly MirOperand[], site: MirViolationSite): void => {
-      const locals = new Map<LocalId, MirLocal>();
+      record += 1;
       for (const operand of operands) {
         if (operand.kind === "constant") continue;
         const selected = locations(operand.place);
-        if (selected !== null) for (const local of selected) locals.set(local.id, local);
+        if (selected === null) continue;
+        for (const local of selected) {
+          if (usedIn[local.id] === record) continue;
+          usedIn[local.id] = record;
+          requireLive(local.id, site);
+        }
       }
-      for (const local of locals.values()) requireLive(local, site);
     };
-    for (const [position, statement] of vertex.block.statements.entries()) {
-      const site: MirViolationSite = { kind: "instruction", body: body.body, block: vertex.block.id, statement: position };
-      if (statement.kind !== "assign") {
+    for (const [position, statement] of block.statements.entries()) {
+      const site: MirViolationSite = { kind: "instruction", body: body.body, block: block.id, statement: position };
+      if (statement.kind === "assign") use([{ kind: "place", place: statement.place }, ...rvalueOperands(statement.value)], site);
+      else {
         const local = densePosition(statement.local, body.locals.length) ? body.locals[statement.local] : undefined;
         if (local === undefined || !Object.is(local.id, statement.local)) continue;
-        if (statement.kind === "storage-live") state.set(local.id, true);
-        else { requireLive(local, site); state.set(local.id, false); }
-      } else use([{ kind: "place", place: statement.place }, ...rvalueOperands(statement.value)], site);
-    }
-    const site: MirViolationSite = { kind: "instruction", body: body.body, block: vertex.block.id, statement: null };
-    use(terminatorOperands(vertex.block.terminator), site);
-    for (const [local, live] of state) {
-      let entries = changes.get(local);
-      if (entries === undefined) {
-        entries = new Map();
-        changes.set(local, entries);
+        if (statement.kind === "storage-dead") requireLive(local.id, site);
+        if (markedIn[local.id] !== serial) marked.push(local.id);
+        markedIn[local.id] = serial;
+        liveAfter[local.id] = statement.kind === "storage-live" ? 1 : 0;
       }
-      entries.set(vertex.id, live);
+    }
+    use(terminatorOperands(block.terminator), { kind: "instruction", body: body.body, block: block.id, statement: null });
+    rankOf[ordered.position] = readings.length;
+    readings.push({ rank: readings.length, block, changes: marked.map(local => ({ local, live: liveAfter[local] === 1 })),
+      decided, awaiting, start: null, waiting: null, read: false });
+  }
+  // The empty set of the body's width (one node for each level, made once like the arrays above and not charged), and
+  // the locals present where an execution starts.
+  const sets: LiveSets = { meter, leaves: new Map(), pairs: new Map(), count: 0 };
+  let span = 32;
+  let entry = leafOf(sets, 0);
+  while (span < body.locals.length) {
+    entry = pairOf(sets, entry, entry);
+    span *= 2;
+  }
+  for (const [position, local] of body.locals.entries()) {
+    if (local === undefined || !Object.is(local.id, position)) continue;
+    if (local.role.kind !== "parameter" && local.role.kind !== "receiver" && local.role.kind !== "capture") continue;
+    const present = withLocal(sets, entry, span, local.id, true);
+    if (present === null) return [];
+    entry = present;
+  }
+  for (const start of starts) {
+    const reading = readings[read(rankOf, start, -1)];
+    if (reading === undefined) continue;
+    reading.start = entry;
+    reading.waiting = entry;
+  }
+  for (let from = 0; from < readings.length;) {
+    // The lowest block made to wait at or behind its reader: where the next sweep begins.
+    let again = readings.length;
+    for (const reading of from === 0 ? readings : readings.slice(from)) {
+      const arrived = reading.waiting;
+      if (arrived === null) continue;
+      reading.waiting = null;
+      const edges = controlEdges(reading.block.terminator);
+      if (reading.read) {
+        chargeWork(meter, edges.length);
+        if (meter.exhausted) return [];
+      }
+      reading.read = true;
+      let leaving = arrived;
+      for (const change of reading.changes) {
+        const changed = withLocal(sets, leaving, span, change.local, change.live);
+        if (changed === null) return [];
+        leaving = changed;
+      }
+      for (const edge of edges) {
+        const target = readings[read(rankOf, edge.target, -1)];
+        if (target === undefined) continue;
+        const before = target.start;
+        const met = before === null ? leaving : meetLive(sets, before, leaving);
+        if (met === null) return [];
+        if (met === before) continue;
+        target.start = met;
+        target.waiting = met;
+        if (target.rank <= reading.rank) again = Math.min(again, target.rank);
+      }
+    }
+    if (again < readings.length) {
+      chargeWork(meter, readings.length - again);
+      if (meter.exhausted) return [];
+    }
+    from = again;
+  }
+  // Findings in the order of the blocks: what each block's own markers decide, then what depends on its start.
+  // One lookup for each local the uses of a block await, however many of them there are.
+  const violations: Violation<MirRule, MirViolationSite>[] = [];
+  const late: Violation<MirRule, MirViolationSite>[] = [];
+  const answeredIn = new Int32Array(body.locals.length);
+  const answer = new Uint8Array(body.locals.length);
+  for (const position of body.blocks.keys()) {
+    const reading = readings[read(rankOf, position, -1)];
+    if (reading === undefined || reading.start === null) continue;
+    for (const violation of reading.decided) violations.push(violation);
+    const serial = reading.rank + 1;
+    for (const use of reading.awaiting) {
+      if (answeredIn[use.local] !== serial) {
+        answeredIn[use.local] = serial;
+        const live = liveIn(sets, reading.start, span, use.local);
+        if (live === null) return [];
+        answer[use.local] = live ? 1 : 0;
+      }
+      if (answer[use.local] === 0) late.push(finding(use.local, use.site));
     }
   }
-  // An execution starts at block 0 or at the block of any entry.
-  const starts = new Set<number>([0, ...body.entries.map(entry => entry.block)]);
-  const memo = new Map<LocalId, Map<number, boolean>>();
-  for (const requirement of requirements) {
-    const local = requirement.local;
-    let localMemo = memo.get(local.id);
-    if (localMemo === undefined) {
-      localMemo = new Map();
-      memo.set(local.id, localMemo);
-    }
-    const saved = localMemo.get(requirement.vertex.id);
-    if (saved !== undefined) {
-      if (!saved) violate(local.id, requirement.site);
-      continue;
-    }
-    const initialized = local.role.kind === "parameter" || local.role.kind === "receiver" || local.role.kind === "capture";
-    const seen = new Set<number>();
-    const pending = [requirement.vertex];
-    let live = true;
-    for (const current of pending) {
-      if (seen.has(current.id)) continue;
-      seen.add(current.id);
-      if (starts.has(current.id) && !initialized) { live = false; break; }
-      for (const predecessor of current.predecessors) {
-        if (!graph.reachable.has(predecessor.id)) continue;
-        const selected = changes.get(local.id)?.get(predecessor.id);
-        if (selected === false) { live = false; break; }
-        if (selected === undefined) pending.push(predecessor);
-      }
-      if (!live) break;
-    }
-    localMemo.set(requirement.vertex.id, live);
-    if (!live) violate(local.id, requirement.site);
-  }
+  for (const violation of late) violations.push(violation);
   return violations;
 }
 
