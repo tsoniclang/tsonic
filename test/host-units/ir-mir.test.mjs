@@ -44,6 +44,8 @@ before(async () => {
 // runtime file of the module is measured over them too. They are loaded here, after the hook above is registered:
 // their own hook then runs second, when coverage is already being recorded and the module is loaded.
 await import("./ir-mir-laws.cases.mjs");
+// The cases of storage liveness (ir-mir/verify-storage.ts), loaded the same way.
+await import("./ir-mir-storage.cases.mjs");
 
 const bodyIdentity = "B[D[M[P[p];m];run];function;0]";
 const emptyValue = { body: bodyIdentity, bindings: { kind: "parametric" }, entries: [], locals: [], constants: [], places: [], blocks: [], result: 0 };

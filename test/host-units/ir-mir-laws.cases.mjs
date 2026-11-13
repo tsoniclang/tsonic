@@ -588,10 +588,12 @@ test("the work limit: a body is verified up to its limit and refused past it, ne
   // One diamond under a stable place. The contract's units: one for each incoming edge of a block that is not
   // continued into and receives a set on every edge. Here: the two arms of the loop's branch (blocks 4 and 9),
   // the two arms of the diamond (11 and 12), and the two edges into the merge (13): six. The loop header receives
-  // no set from its back edge and is not charged.
+  // no set from its back edge and is not charged. The storage pass charges the same account first: 40 units on this
+  // body (3 for the entry set, 10 markers, 27 lookups of uses that depend on their block's start; NEEDS-W4.md has
+  // the count by block). So the body needs 46.
   let body = staged(graph => { checkedThenDiamond(graph, { atMerge: [readView()] }); });
-  assert.deepEqual(under(6), { kind: "complete", violations: [] });
-  assert.deepEqual(under(5), refusal(5));
+  assert.deepEqual(under(46), { kind: "complete", violations: [] });
+  assert.deepEqual(under(45), refusal(45));
   assert.deepEqual(under(0), refusal(0));
   // A refusal is not a finding: the same body with a defect is refused in the same way under the limit, and its
   // defect is reported only by a verification that ran to its end.
@@ -599,20 +601,21 @@ test("the work limit: a body is verified up to its limit and refused past it, ne
   assert.deepEqual(verifyMir(defective, { ...context, limits: { maximumWork: 5 } }), refusal(5));
   assert.deepEqual(found(defective).map(violation => violation.rule), ["checked-place-available"]);
   // Work adds up within one body: a second diamond after the first costs four more (two arms, two edges into its
-  // merge), and the limit that admitted one diamond refuses two.
+  // merge) and three more lookups of the storage pass, and the limit that admitted one diamond refuses two.
   body = staged(graph => {
     checkedThenDiamond(graph, { atMerge: [readView()] });
     graph.blocks[13].terminator = branch(14, 15);
     graph.blocks.push(blockOf(14, [], jump(16)), blockOf(15, [], jump(16)), blockOf(16, [readView()], returns(p(9))));
   });
-  assert.deepEqual(under(10), { kind: "complete", violations: [] });
-  assert.deepEqual(under(9), refusal(9));
-  assert.deepEqual(under(6), refusal(6));
+  assert.deepEqual(under(53), { kind: "complete", violations: [] });
+  assert.deepEqual(under(52), refusal(52));
+  assert.deepEqual(under(46), refusal(46));
   // The account is the body's: verifying two bodies one after the other under the limit of one charges each from zero.
   const one = staged(graph => { checkedThenDiamond(graph, { atMerge: [readView()] }); });
-  for (const turn of [1, 2]) assert.deepEqual(verifyMir(one, { ...context, limits: { maximumWork: 6 } }), { kind: "complete", violations: [] }, `body ${turn}`);
-  // A body with no block that is entered on several edges with a set needs none of this work.
-  assert.equal(verifyMir(good(), { ...context, limits: { maximumWork: 2 } }).kind, "complete");
+  for (const turn of [1, 2]) assert.deepEqual(verifyMir(one, { ...context, limits: { maximumWork: 46 } }), { kind: "complete", violations: [] }, `body ${turn}`);
+  // A body with no block that is entered on several edges with a set needs none of this work. The storage pass needs
+  // 28 units on the satisfying graph (3 for the entry set, 7 markers, 18 lookups).
+  assert.equal(verifyMir(good(), { ...context, limits: { maximumWork: 30 } }).kind, "complete");
 });
 
 test("law 3: a value delivered on a suspension's return edge into the local a stable place views ends it on that edge", () => {
@@ -687,15 +690,15 @@ test("the work limit is one boundary for every body: below it a refusal, from it
   ];
   for (const body of bodies) {
     const kinds = [];
-    for (let maximumWork = 0; maximumWork <= 40; maximumWork += 1) {
+    for (let maximumWork = 0; maximumWork <= 86; maximumWork += 1) {
       const outcome = verifyMir(body, { ...context, limits: { maximumWork } });
       if (outcome.kind === "complete") assert.deepEqual(outcome.violations, []);
       else assert.deepEqual(outcome, { kind: "resource-limit", body: BODY, dimension: "work", maximum: maximumWork });
       kinds.push(outcome.kind);
     }
     const boundary = kinds.indexOf("complete");
-    assert.ok(boundary > 0 && boundary < 40);
-    assert.deepEqual(kinds.slice(boundary), new Array(41 - boundary).fill("complete"));
+    assert.ok(boundary > 0 && boundary < 86);
+    assert.deepEqual(kinds.slice(boundary), new Array(87 - boundary).fill("complete"));
   }
 });
 
