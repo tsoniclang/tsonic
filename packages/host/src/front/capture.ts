@@ -95,10 +95,11 @@ function typeForm(scope: CaptureScope, type: Type): RawTypeForm {
   const shape = scope.shape;
   const literal = shape.getNumericLiteralTypeValue(type) !== undefined || shape.getStringLiteralTypeValue(type) !== undefined ||
     shape.getBooleanLiteralTypeValue(type) !== undefined;
+  // The checker's `boolean` is a union of its two literal types and is boolean-like as a whole; any other union is not a scalar.
+  if (!literal && !shape.isIntersection(type) && shape.isBooleanLike(type)) return { kind: "scalar", scalar: "boolean" };
   if (!literal && !shape.isUnion(type) && !shape.isIntersection(type)) {
     if (shape.isNumberLike(type)) return { kind: "scalar", scalar: "number" };
     if (shape.isStringLike(type)) return { kind: "scalar", scalar: "string" };
-    if (shape.isBooleanLike(type)) return { kind: "scalar", scalar: "boolean" };
     if (shape.isBigIntLike(type)) return { kind: "scalar", scalar: "bigint" };
     if (shape.isAny(type)) return { kind: "scalar", scalar: "any" };
     if (shape.isUnknown(type)) return { kind: "scalar", scalar: "unknown" };
@@ -108,12 +109,12 @@ function typeForm(scope: CaptureScope, type: Type): RawTypeForm {
 }
 
 /** The type at one position (component); each position has its own row, so a row's component is where it was read. */
-function rawType(scope: CaptureScope, type: Type | undefined, position: RawComponentId): RawTypeId {
+function rawType(scope: CaptureScope, type: Type | undefined, position: RawComponentId, authoredTypeNode: RawNodeRef | null): RawTypeId {
   if (type === undefined) return throwInvariant(invariant("The checker returned no type at a position that has one."));
   const id = rawTypeId(scope.tables.types.length);
   const form = typeForm(scope, type);
   scope.tables.types.push({
-    id, component: position, authoredTypeNode: null, declaration: null, definitionOwner: null, definitionFacet: null,
+    id, component: position, authoredTypeNode, declaration: null, definitionOwner: null, definitionFacet: null,
     definitionParameters: available([]), alias: available(null), instantiatedBases: available([]), literal: available(null),
     primitive: notProvided(), form: available(form),
   });
@@ -148,12 +149,12 @@ function rawSignature(scope: CaptureScope, program: CheckedProgram, signature: S
     const position = component(scope, owner, [{ kind: "parameter", signature: id, index }]);
     return {
       declaration: parameterReference, symbol: rawSymbol(scope, program, symbol), kind: "required", component: position,
-      type: rawType(scope, scope.checker.getTypeOfSymbol(symbol), position), acceptsOmission: false, initializer: null, passing: notProvided(),
+      type: rawType(scope, scope.checker.getTypeOfSymbol(symbol), position, null), acceptsOmission: false, initializer: null, passing: notProvided(),
     };
   });
   scope.tables.signatures.push({
     id, target: null, owner, declaration, kind: "call", typeParameters: available([]), receiver: available(null), parameters,
-    result: available(rawType(scope, scope.checker.getReturnTypeOfSignature(signature), component(scope, owner, [{ kind: "result", signature: id }]))),
+    result: available(rawType(scope, scope.checker.getReturnTypeOfSignature(signature), component(scope, owner, [{ kind: "result", signature: id }]), null)),
     composition: null,
   });
   return id;
@@ -202,9 +203,9 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
       const symbol = scope.checker.getSymbolAtLocation(node);
       views.push({
         node: reference,
-        read: available(rawType(scope, scope.checker.getTypeAtLocation(node), component(scope, reference, []))),
+        read: available(rawType(scope, scope.checker.getTypeAtLocation(node), component(scope, reference, []), null)),
         declared: available(null),
-        contextual: available(contextual === undefined ? null : rawType(scope, contextual, component(scope, reference, []))),
+        contextual: available(contextual === undefined ? null : rawType(scope, contextual, component(scope, reference, []), null)),
         symbol: available(symbol === undefined ? null : rawSymbol(scope, program, symbol)),
       });
       if (kind === "KindIdentifier" && symbol !== undefined) {
@@ -215,6 +216,9 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
         });
       }
     }
+    // An authored type annotation (the type child of its declaration): the type the checker gives that type node.
+    if (parent !== undefined && ast.typeNode(parent) === node)
+      rawType(scope, scope.checker.getTypeFromTypeNode(node), component(scope, reference, []), reference);
     if (callableKinds.includes(kind)) {
       const signature = scope.checker.getSignatureFromDeclaration(node);
       if (signature === undefined) return throwInvariant(invariant("The checker gave no signature for a callable declaration."));

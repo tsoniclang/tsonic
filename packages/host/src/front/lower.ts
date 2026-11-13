@@ -6,7 +6,7 @@ import type * as Hir from "../ir-hir/contract.js";
 import { childrenOfSyntax } from "../ir-hir/index.js";
 import type { TypeTerm } from "../ir-types/contract.js";
 import { internSignature, internType } from "../ir-types/index.js";
-import type { ConvertedCheckedType, LowerDeps, ModuleDefinitions, ModuleExports, RawCheckerViews, RawModule } from "./contract.js";
+import type { ConvertedCheckedType, LowerDeps, ModuleDefinitions, ModuleExports, RawCallableAssociation, RawCheckerViews, RawModule } from "./contract.js";
 import { definitionRows } from "./identities.js";
 
 type Syntax = Hir.SyntaxPhase;
@@ -20,26 +20,28 @@ const invariant = (message: string): InvariantFailure => ({ owner: "front", quer
  * one check below with a compiler-defect TypeError; no partial HIR is returned.
  */
 const writtenKinds: readonly string[] = ["SourceFile", "EndOfFile", "ExportKeyword", "FunctionDeclaration", "Parameter",
-  "Identifier", "NumberKeyword", "Block", "ReturnStatement", "BinaryExpression", "PlusToken"];
+  "Identifier", "NumberKeyword", "StringKeyword", "BooleanKeyword", "Block", "ReturnStatement", "BinaryExpression", "PlusToken"];
 
 function unwrittenForm(node: Hir.SyntaxNode<Syntax>): string | null {
   if (!writtenKinds.includes(node.kind)) return node.kind;
   switch (node.kind) {
     case "FunctionDeclaration":
       return node.body === null ? "FunctionDeclaration without a body" : node.typeParameters !== null ? "FunctionDeclaration with type parameters" : null;
+    // Only required parameters are written: capture's signature rows state every parameter as required.
     case "Parameter":
-      return node.initializer !== null ? "Parameter with an initializer" : null;
+      return node.initializer !== null ? "Parameter with an initializer" : node.questionToken !== null ? "optional Parameter"
+        : node.dotDotDotToken !== null ? "rest Parameter" : null;
     default: return null;
   }
 }
 
-/** The one check of lowering's development frontier. */
+/** The one check of lowering's development frontier; it names the first unwritten form in preorder. */
 function refuseUnwritten(tree: Hir.SyntaxNode<Syntax>): void {
   const pending: Hir.SyntaxNode<Syntax>[] = [tree];
   for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
     const form = unwrittenForm(next);
     if (form !== null) throw new TypeError(`front: checked annotation not implemented: ${form}`);
-    pending.push(...childrenOfSyntax(next));
+    pending.push(...[...childrenOfSyntax(next)].reverse());
   }
 }
 
@@ -103,6 +105,8 @@ interface Lowering {
   readonly views: ReadonlyMap<NodeId, RawCheckerViews>;
   readonly references: ReadonlyMap<NodeId, NodeId>;
   readonly locals: Map<NodeId, LocalRef>;
+  readonly associations: ReadonlyMap<NodeId, RawCallableAssociation>;
+  readonly authoredTypes: ReadonlyMap<NodeId, RawTypeId>;
   readonly bodies: Hir.HirBody[];
   readonly bodyOf: ReadonlyMap<NodeId, BodyId>;
 }
@@ -152,12 +156,14 @@ function token<K extends Hir.TokenSyntaxKind>(node: Hir.Token<Syntax, K>): Hir.T
   return { ...headerOf(node), kind: node.kind, tsonic: null };
 }
 
-function typeNode(lowering: Lowering, node: Hir.TypeNode<Syntax>): Hir.TypeNode<Checked> {
-  if (node.kind !== "NumberKeyword") return throwInvariant(invariant("A type node of an unwritten kind passed the written-kinds check."));
-  const views = lowering.views.get(node.id);
-  const type = views !== undefined && views.read.kind === "available" ? typeOf(lowering, views.read.value)
-    : internType(lowering.deps.types, { kind: "primitive", primitive: "float64" });
-  return { ...headerOf(node), kind: node.kind, tsonic: { core: absentCoreOf(), type: { kind: "available", value: type }, referencedDefinitions: [] } };
+/** An authored annotation: its type is the one capture read from the checker for that type node. */
+function typeNode(lowering: Lowering, node: Hir.TypeNode<Syntax>): { readonly node: Hir.TypeNode<Checked>; readonly type: TyId } {
+  if (node.kind !== "NumberKeyword" && node.kind !== "StringKeyword" && node.kind !== "BooleanKeyword")
+    return throwInvariant(invariant("A type node of an unwritten kind passed the written-kinds check."));
+  const raw = lowering.authoredTypes.get(node.id);
+  if (raw === undefined) return throwInvariant(invariant("An authored type annotation has no captured checker type."));
+  const type = typeOf(lowering, raw);
+  return { node: { ...headerOf(node), kind: node.kind, tsonic: { core: absentCoreOf(), type: { kind: "available", value: type }, referencedDefinitions: [] } }, type };
 }
 
 function expression(lowering: Lowering, node: Hir.Expression<Syntax>): Hir.Expression<Checked> {
@@ -205,6 +211,14 @@ function functionDeclaration(lowering: Lowering, node: Hir.FunctionDeclaration<S
   const bodyNode = node.body;
   if (bodyNode === null || bodyNode.kind !== "Block") return throwInvariant(invariant("A function of a written form has no block body."));
   const body = encodeBodyId({ owner: definition, role: "function", ordinal: 0 });
+  // The checked signature: the checker's own parameter and result types from capture's signature row, never another slot's.
+  const association = lowering.associations.get(node.id);
+  const advertised = association?.advertised[0];
+  const rawSignature = advertised === undefined ? undefined : lowering.raw.types.signatures[advertised];
+  if (association === undefined || association.advertised.length !== 1 || rawSignature === undefined || rawSignature.parameters.length !== node.parameters.nodes.length)
+    return throwInvariant(invariant("A function of a written form has no captured signature with one row per parameter."));
+  if (rawSignature.result.kind !== "available") throw new TypeError("front: a function whose checked result type is not captured is not implemented");
+  const resultType = typeOf(lowering, rawSignature.result.value);
   const signatureParameters = node.parameters.nodes.map((parameter, index) => {
     lowering.locals.set(parameter.id, { body, local: localId(index) });
     return parameter;
@@ -212,24 +226,24 @@ function functionDeclaration(lowering: Lowering, node: Hir.FunctionDeclaration<S
   const parameters = signatureParameters.map((parameter, index) => {
     const parameterDefinition = definitionOf(lowering, parameter.id);
     const declared = parameter.type === null ? null : typeNode(lowering, parameter.type);
-    const declaredType = declared !== null && "tsonic" in declared && declared.tsonic !== null && "type" in declared.tsonic &&
-      declared.tsonic.type.kind === "available" ? declared.tsonic.type.value : null;
+    const declaredType = declared === null ? null : declared.type;
+    const checkedParameter = rawSignature.parameters[index];
+    if (checkedParameter === undefined) return throwInvariant(invariant("A parameter has no row of its captured signature."));
+    const checkedType = typeOf(lowering, checkedParameter.type);
     if (parameter.name.kind !== "Identifier") return throwInvariant(invariant("A parameter of a written form has no identifier name."));
     const local: LocalRef = { body, local: localId(index) };
     const lowered: Hir.ParameterDeclaration<Checked> = { ...headerOf(parameter), kind: "Parameter", modifiers: null, dotDotDotToken: null,
       name: { ...headerOf(parameter.name), kind: "Identifier", text: parameter.name.text, tsonic: { core: absentCoreOf(), role: "declaration-name", declaration: { kind: "local", local } } },
-      questionToken: null, type: declared, initializer: null,
+      questionToken: null, type: declared === null ? null : declared.node, initializer: null,
       tsonic: { core: absentCoreOf(), parent: definition, attributes: [], memory: { kind: "available", value: null }, declaration: { kind: "local", local },
         declaredType: { kind: "available", value: declaredType }, initializer: null } };
-    return { lowered, definition: parameterDefinition, declaredType };
+    return { lowered, definition: parameterDefinition, checkedType };
   });
-  const returnType = node.type === null ? null : typeNode(lowering, node.type);
-  const resultType = returnType !== null && "tsonic" in returnType && returnType.tsonic !== null && "type" in returnType.tsonic &&
-    returnType.tsonic.type.kind === "available" ? returnType.tsonic.type.value : throwInvariant(invariant("A function of a written form has no declared result type."));
+  const returnType = node.type === null ? null : typeNode(lowering, node.type).node;
   const item = (target: NodeId, itemOwner: DefId): SourceNodeRef => ({ kind: "item", value: { owner: itemOwner, node: target } });
   const signature = internSignature(lowering.deps.types, {
     declaration: definition, owner: item(node.id, definition), composition: null, kind: "call", typeParameters: [], receiver: null,
-    parameters: parameters.map(parameter => ({ declaration: parameter.definition, kind: "required", type: parameter.declaredType ?? resultType, passing: "by-value", initializer: null })),
+    parameters: parameters.map(parameter => ({ declaration: parameter.definition, kind: "required", type: parameter.checkedType, passing: "by-value", initializer: null })),
     result: resultType,
   });
   const loweredBody = block(lowering, bodyNode, definition);
@@ -238,7 +252,7 @@ function functionDeclaration(lowering: Lowering, node: Hir.FunctionDeclaration<S
     params: parameters.map((parameter, index) => ({ local: localId(index), declaration: parameter.definition, role: "required", passing: "by-value", initializer: null })),
     locals: parameters.map((parameter, index) => ({ id: localId(index), declaration: item(parameter.lowered.id, parameter.definition),
       name: parameter.lowered.name.kind === "Identifier" ? parameter.lowered.name.text : "", role: "parameter",
-      checkerSlot: { kind: "available", value: parameter.declaredType ?? resultType }, capturedFrom: null, mutable: true })),
+      checkerSlot: { kind: "available", value: parameter.checkedType }, capturedFrom: null, mutable: true })),
     root: loweredBody, captures: [], scopes: [], asynchronous: false, generator: false, candidateLists: [], nestedBodies: [],
   });
   const name = node.name;
@@ -267,6 +281,8 @@ export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<Hir.HirM
     views: new Map(raw.checkerViews.filter(view => view.node.module === raw.module).map(view => [view.node.node, view])),
     references: new Map(raw.references.filter(reference => reference.declaration.module === raw.module).map(reference => [reference.occurrence.node, reference.declaration.node])),
     locals: new Map(), bodies: [],
+    associations: new Map(raw.callableAssociations.filter(entry => entry.declaration.module === raw.module).map(entry => [entry.declaration.node, entry])),
+    authoredTypes: new Map(raw.types.types.flatMap((row): [NodeId, RawTypeId][] => row.authoredTypeNode !== null && row.authoredTypeNode.module === raw.module ? [[row.authoredTypeNode.node, row.id]] : [])),
   };
   const tree: Hir.SourceFile<Checked> = { ...headerOf(raw.tree), kind: "SourceFile",
     statements: { loc: raw.tree.statements.loc, nodes: raw.tree.statements.nodes.map(child => statement(lowering, child, moduleDefinition)) },

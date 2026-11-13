@@ -728,3 +728,52 @@ test("checkpoint 1, the development frontier: a module holding a kind whose chec
     { name: "TypeError", message: "front: checked annotation not implemented: PrefixUnaryExpression" });
 });
 
+
+// K-3313.3: a parameter's type is the checker's type of that parameter, read from capture's signature row; the result type
+// is the checker's result type; an annotation's type is the type the checker gives that type node. Expectations written
+// before the run.
+test("K-3313.3: parameter, local and result types are the checker's own, slot by slot; differing explicit types stay apart and no parameter borrows the result type", async () => {
+  const hir = await import("../../packages/host/dist/ir-hir/index.js");
+  const types = await import("../../packages/host/dist/ir-types/index.js");
+  const { checked, interner } = checkedModuleOf("export function pick(flag: boolean, text: string, n: number): number { return n; }\n");
+  const term = value => types.internType(interner, value);
+  const available = value => ({ kind: "available", value });
+  const [bool, string, float64] = [term({ kind: "primitive", primitive: "bool" }), term({ kind: "string" }), term({ kind: "primitive", primitive: "float64" })];
+  const nodes = hir.indexSyntaxTree(checked.tree);
+  const callable = nodes.find(node => node.kind === "FunctionDeclaration").tsonic;
+  const signature = types.readSignature(interner, callable.signatures[0].signature);
+  assert.deepEqual(signature.parameters.map(parameter => parameter.type), [bool, string, float64]);
+  assert.equal(signature.result, float64);
+  const body = checked.bodies.find(entry => entry.body === callable.body);
+  assert.deepEqual(body.locals.map(local => [local.name, local.checkerSlot]), [["flag", available(bool)], ["text", available(string)], ["n", available(float64)]]);
+  assert.deepEqual(nodes.filter(node => node.kind === "Parameter").map(node => node.tsonic.declaredType), [available(bool), available(string), available(float64)]);
+  assert.deepEqual(nodes.filter(node => ["BooleanKeyword", "StringKeyword", "NumberKeyword"].includes(node.kind)).map(node => [node.kind, node.tsonic.type]),
+    [["BooleanKeyword", available(bool)], ["StringKeyword", available(string)], ["NumberKeyword", available(float64)], ["NumberKeyword", available(float64)]]);
+});
+
+test("K-3313.3: a parameter without an annotation is not given another slot's type: `function f(x) { return 1; }` is refused by name before lowering", () => {
+  const { deps, program, module } = openedModule("export function f(x) { return 1; }\n");
+  assert.throws(() => front.captureModule(deps, program, module),
+    { name: "TypeError", message: "front: the conversion of a module's checker diagnostics waits for the checker's message accessor" });
+});
+
+test("the checker's boolean is the scalar boolean; a union holding it is not a scalar and is refused by name", () => {
+  const scalar = openedModule("export function same(flag: boolean): boolean { return flag; }\n");
+  const raw = front.captureModule(scalar.deps, scalar.program, scalar.module);
+  assert.equal(raw.kind, "ok");
+  assert.deepEqual([...new Set(raw.value.types.types.map(row => JSON.stringify(row.form)))], [JSON.stringify({ kind: "available", value: { kind: "scalar", scalar: "boolean" } })]);
+  const union = openedModule("export function maybe(flag: boolean | undefined, n: number): number { return n; }\n");
+  assert.throws(() => front.captureModule(union.deps, union.program, union.module),
+    { name: "TypeError", message: "front: the captured form of the checker type boolean | undefined is not implemented" });
+});
+
+test("the frontier check names the first unwritten form in preorder (R3 L-2)", async () => {
+  const types = await import("../../packages/host/dist/ir-types/index.js");
+  const sourceText = "export function m(a: number, b: number): number { return (a) * b; }\n";
+  const { deps, program, module } = openedModule(sourceText);
+  const raw = front.captureModule(deps, program, module);
+  assert.equal(raw.kind, "ok");
+  const definitions = front.lowerModuleDefinitions(raw.value);
+  assert.throws(() => front.lowerModule(lowerDepsFor(definitions.value, types.createTypeInterner(), sourceText), raw.value),
+    { name: "TypeError", message: "front: checked annotation not implemented: ParenthesizedExpression" });
+});
