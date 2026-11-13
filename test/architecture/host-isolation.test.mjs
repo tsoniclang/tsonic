@@ -65,6 +65,38 @@ test("real infer imports actual contract-typed substitute through fresh strict p
   });
 });
 
+test("a decision reader compiles against fresh ir-infer declarations; a module without the edge is refused", async () => {
+  const decisionContract = path("ir-infer");
+  const decisionEntry = path("ir-infer", "index.ts");
+  const decisionSources = [
+    [decisionContract, 'export interface OperationDecision { readonly kind: "selected"; readonly result: number; }\nexport type ReadDecision = (decision: OperationDecision) => number;'],
+    [decisionEntry, 'import type { ReadDecision } from "./contract.js";\nexport const readDecision: ReadDecision = decision => decision.result;'],
+  ];
+  const readerSources = (name, up) => [
+    [path(name), `import type { OperationDecision } from "${up}ir-infer/contract.js";\nexport interface ReaderDeps { readonly bias: number; }\nexport type Read = (deps: ReaderDeps, decision: OperationDecision) => number;`],
+    [path(name, "index.ts"), 'import type { Read } from "./contract.js";\nexport const read: Read = (deps, decision) => decision.result + deps.bias;'],
+  ];
+  const input = (root, name) => ({ root, sourceFiles: [path(name), path(name, "index.ts")], interfaceSources: [decisionContract, decisionEntry],
+    declarationSources: [decisionContract, decisionEntry], outputDirectory: ".temp/isolation" });
+  for (const [name, up] of [["lower-mir", "../"], ["evaluate", "../"], ["summaries", "../"], ["analyses/origins", "../../"], ["analyses/refinements", "../../"], ["analyses/pointerBacking", "../../"]]) {
+    await fixture([...decisionSources, ...readerSources(name, up)], async ({ root, deps }) => {
+      const report = await compileIsolated(deps, module(name), input(root, name));
+      assert.equal(report.status, "passed", `${name}: ${label(report)}`);
+      assert.deepEqual(report.findings, []);
+      assert.equal(report.loadedInventory.some(file => file.endsWith(`/isolated/${host}/ir-infer/contract.d.ts`)), true, name);
+      assert.equal(report.loadedInventory.some(file => file.includes("/isolated/") && file.endsWith("/ir-infer/contract.ts")), false, name);
+      assert.equal(report.loadedInventory.every(file => report.expectedInventory.includes(file)), true, name);
+    });
+  }
+  for (const [name, up] of [["analyses/liveness", "../../"], ["analyses/initialization", "../../"], ["analyses/suspension", "../../"], ["analyses/errorStorage", "../../"], ["metadata", "../"], ["front", "../"]]) {
+    await fixture([...decisionSources, ...readerSources(name, up)], async ({ root, deps }) => {
+      const report = await compileIsolated(deps, module(name), input(root, name));
+      assert.equal(report.status, "failed", `${name}: ${label(report)}`);
+      assert.equal(report.findings.some(finding => finding.code === "forbidden-import" && finding.path === path(name)), true, `${name}: ${label(report)}`);
+    });
+  }
+});
+
 test("genuine public declaration production includes its explicit private implementation closure only in the producer stage", async () => {
   const helper = path("ir-types", "private.ts");
   for (const forwarding of [false, true]) {
