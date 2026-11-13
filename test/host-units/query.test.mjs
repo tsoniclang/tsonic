@@ -763,14 +763,15 @@ test("S2-8: the classifier decides each member's outcome; a row cannot alter it;
   const database = product.createDatabase(null, unbounded, cycle => cycle.members.map(member =>
     member.fact.query === "A" ? { kind: "refused", diagnostic: refusal } : { kind: "error", cause }), "recorded");
   const refused = database.run(root, null);
-  assert.deepEqual(refused, { kind: "refused", diagnostics: [refusal] });
+  assert.deepEqual(refused, { kind: "refused", diagnostics: [earnedA, refusal] },
+    "the complete result of the refused head: the chunk it stated, then the classified refusal");
   assert.equal(consulted, 0, "the row of a refused member is not consulted and cannot turn the refusal into a value");
   assert.equal(database.run(first, null), refused, "the head's refused outcome is its memo entry");
   const other = database.run(second, null);
   assert.equal(other.kind, "completed", "a row that returns a refusal-shaped object has only named its value");
   assert.equal(other.value, disguised);
-  assert.deepEqual(other.diagnostics, []);
-  assert.deepEqual(database.run(root, null), { kind: "refused", diagnostics: [refusal] });
+  assert.deepEqual(other.diagnostics, [earnedB], "an error-valued member's result holds what it had stated");
+  assert.deepEqual(database.run(root, null), { kind: "refused", diagnostics: [earnedA, refusal] });
   assert.equal(resumed, 0);
   assert.deepEqual(database.diagnostics(), [refusal, earnedA, earnedB, earnedRoot]);
   assert.deepEqual(database.stats(), [{ name: "A", computed: 1, hits: 2 }, { name: "B", computed: 1, hits: 1 },
@@ -857,8 +858,9 @@ test("S2-27: diagnostics earned before a refused dependency are kept once; the a
   needsBig = false;
   assert.deepEqual(database.run(f, null), { kind: "completed", value: 7, diagnostics: [later] });
   assert.deepEqual(database.diagnostics(), [limit, outer, later], "a completed result replaces what its abandoned computation had earned");
-  assert.deepEqual(database.run(g, null), { kind: "completed", value: 8, diagnostics: [] });
-  assert.deepEqual(database.diagnostics(), [limit, later]);
+  assert.deepEqual(database.run(g, null), { kind: "completed", value: 8, diagnostics: [outer] },
+    "the kernel composes: what g stated with its request, then what its final result carries (nothing)");
+  assert.deepEqual(database.diagnostics(), [limit, outer, later], "stated once by g, published once with its result");
   assert.deepEqual(database.trace().filter(event => event.kind === "completion").map(event => [event.fact.query, event.outcome]),
     [["big", "refused"], ["f", "abandoned"], ["g", "abandoned"], ["f", "abandoned"], ["g", "abandoned"],
       ["quiet", "abandoned"], ["f", "ok"], ["g", "ok"]]);
@@ -933,7 +935,7 @@ test("the record bound is charged before allocation: below, at and over, for a c
   assert.equal(again.diagnostics[0], belowDependency.diagnostics()[1]);
   assert.deepEqual(belowDependency.diagnostics(), [earned, limitReached(7, "leaf", "N")]);
   const atDependency = product.createDatabase(null, { maximumRecords: 8 }, noCycle, "recorded");
-  assert.deepEqual(atDependency.run(parent, null), completed);
+  assert.deepEqual(atDependency.run(parent, null), { kind: "completed", value: 7, diagnostics: [earned] });
   const belowClosing = product.createDatabase(null, { maximumRecords: 4 }, noCycle, "recorded");
   assert.deepEqual(belowClosing.run(self, null), exhausted(4, fact("self", null, "N")));
   const atClosing = product.createDatabase(null, { maximumRecords: 5 }, errors, "recorded");
@@ -1166,7 +1168,7 @@ test("R1-a, R1-b: a cycle retains exactly its members' records, under a requeste
   const a = { name: "A", errorValue: noCycle, compute: context => context.get(b, null, { witness: "A", earned: [earnedA] }, resume) };
   const b = { name: "B", errorValue: () => "error", compute: context => context.get(a, null, { witness: "B", earned: [] }, resume) };
   const r = { name: "R", errorValue: noCycle, compute: context => context.get(a, null, { witness: "R", earned: [earnedR] }, resume) };
-  const under = measure(4 + 4 + 4 + 4 + 1, database => { assert.deepEqual(database.run(r, null), { kind: "refused", diagnostics: [refusal] }); },
+  const under = measure(4 + 4 + 4 + 4 + 1, database => { assert.deepEqual(database.run(r, null), { kind: "refused", diagnostics: [earnedA, refusal] }); },
     cycle => cycle.members.map(member => member.fact.query === "A" ? { kind: "refused", diagnostic: refusal } : { kind: "error", cause }));
   assert.equal(under.remaining, 3, "spare 4; R three events and its kept list; A and B four each; the closing request one");
   assert.deepEqual(completionsOf(under.database).slice(1), ["A:cycle-refused", "B:cycle-ok", "R:abandoned"]);
@@ -1256,6 +1258,33 @@ test("K-1: an abandonment at an earlier point than the one already kept for its 
   mode = "nothing";
   database.run(y, null);
   assert.deepEqual(database.diagnostics(), [refusesQ], "the furthest abandonment states nothing earned, and nothing is kept");
+});
+
+test("K-3240: a request states an increment; chunks survive abandonment at the second and third request, an earlier abandonment does not shorten them, and a completed result holds each once", () => {
+  const [first, second, third, last] = [1, 2, 3, 4].map(number => diagnostic(number, `e${number}.ts`, `earned before request ${number}`));
+  const stops = [5, 6, 7].map(number => diagnostic(number, `s${number}.ts`, `refusal ${number}`));
+  const gate = { name: "gate", errorValue: noCycle,
+    compute: (_, key) => key[2] === null ? { kind: "ok", value: key[1], diagnostics: [] } : { kind: "refused", diagnostics: [stops[key[2]]] } };
+  let phase = 0;
+  let refuseAt = 0;
+  const ask = (context, request, earned, then) =>
+    context.get(gate, [phase, request, request === refuseAt ? phase : null], { witness: null, earned }, then);
+  const x = { name: "X", errorValue: noCycle, compute: context => ask(context, 1, [first],
+    () => ask(context, 2, [second], () => ask(context, 3, [third], () => ({ kind: "ok", value: "done", diagnostics: [last] })))) };
+  const database = product.createDatabase(null, unbounded, noCycle, "recorded");
+  const attempt = at => { refuseAt = at; const result = database.run(x, null); phase += 1; return result; };
+  assert.deepEqual(attempt(2), { kind: "refused", diagnostics: [stops[0]] });
+  assert.deepEqual(database.diagnostics(), [first, second, stops[0]], "the chunk stated with the refused request is kept with the one before it");
+  assert.deepEqual(attempt(3), { kind: "refused", diagnostics: [stops[1]] });
+  assert.deepEqual(database.diagnostics(), [first, second, third, stops[0], stops[1]], "an abandonment further on keeps all three chunks, each once");
+  assert.deepEqual(attempt(2), { kind: "refused", diagnostics: [stops[2]] });
+  assert.deepEqual(database.diagnostics(), [first, second, third, stops[0], stops[1], stops[2]], "an earlier abandonment does not shorten what is kept");
+  const completed = attempt(0);
+  assert.deepEqual(completed, { kind: "completed", value: "done", diagnostics: [first, second, third, last] },
+    "the chunks in order, then what the final result carries");
+  assert.deepEqual(database.diagnostics(), [first, second, third, last, stops[0], stops[1], stops[2]], "published once; nothing kept beside the result");
+  assert.deepEqual(database.run(x, null), completed, "a memo hit returns the composed result");
+  assert.deepEqual(database.stats().find(row => row.name === "X"), { name: "X", computed: 4, hits: 1 });
 });
 
 test("with the trace off no event exists and a request allocates no record: a fact costs one record, a warm or closing request none", () => {

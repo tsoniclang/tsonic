@@ -26,6 +26,12 @@ export type ClassifyCycle<Witness> = (cycle: ClosedCycle<Witness>) => readonly C
 
 export interface Query<Inputs, Key extends KeyData, Value, Witness> {
   readonly name: string;
+  /**
+   * A computation states each diagnostic it earns once: with its next request, with its abandonment, or, when it
+   * was earned after the last request, in its final result. Its final result therefore carries only what was earned
+   * after its last request; the kernel keeps the earlier chunks and builds the complete result of the fact from them.
+   * The kernel does not check that a computation states no diagnostic twice.
+   */
   readonly compute: (context: QueryContext<Inputs, Witness>, key: Key) => QueryComputation<Inputs, Value, Witness>;
   /**
    * The error value of this fact's type for the cause the one classifier gave `key` in a closed cycle. It builds a
@@ -43,6 +49,7 @@ export type QueryComputation<Inputs, Value, Witness> =
 export interface QueryAbandonment {
   readonly kind: "abandoned";
   readonly diagnostics: readonly [Diagnostic, ...Diagnostic[]];
+  /** What the computation earned since its last request. */
   readonly earned: readonly Diagnostic[];
 }
 
@@ -54,9 +61,10 @@ export interface QueryDependency<Inputs, Value, Witness> {
 export interface QueryRequest<Witness> {
   readonly witness: Witness;
   /**
-   * Everything the requesting computation has earned so far. It is kept if the computation is abandoned.
-   * A completed result replaces what was kept for its fact, so the result of a computation must contain
-   * every diagnostic it stated here; the kernel cannot check that.
+   * What the requesting computation earned since its previous request (since its start, for the first request).
+   * The kernel takes the list as it is and keeps it with the earlier chunks of the same attempt: all of them are
+   * kept once if the attempt is abandoned, and all of them precede the final result's own diagnostics when it
+   * completes. The requester does not change the list after the request.
    */
   readonly earned: readonly Diagnostic[];
 }

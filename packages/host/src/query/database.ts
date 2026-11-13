@@ -3,8 +3,8 @@ import { requirePresent, resourceLimitDiagnostic } from "../diag/index.js";
 import type { KeyData } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import type { ClassifyCycle, CycleMember, CycleOutcome, Database, FactKey, Query, QueryComputation, QueryContext, QueryDependency, QueryLimits, QueryRequest, QueryScheduler, RunResult, TraceEvent, TraceRecording } from "./contract.js";
-import type { Kept, MemoTable } from "./memo.js";
-import { joinDiagnostics, leastFact, queryMemo, retainDiagnostics, retainRefusal, retainResult, snapshotDiagnostics, snapshotStatistics, snapshotTrace } from "./memo.js";
+import type { Chunks, Kept, MemoTable } from "./memo.js";
+import { composeResult, joinChunks, leastFact, queryMemo, retainRefusal, snapshotDiagnostics, snapshotStatistics, snapshotTrace } from "./memo.js";
 
 interface Settlement {
   readonly commit: () => void;
@@ -17,7 +17,8 @@ interface Frame<Witness> {
   readonly advance: () => void;
   readonly settle: (outcome: CycleOutcome) => Settlement;
   pending: { readonly witness: Witness } | undefined;
-  earned: readonly Diagnostic[];
+  /** The chunks this attempt has stated, in order; an empty chunk is not kept. */
+  readonly chunks: Chunks;
   steps: number;
 }
 
@@ -85,7 +86,7 @@ export function createQueryDatabase<Inputs, Witness>(
   }
 
   function abandon(frame: Frame<Witness>): void {
-    const earned = frame.earned;
+    const earned = joinChunks(frame.chunks);
     leave(frame);
     const kept = abandoned.get(frame.fact.query) ?? new Map<string, Kept>();
     const previous = kept.get(frame.fact.encodedKey);
@@ -98,7 +99,7 @@ export function createQueryDatabase<Inputs, Witness>(
       if (earned.length === 0) records -= 1;
       else {
         abandoned.set(frame.fact.query, kept);
-        kept.set(frame.fact.encodedKey, { progress: frame.steps, earned: retainDiagnostics(earned) });
+        kept.set(frame.fact.encodedKey, { progress: frame.steps, earned });
       }
     }
     if (recorded) trace.push({ kind: "completion", fact: frame.fact, outcome: "abandoned" });
@@ -186,18 +187,15 @@ export function createQueryDatabase<Inputs, Witness>(
       fact,
       keys: entered,
       pending: undefined,
-      earned: [],
+      chunks: [],
       steps: 0,
       settle: outcome => {
         const errorValue = query.errorValue;
-        const result: Result<Value> = outcome.kind === "refused"
+        const result = composeResult<Value>(frame.chunks, outcome.kind === "refused"
           ? { kind: "refused", diagnostics: [outcome.diagnostic] }
-          : { kind: "ok", value: errorValue(key, outcome.cause), diagnostics: [] };
+          : { kind: "ok", value: errorValue(key, outcome.cause), diagnostics: [] });
         return ({
-          commit: () => {
-            publish(frame.earned);
-            complete(result, result.kind === "ok" ? "cycle-ok" : "cycle-refused");
-          },
+          commit: () => { complete(result, result.kind === "ok" ? "cycle-ok" : "cycle-refused"); },
           deliver: () => { deliver(result); },
         });
       },
@@ -214,17 +212,18 @@ export function createQueryDatabase<Inputs, Witness>(
               if (requested) throw new TypeError("query: a dependency step must schedule exactly one request");
               requested = true;
               frame.pending = ({ witness: request.witness });
-              frame.earned = request.earned;
+              if (request.earned.length !== 0) frame.chunks.push(request.earned);
               enter(dependency, dependencyKey, value => { next = () => resume(value); }, boundary, fact);
             } });
           } finally { open = false; }
           if (!requested) throw new TypeError("query: a dependency step must schedule exactly one request");
         } else if (step.kind === "abandoned") {
           const diagnostics = retainRefusal(step.diagnostics);
-          frame.earned = joinDiagnostics(step.earned, diagnostics);
+          if (step.earned.length !== 0) frame.chunks.push(step.earned);
+          frame.chunks.push(diagnostics);
           boundary.stop = ({ kind: "refused", diagnostics });
         } else {
-          const result = retainResult(step);
+          const result = composeResult(frame.chunks, step);
           complete(result, result.kind);
           leave(frame);
           deliver(result);

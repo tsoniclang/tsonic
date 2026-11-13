@@ -1,5 +1,5 @@
-import type { Diagnostic, Result } from "../diag/contract.js";
-import { orderDiagnostics, throwInvariant } from "../diag/index.js";
+import type { Diagnostic, InvariantFailure, Result } from "../diag/contract.js";
+import { orderDiagnostics, requirePresent, throwInvariant } from "../diag/index.js";
 import type { KeyData } from "../ids/contract.js";
 import type { FactKey, Query, QueryStat, TraceEvent } from "./contract.js";
 
@@ -16,6 +16,9 @@ interface Memo<Value> {
 }
 
 export type MemoTable = Map<string, Memo<unknown>>;
+
+const compositionFailure: InvariantFailure = ({ owner: "query", query: null, origin: null,
+  message: "A refused result must carry its refusing diagnostic." });
 
 export interface Kept {
   readonly progress: number;
@@ -71,11 +74,21 @@ export function retainRefusal(supplied: readonly [Diagnostic, ...Diagnostic[]]):
   return diagnostics;
 }
 
-export function joinDiagnostics(first: readonly Diagnostic[], second: readonly Diagnostic[]): readonly Diagnostic[] {
+export type Chunks = (readonly Diagnostic[])[];
+
+export function joinChunks(chunks: Chunks): Diagnostic[] {
   const all: Diagnostic[] = [];
-  first.forEach(diagnostic => { all.push(diagnostic); });
-  second.forEach(diagnostic => { all.push(diagnostic); });
+  chunks.forEach(chunk => { chunk.forEach(diagnostic => { all.push(diagnostic); }); });
   return all;
+}
+
+/** The complete result of a fact: the chunks its computation stated, in order, then what its final result carries. */
+export function composeResult<Value>(chunks: Chunks, result: Result<Value>): Result<Value> {
+  if (chunks.length === 0) return retainResult(result);
+  const all = joinChunks(chunks);
+  result.diagnostics.forEach(diagnostic => { all.push(diagnostic); });
+  if (result.kind === "ok") return ({ kind: "ok", value: result.value, diagnostics: all });
+  return ({ kind: "refused", diagnostics: [requirePresent(all[0], compositionFailure), ...all.slice(1)] });
 }
 
 export function snapshotStatistics(memo: ReadonlyMap<string, Memo<unknown>>): readonly QueryStat[] {

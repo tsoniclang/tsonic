@@ -1,5 +1,5 @@
-import type { Cause, Diagnostic, Result } from "../diag/contract.js";
-import { throwInvariant } from "../diag/index.js";
+import type { Cause, Diagnostic, InvariantFailure, Result } from "../diag/contract.js";
+import { requirePresent, throwInvariant } from "../diag/index.js";
 import type { KeyData } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import type { Query, QueryComputation, QueryContext } from "../query/contract.js";
@@ -56,8 +56,9 @@ export function projectionRoute<Inputs, Key extends KeyData, Value, Answer, Witn
 /**
  * The application is run again for every request that is routed to it: it has no memo entry. A requester that
  * needs one application's answer more than once asks once and holds the answer in its own unfinished state.
- * Its diagnostics travel with each requester's result. That each is reported once in a run holds only through
- * uniqueness by diagnostic identity where the run's diagnostics are collected.
+ * What the application earns is earned by its requester's computation: each chunk it states and its final
+ * diagnostics are stated to the kernel with the requester's next request, abandonment or result. That each is
+ * reported once in a run holds only through uniqueness by diagnostic identity where the run's diagnostics are collected.
  */
 export function nestedRoute<Inputs, Value, Request, Inner, State, Answer, Witness>(
   application: Application<Inputs, Value, Request, Inner, State, Answer, Witness>,
@@ -75,83 +76,87 @@ interface Operations<Inputs, Request, Answer, State, Produced, Witness> {
   readonly witness: (request: Request) => Witness;
 }
 
-function append(target: Diagnostic[], source: readonly Diagnostic[]): void {
-  source.forEach(diagnostic => { target.push(diagnostic); });
-}
-
 function mapResult<From, To>(result: Result<From>, map: (value: From) => To): Result<To> {
   return result.kind === "ok" ? { kind: "ok", value: map(result.value), diagnostics: result.diagnostics } : result;
 }
 
-function requireStated(stated: readonly Diagnostic[], later: readonly Diagnostic[], name: string, key: KeyData, message: string): void {
-  if (stated.length === 0) return;
-  const present = new Set(later);
-  stated.forEach(diagnostic => {
-    if (!present.has(diagnostic)) throwInvariant({ owner: "pipeline", query: { name, encodedKey: encodeKey(key) }, origin: null, message });
-  });
-}
+const refusalFailure: InvariantFailure = ({ owner: "pipeline", query: null, origin: null,
+  message: "A refused result must carry its refusing diagnostic." });
+const statedTwice = "A producer stated one diagnostic twice: a pause states only what was earned since the previous pause, and a result only what was earned after the last.";
 
-const omittedByResult = "A producer's result omits a diagnostic it stated as earned at its last pause.";
-const omittedByPause = "A producer's pause omits a diagnostic its previous pause stated as earned.";
-
-function joined(first: readonly Diagnostic[], second: readonly Diagnostic[]): Diagnostic[] {
-  const all: Diagnostic[] = [];
-  append(all, first);
-  append(all, second);
-  return all;
-}
-
+/**
+ * One computation of a row. Producers and nested applications state what they earn in chunks (Step); this adapter
+ * hands each chunk on to the kernel once, with the computation's next request, its abandonment or its result, and
+ * keeps nothing that it has handed on. It adds, drops and repeats no diagnostic.
+ *
+ * Checked here: the same diagnostic object is not stated twice by the producers of one computation. Not checked
+ * until every diagnostic carries its identity: two different objects with one identity.
+ */
 export function defineQuery<Inputs, Key extends KeyData, Value, Request, Answer, State, Witness>(
   row: Row<Inputs, Key, Value, Request, Answer, State, Witness>,
 ): Query<Inputs, Key, Value, Witness> {
   type Computation = QueryComputation<Inputs, Value, Witness>;
   const compute = (context: QueryContext<Inputs, Witness>, key: Key): Computation => {
-    const carried: Diagnostic[] = [];
+    let pending: Diagnostic[] = [];
+    let seen: Set<Diagnostic> | undefined;
+
+    function state(source: readonly Diagnostic[], into: Diagnostic[] | null): void {
+      if (source.length === 0) return;
+      const known = seen ?? new Set<Diagnostic>();
+      seen = known;
+      source.forEach(diagnostic => {
+        if (known.has(diagnostic)) throwInvariant({ owner: "pipeline", query: { name: row.name, encodedKey: encodeKey(key) }, origin: null, message: statedTwice });
+        known.add(diagnostic);
+        if (into !== null) into.push(diagnostic);
+      });
+    }
+
+    function earn(source: readonly Diagnostic[]): void {
+      state(source, pending);
+    }
+
+    function hand(): readonly Diagnostic[] {
+      const stated = pending;
+      if (stated.length !== 0) pending = [];
+      return stated;
+    }
 
     function settle<Now>(progress: Progress<Inputs, Now, Value, Witness>, then: (value: Now) => Computation): Computation {
       return progress.kind === "now" ? then(progress.value) : progress.computation;
     }
 
     function answerFrom<Request, Answer, State, Produced>(
-      requests: Iterator<Request>, earned: readonly Diagnostic[],
-      operations: Operations<Inputs, Request, Answer, State, Produced, Witness>,
+      requests: Iterator<Request>, operations: Operations<Inputs, Request, Answer, State, Produced, Witness>,
       answers: Answer[], then: (answers: readonly Answer[]) => Computation,
     ): Progress<Inputs, readonly Answer[], Value, Witness> {
-      const proceed = (): Computation => settle(answerFrom(requests, earned, operations, answers, then), then);
-      let stated = earned;
-      let counted = 0;
-      const current = (): readonly Diagnostic[] => {
-        if (counted !== carried.length) {
-          stated = joined(earned, carried);
-          counted = carried.length;
-        }
-        return stated;
-      };
+      const proceed = (): Computation => settle(answerFrom(requests, operations, answers, then), then);
       for (let next = requests.next(); next.done !== true; next = requests.next()) {
         const request = next.value;
         const selected = operations.route(request);
         if (selected.way !== "nested") {
           return ({ kind: "later", computation: selected.read((query, dependencyKey, answer) =>
-            context.get(query, dependencyKey, { witness: operations.witness(request), earned: current() }, value => {
+            context.get(query, dependencyKey, { witness: operations.witness(request), earned: hand() }, value => {
               answers.push(answer(value));
               return proceed();
             })) });
         }
-        const refused = (diagnostics: readonly [Diagnostic, ...Diagnostic[]]): Computation =>
-          ({ kind: "abandoned", diagnostics, earned: current() });
+        const refused = (diagnostics: readonly [Diagnostic, ...Diagnostic[]]): Computation => {
+          state(diagnostics, null);
+          return ({ kind: "abandoned", diagnostics, earned: hand() });
+        };
         const nested = selected.apply((application): Progress<Inputs, Result<Answer>, Value, Witness> => {
-          const progress = runSteps(application.start(context.inputs), application, earned, result => {
+          const progress = runSteps(application.start(context.inputs), application, result => {
             const outcome = mapResult(result, application.answer);
             if (outcome.kind === "refused") return refused(outcome.diagnostics);
-            append(carried, outcome.diagnostics);
+            earn(outcome.diagnostics);
             answers.push(outcome.value);
             return proceed();
-          }, []);
+          });
           return progress.kind === "now" ? { kind: "now", value: mapResult(progress.value, application.answer) } : progress;
         });
         if (nested.kind === "later") return nested;
         if (nested.value.kind === "refused") return ({ kind: "later", computation: refused(nested.value.diagnostics) });
-        append(carried, nested.value.diagnostics);
+        earn(nested.value.diagnostics);
         answers.push(nested.value.value);
       }
       return ({ kind: "now", value: answers });
@@ -159,37 +164,28 @@ export function defineQuery<Inputs, Key extends KeyData, Value, Request, Answer,
 
     function runSteps<Request, Answer, State, Produced>(
       initial: Pause<Produced, Request, State>, operations: Operations<Inputs, Request, Answer, State, Produced, Witness>,
-      enclosing: readonly Diagnostic[], then: (result: Result<Produced>) => Computation, last: readonly Diagnostic[],
+      then: (result: Result<Produced>) => Computation,
     ): Progress<Inputs, Result<Produced>, Value, Witness> {
-      let stated = last;
       for (let step = initial; ;) {
-        if (step.kind === "done") {
-          requireStated(stated, step.value.diagnostics, row.name, key, omittedByResult);
-          return ({ kind: "now", value: step.value });
-        }
+        if (step.kind === "done") return ({ kind: "now", value: step.value });
         const state = step.paused;
-        const pausedWith = step.earned;
-        requireStated(stated, pausedWith, row.name, key, omittedByPause);
-        stated = pausedWith;
+        earn(step.earned);
         const resumed = (answers: readonly Answer[]): Computation =>
-          settle(runSteps(operations.resume(state, answers), operations, enclosing, then, pausedWith), then);
-        const earned = enclosing.length === 0 ? step.earned : joined(enclosing, step.earned);
-        const progress = answerFrom(step.requests[Symbol.iterator](), earned, operations, [], resumed);
+          settle(runSteps(operations.resume(state, answers), operations, then), then);
+        const progress = answerFrom(step.requests[Symbol.iterator](), operations, [], resumed);
         if (progress.kind === "later") return progress;
         step = operations.resume(state, progress.value);
       }
     }
 
     const finish = (result: Result<Value>): Computation => {
-      if (carried.length === 0) return result;
-      if (result.kind === "ok") return ({ kind: "ok", value: result.value, diagnostics: joined(result.diagnostics, carried) });
-      const diagnostics: [Diagnostic, ...Diagnostic[]] = [result.diagnostics[0]];
-      append(diagnostics, result.diagnostics.slice(1));
-      append(diagnostics, carried);
-      return ({ kind: "refused", diagnostics });
+      earn(result.diagnostics);
+      const last = hand();
+      if (result.kind === "ok") return ({ kind: "ok", value: result.value, diagnostics: last });
+      return ({ kind: "refused", diagnostics: [requirePresent(last[0], refusalFailure), ...last.slice(1)] });
     };
     const operations = { resume: row.producer.resume, route: row.route, witness: row.witness };
-    return settle(runSteps(row.producer.start(context.inputs, key), operations, [], finish, []), finish);
+    return settle(runSteps(row.producer.start(context.inputs, key), operations, finish), finish);
   };
   return ({ name: row.name, compute, errorValue: row.errorValue });
 }
