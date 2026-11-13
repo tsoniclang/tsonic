@@ -1,4 +1,4 @@
-import type { Origin } from "../ids/contract.js";
+import type { KeyData, ModuleId, NodeId, Origin, SourceNodeRef } from "../ids/contract.js";
 
 export type HostDiagnosticCode = string & {
   readonly diagnosticKind: "host";
@@ -51,6 +51,49 @@ export interface Diagnostic {
   readonly related: readonly RelatedDiagnostic[];
   readonly fix: DiagnosticFix | null;
 }
+
+export interface CheckerDiagnosticRef {
+  readonly module: ModuleId;
+  readonly index: number;
+}
+
+export interface UnitRequest {
+  readonly query: string;
+  readonly key: KeyData;
+}
+
+export type UnitPosition =
+  | { readonly kind: "result" }
+  | { readonly kind: "module-node"; readonly module: ModuleId; readonly node: NodeId }
+  | { readonly kind: "source-node"; readonly node: SourceNodeRef };
+
+export interface UnitRef {
+  readonly request: UnitRequest;
+  readonly position: UnitPosition;
+}
+
+export type DiagnosticIdentity =
+  | { readonly kind: "checker"; readonly diagnostic: CheckerDiagnosticRef }
+  | { readonly kind: "host"; readonly unit: UnitRef; readonly code: HostDiagnosticCode };
+
+export type Cause =
+  | { readonly kind: "diagnostic"; readonly diagnostic: DiagnosticIdentity }
+  | { readonly kind: "unit"; readonly unit: UnitRef };
+
+export interface ErrorValue {
+  readonly kind: "error";
+  readonly causes: readonly [Cause, ...Cause[]];
+}
+
+export interface ResourceLimitReport {
+  readonly owner: InvariantOwner;
+  readonly limit: string;
+  readonly maximum: number;
+  readonly site: DiagnosticSite;
+  readonly unit: UnitRef;
+}
+
+export type ResourceLimitDiagnostic = (report: ResourceLimitReport) => Diagnostic;
 
 export type DiagnosticStage =
   | "front"

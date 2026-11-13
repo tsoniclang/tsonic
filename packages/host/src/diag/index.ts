@@ -1,4 +1,5 @@
-import type { HostDiagnosticCode, HostDiagnosticCodeConstructor, LookupDiagnostic, OrderDiagnostics, RequirePresent, ThrowInvariant } from "./contract.js";
+import type { HostDiagnosticCode, HostDiagnosticCodeConstructor, LookupDiagnostic, OrderDiagnostics, RequirePresent, ResourceLimitDiagnostic, ThrowInvariant } from "./contract.js";
+import { limitDiagnostic } from "./limit.js";
 import { failInvariant } from "./invariant.js";
 import { findDiagnosticDefinition, sortDiagnostics } from "./order.js";
 
@@ -7,3 +8,5 @@ export const requirePresent: RequirePresent = (value, failure) => value === unde
 export const orderDiagnostics: OrderDiagnostics = sortDiagnostics;
 export const lookupDiagnostic: LookupDiagnostic = findDiagnosticDefinition;
 export const hostDiagnosticCode: HostDiagnosticCodeConstructor = name => name as HostDiagnosticCode;
+export const resourceLimitDiagnostic: ResourceLimitDiagnostic = report =>
+  limitDiagnostic(hostDiagnosticCode("TSONIC_COMPILER_RESOURCE_LIMIT"), report);
