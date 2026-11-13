@@ -1,6 +1,6 @@
 // S-2, S-3, S-6 (spec/inputs/WALKTHROUGH-PROGRAMS.md): exits through cleanup.
 import { N } from "../names.mjs";
-import { T, arrayIteration, builders, callee, declareType, def, direct, invoking, library, mapped, narrowed, native,
+import { T, arrayIteration, builders, callee, declareType, def, direct, invoking, library, mapped, narrowed, native, operation,
   protocol, selected, selection, signature, step, typedBody } from "../typed.mjs";
 
 const ADD = native("+", "int32", [T.int32, T.int32], T.int32);
@@ -27,8 +27,10 @@ const SIG_S6 = signature("s6", [["log", T.int32Array], ["fail", T.bool]], T.int3
 //     return r;
 //   }
 // Both iterations are given a `finish` step so that every exit of a loop has a cleanup to pass (unit cases may vary the selection).
+// Each case clause carries the selected equality of its test (NEEDS-W4 G1): lowering does not choose how `k` is compared.
 export function s2() {
   const b = builders("s2");
+  const tested = (label, clause) => ({ $: label, ...clause, tsonic: { [N.caseTest]: operation(EQUAL) } });
   const bump = (label, right, operator = "PlusEqualsToken", calculation = ADD) => b.expressionStatement({ $: label,
     ...b.assign(b.target("r", 2, T.int32, operator === "EqualsToken" ? { kind: "write", storage: T.int32 }
       : { kind: "read-write", storage: T.int32, read: T.int32, narrowing: null, evidenceIndex: null }), operator, right, T.int32, T.int32,
@@ -39,8 +41,8 @@ export function s2() {
     root: b.block(
       b.declare([b.variable(b.declName("r", 2), 2, T.int32, b.num("0", T.int32))]),
       { $: "switch", ...b.switchStatement(b.id("k", 0, T.int32), [
-        b.caseClause(b.num("1", T.int32), bump("r+=1", b.num("1", T.int32))),
-        b.caseClause(b.num("2", T.int32), bump("r+=2", b.num("2", T.int32)), { $: "break", ...b.breaks("switch") }),
+        tested("case 1", b.caseClause(b.num("1", T.int32), bump("r+=1", b.num("1", T.int32)))),
+        tested("case 2", b.caseClause(b.num("2", T.int32), bump("r+=2", b.num("2", T.int32)), { $: "break", ...b.breaks("switch") })),
         b.defaultClause(bump("r=9", b.num("9", T.int32), "EqualsToken")),
       ]) },
       { $: "outer", ...b.labeled(b.label("outer", "outer"), { $: "for row", ...b.forOf(

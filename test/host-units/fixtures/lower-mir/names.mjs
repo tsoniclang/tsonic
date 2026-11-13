@@ -1,4 +1,5 @@
-// Names of contract fields and kinds that W2 has not yet published (NEEDS-W4.md, rows A, B, C).
+// Names of contract fields and kinds that W2 has not yet published (NEEDS-W4.md, rows A, B, G). The MIR forms are
+// published (S2-18) and are no longer mapped here.
 // This file maps names and nothing else. It is deleted in the commit that moves the cases to the
 // published names.
 export const N = Object.freeze({
@@ -12,10 +13,9 @@ export const N = Object.freeze({
   closure: "closure", construction: "construction", append: "append",
   // A9: activation of a handle-creating call
   activation: "activation", atCreation: "at-creation", deferred: "deferred",
+  // G1: the selected equality of a case clause's test
+  caseTest: "test",
   // B1: ConstructionPlan
   constructionPlan: "constructionPlan", planSteps: "steps", stepBase: "base-construction",
   stepField: "field-initializer", stepBody: "constructor-body",
-  // C1 to C8: MIR forms
-  resolvePlace: "resolve-place", resolved: "resolved", access: "access", refined: "refined",
-  unwindAbort: "abort", unwindNone: "none", step: "step", bodyCallee: "body", omitted: "omitted", entries: "entries",
 });

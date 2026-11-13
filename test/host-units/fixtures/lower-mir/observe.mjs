@@ -1,9 +1,8 @@
 // Readers over a lowered body (MirBody). They report what a reader of the record can observe:
 // control points with their failure kinds, the order of records along a chosen path, entries,
 // place chains. They compute nothing about what a correct lowering should be.
-import { N } from "./names.mjs";
 
-const EFFECT_KINDS = new Set(["call", "invoke", "await", "yield", "delegate", "throw", N.resolvePlace]);
+const EFFECT_KINDS = new Set(["call", "invoke", "await", "yield", "delegate", "throw", "check"]);
 
 export const blockOf = (mir, id) => {
   const block = mir.blocks.find(candidate => candidate.id === id);
@@ -15,7 +14,7 @@ export const blockOf = (mir, id) => {
 export const failureOf = terminator => {
   if (!("unwind" in terminator)) return null;
   const kind = terminator.unwind.kind;
-  return kind === N.unwindAbort ? "abort" : kind === N.unwindNone ? "none" : kind;
+  return kind === "abort" ? "abort" : kind === "none" ? "none" : kind;
 };
 
 /** Every outgoing edge of a terminator, as { edge, target }. */
@@ -25,7 +24,7 @@ export function edgesOf(terminator) {
     case "goto": return [{ edge: "normal", target: terminator.target }];
     case "switch": return [...terminator.targets.map(target => ({ edge: "case", constant: target.constant, target: target.target })),
       { edge: "otherwise", target: terminator.otherwise }];
-    case "call": case "invoke": case N.resolvePlace: return [{ edge: "normal", target: terminator.next }, ...unwind];
+    case "call": case "invoke": case "check": return [{ edge: "normal", target: terminator.next }, ...unwind];
     case "await": return [{ edge: "resume", target: terminator.resume }, ...unwind];
     case "yield": case "delegate": return [{ edge: "resume", target: terminator.resume },
       { edge: "return", target: terminator.return.target }, ...unwind];
@@ -52,14 +51,14 @@ export function constantValue(mir, id) {
 const event = (mir, block, record, statement) => ({
   block: block.id, statement, kind: record.kind, node: record.tir.node,
   failure: statement === null ? failureOf(record) : null,
-  step: statement === null && N.step in record ? record[N.step] : null, record,
+  step: statement === null && "step" in record ? record.step : null, record,
 });
 
 /** Every control point of the body, in block order. */
 export const controlPoints = mir => mir.blocks.map(block => event(mir, block, block.terminator, null));
 export const effects = mir => controlPoints(mir).filter(point => EFFECT_KINDS.has(point.kind));
 export const checks = (mir, node = null) =>
-  effects(mir).filter(point => point.kind === N.resolvePlace && (node === null || point.node === node));
+  effects(mir).filter(point => point.kind === "check" && (node === null || point.node === node));
 export const at = (mir, node, kind = null) =>
   effects(mir).filter(point => point.node === node && (kind === null || point.kind === kind));
 
@@ -70,7 +69,7 @@ export const at = (mir, node, kind = null) =>
  * executed, in order, and how the path ended.
  */
 export function walk(mir, { entry = 0, decide = () => "normal", limit = 2000 } = {}) {
-  const entries = mir[N.entries];
+  const entries = mir.entries;
   let current = entries === undefined ? 0 : entries[entry].block;
   const events = [];
   for (let steps = 0; steps < limit; steps += 1) {
@@ -114,7 +113,7 @@ export function chainOf(mir, id) {
   const place = placeOf(mir, id);
   if (place.base.kind === "local" || place.base.kind === "static") return [{ root: place.base, place: id }];
   return [...chainOf(mir, place.base.place),
-    { projection: place.base.projection, access: place.base[N.access], resolved: place.base.kind === N.resolved, place: id }];
+    { projection: place.base.projection, access: place.base.tir, resolved: place.base.kind === "checked", place: id }];
 }
 export const rootLocalOf = (mir, id) => {
   const root = chainOf(mir, id)[0].root;
@@ -140,18 +139,18 @@ export function checkedPlace(mir, point) {
   const place = placeOf(mir, point.record.place);
   const projection = place.base.projection;
   return { place: place.id, projection: projection.kind, parentRoot: rootLocalOf(mir, place.base.place),
-    index: projection.kind === "index" ? projection.operand : null, access: place.base[N.access] };
+    index: projection.kind === "index" ? projection.operand : null, access: place.base.tir };
 }
 /** A deep copy with every failure arm of a check or invocation replaced by one marker. */
 export function withoutFailureKinds(mir) {
   const copy = structuredClone(mir);
   for (const block of copy.blocks) {
     const terminator = block.terminator;
-    if ((terminator.kind === N.resolvePlace || terminator.kind === "invoke") && "unwind" in terminator) terminator.unwind = { kind: "*" };
+    if ((terminator.kind === "check" || terminator.kind === "invoke") && "unwind" in terminator) terminator.unwind = { kind: "*" };
   }
   return copy;
 }
-export const entriesOf = mir => mir[N.entries];
+export const entriesOf = mir => mir.entries;
 export const invert = labels => new Map([...labels].map(([label, id]) => [id, label]));
 
 /** The declaration name of the Core or library operation an invoke executes, or null. */
@@ -193,3 +192,42 @@ export function allPaths(mir, { entry = 0, decide = () => "normal", limit = 256 
   explore([]);
   return results;
 }
+
+// ---- readers of record shapes: the cases name facts, these functions know where a record holds them ----
+const lastLink = (mir, place) => chainOf(mir, place).at(-1);
+/** The member key of the last projection of a place, or null when it is not a field. */
+export const fieldKeyOf = (mir, place) => {
+  const link = lastLink(mir, place);
+  return link.projection !== undefined && link.projection.kind === "field" ? link.projection.member.decision.key.value : null;
+};
+const isAssign = item => item.statement !== null && item.kind === "assign";
+/** The kind of value an assignment computes ("use", "binary", "closure", …), or null for another record. */
+export const valueKindOf = item => isAssign(item) ? item.record.value.kind : null;
+/** True when the statement copies the value of a place whose last projection is the named field. */
+export const readsField = (mir, item, key) => valueKindOf(item) === "use" && item.record.value.operand.kind === "place" &&
+  fieldKeyOf(mir, item.record.value.operand.place) === key;
+/** True when the statement stores into a place whose last projection is the named field. */
+export const storesField = (mir, item, key) => isAssign(item) && fieldKeyOf(mir, item.record.place) === key;
+export const storedRootOf = (mir, item) => rootLocalOf(mir, item.record.place);
+export const storedChainLengthOf = (mir, item) => chainOf(mir, item.record.place).length;
+export const isCall = item => item.statement === null && item.kind === "call";
+export const isInternalCall = item => isCall(item) && item.record.callee.kind === "body";
+export const internalCallsOn = path => path.events.filter(isInternalCall);
+/** The body an internal call executes, or the declaration a selected callee names. */
+export const calleeNameOf = item => isInternalCall(item) ? item.record.callee.instance.body
+  : item.record.callee.resolution.decision.advertised.declaration;
+export const argumentKindsOf = item => item.record.arguments.map(argument => argument.kind);
+export const destinationRootOf = (mir, item) => rootLocalOf(mir, item.record.destination);
+export const destinationChainOf = (mir, item) => chainOf(mir, item.record.destination);
+export const destinationBaseOf = (mir, item) => item.record.destination === null ? null : placeOf(mir, item.record.destination).base;
+export const destinationFieldOf = (mir, item) => fieldKeyOf(mir, item.record.destination);
+export const capturedLocalsOf = item => item.record.callee.captures.map(capture => capture.local);
+export const capturedRootsOf = (mir, item) => item.record.callee.captures.map(capture => rootLocalOf(mir, capture.place));
+/** The root local of a call's receiver, or null when the receiver is not a place. */
+export const receiverRootOf = (mir, item) => item.record.receiver !== null && item.record.receiver.kind === "place"
+  ? rootLocalOf(mir, item.record.receiver.place) : null;
+export const operationKindOf = item => item.record.operation.decision.operation.kind;
+/** True when the record creates the closure of its node, as a statement or as a control point. */
+export const createsClosure = item => item.statement === null ? item.kind === "invoke" : valueKindOf(item) === "closure";
+export const blocksWithStatementAt = (mir, node) => mir.blocks.filter(block => block.statements.some(statement => statement.tir.node === node));
+export const providedCountsOf = mir => entriesOf(mir).map(entry => entry.provided);

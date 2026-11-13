@@ -21,6 +21,7 @@ const SIG_F = signature("wt6.f", [], T.int32);
 const SIG_GROW = signature("grow", [["a", T.int32Array]], T.int32);
 const SIG_ORDER_GROW = signature("orderGrow", [["a", T.int32Array], ["i", T.fnVoidToInt32]], T.int32);
 const SIG_ORDER_FIXED = signature("orderFixed", [["a", T.int32Fixed4], ["i", T.fnVoidToInt32]], T.int32);
+const SIG_ORDER_FIXED_BY_REFERENCE = signature("orderFixedByReference", [["a", T.int32Fixed4, "required", null, "byref-readwrite"], ["i", T.fnVoidToInt32]], T.int32);
 const SIG_ORDER = signature("order", [["a", T.int32Array], ["i", T.fnVoidToInt32], ["o", T.outer], ["opt", T.optCounter]], T.int32);
 
 // The indirect call `i()`: the callee is the value of the parameter; no body is known to the caller.
@@ -65,6 +66,17 @@ export function wt6(policy) {
       compoundIndex(x, 0, T.int32Fixed4, fixed, callF(x, "f()"), { assignment: "a[i()]+=f()", target: "@target", index: "i()" }),
       returnFirst(x, 0, T.int32Fixed4, direct(N.inPlace), "a[0]")) });
 
+  // Added for R2 K-1: receiver mode and extent disagree. The fixed array is the caller's storage, reached through a
+  // by-reference parameter; its extent cannot change.
+  //   function orderFixedByReference(ref a: FixedArray<int32, 4>, i: () => int32): int32 { a[i()] += f(); return a[0]; }
+  const r = builders("orderFixedByReference");
+  const orderFixedByReference = typedBody("orderFixedByReference", { signature: SIG_ORDER_FIXED_BY_REFERENCE, completion: T.int32,
+    locals: [["a", "parameter", T.int32Fixed4], ["i", "parameter", T.fnVoidToInt32]],
+    params: [[0, "required", T.int32Fixed4, null, "byref-readwrite"], [1, "required", T.fnVoidToInt32]],
+    root: r.block(
+      compoundIndex(r, 0, T.int32Fixed4, dense, callF(r, "f()"), { assignment: "a[i()]+=f()", target: "@target", index: "i()" }),
+      returnFirst(r, 0, T.int32Fixed4, direct(N.reference), "a[0]")) });
+
   const b = builders("order");
   const order = typedBody("order", { signature: SIG_ORDER, completion: T.int32,
     locals: [["a", "parameter", T.int32Array], ["i", "parameter", T.fnVoidToInt32], ["o", "parameter", T.outer],
@@ -96,5 +108,5 @@ export function wt6(policy) {
           { $: "a[0]#write", ...b.element(b.id("a", 0, T.int32Array), b.num("0", T.int32),
             b.write(selection(DYNAMIC_KEY, T.int32, T.int32, dense), T.int32)) },
           "EqualsToken", b.num("0", T.int32), T.int32, T.int32) }))) }) });
-  return { orderGrow, orderFixed, order };
+  return { orderGrow, orderFixed, orderFixedByReference, order };
 }
