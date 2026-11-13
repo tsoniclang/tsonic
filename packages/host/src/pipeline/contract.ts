@@ -1,5 +1,4 @@
 import type { Result } from "../diag/contract.js";
-import type { TypeExpansionLimits } from "../ir-types/contract.js";
 import type { HostProgram, InstantiationLimits } from "../ir-program/contract.js";
 import type { AnalysisLimits } from "../ir-facts/contract.js";
 import type { MirVerificationLimits } from "../ir-mir/contract.js";
@@ -17,7 +16,6 @@ export type { CheckerExtensions } from "../front/contract.js";
 export interface CompilerLimits {
   readonly query: QueryLimits;
   readonly navigationCapture: NavigationCaptureLimits;
-  readonly typeExpansion: TypeExpansionLimits;
   readonly inference: InferenceLimits;
   readonly evaluation: EvaluatorLimits;
   readonly dataflow: DataflowLimits;

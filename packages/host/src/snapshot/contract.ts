@@ -256,7 +256,13 @@ export interface ExtensionReferenceEntry {
 }
 
 export interface SourceDeclarationPolicy {
-  readonly bundledLibraries: readonly string[];
+  /**
+   * The declaration libraries bundled with the checker, as modules of this snapshot: a bundled library is a
+   * declaration-role module of a package like any other declaration file, and its text is its captured file's
+   * text. A checked program is opened on exactly these texts, never on what an installed checker happens to
+   * bundle. Ascending order of module identity, each module once.
+   */
+  readonly bundledLibraries: readonly ModuleId[];
   readonly installedDeclarations: "none" | "package-contract";
 }
 
@@ -282,7 +288,12 @@ export interface SourceSafetyProvider {
 }
 
 export interface SourceContributions {
-  readonly declarationFiles: readonly string[];
+  /**
+   * The declaration modules that contributions add to every program as roots: each is a declaration-role module of
+   * this snapshot, named by its identity like a root or a bundled library. Its text is its captured file's.
+   * Ascending order of module identity, each module once: the list is a set, and its order carries no meaning.
+   */
+  readonly declarationModules: readonly ModuleId[];
   readonly declarationPolicy: SourceDeclarationPolicy;
   readonly requiredProviderModules: readonly RequiredProviderModule[];
   readonly compilerExtensions: readonly ExtensionReference[];
@@ -346,7 +357,12 @@ export type SnapshotRule =
   | "extension-package-resolves"
   | "extension-reference-kinds-exact"
   | "extension-table-equality"
-  | "contribution-files-resolve"
+  | "contributed-declaration-module"
+  | "contributed-declaration-unique"
+  | "contributed-declarations-order"
+  | "bundled-library-declaration"
+  | "bundled-library-unique"
+  | "bundled-libraries-order"
   | "virtual-file-owner-resolves"
   | "contribution-layouts-exact"
   | "provider-module-prefixes-disjoint"

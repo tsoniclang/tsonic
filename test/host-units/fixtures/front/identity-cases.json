@@ -1,0 +1,3022 @@
+{
+ "note": "Identity case inputs for Front (F-1 with Codex's K-3236). Authored from the law, before lowerModuleDefinitions exists. A definition row is its declaration kind (tsts node kind) and its path of [name, ordinal] segments from the module; rows of a file are in the syntax tree's preorder. An export or use group lists [file, path] pairs in canonical order (a bare path where the group is in the same file). A repeated capture of any case must give identical identities: that is a property of a run, asserted where these inputs are run, not a row here. Added after R2's review of W5-4 and K-3250: every source is parsed by the checker in the checking case, and the declaration nodes it finds must equal the rows, kind by kind in preorder; The readings of K-3268 are applied: a pattern-holding parameter has an identity, a pattern-holding variable declaration or binding element has none, an export assignment always has its node's identity, and an authored namespace export is a declaration.",
+ "cases": [
+  {
+   "name": "type-then-value",
+   "rule": "K-3236: the ordinal counts all declarations of one name in the owner, across kinds, in the syntax tree's preorder",
+   "files": {
+    "/project/src/a.ts": "type Pair = [number, number];\nconst Pair = 0;\nexport { Pair };\n"
+   },
+   "definitions": {
+    "/project/src/a.ts": [
+     {
+      "kind": "SourceFile",
+      "path": []
+     },
+     {
+      "kind": "TypeAliasDeclaration",
+      "path": [
+       [
+        "Pair",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "VariableDeclaration",
+      "path": [
+       [
+        "Pair",
+        1
+       ]
+      ]
+     }
+    ]
+   },
+   "bindings": {
+    "/project/src/a.ts": [
+     "export specifier Pair: a binding, not a definition"
+    ]
+   }
+  },
+  {
+   "name": "value-then-type",
+   "rule": "K-3236: both declaration orders; the earlier declaration is ordinal 0 whatever its kind",
+   "files": {
+    "/project/src/a.ts": "const Pair = 0;\ntype Pair = [number, number];\nexport { Pair };\n"
+   },
+   "definitions": {
+    "/project/src/a.ts": [
+     {
+      "kind": "SourceFile",
+      "path": []
+     },
+     {
+      "kind": "VariableDeclaration",
+      "path": [
+       [
+        "Pair",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "TypeAliasDeclaration",
+      "path": [
+       [
+        "Pair",
+        1
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "type-and-value-uses",
+   "rule": "K-3236: a use selects its declaration group by the checker's symbol and the occurrence's meaning, not by name",
+   "files": {
+    "/project/src/a.ts": "type Pair = [number, number];\nconst Pair = 0;\nconst typed: Pair = [1, 2];\nconst valued = Pair;\nexport { typed, valued };\n"
+   },
+   "definitions": {
+    "/project/src/a.ts": [
+     {
+      "kind": "SourceFile",
+      "path": []
+     },
+     {
+      "kind": "TypeAliasDeclaration",
+      "path": [
+       [
+        "Pair",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "VariableDeclaration",
+      "path": [
+       [
+        "Pair",
+        1
+       ]
+      ]
+     },
+     {
+      "kind": "VariableDeclaration",
+      "path": [
+       [
+        "typed",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "VariableDeclaration",
+      "path": [
+       [
+        "valued",
+        0
+       ]
+      ]
+     }
+    ]
+   },
+   "uses": [
+    {
+     "file": "/project/src/a.ts",
+     "text": "Pair",
+     "occurrence": "the type annotation of typed",
+     "group": [
+      [
+       "/project/src/a.ts",
+       [
+        [
+         "Pair",
+         0
+        ]
+       ]
+      ]
+     ]
+    },
+    {
+     "file": "/project/src/a.ts",
+     "text": "Pair",
+     "occurrence": "the initializer of valued",
+     "group": [
+      [
+       "/project/src/a.ts",
+       [
+        [
+         "Pair",
+         1
+        ]
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "overloads",
+   "rule": "K-3236 and K-3210 point 1: one identity per declaration; an overloaded function is a group of three; each parameter belongs to its own declaration",
+   "files": {
+    "/project/src/a.ts": "export function over(a: number): number;\nexport function over(a: string): string;\nexport function over(a: number | string): number | string { return a; }\n"
+   },
+   "definitions": {
+    "/project/src/a.ts": [
+     {
+      "kind": "SourceFile",
+      "path": []
+     },
+     {
+      "kind": "FunctionDeclaration",
+      "path": [
+       [
+        "over",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "Parameter",
+      "path": [
+       [
+        "over",
+        0
+       ],
+       [
+        "a",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "FunctionDeclaration",
+      "path": [
+       [
+        "over",
+        1
+       ]
+      ]
+     },
+     {
+      "kind": "Parameter",
+      "path": [
+       [
+        "over",
+        1
+       ],
+       [
+        "a",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "FunctionDeclaration",
+      "path": [
+       [
+        "over",
+        2
+       ]
+      ]
+     },
+     {
+      "kind": "Parameter",
+      "path": [
+       [
+        "over",
+        2
+       ],
+       [
+        "a",
+        0
+       ]
+      ]
+     }
+    ]
+   },
+   "exports": {
+    "/project/src/a.ts": {
+     "over": [
+      [
+       [
+        "over",
+        0
+       ]
+      ],
+      [
+       [
+        "over",
+        1
+       ]
+      ],
+      [
+       [
+        "over",
+        2
+       ]
+      ]
+     ]
+    }
+   }
+  },
+  {
+   "name": "function-with-namespace",
+   "rule": "K-3236: function with namespace merging; the namespace's members are owned by the namespace declaration",
+   "files": {
+    "/project/src/a.ts": "export function f(): number { return f.k; }\nexport namespace f { export const k: number = 2; }\n"
+   },
+   "definitions": {
+    "/project/src/a.ts": [
+     {
+      "kind": "SourceFile",
+      "path": []
+     },
+     {
+      "kind": "FunctionDeclaration",
+      "path": [
+       [
+        "f",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "ModuleDeclaration",
+      "path": [
+       [
+        "f",
+        1
+       ]
+      ]
+     },
+     {
+      "kind": "VariableDeclaration",
+      "path": [
+       [
+        "f",
+        1
+       ],
+       [
+        "k",
+        0
+       ]
+      ]
+     }
+    ]
+   },
+   "exports": {
+    "/project/src/a.ts": {
+     "f": [
+      [
+       [
+        "f",
+        0
+       ]
+      ],
+      [
+       [
+        "f",
+        1
+       ]
+      ]
+     ]
+    }
+   }
+  },
+  {
+   "name": "class-with-interface",
+   "rule": "K-3236: class with interface merging; each member is owned by the declaration that writes it",
+   "files": {
+    "/project/src/a.ts": "export interface C { a: number }\nexport class C { b: number = 0; }\n"
+   },
+   "definitions": {
+    "/project/src/a.ts": [
+     {
+      "kind": "SourceFile",
+      "path": []
+     },
+     {
+      "kind": "InterfaceDeclaration",
+      "path": [
+       [
+        "C",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "PropertySignature",
+      "path": [
+       [
+        "C",
+        0
+       ],
+       [
+        "a",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "ClassDeclaration",
+      "path": [
+       [
+        "C",
+        1
+       ]
+      ]
+     },
+     {
+      "kind": "PropertyDeclaration",
+      "path": [
+       [
+        "C",
+        1
+       ],
+       [
+        "b",
+        0
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "unnamed-class-members",
+   "rule": "K-3236: an unnamed declaration uses the empty name, with the same across-kind ordinal: a constructor and two static blocks of one class",
+   "files": {
+    "/project/src/a.ts": "export class K {\n  static count: number = 0;\n  constructor(x: number) { K.count += x; }\n  static { K.count = 1; }\n  static { K.count = 2; }\n}\n"
+   },
+   "definitions": {
+    "/project/src/a.ts": [
+     {
+      "kind": "SourceFile",
+      "path": []
+     },
+     {
+      "kind": "ClassDeclaration",
+      "path": [
+       [
+        "K",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "PropertyDeclaration",
+      "path": [
+       [
+        "K",
+        0
+       ],
+       [
+        "count",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "Constructor",
+      "path": [
+       [
+        "K",
+        0
+       ],
+       [
+        "",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "Parameter",
+      "path": [
+       [
+        "K",
+        0
+       ],
+       [
+        "",
+        0
+       ],
+       [
+        "x",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "ClassStaticBlockDeclaration",
+      "path": [
+       [
+        "K",
+        0
+       ],
+       [
+        "",
+        1
+       ]
+      ]
+     },
+     {
+      "kind": "ClassStaticBlockDeclaration",
+      "path": [
+       [
+        "K",
+        0
+       ],
+       [
+        "",
+        2
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "unnamed-signatures",
+   "rule": "K-3236: call, construct and index signatures of one interface share the empty name and are ordered in preorder across kinds",
+   "files": {
+    "/project/src/a.ts": "export interface I {\n  (a: number): number;\n  new (a: number): I;\n  [k: string]: unknown;\n}\n"
+   },
+   "definitions": {
+    "/project/src/a.ts": [
+     {
+      "kind": "SourceFile",
+      "path": []
+     },
+     {
+      "kind": "InterfaceDeclaration",
+      "path": [
+       [
+        "I",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "CallSignature",
+      "path": [
+       [
+        "I",
+        0
+       ],
+       [
+        "",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "Parameter",
+      "path": [
+       [
+        "I",
+        0
+       ],
+       [
+        "",
+        0
+       ],
+       [
+        "a",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "ConstructSignature",
+      "path": [
+       [
+        "I",
+        0
+       ],
+       [
+        "",
+        1
+       ]
+      ]
+     },
+     {
+      "kind": "Parameter",
+      "path": [
+       [
+        "I",
+        0
+       ],
+       [
+        "",
+        1
+       ],
+       [
+        "a",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "IndexSignature",
+      "path": [
+       [
+        "I",
+        0
+       ],
+       [
+        "",
+        2
+       ]
+      ]
+     },
+     {
+      "kind": "Parameter",
+      "path": [
+       [
+        "I",
+        0
+       ],
+       [
+        "",
+        2
+       ],
+       [
+        "k",
+        0
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "augmentation-and-reexport",
+   "rule": "K-3236: a declaration keeps its original module and owner under augmentation and re-export; a group that spans modules is in qualified-module order and is never renumbered into one owner",
+   "files": {
+    "/project/src/a.ts": "export interface A { x: number }\n",
+    "/project/src/aug.ts": "declare module \"./a.js\" { interface A { y: number } }\nexport {};\n",
+    "/project/src/b.ts": "export { A } from \"./a.js\";\nexport * from \"./a.js\";\n"
+   },
+   "definitions": {
+    "/project/src/a.ts": [
+     {
+      "kind": "SourceFile",
+      "path": []
+     },
+     {
+      "kind": "InterfaceDeclaration",
+      "path": [
+       [
+        "A",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "PropertySignature",
+      "path": [
+       [
+        "A",
+        0
+       ],
+       [
+        "x",
+        0
+       ]
+      ]
+     }
+    ],
+    "/project/src/aug.ts": [
+     {
+      "kind": "SourceFile",
+      "path": []
+     },
+     {
+      "kind": "ModuleDeclaration",
+      "path": [
+       [
+        "./a.js",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "InterfaceDeclaration",
+      "path": [
+       [
+        "./a.js",
+        0
+       ],
+       [
+        "A",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "PropertySignature",
+      "path": [
+       [
+        "./a.js",
+        0
+       ],
+       [
+        "A",
+        0
+       ],
+       [
+        "y",
+        0
+       ]
+      ]
+     }
+    ],
+    "/project/src/b.ts": [
+     {
+      "kind": "SourceFile",
+      "path": []
+     }
+    ]
+   },
+   "exports": {
+    "/project/src/a.ts": {
+     "A": [
+      [
+       "/project/src/a.ts",
+       [
+        [
+         "A",
+         0
+        ]
+       ]
+      ],
+      [
+       "/project/src/aug.ts",
+       [
+        [
+         "./a.js",
+         0
+        ],
+        [
+         "A",
+         0
+        ]
+       ]
+      ]
+     ]
+    },
+    "/project/src/b.ts": {
+     "A": [
+      [
+       "/project/src/a.ts",
+       [
+        [
+         "A",
+         0
+        ]
+       ]
+      ],
+      [
+       "/project/src/aug.ts",
+       [
+        [
+         "./a.js",
+         0
+        ],
+        [
+         "A",
+         0
+        ]
+       ]
+      ]
+     ]
+    }
+   },
+   "bindings": {
+    "/project/src/b.ts": [
+     "export specifier A and the star export: bindings, not definitions; b.ts declares nothing"
+    ]
+   }
+  },
+  {
+   "name": "default-expression",
+   "rule": "K-3236: an export assignment is a declaration with an identity named default, with an ordinary initializer-role body, run once in module initialization order",
+   "files": {
+    "/project/src/de.ts": "let runs = 0;\nexport default (runs += 1, 1 + 2);\nexport { runs };\n",
+    "/project/src/u.ts": "import d, { runs } from \"./de.js\";\nexport const v = d + d;\nexport const r = runs;\n"
+   },
+   "definitions": {
+    "/project/src/de.ts": [
+     {
+      "kind": "SourceFile",
+      "path": []
+     },
+     {
+      "kind": "VariableDeclaration",
+      "path": [
+       [
+        "runs",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "ExportAssignment",
+      "path": [
+       [
+        "default",
+        0
+       ]
+      ]
+     }
+    ],
+    "/project/src/u.ts": [
+     {
+      "kind": "SourceFile",
+      "path": []
+     },
+     {
+      "kind": "VariableDeclaration",
+      "path": [
+       [
+        "v",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "VariableDeclaration",
+      "path": [
+       [
+        "r",
+        0
+       ]
+      ]
+     }
+    ]
+   },
+   "observed": "v is 6 and r is 1: the expression runs once, when de.ts is initialized, not once per use"
+  },
+  {
+   "name": "default-declarations",
+   "rule": "K-3236 and F-1: a default function or class declaration keeps its own identity and gets no second one; an anonymous one is named by its export name default",
+   "files": {
+    "/project/src/named.ts": "export default function named(): number { return 1; }\n",
+    "/project/src/anonymous.ts": "export default function (): number { return 2; }\n",
+    "/project/src/klass.ts": "export default class { v: number = 3; }\n",
+    "/project/src/namedclass.ts": "export default class Named { v: number = 4; }\n"
+   },
+   "definitions": {
+    "/project/src/named.ts": [
+     {
+      "kind": "SourceFile",
+      "path": []
+     },
+     {
+      "kind": "FunctionDeclaration",
+      "path": [
+       [
+        "named",
+        0
+       ]
+      ]
+     }
+    ],
+    "/project/src/anonymous.ts": [
+     {
+      "kind": "SourceFile",
+      "path": []
+     },
+     {
+      "kind": "FunctionDeclaration",
+      "path": [
+       [
+        "default",
+        0
+       ]
+      ]
+     }
+    ],
+    "/project/src/klass.ts": [
+     {
+      "kind": "SourceFile",
+      "path": []
+     },
+     {
+      "kind": "ClassDeclaration",
+      "path": [
+       [
+        "default",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "PropertyDeclaration",
+      "path": [
+       [
+        "default",
+        0
+       ],
+       [
+        "v",
+        0
+       ]
+      ]
+     }
+    ],
+    "/project/src/namedclass.ts": [
+     {
+      "kind": "SourceFile",
+      "path": []
+     },
+     {
+      "kind": "ClassDeclaration",
+      "path": [
+       [
+        "Named",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "PropertyDeclaration",
+      "path": [
+       [
+        "Named",
+        0
+       ],
+       [
+        "v",
+        0
+       ]
+      ]
+     }
+    ]
+   },
+   "exports": {
+    "/project/src/named.ts": {
+     "default": [
+      [
+       [
+        "named",
+        0
+       ]
+      ]
+     ]
+    },
+    "/project/src/anonymous.ts": {
+     "default": [
+      [
+       [
+        "default",
+        0
+       ]
+      ]
+     ]
+    },
+    "/project/src/klass.ts": {
+     "default": [
+      [
+       [
+        "default",
+        0
+       ]
+      ]
+     ]
+    },
+    "/project/src/namedclass.ts": {
+     "default": [
+      [
+       [
+        "Named",
+        0
+       ]
+      ]
+     ]
+    }
+   }
+  },
+  {
+   "name": "external-export-equals",
+   "rule": "K-3236: export= has a declaration and export identity only as external declaration evidence",
+   "files": {
+    "/library/eq.d.cts": "declare const obj: { k: number };\nexport = obj;\n"
+   },
+   "definitions": {
+    "/library/eq.d.cts": [
+     {
+      "kind": "SourceFile",
+      "path": []
+     },
+     {
+      "kind": "VariableDeclaration",
+      "path": [
+       [
+        "obj",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "PropertySignature",
+      "path": [
+       [
+        "obj",
+        0
+       ],
+       [
+        "k",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "ExportAssignment",
+      "path": [
+       [
+        "export=",
+        0
+       ]
+      ]
+     }
+    ]
+   },
+   "exports": {
+    "/library/eq.d.cts": {
+     "export=": [
+      [
+       [
+        "export=",
+        0
+       ]
+      ]
+     ]
+    }
+   }
+  },
+  {
+   "name": "authored-export-equals",
+   "rule": "K-3236 and K-3268 item 7: an authored source export = keeps its node and its identity (export=) in raw capture, for the Forms refusal; it is never a runtime publication, an initializer evaluation or a bootstrap path",
+   "files": {
+    "/project/src/eq.cts": "const obj = { k: 1 };\nexport = obj;\n"
+   },
+   "refused": "one source-form diagnostic at the export assignment, from Forms; Front captures the module like any other",
+   "definitions": {
+    "/project/src/eq.cts": [
+     {
+      "kind": "SourceFile",
+      "path": []
+     },
+     {
+      "kind": "VariableDeclaration",
+      "path": [
+       [
+        "obj",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "ExportAssignment",
+      "path": [
+       [
+        "export=",
+        0
+       ]
+      ]
+     }
+    ]
+   },
+   "note": "The object literal's data property has no identity (F-3). Whether a refused module has an export entry is not stated here: the admitted external declaration form keeps both its definition and its export= entry (external-export-equals)"
+  },
+  {
+   "name": "locals-in-blocks",
+   "rule": "K-3236: the ordinal counts all declarations of a name in the owner in syntax preorder; a block is not an owner, so two blocks of one function that each declare x give x#0 and x#1 under the function",
+   "files": {
+    "/project/src/a.ts": "export function f(flag: boolean): number {\n  if (flag) { const x = 1; return x; }\n  { const x = 2; return x; }\n}\nexport function g(): number {\n  let total = 0;\n  for (let i = 0; i < 2; i += 1) total += i;\n  for (let i = 0; i < 3; i += 1) total += i;\n  return total;\n}\n"
+   },
+   "definitions": {
+    "/project/src/a.ts": [
+     {
+      "kind": "SourceFile",
+      "path": []
+     },
+     {
+      "kind": "FunctionDeclaration",
+      "path": [
+       [
+        "f",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "Parameter",
+      "path": [
+       [
+        "f",
+        0
+       ],
+       [
+        "flag",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "VariableDeclaration",
+      "path": [
+       [
+        "f",
+        0
+       ],
+       [
+        "x",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "VariableDeclaration",
+      "path": [
+       [
+        "f",
+        0
+       ],
+       [
+        "x",
+        1
+       ]
+      ]
+     },
+     {
+      "kind": "FunctionDeclaration",
+      "path": [
+       [
+        "g",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "VariableDeclaration",
+      "path": [
+       [
+        "g",
+        0
+       ],
+       [
+        "total",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "VariableDeclaration",
+      "path": [
+       [
+        "g",
+        0
+       ],
+       [
+        "i",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "VariableDeclaration",
+      "path": [
+       [
+        "g",
+        0
+       ],
+       [
+        "i",
+        1
+       ]
+      ]
+     }
+    ]
+   },
+   "uses": [
+    {
+     "file": "/project/src/a.ts",
+     "text": "x",
+     "occurrence": "the return of the first block",
+     "group": [
+      [
+       [
+        "f",
+        0
+       ],
+       [
+        "x",
+        0
+       ]
+      ]
+     ]
+    },
+    {
+     "file": "/project/src/a.ts",
+     "text": "x",
+     "occurrence": "the return of the second block",
+     "group": [
+      [
+       [
+        "f",
+        0
+       ],
+       [
+        "x",
+        1
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "augmentation-before-original",
+   "rule": "K-3236: a group that spans modules is in qualified-module order. Here the augmenting module sorts before the original, so module order and 'the original first' differ, and the group follows module order",
+   "files": {
+    "/project/src/0aug.ts": "declare module \"./a.js\" { interface A { y: number } }\nexport {};\n",
+    "/project/src/a.ts": "export interface A { x: number }\n"
+   },
+   "definitions": {
+    "/project/src/0aug.ts": [
+     {
+      "kind": "SourceFile",
+      "path": []
+     },
+     {
+      "kind": "ModuleDeclaration",
+      "path": [
+       [
+        "./a.js",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "InterfaceDeclaration",
+      "path": [
+       [
+        "./a.js",
+        0
+       ],
+       [
+        "A",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "PropertySignature",
+      "path": [
+       [
+        "./a.js",
+        0
+       ],
+       [
+        "A",
+        0
+       ],
+       [
+        "y",
+        0
+       ]
+      ]
+     }
+    ],
+    "/project/src/a.ts": [
+     {
+      "kind": "SourceFile",
+      "path": []
+     },
+     {
+      "kind": "InterfaceDeclaration",
+      "path": [
+       [
+        "A",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "PropertySignature",
+      "path": [
+       [
+        "A",
+        0
+       ],
+       [
+        "x",
+        0
+       ]
+      ]
+     }
+    ]
+   },
+   "exports": {
+    "/project/src/a.ts": {
+     "A": [
+      [
+       "/project/src/0aug.ts",
+       [
+        [
+         "./a.js",
+         0
+        ],
+        [
+         "A",
+         0
+        ]
+       ]
+      ],
+      [
+       "/project/src/a.ts",
+       [
+        [
+         "A",
+         0
+        ]
+       ]
+      ]
+     ]
+    }
+   }
+  },
+  {
+   "name": "merged-class-interface-uses",
+   "rule": "K-3236: a use selects the group by symbol and occurrence meaning: of a class merged with an interface, a value use selects the class alone and a type use selects both declarations in canonical order",
+   "files": {
+    "/project/src/a.ts": "interface C { a: number }\nclass C { b: number = 0; }\nconst made = new C();\nconst typed: C = made;\nexport { made, typed };\n"
+   },
+   "definitions": {
+    "/project/src/a.ts": [
+     {
+      "kind": "SourceFile",
+      "path": []
+     },
+     {
+      "kind": "InterfaceDeclaration",
+      "path": [
+       [
+        "C",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "PropertySignature",
+      "path": [
+       [
+        "C",
+        0
+       ],
+       [
+        "a",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "ClassDeclaration",
+      "path": [
+       [
+        "C",
+        1
+       ]
+      ]
+     },
+     {
+      "kind": "PropertyDeclaration",
+      "path": [
+       [
+        "C",
+        1
+       ],
+       [
+        "b",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "VariableDeclaration",
+      "path": [
+       [
+        "made",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "VariableDeclaration",
+      "path": [
+       [
+        "typed",
+        0
+       ]
+      ]
+     }
+    ]
+   },
+   "uses": [
+    {
+     "file": "/project/src/a.ts",
+     "text": "C",
+     "occurrence": "the constructed class in the initializer of made",
+     "group": [
+      [
+       [
+        "C",
+        1
+       ]
+      ]
+     ]
+    },
+    {
+     "file": "/project/src/a.ts",
+     "text": "C",
+     "occurrence": "the type annotation of typed",
+     "group": [
+      [
+       [
+        "C",
+        0
+       ]
+      ],
+      [
+       [
+        "C",
+        1
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "default-expression-order",
+   "rule": "K-3236: a default expression is an initializer-role body run once in module initialization order; between two such modules the order is the importing module's import order, not the modules' names",
+   "files": {
+    "/project/src/log.ts": "export let n = 0;\nexport function mark(k: number): number { n = n * 10 + k; return k; }\n",
+    "/project/src/first.ts": "import { mark } from \"./log.js\";\nexport default mark(1);\n",
+    "/project/src/second.ts": "import { mark } from \"./log.js\";\nexport default mark(2);\n",
+    "/project/src/main.ts": "import second from \"./second.js\";\nimport first from \"./first.js\";\nimport { n } from \"./log.js\";\nexport const sum = first + second;\nexport const order = n;\n"
+   },
+   "definitions": {
+    "/project/src/log.ts": [
+     {
+      "kind": "SourceFile",
+      "path": []
+     },
+     {
+      "kind": "VariableDeclaration",
+      "path": [
+       [
+        "n",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "FunctionDeclaration",
+      "path": [
+       [
+        "mark",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "Parameter",
+      "path": [
+       [
+        "mark",
+        0
+       ],
+       [
+        "k",
+        0
+       ]
+      ]
+     }
+    ],
+    "/project/src/first.ts": [
+     {
+      "kind": "SourceFile",
+      "path": []
+     },
+     {
+      "kind": "ExportAssignment",
+      "path": [
+       [
+        "default",
+        0
+       ]
+      ]
+     }
+    ],
+    "/project/src/second.ts": [
+     {
+      "kind": "SourceFile",
+      "path": []
+     },
+     {
+      "kind": "ExportAssignment",
+      "path": [
+       [
+        "default",
+        0
+       ]
+      ]
+     }
+    ],
+    "/project/src/main.ts": [
+     {
+      "kind": "SourceFile",
+      "path": []
+     },
+     {
+      "kind": "VariableDeclaration",
+      "path": [
+       [
+        "sum",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "VariableDeclaration",
+      "path": [
+       [
+        "order",
+        0
+       ]
+      ]
+     }
+    ]
+   },
+   "observed": "order is 21 and sum is 3: second.ts is initialized before first.ts because main.ts imports it first"
+  },
+  {
+   "name": "expression-owners",
+   "rule": "K-3250 (ii): a function expression, arrow function or class expression has the empty name; its owner is the nearest enclosing declaration that has an identity; the empty-named declarations of one owner are numbered in syntax preorder across kinds. Its own lexical name is metadata, not identity",
+   "files": {
+    "/project/src/c.ts": "export class C { a = () => 1; b = () => 2; constructor() {} }\n",
+    "/project/src/d.ts": "export class D {\n  m(x: number): number { return (() => x * 2)(); }\n  n(x: number): number { const twice = (v: number): number => v * 2; return twice(x); }\n}\n",
+    "/project/src/e.ts": "export const Made = class Inner { v: number = 1; };\nexport const f = function named(): number { return 1; };\n",
+    "/project/src/h.ts": "export function h(): number { return (() => 1)() + (function (): number { return 2; })() + new (class { v: number = 3; })().v; }\n",
+    "/project/src/top.ts": "(() => 1)();\nexport default (() => 2);\n"
+   },
+   "definitions": {
+    "/project/src/c.ts": [
+     {
+      "kind": "SourceFile",
+      "path": []
+     },
+     {
+      "kind": "ClassDeclaration",
+      "path": [
+       [
+        "C",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "PropertyDeclaration",
+      "path": [
+       [
+        "C",
+        0
+       ],
+       [
+        "a",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "ArrowFunction",
+      "path": [
+       [
+        "C",
+        0
+       ],
+       [
+        "a",
+        0
+       ],
+       [
+        "",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "PropertyDeclaration",
+      "path": [
+       [
+        "C",
+        0
+       ],
+       [
+        "b",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "ArrowFunction",
+      "path": [
+       [
+        "C",
+        0
+       ],
+       [
+        "b",
+        0
+       ],
+       [
+        "",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "Constructor",
+      "path": [
+       [
+        "C",
+        0
+       ],
+       [
+        "",
+        0
+       ]
+      ]
+     }
+    ],
+    "/project/src/d.ts": [
+     {
+      "kind": "SourceFile",
+      "path": []
+     },
+     {
+      "kind": "ClassDeclaration",
+      "path": [
+       [
+        "D",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "MethodDeclaration",
+      "path": [
+       [
+        "D",
+        0
+       ],
+       [
+        "m",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "Parameter",
+      "path": [
+       [
+        "D",
+        0
+       ],
+       [
+        "m",
+        0
+       ],
+       [
+        "x",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "ArrowFunction",
+      "path": [
+       [
+        "D",
+        0
+       ],
+       [
+        "m",
+        0
+       ],
+       [
+        "",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "MethodDeclaration",
+      "path": [
+       [
+        "D",
+        0
+       ],
+       [
+        "n",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "Parameter",
+      "path": [
+       [
+        "D",
+        0
+       ],
+       [
+        "n",
+        0
+       ],
+       [
+        "x",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "VariableDeclaration",
+      "path": [
+       [
+        "D",
+        0
+       ],
+       [
+        "n",
+        0
+       ],
+       [
+        "twice",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "ArrowFunction",
+      "path": [
+       [
+        "D",
+        0
+       ],
+       [
+        "n",
+        0
+       ],
+       [
+        "twice",
+        0
+       ],
+       [
+        "",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "Parameter",
+      "path": [
+       [
+        "D",
+        0
+       ],
+       [
+        "n",
+        0
+       ],
+       [
+        "twice",
+        0
+       ],
+       [
+        "",
+        0
+       ],
+       [
+        "v",
+        0
+       ]
+      ]
+     }
+    ],
+    "/project/src/e.ts": [
+     {
+      "kind": "SourceFile",
+      "path": []
+     },
+     {
+      "kind": "VariableDeclaration",
+      "path": [
+       [
+        "Made",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "ClassExpression",
+      "path": [
+       [
+        "Made",
+        0
+       ],
+       [
+        "",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "PropertyDeclaration",
+      "path": [
+       [
+        "Made",
+        0
+       ],
+       [
+        "",
+        0
+       ],
+       [
+        "v",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "VariableDeclaration",
+      "path": [
+       [
+        "f",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "FunctionExpression",
+      "path": [
+       [
+        "f",
+        0
+       ],
+       [
+        "",
+        0
+       ]
+      ]
+     }
+    ],
+    "/project/src/h.ts": [
+     {
+      "kind": "SourceFile",
+      "path": []
+     },
+     {
+      "kind": "FunctionDeclaration",
+      "path": [
+       [
+        "h",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "ArrowFunction",
+      "path": [
+       [
+        "h",
+        0
+       ],
+       [
+        "",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "FunctionExpression",
+      "path": [
+       [
+        "h",
+        0
+       ],
+       [
+        "",
+        1
+       ]
+      ]
+     },
+     {
+      "kind": "ClassExpression",
+      "path": [
+       [
+        "h",
+        0
+       ],
+       [
+        "",
+        2
+       ]
+      ]
+     },
+     {
+      "kind": "PropertyDeclaration",
+      "path": [
+       [
+        "h",
+        0
+       ],
+       [
+        "",
+        2
+       ],
+       [
+        "v",
+        0
+       ]
+      ]
+     }
+    ],
+    "/project/src/top.ts": [
+     {
+      "kind": "SourceFile",
+      "path": []
+     },
+     {
+      "kind": "ArrowFunction",
+      "path": [
+       [
+        "",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "ExportAssignment",
+      "path": [
+       [
+        "default",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "ArrowFunction",
+      "path": [
+       [
+        "default",
+        0
+       ],
+       [
+        "",
+        0
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "accessors-and-static",
+   "rule": "K-3236: across kinds for members: a getter and a setter of one name are x#0 and x#1; a static and an instance member of one name are y#0 and y#1 in their class",
+   "files": {
+    "/project/src/a.ts": "export class P {\n  stored: number = 0;\n  get x(): number { return this.stored; }\n  set x(value: number) { this.stored = value; }\n  static y: number = 1;\n  y: number = 2;\n}\n"
+   },
+   "definitions": {
+    "/project/src/a.ts": [
+     {
+      "kind": "SourceFile",
+      "path": []
+     },
+     {
+      "kind": "ClassDeclaration",
+      "path": [
+       [
+        "P",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "PropertyDeclaration",
+      "path": [
+       [
+        "P",
+        0
+       ],
+       [
+        "stored",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "GetAccessor",
+      "path": [
+       [
+        "P",
+        0
+       ],
+       [
+        "x",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "SetAccessor",
+      "path": [
+       [
+        "P",
+        0
+       ],
+       [
+        "x",
+        1
+       ]
+      ]
+     },
+     {
+      "kind": "Parameter",
+      "path": [
+       [
+        "P",
+        0
+       ],
+       [
+        "x",
+        1
+       ],
+       [
+        "value",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "PropertyDeclaration",
+      "path": [
+       [
+        "P",
+        0
+       ],
+       [
+        "y",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "PropertyDeclaration",
+      "path": [
+       [
+        "P",
+        0
+       ],
+       [
+        "y",
+        1
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "same-kind-merges",
+   "rule": "K-3236: declarations of one kind and name in one owner are numbered like any others; each owns the members it writes; the export group holds all of them in order",
+   "files": {
+    "/project/src/a.ts": "export interface A { x: number }\nexport interface A { y: number }\nexport namespace N { export const a = 1; }\nexport namespace N { export const b = 2; }\nvar v = 1;\nvar v = 2;\nexport { v };\n"
+   },
+   "definitions": {
+    "/project/src/a.ts": [
+     {
+      "kind": "SourceFile",
+      "path": []
+     },
+     {
+      "kind": "InterfaceDeclaration",
+      "path": [
+       [
+        "A",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "PropertySignature",
+      "path": [
+       [
+        "A",
+        0
+       ],
+       [
+        "x",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "InterfaceDeclaration",
+      "path": [
+       [
+        "A",
+        1
+       ]
+      ]
+     },
+     {
+      "kind": "PropertySignature",
+      "path": [
+       [
+        "A",
+        1
+       ],
+       [
+        "y",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "ModuleDeclaration",
+      "path": [
+       [
+        "N",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "VariableDeclaration",
+      "path": [
+       [
+        "N",
+        0
+       ],
+       [
+        "a",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "ModuleDeclaration",
+      "path": [
+       [
+        "N",
+        1
+       ]
+      ]
+     },
+     {
+      "kind": "VariableDeclaration",
+      "path": [
+       [
+        "N",
+        1
+       ],
+       [
+        "b",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "VariableDeclaration",
+      "path": [
+       [
+        "v",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "VariableDeclaration",
+      "path": [
+       [
+        "v",
+        1
+       ]
+      ]
+     }
+    ]
+   },
+   "exports": {
+    "/project/src/a.ts": {
+     "A": [
+      [
+       [
+        "A",
+        0
+       ]
+      ],
+      [
+       [
+        "A",
+        1
+       ]
+      ]
+     ],
+     "N": [
+      [
+       [
+        "N",
+        0
+       ]
+      ],
+      [
+       [
+        "N",
+        1
+       ]
+      ]
+     ],
+     "v": [
+      [
+       [
+        "v",
+        0
+       ]
+      ],
+      [
+       [
+        "v",
+        1
+       ]
+      ]
+     ]
+    }
+   }
+  },
+  {
+   "name": "enum-and-type-parameters",
+   "rule": "F-1: EnumDeclaration, EnumMember and TypeParameter are declarations with identities, owned like any member; a parameter property is one Parameter",
+   "files": {
+    "/project/src/a.ts": "export enum E { A, B = 5 }\nexport function same<T>(value: T): T { return value; }\nexport class Box<T> { constructor(readonly value: T) {} }\nexport interface Two<A, B> { first: A; second: B }\nexport type Alias<T> = T;\n"
+   },
+   "definitions": {
+    "/project/src/a.ts": [
+     {
+      "kind": "SourceFile",
+      "path": []
+     },
+     {
+      "kind": "EnumDeclaration",
+      "path": [
+       [
+        "E",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "EnumMember",
+      "path": [
+       [
+        "E",
+        0
+       ],
+       [
+        "A",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "EnumMember",
+      "path": [
+       [
+        "E",
+        0
+       ],
+       [
+        "B",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "FunctionDeclaration",
+      "path": [
+       [
+        "same",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "TypeParameter",
+      "path": [
+       [
+        "same",
+        0
+       ],
+       [
+        "T",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "Parameter",
+      "path": [
+       [
+        "same",
+        0
+       ],
+       [
+        "value",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "ClassDeclaration",
+      "path": [
+       [
+        "Box",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "TypeParameter",
+      "path": [
+       [
+        "Box",
+        0
+       ],
+       [
+        "T",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "Constructor",
+      "path": [
+       [
+        "Box",
+        0
+       ],
+       [
+        "",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "Parameter",
+      "path": [
+       [
+        "Box",
+        0
+       ],
+       [
+        "",
+        0
+       ],
+       [
+        "value",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "InterfaceDeclaration",
+      "path": [
+       [
+        "Two",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "TypeParameter",
+      "path": [
+       [
+        "Two",
+        0
+       ],
+       [
+        "A",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "TypeParameter",
+      "path": [
+       [
+        "Two",
+        0
+       ],
+       [
+        "B",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "PropertySignature",
+      "path": [
+       [
+        "Two",
+        0
+       ],
+       [
+        "first",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "PropertySignature",
+      "path": [
+       [
+        "Two",
+        0
+       ],
+       [
+        "second",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "TypeAliasDeclaration",
+      "path": [
+       [
+        "Alias",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "TypeParameter",
+      "path": [
+       [
+        "Alias",
+        0
+       ],
+       [
+        "T",
+        0
+       ]
+      ]
+     }
+    ]
+   },
+   "note": "constructor(readonly value: T) is one Parameter node with one row, under the constructor. That node is also what declares the class member value, so the member's declaration identity is Box#0/#0/value#0, not Box#0/value#0"
+  },
+  {
+   "name": "binding-elements",
+   "rule": "K-3268 items 1 and 2 with K-3273: one identity per bound name. A parameter that holds a pattern has its own identity with the empty name, and the names its pattern binds are owned by it: the owner of an identity is the nearest actual identity-bearing declaration, with no lexical-scope exception. A variable declaration or binding element that holds a pattern has no identity, so the names it binds are owned by whatever encloses the declaration. A property selector is not a bound name",
+   "files": {
+    "/project/src/a.ts": "interface Shape { a: number; b: [number, number] }\nexport function pick({ a, b: [c, d], a: renamed }: Shape): number {\n  const [e, { f }] = [a + renamed, { f: c + d }];\n  return e + f;\n}\n"
+   },
+   "definitions": {
+    "/project/src/a.ts": [
+     {
+      "kind": "SourceFile",
+      "path": []
+     },
+     {
+      "kind": "InterfaceDeclaration",
+      "path": [
+       [
+        "Shape",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "PropertySignature",
+      "path": [
+       [
+        "Shape",
+        0
+       ],
+       [
+        "a",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "PropertySignature",
+      "path": [
+       [
+        "Shape",
+        0
+       ],
+       [
+        "b",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "FunctionDeclaration",
+      "path": [
+       [
+        "pick",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "Parameter",
+      "path": [
+       [
+        "pick",
+        0
+       ],
+       [
+        "",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "BindingElement",
+      "path": [
+       [
+        "pick",
+        0
+       ],
+       [
+        "",
+        0
+       ],
+       [
+        "a",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "BindingElement",
+      "path": [
+       [
+        "pick",
+        0
+       ],
+       [
+        "",
+        0
+       ],
+       [
+        "c",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "BindingElement",
+      "path": [
+       [
+        "pick",
+        0
+       ],
+       [
+        "",
+        0
+       ],
+       [
+        "d",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "BindingElement",
+      "path": [
+       [
+        "pick",
+        0
+       ],
+       [
+        "",
+        0
+       ],
+       [
+        "renamed",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "BindingElement",
+      "path": [
+       [
+        "pick",
+        0
+       ],
+       [
+        "e",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "BindingElement",
+      "path": [
+       [
+        "pick",
+        0
+       ],
+       [
+        "f",
+        0
+       ]
+      ]
+     }
+    ]
+   },
+   "note": "{ a, a: renamed } binds a and renamed: the second element's selector a is not a bound name, so there is no a#1. The element b: [c, d] and the element { f } hold patterns and have no identity. The pattern-holding parameter is pick#0/#0 and owns a, c, d and renamed; e and f are bound by a variable declaration that has no identity and are owned by the function"
+  },
+  {
+   "name": "member-name-sources",
+   "rule": "F-1: a computed member name is the constant key the checker resolved; a private name is the authored #name; a string or numeric member name is its text",
+   "files": {
+    "/project/src/a.ts": "const key = \"computed\";\nexport class Q {\n  #secret: number = 1;\n  [\"literal\"]: number = 2;\n  [key]: number = 3;\n  3: number = 4;\n  \"quoted\": number = 5;\n  read(): number { return this.#secret; }\n}\n"
+   },
+   "definitions": {
+    "/project/src/a.ts": [
+     {
+      "kind": "SourceFile",
+      "path": []
+     },
+     {
+      "kind": "VariableDeclaration",
+      "path": [
+       [
+        "key",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "ClassDeclaration",
+      "path": [
+       [
+        "Q",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "PropertyDeclaration",
+      "path": [
+       [
+        "Q",
+        0
+       ],
+       [
+        "#secret",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "PropertyDeclaration",
+      "path": [
+       [
+        "Q",
+        0
+       ],
+       [
+        "literal",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "PropertyDeclaration",
+      "path": [
+       [
+        "Q",
+        0
+       ],
+       [
+        "computed",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "PropertyDeclaration",
+      "path": [
+       [
+        "Q",
+        0
+       ],
+       [
+        "3",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "PropertyDeclaration",
+      "path": [
+       [
+        "Q",
+        0
+       ],
+       [
+        "quoted",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "MethodDeclaration",
+      "path": [
+       [
+        "Q",
+        0
+       ],
+       [
+        "read",
+        0
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "module-declaration-forms",
+   "rule": "F-1: a module declaration is an owner whatever its form: declare global, a string-named ambient module (named by its string), and each part of a dotted namespace",
+   "files": {
+    "/project/src/g.ts": "export {};\ndeclare global { interface GlobalThing { g: number } }\n",
+    "/project/src/ambient.d.ts": "declare module \"ambient-thing\" { export const t: number; }\ndeclare namespace outer.inner { const deep: number; }\n"
+   },
+   "definitions": {
+    "/project/src/g.ts": [
+     {
+      "kind": "SourceFile",
+      "path": []
+     },
+     {
+      "kind": "ModuleDeclaration",
+      "path": [
+       [
+        "global",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "InterfaceDeclaration",
+      "path": [
+       [
+        "global",
+        0
+       ],
+       [
+        "GlobalThing",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "PropertySignature",
+      "path": [
+       [
+        "global",
+        0
+       ],
+       [
+        "GlobalThing",
+        0
+       ],
+       [
+        "g",
+        0
+       ]
+      ]
+     }
+    ],
+    "/project/src/ambient.d.ts": [
+     {
+      "kind": "SourceFile",
+      "path": []
+     },
+     {
+      "kind": "ModuleDeclaration",
+      "path": [
+       [
+        "ambient-thing",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "VariableDeclaration",
+      "path": [
+       [
+        "ambient-thing",
+        0
+       ],
+       [
+        "t",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "ModuleDeclaration",
+      "path": [
+       [
+        "outer",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "ModuleDeclaration",
+      "path": [
+       [
+        "outer",
+        0
+       ],
+       [
+        "inner",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "VariableDeclaration",
+      "path": [
+       [
+        "outer",
+        0
+       ],
+       [
+        "inner",
+        0
+       ],
+       [
+        "deep",
+        0
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "renamed-reexports",
+   "rule": "K-3236 and K-3268 item 8: a re-export under another name selects the original declaration unchanged; an authored namespace export (export * as ns) is a declaration with an identity under its exported name, its export group holds it once, and its binding target is the module it steps to",
+   "files": {
+    "/project/src/r.ts": "export const original = 1;\n",
+    "/project/src/s.ts": "export { original as renamed } from \"./r.js\";\nexport * as ns from \"./r.js\";\n"
+   },
+   "definitions": {
+    "/project/src/r.ts": [
+     {
+      "kind": "SourceFile",
+      "path": []
+     },
+     {
+      "kind": "VariableDeclaration",
+      "path": [
+       [
+        "original",
+        0
+       ]
+      ]
+     }
+    ],
+    "/project/src/s.ts": [
+     {
+      "kind": "SourceFile",
+      "path": []
+     },
+     {
+      "kind": "NamespaceExport",
+      "path": [
+       [
+        "ns",
+        0
+       ]
+      ]
+     }
+    ]
+   },
+   "exports": {
+    "/project/src/r.ts": {
+     "original": [
+      [
+       [
+        "original",
+        0
+       ]
+      ]
+     ]
+    },
+    "/project/src/s.ts": {
+     "renamed": [
+      [
+       "/project/src/r.ts",
+       [
+        [
+         "original",
+         0
+        ]
+       ]
+      ]
+     ],
+     "ns": [
+      [
+       [
+        "ns",
+        0
+       ]
+      ]
+     ]
+    }
+   },
+   "bindings": {
+    "/project/src/s.ts": [
+     "the export specifier original as renamed is a binding, not a definition; the namespace export is a definition whose target is the module r.ts itself: no module identity is fabricated for it and no declaration of r.ts is copied or renumbered"
+    ]
+   },
+   "bindingTargets": {
+    "/project/src/s.ts": [
+     {
+      "definition": [
+       [
+        "ns",
+        0
+       ]
+      ],
+      "target": {
+       "kind": "module",
+       "module": "/project/src/r.ts"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "name": "object-literal-members",
+   "rule": "F-1 and F-3: a data property of an object literal has no identity; its methods and accessors keep theirs, under the nearest declaration that has an identity; an arrow that is a data property's value is an expression of that same owner",
+   "files": {
+    "/project/src/a.ts": "export const o = { data: 1, m(): number { return 2; }, get g(): number { return 3; }, set g(v: number) {}, f: () => 4 };\n"
+   },
+   "definitions": {
+    "/project/src/a.ts": [
+     {
+      "kind": "SourceFile",
+      "path": []
+     },
+     {
+      "kind": "VariableDeclaration",
+      "path": [
+       [
+        "o",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "MethodDeclaration",
+      "path": [
+       [
+        "o",
+        0
+       ],
+       [
+        "m",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "GetAccessor",
+      "path": [
+       [
+        "o",
+        0
+       ],
+       [
+        "g",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "SetAccessor",
+      "path": [
+       [
+        "o",
+        0
+       ],
+       [
+        "g",
+        1
+       ]
+      ]
+     },
+     {
+      "kind": "Parameter",
+      "path": [
+       [
+        "o",
+        0
+       ],
+       [
+        "g",
+        1
+       ],
+       [
+        "v",
+        0
+       ]
+      ]
+     },
+     {
+      "kind": "ArrowFunction",
+      "path": [
+       [
+        "o",
+        0
+       ],
+       [
+        "",
+        0
+       ]
+      ]
+     }
+    ]
+   }
+  }
+ ]
+}

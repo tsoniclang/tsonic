@@ -228,7 +228,7 @@ test("raw capture provenance belongs to front; pipeline may store it only privat
   }
   const query = `${raw}\nexport type Query = (deps: { readonly limit: number }, input: number) => Renamed;`;
   expect([[contract, query], [file("pipeline", "contract.ts"), 'import type { Query } from "../front/contract.js";\nexport interface Wiring { readonly capture: Query; }']],
-    [at("forbidden-import", file("pipeline", "contract.ts")), at("forbidden-import", file("pipeline", "contract.ts"), 2)]);
+    [at("forbidden-import", file("pipeline", "contract.ts")), at("forbidden-import", file("pipeline", "contract.ts"), 2), at("unwired-operation", file("pipeline", "contract.ts"), 2)]);
   expect([[file("ir-hir", "contract.ts"), 'export interface RawModule { readonly text: string; }'],
     [file("decls", "contract.ts"), 'import type { RawModule } from "../ir-hir/contract.js"; export type Ordinary = RawModule;']], []);
 });
@@ -347,11 +347,12 @@ test("pipeline admits only genuine clean component Deps and exact owner limits b
     expect([[file(owner, "contract.ts"), `export interface ${limit} { readonly maximum: number; }`],
       [pipeline, `import type { ${limit} } from "../${owner}/contract.js"; export interface CompilerLimits { readonly owner: ${limit}; }`]], []);
   const front = file("front", "contract.ts");
-  const raw = 'export interface RawModule { readonly text: string; }\nexport interface LowerDeps { readonly raw: RawModule; }\nexport type LowerModule = (deps: LowerDeps, input: number) => number;\nexport type CaptureModule = (deps: { readonly limit: number }, input: number) => RawModule;';
-  expect([[front, raw], [file("pipeline"), 'import type { LowerDeps, LowerModule, CaptureModule } from "../front/contract.js"; export interface Wiring { readonly deps: LowerDeps; readonly lower: LowerModule; readonly capture: CaptureModule; }']], []);
+  const raw = 'export interface RawModule { readonly text: string; }\nexport interface LowerDeps { readonly raw: RawModule; }\nexport type LowerModule = (deps: LowerDeps, input: number) => number;\nexport interface CaptureDeps { readonly limit: number; }\nexport type CaptureModule = (deps: CaptureDeps, input: number) => RawModule;';
+  const implemented = [file("front", "index.ts"), 'import type { CaptureModule, LowerModule } from "./contract.js";\nexport const lower: LowerModule = (deps, input) => input;\nexport const capture: CaptureModule = (deps, input) => ({ text: "" });'];
+  expect([[front, raw], implemented, [file("pipeline"), 'import type { LowerDeps, LowerModule, CaptureModule } from "../front/contract.js"; export interface Wiring { readonly deps: LowerDeps; readonly lower: LowerModule; readonly capture: CaptureModule; }']], []);
   for (const name of ["LowerDeps", "LowerModule", "CaptureModule"])
     expect([[front, raw], [pipeline, `import type { ${name} } from "../front/contract.js";\nexport interface Wiring { readonly port: ${name}; }`]],
-      [at("forbidden-import", pipeline), at("forbidden-import", pipeline, 2)]);
+      [at("forbidden-import", pipeline), at("forbidden-import", pipeline, 2), ...(name === "LowerDeps" ? [] : [at("unwired-operation", pipeline, 2)])]);
   expect([[file("snapshot", "contract.ts"), 'export interface ImportPreparation { readonly specifiers: readonly string[]; }'],
     [front, 'import type { ImportPreparation } from "../snapshot/contract.js"; export type Capture = (deps: { readonly limit: number }, input: ImportPreparation) => number;'],
     [pipeline, 'import type { ImportPreparation } from "../snapshot/contract.js"; export type PrepareImports = (input: string) => ImportPreparation;']], []);
@@ -361,8 +362,9 @@ test("composition contracts preserve the one front brand and only named genuine 
   const front = [file("front", "contract.ts"), 'export type CheckerExtensions = object & { readonly identityKind: "checker-extensions" };'];
   const pipeline = [file("pipeline", "contract.ts"), 'export type { CheckerExtensions } from "../front/contract.js";'];
   expect([front, pipeline, [file("orchestration", "contract.ts"), 'import type { CheckerExtensions } from "../pipeline/contract.js"; export interface Input { readonly extensions: CheckerExtensions; }']], []);
-  const query = [file("infer", "contract.ts"), 'export type Infer = (deps: { readonly bias: number }, input: number) => number;'];
-  expect([query, [file("pipeline", "contract.ts"), 'import type { Infer } from "../infer/contract.js"; export interface Wiring { readonly infer: Infer; }']], []);
+  const query = [file("infer", "contract.ts"), 'export interface InferDeps { readonly bias: number; }\nexport type Infer = (deps: InferDeps, input: number) => number;'];
+  expect([query, [file("infer", "index.ts"), 'import type { Infer } from "./contract.js";\nexport const infer: Infer = (deps, input) => input + deps.bias;'],
+    [file("pipeline", "contract.ts"), 'import type { Infer } from "../infer/contract.js"; export interface Wiring { readonly infer: Infer; }']], []);
   for (const [owner, target, text] of [
     ["orchestration", front, 'import type { CheckerExtensions } from "../front/contract.js";'],
     ["decls", front, 'import type { CheckerExtensions } from "../front/contract.js";'],
@@ -390,19 +392,242 @@ test("current Host inventory rejects a file outside the catalogue", () => {
   expect([[path, data]], [at("unknown-module", path)]);
 });
 
-test("pure stage contracts require their genuine Deps first while state and try remain forbidden", () => {
+test("a public stage operation takes its inputs, and injected dependencies only as its own contract's Deps record in first place; state and try remain forbidden", () => {
   const contract = file("infer", "contract.ts");
   const entry = file("infer", "index.ts");
-  const implementation = [entry, 'import type { Run } from "./contract.js"; export const run: Run = (deps, input) => input;'];
-  for (const signature of ['(input: number) => number', '(input: number, deps: InferDeps) => number',
-    '(deps: { readonly bias: number }, input: number) => number', '(deps: number, input: number) => number'])
-    expect([[contract, `export interface InferDeps { readonly bias: number; }\nexport type Run = ${signature};`], implementation], [at("impure-component", contract, 2)]);
-  expect([[contract, 'export interface InferDeps { readonly bias: number; }\nexport type Run = (deps: InferDeps, input: number) => number;'], implementation], []);
+  const record = "export interface InferDeps { readonly bias: number; }\n";
+  const stage = (signature, implementation, preamble = record) => [[contract, `${preamble}export type Run = ${signature};`],
+    [entry, `import type { Run } from "./contract.js";\nexport const run: Run = ${implementation};`]];
+  // Positive: an operation with one ready input and no injected dependency; several inputs; a real dependency record.
+  expect(stage("(input: number) => number", "input => input"), []);
+  expect(stage("(input: number) => number", "input => input", ""), []);
+  expect(stage("(left: number, right: number) => number", "(left, right) => left + right"), []);
+  expect(stage("(deps: InferDeps, input: number) => number", "(deps, input) => input + deps.bias"), []);
+  expect(stage("(other: InferDeps, input: number) => number", "(other, input) => input + other.bias"), []);
+  // Positive: an operation whose only parameter is its own dependency record, and one with no parameter: no input is invented.
+  expect(stage("(deps: InferDeps) => number", "deps => deps.bias"), []);
+  expect(stage("() => number", "() => 1"), []);
+  // Positive: data however it is built carries no dependency: nested readonly arrays and maps, tuples, nullable unions, a
+  // recursive record, a generic record of data, and an opaque handle of its owner though that holds a function inside.
+  expect(stage("(input: Nested, rows: readonly (readonly Row[])[], pair: readonly [Row, number], choice: Row | null, box: Box<Row>, text: string, both: Row & Nested) => Nested",
+    "(input, rows, pair, choice, box, text, both) => input",
+    "export interface Row { readonly value: number; }\nexport interface Box<T> { readonly value: T; }\nexport interface Nested { readonly inner: Row; readonly rows: ReadonlyArray<Row>; readonly self: Nested | null; }\n"), []);
+  // A native map is not contract data at all (the closed-data rule reports it); this rule does not take its methods for a service,
+  // and still finds a callable among its type arguments.
+  expect(stage("(input: number, table: ReadonlyMap<string, Row>) => number", "(input, table) => input", "export interface Row { readonly value: number; }\n"), [at("contract-shape", contract, 2)]);
+  expect(stage("(input: number, table: ReadonlyMap<string, () => number>) => number", "(input, table) => input", "\n"), [at("contract-shape", contract, 2), at("impure-component", contract, 2)]);
+  expect([[file("ir-types", "arena.ts"), "export class TypeArena { private readonly run: () => number = () => 1; private constructor() {} static create(): TypeArena { return new TypeArena(); } }"],
+    [file("ir-types", "contract.ts"), 'import type { TypeArena } from "./arena.js";\nexport type TypeInterner = TypeArena;'],
+    [contract, 'import type { TypeInterner } from "../ir-types/contract.js";\nexport type Run = (input: number, types: TypeInterner, all: readonly TypeInterner[]) => number;'],
+    [entry, 'import type { Run } from "./contract.js";\nexport const run: Run = (input, types, all) => input;']], []);
+  // Negative: a dependency record that is moved, repeated, alone, inline, not a record, or not named as one.
+  for (const [signature, implementation] of [
+    ["(input: number, deps: InferDeps) => number", "(input, deps) => input + deps.bias"],
+    ["(input: number, other: InferDeps) => number", "(input, other) => input + other.bias"],
+    ["(deps: InferDeps, more: InferDeps, input: number) => number", "(deps, more, input) => input + deps.bias + more.bias"],
+    ["(deps: { readonly bias: number }, input: number) => number", "(deps, input) => input + deps.bias"],
+    ["(deps: number, input: number) => number", "(deps, input) => input + deps"],
+    ["(deps: InferOptions, input: number) => number", "(deps, input) => input + deps.bias"]])
+    expect(stage(signature, implementation, `${record.trimEnd()} export interface InferOptions { readonly bias: number; }\n`), [at("impure-component", contract, 2)]);
+  // Negative: hidden effects, which are dependencies injected outside the record: a callable input, an input record with a
+  // callable member, and a library function handed in instead of used through its owner.
+  expect(stage("(input: number, effect: () => number) => number", "(input, effect) => input + effect()"), [at("impure-component", contract, 2)]);
+  expect(stage("(input: Carrier) => number", "input => input.run()",
+    "export interface Carrier { readonly run: () => number; }\n"), [at("impure-component", contract, 2)]);
+  expect(stage("(input: { run(): number }) => number", "input => input.run()", "\n"), [at("impure-component", contract, 2)]);
+  // The same however the callable is wrapped: nested one record deeper, an interface with a call signature, in an array, a tuple,
+  // a nullable union, a type argument of a record and of a native map, an index value, a constructor, an alias of an alias,
+  // an extended interface, and a recursive type that reaches it only after its own cycle.
+  for (const [signature, preamble] of [
+    ["(input: number, tools: Tools) => number", "export interface Tools { readonly inner: { readonly read: (id: number) => number } }"],
+    ["(input: number, read: Reader) => number", "export interface Reader { (id: number): number }"],
+    ["(input: number, readers: readonly (() => number)[]) => number", ""],
+    ["(input: number, readers: readonly [number, () => number]) => number", ""],
+    ["(input: number, read: (() => number) | null) => number", ""],
+    ["(input: number, box: Box<() => number>) => number", "export interface Box<T> { readonly value: T }"],
+    ["(input: number, table: Table) => number", "export interface Table { readonly [name: string]: () => number }"],
+    ["(input: number, make: Maker) => number", "export interface Maker { new (): Maker }"],
+    ["(input: number, read: Second) => number", "export type First = () => number; export type Second = First;"],
+    ["(input: number, read: Derived) => number", "export interface Base { run(): number } export interface Derived extends Base { readonly value: number }"],
+    ["(input: number, list: Chain) => number", "export interface Chain { readonly next: Chain | null; readonly leaf: Leaf } export interface Leaf { readonly back: Chain; readonly run: () => number }"],
+    ["(input: number, effect: (() => number)) => number", ""],
+    ["(input: number, both: Data & { readonly run: () => number }) => number", "export interface Data { readonly value: number; }"],
+    ["(input: number, wrapped: Readonly<Carrier>) => number", "export interface Carrier { readonly run: () => number; }"],
+    ["(input: number, carrier: Carrier) => number", "export type Effect = () => number; export interface Carrier { readonly run: Effect; }"],
+    ["(input: number, carrier: Carrier) => number", "export interface Carrier { readonly run?: () => number; }"],
+    ["(input: number, outer: Outer) => number", "export interface Inner { readonly run: () => number; } export interface Outer { readonly inner: Inner; }"],
+    ["(input: number, log: Function) => number", ""],
+    ["(input: number, log: CallableFunction) => number", ""],
+    ["(input: number, make: NewableFunction) => number", ""],
+    ["(input: number, carrier: Carrier) => number", "export interface Carrier { get run(): () => number }"]])
+    expect(stage(signature, "(input, other) => input", `${preamble}\n`), [at("impure-component", contract, 2)]);
+  // A function type declared by another module's contract and handed in, instead of the library being used through its owner.
+  expect([[file("ir-types", "contract.ts"), "export type Substitute = (input: number) => number;"],
+    [contract, 'import type { Substitute } from "../ir-types/contract.js";\nexport type Run = (input: number, substitute: Substitute) => number;'],
+    [entry, 'import type { Run } from "./contract.js";\nexport const run: Run = (input, substitute) => substitute(input);']], [at("impure-component", contract, 2)]);
+  // A type taken from a value, from a member of another type or from a module has no declaration to walk: it is accepted only where the
+  // checker says it is scalar. This rule's own findings are compared; the closed-data rule has its own for some of these forms.
+  const own = entries => inspect(entries).filter(finding => finding.code === "impure-component");
+  // A set accessor is not closed contract data, which that rule reports on its own; this rule still sees the callable it takes.
+  assert.deepEqual(own(stage("(input: number, carrier: Carrier) => number", "(input, other) => input", "export interface Carrier { set run(value: () => number) }\n")), [at("impure-component", contract, 2)]);
+  // A default type argument is walked where none is supplied.
+  expect(stage("(input: number, box: Box) => number", "(input, other) => input", "export interface Box<T = () => number> { readonly run: T }\n"), [at("impure-component", contract, 2)]);
+  assert.deepEqual(own(stage("(input: number, box: Box) => number", "(input, other) => input", "export interface Row { readonly value: number } export interface Box<T = Row> { readonly run: T }\n")), []);
+  const queried = (parameter, preamble) => stage(`(input: number, other: ${parameter}) => number`, "(input, other) => input", `${preamble}\n`);
+  assert.deepEqual(own(queried("typeof table", "export declare const table: { readonly first: () => number; readonly second: () => number };")), [at("impure-component", contract, 2)]);
+  assert.deepEqual(own(queried("Carrier[\"run\"]", "export interface Carrier { readonly run: { readonly go: () => number } }")), [at("impure-component", contract, 2)]);
+  assert.deepEqual(own(queried("import(\"../ir-types/contract.js\").Carrier", "")
+    .concat([[file("ir-types", "contract.ts"), "export interface Carrier { readonly run: () => number; }"]])), [at("impure-component", contract, 2)]);
+  assert.deepEqual(own(queried("typeof limit", "export declare const limit: number;")), []);
+  assert.deepEqual(own(queried("typeof limits", "export declare const limits: { readonly depth: number; readonly rows: readonly { readonly value: number }[] };")), [],
+    "a record of data named through a value's annotation is data");
+  assert.deepEqual(own(queried("Row[\"value\"]", "export interface Row { readonly value: number }")), []);
+  assert.deepEqual(own(queried("Row[\"inner\"]", "export interface Row { readonly inner: { readonly value: number } }")), [], "a data member named by an indexed access is data");
+  assert.deepEqual(own(queried("import(\"../ir-types/contract.js\").Row", "")
+    .concat([[file("ir-types", "contract.ts"), "export interface Row { readonly value: number; }"]])), [], "a data record named by an import type is data");
+  // A type parameter of the stage itself is supplied by the caller: it is reported in a parameter or a result, whatever its constraint
+  // (a subtype of a closed record may still carry a callable). A generic data record used with written arguments is walked through them.
+  for (const [signature, preamble, reported] of [
+    ["<T>(input: number, anything: T) => number", "", true],
+    ["<T>(input: number, box: Box<T>) => number", "export interface Box<V> { readonly value: V }", true],
+    ["<T>(input: number) => T", "", true],
+    ["<T extends unknown>(input: number, anything: T) => number", "", true],
+    ["<T extends () => number>(input: number, anything: T) => number", "", true],
+    ["<T extends Carrier>(input: number, anything: T) => number", "export interface Carrier { readonly run: () => number }", true],
+    ["<T extends Row>(input: number, anything: T) => number", "export interface Row { readonly value: number }", true],
+    ["<T extends Row>(input: number) => T", "export interface Row { readonly value: number }", true],
+    ["<T extends Row>(input: number, box: Box<T>) => number", "export interface Row { readonly value: number } export interface Box<V> { readonly value: V }", true],
+    ["(input: number, box: Box<Row>) => Box<number>", "export interface Row { readonly value: number } export interface Box<V> { readonly value: V }", false],
+    ["(input: number, box: Box<() => number>) => number", "export interface Box<V> { readonly value: V }", true]])
+    assert.deepEqual(own(stage(signature, "(input, other) => input", `${preamble}\n`)), reported ? [at("impure-component", contract, 2)] : [], signature);
+  // A slot of a type parameter of a generic data record (the HIR's phase slots) is decided by the record's argument at its use.
+  const phased = "export interface Phase { readonly slot: object | null } export interface Node<P extends Phase> { readonly tsonic: P[\"slot\"] }";
+  assert.deepEqual(own(stage("(input: number, node: Node<Checked>) => number", "(input, other) => input",
+    `${phased} export interface Checked extends Phase { readonly slot: { readonly value: number } }\n`)), []);
+  assert.deepEqual(own(stage("(input: number, node: Node<Checked>) => number", "(input, other) => input",
+    `${phased} export interface Checked extends Phase { readonly slot: { readonly run: () => number } }\n`)), [at("impure-component", contract, 2)]);
+  assert.deepEqual(own([[contract, "export interface Row { readonly value: number }\nexport type Run<T> = (input: number, anything: T) => number;"],
+    [entry, 'import type { Run } from "./contract.js";\nexport const run: Run<number> = (input, other) => input;']]).length > 0, true, "a parameter of the alias itself, without a constraint");
+  // A qualified type name is followed to its declaration.
+  assert.deepEqual(own([[file("ir-types", "contract.ts"), "export interface Carrier { readonly run: () => number; }"],
+    [contract, 'import type * as types from "../ir-types/contract.js";\nexport type Run = (input: number, carrier: types.Carrier) => number;'],
+    [entry, 'import type { Run } from "./contract.js";\nexport const run: Run = (input, carrier) => input;']]), [at("impure-component", contract, 2)]);
+  // An opaque handle is one by the opaque-owner table AND its form: a type with an opaque name whose target is an ordinary record is walked.
+  assert.deepEqual(own([[file("front", "contract.ts"), "export type CheckerExtensions = { readonly run: () => number };"],
+    [contract, 'import type { CheckerExtensions } from "../front/contract.js";\nexport type Run = (input: number, extensions: CheckerExtensions) => number;'],
+    [entry, 'import type { Run } from "./contract.js";\nexport const run: Run = (input, extensions) => input;']]), [at("impure-component", contract, 2)]);
+  assert.deepEqual(own([[file("front", "contract.ts"), 'export type CheckerExtensions = object & { readonly identityKind: "checker-extensions" };'],
+    [contract, 'import type { CheckerExtensions } from "../front/contract.js";\nexport type Run = (input: number, extensions: CheckerExtensions) => number;'],
+    [entry, 'import type { Run } from "./contract.js";\nexport const run: Run = (input, extensions) => input;']]), []);
+  // The result of a stage is data, or a step of data: a result that carries a callable hands behaviour across the stage boundary.
+  // The same walk as for a parameter. Positive: records, arrays, unions, a step-shaped union, data that describes a function, an opaque handle.
+  const row = "export interface Row { readonly value: number; }";
+  for (const [result, implementation, preamble] of [
+    ["Row", "input => ({ value: input })", row],
+    ["readonly Row[]", "input => [{ value: input }]", row],
+    ["Row | null", "input => null", row],
+    ["Stepped", "input => ({ kind: \"done\", value: { value: input } })",
+      `${row} export type Stepped = { readonly kind: "done"; readonly value: Row } | { readonly kind: "paused"; readonly requests: readonly Row[]; readonly paused: Row; readonly earned: readonly Row[] };`],
+    ["FunctionInfo", "input => ({ name: \"f\", parameters: [], returns: { value: input } })", `${row} export interface FunctionInfo { readonly name: string; readonly parameters: readonly Row[]; readonly returns: Row }`]])
+    expect(stage(`(input: number) => ${result}`, implementation, `${preamble}\n`), []);
+  expect([[file("ir-types", "arena.ts"), "export class TypeArena { private readonly run: () => number = () => 1; private constructor() {} static create(): TypeArena { return new TypeArena(); } }"],
+    [file("ir-types", "contract.ts"), 'import type { TypeArena } from "./arena.js";\nexport type TypeInterner = TypeArena;'],
+    [contract, 'import type { TypeInterner } from "../ir-types/contract.js";\nexport type Run = (types: TypeInterner) => TypeInterner;'],
+    [entry, 'import type { Run } from "./contract.js";\nexport const run: Run = types => types;']], []);
+  // Negative: a callable in the result, direct and however it is wrapped; and a table of operations returned by an operation that
+  // no composition binds (no Pipeline source is inspected here).
+  for (const [result, implementation, preamble] of [
+    ["() => number", "input => () => input", ""],
+    ["Out", "input => ({ run: () => input })", "export interface Out { readonly run: () => number }"],
+    ["readonly (() => number)[]", "input => [() => input]", ""],
+    ["(() => number) | null", "input => null", ""],
+    ["readonly [number, () => number]", "input => [input, () => input]", ""],
+    ["Data & { readonly run: () => number }", "input => ({ value: input, run: () => input })", "export interface Data { readonly value: number; }"],
+    ["Readonly<Carrier>", "input => ({ run: () => input })", "export interface Carrier { readonly run: () => number; }"],
+    ["Derived", "input => ({ value: input, run: () => input })", "export interface Base { run(): number } export interface Derived extends Base { readonly value: number }"],
+    ["Box<() => number>", "input => ({ value: () => input })", "export interface Box<T> { readonly value: T }"]])
+    expect(stage(`(input: number) => ${result}`, implementation, `${preamble}\n`), [at("impure-component", contract, 2)]);
+  expect(stage("(deps: InferDeps) => Table", "deps => ({ first: input => input + deps.bias, second: input => input })",
+    "export interface InferDeps { readonly bias: number; } export interface Table { readonly first: (input: number) => number; readonly second: (input: number) => number }\n"),
+    [at("impure-component", contract, 2)]);
+  // Negative: the implementation leaves out or adds a parameter of its contract type, in place or through a named function.
+  expect(stage("(deps: InferDeps, input: number) => number", "deps => deps.bias"), [at("contract-shape", entry, 2)]);
+  expect(stage("(input: number) => number", "(input, extra) => input"), [at("contract-shape", entry, 2)]);
+  expect([[contract, "export type Run = (input: number) => number;"],
+    [entry, 'import type { Run } from "./contract.js";\nfunction original(): number { return 1; }\nexport const run: Run = original;']], [at("contract-shape", entry, 3)]);
+  expect([[contract, "export type Run = (input: number) => number;"], [file("infer", "work.ts"), "export function original(input: number, extra: number): number { return input + extra; }"],
+    [entry, 'import type { Run } from "./contract.js";\nimport { original } from "./work.js";\nexport const run: Run = original;']], [at("contract-shape", entry, 3)]);
+  expect([[contract, "export type Run = (input: number) => number;"], [file("infer", "work.ts"), "export function original(input: number): number { return input; }"],
+    [entry, 'import type { Run } from "./contract.js";\nimport { original } from "./work.js";\nexport const run: Run = original;']], []);
+  // The implementing function is found through any number of names, each followed once: twelve constants to a function with the
+  // contract's parameters pass, and the same chain to a function with one parameter more is reported.
+  const chain = Array.from({ length: 12 }, (unusedValue, position) => `const step${position + 1} = step${position};`).join(" ");
+  for (const [original, expected] of [["function step0(input: number): number { return input; }", []],
+    ["function step0(input: number, extra: number): number { return input + extra; }", [at("contract-shape", entry, 4)]]])
+    expect([[contract, "export type Run = (input: number) => number;"],
+      [entry, `import type { Run } from "./contract.js";\n${original}\n${chain}\nexport const run: Run = step12;`]], expected);
+  // A source entry that declares the value and gives no implementation is reported; the same line in a declaration file is the emitted
+  // form of an implemented value and passes.
+  expect([[contract, "export type Run = (input: number) => number;"], [entry, 'import type { Run } from "./contract.js";\nexport declare const run: Run;']],
+    [at("contract-shape", entry, 2)]);
+  expect([[file("infer", "contract.d.ts"), "export type Run = (input: number) => number;"],
+    [file("infer", "index.d.ts"), 'import type { Run } from "./contract.js";\nexport declare const run: Run;']], []);
+  // An initializer that names no function declaration (a call's result, a selection, a condition, names that only name each other)
+  // has no parameters to read: it is reported, never passed unchecked.
+  for (const initializer of ["wrap(original)", "original.bind(null)", "true ? original : original", "first"])
+    assert.deepEqual(inspect([[contract, "export type Run = (input: number) => number;"],
+      [entry, `import type { Run } from "./contract.js";\nfunction original(input: number): number { return input; }\nfunction wrap(run: Run): Run { return run; }\nconst first: Run = second; const second: Run = first;\nexport const run: Run = ${initializer};`]])
+      .filter(finding => finding.code === "contract-shape"), [at("contract-shape", entry, 5)], initializer);
+  // Negative: a one-input operation is still a typed port of the contract. An untyped function, a helper or a table is not public.
+  expect([[contract, "export type Run = (input: number) => number;"], [entry, "export const run = (input: number): number => input;"]], [at("contract-shape", entry)]);
+  expect([[contract, "export type Run = (input: number) => number;"],
+    [entry, 'import type { Run } from "./contract.js";\nexport const run: Run = input => input;\nexport const table: readonly number[] = [1];']], [at("contract-shape", entry, 3)]);
+  expect([[contract, "export type Run = (input: number) => number;"],
+    [entry, 'import type { Run } from "./contract.js";\nexport const run: Run = input => input;\nexport function helper(input: number): number { return input; }']], [at("contract-shape", entry, 3)]);
+  // State and try stay forbidden, for a one-input operation as for any other.
   expect([[file("infer"), "let count = 0;\nexport function run(deps: { readonly bias: number }, input: number): number { count += 1; return input + deps.bias + count; }"]],
     [at("module-state", file("infer"))]);
+  expect([[file("infer"), "let count = 0;\nexport function run(input: number): number { count += 1; return input + count; }"]], [at("module-state", file("infer"))]);
   expect([[file("infer"), "export function run(deps: { readonly bias: number }, input: number): number { return input + deps.bias; }"]], []);
   expect([[file("infer"), 'export function run(deps: { readonly limit: number }, input: number): { readonly kind: "refused"; readonly value: number } { return { kind: "refused", value: input + deps.limit }; }']], []);
   expect([[file("infer"), 'export function run(deps: { readonly limit: number }, input: number): number { try { return input + deps.limit; } catch { return 0; } }']], [at("impure-component", file("infer"))]);
+  expect([[file("infer"), "export function run(input: number): number { try { return input; } catch { return 0; } }"]], [at("impure-component", file("infer"))]);
+});
+
+test("Pipeline's wiring names every public component operation once, and a table of operations is a stage result only where the composition binds it", () => {
+  const tableFile = file("ir-infer", "contract.ts");
+  const table = outcome => [tableFile, `export interface Outcome { ${outcome} }\nexport interface RuleTable {\n  readonly decide: (input: number) => Outcome;\n}`];
+  const rulesContract = file("rules", "contract.ts");
+  const rules = [[rulesContract, 'import type { RuleTable } from "../ir-infer/contract.js";\nexport interface RulesDeps { readonly bias: number; }\nexport type CreateRuleTable = (deps: RulesDeps) => RuleTable;'],
+    [file("rules", "index.ts"), 'import type { CreateRuleTable } from "./contract.js";\nexport const createRuleTable: CreateRuleTable = deps => ({ decide: input => ({ value: input + deps.bias }) });']];
+  const inferEntry = file("infer", "index.ts");
+  const infer = [[file("infer", "contract.ts"), 'import type { RuleTable } from "../ir-infer/contract.js";\nexport interface InferDeps { readonly rules: RuleTable; }\nexport type Solve = (deps: InferDeps, input: number) => number;\nexport type Other = (input: number) => number;'],
+    [inferEntry, 'import type { Solve } from "./contract.js";\nexport const solve: Solve = (deps, input) => deps.rules.decide(input).value;']];
+  const pipeline = file("pipeline");
+  const imports = 'import type { CreateRuleTable, RulesDeps } from "../rules/contract.js";\nimport type { InferDeps, Other, Solve } from "../infer/contract.js";\n';
+  const wiring = (members = "") => `${imports}export interface Wiring {\n  readonly createRuleTable: CreateRuleTable;\n  readonly solve: Solve;\n${members}}\n`;
+  const bound = "export function compose(wiring: Wiring, setup: RulesDeps, input: number): number { const rules = wiring.createRuleTable(setup); const deps: InferDeps = { rules }; return wiring.solve(deps, input); }";
+  const data = "readonly value: number;";
+  // The genuine form: the composition calls the operation through the wiring and its result becomes a member of a component's Deps record.
+  expect([table(data), ...rules, ...infer, [pipeline, wiring() + bound]], []);
+  expect([table(data), ...rules, ...infer, [pipeline, wiring() + bound.replace("const rules = wiring.createRuleTable(setup); const deps: InferDeps = { rules };", "const deps: InferDeps = { rules: wiring.createRuleTable(setup) };")]], []);
+  // The same operation where no composition binds it: only declared in the wiring; or its result used as a value.
+  expect([table(data), ...rules, ...infer, [pipeline, wiring()]], [at("impure-component", rulesContract, 3)]);
+  expect([table(data), ...rules, ...infer, [pipeline, wiring() + "export function compose(wiring: Wiring, setup: RulesDeps, input: number): number { const rules = wiring.createRuleTable(setup); return rules.decide(input).value; }"]],
+    [at("impure-component", rulesContract, 3)]);
+  expect([table(data), ...rules, ...infer, [pipeline, wiring() + "export function compose(wiring: Wiring, setup: RulesDeps, input: number): number { const rules = wiring.createRuleTable(setup); const deps: InferDeps = { rules }; return wiring.solve(deps, input) + rules.decide(input).value; }"]],
+    [at("impure-component", rulesContract, 3)]);
+  // An operation of a bound table is a semantic invocation: a callable hidden in what it returns is reported at the table's declaration.
+  for (const hidden of ["readonly value: number; readonly later: () => number;", "readonly values: readonly (() => number)[];", "readonly value: (() => number) | null;"])
+    expect([table(hidden), ...rules, ...infer, [pipeline, wiring() + bound]], [at("impure-component", tableFile, 2)]);
+  // Exhaustive both ways: a public operation that the wiring does not name, a member that no component implements, a member twice.
+  const withoutSolve = `${imports}export interface Wiring {\n  readonly createRuleTable: CreateRuleTable;\n}\nexport function compose(wiring: Wiring, setup: RulesDeps): InferDeps { const deps: InferDeps = { rules: wiring.createRuleTable(setup) }; return deps; }`;
+  expect([table(data), ...rules, ...infer, [pipeline, withoutSolve]], [at("unwired-operation", inferEntry, 2)]);
+  expect([table(data), ...rules, ...infer, [pipeline, wiring("  readonly other: Other;\n") + bound]], [at("unwired-operation", pipeline, 3)]);
+  expect([table(data), ...rules, ...infer, [pipeline, wiring("  readonly again: Solve;\n") + bound]], [at("unwired-operation", pipeline, 3)]);
+  // A component's operation is reported as unwired as soon as any Pipeline source is inspected with it.
+  expect([...infer.map(([path, text]) => [path, text.replace('import type { RuleTable } from "../ir-infer/contract.js";\n', "").replace("readonly rules: RuleTable;", "readonly bias: number;").replace("deps.rules.decide(input).value", "deps.bias + input")]),
+    [pipeline, "export interface Unrelated { readonly value: number; }"]], [at("unwired-operation", inferEntry, 2)]);
 });
 
 test("original and emitted component ports require the same genuine owner Deps", () => {

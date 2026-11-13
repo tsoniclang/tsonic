@@ -30,7 +30,26 @@ export type OpenBoundaryId = NumericIdentity<"open-boundary">;
 export type LayoutId = NumericIdentity<"layout">;
 export type MemoryFieldId = NumericIdentity<"memory-field">;
 export type LibraryTypeId = NumericIdentity<"library-type">;
+/** Positions in the tables of one raw module capture (Front's capture of a checked module). */
+export type RawTypeId = NumericIdentity<"raw-type">;
+export type RawSymbolId = NumericIdentity<"raw-symbol">;
+export type RawSignatureId = NumericIdentity<"raw-signature">;
+export type RawComponentId = NumericIdentity<"raw-component">;
+export type RawMemberTableId = NumericIdentity<"raw-member-table">;
+export type RawCandidateListId = NumericIdentity<"raw-candidate-list">;
+export type RawDataLayoutId = NumericIdentity<"raw-data-layout">;
+export type RawMemoryLayoutId = NumericIdentity<"raw-memory-layout">;
+export type RawMemoryFieldId = NumericIdentity<"raw-memory-field">;
 
+export type RawTypeIdConstructor = (value: number) => RawTypeId;
+export type RawSymbolIdConstructor = (value: number) => RawSymbolId;
+export type RawSignatureIdConstructor = (value: number) => RawSignatureId;
+export type RawComponentIdConstructor = (value: number) => RawComponentId;
+export type RawMemberTableIdConstructor = (value: number) => RawMemberTableId;
+export type RawCandidateListIdConstructor = (value: number) => RawCandidateListId;
+export type RawDataLayoutIdConstructor = (value: number) => RawDataLayoutId;
+export type RawMemoryLayoutIdConstructor = (value: number) => RawMemoryLayoutId;
+export type RawMemoryFieldIdConstructor = (value: number) => RawMemoryFieldId;
 export type NodeIdConstructor = (value: number) => NodeId;
 export type LocalIdConstructor = (value: number) => LocalId;
 export type BlockIdConstructor = (value: number) => BlockId;

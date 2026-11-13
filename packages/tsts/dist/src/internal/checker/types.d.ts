@@ -353,6 +353,7 @@ export interface DeferredSymbolLinks {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/types.go::type::AliasSymbolLinks","kind":"type","status":"implemented","sigHash":"2382f765aa7550658e62ca026e5ae05e6b85aeb5330acd2f4d3843d948d97bb6","bodyHash":"c72aaf0fa7b15e17301de8ca8c1983331d7378eca2abda2d5d2508a2e3eaad2e"}
+ * @tsgo-override {"category":"extension-host","allow":["signature"],"reason":"One added link: a mark that createDefaultPropertyWrapperForModule sets on the default member it makes for a module's exported value. That member has no declaration, and its symbol is shared by every module whose exported value has the same type (the wrapper is cached by type id), so its Parent and alias target name the first such module only. The mark lets the public queries recognise the member from its creator's own record and never hand out the first module's provenance for it.","goSignature":"interface{aliasTarget:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/symbol.ts::Symbol>;immediateTarget:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/symbol.ts::Symbol>;referenced:packages/tsts/src/go/scalars.ts::bool;typeOnlyDeclaration:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>}","tsSignature":"interface{aliasTarget:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/symbol.ts::Symbol>;immediateTarget:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/symbol.ts::Symbol>;referenced:packages/tsts/src/go/scalars.ts::bool;syntheticDefault?:packages/tsts/src/go/scalars.ts::bool;typeOnlyDeclaration:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>}"}
  *
  * Go source:
  * AliasSymbolLinks struct {
@@ -367,6 +368,7 @@ export interface AliasSymbolLinks {
     aliasTarget: GoPtr<Symbol_62f2f8bf>;
     referenced: bool;
     typeOnlyDeclaration: GoPtr<Node>;
+    syntheticDefault?: bool;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/types.go::type::ModuleSymbolLinks","kind":"type","status":"implemented","sigHash":"0562a62618d9e8ba3150e5162b811ca69dcef3c4f680f7ea4bd016e6458b58cd","bodyHash":"5dce7ab5d79605a40ef5990b7889ca43c4bc8ab2463d3b9f99e64808bb24d7d8"}
@@ -710,6 +712,7 @@ export declare const NodeCheckFlagsInitializerIsUndefined: NodeCheckFlags;
 export declare const NodeCheckFlagsInitializerIsUndefinedComputed: NodeCheckFlags;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/types.go::type::NodeLinks","kind":"type","status":"implemented","sigHash":"bd590e6f5400ae09b28e5727ed6248a2d37e091372315daced254882f1bd9068","bodyHash":"856e653cb8e47d6489ff9bc700098ab09d3eff754541a4e19c74c630c6440bf2"}
+ * @tsgo-override {"category":"runtime-correctness","allow":["signature"],"reason":"One added link of an import declaration or import call: the symbol cloneTypeAsModuleType made for it, so that Checker.resolveESModuleSymbol makes that symbol once. The Go body makes a new one on every call, and a ring of aliases that passes through such a symbol is then never closed by any walk that remembers symbols by identity, the seen set of Checker.getSymbolFlagsEx included.","goSignature":"interface{declarationRequiresScopeChange:packages/tsts/src/internal/core/tristate.ts::Tristate;flags:packages/tsts/src/internal/checker/types.ts::NodeCheckFlags;hasReportedStatementInAmbientContext:packages/tsts/src/go/scalars.ts::bool}","tsSignature":"interface{declarationRequiresScopeChange:packages/tsts/src/internal/core/tristate.ts::Tristate;flags:packages/tsts/src/internal/checker/types.ts::NodeCheckFlags;hasReportedStatementInAmbientContext:packages/tsts/src/go/scalars.ts::bool;moduleTypeSymbol?:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/symbol.ts::Symbol>}"}
  *
  * Go source:
  * NodeLinks struct {
@@ -722,6 +725,7 @@ export interface NodeLinks {
     flags: NodeCheckFlags;
     declarationRequiresScopeChange: Tristate;
     hasReportedStatementInAmbientContext: bool;
+    moduleTypeSymbol?: GoPtr<Symbol_62f2f8bf>;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/types.go::type::SymbolNodeLinks","kind":"type","status":"implemented","sigHash":"89abee6a144d3c12d35aae2dafa85f43053a44ca076f706149c4a8a6b46bc41f","bodyHash":"3faf90619306b4dfc2120b485483753ef9d58f708195079aafbad05751e49d4c"}

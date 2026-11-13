@@ -4,7 +4,7 @@ import type { LocalId, Origin, PlaceId, TyId } from "../ids/contract.js";
 import type { BinaryExpression, Block, Expression, NodeHeader, ReturnStatement, Statement } from "../ir-hir/contract.js";
 import type { MirBody, MirOperand, MirSite, MirUnwind } from "../ir-mir/contract.js";
 import type { TirBody, TypedOperation, TypedPhase, TypedValue } from "../ir-tir/contract.js";
-import type { LowerMirDeps } from "./contract.js";
+import type { InternalBodyInput, LowerMirDeps } from "./contract.js";
 import type { LowerState } from "./state.js";
 import { addEntry, createState, emitStatement, enterBlock, finishBody, newBlock, newLocal, placeOfLocal, terminate } from "./state.js";
 
@@ -78,8 +78,11 @@ interface Lowering {
 
 const siteOf = (body: TirBody, node: NodeHeader): MirSite => ({ origin: node.origin, tir: { body: body.body, node: node.id } });
 
-export function lowerBody(deps: LowerMirDeps, body: TirBody): Result<MirBody> {
+export function lowerBody(deps: LowerMirDeps, body: TirBody, internal: readonly InternalBodyInput[]): Result<MirBody> {
   const root = body.root;
+  // Pipeline supplies the data of each initializer execution the body places (§7 part 1). Supplied data says the body
+  // places one; no construct this lowering admits does, so such a body is past the frontier.
+  if (internal.length !== 0) return notLoweredYet("a body that executes initializer bodies", root.origin);
   if (root.kind !== "Block") return notLoweredYet(`a body whose root is ${root.kind}`, root.origin);
   if (body.asynchronous || body.generator) return notLoweredYet("an asynchronous body or a generator", root.origin);
   if (body.captures.length !== 0) return notLoweredYet("a body that captures", root.origin);

@@ -40,7 +40,7 @@ import { SymbolFlagsNone, SymbolFlagsAll, SymbolFlagsAlias, SymbolFlagsClassMemb
 import { NodeFlagsPossiblyContainsImportMeta, NodeFlagsBlockScoped } from "../../ast/generated/flags.js";
 import { InternalSymbolNameComputed, InternalSymbolNameAssignmentDeclaration, InternalSymbolNameExportEquals, InternalSymbolNameImportAttributes, InternalSymbolNameExportStar, InternalSymbolNameIndex, InternalSymbolNameMissing, InternalSymbolNameDefault, InternalSymbolNameType, InternalSymbolNameCall, InternalSymbolNameNew, InternalSymbolNameModuleExports, InternalSymbolNamePrefix, InternalSymbolNameThis, InternalSymbolNameConstructor, SymbolName } from "../../ast/symbol.js";
 import { Memoize, IfElse, Find, Filter, Map, Some, Every, GetSpellingSuggestion, ConcatenateSeq, FindLast, LastOrNil, OrElse, CountWhere, AppendIfUnique, FirstOrNil } from "../../core/core.js";
-import { LinkStore_Get } from "../../core/linkstore.js";
+import { LinkStore_Get, LinkStore_TryGet } from "../../core/linkstore.js";
 import { IsNonLocalAlias, GetSourceFileOfNode, GetFirstIdentifier, GetNodeId, NodeKindIs, FindAncestor, FindAncestorOrQuit, FindAncestorFalse, FindAncestorTrue, FindAncestorQuit, ToFindAncestorResult, GetNameOfDeclaration, GetContainingClass, GetContainingFunction, IsAmbientModule, IsGlobalScopeAugmentation, IsExternalModuleAugmentation, IsStatic, IsClassLike, IsClassOrInterfaceLike, IsParameterPropertyDeclaration, IsFunctionLike, GetImmediatelyInvokedFunctionExpression, IsExternalOrCommonJSModule, IsBlockOrCatchScoped, HasStaticModifier, IsAliasSymbolDeclaration, HasAccessorModifier, IsQuestionToken, IsPrivateIdentifierClassElementDeclaration, IsFunctionLikeDeclaration, NodeIsMissing, NodeIsSynthesized, GetRootDeclaration, IsValidTypeOnlyAliasUseSite, IsTypeOnlyImportDeclaration, IsTypeOnlyImportOrExportDeclaration, GetEnclosingBlockScopeContainer, IsAccessor, FindAncestorKind, IsEntityName, IsEntityNameExpression, GetHostSignatureFromJSDoc, HasSyntacticModifier, HasModifier, NodeIsPresent, GetDeclarationOfKind, IsBindingPattern, IsVariableDeclarationInitializedToRequire, IsVariableLike, IsTypeDeclaration, GetExternalModuleName, GetImportAttributes, IsExclusivelyTypeOnlyImportOrExport, IsGlobalSourceFile, GetDeclarationContainer, GetAssignmentDeclarationKind, JSDeclarationKindModuleExports, JSDeclarationKindExportsProperty, FindConstructorDeclaration, GetFirstConstructorWithBody, HasAbstractModifier, IsThisInTypeQuery, SkipParentheses, GetSymbolId, GetModuleInstanceState, ModuleInstanceStateNonInstantiated, ModuleInstanceStateInstantiated, NewHasFileName, IsEnumConst, IsComputedNonLiteralName, GetTextOfPropertyName, IsInfinityOrNaNString, HasDynamicName, HasContextSensitiveParameters, IsAssignmentTarget, IsStringLiteralLike, GetReparsedNodeForNode, GetPropertyNameForPropertyNameNode, IsThisIdentifier, IsPartOfTypeQuery, IsPartOfTypeNode, IsPropertyName, CanHaveSymbol, IsExpression, IsExpressionNode, IsAssertionExpression, IsThisParameter, IsInJSFile, IsOptionalChain, IsNodeDescendantOf, GetSourceFileOfModule, IsJsonSourceFile, ModuleExportNameIsDefault, IsRightSideOfQualifiedNameOrPropertyAccess, GetExternalModuleImportEqualsDeclarationExpression, IsExternalModuleImportEqualsDeclaration, IsDeclarationNameOrImportPropertyName, IsLiteralComputedPropertyDeclarationName, IsLiteralImportTypeNode, IsBindableObjectDefinePropertyCall, IsJsxTagName, IsInExpressionContext, IsExpressionWithTypeArgumentsInClassExtendsClause, IsJSDocNameReferenceContext, GetNodeAtPosition, IsForInOrOfStatement, IsLeftHandSideExpression, IsTypeReferenceType, IsDeclarationName, IsAccessExpression, HasAmbientModifier, IsClassElement, IsCatchClauseVariableDeclarationOrBindingElement, IsObjectLiteralOrClassExpressionMethodOrAccessor, IsPlainJSFile, IsImportOrImportEqualsDeclaration, IsInternalModuleImportEqualsDeclaration, IsJsxOpeningLikeElement, GetCombinedNodeFlags, IsCallOrNewExpression } from "../../ast/utilities.js";
 import { GetNewTargetContainer } from "../../ast/utilities.js";
 import { GetExtendsHeritageClauseElement, GetExtendsHeritageClauseElements, GetImplementsHeritageClauseElements, IsPartOfParameterDeclaration } from "../../ast/utilities.js";
@@ -1082,6 +1082,7 @@ export function Checker_getTypeOnlyAliasDeclaration(receiver, symbol_) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getTypeOnlyAliasDeclarationEx","kind":"method","status":"implemented","sigHash":"f2fee28c9f043169d61a0895c84f40cbdec23f2aabd47775ef344a4ddbae8d6d","bodyHash":"6081de1e28a569c095aa26e2c4db86fe2ae0e50ae6544be3ae14081d89ce22fe"}
+ * @tsgo-override {"category":"runtime-correctness","allow":["body"],"reason":"The loop remembers a symbol it has been on and ends, with no type-only declaration found, when it returns to it. The pinned Go body follows resolveAlias while the symbol is an alias without the wanted meaning and has no memory; two alias-flagged symbols that each also have a namespace meaning and name each other (import x = require of a module that exports with export= the mirror of x, each merged with a namespace) form a ring that resolveAlias does not report as circular, and checking either export assignment never returns. TypeScript has no loop here."}
  *
  * Go source:
  * func (c *Checker) getTypeOnlyAliasDeclarationEx(symbol *ast.Symbol, meaning ast.SymbolFlags) *ast.Node {
@@ -1097,13 +1098,30 @@ export function Checker_getTypeOnlyAliasDeclaration(receiver, symbol_) {
  * }
  */
 export function Checker_getTypeOnlyAliasDeclarationEx(receiver, symbol_, meaning) {
+    // The walk's memory, without an allocation: one symbol the walk has been on, replaced by the current symbol after
+    // 1, 2, 4, 8, ... moves. The walk ends early only when its next symbol is, by identity, the remembered one, which
+    // happens only inside a ring. The memory has no capacity and refuses nothing: a chain without a ring is walked to
+    // its end whatever its length. Inside a ring the walk returns to the remembered symbol at the latest one turn after
+    // a replacement spaced at least the ring's length, so every member of the ring has been examined by then.
+    let remembered = symbol_;
+    let movesUntilReplacement = 1;
+    let movesSinceReplacement = 0;
     while ((symbol_.Flags & SymbolFlagsAlias) !== 0 && (symbol_.Flags & meaning) === 0) {
         const resolved = Checker_resolveAlias(receiver, symbol_);
         const links = LinkStore_Get(receiver.aliasSymbolLinks, symbol_);
         if (links.typeOnlyDeclaration !== undefined) {
             return links.typeOnlyDeclaration;
         }
+        if (resolved === remembered) {
+            return undefined;
+        }
         symbol_ = resolved;
+        movesSinceReplacement++;
+        if (movesSinceReplacement === movesUntilReplacement) {
+            remembered = symbol_;
+            movesUntilReplacement *= 2;
+            movesSinceReplacement = 0;
+        }
     }
     return undefined;
 }
@@ -9782,8 +9800,30 @@ export function Checker_resolveExternalModuleSymbol(receiver, moduleSymbol, dont
     }
     return moduleSymbol;
 }
+// The symbol cloneTypeAsModuleType made for an import declaration or import call, made once. The Go body makes a new
+// one on every call: an alias's final target and its immediate target were two symbols, and every resolution of a
+// copy made a further copy, so no walk that remembers symbols by identity could close a ring that passes through one.
+function moduleTypeSymbolOfImport(receiver, source, moduleType, referenceParent) {
+    const links = LinkStore_Get(receiver.nodeLinks, referenceParent);
+    if (links.moduleTypeSymbol !== undefined && moduleTypeSymbolSource(receiver, links.moduleTypeSymbol) === source) {
+        return links.moduleTypeSymbol;
+    }
+    links.moduleTypeSymbol = Checker_cloneTypeAsModuleType(receiver, source, moduleType, referenceParent);
+    return links.moduleTypeSymbol;
+}
+// The source of a symbol: ExportTypeLinks.target, which cloneTypeAsModuleType writes, unconditionally, on every
+// symbol it makes, and which nothing else writes. Nothing for a symbol that has no source (a record without a target
+// can exist: invocation error recovery reads these links for any symbol). One lookup, and it creates no record.
+function moduleTypeSymbolSourceOrNil(receiver, symbol_) {
+    return LinkStore_TryGet(receiver.exportTypeLinks, symbol_)?.target;
+}
+// The symbol a module-type symbol was made from (the link cloneTypeAsModuleType writes).
+function moduleTypeSymbolSource(receiver, moduleTypeSymbol) {
+    return LinkStore_Get(receiver.exportTypeLinks, moduleTypeSymbol).target;
+}
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.resolveESModuleSymbol","kind":"method","status":"implemented","sigHash":"f1615f54cc3d30a16ee2016cd9adb905eb5bc943cb2fe5e85f9f5b6ddfca7b21","bodyHash":"d983f72f8a259ae1090a73e4460a1d5f7be6ad14467c98dddbafc07b33e191da"}
+ * @tsgo-override {"category":"runtime-correctness","allow":["body"],"reason":"Return the checker's unknown symbol unchanged when the module's export= alias does not resolve. For a namespace import or import call, in an ECMAScript-format file, of a CommonJS-format file, the pinned Go body passes the unknown symbol to cloneTypeAsModuleType, which makes a new declaration-less symbol named unknown on every call; no later identity test against unknownSymbol recognizes it, and resolveAliasWithDeprecationCheck then never returns. TypeScript returns the symbol unchanged on this path (its branch for a target that is neither a module nor a variable, which the Go body dropped together with its diagnostic). Second change: the symbol cloneTypeAsModuleType makes for an import declaration or import call is made once and kept on that node's links. The Go body makes a new one on every call, so an alias's final target and immediate target were two symbols and every resolution of such a symbol made a further one; with import * as x merged with a function and exported with export= in two files that name each other, the loop of getSymbolFlagsEx then meets a new symbol on every iteration, its seen set never matches, and the check of the import does not return. The kept symbol is reused only when it was made from the same source symbol; a different source replaces it. This assumes that one import declaration has one settled source: no program was found in which two sources alternate for one declaration."}
  *
  * Go source:
  * func (c *Checker) resolveESModuleSymbol(moduleSymbol *ast.Symbol, node *ast.Node, moduleSpecifier *ast.Node) *ast.Symbol {
@@ -9847,6 +9887,9 @@ export function Checker_resolveESModuleSymbol(receiver, moduleSymbol, node, modu
     if (IsNonLocalAlias(symbol_, (SymbolFlagsValue | SymbolFlagsType | SymbolFlagsNamespace))) {
         symbol_ = Checker_getMergedSymbol(receiver, Checker_resolveIndirectionAlias(receiver, Checker_getSymbolOfDeclaration(receiver, node), symbol_));
     }
+    if (symbol_ === receiver.unknownSymbol) {
+        return symbol_;
+    }
     if (symbol_ !== undefined) {
         const referenceParent = moduleSpecifier.Parent;
         let namespaceImport;
@@ -9854,6 +9897,10 @@ export function Checker_resolveESModuleSymbol(receiver, moduleSymbol, node, modu
             namespaceImport = GetNamespaceDeclarationNode(referenceParent);
         }
         if (namespaceImport !== undefined || IsImportCall(referenceParent)) {
+            const made = LinkStore_Get(receiver.nodeLinks, referenceParent).moduleTypeSymbol;
+            if (made !== undefined && moduleTypeSymbolSource(receiver, made) === symbol_) {
+                return made;
+            }
             let reference;
             if (IsImportCall(referenceParent)) {
                 reference = Node_Arguments(referenceParent)[0];
@@ -9864,7 +9911,7 @@ export function Checker_resolveESModuleSymbol(receiver, moduleSymbol, node, modu
             const typ = Checker_getTypeOfSymbol(receiver, symbol_);
             const defaultOnlyType = Checker_getTypeWithSyntheticDefaultOnly(receiver, typ, symbol_, moduleSymbol, reference);
             if (defaultOnlyType !== undefined) {
-                return Checker_cloneTypeAsModuleType(receiver, symbol_, defaultOnlyType, referenceParent);
+                return moduleTypeSymbolOfImport(receiver, symbol_, defaultOnlyType, referenceParent);
             }
             const targetFile = moduleSymbol !== undefined ? Find(moduleSymbol.Declarations ?? [], IsSourceFile) : undefined;
             const usageMode = Checker_getEmitSyntaxForModuleSpecifierExpression(receiver, reference);
@@ -9874,7 +9921,7 @@ export function Checker_resolveESModuleSymbol(receiver, moduleSymbol, node, modu
             }
             if (exportModuleDotExportsSymbol !== undefined) {
                 if (Checker_hasSignatures(receiver, typ)) {
-                    return Checker_cloneTypeAsModuleType(receiver, exportModuleDotExportsSymbol, typ, referenceParent);
+                    return moduleTypeSymbolOfImport(receiver, exportModuleDotExportsSymbol, typ, referenceParent);
                 }
                 return exportModuleDotExportsSymbol;
             }
@@ -9888,7 +9935,7 @@ export function Checker_resolveESModuleSymbol(receiver, moduleSymbol, node, modu
                 else {
                     moduleType = Checker_createDefaultPropertyWrapperForModule(receiver, symbol_, symbol_.Parent, undefined);
                 }
-                return Checker_cloneTypeAsModuleType(receiver, symbol_, moduleType, referenceParent);
+                return moduleTypeSymbolOfImport(receiver, symbol_, moduleType, referenceParent);
             }
         }
     }
@@ -9956,6 +10003,7 @@ export function Checker_getTypeWithSyntheticDefaultImportType(receiver, t, symbo
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.createDefaultPropertyWrapperForModule","kind":"method","status":"implemented","sigHash":"be3759cac24f70c337da650c87f7fe862cc2169962debb1d04020969b99817d5","bodyHash":"6adfd0685cd1d36b52a56a1d9731a82fa4e7f7825ff20441dd60e8adffd26365"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After the Go body's writes, the default member this function makes is marked on its alias links (syntheticDefault). Nothing else changes: the symbol, its Parent, its alias target and the returned type are the Go body's."}
  *
  * Go source:
  * func (c *Checker) createDefaultPropertyWrapperForModule(symbol *ast.Symbol, originalSymbol *ast.Symbol, anonymousSymbol *ast.Symbol) *Type {
@@ -9973,7 +10021,9 @@ export function Checker_createDefaultPropertyWrapperForModule(receiver, symbol_,
     const newSymbol = Checker_newSymbol(receiver, SymbolFlagsAlias, InternalSymbolNameDefault);
     newSymbol.Parent = originalSymbol;
     LinkStore_Get(receiver.valueSymbolLinks, newSymbol).nameType = Checker_getStringLiteralType(receiver, "default");
-    LinkStore_Get(receiver.aliasSymbolLinks, newSymbol).aliasTarget = Checker_resolveSymbol(receiver, symbol_);
+    const newSymbolLinks = LinkStore_Get(receiver.aliasSymbolLinks, newSymbol);
+    newSymbolLinks.aliasTarget = Checker_resolveSymbol(receiver, symbol_);
+    newSymbolLinks.syntheticDefault = true;
     memberTable.set(InternalSymbolNameDefault, newSymbol);
     return Checker_newAnonymousType(receiver, anonymousSymbol, memberTable, [], [], []);
 }
@@ -10995,6 +11045,7 @@ export function Checker_tryResolveAlias(receiver, symbol_) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.resolveAliasWithDeprecationCheck","kind":"method","status":"implemented","sigHash":"c9b9f385352bf280dd523250c5763f2b921dc470ed1b3e1cfb964d00c8e66772","bodyHash":"e945d87ccce14f68c03c3c84e31dfed25d94cf398583adb9c1d1505bdfb332e3"}
+ * @tsgo-override {"category":"runtime-correctness","allow":["body"],"reason":"Two states on which the pinned Go body does not return are ended. (1) Every iteration ends the loop or moves to the immediate target: the pinned Go body, like TypeScript's, leaves the loop variable unchanged when the immediate target is defined, is not the final target and has no declarations, and so never returns; a namespace import, in an ECMAScript-format file, of a CommonJS-format file whose export= names globalThis reaches that state, because the final target and the immediate target are two separate copies of that declaration-less symbol. A target without declarations has no deprecation to report, so the walk moves past it. (2) The walk remembers a symbol it has been on and ends when it returns to it: the Go body has no memory, and where the final target is a copy made for the import it is not on the walk, so a ring of alias-flagged symbols that also have another meaning (import * as x merged with a namespace and exported with export=, in two files naming each other) is walked for ever. (3) When the walk's step is its final target and that target has a source (ExportTypeLinks.target, written by cloneTypeAsModuleType on every symbol it makes), the walk goes on from the source. resolveESModuleSymbol here makes one symbol per import where the Go body makes a new one per call; in Go the immediate target of a namespace import was therefore a second symbol, never the final one, and the walk went on through it to the value behind the import, reporting a deprecated value or a deprecated alias further on. Without (3) a valid program loses those suggestions (TypeScript 6.0.3 reports them). Termination: the successor of a symbol S is its immediate target, except that when this is the walk's final target and has a source, the successor is that source. The final target is fixed for one walk, so the successor is a function of S alone, provided an alias's immediate target is the same on every call. That holds because getImmediateAliasedSymbol stores a defined result on the alias's links and returns it afterwards, and an undefined result ends the walk; it holds for a made symbol too since it is made once per import. Premise, not proven in general: the symbols the walk can reach are finitely many, that is, no turn of a ring makes a new alias-flagged symbol. It holds for the symbol made for an import (made once per import declaration). For the symbol combineValueAndTypeSymbols makes it holds in the programs run, where the combined symbol is stored on the asking alias's links and the asking aliases of the ring are declared ones; a producer that made a new alias-flagged symbol on every turn would defeat any memory by identity, as the Go body's own seen sets are defeated. Under the premise, a walk over a function either ends or enters a ring, and (2) ends it on a ring, in constant space and without allocation, after a number of moves linear in tail plus ring length. Which program needs which: (1) a namespace import of a module whose export= names globalThis; (2) and (3) together the merged-namespace ring, which the walk enters through the source; (3) alone the valid chain ending in a deprecated value. Chronology: while one symbol per import was made and (3) was absent, a build without (2) returned from every program tried (12 cases, 9 rings, 78 probe programs, identical results); that showed no program needing (2) on that source and did not show that none exists; with (3) the ring is met again."}
  *
  * Go source:
  * func (c *Checker) resolveAliasWithDeprecationCheck(symbol *ast.Symbol, location *ast.Node) *ast.Symbol {
@@ -11037,23 +11088,43 @@ export function Checker_resolveAliasWithDeprecationCheck(receiver, symbol_, loca
     if (targetSymbol === receiver.unknownSymbol) {
         return targetSymbol;
     }
+    // The walk's memory, without an allocation: one symbol the walk has been on, replaced by the current symbol after
+    // 1, 2, 4, 8, ... moves. The walk ends early only when its next symbol is, by identity, the remembered one, which
+    // happens only inside a ring. The memory has no capacity and refuses nothing: a chain without a ring is walked to
+    // its end whatever its length. Inside a ring the walk returns to the remembered symbol at the latest one turn after
+    // a replacement spaced at least the ring's length, so every member of the ring has been examined by then.
+    let remembered = symbol_;
+    let movesUntilReplacement = 1;
+    let movesSinceReplacement = 0;
     while ((symbol_.Flags & SymbolFlagsAlias) !== 0) {
-        const target = Checker_getImmediateAliasedSymbol(receiver, symbol_);
+        let target = Checker_getImmediateAliasedSymbol(receiver, symbol_);
         if (target !== undefined) {
             if (target === targetSymbol) {
-                break;
-            }
-            if ((target.Declarations ?? []).length !== 0) {
-                if (Checker_isDeprecatedSymbol(receiver, target)) {
-                    Checker_addDeprecatedSuggestion(receiver, location, target.Declarations, target.Name);
+                // The final target of a namespace import can be the symbol made for that import (resolveESModuleSymbol): it
+                // then has a source. The walk goes on from that source, which is where the Go body's walk went, because there
+                // the immediate target was a second symbol made from the same source and never equal to the final one.
+                const source = moduleTypeSymbolSourceOrNil(receiver, target);
+                if (source === undefined) {
                     break;
                 }
-                else {
-                    if (symbol_ === targetSymbol) {
-                        break;
-                    }
-                    symbol_ = target;
-                }
+                target = source;
+            }
+            if ((target.Declarations ?? []).length !== 0 && Checker_isDeprecatedSymbol(receiver, target)) {
+                Checker_addDeprecatedSuggestion(receiver, location, target.Declarations, target.Name);
+                break;
+            }
+            if (symbol_ === targetSymbol) {
+                break;
+            }
+            if (target === remembered) {
+                break;
+            }
+            symbol_ = target;
+            movesSinceReplacement++;
+            if (movesSinceReplacement === movesUntilReplacement) {
+                remembered = symbol_;
+                movesUntilReplacement *= 2;
+                movesSinceReplacement = 0;
             }
         }
         else {

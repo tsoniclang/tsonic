@@ -1,6 +1,5 @@
 import { NewOrderedMapWithSizeHint, OrderedMap_Set } from "../collections/ordered_map.js";
 import { NewSetWithSizeHint, Set_Add } from "../collections/set.js";
-import { AllowDuplicateNames, Unmarshal } from "../json/json.js";
 import { Expected_GetValue } from "./expected.js";
 import { JSONValueTypeArray, JSONValueTypeBoolean, JSONValueTypeNotPresent, JSONValueTypeNull, JSONValueTypeNumber, JSONValueTypeObject, JSONValueTypeString } from "./jsonvalue.js";
 import { objectKindUnknown } from "./exportsorimports.js";
@@ -170,6 +169,7 @@ export function DependencyFields_GetRuntimeDependencyNames(receiver) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/packagejson/packagejson.go::func::Parse","kind":"func","status":"implemented","sigHash":"4c992a9162975647c2c2d8ab3d90f1b0489695032a2311c82949afc07c4e45d3","bodyHash":"fa47abb81da5366c35b09cf693a9e82c424f521ee3c68a5f2b256a297aa43b12"}
+ * @tsgo-override {"category":"runtime-correctness","allow":["body"],"reason":"The Go body unmarshals the bytes once into Fields. Here the bytes are decoded and parsed once and the fields are built by decodeFields from that one parse. The decode keeps a leading byte-order mark (which JSON.parse rejects) and throws on ill-formed UTF-8, as the Go library reports both as errors; JSON.parse takes the last of duplicate names, as AllowDuplicateNames does. An earlier form parsed the same bytes twice, each time with a decoder that removed a mark. Limit: the refusal of ill-formed UTF-8 holds for bytes given to Parse. Module resolution does not give it a file's bytes: the file read replaces ill-formed bytes by U+FFFD and the resolver re-encodes that text, so a package.json file with ill-formed UTF-8 is still read here, where the Go resolver, which passes the file's bytes, refuses it."}
  *
  * Go source:
  * func Parse(data []byte) (Fields, error) {
@@ -181,13 +181,10 @@ export function DependencyFields_GetRuntimeDependencyNames(receiver) {
  * }
  */
 export function Parse(data) {
-    const f = {};
-    const err = Unmarshal(data, f, AllowDuplicateNames(true));
-    if (err !== undefined) {
-        return [{}, err];
-    }
+    // One decode and one parse of the bytes, as the Go body's single Unmarshal. The decoder keeps a leading byte-order
+    // mark, which JSON.parse rejects, and throws on ill-formed UTF-8; JSON.parse takes the last of duplicate names.
     try {
-        return [decodeFields(globalThis.JSON.parse(new globalThis.TextDecoder("utf-8").decode(new globalThis.Uint8Array(data)))), undefined];
+        return [decodeFields(globalThis.JSON.parse(new globalThis.TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(new globalThis.Uint8Array(data)))), undefined];
     }
     catch (error) {
         return [{}, error instanceof globalThis.Error ? error : new globalThis.Error(String(error))];

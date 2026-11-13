@@ -1,4 +1,5 @@
 import type { Violation } from "../diag/contract.js";
+import type { ModuleId } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import type {
   ExtensionReference, ExtensionReferenceEntry, PlatformDeclaration, ProjectSnapshot,
@@ -74,10 +75,32 @@ export function verifySnapshotExtensions(snapshot: ProjectSnapshot,
   if (expected.size !== actual.size || [...expected].some(key => !actual.has(key))) {
     add("extension-table-equality", snapshotSite, "extensions");
   }
-  const files = snapshotRows(contributions.declarationFiles, snapshotSite, "declarationFiles", violations);
-  for (const path of files) {
-    if (!packages.filePaths.has(path)) add("contribution-files-resolve", { kind: "file", path }, path);
+  const declarationModules = new Set<ModuleId>();
+  for (const module of snapshot.packages.modules) {
+    if (module !== undefined && module !== null && module.role === "declaration") declarationModules.add(module.id);
   }
+  const contributed = new Set<ModuleId>();
+  let previousContributed: ModuleId | null = null;
+  let unorderedContributed = false;
+  for (const module of snapshotRows(contributions.declarationModules, snapshotSite, "declarationModules", violations)) {
+    if (!declarationModules.has(module)) add("contributed-declaration-module", { kind: "module", module }, module);
+    if (contributed.has(module)) add("contributed-declaration-unique", { kind: "module", module }, module);
+    contributed.add(module);
+    if (previousContributed !== null && module < previousContributed) unorderedContributed = true;
+    previousContributed = module;
+  }
+  if (unorderedContributed) add("contributed-declarations-order", snapshotSite, "declarationModules");
+  const libraries = new Set<ModuleId>();
+  let previousLibrary: ModuleId | null = null;
+  let unorderedLibraries = false;
+  for (const module of snapshotRows(contributions.declarationPolicy.bundledLibraries, snapshotSite, "bundledLibraries", violations)) {
+    if (!declarationModules.has(module)) add("bundled-library-declaration", { kind: "module", module }, module);
+    if (libraries.has(module)) add("bundled-library-unique", { kind: "module", module }, module);
+    libraries.add(module);
+    if (previousLibrary !== null && module < previousLibrary) unorderedLibraries = true;
+    previousLibrary = module;
+  }
+  if (unorderedLibraries) add("bundled-libraries-order", snapshotSite, "bundledLibraries");
   const layouts = snapshotRows(snapshot.platform.layouts, snapshotSite, "platform.layouts", violations);
   const layoutKeys = new Set<string>();
   let previousLayout: string | null = null;
