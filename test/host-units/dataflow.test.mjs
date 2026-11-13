@@ -90,11 +90,17 @@ function site() {
     tir: { body: fixtureIdentity.body, node: identities.nodeId(0) } };
 }
 
+// Records that can be a protocol step carry their step; none of these fixtures is a protocol step.
+const steppedTerminators = new Set(["switch", "call", "invoke", "await", "yield", "delegate"]);
+const unstepped = record => record.kind === "assign" || steppedTerminators.has(record.kind) ? { step: null, ...record } : record;
+
 function fixtureBody(terminators, statementRows) {
   assert.equal(terminators.length, statementRows.length, "all fixture statement rows are explicit");
   return {
     body: fixtureIdentity.body,
     bindings: { kind: "parametric" },
+    // One entry at block 0 for a body with blocks; the fixture has no parameters.
+    entries: terminators.length === 0 ? [] : [{ provided: 0, block: identities.blockId(0) }],
     locals: [{ id: identities.localId(0), storage: identities.tyId(0), role: { kind: "user" }, source: null, origin: site().origin }],
     constants: [
       { id: identities.constId(0), type: identities.tyId(0), value: { kind: "literal", value: { kind: "absence" } } },
@@ -102,8 +108,8 @@ function fixtureBody(terminators, statementRows) {
     ],
     places: [{ id: identities.placeId(0), base: { kind: "local", local: identities.localId(0) }, storage: identities.tyId(0), origin: site().origin }],
     blocks: terminators.map((terminator, index) => ({ ...site(), id: identities.blockId(index),
-      statements: statementRows[index].map(statement => ({ ...site(), ...statement })),
-      terminator: { ...site(), ...terminator } })),
+      statements: statementRows[index].map(statement => ({ ...site(), ...unstepped(statement) })),
+      terminator: { ...site(), ...unstepped(terminator) } })),
     result: identities.tyId(0),
   };
 }
@@ -138,7 +144,7 @@ function resolution() {
   };
 }
 
-test("graphOfMir covers every terminator and both unwind arms in declared order", () => {
+test("graphOfMir covers every terminator and every failure arm in declared order", () => {
   const operand = { kind: "constant", constant: identities.constId(0) };
   const escape = { kind: "escape" };
   const handler = { kind: "handler", exception: identities.placeId(0), target: identities.blockId(2) };
@@ -166,12 +172,19 @@ test("graphOfMir covers every terminator and both unwind arms in declared order"
     { kind: "throw", operand, unwind: handler },
     { kind: "return", value: null },
     { kind: "unreachable" },
+    // A check has a normal edge and, only when its failure goes to a handler, an unwind edge (graph law 1).
+    { kind: "check", place: identities.placeId(0), next: identities.blockId(1), unwind: escape },
+    { kind: "check", place: identities.placeId(0), next: identities.blockId(1), unwind: handler },
+    { kind: "check", place: identities.placeId(0), next: identities.blockId(1), unwind: { kind: "abort" } },
+    // A failure that ends the process and a control point that cannot fail have no edge.
+    { kind: "invoke", ...invoke, unwind: { kind: "abort" } },
+    { kind: "invoke", ...invoke, unwind: { kind: "none" } },
   ];
   const body = parsedBody(terminators, terminators.map(() => []));
   assert.deepEqual(product.graphOfMir(body), {
 
     successors: [[1], [2, 3, 4], [4], [1], [1, 2], [1], [1, 2], [1], [1, 2], [1, 3], [1, 3, 2],
-      [1, 3], [1, 3, 2], [], [2], [], []],
+      [1, 3], [1, 3, 2], [], [2], [], [], [1], [1, 2], [1], [1], [1]],
   });
 });
 
@@ -708,7 +721,7 @@ test("actual forward/backward example statement and edge transfers are monotone 
   const below = (left, right) => left === null ? right === null : right === null || left.every(value => right.includes(value));
   const live = { ...site(), kind: "storage-live", local: identities.localId(0) };
   const dead = { ...site(), kind: "storage-dead", local: identities.localId(0) };
-  const assign = { ...site(), kind: "assign", place: identities.placeId(0),
+  const assign = { ...site(), kind: "assign", step: null, place: identities.placeId(0),
     value: { kind: "use", operand: { kind: "constant", constant: identities.constId(0) } } };
   const goto = { ...site(), kind: "goto", target: identities.blockId(1) };
   const branch = { ...site(), kind: "switch", operand: { kind: "constant", constant: identities.constId(0) },
