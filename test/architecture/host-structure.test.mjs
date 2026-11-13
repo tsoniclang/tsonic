@@ -25,10 +25,10 @@ const expectedImports = ([
   ["front", [...first.slice(0, 4), "libraries", "snapshot"]], ["decls", [...first.slice(0, 4), "libraries", "ir-infer"]],
   ["rules", [...first.slice(0, 4), "libraries", "ir-infer"]], ["infer", [...first.slice(0, 4), "dataflow", "ir-infer"]],
   ["elaborate", [...first.slice(0, 5), "ir-infer"]], ["validate", [...first.slice(0, 5), "libraries", "ir-infer"]],
-  ["lower-mir", first.slice(0, 6)], ["evaluate", [...first.slice(0, 6), "libraries"]],
+  ["lower-mir", [...first.slice(0, 6), "ir-infer"]], ["evaluate", [...first.slice(0, 6), "libraries", "ir-infer"]],
   ["metadata", [...first.slice(0, 4), "ir-facts"]],
-  ...["liveness", "initialization", "refinements", "origins", "suspension", "errorStorage", "pointerBacking"].map(name => [`analyses/${name}`, [...first, "dataflow"]]),
-  ["summaries", [...first, "dataflow"]],
+  ...["liveness", "initialization", "refinements", "origins", "suspension", "errorStorage", "pointerBacking"].map(name => [`analyses/${name}`, [...first, "dataflow", "ir-infer"]]),
+  ["summaries", [...first, "dataflow", "ir-infer"]],
   ["pipeline", [...first.slice(0, 4), "ir-infer", ...first.slice(4), "ir-program", "dataflow", "query", "libraries", "snapshot", "front", "decls", "rules", "infer", "elaborate", "validate", "lower-mir", "evaluate", "metadata",
     "analyses/liveness", "analyses/initialization", "analyses/refinements", "analyses/origins", "analyses/suspension", "analyses/errorStorage", "analyses/pointerBacking", "summaries"]],
   ...["project", "packages", "plugins", "artifacts"].map(name => [name, ["ids", "diag", "snapshot"]]),
@@ -106,6 +106,29 @@ for (const [name, imports] of expectedImports) {
     expect([[sourcePath, `import type { Data } from "${relative}"; export type Read = Data;`], [targetPath, data]], [at("forbidden-import", sourcePath)]);
   });
 }
+
+test("the decision vocabulary stays in ir-infer: each named reader has the explicit edge, no peer or private route", () => {
+  const readers = ["infer", "rules", "elaborate", "validate", "ir-tir", "ir-mir", "ir-facts", "ir-program", "lower-mir", "evaluate",
+    "analyses/liveness", "analyses/initialization", "analyses/refinements", "analyses/origins", "analyses/suspension",
+    "analyses/errorStorage", "analyses/pointerBacking", "summaries"];
+  const decisions = hostCatalogue.find(module => module.name === "ir-infer");
+  const rules = hostCatalogue.find(module => module.name === "rules");
+  for (const name of readers) {
+    const module = hostCatalogue.find(candidate => candidate.name === name);
+    assert.equal(module.imports.includes("ir-infer"), true, name);
+    const sourcePath = `${module.directory}/unit.ts`;
+    const specifier = path => { const relative = posix.relative(module.directory, path).replace(/\.ts$/u, ".js"); return relative.startsWith(".") ? relative : `./${relative}`; };
+    expect([[sourcePath, `import type { Data } from "${specifier(decisions.contract)}"; export type Read = Data;`], [decisions.contract, data]], []);
+    expect([[sourcePath, `import type { Data } from "${specifier(`${decisions.directory}/text-decision-values.ts`)}"; export type Read = Data;`],
+      [`${decisions.directory}/text-decision-values.ts`, data]], [at("forbidden-import", sourcePath)]);
+    if (name !== "rules") expect([[sourcePath, `import type { Data } from "${specifier(rules.contract)}"; export type Read = Data;`], [rules.contract, data]],
+      [at("forbidden-import", sourcePath)]);
+  }
+  for (const name of ["ids", "diag", "ir-types", "ir-hir", "dataflow", "query", "libraries", "snapshot", "step", "front", "metadata"]) {
+    const module = hostCatalogue.find(candidate => candidate.name === name);
+    assert.equal(module.imports.includes("ir-infer"), false, name);
+  }
+});
 
 test("actual type-only, import-type, value and re-export edges participate in cycles", () => {
   for (const prefix of ["import type { Data }", "import { Data }", "export type { Data }", "export { Data }"]) {
