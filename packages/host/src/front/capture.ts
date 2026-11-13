@@ -6,9 +6,9 @@ import { nodeId, rawComponentId, rawSignatureId, rawSymbolId, rawTypeId } from "
 import type * as Hir from "../ir-hir/contract.js";
 import type { RawComponentId, RawSignatureId, RawSymbolId, RawTypeId } from "../ids/contract.js";
 import type {
-  CaptureDeps, CheckedProgram, RawCallableAssociation, RawCheckedType, RawCheckerViews, RawComponent, RawComponentStep, RawFact, RawModule, RawModuleExport, RawNodeRef, RawParameter, RawReference, RawSignature, RawSymbol, RawTypeForm,
+  CaptureDeps, CheckedProgram, RawCallableAssociation, RawCoreCapture, RawCheckedType, RawCheckerViews, RawComponent, RawComponentStep, RawFact, RawModule, RawModuleExport, RawNodeRef, RawParameter, RawReference, RawSignature, RawSymbol, RawTypeForm,
 } from "./contract.js";
-import { OpenedProgram } from "./handles.js";
+import { ExtensionTable, OpenedProgram } from "./handles.js";
 import { captureNode, expressionKinds } from "./syntax-capture.js";
 import type { SyntaxCaptureContext } from "./syntax-support.js";
 
@@ -106,6 +106,29 @@ function typeForm(scope: CaptureScope, type: Type): RawTypeForm {
     if (shape.isNever(type)) return { kind: "scalar", scalar: "never" };
   }
   throw new TypeError(`front: the captured form of the checker type ${scope.checker.typeToString(type)} is not implemented`);
+}
+
+/**
+ * Whether the selected inventory that core facts come from is closed and empty: the snapshot's library roles, the
+ * loaded semantics modules' exports, and the safety and declaration providers of its contributions. Every core fact
+ * of a node (markers, pointers, layouts, bindings, attributes, safety, argument passing, flow state, provider) is
+ * supplied by an entry of that inventory; with none, each one's absence is proven for every node. With any entry,
+ * no fact is proven by this capture yet: each stays not provided, never defaulted (K-3313.2).
+ */
+function closedInventoryEmpty(program: CheckedProgram): boolean {
+  const roles = OpenedProgram.libraryData(program).flatMap(entry => entry.roles);
+  const exports = ExtensionTable.semantics(OpenedProgram.table(program)).flatMap(module => module.exports);
+  const contributions = OpenedProgram.contributions(program);
+  return roles.length === 0 && exports.length === 0 && contributions.safetyProviders.length === 0 && contributions.declarationProviders.length === 0;
+}
+
+function coreFacts(node: RawNodeRef, empty: boolean): RawCoreCapture {
+  const proven = <Value>(value: Value): RawFact<Value> => empty ? available(value) : notProvided();
+  return {
+    node, provider: proven(null), markers: proven({ struct: null, field: null, defaultValue: null, jsString: false }), pointerType: proven(null),
+    pointerOperation: proven(null), metadata: proven(null), layout: proven(null), field: proven(null), fieldBinding: proven(null),
+    recordBinding: proven(null), layoutQuery: proven(null), attribute: proven(null), safety: proven(null), argumentPassing: proven(null), flowState: proven(null),
+  };
 }
 
 /** The type at one position (component); each position has its own row, so a row's component is where it was read. */
@@ -237,6 +260,8 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
       });
     }
   });
+  const empty = closedInventoryEmpty(program);
+  const core = [...ownNodes.values()].map(id => coreFacts({ module, node: id }, empty));
   const exports: RawModuleExport[] = [];
   const moduleSymbol = scope.checker.getSymbolAtLocation(file);
   if (moduleSymbol !== undefined) scope.checker.getExportsOfModule(moduleSymbol).forEach(exported => {
@@ -251,7 +276,7 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
     types: { types: scope.tables.types, components: scope.tables.components, signatures: scope.tables.signatures, members: [],
       symbols: scope.tables.symbols, candidates: [], dataLayouts: [], memoryLayouts: [], memoryFields: [] },
     checkerViews: views, calls: [], callableAssociations: associations, providerDeclarations: [], references, links: [], exports,
-    implementations: [], heritage: [], constructors: [], enums: [], propertyNames: [], memberUses: [], protocols: [], storage: [], core: [],
+    implementations: [], heritage: [], constructors: [], enums: [], propertyNames: [], memberUses: [], protocols: [], storage: [], core,
     checkerDiagnostics: [], diagnosticCoverage: [],
   };
   return { kind: "ok", value: raw, diagnostics: [] };

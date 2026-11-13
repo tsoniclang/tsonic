@@ -6,7 +6,8 @@ import type * as Hir from "../ir-hir/contract.js";
 import { childrenOfSyntax } from "../ir-hir/index.js";
 import type { TypeTerm } from "../ir-types/contract.js";
 import { internSignature, internType } from "../ir-types/index.js";
-import type { ConvertedCheckedType, LowerDeps, ModuleDefinitions, ModuleExports, RawCallableAssociation, RawCheckerViews, RawModule } from "./contract.js";
+import type { PassingMode } from "../ir-types/contract.js";
+import type { ConvertedCheckedType, LowerDeps, ModuleDefinitions, ModuleExports, RawCallableAssociation, RawCheckerViews, RawCoreCapture, RawFact, RawModule } from "./contract.js";
 import { definitionRows } from "./identities.js";
 
 type Syntax = Hir.SyntaxPhase;
@@ -45,15 +46,43 @@ function refuseUnwritten(tree: Hir.SyntaxNode<Syntax>): void {
   }
 }
 
-function absentCoreOf(): Hir.HirCoreCapture {
-  return {
-  provider: { kind: "available", value: null },
-  markers: { kind: "available", value: { struct: null, field: null, defaultValue: null, jsString: false } },
-  pointerType: { kind: "available", value: null }, pointerOperation: { kind: "available", value: null },
-  fieldBinding: { kind: "available", value: null }, recordBinding: { kind: "available", value: null },
-  attribute: { kind: "available", value: null }, safety: { kind: "available", value: null },
-  argumentPassing: { kind: "available", value: null }, flowState: { kind: "available", value: null },
+/**
+ * A node's core facts as capture supplied them (K-3313.2): a proven absence stays a proven absence, a fact not
+ * provided stays not provided. A present fact is a development frontier of this lowering, refused by name.
+ */
+function coreOf(lowering: Lowering, node: NodeId): Hir.HirCoreCapture {
+  const raw = lowering.core.get(node);
+  if (raw === undefined) return throwInvariant(invariant("A node of a lowered module has no captured core facts."));
+  const absent = <Value>(fact: RawFact<Value | null>, name: string): Hir.CapturedFact<null> => {
+    if (fact.kind === "unavailable") return { kind: "unavailable", reason: fact.reason === "checker-error" || fact.reason === "parameter-dependent" ? fact.reason : "not-provided" };
+    if (fact.value !== null) throw new TypeError(`front: the lowering of a present core fact (${name}) is not implemented`);
+    return { kind: "available", value: null };
   };
+  const markers: Hir.CapturedFact<Hir.HirMarkersCapture> = raw.markers.kind === "unavailable" ? { kind: "unavailable", reason: "not-provided" }
+    : raw.markers.value.struct === null && raw.markers.value.field === null && raw.markers.value.defaultValue === null && !raw.markers.value.jsString
+      ? { kind: "available", value: { struct: null, field: null, defaultValue: null, jsString: false } }
+      : (() => { throw new TypeError("front: the lowering of present markers is not implemented"); })();
+  const passing = raw.argumentPassing;
+  const argumentPassing: Hir.CapturedFact<Hir.HirArgumentPassingCapture | null> = passing.kind === "unavailable" ? absent(passing, "argument passing")
+    : passing.value === null ? { kind: "available", value: null }
+    : passing.value.role === "declaration" ? { kind: "available", value: { role: "declaration", mode: passing.value.mode } }
+    : (() => { throw new TypeError("front: the lowering of an argument's passing capture is not implemented"); })();
+  return {
+    provider: absent(raw.provider, "provider"), markers, pointerType: absent(raw.pointerType, "pointer type"),
+    pointerOperation: absent(raw.pointerOperation, "pointer operation"), fieldBinding: absent(raw.fieldBinding, "field binding"),
+    recordBinding: absent(raw.recordBinding, "record binding"), attribute: absent(raw.attribute, "attribute"), safety: absent(raw.safety, "safety"),
+    argumentPassing, flowState: absent(raw.flowState, "flow state"),
+  };
+}
+
+/**
+ * A parameter's passing mode, from its captured declaration fact: a declared mode is used as captured; a proven absence
+ * of any passing marker selects native by-value, once, here; a fact not provided is refused by name, never defaulted.
+ */
+function passingOf(lowering: Lowering, parameter: NodeId): PassingMode {
+  const fact = coreOf(lowering, parameter).argumentPassing;
+  if (fact.kind === "unavailable") throw new TypeError("front: a parameter whose passing mode is not proven is not implemented (the selected inventory offers core facts that capture does not answer yet)");
+  return fact.value === null ? "by-value" : fact.value.mode;
 }
 
 /**
@@ -111,6 +140,7 @@ interface Lowering {
   readonly bodyOf: ReadonlyMap<NodeId, BodyId>;
   readonly bodyParent: ReadonlyMap<BodyId, BodyId>;
   readonly captures: Map<BodyId, LocalRef[]>;
+  readonly core: ReadonlyMap<NodeId, RawCoreCapture>;
 }
 
 interface NodeBodies {
@@ -206,20 +236,20 @@ function typeNode(lowering: Lowering, node: Hir.TypeNode<Syntax>): { readonly no
   const raw = lowering.authoredTypes.get(node.id);
   if (raw === undefined) return throwInvariant(invariant("An authored type annotation has no captured checker type."));
   const type = typeOf(lowering, raw);
-  return { node: { ...headerOf(node), kind: node.kind, tsonic: { core: absentCoreOf(), type: { kind: "available", value: type }, referencedDefinitions: [] } }, type };
+  return { node: { ...headerOf(node), kind: node.kind, tsonic: { core: coreOf(lowering, node.id), type: { kind: "available", value: type }, referencedDefinitions: [] } }, type };
 }
 
 function expression(lowering: Lowering, node: Hir.Expression<Syntax>): Hir.Expression<Checked> {
   switch (node.kind) {
     case "Identifier": {
       const resolution = resolutionOf(lowering, node.id, lowering.references.get(node.id));
-      return { ...headerOf(node), kind: "Identifier", text: node.text, tsonic: { core: absentCoreOf(), role: "value", value: valueOf(lowering, node.id), resolution } };
+      return { ...headerOf(node), kind: "Identifier", text: node.text, tsonic: { core: coreOf(lowering, node.id), role: "value", value: valueOf(lowering, node.id), resolution } };
     }
     case "BinaryExpression":
       if (node.operatorToken.kind !== "PlusToken") return throwInvariant(invariant("A binary operator of an unwritten kind passed the written-kinds check."));
       return { ...headerOf(node), kind: "BinaryExpression", modifiers: null, left: expression(lowering, node.left), type: null,
         operatorToken: token(node.operatorToken), right: expression(lowering, node.right),
-        tsonic: { core: absentCoreOf(), role: "arithmetic", value: valueOf(lowering, node.id) } };
+        tsonic: { core: coreOf(lowering, node.id), role: "arithmetic", value: valueOf(lowering, node.id) } };
     default: return throwInvariant(invariant("An expression of an unwritten kind passed the written-kinds check."));
   }
 }
@@ -273,23 +303,23 @@ function functionDeclaration(lowering: Lowering, node: Hir.FunctionDeclaration<S
     if (parameter.name.kind !== "Identifier") return throwInvariant(invariant("A parameter of a written form has no identifier name."));
     const target = targetOf(lowering, parameter.id);
     const lowered: Hir.ParameterDeclaration<Checked> = { ...headerOf(parameter), kind: "Parameter", modifiers: null, dotDotDotToken: null,
-      name: { ...headerOf(parameter.name), kind: "Identifier", text: parameter.name.text, tsonic: { core: absentCoreOf(), role: "declaration-name", declaration: target } },
+      name: { ...headerOf(parameter.name), kind: "Identifier", text: parameter.name.text, tsonic: { core: coreOf(lowering, parameter.name.id), role: "declaration-name", declaration: target } },
       questionToken: null, type: declared === null ? null : declared.node, initializer: null,
-      tsonic: { core: absentCoreOf(), parent: definition, attributes: [], memory: { kind: "available", value: null }, declaration: target,
+      tsonic: { core: coreOf(lowering, parameter.id), parent: definition, attributes: [], memory: { kind: "available", value: null }, declaration: target,
         declaredType: { kind: "available", value: declaredType }, initializer: null } };
-    return { lowered, definition: parameterDefinition, checkedType };
+    return { lowered, definition: parameterDefinition, checkedType, passing: passingOf(lowering, parameter.id) };
   });
   const returnType = node.type === null ? null : typeNode(lowering, node.type).node;
   const item = (target: NodeId, itemOwner: DefId): SourceNodeRef => ({ kind: "item", value: { owner: itemOwner, node: target } });
   const signature = internSignature(lowering.deps.types, {
     declaration: definition, owner: item(node.id, definition), composition: null, kind: "call", typeParameters: [], receiver: null,
-    parameters: parameters.map(parameter => ({ declaration: parameter.definition, kind: "required", type: parameter.checkedType, passing: "by-value", initializer: null })),
+    parameters: parameters.map(parameter => ({ declaration: parameter.definition, kind: "required", type: parameter.checkedType, passing: parameter.passing, initializer: null })),
     result: resultType,
   });
   const loweredBody = block(lowering, bodyNode, definition);
   lowering.bodies.push({
     body, owner: definition,
-    params: parameters.map((parameter, index) => ({ local: localId(index), declaration: parameter.definition, role: "required", passing: "by-value", initializer: null })),
+    params: parameters.map((parameter, index) => ({ local: localId(index), declaration: parameter.definition, role: "required", passing: parameter.passing, initializer: null })),
     locals: parameters.map((parameter, index) => ({ id: localId(index), declaration: item(parameter.lowered.id, parameter.definition),
       name: parameter.lowered.name.kind === "Identifier" ? parameter.lowered.name.text : "", role: "parameter",
       checkerSlot: { kind: "available", value: parameter.checkedType }, capturedFrom: null, mutable: true })),
@@ -299,8 +329,8 @@ function functionDeclaration(lowering: Lowering, node: Hir.FunctionDeclaration<S
   return { ...headerOf(node), kind: "FunctionDeclaration", modifiers: modifiers(node.modifiers), typeParameters: null,
     parameters: { loc: node.parameters.loc, nodes: parameters.map(parameter => parameter.lowered) }, type: returnType, fullSignature: null, asteriskToken: null,
     body: loweredBody,
-    name: name === null ? null : { ...headerOf(name), kind: "Identifier", text: name.text, tsonic: { core: absentCoreOf(), role: "declaration-name", declaration: targetOf(lowering, node.id) } },
-    tsonic: { core: absentCoreOf(), parent: owner, attributes: [], memory: { kind: "available", value: null }, definition, parameters: [],
+    name: name === null ? null : { ...headerOf(name), kind: "Identifier", text: name.text, tsonic: { core: coreOf(lowering, name.id), role: "declaration-name", declaration: targetOf(lowering, node.id) } },
+    tsonic: { core: coreOf(lowering, node.id), parent: owner, attributes: [], memory: { kind: "available", value: null }, definition, parameters: [],
       // One API body endpoint with its real body: a written function is not overloaded (an overload family is refused
       // by the written-kinds check, as a FunctionDeclaration without a body), so it has no advertised row (K-3312.1).
       signatures: [{ declaration: definition, role: "api-body", signature, body }], body } };
@@ -319,6 +349,7 @@ export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<Hir.HirM
   const structure = nodeBodies(raw.tree, moduleBody, definitionAt);
   const lowering: Lowering = {
     deps, raw, definitionAt, bodyOf: structure.bodyOf, bodyParent: structure.bodyParent, captures: new Map(),
+    core: new Map(raw.core.filter(entry => entry.node.module === raw.module).map(entry => [entry.node.node, entry])),
     views: new Map(raw.checkerViews.filter(view => view.node.module === raw.module).map(view => [view.node.node, view])),
     references: new Map(raw.references.filter(reference => reference.declaration.module === raw.module).map(reference => [reference.occurrence.node, reference.declaration.node])),
     locals: new Map(), bodies: [],
@@ -329,7 +360,7 @@ export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<Hir.HirM
     statements: { loc: raw.tree.statements.loc, nodes: raw.tree.statements.nodes.map(child => statement(lowering, child, moduleDefinition)) },
     endOfFileToken: token(raw.tree.endOfFileToken), languageVariant: raw.tree.languageVariant, scriptKind: raw.tree.scriptKind,
     commentDirectives: raw.tree.commentDirectives, pragmas: raw.tree.pragmas, checkJsDirective: raw.tree.checkJsDirective,
-    tsonic: { core: absentCoreOf(), parent: null, attributes: [], memory: { kind: "available", value: null }, definition: moduleDefinition, body: moduleBody } };
+    tsonic: { core: coreOf(lowering, raw.tree.id), parent: null, attributes: [], memory: { kind: "available", value: null }, definition: moduleDefinition, body: moduleBody } };
   // Each body's captures, and its nested bodies: the bodies it directly encloses, in preorder.
   const nestedOf = (body: BodyId): readonly BodyId[] => structure.order.filter(inner => structure.bodyParent.get(inner) === body);
   const bodies: Hir.HirBody[] = [{ body: moduleBody, owner: moduleDefinition, params: [], locals: [], root: tree, captures: [], scopes: [],

@@ -61,7 +61,7 @@ export function createExtensionTable(registrations: readonly CheckerRegistration
     }
   });
   if (semanticsPosition !== null) extensions.splice(semanticsPosition, 0, createSourceSemanticsExtension({ modules: semantics }));
-  return ExtensionTable.create(entries, extensions, providers);
+  return ExtensionTable.create(entries, extensions, providers, semantics);
 }
 
 export function extensionReferences(table: CheckerExtensions): readonly ExtensionReferenceEntry[] {
@@ -155,7 +155,8 @@ export function openProgram(deps: CaptureDeps, snapshot: ProjectSnapshot, prepar
   if (sessionLevel.length !== 0) {
     throw new TypeError(`front: the session reported diagnostics that name no file (${[...new Set(sessionLevel)].join(", ")}); the refusal that carries them waits for the checker's message accessor`);
   }
-  return ({ kind: "ok", value: OpenedProgram.create(checked, deps.extensions, inputs.modules, inputs.packageNames, inputs.files), diagnostics: [] });
+  return ({ kind: "ok", value: OpenedProgram.create(checked, deps.extensions, inputs.modules, inputs.packageNames, inputs.files,
+    snapshot.packages.libraryData, snapshot.contributions), diagnostics: [] });
 }
 
 export function programModules(deps: CaptureDeps, program: CheckedProgram): ProgramModuleSet {

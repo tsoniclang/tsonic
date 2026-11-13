@@ -24,7 +24,7 @@ export async function loadFrontFixture() {
 
   /** A verifier-valid snapshot: a project package with source modules, a package holding the bundled libraries, and packages of providers. */
   function projectSnapshot({ sourceFiles, libraries, providerPackages = [], declarationProviders = [], compilerExtensions = [], requiredProviderModules = [],
-    otherPackages = [], extraFiles = {}, installedDeclarations = "none" }) {
+    otherPackages = [], extraFiles = {}, installedDeclarations = "none", semanticModules = [] }) {
     const project = packageOf("/project");
     const checker = packageOf("/checker");
     const packages = [
@@ -63,7 +63,7 @@ export async function loadFrontFixture() {
       roots: [...Object.keys(sourceFiles).map(name => moduleOf(project, `src/${name}`)), ...otherRoots].sort(),
       selection: { target: { id: "native", surfaces: [], options: { kind: "record", fields: [] } }, providerId: "native-provider", capabilityIds: [], surfaceIds: [] },
       contributions: { declarationModules: [], declarationPolicy: { bundledLibraries: libraries.map(library => moduleOf(checker, library.name)).sort(), installedDeclarations },
-        requiredProviderModules, compilerExtensions, declarationProviders, semanticModules: [], safetyProviders: [], dataLayouts: [] },
+        requiredProviderModules, compilerExtensions, declarationProviders, semanticModules, safetyProviders: [], dataLayouts: [] },
       platform: { layouts: [] },
     };
   }

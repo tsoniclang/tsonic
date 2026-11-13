@@ -795,3 +795,54 @@ test("K-3313.1: parameters target their body-local slot and keep their qualified
     [innerBody, [{ body: outerBody, local: 0 }], [], [["b", { kind: "item", value: { owner: bDefinition, node: definitions.rows[4].node } }]]]].sort());
   assert.deepEqual(verifyChecked(checked, interner), []);
 });
+
+// K-3313.2: core facts and passing come from the explicitly closed inventory. Expectations written before the run.
+const notProvided = { kind: "unavailable", reason: "not-provided", diagnostics: [] };
+test("K-3313.2 proven absence: with an empty closed inventory each captured node's core facts are proven absent, and add's parameters pass by value through that proof", async () => {
+  const hir = await import("../../packages/host/dist/ir-hir/index.js");
+  const { raw, checked } = checkedModuleOf(addSource);
+  const absent = { kind: "available", value: null };
+  assert.equal(raw.core.length, 18, "one row per captured node");
+  for (const row of raw.core) assert.deepEqual({ ...row, node: null }, { node: null, provider: absent,
+    markers: { kind: "available", value: { struct: null, field: null, defaultValue: null, jsString: false } }, pointerType: absent, pointerOperation: absent,
+    metadata: absent, layout: absent, field: absent, fieldBinding: absent, recordBinding: absent, layoutQuery: absent, attribute: absent, safety: absent,
+    argumentPassing: absent, flowState: absent });
+  const parameters = hir.indexSyntaxTree(checked.tree).filter(node => node.kind === "Parameter");
+  assert.deepEqual(parameters.map(node => node.tsonic.core.argumentPassing), [absent, absent]);
+  assert.deepEqual(checked.bodies.flatMap(body => body.params.map(parameter => parameter.passing)), ["by-value", "by-value"]);
+});
+
+test("K-3313.2 offered but not answered: a selected semantics module that offers reference markers leaves every core fact not provided, and lowering refuses the parameter's passing instead of defaulting it", async () => {
+  const types = await import("../../packages/host/dist/ir-types/index.js");
+  const semantics = { moduleSpecifier: "@tsonic/core/lang.js", capabilities: ["call-marker"], exports: [{ kind: "call-marker", exportName: "readwriteref", marker: "read-write-reference" }] };
+  const snapshot = projectSnapshot({ sourceFiles: { "main.ts": addSource }, libraries: bundled(), providerPackages: [{ root: "/semantics", name: "semantics" }],
+    semanticModules: [reference("/semantics")] });
+  const { deps, program } = openAndCapture(snapshot, [{ reference: reference("/semantics"), value: { kind: "semantics-module", value: semantics } }]);
+  const module = moduleOf(packageOf("/project"), "src/main.ts");
+  const raw = front.captureModule(deps, program, module);
+  assert.equal(raw.kind, "ok");
+  assert.equal(raw.value.core.length, 18);
+  assert.deepEqual([...new Set(raw.value.core.flatMap(row => Object.entries(row).filter(([name]) => name !== "node").map(([, fact]) => JSON.stringify(fact))))], [JSON.stringify(notProvided)]);
+  const definitions = front.lowerModuleDefinitions(raw.value);
+  assert.throws(() => front.lowerModule(lowerDepsFor(definitions.value, types.createTypeInterner(), addSource), raw.value),
+    { name: "TypeError", message: "front: a parameter whose passing mode is not proven is not implemented (the selected inventory offers core facts that capture does not answer yet)" });
+});
+
+test("K-3313.2 a positive declaration passing fact is consumed as captured: a by-reference parameter row gives that mode in the signature, the body's parameters and the node's core", async () => {
+  const hir = await import("../../packages/host/dist/ir-hir/index.js");
+  const types = await import("../../packages/host/dist/ir-types/index.js");
+  const { deps, program, module } = openedModule(addSource);
+  const raw = front.captureModule(deps, program, module);
+  const definitions = front.lowerModuleDefinitions(raw.value);
+  const parameterNodes = definitions.value.rows.filter(row => row.kind === "Parameter").map(row => row.node);
+  const declared = { role: "declaration", mode: "byref-readwrite" };
+  const changed = { ...raw.value, core: raw.value.core.map(row => row.node.node === parameterNodes[0] ? { ...row, argumentPassing: { kind: "available", value: declared } } : row) };
+  const interner = types.createTypeInterner();
+  const lowered = front.lowerModule(lowerDepsFor(definitions.value, interner, addSource), changed);
+  assert.equal(lowered.kind, "ok");
+  const nodes = hir.indexSyntaxTree(lowered.value.tree);
+  const callable = nodes.find(node => node.kind === "FunctionDeclaration").tsonic;
+  assert.deepEqual(types.readSignature(interner, callable.signatures[0].signature).parameters.map(parameter => parameter.passing), ["byref-readwrite", "by-value"]);
+  assert.deepEqual(lowered.value.bodies.find(body => body.body === callable.body).params.map(parameter => parameter.passing), ["byref-readwrite", "by-value"]);
+  assert.deepEqual(nodes.filter(node => node.kind === "Parameter").map(node => node.tsonic.core.argumentPassing), [{ kind: "available", value: declared }, { kind: "available", value: null }]);
+});

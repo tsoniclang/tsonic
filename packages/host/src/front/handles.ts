@@ -1,6 +1,6 @@
-import type { CheckedSourceProgram, CompilerExtension, SourceDeclarationProvider } from "@tsonic/tsts";
+import type { CheckedSourceProgram, CompilerExtension, SourceDeclarationProvider, SourceSemanticsModule } from "@tsonic/tsts";
 import type { ModuleId, PackageId } from "../ids/contract.js";
-import type { ExtensionReference, ExtensionReferenceEntry } from "../snapshot/contract.js";
+import type { ExtensionReference, ExtensionReferenceEntry, PackageLibraryData, SourceContributions } from "../snapshot/contract.js";
 
 export interface ProviderRegistration {
   readonly reference: ExtensionReference;
@@ -15,18 +15,22 @@ export class ExtensionTable {
   private readonly entryRows: readonly ExtensionReferenceEntry[];
   private readonly sessionExtensions: readonly CompilerExtension[];
   private readonly providerRows: ReadonlyMap<string, ProviderRegistration>;
+  private readonly semanticsRows: readonly SourceSemanticsModule[];
 
   private constructor(entries: readonly ExtensionReferenceEntry[], extensions: readonly CompilerExtension[],
-    providers: ReadonlyMap<string, ProviderRegistration>) {
+    providers: ReadonlyMap<string, ProviderRegistration>, semantics: readonly SourceSemanticsModule[]) {
     this.entryRows = entries;
     this.sessionExtensions = extensions;
     this.providerRows = providers;
+    this.semanticsRows = semantics;
   }
 
   static create(entries: readonly ExtensionReferenceEntry[], extensions: readonly CompilerExtension[],
-    providers: ReadonlyMap<string, ProviderRegistration>): ExtensionTable {
-    return new ExtensionTable(entries, extensions, providers);
+    providers: ReadonlyMap<string, ProviderRegistration>, semantics: readonly SourceSemanticsModule[]): ExtensionTable {
+    return new ExtensionTable(entries, extensions, providers, semantics);
   }
+  /** The loaded semantics modules, in registration order: the selected module inventory of core markers. */
+  static semantics(table: ExtensionTable): readonly SourceSemanticsModule[] { return table.semanticsRows; }
   static entries(table: ExtensionTable): readonly ExtensionReferenceEntry[] { return table.entryRows; }
   static extensions(table: ExtensionTable): readonly CompilerExtension[] { return table.sessionExtensions; }
   static providers(table: ExtensionTable): ReadonlyMap<string, ProviderRegistration> { return table.providerRows; }
@@ -39,20 +43,30 @@ export class OpenedProgram {
   private readonly moduleByPath: ReadonlyMap<string, ModuleId>;
   private readonly nameByPackage: ReadonlyMap<PackageId, string | null>;
   private readonly textByPath: ReadonlyMap<string, string>;
+  private readonly roleRows: readonly PackageLibraryData[];
+  private readonly contributionRows: SourceContributions;
 
   private constructor(checked: CheckedSourceProgram, table: ExtensionTable, modules: ReadonlyMap<string, ModuleId>,
-    packageNames: ReadonlyMap<PackageId, string | null>, texts: ReadonlyMap<string, string>) {
+    packageNames: ReadonlyMap<PackageId, string | null>, texts: ReadonlyMap<string, string>, libraryData: readonly PackageLibraryData[],
+    contributions: SourceContributions) {
     this.checkedProgram = checked;
     this.extensionTable = table;
     this.moduleByPath = modules;
     this.nameByPackage = packageNames;
     this.textByPath = texts;
+    this.roleRows = libraryData;
+    this.contributionRows = contributions;
   }
 
   static create(checked: CheckedSourceProgram, table: ExtensionTable, modules: ReadonlyMap<string, ModuleId>,
-    packageNames: ReadonlyMap<PackageId, string | null>, texts: ReadonlyMap<string, string>): OpenedProgram {
-    return new OpenedProgram(checked, table, modules, packageNames, texts);
+    packageNames: ReadonlyMap<PackageId, string | null>, texts: ReadonlyMap<string, string>, libraryData: readonly PackageLibraryData[],
+    contributions: SourceContributions): OpenedProgram {
+    return new OpenedProgram(checked, table, modules, packageNames, texts, libraryData, contributions);
   }
+  /** The snapshot's library data: the closed inventory of library roles of the packages it captured. */
+  static libraryData(program: OpenedProgram): readonly PackageLibraryData[] { return program.roleRows; }
+  /** The snapshot's source contributions (safety providers, semantics modules, declaration providers). */
+  static contributions(program: OpenedProgram): SourceContributions { return program.contributionRows; }
   static checked(program: OpenedProgram): CheckedSourceProgram { return program.checkedProgram; }
   static table(program: OpenedProgram): ExtensionTable { return program.extensionTable; }
   static modules(program: OpenedProgram): ReadonlyMap<string, ModuleId> { return program.moduleByPath; }
