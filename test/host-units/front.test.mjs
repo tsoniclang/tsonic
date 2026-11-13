@@ -957,3 +957,12 @@ test("a limit met in another file refuses the capture that needed it: the refere
   assert.deepEqual(front.captureModule(tight, program, a), { kind: "refused", diagnostics: [diag.resourceLimitDiagnostic({ owner: "front", limit: "front.maximumCapturedNodesPerModule",
     maximum: 20, site: { kind: "file", path: "/project/src/globals.d.ts" }, unit: { request: { query: "captureModule", key: c }, position: { kind: "result" } } })] });
 });
+
+// R2 V-3: syntax-capture.ts is written by scripts/host/generate-front-syntax.mjs from the HIR contract, HIR's child order and the
+// SDK's casts; the committed file must be what the generator writes from the committed inputs.
+test("the syntax capture is current: regenerating syntax-capture.ts from the HIR contract, HIR's child order and the SDK's casts gives the committed file", async () => {
+  const { frontSyntaxPath, generateFrontSyntax } = await import("../../scripts/host/generate-front-syntax.mjs");
+  const generated = generateFrontSyntax(repository);
+  assert.deepEqual([generated.unordered, generated.missingCasts], [[], []]);
+  assert.equal(generated.text === readFileSync(resolve(repository, frontSyntaxPath), "utf8"), true, "run node scripts/host/generate-front-syntax.mjs --write");
+});
