@@ -1,6 +1,6 @@
-import type { TyId, SigId, DefId, SourceNodeRef, LocalRef } from "../ids/contract.js";
+import type { TyId, SigId, DefId, KeyData, SourceNodeRef, LocalRef } from "../ids/contract.js";
 import type { TextParseResult, Violation } from "../diag/contract.js";
-import type { ArtifactBindings, TypeTerm, Signature, SignatureInput, TypeTable, BindingVector, TypeParameterIdentity, TypeEvidence } from "./data.js";
+import type { ArtifactBindings, ComponentSelector, TypeTerm, Signature, SignatureInput, TypeTable, BindingVector, TypeParameterIdentity, TypeEvidence } from "./data.js";
 import type { TypeArena } from "./arena.js";
 export type * from "./data.js";
 
@@ -104,3 +104,9 @@ export interface TypeVerificationInput {
 }
 
 export type VerifyTypes = (input: TypeVerificationInput) => readonly Violation<TypeRule, TypeSite>[];
+
+/**
+ * The one encoding of a selector path as key data: the only producer of the path of a "component" unit position
+ * (diag). Equal paths give equal key data; different paths give different key data.
+ */
+export type EncodeSelectorPath = (path: readonly ComponentSelector[]) => readonly KeyData[];

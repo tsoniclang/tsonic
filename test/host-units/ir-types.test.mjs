@@ -24,7 +24,7 @@ const post = (method, parameters = {}) => new Promise((done, reject) => {
   session.post(method, parameters, (error, result) => error === null ? done(result) : reject(error));
 });
 let createTypeInterner, seedTypeInterner, internType, internSignature, readType, readSignature, exportTypes,
-  substitute, substituteSignature, printTypes, parseTypes, runTypeVerifier;
+  substitute, substituteSignature, printTypes, parseTypes, runTypeVerifier, encodeSelectorPath;
 
 before(async () => {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true, "the whole suite requires aggregate admission");
@@ -33,7 +33,7 @@ before(async () => {
   await post("Profiler.enable");
   await post("Profiler.startPreciseCoverage", { callCount: true, detailed: true });
   ({ createTypeInterner, seedTypeInterner, internType, internSignature, readType, readSignature, exportTypes,
-    substitute, substituteSignature, printTypes, parseTypes, verifyTypes: runTypeVerifier } = await import("../../packages/host/dist/ir-types/index.js"));
+    substitute, substituteSignature, printTypes, parseTypes, verifyTypes: runTypeVerifier, encodeSelectorPath } = await import("../../packages/host/dist/ir-types/index.js"));
 });
 const moduleId = encodeModuleId({ package: encodePackageId("ir-types-tests"), path: "main.ts" });
 const definition = name => encodeDefId({ module: moduleId, segments: [{ name, ordinal: 0 }] });
@@ -2811,6 +2811,84 @@ test("a genuine typed component cycle is rejected before the owned arena changes
   const row = { kind: "projection", source: 0, projection: { kind: "component", component } };
   assert.throws(() => internType(interner, row), { name: "TypeError", message: "Inline cycle at $.projection.component.path[0].family.component" });
   assert.deepEqual(readType(interner, 0), primitive);
+});
+
+test("the one selector-path encoding: each selector is one array beginning with its kind; equal paths are equal and every differing field differs", () => {
+  const body = encodeBodyId({ owner: definition("Selected"), role: "function", ordinal: 0 });
+  const otherBody = encodeBodyId({ owner: definition("Selected"), role: "function", ordinal: 1 });
+  const node = (in_, number) => ({ kind: "body", value: { body: in_, node: number } });
+  const item = (name, number) => ({ kind: "item", value: { owner: definition(name), node: number } });
+  const construction = (number, captures) => ({ occurrence: { body, node: number }, captures });
+  const family = (origin, path, extra = {}) => ({ origin, component: { root: node(body, 1), path },
+    parameters: [{ owner: definition("Sum"), index: 0 }], roles: [{ authoredIndex: 0, component: item("Sum", 2), member: 5 }], ...extra });
+  assert.deepEqual(encodeSelectorPath([]), []);
+  assert.deepEqual(encodeSelectorPath([{ kind: "tuple-element", index: 2 }, { kind: "awaited" }]), [["tuple-element", 2], ["awaited"]]);
+  assert.deepEqual(encodeSelectorPath([{ kind: "member", origin: { kind: "mapped", owner: node(body, 7), key: { kind: "text", value: "k" } } }]),
+    [["member", ["mapped", ["body", body, 7], ["text", "k"]]]]);
+  assert.deepEqual(encodeSelectorPath([{ kind: "construction-argument", definition: construction(3, [{ body, local: 4 }]), index: 1 }]),
+    [["construction-argument", [body, 3], [[body, 4]], 1]]);
+  assert.deepEqual(encodeSelectorPath([{ kind: "sum-arm", family: family("authored", [{ kind: "optional-value" }]), index: 1 }]),
+    [["sum-arm", "authored", ["body", body, 1], [["optional-value"]], [[definition("Sum"), 0]], [[0, ["item", definition("Sum"), 2], 5]], 1]]);
+  const selectors = [
+    ...["class-value", "optional-value", "array-element", "intersection-result", "projection-source", "awaited"].map(kind => ({ kind })),
+    ...["tuple-element", "union-member", "argument-place", "parameter-place", "intersection-member"].flatMap(kind => [{ kind, index: 0 }, { kind, index: 1 }]),
+    ...["argument-tail", "parameter-tail"].flatMap(kind => [{ kind, start: 0 }, { kind, start: 1 }]),
+    { kind: "construction-argument", definition: construction(3, []), index: 0 },
+    { kind: "construction-argument", definition: construction(3, []), index: 1 },
+    { kind: "construction-argument", definition: construction(4, []), index: 0 },
+    { kind: "construction-argument", definition: { occurrence: { body: otherBody, node: 3 }, captures: [] }, index: 0 },
+    { kind: "construction-argument", definition: construction(3, [{ body, local: 0 }]), index: 0 },
+    { kind: "construction-argument", definition: construction(3, [{ body, local: 1 }]), index: 0 },
+    { kind: "construction-argument", definition: construction(3, [{ body, local: 0 }, { body, local: 1 }]), index: 0 },
+    { kind: "member", origin: { kind: "declared", declaration: definition("A") } },
+    { kind: "member", origin: { kind: "declared", declaration: definition("B") } },
+    { kind: "member", origin: { kind: "class-prototype", owner: definition("A") } },
+    { kind: "member", origin: { kind: "mapped", owner: node(body, 7), key: { kind: "text", value: "k" } } },
+    { kind: "member", origin: { kind: "mapped", owner: node(body, 8), key: { kind: "text", value: "k" } } },
+    { kind: "member", origin: { kind: "mapped", owner: item("A", 7), key: { kind: "text", value: "k" } } },
+    { kind: "member", origin: { kind: "mapped", owner: node(body, 7), key: { kind: "text", value: "1" } } },
+    { kind: "member", origin: { kind: "mapped", owner: node(body, 7), key: { kind: "number", value: { numerator: 1n, denominator: 1n, negativeZero: false } } } },
+    { kind: "member", origin: { kind: "mapped", owner: node(body, 7), key: { kind: "number", value: { numerator: 0n, denominator: 1n, negativeZero: true } } } },
+    { kind: "member", origin: { kind: "mapped", owner: node(body, 7), key: { kind: "number", value: { numerator: 0n, denominator: 1n, negativeZero: false } } } },
+    { kind: "member", origin: { kind: "mapped", owner: node(body, 7), key: { kind: "number", value: { numerator: 1n, denominator: 2n, negativeZero: false } } } },
+    { kind: "member", origin: { kind: "mapped", owner: node(body, 7), key: { kind: "symbol", declaration: definition("A") } } },
+    ...["index-key", "index-value"].flatMap(kind => [{ kind, declaration: definition("A") }, { kind, declaration: definition("B") }]),
+    { kind: "parameter", signature: 0, index: 0 }, { kind: "parameter", signature: 1, index: 0 }, { kind: "parameter", signature: 0, index: 1 },
+    ...["receiver", "result"].flatMap(kind => [{ kind, signature: 0 }, { kind, signature: 1 }]),
+    { kind: "signature-tail", signature: 0, start: 0, readonly: false }, { kind: "signature-tail", signature: 1, start: 0, readonly: false },
+    { kind: "signature-tail", signature: 0, start: 1, readonly: false }, { kind: "signature-tail", signature: 0, start: 0, readonly: true },
+    { kind: "tuple-slice", start: 0, endCount: 0, readonly: false }, { kind: "tuple-slice", start: 1, endCount: 0, readonly: false },
+    { kind: "tuple-slice", start: 0, endCount: 1, readonly: false }, { kind: "tuple-slice", start: 0, endCount: 0, readonly: true },
+    { kind: "type-argument", declaration: definition("A"), index: 0 }, { kind: "type-argument", declaration: definition("B"), index: 0 },
+    { kind: "type-argument", declaration: definition("A"), index: 1 },
+    { kind: "sum-arm", family: family("authored", []), index: 0 }, { kind: "sum-arm", family: family("authored", []), index: 1 },
+    { kind: "sum-arm", family: family("inferred", []), index: 0 },
+    { kind: "sum-arm", family: family("authored", [{ kind: "optional-value" }]), index: 0 },
+    { kind: "sum-arm", family: family("authored", [{ kind: "sum-arm", family: family("authored", [{ kind: "array-element" }]), index: 0 }]), index: 0 },
+    { kind: "sum-arm", family: family("authored", [{ kind: "sum-arm", family: family("authored", [{ kind: "class-value" }]), index: 0 }]), index: 0 },
+    { kind: "sum-arm", family: family("authored", [], { parameters: [] }), index: 0 },
+    { kind: "sum-arm", family: family("authored", [], { parameters: [{ owner: definition("Sum"), index: 1 }] }), index: 0 },
+    { kind: "sum-arm", family: family("authored", [], { roles: [] }), index: 0 },
+    { kind: "sum-arm", family: family("authored", [], { roles: [{ authoredIndex: 1, component: item("Sum", 2), member: 5 }] }), index: 0 },
+    { kind: "sum-arm", family: family("authored", [], { roles: [{ authoredIndex: 0, component: item("Sum", 3), member: 5 }] }), index: 0 },
+    { kind: "sum-arm", family: family("authored", [], { roles: [{ authoredIndex: 0, component: item("Sum", 2), member: 6 }] }), index: 0 },
+    { kind: "sum-arm", family: { ...family("authored", []), component: { root: node(body, 2), path: [] } }, index: 0 },
+  ];
+  const keys = selectors.map(selected => encodeKey(encodeSelectorPath([selected])));
+  assert.equal(new Set(keys).size, selectors.length, "every differing field gives a different key");
+  assert.deepEqual(selectors.map(selected => encodeKey(encodeSelectorPath([structuredClone(selected)]))), keys, "an equal selector built again gives the same key");
+  const first = selectors[0];
+  const second = selectors[7];
+  assert.notEqual(encodeKey(encodeSelectorPath([first, second])), encodeKey(encodeSelectorPath([second, first])), "order is part of the path");
+  assert.notEqual(encodeKey(encodeSelectorPath([first])), encodeKey(encodeSelectorPath([first, first])), "length is part of the path");
+  assert.notEqual(encodeKey(encodeSelectorPath([{ kind: "sum-arm", family: family("authored", [first, second]), index: 0 }])),
+    encodeKey(encodeSelectorPath([{ kind: "sum-arm", family: family("authored", [first]), index: 0 }, second])),
+    "a selector of a family's own path is not a selector of the outer path");
+  let deep = [];
+  for (let level = 0; level < 20000; level += 1) deep = [{ kind: "sum-arm", family: family("authored", deep), index: 0 }];
+  let depth = 0;
+  for (let current = encodeSelectorPath(deep); current.length === 1; current = current[0][3]) depth += 1;
+  assert.equal(depth, 20000, "a deeply nested family path is encoded without native recursion");
 });
 
 test("the complete real ir-types owner compiles against freshly emitted actual allowed dependency declarations", async () => {
