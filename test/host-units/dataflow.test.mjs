@@ -123,7 +123,7 @@ function parsedBody(terminators, statementRows) {
 
 function operation() {
   return { decision: { kind: "selected", operation: { kind: "discard" }, operands: [identities.tyId(0)],
-    result: identities.tyId(0) }, permissionScope: null };
+    result: identities.tyId(0), execution: { kind: "pure" } }, permissionScope: null };
 }
 
 function resolution() {
@@ -138,6 +138,7 @@ function resolution() {
       parameters: [],
       completion: { signature: identities.sigId(0), completion: identities.tyId(0), yielded: null, sent: null },
       result: identities.tyId(0),
+      activation: null,
     },
     activation: null,
     captures: [],

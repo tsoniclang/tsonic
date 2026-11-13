@@ -176,6 +176,7 @@ export const deferredEvidence = (deferred: DeferredDecision): readonly TypeEvide
     case "refinement": return [invocation.input.source, invocation.input.checked];
     case "library": return [...(invocation.input.receiver === null ? [] : [invocation.input.receiver]), ...invocation.input.arguments, invocation.input.result];
     case "core": return [...invocation.input.operands, invocation.input.result];
+    case "closure": return [invocation.input.callable, ...invocation.input.captures];
   }
 };
 
@@ -238,6 +239,7 @@ export const collectTirSemantics = (nodes: readonly TirNode[]): TirSemanticInven
     if ("protocols" in phase) for (const [ordinal, selected] of phase.protocols.entries()) protocol(selected, node, ordinal);
     if ("template" in phase) template(phase.template, node);
     if ("callable" in phase) template(phase.callable.template, node);
+    if ("closure" in phase && phase.closure.kind === "deferred") pending.push({ kind: "deferred", value: phase.closure.deferred, node });
     if (node.kind === "BinaryExpression" && node.tsonic.role === "assignment") operation(node.tsonic.calculation, node);
     if (node.kind === "CallExpression" || node.kind === "NewExpression" || node.kind === "TaggedTemplateExpression" || node.kind === "Decorator") {
       const application = node.tsonic.application;

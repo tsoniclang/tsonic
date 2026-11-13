@@ -9,7 +9,7 @@ import { createDecisionValuesSchemas } from "./text-decision-values.js";
 import { createRuleInputsSchemas } from "./text-rule-inputs.js";
 import { createInvocationsSchemas } from "./text-invocations.js";
 import { createOperationsSchemas } from "./text-operations.js";
-import type { ApplicationDecision, AtomicContribution, BodyTyping, BoundCheckOutcome, Constraint, ConstraintDecision, ConstraintSet, ContributionKey, DeferredDecision, DischargeProof, EmbeddingDecision, FinalVariable, InferenceGroup, InferenceVariable, MemberDecision, OperationDecision, RecordedCheck, RefinementDecision, RuleOutcome, Solution, SolvedConstraint, VariableBound } from "./contract.js";
+import type { ApplicationDecision, AtomicContribution, BodyTyping, BoundCheckOutcome, ClosureDecision, Constraint, ConstraintDecision, ConstraintSet, ContributionKey, DeferredDecision, DischargeProof, EmbeddingDecision, FinalVariable, InferenceGroup, InferenceVariable, MemberDecision, OperationDecision, RecordedCheck, RefinementDecision, RuleOutcome, Solution, SolvedConstraint, VariableBound } from "./contract.js";
 import type { CaptureValuesSchemas } from "./text-capture-values.js";
 import type { ConstraintsSchemas } from "./text-constraints.js";
 import type { ContributionsSchemas } from "./text-contributions.js";
@@ -116,6 +116,11 @@ export interface DefaultDecisionRecord {
   readonly type: TyId;
 }
 
+export interface ClosureConstraintDecisionRecord {
+  readonly kind: "closure";
+  readonly closure: ClosureDecision;
+}
+
 export interface DeferredConstraintDecisionRecord {
   readonly kind: "deferred";
   readonly deferred: DeferredDecision;
@@ -166,6 +171,7 @@ export interface DecisionsSchemas {
   readonly refinementConstraintDecisionSchema: RecordSchema<RefinementConstraintDecisionRecord>;
   readonly dischargeDecisionSchema: RecordSchema<DischargeDecisionRecord>;
   readonly defaultDecisionSchema: RecordSchema<DefaultDecisionRecord>;
+  readonly closureConstraintDecisionSchema: RecordSchema<ClosureConstraintDecisionRecord>;
   readonly deferredConstraintDecisionSchema: RecordSchema<DeferredConstraintDecisionRecord>;
   readonly constraintSetSchema: RecordSchema<ConstraintSet>;
   readonly inferenceGroupSchema: RecordSchema<InferenceGroup>;
@@ -181,7 +187,7 @@ export function createDecisionsSchemas(captureValues: CaptureValuesSchemas, cons
   const { applicationDecisionSchema, dischargeProofSchema, embeddingDecisionSchema, memberDecisionSchema, refinementDecisionSchema } = decisionValues;
   const { typeComponentSchema, typeEvidenceSchema } = evidence;
   const { deferredDecisionSchema } = invocations;
-  const { operationDecisionSchema, operationOutcomeSchema } = operations;
+  const { closureDecisionSchema, operationDecisionSchema, operationOutcomeSchema } = operations;
   const solutionSchema = recordSchema<Solution>("Solution", "Solution", read => {
     const group = read("group", () => groupSchema, value => value.group);
     const variables = read("variables", () => arraySchema(finalVariableSchema), value => value.variables);
@@ -263,7 +269,7 @@ export function createDecisionsSchemas(captureValues: CaptureValuesSchemas, cons
   });
 
   const constraintDecisionSchema: RecordSchema<ConstraintDecision> = unionSchema<ConstraintDecision>("ConstraintDecision",
-    () => [equalityDecisionSchema, flowDecisionSchema, literalDecisionSchema, memberConstraintDecisionSchema, indexConstraintDecisionSchema, callDecisionSchema, constructDecisionSchema, operatorConstraintDecisionSchema, constructionDecisionSchema, protocolDecisionSchema, refinementConstraintDecisionSchema, dischargeDecisionSchema, defaultDecisionSchema, deferredConstraintDecisionSchema], value => {
+    () => [equalityDecisionSchema, flowDecisionSchema, literalDecisionSchema, memberConstraintDecisionSchema, indexConstraintDecisionSchema, callDecisionSchema, constructDecisionSchema, operatorConstraintDecisionSchema, constructionDecisionSchema, protocolDecisionSchema, refinementConstraintDecisionSchema, dischargeDecisionSchema, defaultDecisionSchema, closureConstraintDecisionSchema, deferredConstraintDecisionSchema], value => {
     switch (value.kind) {
       case "eq": return equalityDecisionSchema.stage(value);
       case "flow": return flowDecisionSchema.stage(value);
@@ -278,6 +284,7 @@ export function createDecisionsSchemas(captureValues: CaptureValuesSchemas, cons
       case "refine": return refinementConstraintDecisionSchema.stage(value);
       case "discharge": return dischargeDecisionSchema.stage(value);
       case "default": return defaultDecisionSchema.stage(value);
+      case "closure": return closureConstraintDecisionSchema.stage(value);
       case "deferred": return deferredConstraintDecisionSchema.stage(value);
     }
   });
@@ -349,6 +356,11 @@ export function createDecisionsSchemas(captureValues: CaptureValuesSchemas, cons
     return { fields: [type], value: () => ({ kind: "default", type: type.value() }) };
   });
 
+  const closureConstraintDecisionSchema = recordSchema<ClosureConstraintDecisionRecord>("ClosureConstraintDecision", "closure", read => {
+    const closure = read("closure", () => closureDecisionSchema, value => value.closure);
+    return { fields: [closure], value: () => ({ kind: "closure", closure: closure.value() }) };
+  });
+
   const deferredConstraintDecisionSchema = recordSchema<DeferredConstraintDecisionRecord>("DeferredConstraintDecision", "deferred", read => {
     const deferred = read("deferred", () => deferredDecisionSchema, value => value.deferred);
     return { fields: [deferred], value: () => ({ kind: "deferred", deferred: deferred.value() }) };
@@ -374,7 +386,7 @@ export function createDecisionsSchemas(captureValues: CaptureValuesSchemas, cons
       case "TypeComponent": return typeComponentSchema.stage(input.value);
     }
   }
-  return { solutionSchema, finalVariableSchema, solvedConstraintSchema, recordedCheckSchema, variableBoundSchema, producerBoundSchema, demandBoundSchema, boundCheckOutcomeSchema, satisfiedCheckSchema, refusedCheckSchema, boundRefusalSchema, bodyTypingSchema, constraintDecisionSchema, equalityDecisionSchema, flowDecisionSchema, literalDecisionSchema, memberConstraintDecisionSchema, indexConstraintDecisionSchema, callDecisionSchema, constructDecisionSchema, operatorConstraintDecisionSchema, constructionDecisionSchema, protocolDecisionSchema, refinementConstraintDecisionSchema, dischargeDecisionSchema, defaultDecisionSchema, deferredConstraintDecisionSchema, constraintSetSchema, inferenceGroupSchema, atomicContributionSchema, stageRoot };
+  return { closureConstraintDecisionSchema, solutionSchema, finalVariableSchema, solvedConstraintSchema, recordedCheckSchema, variableBoundSchema, producerBoundSchema, demandBoundSchema, boundCheckOutcomeSchema, satisfiedCheckSchema, refusedCheckSchema, boundRefusalSchema, bodyTypingSchema, constraintDecisionSchema, equalityDecisionSchema, flowDecisionSchema, literalDecisionSchema, memberConstraintDecisionSchema, indexConstraintDecisionSchema, callDecisionSchema, constructDecisionSchema, operatorConstraintDecisionSchema, constructionDecisionSchema, protocolDecisionSchema, refinementConstraintDecisionSchema, dischargeDecisionSchema, defaultDecisionSchema, deferredConstraintDecisionSchema, constraintSetSchema, inferenceGroupSchema, atomicContributionSchema, stageRoot };
 }
 
 export function createTextSchemas(): DecisionsSchemas {

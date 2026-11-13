@@ -1,6 +1,6 @@
 import type { LibraryExportIdentity, LibraryModuleIdentity, LocalRef, NodeRef, SourceNodeRef } from "../ids/contract.js";
 import type { DeclarationTarget, HirCallableEndpoint } from "../ir-hir/contract.js";
-import type { ApplicationDecision, CompletionEndpoint, MemberDecision, ParameterMapping } from "../ir-infer/contract.js";
+import type { AccessLocation, CheckRequirement, ApplicationDecision, CompletionEndpoint, MemberDecision, ParameterMapping } from "../ir-infer/contract.js";
 import type { MemberSelection, ResolvedCallee } from "../ir-tir/contract.js";
 import type {
   ArtifactBindings, BindingVector, BodyInstance, ExactRational, MemberKey, MemberOrigin, SelfBinding,
@@ -177,7 +177,13 @@ const application = (writer: Writer, value: ApplicationDecision): void => record
   ["implementationBindings", () => bindings(writer, value.implementationBindings)],
   ["parameters", () => sequence(writer, value.parameters, item => parameterMapping(writer, item))],
   ["completion", () => completion(writer, value.completion)], ["result", () => identity(writer, "t", value.result)],
+  ["activation", () => scalar(writer, value.activation)],
 ]);
+const checkRequirement = (writer: Writer, value: CheckRequirement): void =>
+  record(writer, value.kind, value.kind === "required" ? [["failure", () => scalar(writer, value.failure)]] : []);
+const accessLocation = (writer: Writer, value: AccessLocation): void =>
+  record(writer, value.kind, value.kind === "data"
+    ? [["check", () => checkRequirement(writer, value.check)], ["receiver", () => scalar(writer, value.receiver)]] : []);
 const memberDecision = (writer: Writer, value: MemberDecision): void => record(writer, "MemberDecision", [
   ["key", () => memberKey(writer, value.key)], ["origins", () => sequence(writer, value.origins, item => memberOrigin(writer, item))],
   ["selectedDeclarations", () => sequence(writer, value.selectedDeclarations, item => identity(writer, "def", item))],
@@ -186,6 +192,7 @@ const memberDecision = (writer: Writer, value: MemberDecision): void => record(w
   ["write", () => nullable(writer, value.write, item => identity(writer, "t", item))],
   ["getter", () => nullable(writer, value.getter, item => endpoint(writer, item))],
   ["setter", () => nullable(writer, value.setter, item => endpoint(writer, item))], ["bindings", () => bindings(writer, value.bindings)],
+  ["location", () => accessLocation(writer, value.location)],
 ]);
 const resolved = (writer: Writer, value: ResolvedCallee): void => record(writer, "ResolvedCallee", [
   ["decision", () => application(writer, value.decision)],

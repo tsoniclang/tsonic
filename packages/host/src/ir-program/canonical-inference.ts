@@ -1,5 +1,6 @@
 import type {
   ApplicationDecision,
+  ClosureDecision,
   ConstructionPartDecision,
   DeferredDecision,
   DeferredInvocation,
@@ -38,6 +39,7 @@ export function rewriteEmbedding(rewrite: TypeRewrite, decision: EmbeddingDecisi
       return {
         kind: "conversion", conversion: decision.conversion,
         proof: rewriteEmbeddingProof(rewrite, decision.proof, `${at}.proof`),
+        check: decision.check,
       };
   }
 }
@@ -53,6 +55,7 @@ export function rewriteMember(rewrite: TypeRewrite, member: MemberDecision): Mem
     getter: member.getter === null ? null : rewriteEndpoint(rewrite, member.getter),
     setter: member.setter === null ? null : rewriteEndpoint(rewrite, member.setter),
     bindings: rewriteBindings(rewrite, member.bindings),
+    location: member.location,
   };
 }
 
@@ -82,6 +85,7 @@ export function rewriteApplication(rewrite: TypeRewrite, application: Applicatio
       sent: application.completion.sent === null ? null : rewrite.type(application.completion.sent),
     },
     result: rewrite.type(application.result),
+    activation: application.activation,
   };
 }
 
@@ -177,6 +181,7 @@ export function rewriteOperation(rewrite: TypeRewrite, operation: OperationDecis
     operation: rewriteOperationIdentity(rewrite, operation.operation, `${at}.operation`),
     operands: operation.operands.map(operand => rewrite.type(operand)),
     result: rewrite.type(operation.result),
+    execution: operation.execution,
   };
 }
 
@@ -270,7 +275,16 @@ function rewriteInvocation(rewrite: TypeRewrite, invocation: DeferredInvocation,
         declaration: invocation.input.declaration, operands: invocation.input.operands.map(operand => rewriteEvidence(rewrite, operand)),
         result: rewriteEvidence(rewrite, invocation.input.result), permissionScope: invocation.input.permissionScope,
       } };
+    case "closure":
+      return { rule: "closure", input: {
+        context, callable: rewriteEvidence(rewrite, invocation.input.callable),
+        captures: invocation.input.captures.map(capture => rewriteEvidence(rewrite, capture)),
+      } };
   }
+}
+
+export function rewriteClosureDecision(rewrite: TypeRewrite, decision: ClosureDecision): ClosureDecision {
+  return { carrier: rewrite.type(decision.carrier), captures: decision.captures, execution: decision.execution };
 }
 
 export function rewriteDeferred(rewrite: TypeRewrite, deferred: DeferredDecision, at: string): DeferredDecision {
@@ -295,6 +309,7 @@ export function rewriteRefinement(rewrite: TypeRewrite, refinement: RefinementDe
     case "narrowed": return {
       kind: "narrowed", source: rewrite.type(refinement.source), result: rewrite.type(refinement.result),
       proof: rewriteEmbeddingProof(rewrite, refinement.proof, `${at}.proof`),
+      failure: refinement.failure,
     };
   }
 }

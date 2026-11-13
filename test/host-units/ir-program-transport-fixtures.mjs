@@ -95,7 +95,7 @@ export function syntaxTransportModule(input, value, family) {
   const emptyBindings = { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] };
   const property = id => ({ ...header(id), kind: "Identifier", text: "value", tsonic: { role: "property-name", key: { kind: "text", value: "value" } } });
   const selected = { decision: { key: { kind: "text", value: "value" }, origins: [], selectedDeclarations: [], primary: null,
-    read: 0, write: null, getter: null, setter: null, bindings: emptyBindings }, getter: null, setter: null };
+    read: 0, write: null, getter: null, setter: null, bindings: emptyBindings, location: { kind: "data", check: { kind: "none" }, receiver: "in-place" } }, getter: null, setter: null };
   if (["LeftHandSideExpression", "NodeBody", "ForInitializer", "BindingName", "PropertyName", "LiteralTypeChild", "TypePredicateParameterName",
     "ImportAttributeName", "ModuleName", "ModuleReference", "ModuleExportName", "NamedImportBindings", "NamedExportBindings", "TemplateLiteral",
     "JsxChild", "JsxTagNameExpression", "JsxAttributeValue", "JSDocFullName"].includes(family)) {
@@ -127,7 +127,8 @@ export function syntaxTransportModule(input, value, family) {
       const expression = { ...wrapper, kind: "ArrowFunction", modifiers: null, typeParameters: null, parameters: list([]),
         type: null, fullSignature: null, asteriskToken: null, body: node,
         equalsGreaterThanToken: { ...header(maximum + 2), parent: wrapper.id, kind: "EqualsGreaterThanToken", tsonic: null },
-        tsonic: { ...typedValue, callable: { definition: module.bodies[0].tir.owner, parameters: [], signatures: [], template: null, attributes: [] }, captures: [] } };
+        tsonic: { ...typedValue, callable: { definition: module.bodies[0].tir.owner, parameters: [], signatures: [], template: null, attributes: [] }, captures: [],
+          closure: { kind: "decided", decision: { carrier: 0, captures: [], execution: { kind: "pure" } } } } };
       statement = { ...header(maximum + 3), kind: "ExpressionStatement", expression, tsonic: null };
       expression.parent = statement.id;
       break;
@@ -165,7 +166,7 @@ export function syntaxTransportModule(input, value, family) {
       const expression = { ...wrapper, kind: "ObjectLiteralExpression", multiLine: false, properties: list([node]), tsonic: {
         type: 0, convertedType: 0, conversion: { kind: "identity" }, narrowing: null, evidenceIndex: null, demand: { kind: "always" },
         role: "value", construction: { kind: "decided", decision: { permissionScope: null,
-          decision: { kind: "selected", operation: { kind: "object-construction", parts: [] }, operands: [], result: 0 } } },
+          decision: { kind: "selected", operation: { kind: "object-construction", parts: [] }, operands: [], result: 0, execution: { kind: "pure" } } } },
       } };
       statement = { ...header(maximum + 2), kind: "ExpressionStatement", expression, tsonic: null };
       expression.parent = statement.id;
@@ -203,7 +204,7 @@ function syntaxParentCarrier(node, family, definition, first) {
   const bindings = { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] };
   const advertised = { declaration: definition, role: "advertised", signature: 0, body: null };
   const application = { callee: { decision: { candidate: 0, advertised, api: { ...advertised, role: "api-signature" },
-    bindings, implementationBindings: bindings, parameters: [], completion: { signature: 0, completion: 0, yielded: null, sent: null }, result: 0 },
+    bindings, implementationBindings: bindings, parameters: [], completion: { signature: 0, completion: 0, yielded: null, sent: null }, result: 0, activation: null },
     activation: null, captures: [] }, receiver: null, arguments: [] };
   switch (family) {
     case "LeftHandSideExpression": return { ...own, kind: "Decorator", expression: node, tsonic: { application: { kind: "decided", decision: application } } };
@@ -349,7 +350,7 @@ export function relationalTransportFacts(fixture) {
   const summary = { definition: fixture.definition, bindings: { kind: "parametric" } };
   const advertised = { declaration: fixture.definition, role: "advertised", signature: 0, body: null };
   const application = { candidate: 0, advertised, api: { ...advertised, role: "api-signature" }, bindings,
-    implementationBindings: bindings, parameters: [], completion: { signature: 0, completion: 0, yielded: null, sent: null }, result: 0 };
+    implementationBindings: bindings, parameters: [], completion: { signature: 0, completion: 0, yielded: null, sent: null }, result: 0, activation: null };
   const resolution = { decision: application, activation: fixture.instance, captures: [] };
   const argument = owner => ({ authoredIndex: 0, parameter: fixture.definition, parameterIndex: 0, repeated: false,
     passing: "by-value", actual: 0, formal: { owner, producer: 0 }, projection: null });
@@ -391,11 +392,11 @@ export function mirTransportCases(fixture) {
   const instance = fixture.instance;
   const endpoint = { declaration: fixture.definition, role: "advertised", signature: 0, body: null };
   const selected = { decision: { candidate: 0, advertised: endpoint, api: { ...endpoint, role: "api-signature" },
-    bindings, implementationBindings: bindings, parameters: [], completion: { signature: 0, completion: 0, yielded: null, sent: null }, result: 0 },
+    bindings, implementationBindings: bindings, parameters: [], completion: { signature: 0, completion: 0, yielded: null, sent: null }, result: 0, activation: null },
     activation: instance, captures: [] };
-  const operation = { permissionScope: null, decision: { kind: "selected", operation: { kind: "boolean-operator", operator: "!" }, operands: [0], result: 0 } };
+  const operation = { permissionScope: null, decision: { kind: "selected", operation: { kind: "boolean-operator", operator: "!" }, operands: [0], result: 0, execution: { kind: "pure" } } };
   const member = { decision: { key: { kind: "text", value: "value" }, origins: [], selectedDeclarations: [], primary: null,
-    read: 0, write: 0, getter: null, setter: null, bindings }, getter: null, setter: null };
+    read: 0, write: 0, getter: null, setter: null, bindings, location: { kind: "data", check: { kind: "none" }, receiver: "in-place" } }, getter: null, setter: null };
   const operand = { kind: "constant", constant: 0 };
   const local = { id: 0, storage: 0, role: { kind: "temporary" }, source: null, origin: fixture.module.tree.origin };
   const root = { id: 0, storage: 0, base: { kind: "local", local: 0 }, origin: local.origin };

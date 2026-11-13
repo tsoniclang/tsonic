@@ -370,7 +370,7 @@ export function metadataFieldFixture(operandKey) {
     writeOrigins: [origin], kind: "property", read: 1, write: 1, optional: false, readonly: false }],
   indexes: [], calls: [], constructs: [] });
   const member = { decision: { key, origins: [origin], selectedDeclarations: [], primary: null,
-    read: 1, write: 1, getter: null, setter: null, bindings }, getter: null, setter: null };
+    read: 1, write: 1, getter: null, setter: null, bindings, location: { kind: "data", check: { kind: "none" }, receiver: "in-place" } }, getter: null, setter: null };
   const field = { id: 0, occurrence, owner: 3, selector: occurrence, selection: occurrence, member,
     primary: null, selectedDeclarations: [], value: 1, layout: 0, byteOffset: 0n, byteAlignment: 1n };
   metadata.root = 1;
@@ -445,7 +445,7 @@ export function callerComponentCycle() {
   const proof = { steps: [{ from: component, to: component, rule: "identity", premises: [] }], conclusion: 0 };
   const expression = { ...common, id: 2, parent: 1, kind: "StringLiteral", text: "leaf", tokenFlags: [],
     tsonic: { type: 1, convertedType: 1, conversion: { kind: "identity" },
-      narrowing: { kind: "narrowed", source: 1, result: 1, proof }, evidenceIndex: null,
+      narrowing: { kind: "narrowed", source: 1, result: 1, proof, failure: "unwind" }, evidenceIndex: null,
       demand: { kind: "always" }, role: "value", value: "leaf" } };
   tree.statements = { loc: tree.loc, nodes: [{ ...common, id: 1, parent: 0,
     kind: "ExpressionStatement", expression, tsonic: null }] };

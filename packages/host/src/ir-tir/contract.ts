@@ -2,7 +2,7 @@ import type { BodyId, DefId, LocalId, LocalRef, ModuleId, NodeId, NodeRef, SigId
 import type { Diagnostic, TextParseResult, Violation } from "../diag/contract.js";
 import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, ExactRational, MemberKey, MemberTable, NominalDefinition, PassingMode, TypeComponent, TypeEvidence, TypeParameter, TypeTable } from "../ir-types/contract.js";
 import type { BodyRoot, DeclarationTarget, HirAttribute, HirCallableEndpoint, HirLexicalScope, HirModule, HirNode, ImportTarget, Phase, SourceFile, SyntaxNode } from "../ir-hir/contract.js";
-import type { ApplicationDecision, ConstructionPartDecision, DeferredDecision, EmbeddingDecision, FlowRole, InferenceDeclaration, MemberDecision, OperationDecision, RefinementDecision, RuleOutcome } from "../ir-infer/contract.js";
+import type { ApplicationDecision, ClosureDecision, ConstructionPartDecision, DeferredDecision, EmbeddingDecision, FlowRole, InferenceDeclaration, MemberDecision, OperationDecision, RefinementDecision, RuleOutcome } from "../ir-infer/contract.js";
 
 export interface TypedOperation {
   readonly decision: OperationDecision;
@@ -259,6 +259,7 @@ export interface TypedCallable {
 export interface TypedClosure extends TypedValue {
   readonly callable: TypedCallable;
   readonly captures: readonly LocalRef[];
+  readonly closure: RuleOutcome<ClosureDecision>;
 }
 
 export interface TypedClass {
@@ -645,7 +646,7 @@ export type TirRule = "binding-element-role-exact" | "body-owner" | "module-node
   | "occurrence-role" | "binary-role-operator" | "name-role-position" | "typed-value-occurrence"
   | "argument-total" | "argument-parameter-order" | "argument-passing" | "omission-valid"
   | "authored-order-preserved" | "empty-spread-preserved" | "call-endpoints" | "completion-endpoint"
-  | "binding-vector-complete" | "member-origin" | "accessor-activation" | "operation-type"
+  | "binding-vector-complete" | "member-origin" | "accessor-activation" | "access-location" | "closure-capture-total" | "operation-type"
   | "conversion-source" | "conversion-destination" | "conversion-deferred" | "refinement-destination"
   | "controlled-demand" | "protocol-total" | "protocol-thrown-unknown"
   | "permission-scope" | "deferred-parameters" | "error-diagnostic" | "evidence-reference" | "evidence-order"
