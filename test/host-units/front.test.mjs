@@ -146,16 +146,15 @@ test("the identity inputs agree with the parser: the declaration nodes the check
       const visit = (node, owner) => {
         const kind = ast.kindName(node).replace(/^Kind/u, "");
         const name = identityKinds.has(kind) && kind !== "SourceFile" ? ast.name(node) : undefined;
-        const holdsPattern = name !== undefined && !ast.is.IsIdentifier(name) && (holdsNoIdentity.has(kind) || kind === "Parameter");
+        const holdsPattern = name !== undefined && !ast.is.IsIdentifier(name) && holdsNoIdentity.has(kind);
         let inner = owner;
-        // K-3268 items 1 and 2: a variable declaration or binding element that holds a pattern has no identity; a parameter that holds one has.
-        if (identityKinds.has(kind) && !(holdsPattern && holdsNoIdentity.has(kind))) {
+        // K-3268 items 1 and 2: a variable declaration or binding element that holds a pattern has no identity; a parameter that holds one
+        // has. K-3273: the owner of a row is the nearest enclosing node that has a row, with no exception.
+        if (identityKinds.has(kind) && !holdsPattern) {
           found.push({ kind, name: kind === "SourceFile" ? null : nameOf(node, kind), owner });
           inner = found.length - 1;
         }
-        // The fixture's stated reading of K-3268 item 1: the names a pattern-holding parameter binds stand in the parameter's own owner's
-        // ordinal space, so its pattern is walked under that owner; everything else of the parameter is under the parameter.
-        ast.forEachChild(node, child => { if (child !== undefined) visit(child, holdsPattern && kind === "Parameter" && child === name ? owner : inner); });
+        ast.forEachChild(node, child => { if (child !== undefined) visit(child, inner); });
       };
       visit(file, null);
       assert.deepEqual(rows.map(row => row.kind), found.map(node => node.kind), `${entry.name}: ${path}: one row per declaration node, in preorder`);
@@ -644,4 +643,20 @@ test("two providers of one identity never open a program: an extension initializ
     "derived: the session reports a session-level diagnostic of the extension host and no program is opened");
   assert.throws(open, { name: "TypeError", message: "front: the session reported diagnostics that name no file (tsts.extension-host:DUPLICATE_SOURCE_DECLARATION_PROVIDER); the refusal that carries them waits for the checker's message accessor" },
     "recorded observation: the extension host's code for a second provider of one identity");
+});
+
+test("the module set is the opened program's, not the snapshot's: declaration modules of a package that nothing reaches are modules of the snapshot and not of the set", () => {
+  const unreached = { root: "/unreached", name: "unreached", modules: { "one.d.ts": ["declaration", "export declare const one: number;\n"], "two.d.ts": ["declaration", "export declare const two: number;\n"] } };
+  const snapshot = projectSnapshot({ sourceFiles: plainSources, libraries: bundled(), otherPackages: [unreached] });
+  const { set } = openAndCapture(snapshot);
+  const absent = ["one.d.ts", "two.d.ts"].map(name => moduleOf(packageOf("/unreached"), name));
+  assert.equal(snapshot.packages.modules.length, set.modules.length + 2);
+  assert.deepEqual(set.modules, snapshotModules(snapshot).filter(entry => !absent.includes(entry.module)));
+});
+
+test("a module with a syntax error and a type error opens and is captured: file diagnostics do not stop the open", () => {
+  const snapshot = projectSnapshot({ sourceFiles: { "main.mts": "export const n: number = \"text\";\nexport const broken = ;\n" }, libraries: bundled() });
+  assert.deepEqual([...new Set(sessionDiagnostics(snapshot))].sort(), ["TS1109 /project/src/main.mts", "TS2322 /project/src/main.mts"],
+    "derived before the run: an expression is expected after the equals sign (TS1109), and a string is not assignable to number (TS2322)");
+  assert.deepEqual(openAndCapture(snapshot).set.modules, snapshotModules(snapshot));
 });

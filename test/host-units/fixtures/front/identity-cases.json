@@ -2433,7 +2433,7 @@
   },
   {
    "name": "binding-elements",
-   "rule": "K-3268 items 1 and 2: one identity per bound name; a parameter that holds a pattern also has its own identity, with the empty name, because the signature and the body name a declaration for every position; a variable declaration or binding element that holds a pattern has none. All are in the owner's one preorder ordinal space; a property selector is not a bound name",
+   "rule": "K-3268 items 1 and 2 with K-3273: one identity per bound name. A parameter that holds a pattern has its own identity with the empty name, and the names its pattern binds are owned by it: the owner of an identity is the nearest actual identity-bearing declaration, with no lexical-scope exception. A variable declaration or binding element that holds a pattern has no identity, so the names it binds are owned by whatever encloses the declaration. A property selector is not a bound name",
    "files": {
     "/project/src/a.ts": "interface Shape { a: number; b: [number, number] }\nexport function pick({ a, b: [c, d], a: renamed }: Shape): number {\n  const [e, { f }] = [a + renamed, { f: c + d }];\n  return e + f;\n}\n"
    },
@@ -2508,6 +2508,10 @@
         0
        ],
        [
+        "",
+        0
+       ],
+       [
         "a",
         0
        ]
@@ -2518,6 +2522,10 @@
       "path": [
        [
         "pick",
+        0
+       ],
+       [
+        "",
         0
        ],
        [
@@ -2534,6 +2542,10 @@
         0
        ],
        [
+        "",
+        0
+       ],
+       [
         "d",
         0
        ]
@@ -2544,6 +2556,10 @@
       "path": [
        [
         "pick",
+        0
+       ],
+       [
+        "",
         0
        ],
        [
@@ -2580,8 +2596,7 @@
      }
     ]
    },
-   "note": "{ a, a: renamed } binds a and renamed: the second element's selector a is not a bound name, so there is no a#1. The element b: [c, d] and the element { f } hold patterns and have no identity; the pattern-holding parameter is pick#0/#0",
-   "reading": "The names bound under the pattern-holding parameter are owned by the function (pick#0/a#0), in the ordinal space the parameter itself is in: K-3268 item 1 says they keep separate identities in 'the existing shared preorder ordinal space, not a new pattern dimension' and does not name their owner. The alternative is that they are owned by the parameter's empty-name identity (pick#0/#0/a#0). With Codex"
+   "note": "{ a, a: renamed } binds a and renamed: the second element's selector a is not a bound name, so there is no a#1. The element b: [c, d] and the element { f } hold patterns and have no identity. The pattern-holding parameter is pick#0/#0 and owns a, c, d and renamed; e and f are bound by a variable declaration that has no identity and are owned by the function"
   },
   {
    "name": "member-name-sources",
