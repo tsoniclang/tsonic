@@ -71,9 +71,14 @@ export type MirProjection =
 // reading forwards along a chain of blocks:
 //   - A block passes what is available at its end to the block its terminator continues to (the target of `goto`;
 //     the `next` of `check`, `call` and `invoke`; the `resume` of `await`, `yield` and `delegate`) when that block
-//     has exactly one incoming edge and is not an entry. Every other block starts with nothing available: a block
-//     with several incoming edges (a merge, a loop head), a target of `switch`, a handler, the return target of a
-//     suspension, an entry.
+//     has exactly one incoming edge and is not an entry.
+//   - Every other block starts with no mutable place available. Of the stable places it starts with those that
+//     are available on every one of its incoming edges, each edge carrying what holds at its source: a `switch`
+//     edge and a failure or suspension-return edge what holds before the terminator's effect, the continuing edge
+//     what holds after it. The same fact is the same checked place record; facts are never joined, never inferred,
+//     and never equated by their node. An entry is an incoming route that carries nothing. So is an edge whose
+//     source has not been read when the block is read: blocks are read in reverse postorder of the control edges,
+//     so that is a loop's back edge, and a loop header starts with nothing.
 //   - A checked place is stable when it is the `refined` view of a local's own cell, that cell is written once (never,
 //     for a local present on entry) and the local is not handed out (no address taken, no hand-over by place in a
 //     writing mode, no capture). Every other checked place is mutable. The second stable kind, the bounds of an
@@ -83,6 +88,10 @@ export type MirProjection =
 //     the cell of, or a storage marker of, a local that an available place is rooted at or indexed by.
 //   - Stable availability ends only at a value written into the cell of, or a storage marker of, its local.
 //   - The destination of a terminator is used after the terminator's own effect.
+// Cost of establishing this for one body: each block and record is read once, and for every edge that is not
+// continued along, the stable places available at its source are copied once and read once at its target. The
+// worst case is the number of such edges times the number of stable checked places, in time and in retained
+// lists; a body without stable places, or without branches, costs its record count.
 // A second check of the same place makes it available again. All checked places of one node have one parent and one
 // index: a later check re-resolves the place the first check resolved, through the same saved receiver and index.
 export type MirPlaceBase =

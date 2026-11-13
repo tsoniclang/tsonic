@@ -2,7 +2,7 @@
 // One hand-written graph satisfies them; each other case changes one thing and names the law it breaks.
 // Law 2 and the agreement of failure kinds with decisions wait for the decision fields (S2-11). Law 3 is cased as
 // ruled (K-3238, relayed by the controller); its fixed-extent kind waits for `extent` on the element access decision.
-//   function laws(a: int32[], i: int32, o?: int32): int32 { for (const v of a) { use(v); } bump(i); o!; return a[i]; }
+//   function laws(a: int32[], i: int32, o?: int32): int32 { for (const v of a) { use(v); } bump(i); o!; o!; return a[i]; }
 // where `bump` takes its parameter by reference for reading and writing.
 import assert from "node:assert/strict";
 import { before, test } from "node:test";
@@ -47,6 +47,7 @@ const source = typedBody("laws", { signature: SIG_LAWS, completion: T.int32,
     b.expressionStatement({ $: "bump(i)", ...b.call(b.global("bump", "laws.bump", T.unknown), [{ $: "i of bump", ...b.id("i", 1, T.int32) }], T.void,
       at => ({ callee: BUMP_CALLEE, receiver: null, arguments: [{ kind: "provided", parameter: 0, expression: at("i of bump") }] })) }),
     b.expressionStatement({ $: "o!", ...b.nonNull({ $: "o", ...b.id("o", 2, T.optInt32) }, T.int32, null) }),
+    b.expressionStatement({ $: "o!#2", ...b.nonNull({ $: "o#2", ...b.id("o", 2, T.optInt32) }, T.int32, null) }),
     { $: "return", ...b.returns({ $: "a[i]", ...b.element({ $: "a", ...b.id("a", 0, T.int32Array) }, { $: "i", ...b.id("i", 1, T.int32) },
       { ...value(T.int32), role: "value", selection: { kind: "decided", decision: INDEX } }) }) }) });
 
@@ -315,6 +316,114 @@ test("law 3: the narrowed view of a saved value stays available; a view in place
   assert.deepEqual(all(changed(body => { narrowedView(body, 11); })), []);
   // The view of the variable's own cell: the assignment to the variable ends it, and so does the call.
   assert.deepEqual(all(changed(body => { narrowedView(body, 2); })), ["checked-place-available", "checked-place-available"]);
+});
+
+// ---- law 3 at a merge (K-3242): a stable place survives where it arrives on every incoming edge ----
+// Added to the satisfying graph by `staged`: two saved copies of `o` (locals 10 and 12, places 11 and 14) with their
+// narrowed views (place 12 at the node `o!`, place 15 at the second `o!`), and a condition (local 11, place 13).
+// Block 7 reads a[i], writes the three locals, and ends as the case says.
+const viewOf = (id, parent, node) => place(id, { kind: "checked", place: parent, projection: { kind: "refined" }, tir: site(node).tir }, T.int32);
+const readView = (view = 12) => ({ ...site("o!"), kind: "assign", place: 9, value: { kind: "use", operand: p(view) }, step: null });
+const checkOf = (view, node, next, unwind = { kind: "escape" }) => ({ ...site(node), kind: "check", place: view, next, unwind });
+const branch = (whenTrue, otherwise) => ({ ...site("return"), kind: "switch", operand: p(13), targets: [{ constant: 1, target: whenTrue }], otherwise, step: null });
+const jump = target => ({ ...site("return"), kind: "goto", target });
+const blockOf = (id, statements, terminator) => ({ ...site("return"), id, statements, terminator });
+const staged = build => changed(body => {
+  body.locals.push(local(10, T.optInt32, { kind: "temporary" }), local(11, T.bool, { kind: "temporary" }), local(12, T.optInt32, { kind: "temporary" }));
+  body.places.push(place(11, { kind: "local", local: 10 }, T.optInt32), viewOf(12, 11, "o!"), place(13, { kind: "local", local: 11 }, T.bool),
+    place(14, { kind: "local", local: 12 }, T.optInt32), viewOf(15, 14, "o!#2"));
+  for (const id of [10, 11, 12]) body.blocks[0].statements.push({ ...site("for"), kind: "storage-live", local: id });
+  body.blocks[7].statements.push({ ...site("o"), kind: "assign", place: 11, value: { kind: "use", operand: p(2) }, step: null },
+    { ...site("o#2"), kind: "assign", place: 14, value: { kind: "use", operand: p(2) }, step: null },
+    { ...site("return"), kind: "assign", place: 13, value: { kind: "use", operand: { kind: "constant", constant: 1 } }, step: null });
+  build(body);
+});
+/** The view is checked in block 7; block 10 branches to blocks 11 and 12, which meet in block 13. */
+const checkedThenDiamond = (body, { atMerge, inOtherArm = [] }) => {
+  body.blocks[7].terminator = checkOf(12, "o!", 10);
+  body.blocks.push(blockOf(10, [readView()], branch(11, 12)), blockOf(11, [], jump(13)), blockOf(12, inOtherArm, jump(13)),
+    blockOf(13, atMerge, returns(p(9))));
+};
+/** Block 7 branches to blocks 10 and 11, each ending as given; they meet in block 12, which reads the view. */
+const diamondThenUse = (body, first, second) => {
+  body.blocks[7].terminator = branch(10, 11);
+  body.blocks.push(blockOf(10, [], first), blockOf(11, [], second), blockOf(12, [readView()], returns(p(9))));
+};
+
+test("law 3 at a merge: a stable place checked before a branch is available after the arms meet", () => {
+  // `opt!.count += c ? 1 : 2`: the saved reference is tested once; the store after the conditional needs no second test.
+  assert.deepEqual(all(staged(body => { checkedThenDiamond(body, { atMerge: [readView()] }); })), []);
+  // A mutable place is not: a[i], checked and read before the branch, is read again where the arms meet.
+  assert.deepEqual(all(staged(body => { checkedThenDiamond(body, { atMerge: [READ()] }); })), ["checked-place-available"]);
+});
+
+test("law 3 at a merge: fixed[i] += c ? 1 : 2 has no second bounds control point for the join", WAITS_EXTENT, () => {
+  // UNVERIFIED until `extent` exists: with a fixed extent the read of a[i] where the arms meet has no finding.
+  assert.deepEqual(all(staged(body => { checkedThenDiamond(body, { atMerge: [READ()] }); })), []);
+});
+
+test("law 3 at a merge: the same fact on every incoming edge, or none", () => {
+  // Checked in both arms: the same checked place arrives on both edges.
+  assert.deepEqual(all(staged(body => { diamondThenUse(body, checkOf(12, "o!", 12), checkOf(12, "o!", 12)); })), []);
+  // Checked in one arm only.
+  assert.deepEqual(all(staged(body => { diamondThenUse(body, checkOf(12, "o!", 12), jump(12)); })), ["checked-place-available"]);
+  // A view of another saved copy in the other arm: two facts, neither on both edges. They are not joined.
+  assert.deepEqual(all(staged(body => { diamondThenUse(body, checkOf(12, "o!", 12), checkOf(15, "o!#2", 12)); })), ["checked-place-available"]);
+});
+
+test("law 3 at a merge: an invalidation on one path, and a path that brings nothing, prevent the merged fact", () => {
+  // The storage of the saved copy ends in one arm. The liveness rule reports the read too; the law rules are compared.
+  assert.deepEqual(laws(staged(body => { checkedThenDiamond(body, { atMerge: [readView()], inOtherArm: [{ ...site("o"), kind: "storage-dead", local: 10 }] }); })),
+    ["checked-place-available"]);
+  // A block nothing reaches is an incoming edge like any other, and it brings nothing.
+  assert.deepEqual(laws(staged(body => { checkedThenDiamond(body, { atMerge: [readView()] }); body.blocks.push(blockOf(14, [], jump(13))); })),
+    ["checked-place-available"]);
+  // An entry is an incoming route that brings nothing: block 10 is entered from the check and as the body's second entry.
+  assert.deepEqual(laws(staged(body => {
+    body.blocks[7].terminator = checkOf(12, "o!", 10);
+    body.blocks.push(blockOf(10, [readView()], returns(p(9))));
+    body.entries[1].block = 10;
+  })), ["checked-place-available"]);
+  // A loop header: block 10 is entered from the check and from itself. The back edge has not been read when the
+  // header is, so the header starts with nothing.
+  assert.deepEqual(all(staged(body => {
+    body.blocks[7].terminator = checkOf(12, "o!", 10);
+    body.blocks.push(blockOf(10, [readView()], branch(11, 10)), blockOf(11, [], returns(p(9))));
+  })), ["checked-place-available"]);
+});
+
+test("law 3 at a merge: a failure edge carries what held before the failing terminator", () => {
+  // The exception local 13 (place 16) receives the thrown value on the failure edge.
+  const withHandler = build => staged(body => {
+    body.locals.push(local(13, T.unknown, { kind: "exception" }));
+    body.places.push(place(16, { kind: "local", local: 13 }, T.unknown));
+    body.blocks[0].statements.push({ ...site("for"), kind: "storage-live", local: 13 });
+    build(body);
+  });
+  // The view is checked, then `bump` is called with a handler: the view is available in the handler and after the call.
+  assert.deepEqual(laws(withHandler(body => {
+    body.blocks[3].terminator.targets[0].target = 6;
+    body.blocks[7].terminator = checkOf(12, "o!", 10);
+    body.blocks.push({ ...site("bump(i)"), id: 10, statements: [],
+      terminator: { ...body.blocks[9].terminator, next: 11, unwind: { kind: "handler", exception: 16, target: 12 } } },
+      blockOf(11, [readView()], returns(p(9))), blockOf(12, [readView()], returns(p(9))));
+    body.blocks[9] = blockOf(9, [], returns(p(1)));
+  })), []);
+  // The handler of the check itself: the view is not available where its own check failed.
+  assert.deepEqual(laws(withHandler(body => {
+    body.blocks[7].terminator = checkOf(12, "o!", 10, { kind: "handler", exception: 16, target: 11 });
+    body.blocks.push(blockOf(10, [readView()], returns(p(9))), blockOf(11, [readView()], returns(p(9))));
+  })), ["checked-place-available"]);
+});
+
+test("law 3: a stable place stays available across a suspension; a mutable one does not", () => {
+  const suspendedThen = statement => staged(body => {
+    body.blocks[7].terminator = checkOf(12, "o!", 10);
+    body.blocks.push(blockOf(10, [], { ...site("return"), kind: "await", operand: p(4), destination: 5, resume: 11, unwind: { kind: "escape" }, step: null }),
+      blockOf(11, [statement], returns(p(9))));
+  });
+  assert.deepEqual(all(suspendedThen(readView())), []);
+  assert.deepEqual(all(suspendedThen(READ())), ["checked-place-available"]);
 });
 
 test("law 3: success of a check makes the place available; it does not stand for the state of its storage (point 6)", () => {

@@ -159,21 +159,27 @@ export function verifyLaws(
   }
 
   // Law 3: a checked place is used only where its check is known to have succeeded. Availability is read forwards
-  // along chains of blocks as the contract states it. Each block and record is visited once; a set is cleared by
-  // advancing a counter, and making a place available costs the number of index projections in its chain.
+  // as the contract states it. Each block and record is visited once. Within a chain of blocks a set is cleared by
+  // advancing a counter, and making a place available costs the number of index projections in its chain. Where an
+  // edge is not continued along, the stable places available at its source are copied for its target, which keeps
+  // those that arrive on every incoming edge: edges of that kind times stable places, in the worst case.
   const incoming = new Uint32Array(body.blocks.length);
   const edge = (target: BlockId): void => { if (densePosition(target, incoming.length)) incoming[target] = (incoming[target] ?? 0) + 1; };
   for (const entry of body.entries) edge(entry.block);
   for (const block of body.blocks) if (block !== undefined) for (const out of controlEdges(block.terminator)) edge(out.target);
-  const continuation = (block: MirBlock): number => {
+  /** The block a terminator continues to, or -1. */
+  const continues = (block: MirBlock): number => {
     const terminator = block.terminator;
-    let target: BlockId;
     switch (terminator.kind) {
-      case "goto": target = terminator.target; break;
-      case "check": case "call": case "invoke": target = terminator.next; break;
-      case "await": case "yield": case "delegate": target = terminator.resume; break;
+      case "goto": return terminator.target;
+      case "check": case "call": case "invoke": return terminator.next;
+      case "await": case "yield": case "delegate": return terminator.resume;
       case "switch": case "throw": case "return": case "unreachable": return -1;
     }
+  };
+  /** That block when it has no other incoming edge and is not an entry: it is read as part of the same chain. */
+  const continuation = (block: MirBlock): number => {
+    const target = continues(block);
     return densePosition(target, incoming.length) && incoming[target] === 1 ? target : -1;
   };
   const inherits = new Uint8Array(body.blocks.length);
@@ -190,7 +196,22 @@ export function verifyLaws(
   const mutableLocals = new Uint32Array(body.locals.length);
   const stableLocals = new Uint32Array(body.locals.length);
   const endMutable = (): void => { clock += 1; mutableNow = clock; };
-  const endStable = (): void => { clock += 1; stableNow = clock; };
+  // The stable places available now, in the order they became so; and, for each block not yet read, the lists
+  // that have arrived on its incoming edges.
+  const held: PlaceId[] = [];
+  const arriving: (PlaceId[][] | undefined)[] = [];
+  const nothing: PlaceId[] = [];
+  const endStable = (): void => { clock += 1; stableNow = clock; held.length = 0; };
+  const give = (target: number, facts: PlaceId[]): void => {
+    if (!densePosition(target, incoming.length)) return;
+    const lists = arriving[target];
+    if (lists === undefined) arriving[target] = [facts]; else lists.push(facts);
+  };
+  /** What a failure or suspension-return edge carries: the stable places, unless the value the edge delivers is written into a local one of them depends on. */
+  const carried = (now: PlaceId[], delivered: PlaceId): PlaceId[] => {
+    const root = rootOf(delivered);
+    return root !== null && stableLocals[root] === stableNow ? nothing : now;
+  };
   const available = (checked: number): boolean => stamp[checked] === (stable[checked] === 1 ? stableNow : mutableNow);
   const use = (place: PlaceId | null, block: BlockId, statement: number | null): void => {
     if (place === null || !densePosition(place, checkedAbove.length)) return;
@@ -235,6 +256,7 @@ export function verifyLaws(
     const kind = stable[checked] === 1;
     const now = kind ? stableNow : mutableNow;
     const locals = kind ? stableLocals : mutableLocals;
+    if (kind && stamp[checked] !== now) held.push(checked);
     stamp[checked] = now;
     const location = places.get(checked);
     if (location === undefined) return;
@@ -245,9 +267,25 @@ export function verifyLaws(
     }
   };
   const visited = new Uint8Array(body.blocks.length);
+  const arrivals = new Uint32Array(body.places.length);
+  const arrivedAt = new Uint32Array(body.places.length);
+  let merges = 0;
   const chain = (head: number): void => {
     endMutable();
     endStable();
+    // The stable places that arrive on every incoming edge. An entry, and an edge whose source is not read yet,
+    // deliver no list, so the count of lists falls short of the count of edges and nothing is kept.
+    const lists = arriving[head];
+    arriving[head] = undefined;
+    const first = lists === undefined ? undefined : lists[0];
+    if (lists !== undefined && first !== undefined && lists.length === incoming[head]) {
+      merges += 1;
+      for (const list of lists) for (const fact of list) {
+        if (arrivedAt[fact] !== merges) { arrivedAt[fact] = merges; arrivals[fact] = 0; }
+        arrivals[fact] = (arrivals[fact] ?? 0) + 1;
+      }
+      for (const fact of first) if (arrivals[fact] === lists.length) begin(fact);
+    }
     for (let position = head; position >= 0 && visited[position] !== 1;) {
       visited[position] = 1;
       const block = body.blocks[position];
@@ -260,9 +298,19 @@ export function verifyLaws(
         } else if (densePosition(statement.local, body.locals.length)) touched(statement.local);
       }
       const terminator = block.terminator;
+      // What the edges that leave before the terminator's effect carry: built once, and only if such an edge exists.
+      let before: PlaceId[] | null = null;
+      const now = (): PlaceId[] => {
+        if (before === null) before = held.length === 0 ? nothing : held.slice();
+        return before;
+      };
       switch (terminator.kind) {
         case "goto": case "unreachable": break;
-        case "switch": useOperand(terminator.operand, block.id, null); break;
+        case "switch":
+          useOperand(terminator.operand, block.id, null);
+          for (const target of terminator.targets) give(target.target, now());
+          give(terminator.otherwise, now());
+          break;
         case "return": useOperand(terminator.value, block.id, null); break;
         case "throw": useOperand(terminator.operand, block.id, null); break;
         case "check": {
@@ -281,31 +329,73 @@ export function verifyLaws(
             if (argument.kind === "value") useOperand(argument.operand, block.id, null);
             else if (argument.kind === "place") use(argument.place, block.id, null);
           }
-          endMutable();
-          delivered(terminator.destination, block.id);
           break;
         case "invoke":
           for (const operand of terminator.operands) useOperand(operand, block.id, null);
-          endMutable();
-          delivered(terminator.destination, block.id);
           break;
         case "await": case "yield":
           useOperand(terminator.operand, block.id, null);
-          endMutable();
-          delivered(terminator.destination, block.id);
           break;
         case "delegate":
           useOperand(terminator.iterator, block.id, null);
+          break;
+      }
+      // The failure edge and the return edge of a suspension leave before the effect; the place of a failing
+      // check is not available on its failure edge.
+      if ("unwind" in terminator && terminator.unwind.kind === "handler") give(terminator.unwind.target, carried(now(), terminator.unwind.exception));
+      if (terminator.kind === "yield" || terminator.kind === "delegate") give(terminator.return.target, carried(now(), terminator.return.destination));
+      switch (terminator.kind) {
+        case "call": case "invoke": case "await": case "yield": case "delegate":
           endMutable();
           delivered(terminator.destination, block.id);
           break;
+        case "check": begin(terminator.place); break;
+        case "goto": case "switch": case "throw": case "return": case "unreachable": break;
       }
       const next = continuation(block);
-      if (next >= 0 && terminator.kind === "check") begin(terminator.place);
+      const target = continues(block);
+      if (next < 0 && target >= 0) give(target, held.length === 0 ? nothing : held.slice());
       position = next;
     }
   };
-  for (const [position, block] of body.blocks.entries()) if (block !== undefined && inherits[position] !== 1) chain(position);
+  // Blocks are read in reverse postorder of the control edges, from the entries and then from every block not
+  // reached, so that the sources of a block's forward edges are read before it. A chain is read from its head.
+  const postorder: number[] = [];
+  const reached = new Uint8Array(body.blocks.length);
+  const search = (root: number): void => {
+    const start = densePosition(root, reached.length) ? body.blocks[root] : undefined;
+    if (start === undefined || reached[root] === 1) return;
+    reached[root] = 1;
+    const path: number[] = [root];
+    const edges: (readonly { readonly target: BlockId }[])[] = [controlEdges(start.terminator)];
+    const cursor: number[] = [0];
+    while (path.length > 0) {
+      const top = path.length - 1;
+      const out = edges[top];
+      const at = cursor[top] ?? 0;
+      const candidate = out === undefined ? undefined : out[at];
+      if (candidate === undefined) {
+        const done = path.pop();
+        if (done !== undefined) postorder.push(done);
+        edges.pop();
+        cursor.pop();
+        continue;
+      }
+      cursor[top] = at + 1;
+      const block = densePosition(candidate.target, reached.length) ? body.blocks[candidate.target] : undefined;
+      if (block === undefined || reached[candidate.target] === 1) continue;
+      reached[candidate.target] = 1;
+      path.push(candidate.target);
+      edges.push(controlEdges(block.terminator));
+      cursor.push(0);
+    }
+  };
+  for (const entry of body.entries) search(entry.block);
+  for (const position of body.blocks.keys()) search(position);
+  for (let index = postorder.length - 1; index >= 0; index -= 1) {
+    const position = postorder[index];
+    if (position !== undefined && inherits[position] !== 1 && visited[position] !== 1) chain(position);
+  }
   // Blocks left over form a closed ring that nothing enters; each is read once all the same.
   for (const [position, block] of body.blocks.entries()) if (block !== undefined && visited[position] !== 1) chain(position);
 
