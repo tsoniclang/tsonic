@@ -234,6 +234,10 @@ export type MirViolationSite =
   | { readonly kind: "block"; readonly body: BodyId; readonly block: BlockId }
   | { readonly kind: "instruction"; readonly body: BodyId; readonly block: BlockId; readonly statement: number | null };
 
+// The canonical key of a constant. A body's constants are unique by this key and listed in its order; a producer
+// emits constants in the order the verifier requires by using this one function. Null when the constant's bindings
+// are not complete.
+export type ConstantKeyOfMir = (type: TyId, value: MirConstantValue) => string | null;
 export type PrintMir = (body: MirBody) => string;
 export type ParseMir = (text: string) => TextParseResult<MirBody>;
 export interface MirVerificationContext {

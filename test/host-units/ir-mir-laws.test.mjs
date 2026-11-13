@@ -95,11 +95,12 @@ const LAW_RULES = new Set(["failure-kind-exact", "check-place-exact", "refined-u
 let verifyMir;
 let printMir;
 let parseMir;
+let constantKeyOfMir;
 let context;
 
 before(async () => {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true, "MIR law cases require a guarded admission");
-  ({ verifyMir, printMir, parseMir } = await import("../../packages/host/dist/ir-mir/index.js"));
+  ({ verifyMir, printMir, parseMir, constantKeyOfMir } = await import("../../packages/host/dist/ir-mir/index.js"));
   const declaration = name => ({ scope: { classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] }, parameterCount: 0, endpoints: [endpoint(name, "advertised", SIG_USE), endpoint(name, "api-body", SIG_USE)] });
   const declared = new Map(["laws", "laws.use", "laws.acquire", "laws.next", "laws.done", "laws.value"].map(name => [def(name), declaration(name)]));
   context = { source: source.tir, types: TABLE, declarationOf: definition => declared.get(definition) ?? null,
@@ -217,4 +218,20 @@ test("an omission prologue is reachable from its entry: a use in it of a local t
   // Reachability starts at every entry (law 7 gives a body several starts).
   const rules = verifyMir(changed(body => { body.blocks[8].statements[0].value = { kind: "use", operand: p(9) }; }), context).map(violation => violation.rule);
   assert.ok(rules.includes("storage-live-before-use"));
+});
+
+test("constants ordered by the published key satisfy the order the verifier requires, and no other order does", () => {
+  // The contract: "A body's constants are unique by this key and listed in its order". A producer that sorts by
+  // `constantKeyOfMir` and the verifier use one function.
+  const keys = good().constants.map(constant => constantKeyOfMir(constant.type, constant.value));
+  assert.deepEqual([...keys].sort(), keys);
+  assert.equal(new Set(keys).size, keys.length);
+  const swapped = changed(body => {
+    body.constants = [{ ...body.constants[1], id: 0 }, { ...body.constants[0], id: 1 }];
+    body.blocks[3].terminator.targets[0].constant = 0;
+    body.blocks[8].statements[0].value.operand.constant = 1;
+  });
+  assert.ok(verifyMir(swapped, context).map(violation => violation.rule).includes("constants-order"));
+  const repeated = changed(body => { body.constants.push({ ...body.constants[1], id: 2 }); });
+  assert.ok(verifyMir(repeated, context).map(violation => violation.rule).includes("constant-unique"));
 });

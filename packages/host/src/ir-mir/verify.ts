@@ -232,6 +232,12 @@ function literalKey(value: LiteralValue): KeyData {
   }
 }
 
+/** The one ordering and uniqueness key of a constant, for the verifier and for producers. */
+export function constantKey(type: TyId, value: MirConstantValue): string | null {
+  const selected = constantValueKey(value);
+  return selected === null ? null : encodeKey([type, selected]);
+}
+
 function constantValueKey(value: MirConstantValue): KeyData | null {
   switch (value.kind) {
     case "literal": return { kind: "record", fields: [["kind", value.kind], ["value", literalKey(value.value)]] };
@@ -301,9 +307,8 @@ export function verifyRows(
       detail: [{ kind: "number", value: position }] });
     if (constant === undefined) continue;
     const site: MirViolationSite = { kind: "constant", body: body.body, constant: constant.id };
-    const value = constantValueKey(constant.value);
-    if (value === null) { violations.push({ rule: "bindings-complete", site, detail: [] }); continue; }
-    const key = encodeKey([constant.type, value]);
+    const key = constantKey(constant.type, constant.value);
+    if (key === null) { violations.push({ rule: "bindings-complete", site, detail: [] }); continue; }
     if (constants.has(key)) violations.push({ rule: "constant-unique", site, detail: [] });
     constants.add(key);
     if (previous !== null && previous > key) violations.push({ rule: "constants-order", site, detail: [] });
