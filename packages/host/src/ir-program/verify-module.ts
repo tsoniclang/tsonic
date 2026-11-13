@@ -69,8 +69,7 @@ function verifyMetadataOperands(published: PublishedBody): readonly ProgramViola
     switch (value.kind) {
       case "use":
       case "unary":
-      case "convert":
-      case "refine": operand(value.operand, site, path + ".operand"); break;
+      case "convert": operand(value.operand, site, path + ".operand"); break;
       case "binary":
         operand(value.left, site, path + ".left");
         operand(value.right, site, path + ".right");
@@ -204,7 +203,7 @@ function verifyReferenceRoots(
     }
   }
   for (const [position, place] of published.mir.places.entries()) {
-    if (place.base.kind === "place" && place.base.projection.kind === "field") selection(place.base.projection.member, "mir.places[" + position + "].base.projection.member");
+    if ((place.base.kind === "place" || place.base.kind === "checked") && place.base.projection.kind === "field") selection(place.base.projection.member, "mir.places[" + position + "].base.projection.member");
   }
   for (const [blockIndex, block] of published.mir.blocks.entries()) {
     const path = "mir.blocks[" + blockIndex + "]";
@@ -217,7 +216,10 @@ function verifyReferenceRoots(
         for (const [fieldIndex, field] of value.aggregate.fields.entries()) selection(field.member, valuePath + ".aggregate.fields[" + fieldIndex + "].member");
       }
     }
-    if (block.terminator.kind === "call") callee(block.terminator.callee.resolution, path + ".terminator.callee.resolution");
+    if (block.terminator.kind === "call") {
+      if (block.terminator.callee.kind === "body") instance(block.terminator.callee.instance, path + ".terminator.callee.instance");
+      else callee(block.terminator.callee.resolution, path + ".terminator.callee.resolution");
+    }
   }
   const facts = published.facts;
   for (const [position, projection] of facts.arena.projections.entries()) {
