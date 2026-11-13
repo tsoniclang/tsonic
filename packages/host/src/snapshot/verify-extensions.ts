@@ -78,15 +78,15 @@ export function verifySnapshotExtensions(snapshot: ProjectSnapshot,
   for (const path of files) {
     if (!packages.filePaths.has(path)) add("contribution-files-resolve", { kind: "file", path }, path);
   }
-  const libraryNames = new Set<string>();
+  const libraryPaths = new Set<string>();
   let previousLibrary: string | null = null;
   let unorderedLibraries = false;
-  for (const library of snapshotRows(contributions.declarationPolicy.bundledLibraries, snapshotSite, "bundledLibraries", violations)) {
-    if (library.name.length === 0) add("bundled-library-named", snapshotSite, "name");
-    if (libraryNames.has(library.name)) add("bundled-library-unique", snapshotSite, library.name);
-    libraryNames.add(library.name);
-    if (previousLibrary !== null && library.name < previousLibrary) unorderedLibraries = true;
-    previousLibrary = library.name;
+  for (const path of snapshotRows(contributions.declarationPolicy.bundledLibraries, snapshotSite, "bundledLibraries", violations)) {
+    if (!packages.filePaths.has(path)) add("bundled-library-resolves", { kind: "file", path }, path);
+    if (libraryPaths.has(path)) add("bundled-library-unique", { kind: "file", path }, path);
+    libraryPaths.add(path);
+    if (previousLibrary !== null && path < previousLibrary) unorderedLibraries = true;
+    previousLibrary = path;
   }
   if (unorderedLibraries) add("bundled-libraries-order", snapshotSite, "bundledLibraries");
   const layouts = snapshotRows(snapshot.platform.layouts, snapshotSite, "platform.layouts", violations);

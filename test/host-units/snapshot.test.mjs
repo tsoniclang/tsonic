@@ -532,21 +532,29 @@ test("contribution-files-resolve and virtual-file-owner-resolves retain their ac
   virtual.packages.files.push({ kind: "virtual", path: "/virtual/prelude.d.ts", text: "", owner: packageId("/missing") });
   verify(virtual, [issue("virtual-file-owner-resolves", fileSite("/virtual/prelude.d.ts"), packageId("/missing"))]);
 });
-test("S2-5: bundled declaration libraries are carried with their texts, each name once, in ascending order of name", () => {
-  const library = (name, text = `// ${name}\n`) => ({ name, text });
+test("S2-5: the bundled declaration libraries are captured files of a package, named by the declaration policy: each resolves, each once, in ascending order of path", () => {
   const carried = snapshot();
-  carried.contributions.declarationPolicy.bundledLibraries = [library("lib.es2021.d.ts"), library("lib.es2022.d.ts", "")];
+  const { id } = peer(carried, "/checker");
+  const add = (name, text) => {
+    const path = `/checker/${name}`;
+    carried.packages.files.push({ kind: "virtual", path, text, owner: id });
+    carried.packages.files.sort((left, right) => left.path < right.path ? -1 : 1);
+    return path;
+  };
+  const first = add("lib.es2021.d.ts", "// the text the session reads\n");
+  const second = add("lib.es2022.d.ts", "");
+  carried.contributions.declarationPolicy.bundledLibraries = [first, second];
   verify(carried, []);
-  assert.equal(carried.contributions.declarationPolicy.bundledLibraries[0].text, "// lib.es2021.d.ts\n", "the text is the snapshot's own");
-  const repeated = snapshot();
-  repeated.contributions.declarationPolicy.bundledLibraries = [library("lib.a.d.ts"), library("lib.a.d.ts", "different text")];
-  verify(repeated, [issue("bundled-library-unique", { kind: "snapshot" }, "lib.a.d.ts")]);
-  const unordered = snapshot();
-  unordered.contributions.declarationPolicy.bundledLibraries = [library("lib.b.d.ts"), library("lib.a.d.ts"), library("lib.c.d.ts")];
+  assert.equal(carried.packages.files.find(file => file.path === first).text, "// the text the session reads\n", "the text is the file's own; the policy holds no second copy");
+  const missing = snapshot();
+  missing.contributions.declarationPolicy.bundledLibraries = ["/checker/lib.absent.d.ts"];
+  verify(missing, [issue("bundled-library-resolves", fileSite("/checker/lib.absent.d.ts"), "/checker/lib.absent.d.ts")]);
+  const repeated = structuredClone(carried);
+  repeated.contributions.declarationPolicy.bundledLibraries = [first, first];
+  verify(repeated, [issue("bundled-library-unique", fileSite(first), first)]);
+  const unordered = structuredClone(carried);
+  unordered.contributions.declarationPolicy.bundledLibraries = [second, first];
   verify(unordered, [issue("bundled-libraries-order", { kind: "snapshot" }, "bundledLibraries")]);
-  const unnamed = snapshot();
-  unnamed.contributions.declarationPolicy.bundledLibraries = [library(""), library("lib.a.d.ts")];
-  verify(unnamed, [issue("bundled-library-named", { kind: "snapshot" }, "name")]);
   const sparse = snapshot();
   sparse.contributions.declarationPolicy.bundledLibraries = new Array(1);
   verify(sparse, [sparseIssue({ kind: "snapshot" }, "bundledLibraries")]);
