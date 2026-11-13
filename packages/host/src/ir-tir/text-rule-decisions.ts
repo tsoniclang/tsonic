@@ -13,6 +13,7 @@ import type {
 import type {
   AccessLocation, ApplicationDecision, LogicalCapture, CheckRequirement, ClosureDecision, CompletionEndpoint, ConstructionPartDecision, OperationExecution, CorrespondenceStep, EmbeddingDecision, EmbeddingProof, LiteralConstructionPart, MemberDecision, OperationDecision, OperationIdentity, ParameterMapping, ProtocolStepDecision, ProtocolStepOperation, RefinementDecision
 } from "../ir-infer/contract.js";
+import type { BackedConversionIdentity, ConversionIdentity } from "./contract.js";
 import type { TirTextKernel, TirTypedRecordWork } from "./text-layouts.js";
 import { scalarWork, referenceWork, nullableWork, sequenceWork, withBindingOwner } from "./text-layouts.js";
 
@@ -24,11 +25,16 @@ export interface RuleDecisionsTextReads {
   readonly work_MemberOrigin: TirRecordCodec<MemberOrigin>;
   readonly work_NodeRef: TirRecordCodec<NodeRef>;
   readonly work_OperationIdentity: TirRecordCodec<OperationIdentity>;
+  readonly work_OperationIdentity_conversion: TirRecordCodec<ConversionIdentity>;
+  readonly work_OperationIdentity_library: TirRecordCodec<BackedConversionIdentity>;
+  readonly work_OperationIdentity_core: TirRecordCodec<BackedConversionIdentity>;
   readonly work_TypeComponent: TirRecordCodec<TypeComponent>;
   readonly work_TypeEvidence: TirRecordCodec<TypeEvidence>;
 }
 
 export interface RuleDecisionsTextModel {
+  readonly work_OperationDecision_conversion: TirRecordCodec<OperationDecision & { readonly operation: ConversionIdentity }>;
+  readonly work_OperationDecision_backed: TirRecordCodec<OperationDecision & { readonly operation: BackedConversionIdentity }>;
   readonly work_ClosureDecision: TirRecordCodec<ClosureDecision>;
   readonly work_OperationDecision: TirRecordCodec<OperationDecision>;
   readonly work_ConstructionPartDecision: TirRecordCodec<ConstructionPartDecision>;
@@ -98,6 +104,21 @@ export const createRuleDecisionsText = (kernel: TirTextKernel, read: RuleDecisio
   }, () => [work_OperationExecution_pure.reader, work_OperationExecution_invocation.reader]);
   const work_OperationDecision: TirRecordCodec<OperationDecision> = defineRecord<OperationDecision>("OperationDecision", "OperationDecision", { field: "kind", value: "selected" }, "selected", null, null, fields => fields
     .field("operation", "OperationIdentity", value => read.work_OperationIdentity.write(value.operation), lazyReader(() => read.work_OperationIdentity.reader))
+    .field("operands", "[t]", value => sequenceWork("[t]", value.operands, actual => referenceWork("t", actual)), sequenceReader("[t]", typeReader))
+    .field("result", "t", value => referenceWork("t", value.result), typeReader)
+    .field("execution", "OperationExecution", value => work_OperationExecution.write(value.execution), lazyReader(() => work_OperationExecution.reader))
+    .finish((field_operation, field_operands, field_result, field_execution) => ({ kind: "selected", operation: field_operation, operands: field_operands, result: field_result, execution: field_execution })));
+  const work_OperationDecision_conversion: TirRecordCodec<OperationDecision & { readonly operation: ConversionIdentity }> = defineRecord<OperationDecision & { readonly operation: ConversionIdentity }>("OperationDecision@conversion", "OperationDecision", { field: "kind", value: "selected" }, "selected", null, null, fields => fields
+    .field("operation", "OperationIdentity", value => read.work_OperationIdentity.write(value.operation), lazyReader(() => read.work_OperationIdentity_conversion.reader))
+    .field("operands", "[t]", value => sequenceWork("[t]", value.operands, actual => referenceWork("t", actual)), sequenceReader("[t]", typeReader))
+    .field("result", "t", value => referenceWork("t", value.result), typeReader)
+    .field("execution", "OperationExecution", value => work_OperationExecution.write(value.execution), lazyReader(() => work_OperationExecution.reader))
+    .finish((field_operation, field_operands, field_result, field_execution) => ({ kind: "selected", operation: field_operation, operands: field_operands, result: field_result, execution: field_execution })));
+  const work_BackedConversionIdentity: TirRecordCodec<BackedConversionIdentity> = unionRecord<BackedConversionIdentity>("OperationIdentity",
+    (value: BackedConversionIdentity): TirTypedRecordWork => read.work_OperationIdentity.write(value),
+    () => [read.work_OperationIdentity_library.reader, read.work_OperationIdentity_core.reader]);
+  const work_OperationDecision_backed: TirRecordCodec<OperationDecision & { readonly operation: BackedConversionIdentity }> = defineRecord<OperationDecision & { readonly operation: BackedConversionIdentity }>("OperationDecision@backed", "OperationDecision", { field: "kind", value: "selected" }, "selected", null, null, fields => fields
+    .field("operation", "OperationIdentity", value => work_BackedConversionIdentity.write(value.operation), lazyReader(() => work_BackedConversionIdentity.reader))
     .field("operands", "[t]", value => sequenceWork("[t]", value.operands, actual => referenceWork("t", actual)), sequenceReader("[t]", typeReader))
     .field("result", "t", value => referenceWork("t", value.result), typeReader)
     .field("execution", "OperationExecution", value => work_OperationExecution.write(value.execution), lazyReader(() => work_OperationExecution.reader))
@@ -256,5 +277,5 @@ export const createRuleDecisionsText = (kernel: TirTextKernel, read: RuleDecisio
       case "spread": return work_LiteralConstructionPart_spread.write(value);
     }
   }, () => [work_LiteralConstructionPart_element.reader, work_LiteralConstructionPart_property.reader, work_LiteralConstructionPart_spread.reader]);
-  return { work_ClosureDecision, work_OperationDecision, work_ConstructionPartDecision, work_ProtocolStepDecision, work_ProtocolStepOperation_call, work_ProtocolStepOperation_core, work_ProtocolStepOperation_completion, work_EmbeddingDecision_identity, work_EmbeddingDecision_conversion, work_EmbeddingDecision_refused, work_EmbeddingProof, work_RefinementDecision_identity, work_RefinementDecision_narrowed, work_MemberDecision, work_ApplicationDecision, work_ParameterMapping_argument, work_ParameterMapping_default, work_ParameterMapping_omitted, work_ParameterMapping_rest, work_CompletionEndpoint, work_LiteralConstructionPart_element, work_LiteralConstructionPart_property, work_LiteralConstructionPart_spread, work_ProtocolStepOperation, work_EmbeddingDecision, work_RefinementDecision, work_ParameterMapping, work_LiteralConstructionPart };
+  return { work_OperationDecision_conversion, work_OperationDecision_backed, work_ClosureDecision, work_OperationDecision, work_ConstructionPartDecision, work_ProtocolStepDecision, work_ProtocolStepOperation_call, work_ProtocolStepOperation_core, work_ProtocolStepOperation_completion, work_EmbeddingDecision_identity, work_EmbeddingDecision_conversion, work_EmbeddingDecision_refused, work_EmbeddingProof, work_RefinementDecision_identity, work_RefinementDecision_narrowed, work_MemberDecision, work_ApplicationDecision, work_ParameterMapping_argument, work_ParameterMapping_default, work_ParameterMapping_omitted, work_ParameterMapping_rest, work_CompletionEndpoint, work_LiteralConstructionPart_element, work_LiteralConstructionPart_property, work_LiteralConstructionPart_spread, work_ProtocolStepOperation, work_EmbeddingDecision, work_RefinementDecision, work_ParameterMapping, work_LiteralConstructionPart };
 };

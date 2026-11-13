@@ -10,8 +10,8 @@ import type { TypeRewrite } from "./canonical-types.js";
 import type { ArtifactBindings } from "../ir-types/contract.js";
 import { rewriteArtifactBindings, rewriteBindings, rewriteEvidence, rewriteInstance } from "./canonical-types.js";
 import {
-  rewriteApplication, rewriteDeferred, rewriteEmbedding, rewriteMember, rewriteOperation,
-  rewriteRefinement,
+  rewriteApplication, rewriteBackedIdentity, rewriteConversionIdentity, rewriteDeferred, rewriteEmbedding, rewriteMember, rewriteOperation,
+  rewriteOperationAs, rewriteRefinement,
 } from "./canonical-inference.js";
 
 export function rewriteTypedOperation(rewrite: TypeRewrite, operation: TypedOperation, at: string): TypedOperation {
@@ -81,10 +81,17 @@ export function rewriteProtocol(rewrite: TypeRewrite, protocol: TirProtocol, at:
 function rewriteConversion(rewrite: TypeRewrite, conversion: ConversionDecision, at: string): ConversionDecision {
   switch (conversion.kind) {
     case "identity": return conversion;
-    case "convert": return {
-      kind: "convert", role: conversion.role, embedding: rewriteEmbedding(rewrite, conversion.embedding, `${at}.embedding`),
-      operation: rewriteTypedOperation(rewrite, conversion.operation, `${at}.operation`),
-    };
+    case "convert": {
+      const decision = conversion.operation.decision;
+      return { kind: "convert", role: conversion.role, operation: { permissionScope: conversion.operation.permissionScope,
+        decision: rewriteOperationAs(rewrite, decision, rewriteConversionIdentity(rewrite, decision.operation, `${at}.operation.decision.operation`)) } };
+    }
+    case "backed-convert": {
+      const decision = conversion.operation.decision;
+      return { kind: "backed-convert", role: conversion.role, embedding: rewriteEmbedding(rewrite, conversion.embedding, `${at}.embedding`),
+        operation: { permissionScope: conversion.operation.permissionScope,
+          decision: rewriteOperationAs(rewrite, decision, rewriteBackedIdentity(rewrite, decision.operation)) } };
+    }
     case "deferred": return { kind: "deferred", deferred: rewriteDeferred(rewrite, conversion.deferred, `${at}.deferred`) };
   }
 }

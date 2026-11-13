@@ -5,13 +5,13 @@ import type {
   BindingVector, LiteralValue, MemberKey, MemberOrigin, TypeComponent, TypeEvidence
 } from "../ir-types/contract.js";
 import type {
-  NodeRef, Origin
+  LocalRef, NodeRef, Origin
 } from "../ids/contract.js";
 import type {
   HirCallableEndpoint, HirCoreCapture
 } from "../ir-hir/contract.js";
 import type {
-  CandidateArgument, CandidateEndpoint, CandidateInput, ClosureInput, ConstructionPartDecision, CoreInput, CorrespondenceStep, DeferredDecision, DeferredInvocation, DomainFitInput, EmbedInput, EmbeddingDecision, IndexInput, LibraryInput, LiteralConstructionInput, LiteralConstructionPart, LiteralFitInput, MemberInput, MemoryEquivalentInput, OperationIdentity, OperatorInput, ProtocolInput, ProtocolStepDecision, RefinementInput, RuleContext
+  CandidateArgument, CandidateEndpoint, CandidateInput, ClosureCaptureEvidence, ClosureInput, ConstructionPartDecision, CoreInput, CorrespondenceStep, DeferredDecision, DeferredInvocation, DomainFitInput, EmbedInput, EmbeddingDecision, IndexInput, LibraryInput, LiteralConstructionInput, LiteralConstructionPart, LiteralFitInput, MemberInput, MemoryEquivalentInput, OperationIdentity, OperatorInput, ProtocolInput, ProtocolStepDecision, RefinementInput, RuleContext
 } from "../ir-infer/contract.js";
 import type {
   Diagnostic
@@ -28,6 +28,7 @@ export interface RuleInputsTextReads {
   readonly work_HirCoreCapture: TirRecordCodec<HirCoreCapture>;
   readonly work_LiteralConstructionPart: TirRecordCodec<LiteralConstructionPart>;
   readonly work_LiteralValue: TirRecordCodec<LiteralValue>;
+  readonly work_LocalRef: TirRecordCodec<LocalRef>;
   readonly work_MemberKey: TirRecordCodec<MemberKey>;
   readonly work_MemberOrigin: TirRecordCodec<MemberOrigin>;
   readonly work_NodeRef: TirRecordCodec<NodeRef>;
@@ -87,6 +88,7 @@ export interface RuleInputsTextModel {
   readonly work_LibraryInput: TirRecordCodec<LibraryInput>;
   readonly work_CoreInput: TirRecordCodec<CoreInput>;
   readonly work_ClosureInput: TirRecordCodec<ClosureInput>;
+  readonly work_ClosureCaptureEvidence: TirRecordCodec<ClosureCaptureEvidence>;
   readonly work_DeferredInvocation_rule_closure: TirRecordCodec<DeferredInvocation & { readonly rule: "closure" }>;
   readonly work_OperationIdentity: TirRecordCodec<OperationIdentity>;
   readonly work_DeferredInvocation: TirRecordCodec<DeferredInvocation>;
@@ -314,10 +316,15 @@ export const createRuleInputsText = (kernel: TirTextKernel, read: RuleInputsText
     .field("rule", "'closure", value => scalarWork("'closure", value.rule), literalReader<(DeferredInvocation & { readonly rule: "closure" })["rule"]>("'closure", ["closure"]))
     .field("input", "ClosureInput", value => work_ClosureInput.write(value.input), lazyReader(() => work_ClosureInput.reader))
     .finish((field_rule, field_input) => ({ rule: field_rule, input: field_input })));
+  const work_ClosureCaptureEvidence: TirRecordCodec<ClosureCaptureEvidence> = defineRecord<ClosureCaptureEvidence>("ClosureCaptureEvidence", "ClosureCaptureEvidence", null, "ClosureCaptureEvidence", null, null, fields => fields
+    .field("local", "LocalRef", value => read.work_LocalRef.write(value.local), lazyReader(() => read.work_LocalRef.reader))
+    .field("value", "TypeEvidence", value => read.work_TypeEvidence.write(value.value), lazyReader(() => read.work_TypeEvidence.reader))
+    .field("reassignable", "boolean", value => scalarWork("boolean", value.reassignable), booleanReader)
+    .finish((field_local, field_value, field_reassignable) => ({ local: field_local, value: field_value, reassignable: field_reassignable })));
   const work_ClosureInput: TirRecordCodec<ClosureInput> = defineRecord<ClosureInput>("ClosureInput", "ClosureInput", null, "ClosureInput", null, null, fields => fields
     .field("context", "RuleContext", value => work_RuleContext.write(value.context), lazyReader(() => work_RuleContext.reader))
     .field("callable", "TypeEvidence", value => read.work_TypeEvidence.write(value.callable), lazyReader(() => read.work_TypeEvidence.reader))
-    .field("captures", "[TypeEvidence]", value => sequenceWork("[TypeEvidence]", value.captures, actual => read.work_TypeEvidence.write(actual)), sequenceReader("[TypeEvidence]", lazyReader(() => read.work_TypeEvidence.reader)))
+    .field("captures", "[ClosureCaptureEvidence]", value => sequenceWork("[ClosureCaptureEvidence]", value.captures, actual => work_ClosureCaptureEvidence.write(actual)), sequenceReader("[ClosureCaptureEvidence]", lazyReader(() => work_ClosureCaptureEvidence.reader)))
     .finish((field_context, field_callable, field_captures) => ({ context: field_context, callable: field_callable, captures: field_captures })));
   const work_RefinementInput: TirRecordCodec<RefinementInput> = defineRecord<RefinementInput>("RefinementInput", "RefinementInput", null, "RefinementInput", null, null, fields => fields
     .field("context", "RuleContext", value => work_RuleContext.write(value.context), lazyReader(() => work_RuleContext.reader))
@@ -384,5 +391,5 @@ export const createRuleInputsText = (kernel: TirTextKernel, read: RuleInputsText
       case "closure": return work_DeferredInvocation_rule_closure.write(value);
     }
   }, () => [work_DeferredInvocation_rule_embed.reader, work_DeferredInvocation_rule_domain_fit.reader, work_DeferredInvocation_rule_memory_equivalent.reader, work_DeferredInvocation_rule_member.reader, work_DeferredInvocation_rule_index.reader, work_DeferredInvocation_rule_construct_literal.reader, work_DeferredInvocation_rule_candidate.reader, work_DeferredInvocation_rule_operator.reader, work_DeferredInvocation_rule_literal_fit.reader, work_DeferredInvocation_rule_protocol.reader, work_DeferredInvocation_rule_refinement.reader, work_DeferredInvocation_rule_library.reader, work_DeferredInvocation_rule_core.reader, work_DeferredInvocation_rule_closure.reader]);
-  return { work_ClosureInput, work_DeferredInvocation_rule_closure, work_OperationIdentity_native_operator, work_OperationIdentity_bigint_operator, work_OperationIdentity_string_operator, work_OperationIdentity_boolean_operator, work_OperationIdentity_absence_test, work_OperationIdentity_object_construction, work_OperationIdentity_array_construction, work_OperationIdentity_protocol, work_OperationIdentity_conversion, work_OperationIdentity_library, work_OperationIdentity_core, work_OperationIdentity_pointer_address, work_OperationIdentity_pointer_read, work_OperationIdentity_pointer_write, work_OperationIdentity_pointer_offset, work_OperationIdentity_type_query, work_OperationIdentity_discard, work_CorrespondenceStep, work_DeferredDecision, work_DeferredInvocation_rule_embed, work_DeferredInvocation_rule_domain_fit, work_DeferredInvocation_rule_memory_equivalent, work_DeferredInvocation_rule_member, work_DeferredInvocation_rule_index, work_DeferredInvocation_rule_construct_literal, work_DeferredInvocation_rule_candidate, work_DeferredInvocation_rule_operator, work_DeferredInvocation_rule_literal_fit, work_DeferredInvocation_rule_protocol, work_DeferredInvocation_rule_refinement, work_DeferredInvocation_rule_library, work_DeferredInvocation_rule_core, work_RuleContext, work_EmbedInput, work_DomainFitInput, work_MemoryEquivalentInput, work_MemberInput, work_IndexInput, work_LiteralConstructionInput, work_CandidateInput, work_CandidateArgument, work_CandidateEndpoint, work_OperatorInput, work_LiteralFitInput, work_ProtocolInput, work_RefinementInput, work_LibraryInput, work_CoreInput, work_OperationIdentity, work_DeferredInvocation };
+  return { work_ClosureCaptureEvidence, work_ClosureInput, work_DeferredInvocation_rule_closure, work_OperationIdentity_native_operator, work_OperationIdentity_bigint_operator, work_OperationIdentity_string_operator, work_OperationIdentity_boolean_operator, work_OperationIdentity_absence_test, work_OperationIdentity_object_construction, work_OperationIdentity_array_construction, work_OperationIdentity_protocol, work_OperationIdentity_conversion, work_OperationIdentity_library, work_OperationIdentity_core, work_OperationIdentity_pointer_address, work_OperationIdentity_pointer_read, work_OperationIdentity_pointer_write, work_OperationIdentity_pointer_offset, work_OperationIdentity_type_query, work_OperationIdentity_discard, work_CorrespondenceStep, work_DeferredDecision, work_DeferredInvocation_rule_embed, work_DeferredInvocation_rule_domain_fit, work_DeferredInvocation_rule_memory_equivalent, work_DeferredInvocation_rule_member, work_DeferredInvocation_rule_index, work_DeferredInvocation_rule_construct_literal, work_DeferredInvocation_rule_candidate, work_DeferredInvocation_rule_operator, work_DeferredInvocation_rule_literal_fit, work_DeferredInvocation_rule_protocol, work_DeferredInvocation_rule_refinement, work_DeferredInvocation_rule_library, work_DeferredInvocation_rule_core, work_RuleContext, work_EmbedInput, work_DomainFitInput, work_MemoryEquivalentInput, work_MemberInput, work_IndexInput, work_LiteralConstructionInput, work_CandidateInput, work_CandidateArgument, work_CandidateEndpoint, work_OperatorInput, work_LiteralFitInput, work_ProtocolInput, work_RefinementInput, work_LibraryInput, work_CoreInput, work_OperationIdentity, work_DeferredInvocation };
 };

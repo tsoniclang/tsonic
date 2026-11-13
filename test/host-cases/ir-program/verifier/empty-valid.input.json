@@ -38,8 +38,6 @@
       }
     },
     "analysisLimits": {
-      "maximumBlocksPerBody": 128,
-      "maximumPlacesPerBody": 128,
       "maximumProjectionDepth": 128,
       "maximumOriginAlternatives": 128,
       "maximumRelationalRecordsPerBody": 10000,

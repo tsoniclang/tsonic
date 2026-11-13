@@ -280,7 +280,7 @@ function contributionFootprint(input: InferVerificationInput, inventory: Invento
         break;
       case "refine": types.add(value.source); types.add(value.checked); types.add(value.result); break;
       case "closure":
-        for (const capture of value.captures) types.add(capture);
+        for (const capture of value.captures) types.add(capture.type);
         types.add(value.result);
         break;
       case "default":

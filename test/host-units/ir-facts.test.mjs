@@ -40,7 +40,7 @@ const parametric = () => ({ kind: "parametric" });
 const emptyScope = () => ({ classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] });
 const detail = value => [{ kind: "text", value }];
 const violation = (rule, site, value) => ({ rule, site, detail: detail(value) });
-const finiteLimits = () => ({ maximumBlocksPerBody: 1000000, maximumPlacesPerBody: 1000000, maximumProjectionDepth: 1000000,
+const finiteLimits = () => ({ maximumProjectionDepth: 1000000,
   maximumOriginAlternatives: 1000000, maximumRelationalRecordsPerBody: 1000000, maximumRelationalReferencesPerBody: 1000000 });
 
 test("ir-facts: all twelve actual emitted ports, full closed logic and fresh declarations", async suite => {
@@ -1083,11 +1083,11 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
         "An error binding retains an actual error diagnostic from the same complete checked diagnostic vector."),
     ], "whole sparse diagnostic result and all surviving findings");
   });
-  for (const [field, limit] of [["maximumBlocksPerBody", 1], ["maximumPlacesPerBody", 1], ["maximumProjectionDepth", 2],
+  for (const [field, limit] of [["maximumProjectionDepth", 2],
     ["maximumOriginAlternatives", 1], ["maximumRelationalRecordsPerBody", 8], ["maximumRelationalReferencesPerBody", 6]]) {
     await factOpposite(`analysis-limits-respected ${field}`, (input, supplied) => { supplied.context.limits[field] = limit; },
       (input, supplied) => { supplied.context.limits[field] = limit - 1; }, [violation("analysis-limits-respected", bodySite(),
-        "Published blocks, places, projection depth, alternatives, relational rows and references respect the actual six producer limits.")]);
+        "Published projection depth, alternatives, relational rows and references respect the actual four producer limits.")]);
   }
 
   const typedValue = (type = 0) => ({ type, convertedType: type, conversion: { kind: "identity" }, narrowing: null, evidenceIndex: null, demand: { kind: "always" } });
@@ -2354,6 +2354,17 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   [violation("bindings-complete", { kind: "body", instance: { body, bindings: { kind: "instantiated", bindings: {
     ...emptyBindings(), methodBindings: [{ kind: "bound", parameter: { owner: definitions.f, index: 0 }, type: 0 }],
   } } } }, bindingMessage)]);
+  await factOpposite("a rigid binding is part of a bound producer's correlated alternative", (input, supplied) => {
+    const identity = { owner: definitions.f, index: 0 };
+    const scope = { ...emptyScope(), methodParameters: [identity] };
+    const vector = { ...emptyBindings(), methodBindings: [{ kind: "rigid", parameter: identity }] };
+    input.arena.boundProducers[0].bindings = clone(vector); input.arena.boundaries[0].bindings = clone(vector);
+    supplied.types.signatures[0].typeParameters = [{ identity, declaration: definitions.parameter, constraint: null, default: null }];
+    supplied.context.bindingScopeOf = selected => selected === definitions.f ? scope : emptyScope();
+    supplied.scopeRows.body = [scope, scope];
+  }, input => { input.arena.boundProducers[0].bindings = { ...emptyBindings(), methodBindings: [{ kind: "bound", parameter: { owner: definitions.f, index: 0 }, type: 0 }] }; },
+  [violation("origin-alternatives-correlated", arenaSite("bound-producer", "producer", 0),
+    "Producer, complete type bindings and value context remain one canonical correlated alternative.")]);
   const nestedMetadataReferences = (input, supplied) => {
     const record = metadata(); withField(record, supplied); record.key.bindings = { kind: "instantiated", bindings: emptyBindings() };
     supplied.metadataRows.set(definitions.layout, record);
@@ -2678,6 +2689,30 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const offset = invalid.indexOf("implementationBindings=null") + "implementationBindings=".length;
     const before = invalid.slice(0, offset).split("\n");
     malformed(product.parseFacts, invalid, offset, ["BindingVector"], "null", "null API environment", before.length, before.at(-1).length + 1);
+  });
+  await suite.test("an unknown value and a missing last field of the location and activation fields are rejected at the field's own position", () => {
+    const decision = `MemberSelection(decision=MemberDecision(key=text(value="value"), origins=${arrayText([`declared(declaration=def:"${definitions.field}")`])}, selectedDeclarations=${arrayText([`def:"${definitions.field}"`])}, primary=def:"${definitions.field}", read=t:0, write=t:0, getter=null, setter=null, bindings=${bindingsText}, location=data(check=required(failure="unwind"), receiver="by-reference")), getter=${resolvedText.replace("result=t:1, activation=null", 'result=t:1, activation="when-first-driven"')}, setter=null)`;
+    const text = emptyFactsText.replace("projections=[]", `projections=${arrayText([`ProjectionPath(id=path:0, parent=null, projection=field(member=${decision}))`])}`);
+    const refused = (changed, offset, expected, found, label) => {
+      const before = changed.slice(0, offset).split("\n");
+      malformed(product.parseFacts, changed, offset, expected, found, label, before.length, before.at(-1).length + 1);
+    };
+    for (const [slot, unknown, values, found] of [
+      ['location=data(check=required(failure="unwind"), receiver="by-reference")', "proved()", ["data", "accessor"], "proved"],
+      ['activation="when-first-driven"', '"proved"', ['"at-creation"', '"when-first-driven"'], '"proved"'],
+    ]) {
+      const start = text.indexOf(slot);
+      equal(start >= 0 && text.indexOf(slot, start + 1) === -1, true, `${slot} is stated once`);
+      equal(text.slice(start - 2, start) === ", " && text[start + slot.length] === ")", true, `${slot} is the last field of its record`);
+      const value = start + slot.indexOf("=") + 1;
+      refused(text.slice(0, value) + unknown + text.slice(start + slot.length), value, values, found, `unknown value of ${slot}`);
+      refused(text.slice(0, start - 2) + text.slice(start + slot.length), start - 2, [slot.slice(0, slot.indexOf("="))], ")", `missing ${slot}`);
+    }
+    const check = text.indexOf('check=required(failure="unwind")') + "check=".length;
+    refused(text.replace('check=required(failure="unwind")', "check=proved()"), check, ["none", "required"], "proved", "unknown check");
+    refused(text.replace('required(failure="unwind")', 'required(failure="none")'), check + "required(failure=".length, ['"unwind"', '"abort"'], '"none"', "a required check cannot fail by none");
+    const receiver = text.indexOf('receiver="by-reference"') + "receiver=".length;
+    refused(text.replace('receiver="by-reference"', 'receiver="proved"'), receiver, ['"in-place"', '"by-reference"'], '"proved"', "unknown receiver");
   });
   for (const activation of ["at-creation", "when-first-driven"]) {
     const input = bodyFacts(); invocationFixture(input, setup());
@@ -4190,7 +4225,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const areas = JSON.parse(readFileSync(resolve(repository, "test/architecture/quarantine/areas.json"), "utf8"));
     const deps = isolationDeps(tooling, areas.areas.map(area => area.directory));
     const interfaces = ["ids/contract", "ids/index", "diag/contract", "ir-types/contract", "ir-types/index", "ir-hir/contract", "ir-hir/index",
-      "ir-infer/contract", "ir-tir/contract", "ir-mir/contract", "snapshot/contract"].map(name => `packages/host/src/${name}.ts`);
+      "ir-infer/contract", "ir-tir/contract", "ir-tir/index", "ir-mir/contract", "snapshot/contract"].map(name => `packages/host/src/${name}.ts`);
     const files = new Map();
     const visit = directory => {
       for (const entry of readdirSync(resolve(repository, directory), { withFileTypes: true })) {
