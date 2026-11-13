@@ -16,6 +16,7 @@ export async function loadFrontFixture() {
   const ids = await import("../../../../packages/host/dist/ids/index.js");
   const snapshots = await import("../../../../packages/host/dist/snapshot/index.js");
   const types = await import("../../../../packages/host/dist/ir-types/index.js");
+  const hir = await import("../../../../packages/host/dist/ir-hir/index.js");
   const sdk = await import("@tsonic/tsts");
   const packageOf = root => ids.encodePackageId(root);
   const moduleOf = (owner, path) => ids.encodeModuleId({ package: owner, path });
@@ -119,5 +120,26 @@ export async function loadFrontFixture() {
     return { module, raw: raw.value, definitions: definitions.value, interner, exports: exported.value, checked: checked.value };
   }
 
-  return { front, ids, snapshots, types, sdk, packageOf, moduleOf, bundled, projectSnapshot, openAndCapture, openedModule, lowerDepsFor, checkedModuleOf };
+  /**
+   * The HIR verifier's violations of a checked module. The checked module holds the interner's own type and signature
+   * identities, so the table it is verified against is the interner's rows in that numbering, read back one by one; the
+   * publication gives only the row counts (its table is renumbered canonically, and Pipeline has no publication step yet).
+   */
+  function verifyChecked(checked, interner) {
+    const published = types.exportTypes(interner, { maximumWork: 1000000, maximumCreatedRecords: 100000 });
+    assert.equal(published.kind, "complete");
+    const table = { terms: published.value.types.map((unusedValue, position) => types.readType(interner, position)),
+      signatures: published.value.signatures.map((unusedValue, position) => types.readSignature(interner, position)) };
+    const byId = new Map(hir.indexSyntaxTree(checked.tree).map(node => [node.id, node]));
+    const scope = () => ({ classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] });
+    return hir.verifyHir(checked, {
+      types: table,
+      bodyPathOf: body => { const decoded = ids.decodeBodyId(body); return decoded.kind === "decoded" ? decoded.value : null; },
+      definitionPathOf: identity => { const decoded = ids.decodeDefId(identity); return decoded.kind === "decoded" ? decoded.value : null; },
+      bindingScopeOf: scope, bindingScopeAt: scope, nominalOf: () => null, nodeOf: reference => byId.get(reference.value.node) ?? null,
+      localExists: reference => checked.bodies.some(body => body.body === reference.body && body.locals[reference.local] !== undefined),
+    });
+  }
+
+  return { front, ids, snapshots, types, hir, sdk, packageOf, moduleOf, bundled, projectSnapshot, openAndCapture, openedModule, lowerDepsFor, checkedModuleOf, verifyChecked };
 }

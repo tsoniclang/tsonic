@@ -109,21 +109,37 @@ interface Lowering {
   readonly authoredTypes: ReadonlyMap<NodeId, RawTypeId>;
   readonly bodies: Hir.HirBody[];
   readonly bodyOf: ReadonlyMap<NodeId, BodyId>;
+  readonly bodyParent: ReadonlyMap<BodyId, BodyId>;
+  readonly captures: Map<BodyId, LocalRef[]>;
+}
+
+interface NodeBodies {
+  readonly bodyOf: ReadonlyMap<NodeId, BodyId>;
+  /** The directly enclosing body of each function body. */
+  readonly bodyParent: ReadonlyMap<BodyId, BodyId>;
+  /** Every body in preorder of its root. */
+  readonly order: readonly BodyId[];
 }
 
 /** The body each node lies in: a function's body for the nodes of its block, the module's body for the rest. */
-function nodeBodies(tree: Hir.SourceFile<Syntax>, moduleBody: BodyId, definitionAt: ReadonlyMap<NodeId, DefId>): ReadonlyMap<NodeId, BodyId> {
+function nodeBodies(tree: Hir.SourceFile<Syntax>, moduleBody: BodyId, definitionAt: ReadonlyMap<NodeId, DefId>): NodeBodies {
   const bodies = new Map<NodeId, BodyId>();
+  const bodyParent = new Map<BodyId, BodyId>();
+  const order: BodyId[] = [moduleBody];
   const visit = (node: Hir.SyntaxNode<Syntax>, body: BodyId): void => {
     bodies.set(node.id, body);
     const definition = node.kind === "FunctionDeclaration" ? definitionAt.get(node.id) : undefined;
     childrenOfSyntax(node).forEach(child => {
-      visit(child, node.kind === "FunctionDeclaration" && definition !== undefined && child === node.body
-        ? encodeBodyId({ owner: definition, role: "function", ordinal: 0 }) : body);
+      if (node.kind === "FunctionDeclaration" && definition !== undefined && child === node.body) {
+        const inner = encodeBodyId({ owner: definition, role: "function", ordinal: 0 });
+        bodyParent.set(inner, body);
+        order.push(inner);
+        visit(child, inner);
+      } else visit(child, body);
     });
   };
   visit(tree, moduleBody);
-  return bodies;
+  return { bodyOf: bodies, bodyParent, order };
 }
 
 function headerOf<P extends Hir.Phase>(node: Hir.NodeHeader): Hir.NodeHeader & Record<never, P> {
@@ -134,6 +150,33 @@ function typeOf(lowering: Lowering, type: RawTypeId): TyId {
   const converted = convertRawType(lowering.deps, lowering.raw, type, node => ({ kind: "body", value: {
     body: lowering.bodyOf.get(node) ?? throwInvariant(invariant("A node of a lowered module lies in no body.")), node } }));
   return converted.kind === "ok" ? converted.value.type : throwInvariant(invariant("A scalar type conversion was refused."));
+}
+
+/**
+ * K-3313.1, the one declaration-target law: a parameter, a local variable or a binding element of a function body
+ * targets its body-local slot (registered in `locals` by its body); every other declaration (module and static
+ * declarations, nested functions) targets its definition. The qualified definition identity of a body-local
+ * declaration stays its item identity, separate from its target.
+ */
+function targetOf(lowering: Lowering, declaration: NodeId): { readonly kind: "local"; readonly local: LocalRef } | { readonly kind: "definition"; readonly definition: DefId } {
+  const local = lowering.locals.get(declaration);
+  return local !== undefined ? { kind: "local", local } : { kind: "definition", definition: definitionOf(lowering, declaration) };
+}
+
+/**
+ * A use resolves to the target of the declaration it names. A use of an outer body's local is a capture: it resolves
+ * to the owner's local, and every body between the use and the owner records it once, in order of first use.
+ */
+function resolutionOf(lowering: Lowering, use: NodeId, declaration: NodeId | undefined): Hir.HirResolution {
+  if (declaration === undefined || (!lowering.locals.has(declaration) && !lowering.definitionAt.has(declaration))) return { kind: "unresolved", checkerDiagnostic: null };
+  const target = targetOf(lowering, declaration);
+  if (target.kind === "definition") return { kind: "definition", definition: target.definition, aliases: [] };
+  for (let body = lowering.bodyOf.get(use); body !== undefined && body !== target.local.body; body = lowering.bodyParent.get(body)) {
+    const recorded = lowering.captures.get(body) ?? [];
+    if (!recorded.some(entry => entry.body === target.local.body && entry.local === target.local.local)) recorded.push(target.local);
+    lowering.captures.set(body, recorded);
+  }
+  return { kind: "local", local: target.local };
 }
 
 function definitionOf(lowering: Lowering, node: NodeId): DefId {
@@ -169,11 +212,7 @@ function typeNode(lowering: Lowering, node: Hir.TypeNode<Syntax>): { readonly no
 function expression(lowering: Lowering, node: Hir.Expression<Syntax>): Hir.Expression<Checked> {
   switch (node.kind) {
     case "Identifier": {
-      const target = lowering.references.get(node.id);
-      const local = target === undefined ? undefined : lowering.locals.get(target);
-      const definition = target === undefined ? undefined : lowering.definitionAt.get(target);
-      const resolution: Hir.HirResolution = local !== undefined ? { kind: "local", local }
-        : definition !== undefined ? { kind: "definition", definition, aliases: [] } : { kind: "unresolved", checkerDiagnostic: null };
+      const resolution = resolutionOf(lowering, node.id, lowering.references.get(node.id));
       return { ...headerOf(node), kind: "Identifier", text: node.text, tsonic: { core: absentCoreOf(), role: "value", value: valueOf(lowering, node.id), resolution } };
     }
     case "BinaryExpression":
@@ -219,6 +258,7 @@ function functionDeclaration(lowering: Lowering, node: Hir.FunctionDeclaration<S
     return throwInvariant(invariant("A function of a written form has no captured signature with one row per parameter."));
   if (rawSignature.result.kind !== "available") throw new TypeError("front: a function whose checked result type is not captured is not implemented");
   const resultType = typeOf(lowering, rawSignature.result.value);
+  // The body's locals: its parameters, in declaration order (local variables and binding elements join when written).
   const signatureParameters = node.parameters.nodes.map((parameter, index) => {
     lowering.locals.set(parameter.id, { body, local: localId(index) });
     return parameter;
@@ -231,11 +271,11 @@ function functionDeclaration(lowering: Lowering, node: Hir.FunctionDeclaration<S
     if (checkedParameter === undefined) return throwInvariant(invariant("A parameter has no row of its captured signature."));
     const checkedType = typeOf(lowering, checkedParameter.type);
     if (parameter.name.kind !== "Identifier") return throwInvariant(invariant("A parameter of a written form has no identifier name."));
-    const local: LocalRef = { body, local: localId(index) };
+    const target = targetOf(lowering, parameter.id);
     const lowered: Hir.ParameterDeclaration<Checked> = { ...headerOf(parameter), kind: "Parameter", modifiers: null, dotDotDotToken: null,
-      name: { ...headerOf(parameter.name), kind: "Identifier", text: parameter.name.text, tsonic: { core: absentCoreOf(), role: "declaration-name", declaration: { kind: "local", local } } },
+      name: { ...headerOf(parameter.name), kind: "Identifier", text: parameter.name.text, tsonic: { core: absentCoreOf(), role: "declaration-name", declaration: target } },
       questionToken: null, type: declared === null ? null : declared.node, initializer: null,
-      tsonic: { core: absentCoreOf(), parent: definition, attributes: [], memory: { kind: "available", value: null }, declaration: { kind: "local", local },
+      tsonic: { core: absentCoreOf(), parent: definition, attributes: [], memory: { kind: "available", value: null }, declaration: target,
         declaredType: { kind: "available", value: declaredType }, initializer: null } };
     return { lowered, definition: parameterDefinition, checkedType };
   });
@@ -259,7 +299,7 @@ function functionDeclaration(lowering: Lowering, node: Hir.FunctionDeclaration<S
   return { ...headerOf(node), kind: "FunctionDeclaration", modifiers: modifiers(node.modifiers), typeParameters: null,
     parameters: { loc: node.parameters.loc, nodes: parameters.map(parameter => parameter.lowered) }, type: returnType, fullSignature: null, asteriskToken: null,
     body: loweredBody,
-    name: name === null ? null : { ...headerOf(name), kind: "Identifier", text: name.text, tsonic: { core: absentCoreOf(), role: "declaration-name", declaration: { kind: "definition", definition } } },
+    name: name === null ? null : { ...headerOf(name), kind: "Identifier", text: name.text, tsonic: { core: absentCoreOf(), role: "declaration-name", declaration: targetOf(lowering, node.id) } },
     tsonic: { core: absentCoreOf(), parent: owner, attributes: [], memory: { kind: "available", value: null }, definition, parameters: [],
       // One API body endpoint with its real body: a written function is not overloaded (an overload family is refused
       // by the written-kinds check, as a FunctionDeclaration without a body), so it has no advertised row (K-3312.1).
@@ -276,8 +316,9 @@ export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<Hir.HirM
   const definitionAt = new Map<NodeId, DefId>(rows.map(row => [row.node, deps.definitionOf({ module: raw.module, node: row.node })]));
   const moduleDefinition = definitionAt.get(raw.tree.id) ?? throwInvariant(invariant("A module has no definition identity."));
   const moduleBody: BodyId = encodeBodyId({ owner: moduleDefinition, role: "module", ordinal: 0 });
+  const structure = nodeBodies(raw.tree, moduleBody, definitionAt);
   const lowering: Lowering = {
-    deps, raw, definitionAt, bodyOf: nodeBodies(raw.tree, moduleBody, definitionAt),
+    deps, raw, definitionAt, bodyOf: structure.bodyOf, bodyParent: structure.bodyParent, captures: new Map(),
     views: new Map(raw.checkerViews.filter(view => view.node.module === raw.module).map(view => [view.node.node, view])),
     references: new Map(raw.references.filter(reference => reference.declaration.module === raw.module).map(reference => [reference.occurrence.node, reference.declaration.node])),
     locals: new Map(), bodies: [],
@@ -289,9 +330,11 @@ export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<Hir.HirM
     endOfFileToken: token(raw.tree.endOfFileToken), languageVariant: raw.tree.languageVariant, scriptKind: raw.tree.scriptKind,
     commentDirectives: raw.tree.commentDirectives, pragmas: raw.tree.pragmas, checkJsDirective: raw.tree.checkJsDirective,
     tsonic: { core: absentCoreOf(), parent: null, attributes: [], memory: { kind: "available", value: null }, definition: moduleDefinition, body: moduleBody } };
-  const functionBodies = [...lowering.bodies];
+  // Each body's captures, and its nested bodies: the bodies it directly encloses, in preorder.
+  const nestedOf = (body: BodyId): readonly BodyId[] => structure.order.filter(inner => structure.bodyParent.get(inner) === body);
   const bodies: Hir.HirBody[] = [{ body: moduleBody, owner: moduleDefinition, params: [], locals: [], root: tree, captures: [], scopes: [],
-    asynchronous: false, generator: false, candidateLists: [], nestedBodies: functionBodies.map(body => body.body) }, ...functionBodies]
+    asynchronous: false, generator: false, candidateLists: [], nestedBodies: [] }, ...lowering.bodies]
+    .map(body => ({ ...body, captures: lowering.captures.get(body.body) ?? [], nestedBodies: nestedOf(body.body) }))
     .sort((left, right) => left.body < right.body ? -1 : left.body > right.body ? 1 : 0);
   const items = rows.filter(row => row.node !== raw.tree.id).map(row => ({ definition: definitionOf(lowering, row.node), node: row.node }))
     .sort((left, right) => left.definition < right.definition ? -1 : left.definition > right.definition ? 1 : 0);

@@ -28,6 +28,7 @@ let openAndCapture;
 let openedModule;
 let lowerDepsFor;
 let checkedModuleOf;
+let verifyChecked;
 
 before(async () => {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true, "front tests run under the aggregate resource guard");
@@ -41,7 +42,7 @@ before(async () => {
   sdk = await import("@tsonic/tsts");
   ids = await import("../../packages/host/dist/ids/index.js");
   snapshots = await import("../../packages/host/dist/snapshot/index.js");
-  ({ packageOf, moduleOf, bundled, projectSnapshot, openAndCapture, openedModule, lowerDepsFor, checkedModuleOf } = await loadFrontFixture());
+  ({ packageOf, moduleOf, bundled, projectSnapshot, openAndCapture, openedModule, lowerDepsFor, checkedModuleOf, verifyChecked } = await loadFrontFixture());
 });
 
 after(async () => {
@@ -697,18 +698,7 @@ test("checkpoint 1: add is opened through the checker and the snapshot, captured
   assert.deepEqual(value.items.map(item => [item.definition, item.node]).sort(), [[aDefinition, 4], [bDefinition, 7], [addDefinition, 1]].sort());
   assert.deepEqual([value.checkerDiagnostics, value.obligations], [[], []]);
   // The HIR verifier accepts it, and its text form reads back to the same module.
-  const published = types.exportTypes(interner, { maximumWork: 1000000, maximumCreatedRecords: 100000 });
-  assert.equal(published.kind, "complete");
-  const byId = new Map(nodes.map(node => [node.id, node]));
-  const scope = () => ({ classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] });
-  const violations = hir.verifyHir(value, {
-    types: published.value.table,
-    bodyPathOf: body => { const decoded = ids.decodeBodyId(body); return decoded.kind === "decoded" ? decoded.value : null; },
-    definitionPathOf: identity => { const decoded = ids.decodeDefId(identity); return decoded.kind === "decoded" ? decoded.value : null; },
-    bindingScopeOf: scope, bindingScopeAt: scope, nominalOf: () => null, nodeOf: reference => byId.get(reference.value.node) ?? null,
-    localExists: reference => value.bodies.some(body => body.body === reference.body && body.locals[reference.local] !== undefined),
-  });
-  assert.deepEqual(violations, []);
+  assert.deepEqual(verifyChecked(value, interner), []);
   const reread = hir.parseHir(hir.printHir(value));
   assert.equal(reread.kind, "parsed");
   assert.deepEqual(reread.value, value);
@@ -776,4 +766,32 @@ test("the frontier check names the first unwritten form in preorder (R3 L-2)", a
   const definitions = front.lowerModuleDefinitions(raw.value);
   assert.throws(() => front.lowerModule(lowerDepsFor(definitions.value, types.createTypeInterner(), sourceText), raw.value),
     { name: "TypeError", message: "front: checked annotation not implemented: ParenthesizedExpression" });
+});
+
+// K-3313.1: one declaration-target law. Expectations written before the run.
+test("K-3313.1: parameters target their body-local slot and keep their qualified item identity; functions, nested ones too, target their definition; a captured outer parameter resolves to its owner's local and is recorded as a capture", async () => {
+  const hir = await import("../../packages/host/dist/ir-hir/index.js");
+  const sourceText = "export function outer(a: number): number { function inner(b: number): number { return a + b; } return a; }\n";
+  const { module, definitions, checked, interner } = checkedModuleOf(sourceText);
+  const definition = segments => ids.encodeDefId({ module, segments: segments.map(([name, ordinal]) => ({ name, ordinal })) });
+  const [outerDefinition, aDefinition, innerDefinition, bDefinition] = [[["outer", 0]], [["outer", 0], ["a", 0]], [["outer", 0], ["inner", 0]], [["outer", 0], ["inner", 0], ["b", 0]]].map(definition);
+  const body = owner => ids.encodeBodyId({ owner, role: "function", ordinal: 0 });
+  const moduleBody = ids.encodeBodyId({ owner: definition([]), role: "module", ordinal: 0 });
+  const [outerBody, innerBody] = [body(outerDefinition), body(innerDefinition)];
+  assert.deepEqual(definitions.rows.map(row => [row.kind, row.definition]), [["SourceFile", definition([])], ["FunctionDeclaration", outerDefinition], ["Parameter", aDefinition],
+    ["FunctionDeclaration", innerDefinition], ["Parameter", bDefinition]]);
+  const nodes = hir.indexSyntaxTree(checked.tree);
+  const functions = nodes.filter(node => node.kind === "FunctionDeclaration");
+  assert.deepEqual(functions.map(node => [node.tsonic.definition, node.tsonic.parent, node.name.tsonic.declaration]), [
+    [outerDefinition, definition([]), { kind: "definition", definition: outerDefinition }], [innerDefinition, outerDefinition, { kind: "definition", definition: innerDefinition }]]);
+  assert.deepEqual(nodes.filter(node => node.kind === "Parameter").map(node => [node.tsonic.declaration, node.name.tsonic.declaration]), [
+    [{ kind: "local", local: { body: outerBody, local: 0 } }, { kind: "local", local: { body: outerBody, local: 0 } }],
+    [{ kind: "local", local: { body: innerBody, local: 0 } }, { kind: "local", local: { body: innerBody, local: 0 } }]]);
+  assert.deepEqual(nodes.filter(node => node.kind === "Identifier" && node.tsonic.role === "value").map(node => [node.text, node.tsonic.resolution]), [
+    ["a", { kind: "local", local: { body: outerBody, local: 0 } }], ["b", { kind: "local", local: { body: innerBody, local: 0 } }], ["a", { kind: "local", local: { body: outerBody, local: 0 } }]]);
+  assert.deepEqual(checked.bodies.map(entry => [entry.body, entry.captures, entry.nestedBodies, entry.locals.map(local => [local.name, local.declaration])]).sort(), [
+    [moduleBody, [], [outerBody], []],
+    [outerBody, [], [innerBody], [["a", { kind: "item", value: { owner: aDefinition, node: definitions.rows[2].node } }]]],
+    [innerBody, [{ body: outerBody, local: 0 }], [], [["b", { kind: "item", value: { owner: bDefinition, node: definitions.rows[4].node } }]]]].sort());
+  assert.deepEqual(verifyChecked(checked, interner), []);
 });
