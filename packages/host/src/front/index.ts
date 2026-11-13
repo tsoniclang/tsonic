@@ -1,5 +1,5 @@
-import type { CheckerOptionRow, CheckerOptions } from "./contract.js";
-import { optionSet, optionTable } from "./options.js";
+import type { CaptureProgramModules, OpenCheckedProgram } from "./contract.js";
+import { openProgram, programModules } from "./checker.js";
 
-export const checkerOptionTable: readonly CheckerOptionRow[] = optionTable;
-export const checkerOptions: CheckerOptions = optionSet;
+export const openCheckedProgram: OpenCheckedProgram = openProgram;
+export const captureProgramModules: CaptureProgramModules = programModules;

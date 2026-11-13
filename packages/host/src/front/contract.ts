@@ -1,14 +1,15 @@
 import type { Diagnostic, Result } from "../diag/contract.js";
-import type { DefId, LibraryExportIdentity, LibraryModuleIdentity, ModuleId, NodeId, Origin, TyId } from "../ids/contract.js";
+import type { DefId, LibraryExportIdentity, LibraryModuleIdentity, ModuleId, NodeId, Origin, PackageId, TyId } from "../ids/contract.js";
 import type { LiteralValue, NativePrimitive, PassingMode, TypeEvidence, TypeExpansionLimits, TypeInterner } from "../ir-types/contract.js";
 import type { HirModule, SourceFile, SyntaxPhase } from "../ir-hir/contract.js";
 import type { LibraryCatalogue, WellKnownSymbol } from "../libraries/contract.js";
-import type { ExtensionReferenceEntry, ImportPreparation, LibraryRoleEntry, PackageSnapshot, ProjectSnapshot, SourceDeclarationPolicy } from "../snapshot/contract.js";
+import type { ExtensionReferenceEntry, ImportPreparation, LibraryRoleEntry, PackageSnapshot, ProjectSnapshot } from "../snapshot/contract.js";
+import type { ExtensionTable, OpenedProgram } from "./handles.js";
 import type { ExtensionReference } from "../snapshot/contract.js";
 import type { CompilerExtension, SourceDeclarationProvider, SourceSemanticsModule } from "@tsonic/tsts";
 
-export type CheckerExtensions = object & { readonly identityKind: "checker-extensions" };
-export type CheckedProgram = object & { readonly identityKind: "checked-program" };
+export type CheckerExtensions = ExtensionTable;
+export type CheckedProgram = OpenedProgram;
 
 export type CheckerExtensionValue =
   | { readonly kind: "compiler-extension"; readonly value: CompilerExtension }
@@ -17,6 +18,15 @@ export type CheckerExtensionValue =
   | { readonly kind: "semantics-module"; readonly value: SourceSemanticsModule };
 
 export type ExtensionOf = (table: CheckerExtensions, reference: ExtensionReference) => CheckerExtensionValue;
+
+/** One loaded registration: the value an extension reference of the snapshot was loaded to. */
+export interface CheckerRegistration {
+  readonly reference: ExtensionReference;
+  readonly value: CheckerExtensionValue;
+}
+
+/** The ordered loaded registrations of one analysis as one opaque table. A registration given twice is a caller defect. */
+export type CreateCheckerExtensions = (registrations: readonly CheckerRegistration[]) => CheckerExtensions;
 export type ExtensionReferencesOf = (table: CheckerExtensions) => readonly ExtensionReferenceEntry[];
 
 export interface NavigationCaptureLimits {
@@ -791,31 +801,6 @@ export interface ConvertedCheckedType {
   readonly evidence: TypeEvidence;
 }
 
-/**
- * One row of the checker option set. A constant row has the same value in every session. Two rows are read from
- * the snapshot: the project root, and whether installed declaration packages are admitted.
- */
-export type CheckerOptionValue =
-  | { readonly kind: "constant"; readonly value: boolean | string }
-  | { readonly kind: "project-root" }
-  | { readonly kind: "installed-declarations" };
-
-export interface CheckerOptionRow {
-  readonly name: string;
-  readonly value: CheckerOptionValue;
-  readonly reason: string;
-}
-
-export interface CheckerOptionInput {
-  readonly projectRoot: string;
-  readonly installedDeclarations: SourceDeclarationPolicy["installedDeclarations"];
-}
-
-export type CheckerOptionSet = Readonly<Record<string, boolean | string | readonly string[]>>;
-
-/** The options of the one compiler session of an analysis: exactly one entry per row of the table, and no other. */
-export type CheckerOptions = (input: CheckerOptionInput) => CheckerOptionSet;
-
 export type PrepareSourceImports = (
   deps: PreparationDeps,
   snapshot: PackageSnapshot,
@@ -833,11 +818,30 @@ export type CaptureModule = (
   module: ModuleId,
 ) => Result<RawModule>;
 
-export type CaptureLibraryCatalogue = (
-  deps: CaptureDeps,
-  program: CheckedProgram,
-  roles: readonly LibraryRoleEntry[],
-) => Result<LibraryCatalogue>;
+/**
+ * A provider declaration document that the session created. `package` is the package of the one loaded registration
+ * whose declaration provider produced it; `provider` is the logical provider module, with the package name read
+ * from that package's entry in the snapshot. Nothing here is taken from a file name or a specifier.
+ */
+export interface SessionDocument {
+  readonly module: ModuleId;
+  readonly package: PackageId;
+  readonly provider: LibraryModuleIdentity;
+  readonly artifact: "public" | "canonical-export-owner";
+  readonly text: string;
+}
+
+/** A module of the opened program: a module of the snapshot (its text is its captured file's), or a session document. */
+export type ProgramModule =
+  | { readonly kind: "snapshot"; readonly module: ModuleId }
+  | { readonly kind: "session-document"; readonly document: SessionDocument };
+
+/** Every module of the opened program, once, in ascending order of module identity. */
+export interface ProgramModuleSet {
+  readonly modules: readonly ProgramModule[];
+}
+
+export type CaptureProgramModules = (deps: CaptureDeps, program: CheckedProgram) => ProgramModuleSet;
 
 export type LowerModule = (
   deps: LowerDeps,
