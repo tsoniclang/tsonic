@@ -71,7 +71,9 @@ test("K-3236: the authored identity inputs obey the law they state: kinds of F-1
   const { cases } = JSON.parse(readFileSync(resolve(repository, "test/host-units/fixtures/front/identity-cases.json"), "utf8"));
   assert.deepEqual(cases.map(entry => entry.name), ["type-then-value", "value-then-type", "type-and-value-uses", "overloads", "function-with-namespace",
     "class-with-interface", "unnamed-class-members", "unnamed-signatures", "augmentation-and-reexport", "default-expression", "default-declarations",
-    "external-export-equals", "authored-export-equals"]);
+    "external-export-equals", "authored-export-equals", "locals-in-blocks", "augmentation-before-original", "merged-class-interface-uses",
+    "default-expression-order", "expression-owners", "accessors-and-static", "same-kind-merges", "enum-and-type-parameters", "binding-elements",
+    "member-name-sources", "module-declaration-forms", "renamed-reexports", "object-literal-members"]);
   const key = path => JSON.stringify(path);
   for (const entry of cases) {
     assert.equal(entry.rule.length > 20, true, entry.name);
@@ -103,6 +105,47 @@ test("K-3236: the authored identity inputs obey the law they state: kinds of F-1
     }
     for (const use of entry.uses ?? []) for (const member of use.group) assert.equal(resolves(use.file, member), true, `${entry.name}: ${use.occurrence}`);
   }
+});
+
+test("the identity inputs are complete against the parser: the declaration nodes the checker's parser finds in each source are the rows, kind by kind in preorder, and a named node has its row's name", () => {
+  const { cases } = JSON.parse(readFileSync(resolve(repository, "test/host-units/fixtures/front/identity-cases.json"), "utf8"));
+  const expressions = new Set(["FunctionExpression", "ArrowFunction", "ClassExpression"]);
+  const bindsOneName = new Set(["VariableDeclaration", "Parameter", "BindingElement"]);
+  let compared = 0;
+  for (const entry of cases) {
+    const parsed = parseSources(new Map(Object.entries(entry.files).map(([path, text]) => [path.slice(1), text])));
+    const { ast } = parsed;
+    for (const [path, rows] of Object.entries(entry.definitions ?? {})) {
+      const file = parsed.getSourceFiles().find(candidate => ast.getFileName(candidate) === `/host-gate${path}`);
+      assert.notEqual(file, undefined, `${entry.name}: ${path} is parsed`);
+      const found = [];
+      const visit = node => {
+        const kind = ast.kindName(node).replace(/^Kind/u, "");
+        if (identityKinds.has(kind)) {
+          const name = ast.name(node);
+          const identifier = name !== undefined && ast.is.IsIdentifier(name) ? ast.text(name) : null;
+          // One identity per bound name: a declaration that holds a pattern binds no name of its own (the fixture's stated assumption).
+          if (!bindsOneName.has(kind) || identifier !== null) found.push({ kind, name: expressions.has(kind) ? null : identifier });
+        }
+        ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
+      };
+      visit(file);
+      const undecided = { ...(entry.undecided ?? {}) };
+      const expected = found.filter(node => {
+        if ((undecided[node.kind] ?? 0) === 0) return true;
+        undecided[node.kind] -= 1;
+        return false;
+      });
+      assert.deepEqual(rows.map(row => row.kind), expected.map(node => node.kind), `${entry.name}: ${path}: one row per declaration node, in preorder`);
+      rows.forEach((row, index) => {
+        const authored = expected[index].name;
+        if (authored !== null && !(row.kind === "ExportAssignment")) assert.equal(row.path.at(-1)[0], authored, `${entry.name}: ${path}: the name of row ${index}`);
+        if (expressions.has(row.kind)) assert.equal(row.path.at(-1)[0], "", `${entry.name}: ${path}: an expression has the empty name`);
+      });
+      compared += rows.length;
+    }
+  }
+  assert.equal(compared > 150, true, "the comparison ran over the rows of every case");
 });
 
 test("the checker package that Host's built output loads is this worktree's own, and it is the one instance these cases use", () => {
@@ -308,7 +351,11 @@ test("libraries, missing: a referenced library that the snapshot does not hold i
   assert.deepEqual(sessionDiagnostics(used), ["TS2585 /project/src/main.mts"], "the absent declarations are absent; no installed text stands in for them");
 });
 
-test("libraries, missing and unused, PENDING at the preparation boundary: the session itself reports nothing for a library reference that the captured set does not close", () => {
+// PENDING, with its exact dependency: SDK-1 (`prepareSourceImports`, absent from the vendored checker SDK). The rule that closes this
+// case: every reference-lib row that the import preparation reports for a bundled library module of the declaration policy is resolved, and
+// to a module of that same set; an open one is reported at the preparation boundary. Its other half is not pending: that every member of
+// the set is a captured declaration-role module is the Snapshot verifier's rule bundled-library-declaration (snapshot unit file).
+test("libraries, missing and unused, PENDING on SDK-1: the session itself reports nothing for a library reference that the captured set does not close", () => {
   const libraries = bundled().filter(library => library.name !== collection);
   const unused = projectSnapshot({ sourceFiles: { "main.mts": "export const n: number = 1;\n" }, libraries });
   assert.deepEqual(openAndCapture(unused).set.modules, snapshotModules(unused));
