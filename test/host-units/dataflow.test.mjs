@@ -135,7 +135,6 @@ function resolution() {
       activation: null,
     },
     activation: null,
-    captures: [],
   };
 }
 
