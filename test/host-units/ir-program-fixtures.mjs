@@ -100,7 +100,7 @@ export function moduleFixture(path = "src/main.ts", root = "/program") {
   };
   const site = { origin, tir: { body: bodyId, node: 0 } };
   const mir = {
-    body: bodyId, bindings: instance.bindings, locals: [], constants: [], places: [],
+    body: bodyId, bindings: instance.bindings, entries: [{ provided: 0, block: 0 }], locals: [], constants: [], places: [],
     blocks: [{ ...site, id: 0, statements: [], terminator: { ...site, kind: "return", value: null } }], result: 0,
   };
   const arena = { projections: [], producers: [], contexts: [], boundProducers: [], origins: [], boundaries: [] };
@@ -280,7 +280,7 @@ export function metadataOperationFixture(operation, fact, selectedKey, root = "/
   published.mir.constants = [{ id: 0, type: 2, value: { kind: "metadata", ...operandKey } }];
   published.mir.blocks[0].statements = [
     { ...site, kind: "storage-live", local: 0 },
-    { ...site, kind: "assign", place: 0, value: { kind: "use", operand: { kind: "constant", constant: 0 } } },
+    { ...site, kind: "assign", place: 0, value: { kind: "use", operand: { kind: "constant", constant: 0 } }, step: null },
     { ...site, kind: "storage-dead", local: 0 },
   ];
   first.index.bodies[0].mirLocalCount = 1;
