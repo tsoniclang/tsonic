@@ -769,7 +769,7 @@ test("activation: the caller records creation, mode and drive; nothing in its gr
   // Distinct handles from the same creation site: one record, executed once per handle.
   assert.equal(creation("gen()#loop").length, 1);
   assert.equal(path.events.filter(item => item.statement === null && item.kind === "call" && item.node === program.at("gen()#loop")).length, 2);
-  assert.equal(activationOf(creation("gen()#loop")[0]), ACTIVATION.deferred);
+  assert.equal(activationOf(creation("gen()#loop")[0]), ACTIVATION.whenFirstDriven);
   // First drive, repeated drive: one `next` record, a call of the handle's member, run once per drive (two per handle).
   const drives = path.events.filter(item => item.statement === null && item.node === loop && namesStep(item, GENERATOR_STEP.next));
   assert.equal(drives.length, 4);

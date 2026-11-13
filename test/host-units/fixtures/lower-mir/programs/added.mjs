@@ -1,6 +1,5 @@
 // Inputs added after R1's review of W4-1 (clauses that had no case) and for the ruling on activation (K-3239 item 4).
-import { N } from "../names.mjs";
-import { PARAMETRIC, T, bodyId, builders, callee, core, deepBody, invoking, library, mapped, native, protocol, signature, step, arrayIteration,
+import { PARAMETRIC, PURE, T, bodyId, builders, callee, core, deepBody, invoking, library, mapped, native, protocol, signature, step, arrayIteration,
   typedBody } from "../typed.mjs";
 
 const ADD = native("+", "int32", [T.int32, T.int32], T.int32);
@@ -79,14 +78,14 @@ export function handles() {
   const b = builders("handles");
   // The iteration protocol selected for a generator handle: `next` and `finish` are calls of the handle's own members.
   const driven = protocol("iterate", [
-    step("acquire", core("iterate.acquire", [T.unknown], T.unknown, invoking(N.failureNone, N.effectRead))),
-    step("next", library("Generator.next", [T.unknown], T.unknown, invoking(N.failureUnwind, N.effectWrite)), callee("Generator.next", SIG_GENERATOR_NEXT, [], T.unknown)),
-    step("done", core("iterate.done", [T.unknown], T.bool, invoking(N.failureNone, N.effectRead))),
-    step("value", core("iterate.value", [T.unknown], T.int32, invoking(N.failureNone, N.effectRead))),
-    step("finish", library("Generator.return", [T.unknown], T.unknown, invoking(N.failureUnwind, N.effectWrite)), callee("Generator.return", SIG_GENERATOR_RETURN, [], T.unknown)),
+    step("acquire", core("iterate.acquire", [T.unknown], T.unknown, invoking("none", false))),
+    step("next", library("Generator.next", [T.unknown], T.unknown, invoking("unwind", true)), callee("Generator.next", SIG_GENERATOR_NEXT, [], T.unknown)),
+    step("done", core("iterate.done", [T.unknown], T.bool, invoking("none", false))),
+    step("value", core("iterate.value", [T.unknown], T.int32, invoking("none", false))),
+    step("finish", library("Generator.return", [T.unknown], T.unknown, invoking("unwind", true)), callee("Generator.return", SIG_GENERATOR_RETURN, [], T.unknown)),
   ], T.int32);
   const create = label => ({ $: label, ...b.call(b.global("gen", "gen", T.unknown), [], T.unknown,
-    () => ({ callee: callee("gen", SIG_GEN, [], T.unknown, [], { [N.activation]: N.deferred }), receiver: null, arguments: [] })) });
+    () => ({ callee: callee("gen", SIG_GEN, [], T.unknown, [], { activation: "when-first-driven" }), receiver: null, arguments: [] })) });
   const program = typedBody("handles", { signature: SIG_HANDLES, completion: T.int32,
     locals: [["n", "parameter", T.int32], ["s", "binding", T.int32, true], ["i", "binding", T.int32, true], ["v", "binding", T.int32], ["idle", "binding", T.unknown]],
     params: [[0, "required", T.int32]],
@@ -104,7 +103,7 @@ export function handles() {
       b.declare([b.variable(b.declName("idle", 4), 4, T.unknown, create("gen()#idle"))]),
       { $: "try", ...b.tryStatement(
         b.block(b.expressionStatement({ $: "fetched(1)", ...b.call(b.global("fetched", "fetched", T.unknown), [{ $: "1", ...b.num("1", T.int32) }], T.unknown,
-          at => ({ callee: callee("fetched", SIG_FETCHED, [mapped(0, 0)], T.unknown, [], { [N.activation]: N.atCreation }), receiver: null,
+          at => ({ callee: callee("fetched", SIG_FETCHED, [mapped(0, 0)], T.unknown, [], { activation: "at-creation" }), receiver: null,
             arguments: [{ kind: "provided", parameter: 0, expression: at("1") }] })) })),
         b.catchClause(null, b.block({ $: "return -1", ...b.returns(b.num("-1", T.int32)) })), null) },
       b.returns(b.id("s", 1, T.int32))) });
@@ -113,13 +112,13 @@ export function handles() {
 
 /** The three selections of `/` for `quotient`. */
 export const quotients = () => ({
-  unwinding: quotient(invoking(N.failureUnwind, N.effectRead)).program,
-  aborting: quotient(invoking(N.failureAbort, N.effectRead)).program,
-  pure: quotient({ kind: N.rvalue }).program,
+  unwinding: quotient(invoking("unwind", false)).program,
+  aborting: quotient(invoking("abort", false)).program,
+  pure: quotient(PURE).program,
 });
 /** The activation mode a creating call's decision carries. */
-export const activationOf = item => item.record.callee.resolution.decision[N.activation];
-export const ACTIVATION = Object.freeze({ atCreation: N.atCreation, deferred: N.deferred });
+export const activationOf = item => item.record.callee.resolution.decision.activation;
+export const ACTIVATION = Object.freeze({ atCreation: "at-creation", whenFirstDriven: "when-first-driven" });
 
 // Part 7: "a node kind the admitted vocabulary excludes".
 //   export function excluded(): int32 { with (0) {} return 0; }

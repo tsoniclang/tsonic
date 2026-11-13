@@ -62,28 +62,32 @@ export const declareType = term;
 export const TABLE = { terms, signatures };
 
 // ---- decisions (COMMON-DATA §3) -----------------------------------------------------------
-export const PURE = Object.freeze({ kind: N.rvalue });
-export const invoking = (failure, effect) => ({ kind: N.invoke, [N.failure]: failure, [N.effect]: effect });
+// The execution of an operation decision: a pure value computation, or an invocation with whether it writes
+// existing storage and its failure kind ("none", "unwind" or "abort").
+export const PURE = Object.freeze({ kind: "pure" });
+export const invoking = (failure, writesStorage) => ({ kind: "invocation", writesStorage, failure });
 export const selected = (operation, operands, result, execution = PURE) =>
-  ({ kind: "selected", operation, operands, result, [N.execution]: execution });
+  ({ kind: "selected", operation, operands, result, execution });
 export const native = (operator, carrier, operands, result, execution = PURE) =>
   selected({ kind: "native-operator", operator, carrier }, operands, result, execution);
 export const typedOperation = decision => ({ decision, permissionScope: null });
 export const decided = decision => ({ kind: "decided", decision });
 export const operation = decision => decided(typedOperation(decision));
-export const direct = receiver => ({ kind: N.direct, [N.receiver]: receiver });
+// The location of an access decision: data reached without a check, or with a required check and its failure kind.
+// `receiver` is "in-place" or "by-reference".
+export const direct = receiver => ({ kind: "data", check: { kind: "none" }, receiver });
 // `extent` is given for an element at a run-time position and for nothing else (a member with a constant key has none).
 export const checked = (failure, receiver, extent = null) =>
-  ({ kind: N.checked, [N.failure]: failure, [N.receiver]: receiver, ...(extent === null ? {} : { [N.extent]: extent }) });
+  ({ kind: "data", check: { kind: "required", failure }, receiver, ...(extent === null ? {} : { [N.extent]: extent }) });
 // The key of an index decision whose key is not a compile-time value is undecided (NEEDS-W4 A8 note).
 export const DYNAMIC_KEY = null;
 export const memberDecision = (key, read, write, location) => ({
   key: key === DYNAMIC_KEY ? DYNAMIC_KEY : { kind: "text", value: key }, origins: [], selectedDeclarations: [], primary: null,
-  read, write, getter: null, setter: null, bindings: EMPTY_BINDINGS, [N.location]: location });
+  read, write, getter: null, setter: null, bindings: EMPTY_BINDINGS, location });
 export const selection = (key, read, write, location) =>
   decided({ decision: memberDecision(key, read, write, location), getter: null, setter: null });
 export const narrowed = (source, result, failure) =>
-  ({ kind: "narrowed", source, result, proof: { kind: "identity" }, [N.failure]: failure });
+  ({ kind: "narrowed", source, result, proof: { kind: "identity" }, failure });
 
 export const endpoint = (name, role, signatureId, withBody = true) => {
   const made = { declaration: def(name), role, signature: signatureId, body: withBody ? bodyId(name) : null };
@@ -106,7 +110,7 @@ export const defaultMapping = (parameter, name) => ({ kind: "default", parameter
 export const application = (name, signatureId, parameters, result, extra = {}) => ({
   candidate: 0, advertised: endpoint(name, "advertised", signatureId), api: endpoint(name, "api-body", signatureId),
   bindings: EMPTY_BINDINGS, implementationBindings: EMPTY_BINDINGS, parameters,
-  completion: { signature: signatureId, completion: result, yielded: null, sent: null }, result, ...extra });
+  completion: { signature: signatureId, completion: result, yielded: null, sent: null }, result, activation: null, ...extra });
 export const callee = (name, signatureId, parameters, result, captures = [], extra = {}) =>
   ({ decision: application(name, signatureId, parameters, result, extra), activation: instanceOf(name), captures });
 
@@ -277,9 +281,9 @@ export function deepBody(name, signatureId, depth) {
 }
 /** The iteration protocol selected for a dense array of `element`: Core steps, with a `finish` step when `finish` is true. */
 export const arrayIteration = (subject, element, { finish = false } = {}) => protocol("iterate", [
-  step("acquire", core("iterate.acquire", [subject], T.unknown, invoking(N.failureNone, N.effectRead))),
-  step("next", core("iterate.next", [T.unknown], T.unknown, invoking(N.failureNone, N.effectWrite))),
-  step("done", core("iterate.done", [T.unknown], T.bool, invoking(N.failureNone, N.effectRead))),
-  step("value", core("iterate.value", [T.unknown], element, invoking(N.failureNone, N.effectRead))),
-  ...(finish ? [step("finish", core("iterate.finish", [T.unknown], T.void, invoking(N.failureNone, N.effectWrite)))] : []),
+  step("acquire", core("iterate.acquire", [subject], T.unknown, invoking("none", false))),
+  step("next", core("iterate.next", [T.unknown], T.unknown, invoking("none", true))),
+  step("done", core("iterate.done", [T.unknown], T.bool, invoking("none", false))),
+  step("value", core("iterate.value", [T.unknown], element, invoking("none", false))),
+  ...(finish ? [step("finish", core("iterate.finish", [T.unknown], T.void, invoking("none", true)))] : []),
 ], element);

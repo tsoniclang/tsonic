@@ -49,9 +49,9 @@ export function wt6(policy) {
   // The access decision states the receiver and the extent of the carrier (K-3238 point 1): lowering reads both and
   // derives neither from the type. A dense array is a reference to a carrier whose extent can change; a fixed array
   // is storage in place whose extent cannot; the third is a fixed carrier reached through a reference.
-  const dense = checked(policy.bounds, N.reference, N.extentMutable);
-  const fixed = checked(policy.bounds, N.inPlace, N.extentFixed);
-  const fixedByReference = checked(policy.bounds, N.reference, N.extentFixed);
+  const dense = checked(policy.bounds, "by-reference", N.extentMutable);
+  const fixed = checked(policy.bounds, "in-place", N.extentFixed);
+  const fixedByReference = checked(policy.bounds, "by-reference", N.extentFixed);
 
   const g = builders("orderGrow");
   const orderGrow = typedBody("orderGrow", { signature: SIG_ORDER_GROW, completion: T.int32,
@@ -70,7 +70,7 @@ export function wt6(policy) {
     params: [[0, "required", T.int32Fixed4], [1, "required", T.fnVoidToInt32]],
     root: x.block(
       compoundIndex(x, 0, T.int32Fixed4, fixed, callF(x, "f()"), { assignment: "a[i()]+=f()", target: "@target", index: "i()" }),
-      returnFirst(x, 0, T.int32Fixed4, direct(N.inPlace), "a[0]")) });
+      returnFirst(x, 0, T.int32Fixed4, direct("in-place"), "a[0]")) });
 
   // Added for R2 K-1: receiver mode and extent disagree. The fixed array is the caller's storage, reached through a
   // by-reference parameter; its extent cannot change.
@@ -81,7 +81,7 @@ export function wt6(policy) {
     params: [[0, "required", T.int32Fixed4, null, "byref-readwrite"], [1, "required", T.fnVoidToInt32]],
     root: r.block(
       compoundIndex(r, 0, T.int32Fixed4, fixedByReference, callF(r, "f()"), { assignment: "a[i()]+=f()", target: "@target", index: "i()" }),
-      returnFirst(r, 0, T.int32Fixed4, direct(N.reference), "a[0]")) });
+      returnFirst(r, 0, T.int32Fixed4, direct("by-reference"), "a[0]")) });
 
   const b = builders("order");
   const order = typedBody("order", { signature: SIG_ORDER, completion: T.int32,
@@ -94,14 +94,14 @@ export function wt6(policy) {
       // o.inner.x = f();
       b.expressionStatement({ $: "o.inner.x=f()", ...b.assign(
         { $: "@x", ...b.property(
-          { $: "o.inner", ...b.property(b.id("o", 2, T.outer), "inner", b.read(T.inner, selection("inner", T.inner, T.inner, direct(N.reference)))) },
-          "x", b.write(selection("x", T.int32, T.int32, direct(N.reference)), T.int32)) },
+          { $: "o.inner", ...b.property(b.id("o", 2, T.outer), "inner", b.read(T.inner, selection("inner", T.inner, T.inner, direct("by-reference")))) },
+          "x", b.write(selection("x", T.int32, T.int32, direct("by-reference")), T.int32)) },
         "EqualsToken", callF(b, "f()#2"), T.int32, T.int32) }),
       // opt!.count += (opt = undefined, 1);
       b.expressionStatement({ $: "opt!.count+=", ...b.assign(
         { $: "@count", ...b.property(
           { $: "@bang", ...b.nonNull(b.id("opt", 3, T.optCounter), T.counter, narrowed(T.optCounter, T.counter, policy.absent)) },
-          "count", b.readWrite(selection("count", T.int32, T.int32, direct(N.reference)), T.int32)) },
+          "count", b.readWrite(selection("count", T.int32, T.int32, direct("by-reference")), T.int32)) },
         "PlusEqualsToken",
         b.paren(b.sequence({ $: "opt=undefined", ...b.assign(b.target("opt", 3, T.optCounter), "EqualsToken",
           b.global("undefined", "undefined", T.absence), T.absence, T.optCounter) }, b.num("1", T.int32), T.int32), T.int32),
@@ -122,7 +122,7 @@ export function wt6(policy) {
       p.expressionStatement({ $: "opt!.count+=", ...p.assign(
         { $: "@count", ...p.property(
           { $: "@bang", ...p.nonNull(p.id("opt", 0, T.optCounter), T.counter, narrowed(T.optCounter, T.counter, policy.absent)) },
-          "count", p.readWrite(selection("count", T.int32, T.int32, direct(N.inPlace)), T.int32)) },
+          "count", p.readWrite(selection("count", T.int32, T.int32, direct("in-place")), T.int32)) },
         "PlusEqualsToken",
         p.paren(p.sequence({ $: "opt=undefined", ...p.assign(p.target("opt", 0, T.optCounter), "EqualsToken",
           p.global("undefined", "undefined", T.absence), T.absence, T.optCounter) }, p.num("1", T.int32), T.int32), T.int32),

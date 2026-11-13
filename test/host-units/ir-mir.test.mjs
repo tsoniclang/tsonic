@@ -346,6 +346,21 @@ test("MIR verification refuses a limit that is not a count as its caller's defec
   same(product.verifyMir(body, { ...context, limits: { maximumWork: 0 } }), { kind: "complete", violations: [] }, "zero is a count");
 });
 
+test("MIR decision fields of an operation refuse an unknown value at the value and a missing field at the record's end", () => {
+  // The execution of an operation decision (S2-11) travels in this codec inside every invoked or computed operation.
+  const invoking = operation => document("", "", "", `MirBlock(${siteText}, id=b:0, statements=[], terminator=invoke(${siteText}, operation=${operation}, operands=[], destination=null, next=b:0, unwind=escape(), step=null))`);
+  // An execution that is neither of its two forms.
+  const unknown = invoking(operationText.replace("execution=pure()", "execution=never()"));
+  invalidText(unknown, unknown.indexOf("never()"), ["pure", "invocation"], "n");
+  // A failure kind outside its closed list.
+  const failing = invoking(operationText.replace("execution=pure()", 'execution=invocation(writesStorage=false, failure="sometimes")'));
+  // The fault is at the first character of the value, inside its quotes.
+  invalidText(failing, failing.indexOf('"sometimes"') + 1, ['"none"', '"unwind"', '"abort"'], "s");
+  // The decision without its execution: the record ends where the field is required.
+  const missing = invoking(operationText.replace(", execution=pure()", ""));
+  invalidText(missing, missing.indexOf("result=t:0)") + "result=t:0".length, [","], ")");
+});
+
 test("MIR storage statements preserve both closed arms and source/origin correlation", () => {
   const statements = [{ ...site, kind: "storage-live", local: 0 }, { ...site, kind: "storage-dead", local: 0 }];
   const terminator = { ...site, kind: "return", value: null };

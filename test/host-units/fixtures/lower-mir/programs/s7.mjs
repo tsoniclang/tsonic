@@ -33,7 +33,7 @@ export function s7(order) {
   const steps = order === "fields-first" ? [field("v", V_INIT), field("seen", SEEN_INIT), base] : [base, field("v", V_INIT), field("seen", SEEN_INIT)];
 
   const b = builders("s7");
-  const dField = (name, label) => ({ $: label, ...b.property(b.id("d", 0, DERIVED), name, b.read(T.int32, selection(name, T.int32, T.int32, direct(N.reference)))) });
+  const dField = (name, label) => ({ $: label, ...b.property(b.id("d", 0, DERIVED), name, b.read(T.int32, selection(name, T.int32, T.int32, direct("by-reference")))) });
   const program = typedBody("s7", { signature: SIG_S7, completion: T.int32,
     locals: [["d", "binding", DERIVED]],
     root: b.block(
@@ -45,7 +45,7 @@ export function s7(order) {
       b.returns(b.arithmetic(b.arithmetic(b.arithmetic(dField("seen", "d.seen"), "AsteriskToken", b.num("10", T.int32), T.int32, MUL),
         "PlusToken", dField("v", "d.v"), T.int32, ADD), "PlusToken",
         { $: "Derived.count", ...b.property(b.global("Derived", "Derived", T.unknown), "count",
-          b.read(T.int32, selection("count", T.int32, T.int32, direct(N.inPlace)))) }, T.int32, ADD))) });
+          b.read(T.int32, selection("count", T.int32, T.int32, direct("in-place")))) }, T.int32, ADD))) });
   const internal = [
     { instance: { body: V_INIT, bindings: PARAMETRIC }, captures: [], signature: SIG_INIT },
     { instance: { body: SEEN_INIT, bindings: PARAMETRIC }, captures: [], signature: SIG_INIT },

@@ -92,7 +92,7 @@ export function s3(variant) {
         b.ifElse({ $: "e instanceof Failure", ...b.comparison(b.id("e", 1, T.unknown), "InstanceOfKeyword", b.global("Failure", "Failure", T.unknown), INSTANCE_OF) },
           b.returns(b.arithmetic(
             { $: "e.code", ...b.property({ $: "e#narrowed", ...b.id("e", 1, FAILURE, { value: { narrowing: narrowed(T.unknown, FAILURE, variant) } }) },
-              "code", b.read(T.int32, selection("code", T.int32, T.int32, direct(N.reference)))) },
+              "code", b.read(T.int32, selection("code", T.int32, T.int32, direct("by-reference")))) },
             "MinusToken", b.num("100", T.int32), T.int32, SUB))),
         { $: "throw e", ...b.throws(b.id("e", 1, T.unknown)) })),
       null) }) });
@@ -106,8 +106,8 @@ export function s3(variant) {
 //   }
 export function s6() {
   const b = builders("s6");
-  const length = label => ({ $: label, ...b.property(b.id("log", 0, T.int32Array), "length", b.read(T.int32, selection("length", T.int32, null, direct(N.reference)))) });
-  const dispose = protocol("dispose", [step("dispose", library("Res.dispose", [RES], T.void, invoking(N.failureUnwind, N.effectWrite)),
+  const length = label => ({ $: label, ...b.property(b.id("log", 0, T.int32Array), "length", b.read(T.int32, selection("length", T.int32, null, direct("by-reference")))) });
+  const dispose = protocol("dispose", [step("dispose", library("Res.dispose", [RES], T.void, invoking("unwind", true)),
     callee("Res.dispose", SIG_DISPOSE, [], T.void))], T.void);
   const program = typedBody("s6", { signature: SIG_S6, completion: T.int32,
     locals: [["log", "parameter", T.int32Array], ["fail", "parameter", T.bool], ["r", "binding", RES]],

@@ -1,23 +1,14 @@
-// Names of contract fields and kinds that W2 has not yet published (NEEDS-W4.md, rows A, B, G). The MIR forms are
-// published (S2-18) and are no longer mapped here.
-// This file maps names and nothing else. It is deleted in the commit that moves the cases to the
-// published names.
+// Names of contract fields that are not published yet. Every other name the fixtures use is the published one
+// (the decision records of S2-11 and S2-9, the MIR forms of S2-18). This file maps names and nothing else; an entry
+// is deleted in the commit that publishes its name, and the file with its last entry.
 export const N = Object.freeze({
-  // A1: OperationDecision
-  execution: "execution", rvalue: "rvalue", invoke: "invoke", failure: "failure", effect: "effect",
-  failureNone: "none", failureAbort: "abort", failureUnwind: "unwind", effectRead: "read", effectWrite: "write",
-  // A2, A3: MemberDecision
-  location: "location", direct: "direct", checked: "checked", accessor: "accessor",
-  receiver: "receiver", inPlace: "in-place", reference: "reference",
-  // H2: the extent of the carrier of an element access (W2's published name and values; the field lands after A1)
+  // The extent of the carrier of an element access: `extent: "fixed" | "mutable"` on the element arm of the access
+  // decision. Waits for the decision-shape commit (extent with E1; NEEDS-W4 H2).
   extent: "extent", extentFixed: "fixed", extentMutable: "mutable",
-  // A5, A6, A7: closure, rest and grown constructions
-  closure: "closure", construction: "construction", append: "append",
-  // A9: activation of a handle-creating call
-  activation: "activation", atCreation: "at-creation", deferred: "deferred",
-  // G1: the selected equality of a case clause's test
+  // The selected equality of a case clause's test (G1). Waits for the same commit.
   caseTest: "test",
-  // B1: ConstructionPlan
+  // The class-owned ConstructionPlan and its steps (B1). Waits for the typed-body side of the implicit-construction
+  // root (S2-15, W2).
   constructionPlan: "constructionPlan", planSteps: "steps", stepBase: "base-construction",
   stepField: "field-initializer", stepBody: "constructor-body",
 });

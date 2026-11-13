@@ -29,7 +29,7 @@ const SIG_ALL = signature("all", [["ids", T.int32Array]], T.unknown);
 const SIG_TAKE = signature("take", [["n", T.int32]], T.unknown);
 const SIG_GUARDED = signature("guarded", [], T.unknown);
 const SIG_DONE = signature("done", [], T.void);
-const AWAIT = protocol("await", [step("await", core("await", [T.unknown], T.string, invoking(N.failureUnwind, N.effectWrite)))], T.string);
+const AWAIT = protocol("await", [step("await", core("await", [T.unknown], T.string, invoking("unwind", true)))], T.string);
 const YIELD = protocol("yield", [], T.int32);
 export function wt9() {
   const b = builders("all");
@@ -82,11 +82,11 @@ const SIG_CLEAR = signature("clear", [["p", T.holder]], T.void);
 const SIG_READ = signature("read", [["o", T.holder], ["a", T.int32Array]], T.int32);
 export function wt10(policy) {
   const b = builders("read");
-  const ox = label => ({ $: label, ...b.property(b.id("o", 0, T.holder), "x", b.read(T.optBoxV, selection("x", T.optBoxV, T.optBoxV, direct(N.reference)))) });
+  const ox = label => ({ $: label, ...b.property(b.id("o", 0, T.holder), "x", b.read(T.optBoxV, selection("x", T.optBoxV, T.optBoxV, direct("by-reference")))) });
   const narrowedV = (label, valueLabel) => ({ $: valueLabel, ...b.property(
-    { $: label, ...b.property(b.id("o", 0, T.holder), "x", b.read(T.boxV, selection("x", T.optBoxV, T.optBoxV, direct(N.reference)),
+    { $: label, ...b.property(b.id("o", 0, T.holder), "x", b.read(T.boxV, selection("x", T.optBoxV, T.optBoxV, direct("by-reference")),
       { narrowing: narrowed(T.optBoxV, T.boxV, policy.absent) })) },
-    "v", b.read(T.int32, selection("v", T.int32, T.int32, direct(N.reference)))) });
+    "v", b.read(T.int32, selection("v", T.int32, T.int32, direct("by-reference")))) });
   const guard = label => ({ $: label, ...b.comparison(ox(`${label}#o.x`), "ExclamationEqualsEqualsToken", b.keyword("NullKeyword", T.absence), NOT_ABSENT) });
   const program = typedBody("read", { signature: SIG_READ, completion: T.int32,
     locals: [["o", "parameter", T.holder], ["a", "parameter", T.int32Array], ["sum", "binding", T.int32, true], ["i", "binding", T.int32, true]],
@@ -96,10 +96,10 @@ export function wt10(policy) {
       { $: "for", ...b.forLoop(
         b.declarationList([b.variable(b.declName("i", 3), 3, T.int32, b.num("0", T.int32))]),
         { $: "i<a.length", ...b.comparison(b.id("i", 3, T.int32), "LessThanToken",
-          b.property(b.id("a", 1, T.int32Array), "length", b.read(T.int32, selection("length", T.int32, null, direct(N.reference)))), LESS) },
+          b.property(b.id("a", 1, T.int32Array), "length", b.read(T.int32, selection("length", T.int32, null, direct("by-reference")))), LESS) },
         b.postfix(b.target("i", 3, T.int32, { kind: "read-write", storage: T.int32, read: T.int32, narrowing: null, evidenceIndex: null }), "PlusPlusToken", T.int32, T.int32, ADD),
         compound(b, 2, { $: "a[i]", ...b.element(b.id("a", 1, T.int32Array), b.id("i", 3, T.int32),
-          b.read(T.int32, selection(DYNAMIC_KEY, T.int32, T.int32, checked(policy.bounds, N.reference, N.extentMutable)))) }, "sum+=a[i]", ADD, T.int32)) },
+          b.read(T.int32, selection(DYNAMIC_KEY, T.int32, T.int32, checked(policy.bounds, "by-reference", N.extentMutable)))) }, "sum+=a[i]", ADD, T.int32)) },
       b.ifElse(guard("guard#1"), b.block(b.expressionStatement(direct0(b, "pure", SIG_PURE, T.void, "pure()")),
         compound(b, 2, narrowedV("o.x#1", "o.x.v#1"), "sum+=o.x.v", ADD, T.int32))),
       b.ifElse(guard("guard#2"), b.block(
@@ -148,7 +148,7 @@ export function wt11(policy) {
         b.expressionStatement(coreCall("storeptr", "storeptr(pointer,7)", [
           { $: "pointer#narrowed", ...b.id("pointer", 2, T.unknown, { value: { narrowing: narrowed(OPT_POINTER, T.unknown, policy.absent) } }) },
           { $: "7", ...b.num("7", T.uint32) }], T.void,
-          selected({ kind: "pointer-write" }, [T.unknown, T.uint32], T.void, invoking(N.failureNone, N.effectWrite)), [mapped(0, 0), mapped(1, 1)], provided("pointer#narrowed", "7")))),
+          selected({ kind: "pointer-write" }, [T.unknown, T.uint32], T.void, invoking("none", true)), [mapped(0, 0), mapped(1, 1)], provided("pointer#narrowed", "7")))),
       b.returns(b.id("value", 0, T.uint32))) });
   return { program };
 }
@@ -164,7 +164,7 @@ export function wt8() {
     type: null, fullSignature: null, asteriskToken: null, body: null, equalsGreaterThanToken: { kind: "EqualsGreaterThanToken", tsonic: null },
     tsonic: { ...value(T.fnVoidToVoid), callable: { definition: def(name), parameters: [], signatures: [], attributes: [],
       template: { body: bodyId(name), lexicalBindings: EMPTY_BINDINGS, dependence: "parametric" } }, captures: [],
-      [N.closure]: decided({ carrier: T.fnVoidToVoid, modes: [], [N.execution]: PURE }) } });
+      closure: decided({ carrier: T.fnVoidToVoid, captures: [], execution: PURE }) } });
   const program = typedBody("runEither", { signature: SIG_RUN_EITHER, completion: T.int32,
     locals: [["c", "parameter", T.bool]], params: [[0, "required", T.bool]], nestedBodies: [bodyId("runEither.a"), bodyId("runEither.b")],
     root: b.block(b.returns(direct0(b, "either", SIG_EITHER, T.int32, "either(…)",
