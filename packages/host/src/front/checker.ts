@@ -59,19 +59,30 @@ export function extensionReferences(table: CheckerExtensions): readonly Extensio
   return ExtensionTable.entries(table);
 }
 
+/** What one compiler session is created from, computed from the snapshot alone. */
+export interface SessionInputs {
+  readonly currentDirectory: string;
+  readonly configurationFile: string;
+  readonly files: ReadonlyMap<string, string>;
+  readonly rootFiles: readonly string[];
+  readonly options: Readonly<Record<string, boolean | string | readonly string[]>>;
+  readonly modules: ReadonlyMap<string, ModuleId>;
+  readonly packageNames: ReadonlyMap<PackageId, string | null>;
+}
+
 /**
- * One compiler session on exactly the snapshot's texts: every captured file is a file of the session, and its roots
- * are the snapshot's root modules, its contributed declaration files and its bundled library modules. The options
- * are the one option table's. Under them the checker follows no library reference of its own: the bundled library
+ * The session is on exactly the snapshot's texts: every captured file is a file of the session, and its roots are
+ * the snapshot's root modules, its contributed declaration files and its bundled library modules. The options are
+ * the one option table's. Under them the checker follows no library reference of its own: the bundled library
  * modules that the declaration policy lists are the whole library set of the program, and no text of the installed
  * checker is read. Whether that list is closed under the libraries' own references is stated by the import
- * preparation's reference rows and is not decided here. The import preparation is an input of the run and is not
- * read here.
+ * preparation's reference rows and is not decided here.
+ *
+ * The session's configuration is Front's: it stands at the project root under the checker's configuration file
+ * name, and a captured file of that path is not a file of the session, so that no configuration of a project
+ * replaces the option table.
  */
-export function openProgram(deps: CaptureDeps, snapshot: ProjectSnapshot, preparation: ImportPreparation): Result<CheckedProgram> {
-  void preparation;
-  const files = new Map<string, string>();
-  snapshot.packages.files.forEach(file => { files.set(file.path, file.text); });
+export function sessionInputs(snapshot: ProjectSnapshot): SessionInputs {
   const modules = new Map<string, ModuleId>();
   const paths = new Map<ModuleId, string>();
   snapshot.packages.modules.forEach(module => {
@@ -85,6 +96,9 @@ export function openProgram(deps: CaptureDeps, snapshot: ProjectSnapshot, prepar
     if (entry.id === snapshot.packages.rootPackage) projectRoot = entry.packageRoot;
   });
   if (projectRoot === undefined) throw new TypeError("front: the snapshot's root package is not among its packages");
+  const configurationFile = `${projectRoot}/tsconfig.json`;
+  const files = new Map<string, string>();
+  snapshot.packages.files.forEach(file => { if (file.path !== configurationFile) files.set(file.path, file.text); });
   const rootFiles: string[] = [];
   const rooted = new Set<string>();
   const root = (path: string | undefined): void => {
@@ -97,11 +111,25 @@ export function openProgram(deps: CaptureDeps, snapshot: ProjectSnapshot, prepar
   snapshot.roots.forEach(module => { root(paths.get(module)); });
   snapshot.contributions.declarationFiles.forEach(root);
   snapshot.contributions.declarationPolicy.bundledLibraries.forEach(module => { root(paths.get(module)); });
+  const options: Record<string, boolean | string | readonly string[]> = {};
+  optionSet(snapshot.contributions.declarationPolicy.installedDeclarations).forEach(option => { options[option.name] = option.value; });
+  return ({ currentDirectory: projectRoot, configurationFile, files, rootFiles, options, modules, packageNames });
+}
+
+/**
+ * One compiler session on the inputs above and the extension table. A diagnostic that names no file, or names the
+ * session's own configuration (an option the checker rejects), belongs to no module: the program is not opened.
+ * The import preparation is an input of the run and is not read here.
+ */
+export function openProgram(deps: CaptureDeps, snapshot: ProjectSnapshot, preparation: ImportPreparation): Result<CheckedProgram> {
+  void preparation;
+  const inputs = sessionInputs(snapshot);
   const session = createCompilerSessionFromFiles({
-    currentDirectory: projectRoot,
-    files,
-    rootFiles,
-    compilerOptions: { ...optionSet({ projectRoot, installedDeclarations: snapshot.contributions.declarationPolicy.installedDeclarations }) },
+    currentDirectory: inputs.currentDirectory,
+    configFileName: inputs.configurationFile,
+    files: inputs.files,
+    rootFiles: inputs.rootFiles,
+    compilerOptions: inputs.options,
     extensionHostOptions: {
       extensions: ExtensionTable.extensions(deps.extensions),
       requiredProviderModules: snapshot.contributions.requiredProviderModules.map(required => required.providerId === null
@@ -113,14 +141,15 @@ export function openProgram(deps: CaptureDeps, snapshot: ProjectSnapshot, prepar
   const checked = session.checkSource();
   const sessionLevel = [
     ...session.getDiagnostics("all").map(diagnostic => requirePresent(diagnostic, invariant("The checker returned an empty diagnostic.")))
-      .filter(diagnostic => diagnostic.file === undefined).map(diagnostic => `TS${diagnostic.code}`),
+      .filter(diagnostic => diagnostic.file === undefined || checked.ast.getFileName(diagnostic.file) === inputs.configurationFile)
+      .map(diagnostic => `TS${diagnostic.code}`),
     ...checked.extensionDiagnostics.filter(diagnostic => diagnostic.nodeOrSpan === undefined)
       .map(diagnostic => `${diagnostic.extensionId}:${diagnostic.extensionCode}`),
   ];
   if (sessionLevel.length !== 0) {
     throw new TypeError(`front: the session reported diagnostics that name no file (${[...new Set(sessionLevel)].join(", ")}); the refusal that carries them waits for the checker's message accessor`);
   }
-  return ({ kind: "ok", value: OpenedProgram.create(checked, deps.extensions, modules, packageNames), diagnostics: [] });
+  return ({ kind: "ok", value: OpenedProgram.create(checked, deps.extensions, inputs.modules, inputs.packageNames), diagnostics: [] });
 }
 
 export function programModules(deps: CaptureDeps, program: CheckedProgram): ProgramModuleSet {

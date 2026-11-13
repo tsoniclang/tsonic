@@ -62,72 +62,6 @@ after(async () => {
   } finally { session.disconnect(); }
 });
 
-const libraryDirectory = "/checker-libraries";
-const sources = {
-  "/project/src/main.mts": "import { twice } from \"./util.mjs\";\nexport const xs: number[] = [twice(1)];\nexport const n: number = xs.length;\nexport const m = new Map<string, number>();\n",
-  "/project/src/util.mts": "export function twice(value: number): number { return value * 2; }\n",
-};
-const kinds = ["config", "program", "global", "syntactic", "semantic"];
-
-function open(options, libraries, extraSources = {}) {
-  const files = { ...sources, ...extraSources, ...Object.fromEntries(libraries.map(library => [`${libraryDirectory}/${library.name}`, library.text])) };
-  const compilerSession = sdk.createCompilerSessionFromFiles({ currentDirectory: "/project", files, rootFiles: Object.keys(files),
-    compilerOptions: options, useCaseSensitiveFileNames: true });
-  const checked = compilerSession.checkSource();
-  return {
-    counts: Object.fromEntries(kinds.map(kind => [kind, compilerSession.getDiagnostics(kind).length])),
-    codes: [...new Set(compilerSession.getDiagnostics("all").map(diagnostic => diagnostic.code))].sort(),
-    files: checked.getSourceFiles().map(fileNameOf),
-  };
-}
-function fileNameOf(file) {
-  const read = file.FileName ?? file.fileName;
-  const name = typeof read === "function" ? read.call(file) : read;
-  assert.equal(typeof name, "string", "a program file of the checker has a name");
-  return name;
-}
-const clean = { config: 0, program: 0, global: 0, syntactic: 0, semantic: 0 };
-
-test("the option table is written once: eleven rows, each named once, each with its reason; the set has one entry per row and no other", () => {
-  const names = optionModule.optionTable.map(row => row.name);
-  assert.deepEqual(names, ["module", "moduleResolution", "target", "strict", "noEmit", "noLib", "allowImportingTsExtensions",
-    "allowArbitraryExtensions", "preserveSymlinks", "rootDir", "types"]);
-  assert.equal(new Set(names).size, names.length);
-  for (const row of optionModule.optionTable) assert.equal(row.reason.length > 20, true, row.name);
-  assert.deepEqual(optionModule.optionSet({ projectRoot: "/project", installedDeclarations: "package-contract" }), {
-    module: "nodenext", moduleResolution: "nodenext", target: "es2024", strict: true, noEmit: true, noLib: true,
-    allowImportingTsExtensions: true, allowArbitraryExtensions: true, preserveSymlinks: true, rootDir: "/project", types: ["*"] });
-  assert.deepEqual(optionModule.optionSet({ projectRoot: "/other/root", installedDeclarations: "none" }), {
-    module: "nodenext", moduleResolution: "nodenext", target: "es2024", strict: true, noEmit: true, noLib: true,
-    allowImportingTsExtensions: true, allowArbitraryExtensions: true, preserveSymlinks: true, rootDir: "/other/root", types: [] });
-});
-
-test("F-7: the real checker opens a session on the whole option set with no diagnostic, on library texts supplied as files and on no other", () => {
-  const libraries = sdk.getBundledLibraryClosure(["lib.es2024.d.ts"]);
-  assert.equal(libraries.length > 10, true, "the stand-in for a snapshot's bundled libraries is a real closed set");
-  const bundledPath = sdk.getBundledLibraryPath();
-  for (const installedDeclarations of ["none", "package-contract"]) {
-    const opened = open(optionModule.optionSet({ projectRoot: "/project", installedDeclarations }), libraries);
-    assert.deepEqual(opened.counts, clean, installedDeclarations);
-    assert.equal(opened.files.length, 2 + libraries.length);
-    assert.deepEqual(opened.files.filter(name => name.startsWith(bundledPath)), [], "nothing is read from the libraries bundled with the installed SDK");
-  }
-  const options = optionModule.optionSet({ projectRoot: "/project", installedDeclarations: "none" });
-  const marked = libraries.map(library => library.name === "lib.es5.d.ts"
-    ? { name: library.name, text: `${library.text}\ninterface SuppliedTextMarker { readonly supplied: true }\n` } : library);
-  const uses = { "/project/src/uses.mts": "export const marker: SuppliedTextMarker = { supplied: true };\n" };
-  assert.deepEqual(open(options, marked, uses).counts, clean, "the session reads the supplied text of a library");
-  assert.equal(open(options, libraries, uses).counts.semantic > 0, true, "and the declaration exists nowhere else");
-  const without = open(options, []);
-  assert.deepEqual({ config: without.counts.config, program: without.counts.program }, { config: 0, program: 0 },
-    "the option set itself is accepted: no option diagnostic");
-  assert.equal(without.counts.global > 0 && without.codes.includes(2318), true, "with no library file the global types are missing: nothing is read implicitly");
-  const implicit = open({ ...options, noLib: false, lib: ["es2024"] }, []);
-  assert.deepEqual(implicit.counts, clean);
-  assert.equal(implicit.files.filter(name => name.startsWith(bundledPath)).length, libraries.length,
-    "the opposite of noLib: the session reads the installed SDK's own library texts, which is why the row is true");
-});
-
 const identityKinds = new Set(["SourceFile", "FunctionDeclaration", "ClassDeclaration", "InterfaceDeclaration", "TypeAliasDeclaration", "EnumDeclaration",
   "EnumMember", "ModuleDeclaration", "VariableDeclaration", "BindingElement", "Parameter", "TypeParameter", "PropertyDeclaration", "MethodDeclaration",
   "GetAccessor", "SetAccessor", "Constructor", "ClassStaticBlockDeclaration", "PropertySignature", "MethodSignature", "CallSignature",
@@ -191,7 +125,8 @@ const byId = (left, right) => left.id < right.id ? -1 : 1;
 const bundled = () => sdk.getBundledLibraryClosure(["lib.es2024.d.ts"]).map(library => ({ name: library.name, text: library.text }));
 
 /** A verifier-valid snapshot: a project package with source modules, a package holding the bundled libraries, and packages of providers. */
-function projectSnapshot({ sourceFiles, libraries, providerPackages = [], declarationProviders = [], compilerExtensions = [], requiredProviderModules = [] }) {
+function projectSnapshot({ sourceFiles, libraries, providerPackages = [], declarationProviders = [], compilerExtensions = [], requiredProviderModules = [],
+  otherPackages = [], extraFiles = {}, installedDeclarations = "none" }) {
   const project = packageOf("/project");
   const checker = packageOf("/checker");
   const packages = [
@@ -199,6 +134,8 @@ function projectSnapshot({ sourceFiles, libraries, providerPackages = [], declar
     { id: checker, name: "checker-libraries", version: "1.0.0", packageRoot: "/checker", sourceRoot: "/checker", manifestPath: "/checker/package.json", dependencies: [], exports: [], pluginEntry: null, libraryEntry: null },
     ...providerPackages.map(entry => ({ id: packageOf(entry.root), name: entry.name, version: "1.0.0", packageRoot: entry.root, sourceRoot: entry.root,
       manifestPath: `${entry.root}/package.json`, dependencies: [], exports: [], pluginEntry: `${entry.root}/plugin.js`, libraryEntry: null })),
+    ...otherPackages.map(entry => ({ id: packageOf(entry.root), name: entry.name, version: "1.0.0", packageRoot: entry.root, sourceRoot: entry.root,
+      manifestPath: `${entry.root}/package.json`, dependencies: [], exports: [], pluginEntry: null, libraryEntry: null })),
   ].sort(byId);
   const modules = [];
   const files = [];
@@ -210,15 +147,24 @@ function projectSnapshot({ sourceFiles, libraries, providerPackages = [], declar
     modules.push({ id: moduleOf(checker, library.name), package: checker, path: `/checker/${library.name}`, role: "declaration" });
     files.push({ kind: "virtual", path: `/checker/${library.name}`, text: library.text, owner: checker });
   }
+  const otherRoots = [];
+  for (const entry of otherPackages) {
+    for (const [name, [role, text, rooted]] of Object.entries(entry.modules)) {
+      modules.push({ id: moduleOf(packageOf(entry.root), name), package: packageOf(entry.root), path: `${entry.root}/${name}`, role });
+      files.push({ kind: "physical", path: `${entry.root}/${name}`, realPath: `${entry.root}/${name}`, text });
+      if (rooted === true) otherRoots.push(moduleOf(packageOf(entry.root), name));
+    }
+  }
+  for (const [path, text] of Object.entries(extraFiles)) files.push({ kind: "physical", path, realPath: path, text });
   modules.sort(byId);
   files.sort((left, right) => left.path < right.path ? -1 : 1);
   return {
     packages: { fingerprint: "captured", rootPackage: project, packages, modules, files, libraryData: [],
       components: packages.map(entry => ({ representative: entry.id, packages: [entry.id], dependencies: [] })) },
     entryPoint: moduleOf(project, `src/${Object.keys(sourceFiles)[0]}`),
-    roots: Object.keys(sourceFiles).map(name => moduleOf(project, `src/${name}`)).sort(),
+    roots: [...Object.keys(sourceFiles).map(name => moduleOf(project, `src/${name}`)), ...otherRoots].sort(),
     selection: { target: { id: "native", surfaces: [], options: { kind: "record", fields: [] } }, providerId: "native-provider", capabilityIds: [], surfaceIds: [] },
-    contributions: { declarationFiles: [], declarationPolicy: { bundledLibraries: libraries.map(library => moduleOf(checker, library.name)).sort(), installedDeclarations: "none" },
+    contributions: { declarationFiles: [], declarationPolicy: { bundledLibraries: libraries.map(library => moduleOf(checker, library.name)).sort(), installedDeclarations },
       requiredProviderModules, compilerExtensions, declarationProviders, semanticModules: [], safetyProviders: [], dataLayouts: [] },
     platform: { layouts: [] },
   };
@@ -330,15 +276,14 @@ test("a program file that is no module of the snapshot is an invariant failure; 
 });
 
 /**
- * The diagnostics of a session that is given what `openCheckedProgram` gives it: the snapshot's texts, the same roots and the
- * option set of the table. Front has no operation yet that returns a file's diagnostics (`captureModule`), so these cases read
- * them from such a session; the module set is always read through Front.
+ * The diagnostics of a session created from the inputs that Front computes for a snapshot (`sessionInputs`, the function
+ * `openCheckedProgram` itself uses). Front has no operation yet that returns a file's diagnostics (`captureModule`), so these
+ * cases read them from such a session; the module set is always read through Front.
  */
 function sessionDiagnostics(snapshot) {
-  const pathOf = new Map(snapshot.packages.modules.map(module => [module.id, module.path]));
-  const session = sdk.createCompilerSessionFromFiles({ currentDirectory: "/project", files: new Map(snapshot.packages.files.map(file => [file.path, file.text])),
-    rootFiles: [...snapshot.roots, ...snapshot.contributions.declarationPolicy.bundledLibraries].map(module => pathOf.get(module)),
-    compilerOptions: { ...optionModule.optionSet({ projectRoot: "/project", installedDeclarations: "none" }) }, useCaseSensitiveFileNames: true });
+  const inputs = checkerModule.sessionInputs(snapshot);
+  const session = sdk.createCompilerSessionFromFiles({ currentDirectory: inputs.currentDirectory, configFileName: inputs.configurationFile, files: inputs.files,
+    rootFiles: inputs.rootFiles, compilerOptions: inputs.options, useCaseSensitiveFileNames: true });
   const checked = session.checkSource();
   return session.getDiagnostics("all").map(diagnostic => `TS${diagnostic.code} ${diagnostic.file === undefined ? "(no file)" : checked.ast.getFileName(diagnostic.file)}`);
 }
@@ -438,4 +383,146 @@ test("PENDING the checker's message accessor: a session-level diagnostic stops t
   assert.throws(() => front.openCheckedProgram({ extensions: checkerModule.createExtensionTable(twice), navigationCapture }, sameProvider, preparation),
     { name: "TypeError", message: "front: the session reported diagnostics that name no file (tsts.extension-host:DUPLICATE_EXTENSION_ID); the refusal that carries them waits for the checker's message accessor" },
     "two registrations of one provider identity do not open a program, so a session document never has two candidate registrations");
+});
+
+const optionRecord = (policy, changes = {}) => ({ ...Object.fromEntries(optionModule.optionSet(policy).map(option => [option.name, option.value])), ...changes });
+const tableNames = ["module", "moduleResolution", "target", "strict", "noEmit", "noLib", "allowImportingTsExtensions", "allowArbitraryExtensions",
+  "preserveSymlinks", "types", "skipLibCheck", "noUncheckedIndexedAccess", "exactOptionalPropertyTypes", "useDefineForClassFields", "esModuleInterop",
+  "resolveJsonModule", "allowJs"];
+
+/** A real session on the given files with the captured libraries as roots, under the whole option set with the given changes. */
+function checkedUnder(files, { policy = "none", changes = {}, libraries = bundled(), roots = [Object.keys(files)[0]] } = {}) {
+  const supplied = new Map([...Object.entries(files), ...libraries.map(library => [`/checker/${library.name}`, library.text])]);
+  const compilerSession = sdk.createCompilerSessionFromFiles({ currentDirectory: "/project", files: supplied,
+    rootFiles: [...roots, ...libraries.map(library => `/checker/${library.name}`)], compilerOptions: optionRecord(policy, changes), useCaseSensitiveFileNames: true });
+  const checked = compilerSession.checkSource();
+  const names = checked.getSourceFiles().map(file => checked.ast.getFileName(file));
+  return { diagnostics: [...new Set(compilerSession.getDiagnostics("all").map(diagnostic =>
+      `TS${diagnostic.code} ${diagnostic.file === undefined ? "(no file)" : checked.ast.getFileName(diagnostic.file)}`))].sort(),
+    notSupplied: names.filter(name => !supplied.has(name)).length,
+    files: names.filter(name => !name.startsWith("/checker/")).sort() };
+}
+const main = "/project/src/main.mts";
+const utility = { "/project/src/util.mts": "export function twice(value: number): number { return value * 2; }\n" };
+
+test("the option table is written once: seventeen rows, each named once with its reason; the set has one entry per row in the table's order, and the declaration policy changes one entry", () => {
+  assert.deepEqual(optionModule.optionTable.map(row => row.name), tableNames);
+  assert.equal(new Set(tableNames).size, tableNames.length);
+  for (const row of optionModule.optionTable) assert.equal(row.reason.length > 20, true, row.name);
+  const constant = { module: "nodenext", moduleResolution: "nodenext", target: "es2024", strict: true, noEmit: true, noLib: true, allowImportingTsExtensions: true,
+    allowArbitraryExtensions: true, preserveSymlinks: true, skipLibCheck: false, noUncheckedIndexedAccess: false, exactOptionalPropertyTypes: false,
+    useDefineForClassFields: true, esModuleInterop: true, resolveJsonModule: false, allowJs: false };
+  for (const [policy, types] of [["package-contract", ["*"]], ["none", []]]) {
+    assert.deepEqual(optionModule.optionSet(policy).map(option => option.name), tableNames, policy);
+    assert.deepEqual(optionRecord(policy), { ...constant, types }, policy);
+  }
+});
+
+test("F-7: the real checker accepts the whole option set, and a name it does not know is a diagnostic of the session's configuration, which Front treats as session-level", () => {
+  const files = { [main]: "import { twice } from \"./util.mjs\";\nexport const xs: number[] = [twice(1)];\nexport const m = new Map<string, number>();\n", ...utility };
+  for (const policy of ["none", "package-contract"]) {
+    assert.deepEqual(checkedUnder(files, { policy }), { diagnostics: [], notSupplied: 0, files: [main, "/project/src/util.mts"] }, policy);
+  }
+  assert.deepEqual(checkedUnder(files, { changes: { noUncheckedIndexAccess: true } }).diagnostics, ["TS5023 /project/tsconfig.json"],
+    "so the empty list above states that every name of the table is an option of this checker");
+});
+
+// For each row: one program, its checked result under the table, and under the opposite value of that row alone.
+const rowCases = [
+  { row: "module", opposite: "esnext", files: { [main]: "import { twice } from \"./util\";\nexport const t = twice(1);\n", ...utility },
+    table: ["TS2835 /project/src/main.mts"], other: ["TS2835 /project/src/main.mts", "TS5110 /project/tsconfig.json"] },
+  { row: "moduleResolution", opposite: "bundler", files: { [main]: "import { twice } from \"./util\";\nexport const t = twice(1);\n", ...utility },
+    table: ["TS2835 /project/src/main.mts"], other: ["TS2307 /project/src/main.mts", "TS5095 /project/tsconfig.json", "TS5109 /project/tsconfig.json"] },
+  { row: "target", opposite: "es2019", files: { [main]: "export const big = 1n;\n" }, table: [], other: ["TS2737 /project/src/main.mts"] },
+  { row: "strict", opposite: false, files: { [main]: "export const n: number = null;\n" }, table: ["TS2322 /project/src/main.mts"], other: [] },
+  { row: "noEmit", opposite: false, files: { [main]: "export const n: number = 1;\n" }, table: [], other: ["TS5096 /project/tsconfig.json"] },
+  { row: "noLib", opposite: false, files: { [main]: "export const m = new Map<string, number>();\n" }, libraries: [],
+    table: ["TS2318 (no file)", "TS2583 /project/src/main.mts"], other: [], otherReadsInstalledLibraries: true },
+  { row: "allowImportingTsExtensions", opposite: false, files: { [main]: "import { twice } from \"./util.mts\";\nexport const t = twice(1);\n", ...utility },
+    table: [], other: ["TS5097 /project/src/main.mts"] },
+  { row: "allowArbitraryExtensions", opposite: false,
+    files: { [main]: "import { sheet } from \"./a.css\";\nexport const d: string = sheet;\n", "/project/src/a.d.css.ts": "export declare const sheet: string;\n" },
+    table: [], other: ["TS6263 /project/src/main.mts"] },
+  { row: "preserveSymlinks", opposite: false, sameWithoutLinks: true,
+    files: { [main]: "import { v } from \"dep\";\nexport const d: number = v;\n",
+      "/project/node_modules/dep/package.json": "{ \"name\": \"dep\", \"version\": \"1.0.0\", \"type\": \"module\", \"exports\": { \".\": { \"types\": \"./index.d.mts\" } } }\n",
+      "/project/node_modules/dep/index.d.mts": "export declare const v: number;\n" }, table: [], other: [] },
+  { row: "skipLibCheck", opposite: true,
+    files: { [main]: "import { x } from \"./bad.mjs\";\nexport const y = x;\n", "/project/src/bad.d.mts": "export declare const x: Missing;\n" },
+    table: ["TS2304 /project/src/bad.d.mts"], other: [] },
+  { row: "noUncheckedIndexedAccess", opposite: true, files: { [main]: "const xs: number[] = [1];\nexport const n: number = xs[0];\n" },
+    table: [], other: ["TS2322 /project/src/main.mts"] },
+  { row: "exactOptionalPropertyTypes", opposite: true, files: { [main]: "interface P { x?: number }\nexport const p: P = { x: undefined };\n" },
+    table: [], other: ["TS2375 /project/src/main.mts"] },
+  { row: "useDefineForClassFields", opposite: false, files: { [main]: "class A { x: number = 1; }\nexport class B extends A { x!: number; }\n" },
+    table: ["TS2612 /project/src/main.mts"], other: [] },
+  { row: "esModuleInterop", opposite: false,
+    files: { [main]: "import { n } from \"./a.cjs\";\nexport const m = n;\n", "/project/src/a.d.cts": "import v from \"./lib.cjs\";\nexport declare const n: typeof v;\n",
+      "/project/src/lib.d.cts": "declare const v: { n: number };\nexport = v;\n" },
+    table: [], other: ["TS5108 /project/tsconfig.json"] },
+  { row: "resolveJsonModule", opposite: true,
+    files: { [main]: "import data from \"./data.json\" with { type: \"json\" };\nexport const d = data;\n", "/project/src/data.json": "{ \"a\": 1 }\n" },
+    table: ["TS2732 /project/src/main.mts"], other: [], otherFiles: ["/project/src/data.json", main] },
+  { row: "allowJs", opposite: true, files: { [main]: "import { j } from \"./j.mjs\";\nexport const k = j;\n", "/project/src/j.mjs": "export const j = 1;\n" },
+    table: ["TS7016 /project/src/main.mts"], other: [], otherFiles: ["/project/src/j.mjs", main] },
+];
+
+test("each constant row decides a checked result: one program per row, checked under the whole table and under the opposite value of that row alone", () => {
+  assert.deepEqual(rowCases.map(entry => entry.row), tableNames.filter(name => name !== "types"), "every constant row has its program; the types row has its own case");
+  for (const entry of rowCases) {
+    const libraries = entry.libraries ?? bundled();
+    const underTable = checkedUnder(entry.files, { libraries });
+    const underOpposite = checkedUnder(entry.files, { libraries, changes: { [entry.row]: entry.opposite } });
+    assert.deepEqual(underTable.diagnostics, entry.table, `${entry.row}: under the table`);
+    assert.equal(underTable.notSupplied, 0, `${entry.row}: under the table every program file is a supplied file`);
+    assert.deepEqual(underOpposite.diagnostics, entry.other, `${entry.row}: under ${JSON.stringify(entry.opposite)}`);
+    assert.equal(underOpposite.notSupplied > 0, entry.otherReadsInstalledLibraries === true, `${entry.row}: whether the opposite reads the installed checker's libraries`);
+    if (entry.otherFiles !== undefined) assert.deepEqual(underOpposite.files, entry.otherFiles, `${entry.row}: the opposite admits a further program file`);
+    assert.equal(JSON.stringify(underTable) === JSON.stringify(underOpposite), entry.sameWithoutLinks === true,
+      `${entry.row}: the two values differ, except for the one row whose effect needs linked paths, which a session on captured texts does not have`);
+  }
+});
+
+const ambientPackage = { root: "/project/node_modules/@types/thing", name: "@types/thing", modules: { "index.d.ts": ["declaration", "declare const thingGlobal: number;\n"] } };
+
+test("the types row: under package-contract an installed declaration package that the snapshot captured is ambient without an import; under none it is not; either way only captured files are program files", () => {
+  const sourceFiles = { "main.mts": "export const g: number = thingGlobal;\n" };
+  const ambient = moduleOf(packageOf(ambientPackage.root), "index.d.ts");
+  const admitted = projectSnapshot({ sourceFiles, libraries: bundled(), otherPackages: [ambientPackage], installedDeclarations: "package-contract" });
+  assert.deepEqual(sessionDiagnostics(admitted), []);
+  const admittedSet = openAndCapture(admitted).set.modules;
+  assert.deepEqual(admittedSet, snapshotModules(admitted), "the captured package's declaration file is a program module");
+  assert.equal(admittedSet.some(entry => entry.module === ambient), true);
+  const suppressed = projectSnapshot({ sourceFiles, libraries: bundled(), otherPackages: [ambientPackage], installedDeclarations: "none" });
+  assert.deepEqual(sessionDiagnostics(suppressed), ["TS2304 /project/src/main.mts"]);
+  assert.equal(openAndCapture(suppressed).set.modules.some(entry => entry.module === ambient), false, "captured, but not a file of the program");
+  const absent = projectSnapshot({ sourceFiles, libraries: bundled(), installedDeclarations: "package-contract" });
+  assert.deepEqual(sessionDiagnostics(absent), ["TS2304 /project/src/main.mts"], "the wildcard reaches what the snapshot captured and nothing else");
+  assert.deepEqual(openAndCapture(absent).set.modules, snapshotModules(absent));
+});
+
+test("a source module of a second captured package is checked like any other: no option of the table restricts where sources stand", () => {
+  const second = { root: "/dep", name: "dep", modules: { "src/x.mts": ["source", "export const dep: number = 1;\n", true] } };
+  const snapshot = projectSnapshot({ sourceFiles: { "main.mts": "import { dep } from \"../../dep/src/x.mjs\";\nexport const d: number = dep;\n" }, libraries: bundled(), otherPackages: [second] });
+  assert.deepEqual(sessionDiagnostics(snapshot), []);
+  assert.deepEqual(openAndCapture(snapshot).set.modules, snapshotModules(snapshot));
+  const files = { [main]: "import { dep } from \"../../dep/src/x.mjs\";\nexport const d: number = dep;\n", "/dep/src/x.mts": "export const dep: number = 1;\n" };
+  assert.deepEqual(checkedUnder(files, { roots: [main, "/dep/src/x.mts"], changes: { rootDir: "/project" } }).diagnostics, ["TS6059 /project/src/main.mts"],
+    "the opposite: with an emission root the checker refuses the second package's source, which is why the table has no such row");
+});
+
+test("the session's configuration is Front's: a configuration file captured at the project root is not a file of the session and changes nothing", () => {
+  const sourceFiles = { "main.mts": "export const n: number = null;\n" };
+  const projectConfiguration = "{ \"compilerOptions\": { \"strict\": false, \"noLib\": false }, \"files\": [\"src/main.mts\"] }\n";
+  const snapshot = projectSnapshot({ sourceFiles, libraries: bundled(),
+    extraFiles: { "/project/tsconfig.json": projectConfiguration, "/project/src/tsconfig.json": "{ \"compilerOptions\": { \"strict\": false } }\n" } });
+  const inputs = checkerModule.sessionInputs(snapshot);
+  assert.equal(inputs.configurationFile, "/project/tsconfig.json");
+  assert.equal(inputs.files.has("/project/tsconfig.json"), false);
+  assert.equal(inputs.files.has("/project/src/tsconfig.json"), true, "every other captured file is a file of the session");
+  assert.deepEqual(sessionDiagnostics(snapshot), ["TS2322 /project/src/main.mts"], "strict, from the table");
+  assert.deepEqual(openAndCapture(snapshot).set.modules, snapshotModules(snapshot), "and no library of the installed checker is a program file");
+  const given = checkedUnder({ [main]: sourceFiles["main.mts"], "/project/tsconfig.json": projectConfiguration });
+  assert.deepEqual({ diagnostics: given.diagnostics, readsInstalledLibraries: given.notSupplied > 0 }, { diagnostics: [], readsInstalledLibraries: true },
+    "the opposite: a session that is given the project's file takes its options from it, not from the table");
 });
