@@ -9,6 +9,8 @@ export interface LowerMirDefs {
   readonly exceptionStorage: TyId;
 }
 
+// The size of one lowered body. One record is one local, one place, one constant, one statement or one block with
+// its terminator. Lowering charges a record before it allocates it and refuses when the count would pass the maximum.
 export interface LowerMirLimits {
   readonly maximumRecords: number;
 }
