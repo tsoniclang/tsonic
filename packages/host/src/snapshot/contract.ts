@@ -257,12 +257,12 @@ export interface ExtensionReferenceEntry {
 
 export interface SourceDeclarationPolicy {
   /**
-   * The declaration libraries bundled with the checker, as the paths of captured files of this snapshot: a bundled
-   * library is a file of a package like any other declaration file, and its text is that file's text. A checked
-   * program is opened on exactly these texts, never on what an installed checker happens to bundle. Ascending
-   * order of path, each path once.
+   * The declaration libraries bundled with the checker, as modules of this snapshot: a bundled library is a
+   * declaration-role module of a package like any other declaration file, and its text is its captured file's
+   * text. A checked program is opened on exactly these texts, never on what an installed checker happens to
+   * bundle. Ascending order of module identity, each module once.
    */
-  readonly bundledLibraries: readonly string[];
+  readonly bundledLibraries: readonly ModuleId[];
   readonly installedDeclarations: "none" | "package-contract";
 }
 
@@ -353,7 +353,7 @@ export type SnapshotRule =
   | "extension-reference-kinds-exact"
   | "extension-table-equality"
   | "contribution-files-resolve"
-  | "bundled-library-resolves"
+  | "bundled-library-declaration"
   | "bundled-library-unique"
   | "bundled-libraries-order"
   | "virtual-file-owner-resolves"

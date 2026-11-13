@@ -532,29 +532,43 @@ test("contribution-files-resolve and virtual-file-owner-resolves retain their ac
   virtual.packages.files.push({ kind: "virtual", path: "/virtual/prelude.d.ts", text: "", owner: packageId("/missing") });
   verify(virtual, [issue("virtual-file-owner-resolves", fileSite("/virtual/prelude.d.ts"), packageId("/missing"))]);
 });
-test("S2-5: the bundled declaration libraries are captured files of a package, named by the declaration policy: each resolves, each once, in ascending order of path", () => {
+test("S2-5: the bundled declaration libraries are declaration-role modules of a package, named by the declaration policy: each once, in ascending order of identity", () => {
   const carried = snapshot();
   const { id } = peer(carried, "/checker");
-  const add = (name, text) => {
-    const path = `/checker/${name}`;
-    carried.packages.files.push({ kind: "virtual", path, text, owner: id });
+  const add = (name, text, role = "declaration") => {
+    const module = moduleId(id, name);
+    carried.packages.modules.push({ id: module, package: id, path: `/checker/${name}`, role });
+    carried.packages.modules.sort((left, right) => left.id < right.id ? -1 : 1);
+    carried.packages.files.push({ kind: "virtual", path: `/checker/${name}`, text, owner: id });
     carried.packages.files.sort((left, right) => left.path < right.path ? -1 : 1);
-    return path;
+    return module;
   };
   const first = add("lib.es2021.d.ts", "// the text the session reads\n");
   const second = add("lib.es2022.d.ts", "");
-  carried.contributions.declarationPolicy.bundledLibraries = [first, second];
+  const ordered = [first, second].sort();
+  carried.contributions.declarationPolicy.bundledLibraries = ordered;
   verify(carried, []);
-  assert.equal(carried.packages.files.find(file => file.path === first).text, "// the text the session reads\n", "the text is the file's own; the policy holds no second copy");
-  const missing = snapshot();
-  missing.contributions.declarationPolicy.bundledLibraries = ["/checker/lib.absent.d.ts"];
-  verify(missing, [issue("bundled-library-resolves", fileSite("/checker/lib.absent.d.ts"), "/checker/lib.absent.d.ts")]);
+  assert.equal(carried.packages.files.find(file => file.path === "/checker/lib.es2021.d.ts").text, "// the text the session reads\n",
+    "the text is the module's captured file text; the policy holds no second copy");
+  const absent = moduleId(id, "lib.absent.d.ts");
+  const missing = structuredClone(carried);
+  missing.contributions.declarationPolicy.bundledLibraries = [absent];
+  verify(missing, [issue("bundled-library-declaration", { kind: "module", module: absent }, absent)]);
+  const sourceRole = structuredClone(carried);
+  sourceRole.contributions.declarationPolicy.bundledLibraries = [sourceRole.entryPoint];
+  verify(sourceRole, [issue("bundled-library-declaration", { kind: "module", module: sourceRole.entryPoint }, sourceRole.entryPoint)]);
   const repeated = structuredClone(carried);
   repeated.contributions.declarationPolicy.bundledLibraries = [first, first];
-  verify(repeated, [issue("bundled-library-unique", fileSite(first), first)]);
+  verify(repeated, [issue("bundled-library-unique", { kind: "module", module: first }, first)]);
   const unordered = structuredClone(carried);
-  unordered.contributions.declarationPolicy.bundledLibraries = [second, first];
+  unordered.contributions.declarationPolicy.bundledLibraries = [...ordered].reverse();
   verify(unordered, [issue("bundled-libraries-order", { kind: "snapshot" }, "bundledLibraries")]);
+  const fileOnly = structuredClone(carried);
+  fileOnly.packages.files.push({ kind: "virtual", path: "/checker/zz-file-without-module.d.ts", text: "", owner: id });
+  fileOnly.packages.files.sort((left, right) => left.path < right.path ? -1 : 1);
+  const stray = moduleId(id, "zz-file-without-module.d.ts");
+  fileOnly.contributions.declarationPolicy.bundledLibraries = [...ordered, stray].sort();
+  verify(fileOnly, [issue("bundled-library-declaration", { kind: "module", module: stray }, stray)]);
   const sparse = snapshot();
   sparse.contributions.declarationPolicy.bundledLibraries = new Array(1);
   verify(sparse, [sparseIssue({ kind: "snapshot" }, "bundledLibraries")]);

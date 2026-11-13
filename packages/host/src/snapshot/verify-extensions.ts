@@ -1,4 +1,5 @@
 import type { Violation } from "../diag/contract.js";
+import type { ModuleId } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import type {
   ExtensionReference, ExtensionReferenceEntry, PlatformDeclaration, ProjectSnapshot,
@@ -78,15 +79,19 @@ export function verifySnapshotExtensions(snapshot: ProjectSnapshot,
   for (const path of files) {
     if (!packages.filePaths.has(path)) add("contribution-files-resolve", { kind: "file", path }, path);
   }
-  const libraryPaths = new Set<string>();
-  let previousLibrary: string | null = null;
+  const declarationModules = new Set<ModuleId>();
+  for (const module of snapshot.packages.modules) {
+    if (module !== undefined && module !== null && module.role === "declaration") declarationModules.add(module.id);
+  }
+  const libraries = new Set<ModuleId>();
+  let previousLibrary: ModuleId | null = null;
   let unorderedLibraries = false;
-  for (const path of snapshotRows(contributions.declarationPolicy.bundledLibraries, snapshotSite, "bundledLibraries", violations)) {
-    if (!packages.filePaths.has(path)) add("bundled-library-resolves", { kind: "file", path }, path);
-    if (libraryPaths.has(path)) add("bundled-library-unique", { kind: "file", path }, path);
-    libraryPaths.add(path);
-    if (previousLibrary !== null && path < previousLibrary) unorderedLibraries = true;
-    previousLibrary = path;
+  for (const module of snapshotRows(contributions.declarationPolicy.bundledLibraries, snapshotSite, "bundledLibraries", violations)) {
+    if (!declarationModules.has(module)) add("bundled-library-declaration", { kind: "module", module }, module);
+    if (libraries.has(module)) add("bundled-library-unique", { kind: "module", module }, module);
+    libraries.add(module);
+    if (previousLibrary !== null && module < previousLibrary) unorderedLibraries = true;
+    previousLibrary = module;
   }
   if (unorderedLibraries) add("bundled-libraries-order", snapshotSite, "bundledLibraries");
   const layouts = snapshotRows(snapshot.platform.layouts, snapshotSite, "platform.layouts", violations);
