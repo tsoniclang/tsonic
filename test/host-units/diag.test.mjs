@@ -16,8 +16,8 @@ const repository = fileURLToPath(new URL("../../", import.meta.url));
 const tooling = process.env.TSONIC_HOST_TOOLING_ROOT ?? repository;
 const sourceDirectory = "packages/host/src/diag";
 const emittedDirectory = resolve(repository, "packages/host/dist/diag");
-const runtimeFiles = ["index.js", "invariant.js", "limit.js", "order.js"].map(name => resolve(emittedDirectory, name));
-const ownedSources = ["contract.ts", "index.ts", "invariant.ts", "limit.ts", "order.ts"].map(name => `${sourceDirectory}/${name}`);
+const runtimeFiles = ["index.js", "invariant.js", "order.js"].map(name => resolve(emittedDirectory, name));
+const ownedSources = ["contract.ts", "index.ts", "invariant.ts", "order.ts"].map(name => `${sourceDirectory}/${name}`);
 const descriptors = ["empty-order", "mixed-sites", "stable-equal-key", "lookup-present", "lookup-absent", "invariant-full", "invariant-null"];
 const coverageSession = new Session();
 let product;
@@ -64,10 +64,10 @@ after(async () => {
     writeFileSync(resolve(evidenceDirectory, "coverage.json"), `${JSON.stringify(report, null, 2)}\n`);
     writeFileSync(resolve(evidenceDirectory, "source-inputs.json"), `${JSON.stringify(inputs, null, 2)}\n`);
     console.log(`F.diag actual product coverage: ${evidenceDirectory}`);
-    assert.equal(result.length, 4, "all four actual emitted runtime owners have nonempty raw V8 evidence");
+    assert.equal(result.length, 3, "all three actual emitted runtime owners have nonempty raw V8 evidence");
     assert.equal(report.status, "passed", JSON.stringify(report.findings));
     assert.deepEqual(report.findings, []);
-    assert.equal(report.files.length, 4);
+    assert.equal(report.files.length, 3);
     for (const file of report.files) {
       assert.equal(file.status, "covered", file.path);
       assert.equal(file.lines, 100, file.path);
@@ -102,10 +102,38 @@ function assertOrder(input, expected, label) {
   assert.equal(input.every((value, index) => value === beforeOrder[index]), true, `${label}: input order remains unchanged`);
 }
 
-test("the runtime index exposes only the six approved diagnostic ports", () => {
-  assert.deepEqual(Object.keys(product).sort(), ["hostDiagnosticCode", "lookupDiagnostic", "orderDiagnostics", "requirePresent", "resourceLimitDiagnostic", "throwInvariant"]);
+test("the runtime index exposes only the seven approved diagnostic ports", () => {
+  assert.deepEqual(Object.keys(product).sort(), ["diagnosticIdentityKey", "hostDiagnosticCode", "lookupDiagnostic", "orderDiagnostics", "requirePresent", "resourceLimitDiagnostic", "throwInvariant"]);
   assert.deepEqual(readdirSync(resolve(repository, sourceDirectory)).filter(name => name.endsWith(".ts")).sort(),
-    ["contract.ts", "index.ts", "invariant.ts", "limit.ts", "order.ts"]);
+    ["contract.ts", "index.ts", "invariant.ts", "order.ts"]);
+});
+
+test("MR-14: diagnostic identity is the captured checker reference, or the originating unit and code; one key gives its equality and its order", () => {
+  const key = product.diagnosticIdentityKey;
+  const unit = (query, requestKey, position) => ({ request: { query, key: requestKey }, position });
+  const host = (code, value) => ({ kind: "host", code, unit: value });
+  const body = node => ({ kind: "source-node", node: { kind: "body", value: { body: "m#f", node } } });
+  const item = node => ({ kind: "source-node", node: { kind: "item", value: { owner: "m#f", node } } });
+  const template = host("TSONIC_LOCAL_TYPE_CONFLICT", unit("tirBody", ["m#f", { kind: "record", fields: [["kind", "parametric"]] }], body(4)));
+  const sameAgain = host("TSONIC_LOCAL_TYPE_CONFLICT", unit("tirBody", ["m#f", { kind: "record", fields: [["kind", "parametric"]] }], body(4)));
+  const distinct = [
+    { kind: "checker", diagnostic: { module: "m.ts", index: 0 } },
+    { kind: "checker", diagnostic: { module: "m.ts", index: 1 } },
+    { kind: "checker", diagnostic: { module: "n.ts", index: 0 } },
+    template,
+    host("TSONIC_LOCAL_TYPE_ACCUMULATOR", template.unit),
+    host("TSONIC_LOCAL_TYPE_CONFLICT", unit("tirBody", ["m#f", { kind: "record", fields: [["kind", "instantiated"], ["class", ["int32"]]] }], body(4))),
+    host("TSONIC_LOCAL_TYPE_CONFLICT", unit("tirBody", ["m#f", { kind: "record", fields: [["kind", "parametric"]] }], body(5))),
+    host("TSONIC_LOCAL_TYPE_CONFLICT", unit("tirBody", ["m#f", { kind: "record", fields: [["kind", "parametric"]] }], item(4))),
+    host("TSONIC_LOCAL_TYPE_CONFLICT", unit("tirBody", ["m#f", { kind: "record", fields: [["kind", "parametric"]] }], { kind: "result" })),
+    host("TSONIC_LOCAL_TYPE_CONFLICT", unit("tirBody", ["m#f", { kind: "record", fields: [["kind", "parametric"]] }], { kind: "module-node", module: "m.ts", node: 4 })),
+    host("TSONIC_LOCAL_TYPE_CONFLICT", unit("mirBody", ["m#f", { kind: "record", fields: [["kind", "parametric"]] }], body(4))),
+  ];
+  assert.equal(key(template), key(sameAgain), "the same unit and code are one identity, whatever object holds them");
+  const keys = distinct.map(key);
+  assert.equal(new Set(keys).size, distinct.length, "a different code, binding, node, owner kind, position or producing fact is a different identity");
+  assert.equal(keys.every(value => typeof value === "string"), true);
+  assert.deepEqual([...keys].sort(), [...keys].reverse().sort(), "the order of identities is the order of their keys");
 });
 
 test("the resource-limit diagnostic names its owner, the one limit field, its maximum and the exact unit the owner stopped at", () => {
@@ -449,7 +477,7 @@ test("the complete actual diag module passes fresh strict isolation against the 
   assert.equal(report.status, "passed", `${JSON.stringify(report.findings)}\n${report.diagnostics.join("\n")}`);
   assert.deepEqual(report.findings, []);
   assert.equal(report.diagnostics.length, 2);
-  assert.equal(report.sourceInventory.length, 9);
+  assert.equal(report.sourceInventory.length, 8);
   assert.equal(report.provenance.length, 2);
   assert.equal(report.loadedInventory.every(path => report.expectedInventory.includes(path)), true);
   assert.equal(report.loadedInventory.some(path => path.endsWith("/isolated/packages/host/src/ids/contract.d.ts")), true);
@@ -463,7 +491,7 @@ test("fresh genuine emitted declarations admit the six ports and the cause recor
   mkdirSync(resolve(stage, "diag"));
   mkdirSync(resolve(stage, "ids"));
   const declarations = readdirSync(emittedDirectory).filter(name => name.endsWith(".d.ts")).sort();
-  assert.deepEqual(declarations, ["contract.d.ts", "index.d.ts", "invariant.d.ts", "limit.d.ts", "order.d.ts"]);
+  assert.deepEqual(declarations, ["contract.d.ts", "index.d.ts", "invariant.d.ts", "order.d.ts"]);
   for (const name of declarations) writeFileSync(resolve(stage, "diag", name), readFileSync(resolve(emittedDirectory, name)));
   writeFileSync(resolve(stage, "ids/contract.d.ts"), readFileSync(resolve(repository, "packages/host/dist/ids/contract.d.ts")));
   writeFileSync(resolve(stage, "package.json"), JSON.stringify({ type: "module", private: true }));

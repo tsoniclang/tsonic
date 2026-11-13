@@ -76,6 +76,9 @@ export type DiagnosticIdentity =
   | { readonly kind: "checker"; readonly diagnostic: CheckerDiagnosticRef }
   | { readonly kind: "host"; readonly unit: UnitRef; readonly code: HostDiagnosticCode };
 
+/** Equal keys are the same identity; the canonical order of identities is the UTF-16 code unit order of their keys. */
+export type DiagnosticIdentityKey = (identity: DiagnosticIdentity) => string;
+
 export type Cause =
   | { readonly kind: "diagnostic"; readonly diagnostic: DiagnosticIdentity }
   | { readonly kind: "unit"; readonly unit: UnitRef };
