@@ -230,12 +230,14 @@ test("front uses actual pinned SDK declarations and the sole closed ExtensionOf 
 test("real pipeline isolation emits only permitted component query types and the identical front brand", async () => {
   const contract = path("pipeline");
   const entry = path("pipeline", "index.ts");
-  await fixture([[path("front"), sdkContract], [path("snapshot"), sdkRoles], [path("infer"), 'export type Infer = (deps: { readonly bias: number }, input: number) => number;'],
+  const inferEntry = path("infer", "index.ts");
+  await fixture([[path("front"), sdkContract], [path("snapshot"), sdkRoles], [path("infer"), 'export interface InferDeps { readonly bias: number; }\nexport type Infer = (deps: InferDeps, input: number) => number;'],
+    [inferEntry, 'import type { Infer } from "./contract.js";\nexport const infer: Infer = (deps, input) => input + deps.bias;'],
     [contract, 'import type { CheckerExtensions } from "../front/contract.js";\nexport type { CheckerExtensions } from "../front/contract.js";\nimport type { Infer } from "../infer/contract.js";\nexport interface Input { readonly extensions: CheckerExtensions; readonly infer: Infer; readonly value: number; }\nexport type Run = (input: Input) => number;'],
     [entry, 'import type { Run } from "./contract.js"; export const run: Run = input => input.infer({ bias: 1 }, input.value);']], async ({ root, deps }) => {
-    const report = await compileIsolated(deps, module("pipeline"), { root, sourceFiles: [contract, entry], interfaceSources: [path("front"), path("snapshot"), path("infer")], declarationSources: [path("front"), path("snapshot"), path("infer")], outputDirectory: ".temp/isolation" });
+    const report = await compileIsolated(deps, module("pipeline"), { root, sourceFiles: [contract, entry], interfaceSources: [path("front"), path("snapshot"), path("infer"), inferEntry], declarationSources: [path("front"), path("snapshot"), path("infer"), inferEntry], outputDirectory: ".temp/isolation" });
     assert.equal(report.status, "passed", label(report));
-    assert.equal(report.provenance.length, 3);
+    assert.equal(report.provenance.length, 4);
     assert.equal(report.loadedInventory.some(file => file.endsWith(`/isolated/${host}/front/contract.d.ts`)), true);
     assert.equal(report.loadedInventory.every(file => report.expectedInventory.includes(file)), true);
     assert.equal(report.loadedInventory.some(file => file.includes("/isolated/") && file.endsWith("/front/contract.ts")), false);
@@ -361,7 +363,7 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
     ...["index.ts"].map(name => `${host}/step/${name}`),
     ...["database.ts", "index.ts", "memo.ts"].map(name => `${host}/query/${name}`),
     ...["index.ts", "checker.ts", "handles.ts", "options.ts"].map(name => `${host}/front/${name}`),
-    ...["driver.ts"].map(name => `${host}/pipeline/${name}`)].sort();
+    ...["driver.ts", "wiring.ts"].map(name => `${host}/pipeline/${name}`)].sort();
   assert.equal(JSON.stringify(inventory), JSON.stringify(expectedInventory), "the complete actual current root equals the explicit reviewed inventory");
   const graph = deps.graph(files);
   for (const module of modules) await context.test(module.name, async () => {
