@@ -4147,11 +4147,37 @@ export type HirArgumentPassingCapture =
   | { readonly role: "declaration"; readonly mode: PassingMode }
   | { readonly role: "argument"; readonly mode: PassingMode; readonly storageExpression: SourceNodeRef };
 
+export interface HirFieldBindingCapture {
+  readonly occurrence: NodeRef;
+  readonly bindings: CapturedFact<BindingVector>;
+  readonly owner: CapturedFact<TyId>;
+  readonly pointee: CapturedFact<TyId>;
+  readonly fieldExpression: NodeRef;
+  readonly field: CapturedFact<SourceNodeRef>;
+  readonly pointerExpression: NodeRef;
+}
+
+export interface HirRecordFieldBindingCapture {
+  readonly expression: NodeRef;
+  readonly binding: NodeRef;
+}
+
+export interface HirRecordBindingCapture {
+  readonly occurrence: NodeRef;
+  readonly bindings: CapturedFact<BindingVector>;
+  readonly source: CapturedFact<TyId>;
+  readonly layoutExpression: NodeRef;
+  readonly layout: CapturedFact<SourceNodeRef>;
+  readonly fields: readonly HirRecordFieldBindingCapture[];
+}
+
 export interface HirCoreCapture {
   readonly provider: CapturedFact<DefId | null>;
   readonly markers: CapturedFact<HirMarkersCapture>;
   readonly pointerType: CapturedFact<HirPointerTypeCapture | null>;
   readonly pointerOperation: CapturedFact<HirPointerOperationCapture | null>;
+  readonly fieldBinding: CapturedFact<HirFieldBindingCapture | null>;
+  readonly recordBinding: CapturedFact<HirRecordBindingCapture | null>;
   readonly attribute: CapturedFact<HirAttributeCapture | null>;
   readonly safety: CapturedFact<HirSafetyCapture | null>;
   readonly argumentPassing: CapturedFact<HirArgumentPassingCapture | null>;
@@ -4624,7 +4650,7 @@ export type HirRule = "core-capture-reference" | "core-capture-kind" | "literal-
   | "diagnostic-reference" | "diagnostic-root-owner" | "obligation-complete" | "obligation-order" | "stable-order"
   | "cross-owner-qualified" | "candidate-list-dense" | "candidate-list-reference"
   | "place-base-acyclic" | "place-access-base-in-receiver"
-  | "memory-capture-owner" | "memory-capture-reference" | "memory-layout-acyclic" | "observation-capture-owner";
+  | "memory-capture-owner" | "memory-capture-reference" | "memory-layout-acyclic" | "observation-capture-owner" | "binding-capture-owner";
 
 export type HirSite =
   | { readonly kind: "module"; readonly module: ModuleId }

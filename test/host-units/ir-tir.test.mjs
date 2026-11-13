@@ -133,8 +133,8 @@ function typeEvidence(category) {
 const emptyScope = () => ({ classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] });
 const available = value => ({ kind: "available", value });
 const emptyCore = () => ({ provider: available(null), markers: available({ struct: null, field: null, defaultValue: null, jsString: false }),
-  pointerType: available(null), pointerOperation: available(null), attribute: available(null), safety: available(null),
-  argumentPassing: available(null), flowState: available(null) });
+  pointerType: available(null), pointerOperation: available(null), fieldBinding: available(null), recordBinding: available(null),
+  attribute: available(null), safety: available(null), argumentPassing: available(null), flowState: available(null) });
 
 const bodyScopeReader = (body, scopes) => {
   const instance = structuredClone({ body: body.body, bindings: body.bindings });
@@ -1738,7 +1738,8 @@ const savedInvocationCases = [
     result: codecEvidence, permissionScope: codecReference },
     `CoreInput(context=${codecContextWire}, captured=HirCoreCapture(provider=available(value=null), ` +
     "markers=available(value=HirMarkersCapture(struct=null, field=null, defaultValue=null, jsString=false)), " +
-    "pointerType=available(value=null), pointerOperation=available(value=null), attribute=available(value=null), " +
+    "pointerType=available(value=null), pointerOperation=available(value=null), fieldBinding=available(value=null), " +
+    "recordBinding=available(value=null), attribute=available(value=null), " +
     "safety=available(value=null), argumentPassing=available(value=null), flowState=available(value=null)), " +
     `declaration=def:"${ownerId}", operands=[${codecEvidenceWire}], result=${codecEvidenceWire}, permissionScope=${codecReferenceWire})`],
 ];
@@ -1927,10 +1928,12 @@ for (const [pointer, wire] of pointerEvidenceCases) {
 function assertCoreField(field, value, expectedField, name) {
   const fields = { provider: "available(value=null)",
     markers: "available(value=HirMarkersCapture(struct=null, field=null, defaultValue=null, jsString=false))",
-    pointerType: "available(value=null)", pointerOperation: "available(value=null)", attribute: "available(value=null)",
+    pointerType: "available(value=null)", pointerOperation: "available(value=null)", fieldBinding: "available(value=null)",
+    recordBinding: "available(value=null)", attribute: "available(value=null)",
     safety: "available(value=null)", argumentPassing: "available(value=null)", flowState: "available(value=null)", [field]: expectedField };
   const coreWire = `HirCoreCapture(provider=${fields.provider}, markers=${fields.markers}, pointerType=${fields.pointerType}, ` +
-    `pointerOperation=${fields.pointerOperation}, attribute=${fields.attribute}, safety=${fields.safety}, ` +
+    `pointerOperation=${fields.pointerOperation}, fieldBinding=${fields.fieldBinding}, recordBinding=${fields.recordBinding}, ` +
+    `attribute=${fields.attribute}, safety=${fields.safety}, ` +
     `argumentPassing=${fields.argumentPassing}, flowState=${fields.flowState})`;
   const input = { context: codecContext, captured: { ...emptyCore(), [field]: value }, declaration: ownerId,
     operands: [codecEvidence], result: codecEvidence, permissionScope: codecReference };
@@ -1943,11 +1946,45 @@ function assertCoreField(field, value, expectedField, name) {
   ], name);
 }
 
-for (const field of ["provider", "markers", "pointerType", "pointerOperation", "attribute", "safety", "argumentPassing", "flowState"]) {
+for (const field of ["provider", "markers", "pointerType", "pointerOperation", "fieldBinding", "recordBinding", "attribute", "safety", "argumentPassing", "flowState"]) {
   test(`a real unavailable ${field} capture retains its reason instead of inventing data`, () => {
     assertCoreField(field, { kind: "unavailable", reason: "parameter-dependent" }, 'unavailable(reason="parameter-dependent")', field);
   });
 }
+
+// Binding captures (SCHEMA-MIGRATION.md 5.2, TB1): the saved text of each record, with every inner fact available and unavailable.
+const emptyBindingsWire = "BindingVector(classBindings=[], methodBindings=[], capturedBindings=[], selfBindings=[])";
+const unavailableWire = reason => `unavailable(reason="${reason}")`;
+for (const [name, changes, wires] of [
+  ["complete", {}, {}],
+  ["bindings unavailable", { bindings: { kind: "unavailable", reason: "parameter-dependent" } }, { bindings: unavailableWire("parameter-dependent") }],
+  ["owner unavailable", { owner: { kind: "unavailable", reason: "checker-error" } }, { owner: unavailableWire("checker-error") }],
+  ["pointee unavailable", { pointee: { kind: "unavailable", reason: "not-provided" } }, { pointee: unavailableWire("not-provided") }],
+  ["field unavailable", { field: { kind: "unavailable", reason: "not-provided" } }, { field: unavailableWire("not-provided") }],
+]) test(`a saved field binding capture retains its occurrence, types, binding vector and field descriptor: ${name}`, () => {
+  const value = { occurrence: codecReference, bindings: available(emptyBindings()), owner: available(0), pointee: available(0),
+    fieldExpression: codecReference, field: available(codecSource), pointerExpression: codecReference, ...changes };
+  const wire = { bindings: `available(value=${emptyBindingsWire})`, owner: "available(value=t:0)", pointee: "available(value=t:0)",
+    field: `available(value=${codecSourceWire})`, ...wires };
+  assertCoreField("fieldBinding", available(value), `available(value=HirFieldBindingCapture(occurrence=${codecReferenceWire}, ` +
+    `bindings=${wire.bindings}, owner=${wire.owner}, pointee=${wire.pointee}, fieldExpression=${codecReferenceWire}, ` +
+    `field=${wire.field}, pointerExpression=${codecReferenceWire}))`, `field binding ${name}`);
+});
+for (const [name, changes, wires] of [
+  ["complete", {}, {}],
+  ["no field entries", { fields: [] }, { fields: "[]" }],
+  ["bindings unavailable", { bindings: { kind: "unavailable", reason: "parameter-dependent" } }, { bindings: unavailableWire("parameter-dependent") }],
+  ["source unavailable", { source: { kind: "unavailable", reason: "checker-error" } }, { source: unavailableWire("checker-error") }],
+  ["layout unavailable", { layout: { kind: "unavailable", reason: "not-provided" } }, { layout: unavailableWire("not-provided") }],
+]) test(`a saved record binding capture retains its source, layout descriptor and field entries: ${name}`, () => {
+  const value = { occurrence: codecReference, bindings: available(emptyBindings()), source: available(0), layoutExpression: codecReference,
+    layout: available(codecSource), fields: [{ expression: codecReference, binding: codecReference }], ...changes };
+  const wire = { bindings: `available(value=${emptyBindingsWire})`, source: "available(value=t:0)", layout: `available(value=${codecSourceWire})`,
+    fields: `[HirRecordFieldBindingCapture(expression=${codecReferenceWire}, binding=${codecReferenceWire})]`, ...wires };
+  assertCoreField("recordBinding", available(value), `available(value=HirRecordBindingCapture(occurrence=${codecReferenceWire}, ` +
+    `bindings=${wire.bindings}, source=${wire.source}, layoutExpression=${codecReferenceWire}, layout=${wire.layout}, fields=${wire.fields}))`,
+    `record binding ${name}`);
+});
 
 test("nonempty struct/field/default markers retain actual saved type and source records", () => {
   const field = { name: "field", typeNode: codecSource, type: available(0), readonly: true };

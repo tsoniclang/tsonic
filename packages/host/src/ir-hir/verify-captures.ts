@@ -1,5 +1,6 @@
-import type { ModuleId, NodeId, SourceNodeRef } from "../ids/contract.js";
-import type { HirMemoryFieldCapture, HirMemoryLayoutCapture, HirNode, HirObservationCapture, HirSite, HirStoragePlace } from "./contract.js";
+import type { ModuleId, NodeId, NodeRef, SourceNodeRef } from "../ids/contract.js";
+import type { HirFieldBindingCapture, HirMemoryFieldCapture, HirMemoryLayoutCapture, HirNode, HirObservationCapture, HirRecordBindingCapture,
+  HirSite, HirStoragePlace } from "./contract.js";
 import type { HirBindingRequest, HirSourceNode } from "./verify-bindings.js";
 import type { HirChoiceShape, HirField, HirInventory, HirNodeEntry, HirRecordShape, HirReport, HirSchema, HirShape } from "./verify-syntax.js";
 import { hirCoreData } from "./text-data.js";
@@ -207,6 +208,13 @@ export function createHirSchema(): HirSchema {
       hirRecord("HirPointerOperationCapture", [hirDiscriminant("family", "raw-memory"), hirDiscriminant("operation", "address-integer-to-raw"), ["address", sourceReference],
         ["integer", "HirAddressIntegerCapture"], ["dataLayout", sourceReference]]),
       hirRecord("HirPointerOperationCapture", [hirDiscriminant("family", "keep-alive"), hirDiscriminant("operation", "keep-alive"), ["value", sourceReference]])),
+    HirFieldBindingCapture: hirRecord("HirFieldBindingCapture", [["occurrence", "NodeRef"], ["bindings", captured("BindingVector")],
+      ["owner", captured("TyId")], ["pointee", captured("TyId")], ["fieldExpression", "NodeRef"], ["field", captured(sourceReference)],
+      ["pointerExpression", "NodeRef"]]),
+    HirRecordFieldBindingCapture: hirRecord("HirRecordFieldBindingCapture", [["expression", "NodeRef"], ["binding", "NodeRef"]]),
+    HirRecordBindingCapture: hirRecord("HirRecordBindingCapture", [["occurrence", "NodeRef"], ["bindings", captured("BindingVector")],
+      ["source", captured("TyId")], ["layoutExpression", "NodeRef"], ["layout", captured(sourceReference)],
+      ["fields", hirArray("HirRecordFieldBindingCapture")]]),
     HirAttributeCapture: variants("HirAttributeCapture", "kind", [["builder-state", []], ["application", [["invocation", sourceReference]]]], [
       ["occurrence", sourceReference], ["applicationTarget", sourceReference], ["selectedMember", hirNullable(hirRecord("Record", [
         ["selectedDeclaration", hirNullable(sourceReference)], ["declarations", hirArray(sourceReference)]]))],
@@ -228,6 +236,7 @@ export function createHirSchema(): HirSchema {
       ["argument", [["mode", "PassingMode"], ["storageExpression", sourceReference]]]]),
     HirCoreCapture: hirRecord("HirCoreCapture", [["provider", captured(hirNullable("DefId"))], ["markers", captured("HirMarkersCapture")],
       ["pointerType", captured(hirNullable("HirPointerTypeCapture"))], ["pointerOperation", captured(hirNullable("HirPointerOperationCapture"))],
+      ["fieldBinding", captured(hirNullable("HirFieldBindingCapture"))], ["recordBinding", captured(hirNullable("HirRecordBindingCapture"))],
       ["attribute", captured(hirNullable("HirAttributeCapture"))], ["safety", captured(hirNullable("HirSafetyCapture"))],
       ["argumentPassing", captured(hirNullable("HirArgumentPassingCapture"))], ["flowState", captured(hirNullable(hirLiteral("moved", "borrowed-shared", "borrowed-mut")))]]),
     CheckedValue: hirRecord("CheckedValue", checkedValue),
@@ -552,6 +561,42 @@ function verifyObservation(observation: HirObservationCapture, node: HirNode, si
   }
 }
 
+function verifyBindingOwner(occurrence: NodeRef, expressions: readonly NodeRef[], node: HirNode, site: HirSite,
+  readers: HirCaptureReaders, report: HirReport): void {
+  if (readers.nodeOf({ kind: "body", value: occurrence })?.node !== node)
+    report("binding-capture-owner", site, "binding capture must retain its exact owning occurrence");
+  for (const expression of expressions) if (expression.body !== occurrence.body)
+    report("cross-owner-qualified", site, "binding capture expressions must belong to the body of their occurrence");
+}
+
+function verifyFieldBinding(binding: HirFieldBindingCapture, node: HirNode, site: HirSite, readers: HirCaptureReaders, report: HirReport): void {
+  verifyBindingOwner(binding.occurrence, [binding.fieldExpression, binding.pointerExpression], node, site, readers, report);
+  if (binding.field.kind === "available") {
+    const field = readers.nodeOf(binding.field.value);
+    const captured = field === null ? null : memoryAt(field.node);
+    if (captured === null || captured.kind !== "field")
+      report("memory-capture-reference", site, "field binding must name a field descriptor");
+  }
+}
+
+function verifyRecordBinding(binding: HirRecordBindingCapture, node: HirNode, site: HirSite, readers: HirCaptureReaders, report: HirReport): void {
+  verifyBindingOwner(binding.occurrence, [binding.layoutExpression, ...binding.fields.flatMap(entry => [entry.expression, entry.binding])],
+    node, site, readers, report);
+  if (binding.layout.kind === "available") {
+    const layout = readers.nodeOf(binding.layout.value);
+    const captured = layout === null ? null : memoryAt(layout.node);
+    if (captured === null || captured.kind !== "value" && captured.kind !== "array")
+      report("memory-capture-reference", site, "record binding layout must name a value or array descriptor");
+  }
+  for (const entry of binding.fields) {
+    const child = readers.nodeOf({ kind: "body", value: entry.binding });
+    const metadata = child === null ? null : child.node.tsonic;
+    const selected = metadata === null ? null : metadata.core.fieldBinding;
+    if (selected === null || selected.kind !== "available" || selected.value === null)
+      report("core-capture-reference", site, "record binding field must name a field-binding occurrence");
+  }
+}
+
 export function verifyHirCaptures(nodes: readonly HirNodeEntry[], readers: HirCaptureReaders, report: HirReport,
   hirSchema: HirSchema, bindings: HirBindingRequest[]): void {
   const entries: CaptureEntry[] = [];
@@ -587,6 +632,14 @@ export function verifyHirCaptures(nodes: readonly HirNodeEntry[], readers: HirCa
       if (data.reference.kind === "SourceNodeRef" && readers.nodeOf(data.reference.value) === null)
         report("core-capture-reference", site, "Core capture reference must retain an existing qualified source node");
     });
+    for (const binding of [coreCapture.fieldBinding, coreCapture.recordBinding]) {
+      if (binding.kind === "available" && binding.value !== null && binding.value.bindings.kind === "available")
+        bindings.push({ kind: "occurrence", occurrence: { kind: "body", value: binding.value.occurrence }, vector: binding.value.bindings.value, site });
+    }
+    if (coreCapture.fieldBinding.kind === "available" && coreCapture.fieldBinding.value !== null)
+      verifyFieldBinding(coreCapture.fieldBinding.value, node, site, readers, report);
+    if (coreCapture.recordBinding.kind === "available" && coreCapture.recordBinding.value !== null)
+      verifyRecordBinding(coreCapture.recordBinding.value, node, site, readers, report);
     if (coreCapture.markers.kind === "available") {
       const markers = coreCapture.markers.value;
       const references: SourceNodeRef[] = [];

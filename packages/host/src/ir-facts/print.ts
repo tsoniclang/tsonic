@@ -1,5 +1,5 @@
 import type { LibraryExportIdentity, LibraryModuleIdentity, LocalRef, NodeRef, SourceNodeRef } from "../ids/contract.js";
-import type { HirCallableEndpoint } from "../ir-hir/contract.js";
+import type { DeclarationTarget, HirCallableEndpoint } from "../ir-hir/contract.js";
 import type { ApplicationDecision, CompletionEndpoint, MemberDecision, ParameterMapping } from "../ir-infer/contract.js";
 import type { MemberSelection, ResolvedCallee } from "../ir-tir/contract.js";
 import type {
@@ -378,7 +378,7 @@ const callbackEntry = (writer: Writer, value: CallbackEntry): void => record(wri
   ["inputs", () => sequence(writer, value.inputs, item => callbackInput(writer, item))],
 ]);
 const activation = (writer: Writer, value: BoundActivation): void => record(writer, "BoundActivation", [
-  ["node", () => identity(writer, "n", value.node)], ["definition", () => identity(writer, "def", value.definition)],
+  ["node", () => identity(writer, "n", value.node)], ["activation", () => bodyInstance(writer, value.activation)],
   ["context", () => identity(writer, "context", value.context)], ["caller", () => nullable(writer, value.caller, item => identity(writer, "context", item))],
   ["entry", () => nullable(writer, value.entry, item => argumentTransport(writer, item))],
 ]);
@@ -598,10 +598,12 @@ const memoryInventory = (writer: Writer, value: MemoryBindingInventoryEntry): vo
 const closedReason = (writer: Writer, value: ClosedArrayReason): void => record(writer, value.kind,
   value.kind === "open-origin-domain" ? [["origins", () => identity(writer, "origins", value.origins)]]
     : [["at", () => nodeRef(writer, value.at)]]);
+const declarationTarget = (writer: Writer, value: DeclarationTarget): void => record(writer, value.kind,
+  value.kind === "local" ? [["local", () => localRef(writer, value.local)]] : [["definition", () => identity(writer, "def", value.definition)]]);
 const closedArray = (writer: Writer, value: ClosedArrayFact): void => {
   const fields: Field[] = [["node", () => identity(writer, "n", value.node)]];
   if (value.kind === "unproven") fields.push(["reason", () => closedReason(writer, value.reason)]);
-  else fields.push(["declarations", () => sequence(writer, value.declarations, item => identity(writer, "def", item))],
+  else fields.push(["declarations", () => sequence(writer, value.declarations, item => declarationTarget(writer, item))],
     ["references", () => sequence(writer, value.references, item => nodeRef(writer, item))],
     ["literals", () => sequence(writer, value.literals, item => nodeRef(writer, item))],
     ["elements", () => sequence(writer, value.elements, item => memberSelection(writer, item))]);

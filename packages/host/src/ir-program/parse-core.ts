@@ -1,10 +1,10 @@
-import type { ModuleId, DefId, BodyId, NodeId, TyId, SigId, LibraryModuleIdentity, SourceNodeRef, LocalRef } from "../ids/contract.js";
-import type { PassingMode, TypeComponent } from "../ir-types/contract.js";
-import type { CapturedFact, ImportTarget, HirAttribute, HirCallableEndpoint, HirCapturedType, HirFieldMarkerCapture, HirMarkersCapture, HirPointerTypeCapture, HirIntegerOperandCapture, HirAddressIntegerCapture, HirPointerOperationCapture, HirAttributeCapture, HirSafetySelectionCapture, HirSafetyCapture, HirArgumentPassingCapture, HirCoreCapture, DeclarationTarget, HirLexicalScope } from "../ir-hir/contract.js";
+import type { ModuleId, DefId, BodyId, NodeId, NodeRef, TyId, SigId, LibraryModuleIdentity, SourceNodeRef, LocalRef } from "../ids/contract.js";
+import type { BindingVector, PassingMode, TypeComponent } from "../ir-types/contract.js";
+import type { CapturedFact, ImportTarget, HirAttribute, HirCallableEndpoint, HirCapturedType, HirFieldMarkerCapture, HirMarkersCapture, HirPointerTypeCapture, HirIntegerOperandCapture, HirAddressIntegerCapture, HirPointerOperationCapture, HirAttributeCapture, HirSafetySelectionCapture, HirSafetyCapture, HirArgumentPassingCapture, HirCoreCapture, DeclarationTarget, HirLexicalScope, HirFieldBindingCapture, HirRecordBindingCapture, HirRecordFieldBindingCapture } from "../ir-hir/contract.js";
 import type { Cursor, RecordFields, TextStep, TextReader } from "./parse-values.js";
 import { delimiter, readString, choice, readBoolean, readStringChoice, readSignatureId, readNumberChoice, openRecord, closeRecord, readModuleId, readDefinitionId, readBodyId, readTypeId, readNodeId, acceptText, atomicText, fieldText, nullableText, arrayText } from "./parse-values.js";
-import { readTypeComponentText } from "./parse-types.js";
-import { readSourceNodeRef, readLocalRef, readLibraryModuleIdentity } from "./parse-diagnostics.js";
+import { readBindings, readTypeComponentText } from "./parse-types.js";
+import { readNodeRef, readSourceNodeRef, readLocalRef, readLibraryModuleIdentity } from "./parse-diagnostics.js";
 
 export function readHirCallableEndpointText<Root>(cursor: Cursor, finish: (value: HirCallableEndpoint) => TextStep<Root>): TextStep<Root> {
   return atomicText(cursor, next => openRecord(next, "HirCallableEndpoint"), fields =>
@@ -22,12 +22,47 @@ export function readHirCoreCaptureText<Root>(cursor: Cursor, finish: (value: Hir
     fieldText<CapturedFact<HirMarkersCapture>, Root>(cursor, fields, "markers", (next, done) => readCapturedFactText(next, readHirMarkersCaptureText, done), markersValue =>
       fieldText<CapturedFact<HirPointerTypeCapture | null>, Root>(cursor, fields, "pointerType", (next, done) => readCapturedFactText(next, (next, done) => nullableText(next, readHirPointerTypeCaptureText, done), done), pointerTypeValue =>
         fieldText<CapturedFact<HirPointerOperationCapture | null>, Root>(cursor, fields, "pointerOperation", (next, done) => readCapturedFactText(next, (next, done) => nullableText(next, readHirPointerOperationCaptureText, done), done), pointerOperationValue =>
+          fieldText<CapturedFact<HirFieldBindingCapture | null>, Root>(cursor, fields, "fieldBinding", (next, done) => readCapturedFactText(next, (next, done) => nullableText(next, readHirFieldBindingCaptureText, done), done), fieldBindingValue =>
+          fieldText<CapturedFact<HirRecordBindingCapture | null>, Root>(cursor, fields, "recordBinding", (next, done) => readCapturedFactText(next, (next, done) => nullableText(next, readHirRecordBindingCaptureText, done), done), recordBindingValue =>
           fieldText<CapturedFact<HirAttributeCapture | null>, Root>(cursor, fields, "attribute", (next, done) => readCapturedFactText(next, (next, done) => nullableText(next, readHirAttributeCaptureText, done), done), attributeValue =>
             fieldText<CapturedFact<HirSafetyCapture | null>, Root>(cursor, fields, "safety", (next, done) => readCapturedFactText(next, (next, done) => nullableText(next, readHirSafetyCaptureText, done), done), safetyValue =>
               fieldText<CapturedFact<HirArgumentPassingCapture | null>, Root>(cursor, fields, "argumentPassing", (next, done) => readCapturedFactText(next, (next, done) => nullableText(next, readHirArgumentPassingCaptureText, done), done), argumentPassingValue =>
                 fieldText<CapturedFact<"moved" | "borrowed-shared" | "borrowed-mut" | null>, Root>(cursor, fields, "flowState", (next, done) => readCapturedFactText(next, (next, done) => nullableText(next, (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["moved","borrowed-shared","borrowed-mut"]), done), done), done), flowStateValue =>
                   atomicText(cursor, next => closeRecord(next, fields), () =>
-                      acceptText({ provider: providerValue, markers: markersValue, pointerType: pointerTypeValue, pointerOperation: pointerOperationValue, attribute: attributeValue, safety: safetyValue, argumentPassing: argumentPassingValue, flowState: flowStateValue }, finish)))))))))));
+                      acceptText({ provider: providerValue, markers: markersValue, pointerType: pointerTypeValue, pointerOperation: pointerOperationValue, fieldBinding: fieldBindingValue, recordBinding: recordBindingValue, attribute: attributeValue, safety: safetyValue, argumentPassing: argumentPassingValue, flowState: flowStateValue }, finish)))))))))))));
+}
+
+export function readHirFieldBindingCaptureText<Root>(cursor: Cursor, finish: (value: HirFieldBindingCapture) => TextStep<Root>): TextStep<Root> {
+  return atomicText(cursor, next => openRecord(next, "HirFieldBindingCapture"), fields =>
+    fieldText<NodeRef, Root>(cursor, fields, "occurrence", (next, done) => atomicText(next, readNodeRef, done), occurrenceValue =>
+    fieldText<CapturedFact<BindingVector>, Root>(cursor, fields, "bindings", (next, done) => readCapturedFactText(next, (next, done) => atomicText(next, readBindings, done), done), bindingsValue =>
+      fieldText<CapturedFact<TyId>, Root>(cursor, fields, "owner", (next, done) => readCapturedFactText(next, (next, done) => atomicText(next, readTypeId, done), done), ownerValue =>
+        fieldText<CapturedFact<TyId>, Root>(cursor, fields, "pointee", (next, done) => readCapturedFactText(next, (next, done) => atomicText(next, readTypeId, done), done), pointeeValue =>
+          fieldText<NodeRef, Root>(cursor, fields, "fieldExpression", (next, done) => atomicText(next, readNodeRef, done), fieldExpressionValue =>
+            fieldText<CapturedFact<SourceNodeRef>, Root>(cursor, fields, "field", (next, done) => readCapturedFactText(next, (next, done) => atomicText(next, readSourceNodeRef, done), done), fieldValue =>
+              fieldText<NodeRef, Root>(cursor, fields, "pointerExpression", (next, done) => atomicText(next, readNodeRef, done), pointerExpressionValue =>
+                atomicText(cursor, next => closeRecord(next, fields), () =>
+                    acceptText({ occurrence: occurrenceValue, bindings: bindingsValue, owner: ownerValue, pointee: pointeeValue, fieldExpression: fieldExpressionValue, field: fieldValue, pointerExpression: pointerExpressionValue }, finish))))))))));
+}
+
+function readHirRecordFieldBindingCaptureText<Root>(cursor: Cursor, finish: (value: HirRecordFieldBindingCapture) => TextStep<Root>): TextStep<Root> {
+  return atomicText(cursor, next => openRecord(next, "HirRecordFieldBindingCapture"), fields =>
+    fieldText<NodeRef, Root>(cursor, fields, "expression", (next, done) => atomicText(next, readNodeRef, done), expressionValue =>
+    fieldText<NodeRef, Root>(cursor, fields, "binding", (next, done) => atomicText(next, readNodeRef, done), bindingValue =>
+      atomicText(cursor, next => closeRecord(next, fields), () =>
+          acceptText({ expression: expressionValue, binding: bindingValue }, finish)))));
+}
+
+export function readHirRecordBindingCaptureText<Root>(cursor: Cursor, finish: (value: HirRecordBindingCapture) => TextStep<Root>): TextStep<Root> {
+  return atomicText(cursor, next => openRecord(next, "HirRecordBindingCapture"), fields =>
+    fieldText<NodeRef, Root>(cursor, fields, "occurrence", (next, done) => atomicText(next, readNodeRef, done), occurrenceValue =>
+    fieldText<CapturedFact<BindingVector>, Root>(cursor, fields, "bindings", (next, done) => readCapturedFactText(next, (next, done) => atomicText(next, readBindings, done), done), bindingsValue =>
+      fieldText<CapturedFact<TyId>, Root>(cursor, fields, "source", (next, done) => readCapturedFactText(next, (next, done) => atomicText(next, readTypeId, done), done), sourceValue =>
+        fieldText<NodeRef, Root>(cursor, fields, "layoutExpression", (next, done) => atomicText(next, readNodeRef, done), layoutExpressionValue =>
+          fieldText<CapturedFact<SourceNodeRef>, Root>(cursor, fields, "layout", (next, done) => readCapturedFactText(next, (next, done) => atomicText(next, readSourceNodeRef, done), done), layoutValue =>
+            fieldText<readonly (HirRecordFieldBindingCapture)[], Root>(cursor, fields, "fields", (next, done) => arrayText(next, readHirRecordFieldBindingCaptureText, done), fieldsValue =>
+              atomicText(cursor, next => closeRecord(next, fields), () =>
+                  acceptText({ occurrence: occurrenceValue, bindings: bindingsValue, source: sourceValue, layoutExpression: layoutExpressionValue, layout: layoutValue, fields: fieldsValue }, finish)))))))));
 }
 
 export function readHirAttributeText<Root>(cursor: Cursor, finish: (value: HirAttribute) => TextStep<Root>): TextStep<Root> {

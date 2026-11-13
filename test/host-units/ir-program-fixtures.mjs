@@ -125,8 +125,8 @@ export function moduleFixture(path = "src/main.ts", root = "/program") {
   const available = value => ({ kind: "available", value });
   const checked = { ...syntax, tsonic: {
     core: { provider: available(null), markers: available({ struct: null, field: null, defaultValue: null, jsString: false }),
-      pointerType: available(null), pointerOperation: available(null), attribute: available(null), safety: available(null),
-      argumentPassing: available(null), flowState: available(null) },
+      pointerType: available(null), pointerOperation: available(null), fieldBinding: available(null), recordBinding: available(null),
+      attribute: available(null), safety: available(null), argumentPassing: available(null), flowState: available(null) },
     parent: null, attributes: [], memory: available(null), definition, body: bodyId,
   } };
   const source = {

@@ -4,6 +4,8 @@ import type {
   HirCallableEndpoint,
   HirCapturedType,
   HirCoreCapture,
+  HirFieldBindingCapture,
+  HirRecordBindingCapture,
   HirFieldMarkerCapture,
   HirMarkersCapture,
   HirPointerTypeCapture,
@@ -344,12 +346,37 @@ function rewritePointerCapture(rewrite: TypeRewrite, pointer: HirPointerTypeCapt
   }
 }
 
+function rewriteFieldBinding(rewrite: TypeRewrite, binding: HirFieldBindingCapture): HirFieldBindingCapture {
+  return {
+    occurrence: binding.occurrence,
+    bindings: rewriteCaptured(binding.bindings, bindings => rewriteBindings(rewrite, bindings)),
+    owner: rewriteCaptured(binding.owner, rewrite.type),
+    pointee: rewriteCaptured(binding.pointee, rewrite.type),
+    fieldExpression: binding.fieldExpression,
+    field: binding.field,
+    pointerExpression: binding.pointerExpression,
+  };
+}
+
+function rewriteRecordBinding(rewrite: TypeRewrite, binding: HirRecordBindingCapture): HirRecordBindingCapture {
+  return {
+    occurrence: binding.occurrence,
+    bindings: rewriteCaptured(binding.bindings, bindings => rewriteBindings(rewrite, bindings)),
+    source: rewriteCaptured(binding.source, rewrite.type),
+    layoutExpression: binding.layoutExpression,
+    layout: binding.layout,
+    fields: binding.fields,
+  };
+}
+
 export function rewriteCoreCapture(rewrite: TypeRewrite, core: HirCoreCapture, at: string): HirCoreCapture {
   return {
     provider: core.provider,
     markers: rewriteCaptured(core.markers, markers => rewriteMarkers(rewrite, markers)),
     pointerType: rewriteCaptured(core.pointerType, pointer => pointer === null ? null : rewritePointerCapture(rewrite, pointer, `${at}.pointerType.value`)),
     pointerOperation: core.pointerOperation,
+    fieldBinding: rewriteCaptured(core.fieldBinding, binding => binding === null ? null : rewriteFieldBinding(rewrite, binding)),
+    recordBinding: rewriteCaptured(core.recordBinding, binding => binding === null ? null : rewriteRecordBinding(rewrite, binding)),
     attribute: core.attribute,
     safety: core.safety,
     argumentPassing: core.argumentPassing,

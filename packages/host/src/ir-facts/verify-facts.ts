@@ -4,13 +4,13 @@ import { encodeKey } from "../ids/index.js";
 import type { DeclarationTarget } from "../ir-hir/contract.js";
 import { childrenOfSyntax } from "../ir-hir/index.js";
 import type { TirNode, TypedPhase } from "../ir-tir/contract.js";
-import type { ArtifactBindings } from "../ir-types/contract.js";
+import type { ArtifactBindings, BodyInstance } from "../ir-types/contract.js";
 import type {
   ArgumentTransport, EscapeTarget, FactsRule, FactsSite, MemoryField, MemoryLayout, MetadataFieldRef, MetadataLayoutRef, MirPoint, RelationalOwner,
   RetentionFact, VerifyFacts,
 } from "./contract.js";
 import {
-  collectSelectionChecks, compareNumbers, escapeData, factBindingInputs, instanceKey, relationalUsage, sameBindings, sameCaptures, validIndex,
+  collectSelectionChecks, compareNumbers, escapeData, factBindingInputs, instanceKey, ownerKey, relationalUsage, sameBindings, sameCaptures, validIndex,
   verifyFactBindings, verifyRelationalArena,
 } from "./verify-relations.js";
 
@@ -20,6 +20,13 @@ const compareNullableNumber = (left: number | null, right: number | null, nullOr
   if (right === null) return -nullOrder;
   return compareNumbers(left, right);
 };
+
+const compareDeclarations = (left: DeclarationTarget, right: DeclarationTarget): number => left.kind === "local"
+  ? right.kind === "local" ? compareText(left.local.body, right.local.body) || compareNumbers(left.local.local, right.local.local) : -1
+  : right.kind === "local" ? 1 : compareText(left.definition, right.definition);
+const transportKey = (transport: ArgumentTransport | null): string => transport === null ? "" : encodeKey([
+  transport.authoredIndex, transport.parameter, transport.parameterIndex, transport.repeated, transport.passing, transport.actual,
+  ownerKey(transport.formal.owner), transport.formal.producer, transport.projection]);
 
 interface TransportShape {
   readonly authoredIndex: number | null;
@@ -412,12 +419,39 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
       report("argument-transports-total", at(callback.node), "A callback input retains actual nonnegative formal channel indices.");
     }
   }
-  nodeOrder(facts.origins.activations, "activations-order");
+  // The selected complete instances of direct activations, built once: for the first invocation row of each node,
+  // every alternative that has a body, keyed by node, value context and complete instance. `instanceKey` equality is
+  // body equality together with `sameBindings` (both compare the encoded artifact data, verify-relations.ts).
+  const numberKey = (value: number): string => Object.is(value, -0) ? "-0" : String(value);
+  const selectedActivationKey = (node: NodeId, valueContextId: number, selected: BodyInstance): string | null =>
+    Number.isNaN(valueContextId) ? null : encodeKey([numberKey(node), String(valueContextId + 0), instanceKey(selected)]);
+  const invocationNodes = new Set<string>();
+  const selectedActivations = new Set<string>();
+  for (const invocation of facts.origins.invocations) {
+    if (invocationNodes.has(numberKey(invocation.node))) continue;
+    invocationNodes.add(numberKey(invocation.node));
+    for (const alternative of invocation.alternatives) {
+      const key = alternative.resolution.activation === null ? null
+        : selectedActivationKey(invocation.node, alternative.context, alternative.resolution.activation);
+      if (key !== null) selectedActivations.add(key);
+    }
+  }
+  ordered(facts.origins.activations, "activations-order", (left, right) => compareNumbers(left.node, right.node) ||
+    compareText(instanceKey(left.activation), instanceKey(right.activation)) || compareNumbers(left.context, right.context) ||
+    compareNullableNumber(left.caller, right.caller, -1) || compareText(transportKey(left.entry), transportKey(right.entry)), row => at(row.node));
   for (const activation of facts.origins.activations) {
     node(activation.node); const site = at(activation.node); valueContext(activation.context, site);
     if (activation.caller !== null) valueContext(activation.caller, site);
+    const activated = activation.activation;
+    const activatedOwner = context.bodyOwner(activated.body);
+    if (activatedOwner === null || !context.definitionExists(activatedOwner)) report("producer-resolves", site,
+      "An activation retains its actual executed body and its existing owner declaration.");
     if (activation.entry !== null) checkArgument(activation.entry, site);
-    if (!context.definitionExists(activation.definition)) report("producer-resolves", site, "An activation retains its actual execution declaration.");
+    else {
+      const key = selectedActivationKey(activation.node, activation.context, activated);
+      if (key === null || !selectedActivations.has(key)) report("cross-owner-qualified", site,
+        "A direct activation is the complete selected instance of an invocation alternative at its node and value context.");
+    }
   }
   ordered(facts.origins.frontiers, "frontiers-order", (left, right) => compareNumbers(left.node, right.node) || compareText(left.kind, right.kind) ||
     compareNumbers(left.subject, right.subject) || compareNumbers(left.context, right.context), row => at(row.node));
@@ -594,8 +628,15 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
     if (array.kind === "unproven") {
       if (array.reason.kind === "open-origin-domain") origins(array.reason.origins, site); else nodeRef(array.reason.at, site);
     } else {
-      for (const declaration of array.declarations) if (!context.definitionExists(declaration)) report("cross-owner-qualified", site,
-        "A closed array retains actual checked declaration identities.");
+      ordered(array.declarations, "closed-array-declarations-order", compareDeclarations, () => site);
+      for (const declaration of array.declarations) {
+        if (declaration.kind === "local") {
+          if (declaration.local.body !== facts.instance.body || !validIndex(declaration.local.local, tir.locals.length) ||
+            !Object.is(tir.locals[declaration.local.local]?.id, declaration.local.local)) report("cross-owner-qualified", site,
+            "A closed array's local declaration is a local of this actual checked body.");
+        } else if (!context.definitionExists(declaration.definition)) report("cross-owner-qualified", site,
+          "A closed array retains actual checked declaration identities.");
+      }
       for (const reference of array.references) nodeRef(reference, site);
       for (const literal of array.literals) nodeRef(literal, site);
       for (const element of array.elements) collectSelectionChecks(element, site, context, violations);

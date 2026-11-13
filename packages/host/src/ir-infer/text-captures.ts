@@ -3,7 +3,7 @@ import { arraySchema, enumSchema, nullableSchema, recordSchema, unionSchema } fr
 import type { DataSchemas } from "./text-data.js";
 import type { PointersSchemas } from "./text-pointers.js";
 import type { DefId, SourceNodeRef } from "../ids/contract.js";
-import type { HirArgumentPassingCapture, HirAttributeCapture, HirCoreCapture, HirFieldMarkerCapture, HirMarkersCapture, HirPointerOperationCapture, HirPointerTypeCapture, HirSafetyCapture, HirSafetySelectionCapture } from "../ir-hir/contract.js";
+import type { HirArgumentPassingCapture, HirAttributeCapture, HirCoreCapture, HirFieldBindingCapture, HirFieldMarkerCapture, HirMarkersCapture, HirPointerOperationCapture, HirPointerTypeCapture, HirRecordBindingCapture, HirRecordFieldBindingCapture, HirSafetyCapture, HirSafetySelectionCapture } from "../ir-hir/contract.js";
 import type { AvailableTypeRecord, UnavailableRecord } from "./text-capture-values.js";
 import type { RecordSchema } from "./text-data.js";
 import type { Schema } from "./text-data.js";
@@ -26,6 +26,21 @@ export interface AvailablePointerTypeRecord {
 export interface AvailablePointerOperationRecord {
   readonly kind: "available";
   readonly value: HirPointerOperationCapture | null;
+}
+
+export interface AvailableFieldBindingRecord {
+  readonly kind: "available";
+  readonly value: HirFieldBindingCapture | null;
+}
+
+export interface AvailableRecordBindingRecord {
+  readonly kind: "available";
+  readonly value: HirRecordBindingCapture | null;
+}
+
+export interface AvailableSourceNodeRecord {
+  readonly kind: "available";
+  readonly value: SourceNodeRef;
 }
 
 export interface AvailableAttributeRecord {
@@ -177,6 +192,15 @@ export interface CapturesSchemas {
   readonly availablePointerTypeSchema: RecordSchema<AvailablePointerTypeRecord>;
   readonly capturedPointerOperationSchema: RecordSchema<AvailablePointerOperationRecord | UnavailableRecord>;
   readonly availablePointerOperationSchema: RecordSchema<AvailablePointerOperationRecord>;
+  readonly capturedFieldBindingSchema: RecordSchema<AvailableFieldBindingRecord | UnavailableRecord>;
+  readonly availableFieldBindingSchema: RecordSchema<AvailableFieldBindingRecord>;
+  readonly hirFieldBindingCaptureSchema: RecordSchema<HirFieldBindingCapture>;
+  readonly capturedRecordBindingSchema: RecordSchema<AvailableRecordBindingRecord | UnavailableRecord>;
+  readonly availableRecordBindingSchema: RecordSchema<AvailableRecordBindingRecord>;
+  readonly hirRecordBindingCaptureSchema: RecordSchema<HirRecordBindingCapture>;
+  readonly hirRecordFieldBindingCaptureSchema: RecordSchema<HirRecordFieldBindingCapture>;
+  readonly capturedSourceNodeSchema: RecordSchema<AvailableSourceNodeRecord | UnavailableRecord>;
+  readonly availableSourceNodeSchema: RecordSchema<AvailableSourceNodeRecord>;
   readonly capturedAttributeSchema: RecordSchema<AvailableAttributeRecord | UnavailableRecord>;
   readonly availableAttributeSchema: RecordSchema<AvailableAttributeRecord>;
   readonly capturedSafetySchema: RecordSchema<AvailableSafetyRecord | UnavailableRecord>;
@@ -229,19 +253,21 @@ export interface CapturesSchemas {
 }
 
 export function createCapturesSchemas(captureValues: CaptureValuesSchemas, data: DataSchemas, pointers: PointersSchemas): CapturesSchemas {
-  const { capturedTypeSchema, unavailableSchema } = captureValues;
-  const { booleanSchema, defSchema, passingModeSchema, sourceNodeRefSchema, stringSchema } = data;
+  const { capturedBindingsSchema, capturedTypeSchema, unavailableSchema } = captureValues;
+  const { booleanSchema, defSchema, nodeRefSchema, passingModeSchema, sourceNodeRefSchema, stringSchema } = data;
   const { hirPointerOperationCaptureSchema, hirPointerTypeCaptureSchema } = pointers;
   const hirCoreCaptureSchema = recordSchema<HirCoreCapture>("HirCoreCapture", "HirCoreCapture", read => {
     const provider = read("provider", () => capturedProviderSchema, value => value.provider);
     const markers = read("markers", () => capturedMarkersSchema, value => value.markers);
     const pointerType = read("pointerType", () => capturedPointerTypeSchema, value => value.pointerType);
     const pointerOperation = read("pointerOperation", () => capturedPointerOperationSchema, value => value.pointerOperation);
+    const fieldBinding = read("fieldBinding", () => capturedFieldBindingSchema, value => value.fieldBinding);
+    const recordBinding = read("recordBinding", () => capturedRecordBindingSchema, value => value.recordBinding);
     const attribute = read("attribute", () => capturedAttributeSchema, value => value.attribute);
     const safety = read("safety", () => capturedSafetySchema, value => value.safety);
     const argumentPassing = read("argumentPassing", () => capturedPassingSchema, value => value.argumentPassing);
     const flowState = read("flowState", () => capturedFlowStateSchema, value => value.flowState);
-    return { fields: [provider, markers, pointerType, pointerOperation, attribute, safety, argumentPassing, flowState], value: () => ({ provider: provider.value(), markers: markers.value(), pointerType: pointerType.value(), pointerOperation: pointerOperation.value(), attribute: attribute.value(), safety: safety.value(), argumentPassing: argumentPassing.value(), flowState: flowState.value() }) };
+    return { fields: [provider, markers, pointerType, pointerOperation, fieldBinding, recordBinding, attribute, safety, argumentPassing, flowState], value: () => ({ provider: provider.value(), markers: markers.value(), pointerType: pointerType.value(), pointerOperation: pointerOperation.value(), fieldBinding: fieldBinding.value(), recordBinding: recordBinding.value(), attribute: attribute.value(), safety: safety.value(), argumentPassing: argumentPassing.value(), flowState: flowState.value() }) };
   });
 
   const capturedProviderSchema: RecordSchema<AvailableProviderRecord | UnavailableRecord> = unionSchema<AvailableProviderRecord | UnavailableRecord>("CapturedProvider",
@@ -293,6 +319,72 @@ export function createCapturesSchemas(captureValues: CaptureValuesSchemas, data:
 
   const availablePointerOperationSchema = recordSchema<AvailablePointerOperationRecord>("AvailablePointerOperation", "available", read => {
     const value = read("value", () => nullableSchema(hirPointerOperationCaptureSchema), value => value.value);
+    return { fields: [value], value: () => ({ kind: "available", value: value.value() }) };
+  });
+
+  const capturedFieldBindingSchema: RecordSchema<AvailableFieldBindingRecord | UnavailableRecord> = unionSchema<AvailableFieldBindingRecord | UnavailableRecord>("CapturedFieldBinding",
+    () => [availableFieldBindingSchema, unavailableSchema], value => {
+    switch (value.kind) {
+      case "available": return availableFieldBindingSchema.stage(value);
+      case "unavailable": return unavailableSchema.stage(value);
+    }
+  });
+
+  const availableFieldBindingSchema = recordSchema<AvailableFieldBindingRecord>("AvailableFieldBinding", "available", read => {
+    const value = read("value", () => nullableSchema(hirFieldBindingCaptureSchema), value => value.value);
+    return { fields: [value], value: () => ({ kind: "available", value: value.value() }) };
+  });
+
+  const hirFieldBindingCaptureSchema = recordSchema<HirFieldBindingCapture>("HirFieldBindingCapture", "HirFieldBindingCapture", read => {
+    const occurrence = read("occurrence", () => nodeRefSchema, value => value.occurrence);
+    const bindings = read("bindings", () => capturedBindingsSchema, value => value.bindings);
+    const owner = read("owner", () => capturedTypeSchema, value => value.owner);
+    const pointee = read("pointee", () => capturedTypeSchema, value => value.pointee);
+    const fieldExpression = read("fieldExpression", () => nodeRefSchema, value => value.fieldExpression);
+    const field = read("field", () => capturedSourceNodeSchema, value => value.field);
+    const pointerExpression = read("pointerExpression", () => nodeRefSchema, value => value.pointerExpression);
+    return { fields: [occurrence, bindings, owner, pointee, fieldExpression, field, pointerExpression], value: () => ({ occurrence: occurrence.value(), bindings: bindings.value(), owner: owner.value(), pointee: pointee.value(), fieldExpression: fieldExpression.value(), field: field.value(), pointerExpression: pointerExpression.value() }) };
+  });
+
+  const capturedRecordBindingSchema: RecordSchema<AvailableRecordBindingRecord | UnavailableRecord> = unionSchema<AvailableRecordBindingRecord | UnavailableRecord>("CapturedRecordBinding",
+    () => [availableRecordBindingSchema, unavailableSchema], value => {
+    switch (value.kind) {
+      case "available": return availableRecordBindingSchema.stage(value);
+      case "unavailable": return unavailableSchema.stage(value);
+    }
+  });
+
+  const availableRecordBindingSchema = recordSchema<AvailableRecordBindingRecord>("AvailableRecordBinding", "available", read => {
+    const value = read("value", () => nullableSchema(hirRecordBindingCaptureSchema), value => value.value);
+    return { fields: [value], value: () => ({ kind: "available", value: value.value() }) };
+  });
+
+  const hirRecordBindingCaptureSchema = recordSchema<HirRecordBindingCapture>("HirRecordBindingCapture", "HirRecordBindingCapture", read => {
+    const occurrence = read("occurrence", () => nodeRefSchema, value => value.occurrence);
+    const bindings = read("bindings", () => capturedBindingsSchema, value => value.bindings);
+    const source = read("source", () => capturedTypeSchema, value => value.source);
+    const layoutExpression = read("layoutExpression", () => nodeRefSchema, value => value.layoutExpression);
+    const layout = read("layout", () => capturedSourceNodeSchema, value => value.layout);
+    const fields = read("fields", () => arraySchema(hirRecordFieldBindingCaptureSchema), value => value.fields);
+    return { fields: [occurrence, bindings, source, layoutExpression, layout, fields], value: () => ({ occurrence: occurrence.value(), bindings: bindings.value(), source: source.value(), layoutExpression: layoutExpression.value(), layout: layout.value(), fields: fields.value() }) };
+  });
+
+  const hirRecordFieldBindingCaptureSchema = recordSchema<HirRecordFieldBindingCapture>("HirRecordFieldBindingCapture", "HirRecordFieldBindingCapture", read => {
+    const expression = read("expression", () => nodeRefSchema, value => value.expression);
+    const binding = read("binding", () => nodeRefSchema, value => value.binding);
+    return { fields: [expression, binding], value: () => ({ expression: expression.value(), binding: binding.value() }) };
+  });
+
+  const capturedSourceNodeSchema: RecordSchema<AvailableSourceNodeRecord | UnavailableRecord> = unionSchema<AvailableSourceNodeRecord | UnavailableRecord>("CapturedSourceNode",
+    () => [availableSourceNodeSchema, unavailableSchema], value => {
+    switch (value.kind) {
+      case "available": return availableSourceNodeSchema.stage(value);
+      case "unavailable": return unavailableSchema.stage(value);
+    }
+  });
+
+  const availableSourceNodeSchema = recordSchema<AvailableSourceNodeRecord>("AvailableSourceNode", "available", read => {
+    const value = read("value", () => sourceNodeRefSchema, value => value.value);
     return { fields: [value], value: () => ({ kind: "available", value: value.value() }) };
   });
 
@@ -579,5 +671,5 @@ export function createCapturesSchemas(captureValues: CaptureValuesSchemas, data:
   });
 
   const argumentRoleSchema = enumSchema("ArgumentRole", ["argument"]);
-  return { hirCoreCaptureSchema, capturedProviderSchema, availableProviderSchema, capturedMarkersSchema, availableMarkersSchema, capturedPointerTypeSchema, availablePointerTypeSchema, capturedPointerOperationSchema, availablePointerOperationSchema, capturedAttributeSchema, availableAttributeSchema, capturedSafetySchema, availableSafetySchema, capturedPassingSchema, availablePassingSchema, capturedFlowStateSchema, availableFlowStateSchema, flowStateSchema, hirMarkersCaptureSchema, structMarkersSchema, defaultMarkerSchema, hirFieldMarkerCaptureSchema, capturedFieldsSchema, availableFieldsSchema, hirAttributeCaptureSchema, attributeBuilderSchema, attributeApplicationSchema, selectedMemberSchema, attributeMemberKindSchema, attributePlacementSchema, hirSafetyCaptureSchema, unsafeExpressionSchema, unsafeFamilySchema, expressionNameSchema, unsafeRemainingSchema, remainingNameSchema, safetyFamilySchema, safetyRootSchema, rootNameSchema, rootFormSchema, safetyMemberSchema, selectMemberNameSchema, safetyMemberKindSchema, safetyPlacementSchema, placementNameSchema, safetyPlacementKindSchema, safetyApplySchema, applyNameSchema, safetyContractSchema, hirSafetySelectionCaptureSchema, safetySelectedSchema, safetyUnavailableSchema, safetyUnavailableReasonSchema, hirArgumentPassingCaptureSchema, declarationPassingSchema, declarationRoleSchema, argumentPassingSchema, argumentRoleSchema };
+  return { hirCoreCaptureSchema, capturedProviderSchema, availableProviderSchema, capturedMarkersSchema, availableMarkersSchema, capturedPointerTypeSchema, availablePointerTypeSchema, capturedPointerOperationSchema, availablePointerOperationSchema, capturedFieldBindingSchema, availableFieldBindingSchema, hirFieldBindingCaptureSchema, capturedRecordBindingSchema, availableRecordBindingSchema, hirRecordBindingCaptureSchema, hirRecordFieldBindingCaptureSchema, capturedSourceNodeSchema, availableSourceNodeSchema, capturedAttributeSchema, availableAttributeSchema, capturedSafetySchema, availableSafetySchema, capturedPassingSchema, availablePassingSchema, capturedFlowStateSchema, availableFlowStateSchema, flowStateSchema, hirMarkersCaptureSchema, structMarkersSchema, defaultMarkerSchema, hirFieldMarkerCaptureSchema, capturedFieldsSchema, availableFieldsSchema, hirAttributeCaptureSchema, attributeBuilderSchema, attributeApplicationSchema, selectedMemberSchema, attributeMemberKindSchema, attributePlacementSchema, hirSafetyCaptureSchema, unsafeExpressionSchema, unsafeFamilySchema, expressionNameSchema, unsafeRemainingSchema, remainingNameSchema, safetyFamilySchema, safetyRootSchema, rootNameSchema, rootFormSchema, safetyMemberSchema, selectMemberNameSchema, safetyMemberKindSchema, safetyPlacementSchema, placementNameSchema, safetyPlacementKindSchema, safetyApplySchema, applyNameSchema, safetyContractSchema, hirSafetySelectionCaptureSchema, safetySelectedSchema, safetyUnavailableSchema, safetyUnavailableReasonSchema, hirArgumentPassingCaptureSchema, declarationPassingSchema, declarationRoleSchema, argumentPassingSchema, argumentRoleSchema };
 }

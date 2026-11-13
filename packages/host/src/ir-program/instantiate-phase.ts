@@ -14,7 +14,7 @@ import type {
   TypedTypeParameter, TypedUnary, TypedUpdate, TypedVariableList,
 } from "../ir-tir/contract.js";
 import type {
-  CapturedFact, HirCapturedType, HirCoreCapture, HirFieldMarkerCapture, HirMarkersCapture, HirPointerTypeCapture,
+  CapturedFact, HirCapturedType, HirCoreCapture, HirFieldBindingCapture, HirFieldMarkerCapture, HirMarkersCapture, HirPointerTypeCapture, HirRecordBindingCapture,
 } from "../ir-hir/contract.js";
 import type { InstantiationStop, ProjectionInventory } from "./program-values.js";
 import {
@@ -294,9 +294,21 @@ function pointerCapture(scan: ProjectionInventory, value: HirPointerTypeCapture)
   }
 }
 
+function fieldBindingCapture(scan: ProjectionInventory, value: HirFieldBindingCapture): InstantiationStop | null {
+  return inventoryRecord(scan, 7) ?? captured(scan, value.bindings, bindings => inventoryBindings(scan, bindings))
+    ?? captured(scan, value.owner, type => inventoryType(scan, type)) ?? captured(scan, value.pointee, type => inventoryType(scan, type));
+}
+
+function recordBindingCapture(scan: ProjectionInventory, value: HirRecordBindingCapture): InstantiationStop | null {
+  return inventoryRecord(scan, 6) ?? captured(scan, value.bindings, bindings => inventoryBindings(scan, bindings))
+    ?? captured(scan, value.source, type => inventoryType(scan, type));
+}
+
 function inventoryCoreCapture(scan: ProjectionInventory, value: HirCoreCapture): InstantiationStop | null {
-  return inventoryRecord(scan, 8) ?? captured(scan, value.markers, value => markers(scan, value))
-    ?? captured(scan, value.pointerType, value => value === null ? null : pointerCapture(scan, value));
+  return inventoryRecord(scan, 10) ?? captured(scan, value.markers, value => markers(scan, value))
+    ?? captured(scan, value.pointerType, value => value === null ? null : pointerCapture(scan, value))
+    ?? captured(scan, value.fieldBinding, value => value === null ? null : fieldBindingCapture(scan, value))
+    ?? captured(scan, value.recordBinding, value => value === null ? null : recordBindingCapture(scan, value));
 }
 
 export function inventoryAccess(scan: ProjectionInventory, value: TargetAccess): InstantiationStop | null {

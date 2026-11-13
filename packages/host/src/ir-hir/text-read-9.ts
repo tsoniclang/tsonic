@@ -161,5 +161,37 @@ export function createReadGroup9(readers: () => HirTextReaders): HirReadGroup9 {
       const field_disposal = read("disposal", sequenceReader(unionReader<Hir.CapturedFact<Hir.HirProtocolFact>>(() => [readers().record_185, readers().record_10])));
       return { fields: [field_core, field_disposal], value: () => ({ core: field_core.value(), disposal: field_disposal.value() }) };
     });
-  return { record_270, record_271, record_272, record_273, record_274, record_275, record_276, record_277, record_278, record_279, record_280, record_281, record_282, record_283, record_284, record_285, record_286, record_287, record_288, record_289, record_290, record_291, record_292, record_293, record_294 };
+  const record_295 = recordReader<Hir.HirFieldBindingCapture>("HirFieldBindingCapture", read => {
+      const field_occurrence = read("occurrence", readers().record_6);
+      const field_bindings = read("bindings", unionReader<Hir.CapturedFact<Types.BindingVector>>(() => [readers().record_17, readers().record_10]));
+      const field_owner = read("owner", unionReader<Hir.CapturedFact<Ids.TyId>>(() => [readers().record_9, readers().record_10]));
+      const field_pointee = read("pointee", unionReader<Hir.CapturedFact<Ids.TyId>>(() => [readers().record_9, readers().record_10]));
+      const field_fieldExpression = read("fieldExpression", readers().record_6);
+      const field_field = read("field", unionReader<Hir.CapturedFact<Ids.SourceNodeRef>>(() => [readers().record_159, readers().record_10]));
+      const field_pointerExpression = read("pointerExpression", readers().record_6);
+      return { fields: [field_occurrence, field_bindings, field_owner, field_pointee, field_fieldExpression, field_field, field_pointerExpression], value: () => ({ occurrence: field_occurrence.value(), bindings: field_bindings.value(), owner: field_owner.value(), pointee: field_pointee.value(), fieldExpression: field_fieldExpression.value(), field: field_field.value(), pointerExpression: field_pointerExpression.value() }) };
+    });
+  const record_296 = recordReader<{ readonly kind: "available"; readonly value: Hir.HirFieldBindingCapture | null; }>("available", read => {
+      const field_value = read("value", unionReader<Hir.HirFieldBindingCapture | null>(() => [readers().scalar_null, readers().record_295]));
+      return { fields: [field_value], value: () => ({ kind: "available", value: field_value.value() }) };
+    });
+  const record_297 = recordReader<Hir.HirRecordFieldBindingCapture>("HirRecordFieldBindingCapture", read => {
+      const field_expression = read("expression", readers().record_6);
+      const field_binding = read("binding", readers().record_6);
+      return { fields: [field_expression, field_binding], value: () => ({ expression: field_expression.value(), binding: field_binding.value() }) };
+    });
+  const record_298 = recordReader<Hir.HirRecordBindingCapture>("HirRecordBindingCapture", read => {
+      const field_occurrence = read("occurrence", readers().record_6);
+      const field_bindings = read("bindings", unionReader<Hir.CapturedFact<Types.BindingVector>>(() => [readers().record_17, readers().record_10]));
+      const field_source = read("source", unionReader<Hir.CapturedFact<Ids.TyId>>(() => [readers().record_9, readers().record_10]));
+      const field_layoutExpression = read("layoutExpression", readers().record_6);
+      const field_layout = read("layout", unionReader<Hir.CapturedFact<Ids.SourceNodeRef>>(() => [readers().record_159, readers().record_10]));
+      const field_fields = read("fields", sequenceReader(readers().record_297));
+      return { fields: [field_occurrence, field_bindings, field_source, field_layoutExpression, field_layout, field_fields], value: () => ({ occurrence: field_occurrence.value(), bindings: field_bindings.value(), source: field_source.value(), layoutExpression: field_layoutExpression.value(), layout: field_layout.value(), fields: field_fields.value() }) };
+    });
+  const record_299 = recordReader<{ readonly kind: "available"; readonly value: Hir.HirRecordBindingCapture | null; }>("available", read => {
+      const field_value = read("value", unionReader<Hir.HirRecordBindingCapture | null>(() => [readers().scalar_null, readers().record_298]));
+      return { fields: [field_value], value: () => ({ kind: "available", value: field_value.value() }) };
+    });
+  return { record_270, record_271, record_272, record_273, record_274, record_275, record_276, record_277, record_278, record_279, record_280, record_281, record_282, record_283, record_284, record_285, record_286, record_287, record_288, record_289, record_290, record_291, record_292, record_293, record_294, record_295, record_296, record_297, record_298, record_299 };
 }

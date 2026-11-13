@@ -230,8 +230,10 @@ export const factBindingInputs = (facts: BodyFacts, context: FactsVerificationCo
     appendArtifactBindings(alternative.summary.bindings, alternative.summary.definition, at, entries);
   }
   for (const callback of facts.origins.callbacks) appendOwnerBindings(callback.argument.formal.owner, site(callback.node), context, entries);
-  for (const activation of facts.origins.activations) if (activation.entry !== null) {
-    appendOwnerBindings(activation.entry.formal.owner, site(activation.node), context, entries);
+  for (const activation of facts.origins.activations) {
+    if (activation.activation.bindings.kind === "instantiated") entries.push({ vector: activation.activation.bindings.bindings,
+      definition: context.bodyOwner(activation.activation.body), site: site(activation.node) });
+    if (activation.entry !== null) appendOwnerBindings(activation.entry.formal.owner, site(activation.node), context, entries);
   }
   for (const construction of facts.origins.constructions) if (construction.body !== null && construction.body.bindings.kind === "instantiated") {
     appendArtifactBindings(construction.body.bindings, context.tirBody(construction.body).owner, site(construction.node), entries);

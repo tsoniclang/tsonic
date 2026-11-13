@@ -9,7 +9,7 @@ import {
   layoutId, localId, memoryFieldId, nodeId, openBoundaryId, originsId, placeId, producerId, projectionPathId, sigId,
   tyId, valueContextId,
 } from "../ids/index.js";
-import type { HirCallableEndpoint } from "../ir-hir/contract.js";
+import type { DeclarationTarget, HirCallableEndpoint } from "../ir-hir/contract.js";
 import type { ApplicationDecision, CompletionEndpoint, MemberDecision, ParameterMapping } from "../ir-infer/contract.js";
 import type { MemberSelection, ResolvedCallee } from "../ir-tir/contract.js";
 import type {
@@ -604,11 +604,11 @@ const callbackEntry: Decode<CallbackEntry> = (state, input) => then(fields(state
       finishRecord<CallbackEntry>(state, values, { node: nodeValue, argument: argumentValue, timing: timingValue, rejection: rejectionValue, inputs: inputsValue })))))));
 const activation: Decode<BoundActivation> = (state, input) => then(fields(state, input, "BoundActivation"), values =>
     then(readField(state, values, "node", node), nodeValue =>
-    then(readField(state, values, "definition", definition), definitionValue =>
+    then(readField(state, values, "activation", bodyInstance), activationValue =>
     then(readField(state, values, "context", contextIdentity), contextValue =>
     then(readField(state, values, "caller", (state, input) => nullable(state, input, contextIdentity)), callerValue =>
     then(readField(state, values, "entry", (state, input) => nullable(state, input, argumentTransport)), entryValue =>
-      finishRecord<BoundActivation>(state, values, { node: nodeValue, definition: definitionValue, context: contextValue, caller: callerValue, entry: entryValue })))))));
+      finishRecord<BoundActivation>(state, values, { node: nodeValue, activation: activationValue, context: contextValue, caller: callerValue, entry: entryValue })))))));
 const frontier: Decode<ValueFrontier> = (state, input) => then(label(input, ["boundary","origin"]), kind =>
   then(fields(state, input, kind), values =>
     then(readField(state, values, "node", node), nodeValue =>
@@ -1191,6 +1191,16 @@ const closedReason: Decode<ClosedArrayReason> = (state, input) => then(label(inp
       finishRecord<ClosedArrayReason>(state, values, { kind: "no-local-allocation", at: atValue })));
   }
 });
+const declarationTarget: Decode<DeclarationTarget> = (state, input) => then(label(input, ["local","definition"]), kind => {
+  switch (kind) {
+    case "local": return then(fields(state, input, "local"), values =>
+    then(readField(state, values, "local", localRef), localValue =>
+      finishRecord<DeclarationTarget>(state, values, { kind: "local", local: localValue })));
+    case "definition": return then(fields(state, input, "definition"), values =>
+    then(readField(state, values, "definition", definition), definitionValue =>
+      finishRecord<DeclarationTarget>(state, values, { kind: "definition", definition: definitionValue })));
+  }
+});
 const closedArray: Decode<ClosedArrayFact> = (state, input) => then(label(input, ["unproven","closed"]), kind => {
   switch (kind) {
     case "unproven": return then(fields(state, input, "unproven"), values =>
@@ -1199,7 +1209,7 @@ const closedArray: Decode<ClosedArrayFact> = (state, input) => then(label(input,
       finishRecord<ClosedArrayFact>(state, values, { kind: "unproven", node: nodeValue, reason: reasonValue }))));
     case "closed": return then(fields(state, input, "closed"), values =>
     then(readField(state, values, "node", node), nodeValue =>
-    then(readField(state, values, "declarations", (state, input) => sequence(state, input, definition)), declarationsValue =>
+    then(readField(state, values, "declarations", (state, input) => sequence(state, input, declarationTarget)), declarationsValue =>
     then(readField(state, values, "references", (state, input) => sequence(state, input, nodeRef)), referencesValue =>
     then(readField(state, values, "literals", (state, input) => sequence(state, input, nodeRef)), literalsValue =>
     then(readField(state, values, "elements", (state, input) => sequence(state, input, memberSelection)), elementsValue =>

@@ -1634,7 +1634,7 @@ const originGolden = recordGolden("Origin", { module: scalarGolden(moduleIdentit
 const contextGolden = recordGolden("RuleContext", { occurrence: nodeGolden, origin: originGolden, bindings: bindingGolden });
 const unavailableGolden = recordGolden("unavailable", { reason: scalarGolden("not-provided") }, "unavailable");
 const captureGolden = recordGolden("HirCoreCapture", { provider: unavailableGolden, markers: unavailableGolden,
-  pointerType: unavailableGolden, pointerOperation: unavailableGolden, attribute: unavailableGolden,
+  pointerType: unavailableGolden, pointerOperation: unavailableGolden, fieldBinding: unavailableGolden, recordBinding: unavailableGolden, attribute: unavailableGolden,
   safety: unavailableGolden, argumentPassing: unavailableGolden, flowState: unavailableGolden });
 const textKeyGolden = recordGolden("text", { value: scalarGolden("item") }, "text");
 const referenceGolden = recordGolden("ConstraintRef", { body: bodyGolden, index: scalarGolden(0) });
@@ -1932,6 +1932,12 @@ test("closed operator, flow, default, access and native-carrier spellings each r
 
 test("complete captured Core families survive without provider interpretation or missing closed arms", () => {
   const available = value => recordGolden("available", { value }, "available");
+  const fieldBindingGolden = (changes = {}) => recordGolden("HirFieldBindingCapture", { occurrence: nodeGolden, bindings: available(bindingGolden),
+    owner: available(typeGolden), pointee: available(typeGolden), fieldExpression: nodeGolden, field: available(sourceGolden),
+    pointerExpression: nodeGolden, ...changes });
+  const recordBindingGolden = (changes = {}) => recordGolden("HirRecordBindingCapture", { occurrence: nodeGolden, bindings: available(bindingGolden),
+    source: available(typeGolden), layoutExpression: nodeGolden, layout: available(sourceGolden),
+    fields: arrayGolden([recordGolden("HirRecordFieldBindingCapture", { expression: nodeGolden, binding: nodeGolden })]), ...changes });
   const capturedType = recordGolden("HirCapturedType", { type: available(typeGolden), component: componentGolden });
   const field = recordGolden("HirFieldMarkerCapture", { name: scalarGolden("field"), typeNode: sourceGolden,
     type: available(typeGolden), readonly: scalarGolden(true) });
@@ -2013,6 +2019,12 @@ test("complete captured Core families survive without provider interpretation or
     ...markers.map(value => ({ markers: available(value) })),
     ...[nullGolden, ...pointers].map(value => ({ pointerType: available(value) })),
     ...[nullGolden, ...operations].map(value => ({ pointerOperation: available(value) })),
+    // Binding captures (SCHEMA-MIGRATION.md 5.2, IB1): absent, complete, and each inner fact unavailable.
+    ...[nullGolden, fieldBindingGolden(), ...["bindings", "owner", "pointee", "field"].map(name => fieldBindingGolden({ [name]: unavailableGolden }))]
+      .map(value => ({ fieldBinding: available(value) })),
+    ...[nullGolden, recordBindingGolden(), recordBindingGolden({ fields: emptyGolden }),
+      ...["bindings", "source", "layout"].map(name => recordBindingGolden({ [name]: unavailableGolden }))]
+      .map(value => ({ recordBinding: available(value) })),
     ...[nullGolden, ...attributes].map(value => ({ attribute: available(value) })),
     ...[nullGolden, ...safety].map(value => ({ safety: available(value) })),
     ...modes.flatMap(mode => [
@@ -2024,7 +2036,7 @@ test("complete captured Core families survive without provider interpretation or
   ];
   for (const fields of captures) {
     const captured = recordGolden("HirCoreCapture", { provider: unavailableGolden, markers: unavailableGolden,
-      pointerType: unavailableGolden, pointerOperation: unavailableGolden, attribute: unavailableGolden,
+      pointerType: unavailableGolden, pointerOperation: unavailableGolden, fieldBinding: unavailableGolden, recordBinding: unavailableGolden, attribute: unavailableGolden,
       safety: unavailableGolden, argumentPassing: unavailableGolden, flowState: unavailableGolden, ...fields });
     const application = recordGolden("ApplicationConstraintData", { captured, permissionScope: nullGolden,
       callee: typeGolden, receiver: nullGolden, typeArguments: emptyGolden, arguments: emptyGolden, candidates: scalarGolden(0, "cand"), result: typeGolden });
@@ -2428,7 +2440,7 @@ test("the earliest real text position wins across lexical, framing, field, value
     fullEqual(product[`parse${family}`]("Wrong(@)"), { kind: "invalid-text", offset: 0, line: 1, column: 1,
       expected: [name], found: "Wrong" }, "all owning parser ports apply the same first-position law");
   const captured = field => recordGolden("HirCoreCapture", { provider: unavailableGolden, markers: unavailableGolden,
-    pointerType: unavailableGolden, pointerOperation: unavailableGolden, attribute: unavailableGolden,
+    pointerType: unavailableGolden, pointerOperation: unavailableGolden, fieldBinding: unavailableGolden, recordBinding: unavailableGolden, attribute: unavailableGolden,
     safety: unavailableGolden, argumentPassing: unavailableGolden, flowState: unavailableGolden, ...field });
   const document = captured => constraintsGolden([recordGolden("call", { occurrence: nodeGolden,
     application: recordGolden("ApplicationConstraintData", { captured, permissionScope: nullGolden, callee: typeGolden,
