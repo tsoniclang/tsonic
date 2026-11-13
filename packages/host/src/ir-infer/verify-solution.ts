@@ -1,11 +1,12 @@
 import type { Violation } from "../diag/contract.js";
-import type { BodyId, DefId, NodeRef } from "../ids/contract.js";
+import type { BodyId, DefId, NodeRef, TyId } from "../ids/contract.js";
 import type { BindingVector, TypeEvidence } from "../ir-types/contract.js";
 import type { HirCallableEndpoint } from "../ir-hir/contract.js";
 import type {
   ApplicationArgument, ApplicationDecision, BodyTyping, ConstraintDecision, ConstraintRef, DeferredDecision, EmbeddingDecision, EmbeddingProof, InferRule, InferSite,
-  InferVerificationInput, MemberDecision, OperationDecision, SolvedConstraint,
+  InferVerificationInput, MemberDecision, OperationDecision, OperatorConstraint, SolvedConstraint,
 } from "./contract.js";
+import { encodeKey } from "../ids/index.js";
 import { callableEndpointKey, hasOverloadEndpoints, selectedEndpointRoleFaults } from "../ir-hir/index.js";
 import { requiresLocation, sameSource } from "./capture-law.js";
 import { printDocument } from "./print.js";
@@ -302,6 +303,30 @@ function decisionRecords(context: SolutionContext, record: SolvedConstraint, con
   }
 }
 
+// A selected operation's operand and result types are the constraint's, with each type that is an open variable of the
+// group read as that variable's final value. A compound constraint type is not compared here: it may hold an open variable
+// below its top, and this verifier has no substitution.
+function operationTypes(input: InferVerificationInput, finals: ReadonlyMap<number, TypeEvidence>, constraint: OperatorConstraint,
+  operation: OperationDecision, site: InferSite, output: Violation<InferRule, InferSite>[]): void {
+  const expected = (type: TyId): TyId | null => {
+    const term = input.types.terms[type];
+    if (term === undefined) return null;
+    switch (term.kind) {
+      case "open": return term.group === input.group.id ? finals.get(term.variable)?.type ?? null : type;
+      case "primitive": case "string": case "intrinsic": case "enum": case "param": case "self": case "error": return type;
+      default: return null;
+    }
+  };
+  const agrees = (stated: TyId, constrained: TyId): boolean => {
+    const selected = expected(constrained);
+    return selected === null || stated === selected;
+  };
+  if (operation.operands.length !== constraint.operands.length || operation.operands.some((type, index) => {
+    const constrained = constraint.operands[index];
+    return constrained === undefined || !agrees(type, constrained);
+  }) || !agrees(operation.result, constraint.result)) emit(output, "operation-types", site, "operation");
+}
+
 function decisionMatches(decision: ConstraintDecision, constraint: OwnedConstraint): boolean {
   return decision.kind === "deferred" || decision.kind === constraint.value.kind;
 }
@@ -317,8 +342,10 @@ export function verifySolution(input: InferVerificationInput, inventory: Invento
   const context: SolutionContext = { input, inventory, endpoints, overloads: new Map(), bodies };
   if (solution.group !== input.group.id) emit(output, "group-ownership", groupSite, "solution");
   const published = new Set<number>();
+  const finals = new Map<number, TypeEvidence>();
   let previousVariable: number | null = null;
   for (const variable of solution.variables) {
+    if (!finals.has(variable.variable)) finals.set(variable.variable, variable.value);
     const site: InferSite = { kind: "variable", group: input.group.id, variable: variable.variable };
     if (published.has(variable.variable)) emit(output, "one-publication-per-variable", site, "variables");
     published.add(variable.variable);
@@ -341,6 +368,7 @@ export function verifySolution(input: InferVerificationInput, inventory: Invento
       compareNumber(previous.constraint.index, record.constraint.index)) >= 0) emit(output, "solution-order", site, "constraints");
     solved.add(key); previous = record;
     decisionRecords(context, record, target, output);
+    if (target !== undefined && target.value.kind === "op" && record.decision.kind === "op") operationTypes(input, finals, target.value, record.decision.operation, site, output);
   }
   for (const [key, value] of inventory.constraints) if (!solved.has(key))
     emit(output, "solution-total", { kind: "constraint", constraint: value.reference }, "constraints");
@@ -358,6 +386,24 @@ export function verifySolution(input: InferVerificationInput, inventory: Invento
     if (previousCheck !== null && (compareNumber(previousCheck.variable, check.variable) ||
       compareContribution(previousCheck.contribution, check.contribution)) >= 0) emit(output, "solution-order", site, "checks");
     previousCheck = check;
+  }
+  // Every bound of every contribution has its recorded check; a satisfied check of a flow's bound states the flow's solved
+  // embedding.
+  const checked = new Map<string, typeof solution.checks[number]>();
+  for (const check of solution.checks) checked.set(encodeKey([check.variable, contributionKey(check.contribution)]), check);
+  const decisions = new Map<string, SolvedConstraint>();
+  for (const record of solution.constraints) decisions.set(constraintKey(record.constraint), record);
+  for (const [key, contribution] of inventory.contributions) for (const variable of contribution.bounds) {
+    const check = checked.get(encodeKey([variable, key]));
+    if (check === undefined) {
+      emit(output, "check-recorded", { kind: "contribution", key: contribution.value.key }, "checks");
+      continue;
+    }
+    const record = decisions.get(constraintKey(contribution.value.constraint));
+    if (record !== undefined && record.decision.kind === "flow" && check.outcome.kind === "satisfied" &&
+      printDocument({ kind: "SolvedConstraint", value: record }) !==
+        printDocument({ kind: "SolvedConstraint", value: { constraint: record.constraint, decision: { kind: "flow", embedding: check.outcome.embedding } } }))
+      emit(output, "flow-check-agreement", { kind: "constraint", constraint: record.constraint }, "embedding");
   }
   const bodyIds = new Set<string>();
   let previousBody: string | null = null;

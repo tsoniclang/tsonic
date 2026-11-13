@@ -876,6 +876,66 @@ test("final publications, solved constraints and body inventories retain complet
   ], "a missing signature remains both a body endpoint and qualified arena reference");
 });
 
+test("a selected operation states its constraint's operand and result types, an open variable read as its final value", () => {
+  // x: float64 = a + b, with a: float64 and b an inference variable whose final value is float64
+  const types = { terms: [{ kind: "primitive", primitive: "int32" }, { kind: "primitive", primitive: "float64" }, { kind: "open", group, variable: 0 }],
+    signatures: [signature] };
+  const raw = { kind: "op", occurrence, operator: "+", operands: [1, 2], result: 1, permissionScope: null };
+  const solved = (operands, result, final = 1) => ({ ...completeSolution(), variables: [{ variable: 0, value: evidence(final) }],
+    constraints: [{ constraint: { body, index: 0 }, decision: { kind: "op", operation: { kind: "selected",
+      operation: { kind: "native-operator", operator: "+", carrier: "float64" }, operands, result, execution: { kind: "pure" } } } }] });
+  const input = { constraints: [constraintSet([raw], [localVariable(0)])], types, bindingScopes: [emptyScope], solution: solved([1, 1], 1) };
+  const operationTypes = [violation("operation-types", constraintSite(0), "operation")];
+  const results = product.verifyInference(verificationInput(input)).filter(found => found.rule === "operation-types");
+  fullEqual(results, [], "the float64 operands and result of the constraint, the open variable read as float64");
+  for (const [label, changed] of [
+    ["int32 operands and result against float64 operand types", solved([0, 0], 0)],
+    ["an int32 result", solved([1, 1], 0)],
+    ["the open variable's operand stated as int32 while its final value is float64", solved([1, 0], 1)],
+    ["an operand short", solved([1], 1)],
+  ]) fullEqual(product.verifyInference(verificationInput({ ...input, solution: changed })).filter(found => found.rule === "operation-types"),
+    operationTypes, label);
+  fullEqual(product.verifyInference(verificationInput({ ...input, solution: solved([1, 0], 1, 0) })).filter(found => found.rule === "operation-types"),
+    [], "the open variable's final value is int32: an int32 operand agrees");
+  // Not compared here: a compound constraint type (no substitution in this verifier), a type outside the table (reported by
+  // its own rule), an open variable with no final value (reported as solution-total). An open variable of another group is
+  // a closed type for this group and compared as itself.
+  const other = `G[B[D[${moduleIdentity};z];function;0]]`;
+  const wider = { terms: [...types.terms, { kind: "array", element: 1, readonly: false }, { kind: "open", group: other, variable: 0 }], signatures: [signature] };
+  const typesOf = (operands, solution) => product.verifyInference(verificationInput({ ...input, types: wider,
+    constraints: [constraintSet([{ ...raw, operands }], [localVariable(0)])], solution })).filter(found => found.rule === "operation-types");
+  fullEqual(typesOf([3, 1], solved([0, 1], 1)), [], "a compound constraint type is not compared");
+  fullEqual(typesOf([9, 1], solved([0, 1], 1)), [], "a type outside the table is not compared");
+  fullEqual(typesOf([2, 1], { ...solved([0, 1], 1), variables: [] }), [], "an open variable without a final value is not compared");
+  fullEqual(typesOf([4, 1], solved([4, 1], 1)), [], "an open variable of another group is compared as itself");
+  fullEqual(typesOf([4, 1], solved([1, 1], 1)), operationTypes, "an open variable of another group differs from float64");
+});
+
+test("every bound of every contribution has its recorded check, and a flow's check states the flow's solved embedding", () => {
+  const types = { terms: [{ kind: "primitive", primitive: "float64" }, { kind: "open", group, variable: 0 }], signatures: [signature] };
+  const flow = { kind: "flow", occurrence, from: 0, to: 1, role: "initialization", bindings: emptyBindings };
+  const key = { node: occurrence, candidate: null, role: { kind: "flow" } };
+  const contribution = { key, reads: [], bounds: [0], constraint: { body, index: 0 } };
+  const check = embedding => ({ variable: 0, contribution: key, bound: { contribution: key, variable: 0, kind: "producer", value: evidence(0) },
+    outcome: { kind: "satisfied", embedding } });
+  const solution = (embedding, checks) => ({ ...completeSolution(), variables: [{ variable: 0, value: evidence(0) }],
+    constraints: [{ constraint: { body, index: 0 }, decision: { kind: "flow", embedding } }], checks });
+  const identity = { kind: "identity" };
+  const input = { constraints: [constraintSet([flow], [localVariable(0)])], contributions: [contribution], types, bindingScopes: [emptyScope],
+    solution: solution(identity, [check(identity)]) };
+  const judged = changed => product.verifyInference(verificationInput({ ...input, solution: changed }))
+    .filter(found => found.rule === "check-recorded" || found.rule === "flow-check-agreement");
+  fullEqual(judged(input.solution), [], "the flow's embedding is its bound's recorded check");
+  fullEqual(judged(solution(identity, [])), [violation("check-recorded", { kind: "contribution", key }, "checks")], "the bound's check is missing");
+  const converted = { kind: "conversion", conversion: "numeric", proof: { steps: [], conclusion: 0 }, check: { kind: "none" } };
+  fullEqual(judged(solution(identity, [check(converted)])).filter(found => found.rule === "flow-check-agreement"),
+    [violation("flow-check-agreement", constraintSite(0), "embedding")], "the flow states another embedding than its check");
+  fullEqual(judged(solution(converted, [check(identity)])).filter(found => found.rule === "flow-check-agreement"),
+    [violation("flow-check-agreement", constraintSite(0), "embedding")], "the check states another embedding than the flow");
+  fullEqual(judged(solution(identity, [{ ...check(identity), outcome: { kind: "refused", reason: "conflicting-destinations" } }])), [],
+    "a refused check states no embedding to compare");
+});
+
 test("recorded checks correlate actual final variables and bound keys, not unknowable event history", () => {
   const constraint = { kind: "default", occurrence, variable: 0, rule: "local-producers", type: 0 };
   const key = { node: occurrence, candidate: null, role: { kind: "default" } };
@@ -885,14 +945,17 @@ test("recorded checks correlate actual final variables and bound keys, not unkno
   const solution = { ...completeSolution(), variables: [{ variable: 0, value: evidence() }],
     constraints: [{ constraint: { body, index: 0 }, decision: { kind: "default", type: 0 } }], checks: [check] };
   const input = { constraints: [constraintSet([constraint], [localVariable(0)])], contributions: [contribution], solution };
+  // the check names variable 1: it is not the check of bound 0, which then has none
   ruleCase("check-recorded", input, { ...input, solution: { ...solution, checks: [{ ...check, variable: 1 }] } },
-    [violation("check-recorded", { kind: "check", index: 0 }, "bound")]);
+    [violation("check-recorded", { kind: "check", index: 0 }, "bound"), violation("check-recorded", { kind: "contribution", key }, "checks")]);
   for (const reason of ["signature-use-demand", "conflicting-destinations", "accumulator-widening", "binder-constraint", "literal-inexact"])
     fullEqual(product.verifyInference(verificationInput({ ...input, solution: { ...solution, checks: [{ ...check, outcome: { kind: "refused", reason } }] } })), [],
       `refused ${reason} is retained final data, not a fabricated successful check`);
-  for (const changed of [{ ...check, variable: -0 }, { ...check, bound: { ...check.bound, variable: -0 } }])
+  // a check of variable -0 is not the check of bound 0, which then has none
+  for (const [changed, missing] of [[{ ...check, variable: -0 }, true], [{ ...check, bound: { ...check.bound, variable: -0 } }, false]])
     ruleCase("check-recorded", input, { ...input, solution: { ...solution, checks: [changed] } },
-      [violation("check-recorded", { kind: "check", index: 0 }, "bound")], "recorded variable references reject negative zero without normalization");
+      [violation("check-recorded", { kind: "check", index: 0 }, "bound"), ...(missing ? [violation("check-recorded", { kind: "contribution", key }, "checks")] : [])],
+      "recorded variable references reject negative zero without normalization");
   const step = { from: componentGolden.value, to: componentGolden.value, rule: "identity", premises: [] };
   const converted = proof => ({ ...solution, checks: [{ ...check,
     outcome: { kind: "satisfied", embedding: { kind: "conversion", conversion: "numeric", proof, check: { kind: "none" } } } }] });

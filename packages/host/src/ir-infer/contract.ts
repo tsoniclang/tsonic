@@ -714,7 +714,7 @@ export type InferRule = "group-order" | "group-ownership" | "inferred-part-ident
   | "contribution-key-unique" | "contribution-order" | "contribution-role"
   | "contribution-reads-bounds-declared" | "contribution-footprint-complete"
   | "one-publication-per-variable" | "solution-total" | "solution-order"
-  | "no-open-in-solution" | "check-recorded" | "decision-kind"
+  | "no-open-in-solution" | "check-recorded" | "flow-check-agreement" | "operation-types" | "decision-kind"
   | "binding-vector-complete" | "parameter-mapping-total" | "endpoint-agreement"
   | "proof-reference" | "proof-order" | "qualified-reference" | "body-completion-endpoints"
   | "construction-part-total" | "protocol-channels" | "api-endpoint-role" | "deferred-invocation"
