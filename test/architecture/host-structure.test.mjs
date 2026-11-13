@@ -402,13 +402,27 @@ test("a public stage operation takes its inputs, and injected dependencies only 
   expect(stage("(left: number, right: number) => number", "(left, right) => left + right"), []);
   expect(stage("(deps: InferDeps, input: number) => number", "(deps, input) => input + deps.bias"), []);
   expect(stage("(other: InferDeps, input: number) => number", "(other, input) => input + other.bias"), []);
+  // Positive: an operation whose only parameter is its own dependency record, and one with no parameter: no input is invented.
+  expect(stage("(deps: InferDeps) => number", "deps => deps.bias"), []);
+  expect(stage("() => number", "() => 1"), []);
+  // Positive: data however it is built carries no dependency: nested readonly arrays and maps, tuples, nullable unions, a
+  // recursive record, a generic record of data, and an opaque handle of its owner though that holds a function inside.
+  expect(stage("(input: Nested, rows: readonly (readonly Row[])[], pair: readonly [Row, number], choice: Row | null, box: Box<Row>, text: string, both: Row & Nested) => Nested",
+    "(input, rows, pair, choice, box, text, both) => input",
+    "export interface Row { readonly value: number; }\nexport interface Box<T> { readonly value: T; }\nexport interface Nested { readonly inner: Row; readonly rows: ReadonlyArray<Row>; readonly self: Nested | null; }\n"), []);
+  // A native map is not contract data at all (the closed-data rule reports it); this rule does not take its methods for a service,
+  // and still finds a callable among its type arguments.
+  expect(stage("(input: number, table: ReadonlyMap<string, Row>) => number", "(input, table) => input", "export interface Row { readonly value: number; }\n"), [at("contract-shape", contract, 2)]);
+  expect(stage("(input: number, table: ReadonlyMap<string, () => number>) => number", "(input, table) => input", "\n"), [at("contract-shape", contract, 2), at("impure-component", contract, 2)]);
+  expect([[file("ir-types", "arena.ts"), "export class TypeArena { private readonly run: () => number = () => 1; private constructor() {} static create(): TypeArena { return new TypeArena(); } }"],
+    [file("ir-types", "contract.ts"), 'import type { TypeArena } from "./arena.js";\nexport type TypeInterner = TypeArena;'],
+    [contract, 'import type { TypeInterner } from "../ir-types/contract.js";\nexport type Run = (input: number, types: TypeInterner, all: readonly TypeInterner[]) => number;'],
+    [entry, 'import type { Run } from "./contract.js";\nexport const run: Run = (input, types, all) => input;']], []);
   // Negative: a dependency record that is moved, repeated, alone, inline, not a record, or not named as one.
   for (const [signature, implementation] of [
     ["(input: number, deps: InferDeps) => number", "(input, deps) => input + deps.bias"],
     ["(input: number, other: InferDeps) => number", "(input, other) => input + other.bias"],
     ["(deps: InferDeps, more: InferDeps, input: number) => number", "(deps, more, input) => input + deps.bias + more.bias"],
-    ["(deps: InferDeps) => number", "deps => deps.bias"],
-    ["() => number", "() => 1"],
     ["(deps: { readonly bias: number }, input: number) => number", "(deps, input) => input + deps.bias"],
     ["(deps: number, input: number) => number", "(deps, input) => input + deps"],
     ["(deps: InferOptions, input: number) => number", "(deps, input) => input + deps.bias"]])
@@ -419,9 +433,28 @@ test("a public stage operation takes its inputs, and injected dependencies only 
   expect(stage("(input: Carrier) => number", "input => input.run()",
     "export interface Carrier { readonly run: () => number; }\n"), [at("impure-component", contract, 2)]);
   expect(stage("(input: { run(): number }) => number", "input => input.run()", "\n"), [at("impure-component", contract, 2)]);
-  expect([[file("ir-types", "contract.ts"), "export type Substitute = (input: number) => number;"],
-    [contract, 'import type { Substitute } from "../ir-types/contract.js";\nexport type Run = (input: number, substitute: Substitute) => number;'],
-    [entry, 'import type { Run } from "./contract.js";\nexport const run: Run = (input, substitute) => substitute(input);']], [at("impure-component", contract, 2)]);
+  // The same however the callable is wrapped: nested one record deeper, an interface with a call signature, in an array, a tuple,
+  // a nullable union, a type argument of a record and of a native map, an index value, a constructor, an alias of an alias,
+  // an extended interface, and a recursive type that reaches it only after its own cycle.
+  for (const [signature, preamble] of [
+    ["(input: number, tools: Tools) => number", "export interface Tools { readonly inner: { readonly read: (id: number) => number } }"],
+    ["(input: number, read: Reader) => number", "export interface Reader { (id: number): number }"],
+    ["(input: number, readers: readonly (() => number)[]) => number", ""],
+    ["(input: number, readers: readonly [number, () => number]) => number", ""],
+    ["(input: number, read: (() => number) | null) => number", ""],
+    ["(input: number, box: Box<() => number>) => number", "export interface Box<T> { readonly value: T }"],
+    ["(input: number, table: Table) => number", "export interface Table { readonly [name: string]: () => number }"],
+    ["(input: number, make: Maker) => number", "export interface Maker { new (): Maker }"],
+    ["(input: number, read: Second) => number", "export type First = () => number; export type Second = First;"],
+    ["(input: number, read: Derived) => number", "export interface Base { run(): number } export interface Derived extends Base { readonly value: number }"],
+    ["(input: number, list: Chain) => number", "export interface Chain { readonly next: Chain | null; readonly leaf: Leaf } export interface Leaf { readonly back: Chain; readonly run: () => number }"],
+    ["(input: number, effect: (() => number)) => number", ""],
+    ["(input: number, both: Data & { readonly run: () => number }) => number", "export interface Data { readonly value: number; }"],
+    ["(input: number, wrapped: Readonly<Carrier>) => number", "export interface Carrier { readonly run: () => number; }"],
+    ["(input: number, carrier: Carrier) => number", "export type Effect = () => number; export interface Carrier { readonly run: Effect; }"],
+    ["(input: number, carrier: Carrier) => number", "export interface Carrier { readonly run?: () => number; }"],
+    ["(input: number, outer: Outer) => number", "export interface Inner { readonly run: () => number; } export interface Outer { readonly inner: Inner; }"]])
+    expect(stage(signature, "(input, other) => input", `${preamble}\n`), [at("impure-component", contract, 2)]);
   // Negative: the implementation leaves out or adds a parameter of its contract type, in place or through a named function.
   expect(stage("(deps: InferDeps, input: number) => number", "deps => deps.bias"), [at("contract-shape", entry, 2)]);
   expect(stage("(input: number) => number", "(input, extra) => input"), [at("contract-shape", entry, 2)]);
@@ -431,6 +464,19 @@ test("a public stage operation takes its inputs, and injected dependencies only 
     [entry, 'import type { Run } from "./contract.js";\nimport { original } from "./work.js";\nexport const run: Run = original;']], [at("contract-shape", entry, 3)]);
   expect([[contract, "export type Run = (input: number) => number;"], [file("infer", "work.ts"), "export function original(input: number): number { return input; }"],
     [entry, 'import type { Run } from "./contract.js";\nimport { original } from "./work.js";\nexport const run: Run = original;']], []);
+  // The implementing function is found through any number of names, each followed once: twelve constants to a function with the
+  // contract's parameters pass, and the same chain to a function with one parameter more is reported.
+  const chain = Array.from({ length: 12 }, (unusedValue, position) => `const step${position + 1} = step${position};`).join(" ");
+  for (const [original, expected] of [["function step0(input: number): number { return input; }", []],
+    ["function step0(input: number, extra: number): number { return input + extra; }", [at("contract-shape", entry, 4)]]])
+    expect([[contract, "export type Run = (input: number) => number;"],
+      [entry, `import type { Run } from "./contract.js";\n${original}\n${chain}\nexport const run: Run = step12;`]], expected);
+  // An initializer that names no function declaration (a call's result, a selection, a condition, names that only name each other)
+  // has no parameters to read: it is reported, never passed unchecked.
+  for (const initializer of ["wrap(original)", "original.bind(null)", "true ? original : original", "first"])
+    assert.deepEqual(inspect([[contract, "export type Run = (input: number) => number;"],
+      [entry, `import type { Run } from "./contract.js";\nfunction original(input: number): number { return input; }\nfunction wrap(run: Run): Run { return run; }\nconst first: Run = second; const second: Run = first;\nexport const run: Run = ${initializer};`]])
+      .filter(finding => finding.code === "contract-shape"), [at("contract-shape", entry, 5)], initializer);
   // Negative: a one-input operation is still a typed port of the contract. An untyped function, a helper or a table is not public.
   expect([[contract, "export type Run = (input: number) => number;"], [entry, "export const run = (input: number): number => input;"]], [at("contract-shape", entry)]);
   expect([[contract, "export type Run = (input: number) => number;"],

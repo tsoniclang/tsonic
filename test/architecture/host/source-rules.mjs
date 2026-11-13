@@ -569,31 +569,66 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
     }
     if (arms.length === 3 && seen.size === 3) for (const node of admitted) sdkPorts.add(node);
   }
-  const anyContractFunction = selected => selected !== undefined && [...contractFunctions.values()].some(functions => functions.has(selected));
-  const recordDeclarations = annotation => {
-    if (annotation === undefined) return [];
-    if (ast.is.IsTypeLiteralNode(annotation)) return [annotation];
-    if (!ast.is.IsTypeReferenceNode(annotation)) return [];
-    return checker(annotation).getSymbolDeclarations(symbol(ast.as.AsTypeReferenceNode(annotation).TypeName)).map(declaration =>
-      ast.is.IsInterfaceDeclaration(declaration) ? declaration
-        : ast.is.IsTypeAliasDeclaration(declaration) && ast.typeNode(declaration) !== undefined && ast.is.IsTypeLiteralNode(ast.typeNode(declaration))
-          ? ast.typeNode(declaration) : undefined).filter(declaration => declaration !== undefined);
+  // Whether a declared type gives its holder something to call. The walk follows the declaration: a function or
+  // constructor type; a call, construct or method member; and the same inside records, arrays, tuples, unions,
+  // intersections, type arguments, index values, type aliases and interfaces with what they extend, to any depth.
+  // Each declaration is walked once, so a recursive type ends. Three things are data and are not walked: the
+  // content of an opaque handle (a type of the opaque-owner table: its content is its owner's alone); the members
+  // of a type declared outside the inspected Host sources (a native array, map or string has methods and is data;
+  // the checker SDK's payloads enter through Front's one value port); and a type parameter, whose argument is
+  // walked where it is supplied. The type arguments of such a type are walked like any others.
+  const carriesCallable = start => {
+    const seen = new Set();
+    const signatures = node => {
+      const shape = typeShape(node);
+      const type = shape.getTypeFromTypeNode(node);
+      return type !== undefined && (shape.getCallSignatures(type).length > 0 || shape.getConstructSignatures(type).length > 0);
+    };
+    const members = record => ast.members(record).some(member => member !== undefined && (
+      ast.is.IsMethodSignatureDeclaration(member) || ast.is.IsCallSignatureDeclaration(member) || ast.is.IsConstructSignatureDeclaration(member) ||
+      (ast.is.IsPropertySignatureDeclaration(member) || ast.is.IsIndexSignatureDeclaration(member)) && visit(ast.typeNode(member))));
+    const declared = (at, selected) => {
+      for (const declaration of selected === undefined ? [] : checker(at).getSymbolDeclarations(selected)) {
+        if (declaration === undefined || seen.has(declaration) || opaqueClasses.has(declaration)) continue;
+        const path = ast.getFileName(ast.getSourceFile(declaration));
+        const inspected = path.startsWith("/host-gate/") ? path.slice("/host-gate/".length) : undefined;
+        if (inspected === undefined || !files.has(inspected)) continue;
+        seen.add(declaration);
+        if (ast.is.IsInterfaceDeclaration(declaration)) {
+          if (members(declaration)) return true;
+          for (const base of ast.extendsHeritageElements(declaration)) {
+            const expression = ast.children(base).find(child => child !== undefined);
+            if (declared(base, symbol(expression)) || ast.typeArguments(base).some(visit)) return true;
+          }
+        } else if (ast.is.IsTypeAliasDeclaration(declaration)) {
+          if (opaqueOwners[ast.text(ast.name(declaration))] === owner(inspected)?.name) continue;
+          if (visit(ast.typeNode(declaration))) return true;
+        }
+      }
+      return false;
+    };
+    const visit = node => {
+      if (node === undefined) return false;
+      if (ast.is.IsFunctionTypeNode(node) || ast.is.IsConstructorTypeNode(node)) return true;
+      if (ast.is.IsTypeLiteralNode(node)) return members(node);
+      if (ast.is.IsTypeReferenceNode(node)) return signatures(node) || declared(node, symbol(ast.as.AsTypeReferenceNode(node).TypeName)) ||
+        ast.typeArguments(node).some(visit);
+      if (["KindTypeQuery", "KindIndexedAccessType", "KindImportType"].includes(ast.kindName(node)) && signatures(node)) return true;
+      return ast.children(node).some(visit);
+    };
+    return visit(start);
   };
-  const callableAnnotation = annotation => callableType(annotation) || annotation !== undefined && ast.is.IsTypeReferenceNode(annotation) &&
-    anyContractFunction(symbol(ast.as.AsTypeReferenceNode(annotation).TypeName));
   // What a stage is given to call or to consult, as opposed to what it is given to work on: a parameter named
-  // `deps`, one typed by a record named `…Deps`, a callable, or a record with a callable member.
+  // `deps`, one typed by a record named `…Deps`, or one whose declared type carries a callable.
   const injectedDependency = parameter => {
     const annotation = ast.typeNode(parameter);
     const name = ast.name(parameter);
     if (name !== undefined && ast.is.IsIdentifier(name) && ast.text(name) === "deps") return true;
-    if (callableAnnotation(annotation)) return true;
     if (annotation !== undefined && ast.is.IsTypeReferenceNode(annotation)) {
       const typeName = ast.as.AsTypeReferenceNode(annotation).TypeName;
       if (ast.is.IsIdentifier(typeName) && ast.text(typeName).endsWith("Deps")) return true;
     }
-    return recordDeclarations(annotation).some(record => ast.members(record).some(member =>
-      ast.is.IsMethodSignatureDeclaration(member) || ast.is.IsPropertySignatureDeclaration(member) && callableAnnotation(ast.typeNode(member))));
+    return carriesCallable(annotation);
   };
   const ownDependencyRecord = (module, parameter) => {
     const annotation = ast.typeNode(parameter);
@@ -605,19 +640,37 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
       ast.text(ast.name(declaration)).endsWith("Deps") && (ast.is.IsInterfaceDeclaration(declaration) ||
         ast.is.IsTypeAliasDeclaration(declaration) && ast.typeNode(declaration) !== undefined && ast.is.IsTypeLiteralNode(ast.typeNode(declaration))));
   };
-  // The function a public value is initialized with: written in place, or named through constants and imports.
+  // The declaration that implements a public value: the function its initializer is, or names through constants
+  // and imports, however many; each declaration is followed once. A call's result, a selection or a condition
+  // names no declaration whose parameters can be read.
   const implementingFunction = original => {
+    const seen = new Set();
     let node = original;
-    for (let steps = 0; node !== undefined && steps < 8; steps += 1) {
+    while (node !== undefined) {
       while (ast.is.IsParenthesizedExpression(node)) node = ast.as.AsParenthesizedExpression(node).Expression;
       if (ast.is.IsArrowFunction(node) || ast.is.IsFunctionExpression(node) || ast.is.IsFunctionDeclaration(node)) return node;
       if (!ast.is.IsIdentifier(node)) return undefined;
       const selected = symbol(node);
       const declaration = selected === undefined ? undefined : checker(node).getSymbolValueDeclaration(selected);
-      if (declaration === undefined) return undefined;
+      if (declaration === undefined || seen.has(declaration)) return undefined;
+      seen.add(declaration);
       node = ast.is.IsVariableDeclaration(declaration) ? ast.as.AsVariableDeclaration(declaration).Initializer : declaration;
     }
     return undefined;
+  };
+  // Whether the implementing function's own signature, as the checker reads its declaration, has the parameters of
+  // the contract function type: as many, and a rest parameter only where the contract has one. That each accepts
+  // the contract's argument in its place is the compiler's assignability check once the positions correspond.
+  const implementsContract = (declaration, annotation) => {
+    const implementation = implementingFunction(ast.as.AsVariableDeclaration(declaration).Initializer);
+    if (implementation === undefined) return false;
+    const shape = typeShape(declaration);
+    const actual = shape.getDeclarationSignatureInfo(implementation);
+    const contracts = shape.getSignatureInfos(shape.getTypeFromTypeNode(annotation), "call");
+    if (actual === undefined || contracts.length !== 1) return false;
+    const expected = contracts[0].parameters;
+    return actual.parameters.length === expected.length &&
+      actual.parameters.every((parameter, position) => (parameter.parameterKind === "rest") === (expected[position].parameterKind === "rest"));
   };
   for (const [file, node] of sourceFiles) {
     const module = owner(file);
@@ -742,20 +795,18 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
         if (reference === undefined || !contractFunctions.get(module)?.has(reference)) add("contract-shape", file, current);
         // A component's public implementation declares the parameters of its contract function type, each in its
         // place: none is left out and none is added.
-        else if (stageTypes.has(reference)) {
-          const implementation = implementingFunction(ast.as.AsVariableDeclaration(current).Initializer);
-          const declared = checker(current).getSymbolDeclarations(reference).map(declaration => ast.parameters(ast.typeNode(declaration)).length);
-          if (implementation !== undefined && declared.some(count => count !== ast.parameters(implementation).length)) add("contract-shape", file, current);
-        }
+        // An initializer that names no function declaration is reported like one whose parameters differ: nothing is
+        // left unchecked. A declaration file has no initializer; its implementation is checked in the source.
+        else if (stageTypes.has(reference) && ast.as.AsVariableDeclaration(current).Initializer !== undefined &&
+          !implementsContract(current, annotation)) add("contract-shape", file, current);
       }
-      // A public operation of a component takes its inputs, and its injected dependencies only as one record that
-      // this component's own contract declares, in first place. An operation without injected dependencies has no
-      // such record: none is invented for it.
+      // A public operation of a component takes whatever inputs its contract declares, and its injected dependencies
+      // only as one record that this component's own contract declares, in first place. An operation without
+      // injected dependencies has no such record, and one without inputs has no input: neither is invented for it.
       if (ast.is.IsTypeAliasDeclaration(current) && stageTypes.has(symbol(ast.name(current)))) {
         const parameters = ast.parameters(ast.typeNode(current));
         const injected = parameters.filter(injectedDependency);
-        if (parameters.length - injected.length < 1 || injected.length > 1 ||
-          injected.length === 1 && (injected[0] !== parameters[0] || !ownDependencyRecord(module, parameters[0])))
+        if (injected.length > 1 || injected.length === 1 && (injected[0] !== parameters[0] || !ownDependencyRecord(module, parameters[0])))
           add("impure-component", file, current);
       }
       if (["KindStringLiteral", "KindNoSubstitutionTemplateLiteral"].includes(kind) &&
