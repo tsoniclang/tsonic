@@ -149,7 +149,9 @@ function statement(lowering: Lowering, node: Statement<TypedPhase>): boolean {
   if (lowering.state.current === null) return true;
   switch (node.kind) {
     case "Block":
-      for (const inner of [...node.statements.nodes].reverse()) lowering.work.push({ kind: "statement", node: inner });
+      // A statement list has no hole; one is a defect of the tree, reported by name as the other unreachable states are.
+      for (const inner of [...node.statements.nodes].reverse())
+        lowering.work.push({ kind: "statement", node: requirePresent(inner, failure("a statement list has a hole", node.origin)) });
       return true;
     case "ReturnStatement":
       if (node.expression === null) {

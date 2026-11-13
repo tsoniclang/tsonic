@@ -373,6 +373,10 @@ test("first producer: a body that must not be offered is a caller defect, told f
   defect(returning("defect.resolution", () => ({ kind: "Identifier", text: "missing", tsonic: { type: T.int32, convertedType: T.int32, conversion: { kind: "identity" },
     narrowing: null, evidenceIndex: null, demand: { kind: "always" }, role: "value", resolution: { kind: "error", diagnostic: 0 } } })), "an error resolution");
   defect(shaped("defect.end", [["a", "required", T.int32]], T.int32, b => b.block()), "the end of a body that completes with a value is reached");
+  // A statement list with a hole is a defect of the tree, reported by name (R5 C-a).
+  const holed = shaped("defect.hole", [["a", "required", T.int32]], T.int32, b => ({ ...b.block(), statements: { $list: true, nodes: [, b.returns(b.id("a", 0, T.int32))] } }));
+  assert.throws(() => produced(deps, holed.tir, []), error => error instanceof Error && error.cause !== undefined && error.cause.owner === "lower-mir"
+    && error.message === "a statement list has a hole");
   defect(shaped("defect.endUnknown", [["a", "required", T.int32]], T.unknown, b => b.block()), "the end of a body that completes with a value is reached");
 });
 
