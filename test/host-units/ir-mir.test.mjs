@@ -327,6 +327,25 @@ for (const [value, text] of [
   });
 }
 
+test("MIR call of an internal body, an omitted argument and two entries are complete typed round trips", () => {
+  // S2-18: the callee that is a body instance with its captures; an argument the call omits; a body with an entry
+  // for each supplied count.
+  const terminator = { ...site, kind: "call", step: null, callee: { kind: "body", instance, captures: [{ local: { body: bodyIdentity, local: 0 }, place: 0 }] },
+    receiver: null, arguments: [{ kind: "value", passing: "by-value", operand: constantOperand }, { kind: "omitted" }], destination: null, next: 0, unwind: { kind: "escape" } };
+  const text = `call(${siteText}, callee=body(instance=${instanceText}, captures=[MirClosureCapture(local=LocalRef(body=body:${JSON.stringify(bodyIdentity)}, local=l:0), place=p:0)]), receiver=null, arguments=[value(passing="by-value", operand=${constantOperandText}), omitted()], destination=null, next=b:0, unwind=escape(), step=null)`;
+  roundtrip({ ...emptyValue, entries: [{ provided: 2, block: 0 }, { provided: 1, block: 0 }], blocks: [{ ...site, id: 0, statements: [], terminator }] },
+    document("", "", "", `MirBlock(${siteText}, id=b:0, statements=[], terminator=${text})`, undefined, undefined,
+      "MirEntry(provided=2, block=b:0), MirEntry(provided=1, block=b:0)"), "body callee, omitted argument, two entries");
+});
+
+test("MIR verification refuses a limit that is not a count as its caller's defect", () => {
+  const body = parsedBody();
+  const context = sourceContext(body);
+  for (const maximumWork of [NaN, Infinity, -1, 0.5, -0.5]) assert.throws(() => product.verifyMir(body, { ...context, limits: { maximumWork } }),
+    { name: "TypeError", message: "ir-mir: maximumWork must be a finite nonnegative integer" });
+  same(product.verifyMir(body, { ...context, limits: { maximumWork: 0 } }), { kind: "complete", violations: [] }, "zero is a count");
+});
+
 test("MIR storage statements preserve both closed arms and source/origin correlation", () => {
   const statements = [{ ...site, kind: "storage-live", local: 0 }, { ...site, kind: "storage-dead", local: 0 }];
   const terminator = { ...site, kind: "return", value: null };
@@ -352,6 +371,11 @@ for (const [value, text] of [
     `yield(operand=${constantOperandText}, destination=p:1, resume=b:2, return=MirSuspensionReturn(destination=p:3, target=b:4), unwind=handler(exception=p:5, target=b:6), step=null)`],
   [{ kind: "delegate", step: null, iterator: placeOperand, destination: 1, resume: 2, return: { destination: 3, target: 4 }, unwind: { kind: "handler", exception: 5, target: 6 } },
     `delegate(iterator=${operandText}, destination=p:1, resume=b:2, return=MirSuspensionReturn(destination=p:3, target=b:4), unwind=handler(exception=p:5, target=b:6), step=null)`],
+  // S2-18: the check, the two failure kinds without an edge, and a record that names its step.
+  [{ kind: "check", place: 0, next: 1, unwind: { kind: "escape" } }, "check(place=p:0, next=b:1, unwind=escape())"],
+  [{ kind: "check", place: 2, next: 1, unwind: { kind: "abort" } }, "check(place=p:2, next=b:1, unwind=abort())"],
+  [{ kind: "invoke", step: { protocol: 1, step: 2 }, operation, operands: [], destination: null, next: 0, unwind: { kind: "none" } },
+    `invoke(operation=${operationText}, operands=[], destination=null, next=b:0, unwind=none(), step=MirStepRef(protocol=1, step=2))`],
   [{ kind: "throw", operand: constantOperand, unwind: { kind: "escape" } }, `throw(operand=${constantOperandText}, unwind=escape())`],
   [{ kind: "return", value: placeOperand }, `return(value=${operandText})`],
   [{ kind: "return", value: null }, "return(value=null)"],

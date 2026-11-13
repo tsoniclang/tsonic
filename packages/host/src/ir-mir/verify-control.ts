@@ -236,8 +236,9 @@ export function sourceNodes(source: TirBody, texts: WireTexts): ReadonlyMap<Node
       if ("member" in payload && payload.member.kind === "decided") selection(payload.member.decision);
       if ("protocol" in payload && payload.protocol.kind === "decided") protocols.push(payload.protocol.decision);
       if ("protocols" in payload) for (const protocol of payload.protocols) if (protocol.kind === "decided") protocols.push(protocol.decision);
+      // The bodies a node executes by a call of its own: the initializer of the binding, parameter or storage it
+      // declares. A template is the body of a closure or a declaration, which a call of an internal body never runs.
       if ("initializer" in payload && payload.initializer !== null) bodies.add(payload.initializer);
-      if ("template" in payload && payload.template !== null) bodies.add(payload.template.body);
     }
     const steps: SourceStep[][] = [];
     for (const protocol of protocols) {
@@ -268,6 +269,8 @@ export function verifySelections(
   const violations: Violation<MirRule, MirViolationSite>[] = [];
   const report = (rule: MirRule, site: MirViolationSite): void => { violations.push({ rule, site, detail: [] }); };
   const knownNode = (node: NodeId): boolean => findSourceNode(nodes, node) !== undefined;
+  const parameterDefaults = new Set<BodyId>();
+  for (const parameter of context.source.params) if (parameter.initializer !== null) parameterDefaults.add(parameter.initializer);
   const reference = (node: NodeRef, site: MirViolationSite): SourceNode | undefined => {
     if (node.body !== context.source.body) { report("cross-owner-qualified", site); return undefined; }
     const selected = findSourceNode(nodes, node.node);
@@ -373,9 +376,11 @@ export function verifySelections(
     const source = at(block.terminator, site);
     if (block.terminator.kind === "invoke") operation(block.terminator.operation, source, site);
     if (block.terminator.kind === "call") {
-      // An internal body is executed only where the typed body places it: at the node that names that body.
+      // An internal body is executed only where the typed body places it: at the node that names that body, or, for
+      // the default of a parameter of this body, in the entry that omits the parameter.
       if (block.terminator.callee.kind !== "body") callee(block.terminator.callee.resolution, source, site);
-      else if (source !== undefined && !source.bodies.has(block.terminator.callee.instance.body)) report("operation-selected", site);
+      else if (source !== undefined && !source.bodies.has(block.terminator.callee.instance.body)
+        && !parameterDefaults.has(block.terminator.callee.instance.body)) report("operation-selected", site);
     }
   }
   return violations;

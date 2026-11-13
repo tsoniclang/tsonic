@@ -81,7 +81,9 @@ export type MirProjection =
 //     so that is a loop's back edge, and a loop header starts with nothing.
 //   - A checked place is stable when it is the `refined` view of a local's own cell, that cell is written once (never,
 //     for a local present on entry) and the local is not handed out (no address taken, no hand-over by place in a
-//     writing mode, no capture). Every other checked place is mutable. The second stable kind, the bounds of an
+//     writing mode, no capture). The local of a parameter that is not passed by value or moved is the caller's
+//     storage, used with no dereference: it is handed out from entry and written by other code, so no view of it is
+//     stable and it is not an index; an index held in such a parameter is first copied into a local written once. Every other checked place is mutable. The second stable kind, the bounds of an
 //     element whose access decision states a fixed extent, is added with that field; until then an `index` view is mutable.
 //   - Mutable availability ends at a `call`, `invoke`, `await`, `yield` or `delegate`; at a value written into a
 //     place that is not a local's own cell, or into the cell of a local that is handed out; and at a value written into

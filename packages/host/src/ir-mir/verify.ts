@@ -502,8 +502,11 @@ function decisionReferences(
 }
 
 export function verifyBody(body: MirBody, context: MirVerificationContext): MirVerification {
+  // The caller sets the limit; a value that is not a count is the caller's defect, as in the query kernel.
+  const maximumWork = context.limits.maximumWork;
+  if (!Number.isInteger(maximumWork) || maximumWork < 0) throw new TypeError("ir-mir: maximumWork must be a finite nonnegative integer");
   // One account for this body: every pass charges it, and it is not reset between passes.
-  const meter: WorkMeter = { spent: 0, maximum: context.limits.maximumWork, exhausted: false };
+  const meter: WorkMeter = { spent: 0, maximum: maximumWork, exhausted: false };
   const declarations = new Map<DefId, InferenceDeclaration | null>();
   const owners = new Map<BodyId, DefId | null>();
   const declarationOf = (definition: DefId): InferenceDeclaration | null => {
@@ -530,10 +533,16 @@ export function verifyBody(body: MirBody, context: MirVerificationContext): MirV
   const types: TypeReference[] = [...values.types];
   const signatures: SignatureReference[] = [...values.signatures];
   const decisions = decisionReferences(body, input, types, signatures);
+  const refusal: MirVerification = { kind: "resource-limit", body: body.body, dimension: "work", maximum: meter.maximum };
+  const edges = verifyEdges(body);
+  const selections = verifySelections(body, input, nodes, texts);
+  const storage = verifyStorage(body, places);
+  const laws = verifyLaws(body, input, nodes, texts, places, meter);
+  // Past the limit the body is neither accepted nor found invalid: the findings gathered so far are not an answer,
+  // and the remaining passes are not run.
+  if (meter.exhausted) return refusal;
   const violations: Violation<MirRule, MirViolationSite>[] = [];
-  for (const family of [rows, values.violations, verifyEdges(body), verifySelections(body, input, nodes, texts), verifyStorage(body, places),
-    verifyLaws(body, input, nodes, texts, places, meter), decisions, verifyTypeReferences(input.types, types, signatures)]) for (const violation of family) violations.push(violation);
-  // Past the limit the body is neither accepted nor found invalid: the findings gathered so far are not an answer.
-  if (meter.exhausted) return { kind: "resource-limit", body: body.body, dimension: "work", maximum: meter.maximum };
+  for (const family of [rows, values.violations, edges, selections, storage, laws, decisions,
+    verifyTypeReferences(input.types, types, signatures)]) for (const violation of family) violations.push(violation);
   return { kind: "complete", violations };
 }

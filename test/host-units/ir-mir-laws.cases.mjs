@@ -4,7 +4,8 @@
 // One hand-written graph satisfies them; each other case changes one thing and names the law it breaks.
 // Law 2 and the agreement of failure kinds with decisions wait for the decision fields (S2-11). Law 3 is cased as
 // ruled (K-3238, relayed by the controller); its fixed-extent kind waits for `extent` on the element access decision.
-//   function laws(a: int32[], i: int32, o?: int32): int32 { for (const v of a) { use(v); } bump(i); o!; o!; return a[i]; }
+//   function laws(a: int32[], i: int32, o?: int32): int32 { for (const v of a) { use(v); } bump(i); o!; o!; o!; await o; await o; yield i; yield* a; return a[i]; }
+// (the two awaits and the two yields are nodes for the cases of law 6 on suspensions; no case lowers them together)
 // where `bump` takes its parameter by reference for reading and writing.
 import assert from "node:assert/strict";
 import { before, test } from "node:test";
@@ -37,6 +38,10 @@ const TWO_CALLEE = callee("laws.two", SIG_TWO, [{ kind: "argument", parameter: 0
 const ITERATE = { kind: "iterate", asynchronous: false, value: T.int32, completion: T.void, sent: null, thrown: T.unknown,
   steps: [{ role: "acquire", operation: ACQUIRE, callee: null }, { role: "next", operation: NEXT, callee: null },
     { role: "done", operation: DONE, callee: null }, { role: "value", operation: VALUE, callee: null }] };
+const AWAIT_BARE = { kind: "await", asynchronous: true, value: T.optInt32, completion: T.void, sent: null, thrown: T.unknown, steps: [] };
+const AWAIT_STEP = { ...AWAIT_BARE, steps: [{ role: "await", operation: coreOperation("laws.await", [T.unknown], T.unknown, true), callee: null }] };
+const YIELD = { kind: "yield", asynchronous: false, value: T.int32, completion: T.void, sent: null, thrown: T.unknown, steps: [] };
+const DELEGATE = { ...YIELD, kind: "delegate", steps: [{ role: "next", operation: NEXT, callee: null }] };
 const INDEX = { decision: { key: { kind: "text", value: "index" }, origins: [], selectedDeclarations: [], primary: null, read: T.int32, write: T.int32,
   getter: null, setter: null, bindings: EMPTY_BINDINGS,
   location: { kind: "data", check: { kind: "required", failure: "unwind" }, receiver: "by-reference" } }, getter: null, setter: null };
@@ -53,6 +58,11 @@ const source = typedBody("laws", { signature: SIG_LAWS, completion: T.int32,
       at => ({ callee: BUMP_CALLEE, receiver: null, arguments: [{ kind: "provided", parameter: 0, expression: at("i of bump") }] })) }),
     b.expressionStatement({ $: "o!", ...b.nonNull({ $: "o", ...b.id("o", 2, T.optInt32) }, T.int32, null) }),
     b.expressionStatement({ $: "o!#2", ...b.nonNull({ $: "o#2", ...b.id("o", 2, T.optInt32) }, T.int32, null) }),
+    b.expressionStatement({ $: "o!#3", ...b.nonNull(b.id("o", 2, T.optInt32), T.int32, null) }),
+    b.expressionStatement({ $: "await#bare", ...b.awaits(b.id("o", 2, T.optInt32), T.optInt32, AWAIT_BARE) }),
+    b.expressionStatement({ $: "await#step", ...b.awaits(b.id("o", 2, T.optInt32), T.optInt32, AWAIT_STEP) }),
+    b.expressionStatement({ $: "yield", ...b.yields(b.id("i", 1, T.int32), T.unknown, YIELD) }),
+    b.expressionStatement({ $: "yield*", ...b.yields(b.id("a", 0, T.int32Array), T.unknown, DELEGATE, true) }),
     { $: "return", ...b.returns({ $: "a[i]", ...b.element({ $: "a", ...b.id("a", 0, T.int32Array) }, { $: "i", ...b.id("i", 1, T.int32) },
       { ...value(T.int32), role: "value", selection: { kind: "decided", decision: INDEX } }) }) }) });
 
@@ -130,7 +140,7 @@ before(async () => {
   const declaration = (name, sig) => ({ scope: { classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] }, parameterCount: 0,
     endpoints: [endpoint(name, "advertised", sig), endpoint(name, "api-body", sig)] });
   const declared = new Map([["laws", SIG_USE], ["laws.use", SIG_USE], ["laws.bump", SIG_BUMP], ["laws.two", SIG_TWO], ["laws.acquire", SIG_USE],
-    ["laws.next", SIG_USE], ["laws.done", SIG_USE], ["laws.value", SIG_USE]].map(([name, sig]) => [def(name), declaration(name, sig)]));
+    ["laws.next", SIG_USE], ["laws.done", SIG_USE], ["laws.value", SIG_USE], ["laws.await", SIG_USE]].map(([name, sig]) => [def(name), declaration(name, sig)]));
   context = { limits: { maximumWork: 100000 }, source: source.tir, types: TABLE, declarationOf: definition => declared.get(definition) ?? null,
     bodyOwner: body => body === BODY ? def("laws") : body === bodyId("laws.use") ? def("laws.use") : body === bodyId("laws.bump") ? def("laws.bump") : body === bodyId("laws.two") ? def("laws.two") : null };
 });
@@ -506,6 +516,194 @@ test("the work limit: a body is verified up to its limit and refused past it, ne
   assert.equal(verifyMir(good(), { ...context, limits: { maximumWork: 2 } }).kind, "complete");
 });
 
+test("law 3: a value delivered on a suspension's return edge into the local a stable place views ends it on that edge", () => {
+  const generator = { ...context, source: { ...context.source, generator: true } };
+  // The view is checked, then the body yields. The return edge delivers into `destination` and goes to block 12,
+  // which reads the view. The exception local 13 (place 16) is a second saved value with its own view (place 17).
+  // The viewed local 13 is written exactly once in both graphs, so its view is stable: by an assignment in block 7
+  // when the return edge delivers elsewhere, by the return edge when it delivers into the local. Block 11, after
+  // resumption, reads the view in both: a mutable view would be refused there.
+  const returned = destination => staged(body => {
+    body.locals.push(local(13, T.optInt32, { kind: "temporary" }));
+    body.places.push(place(16, { kind: "local", local: 13 }, T.optInt32), viewOf(17, 16, "o!#3"));
+    body.blocks[0].statements.push({ ...site("for"), kind: "storage-live", local: 13 });
+    if (destination !== 16) body.blocks[7].statements.push({ ...site("o"), kind: "assign", place: 16, value: { kind: "use", operand: p(2) }, step: null });
+    body.blocks[7].terminator = checkOf(17, "o!#3", 10);
+    body.blocks.push(blockOf(10, [readView(17)], { ...site("return"), kind: "yield", operand: p(4), destination: 5, resume: 11,
+      return: { destination, target: 12 }, unwind: { kind: "escape" }, step: null }),
+    blockOf(11, [readView(17)], returns(p(9))), blockOf(12, [readView(17)], returns(p(9))));
+  });
+  const lawRules = body => found(body, generator).filter(violation => LAW_RULES.has(violation.rule)).map(violation => violation.rule);
+  // Delivered into another local: the view is still available where the return edge goes.
+  assert.deepEqual(lawRules(returned(5)), []);
+  // Delivered into the viewed local itself (its one write): the return edge carries nothing; the resume edge does.
+  assert.deepEqual(lawRules(returned(16)), ["checked-place-available"]);
+});
+
+test("law 3 at a merge: prefixes of one list, a place checked twice, and a view copied to add a place", () => {
+  // Block 12 checks the second view and so lengthens the list; block 11 does not. They meet in block 13, which gets
+  // the longer prefix first and the shorter second: the shorter is what both bring.
+  const meeting = atMerge => staged(body => {
+    body.blocks[7].terminator = checkOf(12, "o!", 10);
+    body.blocks.push(blockOf(10, [], branch(11, 12)), blockOf(11, [], jump(13)), blockOf(12, [], checkOf(15, "o!#2", 13)), blockOf(13, atMerge, returns(p(9))));
+  });
+  assert.deepEqual(all(meeting([readView(12)])), []);
+  assert.deepEqual(all(meeting([readView(15)])), ["checked-place-available"]);
+  // A second check of a place that is available changes nothing.
+  assert.deepEqual(all(staged(body => {
+    body.blocks[7].terminator = checkOf(12, "o!", 10);
+    body.blocks.push(blockOf(10, [], checkOf(12, "o!", 11)), blockOf(11, [readView(12)], returns(p(9))));
+  })), []);
+  // Block 12 appends the second view to the list of block 7; block 11, handed that list before, adds a third view and
+  // must take a copy to do so. Neither sees the other's place.
+  const third = inEleven => staged(body => {
+    body.locals.push(local(13, T.optInt32, { kind: "temporary" }));
+    body.places.push(place(16, { kind: "local", local: 13 }, T.optInt32), viewOf(17, 16, "o!#3"));
+    body.blocks[0].statements.push({ ...site("for"), kind: "storage-live", local: 13 });
+    body.blocks[7].statements.push({ ...site("o"), kind: "assign", place: 16, value: { kind: "use", operand: p(2) }, step: null });
+    body.blocks[7].terminator = checkOf(12, "o!", 10);
+    body.blocks.push(blockOf(10, [], branch(11, 12)), blockOf(11, [], checkOf(17, "o!#3", 14)), blockOf(12, [], checkOf(15, "o!#2", 13)),
+      blockOf(13, [readView(15), readView(12)], returns(p(9))), blockOf(14, inEleven, returns(p(9))));
+  });
+  assert.deepEqual(all(third([readView(17), readView(12)])), []);
+  assert.deepEqual(all(third([readView(15)])), ["checked-place-available"]);
+});
+
+test("the work limit is one boundary for every body: below it a refusal, from it on the complete answer", () => {
+  // Each limit below the boundary exhausts the account at a different charge: an incoming edge, a place counted, a
+  // list copied. None of them yields an answer other than the refusal.
+  const bodies = [
+    staged(body => {
+      body.blocks[7].terminator = checkOf(12, "o!", 10);
+      body.blocks.push(blockOf(10, [], branch(11, 12)), blockOf(11, [], branch(13, 14)), blockOf(12, [], checkOf(15, "o!#2", 15)),
+        blockOf(13, [readView(12)], returns(p(9))), blockOf(14, [], checkOf(15, "o!#2", 16)),
+        blockOf(15, [readView(15)], returns(p(9))), blockOf(16, [readView(15), readView(12)], returns(p(9))));
+    }),
+    staged(body => {
+      body.blocks[7].terminator = branch(10, 11);
+      body.blocks.push(blockOf(10, [], checkOf(12, "o!", 12)), blockOf(11, [], checkOf(15, "o!#2", 13)),
+        blockOf(12, [], checkOf(15, "o!#2", 14)), blockOf(13, [], checkOf(12, "o!", 14)),
+        blockOf(14, [readView(12), readView(15)], returns(p(9))));
+    }),
+  ];
+  for (const body of bodies) {
+    const kinds = [];
+    for (let maximumWork = 0; maximumWork <= 40; maximumWork += 1) {
+      const outcome = verifyMir(body, { ...context, limits: { maximumWork } });
+      if (outcome.kind === "complete") assert.deepEqual(outcome.violations, []);
+      else assert.deepEqual(outcome, { kind: "resource-limit", body: BODY, dimension: "work", maximum: maximumWork });
+      kinds.push(outcome.kind);
+    }
+    const boundary = kinds.indexOf("complete");
+    assert.ok(boundary > 0 && boundary < 40);
+    assert.deepEqual(kinds.slice(boundary), new Array(41 - boundary).fill("complete"));
+  }
+});
+
+test("malformed bodies: a record that names a row the body does not have is reported by the owning rule, and the laws stay total", () => {
+  // A check that names a place the body does not have.
+  assert.deepEqual(laws(changed(body => { body.blocks[6].terminator.place = 99; })), ["checked-place-available", "check-place-exact"]);
+  // An index held in a local the body does not have, and in a place that is not a local.
+  assert.deepEqual(laws(changed(body => { body.places.push(place(11, { kind: "local", local: 99 }, T.int32)); body.places[10].base.projection.operand = p(11); })),
+    ["index-operand-stable"]);
+  assert.deepEqual(laws(changed(body => { body.places.push(place(11, { kind: "static", definition: def("laws") }, T.int32)); body.places[10].base.projection.operand = p(11); })),
+    ["index-operand-stable"]);
+  // A checked place whose parent the body does not have.
+  assert.deepEqual(laws(changed(body => { body.places[10].base.place = 99; })), []);
+  // A checked element of static storage: it is rooted at no local.
+  assert.deepEqual(laws(changed(body => {
+    body.places.push(place(11, { kind: "static", definition: def("laws") }, T.int32Array),
+      place(12, { kind: "checked", place: 11, projection: { kind: "element", index: 0 }, tir: site("a[i]").tir }, T.int32));
+    body.blocks[7].terminator = { ...site("a[i]"), kind: "check", place: 12, next: 10, unwind: { kind: "escape" } };
+    body.blocks.push({ ...site("return"), id: 10, statements: [{ ...site("return"), kind: "assign", place: 9, value: { kind: "use", operand: p(12) }, step: null }],
+      terminator: { ...site("return"), kind: "return", value: p(9) } });
+  })), []);
+  // A view under a checked place that was not checked: the check of the view reads its parent.
+  assert.deepEqual(laws(changed(body => {
+    body.places.push(place(11, { kind: "checked", place: 10, projection: { kind: "refined" }, tir: site("a[i]").tir }, T.int32));
+    body.blocks[6].terminator.place = 11;
+  })), ["checked-place-available", "checked-place-available"]);
+  // A continuing edge into a position that holds no block.
+  assert.deepEqual(laws(changed(body => { body.blocks[6].terminator.next = 10; body.blocks.length = 11; })), ["checked-place-available"]);
+  // A step record at a node the body does not have: law 10's rule reports it, the law rules do not.
+  assert.deepEqual(laws(changed(body => { body.blocks[1].terminator.tir = { body: BODY, node: 9999 }; })), []);
+  // A call at the loop's node that names no step and whose callee is no step's: nothing of law 6.
+  assert.deepEqual(laws(changed(body => { body.blocks[5].terminator.tir = site("for").tir; })), []);
+  // A rest parameter is not a fixed argument: the entries stay those of the three fixed parameters.
+  const withRest = { ...context, source: { ...context.source, params: [...context.source.params, { ...context.source.params[2], role: "rest" }] } };
+  assert.deepEqual(found(good(), withRest).filter(violation => LAW_RULES.has(violation.rule)), []);
+});
+
+test("the local of a by-reference parameter is the caller's storage: never stable, never an index (R1 N-1, K-3271)", () => {
+  const passed = (parameter, passing) => ({ ...context, source: { ...context.source,
+    params: context.source.params.map((row, position) => position === parameter ? { ...row, passing } : row) } });
+  const lawRules = (body, given) => found(body, given).filter(violation => LAW_RULES.has(violation.rule)).map(violation => violation.rule);
+  // R1 (a): the narrowed view of a parameter's own cell is checked, `bump` is called, the view is read. The view here
+  // is of `a` (the fixture has no narrowing node of that type; the type finding is not a law rule).
+  const viewOfParameter = changed(body => {
+    body.places.push(place(11, { kind: "checked", place: 0, projection: { kind: "refined" }, tir: site("o!").tir }, T.int32));
+    body.blocks[3].terminator.targets[0].target = 6;
+    body.blocks[7].terminator = { ...site("o!"), kind: "check", place: 11, next: 9, unwind: { kind: "escape" } };
+    body.blocks[9].terminator.next = 10;
+    body.blocks.push({ ...site("return"), id: 10, statements: [{ ...site("o!"), kind: "assign", place: 9, value: { kind: "use", operand: p(11) }, step: null }],
+      terminator: { ...site("return"), kind: "return", value: p(9) } });
+  });
+  // Passed by value or moved, the cell is private: the view is stable and the call ends nothing.
+  assert.deepEqual(lawRules(viewOfParameter, context), []);
+  assert.deepEqual(lawRules(viewOfParameter, passed(0, "move")), []);
+  // Passed by reference in any mode, the cell is the caller's: the call may have changed it.
+  for (const passing of ["byref-readwrite", "byref-readonly", "byref-writeonly-must-init", "borrow-shared", "borrow-mut"])
+    assert.deepEqual(lawRules(viewOfParameter, passed(0, passing)), ["checked-place-available"], passing);
+  // R1 (c): a[i] indexed directly by the parameter `i`, with nothing in the body writing `i`.
+  const indexedByParameter = changed(body => { body.places[10].base.projection.operand = p(1); body.blocks.pop(); body.blocks[3].terminator.targets[0].target = 6; });
+  assert.deepEqual(lawRules(indexedByParameter, context), []);
+  assert.deepEqual(lawRules(indexedByParameter, passed(1, "byref-readwrite")), ["index-operand-stable"]);
+  // `a[ref i]` is supported source: the value of `i` is saved once in a private local and that local is the index.
+  // The satisfying graph is that lowering (local 7 is the copy), and it stays valid when `i` is by reference.
+  assert.deepEqual(found(good(), passed(1, "byref-readwrite")).filter(violation => LAW_RULES.has(violation.rule)), []);
+});
+
+test("check-place-single compares the views of one node kind by kind", () => {
+  const viewAt = (id, projection) => place(id, { kind: "checked", place: 8, projection, tir: site("a[i]").tir }, T.int32);
+  const constantIndex = constant => ({ kind: "index", operand: { kind: "constant", constant } });
+  // One view of each other kind beside the element a[i]: five kinds, no two alike.
+  assert.deepEqual(laws(changed(body => { body.places.push(viewAt(11, { kind: "field", member: INDEX }), viewAt(12, { kind: "element", index: 0 }),
+    viewAt(13, { kind: "deref" }), viewAt(14, { kind: "capture", index: 0 })); })), []);
+  // Two positional views: the same position, and two positions.
+  assert.deepEqual(laws(changed(body => { body.places.push(viewAt(11, { kind: "element", index: 0 }), viewAt(12, { kind: "element", index: 0 })); })), []);
+  assert.deepEqual(laws(changed(body => { body.places.push(viewAt(11, { kind: "element", index: 0 }), viewAt(12, { kind: "element", index: 1 })); })), ["check-place-single"]);
+  // Two views of a kind without a position are the same view.
+  assert.deepEqual(laws(changed(body => { body.places.push(viewAt(11, { kind: "deref" }), viewAt(12, { kind: "deref" })); })), []);
+  // A second element view indexed by the same place is the same view; indexed by another place it is another.
+  assert.deepEqual(laws(changed(body => { body.places.push(viewAt(11, { kind: "index", operand: p(7) })); })), []);
+  assert.deepEqual(laws(changed(body => { body.places.push(viewAt(11, { kind: "index", operand: p(9) })); })), ["check-place-single"]);
+  // The element a[i] is indexed by a place; a second element view indexed by a constant is another view.
+  assert.deepEqual(laws(changed(body => { body.places.push(viewAt(11, constantIndex(0))); })), ["check-place-single"]);
+  // With a constant index first: the same constant, another constant, a place.
+  const constantFirst = second => changed(body => { body.places[10].base.projection = constantIndex(0); body.places.push(viewAt(11, second)); });
+  assert.deepEqual(laws(constantFirst(constantIndex(0))), []);
+  assert.deepEqual(laws(constantFirst(constantIndex(1))), ["check-place-single"]);
+  assert.deepEqual(laws(constantFirst({ kind: "index", operand: p(7) })), ["check-place-single"]);
+});
+
+test("a call of an internal body stands at the node that names the body, or is the default of a parameter", () => {
+  const DEFAULT = bodyId("laws.o", "default");
+  const callee = { kind: "body", instance: { body: DEFAULT, bindings: PARAMETRIC }, captures: [] };
+  // The omission prologue (block 8) runs the default of `o` into `o`; with a receiver in the second graph.
+  const prologue = receiver => changed(body => {
+    body.blocks[8] = { ...site("for"), id: 8, statements: [], terminator: { ...site("for"), kind: "call", callee, receiver, arguments: [],
+      destination: 2, next: 0, unwind: { kind: "escape" }, step: null } };
+  });
+  const withDefault = { ...context, source: { ...context.source, params: context.source.params.map((parameter, position) =>
+    position === 2 ? { ...parameter, role: "default", initializer: DEFAULT } : parameter) } };
+  const rules = (body, given) => found(body, given).map(violation => violation.rule);
+  // The body is the default of the parameter: the call is not refused as unselected.
+  assert.equal(rules(prologue(null), withDefault).includes("operation-selected"), false);
+  assert.equal(rules(prologue(p(0)), withDefault).includes("operation-selected"), false);
+  // No parameter and no node names it.
+  assert.equal(rules(prologue(null), context).includes("operation-selected"), true);
+});
+
 test("law 3: a stable place stays available across a suspension; a mutable one does not", () => {
   const suspendedThen = statement => staged(body => {
     body.blocks[7].terminator = checkOf(12, "o!", 10);
@@ -544,12 +742,14 @@ test("law 3: a store after a call is checked again through the same saved receiv
 });
 
 test("law 6: a record that performs a step of its node's protocol names the step (R1, R2 L-2)", () => {
-  // The iteration's `next` and `done` steps with no step named.
+  // The iteration's `next` step with no step named.
   assert.deepEqual(all(changed(body => { body.blocks[1].terminator.step = null; })), ["protocol-step-exact"]);
-  assert.deepEqual(all(changed(body => { body.blocks[2].terminator.step = null; })), ["protocol-step-exact"]);
-  // The completion branch with no step named, its targets exchanged: a branch on the result of the `done` step.
+  // The `done` step with no step named: the record is reported, and so is the branch, which names a step no record performs.
+  assert.deepEqual(all(changed(body => { body.blocks[2].terminator.step = null; })), ["protocol-step-exact", "protocol-step-exact"]);
+  // The completion branch with no step named, its targets exchanged: the branch on the result of the `done` step is
+  // reported, and so is the `done` step, which has no branch that names it.
   assert.deepEqual(all(changed(body => { const branch = body.blocks[3].terminator;
-    branch.step = null; branch.targets = [{ constant: 1, target: 4 }]; branch.otherwise = 9; })), ["protocol-step-exact"]);
+    branch.step = null; branch.targets = [{ constant: 1, target: 4 }]; branch.otherwise = 9; })), ["protocol-step-exact", "protocol-step-exact"]);
   // A record that names a step executes that step's operation: the `next` operation named as the `value` step.
   assert.deepEqual(all(changed(body => { body.blocks[1].terminator.step = step(3); })), ["protocol-step-exact"]);
 });
@@ -560,8 +760,8 @@ test("law 6: a protocol step names a step of a protocol of its node, in the form
   assert.deepEqual(laws(changed(body => { body.blocks[1].terminator.step = { protocol: 0, step: 9 }; })), ["protocol-step-exact"]);
   // A call cannot be a step whose selection has no callee.
   assert.deepEqual(laws(changed(body => { body.blocks[5].terminator.tir = site("for").tir; body.blocks[5].terminator.step = step(1); })), ["protocol-step-exact"]);
-  // Only the `done` step is branched on.
-  assert.deepEqual(laws(changed(body => { body.blocks[3].terminator.step = step(1); })), ["protocol-step-exact"]);
+  // Only the `done` step is branched on: the branch names another step, and the `done` step is left without its branch.
+  assert.deepEqual(laws(changed(body => { body.blocks[3].terminator.step = step(1); })), ["protocol-step-exact", "protocol-step-exact"]);
 });
 
 test("law 6: the result of a completion test goes into a local that nothing else writes (R2 M-4)", () => {
@@ -569,6 +769,82 @@ test("law 6: the result of a completion test goes into a local that nothing else
   // ordinary branch on it look like a completion branch.
   assert.deepEqual(all(changed(body => { body.blocks[6].statements.push(
     { ...site("a[i]"), kind: "assign", place: 6, value: { kind: "use", operand: { kind: "constant", constant: 1 } }, step: null }); })), ["protocol-step-exact"]);
+});
+
+test("law 6: the result of a completion test is read by exactly one record, the branch that names its step (R1 N-2)", () => {
+  // The `done` step delivers nowhere: it has no result to branch on, and the branch names a step with no result.
+  assert.deepEqual(laws(changed(body => { body.blocks[2].terminator.destination = null; })), ["protocol-step-exact", "protocol-step-exact"]);
+  // The result is also read by another record.
+  assert.deepEqual(laws(changed(body => { body.blocks[7].statements.push(
+    { ...site("return"), kind: "assign", place: 9, value: { kind: "use", operand: p(6) }, step: null }); })), ["protocol-step-exact"]);
+  // The result is never branched on: the loop has no completion edge.
+  assert.deepEqual(laws(changed(body => { body.blocks[3].terminator = { ...site("for"), kind: "goto", target: 4 }; })), ["protocol-step-exact"]);
+  // R1: the branch is on a copy of the result, unnamed and with its targets exchanged.
+  assert.deepEqual(laws(changed(body => {
+    body.locals.push(local(10, T.bool, { kind: "temporary" }));
+    body.places.push(place(11, { kind: "local", local: 10 }, T.bool));
+    body.blocks[0].statements.push({ ...site("for"), kind: "storage-live", local: 10 });
+    body.blocks[3].statements.push({ ...site("for"), kind: "assign", place: 11, value: { kind: "use", operand: p(6) }, step: null });
+    body.blocks[3].terminator = { ...site("for"), kind: "switch", operand: p(11), targets: [{ constant: 1, target: 4 }], otherwise: 9, step: null };
+  })), ["protocol-step-exact"]);
+  // A branch that names the `done` step and reads another local.
+  assert.deepEqual(laws(changed(body => { body.blocks[3].terminator.operand = p(1); })), ["protocol-step-exact", "protocol-step-exact"]);
+});
+
+test("law 6: a statement that executes a step's operation is held to the same rule as a control point", () => {
+  const stepStatement = (operation, named) => changed(body => { body.blocks[4].statements.push(
+    { ...site("for"), kind: "assign", place: 3, value: { kind: "unary", operation, operand: p(5) }, step: named }); });
+  // It names the step whose operation it executes.
+  assert.deepEqual(laws(stepStatement(VALUE, step(3))), []);
+  // It executes a step's operation and names no step.
+  assert.deepEqual(laws(stepStatement(VALUE, null)), ["protocol-step-exact"]);
+  // It names a step and executes another operation.
+  assert.deepEqual(laws(stepStatement(NEXT, step(3))), ["protocol-step-exact"]);
+});
+
+/** Block 7 ends in a suspension at the given node (a label, or a site record), continuing to a new block 10 that returns. */
+const suspendAt = (body, node, kind, named) => {
+  const at = typeof node === "string" ? site(node) : node;
+  const common = { ...at, kind, destination: 5, resume: 10, unwind: { kind: "escape" }, step: named };
+  body.blocks[7].terminator = kind === "await" ? { ...common, operand: p(4) }
+    : kind === "yield" ? { ...common, operand: p(4), return: { destination: 5, target: 10 } }
+      : { ...common, iterator: p(4), return: { destination: 5, target: 10 } };
+  body.blocks.push({ ...site("return"), id: 10, statements: [], terminator: { ...site("return"), kind: "return", value: p(9) } });
+};
+
+test("law 6: a suspension names its protocol, and the step it performs where one is listed", () => {
+  const asynchronous = { ...context, source: { ...context.source, asynchronous: true } };
+  const generator = { ...context, source: { ...context.source, generator: true } };
+  const rules = (given, node, kind, named) => found(changed(body => { suspendAt(body, node, kind, named); }), given)
+    .filter(violation => LAW_RULES.has(violation.rule)).map(violation => violation.rule);
+  const first = { protocol: 0, step: 0 };
+  // An await whose protocol lists no step names the protocol.
+  assert.deepEqual(rules(asynchronous, "await#bare", "await", first), []);
+  assert.deepEqual(rules(asynchronous, "await#bare", "await", null), ["protocol-step-exact"]);
+  assert.deepEqual(rules(asynchronous, "await#bare", "await", { protocol: 0, step: 1 }), ["protocol-step-exact"]);
+  assert.deepEqual(rules(asynchronous, "await#bare", "await", { protocol: 1, step: 0 }), ["protocol-step-exact"]);
+  // An await whose protocol lists its step names that step.
+  assert.deepEqual(rules(asynchronous, "await#step", "await", first), []);
+  assert.deepEqual(rules(asynchronous, "await#step", "await", null), ["protocol-step-exact"]);
+  // A step of another role is not an await: the iteration's `next`.
+  assert.deepEqual(rules(asynchronous, "for", "await", step(1)), ["protocol-step-exact"]);
+  // At a node that has no await protocol an await names nothing.
+  assert.deepEqual(rules(asynchronous, "return", "await", null), []);
+  // A yield and a delegation name their protocol.
+  assert.deepEqual(rules(generator, "yield", "yield", first), []);
+  assert.deepEqual(rules(generator, "yield", "yield", null), ["protocol-step-exact"]);
+  assert.deepEqual(rules(generator, "yield", "yield", { protocol: 1, step: 0 }), ["protocol-step-exact"]);
+  assert.deepEqual(rules(generator, "yield", "yield", { protocol: 0, step: 3 }), ["protocol-step-exact"]);
+  assert.deepEqual(rules(generator, "yield*", "delegate", first), []);
+  assert.deepEqual(rules(generator, "yield*", "yield", first), ["protocol-step-exact"]);
+  assert.deepEqual(rules(generator, "return", "yield", null), []);
+  // A suspension at a node the body does not have is reported by the rule of law 10, and by no law rule here.
+  const nowhere = { origin: site("return").origin, tir: { body: BODY, node: 9999 } };
+  assert.deepEqual(rules(asynchronous, nowhere, "await", null), []);
+  assert.deepEqual(rules(generator, nowhere, "yield", null), []);
+  // Law 5: a yield stands only in a generator.
+  assert.deepEqual(rules(context, "yield", "yield", first), ["suspension-admitted"]);
+  assert.deepEqual(rules(context, "yield*", "delegate", first), ["suspension-admitted"]);
 });
 
 test("law 6: the completion branch of an iteration has one canonical shape", () => {
@@ -624,7 +900,8 @@ test("law 5: the completion of a handle is one record: a step has one completion
   assert.deepEqual(all(changed(body => {
     body.blocks.push({ ...site("for"), id: 10, statements: [], terminator: { ...body.blocks[3].terminator, targets: [{ constant: 1, target: 9 }] } });
     body.blocks[3].terminator.otherwise = 10;
-  })), ["effect-site-unique"]);
+  })), ["effect-site-unique", "protocol-step-exact"]);
+  // (the second finding is law 6's: the result of the `done` step is read by two records, not by its one branch)
 });
 
 test("law 10: every record names a node of the typed body", () => {
