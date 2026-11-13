@@ -3629,7 +3629,7 @@ test("HIR actual declaration passing captures preserve every closed mode on the 
 });
 
 test("HIR callable endpoints retain advertised, API-signature and real API-body owners in both supplied orders", () => {
-  for (const reversed of [false, true]) for (const count of [0, 1, 3]) {
+  for (const reversed of [false, true]) for (const count of [0, 2, 3]) {
     const { value, declaration, body } = functionModule([]);
     const roles = ["advertised", "api-signature", "api-body"].slice(0, count);
     if (reversed) roles.reverse();
@@ -3642,7 +3642,30 @@ test("HIR callable endpoints retain advertised, API-signature and real API-body 
   declaration.tsonic.signatures = [{ declaration: body.owner, role: "api-body", signature: 0, body: null }];
   assert.deepStrictEqual(product.verifyHir((value), contextFor(value, {
     types: { terms: [{ kind: "primitive", primitive: "int32" }], signatures: [signature({ declaration: body.owner })] },
-  })), [violation("candidate-endpoints", nodeSite(declaration.id), "callable endpoint declaration, signature and body must agree")]);
+  })), [violation("candidate-endpoints", nodeSite(declaration.id), "callable endpoint declaration, signature and body must agree"),
+    violation("candidate-endpoints", nodeSite(declaration.id), roleLaw)]);
+});
+
+// K-3312.1: the roles over a declaration's complete endpoint family, judged with hasOverloadEndpoints and
+// selectedEndpointRoleFaults. Expectations written before the run.
+const roleLaw = "callable endpoint roles must form one family: advertised rows only with an API endpoint, API bodies with their body";
+test("HIR endpoint roles over the whole family: a plain function's one API body, a bodiless API signature and a real overload family are accepted; an advertised row with no API endpoint and an API signature with a body are refused", () => {
+  const judge = (shape) => {
+    const { value, declaration, body } = functionModule([]);
+    declaration.tsonic.signatures = shape.map(([role, hasBody]) => ({ declaration: body.owner, role, signature: 0, body: hasBody ? body.body : null }));
+    const context = contextFor(value, { types: { terms: [{ kind: "primitive", primitive: "int32" }], signatures: [signature({ declaration: body.owner })] } });
+    return { violations: product.verifyHir(value, context), site: nodeSite(declaration.id) };
+  };
+  for (const [label, shape] of [["plain function", [["api-body", true]]], ["bodiless declaration", [["api-signature", false]]],
+    ["overload family with an implementation", [["advertised", false], ["advertised", false], ["api-body", true]]],
+    ["overload family of a declaration", [["advertised", false], ["api-signature", false]]]]) assert.deepStrictEqual(judge(shape).violations, [], label);
+  for (const [label, shape] of [["the old misrole: one advertised row with the body", [["advertised", true]]],
+    ["advertised rows and no API endpoint", [["advertised", false], ["advertised", false]]],
+    ["an API signature with a body", [["api-signature", true]]],
+    ["an overload family whose API signature has a body", [["advertised", false], ["api-signature", true]]]]) {
+    const { violations, site } = judge(shape);
+    assert.deepStrictEqual(violations, [violation("candidate-endpoints", site, roleLaw)], label);
+  }
 });
 
 test("HIR source-file scalar arms and ordered syntax/token flags roundtrip as exact captured data", () => {
@@ -4216,8 +4239,9 @@ for (const invalid of [false, true])
 for (const invalid of [false, true])
   test(`HIR callable advertised signature ${invalid ? "invalid numeric data" : "actual row"} preserves all real endpoint fields`, () => {
     const { value, declaration } = functionModule([]);
+    // K-3312.1: an advertised row belongs to an overload family with an API endpoint to dispatch to.
     declaration.tsonic.signatures = [{ role: "advertised", declaration: declaration.tsonic.definition,
-      body: null, signature: ids.sigId(invalid ? NaN : 0) }];
+      body: null, signature: ids.sigId(invalid ? NaN : 0) }, { role: "api-signature", declaration: declaration.tsonic.definition, body: null, signature: ids.sigId(0) }];
     const context = contextFor(value, { types: { terms: [{ kind: "primitive", primitive: "int32" }],
       signatures: [signature({ declaration: declaration.tsonic.definition })] } });
     assert.deepStrictEqual(product.verifyHir((value), context), invalid ? [

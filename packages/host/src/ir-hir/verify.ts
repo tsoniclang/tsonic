@@ -11,6 +11,7 @@ import type { HirBindingRequest, HirIdentityPaths } from "./verify-bindings.js";
 import { createHirSchema, verifyHirCaptures, verifyHirPlaces } from "./verify-captures.js";
 import type { HirCaptureReaders } from "./verify-captures.js";
 import { syntaxChildEdges } from "./children.js";
+import { hasOverloadEndpoints, selectedEndpointRoleFaults } from "./endpoints.js";
 import { hirChildPath, hirDataPathText } from "./walk.js";
 import type { HirDataPath } from "./walk.js";
 
@@ -414,6 +415,18 @@ function candidateViolations(inventory: HirInventory, context: HirVerificationCo
         endpoint.declaration !== metadata.definition || (endpoint.role === "api-body" && endpoint.body === null) ||
         (endpoint.body !== null && inventory.bodies.get(endpoint.body)?.owner !== endpoint.declaration))
         report("candidate-endpoints", site, "callable endpoint declaration, signature and body must agree");
+    }
+    if (metadata !== null && "signatures" in metadata && metadata.signatures.length > 0) {
+      // The roles over the declaration's complete endpoint family, by the same law a selected application obeys: a family
+      // without advertised rows is its own API endpoints; an overloaded family pairs each advertised row with each API
+      // endpoint. A family with advertised rows and no API endpoint has nothing to dispatch to.
+      const family = metadata.signatures;
+      const overloaded = hasOverloadEndpoints(family);
+      const api = family.filter(endpoint => endpoint.role !== "advertised");
+      const faulted = api.length === 0 || api.some(endpoint => overloaded
+        ? family.some(advertised => advertised.role === "advertised" && selectedEndpointRoleFaults(true, advertised, endpoint) !== 0)
+        : selectedEndpointRoleFaults(false, endpoint, endpoint) !== 0);
+      if (faulted) report("candidate-endpoints", site, "callable endpoint roles must form one family: advertised rows only with an API endpoint, API bodies with their body");
     }
     if (node.kind === "AwaitExpression" || node.kind === "SpreadElement" || node.kind === "YieldExpression" ||
       node.kind === "ForOfStatement" || node.kind === "ForInStatement") verifyProtocol(node, site, report);

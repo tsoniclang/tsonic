@@ -661,7 +661,10 @@ test("checkpoint 1: add is opened through the checker and the snapshot, captured
   const callable = at(1).tsonic;
   assert.deepEqual([callable.definition, callable.parent, callable.body, callable.parameters], [addDefinition, moduleDefinition, addBody, []]);
   assert.equal(callable.signatures.length, 1);
-  assert.deepEqual({ ...callable.signatures[0], signature: null }, { declaration: addDefinition, role: "advertised", signature: null, body: addBody });
+  assert.deepEqual({ ...callable.signatures[0], signature: null }, { declaration: addDefinition, role: "api-body", signature: null, body: addBody });
+  // K-3312.1: add is not overloaded; a call of it selects its one endpoint as both the advertised and the API endpoint.
+  assert.equal(hir.hasOverloadEndpoints(callable.signatures), false);
+  assert.equal(hir.selectedEndpointRoleFaults(false, callable.signatures[0], callable.signatures[0]), 0);
   const signature = types.readSignature(interner, callable.signatures[0].signature);
   assert.deepEqual([signature.declaration, signature.kind, signature.receiver, signature.result], [addDefinition, "call", null, float64]);
   assert.deepEqual(signature.parameters, [

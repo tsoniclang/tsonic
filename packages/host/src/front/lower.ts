@@ -247,7 +247,9 @@ function functionDeclaration(lowering: Lowering, node: Hir.FunctionDeclaration<S
     body: loweredBody,
     name: name === null ? null : { ...headerOf(name), kind: "Identifier", text: name.text, tsonic: { core: absentCoreOf(), role: "declaration-name", declaration: { kind: "definition", definition } } },
     tsonic: { core: absentCoreOf(), parent: owner, attributes: [], memory: { kind: "available", value: null }, definition, parameters: [],
-      signatures: [{ declaration: definition, role: "advertised", signature, body }], body } };
+      // One API body endpoint with its real body: a written function is not overloaded (an overload family is refused
+      // by the written-kinds check, as a FunctionDeclaration without a body), so it has no advertised row (K-3312.1).
+      signatures: [{ declaration: definition, role: "api-body", signature, body }], body } };
 }
 
 /**
