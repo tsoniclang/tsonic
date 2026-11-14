@@ -175,7 +175,7 @@ export function publicationShape(selected: PublicationRecord): PublicationShape 
       return { work: 4, references: Number(value.constraint !== null) + Number(value.default !== null), children: [{ kind: "parameter-identity", value: value.identity }] };
     }
     case "signature-parameter": {
-      return { work: 5, references: 1, children: [] };
+      return { work: 6, references: 1, children: [] };
     }
     case "tuple-element": {
       return { work: 3, references: 1, children: [] };

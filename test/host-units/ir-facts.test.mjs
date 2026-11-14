@@ -1243,7 +1243,7 @@ test("ir-facts: all twenty-one actual emitted ports, full closed logic and fresh
   await factOpposite("nested callable and default initializer values belong only to their actual bodies", (input, supplied) => {
     const callableBody = ids.encodeBodyId({ owner: definitions.callee, role: "function", ordinal: 0 });
     const defaultBody = ids.encodeBodyId({ owner: definitions.parameter, role: "default-argument", ordinal: 0 });
-    supplied.types.signatures.push(signature(1, [{ declaration: definitions.parameter, kind: "default", type: 0, passing: "by-value", initializer: defaultBody }], null, definitions.callee));
+    supplied.types.signatures.push(signature(1, [{ declaration: definitions.parameter, kind: "default", type: 0, passing: "by-value", initializer: defaultBody, acceptsOmission: true }], null, definitions.callee));
     supplied.types.terms.push({ kind: "callable", calls: [1], constructs: [] });
     const value = (id, parent) => ({ ...header(id, parent), kind: "Identifier", text: "outer", tsonic: {
       ...typedValue(), role: "value", resolution: { kind: "local", local: { body, local: 0 } },
@@ -1364,7 +1364,7 @@ test("ir-facts: all twenty-one actual emitted ports, full closed logic and fresh
   [violation("counted-loop-conditions-exact", nodeSite(1), loopMessage)]);
 
   const completePaths = () => ({ kind: "complete", paths: [] });
-  const parameter = (declaration = definitions.parameter, type = 0) => ({ declaration, kind: "required", type, passing: "by-value", initializer: null });
+  const parameter = (declaration = definitions.parameter, type = 0) => ({ declaration, kind: "required", type, passing: "by-value", initializer: null, acceptsOmission: false });
   const summarySite = (provided = 0) => ({ kind: "summary", summary: { kind: "body", execution: { instance: instance(), provided } } });
   const summaryOpposite = async (name, prepare, amend, expected) => suite.test(`summary ${name}`, () => {
     const supplied = setup(); const input = summary();
@@ -1640,6 +1640,7 @@ test("ir-facts: all twenty-one actual emitted ports, full closed logic and fresh
     const alternative = input.origins.invocations[0].alternatives[0];
     const initializer = ids.encodeBodyId({ owner: definitions.capture, role: "default-argument", ordinal: 0 });
     const formal = supplied.types.signatures[1].parameters[1]; formal.kind = kind === "default" ? "default" : "optional";
+    formal.acceptsOmission = true;
     formal.initializer = kind === "default" ? initializer : null;
     alternative.resolution.decision.parameters[1] = kind === "default" ? { kind, parameter: 1, initializer } : { kind, parameter: 1, type: 1 };
     alternative.arguments[1].authoredIndex = null;
@@ -2408,7 +2409,7 @@ test("ir-facts: all twenty-one actual emitted ports, full closed logic and fresh
   }, input => amend(input.arena.projections[2].projection.member.decision.getter),
   [violation(rule, arenaSite("projection", "projection", 2), message)]);
   const accessorSelection = (input, supplied) => {
-    const formal = parameter(); formal.kind = "optional";
+    const formal = parameter(); formal.kind = "optional"; formal.acceptsOmission = true;
     supplied.types.signatures.push(signature(1, [formal], null, definitions.callee));
     const endpoint = role => ({ declaration: definitions.callee, role, signature: 1, body: null });
     const selected = member(); selected.decision.getter = endpoint("api-signature"); selected.decision.location = { kind: "accessor" };
@@ -4344,7 +4345,7 @@ test("ir-facts: all twenty-one actual emitted ports, full closed logic and fresh
     for (const provided of [0, 1, 2]) {
       const input = emptyFacts(); input.execution.provided = provided;
       const supplied = setup(input, []);
-      const parameters = [definitions.parameter, definitions.capture].map(declaration => ({ declaration, kind: "optional", type: 0, passing: "by-value", initializer: null }));
+      const parameters = [definitions.parameter, definitions.capture].map(declaration => ({ declaration, kind: "optional", type: 0, passing: "by-value", initializer: null, acceptsOmission: true }));
       supplied.types.signatures[0].parameters = parameters;
       supplied.tir.params = parameters.map((parameter, local) => ({ local, declaration: parameter.declaration, role: parameter.kind,
         passing: parameter.passing, initializer: null, storage: 0 }));

@@ -485,7 +485,7 @@ export function genericCarrierCase(fixture, kind) {
   const signatures = callable ? [signature, { ...signature, id: 1, receiver: kind === "owned-callable" ? null : 3, result: 2,
     typeParameters: kind === "owned-callable" ? [{ identity: { owner: declaration, index: 0 }, declaration, constraint: 0, default: 0 }] : [],
     declaration: kind === "owned-callable" ? declaration : signature.declaration, parameters: [
-    { declaration: fixture.definition, kind: "required", type: 2, passing: "by-value", initializer: null },
+    { declaration: fixture.definition, kind: "required", type: 2, passing: "by-value", initializer: null, acceptsOmission: false },
   ] }] : [signature];
   if (kind === "composed-callable") signatures.push({ ...signatures[1], id: 2, composition: { kind: "union", signatures: [1] } });
   const types = { terms: [fixture.index.types.terms[0], { kind: "string" }, { kind: "param", parameter },
@@ -563,8 +563,8 @@ export function transportTypeTable(fixture) {
       { identity: { owner: definition, index: 0 }, declaration: definition, constraint: 1, default: 2 },
       { identity: { owner: definition, index: 1 }, declaration: definition, constraint: null, default: null },
     ], receiver: 1, parameters: [
-      { declaration: definition, kind: "required", type: 1, passing: "by-value", initializer: null },
-      { declaration: definition, kind: "optional", type: 2, passing: "borrow-shared", initializer: null },
-      { declaration: definition, kind: "default", type: 1, passing: "move", initializer: fixture.bodyId },
+      { declaration: definition, kind: "required", type: 1, passing: "by-value", initializer: null, acceptsOmission: false },
+      { declaration: definition, kind: "optional", type: 2, passing: "borrow-shared", initializer: null, acceptsOmission: true },
+      { declaration: definition, kind: "default", type: 1, passing: "move", initializer: fixture.bodyId, acceptsOmission: true },
     ], result: 0 }] };
 }

@@ -133,7 +133,8 @@ function signature(value: Signature | SignatureInput): TextRecord {
     ["receiver", value.receiver === null ? null : reference("t", value.receiver)],
     ["parameters", value.parameters.map(selected => record("SignatureParameter", selected,
       ["declaration", reference("def", selected.declaration)], ["kind", selected.kind], ["type", reference("t", selected.type)],
-      ["passing", selected.passing], ["initializer", selected.initializer === null ? null : reference("body", selected.initializer)]))],
+      ["passing", selected.passing], ["initializer", selected.initializer === null ? null : reference("body", selected.initializer)],
+      ["acceptsOmission", selected.acceptsOmission]))],
     ["result", reference("t", value.result)]);
   return record("id" in value ? "Signature" : "SignatureInput", value, ...fields);
 }

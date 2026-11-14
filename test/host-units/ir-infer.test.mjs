@@ -154,7 +154,7 @@ test("group ownership, stable variable namespaces and final record totality have
   const partInput = { group: { id: group, bodies: [body], signatures: [part] },
     declarations: [[definition, { ...declarationFacts, parameterCount: 1 }]],
     types: { terms: [{ kind: "primitive", primitive: "int32" }], signatures: [{ ...signature, parameters: [
-      { declaration: parameterDeclaration, kind: "default", type: 0, passing: "by-value", initializer: `B[${parameterDeclaration};default-argument;0]` },
+      { declaration: parameterDeclaration, kind: "default", type: 0, passing: "by-value", initializer: `B[${parameterDeclaration};default-argument;0]`, acceptsOmission: true },
     ] }] } };
   ruleCase("inferred-part-identity", partInput, { ...partInput, group: { ...partInput.group,
     signatures: [{ ...part, part: { kind: "parameter-initializer", index: 1 } }] } },
@@ -601,7 +601,7 @@ test("type and signature closure follows every actual arena edge without travers
   ];
   const extra = { ...signature, id: 1, declaration: null, owner: null, kind: "construct",
     typeParameters: [{ identity: parameter, declaration: parameterDeclaration, constraint: 0, default: 1 }],
-    receiver: 0, parameters: [{ declaration: parameterDeclaration, kind: "required", type: 0, passing: "by-value", initializer: null }],
+    receiver: 0, parameters: [{ declaration: parameterDeclaration, kind: "required", type: 0, passing: "by-value", initializer: null, acceptsOmission: false }],
     result: 19 };
   const constraints = terms.map((term, index) => ({ kind: "eq", occurrence: { body, node: index }, left: index, right: 0 }));
   const contributions = constraints.map((constraint, index) => ({ key: { node: constraint.occurrence, candidate: null,
@@ -1037,7 +1037,7 @@ test("actual formal tables and canonical endpoint associations are independent o
   const argument = { occurrence: { body, node: 1 }, kind: "value", type: 0, tuple: null, closure: null };
   const application = { captured: captureGolden.value, permissionScope: null, callee: 0, receiver: null, typeArguments: [], arguments: [argument], candidates: 0, result: 0 };
   const set = { ...constraintSet([{ kind: "call", occurrence, application }]), candidates: [{ id: 0, candidates: [candidate] }] };
-  const parameter = { declaration: `D[${moduleIdentity};run/argument]`, kind: "required", type: 0, passing: "by-value", initializer: null };
+  const parameter = { declaration: `D[${moduleIdentity};run/argument]`, kind: "required", type: 0, passing: "by-value", initializer: null, acceptsOmission: false };
   const signatureValue = { ...signature, parameters: [parameter] };
   const selected = { ...applicationGolden().value, parameters: [{ kind: "argument", parameter: 0, argument: 0, component: null, passing: "by-value" }] };
   const solved = value => ({ ...completeSolution(), constraints: [{ constraint: { body, index: 0 }, decision: { kind: "call", application: value, operation: null } }] });
@@ -1123,6 +1123,7 @@ test("overloads map optional, default and rest implementation formals rather tha
     typeArguments: [], arguments: [], candidates: 0, result: 0 };
   const constraints = [{ ...constraintSet([{ kind: "call", occurrence, application }]), candidates: [{ id: 0, candidates: [candidate] }] }];
   for (const [kind, mapping, wrong] of [
+    ["required", { kind: "omitted", parameter: 0, type: 0 }, { kind: "omitted", parameter: 0, type: 1 }],
     ["optional", { kind: "omitted", parameter: 0, type: 0 }, { kind: "omitted", parameter: 0, type: 1 }],
     ["default", { kind: "default", parameter: 0, initializer }, { kind: "default", parameter: 0, initializer: body }],
     ["rest", { kind: "rest", parameter: 0, arguments: [], passing: "by-value" },
@@ -1134,7 +1135,7 @@ test("overloads map optional, default and rest implementation formals rather tha
     const solved = parameters => ({ ...completeSolution(), bodies: [{ ...bodyTyping, signature: 1 }],
       constraints: [{ constraint: { body, index: 0 }, decision: { kind: "call", application: { ...selected, parameters }, operation: null } }] });
     const implementation = { ...signature, id: 1, parameters: [{ declaration: `D[${moduleIdentity};run/implementation]`,
-      kind, type: 0, passing: "by-value", initializer: kind === "default" ? initializer : null }] };
+      kind, type: 0, passing: "by-value", initializer: kind === "default" ? initializer : null, acceptsOmission: true }] };
     const input = { constraints, solution: solved([mapping]), bindingScopes: [emptyScope, emptyScope],
       declarations: [[definition, { ...declarationFacts, parameterCount: 1, endpoints: [selected.advertised, api,
         ...(role === "api-signature" ? [{ ...api, role: "api-body", body }] : [])] }]],
@@ -1302,7 +1303,7 @@ test("bodyless APIs retain their own complete generic environment independently 
 test("all four formal mapping dispositions use the real signature and authored argument domain", () => {
   const initializer = `B[D[${moduleIdentity};run/defaulted];default-argument;0]`;
   const formal = (name, kind, passing = "by-value") => ({ declaration: `D[${moduleIdentity};run/${name}]`,
-    kind, type: 0, passing, initializer: kind === "default" ? initializer : null });
+    kind, type: 0, passing, initializer: kind === "default" ? initializer : null, acceptsOmission: kind !== "required" });
   const signatureValue = { ...signature, parameters: [formal("required", "required"), formal("defaulted", "default"),
     formal("optional", "optional"), formal("remaining", "rest", "byref-readwrite")] };
   const arguments_ = [
@@ -1335,6 +1336,12 @@ test("all four formal mapping dispositions use the real signature and authored a
     [3, { ...parameters[3], arguments: [2, 1] }, "arguments"],
     [3, { ...parameters[3], arguments: [3] }, "arguments"],
   ];
+  for (const position of [1, 2]) {
+    const value = { ...input, types: { ...input.types, signatures: [{ ...signatureValue,
+      parameters: signatureValue.parameters.map((parameter, index) => index === position ? { ...parameter, acceptsOmission: false } : parameter) }] } };
+    ruleCase("parameter-mapping-total", input, value,
+      [violation("parameter-mapping-total", constraintSite(0), "formal")], "actual selected omission capability is independently required");
+  }
   for (const [index, value, field] of opposites) {
     const changed = parameters.map((parameter, ordinal) => ordinal === index ? value : parameter);
     ruleCase("parameter-mapping-total", input, { ...input, solution: solved(changed) },
@@ -1381,7 +1388,7 @@ test("inferred signature parts preserve every actual owner and indexed initializ
   const variables = parts.map((part, id) => ({ kind: "signature", id, occurrence, signature: part }));
   const parameters = [0, 1].map(index => {
     const declaration = `D[${moduleIdentity};run/argument${index}]`;
-    return { declaration, kind: "default", type: 0, passing: "by-value", initializer: `B[${declaration};default-argument;0]` };
+    return { declaration, kind: "default", type: 0, passing: "by-value", initializer: `B[${declaration};default-argument;0]`, acceptsOmission: true };
   });
   const input = { group: { id: group, bodies: [body], signatures: parts }, constraints: [constraintSet([], variables)],
     declarations: [[definition, { ...declarationFacts, parameterCount: 2 }]],
@@ -1569,7 +1576,7 @@ test("saved accessor and helper inputs use genuine endpoint and declaration fact
   }
   const helper = `D[${moduleIdentity};nativeHelper]`;
   const helperSignature = { ...signature, id: 1, declaration: helper, owner: null, parameters: [0, 1].map(index => ({
-    declaration: `D[${moduleIdentity};nativeHelper/argument${index}]`, kind: "required", type: 0, passing: "by-value", initializer: null,
+    declaration: `D[${moduleIdentity};nativeHelper/argument${index}]`, kind: "required", type: 0, passing: "by-value", initializer: null, acceptsOmission: false,
   })) };
   const helperFacts = { scope: emptyScope, parameterCount: 2, endpoints: [
     { declaration: helper, role: "advertised", signature: 1, body: null },

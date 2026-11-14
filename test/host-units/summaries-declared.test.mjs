@@ -117,7 +117,7 @@ test("genuine no-guarantee invocation retains the exact ready declaration source
 });
 
 test("provided entries count selected fixed slots rather than authored argument positions", () => {
-  const first = { declaration: definition("first-parameter"), kind: "required", type: 0, passing: "by-value", initializer: null };
+  const first = { declaration: definition("first-parameter"), kind: "required", type: 0, passing: "by-value", initializer: null, acceptsOmission: false };
   const value = fixture([first]);
   value.deps.parameters[0] = { kind: "argument", parameter: 0, argument: 1, component: null, passing: "by-value" };
   assert.equal(summary(value.deps, value.input).key.execution.provided, 1, "an empty authored spread does not occupy a fixed entry slot");
@@ -128,7 +128,7 @@ test("provided entries count selected fixed slots rather than authored argument 
   ];
   assert.equal(summary(pair.deps, pair.input).key.execution.provided, 2, "two selected tuple components retain one authored argument identity");
   assert.throws(() => bindDeclaredSummary(value.deps, { ...value.input, execution: { ...value.input.execution, provided: 0 } }), /admissible provided-count/u);
-  const optional = fixture([{ ...first, kind: "optional" }]);
+  const optional = fixture([{ ...first, kind: "optional", acceptsOmission: true }]);
   optional.input.execution.provided = 0;
   assert.throws(() => bindDeclaredSummary(optional.deps, optional.input), /actual passing mode/u);
   for (const argument of [NaN, Infinity, -1, -0, 0.5]) {
@@ -138,8 +138,8 @@ test("provided entries count selected fixed slots rather than authored argument 
 
 test("default, optional and rest transports stay distinct from actual supplied fixed arguments", () => {
   const declaration = definition("default-parameter");
-  const parameters = [{ declaration, kind: "optional", type: 0, passing: "by-value", initializer: null },
-    { declaration: definition("rest-parameter"), kind: "rest", type: 0, passing: "by-value", initializer: null }];
+  const parameters = [{ declaration, kind: "optional", type: 0, passing: "by-value", initializer: null, acceptsOmission: true },
+    { declaration: definition("rest-parameter"), kind: "rest", type: 0, passing: "by-value", initializer: null, acceptsOmission: true }];
   const value = fixture(parameters);
   value.input.execution.provided = 0;
   value.deps.parameters = [{ kind: "omitted", parameter: 0, type: 0 }, { kind: "rest", parameter: 1, arguments: [], passing: "by-value" }];
@@ -152,10 +152,25 @@ test("default, optional and rest transports stay distinct from actual supplied f
   assert.throws(() => bindDeclaredSummary({ ...value.deps, parameters: [] }, value.input), /complete parameter transport/u);
   assert.throws(() => bindDeclaredSummary({ ...value.deps, parameters: [{ kind: "argument", argument: 0, parameter: 0, component: null, passing: "by-value" }, value.deps.parameters[1]] }, value.input), /actual passing mode/u);
   const initializer = encodeBodyId({ owner: declaration, role: "initializer", ordinal: 0 });
-  const defaults = fixture([{ declaration, kind: "default", type: 0, passing: "by-value", initializer }]);
+  const defaults = fixture([{ declaration, kind: "default", type: 0, passing: "by-value", initializer, acceptsOmission: true }]);
   defaults.input.execution.provided = 0;
   defaults.deps.parameters = [{ kind: "default", parameter: 0, initializer }];
   assert.equal(summary(defaults.deps, defaults.input).key.execution.provided, 0);
   assert.throws(() => bindDeclaredSummary({ ...defaults.deps, parameters: [{ kind: "default", parameter: 0,
     initializer: encodeBodyId({ owner: declaration, role: "initializer", ordinal: 1 }) }] }, defaults.input), /actual selected initializer/u);
+});
+
+test("a selected required omission capability preserves syntax, entry count and actual omission transport", () => {
+  const declaration = definition("required-omission");
+  const value = fixture([{ declaration, kind: "required", type: 0, passing: "by-value", initializer: null, acceptsOmission: true }]);
+  value.input.execution.provided = 0;
+  value.deps.parameters = [{ kind: "omitted", parameter: 0, type: 0 }];
+  assert.equal(summary(value.deps, value.input).key.execution.provided, 0);
+  assert.equal(value.deps.signature.parameters[0].kind, "required");
+  const notAdmitted = { ...value.deps, signature: { ...value.deps.signature,
+    parameters: [{ ...value.deps.signature.parameters[0], acceptsOmission: false }] } };
+  assert.throws(() => bindDeclaredSummary(notAdmitted, value.input), /admissible provided-count/u);
+  value.input.execution.provided = 1;
+  value.deps.parameters = [{ kind: "argument", parameter: 0, argument: 1, component: null, passing: "by-value" }];
+  assert.equal(summary(value.deps, value.input).key.execution.provided, 1);
 });

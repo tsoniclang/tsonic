@@ -444,7 +444,7 @@ function genericFunctionScenario(nodes = { callable: 2, typeParameter: 3, typeNa
   const module = { module: moduleId, tree: outer.root, bodies: [outer, functionTemplate, ...instances] };
   const signature = (id, type, typeParameters) => ({ id, declaration: definition,
     owner: { kind: "body", value: { body: functionBody, node: nodes.callable } }, composition: null, kind: "call", typeParameters,
-    receiver: null, parameters: [{ declaration: valueDefinition, kind: "required", type, passing: "by-value", initializer: null }], result: type });
+    receiver: null, parameters: [{ declaration: valueDefinition, kind: "required", type, passing: "by-value", initializer: null, acceptsOmission: false }], result: type });
   const types = { terms: [{ kind: "intrinsic", intrinsic: "unknown" }, { kind: "param", parameter: identity },
     { kind: "string" }, { kind: "primitive", primitive: "int32" }, { kind: "callable", calls: [1], constructs: [] }],
   signatures: [initial.types.signatures[0], signature(1, 1, [parameter]), signature(2, 2, []), signature(3, 3, [])] };
@@ -592,7 +592,7 @@ function twoParameterScenario() {
     body.locals.push({ id: 1, declaration: source, name: "w", role: "parameter", storage, capturedFrom: null, mutable: true });
   }
   for (const signature of fixture.types.signatures.slice(1)) signature.parameters.push({ declaration: definition,
-    kind: "required", type: signature.result, passing: "by-value", initializer: null });
+    kind: "required", type: signature.result, passing: "by-value", initializer: null, acceptsOmission: false });
   fixture.declarations.get(fixture.definition).parameterCount = 2;
   fixture.declarations.set(definition, { scope: fixture.scope, parameterCount: 0, endpoints: [] });
   for (const node of [parameter, name]) { fixture.functionNodes.set(node.id, node); fixture.outerNodes.set(node.id, node); }
@@ -833,7 +833,7 @@ function argumentScenario(form = "whole", passing = "by-value") {
   const values = form === "values";
   const tuple = form === "unknown" ? null : form === "empty" || omitted ? [] : [2, 2];
   const formal = (name, kind, type, initializer = null) => ({ declaration: `D[M[P[api];collections];f/${name}]`,
-    kind, type, passing, initializer });
+    kind, type, passing, initializer, acceptsOmission: kind !== "required" });
   const parameters = form === "whole" ? [formal("head", "required", 2), formal("tail", "rest", 4)]
     : [formal("tail", form === "optional" ? "optional" : form === "default" ? "default" : "rest",
       omitted && form !== "empty-rest" ? 2 : 4, form === "default" ? initializerBody : null)];
@@ -4669,7 +4669,7 @@ test("the closed signature graph includes its real receiver, parameter, constrai
   input.types.signatures.push({ id: 1, declaration: ownerId,
     owner: { kind: "body", value: { body: bodyId, node: 0 } }, composition: { kind: "intersection", signatures: [0] },
     kind: "call", typeParameters: [{ identity: { owner: ownerId, index: 0 }, declaration: ownerId, constraint: 0, default: 0 }],
-    receiver: 0, parameters: [{ declaration: ownerId, kind: "required", type: 0, passing: "by-value", initializer: null }], result: 0 });
+    receiver: 0, parameters: [{ declaration: ownerId, kind: "required", type: 0, passing: "by-value", initializer: null, acceptsOmission: false }], result: 0 });
   assertCompleteValue(product.verifyTir(input, body), []);
 });
 
@@ -4970,7 +4970,7 @@ test("optional absence is not an empty-rest disposition", () => {
   const fixture = argumentScenario("optional");
   fixture.application.arguments[0].value = { kind: "empty-rest" };
   assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [nodeViolation("omission-valid", 2,
-    "omission does not match the actual optional, default or rest formal")]);
+    "omission does not match the selected capability, default initializer or rest formal")]);
 });
 
 test("ordinary/rest/spread parts retain their actual authored evaluation order", () => {
@@ -6013,7 +6013,7 @@ function attachActualSetter(fixture) {
     tsonic: { core: emptyCore(), role: "declaration-name", declaration: { kind: "definition", definition: parameter } } };
   fixture.input.types.signatures.push({ id: signature, declaration: definition,
     owner: { kind: "item", value: { owner: definition, node: 1 } }, composition: null, kind: "call", typeParameters: [],
-    receiver: 1, parameters: [{ declaration: parameter, kind: "required", type: 0, passing: "by-value", initializer: null }], result: 0 });
+    receiver: 1, parameters: [{ declaration: parameter, kind: "required", type: 0, passing: "by-value", initializer: null, acceptsOmission: false }], result: 0 });
   const nodeOf = fixture.input.nodeOf;
   fixture.input.nodeOf = reference => reference.kind === "item" && reference.value.node === 1 && reference.value.owner === definition
     ? name : reference.kind === "item" && reference.value.node === 2 && reference.value.owner === parameter ? parameterName : nodeOf(reference);
@@ -6378,7 +6378,7 @@ const argumentFindings = {
   total: ["argument-total", "application dispositions are not total over the real API formals and receiver"],
   order: ["argument-parameter-order", "argument and mapping parameters do not retain formal order"],
   authored: ["authored-order-preserved", "argument transport does not retain the original authored argument sequence"],
-  omission: ["omission-valid", "omission does not match the actual optional, default or rest formal"],
+  omission: ["omission-valid", "omission does not match the selected capability, default initializer or rest formal"],
 };
 for (const [name, form, mutate, expected] of [
   ["missing-final-mapping", "whole", fixture => fixture.decision.parameters.pop(), ["total"]],
@@ -6416,6 +6416,31 @@ for (const [name, form, mutate, expected] of [
       nodeViolation(argumentFindings[key][0], 2, argumentFindings[key][1])));
     const valid = argumentScenario(form);
     assertCompleteValue(product.verifyTir(valid.input, valid.body), []);
+  });
+}
+
+test("F4 required void omission consumes the actual selected capability without changing syntax or inventing an argument", () => {
+  const fixture = argumentScenario("optional");
+  const type = fixture.input.types.terms.length;
+  fixture.input.types.terms.push({ kind: "intrinsic", intrinsic: "void" });
+  fixture.parameters[0].kind = "required";
+  fixture.parameters[0].type = type;
+  fixture.decision.parameters[0].type = type;
+  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  fixture.parameters[0].acceptsOmission = false;
+  assertCompleteValue(product.verifyTir(fixture.input, fixture.body),
+    [nodeViolation(argumentFindings.omission[0], 2, argumentFindings.omission[1])]);
+});
+
+for (const form of ["optional", "default"]) {
+  test(`F4 ${form} omission retains the actual selected capability in both mapping and value transport`, () => {
+    const fixture = argumentScenario(form);
+    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+    fixture.parameters[0].acceptsOmission = false;
+    assertCompleteValue(product.verifyTir(fixture.input, fixture.body),
+      [nodeViolation(argumentFindings.omission[0], 2, argumentFindings.omission[1])]);
+    fixture.parameters[0].acceptsOmission = true;
+    assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
   });
 }
 

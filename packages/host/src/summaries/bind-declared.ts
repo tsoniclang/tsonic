@@ -26,7 +26,7 @@ function validateSelection(deps: DeclaredSummaryDeps, input: DeclaredSummaryInpu
   for (const parameter of signature.parameters) {
     if (parameter.kind === "rest") continue;
     fixed += 1;
-    if (parameter.kind === "required" && parameter.initializer === null) minimum = fixed;
+    if (!parameter.acceptsOmission) minimum = fixed;
   }
   const provided = input.execution.provided;
   if (!validOrdinal(provided) || provided < minimum || provided > fixed || deps.parameters.length !== signature.parameters.length) {
@@ -48,13 +48,13 @@ function validateSelection(deps: DeclaredSummaryDeps, input: DeclaredSummaryInpu
         supplied.add(position);
         break;
       case "default":
-        if (parameter.initializer !== mapping.initializer || parameter.kind !== "default" || position < provided) {
+        if (parameter.initializer !== mapping.initializer || parameter.kind !== "default" || !parameter.acceptsOmission || position < provided) {
           throw new TypeError("A default parameter retains its actual selected initializer");
         }
         break;
       case "omitted":
-        if (parameter.kind !== "optional" || position < provided || mapping.type !== parameter.type) {
-          throw new TypeError("An omitted parameter retains its actual optional declaration");
+        if (!parameter.acceptsOmission || parameter.kind === "default" || parameter.kind === "rest" || position < provided || mapping.type !== parameter.type) {
+          throw new TypeError("An omitted parameter retains its actual omission capability");
         }
         break;
       case "rest":

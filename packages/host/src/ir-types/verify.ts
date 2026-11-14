@@ -384,7 +384,8 @@ export const verifyTypes: VerifyTypes = input => {
     let optional = false;
     for (const [index, parameter] of value.parameters.entries()) {
       if (parameter === undefined) { add("parameter-order", site, "parameters", index); continue; }
-      if (rest || parameter.kind === "required" && optional || (parameter.kind === "default") !== (parameter.initializer !== null))
+      if (rest || parameter.kind === "required" && optional || (parameter.kind === "default") !== (parameter.initializer !== null) ||
+        typeof parameter.acceptsOmission !== "boolean")
         add("parameter-order", site, "parameters", index);
       if (parameter.kind === "rest") rest = true;
       if (parameter.kind === "optional") optional = true;

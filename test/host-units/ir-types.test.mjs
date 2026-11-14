@@ -140,6 +140,47 @@ const violation = (rule, site, field, value) => ({ rule, site,
 const typeSite = type => ({ kind: "type", type });
 const signatureSite = signature => ({ kind: "signature", signature });
 
+test("selected omission capability is independent of required syntax and survives every canonical signature boundary", () => {
+  const interner = createTypeInterner();
+  const voidType = internType(interner, { kind: "intrinsic", intrinsic: "void" });
+  const absence = internType(interner, { kind: "intrinsic", intrinsic: "absence" });
+  const formal = internType(interner, { kind: "param", parameter: { owner, index: 0 } });
+  const roots = [];
+  for (const type of [voidType, absence, formal]) for (const acceptsOmission of [false, true]) {
+    const parameter = { declaration: method, kind: "required", type, passing: "by-value", initializer: null, acceptsOmission };
+    const selected = signature({ parameters: [parameter], result: type });
+    const id = internSignature(interner, selected);
+    roots.push(id);
+    assert.equal(internSignature(interner, structuredClone(selected)), id);
+    assert.deepEqual(readSignature(interner, id).parameters, [parameter]);
+    if (acceptsOmission) assert.notEqual(id, roots[roots.length - 2], "actual capability remains part of canonical identity");
+  }
+  const table = viewTypes(interner);
+  assert.deepEqual(verifyTypes({ table, bindings: [], evidence: [] }), []);
+  assert.deepEqual(parseTypes(printTypes(table)), { kind: "parsed", value: table });
+  const copied = seedTypeInterner(table);
+  const generic = roots.slice(-2);
+  const substituted = substituteSignature(copied, generic,
+    { ...emptyBindings(), classBindings: [{ kind: "bound", parameter: { owner, index: 0 }, type: voidType }] }, limits());
+  assert.equal(substituted.kind, "complete");
+  assert.deepEqual(substituted.value.map(id => readSignature(copied, id).parameters[0].acceptsOmission), [false, true]);
+  const published = completePublication(exportTypes(copied, publicationLimits));
+  assert.deepEqual(roots.map(id => published.table.signatures[published.signatures[id]].parameters[0].acceptsOmission),
+    [false, true, false, true, false, true]);
+  const selected = { terms: [{ kind: "intrinsic", intrinsic: "void" }],
+    signatures: [{ id: 0, ...signature({ parameters: [readSignature(interner, roots[1]).parameters[0]] }) }] };
+  const text = printTypes(selected);
+  const old = text.replace(", acceptsOmission=true", "");
+  assert.equal(parseTypes(old).kind, "invalid-text", "the old incomplete parameter record is rejected, not defaulted");
+  for (const value of [undefined, null, 0, "true"]) {
+    const invalid = structuredClone(selected); invalid.signatures[0].parameters[0].acceptsOmission = value;
+    assert.deepEqual(verifyTypes({ table: invalid, bindings: [], evidence: [] }),
+      [violation("parameter-order", signatureSite(0), "parameters", 0)]);
+  }
+  const invalidText = text.replace("acceptsOmission=true", 'acceptsOmission="true"');
+  assert.equal(parseTypes(invalidText).kind, "invalid-text", "capability transport is an actual Boolean");
+});
+
 test("constant reference keys retain producer context and the complete initializer instance", async () => {
   const { constantReferenceKey } = await import("../../packages/host/dist/ir-types/index.js");
   const initializer = { body, bindings: { kind: "parametric" } };
@@ -416,7 +457,7 @@ test("seed preserves valid duplicate and non-normalized rows while memoizing the
 });
 
 test("seed copies shared inline values by value without freezing or retaining mutable caller rows", () => {
-  const parameter = { declaration: method, kind: "required", type: 0, passing: "by-value", initializer: null };
+  const parameter = { declaration: method, kind: "required", type: 0, passing: "by-value", initializer: null, acceptsOmission: false };
   const row = signature({ parameters: [parameter] });
   const table = { terms: [{ ...primitive }], signatures: [{ id: 0, ...row }, { id: 1, ...row }] };
   const expected = [{ id: 0, ...signature({ parameters: [{ ...parameter }] }) },
@@ -563,14 +604,14 @@ test("signature-root substitution preserves a mixed callable and signature recur
   const parameter = { owner, index: 0 };
   const table = { terms: [{ kind: "param", parameter }, primitive, { kind: "callable", calls: [0], constructs: [] }],
     signatures: [{ id: 0, ...signature({ parameters: [
-      { declaration: method, kind: "required", type: 2, passing: "by-value", initializer: null }] }) }] };
+      { declaration: method, kind: "required", type: 2, passing: "by-value", initializer: null, acceptsOmission: false }] }) }] };
   const interner = seedTypeInterner(table);
   const bindings = { ...emptyBindings(), classBindings: [{ kind: "bound", parameter, type: 1 }] };
   assert.deepEqual(verifyTypes({ table, bindings: [], evidence: [] }), []);
   assert.deepEqual(substituteSignature(interner, [0], bindings, limits()), { kind: "complete", value: [1] });
   assert.deepEqual(readType(interner, 3), { kind: "callable", calls: [1], constructs: [] });
   assert.deepEqual(readSignature(interner, 1), { id: 1, ...signature({ result: 1, parameters: [
-    { declaration: method, kind: "required", type: 3, passing: "by-value", initializer: null }] }) });
+    { declaration: method, kind: "required", type: 3, passing: "by-value", initializer: null, acceptsOmission: false }] }) });
   assert.deepEqual(table.terms.map((_, position) => readType(interner, position)), table.terms);
   assert.deepEqual(readSignature(interner, 0), table.signatures[0]);
   assert.throws(() => readType(interner, 4), /outside this arena/u);
@@ -724,7 +765,7 @@ test("all public interner ports retain complete immutable rows and per-instance 
   assert.equal(internSignature(interner, signature()), selected);
   assert.deepEqual(readSignature(interner, selected), { id: 0, ...input });
   assert.equal(internSignature(interner, readSignature(interner, selected)), selected);
-  input.parameters.push({ declaration: method, kind: "rest", type: id, passing: "move", initializer: null });
+  input.parameters.push({ declaration: method, kind: "rest", type: id, passing: "move", initializer: null, acceptsOmission: true });
   assert.deepEqual(readSignature(interner, selected), { id: 0, ...signature() });
   assert.throws(() => readType(interner, 100), /outside this arena/u);
   assert.throws(() => readSignature(interner, 100), /outside this arena/u);
@@ -1392,11 +1433,11 @@ test("all TypeTerm, literal, selector, origin, signature and passing arms round-
     { id: 0, ...signature({ declaration: owner, owner: source, composition: { kind: "union", signatures: [0, 1] },
       typeParameters: [{ identity: { owner, index: 0 }, declaration: method, constraint: 0, default: 1 }], receiver: 1,
       parameters: passing.map((mode, index) => ({ declaration: definition(`p${index}`), kind: index === 6 ? "rest" : "required",
-        type: 0, passing: mode, initializer: null })) }) },
+        type: 0, passing: mode, initializer: null, acceptsOmission: index === 6 })) }) },
     { id: 1, ...signature({ kind: "construct", owner: itemSource, composition: { kind: "intersection", signatures: [0, 1] },
       typeParameters: [{ identity: { owner: other, index: 0 }, declaration: other, constraint: null, default: null }],
-      parameters: [{ declaration: method, kind: "optional", type: 1, passing: "by-value", initializer: null },
-        { declaration: captured, kind: "default", type: 0, passing: "move", initializer: body }] }) },
+      parameters: [{ declaration: method, kind: "optional", type: 1, passing: "by-value", initializer: null, acceptsOmission: true },
+        { declaration: captured, kind: "default", type: 0, passing: "move", initializer: body, acceptsOmission: true }] }) },
   ] };
   assert.equal(compareCaseValues(parseTypes(printTypes(table)), { kind: "parsed", value: table }), true, "complete all-arm text value");
   const interner = createTypeInterner();
@@ -1683,7 +1724,7 @@ test("signature binders shadow the exact method identity while outer binders and
   const string = internType(interner, { kind: "string" });
   const input = signature({ declaration: method, owner: source, typeParameters: [
     { identity: inner, declaration: captured, constraint: outerType, default: outerType }], receiver: outerType,
-    parameters: [{ declaration: owner, kind: "default", type: outerType, passing: "borrow-mut", initializer: body }], result: innerType });
+    parameters: [{ declaration: owner, kind: "default", type: outerType, passing: "borrow-mut", initializer: body, acceptsOmission: true }], result: innerType });
   const selected = internSignature(interner, input);
   const callable = internType(interner, { kind: "callable", calls: [selected], constructs: [] });
   const expectedInput = { ...input, typeParameters: [{ ...input.typeParameters[0], constraint: string, default: string }], receiver: string,
@@ -2172,11 +2213,11 @@ test("publication reserves every emitted row and every ordered or set reference 
   assert.equal(internType(selected, primitive), 0);
   assert.equal(internSignature(selected, signature({ receiver: 0, result: 0,
     typeParameters: [{ identity: { owner, index: 0 }, declaration: method, constraint: 0, default: 0 }],
-    parameters: [{ declaration: method, kind: "required", type: 0, passing: "by-value", initializer: null }] })), 0);
+    parameters: [{ declaration: method, kind: "required", type: 0, passing: "by-value", initializer: null, acceptsOmission: false }] })), 0);
   assert.equal(internType(selected, { kind: "callable", calls: [0], constructs: [] }), 1);
   const table = { terms: [{ kind: "callable", calls: [0], constructs: [] }, primitive], signatures: [{ id: 0,
     ...signature({ receiver: 1, result: 1, typeParameters: [{ identity: { owner, index: 0 }, declaration: method,
-      constraint: 1, default: 1 }], parameters: [{ declaration: method, kind: "required", type: 1, passing: "by-value", initializer: null }] }) }] };
+      constraint: 1, default: 1 }], parameters: [{ declaration: method, kind: "required", type: 1, passing: "by-value", initializer: null, acceptsOmission: false }] }) }] };
   assert.deepEqual(exportTypes(selected, { ...publicationLimits, maximumCreatedRecords: 8 }),
     { kind: "resource-limit", dimension: "created-records", maximum: 8 });
   assert.deepEqual(completePublication(exportTypes(selected, { ...publicationLimits, maximumCreatedRecords: 9 })),
@@ -2249,7 +2290,7 @@ test("new substituted signature rows retain every nested role before any expecte
   const child = signature({ result: 0 });
   const parent = signature({ declaration: method, owner: source, composition: { kind: "union", signatures: [0] },
     typeParameters: [{ identity: { owner: method, index: 0 }, declaration: method, constraint: 0, default: 0 }],
-    receiver: 0, parameters: [{ declaration: method, kind: "required", type: 0, passing: "borrow-shared", initializer: null }], result: 0 });
+    receiver: 0, parameters: [{ declaration: method, kind: "required", type: 0, passing: "borrow-shared", initializer: null, acceptsOmission: false }], result: 0 });
   assert.deepEqual([internSignature(interner, child), internSignature(interner, parent)], [0, 1]);
   assert.equal(internType(interner, { kind: "callable", calls: [1], constructs: [] }), 2);
   const bindings = { ...emptyBindings(), classBindings: [{ kind: "bound", parameter, type: 1 }] };
@@ -2257,7 +2298,7 @@ test("new substituted signature rows retain every nested role before any expecte
   const expectedChild = { id: 3, ...signature({ result: 1 }) };
   const expectedParent = { id: 2, ...signature({ ...parent, composition: { kind: "union", signatures: [3] },
     typeParameters: [{ identity: { owner: method, index: 0 }, declaration: method, constraint: 1, default: 1 }],
-    receiver: 1, parameters: [{ declaration: method, kind: "required", type: 1, passing: "borrow-shared", initializer: null }], result: 1 }) };
+    receiver: 1, parameters: [{ declaration: method, kind: "required", type: 1, passing: "borrow-shared", initializer: null, acceptsOmission: false }], result: 1 }) };
   assert.deepEqual([readSignature(interner, 0), readSignature(interner, 1), readSignature(interner, 2), readSignature(interner, 3)],
     [{ id: 0, ...child }, { id: 1, ...parent }, expectedParent, expectedChild]);
   assert.deepEqual(readType(interner, 3), { kind: "callable", calls: [2], constructs: [] });
@@ -2279,7 +2320,7 @@ test("new substituted signature rows retain every nested role before any expecte
     signatures[published.signatures[issued]] = { id: published.signatures[issued], ...signature({ declaration: method, owner: source,
       composition: { kind: "union", signatures: [composition] },
       typeParameters: [{ identity: { owner: method, index: 0 }, declaration: method, constraint: type, default: type }],
-      receiver: type, parameters: [{ declaration: method, kind: "required", type, passing: "borrow-shared", initializer: null }], result: type }) };
+      receiver: type, parameters: [{ declaration: method, kind: "required", type, passing: "borrow-shared", initializer: null, acceptsOmission: false }], result: type }) };
   assert.deepEqual(published.table, { terms, signatures });
 });
 
@@ -2465,14 +2506,14 @@ test("publication repairs a shape's complete ordered payload after a compound ch
 test("verifier reads complete signatures, writable indexes and optional/rest ordering without inferred fields", () => {
   const typeParameters = [{ identity: { owner, index: 0 }, declaration: owner, constraint: 0, default: 0 }];
   const full = { id: 0, ...signature({ typeParameters, receiver: 0, composition: { kind: "intersection", signatures: [0] },
-    parameters: [{ declaration: method, kind: "optional", type: 0, passing: "by-value", initializer: null },
-      { declaration: captured, kind: "rest", type: 0, passing: "move", initializer: null }] }) };
+    parameters: [{ declaration: method, kind: "optional", type: 0, passing: "by-value", initializer: null, acceptsOmission: true },
+      { declaration: captured, kind: "rest", type: 0, passing: "move", initializer: null, acceptsOmission: true }] }) };
   const table = signatures => ({ terms: [primitive], signatures });
   assert.deepEqual(verifyTypes({ table: table([full]), bindings: [], evidence: [] }), []);
   for (const selected of [{ ...full, receiver: 2 }, { ...full, result: 2 },
     { ...full, typeParameters: [{ ...typeParameters[0], constraint: 2 }] },
     { ...full, typeParameters: [{ ...typeParameters[0], default: 2 }] },
-    { ...full, parameters: [{ declaration: method, kind: "required", type: 2, passing: "by-value", initializer: null }] }])
+    { ...full, parameters: [{ declaration: method, kind: "required", type: 2, passing: "by-value", initializer: null, acceptsOmission: false }] }])
     assert.deepEqual(verifyTypes({ table: table([selected]), bindings: [], evidence: [] }),
       [violation("type-reference", signatureSite(0), "reference", 2)]);
   assert.deepEqual(verifyTypes({ table: table([{ ...full, composition: { kind: "union", signatures: [1, 0] } }]), bindings: [], evidence: [] }),
@@ -2883,7 +2924,7 @@ test("a changed callable compacts an unchanged existing signature alongside a ge
 
 {
   const row = (kind, parameters = []) => ({ terms: [], signatures: [{ id: 0, ...signature({ kind, parameters }) }] });
-  const parameter = { declaration: owner, kind: "required", type: 0, passing: "by-value", initializer: null };
+  const parameter = { declaration: owner, kind: "required", type: 0, passing: "by-value", initializer: null, acceptsOmission: false };
   const beforeParameter = 'TypeTable(terms=[], signatures=[Signature(id=sig:0, declaration=null, owner=null, composition=null, kind="call", typeParameters=[], receiver=null, parameters=[SignatureParameter(declaration=def:'
     + JSON.stringify(owner) + ", ";
   const afterParameter = ")], result=t:0)])";
@@ -2905,13 +2946,13 @@ test("a changed callable compacts an unchanged existing signature alongside a ge
     ["signature kind", "TypeTable(terms=[], signatures=[Signature(id=sig:0, declaration=null, owner=null, composition=null, kind=",
       ", typeParameters=[], receiver=null, parameters=[], result=t:0)])", ["call", "construct"], row("call")],
     ["parameter kind", beforeParameter + "kind=",
-      ', type=t:0, passing="by-value", initializer=null' + afterParameter,
+      ', type=t:0, passing="by-value", initializer=null, acceptsOmission=false' + afterParameter,
       ["required", "optional", "default", "rest"], row("call", [parameter])],
     ["tuple kind", "TypeTable(terms=[tuple(elements=[TupleElement(kind=",
       ", type=t:0, declaration=null)], readonly=false)], signatures=[])",
       ["required", "optional", "rest"], { terms: [{ kind: "tuple", elements: [
         { kind: "required", type: 0, declaration: null }], readonly: false }], signatures: [] }],
-    ["passing", beforeParameter + 'kind="required", type=t:0, passing=', ", initializer=null" + afterParameter,
+    ["passing", beforeParameter + 'kind="required", type=t:0, passing=', ", initializer=null, acceptsOmission=false" + afterParameter,
       ["by-value", "byref-readonly", "byref-readwrite", "byref-writeonly-must-init", "borrow-shared", "borrow-mut", "move"],
       row("call", [parameter])],
     ["extent base", "TypeTable(terms=[fixed-array(element=t:0, extent=FixedExtent(length=1n, runtimeBase=",
@@ -3276,7 +3317,7 @@ test("fresh public declarations admit real strict readers and reject the entire 
     noEmit: true, types: [], skipLibCheck: false, exactOptionalPropertyTypes: true },
     files: [resolve(stage, "reader.ts"), resolve(stage, "inline-reader.ts"), resolve(stage, "seed-reader.ts")], include: [] });
   assert.deepEqual(run(resolve(stage, "consumer.json")), { status: 0, diagnostics: "" });
-  write("reader.ts", imports + 'export function mutate(table: TypeTable, publication: TypePublication, limits: TypeExpansionLimits, scope: BindingScope, bindings: BindingVector, signature: Signature, evidence: TypeEvidence, parameter: TypeParameterIdentity, definition: DefId, type: TyId, input: TypeVerificationInput, nominal: NominalDefinition): void {\ntable.terms.push({ kind: "error" });\ntable.terms[0] = { kind: "error" };\ntable.signatures[0] = signature;\nlimits.maximumDepth = 1;\nscope.selfOwners.push(definition);\nbindings.classBindings[0] = { kind: "rigid", parameter };\nsignature.parameters.push({ declaration: definition, kind: "required", type, passing: "by-value", initializer: null });\nevidence.type = type;\nnominal.facets.push("instance");\ninput.nominalOf = () => null;\npublication.table = { terms: [], signatures: [] };\npublication.types.push(type);\npublication.signatures[0] = signature.id;\npublication.terms.push({ kind: "error" });\n}\nexport function removed(operation: ExportTypes, interner: TypeInterner, limits: TypePublicationLimits, result: TypePublicationResult, publication: TypePublication): void {\noperation(interner);\nresult.table;\nlimits.maximumWork = 1;\nlimits.maximumCreatedRecords = 1;\nif (result.kind === "complete") result.value = publication;\nelse { result.dimension = "work"; result.maximum = 1; }\nresult.kind = "complete";\n}');
+  write("reader.ts", imports + 'export function mutate(table: TypeTable, publication: TypePublication, limits: TypeExpansionLimits, scope: BindingScope, bindings: BindingVector, signature: Signature, evidence: TypeEvidence, parameter: TypeParameterIdentity, definition: DefId, type: TyId, input: TypeVerificationInput, nominal: NominalDefinition): void {\ntable.terms.push({ kind: "error" });\ntable.terms[0] = { kind: "error" };\ntable.signatures[0] = signature;\nlimits.maximumDepth = 1;\nscope.selfOwners.push(definition);\nbindings.classBindings[0] = { kind: "rigid", parameter };\nsignature.parameters.push({ declaration: definition, kind: "required", type, passing: "by-value", initializer: null, acceptsOmission: false });\nevidence.type = type;\nnominal.facets.push("instance");\ninput.nominalOf = () => null;\npublication.table = { terms: [], signatures: [] };\npublication.types.push(type);\npublication.signatures[0] = signature.id;\npublication.terms.push({ kind: "error" });\n}\nexport function removed(operation: ExportTypes, interner: TypeInterner, limits: TypePublicationLimits, result: TypePublicationResult, publication: TypePublication): void {\noperation(interner);\nresult.table;\nlimits.maximumWork = 1;\nlimits.maximumCreatedRecords = 1;\nif (result.kind === "complete") result.value = publication;\nelse { result.dimension = "work"; result.maximum = 1; }\nresult.kind = "complete";\n}');
   const negative = run(resolve(stage, "consumer.json"));
   assert.equal(negative.status, 1, negative.diagnostics.slice(-8000));
   assert.deepEqual([...negative.diagnostics.matchAll(/error TS(\d+):/gu)].map(match => Number(match[1])),
@@ -3315,6 +3356,13 @@ test("fresh public declarations admit real strict readers and reject the entire 
   assert.equal(invalidReference.status, 1, invalidReference.diagnostics.slice(-8000));
   assert.deepEqual([...invalidReference.diagnostics.matchAll(/error TS(\d+):/gu)].map(match => Number(match[1])),
     [2741, 2322, 2322, 2540], invalidReference.diagnostics.slice(-8000));
+  write("view-reader.ts", 'import type { SignatureParameter } from "./declarations/ir-types/contract.js";\nexport function selected(parameter: SignatureParameter, acceptsOmission: boolean): SignatureParameter { return { ...parameter, kind: "required", initializer: null, acceptsOmission }; }\n');
+  assert.deepEqual(run(resolve(stage, "view-consumer.json")), { status: 0, diagnostics: "" });
+  write("view-reader.ts", 'import type { SignatureParameter } from "./declarations/ir-types/contract.js";\nexport function forbidden(parameter: SignatureParameter): void {\nconst { acceptsOmission, ...incomplete } = parameter;\nconst old: SignatureParameter = incomplete;\nparameter.acceptsOmission = false;\nconst wrong: SignatureParameter = { ...parameter, acceptsOmission: "true" };\nvoid old; void wrong; void acceptsOmission;\n}\n');
+  const invalidOmission = run(resolve(stage, "view-consumer.json"));
+  assert.equal(invalidOmission.status, 1, invalidOmission.diagnostics.slice(-8000));
+  assert.deepEqual([...invalidOmission.diagnostics.matchAll(/error TS(\d+):/gu)].map(match => Number(match[1])),
+    [2741, 2540, 2322], invalidOmission.diagnostics.slice(-8000));
 });
 
 after(async () => {

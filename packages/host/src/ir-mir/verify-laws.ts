@@ -30,19 +30,26 @@ export function verifyLaws(
 
   // Law 7: one entry for each admissible supplied count: the full count first and at the first block, each next
   // count one less, down to the count that omits every trailing parameter the signature lets be omitted.
-  let fixed = 0;
-  let omissible = 0;
-  for (const parameter of context.source.params) {
-    if (parameter.role === "rest" || parameter.role === "this") continue;
-    fixed += 1;
-    omissible = parameter.role === "optional" || parameter.role === "default" ? omissible + 1 : 0;
+  const signature = densePosition(context.source.signature, context.types.signatures.length)
+    ? context.types.signatures[context.source.signature] : undefined;
+  if (signature !== undefined && Object.is(signature.id, context.source.signature)) {
+    let fixed = 0;
+    let omissible = 0;
+    let exact = true;
+    for (const parameter of context.source.params) {
+      if (parameter.role === "rest" || parameter.role === "this") continue;
+      const selected = signature.parameters[fixed];
+      if (selected === undefined || typeof selected.acceptsOmission !== "boolean") exact = false;
+      fixed += 1;
+      omissible = selected?.acceptsOmission === true ? omissible + 1 : 0;
+    }
+    exact &&= body.entries.length === omissible + 1;
+    for (const [position, entry] of body.entries.entries()) {
+      if (!Object.is(entry.provided, fixed - position) || !densePosition(entry.block, body.blocks.length)
+        || position === 0 && !Object.is(entry.block, 0)) exact = false;
+    }
+    if (!exact) reportBody("entries-exact");
   }
-  let exact = body.entries.length === omissible + 1;
-  for (const [position, entry] of body.entries.entries()) {
-    if (!Object.is(entry.provided, fixed - position) || !densePosition(entry.block, body.blocks.length)
-      || position === 0 && !Object.is(entry.block, 0)) exact = false;
-  }
-  if (!exact) reportBody("entries-exact");
 
   const sourceOf = (node: { readonly body: string; readonly node: NodeId }): SourceNode | undefined =>
     node.body === context.source.body ? findSourceNode(nodes, node.node) : undefined;

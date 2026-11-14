@@ -79,21 +79,21 @@ const verifyDecisionFormals = (decision: ApplicationDecision, node: TirNode, sig
       }
     }
     if ((mapping.kind === "argument" || mapping.kind === "rest") && mapping.passing !== parameter.passing) passing = false;
-    if (mapping.kind === "default" && (parameter.kind !== "default" || mapping.initializer !== parameter.initializer) ||
-      mapping.kind === "omitted" && (parameter.kind !== "optional" || mapping.type !== parameter.type) ||
+    if (mapping.kind === "default" && (parameter.kind !== "default" || !parameter.acceptsOmission || mapping.initializer !== parameter.initializer) ||
+      mapping.kind === "omitted" && (!parameter.acceptsOmission || parameter.kind === "default" || parameter.kind === "rest" || mapping.type !== parameter.type) ||
       mapping.kind === "rest" && parameter.kind !== "rest") omission = false;
   }
   if (!total) emit("argument-total", node, "application dispositions are not total over the real API formals and receiver");
   if (!order) emit("argument-parameter-order", node, "argument and mapping parameters do not retain formal order");
   if (!passing) emit("argument-passing", node, "argument mapping does not retain the formal passing mode");
-  if (!omission) emit("omission-valid", node, "omission does not match the actual optional, default or rest formal");
+  if (!omission) emit("omission-valid", node, "omission does not match the selected capability, default initializer or rest formal");
 };
 
 const omissionMatches = (argument: TirArgument, formal: SignatureParameter): boolean => {
   if (argument.kind !== "omitted") return true;
-  if (argument.value.kind === "absence") return formal.kind === "optional";
+  if (argument.value.kind === "absence") return formal.acceptsOmission && formal.kind !== "default" && formal.kind !== "rest";
   if (argument.value.kind === "empty-rest") return formal.kind === "rest";
-  return formal.kind === "default" && formal.initializer !== null && argument.value.instance.body === formal.initializer;
+  return formal.acceptsOmission && formal.kind === "default" && formal.initializer !== null && argument.value.instance.body === formal.initializer;
 };
 
 export const verifyArgumentTransport = (
@@ -200,7 +200,7 @@ export const verifyArgumentTransport = (
   if (!total) emit("argument-total", node, "application dispositions are not total over the real API formals and receiver");
   if (!parameterOrder) emit("argument-parameter-order", node, "argument and mapping parameters do not retain formal order");
   if (!passing) emit("argument-passing", node, "argument mapping does not retain the formal passing mode");
-  if (!omissions) emit("omission-valid", node, "omission does not match the actual optional, default or rest formal");
+  if (!omissions) emit("omission-valid", node, "omission does not match the selected capability, default initializer or rest formal");
   if (!authoredOrder) emit("authored-order-preserved", node, "argument transport does not retain the original authored argument sequence");
   if (!emptySpreads) emit("empty-spread-preserved", node, "authored empty spread is not retained in the whole spread tuple and rest source indices");
 };

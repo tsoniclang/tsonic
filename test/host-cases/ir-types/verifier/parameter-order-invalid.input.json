@@ -21,7 +21,8 @@
             "kind": "default",
             "type": 0,
             "passing": "by-value",
-            "initializer": null
+            "initializer": null,
+            "acceptsOmission": true
           }
         ],
         "result": 0

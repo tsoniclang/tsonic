@@ -125,7 +125,8 @@ export function createTypeTextValues(): TypeTextValues {
       const field_type = read("type", lazyReader(() => reader_type_id));
       const field_passing = read("passing", lazyReader(() => reader_passing));
       const field_initializer = read("initializer", nullableReader(() => reader_body_id));
-      return { fields: [field_declaration, field_kind, field_type, field_passing, field_initializer], value: () => ({ declaration: field_declaration.value(), kind: field_kind.value(), type: field_type.value(), passing: field_passing.value(), initializer: field_initializer.value() }) };
+      const field_acceptsOmission = read("acceptsOmission", lazyReader(() => reader_boolean));
+      return { fields: [field_declaration, field_kind, field_type, field_passing, field_initializer, field_acceptsOmission], value: () => ({ declaration: field_declaration.value(), kind: field_kind.value(), type: field_type.value(), passing: field_passing.value(), initializer: field_initializer.value(), acceptsOmission: field_acceptsOmission.value() }) };
     });
   const reader_tuple_element = recordReader<TupleElement>("TupleElement", read => {
       const field_kind = read("kind", lazyReader(() => reader_tuple_kind));

@@ -613,6 +613,30 @@ function verified(body, context) {
 }
 const verificationLimits = { maximumWork: 1000000 };
 
+test("MIR entries use the selected required omission capability without changing the formal kind or supplied count", () => {
+  const body = parsedBody();
+  const context = sourceContext(body);
+  const declaration = identities.decodeBodyId(body.body).value.owner;
+  const parameter = { declaration, kind: "required", type: identities.tyId(0), passing: "by-value", initializer: null, acceptsOmission: true };
+  context.types.signatures[0].parameters = [parameter];
+  context.source.params = [{ local: identities.localId(0), declaration, role: "required", passing: "by-value", initializer: null, storage: identities.tyId(0) }];
+  context.source.locals = [{ id: identities.localId(0), declaration: { kind: "item", value: { owner: declaration, node: identities.nodeId(0) } },
+    name: "value", role: "parameter", capturedFrom: null, mutable: false, storage: identities.tyId(0) }];
+  context.declarations.get(declaration).parameterCount = 1;
+  body.locals = [{ id: identities.localId(0), storage: identities.tyId(0), role: { kind: "parameter", index: 0 }, mode: "by-value",
+    source: { body: body.body, local: identities.localId(0) }, origin: body.blocks[0].origin }];
+  body.entries = [{ provided: 1, block: identities.blockId(0) }, { provided: 0, block: identities.blockId(0) }];
+  same(verified(body, context), [], "the actual required void formal admits both genuine supplied counts");
+  parameter.acceptsOmission = false;
+  same(verified(body, context), [expectedViolation("entries-exact", { kind: "body" })], "the same type never invents omission capability");
+  body.entries.pop();
+  same(verified(body, context), [], "the nonomissible selected formal admits only the supplied entry");
+  parameter.acceptsOmission = undefined;
+  same(verified(body, context), [expectedViolation("entries-exact", { kind: "body" })], "missing selected capability is not known nonomissibility");
+  context.types.signatures[0].parameters = [];
+  same(verified(body, context), [expectedViolation("entries-exact", { kind: "body" })], "a missing selected formal never supplies an entry default");
+});
+
 function expectedViolation(rule, site, detail = []) {
   return { rule, site: { body: bodyIdentity, ...site }, detail };
 }
@@ -762,7 +786,7 @@ test("borrowed signature parameter holes report the complete unresolved referenc
   const local = { id: identities.localId(0), storage: identities.tyId(5),
     role: { kind: "temporary" }, mode: "local", source: null, origin: body.blocks[0].origin };
   const parameters = [0, 1].map(() => ({ declaration: owner, kind: "required",
-    type: identities.tyId(1), passing: "by-value", initializer: null }));
+    type: identities.tyId(1), passing: "by-value", initializer: null, acceptsOmission: false }));
   const typeParameters = [0, 1].map(index => ({ identity: { owner, index }, declaration: owner,
     constraint: null, default: null }));
   const signature = { ...context.types.signatures[0], id: identities.sigId(1), parameters, typeParameters };
@@ -824,7 +848,7 @@ test("MIR type closure walks every declared term relation and all signature chil
     ] } } },
   ];
   const signature = { ...context.types.signatures[0], id: identities.sigId(1), receiver: identities.tyId(1),
-    parameters: [{ declaration: owner, kind: "required", type: identities.tyId(2), passing: "by-value", initializer: null }],
+    parameters: [{ declaration: owner, kind: "required", type: identities.tyId(2), passing: "by-value", initializer: null, acceptsOmission: false }],
     typeParameters: [{ identity: parameter, declaration: owner, constraint: identities.tyId(1), default: identities.tyId(2) }],
     composition: { kind: "union", signatures: [identities.sigId(0)] } };
   const construct = { ...signature, id: identities.sigId(2), kind: "construct", receiver: null,
@@ -1327,7 +1351,7 @@ for (const write of [false, true]) test(`MIR preserves the exact selected ${writ
       { ...header(1, 0), kind: "ExpressionStatement", expression, tsonic: null },
       { ...header(returnNode, 0), kind: "ReturnStatement", expression: null, tsonic: null },
     ] } } };
-  const parameter = declaration => ({ declaration, kind: "required", type: identities.tyId(1), passing: "by-value", initializer: null });
+  const parameter = declaration => ({ declaration, kind: "required", type: identities.tyId(1), passing: "by-value", initializer: null, acceptsOmission: false });
   const types = { terms: [...context.types.terms, { kind: "shape", members: [{ key: selection.decision.key, origins: selection.decision.origins,
     readOrigins: selection.decision.origins, writeOrigins: selection.decision.origins, kind: "accessor", read: identities.tyId(1), write: identities.tyId(1), optional: false, readonly: false }], indexes: [], calls: [], constructs: [] }],
   signatures: [{ ...context.types.signatures[0], parameters: [{ ...parameter(parameterDefinition), type: identities.tyId(5) }] },
@@ -1826,7 +1850,7 @@ test("MIR compound Boolean assignment retains its actual selected calculation", 
   body.locals[0] = { ...body.locals[0], role: { kind: "parameter", index: 0 }, mode: "by-value", source: { body: base.body, local: identities.localId(0) } };
   body.blocks[0].terminator.tir = { body: base.body, node: identities.nodeId(6) };
   const types = { ...context.types, signatures: [{ ...context.types.signatures[0], parameters: [
-    { declaration: parameter, kind: "required", type: identities.tyId(1), passing: "by-value", initializer: null },
+    { declaration: parameter, kind: "required", type: identities.tyId(1), passing: "by-value", initializer: null, acceptsOmission: false },
   ] }] };
   const input = { ...context, source, types };
   same(verified(body, input), [], "the physical Boolean calculation matches its actual compound-assignment selection");
@@ -2064,7 +2088,7 @@ function callSetup(passing = "by-value", result = 0, receiver = null) {
   const types = { terms: [...context.types.terms, { kind: "callable", calls: [identities.sigId(1)], constructs: [] }],
     signatures: [...context.types.signatures, { id: identities.sigId(1), declaration: definition, owner: null, composition: null,
       kind: "call", typeParameters: [], receiver: receiver === null ? null : identities.tyId(receiver),
-      parameters: [{ declaration: definition, kind: "required", type: identities.tyId(1), passing, initializer: null }], result: identities.tyId(result) }] };
+      parameters: [{ declaration: definition, kind: "required", type: identities.tyId(1), passing, initializer: null, acceptsOmission: false }], result: identities.tyId(result) }] };
   const local = { id: identities.localId(0), storage: identities.tyId(1), role: { kind: "temporary" }, mode: "local", source: null, origin: base.blocks[0].origin };
   const place = { id: identities.placeId(0), storage: local.storage, base: { kind: "local", local: local.id }, origin: local.origin };
   const constant = { id: identities.constId(0), type: identities.tyId(1), value: { kind: "literal", value: { kind: "boolean", value: true } } };
@@ -2188,6 +2212,7 @@ test("MIR an omitted optional API formal retains one explicit physical absence a
   context.types.terms.push({ kind: "optional", value: identities.tyId(1) });
   selected.decision.parameters = [{ kind: "omitted", parameter: 0, type: optionalType }];
   context.types.signatures[1].parameters[0].kind = "optional";
+  context.types.signatures[1].parameters[0].acceptsOmission = true;
   context.types.signatures[1].parameters[0].type = optionalType;
   body.constants[0] = { id: identities.constId(0), type: optionalType, value: { kind: "literal", value: { kind: "absence" } } };
   context.source.root.statements.nodes[1].id = identities.nodeId(4);

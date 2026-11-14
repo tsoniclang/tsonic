@@ -1227,7 +1227,7 @@ test("all unused required/optional/default/rest formals retain dense identities,
   const definition = definitionId("api");
   const parameters = ["required", "optional", "default", "rest"].map((kind, index) => ({ declaration: definitionId(`p${index}`),
     kind, type: tyId(0), passing: "by-value", initializer: kind === "default"
-      ? encodeBodyId({ owner: definitionId(`p${index}`), role: "initializer", ordinal: 0 }) : null }));
+      ? encodeBodyId({ owner: definitionId(`p${index}`), role: "initializer", ordinal: 0 }) : null, acceptsOmission: kind !== "required" }));
   const binding = (exportBinding(definition, { signature: declaredSignature(definition, { parameters }) }));
   const bound = ({ sources: input.sources, sourceRoles: [] });
   const complete = { kind: "complete", paths: [] };
@@ -1265,7 +1265,7 @@ test("binding canonical write and escape keys include the complete secondary tar
   const { input, summary } = summaryInput(1);
   const definition = definitionId("api");
   const binding = exportBinding(definition, { signature: declaredSignature(definition, { parameters: [
-    { declaration: definitionId("p"), kind: "required", type: tyId(0), passing: "byref-readwrite", initializer: null },
+    { declaration: definitionId("p"), kind: "required", type: tyId(0), passing: "byref-readwrite", initializer: null, acceptsOmission: false },
   ] }) });
   const raw = { ...summary, producers: [{ id: 0, kind: "parameter", index: 0, path: null }],
     origins: [{ id: 0, kind: "complete", producers: [], includesAbsence: false },
@@ -1472,7 +1472,7 @@ test("every relational binding failure refuses the complete row without a partia
   const staged = ({ sources: input.sources, sourceRoles: [] });
   const definition = definitionId("api");
   const canonicalSignature = declaredSignature(definition, { parameters: [
-    { declaration: definitionId("parameter"), kind: "required", type: tyId(0), passing: "by-value", initializer: null },
+    { declaration: definitionId("parameter"), kind: "required", type: tyId(0), passing: "by-value", initializer: null, acceptsOmission: false },
   ] });
   const binding = exportBinding(definition, { signature: canonicalSignature });
   const complete = { kind: "complete", paths: [] };
@@ -1534,7 +1534,7 @@ for (const scenario of ["path-parent", "producer-path", "parameter-read", "param
     const bound = ({ sources: input.sources, sourceRoles: [] });
     const definition = definitionId("api");
     const binding = exportBinding(definition, { signature: declaredSignature(definition, { parameters: [
-      { declaration: definitionId("p"), kind: "required", type: tyId(0), passing: "by-value", initializer: null },
+      { declaration: definitionId("p"), kind: "required", type: tyId(0), passing: "by-value", initializer: null, acceptsOmission: false },
     ] }) });
     const complete = { kind: "complete", paths: [] };
     const paths = { kind: "complete", paths: [0] };
@@ -1637,7 +1637,7 @@ test("repeated projected parameter producers carry one complete root environment
     const binding = exportBinding(definition, { bindings, signature: declaredSignature(definition, {
       typeParameters: names.map((name, index) => ({ identity: { owner: definition, index },
         declaration: definitionId(name), constraint: null, default: null })),
-      parameters: [{ declaration: definitionId("p"), kind: "required", type: tyId(0), passing: "by-value", initializer: null }],
+      parameters: [{ declaration: definitionId("p"), kind: "required", type: tyId(0), passing: "by-value", initializer: null, acceptsOmission: false }],
     }) });
     const raw = authoredSummary(summary.identity, {
       projections: Array.from({ length: count }, (_, id) => ({ id, parent: null, projection: { kind: "element" } })),
@@ -1691,7 +1691,7 @@ test("canonical duplicate paths and export aliases remap every bound Summary hol
   const sharedDefinition = definitionId("shared");
   const distinctDefinition = definitionId("distinct");
   const binding = exportBinding(definition, { signature: declaredSignature(definition, { receiver: tyId(0), parameters: [
-    { declaration: definitionId("p"), kind: "required", type: tyId(0), passing: "by-value", initializer: null },
+    { declaration: definitionId("p"), kind: "required", type: tyId(0), passing: "by-value", initializer: null, acceptsOmission: false },
   ] }) });
   const sharedBindings = emptyBindings({ selfBindings: [{ kind: "rigid", owner: sharedDefinition }] });
   const complete = { kind: "complete", paths: [] };
@@ -1892,7 +1892,7 @@ test("bound retention orders all nine complete canonical targets for the same so
   const shared = exportIdentity(summary.identity.module);
   const sharedDefinition = definitionId("shared");
   const binding = exportBinding(definition, { signature: declaredSignature(definition, { receiver: tyId(0), parameters: [
-    { declaration: definitionId("p"), kind: "required", type: tyId(0), passing: "by-value", initializer: null },
+    { declaration: definitionId("p"), kind: "required", type: tyId(0), passing: "by-value", initializer: null, acceptsOmission: false },
   ] }) });
   const complete = { kind: "complete", paths: [] };
   const raw = ({ ...summary, projections: [{ id: 0, parent: null, projection: { kind: "element" } }],
@@ -1949,8 +1949,8 @@ test("binding remaps the complete relational graph into signature-order formals 
   const definition = definitionId("a");
   const sharedDefinition = definitionId("b");
   const binding = exportBinding(definition, { signature: declaredSignature(definition, { receiver: tyId(0), parameters: [
-    { declaration: definitionId("parameter0"), kind: "required", type: tyId(0), passing: "by-value", initializer: null },
-    { declaration: definitionId("parameter1"), kind: "rest", type: tyId(0), passing: "by-value", initializer: null },
+    { declaration: definitionId("parameter0"), kind: "required", type: tyId(0), passing: "by-value", initializer: null, acceptsOmission: false },
+    { declaration: definitionId("parameter1"), kind: "rest", type: tyId(0), passing: "by-value", initializer: null, acceptsOmission: true },
   ] }) });
   const sharedBindings = emptyBindings({ methodBindings: [{ kind: "rigid", parameter: { owner: sharedDefinition, index: 0 } }] });
   const fieldMember = selectedMember();

@@ -21,7 +21,8 @@
             "kind": "default",
             "type": 0,
             "passing": "by-value",
-            "initializer": "B[D[M[P[case];main.ts];field];function;0]"
+            "initializer": "B[D[M[P[case];main.ts];field];function;0]",
+            "acceptsOmission": true
           }
         ],
         "result": 0

@@ -931,7 +931,7 @@ export function verifyValues(
             const parameter = signature.parameters[position];
             if (argument.kind === "omitted") {
               // A call may omit only what the callee's signature lets be omitted.
-              if (parameter === undefined || parameter.kind !== "optional" && parameter.kind !== "default") report("omission-admitted", site);
+              if (parameter === undefined || !parameter.acceptsOmission || parameter.kind === "rest") report("omission-admitted", site);
               omitting = true;
               continue;
             }

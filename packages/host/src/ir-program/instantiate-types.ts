@@ -94,7 +94,7 @@ function parameter(scan: SeedScan, value: TypeParameter): InstantiationAllocatio
 }
 
 function signatureParameter(scan: SeedScan, value: SignatureParameter): InstantiationAllocationStop | null {
-  return projected(scan, 1) ?? fields(scan, 5) ?? reference(scan, value.type);
+  return projected(scan, 1) ?? fields(scan, 6) ?? reference(scan, value.type);
 }
 
 function construction(scan: SeedScan, value: ConstructionDefinition): InstantiationAllocationStop | null {

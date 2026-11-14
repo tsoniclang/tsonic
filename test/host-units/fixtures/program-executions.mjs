@@ -329,6 +329,56 @@ await suite.test("seed admission has exact shared work/record boundaries before 
   }
 });
 
+await suite.test("signature omission capability admits the sixth parameter field once in both seed and transport", async () => {
+  const { admitTypeSeed, stabilizePublication } = await import("../../../packages/host/dist/ir-program/instantiate-types.js");
+  const { createInstantiationMeter } = await import("../../../packages/host/dist/ir-program/work.js");
+  const fixture = moduleFixture();
+  const limits = ProgramWork.state(fixture.context.resources).limits;
+  for (const acceptsOmission of [false, true]) {
+    const table = { terms: [{ kind: "intrinsic", intrinsic: "void" }], signatures: [{
+      id: 0, declaration: null, owner: null, composition: null, kind: "call", typeParameters: [], receiver: null,
+      parameters: [{ declaration: null, kind: "required", type: 0, passing: "by-value", initializer: null, acceptsOmission }], result: 0,
+    }] };
+    const seedWork = 3 + 1 + 9 + 1 + 6 + 1;
+    const seedRecords = 1 + 1 + 1 + 1;
+    for (const maximumWork of [0, seedWork - 1, seedWork, seedWork + 1]) {
+      const meter = createInstantiationMeter({ ...limits, maximumWork, maximumCreatedRecords: seedRecords });
+      assert.deepEqual(admitTypeSeed(meter, table), maximumWork < seedWork
+        ? { kind: "resource-limit", dimension: "work", maximum: maximumWork } : null);
+      assert.equal(meter.work, Math.min(maximumWork, seedWork));
+      if (maximumWork >= seedWork) assert.equal(meter.created, seedRecords);
+    }
+    const records = createInstantiationMeter({ ...limits, maximumWork: seedWork, maximumCreatedRecords: seedRecords - 1 });
+    assert.deepEqual(admitTypeSeed(records, table), { kind: "resource-limit", dimension: "created-records", maximum: seedRecords - 1 });
+    const shared = createInstantiationMeter({ ...limits, maximumWork: seedWork * 2, maximumCreatedRecords: seedRecords * 2 });
+    assert.equal(admitTypeSeed(shared, table), null);
+    assert.equal(admitTypeSeed(shared, table), null);
+    assert.deepEqual([shared.work, shared.created], [seedWork * 2, seedRecords * 2]);
+    const publication = { table, types: [0], signatures: [0] };
+    const transportWork = 1 + 1 + 3 + 1 + 9 + 1 + 1 + 6 + 1;
+    const transportRecords = 1 + 1 + 1;
+    for (const maximumWork of [0, transportWork - 1, transportWork, transportWork + 1]) {
+      const meter = createInstantiationMeter({ ...limits, maximumWork, maximumCreatedRecords: transportRecords });
+      const result = stabilizePublication(meter, { terms: [], signatures: [] }, publication);
+      if (maximumWork < transportWork) assert.deepEqual(result, { kind: "resource-limit", dimension: "work", maximum: maximumWork });
+      else {
+        assert.equal(result.kind, "complete");
+        assert.deepEqual(result.types, table);
+        assert.equal(result.types.signatures[0].parameters[0].acceptsOmission, acceptsOmission);
+        assert.equal(meter.created, transportRecords);
+      }
+      assert.equal(meter.work, Math.min(maximumWork, transportWork));
+    }
+    const parameter = { ...table.signatures[0].parameters[0], get type() { throw new Error("no parameter reference read after field refusal"); } };
+    const unread = { ...table, signatures: [{ ...table.signatures[0], parameters: [parameter] }] };
+    const seedStop = createInstantiationMeter({ ...limits, maximumWork: seedWork - 2 });
+    assert.deepEqual(admitTypeSeed(seedStop, unread), { kind: "resource-limit", dimension: "work", maximum: seedWork - 2 });
+    const transportStop = createInstantiationMeter({ ...limits, maximumWork: transportWork - 2 });
+    assert.deepEqual(stabilizePublication(transportStop, { terms: [], signatures: [] }, { ...publication, table: unread }),
+      { kind: "resource-limit", dimension: "work", maximum: transportWork - 2 });
+  }
+});
+
 await suite.test("a seed cannot be reused for another published table even when its rows compare equal", () => {
   const fixture = moduleFixture();
   complete(program.verifyModuleBodies(fixture.index, fixture.module, fixture.context));

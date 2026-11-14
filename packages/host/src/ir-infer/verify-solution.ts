@@ -75,8 +75,8 @@ function mappingReferences(input: InferVerificationInput, decision: ApplicationD
     if (!ordinal(parameter.parameter) || previous !== null && compareNumber(parameter.parameter, previous) <= 0)
       emit(output, "parameter-mapping-total", site, "parameters");
     if (parameter.parameter !== index || formal === undefined ||
-      parameter.kind === "default" && (formal.kind !== "default" || parameter.initializer !== formal.initializer) ||
-      parameter.kind === "omitted" && (formal.kind !== "optional" || parameter.type !== formal.type) ||
+      parameter.kind === "default" && (formal.kind !== "default" || !formal.acceptsOmission || parameter.initializer !== formal.initializer) ||
+      parameter.kind === "omitted" && (!formal.acceptsOmission || formal.kind === "default" || formal.kind === "rest" || parameter.type !== formal.type) ||
       parameter.kind === "rest" && (formal.kind !== "rest" || formal.passing !== parameter.passing) ||
       parameter.kind === "argument" && (formal.kind === "rest" || formal.passing !== parameter.passing))
       emit(output, "parameter-mapping-total", site, "formal");

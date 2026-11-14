@@ -53,8 +53,8 @@ export const signature = (name, parameters, result, receiver = null) => {
   if (name in SIG) throw new Error(`Signature ${name} is declared twice; declare signatures at module level.`);
   SIG[name] = signatures.length;
   signatures.push({ id: SIG[name], declaration: def(name), owner: null, composition: null, kind: "call", typeParameters: [],
-    receiver, parameters: parameters.map(([parameter, type, kind = "required", initializer = null, passing = "by-value"]) =>
-      ({ declaration: def(`${name}.${parameter}`), kind, type, passing, initializer })), result });
+    receiver, parameters: parameters.map(([parameter, type, kind = "required", initializer = null, passing = "by-value", acceptsOmission = kind !== "required"]) =>
+      ({ declaration: def(`${name}.${parameter}`), kind, type, passing, initializer, acceptsOmission })), result });
   return SIG[name];
 };
 term("fnVoidToInt32", { kind: "callable", calls: [signature("()=>int32", [], T.int32)], constructs: [] });

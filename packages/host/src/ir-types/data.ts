@@ -144,6 +144,7 @@ export interface SignatureParameter {
   readonly type: TyId;
   readonly passing: PassingMode;
   readonly initializer: BodyId | null;
+  readonly acceptsOmission: boolean;
 }
 
 export interface Signature {
