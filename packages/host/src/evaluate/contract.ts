@@ -11,6 +11,7 @@ export interface EvaluatorLimits {
   readonly maximumSteps: number;
   readonly maximumIntermediateBits: number;
   readonly maximumResultBits: number;
+  /** One unit per type row read; integer comparisons additionally admit canonical geometry work and one carrier-bit unit per range comparison and value comparison. */
   readonly maximumArithmeticWork: number;
 }
 

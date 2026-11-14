@@ -7,13 +7,15 @@ import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { checkCoverage } from "../architecture/host/coverage.mjs";
 import { parseSources } from "../architecture/host/import-graph.mjs";
-import { T, TABLE, EMPTY_BINDINGS, selected, verificationContext, application, SIG } from "./fixtures/lower-mir/typed.mjs";
+import { T, TABLE, EMPTY_BINDINGS, declareType, selected, verificationContext, application, SIG } from "./fixtures/lower-mir/typed.mjs";
 import { shaped } from "./fixtures/lower-mir/programs/first.mjs";
 import { nativeFactsFixture } from "./fixtures/native-facts.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const runtimeFiles = ["index", "machine", "budget", "pause"].map(name => resolve(repository, `packages/host/dist/evaluate/${name}.js`));
 const limits = { maximumSteps: 100, maximumIntermediateBits: 256, maximumResultBits: 256, maximumArithmeticWork: 256 };
+const comparisonTypes = ["int8", "int64", "uint64", "native-int", "native-uint"].map(carrier =>
+  [carrier, declareType(`evaluationComparison.${carrier}`, { kind: "primitive", primitive: carrier })]);
 const session = new Session();
 const post = (method, parameters = {}) => new Promise((done, reject) =>
   session.post(method, parameters, (error, value) => error === null ? done(value) : reject(error)));
@@ -122,6 +124,96 @@ test("selected boolean work refuses at every under-limit allowance and completes
     if (maximum < 2) same(result.value.diagnostics[0].arguments,
       [{ kind: "text", value: "evaluation.maximumArithmeticWork" }, { kind: "number", value: maximum }], "arithmetic is the first exhausted dimension");
     else same(result.value.value, { kind: "value", value: { kind: "boolean", value: false, type: T.bool } }, "actual selected boolean relation");
+  }
+});
+
+test("selected integer comparisons retain exact native values beyond double precision and every equality/order arm", () => {
+  const high = 9007199254740993n;
+  const exactLimits = { ...limits, maximumArithmeticWork: 10000 };
+  for (const [carrier, type] of comparisonTypes) {
+    const first = carrier === "int8" ? 1n : high;
+    for (const [left, right] of [[first, first], [first, first + 1n], [first + 1n, first]]) {
+      for (const operator of ["==", "!=", "===", "!==", "<", "<=", ">", ">="]) {
+        const token = { "==": "EqualsEqualsToken", "!=": "ExclamationEqualsToken", "===": "EqualsEqualsEqualsToken",
+          "!==": "ExclamationEqualsEqualsToken", "<": "LessThanToken", "<=": "LessThanEqualsToken", ">": "GreaterThanToken", ">=": "GreaterThanEqualsToken" }[operator];
+        const decision = selected({ kind: "native-operator", operator, carrier }, [type, type], T.bool);
+        const value = fixture(`evaluate-integer-${carrier}-${operator}-${left}-${right}`, T.bool, b => b.block(b.returns(
+          b.comparison(b.num(String(left), type), token, b.num(String(right), type), decision))));
+        const result = value.start(exactLimits);
+        const expected = operator === "==" || operator === "===" ? left === right
+          : operator === "!=" || operator === "!==" ? left !== right : operator === "<" ? left < right
+            : operator === "<=" ? left <= right : operator === ">" ? left > right : left >= right;
+        same(result.value.value, { kind: "value", value: { kind: "boolean", type: T.bool, value: expected } },
+          "the actual exact native comparison, without double rounding");
+      }
+    }
+  }
+});
+
+test("integer comparison geometry, row reads and comparisons share one exact precharged arithmetic allowance", () => {
+  const [carrier, type] = comparisonTypes[0];
+  const decision = selected({ kind: "native-operator", operator: "<", carrier }, [type, type], T.bool);
+  const value = fixture("evaluate-integer-account", T.bool, b => b.block(b.returns(
+    b.comparison(b.num("1", type), "LessThanToken", b.num("2", type), decision))));
+  const required = 2 + 3 * 8 + 2 + 4 * 8 + 8;
+  for (let maximum = 0; maximum <= required; maximum += 1) {
+    const result = value.start({ ...limits, maximumArithmeticWork: maximum });
+    assert.equal(result.value.kind, maximum < required ? "refused" : "ok", `same invocation work ${maximum}`);
+    if (maximum < required) same(result.value.diagnostics[0].arguments,
+      [{ kind: "text", value: "evaluation.maximumArithmeticWork" }, { kind: "number", value: maximum }],
+      "the original first arithmetic refusal is retained");
+  }
+  for (let maximum = 0; maximum <= 8; maximum += 1) {
+    const result = value.start({ ...limits, maximumIntermediateBits: maximum });
+    assert.equal(result.value.kind, maximum < 8 ? "refused" : "ok", `admit range bits before growth ${maximum}`);
+  }
+});
+
+test("integer comparisons preserve ready-domain defects, literal-base provenance and original row refusal", () => {
+  const [carrier, type] = comparisonTypes[0];
+  const decision = selected({ kind: "native-operator", operator: "<=", carrier }, [type, type], T.bool);
+  const value = fixture("evaluate-integer-views", T.bool, b => b.block(b.returns(
+    b.comparison(b.num("1", type), "LessThanEqualsToken", b.num("1", type), decision))));
+  const run = (deps, body = value.body) => product.evaluate(deps, value.entry, body, [], "compile-time", value.unit);
+  const changed = (position, change) => ({ ...value.body, constants: value.body.constants.map((constant, index) =>
+    index === position ? change(constant) : constant) });
+  let reads = 0;
+  const noDomain = { ...value.deps, types: { terms: [], signatures: [] }, typeOf: () => { reads += 1; return undefined; } };
+  assert.throws(() => run(noDomain), /actual ready type domain/u);
+  assert.equal(reads, 0, "a valid reader is never used to replace a missing captured domain");
+  assert.throws(() => run({ ...value.deps, typeOf: () => undefined }), /complete ready type row/u);
+  assert.throws(() => run({ ...value.deps, typeOf: () => ({ kind: "string" }) }), /operand carrier association/u);
+  assert.throws(() => run({ ...value.deps, typeOf: () => ({ kind: "primitive", primitive: "uint8" }) }), /operand carrier association/u);
+  const interner = types.seedTypeInterner(value.deps.types);
+  const literal = types.internType(interner, { kind: "literal", base: type, value: { kind: "number",
+    value: { numerator: 1n, denominator: 1n, negativeZero: false } } });
+  const body = changed(0, constant => ({ ...constant, type: literal }));
+  const seen = [];
+  const deps = { ...value.deps, types: types.viewTypes(interner), typeOf: selected => { seen.push(selected); return types.readType(interner, selected); } };
+  assert.equal(run(deps, body).value.kind, "ok");
+  same(seen, [literal, type, literal, type], "both actual operands follow their literal base, each charged in the same domain");
+  const originalWork = 2 + 3 * 8;
+  seen.length = 0;
+  const refused = run({ ...deps, limits: { ...limits, maximumArithmeticWork: originalWork } }, body);
+  assert.equal(refused.value.kind, "refused");
+  assert.equal(seen.length, 0, "a refused primitive endpoint charge stops before its actual row lookup");
+  for (const literal of [
+    { kind: "boolean", value: true },
+    { kind: "number", value: { numerator: 1n, denominator: 2n, negativeZero: false } },
+    { kind: "number", value: { numerator: 0n, denominator: 1n, negativeZero: true } },
+  ]) assert.throws(() => run(value.deps, changed(0, constant => ({ ...constant, value: { kind: "literal", value: literal } }))), /integral operand/u);
+  assert.throws(() => run(value.deps, changed(0, constant => ({ ...constant,
+    value: { kind: "literal", value: { kind: "bigint", value: 128n } } }))), /fit its supplied native carrier/u);
+  assert.throws(() => run(value.deps, changed(0, constant => ({ ...constant,
+    value: { kind: "literal", value: { kind: "bigint", value: -129n } } }))), /fit its supplied native carrier/u);
+  assert.equal(run(value.deps, changed(0, constant => ({ ...constant,
+    value: { kind: "literal", value: { kind: "bigint", value: 1n } } }))).value.kind, "ok");
+  for (const carrier of ["float32", "native-int"]) {
+    const body = structuredClone(value.body);
+    const statement = body.blocks.flatMap(block => block.statements).find(statement => statement.value?.kind === "binary");
+    statement.value.operation.decision.operation.carrier = carrier;
+    assert.throws(() => run({ ...value.deps, selectedNativeFacts: { ...value.deps.selectedNativeFacts, nativeIntegerWidths: [] } }, body),
+      /actual selected integer comparison geometry/u);
   }
 });
 
@@ -718,6 +810,8 @@ test("invocations evaluate operands once, preserve their continuation and retain
     same(result.value.value, { kind: "not-constant", at: site.tir, reason: "external-operation" }, "external selected operation has no invented value");
   }
   assert.throws(() => run(make({ kind: "native-operator", operator: "+", carrier: "int32" })), /actual selected native operation law/u);
+  assert.throws(() => run(make({ kind: "native-operator", operator: "<", carrier: "int32" }, [])), /two actual operands/u);
+  assert.throws(() => run(make({ kind: "bigint-operator", operator: "+" })), /actual selected native operation law/u);
   assert.throws(() => run(make({ kind: "boolean-operator", operator: "!" }, [])), /actual operand/u);
   assert.throws(() => run(make({ kind: "boolean-operator", operator: "&&" })), /two verified boolean values/u);
   assert.throws(() => run(make({ kind: "discard" }, new Array(1))), /complete operand vector/u);
