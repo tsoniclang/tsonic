@@ -2992,6 +2992,19 @@ test("the one selector-path encoding: each selector is one array beginning with 
   assert.notEqual(encodeKey(encodeSelectorPath([{ kind: "sum-arm", family: family("authored", [first, second]), index: 0 }])),
     encodeKey(encodeSelectorPath([{ kind: "sum-arm", family: family("authored", [first]), index: 0 }, second])),
     "a selector of a family's own path is not a selector of the outer path");
+  const shared = [{ kind: "array-element" }];
+  assert.deepEqual(encodeSelectorPath([
+    { kind: "sum-arm", family: family("authored", shared), index: 0 },
+    { kind: "sum-arm", family: family("inferred", shared), index: 1 },
+  ]).map(selected => selected[3]), [[["array-element"]], [["array-element"]]],
+  "sharing a completed path is not a cycle");
+  const cyclic = [];
+  cyclic.push({ kind: "sum-arm", family: family("authored", cyclic), index: 0 });
+  assert.throws(() => encodeSelectorPath(cyclic), /acyclic/u, "a self cycle is a caller defect, not unbounded expansion");
+  const firstPath = [];
+  const secondPath = [{ kind: "sum-arm", family: family("authored", firstPath), index: 0 }];
+  firstPath.push({ kind: "sum-arm", family: family("authored", secondPath), index: 0 });
+  assert.throws(() => encodeSelectorPath(firstPath), /acyclic/u, "a cycle spanning paths is rejected at its actual repeated ancestor");
   let deep = [];
   for (let level = 0; level < 20000; level += 1) deep = [{ kind: "sum-arm", family: family("authored", deep), index: 0 }];
   let depth = 0;
