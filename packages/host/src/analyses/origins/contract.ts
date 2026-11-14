@@ -1,23 +1,5 @@
-import type { Result } from "../../diag/contract.js";
-import type { DataflowLimits } from "../../dataflow/contract.js";
-import type { DefId } from "../../ids/contract.js";
-import type { BodyInstance, SignatureOf, TypeOf } from "../../ir-types/contract.js";
-import type { CheckedPhase, Declaration } from "../../ir-hir/contract.js";
-import type { TirBody } from "../../ir-tir/contract.js";
-import type { MirBody } from "../../ir-mir/contract.js";
-import type { AnalysisLimits, OriginsResult, Summary, SummaryKey } from "../../ir-facts/contract.js";
-
-export interface OriginsDeps {
-  readonly itemOf: (definition: DefId) => Declaration<CheckedPhase>;
-  readonly tirBody: (instance: BodyInstance) => TirBody;
-  readonly summaryOf: (key: SummaryKey) => Summary;
-  readonly typeOf: TypeOf;
-  readonly signatureOf: SignatureOf;
-  readonly limits: AnalysisLimits;
-  readonly flowLimits: DataflowLimits;
-}
-
-export type AnalyzeOrigins = (
-  deps: OriginsDeps,
-  body: MirBody,
-) => Result<OriginsResult>;
+// The Origins domain of BodyAnalysis has no public operation (low/COMPONENTS.md section 10, rows 1410-1416; S2-24):
+// it runs only inside the body round, `analyzeBodyRound`, whose contract is the BodyAnalysis box's. The separately
+// wired per-round port this file used to declare (`OriginsDeps`, `AnalyzeOrigins`) is replaced by that one operation.
+// The domain's kernel and its records are private to this component (`analyze.ts`), named by no wiring member.
+export {};
