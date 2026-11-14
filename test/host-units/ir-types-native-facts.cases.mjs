@@ -4,6 +4,92 @@ import { nativeFactsFixture } from "./fixtures/native-facts.mjs";
 const issue = (rule, field, index) => ({ rule, site: { field, index }, detail: [{ kind: "text", value: field }] });
 
 export async function nativeFactsCases(suite, product) {
+  await suite.test("selected integer geometry owns exact fixed and supplied native widths without a target-geometry guess", () => {
+    const facts = nativeFactsFixture();
+    facts.nativeIntegerWidths = [{ carrier: "native-int", bits: 41 }, { carrier: "native-uint", bits: 97 }];
+    const cases = [
+      ["int8", 8, true, -128n, 127n], ["uint8", 8, false, 0n, 255n],
+      ["int16", 16, true, -32768n, 32767n], ["uint16", 16, false, 0n, 65535n],
+      ["int32", 32, true, -2147483648n, 2147483647n], ["uint32", 32, false, 0n, 4294967295n],
+      ["int64", 64, true, -9223372036854775808n, 9223372036854775807n],
+      ["uint64", 64, false, 0n, 18446744073709551615n],
+      ["int128", 128, true, -170141183460469231731687303715884105728n, 170141183460469231731687303715884105727n],
+      ["uint128", 128, false, 0n, 340282366920938463463374607431768211455n],
+      ["native-int", 41, true, -(1n << 40n), (1n << 40n) - 1n],
+      ["native-uint", 97, false, 0n, (1n << 97n) - 1n],
+    ];
+    for (const [primitive, bits, signed, minimum, maximum] of cases) {
+      const admissions = [];
+      const actual = product.nativeIntegerGeometryOf(primitive, facts, (work, storage) => { admissions.push([work, storage]); return true; });
+      assert.deepEqual(actual, { kind: "integer", bits, signed, minimum, maximum });
+      const reads = primitive === "native-int" ? 1 : primitive === "native-uint" ? 2 : 0;
+      assert.deepEqual(admissions, [[1, 0], ...Array.from({ length: reads }, () => [1, 0]),
+        [bits, bits], [bits, bits], [bits, bits], [1, 0]],
+      "one dispatch, actual native row reads, three width-dependent arithmetic/storage admissions, one result");
+    }
+    for (const primitive of ["bool", "char", "float16", "float32", "float64", "decimal"])
+      assert.deepEqual(product.nativeIntegerGeometryOf(primitive, null, () => true), { kind: "not-integer" });
+    for (const primitive of ["native-int", "native-uint"]) {
+      assert.deepEqual(product.nativeIntegerGeometryOf(primitive, { ...facts, nativeIntegerWidths: [] }, () => true),
+        { kind: "missing-native-width", carrier: primitive });
+      for (const bits of [1, 9, 137]) {
+        const actual = product.nativeIntegerGeometryOf(primitive, { ...facts, nativeIntegerWidths: [{ carrier: primitive, bits }] }, () => true);
+        assert.equal(actual.bits, bits);
+        assert.equal(actual.minimum, primitive === "native-int" ? -(1n << BigInt(bits - 1)) : 0n);
+        assert.equal(actual.maximum, (1n << BigInt(bits - (primitive === "native-int" ? 1 : 0))) - 1n);
+      }
+      for (const bits of [-0, -1, 0, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1])
+        assert.throws(() => product.nativeIntegerGeometryOf(primitive, { ...facts, nativeIntegerWidths: [{ carrier: primitive, bits }] }, () => true), TypeError);
+    }
+    assert.throws(() => product.nativeIntegerGeometryOf("int256", facts, () => true), TypeError);
+    assert.throws(() => product.nativeIntegerGeometryOf("native-int", { ...facts, nativeIntegerWidths: new Array(1) }, () => true), TypeError);
+  });
+
+  await suite.test("integer geometry admits width-dependent work before arithmetic and retains the caller's first stop", () => {
+    const facts = nativeFactsFixture();
+    facts.nativeIntegerWidths = [{ carrier: "native-int", bits: 9 }, { carrier: "native-uint", bits: 17 }];
+    const environment = (maximumWork, maximumBits) => {
+      const original = { kind: "refused", maximumWork, maximumBits };
+      const state = { work: 0, stop: null, requests: [] };
+      const admit = (work, bits) => {
+        if (state.stop !== null) return false;
+        state.requests.push([work, bits]);
+        if (work > maximumWork - state.work || bits > maximumBits) { state.stop = original; return false; }
+        state.work += work;
+        return true;
+      };
+      return { original, state, admit };
+    };
+    for (const [primitive, bits, reads] of [["int8", 8, 0], ["uint16", 16, 0], ["native-int", 9, 1], ["native-uint", 17, 2]]) {
+      const need = 2 + reads + bits * 3;
+      const exact = environment(need, bits);
+      assert.equal(product.nativeIntegerGeometryOf(primitive, facts, exact.admit).kind, "integer");
+      assert.equal(exact.state.work, need);
+      for (let maximum = 0; maximum < need; maximum += 1) {
+        const current = environment(maximum, bits);
+        assert.deepEqual(product.nativeIntegerGeometryOf(primitive, facts, current.admit), { kind: "resource-stop" });
+        assert.equal(current.state.stop, current.original);
+        const before = structuredClone(current.state);
+        assert.deepEqual(product.nativeIntegerGeometryOf(null, null, current.admit), { kind: "resource-stop" });
+        assert.deepEqual(current.state, before, "a stopped invocation reads no later selected row or arithmetic input");
+      }
+      for (let maximum = 0; maximum < bits; maximum += 1) {
+        const current = environment(need, maximum);
+        assert.deepEqual(product.nativeIntegerGeometryOf(primitive, facts, current.admit), { kind: "resource-stop" });
+        assert.equal(current.state.stop, current.original);
+        assert.equal(current.state.requests.at(-1)[1], bits, "the first width-dependent allocation was refused before the shift");
+      }
+    }
+    const huge = { ...facts, nativeIntegerWidths: [{ carrier: "native-int", bits: Number.MAX_SAFE_INTEGER }] };
+    const bounded = environment(1000, 128);
+    assert.deepEqual(product.nativeIntegerGeometryOf("native-int", huge, bounded.admit), { kind: "resource-stop" },
+      "no attempted enormous BigInt shift before its genuine work/storage admission");
+    const shared = environment(27, 8);
+    assert.equal(product.nativeIntegerGeometryOf("int8", facts, shared.admit).kind, "integer");
+    assert.equal(product.nativeIntegerGeometryOf("int8", facts, shared.admit).kind, "resource-stop");
+    assert.equal(shared.state.stop, shared.original, "subsequent selections share the same remaining account rather than a fresh allowance");
+  });
+
   await suite.test("native carrier reads the actual primitive or literal-base relation through one charged ready reader", () => {
     const literal = base => ({ kind: "literal", value: { kind: "number", value: { numerator: 1n, denominator: 1n, negativeZero: false } }, base });
     const table = { terms: [{ kind: "primitive", primitive: "float32" }, literal(0), literal(1), { kind: "string" }, literal(3)], signatures: [] };

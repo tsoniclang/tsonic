@@ -4,6 +4,7 @@ import type { TypedPhase } from "../ir-tir/contract.js";
 import type { ControlScope, Evaluated, LoopContinuation, Lowering, Work } from "./model.js";
 import { callerDefect, failure, notLoweredYet, siteOf } from "./model.js";
 import { popOperand } from "./operands.js";
+import { leaveLocalScopes } from "./bindings.js";
 import { constantOperand, enterBlock, newBlock, terminate } from "./state.js";
 
 function booleanControl(lowering: Lowering, condition: Evaluated, node: NodeHeader):
@@ -72,6 +73,7 @@ export function breaks(lowering: Lowering, node: BreakStatement<TypedPhase>): bo
     if (exit === null) return false;
     scope.exit = exit;
   }
+  if (!leaveLocalScopes(lowering, scope.locals, node)) return false;
   terminate(lowering.state, { ...siteOf(lowering.body, node), kind: "goto", target: scope.exit });
   return true;
 }
@@ -92,6 +94,7 @@ export function continues(lowering: Lowering, node: ContinueStatement<TypedPhase
   if (scope === undefined || scope.continuation === null) return callerDefect("a continue has no active loop target", node.origin);
   const next = continuationTarget(lowering, scope.continuation);
   if (next === null) return false;
+  if (!leaveLocalScopes(lowering, scope.locals, node)) return false;
   terminate(lowering.state, { ...siteOf(lowering.body, node), kind: "goto", target: next });
   return true;
 }
@@ -119,7 +122,7 @@ function placeLoop(lowering: Lowering, node: ForStatement<TypedPhase> | WhileSta
     child = pending.node;
   }
   const previous = lowering.labels.get(node.id);
-  const scope: Extract<ControlScope, { readonly kind: "loop" }> = { kind: "loop", node, exit: null, continuation };
+  const scope: Extract<ControlScope, { readonly kind: "loop" }> = { kind: "loop", node, exit: null, continuation, locals: lowering.scope };
   lowering.labels.set(node.id, scope);
   return { scope, previous };
 }

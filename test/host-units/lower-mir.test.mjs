@@ -10,7 +10,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { after, before, test as declare } from "node:test";
 import { checkCoverage } from "../architecture/host/coverage.mjs";
 import { parseSources } from "../architecture/host/import-graph.mjs";
-import { ARRAY_STEP, EMPTY_BINDINGS, MODULE, PARAMETRIC, SIG, T, TABLE, bodyId, callee, declareType, def, defaultMapping, mapped, native, omittedMapping, selected, signature, typedOperation, value, verificationContext } from "./fixtures/lower-mir/typed.mjs";
+import { ARRAY_STEP, EMPTY_BINDINGS, MODULE, PARAMETRIC, SIG, T, TABLE, bodyId, builders, callee, declareType, def, defaultMapping, mapped, native, omittedMapping, selected, signature, typedBody, typedOperation, value, verificationContext } from "./fixtures/lower-mir/typed.mjs";
 import {
   argumentConstantOf, argumentKindsOf, at, blocksWithStatementAt, calleeNameOf, capturedLocalsOf, capturedRootsOf, checkedPlace, checks,
   controlPoints, createsClosure, destinationBaseOf, destinationChainOf, destinationFieldOf, destinationRootOf, edgesOf, effects,
@@ -50,12 +50,13 @@ const UNIT = { request: { query: "mirBody", key: ["unit"] }, position: { kind: "
 // The coverage gate: every runtime file of lower-mir at 100% of lines, branches and functions over this bank and the
 // case modules it loads; the type-only contract is not applicable.
 const repository = fileURLToPath(new URL("../../", import.meta.url));
-const runtimeFiles = ["index", "lower", "state", "model", "operands", "control", "calls"].map(name => resolve(repository, `packages/host/dist/lower-mir/${name}.js`));
+const runtimeFiles = ["index", "lower", "state", "model", "operands", "control", "calls", "bindings"].map(name => resolve(repository, `packages/host/dist/lower-mir/${name}.js`));
 const session = new Session();
 const post = (method, parameters = {}) => new Promise((done, reject) => {
   session.post(method, parameters, (error, result) => error === null ? done(result) : reject(error));
 });
 let verifyMir;
+let instanceKey;
 let deps;
 
 before(async () => {
@@ -75,11 +76,16 @@ before(async () => {
   };
   ({ verifyMir } = await import("../../packages/host/dist/ir-mir/index.js"));
   const types = await import("../../packages/host/dist/ir-types/index.js");
+  instanceKey = types.instanceKey;
   const interner = types.seedTypeInterner(TABLE);
   deps = {
     defs: { completionSelector: T.int32, exceptionStorage: T.unknown },
     typeOf: type => types.readType(interner, type),
-    signatureOf: signature => types.readSignature(interner, signature),
+    signatureOf: id => {
+      const signature = TABLE.signatures[id];
+      assert.equal(signature !== undefined, true, "selected signature belongs to the actual fixture table");
+      return signature;
+    },
     limits: { maximumRecords: 100000 },
     unit: UNIT,
   };
@@ -785,11 +791,12 @@ test("selected direct calls retain argument order, passing and original unwindin
 });
 
 test("omitted fixed arguments stay omitted while a supplied native absence remains a value", () => {
-  for (const defaults of [false, true]) for (const count of [0, 1, 2]) {
-    const name = `call.omitted.${defaults}.${count}`;
+  for (const kind of ["required", "optional", "default"]) for (const count of [0, 1, 2]) {
+    const defaults = kind === "default";
+    const name = `call.omitted.${kind}.${count}`;
     const target = `${name}.target`;
     const initializers = [bodyId(`${target}.p0`, "default"), bodyId(`${target}.p1`, "default")];
-    const sig = signature(target, [0, 1].map(index => [`p${index}`, T.absence, defaults ? "default" : "optional", defaults ? initializers[index] : null]), T.int32);
+    const sig = signature(target, [0, 1].map(index => [`p${index}`, T.absence, kind, defaults ? initializers[index] : null, "by-value", true]), T.int32);
     const program = shaped(name, [], T.int32, b => ({ $: "call", ...b.call(b.global(target, target, T.unknown),
       Array.from({ length: count }, (_, index) => ({ $: `argument${index}`, ...b.keyword("NullKeyword", T.absence) })), T.int32,
       at => ({ callee: callee(target, sig, [0, 1].map(index => index < count ? mapped(index, index)
@@ -808,6 +815,22 @@ test("omitted fixed arguments stay omitted while a supplied native absence remai
       assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, []).kind, "refused", `${name} under ${maximumRecords}`);
     assert.equal(produced({ ...deps, limits: { maximumRecords: size } }, program.tir, []).kind, "ok");
   }
+});
+
+test("required absence-capable parameters still need genuine selected omission evidence and parameter occurrences", () => {
+  for (const present of [false, true]) {
+    const name = `call.omitted.denied.${present}`;
+    const target = `${name}.target`;
+    const sig = signature(target, present ? [["p", T.absence, "required", null, "by-value", false]] : [], T.int32);
+    const program = shaped(name, [], T.int32, b => b.call(b.global(target, target, T.unknown), [], T.int32,
+      () => ({ callee: callee(target, sig, [omittedMapping(0, T.absence)], T.int32), receiver: null,
+        arguments: [{ kind: "omitted", parameter: 0, value: { kind: "absence" } }] })));
+    assert.throws(() => produced(deps, program.tir, []), error => defectOfLowerMir(error)
+      && error.message === `${CALLER_DEFECT}an omitted call argument lacks its selected omission capability`);
+  }
+  const program = shaped("entry.required-absence", [["x", "required", T.absence]], T.absence, b => b.id("x", 0, T.absence));
+  TABLE.signatures[program.tir.signature].parameters[0].acceptsOmission = true;
+  assert.throws(() => produced(deps, program.tir, []), notLoweredYet("an omitted entry without its selected parameter occurrence"));
 });
 
 test("nested call arguments execute in authored order and protect only genuinely exposed earlier values", () => {
@@ -931,6 +954,52 @@ test("a local actually handed to a writable call remains exposed for later calls
   }
 });
 
+test("newly exposed earlier reads and an already exposed later read are each saved once before the same call", () => {
+  for (const mode of ["byref-readwrite", "borrow-mut", "byref-readonly", "by-value"]) {
+    const name = `call.place.mixed.${mode}`;
+    const target = `${name}.target`;
+    const sig = signature(target, [["left", T.int32, "required", null, mode], ["right", T.int32, "required", null, mode]], T.int32);
+    const program = shaped(name, [["x", "required", T.int32], ["y", "required", T.int32], ["external", "required", T.int32, "byref-readwrite"]], T.int32, b => {
+      const call = { $: "mutate", ...b.call(b.global(target, target, T.unknown),
+        ["x", "y"].map((text, index) => ({ $: `argument${index}`, ...b.id(text, index, T.int32) })), T.int32, at => ({
+          callee: callee(target, sig, [mapped(0, 0, mode), mapped(1, 1, mode)], T.int32), receiver: null,
+          arguments: [0, 1].map(parameter => ({ kind: "provided", parameter, expression: at(`argument${parameter}`) })),
+        })) };
+      const sum = (label, left, right) => ({ $: label, ...b.arithmetic(left, "PlusToken", right, T.int32, plus("int32", T.int32)) });
+      return sum("sum-x", { $: "read-x", ...b.id("x", 0, T.int32) }, sum("sum-y", { $: "read-y", ...b.id("y", 1, T.int32) },
+        sum("sum-external", { $: "read-external", ...b.id("external", 2, T.int32) }, call)));
+    });
+    program.tir.locals[0].mutable = true;
+    program.tir.locals[1].mutable = true;
+    const mir = lower(program);
+    const before = mir.blocks.find(block => block.terminator.tir.node === program.at("mutate"));
+    const copies = before.statements.filter(statement => statement.kind === "assign");
+    const writable = mode === "byref-readwrite" || mode === "borrow-mut";
+    assert.deepEqual(copies.map(copy => copy.tir.node).sort((left, right) => left - right),
+      (writable ? ["read-x", "read-y", "read-external"] : ["read-external"]).map(program.at).sort((left, right) => left - right));
+    for (const [label, local] of [["x", 0], ["y", 1], ["external", 2]]) {
+      const copy = copies.find(statement => statement.tir.node === program.at(`read-${label}`));
+      const sum = mir.blocks.flatMap(block => block.statements).find(statement => statement.kind === "assign" && statement.tir.node === program.at(`sum-${label}`));
+      assert.equal(sum.value.kind, "binary");
+      if (copy === undefined) assert.equal(rootLocalOf(mir, sum.value.left.place), local);
+      else {
+        assert.equal(copy.value.kind, "use");
+        assert.equal(rootLocalOf(mir, copy.value.operand.place), local);
+        assert.deepEqual(sum.value.left, { kind: "place", place: copy.place });
+      }
+    }
+    assert.equal(walk(mir).events.filter(event => event.kind === "call").length, 1);
+    const size = mir.locals.length + mir.places.length + mir.constants.length + mir.blocks.length
+      + mir.blocks.reduce((total, block) => total + block.statements.length, 0);
+    for (let maximumRecords = 0; maximumRecords < size; maximumRecords += 1) {
+      const refused = produced({ ...deps, limits: { maximumRecords } }, program.tir, []);
+      assert.equal(refused.kind, "refused", `${name} under ${maximumRecords}`);
+      assert.equal(refused.diagnostics.length, 1);
+    }
+    assert.equal(produced({ ...deps, limits: { maximumRecords: size } }, program.tir, []).kind, "ok");
+  }
+});
+
 test("repeated place arguments share their actual local location and refuse before its first allocation", () => {
   const name = "call.place.repeated";
   const target = `${name}.target`;
@@ -992,7 +1061,9 @@ test("call frontiers and mismatched selected inputs never invent a callee, recei
     ["missing-parameter", node => { node.tsonic.application.decision.callee.decision.parameters = []; }, false, "a call with unmatched argument and parameter inventories"],
     ["omitted", node => { node.tsonic.application.decision.arguments[0] = { kind: "omitted", parameter: 0, value: { kind: "absence" } }; }, true, "an omitted call argument differs from its selected default"],
     ["omitted-source", node => { node.tsonic.application.decision.arguments[0] = { kind: "omitted", parameter: 0, value: { kind: "absence" } };
-      node.tsonic.application.decision.callee.decision.parameters[0] = omittedMapping(0, T.int32); }, true, "a call has source arguments absent from its selection"],
+      node.tsonic.application.decision.callee.decision.parameters[0] = omittedMapping(0, T.int32);
+      TABLE.signatures[node.tsonic.application.decision.callee.decision.api.signature].parameters[0].acceptsOmission = true;
+    }, true, "a call has source arguments absent from its selection"],
     ["omitted-rest", node => { node.tsonic.application.decision.arguments[0] = { kind: "omitted", parameter: 0, value: { kind: "empty-rest" } }; }, false, "a rest call argument"],
     ["rest-mapping", node => { node.tsonic.application.decision.arguments[0] = { kind: "omitted", parameter: 0, value: { kind: "absence" } };
       node.tsonic.application.decision.callee.decision.parameters[0] = { kind: "rest", parameter: 0, arguments: [], passing: "by-value" }; }, false, "a rest call argument"],
@@ -1056,6 +1127,128 @@ test("receiver lowering does not guess lexical captures, accept two receiver row
   duplicate.tir.params.push(duplicate.tir.params[0]);
   assert.throws(() => produced(deps, duplicate.tir, []), error => defectOfLowerMir(error)
     && error.message === `${CALLER_DEFECT}two selected receiver parameter rows`);
+});
+
+function initializedBinding(name, keyword = "let", mode = "captured-value", outer = false, repeat = false) {
+  const b = builders(name);
+  const initializerName = `${name}.slot`;
+  const initializer = bodyId(initializerName, "initializer");
+  const source = { body: outer ? bodyId(`${name}.outer`) : b.body, local: outer ? 7 : 0 };
+  const capture = { local: source, capture: mode };
+  const childBuilder = builders(initializerName, "initializer");
+  const child = typedBody(initializerName, { role: "initializer", signature: signature(initializerName, [], T.int32), completion: T.int32,
+    locals: [["input", "capture", T.int32, false, source]], captures: [capture],
+    root: childBuilder.id("input", 0, T.int32) });
+  const statements = Array.from({ length: repeat ? 2 : 1 }, (_, index) => {
+    const declaration = { $: index === 0 ? "declaration" : "declaration-again", ...b.variable(b.declName("slot", 1), 1, T.int32, b.num("7", T.int32), initializer) };
+    const statement = b.declare([declaration]);
+    statement.declarationList.flags = keyword === "var" ? [] : [keyword === "let" ? "Let" : "Const"];
+    return statement;
+  });
+  const program = typedBody(name, { signature: signature(name, outer ? [] : [["input", T.int32]], T.int32), completion: T.int32,
+    locals: [["input", outer ? "capture" : "parameter", T.int32, false, outer ? source : null], ["slot", "binding", T.int32, true]],
+    params: outer ? [] : [[0, "required", T.int32]], captures: outer ? [capture] : [], nestedBodies: [initializer],
+    root: b.block(...statements, b.returns(b.id("slot", 1, T.int32))) });
+  program.tir.locals[1].declaration = { kind: "body", value: program.nodeRef("declaration") };
+  const input = { instance: { body: initializer, bindings: PARAMETRIC }, captures: [capture], signature: child.tir.signature };
+  program.bodyOf = instance => instanceKey(instance) === instanceKey(input.instance) ? child.tir : null;
+  return { program, input, child };
+}
+
+test("a named initializer executes once at its actual Identifier declaration into the selected owned slot", () => {
+  for (const keyword of ["var", "let", "const"]) for (const mode of ["captured-value", "captured-location"]) for (const outer of [false, true]) {
+    const name = `binding.initializer.${keyword}.${mode}.${outer}`;
+    const { program, input, child } = initializedBinding(name, keyword, mode, outer);
+    lower(child);
+    const mir = lower(program, [input]);
+    const path = walk(mir);
+    const calls = internalCallsOn(path);
+    assert.equal(calls.length, 1);
+    const call = mir.blocks.find(block => block.terminator.kind === "call").terminator;
+    assert.equal(call.tir.node, program.at("declaration"));
+    assert.deepEqual(call.callee.instance, input.instance);
+    assert.deepEqual(call.callee.captures.map(capture => [capture.local, capture.capture]), input.captures.map(capture => [capture.local, capture.capture]));
+    assert.equal(rootLocalOf(mir, call.callee.captures[0].place), 0);
+    const slot = mir.locals.find(local => local.source?.body === program.tir.body && local.source.local === 1);
+    assert.equal(slot.role.kind, "user");
+    assert.equal(slot.mode, "local");
+    assert.equal(rootLocalOf(mir, call.destination), slot.id);
+    assert.deepEqual(call.arguments, []);
+    assert.deepEqual(call.unwind, { kind: "escape" });
+    assert.equal(mir.constants.length, 0, "parent does not execute the initializer syntax a second time");
+    assert.equal(mir.blocks.flatMap(block => block.statements).filter(statement => statement.kind === "storage-live" && statement.local === slot.id).length, 1);
+    assert.equal(mir.blocks.at(-1).terminator.value.place, call.destination);
+    const size = mir.locals.length + mir.places.length + mir.constants.length + mir.blocks.length
+      + mir.blocks.reduce((total, block) => total + block.statements.length, 0);
+    for (let maximumRecords = 0; maximumRecords < size; maximumRecords += 1)
+      assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, [input]).kind, "refused", `${name} under ${maximumRecords}`);
+    assert.equal(produced({ ...deps, limits: { maximumRecords: size } }, program.tir, [input]).kind, "ok");
+  }
+});
+
+test("lexical slot lifetimes end at actual normal and break exits while function-scoped var is not reset at its statement", () => {
+  for (const transfer of ["normal", "break", "continue"]) {
+    const name = `binding.scope.${transfer}`;
+    const b = builders(name);
+    const declaration = { $: "declaration", ...b.variable(b.declName("slot", 1), 1, T.int32) };
+    const variables = b.declare([declaration]);
+    variables.declarationList.flags = ["Let"];
+    const write = { $: "write", ...b.expressionStatement(b.assign(b.target("slot", 1, T.int32), "EqualsToken", b.num("1", T.int32), T.int32, T.int32)) };
+    const body = b.block(variables, write, ...(transfer === "normal" ? [] : [transfer === "break" ? selectedBreak(b, "loop") : selectedContinue(b, "loop", false)]));
+    const program = typedBody(name, { signature: signature(name, [["flag", T.bool]], T.void), completion: T.void,
+      locals: [["flag", "parameter", T.bool], ["slot", "binding", T.int32, true]], params: [[0, "required", T.bool]],
+      root: b.block({ $: "loop", ...b.whileLoop(b.id("flag", 0, T.bool), body) }) });
+    const mir = lower(program);
+    let switches = 0;
+    const path = walk(mir, { decide: point => point.kind === "switch" ? switches++ === 0 : "normal" });
+    const slot = mir.locals.find(local => local.role.kind === "user");
+    const markers = statementsOn(path).filter(event => (event.kind === "storage-live" || event.kind === "storage-dead") && event.record.local === slot.id);
+    assert.deepEqual(markers.map(event => event.kind), ["storage-live", "storage-dead"]);
+    assert.equal(path.end, "return");
+    const size = mir.locals.length + mir.places.length + mir.constants.length + mir.blocks.length
+      + mir.blocks.reduce((total, block) => total + block.statements.length, 0);
+    for (let maximumRecords = 0; maximumRecords < size; maximumRecords += 1)
+      assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, []).kind, "refused", `${name} under ${maximumRecords}`);
+  }
+  const { program, input } = initializedBinding("binding.var.repeated", "var", "captured-value", false, true);
+  const mir = lower(program, [input]);
+  const slot = mir.locals.find(local => local.role.kind === "user");
+  assert.equal(mir.blocks.flatMap(block => block.statements).filter(statement => statement.kind === "storage-live" && statement.local === slot.id).length, 1);
+  assert.equal(mir.blocks.filter(block => block.terminator.kind === "call").length, 2);
+});
+
+test("declarations keep actual missing initializer, destination and qualified capture inputs as defects, not inline defaults", () => {
+  const cases = [
+    ["missing-input", () => {}, () => [], "a placed initializer has no supplied execution data"],
+    ["duplicate-input", () => {}, input => [input, input], "ambiguous supplied initializer executions"],
+    ["signature", (program, input) => { input.signature = program.tir.signature; }, input => [input], "an initializer signature differs from its selected destination"],
+    ["capture", (_program, input) => { input.captures = [{ local: { body: bodyId("binding.unknown"), local: 9 }, capture: "captured-location" }]; }, input => [input], "an initializer capture has no selected caller storage"],
+    ["storage", program => { program.tir.locals[1].storage = T.bool; }, input => [input], "a variable declaration differs from its selected local storage"],
+    ["foreign", program => { program.tir.root.statements.nodes[0].declarationList.declarations.nodes[0].tsonic.declaration.local.body = bodyId("binding.other"); }, input => [input], "a variable declaration differs from its selected local storage"],
+    ["duplicate-local", program => { program.tir.root.statements.nodes.splice(1, 0, program.tir.root.statements.nodes[0]); }, input => [input], "a local storage slot is declared twice"],
+  ];
+  for (const [name, amend, inputs, message] of cases) {
+    const { program, input } = initializedBinding(`binding.invalid.${name}`);
+    amend(program, input);
+    assert.throws(() => produced(deps, program.tir, inputs(input)), error => defectOfLowerMir(error) && error.message === `${CALLER_DEFECT}${message}`, name);
+  }
+  const { program, input } = initializedBinding("binding.missing.placement");
+  program.tir.root.statements.nodes[0].declarationList.declarations.nodes[0].tsonic.initializer = null;
+  assert.throws(() => produced(deps, program.tir, [input]), notLoweredYet("a variable initializer without its placed execution"));
+});
+
+test("variable lists require actual declarations and local storage selections", () => {
+  for (const keyword of ["var", "let"]) for (const missing of [false, true]) {
+    const { program, input } = initializedBinding(`binding.list.${keyword}.${missing}`, keyword);
+    const list = program.tir.root.statements.nodes[0].declarationList;
+    list.declarations.nodes = missing ? [{ kind: "MissingDeclaration", origin: list.origin }] : [];
+    const message = missing ? "a missing variable declaration" : "an empty variable declaration list";
+    assert.throws(() => produced(deps, program.tir, [input]), error => defectOfLowerMir(error)
+      && error.message === `${CALLER_DEFECT}${message}`);
+  }
+  const { program, input } = initializedBinding("binding.definition");
+  program.tir.root.statements.nodes[0].declarationList.declarations.nodes[0].tsonic.declaration = { kind: "definition" };
+  assert.throws(() => produced(deps, program.tir, [input]), notLoweredYet("a variable declaration of kind definition"));
 });
 
 test("an actual selected expression body returns its value at that occurrence without a fabricated statement", () => {
@@ -1738,7 +1931,7 @@ test("first producer: the frontier is one check that names what it met", () => {
   for (const role of ["optional", "default", "rest"]) refused(returning(`frontier.${role}`, a, [["a", role, T.int32]]), `a parameter of role ${role}`);
   // Statements and expressions.
   refused(shaped("frontier.statement", [["a", "required", T.int32]], T.int32,
-    b => b.block(b.declare([]), b.returns(a(b)))), "the statement VariableStatement");
+    b => b.block(b.declare([], { role: "using", asynchronous: false, protocols: [] }), b.returns(a(b)))), "a using declaration");
   refused(returning("frontier.numeric-role", b => ({ ...b.num("1", T.int32), tsonic: { role: "type-literal", type: T.int32 } })),
     "a numeric literal of role type-literal");
   refused(returning("frontier.bigint-role", () => ({ kind: "BigIntLiteral", text: "1n", tokenFlags: [],
@@ -1786,8 +1979,8 @@ test("first producer: a body that must not be offered is a caller defect, told f
   defect(shaped("defect.end", [["a", "required", T.int32]], T.int32, b => b.block()), "the end of a body that completes with a value is reached");
   // Initializer data supplied with the body: the body places an initializer execution, which is past the frontier.
   const program = add("defect.internal", T.int32, plus("int32", T.int32));
-  assert.throws(() => produced(deps, program.tir, [{ instance: { body: bodyId("defect.internal", "default"), bindings: PARAMETRIC }, captures: [], signature: 0 }]),
-    notLoweredYet("a body that executes initializer bodies"));
+  assert.deepEqual(produced(deps, program.tir, [{ instance: { body: bodyId("defect.internal", "default"), bindings: PARAMETRIC }, captures: [], signature: 0 }]),
+    produced(deps, program.tir, []), "unused supplied data never fabricates an initializer execution");
   // A statement list with a hole is a defect of the tree, reported by name (R5 C-a).
   const holed = shaped("defect.hole", [["a", "required", T.int32]], T.int32, b => ({ ...b.block(), statements: { $list: true, nodes: [, b.returns(b.id("a", 0, T.int32))] } }));
   assert.throws(() => produced(deps, holed.tir, []), error => error instanceof Error && error.cause !== undefined && error.cause.owner === "lower-mir"

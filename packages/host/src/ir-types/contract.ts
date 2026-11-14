@@ -16,6 +16,13 @@ export type NativeCarrierResult =
   | { readonly kind: "resource-stop" };
 export type NativeCarrierOf = (table: TypeTable, type: TyId,
   typeOf: (type: TyId) => TypeTerm | null | undefined) => NativeCarrierResult;
+export type NativeIntegerGeometryResult =
+  | { readonly kind: "integer"; readonly bits: number; readonly signed: boolean; readonly minimum: bigint; readonly maximum: bigint }
+  | { readonly kind: "not-integer" }
+  | { readonly kind: "missing-native-width"; readonly carrier: "native-int" | "native-uint" }
+  | { readonly kind: "resource-stop" };
+export type NativeIntegerGeometryOf = (primitive: NativePrimitive, facts: SelectedNativeFacts,
+  admit: (work: number, bits: number) => boolean) => NativeIntegerGeometryResult;
 export type PlatformDeclarationKey = (declaration: PlatformDeclaration) => string;
 export type MemberStorageData = (selection: MemberStorageSelection) => KeyData;
 export type VerifyNativeFacts = (facts: SelectedNativeFacts) => readonly Violation<NativeFactsRule, NativeFactsSite>[];

@@ -1,10 +1,10 @@
 import type { InvariantFailure } from "../diag/contract.js";
 import { throwInvariant } from "../diag/index.js";
-import type { BlockId, LocalId, NodeId, Origin, PlaceId, TyId } from "../ids/contract.js";
-import type { CallExpression, DoStatement, Expression, ForStatement, IfStatement, LabeledStatement, NodeHeader, ReturnStatement, Statement, ThrowStatement, WhileStatement } from "../ir-hir/contract.js";
+import type { BlockId, BodyId, LocalId, NodeId, Origin, PlaceId, TyId } from "../ids/contract.js";
+import type { Block, CallExpression, DoStatement, Expression, ForStatement, IfStatement, LabeledStatement, NodeHeader, ReturnStatement, Statement, ThrowStatement, VariableDeclaration, WhileStatement } from "../ir-hir/contract.js";
 import type { MirOperand, MirSite } from "../ir-mir/contract.js";
 import type { TirApplication, TirBody, TypedOperation, TypedPhase, TypedValue } from "../ir-tir/contract.js";
-import type { LowerMirDeps } from "./contract.js";
+import type { InternalBodyInput, LowerMirDeps } from "./contract.js";
 import type { LowerState } from "./state.js";
 
 export const failure = (message: string, origin: Origin | null): InvariantFailure => ({ owner: "lower-mir", query: null, origin, message });
@@ -20,6 +20,8 @@ export type Work =
   | { readonly kind: "statement"; readonly node: Statement<TypedPhase> }
   | { readonly kind: "expression"; readonly node: Expression<TypedPhase> }
   | { readonly kind: "argument-place"; readonly node: Expression<TypedPhase> }
+  | { readonly kind: "declaration"; readonly node: VariableDeclaration<TypedPhase>; readonly lexical: boolean }
+  | { readonly kind: "block-end"; readonly node: Block<TypedPhase>; readonly scope: LocalScope }
   | { readonly kind: "call"; readonly node: CallExpression<TypedPhase>; readonly application: TirApplication; readonly direct: boolean }
   | { readonly kind: "operation"; readonly node: NodeHeader; readonly operation: TypedOperation; readonly form: "unary" | "binary" }
   | { readonly kind: "operation"; readonly node: NodeHeader; readonly operation: TypedOperation; readonly form: "convert"; readonly to: TyId }
@@ -50,6 +52,12 @@ export interface Evaluated {
 
 interface TargetScope {
   exit: BlockId | null;
+  readonly locals: LocalScope | null;
+}
+
+export interface LocalScope {
+  readonly parent: LocalScope | null;
+  readonly locals: LocalId[];
 }
 
 export interface LoopContinuation {
@@ -65,12 +73,15 @@ export type ControlScope = TargetScope & (
 export interface Lowering {
   readonly state: LowerState;
   readonly typeOf: LowerMirDeps["typeOf"];
+  readonly signatureOf: LowerMirDeps["signatureOf"];
+  readonly internal: readonly InternalBodyInput[];
+  internalOf: ReadonlyMap<BodyId, InternalBodyInput> | null;
   readonly body: TirBody;
   readonly work: Work[];
   readonly operands: Evaluated[];
   /**
-   * The positions in `operands` of the entries read in place from a handed-out local and not saved yet, in stack
-   * order. Kept with the stack by `pushOperand` and `popOperand`, so that a writing control point saves exactly these.
+   * The positions in `operands` of the entries read in place from a handed-out local and not saved yet.
+   * Kept with the stack by `pushOperand` and `popOperand`, so that a writing control point saves exactly these.
    */
   readonly exposed: Set<number>;
   readonly reads: Map<LocalId, Set<number>>;
@@ -78,6 +89,8 @@ export interface Lowering {
   readonly localOf: Map<LocalId, LocalId>;
   readonly labels: Map<NodeId, ControlScope>;
   readonly preservedLocals: Set<LocalId>;
+  readonly outerLocals: Map<BodyId, Map<LocalId, LocalId>>;
+  scope: LocalScope | null;
   receiver: LocalId | null;
 }
 

@@ -4,7 +4,7 @@ import type { MirCallArgument } from "../ir-mir/contract.js";
 import type { TypedPhase } from "../ir-tir/contract.js";
 import type { Lowering, Work } from "./model.js";
 import { callerDefect, failure, notLoweredYet, siteOf } from "./model.js";
-import { held, popOperand, pushOperand, saveHandedOut, temporary } from "./operands.js";
+import { exposeLocal, held, popOperand, pushOperand, saveHandedOut, temporary } from "./operands.js";
 import { constantOperand, enterBlock, newBlock, placeOfLocal, terminate } from "./state.js";
 
 export function enterCall(lowering: Lowering, node: CallExpression<TypedPhase>): boolean {
@@ -70,6 +70,9 @@ export function finishCall(lowering: Lowering, pending: Extract<Work, { readonly
         if (mapping.initializer !== selected.value.instance.body) return callerDefect("an omitted call argument names another initializer", node.origin);
       } else if (!(mapping.kind === "omitted" && selected.value.kind === "absence"))
         return callerDefect("an omitted call argument differs from its selected default", node.origin);
+      const parameter = lowering.signatureOf(decision.api.signature).parameters[position];
+      if (parameter === undefined || !parameter.acceptsOmission)
+        return callerDefect("an omitted call argument lacks its selected omission capability", node.origin);
       arguments_.push({ kind: "omitted" });
       continue;
     }
@@ -86,12 +89,7 @@ export function finishCall(lowering: Lowering, pending: Extract<Work, { readonly
       if (value.operand.kind !== "place") return callerDefect("a place argument completed without a place", node.origin);
       const place = requirePresent(lowering.state.places[value.operand.place], failure("a place argument has no allocated storage", node.origin));
       if (place.base.kind !== "local") return callerDefect("a local place argument has a projected place", node.origin);
-      if (mapping.passing !== "byref-readonly" && mapping.passing !== "borrow-shared") {
-        const local = place.base.local;
-        lowering.preservedLocals.add(local);
-        const reads = lowering.reads.get(local);
-        if (reads !== undefined) for (const position of reads) lowering.exposed.add(position);
-      }
+      if (mapping.passing !== "byref-readonly" && mapping.passing !== "borrow-shared") exposeLocal(lowering, place.base.local);
       arguments_.push({ kind: "place", passing: mapping.passing, place: value.operand.place });
     }
     argument -= 1;

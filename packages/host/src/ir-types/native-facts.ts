@@ -1,7 +1,7 @@
 import { encodeKey } from "../ids/index.js";
 import type { KeyData } from "../ids/contract.js";
 import type { Violation } from "../diag/contract.js";
-import type { NativeCarrierOf } from "./contract.js";
+import type { NativeCarrierOf, NativeIntegerGeometryOf } from "./contract.js";
 import type { NativePrimitive } from "./data.js";
 import type { CheckFailure, NativeArithmeticCarrier, NativeConversionResult, NativeFactsRule, NativeFactsSite,
   NativeFloatingFormat, NativeRounding, PlatformDeclaration, SelectedNativeFacts } from "./native-facts-data.js";
@@ -77,6 +77,53 @@ export const nativeCarrierOf: NativeCarrierOf = (table, type, typeOf) => {
     if (term.kind !== "literal") return { kind: "needs-selected-association", type: selected };
     selected = term.base;
   }
+};
+
+export const nativeIntegerGeometryOf: NativeIntegerGeometryOf = (primitive, facts, admit) => {
+  if (!admit(1, 0)) return { kind: "resource-stop" };
+  let bits: number;
+  let signed: boolean;
+  switch (primitive) {
+    case "int8": bits = 8; signed = true; break;
+    case "int16": bits = 16; signed = true; break;
+    case "int32": bits = 32; signed = true; break;
+    case "int64": bits = 64; signed = true; break;
+    case "int128": bits = 128; signed = true; break;
+    case "uint8": bits = 8; signed = false; break;
+    case "uint16": bits = 16; signed = false; break;
+    case "uint32": bits = 32; signed = false; break;
+    case "uint64": bits = 64; signed = false; break;
+    case "uint128": bits = 128; signed = false; break;
+    case "native-int":
+    case "native-uint": {
+      let width: number | null = null;
+      for (let index = 0; index < facts.nativeIntegerWidths.length; index += 1) {
+        if (!admit(1, 0)) return { kind: "resource-stop" };
+        const row = facts.nativeIntegerWidths[index];
+        if (row === undefined) throw new TypeError("A selected native integer width requires its actual ready row");
+        if (row.carrier !== primitive) continue;
+        if (!Number.isSafeInteger(row.bits) || row.bits <= 0)
+          throw new TypeError("A selected native integer width is an actual positive safe count");
+        width = row.bits;
+        break;
+      }
+      if (width === null) return { kind: "missing-native-width", carrier: primitive };
+      bits = width; signed = primitive === "native-int";
+      break;
+    }
+    case "bool": case "char": case "float16": case "float32": case "float64": case "decimal":
+      return { kind: "not-integer" };
+    default: throw new TypeError("An integer geometry selection requires an actual native primitive");
+  }
+  if (!admit(bits, bits)) return { kind: "resource-stop" };
+  const high = 1n << BigInt(bits - 1);
+  if (!admit(bits, bits)) return { kind: "resource-stop" };
+  const lower = high - 1n;
+  if (!admit(bits, bits)) return { kind: "resource-stop" };
+  const minimum = signed ? -high : 0n;
+  const maximum = signed ? lower : high + lower;
+  if (!admit(1, 0)) return { kind: "resource-stop" };
+  return { kind: "integer", bits, signed, minimum, maximum };
 };
 
 export function floatingFormatWidth(format: NativeFloatingFormat): 16 | 32 | 64 | null {

@@ -59,6 +59,43 @@ function record(lowering) {
 }
 const fresh = maximumRecords => state.createState(BODY, { kind: "parametric" }, 0, { maximumRecords });
 
+test("private declaration lifetimes reject unrelated scope anchors and a missing lexical owner", async () => {
+  const { declareLocal, leaveLocalScopes } = await import("../../packages/host/dist/lower-mir/bindings.js");
+  assert.throws(() => leaveLocalScopes({ scope: null }, { parent: null, locals: [] }, { origin }),
+    error => error instanceof Error && error.message === "caller defect: a storage transfer leaves an unrelated lexical scope");
+  const declaration = { id: 0, origin, name: { kind: "Identifier" }, initializer: null,
+    tsonic: { declaration: { kind: "local", local: { body: BODY, local: 0 } }, storage: 0, initializer: null } };
+  const lowering = { body: { body: BODY, locals: [{ id: 0, role: "binding", storage: 0 }] }, state: fresh(10), localOf: new Map(), scope: null };
+  assert.throws(() => declareLocal(lowering, declaration, true),
+    error => error instanceof Error && error.message === "a lexical declaration has no enclosing scope");
+});
+
+test("an initializer stops before call handoff when saving an actual pending exposed read is refused", async () => {
+  const { declareLocal } = await import("../../packages/host/dist/lower-mir/bindings.js");
+  const { pushOperand } = await import("../../packages/host/dist/lower-mir/operands.js");
+  const initializer = `${BODY}.initializer`;
+  for (const maximumRecords of [5, 6, 7]) {
+    const graph = fresh(maximumRecords);
+    const source = state.newLocal(graph, 0, { kind: "parameter", index: 0 }, "byref-readwrite", null, origin);
+    const place = state.placeOfLocal(graph, source);
+    state.enterBlock(graph, state.newBlock(graph, site));
+    const lowering = { body: { body: BODY, locals: [{ id: 0, role: "parameter", storage: 0 }, { id: 1, role: "binding", storage: 0 }] },
+      state: graph, localOf: new Map([[0, source]]), scope: { parent: null, locals: [] },
+      internal: [{ instance: { body: initializer, bindings: { kind: "parametric" } }, signature: 0, captures: [] }],
+      internalOf: null, signatureOf: () => ({ receiver: null, parameters: [], result: 0 }),
+      operands: [], reads: new Map(), preservedLocals: new Set([source]), exposed: new Set() };
+    pushOperand(lowering, { operand: { kind: "place", place }, inPlace: source, storage: 0, site });
+    const declaration = { id: 1, origin, name: { kind: "Identifier" }, initializer: { kind: "NumericLiteral" },
+      tsonic: { declaration: { kind: "local", local: { body: BODY, local: 1 } }, storage: 0, initializer } };
+    assert.equal(declareLocal(lowering, declaration, true), false);
+    assert.equal(graph.refused, true);
+    assert.equal(graph.records, maximumRecords);
+    assert.equal(graph.blocks.length, 1);
+    assert.equal(graph.blocks[0].terminator, null);
+    assert.equal(state.finishBody(graph), null);
+  }
+});
+
 test("at its limit a graph is recorded whole; the limit counts each record once and a block with its terminator once", () => {
   // The graph of `record` is five records: a local, a place, a constant, a block, a statement.
   const lowering = fresh(5);

@@ -1,6 +1,6 @@
 import type { InvariantFailure } from "../diag/contract.js";
 import { requirePresent } from "../diag/index.js";
-import type { PlaceId, TyId } from "../ids/contract.js";
+import type { LocalId, PlaceId, TyId } from "../ids/contract.js";
 import type { MirSite } from "../ir-mir/contract.js";
 import type { Evaluated, Lowering } from "./model.js";
 import { failure } from "./model.js";
@@ -62,4 +62,10 @@ export function saveReads(lowering: Lowering, positions: Iterable<number>): bool
 
 export function saveHandedOut(lowering: Lowering): boolean {
   return saveReads(lowering, lowering.exposed);
+}
+
+export function exposeLocal(lowering: Lowering, local: LocalId): void {
+  lowering.preservedLocals.add(local);
+  const reads = lowering.reads.get(local);
+  if (reads !== undefined) for (const position of reads) lowering.exposed.add(position);
 }

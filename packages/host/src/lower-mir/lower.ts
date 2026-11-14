@@ -12,6 +12,7 @@ import { callerDefect, failure, notLoweredYet, siteOf } from "./model.js";
 import { held, popOperand, pushOperand, saveHandedOut, saveReads, temporary } from "./operands.js";
 import { breaks, continues, endDo, endElse, endFor, endLabel, endThen, endWhile, enterDo, enterFor, enterIf, enterWhile, loopCondition, nextFor } from "./control.js";
 import { argumentPlace, enterCall, finishCall } from "./calls.js";
+import { declareLocal, declarations, endLocalBlock, enterLocalBlock, prepareFunctionLocals } from "./bindings.js";
 import { addEntry, constantOperand, createState, emitStatement, enterBlock, finishBody, newBlock, newLocal, newPlace, placeOfLocal, terminate } from "./state.js";
 
 // The lowering of one typed body into its MIR graph.
@@ -44,13 +45,12 @@ export function lowerBody(deps: LowerMirDeps, body: TirBody, internal: readonly 
   if (!Number.isSafeInteger(maximumRecords) || maximumRecords < 0 || Object.is(maximumRecords, -0))
     throw new TypeError("lower-mir: maximumRecords must be a safe nonnegative count");
   const root = body.root;
-  // Pipeline supplies the data of each initializer execution the body places (§7 part 1). Supplied data says the body
-  // places one; no construct this lowering admits does, so such a body is past the frontier.
-  if (internal.length !== 0) return notLoweredYet("a body that executes initializer bodies", root.origin);
   if (root.kind === "SourceFile") return notLoweredYet("a module initializer body", root.origin);
   if (body.asynchronous || body.generator) return notLoweredYet("an asynchronous body or a generator", root.origin);
-  const lowering: Lowering = { state: createState(body.body, body.bindings, body.completion, deps.limits), typeOf: deps.typeOf, body, work: [], operands: [],
-    exposed: new Set(), reads: new Map(), localOf: new Map(), labels: new Map(), preservedLocals: new Set(), receiver: null };
+  const lowering: Lowering = { state: createState(body.body, body.bindings, body.completion, deps.limits), typeOf: deps.typeOf,
+    signatureOf: deps.signatureOf, internal, internalOf: null, body, work: [], operands: [],
+    exposed: new Set(), reads: new Map(), localOf: new Map(), labels: new Map(), preservedLocals: new Set(), receiver: null,
+    outerLocals: new Map(), scope: null };
   const mir = enter(lowering, root) && walk(lowering) ? finish(deps, lowering) : null;
   return mir === null ? { kind: "refused", diagnostics: [sizeLimit(deps, body)] } : { kind: "ok", value: mir, diagnostics: [] };
 }
@@ -70,8 +70,11 @@ function enter(lowering: Lowering, root: Block<TypedPhase> | Expression<TypedPha
   if (body.captures.length > state.limits.maximumRecords - state.records) return false;
   const capturedLocals = body.captures.length === 0 ? null : captureIndex(body, root);
   let parameters = 0;
+  const signature = lowering.signatureOf(body.signature);
   for (const row of body.params) {
     if (row.role !== "required" && row.role !== "this") return notLoweredYet(`a parameter of role ${row.role}`, root.origin);
+    if (row.role !== "this" && signature.parameters[parameters]?.acceptsOmission)
+      return notLoweredYet("an omitted entry without its selected parameter occurrence", root.origin);
     if (row.role === "this" && lowering.receiver !== null) return callerDefect("two selected receiver parameter rows", root.origin);
     const role: MirLocalRole = row.role === "this" ? { kind: "receiver" } : { kind: "parameter", index: parameters };
     const local = newLocal(state, row.storage, role, row.passing,
@@ -88,11 +91,15 @@ function enter(lowering: Lowering, root: Block<TypedPhase> | Expression<TypedPha
     const local = newLocal(state, source.storage, { kind: "capture", index }, capture.capture, capture.local, root.origin);
     if (local === null) return false;
     lowering.localOf.set(source.id, local);
+    let outer = lowering.outerLocals.get(capture.local.body);
+    if (outer === undefined) { outer = new Map(); lowering.outerLocals.set(capture.local.body, outer); }
+    outer.set(capture.local.local, local);
     if (localOwnershipOfMir(capture.capture) !== "body") lowering.preservedLocals.add(local);
   }
   const first = newBlock(state, siteOf(body, root));
   if (first === null) return false;
   enterBlock(state, first);
+  if (!prepareFunctionLocals(lowering)) return false;
   // Every fixed parameter is required: the full count is the one admissible supplied count.
   addEntry(state, { provided: parameters, block: first });
   if (root.kind === "Block") lowering.work.push({ kind: "statement", node: root });
@@ -130,6 +137,8 @@ function walk(lowering: Lowering): boolean {
   for (let next = lowering.work.pop(); next !== undefined; next = lowering.work.pop()) {
     const done = next.kind === "statement" ? statement(lowering, next.node)
       : next.kind === "expression" ? expression(lowering, next.node)
+        : next.kind === "declaration" ? declareLocal(lowering, next.node, next.lexical)
+          : next.kind === "block-end" ? endLocalBlock(lowering, next.node, next.scope)
         : next.kind === "argument-place" ? argumentPlace(lowering, next.node)
         : next.kind === "call" ? finishCall(lowering, next)
         : next.kind === "operation" ? operation(lowering, next)
@@ -174,7 +183,7 @@ function statement(lowering: Lowering, node: Statement<TypedPhase>): boolean {
         lowering.work.push({ kind: "statement", node: node.statement });
         return true;
       }
-      const scope: Extract<ControlScope, { readonly kind: "label" }> = { kind: "label", node, exit: null, continuation: null };
+      const scope: Extract<ControlScope, { readonly kind: "label" }> = { kind: "label", node, exit: null, continuation: null, locals: lowering.scope };
       lowering.labels.set(target.node, scope);
       lowering.work.push({ kind: "label-end", node, scope }, { kind: "statement", node: node.statement });
       return true;
@@ -196,11 +205,8 @@ function statement(lowering: Lowering, node: Statement<TypedPhase>): boolean {
     case "ExpressionStatement":
       lowering.work.push({ kind: "discard", node }, { kind: "expression", node: node.expression });
       return true;
-    case "Block":
-      // A statement list has no hole; one is a defect of the tree, reported by name as the other unreachable states are.
-      for (let index = node.statements.nodes.length - 1; index >= 0; index -= 1)
-        lowering.work.push({ kind: "statement", node: requirePresent(node.statements.nodes[index], failure("a statement list has a hole", node.origin)) });
-      return true;
+    case "VariableStatement": return declarations(lowering, node);
+    case "Block": return enterLocalBlock(lowering, node);
     case "ReturnStatement":
       if (node.expression === null) {
         terminate(lowering.state, { ...siteOf(lowering.body, node), kind: "return", value: null });
