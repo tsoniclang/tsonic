@@ -309,6 +309,20 @@ test("first producer: a comparison is placed by its decision like any binary ope
   assert.equal(mir.locals[2].storage, T.bool);
 });
 
+test("first producer: a record limit that is not a count is the caller's defect, raised before any record is made (K-3338)", () => {
+  const program = add("first.add.limit", T.float64, plus("float64", T.float64));
+  for (const maximumRecords of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, -1, 1.5, 8.999])
+    assert.throws(() => produced({ ...deps, limits: { maximumRecords } }, program.tir, []),
+      error => error instanceof TypeError && error.message === "lower-mir: maximumRecords must be a finite nonnegative integer", String(maximumRecords));
+  // Zero is a count: the body is refused with the size-limit diagnostic, not raised. The exact need is admitted.
+  const zero = produced({ ...deps, limits: { maximumRecords: 0 } }, program.tir, []);
+  assert.deepEqual([zero.kind, zero.diagnostics.map(diagnostic => diagnostic.code.rendered)], ["refused", ["TSONIC_MIR_SIZE_LIMIT_EXCEEDED"]]);
+  assert.equal(produced({ ...deps, limits: { maximumRecords: 9 } }, program.tir, []).kind, "ok");
+  // The check comes first: a body past the frontier with an invalid limit is still the limit's defect.
+  const generator = shaped("first.limit.generator", [["a", "required", T.int32]], T.int32, b => b.block(b.returns(b.id("a", 0, T.int32))), { extra: { generator: true } });
+  assert.throws(() => produced({ ...deps, limits: { maximumRecords: -1 } }, generator.tir, []), TypeError);
+});
+
 test("first producer: an identity refinement is no check, and a parenthesized operand is its inner value", () => {
   const identity = { kind: "identity", type: T.int32 };
   const program = shaped("first.identity", [["a", "required", T.int32]], T.int32,

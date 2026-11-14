@@ -79,6 +79,9 @@ interface Lowering {
 const siteOf = (body: TirBody, node: NodeHeader): MirSite => ({ origin: node.origin, tir: { body: body.body, node: node.id } });
 
 export function lowerBody(deps: LowerMirDeps, body: TirBody, internal: readonly InternalBodyInput[]): Result<MirBody> {
+  // The caller sets the limit; a value that is not a count is the caller's defect, as for the MIR verifier's limit.
+  const maximumRecords = deps.limits.maximumRecords;
+  if (!Number.isInteger(maximumRecords) || maximumRecords < 0) throw new TypeError("lower-mir: maximumRecords must be a finite nonnegative integer");
   const root = body.root;
   // Pipeline supplies the data of each initializer execution the body places (§7 part 1). Supplied data says the body
   // places one; no construct this lowering admits does, so such a body is past the frontier.
