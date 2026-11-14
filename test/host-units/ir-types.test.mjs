@@ -24,7 +24,7 @@ const post = (method, parameters = {}) => new Promise((done, reject) => {
   session.post(method, parameters, (error, result) => error === null ? done(result) : reject(error));
 });
 let createTypeInterner, seedTypeInterner, internType, internSignature, readType, readSignature, exportTypes,
-  substitute, substituteSignature, printTypes, parseTypes, runTypeVerifier;
+  substitute, substituteSignature, printTypes, parseTypes, runTypeVerifier, instanceKey, sameInstance, executionKey, declaredExecutionKey;
 
 before(async () => {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true, "the whole suite requires aggregate admission");
@@ -33,7 +33,8 @@ before(async () => {
   await post("Profiler.enable");
   await post("Profiler.startPreciseCoverage", { callCount: true, detailed: true });
   ({ createTypeInterner, seedTypeInterner, internType, internSignature, readType, readSignature, exportTypes,
-    substitute, substituteSignature, printTypes, parseTypes, verifyTypes: runTypeVerifier } = await import("../../packages/host/dist/ir-types/index.js"));
+    substitute, substituteSignature, printTypes, parseTypes, verifyTypes: runTypeVerifier, instanceKey, sameInstance, executionKey,
+    declaredExecutionKey } = await import("../../packages/host/dist/ir-types/index.js"));
 });
 const moduleId = encodeModuleId({ package: encodePackageId("ir-types-tests"), path: "main.ts" });
 const definition = name => encodeDefId({ module: moduleId, segments: [{ name, ordinal: 0 }] });
@@ -2811,6 +2812,65 @@ test("a genuine typed component cycle is rejected before the owned arena changes
   const row = { kind: "projection", source: 0, projection: { kind: "component", component } };
   assert.throws(() => internType(interner, row), { name: "TypeError", message: "Inline cycle at $.projection.component.path[0].family.component" });
   assert.deepEqual(readType(interner, 0), primitive);
+});
+
+// ---- Execution and DeclaredExecution keys (COMMON-DATA section 1; K-3367 D) -------------------------------------------
+const keyBody = encodeBodyId({ owner, role: "function", ordinal: 0 });
+const keySecondBody = encodeBodyId({ owner, role: "function", ordinal: 1 });
+const boundAt = (index, type) => ({ kind: "bound", parameter: { owner, index }, type });
+const rigidAt = index => ({ kind: "rigid", parameter: { owner, index } });
+const vectorOf = (families = {}) => ({ classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [], ...families });
+const instantiated = families => ({ kind: "instantiated", bindings: vectorOf(families) });
+const instanceOf = (bindings, body = keyBody) => ({ body, bindings });
+
+test("sameInstance and instanceKey: equal body and complete bindings are one instance; any difference of body, kind or position is another", () => {
+  const vector = { classBindings: [boundAt(0, 1)], methodBindings: [rigidAt(1)], capturedBindings: [boundAt(2, 3)], selfBindings: [{ kind: "bound", owner, type: 4 }] };
+  assert.equal(sameInstance(instanceOf({ kind: "parametric" }), instanceOf({ kind: "parametric" })), true);
+  assert.equal(sameInstance(instanceOf(instantiated(vector)), instanceOf(instantiated(structuredClone(vector)))), true, "structurally equal bindings");
+  assert.equal(instanceKey(instanceOf(instantiated(vector))), instanceKey(instanceOf(instantiated(structuredClone(vector)))));
+  assert.equal(sameInstance(instanceOf({ kind: "parametric" }), instanceOf({ kind: "parametric" }, keySecondBody)), false, "another body");
+  assert.equal(sameInstance(instanceOf({ kind: "parametric" }), instanceOf(instantiated({}))), false, "parametric is not the empty binding");
+  const unequal = [
+    { classBindings: [boundAt(0, 2)] }, { classBindings: [rigidAt(0)] }, { methodBindings: [boundAt(1, 1)] },
+    { capturedBindings: [boundAt(2, 9)] }, { selfBindings: [{ kind: "rigid", owner }] }, { classBindings: [boundAt(0, 1), boundAt(1, 1)] },
+  ];
+  for (const change of unequal) {
+    assert.equal(sameInstance(instanceOf(instantiated(vector)), instanceOf(instantiated({ ...vector, ...change }))), false, JSON.stringify(change));
+  }
+});
+
+test("instanceKey: a hole in each family is null at its own position, distinct from a binding there and from a shorter family", () => {
+  for (const family of ["classBindings", "methodBindings", "capturedBindings", "selfBindings"]) {
+    const entry = family === "selfBindings" ? { kind: "rigid", owner } : rigidAt(0);
+    const holed = [];
+    holed[1] = entry;
+    const withHole = instanceOf(instantiated({ [family]: holed }));
+    const filled = instanceOf(instantiated({ [family]: [entry, entry] }));
+    const shorter = instanceOf(instantiated({ [family]: [entry] }));
+    const shifted = [entry];
+    shifted[2] = entry;
+    assert.equal(sameInstance(withHole, instanceOf(instantiated({ [family]: holed.slice() }))), true, `${family}: equal holes`);
+    assert.equal(sameInstance(withHole, filled), false, `${family}: a hole is not a binding`);
+    assert.equal(sameInstance(withHole, shorter), false, `${family}: a hole keeps its position`);
+    assert.equal(sameInstance(withHole, instanceOf(instantiated({ [family]: shifted }))), false, `${family}: holes at other positions`);
+  }
+});
+
+test("executionKey and declaredExecutionKey: the provided count is part of the key and is data only, never checked here", () => {
+  const instance = instanceOf(instantiated({ classBindings: [boundAt(0, 1)] }));
+  const key = provided => executionKey({ instance, provided });
+  assert.equal(key(0), executionKey({ instance: structuredClone(instance), provided: 0 }), "zero is a provided count like any other");
+  assert.notEqual(key(0), key(1));
+  assert.notEqual(key(2), executionKey({ instance: instanceOf({ kind: "parametric" }), provided: 2 }), "the instance is part of the key");
+  for (const provided of [7, -1, 1.5]) assert.equal(typeof key(provided), "string", `${provided}: no validation here`);
+  assert.notEqual(key(1), instanceKey(instance), "an execution key is not its instance key");
+  const request = { definition: owner, endpoint: "api-signature", ordinal: 0, bindings: { kind: "parametric" } };
+  const declared = (change, provided = 1) => declaredExecutionKey({ request: { ...request, ...change }, provided });
+  assert.equal(declared({}), declaredExecutionKey({ request: structuredClone(request), provided: 1 }));
+  for (const change of [{ definition: definition("Other") }, { endpoint: "advertised" }, { ordinal: 1 }, { bindings: instantiated({}) }]) {
+    assert.notEqual(declared(change), declared({}), JSON.stringify(change));
+  }
+  assert.notEqual(declared({}, 2), declared({}, 1));
 });
 
 test("the complete real ir-types owner compiles against freshly emitted actual allowed dependency declarations", async () => {

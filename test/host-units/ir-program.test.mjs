@@ -2133,6 +2133,51 @@ test("ir-program summary and metadata selection distinguish unrelated owners and
     { kind: "instantiated", artifact: { kind: "metadata", metadata }, types: fixture.index.types }, "the exact selected independent data record is borrowed whole");
 });
 
+test("Execution and DeclaredExecution text forms round trip and refuse a wrong field (COMMON-DATA section 1; K-3367 D)", async () => {
+  const { textExecution, textDeclaredExecution } = await import("../../packages/host/dist/ir-program/text-types.js");
+  const { readExecution, readDeclaredExecution } = await import("../../packages/host/dist/ir-program/parse-types.js");
+  const { emitText } = await import("../../packages/host/dist/ir-program/text-values.js");
+  const ids = await import("../../packages/host/dist/ids/index.js");
+  const cursorOf = text => ({ text, offset: 0, identities: { type: ids.tyId, signature: ids.sigId, node: ids.nodeId, local: ids.localId,
+    expansion: value => value, hostCode: value => value } });
+  const module = ids.encodeModuleId({ package: ids.encodePackageId("ir-program-tests"), path: "main.ts" });
+  const definition = ids.encodeDefId({ module, segments: [{ name: "f", ordinal: 0 }] });
+  const body = ids.encodeBodyId({ owner: definition, role: "function", ordinal: 0 });
+  const vector = { classBindings: [{ kind: "bound", parameter: { owner: definition, index: 0 }, type: 3 }], methodBindings: [],
+    capturedBindings: [], selfBindings: [] };
+  const executions = [{ instance: { body, bindings: { kind: "parametric" } }, provided: 0 },
+    { instance: { body, bindings: { kind: "instantiated", bindings: vector } }, provided: 2 }];
+  for (const execution of executions) {
+    const text = emitText(textExecution(execution), "execution");
+    const parsed = readExecution(cursorOf(text));
+    assert.equal(parsed.kind, "parsed", text);
+    assert.deepEqual(parsed.value, execution);
+  }
+  const declared = { request: { definition, endpoint: "api-signature", ordinal: 1, bindings: { kind: "instantiated", bindings: vector } }, provided: 1 };
+  const declaredText = emitText(textDeclaredExecution(declared), "declared");
+  const parsedDeclared = readDeclaredExecution(cursorOf(declaredText));
+  assert.equal(parsedDeclared.kind, "parsed", declaredText);
+  assert.deepEqual(parsedDeclared.value, declared);
+  const executionText = emitText(textExecution(executions[1]), "execution");
+  for (const [label, broken, read] of [
+    ["another record name", executionText.replace("Execution", "Executio"), readExecution],
+    ["a malformed instance", executionText.replace("BodyInstance", "BodyInstanc"), readExecution],
+    ["a provided count that is not a number", executionText.replace(/provided[^0-9]*2/, match => match.replace("2", "x")), readExecution],
+    ["an unclosed execution", executionText.slice(0, executionText.lastIndexOf(")")), readExecution],
+    ["another declared record name", declaredText.replace("DeclaredExecution", "DeclaredExecutio"), readDeclaredExecution],
+    ["another request record name", declaredText.replace("SignatureRequest", "SignatureReques"), readDeclaredExecution],
+    ["a malformed definition", declaredText.replace("def:", "dfe:"), readDeclaredExecution],
+    ["an unknown endpoint", declaredText.replace("api-signature", "api-other"), readDeclaredExecution],
+    ["an ordinal that is not a number", declaredText.replace(/ordinal[^0-9]*1/, match => match.replace("1", "x")), readDeclaredExecution],
+    ["malformed request bindings", declaredText.replace("instantiated", "instantiate"), readDeclaredExecution],
+    ["an unclosed request", declaredText.replace(/\)\s*,?\s*provided/, " provided"), readDeclaredExecution],
+    ["a declared provided count that is not a number", declaredText.replace(/provided[^0-9]*1(?![^]*provided)/, match => match.replace("1", "x")), readDeclaredExecution],
+    ["an unclosed declared execution", declaredText.slice(0, declaredText.lastIndexOf(")")), readDeclaredExecution],
+  ]) {
+    assert.equal(read(cursorOf(broken)).kind, "invalid-text", label);
+  }
+});
+
 test("ir-program existing nonempty binding keys consume their actual selection work before borrowing", () => {
   const fixture = dualInstanceFixture();
   const bindings = fixture.module.bodies[1].instance.bindings.bindings;
