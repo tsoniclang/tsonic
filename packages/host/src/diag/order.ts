@@ -1,6 +1,6 @@
 import type { KeyData, Origin } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
-import type { Diagnostic, DiagnosticCode, DiagnosticSite, LookupDiagnostic, OrderDiagnostics } from "./contract.js";
+import type { Diagnostic, DiagnosticCode, DiagnosticIdentityKey, DiagnosticSite, HostDiagnosticCode, LookupDiagnostic, OrderDiagnostics, ResourceLimitReport, UnitPosition } from "./contract.js";
 
 interface DiagnosticEntry {
   readonly diagnostic: Diagnostic;
@@ -18,6 +18,36 @@ export const findDiagnosticDefinition: LookupDiagnostic = (registry, code) => {
   }
   return null;
 };
+
+export function limitDiagnostic(code: HostDiagnosticCode, report: ResourceLimitReport): Diagnostic {
+  const unit = report.unit;
+  return ({
+    code: { kind: "host", name: code, rendered: code },
+    severity: "error",
+    site: report.site,
+    source: report.owner,
+    evidence: [report.limit, unit.request.query, encodeKey(unit.request.key), encodeKey(positionKey(unit.position))],
+    message: "A compiler resource limit was reached.",
+    arguments: [{ kind: "text", value: report.limit }, { kind: "number", value: report.maximum }],
+    related: [],
+    fix: null,
+  });
+}
+
+function positionKey(position: UnitPosition): readonly KeyData[] {
+  switch (position.kind) {
+    case "result": return [position.kind];
+    case "module-node": return [position.kind, position.module, position.node];
+    case "component": return [position.kind, position.path];
+    case "source-node": return position.node.kind === "body"
+      ? [position.kind, position.node.kind, position.node.value.body, position.node.value.node]
+      : [position.kind, position.node.kind, position.node.value.owner, position.node.value.node];
+  }
+}
+
+export const identityKey: DiagnosticIdentityKey = identity => encodeKey(identity.kind === "checker"
+  ? [identity.kind, identity.diagnostic.module, identity.diagnostic.index]
+  : [identity.kind, identity.code, identity.unit.request.query, identity.unit.request.key, positionKey(identity.unit.position)]);
 
 function compareDiagnostics(left: DiagnosticEntry, right: DiagnosticEntry): number {
   const first = left.diagnostic;

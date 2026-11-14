@@ -53,6 +53,9 @@
         "maximumIntersectionMembers": 128
       }
     },
+    "mirVerification": {
+      "maximumWork": 100000
+    },
     "analysisLimits": {
       "maximumProjectionDepth": 128,
       "maximumOriginAlternatives": 128,

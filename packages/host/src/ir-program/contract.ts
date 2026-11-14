@@ -5,7 +5,7 @@ import type {
 } from "../ir-types/contract.js";
 import type { SourceFile } from "../ir-hir/contract.js";
 import type { TirBody, TirVerifierInput, TypedPhase } from "../ir-tir/contract.js";
-import type { MirBody } from "../ir-mir/contract.js";
+import type { MirBody, MirVerificationLimits } from "../ir-mir/contract.js";
 import type { BodyFacts, FactsVerificationContext, MetadataRecord, Summary } from "../ir-facts/contract.js";
 
 export interface PackageExport {
@@ -162,6 +162,8 @@ export type ParseModuleBodies = (index: ProgramIndex, text: string) => TextParse
 export interface ProgramVerificationContext {
   readonly facts: FactsVerificationContext;
   readonly limits: InstantiationLimits;
+  /** The limit of each body's MIR verification, as the limit setter gave it. Each body has its own account. */
+  readonly mirVerification: MirVerificationLimits;
   readonly modulePathOf: (module: ModuleId) => ModulePath | null;
   readonly definitionPathOf: (definition: DefId) => DefinitionPath | null;
   readonly tirOf: (module: ModuleId) => TirVerifierInput | null;
@@ -173,11 +175,17 @@ export type VerifyProgramIndex = (
   index: ProgramIndex,
   context: ProgramVerificationContext,
 ) => readonly Violation<ProgramRule, ProgramSite>[];
+// The answer for the bodies of one module. `complete` carries every finding. `resource-limit` says that the MIR
+// verification of the named body passed its limit: the module is neither accepted nor found invalid, and no
+// finding is reported for it.
+export type ModuleBodiesVerification =
+  | { readonly kind: "complete"; readonly violations: readonly Violation<ProgramRule, ProgramSite>[] }
+  | { readonly kind: "resource-limit"; readonly body: BodyInstance; readonly dimension: "work"; readonly maximum: number };
 export type VerifyModuleBodies = (
   index: ProgramIndex,
   module: ModuleBodies,
   context: ProgramVerificationContext,
-) => readonly Violation<ProgramRule, ProgramSite>[];
+) => ModuleBodiesVerification;
 export type Instantiate = (
   index: ProgramIndex,
   module: ModuleBodies,

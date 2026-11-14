@@ -1,19 +1,20 @@
 import { checkerBackingConstraints } from "../internal/checker/checker/backing-constraint-evidence.js";
 import { Background } from "../go/context.js";
-import { Node_Symbol, Node_Text, SourceFile_FileName, SourceFile_Path } from "../internal/ast/ast.js";
+import { Node_Arguments, Node_Expression, Node_PropertyNameOrName, Node_Symbol, Node_Text, SourceFile_FileName, SourceFile_Path } from "../internal/ast/ast.js";
+import { LinkStore_TryGet } from "../internal/core/linkstore.js";
 import { Node_Name } from "../internal/ast/spine.js";
 import { readTypeIndexInfo } from "./type-members.js";
 import { readInvocationReturnType } from "./signature-returns.js";
 import { NodeFlagsOptionalChain, SymbolFlagsAlias, SymbolFlagsNamespace, SymbolFlagsType, SymbolFlagsValue, } from "../internal/ast/generated/flags.js";
-import { IsElementAccessExpression, IsGetAccessorDeclaration, IsIdentifier, IsObjectLiteralExpression, IsMethodDeclaration, IsMethodSignatureDeclaration, IsPropertyAccessExpression, IsPropertyAssignment, IsPropertyDeclaration, IsPropertySignatureDeclaration, IsSetAccessorDeclaration, IsShorthandPropertyAssignment, } from "../internal/ast/generated/predicates.js";
-import { GetSourceFileOfNode, GetContainingFunction, IsCallOrNewExpression, IsFunctionLike, IsObjectLiteralMethod, IsPropertyName, IsDynamicName, OEKAssertions, OEKParentheses, SkipOuterExpressions, } from "../internal/ast/utilities.js";
+import { IsElementAccessExpression, IsAwaitExpression, IsExportSpecifier, IsGetAccessorDeclaration, IsIdentifier, IsImportSpecifier, IsNamespaceExport, IsNamespaceImport, IsObjectLiteralExpression, IsMethodDeclaration, IsMethodSignatureDeclaration, IsPropertyAccessExpression, IsPropertyAssignment, IsPropertyDeclaration, IsPropertySignatureDeclaration, IsSetAccessorDeclaration, IsShorthandPropertyAssignment, } from "../internal/ast/generated/predicates.js";
+import { GetSourceFileOfNode, GetContainingFunction, IsCallOrNewExpression, IsFunctionLike, IsObjectLiteralMethod, IsPropertyName, IsDynamicName, IsImportCall, ModuleExportNameIsDefault, OEKAssertions, OEKParentheses, SkipOuterExpressions, SkipParentheses, } from "../internal/ast/utilities.js";
 import { Program_GetSourceFile, Program_GetTypeChecker, Program_GetTypeCheckerById, Program_GetTypeCheckerForFile, Program_IsSourceFileDefaultLibrary } from "../internal/compiler/program.js";
 import { CheckerLifetimeAPI, CheckerLifetimeDiagnostics, WithCheckerLifetime } from "../internal/core/context.js";
 import { getExtensionHost } from "../extensions/host.js";
 import { Checker_GetPropertyOfType, Checker_GetPropertiesOfType, Checker_ResolveName, Checker_GetReturnTypeOfSignature, Checker_GetSignaturesOfType, Checker_GetTypeFromTypeNode, Checker_GetTypeOfPropertyOfType, } from "../internal/checker/exports.js";
 import { Checker_finalizeResolvedCallEvidence, Checker_getResolvedCallSelectionEvidence, Checker_getResolvedSignature, } from "../internal/checker/checker/signatures.js";
 import { CheckModeNormal, getNumberLiteralValue } from "../internal/checker/checker/state.js";
-import { Checker_GetAliasedSymbol, Checker_getResolvedSourceElementAccessInfo, Checker_getResolvedSourcePropertyAccessInfo, Checker_GetSymbolAtLocation, Checker_getDeclaredTypeOfSymbol, Checker_getEffectivePropertyNameForPropertyNameNode, Checker_getLiteralTypeFromPropertyName, Checker_getTypeOfPropertyOfContextualTypeEx, Checker_getResolvedSymbolOrNil, Checker_getTypeOfSymbol, Checker_getWriteTypeOfSymbol, Checker_resolveExternalModuleName, Checker_resolveExternalModuleSymbol, } from "../internal/checker/checker/symbols.js";
+import { Checker_GetAliasedSymbol, Checker_getResolvedSourceElementAccessInfo, Checker_getResolvedSourcePropertyAccessInfo, Checker_GetSymbolAtLocation, Checker_getDeclarationOfAliasSymbol, Checker_getDeclaredTypeOfSymbol, Checker_getEffectivePropertyNameForPropertyNameNode, Checker_getImmediateAliasedSymbol, Checker_getLiteralTypeFromPropertyName, Checker_getTypeOfPropertyOfContextualTypeEx, Checker_getResolvedSymbolOrNil, Checker_getModuleSpecifierForImportOrExport, Checker_getTypeOfSymbol, Checker_getWriteTypeOfSymbol, Checker_resolveExternalModuleName, Checker_resolveExternalModuleSymbol, } from "../internal/checker/checker/symbols.js";
 import { Checker_getApparentTypeOfContextualType, Checker_getAwaitedType, Checker_getContextualType, Checker_GetTypeAtLocation, } from "../internal/checker/checker/types.js";
 import { Checker_isAssignmentToReadonlyEntity } from "../internal/checker/checker/relations.js";
 import { AssignmentKindDefinite } from "../internal/checker/utilities.js";
@@ -131,8 +132,34 @@ export function createTypeCheckerQueries(program, defaultOptions) {
         getResolvedSymbol: (node) => withCheckerForNode(program, node, defaultOptions, (checker) => getDiagnosticFreeResolvedSymbol(checker, node)),
         getResolvedSymbolOrNil: (node) => withCheckerForNode(program, node, defaultOptions, (checker) => Checker_getResolvedSymbolOrNil(checker, node)),
         getAliasedSymbol: (symbol) => withCheckerForSymbol(program, symbol, defaultOptions, (checker) => {
+            // The made default member of a module's exported value is shared between modules: its alias target is the
+            // first module's and is not handed out. Its boundary is asked by occurrence (getResolvedPropertyAccessInfo).
+            if (isSyntheticDefaultMember(checker, symbol))
+                return undefined;
             const target = Checker_GetAliasedSymbol(checker, symbol);
             return target === checker?.unknownSymbol ? undefined : target;
+        }),
+        getAliasStep: (symbol) => withCheckerForSymbol(program, symbol, defaultOptions, (checker) => {
+            if (symbol === undefined || (symbol.Flags & SymbolFlagsAlias) === 0)
+                return undefined;
+            const declaration = Checker_getDeclarationOfAliasSymbol(checker, symbol);
+            if (declaration === undefined)
+                return undefined;
+            // The two binding forms whose target the checker computes through a module's `export =` assignment.
+            const namespaceForm = IsNamespaceImport(declaration) || IsNamespaceExport(declaration);
+            const memberForm = (IsImportSpecifier(declaration) || IsExportSpecifier(declaration))
+                && !ModuleExportNameIsDefault(Node_PropertyNameOrName(declaration));
+            const referenced = namespaceForm || memberForm ? referencedModule(checker, declaration) : undefined;
+            // A namespace form names the module itself: its `export =` assignment when it has one, the module otherwise.
+            // The checker's own target for it is the final value behind the assignment or a symbol it makes for the import.
+            if (referenced !== undefined && namespaceForm)
+                return { kind: "symbol", symbol: referenced.exportAssignment ?? referenced.module };
+            const immediate = Checker_getImmediateAliasedSymbol(checker, symbol);
+            const target = immediate === checker?.unknownSymbol ? undefined : immediate;
+            if (referenced?.exportAssignment !== undefined) {
+                return { kind: "exported-value-member", exportAssignment: referenced.exportAssignment, member: target };
+            }
+            return target === undefined ? undefined : { kind: "symbol", symbol: target };
         }),
         getTypeOfSymbol: (symbol) => withCheckerForSymbol(program, symbol, defaultOptions, (checker) => Checker_getTypeOfSymbol(checker, symbol)),
         getWriteTypeOfSymbol: (symbol) => withCheckerForSymbol(program, symbol, defaultOptions, (checker) => Checker_getWriteTypeOfSymbol(checker, symbol)),
@@ -157,8 +184,19 @@ export function createTypeCheckerQueries(program, defaultOptions) {
             const sourceResultType = Checker_GetTypeAtLocation(checker, node);
             return Checker_finalizeResolvedCallEvidence(checker, node, sourceResultType);
         })),
-        getResolvedPropertyAccessInfo: (node) => memoizeResolvedNodeQuery(propertyAccessInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => withResolvedPropertyAccessEvidence(checker, Checker_getResolvedSourcePropertyAccessInfo(checker, node)))),
-        getResolvedElementAccessInfo: (node) => memoizeResolvedNodeQuery(elementAccessInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => withResolvedSourceReceiverValueEvidence(checker, Checker_getResolvedSourceElementAccessInfo(checker, node)))),
+        getResolvedPropertyAccessInfo: (node) => memoizeResolvedNodeQuery(propertyAccessInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => {
+            const selected = Checker_getResolvedSourcePropertyAccessInfo(checker, node);
+            return isSyntheticDefaultMember(checker, selected?.sourceSymbol)
+                ? { kind: "module-exported-value", target: exportedValueBoundary(checker, node) }
+                : withResolvedPropertyAccessEvidence(checker, selected);
+        })),
+        getResolvedElementAccessInfo: (node) => memoizeResolvedNodeQuery(elementAccessInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => {
+            const selected = Checker_getResolvedSourceElementAccessInfo(checker, node);
+            // An element access that reads the made default member would name the first module's value: nothing.
+            return isSyntheticDefaultMember(checker, selected?.sourceSymbol)
+                ? undefined
+                : withResolvedSourceReceiverValueEvidence(checker, selected);
+        })),
         getResolvedIterationInfo: (node) => memoizeResolvedNodeQuery(iterationInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => Checker_getResolvedSourceIterationInfo(checker, node))),
         getResolvedObjectLiteralElementInfo: (node) => memoizeResolvedNodeQuery(objectLiteralElementInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => getResolvedSourceObjectLiteralElementInfo(checker, node, objectLiteralElementSymbols))),
         getResolvedStorageInfo: (node) => memoizeResolvedNodeQuery(storageInfos, node, () => withCheckedFile(program, GetSourceFileOfNode(node), defaultOptions, (checker) => getResolvedSourceStorageInfo(checker, node))),
@@ -401,6 +439,7 @@ function withResolvedPropertyAccessEvidence(checker, selected) {
     if (resolved === undefined)
         return undefined;
     return Object.freeze({
+        kind: "member",
         ...resolved,
         ...(selectedIndex === undefined ? {} : {
             selectedIndex: Object.freeze(readTypeIndexInfo(checker, selected.receiver.type, selectedIndex)),
@@ -430,6 +469,44 @@ function withResolvedSourceReceiverValueEvidence(checker, selected) {
                 : { valueDeclaration: valueSymbol.ValueDeclaration }),
         }),
     });
+}
+// The module that an import or export declaration names, with the symbol of its `export =` assignment when it has
+// one; nothing when the declaration names no module or the module does not resolve. Reports no diagnostic.
+function referencedModule(checker, declaration) {
+    return moduleOfSpecifier(checker, declaration, Checker_getModuleSpecifierForImportOrExport(checker, declaration));
+}
+// Whether a symbol is the `default` member the checker makes for a module's exported value: its creator's mark.
+function isSyntheticDefaultMember(checker, symbol) {
+    return checker !== undefined && symbol !== undefined && LinkStore_TryGet(checker.aliasSymbolLinks, symbol)?.syntheticDefault === true;
+}
+// The module boundary of `E.default` where the member is the made default: one symbol, the module's `export =`
+// assignment when it has one and the module otherwise, exactly as a namespace import steps. Given only where the
+// receiver expression proves the module: an import's own namespace binding, or `await import("m")` itself.
+function exportedValueBoundary(checker, access) {
+    const receiver = SkipParentheses(Node_Expression(access));
+    if (receiver === undefined)
+        return undefined;
+    let referenced;
+    if (IsIdentifier(receiver)) {
+        const binding = Checker_GetSymbolAtLocation(checker, receiver);
+        const declaration = binding !== undefined && (binding.Flags & SymbolFlagsAlias) !== 0
+            ? Checker_getDeclarationOfAliasSymbol(checker, binding) : undefined;
+        referenced = declaration !== undefined && IsNamespaceImport(declaration) ? referencedModule(checker, declaration) : undefined;
+    }
+    else if (IsAwaitExpression(receiver)) {
+        const awaited = SkipParentheses(Node_Expression(receiver));
+        referenced = awaited !== undefined && IsImportCall(awaited) ? moduleOfSpecifier(checker, awaited, Node_Arguments(awaited)?.[0]) : undefined;
+    }
+    return referenced === undefined ? undefined : referenced.exportAssignment ?? referenced.module;
+}
+function moduleOfSpecifier(checker, declaration, moduleSpecifier) {
+    if (moduleSpecifier === undefined)
+        return undefined;
+    const moduleSymbol = Checker_resolveExternalModuleName(checker, declaration, moduleSpecifier, true);
+    if (moduleSymbol === undefined)
+        return undefined;
+    const exported = Checker_resolveExternalModuleSymbol(checker, moduleSymbol, true);
+    return { module: moduleSymbol, exportAssignment: exported === undefined || exported === moduleSymbol ? undefined : exported };
 }
 function withCheckerForNode(program, node, defaultOptions, callback) {
     if (node === undefined) {

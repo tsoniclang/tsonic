@@ -55,7 +55,7 @@ test("the emitted step modules export no runtime value", async () => {
   }
 });
 
-test("fresh genuine emitted declarations admit both arms and reject an empty batch, a third arm and mutation exactly", () => {
+test("fresh genuine emitted declarations admit both arms with what a pause has earned, and reject an empty batch, a third arm, a pause without its earned list and mutation exactly", () => {
   const stage = mkdtempSync(resolve(evidenceDirectory, "consumer-"));
   mkdirSync(resolve(stage, "step"));
   const declarations = readdirSync(emittedDirectory).filter(name => name.endsWith(".d.ts")).sort();
@@ -64,14 +64,16 @@ test("fresh genuine emitted declarations admit both arms and reject an empty bat
   writeFileSync(resolve(stage, "package.json"), JSON.stringify({ type: "module", private: true }));
   const header = 'import type { Step } from "./step/index.js";\n' +
     'type Request = { readonly kind: "first"; readonly key: number } | { readonly kind: "second"; readonly name: string };\n' +
-    'type Work = Step<number, Request, string>;\n';
+    'type Earned = { readonly note: string };\n' +
+    'type Work = Step<number, Request, string, Earned>;\n';
   const positive = `import type { Step as ContractStep } from "./step/contract.js";\n${header}` +
     'export const done: Work = { kind: "done", value: 1 };\n' +
-    'export const one: Work = { kind: "paused", requests: [{ kind: "first", key: 1 }], paused: "state" };\n' +
-    'export const several: ContractStep<number, Request, string> = { kind: "paused", requests: [{ kind: "first", key: 1 }, { kind: "second", name: "x" }, { kind: "first", key: 2 }], paused: "state" };\n' +
+    'export const one: Work = { kind: "paused", requests: [{ kind: "first", key: 1 }], paused: "state", earned: [] };\n' +
+    'export const several: ContractStep<number, Request, string, Earned> = { kind: "paused", requests: [{ kind: "first", key: 1 }, { kind: "second", name: "x" }, { kind: "first", key: 2 }], paused: "state", earned: [{ note: "found before the pause" }, { note: "second" }] };\n' +
     'export const same: Work = several;\n' +
     'export function head(step: Work): Request | number { return step.kind === "paused" ? step.requests[0] : step.value; }\n' +
-    'export function state(step: Work): string | number { switch (step.kind) { case "done": return step.value; case "paused": return step.paused; } }\n';
+    'export function state(step: Work): string | number { switch (step.kind) { case "done": return step.value; case "paused": return step.paused; } }\n' +
+    'export function notes(step: Work): readonly string[] { return step.kind === "paused" ? step.earned.map(earned => earned.note) : []; }\n';
   writeFileSync(resolve(stage, "consumer.ts"), positive);
   const compiler = resolve(tooling, "node_modules/@typescript/native-preview/bin/tsgo.js");
   const configuration = files => ({ compilerOptions: {
@@ -97,14 +99,18 @@ test("fresh genuine emitted declarations admit both arms and reject an empty bat
   assert.deepEqual(loaded.map(path => relative(stage, path).split(sep).join("/")).sort(),
     ["consumer.ts", "step/contract.d.ts", "step/index.d.ts"]);
   const negatives = [
-    ["empty-batch.ts", `${header}export const empty: Work = { kind: "paused", requests: [], paused: "state" };`, 2322],
+    ["empty-batch.ts", `${header}export const empty: Work = { kind: "paused", requests: [], paused: "state", earned: [] };`, 2322],
     ["third-arm.ts", `${header}export const pending: Work = { kind: "pending", paused: "state" };`, 2322],
-    ["foreign-request.ts", `${header}export const foreign: Work = { kind: "paused", requests: [{ kind: "third" }], paused: "state" };`, 2322],
+    ["foreign-request.ts", `${header}export const foreign: Work = { kind: "paused", requests: [{ kind: "third" }], paused: "state", earned: [] };`, 2322],
     ["wrong-done-value.ts", `${header}export const wrong: Work = { kind: "done", value: "text" };`, 2322],
     ["mutable-batch.ts", `${header}export function grow(step: Work): void { if (step.kind === "paused") step.requests.push({ kind: "first", key: 3 }); }`, 2339],
     ["readonly-value.ts", `${header}export function update(step: Work): void { if (step.kind === "done") step.value = 2; }`, 2540],
     ["readonly-paused.ts", `${header}export function replace(step: Work): void { if (step.kind === "paused") step.paused = "other"; }`, 2540],
     ["unnarrowed-requests.ts", `${header}export function requests(step: Work): number { return step.requests.length; }`, 2339],
+    ["missing-earned.ts", `${header}export const silent: Work = { kind: "paused", requests: [{ kind: "first", key: 1 }], paused: "state" };`, 2322],
+    ["foreign-earned.ts", `${header}export const foreign: Work = { kind: "paused", requests: [{ kind: "first", key: 1 }], paused: "state", earned: ["text"] };`, 2322],
+    ["mutable-earned.ts", `${header}export function add(step: Work): void { if (step.kind === "paused") step.earned.push({ note: "late" }); }`, 2339],
+    ["three-parameters.ts", 'import type { Step } from "./step/index.js";\nexport type Old = Step<number, string, string>;', 2314],
   ];
   for (const [name, text] of negatives) writeFileSync(resolve(stage, name), text);
   const refused = run("negative.json", negatives.map(([name]) => name));

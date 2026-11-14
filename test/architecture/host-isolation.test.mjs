@@ -230,12 +230,14 @@ test("front uses actual pinned SDK declarations and the sole closed ExtensionOf 
 test("real pipeline isolation emits only permitted component query types and the identical front brand", async () => {
   const contract = path("pipeline");
   const entry = path("pipeline", "index.ts");
-  await fixture([[path("front"), sdkContract], [path("snapshot"), sdkRoles], [path("infer"), 'export type Infer = (deps: { readonly bias: number }, input: number) => number;'],
+  const inferEntry = path("infer", "index.ts");
+  await fixture([[path("front"), sdkContract], [path("snapshot"), sdkRoles], [path("infer"), 'export interface InferDeps { readonly bias: number; }\nexport type Infer = (deps: InferDeps, input: number) => number;'],
+    [inferEntry, 'import type { Infer } from "./contract.js";\nexport const infer: Infer = (deps, input) => input + deps.bias;'],
     [contract, 'import type { CheckerExtensions } from "../front/contract.js";\nexport type { CheckerExtensions } from "../front/contract.js";\nimport type { Infer } from "../infer/contract.js";\nexport interface Input { readonly extensions: CheckerExtensions; readonly infer: Infer; readonly value: number; }\nexport type Run = (input: Input) => number;'],
     [entry, 'import type { Run } from "./contract.js"; export const run: Run = input => input.infer({ bias: 1 }, input.value);']], async ({ root, deps }) => {
-    const report = await compileIsolated(deps, module("pipeline"), { root, sourceFiles: [contract, entry], interfaceSources: [path("front"), path("snapshot"), path("infer")], declarationSources: [path("front"), path("snapshot"), path("infer")], outputDirectory: ".temp/isolation" });
+    const report = await compileIsolated(deps, module("pipeline"), { root, sourceFiles: [contract, entry], interfaceSources: [path("front"), path("snapshot"), path("infer"), inferEntry], declarationSources: [path("front"), path("snapshot"), path("infer"), inferEntry], outputDirectory: ".temp/isolation" });
     assert.equal(report.status, "passed", label(report));
-    assert.equal(report.provenance.length, 3);
+    assert.equal(report.provenance.length, 4);
     assert.equal(report.loadedInventory.some(file => file.endsWith(`/isolated/${host}/front/contract.d.ts`)), true);
     assert.equal(report.loadedInventory.every(file => report.expectedInventory.includes(file)), true);
     assert.equal(report.loadedInventory.some(file => file.includes("/isolated/") && file.endsWith("/front/contract.ts")), false);
@@ -322,7 +324,7 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
     ...["index.ts", "invariant.ts", "order.ts"].map(name => `${host}/diag/${name}`),
     ...["index.ts", "identity.ts", "key.ts"].map(name => `${host}/ids/${name}`),
     ...["index.ts", "arena.ts", "data.ts", "publication-fields.ts", "publication-read.ts", "work.ts", "value.ts", "interner.ts", "canonical.ts", "copy.ts", "text-readers.ts", "text-values.ts", "text-components.ts", "text-records.ts", "normalize.ts",
-      "substitute.ts", "print.ts", "parse.ts", "verify.ts"].map(name => `${host}/ir-types/${name}`),
+      "substitute.ts", "print.ts", "parse.ts", "verify.ts", "selector-path.ts"].map(name => `${host}/ir-types/${name}`),
     ...["index.ts", "pragmas.ts", "endpoints.ts", "children.ts", "walk.ts", "print.ts", "parse.ts", "verify.ts", "verify-syntax.ts",
       "verify-bindings.ts", "verify-captures.ts", "text-data.ts", "text-syntax.ts", "text-construction.ts", "text-read-model.ts",
       "text-readers.ts", "text-read-scalars.ts", ...Array.from({ length: 10 }, (unusedValue, position) => `text-read-${position}.ts`),
@@ -337,8 +339,9 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
       "text-constraints.ts", "text-contributions.ts", "text-data.ts", "text-decision-values.ts",
       "text-decisions.ts", "text-evidence.ts", "text-invocations.ts", "text-operations.ts", "text-pointers.ts",
       "text-rule-inputs.ts", "verify-contributions.ts", "verify-solution.ts", "verify.ts"].map(name => `${host}/ir-infer/${name}`),
-    ...["index.ts", "parse.ts", "print.ts", "text-decisions.ts", "text.ts", "verify-control.ts",
+    ...["index.ts", "parse.ts", "print.ts", "text-decisions.ts", "text.ts", "verify-control.ts", "verify-laws.ts",
       "verify-storage.ts", "verify.ts"].map(name => `${host}/ir-mir/${name}`),
+    ...["index.ts", "lower.ts", "state.ts"].map(name => `${host}/lower-mir/${name}`),
     ...["canonical-facts.ts", "canonical-inference.ts", "canonical-phase.ts", "canonical-syntax.ts",
       "canonical-tir.ts", "canonical-types.ts", "canonical.ts", "index.ts", "instantiate-facts.ts",
       "instantiate-phase.ts", "instantiate-syntax.ts", "instantiate-tir.ts", "instantiate-types.ts",
@@ -359,7 +362,9 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
       "verify-bound.ts"].map(name => `${host}/libraries/${name}`),
     ...["index.ts", "verify-extensions.ts", "verify-packages.ts", "verify.ts"].map(name => `${host}/snapshot/${name}`),
     ...["index.ts"].map(name => `${host}/step/${name}`),
-    ...["database.ts", "index.ts", "memo.ts"].map(name => `${host}/query/${name}`)].sort();
+    ...["database.ts", "index.ts", "memo.ts"].map(name => `${host}/query/${name}`),
+    ...["index.ts", "checker.ts", "handles.ts", "options.ts", "capture.ts", "identities.ts", "lower.ts", "syntax-capture.ts", "syntax-support.ts"].map(name => `${host}/front/${name}`),
+    ...["driver.ts", "lower-mir-step.ts", "wiring.ts"].map(name => `${host}/pipeline/${name}`)].sort();
   assert.equal(JSON.stringify(inventory), JSON.stringify(expectedInventory), "the complete actual current root equals the explicit reviewed inventory");
   const graph = deps.graph(files);
   for (const module of modules) await context.test(module.name, async () => {

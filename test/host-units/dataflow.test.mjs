@@ -90,11 +90,17 @@ function site() {
     tir: { body: fixtureIdentity.body, node: identities.nodeId(0) } };
 }
 
+// Records that can be a protocol step carry their step; none of these fixtures is a protocol step.
+const steppedTerminators = new Set(["switch", "call", "invoke", "await", "yield", "delegate"]);
+const unstepped = record => record.kind === "assign" || steppedTerminators.has(record.kind) ? { step: null, ...record } : record;
+
 function fixtureBody(terminators, statementRows) {
   assert.equal(terminators.length, statementRows.length, "all fixture statement rows are explicit");
   return {
     body: fixtureIdentity.body,
     bindings: { kind: "parametric" },
+    // One entry at block 0 for a body with blocks; the fixture has no parameters.
+    entries: terminators.length === 0 ? [] : [{ provided: 0, block: identities.blockId(0) }],
     locals: [{ id: identities.localId(0), storage: identities.tyId(0), role: { kind: "user" }, source: null, origin: site().origin }],
     constants: [
       { id: identities.constId(0), type: identities.tyId(0), value: { kind: "literal", value: { kind: "absence" } } },
@@ -102,8 +108,8 @@ function fixtureBody(terminators, statementRows) {
     ],
     places: [{ id: identities.placeId(0), base: { kind: "local", local: identities.localId(0) }, storage: identities.tyId(0), origin: site().origin }],
     blocks: terminators.map((terminator, index) => ({ ...site(), id: identities.blockId(index),
-      statements: statementRows[index].map(statement => ({ ...site(), ...statement })),
-      terminator: { ...site(), ...terminator } })),
+      statements: statementRows[index].map(statement => ({ ...site(), ...unstepped(statement) })),
+      terminator: { ...site(), ...unstepped(terminator) } })),
     result: identities.tyId(0),
   };
 }
@@ -138,7 +144,7 @@ function resolution() {
   };
 }
 
-test("graphOfMir covers every terminator and both unwind arms in declared order", () => {
+test("graphOfMir covers every terminator and every failure arm in declared order", () => {
   const operand = { kind: "constant", constant: identities.constId(0) };
   const escape = { kind: "escape" };
   const handler = { kind: "handler", exception: identities.placeId(0), target: identities.blockId(2) };
@@ -166,12 +172,19 @@ test("graphOfMir covers every terminator and both unwind arms in declared order"
     { kind: "throw", operand, unwind: handler },
     { kind: "return", value: null },
     { kind: "unreachable" },
+    // A check has a normal edge and, only when its failure goes to a handler, an unwind edge (graph law 1).
+    { kind: "check", place: identities.placeId(0), next: identities.blockId(1), unwind: escape },
+    { kind: "check", place: identities.placeId(0), next: identities.blockId(1), unwind: handler },
+    { kind: "check", place: identities.placeId(0), next: identities.blockId(1), unwind: { kind: "abort" } },
+    // A failure that ends the process and a control point that cannot fail have no edge.
+    { kind: "invoke", ...invoke, unwind: { kind: "abort" } },
+    { kind: "invoke", ...invoke, unwind: { kind: "none" } },
   ];
   const body = parsedBody(terminators, terminators.map(() => []));
   assert.deepEqual(product.graphOfMir(body), {
 
     successors: [[1], [2, 3, 4], [4], [1], [1, 2], [1], [1, 2], [1], [1, 2], [1, 3], [1, 3, 2],
-      [1, 3], [1, 3, 2], [], [2], [], []],
+      [1, 3], [1, 3, 2], [], [2], [], [], [1], [1, 2], [1], [1], [1]],
   });
 });
 
@@ -406,6 +419,57 @@ function chainBody(length) {
   Array.from({ length }, () => []));
 }
 
+// An execution is a body instance and an entry, named by its supplied count (COMMON-DATA section 1); body facts are per
+// execution. The body below offers supplied count 1 at block 0 and supplied count 0 at block 1, a prologue that block 0
+// does not reach. The position of an entry in the list is not its name:
+//   block 0: goto 3      block 1: [storage-live] goto 0      block 2: return      block 3: return
+function twoEntryBody() {
+  const body = fixtureBody([
+    { kind: "goto", target: identities.blockId(3) },
+    { kind: "goto", target: identities.blockId(0) },
+    { kind: "return", value: null },
+    { kind: "return", value: null },
+  ], [[], [{ kind: "storage-live", local: identities.localId(0) }], [], []]);
+  const parsed = mir.parseMir(mir.printMir({ ...body,
+    entries: [{ provided: 1, block: identities.blockId(0) }, { provided: 0, block: identities.blockId(1) }] }));
+  assert.equal(parsed.kind, "parsed");
+  return parsed.value;
+}
+
+test("solve starts at the block of the selected entry and nowhere else", () => {
+  const body = twoEntryBody();
+  // The boundary is 1; the prologue's statement raises the state to 2; an unreached block keeps bottom, 0.
+  const lattice = { bottom: 0, overflow: -1, stateBound: 2, join: (left, right) => left === -1 || right === -1 ? -1 : Math.max(left, right),
+    equals: Object.is, isOverflow: state => state === -1 };
+  const problem = { direction: "forward", lattice, boundary: 1,
+    statement: (statement, state) => statement.kind === "storage-live" ? 2 : state,
+    terminator: (terminator, state) => terminator.kind === "goto" ? [{ target: terminator.target, state }] : [] };
+  // Supplied count 1: the boundary applies at block 0. The prologue of the other entry is not part of this execution:
+  // block 1 is unreached and its statement does not change these facts.
+  complete(product.solve(body, 1, problem, limits), { kind: "complete", value: {
+    entry: [1, 0, 0, 1], exit: [1, 0, 0, 1], reachable: [true, false, false, true] } }, "supplied count 1");
+  // Supplied count 0: its block is not reachable from block 0. The boundary applies at block 1 and not again at
+  // block 0, which this execution enters with the prologue's state.
+  complete(product.solve(body, 0, problem, limits), { kind: "complete", value: {
+    entry: [2, 1, 0, 2], exit: [2, 2, 0, 2], reachable: [true, true, false, true] } }, "supplied count 0");
+  // The same body with its entries listed in the other order gives the same two results: the count names the entry.
+  const reordered = { ...body, entries: [...body.entries].reverse() };
+  complete(product.solve(reordered, 1, problem, limits), product.solve(body, 1, problem, limits), "count 1, reordered");
+  complete(product.solve(reordered, 0, problem, limits), product.solve(body, 0, problem, limits), "count 0, reordered");
+  // A backward problem is bounded by the same execution: only blocks reached from the selected entry take part.
+  const backward = product.solve(body, 0, scalarProblem("backward"), limits);
+  assert.equal(backward.kind, "complete");
+  assert.deepEqual(backward.value.reachable, [true, true, false, true]);
+  assert.deepEqual(product.solve(body, 1, scalarProblem("backward"), limits).value.reachable, [true, false, false, true]);
+});
+
+test("a supplied count the body does not offer is an invariant failure, never block 0", () => {
+  const body = twoEntryBody();
+  for (const provided of [2, -1, 0.5, Number.NaN])
+    assert.throws(() => product.solve(body, provided, scalarProblem("forward"), limits),
+      error => error instanceof Error && error.message.includes("the body offers no entry for the supplied count"), String(provided));
+});
+
 test("solve retains complete forward per-edge unions, statement order and unreachable bottom", () => {
   const body = parsedBody([
     { kind: "switch", operand: { kind: "constant", constant: identities.constId(0) },
@@ -423,7 +487,7 @@ test("solve retains complete forward per-edge unions, statement order and unreac
       return statementTransfer(statement, state);
     },
     terminator: unionForwardTerminator(lattice) };
-  complete(product.solve(body, problem, limits), { kind: "complete", value: {
+  complete(product.solve(body, 0, problem, limits), { kind: "complete", value: {
     entry: [[7], [1, 7], [2, 7], [1, 2, 3, 7], []],
     exit: [[7], [1, 7], [2, 3, 7], [1, 2, 3, 7], []], reachable: [true, true, true, true, false],
   } }, "forward entry/exit are block boundaries, not the terminator's separate edge contributions");
@@ -443,14 +507,14 @@ test("backward liveness passes exit boundary explicitly and reverses statements 
       observed.push({ kind: terminator.kind, successors, boundaryState });
       return terminatorTransfer(terminator, successors, boundaryState);
     } };
-  complete(product.solve(body, problem, limits), { kind: "complete", value: {
+  complete(product.solve(body, 0, problem, limits), { kind: "complete", value: {
     entry: [[1, 7], [7], []], exit: [[7], [7], []], reachable: [true, true, false],
   } }, "backward reverse live/dead order generates1 and never activates unreachable exit2");
   complete(observed, [{ kind: "return", successors: [], boundaryState: [7] },
     { kind: "goto", successors: [{ target: identities.blockId(1), state: [7] }], boundaryState: null }],
   "no fake boundary edge or callback for unreachable return");
   const kill = { ...problem, statement: (unusedStatement, state) => state, terminator: () => [] };
-  complete(product.solve(chainBody(1), kill, limits), { kind: "complete", value: {
+  complete(product.solve(chainBody(1), 0, kill, limits), { kind: "complete", value: {
     entry: [[]], exit: [[7]], reachable: [true],
   } }, "C2945 constant-bottom terminator kills entry while the actual exit retains boundary7");
 });
@@ -462,7 +526,7 @@ test("all three actual statement arms pass through unchanged in forward or rever
   ]]);
   for (const direction of ["forward", "backward"]) {
     const statements = [];
-    complete(product.solve(body, { ...scalarProblem(direction), statement: (statement, state) => {
+    complete(product.solve(body, 0, { ...scalarProblem(direction), statement: (statement, state) => {
       statements.push(statement); return state;
     } }, limits), { kind: "complete", value: { entry: [1], exit: [1], reachable: [true] } },
     `${direction} preserves actual complete block-boundary states`);
@@ -481,7 +545,7 @@ test("backward preserves original duplicate successor slots and seeds each reach
     observed.push({ kind: terminator.kind, successors, boundaryState });
     return scalar.terminator(terminator, successors, boundaryState);
   } };
-  complete(product.solve(body, problem, limits), { kind: "complete", value: {
+  complete(product.solve(body, 0, problem, limits), { kind: "complete", value: {
     entry: [1, 1, 0], exit: [1, 1, 0], reachable: [true, true, false],
   } }, "duplicate CFG edges remain actual callback inputs while unreachable exit2 stays bottom");
   complete(observed, [{ kind: "return", successors: [], boundaryState: 1 },
@@ -490,7 +554,7 @@ test("backward preserves original duplicate successor slots and seeds each reach
   const exits = parsedBody([{ kind: "switch", operand: { kind: "constant", constant: identities.constId(0) },
     targets: [{ constant: identities.constId(1), target: identities.blockId(1) }], otherwise: identities.blockId(2) },
   { kind: "return", value: null }, { kind: "return", value: null }], [[], [], []]);
-  complete(product.solve(exits, scalarProblem("backward"), limits), { kind: "complete", value: {
+  complete(product.solve(exits, 0, scalarProblem("backward"), limits), { kind: "complete", value: {
     entry: [1, 1, 1], exit: [1, 1, 1], reachable: [true, true, true],
   } }, "both reachable exits receive the boundary; source block does not receive a fabricated seed");
 });
@@ -501,20 +565,20 @@ test("content equality stabilizes cycles, duplicate returned edges join, and mis
   let calls = 0;
   const problem = { direction: "forward", lattice, boundary: [1], statement: (unusedStatement, state) => state,
     terminator: (terminator, state) => { calls += 1; return [{ target: terminator.target, state: [...state] }]; } };
-  complete(product.solve(self, problem, limits), { kind: "complete", value: {
+  complete(product.solve(self, 0, problem, limits), { kind: "complete", value: {
     entry: [[1]], exit: [[1]], reachable: [true],
   } }, "equal content in newly allocated states stabilizes");
   assert.equal(calls, 2, "one changed edge and one equal edge, not allocation-based requeue");
   const duplicate = { ...problem, terminator: terminator => [
     { target: terminator.target, state: [1] }, { target: terminator.target, state: [2] }] };
-  complete(product.solve(self, duplicate, limits), { kind: "complete", value: {
+  complete(product.solve(self, 0, duplicate, limits), { kind: "complete", value: {
     entry: [[1, 2]], exit: [[1, 2]], reachable: [true],
   } }, "one declared edge joins all returned contributions rather than overwriting the first");
-  complete(product.solve(chainBody(2), { ...scalarProblem("forward"), terminator: () => [] }, limits),
+  complete(product.solve(chainBody(2), 0, { ...scalarProblem("forward"), terminator: () => [] }, limits),
     { kind: "complete", value: { entry: [1, 0], exit: [1, 0], reachable: [true, true] } },
     "structural reachability does not invent an omitted edge contribution");
   const reverse = { ...scalarProblem("backward"), boundary: -1 };
-  complete(product.solve(self, reverse, limits), { kind: "complete", value: {
+  complete(product.solve(self, 0, reverse, limits), { kind: "complete", value: {
     entry: [0], exit: [0], reachable: [true],
   } }, "an infinite reachable loop has no exit and never uses even an overflow boundary");
 });
@@ -527,16 +591,16 @@ test("solve exactly admits hand-derived work/result boundaries in both direction
     const entries = length * 3;
     const expected = { kind: "complete", value: { entry: Array(length).fill(1), exit: Array(length).fill(1),
       reachable: Array(length).fill(true) } };
-    complete(product.solve(body, problem, { maximumWork: work, maximumResultEntries: entries }), expected,
+    complete(product.solve(body, 0, problem, { maximumWork: work, maximumResultEntries: entries }), expected,
       `${direction} chain${length} exact literal event accounting`);
-    complete(product.solve(body, problem, { maximumWork: work + 1, maximumResultEntries: entries + 1 }), expected,
+    complete(product.solve(body, 0, problem, { maximumWork: work + 1, maximumResultEntries: entries + 1 }), expected,
       `${direction} chain${length} one allowance above both requirements`);
     for (let maximumWork = 0; maximumWork < work; maximumWork += 1) {
-      complete(product.solve(body, problem, { maximumWork, maximumResultEntries: entries }),
+      complete(product.solve(body, 0, problem, { maximumWork, maximumResultEntries: entries }),
         { kind: "resource-limit", dimension: "work", maximum: maximumWork }, `${direction} work ${maximumWork}`);
     }
     for (let maximumResultEntries = 0; maximumResultEntries < entries; maximumResultEntries += 1) {
-      complete(product.solve(body, problem, { maximumWork: work, maximumResultEntries }),
+      complete(product.solve(body, 0, problem, { maximumWork: work, maximumResultEntries }),
         { kind: "resource-limit", dimension: "result-entries", maximum: maximumResultEntries },
         `${direction} result entries ${maximumResultEntries}`);
     }
@@ -570,21 +634,21 @@ test("every supplied overflow site produces the closed state refusal, never comp
       statement: (unusedStatement, state) => state,
       terminator: terminator => [{ target: terminator.target, state: [1] }, { target: terminator.target, state: [2] }] }],
   ];
-  for (const [name, body, problem] of cases) complete(product.solve(body, problem, limits),
+  for (const [name, body, problem] of cases) complete(product.solve(body, 0, problem, limits),
     { kind: "resource-limit", dimension: "state", maximum: 1 }, name);
   for (const direction of ["forward", "backward"]) {
     const lattice = finiteLattice(0);
     const problem = { ...scalarProblem(direction), lattice, boundary: [],
       terminator: direction === "forward" ? () => [] : (unusedTerminator, unusedSuccessors, boundaryState) => boundaryState };
-    complete(product.solve(single, problem, limits), { kind: "complete", value: {
+    complete(product.solve(single, 0, problem, limits), { kind: "complete", value: {
       entry: [[]], exit: [[]], reachable: [true],
     } }, `${direction} state cardinality exactly0`);
-    complete(product.solve(single, { ...problem, boundary: [7], lattice: {
+    complete(product.solve(single, 0, { ...problem, boundary: [7], lattice: {
       ...lattice, isOverflow: state => state === null || state.length > 0 } }, limits),
     { kind: "resource-limit", dimension: "state", maximum: 0 }, `${direction} state cardinality past0`);
   }
   const one = finiteLattice(1);
-  complete(product.solve(self, { direction: "forward", lattice: one, boundary: [7],
+  complete(product.solve(self, 0, { direction: "forward", lattice: one, boundary: [7],
     statement: (unusedStatement, state) => state,
     terminator: (terminator, state) => [{ target: terminator.target, state: [...state] }] }, limits),
   { kind: "complete", value: { entry: [[7]], exit: [[7]], reachable: [true] } }, "actual cardinality exactly1");
@@ -598,7 +662,7 @@ test("generic undefined/null states are values, empty bodies invoke no callbacks
       join: (unusedLeft, right) => right, equals: Object.is, isOverflow: state => state === overflow },
     boundary: bottom, statement: (unusedStatement, state) => state,
     terminator: (terminator, state) => terminator.kind === "goto" ? [{ target: terminator.target, state }] : [] };
-    complete(product.solve(body, problem, limits), { kind: "complete", value: {
+    complete(product.solve(body, 0, problem, limits), { kind: "complete", value: {
       entry: [bottom, bottom], exit: [bottom, bottom], reachable: [true, true],
     } }, "a stored undefined contribution is distinguished from an absent contribution");
   }
@@ -606,10 +670,11 @@ test("generic undefined/null states are values, empty bodies invoke no callbacks
     const unexpected = () => { throw new Error("empty callback must not run"); };
     const problem = { direction, boundary: -1, statement: unexpected, terminator: unexpected,
       lattice: { bottom: -1, overflow: -1, stateBound: 0, join: unexpected, equals: unexpected, isOverflow: unexpected } };
-    complete(product.solve(parsedBody([], []), problem, { maximumWork: 0, maximumResultEntries: 0 }),
-      { kind: "complete", value: { entry: [], exit: [], reachable: [] } }, `${direction} empty domain`);
+    // A body without blocks has no entry: there is no execution to solve, and no block stands in for one.
+    assert.throws(() => product.solve(parsedBody([], []), 0, problem, { maximumWork: 0, maximumResultEntries: 0 }),
+      error => error instanceof Error && error.message.includes("the body offers no entry for the supplied count"), `${direction} empty domain`);
     const failure = new Error(`${direction} caller callback failed`);
-    assert.throws(() => product.solve(chainBody(1), { ...scalarProblem(direction), terminator: () => { throw failure; } }, limits),
+    assert.throws(() => product.solve(chainBody(1), 0, { ...scalarProblem(direction), terminator: () => { throw failure; } }, limits),
       error => error === failure);
   }
   for (const field of ["maximumWork", "maximumResultEntries", "stateBound"]) {
@@ -618,14 +683,14 @@ test("generic undefined/null states are values, empty bodies invoke no callbacks
       const budget = { ...limits };
       if (field === "stateBound") problem.lattice.stateBound = value;
       else budget[field] = value;
-      assert.throws(() => product.solve(body, problem, budget),
+      assert.throws(() => product.solve(body, 0, problem, budget),
         { name: "TypeError", message: `${field} must be a nonnegative safe integer` });
     }
   }
-  assert.throws(() => product.solve(body, { ...scalarProblem("forward"),
+  assert.throws(() => product.solve(body, 0, { ...scalarProblem("forward"),
     terminator: () => [{ target: identities.blockId(0), state: 1 }] }, limits),
   { name: "TypeError", message: "forward terminator target 0 is not an outgoing edge" });
-  assert.throws(() => product.solve(body, { ...scalarProblem("forward"), terminator: () => new Array(1) }, limits),
+  assert.throws(() => product.solve(body, 0, { ...scalarProblem("forward"), terminator: () => new Array(1) }, limits),
     { name: "TypeError", message: "terminator edge 0 is missing" });
 });
 
@@ -635,9 +700,9 @@ test("a genuine sparse MIR statement row is a caller defect in both directions, 
   sparse.blocks[0].statements = new Array(1);
   const present = parsedBody(terminators, [[{ kind: "storage-live", local: identities.localId(0) }]]);
   for (const direction of ["forward", "backward"]) {
-    assert.throws(() => product.solve(sparse, scalarProblem(direction), limits),
+    assert.throws(() => product.solve(sparse, 0, scalarProblem(direction), limits),
       { name: "TypeError", message: "statement 0 is missing" });
-    complete(product.solve(present, scalarProblem(direction), limits), { kind: "complete", value: {
+    complete(product.solve(present, 0, scalarProblem(direction), limits), { kind: "complete", value: {
       entry: [1], exit: [1], reachable: [true],
     } }, `${direction} retains a complete genuine statement input`);
   }
@@ -708,7 +773,7 @@ test("actual forward/backward example statement and edge transfers are monotone 
   const below = (left, right) => left === null ? right === null : right === null || left.every(value => right.includes(value));
   const live = { ...site(), kind: "storage-live", local: identities.localId(0) };
   const dead = { ...site(), kind: "storage-dead", local: identities.localId(0) };
-  const assign = { ...site(), kind: "assign", place: identities.placeId(0),
+  const assign = { ...site(), kind: "assign", step: null, place: identities.placeId(0),
     value: { kind: "use", operand: { kind: "constant", constant: identities.constId(0) } } };
   const goto = { ...site(), kind: "goto", target: identities.blockId(1) };
   const branch = { ...site(), kind: "switch", operand: { kind: "constant", constant: identities.constId(0) },
@@ -765,11 +830,11 @@ test("cycle-specific limit events cover actual repeated transfer and predecessor
     { body: generating, problem: { ...backward, statement: () => 1 }, work: 18, entry: [1], exit: [1] },
   ];
   for (const entry of cases) {
-    complete(product.solve(entry.body, entry.problem, { maximumWork: entry.work, maximumResultEntries: 3 * entry.entry.length }),
+    complete(product.solve(entry.body, 0, entry.problem, { maximumWork: entry.work, maximumResultEntries: 3 * entry.entry.length }),
       { kind: "complete", value: { entry: entry.entry, exit: entry.exit, reachable: entry.entry.map(() => true) } },
       `cycle ${entry.problem.direction} exact work${entry.work}`);
     for (let maximumWork = 0; maximumWork < entry.work; maximumWork += 1) complete(
-      product.solve(entry.body, entry.problem, { maximumWork, maximumResultEntries: 3 * entry.entry.length }),
+      product.solve(entry.body, 0, entry.problem, { maximumWork, maximumResultEntries: 3 * entry.entry.length }),
       { kind: "resource-limit", dimension: "work", maximum: maximumWork }, `cycle work ${maximumWork}`);
   }
 });
@@ -785,14 +850,14 @@ test("priority requeue handles several queued ranks, bottom-edge removal and unr
   const problem = { ...scalarProblem("forward"), terminator: (terminator, state) => terminator.kind === "switch"
     ? [{ target: identities.blockId(1), state }, { target: identities.blockId(2), state }]
     : [{ target: terminator.target, state }] };
-  complete(product.solve(branching, problem, limits), { kind: "complete", value: {
+  complete(product.solve(branching, 0, problem, limits), { kind: "complete", value: {
     entry: [1, 1, 1, 1, 1, 1, 1], exit: [1, 1, 1, 1, 1, 1, 1], reachable: [true, true, true, true, true, true, true],
   } }, "rank heap requeues an earlier rank while preserving all pending ranks");
   const lattice = finiteLattice();
   const changing = parsedBody([{ kind: "switch", operand: { kind: "constant", constant: identities.constId(0) },
     targets: [{ constant: identities.constId(1), target: identities.blockId(0) }], otherwise: identities.blockId(1) },
   { kind: "goto", target: identities.blockId(0) }], [[], [{ kind: "storage-live", local: identities.localId(0) }]]);
-  complete(product.solve(changing, { direction: "forward", lattice, boundary: [],
+  complete(product.solve(changing, 0, { direction: "forward", lattice, boundary: [],
     statement: () => [1], terminator: (terminator, state) => terminator.kind === "goto"
       ? [{ target: terminator.target, state }]
       : [...(state.length === 0 ? [{ target: identities.blockId(0), state: [] }] : []),
@@ -801,7 +866,7 @@ test("priority requeue handles several queued ranks, bottom-edge removal and unr
   } }, "removing a previous bottom edge is still bottom, not a stale retained contribution");
   const unreachable = parsedBody([{ kind: "goto", target: identities.blockId(1) }, { kind: "return", value: null },
     { kind: "goto", target: identities.blockId(1) }], [[], [], []]);
-  complete(product.solve(unreachable, scalarProblem("backward"), limits), { kind: "complete", value: {
+  complete(product.solve(unreachable, 0, scalarProblem("backward"), limits), { kind: "complete", value: {
     entry: [1, 1, 0], exit: [1, 1, 0], reachable: [true, true, false],
   } }, "a changed entry never schedules an unreachable incoming predecessor");
 });
@@ -811,7 +876,7 @@ test("work exhaustion bounds nonconverging caller transfers and never publishes 
   const problem = { ...scalarProblem("forward"), lattice: { ...scalarProblem("forward").lattice,
     stateBound: Number.MAX_SAFE_INTEGER, join: Math.max },
     terminator: (terminator, state) => [{ target: terminator.target, state: state + 1 }] };
-  for (const maximumWork of [0, 1, 20, 100, 1000]) complete(product.solve(self, problem,
+  for (const maximumWork of [0, 1, 20, 100, 1000]) complete(product.solve(self, 0, problem,
     { maximumWork, maximumResultEntries: 3 }), { kind: "resource-limit", dimension: "work", maximum: maximumWork },
   `unbounded-height caller lattice still obeys exact work${maximumWork}`);
 });
@@ -823,7 +888,7 @@ test("both solver directions retain complete hundred-thousand-block solutions wi
   Array.from({ length }, () => []));
   const expected = { kind: "complete", value: { entry: Array(length).fill(1), exit: Array(length).fill(1),
     reachable: Array(length).fill(true) } };
-  for (const direction of ["forward", "backward"]) complete(product.solve(body, scalarProblem(direction),
+  for (const direction of ["forward", "backward"]) complete(product.solve(body, 0, scalarProblem(direction),
     { maximumWork: 3_000_000, maximumResultEntries: 300_000 }), expected, `${direction} complete deep solution`);
 });
 
@@ -881,7 +946,7 @@ export function consume(body: MirBody, graph: Port.DirectedGraph, budget: Port.D
       ? boundaryState : successors.reduce((state, successor) => lattice.join(state, successor.state), 0) };
   const directions: readonly Port.Problem<number>[] = [forward, backward];
   for (const problem of directions) {
-    const result: Port.DataflowResult<Port.FlowSolution<number>> = Dataflow.solve(body, problem, budget);
+    const result: Port.DataflowResult<Port.FlowSolution<number>> = Dataflow.solve(body, 0, problem, budget);
     if (result.kind === "complete") return result.value.reachable;
     const dimension: "work" | "result-entries" | "state" = result.dimension;
     const maximum: number = result.maximum;

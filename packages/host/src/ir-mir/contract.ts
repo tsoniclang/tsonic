@@ -28,6 +28,10 @@ export type MirLocalRole =
   | { readonly kind: "capture"; readonly index: number }
   | { readonly kind: "user" | "temporary" | "return" | "exception" | "completion" };
 
+// A local of role `receiver` or `parameter` is the storage of a parameter row of the typed body and names that row's
+// source local: the receiver names the local of the row of role `this`; parameter i names the local of the i-th of
+// the other rows. For these two roles `source` is never null. Whether such a local is the body's own slot or the
+// caller's storage is read from its row's passing mode (graph laws 3 and 8), and from nothing else.
 export interface MirLocal {
   readonly id: LocalId;
   readonly storage: TyId;
@@ -58,12 +62,65 @@ export type MirProjection =
   | { readonly kind: "index"; readonly operand: MirOperand }
   | { readonly kind: "element"; readonly index: number }
   | { readonly kind: "deref" }
-  | { readonly kind: "capture"; readonly index: number };
+  | { readonly kind: "capture"; readonly index: number }
+  | { readonly kind: "refined" };
 
+// A checked place and where it may be used (graph law 3).
+//
+// A `checked` base is a view of its parent that may be used only where its check is known to have succeeded. A use
+// is any occurrence, in a statement or a terminator, of the place or of a place based on it. Success of the check
+// makes the place available; it says nothing about whether its contents are initialised.
+//
+// The check is a terminator. Availability begins at the block the check continues to (`next`) and is established by
+// reading forwards along a chain of blocks:
+//   - A block passes what is available at its end to the block its terminator continues to (the target of `goto`;
+//     the `next` of `check`, `call` and `invoke`; the `resume` of `await`, `yield` and `delegate`) when that block
+//     has exactly one incoming edge and is not an entry.
+//   - Every other block starts with no mutable place available. Of the stable places it starts with those that
+//     are available on every one of its incoming edges, each edge carrying what holds at its source: a `switch`
+//     edge and a failure or suspension-return edge what holds before the terminator's effect, the continuing edge
+//     what holds after it. The same fact is the same checked place record; facts are never joined, never inferred,
+//     and never equated by their node. An entry is an incoming route that carries nothing. So is an edge whose
+//     source has not been read when the block is read: blocks are read in reverse postorder of the control edges,
+//     so that is a loop's back edge, and a loop header starts with nothing.
+//   - A checked place is stable when it is the `refined` view of a local's own cell, that cell is written once (never,
+//     for a local present on entry) and the local is not handed out (no address taken, no hand-over by place in a
+//     writing mode, no capture). The local of a parameter or of the receiver that is not passed by value or moved is the
+//     caller's storage, used with no dereference: it is handed out from entry and written by other code, so no view of it is
+//     stable and it is not an index; an index held in such a parameter is first copied into a local written once. Every other checked place is mutable. The second stable kind, the bounds of an
+//     element whose access decision states a fixed extent, is added with that field; until then an `index` view is mutable.
+//   - Mutable availability ends at a `call`, `await`, `yield` or `delegate`, and at an `invoke` whose decision says
+//     it writes existing storage; at a value written into a
+//     place that is not a local's own cell, or into the cell of a local that is handed out; and at a value written into
+//     the cell of, or a storage marker of, a local that an available place is rooted at or indexed by.
+//   - Stable availability ends only at a value written into the cell of, or a storage marker of, its local.
+//   - The destination of a terminator is used after the terminator's own effect.
+//   - A checked place, or a place under one, is never the destination of a terminator: not of a result, not of an
+//     exception, not of the value a suspension returns with.
+// Cost of establishing this for one body. Each block and record is read once. The stable places available at a
+// point are a prefix of a list that is only appended to; an edge hands on that prefix without copying it, and a
+// block whose incoming edges all bring prefixes of one list reads through the shortest. Work beyond the record
+// count arises in two places: where the incoming edges bring different lists, each place on each of them is
+// counted once; and where a block must add to a list it does not end, or read a list whose places were made
+// available again elsewhere since, the prefix is copied. The worst case is the number of edges not continued
+// along times the number of stable checked places, which is quadratic when both grow with the body. That work is
+// charged to the body's one account (`MirVerificationLimits.maximumWork`): one unit for each place counted or
+// copied and for each incoming edge of a block not continued into. Lists are kept only until the block they were
+// handed to has been read.
+// A second check of the same place makes it available again. All checked places of one node have one parent and one
+// index: a later check re-resolves the place the first check resolved, through the same saved receiver and index.
+//
+// Where a view is checked, and its receiver (graph laws 1 and 4). The graph selects neither; it agrees with the
+// decision of the view. That decision is the member decision a `field` carries; for a `refined` view the narrowing
+// of its node; for every other view the access its node selected, when the node selected one. A view is `checked`
+// exactly where its decision requires a check: a required check is never absent, and none is added. A receiver that
+// the decision says is reached by reference is the parent of the view, and it is a value captured once: a local's
+// own cell, written once (never, for a local present on entry) and not handed out.
 export type MirPlaceBase =
   | { readonly kind: "local"; readonly local: LocalId }
   | { readonly kind: "static"; readonly definition: DefId }
-  | { readonly kind: "place"; readonly place: PlaceId; readonly projection: MirProjection };
+  | { readonly kind: "place"; readonly place: PlaceId; readonly projection: MirProjection; readonly tir: NodeRef }
+  | { readonly kind: "checked"; readonly place: PlaceId; readonly projection: MirProjection; readonly tir: NodeRef };
 
 export interface MirPlace {
   readonly id: PlaceId;
@@ -91,20 +148,58 @@ export type MirRvalue =
   | { readonly kind: "unary"; readonly operation: TypedOperation; readonly operand: MirOperand }
   | { readonly kind: "binary"; readonly operation: TypedOperation; readonly left: MirOperand; readonly right: MirOperand }
   | { readonly kind: "convert"; readonly operation: TypedOperation; readonly operand: MirOperand; readonly to: TyId }
-  | { readonly kind: "refine"; readonly operand: MirOperand; readonly to: TyId }
   | { readonly kind: "aggregate"; readonly type: TyId; readonly aggregate: MirAggregate }
   | { readonly kind: "address-of"; readonly place: PlaceId; readonly type: TyId }
   | { readonly kind: "closure"; readonly instance: BodyInstance; readonly captures: readonly MirClosureCapture[] };
 
+// The step of a protocol of the record's node that the record performs: `protocol` is the position of the protocol
+// among the node's protocols, `step` the position of the step in it. The result of a `done` step is delivered into
+// a local's own place that nothing else writes; the completion branch is the `switch` on that local.
+export interface MirStepRef {
+  readonly protocol: number;
+  readonly step: number;
+}
+
+// What a statement executes (graph law 2). The decision of an operation says whether it is pure. A statement
+// executes only a pure operation: a `unary`, `binary` or `convert` value carries its decision, and an `aggregate`
+// executes the construction its node selected. An operation whose decision is an invocation is an `invoke`
+// terminator, and a pure operation is never one.
+// Storage markers (graph law 8). A marker has one meaning: the lifetime of a slot the body owns. `storage-live`
+// begins an empty slot, ending a present one first; `storage-dead` ends it. A local present on entry (a parameter,
+// the receiver, a capture) carries no begin marker. A local that is storage the body does not own carries no marker
+// at all, begin or end: the local of a parameter or of the receiver that is not passed by value or moved, and a
+// captured location. Such a local is the caller's storage; when the body's access to it ends is not a fact of this
+// record. The slot of a parameter passed by value or moved is the body's own and may end. The verifier enforces this
+// for parameters and the receiver. For a captured location it needs the mode of the capture, which the typed body's
+// capture rows do not carry yet: until they do, a marker on a captured location is not refused.
+//
+// Storage liveness (`storage-live-before-use`): a record uses a local only where its storage is live on every path
+// from an entry. It is established by one forward fixed point over sets of live locals. A set is a tree of 32-local
+// words, with one object for each contents within a body's verification; a body of L locals has sets of
+// 1 + ceil(log2(L / 32)) levels (one level for L <= 32). Charged to the body's one account
+// (`MirVerificationLimits.maximumWork`): one unit for each set node entered by a marker's change (the building of the
+// entry set from the locals present on entry included), by a meet of two different sets, and by the lookup of a use
+// that depends on its block's start (one lookup for each local in each block); one unit for each block of a sweep
+// after the first; one unit for each outgoing edge of a block that is read again; one unit for each node of the empty
+// set of the body's width, charged before it is made. The locals each place reaches are found once per verification:
+// one unit for each place visited, one for each root local of a place on a local, one for each node where a union of
+// two different place sets differs; at a use, one unit for each node entered and one for each local visited when an
+// operand's set is enumerated.
 export type MirStatement = MirSite & (
-  | { readonly kind: "assign"; readonly place: PlaceId; readonly value: MirRvalue }
+  | { readonly kind: "assign"; readonly place: PlaceId; readonly value: MirRvalue; readonly step: MirStepRef | null }
   | { readonly kind: "storage-live"; readonly local: LocalId }
   | { readonly kind: "storage-dead"; readonly local: LocalId }
 );
 
+// How a control point fails (graph law 1). An `invoke` fails as the decision of its operation says: `none` when it
+// cannot fail, `abort` when it ends the process, `handler` or `escape` when it unwinds. A `check` fails as the
+// decision of its checked place says, with `abort` or with `handler` or `escape`, and never with `none`. A `call`,
+// `await`, `yield`, `delegate` and `throw` unwind.
 export type MirUnwind =
   | { readonly kind: "handler"; readonly exception: PlaceId; readonly target: BlockId }
-  | { readonly kind: "escape" };
+  | { readonly kind: "escape" }
+  | { readonly kind: "abort" }
+  | { readonly kind: "none" };
 
 export interface MirSuspensionReturn {
   readonly destination: PlaceId;
@@ -118,27 +213,49 @@ export interface MirSwitchTarget {
 
 export type MirCallArgument =
   | { readonly kind: "value"; readonly passing: "by-value" | "move"; readonly operand: MirOperand }
-  | { readonly kind: "place"; readonly passing: PlacePassingMode; readonly place: PlaceId };
+  | { readonly kind: "place"; readonly passing: PlacePassingMode; readonly place: PlaceId }
+  | { readonly kind: "omitted" };
 
 export type MirCallee =
   | { readonly kind: "direct"; readonly resolution: ResolvedCallee }
-  | { readonly kind: "indirect"; readonly operand: MirOperand; readonly resolution: ResolvedCallee };
+  | { readonly kind: "indirect"; readonly operand: MirOperand; readonly resolution: ResolvedCallee }
+  | { readonly kind: "body"; readonly instance: BodyInstance; readonly captures: readonly MirClosureCapture[] };
 
+// Execution events and the record that stands for each (graph law 5). An event belongs to its actual subject, edge
+// or protocol step, and has one representation:
+//   creation of a handle             the `call` that creates it. The handle is the value delivered to the destination
+//                                    of that call: two executions of one creating call create two handles.
+//   activation of an execution       the entry of the activated body in its own graph (`MirBody.entries`), entered
+//                                    once for each handle. The creating call names the body instance it connects to
+//                                    and, through its callee decision, the selected mode: at creation the call enters
+//                                    that entry; otherwise the first drive of the handle does. A later drive or a
+//                                    resumption does not enter it again, and no record of the caller stands for the
+//                                    activation.
+//   suspension                       `await`, `yield`, `delegate`
+//   resumption                       the `resume` edge of that terminator
+//   exit by return                   `return`
+//   exit by unwind                   a failure arm `escape`
+//   exit by the consumer finishing   the `return` edge of `yield` or `delegate`
+//   completion of a handle           for an iteration, the completion branch: the `switch` that names the `done` step;
+//                                    for an awaited handle, the resume or unwind edge of its `await`. An await of one
+//                                    handle states nothing about another.
+// No occurrence has two records: effects by law 9, steps and the one completion branch of a step by law 6, entries by law 7.
 export type MirTerminator = MirSite & (
   | { readonly kind: "goto"; readonly target: BlockId }
   | { readonly kind: "switch"; readonly operand: MirOperand;
-      readonly targets: readonly MirSwitchTarget[]; readonly otherwise: BlockId }
+      readonly targets: readonly MirSwitchTarget[]; readonly otherwise: BlockId; readonly step: MirStepRef | null }
+  | { readonly kind: "check"; readonly place: PlaceId; readonly next: BlockId; readonly unwind: MirUnwind }
   | { readonly kind: "call"; readonly callee: MirCallee; readonly receiver: MirOperand | null;
       readonly arguments: readonly MirCallArgument[]; readonly destination: PlaceId | null;
-      readonly next: BlockId; readonly unwind: MirUnwind }
+      readonly next: BlockId; readonly unwind: MirUnwind; readonly step: MirStepRef | null }
   | { readonly kind: "invoke"; readonly operation: TypedOperation; readonly operands: readonly MirOperand[];
-      readonly destination: PlaceId | null; readonly next: BlockId; readonly unwind: MirUnwind }
+      readonly destination: PlaceId | null; readonly next: BlockId; readonly unwind: MirUnwind; readonly step: MirStepRef | null }
   | { readonly kind: "await"; readonly operand: MirOperand; readonly destination: PlaceId;
-      readonly resume: BlockId; readonly unwind: MirUnwind }
+      readonly resume: BlockId; readonly unwind: MirUnwind; readonly step: MirStepRef | null }
   | { readonly kind: "yield"; readonly operand: MirOperand | null; readonly destination: PlaceId;
-      readonly resume: BlockId; readonly return: MirSuspensionReturn; readonly unwind: MirUnwind }
+      readonly resume: BlockId; readonly return: MirSuspensionReturn; readonly unwind: MirUnwind; readonly step: MirStepRef | null }
   | { readonly kind: "delegate"; readonly iterator: MirOperand; readonly destination: PlaceId;
-      readonly resume: BlockId; readonly return: MirSuspensionReturn; readonly unwind: MirUnwind }
+      readonly resume: BlockId; readonly return: MirSuspensionReturn; readonly unwind: MirUnwind; readonly step: MirStepRef | null }
   | { readonly kind: "throw"; readonly operand: MirOperand; readonly unwind: MirUnwind }
   | { readonly kind: "return"; readonly value: MirOperand | null }
   | { readonly kind: "unreachable" }
@@ -150,9 +267,15 @@ export interface MirBlock extends MirSite {
   readonly terminator: MirTerminator;
 }
 
+export interface MirEntry {
+  readonly provided: number;
+  readonly block: BlockId;
+}
+
 export interface MirBody {
   readonly body: BodyId;
   readonly bindings: ArtifactBindings;
+  readonly entries: readonly MirEntry[];
   readonly locals: readonly MirLocal[];
   readonly constants: readonly MirConstant[];
   readonly places: readonly MirPlace[];
@@ -188,6 +311,7 @@ export type MirRule =
   | "switch-target-unique"
   | "call-receiver-exact"
   | "body-receiver-exact"
+  | "parameter-source-exact"
   | "call-arguments-total"
   | "argument-passing-exact"
   | "call-destination-type"
@@ -196,7 +320,23 @@ export type MirRule =
   | "storage-live-before-use"
   | "capture-location-exact"
   | "constants-order"
-  | "switch-targets-order";
+  | "switch-targets-order"
+  | "failure-kind-exact"
+  | "check-place-exact"
+  | "check-place-single"
+  | "checked-place-available"
+  | "checked-place-destination"
+  | "suspension-admitted"
+  | "refined-under-check"
+  | "statement-pure"
+  | "index-operand-stable"
+  | "receiver-stable"
+  | "protocol-step-exact"
+  | "completion-branch-canonical"
+  | "entries-exact"
+  | "omission-admitted"
+  | "storage-marker-exact"
+  | "effect-site-unique";
 
 export type MirViolationSite =
   | { readonly kind: "body"; readonly body: BodyId }
@@ -206,9 +346,28 @@ export type MirViolationSite =
   | { readonly kind: "block"; readonly body: BodyId; readonly block: BlockId }
   | { readonly kind: "instruction"; readonly body: BodyId; readonly block: BlockId; readonly statement: number | null };
 
+// The canonical key of a constant. A body's constants are unique by this key and listed in its order; a producer
+// emits constants in the order the verifier requires by using this one function. Null when the constant's bindings
+// are not complete.
+export type ConstantKeyOfMir = (type: TyId, value: MirConstantValue) => string | null;
 export type PrintMir = (body: MirBody) => string;
 export type ParseMir = (text: string) => TextParseResult<MirBody>;
+// The limit of one body's verification. Verification has one account for each body: every pass that does work
+// beyond a constant amount for each record charges it, in the units its law text states, and the account starts at zero for
+// each body. `maximumWork` is the most that account may reach. The caller sets it; there is no default.
+export interface MirVerificationLimits {
+  readonly maximumWork: number;
+}
+
+// The answer of the verifier for one body. `complete` carries every finding; an empty list is an accepted body.
+// `resource-limit` says that the body's account passed `maximum`: the body is neither accepted nor found
+// invalid, and no finding is reported for it.
+export type MirVerification =
+  | { readonly kind: "complete"; readonly violations: readonly Violation<MirRule, MirViolationSite>[] }
+  | { readonly kind: "resource-limit"; readonly body: BodyId; readonly dimension: "work"; readonly maximum: number };
+
 export interface MirVerificationContext {
+  readonly limits: MirVerificationLimits;
   readonly source: TirBody;
   readonly types: TypeTable;
   readonly declarationOf: (definition: DefId) => InferenceDeclaration | null;
@@ -217,4 +376,4 @@ export interface MirVerificationContext {
 export type VerifyMir = (
   body: MirBody,
   context: MirVerificationContext,
-) => readonly Violation<MirRule, MirViolationSite>[];
+) => MirVerification;

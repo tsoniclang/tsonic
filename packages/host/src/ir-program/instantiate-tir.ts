@@ -33,12 +33,15 @@ function placeBase(scan: ProjectionInventory, value: MirPlaceBase): Instantiatio
     case "local":
     case "static": return inventoryFields(scan, 1);
     case "place":
+    case "checked":
+      // A projected base has one field more than before: the node it resolves.
       switch (value.projection.kind) {
-        case "field": return inventoryRecord(scan, 3) ?? inventoryRecord(scan, 2) ?? inventorySelection(scan, value.projection.member);
+        case "field": return inventoryRecord(scan, 4) ?? inventoryRecord(scan, 2) ?? inventorySelection(scan, value.projection.member);
         case "index":
         case "element":
         case "deref":
-        case "capture": return inventoryFields(scan, 2);
+        case "capture":
+        case "refined": return inventoryFields(scan, 3);
       }
   }
 }
@@ -61,7 +64,6 @@ function rvalue(scan: ProjectionInventory, value: MirRvalue): InstantiationStop 
     case "unary": return inventoryRecord(scan, 3) ?? inventoryTypedOperation(scan, value.operation);
     case "binary": return inventoryRecord(scan, 4) ?? inventoryTypedOperation(scan, value.operation);
     case "convert": return inventoryRecord(scan, 4) ?? inventoryTypedOperation(scan, value.operation) ?? inventoryType(scan, value.to);
-    case "refine": return inventoryRecord(scan, 3) ?? inventoryType(scan, value.to);
     case "aggregate": return inventoryRecord(scan, 3) ?? inventoryType(scan, value.type) ?? aggregate(scan, value.aggregate);
     case "address-of": return inventoryRecord(scan, 3) ?? inventoryType(scan, value.type);
     case "closure": return inventoryRecord(scan, 3) ?? inventoryInstance(scan, value.instance);
@@ -72,7 +74,7 @@ function statement(scan: ProjectionInventory, value: MirStatement): Instantiatio
   switch (value.kind) {
     case "storage-live":
     case "storage-dead": return inventoryFields(scan, 1);
-    case "assign": return inventoryRecord(scan, 5) ?? rvalue(scan, value.value);
+    case "assign": return inventoryRecord(scan, 6) ?? rvalue(scan, value.value);
   }
 }
 
@@ -80,6 +82,7 @@ function callee(scan: ProjectionInventory, value: MirCallee): InstantiationStop 
   switch (value.kind) {
     case "direct": return inventoryRecord(scan, 2) ?? inventoryCallee(scan, value.resolution);
     case "indirect": return inventoryRecord(scan, 3) ?? inventoryCallee(scan, value.resolution);
+    case "body": return inventoryRecord(scan, 3) ?? inventoryInstance(scan, value.instance);
   }
 }
 
@@ -87,14 +90,15 @@ function terminator(scan: ProjectionInventory, value: MirTerminator): Instantiat
   switch (value.kind) {
     case "goto":
     case "switch":
+    case "check":
     case "await":
     case "yield":
     case "delegate":
     case "throw":
     case "return":
     case "unreachable": return inventoryFields(scan, 1);
-    case "call": return inventoryRecord(scan, 9) ?? callee(scan, value.callee);
-    case "invoke": return inventoryRecord(scan, 8) ?? inventoryTypedOperation(scan, value.operation);
+    case "call": return inventoryRecord(scan, 10) ?? callee(scan, value.callee);
+    case "invoke": return inventoryRecord(scan, 9) ?? inventoryTypedOperation(scan, value.operation);
   }
 }
 
@@ -106,5 +110,6 @@ export function inventoryMirBody(scan: ProjectionInventory, value: MirBody): Ins
     inventoryEach(scan, block.statements, value => statement(scan, value));
     return inventoryRecord(scan, 5) ?? terminator(scan, block.terminator);
   });
-  return inventoryRecord(scan, 7) ?? inventoryType(scan, value.result);
+  inventoryEach(scan, value.entries, () => inventoryRecord(scan, 2));
+  return inventoryRecord(scan, 8) ?? inventoryType(scan, value.result);
 }

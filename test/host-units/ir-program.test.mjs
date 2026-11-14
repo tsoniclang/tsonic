@@ -41,6 +41,12 @@ const post = (method, parameters = {}) => new Promise((done, reject) => {
   session.post(method, parameters, (error, result) => error === null ? done(result) : reject(error));
 });
 let product;
+/** The findings of the module-bodies port for a verification that ran to its end; a refusal for resources fails the case. */
+function moduleViolations(index, module, context) {
+  const outcome = product.verifyModuleBodies(index, module, context);
+  assert.equal(outcome.kind, "complete", "the bodies of the module were verified to the end, not refused for resources");
+  return outcome.violations;
+}
 let typeProduct;
 
 function completeProgramValue(actual, expected, label) {
@@ -217,7 +223,7 @@ function evaluate(input) {
         original = original.statements.nodes[0];
       }
       return { complete, chainNodes: count, sharedRoot: Object.is(parsed.value.tree, parsed.value.bodies[0].tir.root),
-        violations: product.verifyModuleBodies(fixture.index, fixture.module, fixture.context) };
+        violations: moduleViolations(fixture.index, fixture.module, fixture.context) };
     }
     case "parse-module": return product.parseModuleBodies(input.index, input.text);
     case "parse-module-sharing": {
@@ -328,11 +334,11 @@ function evaluate(input) {
     }
     case "verify-module-boundary-fixture": {
       const fixture = moduleBoundaryFixture(input.change);
-      return product.verifyModuleBodies(fixture.index, fixture.module, fixture.context);
+      return moduleViolations(fixture.index, fixture.module, fixture.context);
     }
     case "verify-module-fixture": {
       const fixture = moduleFixture();
-      return product.verifyModuleBodies(fixture.index, fixture.module, fixture.context);
+      return moduleViolations(fixture.index, fixture.module, fixture.context);
     }
     case "verify-constant-reference-fixture": {
       const fixture = moduleFixture();
@@ -340,7 +346,7 @@ function evaluate(input) {
         value: { kind: "constant", reference: { initializer: fixture.instance } } });
       fixture.index.bodies[0].mirConstantCount = 1;
       if (input.present) fixture.index.constants.push({ initializer: fixture.instance, value: { kind: "absence", type: 0 } });
-      return product.verifyModuleBodies(fixture.index, fixture.module, fixture.context);
+      return moduleViolations(fixture.index, fixture.module, fixture.context);
     }
     case "verify-module-change-fixture": {
       const fixture = moduleFixture();
@@ -355,17 +361,17 @@ function evaluate(input) {
         } }; break;
         default: throw new Error("Unlisted authored module proof change");
       }
-      return product.verifyModuleBodies(fixture.index, fixture.module, fixture.context);
+      return moduleViolations(fixture.index, fixture.module, fixture.context);
     }
     case "verify-metadata-operation-fixture": {
       const { first } = metadataOperationFixture(input.operationKind, input.fact, input.key);
       return { index: product.verifyProgramIndex(first.index, first.context),
-        module: product.verifyModuleBodies(first.index, first.module, first.context) };
+        module: moduleViolations(first.index, first.module, first.context) };
     }
     case "verify-repeated-metadata-fixture": {
       const { first } = repeatedMetadataFixture(input.uses, input.ownerSize, input.fact);
       return { index: product.verifyProgramIndex(first.index, first.context),
-        module: product.verifyModuleBodies(first.index, first.module, first.context) };
+        module: moduleViolations(first.index, first.module, first.context) };
     }
     case "verify-artifact-index-fixture": {
       const { first } = publishedArtifactFixture(input.change);
@@ -374,17 +380,17 @@ function evaluate(input) {
     case "verify-field-offset-fixture": {
       const { first } = metadataFieldFixture(input.key);
       return { index: product.verifyProgramIndex(first.index, first.context),
-        module: product.verifyModuleBodies(first.index, first.module, first.context) };
+        module: moduleViolations(first.index, first.module, first.context) };
     }
     case "verify-binding-metadata-fixture": {
       const { first } = metadataBindingFixture(input.proof, input.key);
       return { index: product.verifyProgramIndex(first.index, first.context),
-        module: product.verifyModuleBodies(first.index, first.module, first.context) };
+        module: moduleViolations(first.index, first.module, first.context) };
     }
     case "verify-qualified-scopes-fixture": {
       const fixture = dualInstanceFixture();
       return { index: product.verifyProgramIndex(fixture.index, fixture.context),
-        module: product.verifyModuleBodies(fixture.index, fixture.module, fixture.context) };
+        module: moduleViolations(fixture.index, fixture.module, fixture.context) };
     }
     case "verify-module-inventory-fixture": {
       const fixture = moduleFixture();
@@ -397,7 +403,7 @@ function evaluate(input) {
           break;
         default: throw new Error("Unlisted authored module inventory change");
       }
-      return product.verifyModuleBodies(fixture.index, fixture.module, fixture.context);
+      return moduleViolations(fixture.index, fixture.module, fixture.context);
     }
     case "verify-index-fixture": {
       const fixture = moduleFixture();
@@ -572,7 +578,7 @@ test("ir-program missing checked module data retains all index and module-bounda
     detail: [{ kind: "text", value: "missing-module-data" }] };
   completeProgramValue(product.verifyProgramIndex(fixture.index, fixture.context), [missing, { rule: "body-root-resolves",
     site: { kind: "body", instance: fixture.instance }, detail: [{ kind: "number", value: 0 }] }], "the complete source inventory does not drop a body finding");
-  completeProgramValue(product.verifyModuleBodies(fixture.index, fixture.module, fixture.context), [missing],
+  completeProgramValue(moduleViolations(fixture.index, fixture.module, fixture.context), [missing],
     "the complete chunk boundary reports the unavailable checked source once");
 });
 
@@ -1602,7 +1608,7 @@ test("ir-program complete write-only member origins retain null read identity in
   completeSyntaxTransport(fixture, syntaxTransportModule({ module: fixture.module }, node, "Expression"), example.input.index.types);
 });
 
-for (const kind of ["unary", "binary", "convert", "refine", "address-of", "array", "tuple", "fixed-array", "object", "record"])
+for (const kind of ["unary", "binary", "convert", "address-of", "array", "tuple", "fixed-array", "object", "record"])
   test(`ir-program genuine metadata constant in MIR ${kind} preserves the entire owning and child verdict vector`, () => {
     const { first } = metadataOperationFixture("size", "present", "layout");
     const mir = first.module.bodies[0].mir;
@@ -1612,7 +1618,6 @@ for (const kind of ["unary", "binary", "convert", "refine", "address-of", "array
     let value;
     if (kind === "unary" || kind === "convert") value = { kind, operation, operand, ...(kind === "convert" ? { to: 2 } : {}) };
     else if (kind === "binary") value = { kind, operation, left: operand, right: operand };
-    else if (kind === "refine") value = { kind, operand, to: 2 };
     else if (kind === "address-of") value = { kind, place: 0, type: 2 };
     else {
       const type = first.index.types.terms.length;
@@ -1632,11 +1637,12 @@ for (const kind of ["unary", "binary", "convert", "refine", "address-of", "array
     mir.blocks[0].statements[1].value = value;
     const expected = ["unary", "binary", "convert"].includes(kind) ? [{ rule: "mir-valid", site: { kind: "body", instance: first.instance },
       detail: [{ kind: "text", value: "operation-selected" }] }] : [];
-    completeProgramValue(product.verifyModuleBodies(first.index, first.module, first.context), expected,
+    completeProgramValue(moduleViolations(first.index, first.module, first.context), expected,
       "all metadata witnesses are genuine; an operation absent from the actual source retains its complete child finding");
   });
 
-for (const kind of ["literal", "definition", "observation", "place", "closure-parametric", "closure-instantiated", "field-accessors", "missing-metadata"])
+for (const kind of ["literal", "definition", "observation", "place", "closure-parametric", "closure-instantiated", "body-callee-parametric",
+  "body-callee-instantiated", "field-accessors", "missing-metadata"])
   test(`ir-program complete MIR ${kind} preserves all genuine reference and publication findings`, () => {
     const { first } = metadataOperationFixture("size", "present", "layout");
     const mir = first.module.bodies[0].mir;
@@ -1653,43 +1659,106 @@ for (const kind of ["literal", "definition", "observation", "place", "closure-pa
       mir.blocks[0].statements[1].value = { kind: "closure", instance, captures: [] };
       if (kind === "closure-instantiated") expected.push(missing("mir.blocks[0].statements[1].value.instance",
         encodeKey([first.bodyId, ["instantiated", [[], [], [], []]]])));
+    } else if (kind.startsWith("body-callee-")) {
+      // A call of an internal body names a body instance, as a closure does: the instance is a reference root.
+      const instance = kind === "body-callee-parametric" ? first.instance : { body: first.bodyId, bindings: { kind: "instantiated", bindings } };
+      const block = mir.blocks[0];
+      block.terminator = { origin: block.origin, tir: block.tir, kind: "call", callee: { kind: "body", instance, captures: [] }, receiver: null,
+        arguments: [], destination: null, next: 0, unwind: { kind: "escape" }, step: null };
+      if (kind === "body-callee-instantiated") expected.push(missing("mir.blocks[0].terminator.callee.instance",
+        encodeKey([first.bodyId, ["instantiated", [[], [], [], []]]])));
     } else if (kind === "field-accessors") {
       const advertised = { declaration: first.definition, role: "advertised", signature: 0, body: null };
       const callee = { decision: { candidate: 0, advertised, api: { ...advertised, role: "api-signature" }, bindings, implementationBindings: bindings,
         parameters: [], completion: { signature: 0, completion: 0, yielded: null, sent: null }, result: 0, activation: null }, activation: first.instance };
       const member = { decision: { key: { kind: "text", value: "value" }, origins: [], selectedDeclarations: [], primary: null, read: 2, write: 2,
         getter: null, setter: null, bindings, location: { kind: "data", check: { kind: "none" }, receiver: "in-place" } }, getter: callee, setter: callee };
-      mir.places.push({ id: 1, base: { kind: "place", place: 0, projection: { kind: "field", member } }, storage: 2, origin: mir.places[0].origin });
+      mir.places.push({ id: 1, base: { kind: "place", place: 0, projection: { kind: "field", member }, tir: mir.blocks[0].tir }, storage: 2, origin: mir.places[0].origin });
       first.index.bodies[0].mirPlaceCount = 2;
     } else {
       const key = encodeKey([first.definition, ["instantiated", [[], [], [], []]]]);
       first.index.metadata.shift();
       expected.push(missing("mir.constants[0].value", key), missing("facts.observations[0].layout.metadata", key));
     }
-    if (kind.startsWith("closure-")) expected.push({ rule: "mir-valid", site, detail: [{ kind: "text", value: "operation-selected" }] });
-    completeProgramValue(product.verifyModuleBodies(first.index, first.module, first.context), expected,
+    // Neither the closure nor the internal body is one the node names: the MIR verifier reports the record.
+    if (kind.startsWith("closure-") || kind.startsWith("body-callee-")) expected.push({ rule: "mir-valid", site, detail: [{ kind: "text", value: "operation-selected" }] });
+    completeProgramValue(moduleViolations(first.index, first.module, first.context), expected,
       "the complete whole-body result includes every owning publication and child finding without filtering");
   });
+
+// The MIR verification limit at the Program port (K-3259). The limit reaches each body's verification from the
+// context; each body has its own account; a body past its limit refuses the module, and a refusal is not a finding.
+// `branching` gives a published body one branch: the block the branch enters is not continued into and receives a
+// set on its one edge, which is one unit of the MIR verifier's work.
+function branching(published) {
+  const block = published.mir.blocks[0];
+  published.mir.constants = [{ id: 0, type: 0, value: { kind: "literal", value: { kind: "absence" } } }];
+  published.mir.blocks = [
+    { ...block, terminator: { origin: block.origin, tir: block.tir, kind: "switch", operand: { kind: "constant", constant: 0 }, targets: [], otherwise: 1, step: null } },
+    { ...block, id: 1 },
+  ];
+}
+const underMirLimit = (fixture, maximumWork) => product.verifyModuleBodies(fixture.index, fixture.module, { ...fixture.context, mirVerification: { maximumWork } });
+// The needs below are derived from the records of the fixtures under the MIR contract's charging. Every body pays one
+// unit for the empty set of its width (one level here). The module fixture's body (no local, no place, one block
+// that returns) needs 1. The branching body needs 2: the empty set, and one for block 1, which is not continued into
+// (a switch edge) and receives a set on its one edge. A goto to a block the body does not have adds nothing.
+
+test("ir-program a body past its MIR verification limit refuses the module and names the body", () => {
+  const fixture = moduleFixture();
+  completeProgramValue(underMirLimit(fixture, 1), { kind: "complete", violations: [] }, "the smallest body is verified under its need of one");
+  completeProgramValue(underMirLimit(fixture, 0), { kind: "resource-limit", body: fixture.instance, dimension: "work", maximum: 0 },
+    "zero is a limit like any other: below the need the body is refused");
+  branching(fixture.module.bodies[0]);
+  completeProgramValue(underMirLimit(fixture, 1), { kind: "resource-limit", body: fixture.instance, dimension: "work", maximum: 1 },
+    "over the limit: the refusal names the body instance and the limit, and carries no finding");
+  assert.equal(underMirLimit(fixture, 2).kind, "complete", "at the exact limit the body is verified to the end");
+});
+
+test("ir-program a structurally invalid body under its MIR limit is found invalid, not refused", () => {
+  const fixture = moduleFixture();
+  const block = fixture.module.bodies[0].mir.blocks[0];
+  block.terminator = { origin: block.origin, tir: block.tir, kind: "goto", target: 99 };
+  const outcome = underMirLimit(fixture, 1);
+  assert.equal(outcome.kind, "complete", "a defect is a finding of a verification that ran to its end");
+  completeProgramValue(outcome.violations.filter(violation => violation.rule === "mir-valid"), [{ rule: "mir-valid", site: { kind: "body", instance: fixture.instance },
+    detail: [{ kind: "text", value: "edge-target-resolves" }, { kind: "text", value: "normal" }, { kind: "number", value: 99 }] }],
+  "the MIR finding is reported as a finding");
+});
+
+test("ir-program two bodies of one module are metered separately", () => {
+  // Both bodies need two units: a shared account would pass a limit of two, separate accounts do not.
+  const both = dualInstanceFixture();
+  for (const published of both.module.bodies) branching(published);
+  assert.equal(underMirLimit(both, 2).kind, "complete", "each body is charged from zero");
+  completeProgramValue(underMirLimit(both, 1), { kind: "resource-limit", body: both.module.bodies[0].instance, dimension: "work", maximum: 1 },
+    "with both over the limit the first body verified is the one named");
+  // The first body under the limit and the second over it: the second is named.
+  const second = dualInstanceFixture();
+  branching(second.module.bodies[1]);
+  completeProgramValue(underMirLimit(second, 1), { kind: "resource-limit", body: second.module.bodies[1].instance, dimension: "work", maximum: 1 },
+    "the refusal names the body that passed its limit, not the first body of the module");
+});
 
 test("ir-program a mismatched supplied type table retains its complete module-level finding", () => {
   const fixture = moduleFixture();
   const context = { ...fixture.context, facts: { ...fixture.context.facts, types: { ...fixture.index.types,
     terms: [...fixture.index.types.terms, { kind: "primitive", primitive: "bool" }] } } };
-  completeProgramValue(product.verifyModuleBodies(fixture.index, fixture.module, context), [{ rule: "shared-type-table",
+  completeProgramValue(moduleViolations(fixture.index, fixture.module, context), [{ rule: "shared-type-table",
     site: { kind: "module", module: fixture.module.module }, detail: [] }], "the boundary does not silently replace a conflicting supplied table");
 });
 
 test("ir-program a missing complete instantiated chunk retains the exact absent body identity", () => {
   const fixture = dualInstanceFixture();
   const removed = fixture.module.bodies.pop();
-  completeProgramValue(product.verifyModuleBodies(fixture.index, fixture.module, fixture.context), [{ rule: "body-levels-total",
+  completeProgramValue(moduleViolations(fixture.index, fixture.module, fixture.context), [{ rule: "body-levels-total",
     site: { kind: "body", instance: removed.instance }, detail: [{ kind: "text", value: fixture.module.module }] }], "all indexed instances must be present in the supplied chunk");
 });
 
 test("ir-program a copied module publication retains every genuine identity and sharing cofinding", () => {
   const fixture = moduleFixture();
   fixture.module.tree = { ...fixture.module.tree };
-  completeProgramValue(product.verifyModuleBodies(fixture.index, fixture.module, fixture.context), [
+  completeProgramValue(moduleViolations(fixture.index, fixture.module, fixture.context), [
     { rule: "template-body-shared", site: { kind: "body", instance: fixture.instance }, detail: [{ kind: "number", value: 0 }] },
     { rule: "tir-valid", site: { kind: "node", module: fixture.module.module, node: 0 }, detail: [{ kind: "text", value: "module-node-identity" },
       { kind: "text", value: "module tree does not retain its actual source and publication identity" }] },
@@ -1721,7 +1790,7 @@ test("ir-program complete relational member references retain field, method and 
     { id: 1, parent: null, projection: { kind: "method-value", member } }];
   facts.closedArrays = [{ node: 0, kind: "closed", declarations: [], references: [], literals: [], elements: [member] }];
   fixture.answers.set(encodeContextKey(["bindingScopesOf", { kind: "body", instance: fixture.instance }]), new Array(9).fill(fixture.scope));
-  completeProgramValue(product.verifyModuleBodies(fixture.index, fixture.module, fixture.context), [],
+  completeProgramValue(moduleViolations(fixture.index, fixture.module, fixture.context), [],
     "every complete selected record is checked without replaying semantic analysis or losing the exact activation identity");
 });
 
@@ -1757,7 +1826,7 @@ for (const change of ["absent", "present", "duplicate", "argument"]) test(`ir-pr
       { kind: "text", value: "Transports retain complete selected formals, passing modes and effective actual components exactly once." }] },
   ] : [{ rule: "binding-artifact-present", site, detail: [
     { kind: "text", value: "facts.origins.invocations[0].alternatives[0].summary" }, { kind: "text", value: encodeKey([fixture.definition, ["parametric"]]) }] }];
-  completeProgramValue(product.verifyModuleBodies(fixture.index, fixture.module, fixture.context), expected,
+  completeProgramValue(moduleViolations(fixture.index, fixture.module, fixture.context), expected,
     "a borrowed invocation record retains its complete original context and publication result");
 });
 
@@ -1791,7 +1860,7 @@ for (const kind of ["callback", "activation"]) for (const ownerKind of ["body", 
       { kind: "text", value: ownerKind === "summary" ? "cross-owner-qualified" : "producer-resolves" },
       { kind: "text", value: ownerKind === "summary" ? "A formal producer retains a resolving qualified relational owner."
         : "The actual formal producer resolves in its declared foreign arena." }] });
-    completeProgramValue(product.verifyModuleBodies(first.index, first.module, first.context), expected,
+    completeProgramValue(moduleViolations(first.index, first.module, first.context), expected,
       "a genuine empty or unavailable canonical arena cannot invent formal producer zero; all cofindings remain in order");
   });
 
@@ -1802,9 +1871,9 @@ test("ir-program a construction retains its complete actual body instance", () =
   published.facts.origins.constructions = [{ node: 0, root: { body: fixture.bodyId, node: 0 },
     allocation: { body: fixture.bodyId, node: 0 }, implementation: fixture.definition, body: actual, regions: [] }];
   fixture.answers.set(encodeContextKey(["bindingScopesOf", { kind: "body", instance: fixture.instance }]), [fixture.scope]);
-  completeProgramValue(product.verifyModuleBodies(fixture.index, fixture.module, fixture.context), [], "a real instantiated construction resolves its exact complete record");
+  completeProgramValue(moduleViolations(fixture.index, fixture.module, fixture.context), [], "a real instantiated construction resolves its exact complete record");
   fixture.index.bodies.push({ ...fixture.index.bodies[1] });
-  completeProgramValue(product.verifyModuleBodies(fixture.index, fixture.module, fixture.context), [
+  completeProgramValue(moduleViolations(fixture.index, fixture.module, fixture.context), [
     { rule: "body-levels-total", site: { kind: "body", instance: actual }, detail: [{ kind: "text", value: fixture.module.module }] },
     { rule: "binding-artifact-present", site: { kind: "body", instance: fixture.instance }, detail: [
       { kind: "text", value: "facts.origins.constructions[0].body" }, { kind: "text", value: encodeKey([fixture.bodyId, ["instantiated", [[], [], [], []]]]) }] },
@@ -1816,14 +1885,14 @@ test("ir-program a raw location retains its actual selected metadata reference",
   first.module.bodies[0].facts.rawLocations = [{ node: 0, operation: "to-raw", pointee: 1, layout: { metadata: metadata.key, layout: 0 }, context: 0,
     bindings: { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] } }];
   first.answers.set(encodeContextKey(["bindingScopesOf", { kind: "body", instance: first.instance }]), new Array(4).fill(first.scope));
-  completeProgramValue(product.verifyModuleBodies(first.index, first.module, first.context), [], "the complete raw-location record preserves its real pointee, layout and environment");
+  completeProgramValue(moduleViolations(first.index, first.module, first.context), [], "the complete raw-location record preserves its real pointee, layout and environment");
 });
 
 test("ir-program a foreign MIR metadata site retains both materialization and qualified source findings", () => {
   const { first, second } = metadataOperationFixture("size", "present", "layout");
   first.module.bodies[0].mir.blocks[0].statements[1].tir = { body: second.bodyId, node: 0 };
   const site = { kind: "body", instance: first.instance };
-  completeProgramValue(product.verifyModuleBodies(first.index, first.module, first.context), [
+  completeProgramValue(moduleViolations(first.index, first.module, first.context), [
     { rule: "metadata-constant-not-materialised", site, detail: [{ kind: "text", value: "mir.blocks[0].statements[1].value.operand" },
       { kind: "number", value: 0 }, { kind: "text", value: encodeKey([first.definition, ["instantiated", [[], [], [], []]]]) }] },
     { rule: "cross-owner-qualified", site, detail: [{ kind: "text", value: "cross-owner-qualified" }] },
@@ -1836,7 +1905,7 @@ test("ir-program an unavailable parametric closure retains its complete publicat
   first.answers.set(encodeContextKey(["bodyOwner", missing.body]), null);
   first.module.bodies[0].mir.blocks[0].statements[1].value = { kind: "closure", instance: missing, captures: [] };
   const site = { kind: "body", instance: first.instance };
-  completeProgramValue(product.verifyModuleBodies(first.index, first.module, first.context), [
+  completeProgramValue(moduleViolations(first.index, first.module, first.context), [
     { rule: "cross-owner-reference-resolves", site, detail: [{ kind: "text", value: "mir.blocks[0].statements[1].value.instance" },
       { kind: "text", value: encodeKey([missing.body, ["parametric"]]) }] },
     { rule: "mir-valid", site, detail: [{ kind: "text", value: "operation-selected" }] },
@@ -1859,7 +1928,7 @@ test("ir-program a deep authored child mismatch propagates to its containing bod
   fixture.tirInput.source.bodies[0].scopes = [...fixture.module.bodies[0].tir.scopes];
   child.kind = "DebuggerStatement";
   const site = { kind: "body", instance: fixture.instance };
-  completeProgramValue(product.verifyModuleBodies(fixture.index, fixture.module, fixture.context), [
+  completeProgramValue(moduleViolations(fixture.index, fixture.module, fixture.context), [
     { rule: "instance-node-ids-exact", site, detail: [{ kind: "number", value: 1 }, { kind: "text", value: "Block" }] },
     { rule: "tir-valid", site, detail: [{ kind: "text", value: "kind-children-shape" },
       { kind: "text", value: "typed syntax does not retain the authored kind, fields and child presence" }] },
@@ -1873,7 +1942,7 @@ test("ir-program a missing checked body retains the complete source and nested-p
   fixture.tirInput.source.bodies = [];
   const site = { kind: "body", instance: fixture.instance };
   const child = (rule, message) => ({ rule: "tir-valid", site, detail: [{ kind: "text", value: rule }, { kind: "text", value: message }] });
-  completeProgramValue(product.verifyModuleBodies(fixture.index, fixture.module, fixture.context), [
+  completeProgramValue(moduleViolations(fixture.index, fixture.module, fixture.context), [
     { rule: "body-levels-total", site, detail: [{ kind: "text", value: "source" }] },
     child("body-owner", "body identity and owner do not retain the actual original body"),
     child("stable-order", "canonical template publication does not retain actual source body order"),
@@ -1890,7 +1959,7 @@ test("ir-program a separately copied body root retains its actual original root 
   fixture.answers.set(encodeContextKey(["nodeOf", { kind: "body", value: { body: fixture.bodyId, node: 2 } }]), null);
   const site = { kind: "body", instance: fixture.instance };
   const child = (rule, message) => ({ rule: "tir-valid", site, detail: [{ kind: "text", value: rule }, { kind: "text", value: message }] });
-  completeProgramValue(product.verifyModuleBodies(fixture.index, fixture.module, fixture.context), [
+  completeProgramValue(moduleViolations(fixture.index, fixture.module, fixture.context), [
     { rule: "instance-node-ids-exact", site, detail: [{ kind: "number", value: 0 }, { kind: "number", value: 2 }] },
     { rule: "template-body-shared", site, detail: [{ kind: "number", value: 2 }] },
     { rule: "tir-valid", site: { kind: "node", module: fixture.module.module, node: 0 }, detail: [{ kind: "text", value: "binding-vector-complete" },
@@ -1932,16 +2001,16 @@ for (const kind of ["goto", "unreachable", "switch", "await", "yield", "yield-ab
     let terminator;
     if (kind === "goto") terminator = { kind, target: 0 };
     else if (kind === "unreachable") terminator = { kind };
-    else if (kind === "switch") terminator = { kind, operand, targets: [{ constant: 0, target: 0 }], otherwise: 0 };
-    else if (kind === "await") terminator = { kind, operand, destination: 0, resume: 0, unwind };
+    else if (kind === "switch") terminator = { kind, operand, targets: [{ constant: 0, target: 0 }], otherwise: 0, step: null };
+    else if (kind === "await") terminator = { kind, operand, destination: 0, resume: 0, unwind, step: null };
     else if (kind === "yield" || kind === "yield-absent") terminator = { kind: "yield", operand: kind === "yield" ? operand : null,
-      destination: 0, resume: 0, return: { destination: 0, target: 0 }, unwind };
-    else if (kind === "delegate") terminator = { kind, iterator: operand, destination: 0, resume: 0, return: { destination: 0, target: 0 }, unwind };
+      destination: 0, resume: 0, return: { destination: 0, target: 0 }, unwind, step: null };
+    else if (kind === "delegate") terminator = { kind, iterator: operand, destination: 0, resume: 0, return: { destination: 0, target: 0 }, unwind, step: null };
     else if (kind === "throw") terminator = { kind, operand, unwind };
     else if (kind === "return") terminator = { kind, value: operand };
     else if (kind === "invoke") terminator = { kind, operation: { permissionScope: null, decision: { kind: "selected",
-      operation: { kind: "native-operator", operator: "+", carrier: "uint64" }, operands: [2], result: 2, execution: { kind: "pure" } } },
-    operands: [operand], destination: null, next: 0, unwind };
+      operation: { kind: "native-operator", operator: "+", carrier: "uint64" }, operands: [2], result: 2, execution: { kind: "invocation", writesStorage: false, failure: "unwind" } } },
+    operands: [operand], destination: null, next: 0, unwind, step: null };
     else {
       const advertised = { declaration: first.definition, role: "advertised", signature: 0, body: null };
       const resolution = { decision: { candidate: 0, advertised, api: { ...advertised, role: "api-signature" }, bindings: empty,
@@ -1949,14 +2018,17 @@ for (const kind of ["goto", "unreachable", "switch", "await", "yield", "yield-ab
       activation: null };
       terminator = { kind: "call", callee: kind === "call" ? { kind: "direct", resolution } : { kind: "indirect", operand, resolution },
         receiver: kind === "call" ? null : operand, arguments: kind === "call" ? [] : [{ kind: "value", passing: "by-value", operand }],
-        destination: null, next: 0, unwind };
+        destination: null, next: 0, unwind, step: null };
     }
     block.terminator = { ...site, ...terminator };
+    // The body is neither asynchronous nor a generator: a suspension in it is refused by the MIR law that a
+    // suspension stands only in a body that can suspend (S2-18, law 5), after the findings of its values.
     const rules = kind === "return" ? ["assignment-type"] : kind === "indirect-call"
       ? ["call-receiver-exact", "call-arguments-total", "operation-selected"] : ["yield", "yield-absent", "delegate"].includes(kind)
-        ? ["call-destination-type"] : kind === "call" || kind === "invoke" ? ["operation-selected"] : [];
+        ? ["call-destination-type", "suspension-admitted"] : kind === "await" ? ["suspension-admitted"]
+          : kind === "call" || kind === "invoke" ? ["operation-selected"] : [];
     const expected = rules.map(rule => ({ rule: "mir-valid", site: { kind: "body", instance: first.instance }, detail: [{ kind: "text", value: rule }] }));
-    completeProgramValue(product.verifyModuleBodies(first.index, first.module, first.context), expected,
+    completeProgramValue(moduleViolations(first.index, first.module, first.context), expected,
       "the whole real source/metadata/context input retains all child findings, never a filtered success");
   });
 

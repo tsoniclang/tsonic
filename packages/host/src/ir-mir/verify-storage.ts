@@ -1,13 +1,14 @@
 import type { Violation } from "../diag/contract.js";
 import type { LocalId, NodeId, PlaceId, SigId, TyId } from "../ids/contract.js";
+import { localId, placeId } from "../ids/index.js";
 import type { LiteralTypeValue, LiteralValue, TypeTerm } from "../ir-types/contract.js";
-import type { MirBody, MirLocal, MirOperand, MirRule, MirRvalue, MirTerminator, MirVerificationContext, MirViolationSite } from "./contract.js";
-import { controlGraph, densePosition, findSourceNode } from "./verify-control.js";
-import type { ControlVertex, SourceNode } from "./verify-control.js";
+import type { MirBlock, MirBody, MirLocal, MirOperand, MirRule, MirRvalue, MirTerminator, MirVerificationContext, MirViolationSite } from "./contract.js";
+import { chargeWork, controlEdges, densePosition, findSourceNode, read, reversePostorder } from "./verify-control.js";
+import type { SourceNode, WorkMeter } from "./verify-control.js";
 
 export function rvalueOperands(value: MirRvalue): readonly MirOperand[] {
   switch (value.kind) {
-    case "use": case "unary": case "convert": case "refine": return [value.operand];
+    case "use": case "unary": case "convert": return [value.operand];
     case "binary": return [value.left, value.right];
     case "aggregate":
       switch (value.aggregate.kind) {
@@ -28,14 +29,18 @@ export function terminatorOperands(terminator: MirTerminator): readonly MirOpera
     case "call":
       if (terminator.callee.kind === "indirect") operands.push(terminator.callee.operand);
       if (terminator.receiver !== null) operands.push(terminator.receiver);
-      for (const argument of terminator.arguments) operands.push(argument.kind === "value"
-        ? argument.operand : { kind: "place", place: argument.place });
+      if (terminator.callee.kind === "body") for (const capture of terminator.callee.captures) operands.push({ kind: "place", place: capture.place });
+      for (const argument of terminator.arguments) {
+        if (argument.kind === "value") operands.push(argument.operand);
+        else if (argument.kind === "place") operands.push({ kind: "place", place: argument.place });
+      }
       if (terminator.destination !== null) operands.push({ kind: "place", place: terminator.destination });
       break;
     case "invoke":
       for (const operand of terminator.operands) operands.push(operand);
       if (terminator.destination !== null) operands.push({ kind: "place", place: terminator.destination });
       break;
+    case "check": operands.push({ kind: "place", place: terminator.place }); break;
     case "await": operands.push(terminator.operand, { kind: "place", place: terminator.destination }); break;
     case "yield":
       if (terminator.operand !== null) operands.push(terminator.operand);
@@ -72,7 +77,7 @@ export function placeLocations(body: MirBody): ReadonlyMap<PlaceId, PlaceLocatio
         locations.set(place.id, { root: local, indices: null });
         break;
       }
-      case "place": {
+      case "place": case "checked": {
         if (!densePosition(place.base.place, position)) continue;
         const parent = locations.get(place.base.place);
         if (parent === undefined) continue;
@@ -85,124 +90,424 @@ export function placeLocations(body: MirBody): ReadonlyMap<PlaceId, PlaceLocatio
   return locations;
 }
 
-function placeLocals(body: MirBody, locations: ReadonlyMap<PlaceId, PlaceLocation>): (place: PlaceId) => readonly MirLocal[] | null {
-  const memo = new Map<PlaceId, readonly MirLocal[] | null>();
-  return place => {
-    if (!densePosition(place, body.places.length)) return null;
-    const cached = memo.get(place);
-    if (cached !== undefined) return cached;
-    const locals = new Map<LocalId, MirLocal>();
-    const visited = new Set<PlaceId>();
-    const pending = [place];
-    for (const selected of pending) {
-      if (!densePosition(selected, body.places.length)) {
-        memo.set(place, null);
-        return null;
-      }
-      if (visited.has(selected)) continue;
-      visited.add(selected);
-      const location = locations.get(selected);
-      if (location === undefined) {
-        memo.set(place, null);
-        return null;
-      }
-      if (location.root !== null) locals.set(location.root.id, location.root);
-      let current: IndexChain | null = location.indices;
-      while (current !== null) {
-        pending.push(current.place);
-        current = current.parent;
-      }
-    }
-    const result = Array.from(locals.values()).sort((left, right) => left.id - right.id);
-    memo.set(place, result);
-    return result;
-  };
+/**
+ * The locals whose storage is live at one point of a body: a leaf holds one word for 32 locals, a node above holds two
+ * halves. A set is never changed after it is made, and within one pass there is one object for each contents
+ * (`LiveSets`), so two sets are the same object exactly when they hold the same locals, and `meetLive(a, b)` is `a`
+ * itself exactly when every local of `a` is in `b`.
+ */
+export interface LiveSet {
+  readonly id: number;
+  readonly bits: number;
+  readonly low: LiveSet | null;
+  readonly high: LiveSet | null;
 }
 
-interface Requirement {
-  readonly vertex: ControlVertex;
-  readonly local: MirLocal;
+/**
+ * The sets of one pass over one body, and the body's account. Every node a change, a meet or a lookup enters is one
+ * unit of that account, charged before the node is read; the unit also pays for the one node (and the one map of a
+ * new first half) that entering it may make. An operation that finds the account exhausted answers null at once:
+ * no further node is entered and nothing more is made, at any depth. `count` is the number of nodes made.
+ */
+export interface LiveSets {
+  readonly meter: WorkMeter;
+  readonly leaves: Map<number, LiveSet>;
+  readonly pairs: Map<number, Map<number, LiveSet>>;
+  count: number;
+}
+
+export function leafOf(sets: LiveSets, bits: number): LiveSet {
+  let found = sets.leaves.get(bits);
+  if (found === undefined) {
+    found = { id: sets.count, bits, low: null, high: null };
+    sets.count += 1;
+    sets.leaves.set(bits, found);
+  }
+  return found;
+}
+
+export function pairOf(sets: LiveSets, low: LiveSet, high: LiveSet): LiveSet {
+  let byHigh = sets.pairs.get(low.id);
+  if (byHigh === undefined) {
+    byHigh = new Map();
+    sets.pairs.set(low.id, byHigh);
+  }
+  let found = byHigh.get(high.id);
+  if (found === undefined) {
+    found = { id: sets.count, bits: 0, low, high };
+    sets.count += 1;
+    byHigh.set(high.id, found);
+  }
+  return found;
+}
+
+/** The set with one local made live or not; `span` is the number of locals the set's tree covers. Null: the account is exhausted. */
+export function withLocal(sets: LiveSets, set: LiveSet, span: number, local: number, live: boolean): LiveSet | null {
+  chargeWork(sets.meter, 1);
+  if (sets.meter.exhausted) return null;
+  if (set.low === null || set.high === null) return leafOf(sets, live ? set.bits | (1 << local) : set.bits & ~(1 << local));
+  const half = span / 2;
+  if (local < half) {
+    const low = withLocal(sets, set.low, half, local, live);
+    return low === null ? null : pairOf(sets, low, set.high);
+  }
+  const high = withLocal(sets, set.high, half, local - half, live);
+  return high === null ? null : pairOf(sets, set.low, high);
+}
+
+/** The locals in both sets. Where both sides are the same object nothing is entered. Null: the account is exhausted. */
+export function meetLive(sets: LiveSets, left: LiveSet, right: LiveSet): LiveSet | null {
+  if (left === right) return left;
+  chargeWork(sets.meter, 1);
+  if (sets.meter.exhausted) return null;
+  if (left.low === null || left.high === null || right.low === null || right.high === null) return leafOf(sets, left.bits & right.bits);
+  const low = meetLive(sets, left.low, right.low);
+  if (low === null) return null;
+  const high = meetLive(sets, left.high, right.high);
+  return high === null ? null : pairOf(sets, low, high);
+}
+
+/** Whether the local is in the set. Null: the account is exhausted. */
+export function liveIn(sets: LiveSets, set: LiveSet, span: number, local: number): boolean | null {
+  let current = set;
+  let width = span;
+  let position = local;
+  for (;;) {
+    chargeWork(sets.meter, 1);
+    if (sets.meter.exhausted) return null;
+    if (current.low === null || current.high === null) return (current.bits & (1 << position)) !== 0;
+    width /= 2;
+    if (position < width) current = current.low;
+    else {
+      current = current.high;
+      position -= width;
+    }
+  }
+}
+
+/** The locals in either set. Where the sets are the same object, or one is the empty set, nothing is entered. Null: the account is exhausted. */
+export function joinLive(sets: LiveSets, left: LiveSet, right: LiveSet, empty: LiveSet): LiveSet | null {
+  if (left === right || right === empty) return left;
+  if (left === empty) return right;
+  chargeWork(sets.meter, 1);
+  if (sets.meter.exhausted) return null;
+  if (left.low === null || left.high === null || right.low === null || right.high === null || empty.low === null || empty.high === null)
+    return leafOf(sets, left.bits | right.bits);
+  const low = joinLive(sets, left.low, right.low, empty.low);
+  if (low === null) return null;
+  const high = joinLive(sets, left.high, right.high, empty.high);
+  return high === null ? null : pairOf(sets, low, high);
+}
+
+/**
+ * Calls `visit` for each local of the set in ascending order. One unit for each node entered (an empty subtree is not
+ * entered) and one for each local visited, each charged before. False: the account is exhausted.
+ */
+export function eachLive(sets: LiveSets, set: LiveSet, empty: LiveSet, span: number, visit: (local: number) => void): boolean {
+  const walk = (node: LiveSet, blank: LiveSet, offset: number, width: number): boolean => {
+    if (node === blank) return true;
+    chargeWork(sets.meter, 1);
+    if (sets.meter.exhausted) return false;
+    if (node.low === null || node.high === null || blank.low === null || blank.high === null) {
+      for (let bit = 0; bit < 32; bit += 1) {
+        if ((node.bits & (1 << bit)) === 0) continue;
+        chargeWork(sets.meter, 1);
+        if (sets.meter.exhausted) return false;
+        visit(offset + bit);
+      }
+      return true;
+    }
+    const half = width / 2;
+    return walk(node.low, blank.low, offset, half) && walk(node.high, blank.high, offset + half, half);
+  };
+  return walk(set, empty, 0, span);
+}
+
+/**
+ * The locals each place's use reaches: its root local, and the locals of every index operand on the way from the
+ * root to it, including those of the index operands' own places. One pass over the place graph (an edge from a
+ * projected place to its base place and to its index operand place), with its strongly connected parts found once,
+ * so each place's set is made once and shared: a part's set is the union of its successor parts' sets and the local
+ * of each member that is a place on a local. A part that holds a place without a location, or reaches one, has no set (null). One unit
+ * of the body's account for each place visited, and the set operations' own units. "exhausted": the account ran out.
+ */
+function placeSets(
+  body: MirBody, places: ReadonlyMap<PlaceId, PlaceLocation>, sets: LiveSets, empty: LiveSet, span: number,
+): readonly (LiveSet | null)[] | "exhausted" {
+  const count = body.places.length;
+  const order = new Int32Array(count).fill(-1);
+  const low = new Int32Array(count);
+  const onStack = new Uint8Array(count);
+  const part = new Int32Array(count).fill(-1);
+  const result: (LiveSet | null)[] = [];
+  const stack: number[] = [];
+  const successors = (position: number): readonly number[] => {
+    const place = body.places[position];
+    if (place === undefined || !Object.is(place.id, position) || place.base.kind === "static" || place.base.kind === "local") return [];
+    const next = [place.base.place];
+    if (place.base.projection.kind === "index" && place.base.projection.operand.kind === "place") next.push(place.base.projection.operand.place);
+    return next;
+  };
+  let visited = 0;
+  let parts = 0;
+  for (let root = 0; root < count; root += 1) {
+    if (order[root] !== -1) continue;
+    const frames: { readonly position: number; readonly next: readonly number[]; edge: number }[] = [];
+    const enter = (position: number): boolean => {
+      chargeWork(sets.meter, 1);
+      if (sets.meter.exhausted) return false;
+      order[position] = visited;
+      low[position] = visited;
+      visited += 1;
+      stack.push(position);
+      onStack[position] = 1;
+      frames.push({ position, next: successors(position), edge: 0 });
+      return true;
+    };
+    if (!enter(root)) return "exhausted";
+    for (let frame = frames.at(-1); frame !== undefined; frame = frames.at(-1)) {
+      const target = frame.next[frame.edge];
+      if (target !== undefined) {
+        frame.edge += 1;
+        // A target outside the body's places has no location: it is a part of its own with no set.
+        if (!densePosition(target, count)) continue;
+        if (read(order, target, -1) === -1) { if (!enter(target)) return "exhausted"; }
+        else if (onStack[target] === 1) low[frame.position] = Math.min(read(low, frame.position, 0), read(order, target, 0));
+        continue;
+      }
+      frames.pop();
+      const parent = frames.at(-1);
+      if (parent !== undefined) low[parent.position] = Math.min(read(low, parent.position, 0), read(low, frame.position, 0));
+      if (low[frame.position] !== order[frame.position]) continue;
+      // The part rooted here: its members are on the stack above it.
+      const members: number[] = [];
+      for (let member = stack.pop(); member !== undefined; member = stack.pop()) {
+        onStack[member] = 0;
+        part[member] = parts;
+        members.push(member);
+        if (member === frame.position) break;
+      }
+      let set: LiveSet | null = empty;
+      for (const member of members) {
+        const location = places.get(placeId(member));
+        if (location === undefined) { set = null; break; }
+        const next = successors(member);
+        for (const target of next) {
+          const other = densePosition(target, count) ? read(part, target, -1) : -1;
+          if (other === parts) continue;
+          const joined = other === -1 ? undefined : result[other];
+          if (joined === undefined || joined === null) { set = null; break; }
+          const union = joinLive(sets, set, joined, empty);
+          if (union === null) return "exhausted";
+          set = union;
+        }
+        if (set === null) break;
+        // A projected place's root is its base's, already in the base's set: only a place on a local (no successor) adds it.
+        if (location.root === null || next.length > 0) continue;
+        const rooted = withLocal(sets, set, span, location.root.id, true);
+        if (rooted === null) return "exhausted";
+        set = rooted;
+      }
+      result.push(set);
+      parts += 1;
+    }
+  }
+  return Array.from(part, owner => result[owner] ?? null);
+}
+
+interface StorageChange {
+  readonly local: LocalId;
+  readonly live: boolean;
+}
+
+interface StorageUse {
+  readonly local: LocalId;
   readonly site: MirViolationSite;
 }
 
-export function verifyStorage(body: MirBody, places: ReadonlyMap<PlaceId, PlaceLocation>): readonly Violation<MirRule, MirViolationSite>[] {
-  const graph = controlGraph(body);
-  const locations = placeLocals(body, places);
-  const requirements: Requirement[] = [];
-  const changes = new Map<LocalId, Map<number, boolean>>();
-  const violations: Violation<MirRule, MirViolationSite>[] = [];
-  const violate = (local: LocalId, site: MirViolationSite): void => {
-    violations.push({ rule: "storage-live-before-use", site, detail: [{ kind: "number", value: local }] });
-  };
-  for (const vertex of graph.vertices) {
-    const state = new Map<LocalId, boolean>();
-    const requireLive = (local: MirLocal, site: MirViolationSite): void => {
-      if (!graph.reachable.has(vertex.id)) return;
-      const current = state.get(local.id);
-      if (current === false) violate(local.id, site);
-      else if (current === undefined) requirements.push({ vertex, local, site });
+/** What one block contributes, and what the forward reading knows of it. */
+interface StorageReading {
+  readonly rank: number;
+  readonly block: MirBlock;
+  /** The last marker of each local in the block. */
+  readonly changes: readonly StorageChange[];
+  /** Findings the block's own markers decide. */
+  readonly decided: readonly Violation<MirRule, MirViolationSite>[];
+  /** Uses that no marker of the block precedes: they need the local live where the block starts. */
+  readonly awaiting: readonly StorageUse[];
+  /** The locals live where the block starts, as far as the edges read so far bring them; null until one arrives. */
+  start: LiveSet | null;
+  /** The start set the block still has to be read with; null when it is not waiting. */
+  waiting: LiveSet | null;
+  read: boolean;
+  /** The next block in the order of reading; null for the last. A sweep that begins later walks from here, copying nothing. */
+  next: StorageReading | null;
+}
+
+/**
+ * Storage liveness (`storage-live-before-use`): a record uses a local only where its storage is live on every path
+ * from a start of the body. One forward fixed point over the judged blocks in reverse postorder: a block's start is
+ * the meet of what its incoming edges bring, a start set only loses locals, and a block is read again only when its
+ * start lost one. The body's account is charged one unit for each node of the empty set as it is made; for each place
+ * visited when the locals each place reaches are found (`placeSets`); for each set node entered by a change, a union,
+ * a meet of two different sets, an enumeration of an operand's locals, and the lookup of a use that depends on its
+ * block's start; for each local an enumeration visits; for each block of a sweep after the first; and for each
+ * outgoing edge of a block read again. When the account is exhausted nothing is reported.
+ */
+export function verifyStorage(
+  body: MirBody, places: ReadonlyMap<PlaceId, PlaceLocation>, meter: WorkMeter,
+): readonly Violation<MirRule, MirViolationSite>[] {
+  // The empty set of the body's width, one node for each level, each charged before it is made; the locals present
+  // where an execution starts; and the locals each place's use reaches.
+  const sets: LiveSets = { meter, leaves: new Map(), pairs: new Map(), count: 0 };
+  chargeWork(meter, 1);
+  if (meter.exhausted) return [];
+  let span = 32;
+  let empty = leafOf(sets, 0);
+  while (span < body.locals.length) {
+    chargeWork(meter, 1);
+    if (meter.exhausted) return [];
+    empty = pairOf(sets, empty, empty);
+    span *= 2;
+  }
+  let entry = empty;
+  for (const [position, local] of body.locals.entries()) {
+    if (local === undefined || !Object.is(local.id, position)) continue;
+    if (local.role.kind !== "parameter" && local.role.kind !== "receiver" && local.role.kind !== "capture") continue;
+    const present = withLocal(sets, entry, span, local.id, true);
+    if (present === null) return [];
+    entry = present;
+  }
+  const reaches = placeSets(body, places, sets, empty, span);
+  if (reaches === "exhausted") return [];
+  const finding = (local: LocalId, site: MirViolationSite): Violation<MirRule, MirViolationSite> =>
+    ({ rule: "storage-live-before-use", site, detail: [{ kind: "number", value: local }] });
+  // An execution starts at block 0 or at the block of any entry. A block that does not stand at its own position is
+  // not read, so what is reachable only through it gets no start and is not judged.
+  const starts = [0, ...body.entries.map(entry => entry.block)];
+  const rankOf = new Int32Array(body.blocks.length).fill(-1);
+  const readings: StorageReading[] = [];
+  // Per local, for the block or the record being read: `markedIn` and `usedIn` hold the number of the block and of
+  // the record that last marked and last used the local, `liveAfter` what its last marker left.
+  const markedIn = new Int32Array(body.locals.length);
+  const liveAfter = new Uint8Array(body.locals.length);
+  const usedIn = new Int32Array(body.locals.length);
+  let record = 0;
+  let last: StorageReading | null = null;
+  for (const ordered of reversePostorder(body, starts)) {
+    const block = ordered.block;
+    if (!Object.is(block.id, ordered.position)) continue;
+    const serial = readings.length + 1;
+    const marked: LocalId[] = [];
+    const decided: Violation<MirRule, MirViolationSite>[] = [];
+    const awaiting: StorageUse[] = [];
+    const requireLive = (local: LocalId, site: MirViolationSite): void => {
+      if (markedIn[local] !== serial) awaiting.push({ local, site });
+      else if (liveAfter[local] === 0) decided.push(finding(local, site));
     };
-    const use = (operands: readonly MirOperand[], site: MirViolationSite): void => {
-      const locals = new Map<LocalId, MirLocal>();
+    // Within one record, operands in their order, each operand's locals in ascending order, each local once. False:
+    // the account is exhausted.
+    const use = (operands: readonly MirOperand[], site: MirViolationSite): boolean => {
+      record += 1;
       for (const operand of operands) {
         if (operand.kind === "constant") continue;
-        const selected = locations(operand.place);
-        if (selected !== null) for (const local of selected) locals.set(local.id, local);
+        const selected = densePosition(operand.place, reaches.length) ? reaches[operand.place] : undefined;
+        if (selected === undefined || selected === null) continue;
+        const completed = eachLive(sets, selected, empty, span, local => {
+          if (usedIn[local] === record) return;
+          usedIn[local] = record;
+          requireLive(localId(local), site);
+        });
+        if (!completed) return false;
       }
-      for (const local of locals.values()) requireLive(local, site);
+      return true;
     };
-    for (const [position, statement] of vertex.block.statements.entries()) {
-      const site: MirViolationSite = { kind: "instruction", body: body.body, block: vertex.block.id, statement: position };
-      if (statement.kind !== "assign") {
+    for (const [position, statement] of block.statements.entries()) {
+      const site: MirViolationSite = { kind: "instruction", body: body.body, block: block.id, statement: position };
+      if (statement.kind === "assign") {
+        if (!use([{ kind: "place", place: statement.place }, ...rvalueOperands(statement.value)], site)) return [];
+      } else {
         const local = densePosition(statement.local, body.locals.length) ? body.locals[statement.local] : undefined;
         if (local === undefined || !Object.is(local.id, statement.local)) continue;
-        if (statement.kind === "storage-live") state.set(local.id, true);
-        else { requireLive(local, site); state.set(local.id, false); }
-      } else use([{ kind: "place", place: statement.place }, ...rvalueOperands(statement.value)], site);
-    }
-    const site: MirViolationSite = { kind: "instruction", body: body.body, block: vertex.block.id, statement: null };
-    use(terminatorOperands(vertex.block.terminator), site);
-    for (const [local, live] of state) {
-      let entries = changes.get(local);
-      if (entries === undefined) {
-        entries = new Map();
-        changes.set(local, entries);
+        if (statement.kind === "storage-dead") requireLive(local.id, site);
+        if (markedIn[local.id] !== serial) marked.push(local.id);
+        markedIn[local.id] = serial;
+        liveAfter[local.id] = statement.kind === "storage-live" ? 1 : 0;
       }
-      entries.set(vertex.id, live);
+    }
+    if (!use(terminatorOperands(block.terminator), { kind: "instruction", body: body.body, block: block.id, statement: null })) return [];
+    rankOf[ordered.position] = readings.length;
+    const reading: StorageReading = { rank: readings.length, block, changes: marked.map(local => ({ local, live: liveAfter[local] === 1 })),
+      decided, awaiting, start: null, waiting: null, read: false, next: null };
+    if (last !== null) last.next = reading;
+    last = reading;
+    readings.push(reading);
+  }
+  for (const start of starts) {
+    const reading = readings[read(rankOf, start, -1)];
+    if (reading === undefined) continue;
+    reading.start = entry;
+    reading.waiting = entry;
+  }
+  for (let from = readings[0] ?? null; from !== null;) {
+    // The lowest block made to wait at or behind its reader: where the next sweep begins.
+    let again: StorageReading | null = null;
+    for (let reading: StorageReading | null = from; reading !== null; reading = reading.next) {
+      const arrived = reading.waiting;
+      if (arrived === null) continue;
+      reading.waiting = null;
+      const edges = controlEdges(reading.block.terminator);
+      if (reading.read) {
+        chargeWork(meter, edges.length);
+        if (meter.exhausted) return [];
+      }
+      reading.read = true;
+      let leaving = arrived;
+      for (const change of reading.changes) {
+        const changed = withLocal(sets, leaving, span, change.local, change.live);
+        if (changed === null) return [];
+        leaving = changed;
+      }
+      for (const edge of edges) {
+        const target = readings[read(rankOf, edge.target, -1)];
+        if (target === undefined) continue;
+        const before = target.start;
+        const met = before === null ? leaving : meetLive(sets, before, leaving);
+        if (met === null) return [];
+        if (met === before) continue;
+        target.start = met;
+        target.waiting = met;
+        if (target.rank <= reading.rank && (again === null || target.rank < again.rank)) again = target;
+      }
+    }
+    if (again !== null) {
+      chargeWork(meter, readings.length - again.rank);
+      if (meter.exhausted) return [];
+    }
+    from = again;
+  }
+  // Findings in the order of the blocks: what each block's own markers decide, then what depends on its start.
+  // One lookup for each local the uses of a block await, however many of them there are.
+  const violations: Violation<MirRule, MirViolationSite>[] = [];
+  const late: Violation<MirRule, MirViolationSite>[] = [];
+  const answeredIn = new Int32Array(body.locals.length);
+  const answer = new Uint8Array(body.locals.length);
+  for (const position of body.blocks.keys()) {
+    const reading = readings[read(rankOf, position, -1)];
+    if (reading === undefined || reading.start === null) continue;
+    for (const violation of reading.decided) violations.push(violation);
+    const serial = reading.rank + 1;
+    for (const use of reading.awaiting) {
+      if (answeredIn[use.local] !== serial) {
+        answeredIn[use.local] = serial;
+        const live = liveIn(sets, reading.start, span, use.local);
+        if (live === null) return [];
+        answer[use.local] = live ? 1 : 0;
+      }
+      if (answer[use.local] === 0) late.push(finding(use.local, use.site));
     }
   }
-  const memo = new Map<LocalId, Map<number, boolean>>();
-  for (const requirement of requirements) {
-    const local = requirement.local;
-    let localMemo = memo.get(local.id);
-    if (localMemo === undefined) {
-      localMemo = new Map();
-      memo.set(local.id, localMemo);
-    }
-    const saved = localMemo.get(requirement.vertex.id);
-    if (saved !== undefined) {
-      if (!saved) violate(local.id, requirement.site);
-      continue;
-    }
-    const initialized = local.role.kind === "parameter" || local.role.kind === "receiver" || local.role.kind === "capture";
-    const seen = new Set<number>();
-    const pending = [requirement.vertex];
-    let live = true;
-    for (const current of pending) {
-      if (seen.has(current.id)) continue;
-      seen.add(current.id);
-      if (current.id === 0 && !initialized) { live = false; break; }
-      for (const predecessor of current.predecessors) {
-        if (!graph.reachable.has(predecessor.id)) continue;
-        const selected = changes.get(local.id)?.get(predecessor.id);
-        if (selected === false) { live = false; break; }
-        if (selected === undefined) pending.push(predecessor);
-      }
-      if (!live) break;
-    }
-    localMemo.set(requirement.vertex.id, live);
-    if (!live) violate(local.id, requirement.site);
-  }
+  for (const violation of late) violations.push(violation);
   return violations;
 }
 
@@ -283,13 +588,6 @@ export function verifyValues(
     switch (value.kind) {
       case "use": return operandType(value.operand, site);
       case "unary": case "binary": case "convert": return operationResult(value, site);
-      case "refine": {
-        operandType(value.operand, site);
-        types.push({ type: value.to, site });
-        const expected = selectedType(node);
-        if (expected !== null) match(value.to, expected, "operation-selected", site);
-        return value.to;
-      }
       case "aggregate": {
         const expected = selectedType(node);
         if (expected !== null) match(value.type, expected, "operation-selected", site);
@@ -369,19 +667,66 @@ export function verifyValues(
       if (selected !== null && !(selected.kind === "primitive" && selected.primitive === "int32")) report("completion-selector-total", site);
     }
   }
+  // A literal constant is a value of its declared type. Against a literal type it is that literal; against a native
+  // primitive it is a value the carrier holds exactly as the literal states it: bool a boolean; an integer carrier an
+  // integral number or bigint in its range, with no negative zero; a binary floating carrier a number that rounds to a
+  // finite value; decimal a number with a finite decimal expansion in decimal's range. Against `string` a string;
+  // against the intrinsics `bigint` and `absence` a bigint and the absence; against an optional type the absence or a
+  // value of its type. Other declared types are not compared here. All arithmetic is exact (bigint): nothing is coerced.
+  // Two carriers need a relation the published records do not state, and are held to the range every target admits:
+  // `native-int` and `native-uint` to 32 bits (the target's pointer width is not in the type table), and `char` to a
+  // number naming one UTF-16 code unit (no record says which literal a char constant carries).
+  const integerRanges = new Map<string, readonly [bigint, bigint]>([
+    ["int8", [-(2n ** 7n), 2n ** 7n - 1n]], ["uint8", [0n, 2n ** 8n - 1n]], ["int16", [-(2n ** 15n), 2n ** 15n - 1n]], ["uint16", [0n, 2n ** 16n - 1n]],
+    ["int32", [-(2n ** 31n), 2n ** 31n - 1n]], ["uint32", [0n, 2n ** 32n - 1n]], ["int64", [-(2n ** 63n), 2n ** 63n - 1n]], ["uint64", [0n, 2n ** 64n - 1n]],
+    ["int128", [-(2n ** 127n), 2n ** 127n - 1n]], ["uint128", [0n, 2n ** 128n - 1n]],
+    ["native-int", [-(2n ** 31n), 2n ** 31n - 1n]], ["native-uint", [0n, 2n ** 32n - 1n]], ["char", [0n, 2n ** 16n - 1n]]]);
+  // The smallest magnitude that rounds to infinity under round-to-nearest-even: the largest finite value
+  // 2^(emax+1) - 2^(emax-p) plus half its unit in the last place, 2^(emax+1) - 2^(emax-p-1), for p stored significand bits.
+  const floatOverflow = new Map<string, bigint>([["float16", 2n ** 16n - 2n ** 4n], ["float32", 2n ** 128n - 2n ** 103n], ["float64", 2n ** 1024n - 2n ** 970n]]);
+  const primitiveHolds = (value: LiteralValue, primitive: string): boolean => {
+    if (primitive === "bool") return value.kind === "boolean";
+    const range = integerRanges.get(primitive);
+    if (range !== undefined) {
+      if (primitive === "char" && value.kind !== "number") return false;
+      const integer = value.kind === "bigint" ? value.value
+        : value.kind === "number" && value.value.denominator === 1n && !value.value.negativeZero ? value.value.numerator : null;
+      return integer !== null && integer >= range[0] && integer <= range[1];
+    }
+    if (value.kind !== "number") return false;
+    const magnitude = value.value.numerator < 0n ? -value.value.numerator : value.value.numerator;
+    const overflow = floatOverflow.get(primitive);
+    if (overflow !== undefined) return magnitude < overflow * value.value.denominator;
+    // decimal: a finite decimal expansion (a denominator of twos and fives) within decimal's magnitude, 2^96 - 1.
+    let denominator = value.value.denominator;
+    while (denominator % 2n === 0n) denominator /= 2n;
+    while (denominator % 5n === 0n) denominator /= 5n;
+    return denominator === 1n && magnitude <= (2n ** 96n - 1n) * value.value.denominator;
+  };
+  // An optional type is looked through once: an optional nested in it is not compared.
+  const literalHeld = (value: LiteralValue, type: TyId, nested: boolean): boolean => {
+    const selected = term(type);
+    if (selected === null) return true;
+    switch (selected.kind) {
+      case "literal": return literalMatches(value, selected.value);
+      case "string": return value.kind === "string";
+      case "optional": return nested || value.kind === "absence" || literalHeld(value, selected.value, true);
+      case "intrinsic": return selected.intrinsic === "bigint" ? value.kind === "bigint" : selected.intrinsic === "absence" ? value.kind === "absence" : true;
+      case "primitive": return primitiveHolds(value, selected.primitive);
+      default: return true;
+    }
+  };
   for (const constant of body.constants) {
     if (constant === undefined) continue;
     const site: MirViolationSite = { kind: "constant", body: body.body, constant: constant.id };
     types.push({ type: constant.type, site });
-    const selected = term(constant.type);
-    if (constant.value.kind === "literal" && selected !== null && selected.kind === "literal"
-      && !literalMatches(constant.value.value, selected.value)) report("constant-type", site);
+    if (constant.value.kind === "literal" && !literalHeld(constant.value.value, constant.type, false)) report("constant-type", site);
   }
   for (const [position, place] of body.places.entries()) {
     if (place === undefined) continue;
     const site: MirViolationSite = { kind: "place", body: body.body, place: place.id };
     types.push({ type: place.storage, site });
-    if (place.base.kind !== "place" || !densePosition(place.base.place, position)) continue;
+    if (place.base.kind !== "place" && place.base.kind !== "checked" || !densePosition(place.base.place, position)) continue;
     const parent = body.places[place.base.place];
     if (parent === undefined || !Object.is(parent.id, place.base.place)) continue;
     const parentTerm = term(parent.storage);
@@ -418,6 +763,13 @@ export function verifyValues(
         if (!densePosition(projection.index, context.source.captures.length)) report("capture-location-exact", site);
         break;
       case "deref": break;
+      case "refined": {
+        // The place is the cell viewed at the type its node's narrowing selected.
+        const node = place.base.tir.body === context.source.body ? findSourceNode(nodes, place.base.tir.node) : undefined;
+        const expected = selectedType(node);
+        if (expected !== null) match(place.storage, expected, "projection-type", site);
+        break;
+      }
     }
     if (projected !== null) match(place.storage, projected, "projection-type", site);
   }
@@ -451,7 +803,16 @@ export function verifyValues(
           if (result !== null && !(result.kind === "intrinsic" && (result.intrinsic === "void" || result.intrinsic === "absence"))) report("assignment-type", site);
         }
         break;
+      case "check": placeType(terminator.place, site); break;
       case "call": {
+        if (terminator.callee.kind === "body") {
+          // The signature of an internal body is not a record of this context; operands and the destination resolve.
+          for (const capture of terminator.callee.captures) placeType(capture.place, site);
+          if (terminator.receiver !== null) operandType(terminator.receiver, site);
+          if (terminator.arguments.length !== 0) report("call-arguments-total", site);
+          if (terminator.destination !== null) placeType(terminator.destination, site);
+          break;
+        }
         const decision = terminator.callee.resolution.decision;
         signatures.push({ signature: decision.api.signature, site });
         signatures.push({ signature: decision.advertised.signature, site });
@@ -477,9 +838,18 @@ export function verifyValues(
           } else if (terminator.receiver === null) report("call-receiver-exact", site);
           else match(operandType(terminator.receiver, site), signature.receiver, "call-receiver-exact", site);
           if (signature.parameters.length !== terminator.arguments.length) report("call-arguments-total", site);
+          let omitting = false;
           for (const [position, argument] of terminator.arguments.entries()) {
-            const actual = argument.kind === "value" ? operandType(argument.operand, site) : placeType(argument.place, site);
             const parameter = signature.parameters[position];
+            if (argument.kind === "omitted") {
+              // A call may omit only what the callee's signature lets be omitted.
+              if (parameter === undefined || parameter.kind !== "optional" && parameter.kind !== "default") report("omission-admitted", site);
+              omitting = true;
+              continue;
+            }
+            // Omitted fixed arguments are a suffix: an entry is named by a count. The rest vector is always supplied.
+            if (omitting && (parameter === undefined || parameter.kind !== "rest")) report("omission-admitted", site);
+            const actual = argument.kind === "value" ? operandType(argument.operand, site) : placeType(argument.place, site);
             if (parameter !== undefined) {
               if (argument.passing !== parameter.passing || actual !== null && !Object.is(actual, parameter.type))
                 violations.push({ rule: "argument-passing-exact", site, detail: [{ kind: "number", value: position }] });
@@ -487,7 +857,10 @@ export function verifyValues(
           }
         } else {
           if (terminator.receiver !== null) operandType(terminator.receiver, site);
-          for (const argument of terminator.arguments) operandType(argument.kind === "value" ? argument.operand : { kind: "place", place: argument.place }, site);
+          for (const argument of terminator.arguments) {
+            if (argument.kind === "value") operandType(argument.operand, site);
+            else if (argument.kind === "place") placeType(argument.place, site);
+          }
         }
         types.push({ type: decision.result, site });
         if (terminator.destination !== null) match(placeType(terminator.destination, site), decision.result, "call-destination-type", site);

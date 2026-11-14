@@ -569,6 +569,300 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
     }
     if (arms.length === 3 && seen.size === 3) for (const node of admitted) sdkPorts.add(node);
   }
+  // Whether a declared type gives its holder something to call. The walk follows the declaration: a function or
+  // constructor type; a call, construct or method member; and the same inside records, arrays, tuples, unions,
+  // intersections, type arguments, index values, type aliases and interfaces with what they extend, to any depth.
+  // Each declaration is walked once, so a recursive type ends. Three things are data and are not walked: the
+  // content of an opaque handle (a type of the opaque-owner table: its content is its owner's alone); the members
+  // of a type declared outside the inspected Host sources (a native array, map or string has methods and is data;
+  // the checker SDK's payloads enter through Front's one value port); and a type parameter, whose argument is
+  // walked where it is supplied, and whose default is walked where none is. The type arguments of such a type are
+  // walked like any others. Two things have no declaration to walk and are decided as they stand: the language's own
+  // names for a callable (Function, CallableFunction, NewableFunction) are callables. A type taken from a value, from
+  // a member of another type or from a module (a type query, an indexed access, an import type) is walked through
+  // the declaration it names: the annotation of the value, the named member, the named type of the module. Where
+  // there is nothing written to walk, it is accepted only if the checker says it is scalar. A type parameter of the
+  // stage itself is supplied by the caller and is reported whatever its constraint: a constraint bounds the type
+  // from above and a subtype of a closed record may still carry a callable, and nothing here proves the set of
+  // instantiations closed. A generic data record is a different thing: its arguments are walked where it is used.
+  const carriesCallable = (start, stage) => {
+    const seen = new Set();
+    const signatures = node => {
+      const shape = typeShape(node);
+      const type = shape.getTypeFromTypeNode(node);
+      return type !== undefined && (shape.getCallSignatures(type).length > 0 || shape.getConstructSignatures(type).length > 0);
+    };
+    const members = record => ast.members(record).some(member => member !== undefined && (
+      ast.is.IsMethodSignatureDeclaration(member) || ast.is.IsCallSignatureDeclaration(member) || ast.is.IsConstructSignatureDeclaration(member) ||
+      (ast.is.IsPropertySignatureDeclaration(member) || ast.is.IsIndexSignatureDeclaration(member) || ast.is.IsGetAccessorDeclaration(member)) && visit(ast.typeNode(member)) ||
+      ast.is.IsSetAccessorDeclaration(member) && ast.parameters(member).some(parameter => visit(ast.typeNode(parameter)))));
+    const scalar = node => {
+      const shape = typeShape(node);
+      const test = type => type !== undefined && (shape.isStringLike(type) || shape.isNumberLike(type) || shape.isBooleanLike(type) ||
+        shape.isBigIntLike(type) || shape.isNullish(type) || shape.isUnion(type) && shape.getUnionOrIntersectionTypes(type).every(test));
+      return test(shape.getTypeFromTypeNode(node));
+    };
+    // An opaque handle is a type of the opaque-owner table in its owner's contract whose target has one of the two
+    // opaque forms: the brand, or a class that met the opaque form. The name alone does not make it one.
+    const opaqueAlias = (declaration, inspected) => {
+      const module = owner(inspected);
+      const target = ast.typeNode(declaration);
+      if (target === undefined || opaqueOwners[ast.text(ast.name(declaration))] !== module?.name) return false;
+      if (ast.is.IsTypeReferenceNode(target)) {
+        const classes = checker(target).getSymbolDeclarations(symbol(ast.as.AsTypeReferenceNode(target).TypeName));
+        return classes.length > 0 && classes.every(candidate => opaqueClasses.has(candidate));
+      }
+      return ast.is.IsIntersectionTypeNode(target) && ast.children(target).some(child => child !== undefined &&
+        ast.kindName(child) === "KindObjectKeyword" && opaqueBrand(child, module, inspected));
+    };
+    const declared = (at, selected, supplied) => {
+      for (const declaration of selected === undefined ? [] : checker(at).getSymbolDeclarations(selected)) {
+        if (declaration === undefined || opaqueClasses.has(declaration)) continue;
+        const path = ast.getFileName(ast.getSourceFile(declaration));
+        const inspected = path.startsWith("/host-gate/") ? path.slice("/host-gate/".length) : undefined;
+        if (inspected === undefined || !files.has(inspected)) continue;
+        if (ast.is.IsTypeParameterDeclaration(declaration)) {
+          const holder = ast.parent(declaration);
+          if (stage === undefined || holder !== stage && holder !== ast.typeNode(stage)) continue;
+          return true;
+        }
+        const generic = ast.is.IsInterfaceDeclaration(declaration) || ast.is.IsTypeAliasDeclaration(declaration) ? ast.typeParameters(declaration) : [];
+        if (generic.slice(supplied).some(parameter => visit(ast.as.AsTypeParameterDeclaration(parameter).DefaultType))) return true;
+        if (seen.has(declaration)) continue;
+        seen.add(declaration);
+        if (ast.is.IsInterfaceDeclaration(declaration)) {
+          if (members(declaration)) return true;
+          for (const base of ast.extendsHeritageElements(declaration)) {
+            const expression = ast.children(base).find(child => child !== undefined);
+            if (declared(base, symbol(expression), ast.typeArguments(base).length) || ast.typeArguments(base).some(visit)) return true;
+          }
+        } else if (ast.is.IsTypeAliasDeclaration(declaration)) {
+          if (opaqueAlias(declaration, inspected)) continue;
+          if (visit(ast.typeNode(declaration))) return true;
+        }
+      }
+      return false;
+    };
+    const visit = node => {
+      if (node === undefined) return false;
+      if (ast.is.IsFunctionTypeNode(node) || ast.is.IsConstructorTypeNode(node)) return true;
+      if (ast.is.IsTypeLiteralNode(node)) return members(node);
+      if (ast.is.IsTypeReferenceNode(node)) {
+        const name = ast.as.AsTypeReferenceNode(node).TypeName;
+        const selected = symbol(ast.is.IsQualifiedName(name) ? ast.as.AsQualifiedName(name).Right : name);
+        if (ast.is.IsIdentifier(name) && ["Function", "CallableFunction", "NewableFunction"].includes(ast.text(name)) &&
+          (selected === undefined || checker(node).getSymbolDeclarations(selected).length === 0)) return true;
+        return signatures(node) || declared(node, selected, ast.typeArguments(node).length) || ast.typeArguments(node).some(visit);
+      }
+      if (ast.kindName(node) === "KindTypeQuery") {
+        const value = ast.children(node).find(child => child !== undefined);
+        const named = value === undefined ? undefined : symbol(ast.is.IsQualifiedName(value) ? ast.as.AsQualifiedName(value).Right : value);
+        const declaration = named === undefined ? undefined : checker(node).getSymbolValueDeclaration(named);
+        const annotation = declaration !== undefined && ast.is.IsVariableDeclaration(declaration) ? ast.typeNode(declaration) : undefined;
+        return annotation === undefined ? !scalar(node) : visit(annotation);
+      }
+      if (ast.is.IsIndexedAccessTypeNode(node)) {
+        const access = ast.as.AsIndexedAccessTypeNode(node);
+        // A slot of a type parameter of a generic data record (the HIR's `tsonic: P["Kind"]`) is decided by the record's
+        // argument, which is walked where the record is used, like any other use of that parameter. A type parameter
+        // of the stage itself is reported.
+        const base = ast.is.IsTypeReferenceNode(access.ObjectType) ? symbol(ast.as.AsTypeReferenceNode(access.ObjectType).TypeName) : undefined;
+        const parameters = base === undefined ? [] : checker(node).getSymbolDeclarations(base).filter(declaration => ast.is.IsTypeParameterDeclaration(declaration));
+        if (parameters.length > 0) return declared(access.ObjectType, base, 0);
+        const key = ast.is.IsLiteralTypeNode(access.IndexType) ? ast.children(access.IndexType).find(child => child !== undefined) : undefined;
+        const records = ast.is.IsTypeReferenceNode(access.ObjectType)
+          ? checker(node).getSymbolDeclarations(symbol(ast.as.AsTypeReferenceNode(access.ObjectType).TypeName)).filter(declaration => ast.is.IsInterfaceDeclaration(declaration)) : [];
+        const selections = key === undefined || !ast.is.IsStringLiteral(key) ? []
+          : records.flatMap(record => ast.members(record)).filter(member => ast.is.IsPropertySignatureDeclaration(member) && memberName(ast.name(member)) === ast.text(key));
+        return selections.length === 0 ? !scalar(node) : selections.some(member => visit(ast.typeNode(member)));
+      }
+      if (ast.is.IsImportTypeNode(node)) {
+        const qualifier = ast.as.AsImportTypeNode(node).Qualifier;
+        const named = qualifier === undefined ? undefined : symbol(ast.is.IsQualifiedName(qualifier) ? ast.as.AsQualifiedName(qualifier).Right : qualifier);
+        return named === undefined || checker(node).getSymbolDeclarations(named).length === 0 ? !scalar(node)
+          : declared(node, named, ast.typeArguments(node).length) || ast.typeArguments(node).some(visit);
+      }
+      return ast.children(node).some(visit);
+    };
+    return visit(start);
+  };
+  const stageOf = node => {
+    let current = node;
+    while (current !== undefined && !ast.is.IsTypeAliasDeclaration(current)) current = ast.parent(current);
+    return current;
+  };
+  // What a stage is given to call or to consult, as opposed to what it is given to work on: a parameter named
+  // `deps`, one typed by a record named `…Deps`, or one whose declared type carries a callable.
+  const injectedDependency = parameter => {
+    const annotation = ast.typeNode(parameter);
+    const name = ast.name(parameter);
+    if (name !== undefined && ast.is.IsIdentifier(name) && ast.text(name) === "deps") return true;
+    if (annotation !== undefined && ast.is.IsTypeReferenceNode(annotation)) {
+      const typeName = ast.as.AsTypeReferenceNode(annotation).TypeName;
+      if (ast.is.IsIdentifier(typeName) && ast.text(typeName).endsWith("Deps")) return true;
+    }
+    return carriesCallable(annotation, stageOf(parameter));
+  };
+  const ownDependencyRecord = (module, parameter) => {
+    const annotation = ast.typeNode(parameter);
+    const identity = annotation !== undefined && ast.is.IsTypeReferenceNode(annotation) ? symbol(ast.as.AsTypeReferenceNode(annotation).TypeName) : undefined;
+    const declarations = checker(parameter).getSymbolDeclarations(identity);
+    return declarations.length > 0 && declarations.every(declaration =>
+      [module.contract, module.contract.replace(/\.ts$/u, ".d.ts")]
+        .includes(ast.getFileName(ast.getSourceFile(declaration)).slice("/host-gate/".length)) &&
+      ast.text(ast.name(declaration)).endsWith("Deps") && (ast.is.IsInterfaceDeclaration(declaration) ||
+        ast.is.IsTypeAliasDeclaration(declaration) && ast.typeNode(declaration) !== undefined && ast.is.IsTypeLiteralNode(ast.typeNode(declaration))));
+  };
+  // The declaration that implements a public value: the function its initializer is, or names through constants
+  // and imports, however many; each declaration is followed once. A call's result, a selection or a condition
+  // names no declaration whose parameters can be read.
+  const implementingFunction = original => {
+    const seen = new Set();
+    let node = original;
+    while (node !== undefined) {
+      while (ast.is.IsParenthesizedExpression(node)) node = ast.as.AsParenthesizedExpression(node).Expression;
+      if (ast.is.IsArrowFunction(node) || ast.is.IsFunctionExpression(node) || ast.is.IsFunctionDeclaration(node)) return node;
+      if (!ast.is.IsIdentifier(node)) return undefined;
+      const selected = symbol(node);
+      const declaration = selected === undefined ? undefined : checker(node).getSymbolValueDeclaration(selected);
+      if (declaration === undefined || seen.has(declaration)) return undefined;
+      seen.add(declaration);
+      node = ast.is.IsVariableDeclaration(declaration) ? ast.as.AsVariableDeclaration(declaration).Initializer : declaration;
+    }
+    return undefined;
+  };
+  // Whether the implementing function's own signature, as the checker reads its declaration, has the parameters of
+  // the contract function type: as many, and a rest parameter only where the contract has one. Parameter TYPES are
+  // not compared here: that each parameter accepts the contract's argument in its place is the compiler's
+  // assignability check, which has something to check once the positions correspond.
+  const implementsContract = (declaration, annotation) => {
+    const implementation = implementingFunction(ast.as.AsVariableDeclaration(declaration).Initializer);
+    if (implementation === undefined) return false;
+    const shape = typeShape(declaration);
+    const actual = shape.getDeclarationSignatureInfo(implementation);
+    const contracts = shape.getSignatureInfos(shape.getTypeFromTypeNode(annotation), "call");
+    if (actual === undefined || contracts.length !== 1) return false;
+    const expected = contracts[0].parameters;
+    return actual.parameters.length === expected.length &&
+      actual.parameters.every((parameter, position) => (parameter.parameterKind === "rest") === (expected[position].parameterKind === "rest"));
+  };
+  // Pipeline's wiring: every member, in a source of Pipeline, whose type is a contract function type of a component.
+  // It is found by what it is typed by, not by a name. Where Pipeline is inspected, a component's public operation
+  // is a member exactly once, and every member has a public operation behind it.
+  const pathOf = node => ast.getFileName(ast.getSourceFile(node)).slice("/host-gate/".length);
+  const componentOperation = selected => selected !== undefined &&
+    [...contractFunctions].some(([module, functions]) => module.kind === "component" && functions.has(selected));
+  const referenced = annotation => annotation !== undefined && ast.is.IsTypeReferenceNode(annotation)
+    ? symbol(ast.as.AsTypeReferenceNode(annotation).TypeName) : undefined;
+  const pipelineSources = [...sourceFiles].filter(([file]) => owner(file)?.kind === "pipeline");
+  const wiringMembers = new Map();
+  for (const [, node] of pipelineSources) {
+    const gather = current => {
+      const selected = ast.is.IsPropertySignatureDeclaration(current) ? referenced(ast.typeNode(current)) : undefined;
+      if (componentOperation(selected)) wiringMembers.set(selected, [...(wiringMembers.get(selected) ?? []), current]);
+      ast.forEachChild(current, child => { if (child !== undefined) gather(child); });
+    };
+    gather(node);
+  }
+  if (pipelineSources.length > 0) {
+    const implemented = new Set();
+    for (const [declaration, module] of publicValues) {
+      const selected = module.kind === "component" && ast.is.IsVariableDeclaration(declaration) ? referenced(ast.typeNode(declaration)) : undefined;
+      if (selected === undefined || !stageTypes.has(selected)) continue;
+      implemented.add(selected);
+      if (!wiringMembers.has(selected)) add("unwired-operation", pathOf(declaration), declaration);
+    }
+    for (const [selected, members] of wiringMembers) {
+      if (!implemented.has(selected)) add("unwired-operation", pathOf(members[0]), members[0]);
+      for (const repeated of members.slice(1)) add("unwired-operation", pathOf(repeated), repeated);
+    }
+  }
+  // An operation binds a table when Pipeline's composition calls it through the wiring and every such call's result
+  // goes into a member of a component's own Deps record that is declared with the operation's result type, and
+  // nowhere else. That the result type could be such a member is not enough: the construction has to be there.
+  const resultReference = selected => {
+    for (const declaration of checker(sourceFiles.values().next().value).getSymbolDeclarations(selected)) {
+      const type = ast.is.IsTypeAliasDeclaration(declaration) ? ast.typeNode(declaration) : undefined;
+      if (type !== undefined && ast.is.IsFunctionTypeNode(type)) return referenced(ast.as.AsFunctionTypeNode(type).Type);
+    }
+    return undefined;
+  };
+  const depsMemberOf = (property, table) => {
+    const literal = ast.parent(property);
+    const holder = literal === undefined ? undefined : ast.parent(literal);
+    if (literal === undefined || !ast.is.IsObjectLiteralExpression(literal) || holder === undefined || !ast.is.IsVariableDeclaration(holder) ||
+      ast.variableDeclarationKind(holder) !== "const") return false;
+    const record = referenced(ast.typeNode(holder));
+    const name = ast.text(ast.name(property));
+    return record !== undefined && checker(holder).getSymbolDeclarations(record).some(declaration => {
+      const component = owner(pathOf(declaration));
+      const members = ast.is.IsInterfaceDeclaration(declaration) ? ast.members(declaration)
+        : ast.is.IsTypeAliasDeclaration(declaration) && ast.typeNode(declaration) !== undefined && ast.is.IsTypeLiteralNode(ast.typeNode(declaration))
+          ? ast.members(ast.typeNode(declaration)) : [];
+      return component?.kind === "component" && pathOf(declaration) === component.contract && ast.text(ast.name(declaration)).endsWith("Deps") &&
+        members.some(member => ast.is.IsPropertySignatureDeclaration(member) && memberName(ast.name(member)) === name && referenced(ast.typeNode(member)) === table);
+    });
+  };
+  const placedInDeps = (call, table) => {
+    let value = call;
+    while (ast.parent(value) !== undefined && ast.is.IsParenthesizedExpression(ast.parent(value))) value = ast.parent(value);
+    const holder = ast.parent(value);
+    if (holder === undefined) return false;
+    if (ast.is.IsPropertyAssignment(holder)) return depsMemberOf(holder, table);
+    if (!ast.is.IsVariableDeclaration(holder) || ast.variableDeclarationKind(holder) !== "const") return false;
+    const variable = symbol(ast.name(holder));
+    let uses = 0;
+    let placed = true;
+    const visit = current => {
+      const user = ast.is.IsIdentifier(current) ? ast.parent(current) : undefined;
+      const named = user === undefined || current === ast.name(holder) ? undefined
+        : ast.is.IsShorthandPropertyAssignment(user) ? checker(current).getLexicallyResolvedSymbol(current) : symbol(current);
+      if (named !== undefined && named === variable) {
+        uses += 1;
+        if (!(user !== undefined && (ast.is.IsShorthandPropertyAssignment(user) || ast.is.IsPropertyAssignment(user) &&
+          ast.as.AsPropertyAssignment(user).Initializer === current) && depsMemberOf(user, table))) placed = false;
+      }
+      ast.forEachChild(current, child => { if (child !== undefined) visit(child); });
+    };
+    visit(ast.getSourceFile(holder));
+    return uses > 0 && placed;
+  };
+  const bindsTable = selected => {
+    const members = wiringMembers.get(selected) ?? [];
+    const table = resultReference(selected);
+    if (members.length !== 1 || table === undefined) return false;
+    let calls = 0;
+    let placed = true;
+    for (const [, node] of pipelineSources) {
+      const visit = current => {
+        if (ast.is.IsCallExpression(current)) {
+          const callee = ast.as.AsCallExpression(current).Expression;
+          const property = ast.is.IsPropertyAccessExpression(callee) ? checker(callee).getSymbolAtLocation(ast.name(callee)) : undefined;
+          if (property !== undefined && checker(callee).getSymbolDeclarations(property).includes(members[0])) {
+            calls += 1;
+            if (!placedInDeps(current, table)) placed = false;
+          }
+        }
+        ast.forEachChild(current, child => { if (child !== undefined) visit(child); });
+      };
+      visit(node);
+    }
+    return calls > 0 && placed;
+  };
+  // The operations of a bound table are semantic invocations: the result of each is data.
+  const tableOperationFindings = selected => {
+    for (const declaration of checker(sourceFiles.values().next().value).getSymbolDeclarations(resultReference(selected))) {
+      const members = ast.is.IsInterfaceDeclaration(declaration) ? ast.members(declaration) : undefined;
+      if (members === undefined) return false;
+      for (const member of members) {
+        const type = ast.is.IsPropertySignatureDeclaration(member) ? ast.typeNode(member) : undefined;
+        if (ast.is.IsMethodSignatureDeclaration(member) ? carriesCallable(ast.typeNode(member))
+          : type !== undefined && ast.is.IsFunctionTypeNode(type) ? carriesCallable(ast.as.AsFunctionTypeNode(type).Type) : carriesCallable(type))
+          add("impure-component", pathOf(member), member);
+      }
+    }
+    return true;
+  };
   for (const [file, node] of sourceFiles) {
     const module = owner(file);
     if (module === undefined) continue;
@@ -690,17 +984,27 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
         const annotation = ast.is.IsVariableDeclaration(current) ? ast.typeNode(current) : undefined;
         const reference = annotation !== undefined && ast.is.IsTypeReferenceNode(annotation) ? symbol(ast.as.AsTypeReferenceNode(annotation).TypeName) : undefined;
         if (reference === undefined || !contractFunctions.get(module)?.has(reference)) add("contract-shape", file, current);
+        // A component's public implementation declares the parameters of its contract function type, each in its
+        // place: none is left out and none is added.
+        // An initializer that names no function declaration is reported like one whose parameters differ, and so is
+        // a source entry that declares the value without one: nothing is left unchecked. Only a declaration file has
+        // no initializer; its implementation is checked in the source it was emitted from.
+        else if (stageTypes.has(reference) && !ast.isDeclarationFile(ast.getSourceFile(current)) &&
+          !implementsContract(current, annotation)) add("contract-shape", file, current);
       }
+      // A public operation of a component takes whatever inputs its contract declares, and its injected dependencies
+      // only as one record that this component's own contract declares, in first place. An operation without
+      // injected dependencies has no such record, and one without inputs has no input: neither is invented for it.
       if (ast.is.IsTypeAliasDeclaration(current) && stageTypes.has(symbol(ast.name(current)))) {
         const parameters = ast.parameters(ast.typeNode(current));
-        const first = ast.typeNode(parameters[0]);
-        const identity = first !== undefined && ast.is.IsTypeReferenceNode(first) ? symbol(ast.as.AsTypeReferenceNode(first).TypeName) : undefined;
-        const declarations = checker(current).getSymbolDeclarations(identity);
-        if (parameters.length < 2 || declarations.length === 0 || !declarations.every(declaration =>
-          [module.contract, module.contract.replace(/\.ts$/u, ".d.ts")]
-            .includes(ast.getFileName(ast.getSourceFile(declaration)).slice("/host-gate/".length)) &&
-          ast.text(ast.name(declaration)).endsWith("Deps") && (ast.is.IsInterfaceDeclaration(declaration) ||
-            ast.is.IsTypeAliasDeclaration(declaration) && ast.typeNode(declaration) !== undefined && ast.is.IsTypeLiteralNode(ast.typeNode(declaration)))))
+        const injected = parameters.filter(injectedDependency);
+        if (injected.length > 1 || injected.length === 1 && (injected[0] !== parameters[0] || !ownDependencyRecord(module, parameters[0])))
+          add("impure-component", file, current);
+        // Its result is data, or a step of data. A result whose declared type carries a callable is accepted only as
+        // the table of an operation that Pipeline's composition binds, and then each operation of that table is held
+        // to the same law.
+        else if (carriesCallable(ast.as.AsFunctionTypeNode(ast.typeNode(current)).Type, current) &&
+          !(bindsTable(symbol(ast.name(current))) && tableOperationFindings(symbol(ast.name(current)))))
           add("impure-component", file, current);
       }
       if (["KindStringLiteral", "KindNoSubstitutionTemplateLiteral"].includes(kind) &&

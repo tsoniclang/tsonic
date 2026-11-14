@@ -405,36 +405,58 @@ export function mirTransportCases(fixture) {
   const cases = [];
   const body = changes => ({ ...structuredClone(source), locals: [local], constants: [constant], places: [root], ...changes });
   const values = [{ kind: "use", operand }, { kind: "unary", operation, operand }, { kind: "binary", operation, left: operand, right: operand },
-    { kind: "convert", operation, operand, to: 0 }, { kind: "refine", operand, to: 0 }, { kind: "address-of", place: 0, type: 0 },
+    { kind: "convert", operation, operand, to: 0 }, { kind: "address-of", place: 0, type: 0 },
     { kind: "closure", instance, captures: [{ local: { body: fixture.bodyId, local: 0 }, place: 0 }] },
     ...["array", "tuple", "fixed-array"].map(kind => ({ kind: "aggregate", type: 0, aggregate: { kind, elements: [operand] } })),
     ...["object", "record"].map(kind => ({ kind: "aggregate", type: 0, aggregate: { kind, fields: [{ member, value: operand }] } }))];
   for (const [position, value] of values.entries()) cases.push({ name: `rvalue-${position}-${value.kind}`, body: body({ blocks: [
-    { ...source.blocks[0], statements: [{ ...site, kind: "assign", place: 0, value }] },
+    { ...source.blocks[0], statements: [{ ...site, kind: "assign", place: 0, value, step: null }] },
   ] }) });
-  for (const projection of [{ kind: "field", member }, { kind: "element", index: 0 }, { kind: "index", operand },
-    { kind: "deref" }, { kind: "capture", index: 0 }]) cases.push({ name: `projection-${projection.kind}`, body: body({
-    places: [root, { ...root, id: 1, base: { kind: "place", place: 0, projection } }],
+  // A statement that performs a protocol step names it.
+  cases.push({ name: "statement-step", body: body({ blocks: [
+    { ...source.blocks[0], statements: [{ ...site, kind: "assign", place: 0, value: { kind: "unary", operation, operand }, step: { protocol: 0, step: 1 } }] },
+  ] }) });
+  // Every projection under both projected bases; each projected base names the node it resolves.
+  for (const base of ["place", "checked"]) for (const projection of [{ kind: "field", member }, { kind: "element", index: 0 }, { kind: "index", operand },
+    { kind: "deref" }, { kind: "capture", index: 0 }, { kind: "refined" }]) cases.push({ name: `${base === "place" ? "projection" : "checked"}-${projection.kind}`, body: body({
+    places: [root, { ...root, id: 1, base: { kind: base, place: 0, projection, tir: site.tir } }],
   }) });
+  // A body with a second entry, for a supplied count one below the full count.
+  cases.push({ name: "entries", body: body({ entries: [{ provided: 1, block: 0 }, { provided: 0, block: 0 }] }) });
   cases.push({ name: "static-root", body: body({ places: [{ ...root, base: { kind: "static", definition: fixture.definition } }] }) });
   for (const value of [{ kind: "definition", definition: fixture.definition, bindings: { kind: "parametric" } },
     { kind: "metadata", definition: fixture.definition, bindings: { kind: "instantiated", bindings } },
     { kind: "observation", at: site.tir }, { kind: "constant", reference: { initializer: fixture.instance } }])
     cases.push({ name: `constant-${value.kind}`, body: body({ constants: [{ ...constant, value }] }) });
-  for (const callee of [{ kind: "direct", resolution: selected }, { kind: "indirect", operand, resolution: selected }])
+  for (const callee of [{ kind: "direct", resolution: selected }, { kind: "indirect", operand, resolution: selected },
+    { kind: "body", instance, captures: [{ local: { body: fixture.bodyId, local: 0 }, place: 0 }] }])
     cases.push({ name: `call-${callee.kind}`, body: body({ blocks: [{ ...source.blocks[0], terminator: { ...site,
-      kind: "call", callee, receiver: null, arguments: [], destination: null, next: 0, unwind: { kind: "escape" },
+      kind: "call", callee, receiver: null, arguments: [], destination: null, next: 0, unwind: { kind: "escape" }, step: null,
     } }] }) });
+  // The three kinds of argument, and a call that performs a protocol step.
+  cases.push({ name: "call-arguments", body: body({ blocks: [{ ...source.blocks[0], terminator: { ...site,
+    kind: "call", callee: { kind: "direct", resolution: selected }, receiver: operand,
+    arguments: [{ kind: "value", passing: "by-value", operand }, { kind: "place", passing: "byref-readwrite", place: 0 }, { kind: "omitted" }],
+    destination: 0, next: 0, unwind: { kind: "escape" }, step: { protocol: 0, step: 0 },
+  } }] }) });
   cases.push({ name: "invoke", body: body({ blocks: [{ ...source.blocks[0], terminator: { ...site, kind: "invoke", operation,
-    operands: [operand], destination: null, next: 0, unwind: { kind: "escape" },
+    operands: [operand], destination: null, next: 0, unwind: { kind: "escape" }, step: null,
+  } }] }) });
+  // The failure kinds of an invocation that has no edge: it ends the process, or it cannot fail.
+  for (const unwind of ["abort", "none"]) cases.push({ name: `invoke-${unwind}`, body: body({ blocks: [{ ...source.blocks[0], terminator: { ...site,
+    kind: "invoke", operation, operands: [operand], destination: 0, next: 0, unwind: { kind: unwind }, step: { protocol: 1, step: 2 },
   } }] }) });
   for (const terminator of [{ kind: "goto", target: 0 },
-    { kind: "switch", operand, targets: [{ constant: 0, target: 0 }], otherwise: 0 },
-    { kind: "await", operand, destination: 0, resume: 0, unwind: { kind: "escape" } },
-    { kind: "yield", operand, destination: 0, resume: 0, return: { destination: 0, target: 0 }, unwind: { kind: "escape" } },
-    { kind: "delegate", iterator: operand, destination: 0, resume: 0, return: { destination: 0, target: 0 }, unwind: { kind: "escape" } },
+    { kind: "switch", operand, targets: [{ constant: 0, target: 0 }], otherwise: 0, step: null },
+    { kind: "check", place: 0, next: 0, unwind: { kind: "escape" } },
+    { kind: "await", operand, destination: 0, resume: 0, unwind: { kind: "escape" }, step: null },
+    { kind: "yield", operand, destination: 0, resume: 0, return: { destination: 0, target: 0 }, unwind: { kind: "escape" }, step: null },
+    { kind: "delegate", iterator: operand, destination: 0, resume: 0, return: { destination: 0, target: 0 }, unwind: { kind: "escape" }, step: null },
     { kind: "throw", operand, unwind: { kind: "handler", exception: 0, target: 0 } }])
     cases.push({ name: `terminator-${terminator.kind}`, body: body({ blocks: [{ ...source.blocks[0], terminator: { ...site, ...terminator } }] }) });
+  // The completion branch of an iteration names the step it branches on.
+  cases.push({ name: "terminator-switch-step", body: body({ blocks: [{ ...source.blocks[0], terminator: { ...site,
+    kind: "switch", operand, targets: [{ constant: 0, target: 0 }], otherwise: 0, step: { protocol: 0, step: 2 } } }] }) });
   return cases;
 }
 
