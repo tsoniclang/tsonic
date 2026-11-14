@@ -542,7 +542,11 @@ function readHirModule(reader: TextReader, output: HirOutput, schema: HirSchema)
         reader.pending = reader.pending.next;
         if (frame.kind === "record") {
           for (const builder of frame.builders) if (builder.complete(frame.ordinal)) builder.publish();
-        } else for (const builder of frame.builders) builder.publish();
+        } else {
+          const complete = frame.builders.filter(builder => builder.complete());
+          if (complete.length === 0) { fail(reader, ["nonempty sequence"]); return false; }
+          for (const builder of complete) builder.publish();
+        }
         frame.put();
       } else if (character === ",") {
         reader.cursor += 1;

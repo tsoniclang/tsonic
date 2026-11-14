@@ -1,4 +1,4 @@
-import type { DefId, TyId, NodeRef } from "../ids/contract.js";
+import type { DefId, TyId, NodeRef, SourceNodeRef } from "../ids/contract.js";
 import type { BindingVector, ExactRational, MemberKey } from "../ir-types/contract.js";
 import type { ImportTarget, DeclarationTarget } from "../ir-hir/contract.js";
 import type { ApplicationDecision, ClosureDecision, ConstructionPartDecision, RuleOutcome, RefinementDecision } from "../ir-infer/contract.js";
@@ -6,7 +6,7 @@ import type { TypedOperation, TirResolution, MemberSelection, TirApplication, Ti
 import type { Cursor, RecordFields, TextStep } from "./parse-values.js";
 import { delimiter, readString, readNumber, readBigInt, choice, readBoolean, readStringChoice, openRecord, startFieldChoice, closeRecord, readDefinitionId, readTypeId, acceptText, atomicText, fieldText, nullableText, arrayText } from "./parse-values.js";
 import { readMemberKeyText, readExactRational, readBindings } from "./parse-types.js";
-import { readNodeRef } from "./parse-diagnostics.js";
+import { readNodeRef, readSourceNodeRef } from "./parse-diagnostics.js";
 import { readDeclarationTargetText, readImportTargetText } from "./parse-core.js";
 import { readApplicationDecisionText, readClosureDecisionText, readConstructionPartDecisionText, readRefinementDecisionText, readRuleOutcomeText } from "./parse-inference.js";
 import { readConversionDecisionText, readTirDemandText, readTirResolutionText, readTargetAccessText, readTirApplicationText, readTirProtocolText, readTypedOperationText, readTirSelectionText, readMemberSelectionText } from "./parse-tir.js";
@@ -36,7 +36,7 @@ export function readTypedNameText<Root>(cursor: Cursor, finish: (value: TypedNam
                   }
                   })))))));
       case "role":
-        return atomicText(cursor, next => readStringChoice(next, ["assignment-target","declaration-name","property-name","type-name","label","private-name"]), roleValue => {
+        return atomicText(cursor, next => readStringChoice(next, ["assignment-target","declaration-name","binding-name","property-name","type-name","label","private-name"]), roleValue => {
           switch (roleValue) {
             case "assignment-target": return fieldText<TirResolution, Root>(cursor, fields, "resolution", readTirResolutionText, resolutionValue =>
               fieldText<TargetAccess, Root>(cursor, fields, "access", readTargetAccessText, accessValue =>
@@ -46,6 +46,8 @@ export function readTypedNameText<Root>(cursor: Cursor, finish: (value: TypedNam
               fieldText<TyId | null, Root>(cursor, fields, "storage", (next, done) => nullableText(next, (next, done) => atomicText(next, readTypeId, done), done), storageValue =>
                 atomicText(cursor, next => closeRecord(next, fields), () =>
                     acceptText({ role: roleValue, declaration: declarationValue, storage: storageValue }, finish))));
+            case "binding-name": return fieldText<SourceNodeRef, Root>(cursor, fields, "binding", (next, done) => atomicText(next, readSourceNodeRef, done), binding =>
+              atomicText(cursor, next => closeRecord(next, fields), () => acceptText({ role: roleValue, binding }, finish)));
             case "property-name": return fieldText<MemberKey, Root>(cursor, fields, "key", readMemberKeyText, keyValue =>
               atomicText(cursor, next => closeRecord(next, fields), () =>
                   acceptText({ role: roleValue, key: keyValue }, finish)));
@@ -202,9 +204,9 @@ export function readTypedStringText<Root>(cursor: Cursor, finish: (value: TypedS
             case "module-specifier": return fieldText<ImportTarget, Root>(cursor, fields, "target", readImportTargetText, targetValue =>
               atomicText(cursor, next => closeRecord(next, fields), () =>
                   acceptText({ role: roleValue, target: targetValue }, finish)));
-            case "export-name": return fieldText<DefId, Root>(cursor, fields, "definition", (next, done) => atomicText(next, readDefinitionId, done), definitionValue =>
+            case "export-name": return fieldText<SourceNodeRef, Root>(cursor, fields, "binding", (next, done) => atomicText(next, readSourceNodeRef, done), bindingValue =>
               atomicText(cursor, next => closeRecord(next, fields), () =>
-                  acceptText({ role: roleValue, definition: definitionValue }, finish)));
+                  acceptText({ role: roleValue, binding: bindingValue }, finish)));
             case "attribute-value": return fieldText<string, Root>(cursor, fields, "value", (next, done) => atomicText(next, readString, done), valueValue =>
               atomicText(cursor, next => closeRecord(next, fields), () =>
                   acceptText({ role: roleValue, value: valueValue }, finish)));

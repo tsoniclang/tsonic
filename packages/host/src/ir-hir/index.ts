@@ -6,10 +6,11 @@ import { printHir as print } from "./print.js";
 import { verifyHir as verify } from "./verify.js";
 import { orderPragmaArguments as orderPragmas } from "./pragmas.js";
 import { callableEndpointKey as endpointKey, hasOverloadEndpoints as overloadEndpoints, selectedEndpointRoleFaults as roleFaults } from "./endpoints.js";
-import type { CreateModuleBindingViews, ProjectExportDeclarations, ResolveModuleBinding } from "./contract.js";
-import { createModuleBindingViews as bindingViews, projectExportDeclarations as exportDeclarations, resolveModuleBinding as resolveBinding } from "./bindings.js";
+import type { CreateModuleBindingViews, IsModuleBindingKind, ProjectExportDeclarations, ResolveModuleBinding } from "./contract.js";
+import { createModuleBindingViews as bindingViews, isModuleBindingKind as bindingKind, projectExportDeclarations as exportDeclarations, resolveModuleBinding as resolveBinding } from "./bindings.js";
 
 export const resolveModuleBinding: ResolveModuleBinding = resolveBinding;
+export const isModuleBindingKind: IsModuleBindingKind = bindingKind;
 export const createModuleBindingViews: CreateModuleBindingViews = bindingViews;
 export const projectExportDeclarations: ProjectExportDeclarations = exportDeclarations;
 

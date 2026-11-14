@@ -1,4 +1,5 @@
 import { throwInvariant } from "../diag/index.js";
+import type { DefId } from "../ids/contract.js";
 import type { HirBindingTarget, HirExportTarget, HirModuleBinding, HirModuleExport, CapturedFact } from "../ir-hir/contract.js";
 import type { MemberKey, MemberOrigin } from "../ir-types/contract.js";
 import type { LowerDeps, ModuleExports, RawBinding, RawBindingTarget, RawFact, RawMemberKey, RawMemberOrigin, RawModule, RawNodeRef } from "./contract.js";
@@ -19,12 +20,13 @@ function declarations(deps: LowerDeps, references: readonly RawNodeRef[]): HirEx
     if (references.length !== 1) return fail("An exported binding cannot be combined with chosen declaration representatives.");
     return { kind: "binding", occurrence: binding };
   }
-  const definitions = [deps.definitionOf(first)];
-  for (const reference of references.slice(1)) {
+  const definitions: [DefId, ...DefId[]] = [deps.definitionOf(first)];
+  for (let index = 1; index < references.length; index += 1) {
+    const reference = references[index] ?? fail("A declaration group cannot contain a missing declaration.");
     if (deps.bindingOccurrenceOf(reference) !== null) return fail("A declaration group cannot silently absorb a binding occurrence.");
     definitions.push(deps.definitionOf(reference));
   }
-  return { kind: "declarations", definitions: [definitions[0] ?? fail("A declaration group lost its first actual declaration."), ...definitions.slice(1)] };
+  return { kind: "declarations", definitions };
 }
 
 function keyOf(deps: LowerDeps, key: RawMemberKey): MemberKey {
@@ -39,7 +41,7 @@ function originOf(deps: LowerDeps, origin: RawMemberOrigin): MemberOrigin {
   throw new TypeError("front: mapped binding-member origin conversion is not implemented");
 }
 
-function targetOf(deps: LowerDeps, target: RawBindingTarget): HirBindingTarget {
+export function lowerBindingTarget(deps: LowerDeps, target: RawBindingTarget): HirBindingTarget {
   switch (target.kind) {
     case "declarations": return declarations(deps, target.declarations);
     case "binding": return { kind: "binding", occurrence: deps.bindingOccurrenceOf(target.occurrence)
@@ -50,12 +52,16 @@ function targetOf(deps: LowerDeps, target: RawBindingTarget): HirBindingTarget {
   }
 }
 
+export function lowerBindingFact(deps: LowerDeps, raw: RawFact<RawBindingTarget>): CapturedFact<HirBindingTarget> {
+  const first = raw.kind === "unavailable" && raw.reason === "checker-error" ? raw.diagnostics[0] : undefined;
+  if (first !== undefined && raw.kind === "unavailable") return { kind: "available", value: {
+    kind: "unresolved", diagnostics: [first, ...raw.diagnostics.slice(1)] } };
+  return fact(raw, target => lowerBindingTarget(deps, target));
+}
+
 function bindingOf(deps: LowerDeps, raw: RawBinding): HirModuleBinding {
   const occurrence = deps.bindingOccurrenceOf(raw.binding) ?? fail("A captured binding must have a genuine ready source owner and syntax occurrence.");
-  const first = raw.target.kind === "unavailable" && raw.target.reason === "checker-error" ? raw.target.diagnostics[0] : undefined;
-  if (first !== undefined && raw.target.kind === "unavailable") return { occurrence, target: { kind: "available", value: {
-    kind: "unresolved", diagnostics: [first, ...raw.target.diagnostics.slice(1)] } } };
-  return { occurrence, target: fact(raw.target, target => targetOf(deps, target)) };
+  return { occurrence, target: lowerBindingFact(deps, raw.target) };
 }
 
 export function lowerBindings(deps: LowerDeps, raw: RawModule): ModuleExports {

@@ -343,6 +343,23 @@ const assignmentTokens: readonly string[] = (["EqualsToken", "PlusEqualsToken", 
   "AmpersandAmpersandEqualsToken", "BarBarEqualsToken", "QuestionQuestionEqualsToken"]);
 
 export const verifyOccurrenceRole = (node: TirNode, original: HirNode | undefined, emit: TirOccurrenceEmit): void => {
+  const source = original?.tsonic;
+  const target = node.tsonic;
+  if (node.kind === "ImportClause") {
+    if (node.name === null) {
+      if (node.tsonic !== null) emit("binding-capture-owner", node, "an import clause without a default name has no binding occurrence");
+    } else if (original?.kind === "ImportClause") {
+      const binding = original.tsonic.bindings.find(occurrence => occurrence.value.node === node.id);
+      if (node.tsonic === null || binding === undefined || !sameSourceReference(binding, node.tsonic.binding))
+        emit("binding-capture-owner", node, "a default import must retain its actual checked qualified occurrence");
+    }
+  } else if (source !== undefined && source !== null && target !== null && ("binding" in source || "binding" in target)) {
+    if (!("binding" in source) || !("binding" in target) || !sameSourceReference(source.binding, target.binding))
+      emit("binding-capture-owner", node, "typed binding syntax must retain its actual checked qualified occurrence");
+  }
+  if (node.kind === "NamespaceExport" && original?.kind === "NamespaceExport" &&
+    node.tsonic.definition !== original.tsonic.definition)
+    emit("binding-capture-owner", node, "a namespace export must retain its genuine same-node F1 declaration");
   if (node.kind === "BindingElement" && (node.tsonic.role === "hole") !== (node.name === null)) {
     emit("binding-element-role-exact", node, "binding element role is hole exactly when its authored name is absent");
   }

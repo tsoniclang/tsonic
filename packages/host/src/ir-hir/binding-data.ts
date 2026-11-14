@@ -1,7 +1,7 @@
 import type { CheckerDiagnosticRef } from "../diag/contract.js";
 import type { DefId, ModuleId, SourceNodeRef } from "../ids/contract.js";
 import type { MemberKey, MemberOrigin } from "../ir-types/contract.js";
-import type { CapturedFact } from "./contract.js";
+import type { CapturedFact } from "./capture-data.js";
 
 export type HirExportTarget =
   | { readonly kind: "declarations"; readonly definitions: readonly [DefId, ...DefId[]] }
@@ -40,7 +40,3 @@ export interface HirBindingViews {
 export interface HirExportViews extends HirBindingViews {
   readonly declarationSourceOf: (definition: DefId) => SourceNodeRef | null;
 }
-
-export type ResolveModuleBinding = (views: HirBindingViews, occurrence: SourceNodeRef) => HirBindingResolution;
-export type CreateModuleBindingViews = (tables: readonly (readonly HirModuleBinding[])[]) => HirBindingViews;
-export type ProjectExportDeclarations = (views: HirExportViews, entry: HirModuleExport) => HirBindingResolution;

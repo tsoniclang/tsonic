@@ -52,18 +52,8 @@ export function createReadGroup8(readers: () => HirTextReaders): HirReadGroup8 {
     });
   const record_246 = recordReader<Hir.CheckedExport>("CheckedExport", read => {
       const field_core = read("core", readers().record_84);
-      const field_parent = read("parent", unionReader<Ids.DefId | null>(() => [readers().scalar_null, readers().identity_def]));
-      const field_attributes = read("attributes", sequenceReader(readers().record_13));
-      const field_memory = read("memory", unionReader<Hir.CapturedFact<Hir.HirMemoryFieldCapture | Hir.HirMemoryLayoutCapture | null>>(() => [readers().record_157, readers().record_10]));
-      const field_definition = read("definition", readers().identity_def);
-      const field_exports = read("exports", sequenceReader(readers().record_247));
       const field_target = read("target", unionReader<Hir.CapturedFact<Hir.ImportTarget | null>>(() => [readers().record_248, readers().record_10]));
-      return { fields: [field_core, field_parent, field_attributes, field_memory, field_definition, field_exports, field_target], value: () => ({ core: field_core.value(), parent: field_parent.value(), attributes: field_attributes.value(), memory: field_memory.value(), definition: field_definition.value(), exports: field_exports.value(), target: field_target.value() }) };
-    });
-  const record_247 = recordReader<Hir.HirExportBinding>("HirExportBinding", read => {
-      const field_name = read("name", readers().scalar_string);
-      const field_definition = read("definition", unionReader<Hir.CapturedFact<Ids.DefId>>(() => [readers().record_165, readers().record_10]));
-      return { fields: [field_name, field_definition], value: () => ({ name: field_name.value(), definition: field_definition.value() }) };
+      return { fields: [field_core, field_target], value: () => ({ core: field_core.value(), target: field_target.value() }) };
     });
   const record_248 = recordReader<{ readonly kind: "available"; readonly value: Hir.ImportTarget | null; }>("available", read => {
       const field_value = read("value", unionReader<Hir.ImportTarget | null>(() => [readers().scalar_null, readers().record_149, readers().record_150]));
@@ -100,13 +90,13 @@ export function createReadGroup8(readers: () => HirTextReaders): HirReadGroup8 {
       const field_core = read("core", readers().record_84);
       const field_role = read("role", readers().literal_93);
       const field_value = read("value", readers().record_140);
-      const field_resolution = read("resolution", unionReader<Hir.HirResolution>(() => [readers().record_146, readers().record_147, readers().record_148, readers().record_152]));
+      const field_resolution = read("resolution", readers().resolution);
       return { fields: [field_core, field_role, field_value, field_resolution], value: () => ({ core: field_core.value(), role: field_role.value(), value: field_value.value(), resolution: field_resolution.value() }) };
     });
   const record_255 = recordReader<{ readonly core: Hir.HirCoreCapture; readonly role: "assignment-target"; readonly resolution: Hir.HirResolution; readonly views: Hir.HirCheckerViews; readonly place: Hir.CapturedFact<Hir.HirStoragePlace>; readonly access: "read-write" | "write" }>("CheckedName", read => {
       const field_core = read("core", readers().record_84);
       const field_role = read("role", readers().literal_114);
-      const field_resolution = read("resolution", unionReader<Hir.HirResolution>(() => [readers().record_146, readers().record_147, readers().record_148, readers().record_152]));
+      const field_resolution = read("resolution", readers().resolution);
       const field_views = read("views", readers().record_141);
       const field_place = read("place", unionReader<Hir.CapturedFact<Hir.HirStoragePlace>>(() => [readers().record_213, readers().record_10]));
       const field_access = read("access", readers().literal_115);
@@ -128,7 +118,7 @@ export function createReadGroup8(readers: () => HirTextReaders): HirReadGroup8 {
   const record_258 = recordReader<Hir.HirCoreCarrier & { readonly role: "type-name"; readonly resolution: Hir.HirResolution; }>("CheckedName", read => {
       const field_core = read("core", readers().record_84);
       const field_role = read("role", readers().literal_118);
-      const field_resolution = read("resolution", unionReader<Hir.HirResolution>(() => [readers().record_146, readers().record_147, readers().record_148, readers().record_152]));
+      const field_resolution = read("resolution", readers().resolution);
       return { fields: [field_core, field_role, field_resolution], value: () => ({ core: field_core.value(), role: field_role.value(), resolution: field_resolution.value() }) };
     });
   const record_259 = recordReader<Hir.HirCoreCarrier & { readonly role: "label"; readonly target: Ids.NodeRef | null; }>("CheckedName", read => {
@@ -147,7 +137,7 @@ export function createReadGroup8(readers: () => HirTextReaders): HirReadGroup8 {
       const field_core = read("core", readers().record_84);
       const field_role = read("role", readers().literal_121);
       const field_value = read("value", readers().record_140);
-      const field_resolution = read("resolution", unionReader<Hir.HirResolution>(() => [readers().record_146, readers().record_147, readers().record_148, readers().record_152]));
+      const field_resolution = read("resolution", readers().resolution);
       const field_key = read("key", unionReader<Hir.CapturedFact<Types.MemberKey>>(() => [readers().record_160, readers().record_10]));
       return { fields: [field_core, field_role, field_value, field_resolution, field_key], value: () => ({ core: field_core.value(), role: field_role.value(), value: field_value.value(), resolution: field_resolution.value(), key: field_key.value() }) };
     });
@@ -158,18 +148,9 @@ export function createReadGroup8(readers: () => HirTextReaders): HirReadGroup8 {
     });
   const record_263 = recordReader<Hir.CheckedImport>("CheckedImport", read => {
       const field_core = read("core", readers().record_84);
-      const field_parent = read("parent", unionReader<Ids.DefId | null>(() => [readers().scalar_null, readers().identity_def]));
-      const field_attributes = read("attributes", sequenceReader(readers().record_13));
-      const field_memory = read("memory", unionReader<Hir.CapturedFact<Hir.HirMemoryFieldCapture | Hir.HirMemoryLayoutCapture | null>>(() => [readers().record_157, readers().record_10]));
-      const field_definition = read("definition", readers().identity_def);
       const field_target = read("target", unionReader<Hir.CapturedFact<Hir.ImportTarget>>(() => [readers().record_205, readers().record_10]));
-      const field_bindings = read("bindings", sequenceReader(readers().record_264));
-      return { fields: [field_core, field_parent, field_attributes, field_memory, field_definition, field_target, field_bindings], value: () => ({ core: field_core.value(), parent: field_parent.value(), attributes: field_attributes.value(), memory: field_memory.value(), definition: field_definition.value(), target: field_target.value(), bindings: field_bindings.value() }) };
-    });
-  const record_264 = recordReader<Hir.HirImportBinding>("HirImportBinding", read => {
-      const field_local = read("local", readers().identity_def);
-      const field_imported = read("imported", unionReader<Hir.CapturedFact<Ids.DefId>>(() => [readers().record_165, readers().record_10]));
-      return { fields: [field_local, field_imported], value: () => ({ local: field_local.value(), imported: field_imported.value() }) };
+      const field_bindings = read("bindings", sequenceReader(readers().bindingSource));
+      return { fields: [field_core, field_target, field_bindings], value: () => ({ core: field_core.value(), target: field_target.value(), bindings: field_bindings.value() }) };
     });
   const record_265 = recordReader<Hir.NodeList<Hir.TypeElement<Hir.CheckedPhase>>>("NodeList", read => {
       const field_loc = read("loc", readers().record_81);
@@ -196,5 +177,5 @@ export function createReadGroup8(readers: () => HirTextReaders): HirReadGroup8 {
       const field_nodes = read("nodes", sequenceReader(readers().syntax_50));
       return { fields: [field_loc, field_nodes], value: () => ({ loc: field_loc.value(), nodes: field_nodes.value() }) };
     });
-  return { record_240, record_241, record_242, record_243, record_244, record_245, record_246, record_247, record_248, record_249, record_250, record_251, record_252, record_253, record_254, record_255, record_256, record_257, record_258, record_259, record_260, record_261, record_262, record_263, record_264, record_265, record_266, record_267, record_268, record_269 };
+  return { record_240, record_241, record_242, record_243, record_244, record_245, record_246, record_248, record_249, record_250, record_251, record_252, record_253, record_254, record_255, record_256, record_257, record_258, record_259, record_260, record_261, record_262, record_263, record_265, record_266, record_267, record_268, record_269 };
 }

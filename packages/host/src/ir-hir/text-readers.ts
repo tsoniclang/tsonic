@@ -27,9 +27,11 @@ import { createReadGroup6 } from "./text-read-6.js";
 import { createReadGroup7 } from "./text-read-7.js";
 import { createReadGroup8 } from "./text-read-8.js";
 import { createReadGroup9 } from "./text-read-9.js";
+import { createBindingTextReaders } from "./text-read-bindings.js";
 export function createHirTextReaders(): HirTextReaders {
   const readers: HirTextReaders = {
     ...createHirScalarReaders(),
+    ...createBindingTextReaders(() => readers),
     ...createReadGroup0(() => readers),
     ...createReadGroup1(() => readers),
     ...createReadGroup2(() => readers),

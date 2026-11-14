@@ -115,8 +115,13 @@ export const partition: GroupsOf = (deps, bodies) => {
       seen.add(node);
       if (node.kind === "Identifier") {
         const name = node.tsonic;
-        if ((name.role === "value" || name.role === "shorthand-value" || name.role === "type-name" || name.role === "assignment-target")
-          && name.resolution.kind === "definition" && !depend(name.resolution.definition)) return stop();
+        if (name.role === "value" || name.role === "shorthand-value" || name.role === "type-name" || name.role === "assignment-target") {
+          const resolution = name.resolution;
+          if (resolution.kind === "declarations") {
+            for (const definition of resolution.definitions) if (!depend(definition)) return stop();
+          } else if (resolution.kind === "binding" || resolution.kind === "member" || resolution.kind === "unavailable")
+            return notInferredYet(PORT, "a qualified binding whose group dependency projection is not implemented", node.origin);
+        }
       } else if (node.kind === "PropertyAccessExpression" || node.kind === "ElementAccessExpression") {
         const member = node.tsonic;
         if (member.origins.kind === "unavailable") return notInferredYet(PORT,

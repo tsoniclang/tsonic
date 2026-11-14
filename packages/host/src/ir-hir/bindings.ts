@@ -1,6 +1,15 @@
 import { throwInvariant } from "../diag/index.js";
 import type { BodyId, DefId, NodeId, SourceNodeRef } from "../ids/contract.js";
-import type { CreateModuleBindingViews, HirModuleBinding, ProjectExportDeclarations, ResolveModuleBinding } from "./binding-data.js";
+import type { CreateModuleBindingViews, HirModuleBinding, IsModuleBindingKind, ProjectExportDeclarations, ResolveModuleBinding } from "./contract.js";
+
+export const isModuleBindingKind: IsModuleBindingKind = (kind, hasName) => {
+  switch (kind) {
+    case "ImportClause": return hasName;
+    case "ImportSpecifier": case "NamespaceImport": case "ImportEqualsDeclaration": case "ExportSpecifier":
+    case "NamespaceExport": case "NamespaceExportDeclaration": return true;
+    default: return false;
+  }
+};
 
 function fail(message: string): never {
   return throwInvariant({ owner: "ir-hir", query: null, origin: null, message });

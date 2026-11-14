@@ -17,10 +17,6 @@ export function createReadGroup5(readers: () => HirTextReaders): HirReadGroup5 {
       const field_providerModuleId = read("providerModuleId", readers().scalar_string);
       return { fields: [field_providerId, field_providerVersion, field_packageName, field_moduleSpecifier, field_providerModuleId], value: () => ({ providerId: field_providerId.value(), providerVersion: field_providerVersion.value(), packageName: field_packageName.value(), moduleSpecifier: field_moduleSpecifier.value(), providerModuleId: field_providerModuleId.value() }) };
     });
-  const record_152 = recordReader<{ readonly kind: "unresolved"; readonly checkerDiagnostic: number | null; }>("unresolved", read => {
-      const field_checkerDiagnostic = read("checkerDiagnostic", unionReader<number | null>(() => [readers().scalar_null, readers().scalar_number]));
-      return { fields: [field_checkerDiagnostic], value: () => ({ kind: "unresolved", checkerDiagnostic: field_checkerDiagnostic.value() }) };
-    });
   const record_153 = recordReader<{ readonly kind: "place"; readonly node: Ids.NodeId; }>("place", read => {
       const field_node = read("node", readers().identity_n);
       return { fields: [field_node], value: () => ({ kind: "place", node: field_node.value() }) };
@@ -182,5 +178,5 @@ export function createReadGroup5(readers: () => HirTextReaders): HirReadGroup5 {
       const field_nodes = read("nodes", sequenceReader(readers().syntax_4));
       return { fields: [field_loc, field_nodes], value: () => ({ loc: field_loc.value(), nodes: field_nodes.value() }) };
     });
-  return { record_150, record_151, record_152, record_153, record_154, record_155, record_156, record_157, record_158, record_159, record_160, record_161, record_162, record_163, record_164, record_165, record_166, record_167, record_168, record_169, record_170, record_171, record_172, record_173, record_174, record_175, record_176, record_177, record_178, record_179 };
+  return { record_150, record_151, record_153, record_154, record_155, record_156, record_157, record_158, record_159, record_160, record_161, record_162, record_163, record_164, record_165, record_166, record_167, record_168, record_169, record_170, record_171, record_172, record_173, record_174, record_175, record_176, record_177, record_178, record_179 };
 }

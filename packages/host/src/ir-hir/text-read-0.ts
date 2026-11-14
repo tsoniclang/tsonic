@@ -10,9 +10,11 @@ export function createReadGroup0(readers: () => HirTextReaders): HirReadGroup0 {
       const field_tree = read("tree", readers().syntax_0);
       const field_items = read("items", sequenceReader(readers().record_1));
       const field_bodies = read("bodies", sequenceReader(readers().record_2));
+      const field_exports = read("exports", sequenceReader(readers().moduleExport));
+      const field_bindings = read("bindings", sequenceReader(readers().moduleBinding));
       const field_checkerDiagnostics = read("checkerDiagnostics", sequenceReader(readers().record_25));
       const field_obligations = read("obligations", sequenceReader(readers().record_77));
-      return { fields: [field_module, field_tree, field_items, field_bodies, field_checkerDiagnostics, field_obligations], value: () => ({ module: field_module.value(), tree: field_tree.value(), items: field_items.value(), bodies: field_bodies.value(), checkerDiagnostics: field_checkerDiagnostics.value(), obligations: field_obligations.value() }) };
+      return { fields: [field_module, field_tree, field_items, field_bodies, field_exports, field_bindings, field_checkerDiagnostics, field_obligations], value: () => ({ module: field_module.value(), tree: field_tree.value(), items: field_items.value(), bodies: field_bodies.value(), exports: field_exports.value(), bindings: field_bindings.value(), checkerDiagnostics: field_checkerDiagnostics.value(), obligations: field_obligations.value() }) };
     });
   const record_1 = recordReader<Hir.HirDeclarationEntry>("HirDeclarationEntry", read => {
       const field_definition = read("definition", readers().identity_def);

@@ -332,6 +332,7 @@ export function inventoryName(scan: ProjectionInventory, value: TypedName): Inst
     case "type-name": return inventoryRecord(scan, 3) ?? inventoryType(scan, value.type);
     case "property-name":
     case "label":
+    case "binding-name":
     case "private-name": return inventoryFields(scan, 1);
   }
 }

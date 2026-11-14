@@ -6,13 +6,13 @@ import { nodeId, rawCandidateListId, rawComponentId, rawMemberTableId, rawSignat
 import type * as Hir from "../ir-hir/contract.js";
 import type { RawComponentId, RawSignatureId, RawSymbolId, RawTypeId } from "../ids/contract.js";
 import type {
-  CaptureDeps, CheckedProgram, RawArgumentBinding, RawAuthoredArgument, RawBinding, RawBindingTarget, RawCallSelection, RawCallableAssociation, RawCandidateList, RawCoreCapture, RawCheckedType, RawCheckerViews, RawComponent, RawComponentStep, RawFact, RawMemberTable, RawModule, RawModuleExport, RawNodeRef, RawParameter, RawReference, RawSignature, RawSymbol, RawTypeForm,
+  CaptureDeps, CheckedProgram, RawArgumentBinding, RawAuthoredArgument, RawBinding, RawBindingTarget, RawCallSelection, RawCallableAssociation, RawCandidateList, RawCoreCapture, RawCheckedType, RawCheckerViews, RawComponent, RawComponentStep, RawFact, RawMemberTable, RawModule, RawModuleExport, RawModuleLink, RawNodeRef, RawParameter, RawReference, RawSignature, RawSymbol, RawTypeForm,
 } from "./contract.js";
 import { ExtensionTable, OpenedProgram } from "./handles.js";
 import type { FileNumbering, FileSyntaxEntry } from "./handles.js";
 import { captureNode, expressionKinds } from "./syntax-capture.js";
 import type { SyntaxCaptureContext } from "./syntax-support.js";
-import { isBindingKind } from "./identities.js";
+import { isModuleBindingKind } from "../ir-hir/index.js";
 
 const invariant = (message: string): InvariantFailure => ({ owner: "front", query: null, origin: null, message });
 const available = <Value>(value: Value): RawFact<Value> => ({ kind: "available", value });
@@ -277,18 +277,14 @@ function captureFacts(scope: CaptureScope): void {
   }
 }
 
-function rawSymbol(scope: CaptureScope, program: CheckedProgram, symbol: CheckerSymbol): RawSymbolId | null {
+function rawSymbol(scope: CaptureScope, symbol: CheckerSymbol): RawSymbolId | null {
   const known = scope.tables.symbolIds.get(symbol);
   if (known !== undefined) return known;
   if (!admit(scope, "facts")) return null;
   const id = rawSymbolId(scope.tables.symbols.length);
-  const declarations: RawNodeRef[] = [];
-  for (const declaration of scope.checker.getSymbolDeclarations(symbol)) {
-    const reference = declaration === undefined ? null : referenceTo(scope, program, declaration);
-    if (scope.meter.refusal !== null) return null;
-    if (reference !== null) declarations.push(reference);
-  }
-  scope.tables.symbols.push({ id, name: scope.checker.getSymbolName(symbol), declarations, aliasTarget: available(null), exports: available([]) });
+  const target = symbolTarget(scope, symbol, null);
+  if (target === null) return null;
+  scope.tables.symbols.push({ id, name: scope.checker.getSymbolName(symbol), target });
   // The identity is known only once its row exists (R2 M-1): a refusal inside leaves no entry without a row.
   scope.tables.symbolIds.set(symbol, id);
   return id;
@@ -299,6 +295,10 @@ function bindingTarget(scope: CaptureScope, symbol: CheckerSymbol | undefined): 
   const step = scope.checker.getAliasStep(symbol);
   if (step === undefined) return { kind: "unavailable", reason: "incomplete-association", diagnostics: [] };
   const targetSymbol = step.kind === "symbol" ? step.symbol : step.exportAssignment;
+  return symbolTarget(scope, targetSymbol, step.kind === "exported-value-member" ? step.member : null);
+}
+
+function symbolTarget(scope: CaptureScope, targetSymbol: CheckerSymbol, memberSymbol: CheckerSymbol | undefined | null): RawFact<RawBindingTarget> | null {
   const declarations: RawNodeRef[] = [];
   let targetBinding = false;
   let targetModule: ModuleId | null = null;
@@ -309,21 +309,20 @@ function bindingTarget(scope: CaptureScope, symbol: CheckerSymbol | undefined): 
     if (scope.meter.refusal !== null) return null;
     if (reference === null) return { kind: "unavailable", reason: "incomplete-association", diagnostics: [] };
     const kind = scope.checked.ast.kindName(declaration);
-    if (step.kind === "symbol" && kind === "KindSourceFile") {
+    if (memberSymbol === null && kind === "KindSourceFile") {
       if (targetModule !== null && targetModule !== reference.module)
         return throwInvariant(invariant("A module alias cannot name two different source-file modules."));
       targetModule = reference.module;
     }
-    if (["KindImportClause", "KindImportSpecifier", "KindNamespaceImport", "KindImportEqualsDeclaration", "KindExportSpecifier",
-      "KindNamespaceExport", "KindNamespaceExportDeclaration"].includes(kind)) targetBinding = true;
+    if (isModuleBindingKind(kind.replace(/^Kind/u, ""), scope.checked.ast.name(declaration) !== undefined)) targetBinding = true;
     declarations.push(reference);
   }
   if (targetModule !== null) return available({ kind: "module", module: targetModule });
   declarations.sort((left, right) => left.module < right.module ? -1 : left.module > right.module ? 1 : left.node - right.node);
   const first = declarations[0];
   if (first === undefined) return { kind: "unavailable", reason: "incomplete-association", diagnostics: [] };
-  if (step.kind === "exported-value-member") {
-    const member = step.member === undefined ? null : rawSymbol(scope, scope.program, step.member);
+  if (memberSymbol !== null) {
+    const member = memberSymbol === undefined ? null : rawSymbol(scope, memberSymbol);
     if (scope.meter.refusal !== null) return null;
     return available({ kind: "member", through: [first, ...declarations.slice(1)],
       member: member === null ? { kind: "unavailable", reason: "incomplete-association", diagnostics: [] } : available(member),
@@ -368,7 +367,7 @@ function captureSignatureParameter(scope: CaptureScope, draft: SignatureDraft, i
     if (scope.meter.refusal !== null) return;
     const position = component(scope, owner, [{ kind: "parameter", signature: id, index }]);
     if (position === null) return;
-    const parameterSymbol = rawSymbol(scope, program, symbol);
+    const parameterSymbol = rawSymbol(scope, symbol);
     if (parameterSymbol === null) return;
     scope.tables.pending.push({ kind: "signature-parameter", draft, index: index + 1 });
     const type = rawType(scope, () => parameter.type, position, null);
@@ -400,7 +399,7 @@ function captureSignatureTail(scope: CaptureScope, draft: SignatureDraft): void 
     if (scope.meter.refusal !== null) return;
     const position = component(scope, owner, [{ kind: "receiver", signature: id }]);
     if (position === null) return;
-    const receiverSymbol = rawSymbol(scope, program, thisSymbol);
+    const receiverSymbol = rawSymbol(scope, thisSymbol);
     if (receiverSymbol === null) return;
     const type = rawType(scope, () => scope.checker.getTypeOfSymbol(thisSymbol), position, null);
     if (type === null) return;
@@ -537,6 +536,7 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
     shape: queries.typeShape, ownNodes, tables: { types: [], components: [], signatures: [], members: [], candidates: [], symbols: [], symbolIds: new Map(), signatureIds: new Map(), nextType: 0, nextMember: 0, pending: [] } };
   const views: RawCheckerViews[] = [];
   const references: RawReference[] = [];
+  const links: RawModuleLink[] = [];
   const associations: RawCallableAssociation[] = [];
   const calls: RawCallSelection[] = [];
   const bindings: RawBinding[] = [];
@@ -545,7 +545,7 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
     const kind = ast.kindName(node);
     const parent = ast.parent(node);
     const declarationName = parent !== undefined && ast.name(parent) === node;
-    const bindingSyntax = isBindingKind(kind.replace(/^Kind/u, ""), kind !== "KindImportClause" || ast.name(node) !== undefined);
+    const bindingSyntax = isModuleBindingKind(kind.replace(/^Kind/u, ""), kind !== "KindImportClause" || ast.name(node) !== undefined);
     if (bindingSyntax) {
       if (!admit(scope, "facts")) break;
       const name = ast.name(node);
@@ -554,27 +554,36 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
       if (target === null) break;
       bindings.push({ binding: reference, target });
     }
-    const bindingName = parent !== undefined && isBindingKind(ast.kindName(parent).replace(/^Kind/u, ""), ast.name(parent) !== undefined);
-    if (expressionKinds.includes(kind.replace(/^Kind/u, "")) && !declarationName && !bindingName && !moduleSpecifier(ast, node, parent)) {
+    const bindingName = parent !== undefined && isModuleBindingKind(ast.kindName(parent).replace(/^Kind/u, ""), ast.name(parent) !== undefined);
+    const moduleExpression = moduleSpecifier(ast, node, parent);
+    if (moduleExpression && parent !== undefined) {
+      const symbol = scope.checker.getSymbolAtLocation(node);
+      const id = symbol === undefined ? null : rawSymbol(scope, symbol);
+      if (scope.meter.refusal !== null) break;
+      const target = id === null ? undefined : scope.tables.symbols[id]?.target;
+      const declaration = referenceTo(scope, program, parent);
+      if (scope.meter.refusal !== null) break;
+      if (declaration === null) return throwInvariant(invariant("A captured module link has no actual syntax statement."));
+      if (!admit(scope, "edges")) break;
+      links.push({ declaration, specifier: reference, kind: ast.kindName(parent) === "KindExportDeclaration" ? "export" : "import",
+        resolution: target?.kind === "available" && target.value.kind === "module" ? { kind: "project", module: target.value.module } : { kind: "unresolved" } });
+    }
+    if (expressionKinds.includes(kind.replace(/^Kind/u, "")) && !declarationName && !bindingName && !moduleExpression) {
       const read = rawType(scope, () => scope.checker.getTypeAtLocation(node), component(scope, reference, []), null);
       if (read === null) break;
       const contextual = scope.checker.getContextualType(node);
       const contextualType = contextual === undefined ? null : rawType(scope, () => contextual, component(scope, reference, []), null);
       if (contextual !== undefined && contextualType === null) break;
       const symbol = scope.checker.getSymbolAtLocation(node);
-      const symbolId = symbol === undefined ? null : rawSymbol(scope, program, symbol);
+      const symbolId = symbol === undefined ? null : rawSymbol(scope, symbol);
       if (symbol !== undefined && symbolId === null) break;
       if (!admit(scope, "facts")) break;
       views.push({ node: reference, read: available(read), declared: available(null), contextual: available(contextualType), symbol: available(symbolId) });
-      if (kind === "KindIdentifier" && symbol !== undefined) {
-        for (const declaration of scope.checker.getSymbolDeclarations(symbol)) {
-          const target = declaration === undefined ? null : referenceTo(scope, program, declaration);
-          if (scope.meter.refusal !== null) break capture;
-          if (target === null) continue;
-          if (!admit(scope, "edges")) break capture;
-          references.push({ occurrence: reference, meaning: "value", declaration: target, module: target.module,
-            project: target.module === module || OpenedProgram.modules(program).has(ast.getFileName(ast.getSourceFile(declaration) ?? file)) });
-        }
+      if (kind === "KindIdentifier" && symbolId !== null) {
+        const captured = scope.tables.symbols[symbolId];
+        if (captured === undefined) return throwInvariant(invariant("A reference has no actual captured symbol target."));
+        if (!admit(scope, "edges")) break capture;
+        references.push({ occurrence: reference, meaning: "value", target: captured.target });
       }
     }
     // An authored type annotation (the type child of its declaration): the type the checker gives that type node.
@@ -633,7 +642,7 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
     module, tree,
     types: { types: scope.tables.types, components: scope.tables.components, signatures: scope.tables.signatures, members: scope.tables.members,
       symbols: scope.tables.symbols, candidates: scope.tables.candidates, dataLayouts: [], memoryLayouts: [], memoryFields: [] },
-    checkerViews: views, calls, callableAssociations: associations, providerDeclarations: [], references, links: [], exports, bindings,
+    checkerViews: views, calls, callableAssociations: associations, providerDeclarations: [], references, links, exports, bindings,
     implementations: [], heritage: [], constructors: [], enums: [], propertyNames: [], memberUses: [], protocols: [], storage: [], core,
     checkerDiagnostics: [], diagnosticCoverage: [],
   };

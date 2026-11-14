@@ -5,13 +5,14 @@ import { encodeDefId } from "../ids/index.js";
 import type { AwaitExpression, BinaryOperator, CheckedPhase, DeclarationKind, ForInStatement, ForOfStatement, HirBinaryOperator, HirBody, HirCandidateList, HirModule, HirNode, HirRule, HirSite, HirUnaryOperator, HirVerificationContext, SpreadElement, VerifyHir, YieldExpression } from "./contract.js";
 import type { HirDataRoot, HirInventory, HirNodeEntry, HirReport } from "./verify-syntax.js";
 import { walkHirData } from "./verify-syntax.js";
-import { hirBodyData, hirDiagnosticsData, hirItemsData, hirNodeData, hirObligationsData } from "./text-data.js";
+import { hirBodyData, hirDiagnosticsData, hirItemsData, hirModuleBindingData, hirModuleExportData, hirNodeData, hirObligationsData } from "./text-data.js";
 import { createHirIdentityPaths, hirLexicalBodyRanges, localSourceEntry, localSourceNode, sourceNodeExists, sourceNodeData, validHirIndex, verifyBindingVectors, verifyHirReferences } from "./verify-bindings.js";
 import type { HirBindingRequest, HirIdentityPaths } from "./verify-bindings.js";
 import { createHirSchema, verifyHirCaptures, verifyHirPlaces } from "./verify-captures.js";
 import type { HirCaptureReaders } from "./verify-captures.js";
 import { syntaxChildEdges } from "./children.js";
 import { hasOverloadEndpoints, selectedEndpointRoleFaults } from "./endpoints.js";
+import { verifyExportBindings } from "./verify-export-bindings.js";
 import { hirChildPath, hirDataPathText } from "./walk.js";
 import type { HirDataPath } from "./walk.js";
 
@@ -188,13 +189,13 @@ function declarationViolations(module: HirModule, inventory: HirInventory, paths
 const declarationKinds: readonly DeclarationKind[] = ([
   "VariableDeclaration", "Parameter", "BindingElement", "MissingDeclaration", "FunctionDeclaration", "ClassDeclaration",
   "ClassExpression", "InterfaceDeclaration", "TypeAliasDeclaration", "JSTypeAliasDeclaration", "EnumMember", "EnumDeclaration",
-  "ImportDeclaration", "JSImportDeclaration", "NamespaceImport", "ExportAssignment", "NamespaceExportDeclaration", "NamespaceExport",
-  "ExportSpecifier", "CallSignature", "ConstructSignature", "Constructor", "GetAccessor", "SetAccessor", "IndexSignature",
+  "ExportAssignment", "NamespaceExport",
+  "CallSignature", "ConstructSignature", "Constructor", "GetAccessor", "SetAccessor", "IndexSignature",
   "MethodSignature", "MethodDeclaration", "PropertySignature", "PropertyDeclaration", "SemicolonClassElement", "ClassStaticBlockDeclaration",
   "NoSubstitutionTemplateLiteral", "BinaryExpression", "ArrowFunction", "FunctionExpression", "CallExpression", "ObjectLiteralExpression",
   "SpreadAssignment", "PropertyAssignment", "ShorthandPropertyAssignment", "MappedType", "TypeLiteral", "NamedTupleMember", "FunctionType",
-  "ConstructorType", "JsxAttributes", "JsxAttribute", "JSDocSignature", "SourceFile", "ModuleDeclaration", "ImportEqualsDeclaration",
-  "ExportDeclaration", "ImportClause", "ImportSpecifier", "TypeParameter", "JSDocTypeLiteral",
+  "ConstructorType", "JsxAttributes", "JsxAttribute", "JSDocSignature", "SourceFile", "ModuleDeclaration",
+  "TypeParameter", "JSDocTypeLiteral",
 ]);
 
 interface HirCandidateArena {
@@ -317,6 +318,8 @@ function verificationRoots(module: HirModule, inventory: HirInventory): readonly
     { work: hirDiagnosticsData(module.checkerDiagnostics), site: moduleSite, node: null, body: null },
     { work: hirObligationsData(module.obligations), site: moduleSite, node: null, body: null },
   ];
+  for (const entry of module.exports) roots.push({ work: hirModuleExportData(entry), site: moduleSite, node: null, body: null });
+  for (const binding of module.bindings) roots.push({ work: hirModuleBindingData(binding), site: moduleSite, node: null, body: null });
   for (const entry of inventory.entries) roots.push({ work: hirNodeData(entry.node),
     site: { kind: "node", node: entry.source }, node: entry.node, body: entry.body });
   for (const body of module.bodies) roots.push({ work: hirBodyData(body),
@@ -710,6 +713,7 @@ export const verifyHir: VerifyHir = (module, context) => {
   const arenas = bodyViolations(module, inventory, paths, report);
   const roots = verificationRoots(module, inventory);
   verifyHirReferences(roots, module, inventory, context, paths, report);
+  verifyExportBindings(roots, module, inventory, context, paths, report);
   const requests: HirBindingRequest[] = [];
   candidateViolations(inventory, context, arenas, requests, report);
   literalViolations(inventory, report, roots);

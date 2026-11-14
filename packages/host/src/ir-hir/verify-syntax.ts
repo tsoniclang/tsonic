@@ -128,10 +128,11 @@ type HirSchemaName = HirSyntaxName | "ModuleId" | "BodyId" | "NodeId" | "TyId" |
   | "CheckedAggregate" | "CheckedApplication" | "CheckedMember" | "CheckedProtocol" | "CheckedClosure"
   | "CheckedType" | "DeclarationTarget" | "CheckedCallable" | "CheckedClass" | "CheckedClassExpression"
   | "HirHeritage" | "CheckedTypeAlias" | "CheckedVariable" | "CheckedEnum" | "CheckedNamespace"
-  | "HirImportBinding" | "CheckedImport" | "HirExportBinding" | "CheckedExport" | "CheckedStaticBlock"
+  | "CheckedImport" | "CheckedExport" | "CheckedExportBinding" | "CheckedNamespaceExport" | "CheckedExportAssignment" | "CheckedStaticBlock"
   | "CheckedProperty" | "CheckedBinding" | "CheckedBindingList" | "CheckedIteration" | "CheckedModule"
   | "CheckedTypeParameter" | "HirLocal" | "HirParam" | "HirLexicalScope" | "HirBody" | "HirDeclarationEntry"
-  | "HirUnaryOperator" | "HirBinaryOperator" | "ProofObligation" | "HirDiagnosticRoot" | "HirModule";
+  | "HirUnaryOperator" | "HirBinaryOperator" | "ProofObligation" | "HirDiagnosticRoot" | "HirModule"
+  | "HirExportTarget" | "HirBindingTarget" | "HirModuleExport" | "HirModuleBinding" | "CheckerDiagnosticRef";
 type HirShapeBody = HirIdentityShape | HirHostCodeShape | HirLiteralShape | HirArrayShape | HirChoiceShape | HirRecordShape | HirDictionaryShape;
 export type HirShape = "string" | "number" | "bigint" | "boolean" | "null" | "SyntaxNode" | HirSchemaName | HirShapeBody;
 export type HirField = readonly [string, HirShape] | readonly [string, HirLiteralShape, true];
@@ -530,6 +531,11 @@ interface HirSyntaxSchema {
   readonly VoidKeyword: HirShapeBody;
 }
 export interface HirSchema extends HirSyntaxSchema {
+  readonly HirExportTarget: HirShapeBody;
+  readonly HirBindingTarget: HirShapeBody;
+  readonly HirModuleExport: HirShapeBody;
+  readonly HirModuleBinding: HirShapeBody;
+  readonly CheckerDiagnosticRef: HirShapeBody;
   readonly HostDiagnosticCode: HirHostCodeShape;
   readonly DefId: HirShapeBody;
   readonly ExpansionId: HirShapeBody;
@@ -626,10 +632,11 @@ export interface HirSchema extends HirSyntaxSchema {
   readonly CheckedVariable: HirShapeBody;
   readonly CheckedEnum: HirShapeBody;
   readonly CheckedNamespace: HirShapeBody;
-  readonly HirImportBinding: HirShapeBody;
   readonly CheckedImport: HirShapeBody;
-  readonly HirExportBinding: HirShapeBody;
   readonly CheckedExport: HirShapeBody;
+  readonly CheckedExportBinding: HirShapeBody;
+  readonly CheckedNamespaceExport: HirShapeBody;
+  readonly CheckedExportAssignment: HirShapeBody;
   readonly CheckedStaticBlock: HirShapeBody;
   readonly CheckedProperty: HirShapeBody;
   readonly CheckedBinding: HirShapeBody;
@@ -792,11 +799,11 @@ export function createSyntaxSchema(): HirSyntaxSchema {
     ExternalModuleReference: node("ExternalModuleReference", "null", [["expression", "Expression"]]),
     NamespaceImport: node("NamespaceImport", "CheckedImport", [["name", "Identifier"]]),
     NamedImports: node("NamedImports", "null", [["elements", list("ImportSpecifier")]]),
-    ExportAssignment: node("ExportAssignment", "CheckedExport", [["modifiers", modifiers], ["isExportEquals", "boolean"], ["type", annotation], ["expression", "Expression"]]),
-    NamespaceExportDeclaration: node("NamespaceExportDeclaration", "CheckedExport", [["modifiers", modifiers], ["name", "Identifier"]]),
-    NamespaceExport: node("NamespaceExport", "CheckedExport", [["name", "ModuleExportName"]]),
+    ExportAssignment: node("ExportAssignment", "CheckedExportAssignment", [["modifiers", modifiers], ["isExportEquals", "boolean"], ["type", annotation], ["expression", "Expression"]]),
+    NamespaceExportDeclaration: node("NamespaceExportDeclaration", "CheckedExportBinding", [["modifiers", modifiers], ["name", "Identifier"]]),
+    NamespaceExport: node("NamespaceExport", "CheckedNamespaceExport", [["name", "ModuleExportName"]]),
     NamedExports: node("NamedExports", "null", [["elements", list("ExportSpecifier")]]),
-    ExportSpecifier: node("ExportSpecifier", "CheckedExport", [["isTypeOnly", "boolean"], ["propertyName", hirNullable("ModuleExportName")], ["name", "ModuleExportName"]]),
+    ExportSpecifier: node("ExportSpecifier", "CheckedExportBinding", [["isTypeOnly", "boolean"], ["propertyName", hirNullable("ModuleExportName")], ["name", "ModuleExportName"]]),
     CallSignature: node("CallSignature", "CheckedCallable", callable),
     ConstructSignature: node("ConstructSignature", "CheckedCallable", callable),
     Constructor: node("Constructor", "CheckedCallable", [["modifiers", modifiers], ...callable, ["asteriskToken", hirNullable("AsteriskToken")], ["body", hirNullable("BlockOrExpression")]]),

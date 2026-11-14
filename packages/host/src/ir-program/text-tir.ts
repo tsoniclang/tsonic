@@ -1,6 +1,6 @@
 import type { TypedValue, ConversionDecision, TirDemand, TirResolution, TargetAccess, TirApplication, TirProtocol, TypedOperation, TirSelection, MemberSelection, ResolvedCallee, TirArgument, TirProtocolStep, TirRestPart } from "../ir-tir/contract.js";
 import type { TextWork } from "./text-values.js";
-import { token, text, numeric, numericIdentity, identity, field, record, sequence, deferred, boolean, textLocalRef } from "./text-values.js";
+import { token, text, numeric, numericIdentity, identity, field, record, sequence, deferred, boolean, textLocalRef, textSourceNodeRef } from "./text-values.js";
 import { textRefinementDecision, textEmbeddingDecision, textDeferredDecision, textOperationDecision, textMemberDecision, textApplicationDecision } from "./text-inference.js";
 import { textImportTarget } from "./text-core.js";
 import { textBodyInstance } from "./text-types.js";
@@ -70,7 +70,7 @@ export function textTirResolution(value: TirResolution): TextWork {
       case "definition":
         return record(value.kind, [
       field("definition", identity("def", value.definition)),
-      field("aliases", sequence(value.aliases, entry0 => identity("def", entry0))),
+      field("aliases", sequence(value.aliases, textSourceNodeRef)),
     ]);
       case "module":
         return record(value.kind, [

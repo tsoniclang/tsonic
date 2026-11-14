@@ -147,13 +147,6 @@ export function verifyModules(lookup: ProgramLookup, index: ProgramIndex, contex
         });
       }
       previousExport = exported.name;
-      const definition = lookup.definitions.get(exported.definition);
-      if (definition === undefined || definition === null) {
-        violations.push({
-          rule: "export-definition-resolves", site,
-          detail: [textDetail(exported.name), textDetail(exported.definition)],
-        });
-      }
     }
   }
   return violations;

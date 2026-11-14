@@ -127,7 +127,7 @@ export function syntaxTransportModule(input, value, family) {
       const expression = { ...wrapper, kind: "ArrowFunction", modifiers: null, typeParameters: null, parameters: list([]),
         type: null, fullSignature: null, asteriskToken: null, body: node,
         equalsGreaterThanToken: { ...header(maximum + 2), parent: wrapper.id, kind: "EqualsGreaterThanToken", tsonic: null },
-        tsonic: { ...typedValue, callable: { definition: module.bodies[0].tir.owner, parameters: [], signatures: [], template: null, attributes: [] }, captures: [],
+        tsonic: { ...typedValue, callable: { definition: module.bodies[0].tir.owner, parameters: [], signatures: [], template: null, attributes: [] },
           closure: { kind: "decided", decision: { carrier: 0, captures: [], execution: { kind: "pure" } } } } };
       statement = { ...header(maximum + 3), kind: "ExpressionStatement", expression, tsonic: null };
       expression.parent = statement.id;
@@ -205,7 +205,7 @@ function syntaxParentCarrier(node, family, definition, first) {
   const advertised = { declaration: definition, role: "advertised", signature: 0, body: null };
   const application = { callee: { decision: { candidate: 0, advertised, api: { ...advertised, role: "api-signature" },
     bindings, implementationBindings: bindings, parameters: [], completion: { signature: 0, completion: 0, yielded: null, sent: null }, result: 0, activation: null },
-    activation: null, captures: [] }, receiver: null, arguments: [] };
+    activation: null }, receiver: null, arguments: [] };
   switch (family) {
     case "LeftHandSideExpression": return { ...own, kind: "Decorator", expression: node, tsonic: { application: { kind: "decided", decision: application } } };
     case "NodeBody": case "ModuleName": return { ...own, kind: "ModuleDeclaration", modifiers: null, asteriskToken: null,
@@ -222,13 +222,13 @@ function syntaxParentCarrier(node, family, definition, first) {
       tsonic: { parameter: definition, narrowed: null, asserts: false } };
     case "ImportAttributeName": return { ...own, kind: "ImportAttribute", name: node, value: literal(own.id), tsonic: null };
     case "ModuleReference": return { ...own, kind: "ImportEqualsDeclaration", modifiers: null, isTypeOnly: false, name: name(own.id),
-      moduleReference: node, tsonic: { definition, imported: { kind: "definition", definition } } };
+      moduleReference: node, tsonic: { binding: { kind: "item", value: { owner: definition, node: own.id } } } };
     case "ModuleExportName": return { ...own, kind: "ExportSpecifier", isTypeOnly: false, propertyName: null, name: node,
-      tsonic: { definition, exported: { kind: "definition", definition } } };
+      tsonic: { binding: { kind: "item", value: { owner: definition, node: own.id } } } };
     case "NamedImportBindings": return { ...own, kind: "ImportClause", phaseModifier: null, name: null, namedBindings: node,
-      tsonic: { definition, imported: { kind: "definition", definition } } };
+      tsonic: { binding: { kind: "item", value: { owner: definition, node: own.id } } } };
     case "NamedExportBindings": return { ...own, kind: "ExportDeclaration", modifiers: null, isTypeOnly: false, exportClause: node,
-      moduleSpecifier: null, attributes: null, tsonic: { definition, target: null } };
+      moduleSpecifier: null, attributes: null, tsonic: { target: null } };
     case "TemplateLiteral": return { ...own, kind: "TaggedTemplateExpression", tag: { ...name(own.id), tsonic: {
       ...value, role: "value", resolution: { kind: "definition", definition, aliases: [] } } }, questionDotToken: null, typeArguments: null,
       template: node, tsonic: { ...value, application: { kind: "decided", decision: application }, operation: null } };
@@ -293,7 +293,7 @@ export function nullableSyntaxCases(node, definition, body) {
     }],
     ["tags", () => list([])],
     ["importClause", () => ({ ...header(node.id), kind: "ImportClause", phaseModifier: null, name: null, namedBindings: null,
-      tsonic: { definition, imported: { kind: "definition", definition } } })],
+      tsonic: null })],
     ["jsDocPropertyTags", () => []],
     ["attributes", () => ({ ...header(node.id), kind: "ImportAttributes", token: "WithKeyword", attributes: list([]), multiLine: false, tsonic: null })],
     ["exportClause", () => ({ ...header(node.id), kind: "NamedExports", elements: list([]), tsonic: null })],
@@ -351,7 +351,7 @@ export function relationalTransportFacts(fixture) {
   const advertised = { declaration: fixture.definition, role: "advertised", signature: 0, body: null };
   const application = { candidate: 0, advertised, api: { ...advertised, role: "api-signature" }, bindings,
     implementationBindings: bindings, parameters: [], completion: { signature: 0, completion: 0, yielded: null, sent: null }, result: 0, activation: null };
-  const resolution = { decision: application, activation: fixture.instance, captures: [] };
+  const resolution = { decision: application, activation: fixture.instance };
   const argument = owner => ({ authoredIndex: 0, parameter: fixture.definition, parameterIndex: 0, repeated: false,
     passing: "by-value", actual: 0, formal: { owner, producer: 0 }, projection: null });
   facts.arena = {
@@ -393,7 +393,7 @@ export function mirTransportCases(fixture) {
   const endpoint = { declaration: fixture.definition, role: "advertised", signature: 0, body: null };
   const selected = { decision: { candidate: 0, advertised: endpoint, api: { ...endpoint, role: "api-signature" },
     bindings, implementationBindings: bindings, parameters: [], completion: { signature: 0, completion: 0, yielded: null, sent: null }, result: 0, activation: null },
-    activation: instance, captures: [] };
+    activation: instance };
   const operation = { permissionScope: null, decision: { kind: "selected", operation: { kind: "boolean-operator", operator: "!" }, operands: [0], result: 0, execution: { kind: "pure" } } };
   const member = { decision: { key: { kind: "text", value: "value" }, origins: [], selectedDeclarations: [], primary: null,
     read: 0, write: 0, getter: null, setter: null, bindings, location: { kind: "data", check: { kind: "none" }, receiver: "in-place" } }, getter: null, setter: null };
@@ -405,34 +405,34 @@ export function mirTransportCases(fixture) {
   const cases = [];
   const body = changes => ({ ...structuredClone(source), locals: [local], constants: [constant], places: [root], ...changes });
   const values = [{ kind: "use", operand }, { kind: "unary", operation, operand }, { kind: "binary", operation, left: operand, right: operand },
-    { kind: "convert", operation, operand, to: 0 }, { kind: "refine", operand, to: 0 }, { kind: "address-of", place: 0, type: 0 },
+    { kind: "convert", operation, operand, to: 0 }, { kind: "address-of", place: 0, type: 0 },
     { kind: "closure", instance, captures: [{ local: { body: fixture.bodyId, local: 0 }, place: 0 }] },
     ...["array", "tuple", "fixed-array"].map(kind => ({ kind: "aggregate", type: 0, aggregate: { kind, elements: [operand] } })),
     ...["object", "record"].map(kind => ({ kind: "aggregate", type: 0, aggregate: { kind, fields: [{ member, value: operand }] } }))];
   for (const [position, value] of values.entries()) cases.push({ name: `rvalue-${position}-${value.kind}`, body: body({ blocks: [
-    { ...source.blocks[0], statements: [{ ...site, kind: "assign", place: 0, value }] },
+    { ...source.blocks[0], statements: [{ ...site, kind: "assign", place: 0, value, step: null }] },
   ] }) });
-  for (const projection of [{ kind: "field", member }, { kind: "element", index: 0 }, { kind: "index", operand },
-    { kind: "deref" }, { kind: "capture", index: 0 }]) cases.push({ name: `projection-${projection.kind}`, body: body({
-    places: [root, { ...root, id: 1, base: { kind: "place", place: 0, projection } }],
+  for (const kind of ["place", "checked"]) for (const projection of [{ kind: "field", member }, { kind: "element", index: 0 }, { kind: "index", operand },
+    { kind: "deref" }, { kind: "refined" }, { kind: "capture", index: 0 }]) cases.push({ name: `projection-${kind}-${projection.kind}`, body: body({
+    places: [root, { ...root, id: 1, base: { kind, place: 0, projection, tir: site.tir } }],
   }) });
   cases.push({ name: "static-root", body: body({ places: [{ ...root, base: { kind: "static", definition: fixture.definition } }] }) });
   for (const value of [{ kind: "definition", definition: fixture.definition, bindings: { kind: "parametric" } },
     { kind: "metadata", definition: fixture.definition, bindings: { kind: "instantiated", bindings } },
     { kind: "observation", at: site.tir }, { kind: "constant", reference: { initializer: fixture.instance } }])
     cases.push({ name: `constant-${value.kind}`, body: body({ constants: [{ ...constant, value }] }) });
-  for (const callee of [{ kind: "direct", resolution: selected }, { kind: "indirect", operand, resolution: selected }])
+  for (const callee of [{ kind: "direct", resolution: selected }, { kind: "indirect", operand, resolution: selected }, { kind: "body", instance, captures: [] }])
     cases.push({ name: `call-${callee.kind}`, body: body({ blocks: [{ ...source.blocks[0], terminator: { ...site,
-      kind: "call", callee, receiver: null, arguments: [], destination: null, next: 0, unwind: { kind: "escape" },
+      kind: "call", callee, receiver: null, arguments: [], destination: null, next: 0, unwind: { kind: "escape" }, step: null,
     } }] }) });
   cases.push({ name: "invoke", body: body({ blocks: [{ ...source.blocks[0], terminator: { ...site, kind: "invoke", operation,
-    operands: [operand], destination: null, next: 0, unwind: { kind: "escape" },
+    operands: [operand], destination: null, next: 0, unwind: { kind: "escape" }, step: null,
   } }] }) });
   for (const terminator of [{ kind: "goto", target: 0 },
-    { kind: "switch", operand, targets: [{ constant: 0, target: 0 }], otherwise: 0 },
-    { kind: "await", operand, destination: 0, resume: 0, unwind: { kind: "escape" } },
-    { kind: "yield", operand, destination: 0, resume: 0, return: { destination: 0, target: 0 }, unwind: { kind: "escape" } },
-    { kind: "delegate", iterator: operand, destination: 0, resume: 0, return: { destination: 0, target: 0 }, unwind: { kind: "escape" } },
+    { kind: "switch", operand, targets: [{ constant: 0, target: 0 }], otherwise: 0, step: null },
+    { kind: "await", operand, destination: 0, resume: 0, unwind: { kind: "escape" }, step: null },
+    { kind: "yield", operand, destination: 0, resume: 0, return: { destination: 0, target: 0 }, unwind: { kind: "escape" }, step: null },
+    { kind: "delegate", iterator: operand, destination: 0, resume: 0, return: { destination: 0, target: 0 }, unwind: { kind: "escape" }, step: null },
     { kind: "throw", operand, unwind: { kind: "handler", exception: 0, target: 0 } }])
     cases.push({ name: `terminator-${terminator.kind}`, body: body({ blocks: [{ ...source.blocks[0], terminator: { ...site, ...terminator } }] }) });
   return cases;

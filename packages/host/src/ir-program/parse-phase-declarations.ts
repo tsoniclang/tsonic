@@ -1,13 +1,13 @@
-import type { ModuleId, DefId, BodyId, TyId, LocalRef } from "../ids/contract.js";
+import type { ModuleId, DefId, BodyId, TyId, LocalRef, SourceNodeRef } from "../ids/contract.js";
 import type { TypeParameter, BindingVector, PassingMode } from "../ir-types/contract.js";
 import type { ImportTarget, HirAttribute, HirCallableEndpoint, DeclarationTarget } from "../ir-hir/contract.js";
-import type { TypedBinding, TypedBindingPattern, TypedParameter, TypedBodyTemplate, TypedCallable, TypedClass, TypedHeritage, TypedInterface, TypedAlias, TypedEnum, TypedStorageDeclaration, TypedStaticBlock, TypedIndexDeclaration, TypedType, TypedPredicate, TypedTypeParameter, TypedImport, TypedImportBinding, ModuleBindingTarget, TypedModuleReference, TypedExport, TypedExportBinding, TypedExportAssignment, TypedNamespace, TypedSourceFile } from "../ir-tir/contract.js";
-import type { Cursor, RecordFields, TextStep } from "./parse-values.js";
+import type { TypedBinding, TypedBindingPattern, TypedParameter, TypedBodyTemplate, TypedCallable, TypedClass, TypedHeritage, TypedInterface, TypedAlias, TypedEnum, TypedStorageDeclaration, TypedStaticBlock, TypedIndexDeclaration, TypedType, TypedPredicate, TypedTypeParameter, TypedImport, TypedImportBinding, TypedModuleReference, TypedExport, TypedExportBinding, TypedNamespaceExport, TypedExportAssignment, TypedNamespace, TypedSourceFile } from "../ir-tir/contract.js";
+import type { Cursor, TextStep } from "./parse-values.js";
 import type { TypedBindingElement } from "../ir-tir/contract.js";
 import { startFieldChoice } from "./parse-values.js";
-import { delimiter, choice, readBoolean, readStringChoice, openRecord, closeRecord, readModuleId, readDefinitionId, readBodyId, readTypeId, acceptText, atomicText, fieldText, nullableText, arrayText } from "./parse-values.js";
+import { readBoolean, readStringChoice, openRecord, closeRecord, readModuleId, readDefinitionId, readBodyId, readTypeId, acceptText, atomicText, fieldText, nullableText, arrayText } from "./parse-values.js";
 import { readTypeParameterText, readBindings } from "./parse-types.js";
-import { readLocalRef } from "./parse-diagnostics.js";
+import { readLocalRef, readSourceNodeRef } from "./parse-diagnostics.js";
 import { readHirCallableEndpointText, readHirAttributeText, readDeclarationTargetText, readImportTargetText } from "./parse-core.js";
 
 export function readTypedBindingElementText<Root>(cursor: Cursor, finish: (value: TypedBindingElement) => TextStep<Root>): TextStep<Root> {
@@ -124,10 +124,8 @@ export function readTypedEnumText<Root>(cursor: Cursor, finish: (value: TypedEnu
 
 export function readTypedImportText<Root>(cursor: Cursor, finish: (value: TypedImport) => TextStep<Root>): TextStep<Root> {
   return atomicText(cursor, next => openRecord(next, "TypedImport"), fields =>
-    fieldText<DefId, Root>(cursor, fields, "definition", (next, done) => atomicText(next, readDefinitionId, done), definitionValue =>
-    fieldText<ImportTarget, Root>(cursor, fields, "target", readImportTargetText, targetValue =>
-      atomicText(cursor, next => closeRecord(next, fields), () =>
-          acceptText({ definition: definitionValue, target: targetValue }, finish)))));
+    fieldText<ImportTarget, Root>(cursor, fields, "target", readImportTargetText, target =>
+      atomicText(cursor, next => closeRecord(next, fields), () => acceptText({ target }, finish))));
 }
 
 export function readTypedModuleReferenceText<Root>(cursor: Cursor, finish: (value: TypedModuleReference) => TextStep<Root>): TextStep<Root> {
@@ -139,10 +137,8 @@ export function readTypedModuleReferenceText<Root>(cursor: Cursor, finish: (valu
 
 export function readTypedImportBindingText<Root>(cursor: Cursor, finish: (value: TypedImportBinding) => TextStep<Root>): TextStep<Root> {
   return atomicText(cursor, next => openRecord(next, "TypedImportBinding"), fields =>
-    fieldText<DefId, Root>(cursor, fields, "definition", (next, done) => atomicText(next, readDefinitionId, done), definitionValue =>
-    fieldText<ModuleBindingTarget, Root>(cursor, fields, "imported", readModuleBindingTargetText, importedValue =>
-      atomicText(cursor, next => closeRecord(next, fields), () =>
-          acceptText({ definition: definitionValue, imported: importedValue }, finish)))));
+    fieldText<SourceNodeRef, Root>(cursor, fields, "binding", (next, done) => atomicText(next, readSourceNodeRef, done), binding =>
+      atomicText(cursor, next => closeRecord(next, fields), () => acceptText({ binding }, finish))));
 }
 
 export function readTypedExportAssignmentText<Root>(cursor: Cursor, finish: (value: TypedExportAssignment) => TextStep<Root>): TextStep<Root> {
@@ -155,10 +151,8 @@ export function readTypedExportAssignmentText<Root>(cursor: Cursor, finish: (val
 
 export function readTypedExportBindingText<Root>(cursor: Cursor, finish: (value: TypedExportBinding) => TextStep<Root>): TextStep<Root> {
   return atomicText(cursor, next => openRecord(next, "TypedExportBinding"), fields =>
-    fieldText<DefId, Root>(cursor, fields, "definition", (next, done) => atomicText(next, readDefinitionId, done), definitionValue =>
-    fieldText<ModuleBindingTarget, Root>(cursor, fields, "exported", readModuleBindingTargetText, exportedValue =>
-      atomicText(cursor, next => closeRecord(next, fields), () =>
-          acceptText({ definition: definitionValue, exported: exportedValue }, finish)))));
+    fieldText<SourceNodeRef, Root>(cursor, fields, "binding", (next, done) => atomicText(next, readSourceNodeRef, done), binding =>
+      atomicText(cursor, next => closeRecord(next, fields), () => acceptText({ binding }, finish))));
 }
 
 export function readTypedIndexDeclarationText<Root>(cursor: Cursor, finish: (value: TypedIndexDeclaration) => TextStep<Root>): TextStep<Root> {
@@ -214,10 +208,8 @@ export function readTypedNamespaceText<Root>(cursor: Cursor, finish: (value: Typ
 
 export function readTypedExportText<Root>(cursor: Cursor, finish: (value: TypedExport) => TextStep<Root>): TextStep<Root> {
   return atomicText(cursor, next => openRecord(next, "TypedExport"), fields =>
-    fieldText<DefId, Root>(cursor, fields, "definition", (next, done) => atomicText(next, readDefinitionId, done), definitionValue =>
-    fieldText<ImportTarget | null, Root>(cursor, fields, "target", (next, done) => nullableText(next, readImportTargetText, done), targetValue =>
-      atomicText(cursor, next => closeRecord(next, fields), () =>
-          acceptText({ definition: definitionValue, target: targetValue }, finish)))));
+    fieldText<ImportTarget | null, Root>(cursor, fields, "target", (next, done) => nullableText(next, readImportTargetText, done), target =>
+      atomicText(cursor, next => closeRecord(next, fields), () => acceptText({ target }, finish))));
 }
 
 export function readTypedTypeParameterText<Root>(cursor: Cursor, finish: (value: TypedTypeParameter) => TextStep<Root>): TextStep<Root> {
@@ -236,19 +228,9 @@ export function readTypedBodyTemplateText<Root>(cursor: Cursor, finish: (value: 
             acceptText({ body: bodyValue, lexicalBindings: lexicalBindingsValue, dependence: dependenceValue }, finish))))));
 }
 
-export function readModuleBindingTargetText<Root>(cursor: Cursor, finish: (value: ModuleBindingTarget) => TextStep<Root>): TextStep<Root> {
-  return atomicText(cursor, next => choice(next, ["definition","module"]), label =>
-    atomicText(cursor, next => delimiter(next, "("), () => {
-      const fields: RecordFields = { given: new Set<string>() };
-      switch (label) {
-        case "definition":
-          return fieldText<DefId, Root>(cursor, fields, "definition", (next, done) => atomicText(next, readDefinitionId, done), definitionValue =>
-    atomicText(cursor, next => closeRecord(next, fields), () =>
-        acceptText({ kind: label, definition: definitionValue }, finish)));
-        case "module":
-          return fieldText<ImportTarget, Root>(cursor, fields, "target", readImportTargetText, targetValue =>
-    atomicText(cursor, next => closeRecord(next, fields), () =>
-        acceptText({ kind: label, target: targetValue }, finish)));
-      }
-    }));
+export function readTypedNamespaceExportText<Root>(cursor: Cursor, finish: (value: TypedNamespaceExport) => TextStep<Root>): TextStep<Root> {
+  return atomicText(cursor, next => openRecord(next, "TypedNamespaceExport"), fields =>
+    fieldText<DefId, Root>(cursor, fields, "definition", (next, done) => atomicText(next, readDefinitionId, done), definition =>
+      fieldText<SourceNodeRef, Root>(cursor, fields, "binding", (next, done) => atomicText(next, readSourceNodeRef, done), binding =>
+        atomicText(cursor, next => closeRecord(next, fields), () => acceptText({ definition, binding }, finish)))));
 }

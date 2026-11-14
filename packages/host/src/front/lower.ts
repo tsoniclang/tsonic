@@ -7,9 +7,10 @@ import { childrenOfSyntax } from "../ir-hir/index.js";
 import type { SignatureParameter, TypeTerm } from "../ir-types/contract.js";
 import { internSignature, internType } from "../ir-types/index.js";
 import type { PassingMode } from "../ir-types/contract.js";
-import type { ConvertedCheckedType, LowerDeps, ModuleDefinitions, ModuleExports, RawCallSelection, RawCallableAssociation, RawCheckerViews, RawCoreCapture, RawFact, RawModule, RawStorageCapture } from "./contract.js";
+import type { ConvertedCheckedType, LowerDeps, ModuleDefinitions, ModuleExports, RawBindingTarget, RawCallSelection, RawCallableAssociation, RawCheckerViews, RawCoreCapture, RawFact, RawModule, RawModuleLink, RawStorageCapture } from "./contract.js";
 import { moduleIdentities } from "./identities.js";
-import { lowerBindings } from "./bindings.js";
+import { lowerBindingFact, lowerBindings } from "./bindings.js";
+import { lowerExportDeclaration } from "./lower-exports.js";
 
 type Syntax = Hir.SyntaxPhase;
 type Checked = Hir.CheckedPhase;
@@ -22,7 +23,8 @@ const invariant = (message: string): InvariantFailure => ({ owner: "front", quer
  * one check below with a compiler-defect TypeError; no partial HIR is returned.
  */
 const writtenKinds: readonly string[] = ["SourceFile", "EndOfFile", "ExportKeyword", "FunctionDeclaration", "Parameter",
-  "Identifier", "NumberKeyword", "StringKeyword", "BooleanKeyword", "Block", "ReturnStatement", "BinaryExpression", "PlusToken", "CallExpression", "ExpressionStatement", "ParenthesizedExpression"];
+  "Identifier", "NumberKeyword", "StringKeyword", "BooleanKeyword", "Block", "ReturnStatement", "BinaryExpression", "PlusToken", "CallExpression", "ExpressionStatement", "ParenthesizedExpression",
+  "ExportDeclaration", "NamedExports", "ExportSpecifier", "NamespaceExport", "StringLiteral"];
 
 function unwrittenForm(node: Hir.SyntaxNode<Syntax>): string | null {
   if (!writtenKinds.includes(node.kind)) return node.kind;
@@ -34,6 +36,8 @@ function unwrittenForm(node: Hir.SyntaxNode<Syntax>): string | null {
         : node.dotDotDotToken !== null ? "rest Parameter" : null;
     case "CallExpression":
       return node.typeArguments !== null ? "CallExpression with type arguments" : node.questionDotToken !== null ? "optional CallExpression" : null;
+    case "ExportDeclaration": return node.attributes !== null ? "ExportDeclaration with attributes"
+      : node.moduleSpecifier !== null && node.moduleSpecifier.kind !== "StringLiteral" ? "ExportDeclaration with nonliteral module specifier" : null;
     default: return null;
   }
 }
@@ -250,7 +254,8 @@ interface Lowering {
   readonly raw: RawModule;
   readonly definitionAt: ReadonlyMap<NodeId, DefId>;
   readonly views: ReadonlyMap<NodeId, RawCheckerViews>;
-  readonly references: ReadonlyMap<NodeId, NodeId>;
+  readonly references: ReadonlyMap<NodeId, RawFact<RawBindingTarget>>;
+  readonly links: ReadonlyMap<NodeId, RawModuleLink>;
   readonly locals: Map<NodeId, LocalRef>;
   readonly associations: ReadonlyMap<NodeId, RawCallableAssociation>;
   readonly authoredTypes: ReadonlyMap<NodeId, RawTypeId>;
@@ -327,16 +332,20 @@ function targetOf(lowering: Lowering, declaration: NodeId): { readonly kind: "lo
  * A use resolves to the target of the declaration it names. A use of an outer body's local is a capture: it resolves
  * to the owner's local, and every body between the use and the owner records it once, in order of first use.
  */
-function resolutionOf(lowering: Lowering, use: NodeId, declaration: NodeId | undefined): Hir.HirResolution {
-  if (declaration === undefined || (!lowering.locals.has(declaration) && !lowering.definitionAt.has(declaration))) return { kind: "unresolved", checkerDiagnostic: null };
-  const target = targetOf(lowering, declaration);
-  if (target.kind === "definition") return { kind: "definition", definition: target.definition, aliases: [] };
-  for (let body = lowering.bodyOf.get(use); body !== undefined && body !== target.local.body; body = lowering.captureParent.get(body)) {
+function resolutionOf(lowering: Lowering, use: NodeId, raw: RawFact<RawBindingTarget> | undefined): Hir.HirResolution {
+  if (raw === undefined) return { kind: "unavailable", reason: "incomplete-association" };
+  const first = raw.kind === "available" && raw.value.kind === "declarations" && raw.value.declarations.length === 1 ? raw.value.declarations[0] : undefined;
+  const local = first !== undefined && first.module === lowering.raw.module ? lowering.locals.get(first.node) : undefined;
+  if (local === undefined) {
+    const target = lowerBindingFact(lowering.deps, raw);
+    return target.kind === "available" ? target.value : target;
+  }
+  for (let body = lowering.bodyOf.get(use); body !== undefined && body !== local.body; body = lowering.captureParent.get(body)) {
     const recorded = lowering.captures.get(body) ?? [];
-    if (!recorded.some(entry => entry.body === target.local.body && entry.local === target.local.local)) recorded.push(target.local);
+    if (!recorded.some(entry => entry.body === local.body && entry.local === local.local)) recorded.push(local);
     lowering.captures.set(body, recorded);
   }
-  return { kind: "local", local: target.local };
+  return { kind: "local", local };
 }
 
 function definitionOf(lowering: Lowering, node: NodeId): DefId {
@@ -442,6 +451,17 @@ function statement(lowering: Lowering, node: Hir.Statement<Syntax>, owner: DefId
       return { ...headerOf(node), kind: "ExpressionStatement", expression: expression(lowering, node.expression), tsonic: null };
     case "Block": return block(lowering, node, owner);
     case "FunctionDeclaration": return functionDeclaration(lowering, node, owner);
+    case "ExportDeclaration": return lowerExportDeclaration({
+      core: node => coreOf(lowering, node), memory: node => memoryOf(lowering, node), definition: node => definitionOf(lowering, node),
+      binding: node => lowering.deps.bindingOccurrenceOf({ module: lowering.raw.module, node })
+        ?? throwInvariant(invariant("A checked binding syntax requires its actual B1 occurrence.")),
+      target: node => {
+        const link = lowering.links.get(node);
+        if (link === undefined || link.resolution.kind === "unresolved") return { kind: "unavailable", reason: "incomplete-association" };
+        return { kind: "available", value: link.resolution.kind === "project" ? { target: "project", module: link.resolution.module }
+          : { target: "library", module: link.resolution.module } };
+      },
+    }, node, owner);
     default: return throwInvariant(invariant("A statement of an unwritten kind passed the written-kinds check."));
   }
 }
@@ -529,8 +549,31 @@ function functionDeclaration(lowering: Lowering, node: Hir.FunctionDeclaration<S
  * The checked module of one raw capture. The written kinds and forms are the only ones lowered; a module holding
  * any other is refused at once by the one check of the development frontier.
  */
+function referenceTargets(raw: RawModule): ReadonlyMap<NodeId, RawFact<RawBindingTarget>> {
+  const references = new Map<NodeId, RawFact<RawBindingTarget>>();
+  for (const reference of raw.references) {
+    if (reference.occurrence.module !== raw.module || references.has(reference.occurrence.node))
+      return throwInvariant(invariant("Each use must retain one complete captured target in its actual module."));
+    references.set(reference.occurrence.node, reference.target);
+  }
+  return references;
+}
+
+function moduleLinks(raw: RawModule): ReadonlyMap<NodeId, RawModuleLink> {
+  const links = new Map<NodeId, RawModuleLink>();
+  for (const link of raw.links) {
+    if (link.specifier.module !== raw.module || links.has(link.specifier.node))
+      return throwInvariant(invariant("Each module specifier must retain one actual captured module-link row."));
+    links.set(link.specifier.node, link);
+  }
+  return links;
+}
+
 export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<Hir.HirModule> {
   refuseUnwritten(raw.tree);
+  const exported = deps.exportsOf(raw.module);
+  if (exported === null || exported.module !== raw.module)
+    return throwInvariant(invariant("Checked lowering requires the actual completed B1 module export and binding inventory."));
   const rows = moduleIdentities(raw.module, raw.tree).rows;
   const definitionAt = new Map<NodeId, DefId>(rows.map(row => [row.node, deps.definitionOf({ module: raw.module, node: row.node })]));
   const moduleDefinition = definitionAt.get(raw.tree.id) ?? throwInvariant(invariant("A module has no definition identity."));
@@ -541,7 +584,7 @@ export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<Hir.HirM
     core: new Map(raw.core.filter(entry => entry.node.module === raw.module).map(entry => [entry.node.node, entry])),
     storage: new Map(raw.storage.filter(entry => entry.node.module === raw.module).map(entry => [entry.node.node, entry])),
     views: new Map(raw.checkerViews.filter(view => view.node.module === raw.module).map(view => [view.node.node, view])),
-    references: new Map(raw.references.filter(reference => reference.declaration.module === raw.module).map(reference => [reference.occurrence.node, reference.declaration.node])),
+    references: referenceTargets(raw), links: moduleLinks(raw),
     locals: new Map(), bodies: [], convertedTypes: new Map(), convertedSignatures: new Map(),
     calls: new Map(raw.calls.filter(call => call.invocation.module === raw.module).map(call => [call.invocation.node, call])), candidateLists: new Map(),
     associations: new Map(raw.callableAssociations.filter(entry => entry.declaration.module === raw.module).map(entry => [entry.declaration.node, entry])),
@@ -559,5 +602,5 @@ export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<Hir.HirM
     .sort((left, right) => left.body < right.body ? -1 : left.body > right.body ? 1 : 0);
   const items = rows.filter(row => row.node !== raw.tree.id).map(row => ({ definition: definitionOf(lowering, row.node), node: row.node }))
     .sort((left, right) => left.definition < right.definition ? -1 : left.definition > right.definition ? 1 : 0);
-  return { kind: "ok", diagnostics: [], value: { module: raw.module, tree, items, bodies, checkerDiagnostics: [], obligations: [] } };
+  return { kind: "ok", diagnostics: [], value: { module: raw.module, tree, items, bodies, exports: exported.entries, bindings: exported.bindings, checkerDiagnostics: [], obligations: [] } };
 }

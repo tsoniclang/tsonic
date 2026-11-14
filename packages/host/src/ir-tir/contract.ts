@@ -11,7 +11,7 @@ export interface TypedOperation {
 
 export type TirResolution =
   | { readonly kind: "local"; readonly local: LocalRef }
-  | { readonly kind: "definition"; readonly definition: DefId; readonly aliases: readonly DefId[] }
+  | { readonly kind: "definition"; readonly definition: DefId; readonly aliases: readonly SourceNodeRef[] }
   | { readonly kind: "module"; readonly target: ImportTarget }
   | { readonly kind: "error"; readonly diagnostic: number };
 
@@ -101,6 +101,7 @@ export type TypedName =
   | (TypedValue & { readonly role: "shorthand-value"; readonly key: MemberKey; readonly resolution: TirResolution })
   | { readonly role: "assignment-target"; readonly resolution: TirResolution; readonly access: TargetAccess }
   | { readonly role: "declaration-name"; readonly declaration: DeclarationTarget; readonly storage: TyId | null }
+  | { readonly role: "binding-name"; readonly binding: SourceNodeRef }
   | { readonly role: "property-name"; readonly key: MemberKey }
   | { readonly role: "type-name"; readonly type: TyId; readonly declarations: readonly DefId[] }
   | { readonly role: "label"; readonly target: NodeRef }
@@ -116,7 +117,7 @@ export type TypedString =
   | { readonly role: "declaration-name"; readonly declaration: DeclarationTarget }
   | { readonly role: "type-literal"; readonly type: TyId }
   | { readonly role: "module-specifier"; readonly target: ImportTarget }
-  | { readonly role: "export-name"; readonly definition: DefId }
+  | { readonly role: "export-name"; readonly binding: SourceNodeRef }
   | { readonly role: "attribute-value"; readonly value: string };
 
 export type TypedNumber =
@@ -344,31 +345,27 @@ export interface TypedTypeParameter {
 }
 
 export interface TypedImport {
-  readonly definition: DefId;
   readonly target: ImportTarget;
 }
 
 export interface TypedImportBinding {
-  readonly definition: DefId;
-  readonly imported: ModuleBindingTarget;
+  readonly binding: SourceNodeRef;
 }
-
-export type ModuleBindingTarget =
-  | { readonly kind: "definition"; readonly definition: DefId }
-  | { readonly kind: "module"; readonly target: ImportTarget };
 
 export interface TypedModuleReference {
   readonly target: ImportTarget;
 }
 
 export interface TypedExport {
-  readonly definition: DefId;
   readonly target: ImportTarget | null;
 }
 
 export interface TypedExportBinding {
+  readonly binding: SourceNodeRef;
+}
+
+export interface TypedNamespaceExport extends TypedExportBinding {
   readonly definition: DefId;
-  readonly exported: ModuleBindingTarget;
 }
 
 export interface TypedExportAssignment {
@@ -438,7 +435,7 @@ export interface TypedPhase extends Phase {
   readonly NamedImports: null;
   readonly ExportAssignment: TypedExportAssignment;
   readonly NamespaceExportDeclaration: TypedExportBinding;
-  readonly NamespaceExport: TypedExportBinding;
+  readonly NamespaceExport: TypedNamespaceExport;
   readonly NamedExports: null;
   readonly ExportSpecifier: TypedExportBinding;
   readonly CallSignatureDeclaration: TypedCallable;
@@ -569,7 +566,7 @@ export interface TypedPhase extends Phase {
   readonly ImportEqualsDeclaration: TypedImportBinding;
   readonly ExportDeclaration: TypedExport;
   readonly ImportTypeNode: TypedType;
-  readonly ImportClause: TypedImportBinding;
+  readonly ImportClause: TypedImportBinding | null;
   readonly ImportSpecifier: TypedImportBinding;
   readonly JSDocText: null;
   readonly JSDocLink: null;
@@ -652,7 +649,7 @@ export interface TirVerifierInput {
   readonly diagnostics: readonly Diagnostic[];
 }
 
-export type TirRule = "binding-element-role-exact" | "body-owner" | "module-node-identity" | "node-reference" | "kind-children-shape" | "origin-range"
+export type TirRule = "binding-element-role-exact" | "binding-capture-owner" | "body-owner" | "module-node-identity" | "node-reference" | "kind-children-shape" | "origin-range"
   | "parent-reference" | "local-dense" | "local-storage" | "binding-storage" | "type-closed"
   | "capture-qualified" | "capture-rows-agree" | "cross-owner-qualified" | "parameter-order"
   | "occurrence-role" | "binary-role-operator" | "name-role-position" | "typed-value-occurrence"

@@ -19,7 +19,7 @@ const runtimeNames = [
   "index", "canonical", "canonical-types", "canonical-inference", "canonical-tir",
   "canonical-facts", "canonical-syntax", "print", "parse", "verify-index", "verify-module", "instantiate",
   "canonical-phase", "syntax-arena", "syntax-statements", "syntax-expressions", "syntax-types", "syntax-auxiliary",
-  "text-values", "text-types", "text-inference", "text-phase", "print-syntax-statements",
+  "text-module-bindings", "verify-module-bindings", "text-values", "text-types", "text-inference", "text-phase", "print-syntax-statements",
   "print-syntax-expressions", "print-syntax-types", "print-syntax-auxiliary",
   "text-core", "text-tir", "text-phase-declarations", "print-syntax",
   "parse-values", "parse-types", "parse-diagnostics",
@@ -125,8 +125,8 @@ function evaluate(input) {
       const modules = [first.module, second.module];
       first.index.packages[0].exports = [{ specifier: "./main", module: first.module.module }];
       first.index.packages[1].exports = [{ specifier: "./other", module: second.module.module }];
-      first.index.modules[0].exports = [{ name: "main", definition: first.definition }];
-      first.index.modules[1].exports = [{ name: "other", definition: second.definition }];
+      first.index.modules[0].exports = [{ name: "main", target: { kind: "declarations", definitions: [first.definition] } }];
+      first.index.modules[1].exports = [{ name: "other", target: { kind: "declarations", definitions: [second.definition] } }];
       const voidType = input.reverse ? 1 : 0;
       const firstSignature = input.reverse ? 1 : 0;
       const secondSignature = input.reverse ? 0 : 1;
@@ -270,10 +270,11 @@ function evaluate(input) {
         case "module-package": index.modules[0].package = second.index.rootPackage; break;
         case "items-duplicate": index.modules[0].items.push({ ...index.modules[0].items[0] }); break;
         case "exports-order": index.modules[0].exports = [
-          { name: "z", definition: first.definition }, { name: "a", definition: first.definition },
+          { name: "z", target: { kind: "declarations", definitions: [first.definition] } },
+          { name: "a", target: { kind: "declarations", definitions: [first.definition] } },
         ]; break;
         case "export-definition-missing": index.modules[0].exports = [
-          { name: "missing", definition: encodeDefId({ module: first.module.module, segments: [{ name: "missing", ordinal: 0 }] }) },
+          { name: "missing", target: { kind: "declarations", definitions: [encodeDefId({ module: first.module.module, segments: [{ name: "missing", ordinal: 0 }] })] } },
         ]; break;
         case "body-order": index.bodies.reverse(); break;
         default: throw new Error("Unlisted authored package/module pair change");
@@ -495,6 +496,97 @@ for (const path of casePaths) {
     assert.equal(result.status, "passed", JSON.stringify(result.status === "failed" ? result : { path }).slice(0, 6000));
   });
 }
+
+test("ir-program binding inventories retain real checked aliases and closed targets through their owning barrier", async () => {
+  const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
+  const { checkedSourceViews } = await import("../../packages/host/dist/pipeline/checked-inputs.js");
+  const { programLookup } = await import("../../packages/host/dist/ir-program/program-values.js");
+  const { verifyModuleBindings } = await import("../../packages/host/dist/ir-program/verify-module-bindings.js");
+  const source = await loadFrontFixture();
+  const actual = source.checkedModuleOf("function add(a:number,b:number):number { return a+b; } export { add, add as sum };");
+  assert.deepStrictEqual(source.verifyChecked(actual.checked, actual.interner), []);
+  const domain = checkedSourceViews([{ module: actual.checked, nodes: source.hir.indexSyntaxTree(actual.checked.tree) }]);
+  const fixture = moduleFixture();
+  const record = { module: actual.module, package: fixture.index.rootPackage,
+    items: [{ definition: actual.checked.tree.tsonic.definition, node: actual.checked.tree.id }, ...actual.checked.items],
+    exports: actual.checked.exports, bindings: actual.checked.bindings, checkerDiagnostics: actual.checked.checkerDiagnostics };
+  const bodies = new Map(actual.checked.bodies.map(body => [body.body, body.owner]));
+  const context = { ...fixture.context, facts: { ...fixture.context.facts, bodyOwner: body => bodies.get(body) ?? null } };
+  const ready = new Map([[actual.module, { nodeOf: domain.nodeOf }]]);
+  const verify = records => {
+    const index = { ...fixture.index, modules: records };
+    return verifyModuleBindings(programLookup(index), index, context, ready);
+  };
+  const violation = (rule, detail) => ({ rule, site: { kind: "module", module: actual.module }, detail: [{ kind: "text", value: detail }] });
+  assert.deepStrictEqual(verify([record]), []);
+  const first = record.bindings[0];
+  const replacing = value => ({ ...record, bindings: [{ ...first, target: { kind: "available", value } }, ...record.bindings.slice(1)] });
+  const roundtrip = changed => {
+    const index = { ...fixture.index, modules: [changed] };
+    assert.deepStrictEqual(product.parseProgramIndex(product.printProgramIndex(index)), { kind: "parsed", value: index });
+  };
+  roundtrip(record);
+  for (const value of [{ kind: "binding", occurrence: record.bindings[1].occurrence }, { kind: "module", module: actual.module },
+    { kind: "member", through: { kind: "declarations", definitions: [record.items[0].definition] },
+      key: { kind: "available", value: { kind: "text", value: "member" } }, origins: { kind: "available", value: [] } }]) {
+    const changed = replacing(value);
+    assert.deepStrictEqual(verify([changed]), []);
+    roundtrip(changed);
+  }
+  const diagnostic = { severity: "error", code: { kind: "checker", number: 2304, rendered: "TS2304" }, arguments: [],
+    site: { kind: "none" }, source: null, evidence: [], message: "name is not defined", related: [], fix: null };
+  const diagnosed = { ...replacing({ kind: "unresolved", diagnostics: [{ module: actual.module, index: 0 }] }), checkerDiagnostics: [diagnostic] };
+  assert.deepStrictEqual(verify([diagnosed]), []);
+  roundtrip(diagnosed);
+  for (const reason of ["not-provided", "checker-error", "parameter-dependent", "missing-original-component", "incomplete-association", "unsupported-checked-structure"]) {
+    const changed = { ...record, bindings: [{ ...first, target: { kind: "unavailable", reason } }, ...record.bindings.slice(1)] };
+    assert.deepStrictEqual(verify([changed]), []);
+    roundtrip(changed);
+  }
+  const missing = { ...first.occurrence, value: { ...first.occurrence.value, node: actual.checked.tree.endOfFileToken.id } };
+  assert.deepStrictEqual(verify([replacing({ kind: "binding", occurrence: missing })]), [
+    violation("binding-target-resolves", "a binding edge must retain its actual nearest-target row"),
+  ]);
+  assert.deepStrictEqual(verify([replacing({ kind: "module", module: encodeModuleId({ package: fixture.index.rootPackage, path: "absent.ts" }) })]), [
+    violation("binding-target-resolves", "a module target must retain an actual module"),
+  ]);
+  for (const index of [-0, -1, 0, 0.5, NaN]) assert.deepStrictEqual(verify([replacing({ kind: "unresolved", diagnostics: [{ module: actual.module, index }] })]), [
+    violation("binding-diagnostic-resolves", "a checker root must resolve in its actual module diagnostic inventory"),
+  ]);
+  const reversed = { ...record, exports: [{ name: "invalid", target: { kind: "declarations", definitions: [record.items[1].definition, record.items[0].definition] } }] };
+  assert.deepStrictEqual(verify([reversed]), [violation("export-target-resolves", "a declaration group must retain distinct source inventory order")]);
+  const empty = { ...record, exports: [{ name: "invalid", target: { kind: "declarations", definitions: [] } }] };
+  assert.deepStrictEqual(verify([empty]), [violation("export-target-resolves", "a declaration group must be nonempty")]);
+  assert.equal(product.parseProgramIndex(product.printProgramIndex({ ...fixture.index, modules: [empty] })).kind, "invalid-text");
+  const noRoots = replacing({ kind: "unresolved", diagnostics: [] });
+  assert.deepStrictEqual(verify([noRoots]), [violation("binding-diagnostic-resolves", "an unresolved target requires its original checker diagnostic roots")]);
+  assert.equal(product.parseProgramIndex(product.printProgramIndex({ ...fixture.index, modules: [noRoots] })).kind, "invalid-text");
+  const missingRows = [violation("binding-capture-owner", "binding rows require distinct preorder syntax and their exact qualified owner"),
+    ...record.exports.map(() => violation("binding-target-resolves", "a binding edge must retain its actual nearest-target row"))];
+  const badOwner = encodeDefId({ module: actual.module, segments: [{ name: "missing", ordinal: 0 }] });
+  for (const occurrence of [{ ...first.occurrence, value: { ...first.occurrence.value, node: -0 } },
+    { ...first.occurrence, value: { ...first.occurrence.value, node: actual.checked.tree.endOfFileToken.id } },
+    { kind: "item", value: { owner: badOwner, node: first.occurrence.value.node } },
+    { kind: "body", value: { body: fixture.bodyId, node: first.occurrence.value.node } }]) {
+    assert.deepStrictEqual(verify([{ ...record, bindings: [{ ...first, occurrence }, ...record.bindings.slice(1)] }]), missingRows);
+  }
+  assert.deepStrictEqual(verify([{ ...record, bindings: [...record.bindings, first] }]), missingRows);
+  const executing = actual.checked.bodies.find(body => body.root === actual.checked.tree);
+  assert.notEqual(executing, undefined);
+  const bodyRows = record.bindings.map(row => ({ ...row, occurrence: { kind: "body", value: { body: executing.body, node: row.occurrence.value.node } } }));
+  assert.deepStrictEqual(verify([{ ...record, bindings: bodyRows,
+    exports: record.exports.map((entry, index) => ({ ...entry, target: { kind: "binding", occurrence: bodyRows[index].occurrence } })) }]), []);
+  const emptyRecord = { ...record, bindings: [], exports: [] };
+  assert.deepStrictEqual(verify([emptyRecord, emptyRecord]), [
+    violation("binding-capture-owner", "a binding table must have exactly one module owner"),
+  ]);
+  const noDefault = new Map([[actual.module, { nodeOf: reference => {
+    const node = domain.nodeOf(reference);
+    return reference.value.node === first.occurrence.value.node ? { ...node, kind: "ImportClause", name: null } : node;
+  } }]]);
+  const index = { ...fixture.index, modules: [record] };
+  assert.deepStrictEqual(verifyModuleBindings(programLookup(index), index, context, noDefault), missingRows);
+});
 
 test("ir-program public values are exactly the eight locked ports", () => {
   assert.deepEqual(Object.keys(product).sort(), [
@@ -797,7 +889,7 @@ const punctuationFaults = new Map();
 const recordFaults = new Map();
 const extraFieldFaults = new Map();
 const recordChoices = new Map([
-  ...["ProgramIndex", "PackageRecord", "PackageExport", "ModuleRecord", "DefinitionNode", "ModuleExport", "BodyRecord", "ConstantRecord",
+  ...["ProgramIndex", "PackageRecord", "PackageExport", "ModuleRecord", "DefinitionNode", "HirModuleExport", "HirModuleBinding", "CheckerDiagnosticRef", "BodyRecord", "ConstantRecord",
     "Diagnostic", "RelatedDiagnostic", "DiagnosticFix", "TextEdit", "LocalRef", "NodeRef", "ItemNodeRef", "LibraryModuleIdentity",
     "CommentDirective", "HirAttribute", "BindingVector", "TypeParameterIdentity"].map(name => [name, [name]]),
   ...["advertised", "api-signature", "api-body"].map(name => [name, ["advertised", "api-signature", "api-body"]]),
@@ -900,6 +992,64 @@ for (const kind of ["advertised", "api-signature", "api-body"]) for (const body 
     completeTextFault(input.index, text.slice(0, offset) + "7" + text.slice(offset + 2), offset, ["32", "64"], false);
   });
 }
+{
+  const definition = signatureFixture.definition;
+  const module = signatureFixture.module.module;
+  const owner = `def:${JSON.stringify(definition)}`;
+  const moduleText = `mod:${JSON.stringify(module)}`;
+  const item = node => `item(value=ItemNodeRef(owner=${owner}, node=n:${node}))`;
+  const body = node => `body(value=NodeRef(body=body:${JSON.stringify(signatureFixture.bodyId)}, node=n:${node}))`;
+  const occurrence = node => node === 1 ? { kind: "body", value: { body: signatureFixture.bodyId, node } }
+    : { kind: "item", value: { owner: definition, node } };
+  const values = [
+    [{ kind: "available", value: { kind: "declarations", definitions: [definition] } }, `available(value=declarations(definitions=[${owner}]))`],
+    [{ kind: "available", value: { kind: "binding", occurrence: occurrence(0) } }, `available(value=binding(occurrence=${item(0)}))`],
+    [{ kind: "available", value: { kind: "module", module } }, `available(value=module(module=${moduleText}))`],
+    [{ kind: "available", value: { kind: "member", through: { kind: "binding", occurrence: occurrence(0) },
+      key: { kind: "available", value: { kind: "text", value: "field" } }, origins: { kind: "available", value: [{ kind: "declared", declaration: definition }] } } },
+      `available(value=member(through=binding(occurrence=${item(0)}), key=available(value=text(value="field")), origins=available(value=[declared(declaration=${owner})])))`],
+    [{ kind: "available", value: { kind: "unresolved", diagnostics: [{ module, index: 0 }] } },
+      `available(value=unresolved(diagnostics=[CheckerDiagnosticRef(module=${moduleText}, index=0)]))`],
+    [{ kind: "unavailable", reason: "incomplete-association" }, 'unavailable(reason="incomplete-association")'],
+  ];
+  const bindings = values.map(([target], node) => ({ occurrence: occurrence(node), target }));
+  const exports = [{ name: "direct", target: { kind: "declarations", definitions: [definition] } },
+    { name: "alias", target: { kind: "binding", occurrence: occurrence(0) } }];
+  const moduleRecord = `ModuleRecord(module=${moduleText}, package=pkg:${JSON.stringify(emptyWireIndex.rootPackage)}, items=[DefinitionNode(definition=${owner}, node=n:0)], exports=[HirModuleExport(name="direct", target=declarations(definitions=[${owner}])), HirModuleExport(name="alias", target=binding(occurrence=${item(0)}))], bindings=[${values.map(([, target], node) => `HirModuleBinding(occurrence=${node === 1 ? body(node) : item(node)}, target=${target})`).join(", ")}], checkerDiagnostics=[])`;
+  const text = `ProgramIndex(schema=1, rootPackage=pkg:${JSON.stringify(emptyWireIndex.rootPackage)}, packages=[], modules=[${moduleRecord}], types=TypeTable(terms=[], signatures=[]), signatures=[], bodies=[], metadata=[], summaries=[], constants=[], diagnostics=[])`;
+  const index = { ...emptyWireIndex, modules: [{ module, package: emptyWireIndex.rootPackage, items: [{ definition, node: 0 }], exports, bindings, checkerDiagnostics: [] }] };
+  authoredDocuments.push({ text, index });
+  test("ir-program independently authored binding grammar retains every closed target without claiming semantic verification", () => {
+    completeProgramValue(product.parseProgramIndex(text), { kind: "parsed", value: index }, "the complete independently authored structural binding grammar");
+    assert.equal(product.printProgramIndex(index), text + "\n");
+    for (const [needle, choices] of [["target=declarations(", ["declarations", "binding"]],
+      ["value=declarations(", ["declarations", "binding", "module", "member", "unresolved"]]]) {
+      const offset = text.indexOf(needle) + needle.indexOf("=") + 1;
+      const changed = text.slice(0, offset) + "wrong" + text.slice(offset + "declarations".length);
+      completeTextFault(index, changed, offset, choices);
+    }
+  });
+}
+
+{
+  const path = "test/host-cases/ir-program/function/phase-name-value";
+  const input = decodeFixtureJson(readFileSync(resolve(repository, `${path}.input.json`), "utf8"));
+  const prior = decodeFixtureJson(readFileSync(resolve(repository, `${path}.expected.json`), "utf8")).value.printed;
+  const node = input.module.tree.statements.nodes[0].expression;
+  const body = input.module.tree.tsonic.template.body;
+  const binding = { kind: "body", value: { body, node: node.id } };
+  const start = prior.lastIndexOf("tsonic=TypedName(");
+  const end = prior.indexOf("\n", start);
+  const phase = `tsonic=TypedName(role="binding-name", binding=body(value=NodeRef(body=body:${JSON.stringify(body)}, node=n:${node.id}))))`;
+  const text = prior.slice(0, start) + phase + prior.slice(end);
+  node.tsonic = { role: "binding-name", binding };
+  authoredDocuments.push({ text, index: input.index });
+  test("ir-program independently authored binding-name wire retains its qualified occurrence without a fake definition", () => {
+    completeProgramValue(product.parseModuleBodies(input.index, text), { kind: "parsed", value: input.module }, "structural binding-name transport, not semantic source verification");
+    assert.equal(product.printModuleBodies(input.index, input.module), text);
+  });
+}
+
 for (const { text, index } of authoredDocuments) {
     const records = [];
     const tokens = /"(?:[^"\\]|\\.)*"|([A-Za-z_$][A-Za-z0-9_$-]*)([=(])|([()[\]])/g;
@@ -2139,6 +2289,34 @@ for (const name of mirTransportCases(moduleFixture()).map(value => value.name)) 
   completeProgramValue(product.instantiate(fixture.index, fixture.module, { kind: "mir", body: fixture.bodyId }, bindings, fixture.context.limits),
     { kind: "instantiated", artifact: { kind: "mir", body: { ...fixture.module.bodies[0].mir, bindings: { kind: "instantiated", bindings } } },
       types: fixture.index.types }, "the entire MIR template projection preserves all independent fields and original table rows");
+});
+
+test("ir-program conversion carriers retain native versus backed identity and reject the retired refinement value", () => {
+  const fixture = moduleFixture();
+  const header = { id: 2, origin: fixture.module.tree.origin, parent: 1, flags: [], loc: fixture.module.tree.loc };
+  const bindings = { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] };
+  const value = { type: 0, convertedType: 0, conversion: { kind: "identity" }, narrowing: null, evidenceIndex: null, demand: { kind: "always" } };
+  const literal = { ...header, kind: "NumericLiteral", text: "0", tokenFlags: [], tsonic: { ...value, role: "value",
+    value: { numerator: 0n, denominator: 1n, negativeZero: false } } };
+  for (const kind of ["library", "core"]) {
+    const operation = { permissionScope: null, decision: { kind: "selected", operation: { kind, declaration: fixture.definition, bindings },
+      operands: [0], result: 0, execution: { kind: "pure" } } };
+    const node = { ...literal, tsonic: { ...literal.tsonic, conversion: { kind: "backed-convert", role: "argument", embedding: { kind: "identity" }, operation } } };
+    completeSyntaxTransport(fixture, syntaxTransportModule({ module: fixture.module }, node, "Expression"));
+  }
+  const prefix = { ...header, kind: "PrefixUnaryExpression", operator: "PlusToken", operand: { ...literal, id: 3, parent: 2 },
+    tsonic: { ...value, role: "value", operation: { kind: "decided", decision: { permissionScope: null, decision: { kind: "selected",
+      operation: { kind: "conversion", from: 0, to: 0, embedding: { kind: "identity" } }, operands: [0], result: 0, execution: { kind: "pure" } } } } } };
+  completeSyntaxTransport(fixture, syntaxTransportModule({ module: fixture.module }, prefix, "Expression"));
+  const mir = mirTransportCases(fixture).find(entry => entry.name === "rvalue-0-use").body;
+  fixture.module.bodies[0].mir = mir;
+  const text = product.printModuleBodies(fixture.index, fixture.module);
+  const old = "value=use(operand=constant(constant=c:0))";
+  assert.equal(text.includes(old), true);
+  const replaced = text.replace(old, "value=refine(operand=constant(constant=c:0), to=t:0)");
+  const refused = product.parseModuleBodies(fixture.index, replaced);
+  assert.equal(refused.kind, "invalid-text");
+  assert.equal(refused.offset, replaced.indexOf("refine("));
 });
 
 for (const kind of ["tir", "mir", "facts", "summary"]) test(`ir-program ${kind} retains every typed relational carrier through its public document and artifact transport`, () => {

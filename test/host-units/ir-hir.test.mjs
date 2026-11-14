@@ -18,9 +18,9 @@ const moduleIdentity = "M[P[%002Fproject];main.ts]";
 const definitionIdentity = `D[${moduleIdentity}]`;
 const bodyIdentity = `B[${definitionIdentity};module;0]`;
 const tooling = process.env.TSONIC_HOST_TOOLING_ROOT ?? repository;
-const runtimeNames = ["index","pragmas","endpoints","children","walk","print","parse","verify","verify-syntax","verify-bindings","verify-captures","text-syntax","text-data","text-construction","text-read-0","text-read-1","text-read-2","text-read-3","text-read-4","text-read-5","text-read-6","text-read-7","text-read-8","text-read-9","text-read-syntax-0","text-read-syntax-1","text-read-syntax-2","text-read-syntax-3","text-read-syntax-4","text-read-syntax-5","text-read-syntax-6","text-read-syntax-7","text-read-syntax-8","text-read-syntax-9","text-read-syntax-10","text-read-syntax-11","text-read-syntax-12","text-read-syntax-13","text-readers","text-read-scalars"];
+const runtimeNames = ["index","bindings","verify-export-bindings","text-read-bindings","pragmas","endpoints","children","walk","print","parse","verify","verify-syntax","verify-bindings","verify-captures","text-syntax","text-data","text-construction","text-read-0","text-read-1","text-read-2","text-read-3","text-read-4","text-read-5","text-read-6","text-read-7","text-read-8","text-read-9","text-read-syntax-0","text-read-syntax-1","text-read-syntax-2","text-read-syntax-3","text-read-syntax-4","text-read-syntax-5","text-read-syntax-6","text-read-syntax-7","text-read-syntax-8","text-read-syntax-9","text-read-syntax-10","text-read-syntax-11","text-read-syntax-12","text-read-syntax-13","text-readers","text-read-scalars"];
 const runtimeFiles = runtimeNames.map(name => resolve(repository, `packages/host/dist/ir-hir/${name}.js`));
-const ownedSources = ["contract", "text-read-model", ...runtimeNames].map(name => `packages/host/src/ir-hir/${name}.ts`);
+const ownedSources = ["contract", "capture-data", "binding-data", "text-read-model", ...runtimeNames].map(name => `packages/host/src/ir-hir/${name}.ts`);
 const inspector = new Session();
 const post = (method, parameters = {}) => new Promise((done, reject) => {
   inspector.post(method, parameters, (error, value) => error === null ? done(value) : reject(error));
@@ -57,6 +57,7 @@ after(async () => {
       sources.push({ scriptId: script.scriptId, url: script.url, text: response.scriptSource });
     }
     await post("Profiler.stopPreciseCoverage");
+    writeFileSync(resolve(evidenceDirectory, "raw-v8.json"), `${JSON.stringify({ result, sources })}\n`);
     const report = checkCoverage({ canonical: realpathSync, readText: path => readFileSync(path, "utf8"),
       parse: parseSources, project: (url, text) => url.startsWith("file:") ? { path: fileURLToPath(url), text } : null,
     }, runtimeFiles, [{ result, sources }]);
@@ -192,7 +193,7 @@ const absentCore = () => ({ provider: available(null), markers: available({ stru
 const emptyViews = () => ({ read: unavailable(), declared: available(null), contextual: available(null) });
 const emptyValue = () => ({ views: emptyViews(), place: available(null), memory: available(null), observation: available(null) });
 const expressionMetadata = () => ({ ...emptyValue(), core: absentCore() });
-const nameMetadata = () => ({ core: absentCore(), role: "value", value: emptyValue(), resolution: { kind: "unresolved", checkerDiagnostic: null } });
+const nameMetadata = () => ({ core: absentCore(), role: "value", value: emptyValue(), resolution: unavailable() });
 const typeMetadata = () => ({ core: absentCore(), type: unavailable(), referencedDefinitions: [] });
 const bodySource = (node, body = bodyIdentity) => ({ kind: "body", value: { body, node } });
 const nodeSite = (node, body = bodyIdentity) => ({ kind: "node", node: bodySource(node, body) });
@@ -218,9 +219,12 @@ function constructorMetadata(node) {
     case "TypeAliasDeclaration": case "JSTypeAliasDeclaration": return { ...declaration(), parameters: [], type: unavailable() };
     case "EnumDeclaration": case "ModuleDeclaration": return { ...declaration(), members: [] };
     case "ImportDeclaration": case "JSImportDeclaration": case "NamespaceImport": case "ImportEqualsDeclaration": case "ImportClause": case "ImportSpecifier":
-      return { ...declaration(), target: unavailable(), bindings: [] };
-    case "ExportAssignment": case "NamespaceExportDeclaration": case "NamespaceExport": case "ExportSpecifier": case "ExportDeclaration":
-      return { ...declaration(), exports: [], target: unavailable() };
+      return { core: absentCore(), target: unavailable(), bindings: [] };
+    case "ExportAssignment": return declaration();
+    case "NamespaceExport": return { ...declaration(), binding: { kind: "item", value: { owner: definitionIdentity, node: node.id } } };
+    case "NamespaceExportDeclaration": case "ExportSpecifier":
+      return { core: absentCore(), binding: { kind: "item", value: { owner: definitionIdentity, node: node.id } } };
+    case "ExportDeclaration": return { core: absentCore(), target: unavailable() };
     case "ClassStaticBlockDeclaration": return { ...declaration(), body: bodyIdentity };
     case "StringLiteral": case "NoSubstitutionTemplateLiteral":
       return { core: absentCore(), role: "attribute-value", literal: { kind: "string", value: node.text } };
@@ -340,7 +344,7 @@ function moduleWith(statements = []) {
   numberSyntaxFixture(tree);
   return { module: moduleIdentity, tree, items: [], bodies: [{ body: bodyIdentity, owner: definitionIdentity,
     params: [], locals: [], root: tree, captures: [], scopes: [], asynchronous: false, generator: false,
-    candidateLists: [], nestedBodies: [] }], checkerDiagnostics: [], obligations: [] };
+    candidateLists: [], nestedBodies: [] }], exports: [], bindings: [], checkerDiagnostics: [], obligations: [] };
 }
 
 function fixtureChildren(node) {
@@ -421,6 +425,7 @@ function fixtureChildren(node) {
 }
 
 function contextFor(value, additions = {}, additionalModules = []) {
+  const modules = new Map([value, ...additionalModules].map(module => [module.module, module]));
   const declarations = new Set();
   const lexicalScopes = new Map();
   const checkedNodes = new Map();
@@ -475,6 +480,7 @@ function contextFor(value, additions = {}, additionalModules = []) {
     }
   }
   return { types: { terms: [{ kind: "primitive", primitive: "int32" }], signatures: [] },
+    moduleOf: identity => modules.get(identity) ?? null,
     bodyPathOf: identity => bodyPaths.get(identity) ?? null,
     definitionPathOf: identity => definitionPaths.get(identity) ?? null,
     bindingScopeOf: definition => declarations.has(definition) ? emptyScope() : null,
@@ -486,13 +492,13 @@ function contextFor(value, additions = {}, additionalModules = []) {
 
 for (const mode of ["known", "unknown", "mismatch"])
   test(`HIR authenticates supplied canonical definition paths with complete ${mode} outcome`, () => {
-    const path = { module: ids.encodeModuleId({ package: ids.encodePackageId("/external"), path: "value.ts" }),
-      segments: [{ name: "Value", ordinal: 0 }] };
-    const definition = ids.encodeDefId(path);
+    const foreign = foreignTypeDeclarations(1);
+    const definition = foreign.nodes[0].tsonic.definition;
+    const path = ids.decodeDefId(definition).value;
     const expression = nameExpression("external");
-    expression.tsonic.resolution = { kind: "definition", definition, aliases: [] };
+    expression.tsonic.resolution = { kind: "declarations", definitions: [definition] };
     const value = (expressionModule(expression));
-    const base = contextFor(value);
+    const base = contextFor(value, {}, [foreign.value]);
     const context = { ...base,
       definitionPathOf: identity => identity !== definition ? base.definitionPathOf(identity) :
         mode === "unknown" ? null : mode === "mismatch" ? { ...path, segments: [{ name: "Other", ordinal: 0 }] } : path,
@@ -626,10 +632,63 @@ test("selected endpoint roles: an advertised row for an overloaded family, the s
     assert.notEqual(product.callableEndpointKey(changed), product.callableEndpointKey(EF), JSON.stringify(changed));
 });
 
-test("HIR public index has exactly the ten current complete data operations", () => {
-  assert.deepStrictEqual(Object.keys(product).sort(), ["callableEndpointKey", "childrenOfSyntax", "hasOverloadEndpoints", "indexSyntaxTree", "orderPragmaArguments", "parseHir", "printHir", "selectedEndpointRoleFaults", "verifyHir", "walkSyntaxTree"]);
+test("HIR public index has exactly the current complete data and binding operations", () => {
+  assert.deepStrictEqual(Object.keys(product).sort(), ["callableEndpointKey", "childrenOfSyntax", "createModuleBindingViews", "hasOverloadEndpoints", "indexSyntaxTree", "isModuleBindingKind", "orderPragmaArguments", "parseHir", "printHir", "projectExportDeclarations", "resolveModuleBinding", "selectedEndpointRoleFaults", "verifyHir", "walkSyntaxTree"]);
   assert.deepStrictEqual(readdirSync(resolve(repository, "packages/host/src/ir-hir")).filter(name => name.endsWith(".ts")).sort(),
     ownedSources.map(path => basename(path)).sort());
+});
+
+test("HIR canonical nearest-binding views preserve all targets, qualification, cycles and exact F1 joins", () => {
+  const item = (node, owner = definitionIdentity) => ({ kind: "item", value: { owner, node } });
+  const executing = (node, body = bodyIdentity) => ({ kind: "body", value: { body, node } });
+  for (const kind of ["ImportClause", "ImportSpecifier", "NamespaceImport", "ImportEqualsDeclaration", "ExportSpecifier", "NamespaceExport", "NamespaceExportDeclaration"]) {
+    assert.equal(product.isModuleBindingKind(kind, true), true);
+    assert.equal(product.isModuleBindingKind(kind, false), kind !== "ImportClause");
+  }
+  assert.equal(product.isModuleBindingKind("VariableDeclaration", true), false);
+  for (const initial of [item(1), executing(1)]) {
+    const next = initial.kind === "item" ? item(2) : executing(2);
+    for (const target of [{ kind: "declarations", definitions: [definitionIdentity] }, { kind: "module", module: moduleIdentity },
+      { kind: "member", through: { kind: "declarations", definitions: [definitionIdentity] }, key: available({ kind: "text", value: "member" }), origins: available([]) },
+      { kind: "unresolved", diagnostics: [{ module: moduleIdentity, index: 0 }] }]) {
+      const relation = product.createModuleBindingViews([[{ occurrence: initial, target: available({ kind: "binding", occurrence: next }) }],
+        [{ occurrence: next, target: available(target) }]]);
+      assert.equal(relation.bindingOf(initial).occurrence === initial, true);
+      assert.equal(relation.bindingOf(initial.kind === "item" ? executing(3) : item(3)), null);
+      const resolved = product.resolveModuleBinding(relation, initial);
+      assert.equal(resolved.target.value === target, true);
+      assert.deepEqual(resolved.aliases, [initial, next]);
+      assert.equal(resolved.cycle, null);
+      const views = { ...relation, declarationSourceOf: () => null };
+      assert.equal(product.projectExportDeclarations(views, { name: "alias", target: { kind: "binding", occurrence: initial } }).target.value === target, true);
+    }
+    const missing = unavailable("incomplete-association");
+    const unavailableViews = product.createModuleBindingViews([[{ occurrence: initial, target: missing }]]);
+    assert.equal(product.resolveModuleBinding(unavailableViews, initial).target === missing, true);
+    assert.throws(() => product.createModuleBindingViews([[{ occurrence: initial, target: missing }], [{ occurrence: initial, target: missing }]]));
+    const cycle = product.createModuleBindingViews([[{ occurrence: initial, target: available({ kind: "binding", occurrence: next }) },
+      { occurrence: next, target: available({ kind: "binding", occurrence: initial }) }]]);
+    assert.deepEqual(product.resolveModuleBinding(cycle, initial).cycle, initial);
+    assert.throws(() => product.resolveModuleBinding({ bindingOf: () => null }, initial));
+    for (const wrong of [initial.kind === "item" ? executing(1) : item(1), initial.kind === "item"
+      ? item(1, "D[M[P[%002Fproject];other.ts]]") : executing(1, "B[D[M[P[%002Fproject];other.ts]];module;0]"), item(7)]) {
+      assert.throws(() => product.resolveModuleBinding({ bindingOf: () => ({ occurrence: wrong, target: missing }) }, initial));
+    }
+    for (const node of [-0, -1, 0.5, NaN, Infinity]) {
+      const invalid = initial.kind === "item" ? item(node) : executing(node);
+      assert.throws(() => product.createModuleBindingViews([[{ occurrence: invalid, target: missing }]]));
+      assert.throws(() => product.resolveModuleBinding(unavailableViews, invalid));
+    }
+  }
+  const occurrence = item(3);
+  const relation = product.createModuleBindingViews([[{ occurrence, target: available({ kind: "module", module: moduleIdentity }) }]]);
+  const entry = { name: "namespace", target: { kind: "binding", occurrence } };
+  for (const source of [null, executing(3), item(2), item(3, "D[M[P[%002Fproject];other.ts]]"), occurrence]) {
+    const resolved = product.projectExportDeclarations({ ...relation, declarationSourceOf: () => source }, entry);
+    assert.equal(resolved.target.value.kind, source === occurrence ? "declarations" : "module");
+  }
+  const direct = { name: "direct", target: { kind: "declarations", definitions: [definitionIdentity] } };
+  assert.equal(product.projectExportDeclarations({ ...relation, declarationSourceOf: () => assert.fail("direct group does not read a declaration source") }, direct).target.value === direct.target, true);
 });
 
 test("HIR minimal module roundtrips full data and verifies without querying absent providers", () => {
@@ -1253,7 +1312,7 @@ test("HIR unknown canonical definition and body identities never invent a fallba
     segments: [{ name: "unknown", ordinal: 0 }] });
   const unknownBody = ids.encodeBodyId({ owner: unknown, role: "function", ordinal: 0 });
   const cases = [
-    [{ core: absentCore(), role: "value", value: emptyValue(), resolution: { kind: "definition", definition: unknown, aliases: [] } }, [
+    [{ core: absentCore(), role: "value", value: emptyValue(), resolution: { kind: "declarations", definitions: [unknown] } }, [
       violation("definition-reference", nodeSite(2), "definition must exist in the canonical declaration inventory"),
     ]],
     [{ core: absentCore(), role: "value", value: emptyValue(), resolution: { kind: "local", local: { body: unknownBody, local: 0 } } }, [
@@ -1523,7 +1582,7 @@ nodes.push(block); return block; }
   const constructors = constructorInputs(1, false, false).map(row => JSON.stringify(row.node)
     .replace(/"id":\d+/gu, '"id":nodeId').replaceAll(JSON.stringify(moduleIdentity), "moduleId")).join(",\n");
   const checkedConstructors = checkedConstructorInputs(1, false, false).map(node => typedFixtureText(node)
-    .replace(/"id":\d+/gu, '"id":nodeId').replaceAll(JSON.stringify(bodyIdentity), "bodyId")
+    .replace(/"id":\d+/gu, '"id":nodeId').replace(/"node":\d+/gu, '"node":nodeId').replaceAll(JSON.stringify(bodyIdentity), "bodyId")
     .replaceAll(JSON.stringify(definitionIdentity), "definitionId").replaceAll(JSON.stringify(moduleIdentity), "moduleId")).join(",\n");
   writeFileSync(resolve(stage, "positive.ts"), `${positive}\nexport function allConstructors(moduleId:ModuleId,nodeId:NodeId):readonly SyntaxNode<SyntaxPhase>[]{return [${constructors}];}\nexport function allCheckedConstructors(moduleId:ModuleId,nodeId:NodeId,definitionId:DefId,bodyId:BodyId):readonly SyntaxNode<CheckedPhase>[]{return [${checkedConstructors}];}\n`);
   const compiler = resolve(tooling, "node_modules/@typescript/native-preview/bin/tsgo.js");
@@ -1554,11 +1613,11 @@ nodes.push(block); return block; }
     ["mutable-capture.ts", 'import type { HirCoreCapture } from "./ir-hir/contract.js"; export function bad(value:HirCoreCapture){ value.flowState={kind:"available",value:null}; }', 2540],
     ["mutable-range.ts", 'import type { TextRange } from "./ir-hir/contract.js"; export function bad(value:TextRange){ value.pos=0; }', 2540],
     ["missing-context.ts", 'import { verifyHir } from "./ir-hir/index.js"; import type { HirModule } from "./ir-hir/contract.js"; export function bad(value:HirModule){ return verifyHir(value); }', 2554],
-    ["missing-occurrence-scope.ts", 'import type { HirVerificationContext } from "./ir-hir/contract.js"; export const context:HirVerificationContext={types:{terms:[],signatures:[]},bodyPathOf:()=>null,definitionPathOf:()=>null,bindingScopeOf:()=>null,nominalOf:()=>null,nodeOf:()=>null,localExists:()=>false};', 2741],
-    ["missing-node-data.ts", 'import type { HirVerificationContext } from "./ir-hir/contract.js"; export const context:HirVerificationContext={types:{terms:[],signatures:[]},bodyPathOf:()=>null,definitionPathOf:()=>null,bindingScopeOf:()=>null,bindingScopeAt:()=>null,nominalOf:()=>null,localExists:()=>false};', 2741],
-    ["retired-node-exists.ts", 'import type { HirVerificationContext } from "./ir-hir/contract.js"; export const context:HirVerificationContext={types:{terms:[],signatures:[]},bodyPathOf:()=>null,definitionPathOf:()=>null,bindingScopeOf:()=>null,bindingScopeAt:()=>null,nominalOf:()=>null,nodeExists:()=>false,localExists:()=>false};', 2353],
-    ["missing-body-path.ts", 'import type { HirVerificationContext } from "./ir-hir/contract.js"; export const context:HirVerificationContext={types:{terms:[],signatures:[]},definitionPathOf:()=>null,bindingScopeOf:()=>null,bindingScopeAt:()=>null,nominalOf:()=>null,nodeOf:()=>null,localExists:()=>false};', 2741],
-    ["missing-definition-path.ts", 'import type { HirVerificationContext } from "./ir-hir/contract.js"; export const context:HirVerificationContext={types:{terms:[],signatures:[]},bodyPathOf:()=>null,bindingScopeOf:()=>null,bindingScopeAt:()=>null,nominalOf:()=>null,nodeOf:()=>null,localExists:()=>false};', 2741],
+    ["missing-occurrence-scope.ts", 'import type { HirVerificationContext } from "./ir-hir/contract.js"; export const context:HirVerificationContext={moduleOf:()=>null,types:{terms:[],signatures:[]},bodyPathOf:()=>null,definitionPathOf:()=>null,bindingScopeOf:()=>null,nominalOf:()=>null,nodeOf:()=>null,localExists:()=>false};', 2741],
+    ["missing-node-data.ts", 'import type { HirVerificationContext } from "./ir-hir/contract.js"; export const context:HirVerificationContext={moduleOf:()=>null,types:{terms:[],signatures:[]},bodyPathOf:()=>null,definitionPathOf:()=>null,bindingScopeOf:()=>null,bindingScopeAt:()=>null,nominalOf:()=>null,localExists:()=>false};', 2741],
+    ["retired-node-exists.ts", 'import type { HirVerificationContext } from "./ir-hir/contract.js"; export const context:HirVerificationContext={moduleOf:()=>null,types:{terms:[],signatures:[]},bodyPathOf:()=>null,definitionPathOf:()=>null,bindingScopeOf:()=>null,bindingScopeAt:()=>null,nominalOf:()=>null,nodeExists:()=>false,localExists:()=>false};', 2353],
+    ["missing-body-path.ts", 'import type { HirVerificationContext } from "./ir-hir/contract.js"; export const context:HirVerificationContext={moduleOf:()=>null,types:{terms:[],signatures:[]},definitionPathOf:()=>null,bindingScopeOf:()=>null,bindingScopeAt:()=>null,nominalOf:()=>null,nodeOf:()=>null,localExists:()=>false};', 2741],
+    ["missing-definition-path.ts", 'import type { HirVerificationContext } from "./ir-hir/contract.js"; export const context:HirVerificationContext={moduleOf:()=>null,types:{terms:[],signatures:[]},bodyPathOf:()=>null,bindingScopeOf:()=>null,bindingScopeAt:()=>null,nominalOf:()=>null,nodeOf:()=>null,localExists:()=>false};', 2741],
     ["foreign-node-brand.ts", 'import type { NodeId } from "./ids/contract.js"; export const forged:NodeId=0;', 2322],
     ["foreign-host-code-brand.ts", 'import type { HostDiagnosticCode } from "./diag/contract.js"; export const forged:HostDiagnosticCode="HOST_CODE";', 2322],
     ["retired-for-kind-parameter.ts", 'import type { ForInOrOfStatement, SyntaxPhase } from "./ir-hir/contract.js"; export type Bad=ForInOrOfStatement<SyntaxPhase,"ForInStatement">;', 2314],
@@ -2341,7 +2400,7 @@ test("HIR field names retain their first decoded deviation while the same decode
 });
 
 test("HIR a completed record uses the empty required name with the same decoded and lexical priority", () => {
-  const prefix = `HirModule(module=mod:"${moduleIdentity}", tree=n:0, items=[], bodies=[], checkerDiagnostics=[], obligations=[], `;
+  const prefix = `HirModule(module=mod:"${moduleIdentity}", tree=n:0, items=[], bodies=[], exports=[], bindings=[], checkerDiagnostics=[], obligations=[], `;
   for (const [name, offset, expected] of [
     ["extra=0)", 0, ["end of record"]],
     ["extra", 0, ["end of record"]],
@@ -3085,7 +3144,7 @@ test("HIR complete Core capture arm bank preserves every closed factual family a
   }
 });
 
-const rootPlace = () => ({ base: { kind: "root", resolution: { kind: "definition", definition: definitionIdentity, aliases: [] } },
+const rootPlace = () => ({ base: { kind: "root", resolution: { kind: "declarations", definitions: [definitionIdentity] } },
   step: null, read: available(0), write: available(0) });
 const projectTarget = () => ({ target: "project", module: moduleIdentity });
 const libraryTarget = () => ({ target: "library", module: { providerId: "authored-provider", providerVersion: "1", packageName: null,
@@ -3097,24 +3156,23 @@ function checkedRoleInputs() {
   const rows = [];
   const add = (name, node, expected = []) => rows.push({ name, node, expected });
   for (const [role, fields] of [
-    ["value", { value: emptyValue(), resolution: { kind: "definition", definition: definitionIdentity, aliases: [definitionIdentity] } }],
-    ["assignment-target", { resolution: { kind: "definition", definition: definitionIdentity, aliases: [] }, views: emptyViews(), place: available(rootPlace()), access: "write" }],
+    ["value", { value: emptyValue(), resolution: { kind: "declarations", definitions: [definitionIdentity] } }],
+    ["assignment-target", { resolution: { kind: "declarations", definitions: [definitionIdentity] }, views: emptyViews(), place: available(rootPlace()), access: "write" }],
     ["declaration-name", { declaration: { kind: "definition", definition: definitionIdentity } }],
     ["property-name", { key: available({ kind: "text", value: "field" }), origins: available(memberOrigins()) }],
-    ["type-name", { resolution: { kind: "module", target: projectTarget() } }],
+    ["type-name", { resolution: { kind: "module", module: moduleIdentity } }],
     ["label", { target: null }],
     ["private-name", { declaration: definitionIdentity }],
-    ["shorthand-value", { value: emptyValue(), resolution: { kind: "unresolved", checkerDiagnostic: null }, key: available({ kind: "symbol", declaration: definitionIdentity }) }],
+    ["shorthand-value", { value: emptyValue(), resolution: unavailable("incomplete-association"), key: available({ kind: "symbol", declaration: definitionIdentity }) }],
   ]) add(`name/${role}`, syntax("Identifier", 0, { text: "name", tsonic: { core: absentCore(), role, ...fields } }));
   add("name/read-write", syntax("Identifier", 0, { text: "target", tsonic: { core: absentCore(), role: "assignment-target",
-    resolution: { kind: "module", target: libraryTarget() }, views: emptyViews(), place: available(rootPlace()), access: "read-write" } }));
+    resolution: { kind: "module", module: moduleIdentity }, views: emptyViews(), place: available(rootPlace()), access: "read-write" } }));
   for (const [role, fields] of [
     ["value", { value: emptyValue(), literal: { kind: "string", value: "text" } }],
     ["property-name", { key: available({ kind: "text", value: "text" }), origins: available(memberOrigins()) }],
     ["declaration-name", { declaration: { kind: "definition", definition: definitionIdentity } }],
     ["type-literal", { type: available(0), literal: { kind: "string", value: "text" } }],
     ["module-specifier", { target: available(libraryTarget()) }],
-    ["export-name", { definition: available(definitionIdentity) }],
     ["attribute-value", { literal: { kind: "string", value: "text" } }],
   ]) add(`literal/${role}`, syntax("StringLiteral", 0, { text: "text", tokenFlags: [], tsonic: { core: absentCore(), role, ...fields } }));
   add("literal/unique-symbol category opposite", syntax("StringLiteral", 0, { text: "text", tokenFlags: [], tsonic: { core: absentCore(),
@@ -3345,21 +3403,21 @@ function declarationModule(kind) {
       const target = { target: "project", module: moduleIdentity };
       node = syntax(kind, 0, { modifiers: null, importClause: null, attributes: null, moduleSpecifier: syntax("StringLiteral", 0,
         { text: "./main.js", tokenFlags: [], tsonic: { core: absentCore(), role: "module-specifier", target: available(target) } }),
-      tsonic: { ...metadata, target: available(target), bindings: [] } });
+      tsonic: { core: absentCore(), target: available(target), bindings: [] } });
       break;
     }
     case "ExportDeclaration":
       node = syntax(kind, 0, { modifiers: null, isTypeOnly: false, exportClause: syntax("NamedExports", 0, { elements: nodeList([]) }),
-        moduleSpecifier: null, attributes: null, tsonic: { ...metadata, exports: [], target: available(null) } });
+        moduleSpecifier: null, attributes: null, tsonic: { core: absentCore(), target: available(null) } });
       break;
     case "ExportAssignment":
       node = syntax(kind, 0, { modifiers: null, isExportEquals: false, type: null, expression: nameExpression("value"),
-        tsonic: { ...metadata, exports: [], target: available(null) } });
+        tsonic: metadata });
       break;
     default: assert.fail(`not an authored declaration fixture: ${kind}`);
   }
   const value = kind === "ClassExpression" ? expressionModule(node) : moduleWith([node]);
-  value.items = [{ definition, node: node.id }];
+  value.items = ["ImportDeclaration", "JSImportDeclaration", "ExportDeclaration"].includes(kind) ? [] : [{ definition, node: node.id }];
   return { value, node, definition };
 }
 
@@ -3390,7 +3448,7 @@ test("HIR declared type parameters and class heritage retain complete ordered re
       if (kind !== "TypeAliasDeclaration") {
         const clauses = Array.from({ length: count }, (_, ordinal) => {
           const expression = nameExpression(`Base${ordinal}`);
-          expression.tsonic.resolution = { kind: "definition", definition: definitionIdentity, aliases: [] };
+          expression.tsonic.resolution = { kind: "declarations", definitions: [definitionIdentity] };
           return syntax("HeritageClause", 0, { token: ordinal % 2 === 0 ? "ExtendsKeyword" : "ImplementsKeyword", types: nodeList([
             syntax("ExpressionWithTypeArguments", 0, { expression, typeArguments: null, tsonic: { core: absentCore(), role: "heritage",
               type: available(0), definition: available(definitionIdentity) } }),
@@ -3774,69 +3832,153 @@ function foreignTypeDeclarations(count) {
   return { value, nodes };
 }
 
-test("HIR imports preserve full local/imported binding records and genuine external declarations in both orders", () => {
+test("HIR imports retain qualified binding occurrences, actual targets and availability in both orders", () => {
   for (const [count, reversed] of [[0, false], [1, false], [3, false], [3, true]])
     for (const reason of [null, "checker-error", "parameter-dependent", "not-provided"]) {
-      const { value, node, definition } = declarationModule("ImportDeclaration");
+      const { value, node } = declarationModule("ImportDeclaration");
       const foreign = foreignTypeDeclarations(count);
-      const target = { target: "project", module: foreign.value.module };
-      const clauseDefinition = `D[${moduleIdentity};item/clause]`;
-      const bindings = [];
-      const specifiers = foreign.nodes.map((exported, ordinal) => {
-        const local = `D[${moduleIdentity};item/local${ordinal}]`;
-        const imported = reason === null ? available(exported.tsonic.definition) : unavailable(reason);
-        const binding = { local, imported };
-        bindings.push(binding);
-        return syntax("ImportSpecifier", 0, { isTypeOnly: ordinal % 2 === 0,
-          propertyName: syntax("StringLiteral", 0, { text: exported.name.text, tokenFlags: [],
-            tsonic: { core: absentCore(), role: "export-name", definition: imported } }),
-          name: syntax("Identifier", 0, { text: `Local${ordinal}`, tsonic: { core: absentCore(), role: "declaration-name",
-            declaration: { kind: "definition", definition: local } } }),
-          tsonic: { ...declarationFacts(definition), definition: local, target: available(target), bindings: [binding] } });
-      });
-      if (reversed) { specifiers.reverse(); bindings.reverse(); }
+      const target = available({ target: "project", module: foreign.value.module });
+      const entries = foreign.nodes.map((exported, ordinal) => ({ definition: exported.tsonic.definition, ordinal }));
+      if (reversed) entries.reverse();
+      const specifiers = entries.map(entry => syntax("ImportSpecifier", 0, { isTypeOnly: entry.ordinal % 2 === 0,
+        propertyName: syntax("StringLiteral", 0, { text: `Export${entry.ordinal}`, tokenFlags: [], tsonic: null }),
+        name: syntax("Identifier", 0, { text: `Local${entry.ordinal}`, tsonic: null }), tsonic: null }));
       const clause = syntax("ImportClause", 0, { phaseModifier: reason === "checker-error" ? "TypeKeyword" : reason === "parameter-dependent" ? "DeferKeyword" : null,
-        name: null, namedBindings: syntax("NamedImports", 0, { elements: nodeList(specifiers) }),
-        tsonic: { ...declarationFacts(definition), definition: clauseDefinition, target: available(target), bindings } });
+        name: null, namedBindings: syntax("NamedImports", 0, { elements: nodeList(specifiers) }), tsonic: { core: absentCore(), target, bindings: [] } });
       node.importClause = clause;
       node.moduleSpecifier.text = "./foreign.js";
-      node.moduleSpecifier.tsonic.target = available(target);
-      node.tsonic.target = available(target);
-      node.tsonic.bindings = bindings;
+      node.moduleSpecifier.tsonic.target = target;
+      node.tsonic.target = target;
       numberSyntaxFixture(value.tree);
-      value.items = [{ definition, node: node.id }, { definition: clauseDefinition, node: clause.id },
-        ...specifiers.map(specifier => ({ definition: specifier.tsonic.definition, node: specifier.id }))]
-        .sort((left, right) => left.definition < right.definition ? -1 : left.definition > right.definition ? 1 : 0);
-      const decoded = roundtrip((value), `import bindings/${count}/${reversed}/${reason}`);
+      specifiers.forEach((specifier, index) => {
+        const occurrence = { kind: "item", value: { owner: definitionIdentity, node: specifier.id } };
+        specifier.tsonic = { core: absentCore(), target, bindings: [occurrence] };
+        specifier.propertyName.tsonic = { core: absentCore(), role: "export-name", binding: occurrence };
+        specifier.name.tsonic = { core: absentCore(), role: "binding-name", binding: occurrence };
+        value.bindings.push({ occurrence, target: reason === null ? available({ kind: "declarations", definitions: [entries[index].definition] }) : unavailable(reason) });
+        node.tsonic.bindings.push(occurrence);
+        clause.tsonic.bindings.push(occurrence);
+      });
+      const decoded = roundtrip(value, `import bindings/${count}/${reversed}/${reason}`);
       assert.deepStrictEqual(product.verifyHir(foreign.value, contextFor(foreign.value)), []);
-      assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value, {}, [(foreign.value)])), []);
+      assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value, {}, [foreign.value])), []);
     }
 });
 
-test("HIR exports retain complete selected and unavailable bindings, targets and declared order", () => {
-  for (const kind of ["ExportDeclaration", "ExportAssignment"]) for (const [count, reversed] of [[0, false], [1, false], [3, false], [3, true]]) {
-    const { value, node, definition } = declarationModule(kind);
-    const foreign = foreignTypeDeclarations(count);
-    const exports = foreign.nodes.map((exported, ordinal) => ({ name: `name${ordinal}`,
-      definition: ordinal % 2 === 0 ? available(exported.tsonic.definition) : unavailable("parameter-dependent") }));
-    if (reversed) exports.reverse();
-    node.tsonic.exports = exports;
-    node.tsonic.target = available({ target: "project", module: foreign.value.module });
-    if (kind === "ExportDeclaration") {
-      const specifiers = exports.map((exported, ordinal) => {
-        const owner = `D[${moduleIdentity};item/export${ordinal}]`;
-        const name = syntax("Identifier", 0, { text: exported.name, tsonic: { core: absentCore(), role: "property-name",
-          key: available({ kind: "text", value: exported.name }), origins: available([]) } });
-        return syntax("ExportSpecifier", 0, { isTypeOnly: ordinal % 2 === 0, propertyName: null, name,
-          tsonic: { ...declarationFacts(definition), definition: owner, exports: [exported], target: node.tsonic.target } });
-      });
-      node.exportClause = syntax("NamedExports", 0, { elements: nodeList(specifiers) });
-      numberSyntaxFixture(value.tree);
-      value.items = [{ definition, node: node.id }, ...specifiers.map(specifier => ({ definition: specifier.tsonic.definition, node: specifier.id }))]
-        .sort((left, right) => left.definition < right.definition ? -1 : left.definition > right.definition ? 1 : 0);
+test("HIR binding transport retains every semantic target and rejects incomplete qualified evidence", () => {
+  const fixture = () => {
+    const { value, node } = declarationModule("ExportDeclaration");
+    const specifier = syntax("ExportSpecifier", 0, { isTypeOnly: false, propertyName: null,
+      name: syntax("Identifier", 0, { text: "alias", tsonic: null }), tsonic: null });
+    node.exportClause.elements = nodeList([specifier]);
+    numberSyntaxFixture(value.tree);
+    const occurrence = { kind: "item", value: { owner: definitionIdentity, node: specifier.id } };
+    specifier.tsonic = { core: absentCore(), binding: occurrence };
+    specifier.name.tsonic = { core: absentCore(), role: "binding-name", binding: occurrence };
+    value.bindings = [{ occurrence, target: available({ kind: "module", module: moduleIdentity }) }];
+    value.exports = [{ name: "alias", target: { kind: "binding", occurrence } }];
+    value.checkerDiagnostics = [sourceDiagnostic()];
+    return { value, occurrence, specifier };
+  };
+  const foreign = foreignTypeDeclarations(2);
+  const definitions = foreign.nodes.map(node => node.tsonic.definition);
+  const targets = [available({ kind: "declarations", definitions }), available({ kind: "module", module: foreign.value.module }),
+    available({ kind: "unresolved", diagnostics: [{ module: moduleIdentity, index: 0 }] }),
+    available({ kind: "member", through: { kind: "declarations", definitions }, key: available({ kind: "text", value: "field" }),
+      origins: available([{ kind: "declared", declaration: definitions[0] }]) }),
+    available({ kind: "member", through: { kind: "declarations", definitions }, key: unavailable("incomplete-association"),
+      origins: unavailable("missing-original-component") }),
+    ...["checker-error", "not-provided", "parameter-dependent", "missing-original-component", "incomplete-association", "unsupported-checked-structure"].map(unavailable)];
+  for (const [index, target] of targets.entries()) {
+    const { value } = fixture();
+    value.bindings[0].target = target;
+    const decoded = roundtrip(value, `complete binding target/${index}`).value;
+    assert.deepStrictEqual(product.verifyHir(decoded, contextFor(decoded, {}, [foreign.value])), []);
+    assert.deepStrictEqual(decoded.bindings[0].target, target);
+  }
+  const corruptions = [
+    ["module-owner", ({ value }) => { value.bindings[0].target = available({ kind: "module", module: foreign.value.module }); }],
+    ["stable-order", ({ value }) => { value.exports.push(value.exports[0]); }],
+    ["stable-order", ({ value }) => { value.bindings[0].target = available({ kind: "declarations", definitions: [...definitions].reverse() }); }],
+    ["definition-reference", ({ value }) => { value.bindings[0].target = available({ kind: "declarations", definitions: [] }); }],
+    ["diagnostic-reference", ({ value }) => { value.bindings[0].target = available({ kind: "unresolved", diagnostics: [] }); }],
+    ["diagnostic-reference", ({ value }) => { value.bindings[0].target = available({ kind: "unresolved", diagnostics: [{ module: moduleIdentity, index: 1 }] }); }],
+    ["diagnostic-reference", ({ value }) => { value.bindings[0].target = available({ kind: "unresolved", diagnostics: [{ module: foreign.value.module, index: 0 }] }); }],
+    ["binding-capture-owner", ({ value, occurrence }) => { value.bindings[0].target = available({ kind: "binding", occurrence: { ...occurrence, value: { ...occurrence.value, node: 999 } } }); }],
+    ["binding-capture-owner", ({ value }) => { value.bindings.push(value.bindings[0]); }],
+    ["binding-capture-owner", ({ value, specifier, occurrence }) => { specifier.name.tsonic.binding = { ...occurrence, value: { ...occurrence.value, node: 0 } }; }],
+    ["binding-capture-owner", ({ value }) => { value.bindings[0].occurrence.value.node = -0; }],
+    ["binding-capture-owner", ({ value }) => { value.bindings[0].occurrence = { kind: "body", value: { body: bodyIdentity, node: 999 } }; }],
+  ];
+  for (const [index, [rule, corrupt]] of corruptions.entries()) {
+    const actual = fixture();
+    corrupt(actual);
+    const context = contextFor(actual.value, {}, rule === "module-owner" ? [] : [foreign.value]);
+    assert.equal(product.verifyHir(actual.value, context).some(finding => finding.rule === rule), true, `${index}/${rule}`);
+  }
+  const { value, occurrence } = fixture();
+  value.bindings[0].target = available({ kind: "binding", occurrence });
+  assert.deepStrictEqual(product.verifyHir(roundtrip(value, "retained self alias").value, contextFor(value)), []);
+  for (const target of [{ kind: "declarations", definitions: [] }, { kind: "unresolved", diagnostics: [] }]) {
+    const invalid = fixture().value;
+    invalid.bindings[0].target = available(target);
+    assert.equal(product.parseHir(product.printHir(invalid)).kind, "invalid-text", `empty ${target.kind} is not a current wire answer`);
+  }
+  const other = fixture();
+  const external = foreignModuleWith(other.value.tree.statements.nodes, "binding-neighbor.ts");
+  const externalOccurrence = { kind: "item", value: { owner: external.tree.tsonic.definition, node: other.specifier.id } };
+  other.specifier.tsonic.binding = externalOccurrence;
+  other.specifier.name.tsonic.binding = externalOccurrence;
+  external.bindings = [{ occurrence: externalOccurrence, target: available({ kind: "module", module: moduleIdentity }) }];
+  value.bindings[0].target = available({ kind: "binding", occurrence: externalOccurrence });
+  assert.deepStrictEqual(product.verifyHir(value, contextFor(value, {}, [external])), []);
+  for (const mode of ["missing-module", "wrong-module", "missing-node", "unknown-owner", "unknown-body", "unknown-body-owner", "missing-declaration-module", "missing-declaration-row"]) {
+    const actual = structuredClone(value);
+    const current = contextFor(actual, {}, [external]);
+    if (mode === "missing-module") current.moduleOf = () => null;
+    if (mode === "wrong-module") current.moduleOf = () => actual;
+    if (mode === "missing-node") current.nodeOf = () => null;
+    if (mode === "unknown-owner") current.definitionPathOf = () => null;
+    if (mode === "unknown-body" || mode === "unknown-body-owner") {
+      actual.bindings[0].target.value.occurrence = { kind: "body", value: { body: external.bodies[0].body, node: other.specifier.id } };
+      if (mode === "unknown-body") current.bodyPathOf = () => null;
+      else current.definitionPathOf = () => null;
     }
-    const decoded = roundtrip((value), `${kind}/exports/${count}/${reversed}`);
-    assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value, {}, [(foreign.value)])), []);
+    if (mode === "missing-declaration-module" || mode === "missing-declaration-row") {
+      const missing = `D[${external.module};missing]`;
+      actual.bindings[0].target = available({ kind: "declarations", definitions: [missing] });
+      const path = ids.decodeDefId(missing);
+      assert.equal(path.kind, "decoded");
+      const read = current.definitionPathOf;
+      current.definitionPathOf = definition => definition === missing ? path.value : read(definition);
+      if (mode === "missing-declaration-module") current.moduleOf = () => null;
+    }
+    assert.equal(product.verifyHir(actual, current).length > 0, true, mode);
+  }
+});
+
+test("HIR exports retain complete groups and actual binding availability without binding definitions", () => {
+  for (const [count, reversed] of [[0, false], [1, false], [3, false], [3, true]]) {
+    const { value, node } = declarationModule("ExportDeclaration");
+    const foreign = foreignTypeDeclarations(count);
+    const entries = foreign.nodes.map((exported, ordinal) => ({ name: `name${ordinal}`, definition: exported.tsonic.definition, ordinal }));
+    if (reversed) entries.reverse();
+    const specifiers = entries.map(entry => syntax("ExportSpecifier", 0, { isTypeOnly: entry.ordinal % 2 === 0, propertyName: null,
+      name: syntax("Identifier", 0, { text: entry.name, tsonic: null }), tsonic: null }));
+    node.exportClause = syntax("NamedExports", 0, { elements: nodeList(specifiers) });
+    node.tsonic.target = available({ target: "project", module: foreign.value.module });
+    numberSyntaxFixture(value.tree);
+    specifiers.forEach((specifier, index) => {
+      const occurrence = { kind: "item", value: { owner: definitionIdentity, node: specifier.id } };
+      specifier.tsonic = { core: absentCore(), binding: occurrence };
+      specifier.name.tsonic = { core: absentCore(), role: "binding-name", binding: occurrence };
+      value.bindings.push({ occurrence, target: entries[index].ordinal % 2 === 0
+        ? available({ kind: "declarations", definitions: [entries[index].definition] }) : unavailable("parameter-dependent") });
+      value.exports.push({ name: entries[index].name, target: { kind: "binding", occurrence } });
+    });
+    value.exports.sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
+    const decoded = roundtrip(value, `exports/${count}/${reversed}`);
+    assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value, {}, [foreign.value])), []);
   }
 });
 
@@ -4442,11 +4584,11 @@ for (const contradictory of [false, true])
 for (const [index, present] of [[null, false], [0, true], [-1, false], [0.5, false], [NaN, false], [99, false], [0, false]])
   test(`HIR unresolved checker index ${index}/${present} keeps the exact complete diagnostic-reference outcome`, () => {
     const expression = nameExpression();
-    expression.tsonic.resolution = { kind: "unresolved", checkerDiagnostic: index };
+    expression.tsonic.resolution = index === null ? unavailable("incomplete-association") : { kind: "unresolved", diagnostics: [{ module: moduleIdentity, index }] };
     const value = expressionModule(expression);
     value.checkerDiagnostics = present ? [sourceDiagnostic()] : [];
     assert.deepStrictEqual(product.verifyHir((value), contextFor(value)), index === null || index === 0 && present ? [] : [
-      violation("diagnostic-reference", nodeSite(expression.id), "unresolved resolution must name an existing checker diagnostic"),
+      violation("diagnostic-reference", nodeSite(expression.id), "an unresolved target requires its actual qualified checker diagnostic root"),
     ]);
   });
 

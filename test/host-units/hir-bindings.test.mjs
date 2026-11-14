@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { isDeepStrictEqual } from "node:util";
 import { createModuleBindingViews, projectExportDeclarations, resolveModuleBinding } from "../../packages/host/dist/ir-hir/index.js";
 import { encodeBodyId, encodeDefId, encodeModuleId, encodePackageId, nodeId } from "../../packages/host/dist/ids/index.js";
 import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
+import { moduleFixture } from "./ir-program-fixtures.mjs";
+import { parseProgramIndex, printProgramIndex } from "../../packages/host/dist/ir-program/index.js";
 
 const module = encodeModuleId({ package: encodePackageId("/bindings"), path: "source.ts" });
 const owner = encodeDefId({ module, segments: [] });
@@ -184,6 +187,39 @@ function ownerOf(definitions) {
   return definitions.rows.find(row => row.kind === "SourceFile").definition;
 }
 
+test("real checked aliases use the same B1 inventories through HIR and Program text transport", async () => {
+  const fixture = await loadFrontFixture();
+  const source = "function add(a:number,b:number):number { return a+b; } export { add, add as sum };";
+  const actual = fixture.checkedModuleOf(source);
+  assert.deepEqual(fixture.verifyChecked(actual.checked, actual.interner), []);
+  assert.equal(actual.checked.exports === actual.exports.entries, true, "checked exports retain the actual ready B1 inventory");
+  assert.equal(actual.checked.bindings === actual.exports.bindings, true, "checked bindings retain the actual nearest rows");
+  const text = fixture.hir.printHir(actual.checked);
+  const parsed = fixture.hir.parseHir(text);
+  assert.equal(parsed.kind, "parsed");
+  assert.equal(isDeepStrictEqual(parsed.value, actual.checked), true, "HIR preserves complete binding targets and occurrence ownership");
+  const program = moduleFixture();
+  program.index.modules = [{ module: actual.module, package: program.index.rootPackage, items: actual.checked.items,
+    exports: actual.checked.exports, bindings: actual.checked.bindings, checkerDiagnostics: actual.checked.checkerDiagnostics }];
+  const programText = printProgramIndex(program.index);
+  const received = parseProgramIndex(programText);
+  assert.equal(received.kind, "parsed");
+  assert.equal(isDeepStrictEqual(received.value.modules, program.index.modules), true, "Program carries the same qualified relation");
+  const empty = structuredClone(actual.checked);
+  empty.exports[0].target = { kind: "declarations", definitions: [] };
+  assert.equal(fixture.hir.parseHir(fixture.hir.printHir(empty)).kind, "invalid-text", "empty declaration groups are not a replacement binding form");
+  program.index.modules[0].exports = empty.exports;
+  assert.equal(parseProgramIndex(printProgramIndex(program.index)).kind, "invalid-text", "Program rejects the same removed empty form");
+  const missing = structuredClone(actual.checked);
+  missing.bindings = [];
+  assert.equal(fixture.verifyChecked(missing, actual.interner).some(violation => violation.rule === "binding-capture-owner"), true,
+    "checked aliases cannot lose their canonical nearest rows");
+  const duplicate = structuredClone(actual.checked);
+  duplicate.bindings.push(structuredClone(duplicate.bindings[0]));
+  assert.equal(fixture.verifyChecked(duplicate, actual.interner).some(violation => violation.rule === "binding-capture-owner"), true,
+    "duplicate qualified binding ownership is a violation rather than a chosen row");
+});
+
 test("real raw B1 direct overload inventory retains every declaration in canonical syntax order", async () => {
   const fixture = await loadFrontFixture();
   const source = "export function over(a:number):number; export function over(a:string):string; export function over(a:any):any { return a; }";
@@ -268,4 +304,21 @@ test("real B1 cross-module aliases retain every nearest binding hop and star/mod
     const repeat = fixture.front.lowerModuleExports(deps, entry.raw);
     assert.deepEqual(repeat.value, lowered.find(value => value.module === entry.raw.module));
   }
+  const selected = new Set(["a.ts", "star.ts", "namespace.ts"].map(name => sourceModules.get(name)));
+  const texts = new Map(captured.map(entry => [entry.raw.module, entry.text]));
+  const checked = captured.filter(entry => selected.has(entry.raw.module)).map(entry => {
+    const result = fixture.front.lowerModule({ ...deps, sourceTextOf: module => texts.get(module),
+      exportsOf: module => lowered.find(value => value.module === module) ?? null }, entry.raw);
+    assert.equal(result.kind, "ok");
+    return result.value;
+  });
+  for (const current of checked) {
+    assert.deepEqual(fixture.verifyChecked(current, deps.types, checked), []);
+    const parsed = fixture.hir.parseHir(fixture.hir.printHir(current));
+    assert.equal(parsed.kind, "parsed");
+    assert.equal(isDeepStrictEqual(parsed.value, current), true, "checked cross-module bindings round-trip without selecting a representative");
+  }
+  const namespaceModule = checked.find(current => current.module === sourceModules.get("namespace.ts"));
+  assert.equal(namespaceModule.items.filter(item => item.definition === namespaceDefinition.definition).length, 1,
+    "NamespaceExport's genuine F1 declaration occurs exactly once");
 });

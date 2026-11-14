@@ -20,6 +20,9 @@ import type {
 import type { ProgramLookup, ProgramViolation } from "./program-values.js";
 import { artifactEnvironmentKey, compareInstances, compareText, numberDetail, programChildRule, programLookup, requireInstantiationMaximum, textDetail, uniqueRows } from "./program-values.js";
 import { verifyBindingBounds, verifyBodyInventory, verifyModules, verifyPackages } from "./verify-structure.js";
+import { verifyModuleBindings } from "./verify-module-bindings.js";
+import { textModuleBinding, textModuleExport } from "./text-module-bindings.js";
+import { emitText, sequence, textDiagnostic } from "./text-values.js";
 
 function numericPosition(value: number, length: number): boolean {
   return Number.isSafeInteger(value) && value >= 0 && !Object.is(value, -0) && value < length;
@@ -107,6 +110,12 @@ function verifySourceInventory(
       violations.push({ rule: "tir-valid", site: { kind: "module", module: record.module }, detail: [textDetail("missing-module-data")] });
       continue;
     }
+    for (const [actual, expected, rule] of [
+      [emitText(sequence(record.exports, textModuleExport), "exports"), emitText(sequence(input.source.exports, textModuleExport), "exports"), "export-target-resolves"],
+      [emitText(sequence(record.bindings, textModuleBinding), "bindings"), emitText(sequence(input.source.bindings, textModuleBinding), "bindings"), "binding-target-resolves"],
+      [emitText(sequence(record.checkerDiagnostics, textDiagnostic), "checkerDiagnostics"), emitText(sequence(input.source.checkerDiagnostics, textDiagnostic), "checkerDiagnostics"), "binding-diagnostic-resolves"],
+    ] as const) if (actual !== expected)
+      violations.push({ rule, site: { kind: "module", module: record.module }, detail: [textDetail("checked-module-inventory-exact")] });
     const nodes = indexSyntaxTree(input.module.tree);
     nodeCounts.set(record.module, nodes.length);
     const byId = uniqueRows(nodes, node => node.id);
@@ -252,7 +261,7 @@ export const verifyProgramIndex: VerifyProgramIndex = (index, context) => {
   for (const record of index.modules) modules.set(record.module, context.tirOf(record.module));
   const bindings: BindingVerificationInput[] = [];
   const bindingSites: ProgramSite[] = [];
-  for (const group of [verifySourceInventory(index, modules), verifySignatures(lookup, index, context, modules, bindings, bindingSites), verifyBodyBindings(index, context, bindings, bindingSites), verifyPublishedRecords(index, context), verifyBindingBounds(index, context)]) {
+  for (const group of [verifySourceInventory(index, modules), verifyModuleBindings(lookup, index, context, modules), verifySignatures(lookup, index, context, modules, bindings, bindingSites), verifyBodyBindings(index, context, bindings, bindingSites), verifyPublishedRecords(index, context), verifyBindingBounds(index, context)]) {
     for (const violation of group) violations.push(violation);
   }
   const bindingViolations = new Map<number, Violation<TypeRule, TypeSite>[]>();

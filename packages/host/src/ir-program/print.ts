@@ -7,6 +7,7 @@ import { printTypes } from "../ir-types/index.js";
 import { textArtifactBindings, textBindingVector, textBodyInstance, textConstValue, textTypeEvidence } from "./text-types.js";
 import { textHirLexicalScope } from "./text-core.js";
 import { textBodyCaptureRow } from "./text-inference.js";
+import { textModuleBinding, textModuleExport } from "./text-module-bindings.js";
 import { createSyntaxText, syntaxText } from "./print-syntax.js";
 import { boolean, deferred, emitText, field, identity, nullable, numeric, numericIdentity, record, sequence, text, textDiagnostic, textLocalRef, textSourceNodeRef, token } from "./text-values.js";
 
@@ -28,9 +29,9 @@ function moduleRecord(value: ModuleRecord): TextWork {
     field("items", sequence(value.items, item => deferred(item, () => record("DefinitionNode", [
       field("definition", identity("def", item.definition)), field("node", numericIdentity("n", item.node)),
     ])))),
-    field("exports", sequence(value.exports, exported => deferred(exported, () => record("ModuleExport", [
-      field("name", text(exported.name)), field("definition", identity("def", exported.definition)),
-    ])))),
+    field("exports", sequence(value.exports, textModuleExport)),
+    field("bindings", sequence(value.bindings, textModuleBinding)),
+    field("checkerDiagnostics", sequence(value.checkerDiagnostics, textDiagnostic)),
   ]));
 }
 

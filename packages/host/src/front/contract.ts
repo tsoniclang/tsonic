@@ -63,6 +63,7 @@ export interface CaptureDeps {
 }
 
 export interface LowerDeps {
+  readonly exportsOf: (module: ModuleId) => ModuleExports | null;
   readonly definitionOf: (reference: RawNodeRef) => DefId;
   readonly bindingOccurrenceOf: (reference: RawNodeRef) => SourceNodeRef | null;
   readonly definitionOfExport: (identity: LibraryExportIdentity) => DefId;
@@ -141,14 +142,7 @@ export interface RawComponent {
 export interface RawSymbol {
   readonly id: RawSymbolId;
   readonly name: string;
-  readonly declarations: readonly RawNodeRef[];
-  readonly aliasTarget: RawFact<RawSymbolId | null>;
-  readonly exports: RawFact<readonly RawSymbolExport[]>;
-}
-
-export interface RawSymbolExport {
-  readonly name: string;
-  readonly symbol: RawSymbolId;
+  readonly target: RawFact<RawBindingTarget>;
 }
 
 export interface RawParameter {
@@ -385,9 +379,7 @@ export interface RawProviderDeclaration {
 export interface RawReference {
   readonly occurrence: RawNodeRef;
   readonly meaning: "value" | "type" | "namespace";
-  readonly declaration: RawNodeRef;
-  readonly module: ModuleId;
-  readonly project: boolean;
+  readonly target: RawFact<RawBindingTarget>;
 }
 
 export interface RawModuleLink {

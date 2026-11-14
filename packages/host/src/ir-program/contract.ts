@@ -3,7 +3,7 @@ import type { BodyId, DefId, DefinitionPath, ModuleId, ModulePath, NodeId, Packa
 import type {
   ArtifactBindings, BindingVector, BodyInstance, ConstValue, TypeExpansionLimits, TypePublication, TypePublicationLimits, TypeTable,
 } from "../ir-types/contract.js";
-import type { SourceFile } from "../ir-hir/contract.js";
+import type { HirModuleBinding, HirModuleExport, SourceFile } from "../ir-hir/contract.js";
 import type { TirBody, TirVerifierInput, TypedPhase } from "../ir-tir/contract.js";
 import type { MirBody, MirVerificationLimits } from "../ir-mir/contract.js";
 import type { BodyFacts, FactsVerificationContext, MetadataRecord, Summary } from "../ir-facts/contract.js";
@@ -22,11 +22,6 @@ export interface PackageRecord {
   readonly exports: readonly PackageExport[];
 }
 
-export interface ModuleExport {
-  readonly name: string;
-  readonly definition: DefId;
-}
-
 export interface DefinitionNode {
   readonly definition: DefId;
   readonly node: NodeId;
@@ -36,7 +31,9 @@ export interface ModuleRecord {
   readonly module: ModuleId;
   readonly package: PackageId;
   readonly items: readonly DefinitionNode[];
-  readonly exports: readonly ModuleExport[];
+  readonly exports: readonly HirModuleExport[];
+  readonly bindings: readonly HirModuleBinding[];
+  readonly checkerDiagnostics: readonly Diagnostic[];
 }
 
 export type SignatureRecord = {
@@ -131,7 +128,8 @@ export type ProgramRule =
   | "package-dependency-resolves" | "package-exports-order" | "package-export-resolves"
   | "modules-order" | "module-package-resolves" | "identity-path-exact" | "items-order" | "item-definition-resolves"
   | "definition-node-resolves" | "definition-node-owner-exact" | "module-node-id-dense"
-  | "exports-order" | "export-definition-resolves" | "signatures-order" | "signature-reference-resolves"
+  | "exports-order" | "export-target-resolves" | "binding-capture-owner" | "binding-target-resolves" | "binding-diagnostic-resolves"
+  | "signatures-order" | "signature-reference-resolves"
   | "signature-endpoints-exact" | "body-index-order" | "body-owner-resolves" | "body-module-resolves"
   | "body-root-resolves" | "node-body-ownership" | "mir-counts-integral"
   | "metadata-order" | "metadata-key-unique" | "summaries-order"

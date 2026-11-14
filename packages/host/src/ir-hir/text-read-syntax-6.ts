@@ -138,7 +138,7 @@ export function createSyntaxGroup6(readers: () => HirTextReaders): ReadonlyMap<s
       const field_flags = read("flags", sequenceReader(readers().literal_35));
       const field_loc = read("loc", readers().record_81);
       const field_text = read("text", readers().scalar_string);
-      const field_tsonic = read("tsonic", unionReader<Hir.CheckedName>(() => [readers().record_254, readers().record_255, readers().record_256, readers().record_257, readers().record_258, readers().record_259, readers().record_260, readers().record_261]));
+      const field_tsonic = read("tsonic", unionReader<Hir.CheckedName>(() => [readers().record_254, readers().record_255, readers().record_256, readers().record_257, readers().record_258, readers().record_259, readers().record_260, readers().record_261, readers().bindingName]));
       return { fields: [field_id, field_origin, field_parent, field_flags, field_loc, field_text, field_tsonic], value: () => ({ kind: "PrivateIdentifier", id: field_id.value(), origin: field_origin.value(), parent: field_parent.value(), flags: field_flags.value(), loc: field_loc.value(), text: field_text.value(), tsonic: field_tsonic.value() }) };
     }, value => ({ kind: "PrivateIdentifier", value }), accept)],
     ["PropertyAccessExpression", accept => syntaxRecord<Hir.PropertyAccessExpression<Hir.CheckedPhase>>(read => {
@@ -203,7 +203,7 @@ export function createSyntaxGroup6(readers: () => HirTextReaders): ReadonlyMap<s
       const field_loc = read("loc", readers().record_81);
       const field_left = read("left", readers().syntax_39);
       const field_right = read("right", readers().syntax_16);
-      const field_tsonic = read("tsonic", unionReader<Hir.CheckedName>(() => [readers().record_254, readers().record_255, readers().record_256, readers().record_257, readers().record_258, readers().record_259, readers().record_260, readers().record_261]));
+      const field_tsonic = read("tsonic", unionReader<Hir.CheckedName>(() => [readers().record_254, readers().record_255, readers().record_256, readers().record_257, readers().record_258, readers().record_259, readers().record_260, readers().record_261, readers().bindingName]));
       return { fields: [field_id, field_origin, field_parent, field_flags, field_loc, field_left, field_right, field_tsonic], value: () => ({ kind: "QualifiedName", id: field_id.value(), origin: field_origin.value(), parent: field_parent.value(), flags: field_flags.value(), loc: field_loc.value(), left: field_left.value(), right: field_right.value(), tsonic: field_tsonic.value() }) };
     }, value => ({ kind: "QualifiedName", value }), accept)],
     ["RegularExpressionLiteral", accept => syntaxRecord<Hir.RegularExpressionLiteral<Hir.CheckedPhase>>(read => {

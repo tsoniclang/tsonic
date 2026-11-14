@@ -4,6 +4,18 @@ import type * as Types from "../ir-types/contract.js";
 import type * as Diag from "../diag/contract.js";
 import type { HirReader } from "./text-construction.js";
 import type { HirScalarReaders } from "./text-read-scalars.js";
+export interface HirBindingTextReaders {
+  readonly bindingSource: HirReader<Ids.SourceNodeRef>;
+  readonly exportTarget: HirReader<Hir.HirExportTarget>;
+  readonly bindingTarget: HirReader<Hir.HirBindingTarget>;
+  readonly moduleExport: HirReader<Hir.HirModuleExport>;
+  readonly moduleBinding: HirReader<Hir.HirModuleBinding>;
+  readonly exportBinding: HirReader<Hir.CheckedExportBinding>;
+  readonly namespaceExport: HirReader<Hir.CheckedNamespaceExport>;
+  readonly exportAssignment: HirReader<Hir.CheckedExportAssignment>;
+  readonly resolution: HirReader<Hir.HirResolution>;
+  readonly bindingName: HirReader<Extract<Hir.CheckedName, { readonly role: "binding-name" }>>;
+}
 export interface HirReadGroup0 {
   readonly record_0: HirReader<Hir.HirModule>;
   readonly record_1: HirReader<Hir.HirDeclarationEntry>;
@@ -160,14 +172,11 @@ export interface HirReadGroup4 {
   readonly record_144: HirReader<Hir.HirStoragePlace>;
   readonly record_145: HirReader<{ readonly kind: "root"; readonly resolution: Hir.HirResolution; }>;
   readonly record_146: HirReader<{ readonly kind: "local"; readonly local: Ids.LocalRef; }>;
-  readonly record_147: HirReader<{ readonly kind: "definition"; readonly definition: Ids.DefId; readonly aliases: readonly Ids.DefId[]; }>;
-  readonly record_148: HirReader<{ readonly kind: "module"; readonly target: Hir.ImportTarget; }>;
   readonly record_149: HirReader<{ readonly target: "project"; readonly module: Ids.ModuleId; }>;
 }
 export interface HirReadGroup5 {
   readonly record_150: HirReader<{ readonly target: "library"; readonly module: Ids.LibraryModuleIdentity; }>;
   readonly record_151: HirReader<Ids.LibraryModuleIdentity>;
-  readonly record_152: HirReader<{ readonly kind: "unresolved"; readonly checkerDiagnostic: number | null; }>;
   readonly record_153: HirReader<{ readonly kind: "place"; readonly node: Ids.NodeId; }>;
   readonly record_154: HirReader<{ readonly kind: "member"; readonly key: Types.MemberKey; readonly origins: readonly Types.MemberOrigin[]; }>;
   readonly record_155: HirReader<{ readonly kind: "index"; readonly expression: Ids.NodeId; }>;
@@ -223,7 +232,7 @@ export interface HirReadGroup6 {
   readonly record_203: HirReader<{ readonly kind: "bigint"; readonly value: bigint; }>;
   readonly record_204: HirReader<Hir.HirCoreCarrier & { readonly role: "module-specifier"; readonly target: Hir.CapturedFact<Hir.ImportTarget>; }>;
   readonly record_205: HirReader<{ readonly kind: "available"; readonly value: Hir.ImportTarget; }>;
-  readonly record_206: HirReader<Hir.HirCoreCarrier & { readonly role: "export-name"; readonly definition: Hir.CapturedFact<Ids.DefId>; }>;
+  readonly record_206: HirReader<Hir.HirCoreCarrier & { readonly role: "export-name"; readonly binding: Ids.SourceNodeRef; }>;
   readonly record_207: HirReader<Hir.HirCoreCarrier & { readonly role: "attribute-value"; readonly literal: Types.LiteralValue; }>;
   readonly record_208: HirReader<Hir.HirCoreCarrier & { readonly role: "arithmetic" | "comparison" | "sequence" | "short-circuit"; readonly value: Hir.CheckedValue; }>;
   readonly record_209: HirReader<Hir.HirCoreCarrier & { readonly role: "arithmetic" | "comparison" | "sequence" | "short-circuit"; readonly value: Hir.CheckedValue; }>;
@@ -268,7 +277,6 @@ export interface HirReadGroup8 {
   readonly record_244: HirReader<Hir.CheckedEnum>;
   readonly record_245: HirReader<Hir.CheckedVariable>;
   readonly record_246: HirReader<Hir.CheckedExport>;
-  readonly record_247: HirReader<Hir.HirExportBinding>;
   readonly record_248: HirReader<{ readonly kind: "available"; readonly value: Hir.ImportTarget | null; }>;
   readonly record_249: HirReader<Hir.HirCoreCarrier & { readonly role: "value"; readonly value: Hir.CheckedValue; }>;
   readonly record_250: HirReader<Hir.HirCoreCarrier & { readonly role: "heritage"; readonly type: Hir.CapturedFact<Ids.TyId>; readonly definition: Hir.CapturedFact<Ids.DefId>; }>;
@@ -285,7 +293,6 @@ export interface HirReadGroup8 {
   readonly record_261: HirReader<Hir.HirCoreCarrier & { readonly role: "shorthand-value"; readonly value: Hir.CheckedValue; readonly resolution: Hir.HirResolution; readonly key: Hir.CapturedFact<Types.MemberKey>; }>;
   readonly record_262: HirReader<Hir.NodeList<Hir.ImportAttribute<Hir.CheckedPhase>>>;
   readonly record_263: HirReader<Hir.CheckedImport>;
-  readonly record_264: HirReader<Hir.HirImportBinding>;
   readonly record_265: HirReader<Hir.NodeList<Hir.TypeElement<Hir.CheckedPhase>>>;
   readonly record_266: HirReader<Hir.NodeList<Hir.JSDocComment<Hir.CheckedPhase>>>;
   readonly record_267: HirReader<Hir.NodeList<Hir.JSDocTag<Hir.CheckedPhase>>>;
@@ -324,7 +331,7 @@ export interface HirReadGroup9 {
   readonly record_298: HirReader<Hir.HirRecordBindingCapture>;
   readonly record_299: HirReader<{ readonly kind: "available"; readonly value: Hir.HirRecordBindingCapture | null; }>;
 }
-export interface HirTextReaders extends HirScalarReaders, HirReadGroup0, HirReadGroup1, HirReadGroup2, HirReadGroup3, HirReadGroup4, HirReadGroup5, HirReadGroup6, HirReadGroup7, HirReadGroup8, HirReadGroup9 {
+export interface HirTextReaders extends HirBindingTextReaders, HirScalarReaders, HirReadGroup0, HirReadGroup1, HirReadGroup2, HirReadGroup3, HirReadGroup4, HirReadGroup5, HirReadGroup6, HirReadGroup7, HirReadGroup8, HirReadGroup9 {
   readonly syntax_0: HirReader<Hir.SourceFile<Hir.CheckedPhase>>;
   readonly syntax_1: HirReader<Hir.BodyRoot<Hir.CheckedPhase>>;
   readonly syntax_2: HirReader<Hir.Expression<Hir.CheckedPhase>>;

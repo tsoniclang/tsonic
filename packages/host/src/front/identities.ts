@@ -2,7 +2,7 @@ import type { DefinitionSegment, ModuleId, NodeId } from "../ids/contract.js";
 import type { ModuleDefinitionRow, ModuleDefinitions } from "./contract.js";
 import { encodeDefId } from "../ids/index.js";
 import type * as Hir from "../ir-hir/contract.js";
-import { childrenOfSyntax } from "../ir-hir/index.js";
+import { childrenOfSyntax, isModuleBindingKind } from "../ir-hir/index.js";
 
 function nameText(name: Hir.SyntaxNode<Hir.SyntaxPhase>): string | null {
   switch (name.kind) {
@@ -52,15 +52,6 @@ interface Owner {
  * before it, whatever their kind. The counters belong to the owner itself (its node), never to a spelling of its
  * path, so names holding `#`, `/` or `:` cannot make two owners share a counter (K-3343).
  */
-export function isBindingKind(kind: string, hasName: boolean): boolean {
-  switch (kind) {
-    case "ImportClause": return hasName;
-    case "ImportSpecifier": case "NamespaceImport": case "ImportEqualsDeclaration": case "ExportSpecifier":
-    case "NamespaceExport": case "NamespaceExportDeclaration": return true;
-    default: return false;
-  }
-}
-
 export function moduleIdentities(module: ModuleId, tree: Hir.SourceFile<Hir.SyntaxPhase>): ModuleDefinitions {
   const rows: ModuleDefinitionRow[] = [];
   const bindingSources: ModuleDefinitions["bindingSources"][number][] = [];
@@ -82,7 +73,7 @@ export function moduleIdentities(module: ModuleId, tree: Hir.SourceFile<Hir.Synt
       rows.push({ node: node.id, kind: node.kind, segments, definition: encodeDefId({ module, segments }) });
       inner = { node: node.id, segments };
     }
-    if (isBindingKind(node.kind, node.kind !== "ImportClause" || node.name !== null)) {
+    if (isModuleBindingKind(node.kind, node.kind !== "ImportClause" || node.name !== null)) {
       if (inner === null) throw new TypeError("front: a binding has no genuine enclosing declaration identity");
       bindingSources.push({ node: node.id, occurrence: { kind: "item", value: {
         owner: encodeDefId({ module, segments: inner.segments }), node: node.id } } });

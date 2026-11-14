@@ -118,7 +118,7 @@ export function moduleFixture(path = "src/main.ts", root = "/program") {
   const index = {
     schema: 1, rootPackage: packageId,
     packages: [{ id: packageId, name: null, packageRoot: root, sourceRoot: root + "/src", dependencies: [], exports: [] }],
-    modules: [{ module: moduleId, package: packageId, items: [{ definition, node: 0 }], exports: [] }],
+    modules: [{ module: moduleId, package: packageId, items: [{ definition, node: 0 }], exports: [], bindings: [], checkerDiagnostics: [] }],
     types, signatures: [], bodies: [{ instance, module: moduleId, owner: definition, root: 0,
       mirLocalCount: 0, mirConstantCount: 0, mirPlaceCount: 0, mirBlockCount: 1 }],
     metadata: [], summaries: [], constants: [], diagnostics: [],
@@ -133,7 +133,7 @@ export function moduleFixture(path = "src/main.ts", root = "/program") {
   const source = {
     module: moduleId, tree: checked, items: [{ definition, node: 0 }],
     bodies: [{ body: bodyId, owner: definition, params: [], locals: [], root: checked, captures: [], scopes,
-      asynchronous: false, generator: false, candidateLists: [], nestedBodies: [] }], checkerDiagnostics: [], obligations: [],
+      asynchronous: false, generator: false, candidateLists: [], nestedBodies: [] }], exports: [], bindings: [], checkerDiagnostics: [], obligations: [],
   };
   const rows = [
     ["modulePathOf", moduleId, modulePath], ["definitionPathOf", definition, definitionPath],
@@ -246,7 +246,7 @@ export function moduleBoundaryFixture(change) {
     case "node-owned-module": {
       const fixture = moduleFixture();
       const module = encodeModuleId({ package: fixture.index.rootPackage, path: "src/other.ts" });
-      fixture.index.modules = [{ module, package: fixture.index.rootPackage, items: [], exports: [] }];
+      fixture.index.modules = [{ module, package: fixture.index.rootPackage, items: [], exports: [], bindings: [], checkerDiagnostics: [] }];
       fixture.index.bodies = [];
       fixture.module = { module, bodies: [], tree: { ...fixture.module.tree, id: 1,
         tsonic: { ...fixture.module.tree.tsonic, module },

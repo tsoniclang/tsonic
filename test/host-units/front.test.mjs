@@ -30,6 +30,12 @@ let lowerDepsFor;
 let checkedModuleOf;
 let verifyChecked;
 
+function lowerWithReadyExports(deps, raw) {
+  const exported = front.lowerModuleExports(deps, raw);
+  assert.equal(exported.kind, "ok");
+  return front.lowerModule({ ...deps, exportsOf: module => module === raw.module ? exported.value : null }, raw);
+}
+
 before(async () => {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true, "front tests run under the aggregate resource guard");
   session.connect();
@@ -693,7 +699,7 @@ test("checkpoint 1: add is opened through the checker and the snapshot, captured
   assert.deepEqual(exported, { kind: "ok", diagnostics: [], value: { module,
     entries: [{ name: "add", target: { kind: "declarations", definitions: [addDefinition] } }], bindings: [] } });
   // The checked module.
-  const lowered = front.lowerModule(lowerDeps, raw.value);
+  const lowered = lowerWithReadyExports(lowerDeps, raw.value);
   assert.equal(lowered.kind, "ok");
   const value = lowered.value;
   const float64 = types.internType(interner, { kind: "primitive", primitive: "float64" });
@@ -760,7 +766,7 @@ test("checkpoint 1, the development frontier: a module holding a kind whose chec
   const raw = front.captureModule(deps, program, module);
   assert.equal(raw.kind, "ok", "capture covers every syntax kind");
   const definitions = front.lowerModuleDefinitions(raw.value);
-  assert.throws(() => front.lowerModule(lowerDepsFor(definitions.value, types.createTypeInterner(), sourceText), raw.value),
+  assert.throws(() => lowerWithReadyExports(lowerDepsFor(definitions.value, types.createTypeInterner(), sourceText), raw.value),
     { name: "TypeError", message: "front: checked annotation not implemented: PrefixUnaryExpression" });
 });
 
@@ -832,7 +838,7 @@ test("an applicable SDK receipt is not a complete overload inventory, and missin
   const types = await import("../../packages/host/dist/ir-types/index.js");
   const source = "export function left(n: number): number { return right(n); }\nexport function right(n: number): number { return left(n); }\n";
   const { raw, definitions } = checkedModuleOf(source);
-  const convert = changed => front.lowerModule(lowerDepsFor(definitions, types.createTypeInterner(), source), changed);
+  const convert = changed => lowerWithReadyExports(lowerDepsFor(definitions, types.createTypeInterner(), source), changed);
   for (const reason of ["checker-error", "parameter-dependent", "not-provided", "missing-original-component", "incomplete-association", "unsupported-checked-structure"]) {
     const changed = { ...raw, calls: raw.calls.map(call => ({ ...call, declarationOrder: { kind: "unavailable", reason, diagnostics: [] } })) };
     assert.throws(() => convert(changed), { name: "TypeError",
@@ -866,7 +872,7 @@ test("the frontier check names the first unwritten form in preorder (R3 L-2)", a
   const raw = front.captureModule(deps, program, module);
   assert.equal(raw.kind, "ok");
   const definitions = front.lowerModuleDefinitions(raw.value);
-  assert.throws(() => front.lowerModule(lowerDepsFor(definitions.value, types.createTypeInterner(), sourceText), raw.value),
+  assert.throws(() => lowerWithReadyExports(lowerDepsFor(definitions.value, types.createTypeInterner(), sourceText), raw.value),
     { name: "TypeError", message: "front: checked annotation not implemented: AsteriskToken" });
 });
 
@@ -926,7 +932,7 @@ test("K-3313.2 offered but not answered: a selected semantics module that offers
   assert.equal(raw.value.core.length, 18);
   assert.deepEqual([...new Set(raw.value.core.flatMap(row => Object.entries(row).filter(([name]) => name !== "node").map(([, fact]) => JSON.stringify(fact))))], [JSON.stringify(notProvided)]);
   const definitions = front.lowerModuleDefinitions(raw.value);
-  assert.throws(() => front.lowerModule(lowerDepsFor(definitions.value, types.createTypeInterner(), addSource), raw.value),
+  assert.throws(() => lowerWithReadyExports(lowerDepsFor(definitions.value, types.createTypeInterner(), addSource), raw.value),
     { name: "TypeError", message: "front: a parameter whose passing mode is not proven is not implemented (the selected inventory offers core facts that capture does not answer yet)" });
 });
 
@@ -940,7 +946,7 @@ test("K-3313.2 a positive declaration passing fact is consumed as captured: a by
   const declared = { role: "declaration", mode: "byref-readwrite" };
   const changed = { ...raw.value, core: raw.value.core.map(row => row.node.node === parameterNodes[0] ? { ...row, argumentPassing: { kind: "available", value: declared } } : row) };
   const interner = types.createTypeInterner();
-  const lowered = front.lowerModule(lowerDepsFor(definitions.value, interner, addSource), changed);
+  const lowered = lowerWithReadyExports(lowerDepsFor(definitions.value, interner, addSource), changed);
   assert.equal(lowered.kind, "ok");
   const nodes = hir.indexSyntaxTree(lowered.value.tree);
   const callable = nodes.find(node => node.kind === "FunctionDeclaration").tsonic;
@@ -1006,7 +1012,7 @@ test("the identity inputs through the real producer: captureModule and lowerModu
 // Expectations written before the run. add has 18 nodes and depth 6 (SourceFile, FunctionDeclaration, Block, ReturnStatement,
 // BinaryExpression, Identifier). Its facts: the signature with its two parameters (3 each), its result (2) and its row (1), the
 // association (1), three annotations (2 each), the views of a, b (3 each) and a + b (5), and 18 core rows: 45. Its edges: the
-// references of a and b and the export of add: 3.
+// references of a and b, their two actual symbol-declaration edges and the export of add: 5.
 test("capture limits: nodes, syntax depth, facts and edges are each refused at zero and one under the count and accepted at the exact count, as one resource refusal and no partial result", async () => {
   const diag = await import("../../packages/host/dist/diag/index.js");
   const module = moduleOf(packageOf("/project"), "src/main.ts");
@@ -1017,7 +1023,7 @@ test("capture limits: nodes, syntax depth, facts and edges are each refused at z
     return front.captureModule({ ...deps, navigationCapture: { ...deps.navigationCapture, [name]: value } }, program, module);
   };
   for (const [name, limit, exact] of [["maximumCapturedNodesPerModule", "front.maximumCapturedNodesPerModule", 18], ["maximumSyntaxDepth", "front.maximumSyntaxDepth", 6],
-    ["maximumCapturedFactsPerModule", "front.maximumCapturedFactsPerModule", 45], ["maximumCapturedEdgesPerModule", "front.maximumCapturedEdgesPerModule", 3]]) {
+    ["maximumCapturedFactsPerModule", "front.maximumCapturedFactsPerModule", 45], ["maximumCapturedEdgesPerModule", "front.maximumCapturedEdgesPerModule", 5]]) {
     for (const value of [0, exact - 1]) assert.deepEqual(under(name, value), refusal(limit, value), `${name} = ${value}`);
     assert.equal(under(name, exact).kind, "ok", `${name} = ${exact}`);
   }
@@ -1034,7 +1040,11 @@ test("one numbering for every file (V-1, V-2): a reference into another module n
   const capturedB = front.captureModule(deps, program, b);
   const capturedC = front.captureModule(deps, program, c);
   assert.deepEqual([capturedA.kind, capturedB.kind, capturedC.kind], ["ok", "ok", "ok"]);
-  const declarationsOf = raw => raw.references.filter(reference => reference.declaration.module !== raw.module).map(reference => reference.declaration);
+  const declarationsOf = raw => raw.references.flatMap(reference => {
+    assert.equal(reference.target.kind, "available");
+    assert.equal(reference.target.value.kind, "declarations");
+    return reference.target.value.declarations.filter(declaration => declaration.module !== raw.module);
+  });
   const limitDeclaration = ids => ids.find(node => node.kind === "VariableDeclaration" && node.name.text === "limit").id;
   const hirModule = import("../../packages/host/dist/ir-hir/index.js");
   return hirModule.then(hir => {
@@ -1129,7 +1139,7 @@ test("K-3340: views, storage places, memory and layout observations keep present
   const definitions = front.lowerModuleDefinitions(raw).value;
   const lower = changed => {
     const interner = types.createTypeInterner();
-    const lowered = front.lowerModule(lowerDepsFor(definitions, interner, addSource), changed);
+    const lowered = lowerWithReadyExports(lowerDepsFor(definitions, interner, addSource), changed);
     const nodes = new Map(hir.indexSyntaxTree(lowered.value.tree).map(node => [node.id, node]));
     return { at: id => nodes.get(id).tsonic, float64: types.internType(interner, { kind: "primitive", primitive: "float64" }) };
   };
@@ -1180,7 +1190,7 @@ test("K-3361: a receiver is captured apart from the ordinary parameters and lowe
     const association = raw.callableAssociations[0];
     return { raw, signature: raw.types.signatures[association.advertised[0]], nodes: hir.indexSyntaxTree(raw.tree), module, sourceText };
   };
-  const refusalOf = ({ raw, sourceText }) => () => front.lowerModule(lowerDepsFor(front.lowerModuleDefinitions(raw).value, types.createTypeInterner(), sourceText), raw);
+  const refusalOf = ({ raw, sourceText }) => () => lowerWithReadyExports(lowerDepsFor(front.lowerModuleDefinitions(raw).value, types.createTypeInterner(), sourceText), raw);
   const receiving = captured("export function f(this: number, x: number): number { return x; }\n");
   const parameterNodes = receiving.nodes.filter(node => node.kind === "Parameter").map(node => node.id);
   assert.equal(receiving.signature.receiver.kind, "available");

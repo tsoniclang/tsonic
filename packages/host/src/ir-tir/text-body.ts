@@ -2,7 +2,7 @@ import { lazyReader, literalReader, nullableReader, sequenceReader } from "./tex
 import { unionRecord } from "./text-layouts.js";
 import type { TirRecordCodec } from "./text-layouts.js";
 import type {
-  BackedConversionIdentity, ConversionDecision, ConversionIdentity, MemberSelection, ModuleBindingTarget, ResolvedCallee, TargetAccess, TirApplication, TirArgument, TirBody, TirDemand, TirLocal, TirParam, TirProtocol, TirProtocolStep, TirResolution, TirRestPart, TirSelection, TypedCallable, TypedClosure, TypedOperation, TypedOperationOf, TypedPhase, TypedSourceFile, TypedStaticBlock
+  BackedConversionIdentity, ConversionDecision, ConversionIdentity, MemberSelection, ResolvedCallee, TargetAccess, TirApplication, TirArgument, TirBody, TirDemand, TirLocal, TirParam, TirProtocol, TirProtocolStep, TirResolution, TirRestPart, TirSelection, TypedCallable, TypedClosure, TypedOperation, TypedOperationOf, TypedPhase, TypedSourceFile, TypedStaticBlock
 } from "./contract.js";
 import type {
   ArtifactBindings, BindingVector, BodyInstance, TypeEvidence
@@ -85,8 +85,6 @@ export interface BodyTextModel {
   readonly work_ConversionDecision_deferred: TirRecordCodec<ConversionDecision & { readonly kind: "deferred" }>;
   readonly work_TargetAccess_write: TirRecordCodec<TargetAccess & { readonly kind: "write" }>;
   readonly work_TargetAccess_read_write: TirRecordCodec<TargetAccess & { readonly kind: "read-write" }>;
-  readonly work_ModuleBindingTarget_definition: TirRecordCodec<ModuleBindingTarget & { readonly kind: "definition" }>;
-  readonly work_ModuleBindingTarget_module: TirRecordCodec<ModuleBindingTarget & { readonly kind: "module" }>;
   readonly work_Block: (value: Block<TypedPhase>) => TirTypedRecordWork;
   readonly work_FunctionDeclaration: (value: FunctionDeclaration<TypedPhase>) => TirTypedRecordWork;
   readonly work_ConstructorDeclaration: (value: ConstructorDeclaration<TypedPhase>) => TirTypedRecordWork;
@@ -105,7 +103,6 @@ export interface BodyTextModel {
   readonly work_TirDemand: TirRecordCodec<TirDemand>;
   readonly work_ConversionDecision: TirRecordCodec<ConversionDecision>;
   readonly work_TargetAccess: TirRecordCodec<TargetAccess>;
-  readonly work_ModuleBindingTarget: TirRecordCodec<ModuleBindingTarget>;
   readonly work_O_TypedOperation__decided: TirRecordCodec<RuleOutcome<TypedOperation> & { readonly kind: "decided" }>;
   readonly work_O_TypedOperation__deferred: TirRecordCodec<RuleOutcome<TypedOperation> & { readonly kind: "deferred" }>;
   readonly work_O_TypedOperation_: TirRecordCodec<RuleOutcome<TypedOperation>>;
@@ -178,7 +175,7 @@ export const createBodyText = (kernel: TirTextKernel, read: BodyTextReads): Body
     .finish((field_local) => ({ kind: "local", local: field_local })));
   const work_TirResolution_definition: TirRecordCodec<TirResolution & { readonly kind: "definition" }> = defineRecord<TirResolution & { readonly kind: "definition" }>("TirResolution#definition", "TirResolution", { field: "kind", value: "definition" }, "definition", null, null, fields => fields
     .field("definition", "def", value => referenceWork("def", value.definition), definitionReader)
-    .field("aliases", "[def]", value => sequenceWork("[def]", value.aliases, actual => referenceWork("def", actual)), sequenceReader("[def]", definitionReader))
+    .field("aliases", "[SourceNodeRef]", value => sequenceWork("[SourceNodeRef]", value.aliases, actual => read.work_SourceNodeRef.write(actual)), sequenceReader("[SourceNodeRef]", lazyReader(() => read.work_SourceNodeRef.reader)))
     .finish((field_definition, field_aliases) => ({ kind: "definition", definition: field_definition, aliases: field_aliases })));
   const work_TirResolution_module: TirRecordCodec<TirResolution & { readonly kind: "module" }> = defineRecord<TirResolution & { readonly kind: "module" }>("TirResolution#module", "TirResolution", { field: "kind", value: "module" }, "module", null, null, fields => fields
     .field("target", "ImportTarget", value => read.work_ImportTarget.write(value.target), lazyReader(() => read.work_ImportTarget.reader))
@@ -296,12 +293,6 @@ export const createBodyText = (kernel: TirTextKernel, read: BodyTextReads): Body
     .field("narrowing", "?RefinementDecision", value => nullableWork(value.narrowing, actual => read.work_RefinementDecision.write(actual)), nullableReader(lazyReader(() => read.work_RefinementDecision.reader)))
     .field("evidenceIndex", "?number", value => nullableWork(value.evidenceIndex, actual => scalarWork("number", actual)), nullableReader(numberReader))
     .finish((field_storage, field_read, field_narrowing, field_evidenceIndex) => ({ kind: "read-write", storage: field_storage, read: field_read, narrowing: field_narrowing, evidenceIndex: field_evidenceIndex })));
-  const work_ModuleBindingTarget_definition: TirRecordCodec<ModuleBindingTarget & { readonly kind: "definition" }> = defineRecord<ModuleBindingTarget & { readonly kind: "definition" }>("ModuleBindingTarget#definition", "ModuleBindingTarget", { field: "kind", value: "definition" }, "definition", null, null, fields => fields
-    .field("definition", "def", value => referenceWork("def", value.definition), definitionReader)
-    .finish((field_definition) => ({ kind: "definition", definition: field_definition })));
-  const work_ModuleBindingTarget_module: TirRecordCodec<ModuleBindingTarget & { readonly kind: "module" }> = defineRecord<ModuleBindingTarget & { readonly kind: "module" }>("ModuleBindingTarget#module", "ModuleBindingTarget", { field: "kind", value: "module" }, "module", null, null, fields => fields
-    .field("target", "ImportTarget", value => read.work_ImportTarget.write(value.target), lazyReader(() => read.work_ImportTarget.reader))
-    .finish((field_target) => ({ kind: "module", target: field_target })));
   const work_Block: (value: Block<TypedPhase>) => TirTypedRecordWork = defineSyntaxRecord<Block<TypedPhase>>("Block", null, value => value.kind, value => value, null, fields => fields
     .syntaxHeader(read.work_Origin, read.work_TextRange)
     .syntaxKind("kind", "'Block", literalReader<(Block<TypedPhase>)["kind"]>("'Block", ["Block"]))
@@ -517,12 +508,6 @@ export const createBodyText = (kernel: TirTextKernel, read: BodyTextReads): Body
       case "read-write": return work_TargetAccess_read_write.write(value);
     }
   }, () => [work_TargetAccess_write.reader, work_TargetAccess_read_write.reader]);
-  const work_ModuleBindingTarget: TirRecordCodec<ModuleBindingTarget> = unionRecord<ModuleBindingTarget>("ModuleBindingTarget", (value: ModuleBindingTarget): TirTypedRecordWork => {
-    switch (value.kind) {
-      case "definition": return work_ModuleBindingTarget_definition.write(value);
-      case "module": return work_ModuleBindingTarget_module.write(value);
-    }
-  }, () => [work_ModuleBindingTarget_definition.reader, work_ModuleBindingTarget_module.reader]);
   const work_O_TypedOperation__decided: TirRecordCodec<RuleOutcome<TypedOperation> & { readonly kind: "decided" }> = defineRecord<RuleOutcome<TypedOperation> & { readonly kind: "decided" }>("O<TypedOperation>#decided", "O<TypedOperation>", { field: "kind", value: "decided" }, "decided", null, null, fields => fields
     .field("decision", "TypedOperation", value => read.work_TypedOperation.write(value.decision), lazyReader(() => read.work_TypedOperation.reader))
     .finish((field_decision) => ({ kind: "decided", decision: field_decision })));
@@ -583,5 +568,5 @@ export const createBodyText = (kernel: TirTextKernel, read: BodyTextReads): Body
       case "deferred": return work_O_ApplicationDecision__deferred.write(value);
     }
   }, () => [work_O_ApplicationDecision__decided.reader, work_O_ApplicationDecision__deferred.reader]);
-  return { work_TirBody, work_TirParam, work_TirLocal, work_TirResolution_local, work_TirResolution_definition, work_TirResolution_module, work_TirResolution_error, work_ResolvedCallee, work_MemberSelection, work_TirArgument_provided, work_TirArgument_omitted, work_TirArgument_rest, work_OmissionValue_absence, work_OmissionValue_initializer, work_OmissionValue_empty_rest, work_TirRestPart_value, work_TirRestPart_spread, work_TirApplication, work_TirProtocolStep, work_TirProtocol, work_TirSelection_conditional, work_TirSelection_and, work_TirSelection_or, work_TirSelection_coalesce, work_TirDemand_always, work_TirDemand_selected, work_TirDemand_never, work_ConversionDecision_identity, work_ConversionDecision_convert, work_ConversionDecision_deferred, work_TargetAccess_write, work_TargetAccess_read_write, work_ModuleBindingTarget_definition, work_ModuleBindingTarget_module, work_Block, work_FunctionDeclaration, work_ConstructorDeclaration, work_GetAccessorDeclaration, work_SetAccessorDeclaration, work_MethodDeclaration, work_ClassStaticBlockDeclaration, work_ArrowFunction, work_FunctionExpression, work_SourceFile, work_TirResolution, work_TirArgument, work_OmissionValue, work_TirRestPart, work_TirSelection, work_TirDemand, work_ConversionDecision, work_TargetAccess, work_ModuleBindingTarget, work_O_TypedOperation__decided, work_O_TypedOperation__deferred, work_O_TypedOperation_, work_O_MemberSelection__decided, work_O_MemberSelection__deferred, work_O_MemberSelection_, work_O_TirApplication__decided, work_O_TirApplication__deferred, work_O_TirApplication_, work_O_TirProtocol__decided, work_O_TirProtocol__deferred, work_O_TirProtocol_, work_O_ApplicationDecision__decided, work_O_ApplicationDecision__deferred, work_O_ApplicationDecision_ };
+  return { work_TirBody, work_TirParam, work_TirLocal, work_TirResolution_local, work_TirResolution_definition, work_TirResolution_module, work_TirResolution_error, work_ResolvedCallee, work_MemberSelection, work_TirArgument_provided, work_TirArgument_omitted, work_TirArgument_rest, work_OmissionValue_absence, work_OmissionValue_initializer, work_OmissionValue_empty_rest, work_TirRestPart_value, work_TirRestPart_spread, work_TirApplication, work_TirProtocolStep, work_TirProtocol, work_TirSelection_conditional, work_TirSelection_and, work_TirSelection_or, work_TirSelection_coalesce, work_TirDemand_always, work_TirDemand_selected, work_TirDemand_never, work_ConversionDecision_identity, work_ConversionDecision_convert, work_ConversionDecision_deferred, work_TargetAccess_write, work_TargetAccess_read_write, work_Block, work_FunctionDeclaration, work_ConstructorDeclaration, work_GetAccessorDeclaration, work_SetAccessorDeclaration, work_MethodDeclaration, work_ClassStaticBlockDeclaration, work_ArrowFunction, work_FunctionExpression, work_SourceFile, work_TirResolution, work_TirArgument, work_OmissionValue, work_TirRestPart, work_TirSelection, work_TirDemand, work_ConversionDecision, work_TargetAccess, work_O_TypedOperation__decided, work_O_TypedOperation__deferred, work_O_TypedOperation_, work_O_MemberSelection__decided, work_O_MemberSelection__deferred, work_O_MemberSelection_, work_O_TirApplication__decided, work_O_TirApplication__deferred, work_O_TirApplication_, work_O_TirProtocol__decided, work_O_TirProtocol__deferred, work_O_TirProtocol_, work_O_ApplicationDecision__decided, work_O_ApplicationDecision__deferred, work_O_ApplicationDecision_ };
 };

@@ -18,7 +18,9 @@
         "module": "M[P[%002Fprogram];src%002Fmain.ts]",
         "package": "P[%002Fprogram]",
         "items": [],
-        "exports": []
+        "exports": [],
+        "bindings": [],
+        "checkerDiagnostics": []
       }
     ],
     "types": {

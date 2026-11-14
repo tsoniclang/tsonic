@@ -938,9 +938,7 @@ test("the error-only constructor preserves declared and solved default positions
   assert.equal(decls.resumeDeclaredSignatureOf(setterInputs, setterPending.paused, [{ origin: partOrigin(setter.addBody, 0), part: setterPending.requests[0].part, type: native, error: null }]).value.kind, "ok");
 });
 
-test("checkpoint 2, export names: one definition under two names is one row holding both (K-3357)", {
-  todo: "Front frontier, owner W5: captureModule refuses `export { add, add as sum }` with 'the captured form of the checker type (a: number, b: number) => number is not implemented'",
-}, async () => {
+test("checkpoint 2, export names: one definition under two names is one row holding both (K-3357)", async () => {
   const twice = await describedExports(`function add${addBody}export { add, add as sum };\n`);
   assert.deepEqual(twice.rowOf("add").exports, [{ module: twice.module, name: "add" }, { module: twice.module, name: "sum" }]);
 });

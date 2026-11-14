@@ -1,7 +1,7 @@
-import type { TypedBinding, TypedBindingPattern, TypedParameter, TypedCallable, TypedClass, TypedHeritage, TypedInterface, TypedAlias, TypedStorageDeclaration, TypedEnum, TypedImport, TypedModuleReference, TypedImportBinding, TypedExportAssignment, TypedExportBinding, TypedIndexDeclaration, TypedStaticBlock, TypedType, TypedPredicate, TypedSourceFile, TypedNamespace, TypedExport, TypedTypeParameter, TypedBodyTemplate, ModuleBindingTarget } from "../ir-tir/contract.js";
+import type { TypedBinding, TypedBindingPattern, TypedParameter, TypedCallable, TypedClass, TypedHeritage, TypedInterface, TypedAlias, TypedStorageDeclaration, TypedEnum, TypedImport, TypedModuleReference, TypedImportBinding, TypedExportAssignment, TypedExportBinding, TypedNamespaceExport, TypedIndexDeclaration, TypedStaticBlock, TypedType, TypedPredicate, TypedSourceFile, TypedNamespace, TypedExport, TypedTypeParameter, TypedBodyTemplate } from "../ir-tir/contract.js";
 import type { TextWork } from "./text-values.js";
 import type { TypedBindingElement } from "../ir-tir/contract.js";
-import { token, text, numericIdentity, identity, field, record, sequence, deferred, boolean, textLocalRef } from "./text-values.js";
+import { token, text, numericIdentity, identity, field, record, sequence, deferred, boolean, textLocalRef, textSourceNodeRef } from "./text-values.js";
 import { textDeclarationTarget, textHirCallableEndpoint, textHirAttribute, textImportTarget } from "./text-core.js";
 import { textTypeParameter, textBindingVector } from "./text-types.js";
 
@@ -127,7 +127,6 @@ export function textTypedEnum(value: TypedEnum): TextWork {
 export function textTypedImport(value: TypedImport): TextWork {
   return deferred(value, () => {
     return record("TypedImport", [
-      field("definition", identity("def", value.definition)),
       field("target", textImportTarget(value.target)),
     ]);
   });
@@ -142,12 +141,7 @@ export function textTypedModuleReference(value: TypedModuleReference): TextWork 
 }
 
 export function textTypedImportBinding(value: TypedImportBinding): TextWork {
-  return deferred(value, () => {
-    return record("TypedImportBinding", [
-      field("definition", identity("def", value.definition)),
-      field("imported", textModuleBindingTarget(value.imported)),
-    ]);
-  });
+  return deferred(value, () => record("TypedImportBinding", [field("binding", textSourceNodeRef(value.binding))]));
 }
 
 export function textTypedExportAssignment(value: TypedExportAssignment): TextWork {
@@ -160,12 +154,7 @@ export function textTypedExportAssignment(value: TypedExportAssignment): TextWor
 }
 
 export function textTypedExportBinding(value: TypedExportBinding): TextWork {
-  return deferred(value, () => {
-    return record("TypedExportBinding", [
-      field("definition", identity("def", value.definition)),
-      field("exported", textModuleBindingTarget(value.exported)),
-    ]);
-  });
+  return deferred(value, () => record("TypedExportBinding", [field("binding", textSourceNodeRef(value.binding))]));
 }
 
 export function textTypedIndexDeclaration(value: TypedIndexDeclaration): TextWork {
@@ -228,7 +217,6 @@ export function textTypedNamespace(value: TypedNamespace): TextWork {
 export function textTypedExport(value: TypedExport): TextWork {
   return deferred(value, () => {
     return record("TypedExport", [
-      field("definition", identity("def", value.definition)),
       field("target", (value.target === null ? token("null") : textImportTarget(value.target))),
     ]);
   });
@@ -252,17 +240,7 @@ export function textTypedBodyTemplate(value: TypedBodyTemplate): TextWork {
   });
 }
 
-export function textModuleBindingTarget(value: ModuleBindingTarget): TextWork {
-  return deferred(value, () => {
-    switch (value.kind) {
-      case "definition":
-        return record(value.kind, [
-      field("definition", identity("def", value.definition)),
-    ]);
-      case "module":
-        return record(value.kind, [
-      field("target", textImportTarget(value.target)),
-    ]);
-    }
-  });
+export function textTypedNamespaceExport(value: TypedNamespaceExport): TextWork {
+  return deferred(value, () => record("TypedNamespaceExport", [field("definition", identity("def", value.definition)),
+    field("binding", textSourceNodeRef(value.binding))]));
 }

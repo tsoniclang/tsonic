@@ -3,13 +3,13 @@ import { lazyReader, literalReader, nullableReader, sequenceReader } from "./tex
 import { unionRecord } from "./text-layouts.js";
 import type { TirRecordCodec } from "./text-layouts.js";
 import type {
-  ConversionDecision, ModuleBindingTarget, TirDemand, TirProtocol, TypedAlias, TypedBinding, TypedBindingElement, TypedBindingPattern, TypedBodyTemplate, TypedCallable, TypedClass, TypedClassValue, TypedClosure, TypedEnum, TypedExport, TypedExportAssignment, TypedExportBinding, TypedHeritage, TypedImport, TypedImportBinding, TypedIndexDeclaration, TypedInterface, TypedModuleReference, TypedNamespace, TypedParameter, TypedPhase, TypedPredicate, TypedSourceFile, TypedStaticBlock, TypedStorageDeclaration, TypedType, TypedTypeParameter, TypedVariableList
+  ConversionDecision, TirDemand, TirProtocol, TypedAlias, TypedBinding, TypedBindingElement, TypedBindingPattern, TypedBodyTemplate, TypedCallable, TypedClass, TypedClassValue, TypedClosure, TypedEnum, TypedExport, TypedExportAssignment, TypedExportBinding, TypedNamespaceExport, TypedHeritage, TypedImport, TypedImportBinding, TypedIndexDeclaration, TypedInterface, TypedModuleReference, TypedNamespace, TypedParameter, TypedPhase, TypedPredicate, TypedSourceFile, TypedStaticBlock, TypedStorageDeclaration, TypedType, TypedTypeParameter, TypedVariableList
 } from "./contract.js";
 import type {
   BindingVector, TypeParameter
 } from "../ir-types/contract.js";
 import type {
-  LocalRef, Origin
+  LocalRef, Origin, SourceNodeRef
 } from "../ids/contract.js";
 import type {
   ClassDeclaration, ClassElement, ClassExpression, DeclarationTarget, EnumDeclaration, EnumMember, ExpressionWithTypeArguments, HeritageClause, HirAttribute, HirCallableEndpoint, ImportTarget, InterfaceDeclaration, ModifierList, NodeList, TextRange, TypeAliasDeclaration, TypeElement, TypeParameterDeclaration
@@ -37,7 +37,7 @@ export interface PhaseDeclarationsTextReads {
   readonly work_L_TypeParameterDeclaration_: TirRecordCodec<NodeList<TypeParameterDeclaration<TypedPhase>>>;
   readonly work_LocalRef: TirRecordCodec<LocalRef>;
   readonly work_ModifierList: TirRecordCodec<ModifierList<TypedPhase>>;
-  readonly work_ModuleBindingTarget: TirRecordCodec<ModuleBindingTarget>;
+  readonly work_SourceNodeRef: TirRecordCodec<SourceNodeRef>;
   readonly work_O_TirProtocol_: TirRecordCodec<RuleOutcome<TirProtocol>>;
   readonly work_Origin: TirRecordCodec<Origin>;
   readonly work_RefinementDecision: TirRecordCodec<RefinementDecision>;
@@ -73,6 +73,7 @@ export interface PhaseDeclarationsTextModel {
   readonly work_TypedModuleReference: TirRecordCodec<TypedModuleReference>;
   readonly work_TypedExport: TirRecordCodec<TypedExport>;
   readonly work_TypedExportBinding: TirRecordCodec<TypedExportBinding>;
+  readonly work_TypedNamespaceExport: TirRecordCodec<TypedNamespaceExport>;
   readonly work_TypedExportAssignment: TirRecordCodec<TypedExportAssignment>;
   readonly work_TypedNamespace: TirRecordCodec<TypedNamespace>;
   readonly work_TypedSourceFile: TirRecordCodec<TypedSourceFile>;
@@ -239,24 +240,24 @@ export const createPhaseDeclarationsText = (kernel: TirTextKernel, read: PhaseDe
     .field("parameter", "TypeParameter", value => read.work_TypeParameter.write(value.parameter), lazyReader(() => read.work_TypeParameter.reader))
     .finish((field_parameter) => ({ parameter: field_parameter })));
   const work_TypedImport: TirRecordCodec<TypedImport> = defineRecord<TypedImport>("TypedImport", "TypedImport", null, "TypedImport", null, null, fields => fields
-    .field("definition", "def", value => referenceWork("def", value.definition), definitionReader)
     .field("target", "ImportTarget", value => read.work_ImportTarget.write(value.target), lazyReader(() => read.work_ImportTarget.reader))
-    .finish((field_definition, field_target) => ({ definition: field_definition, target: field_target })));
+    .finish((field_target) => ({ target: field_target })));
   const work_TypedImportBinding: TirRecordCodec<TypedImportBinding> = defineRecord<TypedImportBinding>("TypedImportBinding", "TypedImportBinding", null, "TypedImportBinding", null, null, fields => fields
-    .field("definition", "def", value => referenceWork("def", value.definition), definitionReader)
-    .field("imported", "ModuleBindingTarget", value => read.work_ModuleBindingTarget.write(value.imported), lazyReader(() => read.work_ModuleBindingTarget.reader))
-    .finish((field_definition, field_imported) => ({ definition: field_definition, imported: field_imported })));
+    .field("binding", "SourceNodeRef", value => read.work_SourceNodeRef.write(value.binding), lazyReader(() => read.work_SourceNodeRef.reader))
+    .finish((field_binding) => ({ binding: field_binding })));
   const work_TypedModuleReference: TirRecordCodec<TypedModuleReference> = defineRecord<TypedModuleReference>("TypedModuleReference", "TypedModuleReference", null, "TypedModuleReference", null, null, fields => fields
     .field("target", "ImportTarget", value => read.work_ImportTarget.write(value.target), lazyReader(() => read.work_ImportTarget.reader))
     .finish((field_target) => ({ target: field_target })));
   const work_TypedExport: TirRecordCodec<TypedExport> = defineRecord<TypedExport>("TypedExport", "TypedExport", null, "TypedExport", null, null, fields => fields
-    .field("definition", "def", value => referenceWork("def", value.definition), definitionReader)
     .field("target", "?ImportTarget", value => nullableWork(value.target, actual => read.work_ImportTarget.write(actual)), nullableReader(lazyReader(() => read.work_ImportTarget.reader)))
-    .finish((field_definition, field_target) => ({ definition: field_definition, target: field_target })));
+    .finish((field_target) => ({ target: field_target })));
   const work_TypedExportBinding: TirRecordCodec<TypedExportBinding> = defineRecord<TypedExportBinding>("TypedExportBinding", "TypedExportBinding", null, "TypedExportBinding", null, null, fields => fields
+    .field("binding", "SourceNodeRef", value => read.work_SourceNodeRef.write(value.binding), lazyReader(() => read.work_SourceNodeRef.reader))
+    .finish((field_binding) => ({ binding: field_binding })));
+  const work_TypedNamespaceExport: TirRecordCodec<TypedNamespaceExport> = defineRecord<TypedNamespaceExport>("TypedNamespaceExport", "TypedNamespaceExport", null, "TypedNamespaceExport", null, null, fields => fields
     .field("definition", "def", value => referenceWork("def", value.definition), definitionReader)
-    .field("exported", "ModuleBindingTarget", value => read.work_ModuleBindingTarget.write(value.exported), lazyReader(() => read.work_ModuleBindingTarget.reader))
-    .finish((field_definition, field_exported) => ({ definition: field_definition, exported: field_exported })));
+    .field("binding", "SourceNodeRef", value => read.work_SourceNodeRef.write(value.binding), lazyReader(() => read.work_SourceNodeRef.reader))
+    .finish((field_definition, field_binding) => ({ definition: field_definition, binding: field_binding })));
   const work_TypedExportAssignment: TirRecordCodec<TypedExportAssignment> = defineRecord<TypedExportAssignment>("TypedExportAssignment", "TypedExportAssignment", null, "TypedExportAssignment", null, null, fields => fields
     .field("definition", "def", value => referenceWork("def", value.definition), definitionReader)
     .field("type", "t", value => referenceWork("t", value.type), typeReader)
@@ -360,5 +361,5 @@ export const createPhaseDeclarationsText = (kernel: TirTextKernel, read: PhaseDe
       case "using": return work_TypedVariableList_using.write(value);
     }
   }, () => [work_TypedVariableList_ordinary.reader, work_TypedVariableList_using.reader]);
-  return { work_TypedBindingElement, work_TypedBinding, work_TypedBindingPattern, work_TypedParameter, work_TypedVariableList_ordinary, work_TypedVariableList_using, work_TypedBodyTemplate, work_TypedCallable, work_TypedClosure, work_TypedClass, work_TypedClassValue, work_TypedHeritage, work_TypedInterface, work_TypedAlias, work_TypedEnum, work_TypedStorageDeclaration, work_TypedStaticBlock, work_TypedIndexDeclaration, work_TypedType, work_TypedPredicate, work_TypedTypeParameter, work_TypedImport, work_TypedImportBinding, work_TypedModuleReference, work_TypedExport, work_TypedExportBinding, work_TypedExportAssignment, work_TypedNamespace, work_TypedSourceFile, work_ClassDeclaration, work_ClassExpression, work_HeritageClause, work_InterfaceDeclaration, work_TypeAliasDeclaration, work_EnumMember, work_EnumDeclaration, work_TypedVariableList };
+  return { work_TypedBindingElement, work_TypedBinding, work_TypedBindingPattern, work_TypedParameter, work_TypedVariableList_ordinary, work_TypedVariableList_using, work_TypedBodyTemplate, work_TypedCallable, work_TypedClosure, work_TypedClass, work_TypedClassValue, work_TypedHeritage, work_TypedInterface, work_TypedAlias, work_TypedEnum, work_TypedStorageDeclaration, work_TypedStaticBlock, work_TypedIndexDeclaration, work_TypedType, work_TypedPredicate, work_TypedTypeParameter, work_TypedImport, work_TypedImportBinding, work_TypedModuleReference, work_TypedExport, work_TypedExportBinding, work_TypedNamespaceExport, work_TypedExportAssignment, work_TypedNamespace, work_TypedSourceFile, work_ClassDeclaration, work_ClassExpression, work_HeritageClause, work_InterfaceDeclaration, work_TypeAliasDeclaration, work_EnumMember, work_EnumDeclaration, work_TypedVariableList };
 };

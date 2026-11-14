@@ -17,6 +17,7 @@ export async function loadFrontFixture() {
   const snapshots = await import("../../../../packages/host/dist/snapshot/index.js");
   const types = await import("../../../../packages/host/dist/ir-types/index.js");
   const hir = await import("../../../../packages/host/dist/ir-hir/index.js");
+  const { checkedSourceViews } = await import("../../../../packages/host/dist/pipeline/checked-inputs.js");
   const sdk = await import("@tsonic/tsts");
   const packageOf = root => ids.encodePackageId(root);
   const moduleOf = (owner, path) => ids.encodeModuleId({ package: owner, path });
@@ -90,6 +91,7 @@ export async function loadFrontFixture() {
     const byNode = new Map(definitions.rows.map(row => [row.node, row.definition]));
     const bindings = new Map(definitions.bindingSources.map(row => [row.node, row.occurrence]));
     return {
+      exportsOf: () => null,
       definitionOf: reference => {
         assert.equal(reference.module, definitions.module, "every declaration of this program is in its one module");
         const definition = byNode.get(reference.node);
@@ -121,7 +123,7 @@ export async function loadFrontFixture() {
     const lowerDeps = lowerDepsFor(definitions.value, interner, sourceText);
     const exported = front.lowerModuleExports(lowerDeps, raw.value);
     assert.equal(exported.kind, "ok", "lowerModuleExports");
-    const checked = front.lowerModule(lowerDeps, raw.value);
+    const checked = front.lowerModule({ ...lowerDeps, exportsOf: actual => actual === module ? exported.value : null }, raw.value);
     assert.equal(checked.kind, "ok", "lowerModule");
     return { module, raw: raw.value, definitions: definitions.value, interner, exports: exported.value, checked: checked.value };
   }
@@ -131,19 +133,21 @@ export async function loadFrontFixture() {
    * identities, so the table it is verified against is the interner's rows in that numbering, read back one by one; the
    * publication gives only the row counts (its table is renumbered canonically, and Pipeline has no publication step yet).
    */
-  function verifyChecked(checked, interner) {
+  function verifyChecked(checked, interner, otherModules = []) {
     const published = types.exportTypes(interner, { maximumWork: 1000000, maximumCreatedRecords: 100000 });
     assert.equal(published.kind, "complete");
     const table = { terms: published.value.types.map((unusedValue, position) => types.readType(interner, position)),
       signatures: published.value.signatures.map((unusedValue, position) => types.readSignature(interner, position)) };
-    const byId = new Map(hir.indexSyntaxTree(checked.tree).map(node => [node.id, node]));
+    const modules = new Map([checked, ...otherModules].map(module => [module.module, module]));
+    const domain = checkedSourceViews([...modules.values()].map(module => ({ module, nodes: hir.indexSyntaxTree(module.tree) })));
     const scope = () => ({ classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] });
     return hir.verifyHir(checked, {
+      moduleOf: actual => modules.get(actual) ?? null,
       types: table,
       bodyPathOf: body => { const decoded = ids.decodeBodyId(body); return decoded.kind === "decoded" ? decoded.value : null; },
       definitionPathOf: identity => { const decoded = ids.decodeDefId(identity); return decoded.kind === "decoded" ? decoded.value : null; },
-      bindingScopeOf: scope, bindingScopeAt: scope, nominalOf: () => null, nodeOf: reference => byId.get(reference.value.node) ?? null,
-      localExists: reference => checked.bodies.some(body => body.body === reference.body && body.locals[reference.local] !== undefined),
+      bindingScopeOf: scope, bindingScopeAt: scope, nominalOf: () => null, nodeOf: domain.nodeOf,
+      localExists: domain.localExists,
     });
   }
 

@@ -111,6 +111,8 @@ const moduleId = "M[P[p];m]";
 await import("./source-add-composed.test.mjs");
 const ownerId = "D[M[P[p];m]]";
 const bodyId = "B[D[M[P[p];m]];module;0]";
+const codecBinding = { kind: "item", value: { owner: ownerId, node: 4 } };
+const codecBindingWire = `item(value=ItemNodeRef(owner=def:"${ownerId}", node=n:4))`;
 const emptyBindings = () => ({ classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] });
 const origin = (start = 0, length = 0) => ({ module: moduleId, start, length, derived: [] });
 const header = (id, parent = null) => ({ id, origin: origin(), parent, flags: [], loc: { pos: 0, end: 0 } });
@@ -159,7 +161,7 @@ function emptyVerificationInput(body, authoredNodes = [], scopeCount = 2) {
   const original = { body: bodyId, owner: ownerId, params: [], locals: [], root, captures: [], scopes: [],
     asynchronous: false, generator: false, candidateLists: [], nestedBodies: [] };
   const source = { module: moduleId, tree: root, items: [{ definition: ownerId, node: 0 }], bodies: [original],
-    checkerDiagnostics: [], obligations: [] };
+    exports: [], bindings: [], checkerDiagnostics: [], obligations: [] };
   const module = { module: moduleId, tree: body.root, bodies: [body] };
   const types = { terms: [{ kind: "intrinsic", intrinsic: "unknown" }], signatures: [{ id: 0, declaration: ownerId,
     owner: { kind: "body", value: { body: bodyId, node: 0 } }, composition: null, kind: "call", typeParameters: [],
@@ -204,7 +206,7 @@ function bodylessModuleScenario() {
     tsonic: { core: emptyCore(), parent: null, attributes: [], memory: available(null), definition: ownerId, body: bodyId } };
   const source = { module: moduleId, tree: sourceTree,
     bodies: [{ body: bodyId, owner: ownerId, params: [], locals: [], root: sourceTree, captures: [], scopes: [],
-      asynchronous: false, generator: false, candidateLists: [], nestedBodies: [] }], checkerDiagnostics: [], obligations: [],
+      asynchronous: false, generator: false, candidateLists: [], nestedBodies: [] }], exports: [], bindings: [], checkerDiagnostics: [], obligations: [],
     items: [{ definition: ownerId, node: 0 }, { definition, node: 1 }] };
   const module = { module: moduleId, tree, bodies: [] };
   const nodes = new Map([sourceTree, sourceAlias, sourceName, sourceKeyword, sourceEnd].map(node => [node.id, node]));
@@ -252,7 +254,7 @@ function memberScenario(holder, duplicatedPart = false) {
   const name = (id, parent, role) => pair("Identifier", id, parent, { text: "x" }, { text: "x" },
     role === "property-name"
       ? { core: emptyCore(), role, key: available({ kind: "text", value: "x" }), origins: available([provenance]) }
-      : { core: emptyCore(), role, value: checkedValue(), resolution: { kind: "definition", definition: ownerId, aliases: [] },
+      : { core: emptyCore(), role, value: checkedValue(), resolution: { kind: "declarations", definitions: [ownerId] },
         ...(role === "shorthand-value" ? { key: available({ kind: "text", value: "x" }) } : {}) },
     role === "property-name" ? { role, key: { kind: "text", value: "x" } }
       : { ...typedValue(), role, resolution: { kind: "definition", definition: ownerId, aliases: [] },
@@ -263,7 +265,7 @@ function memberScenario(holder, duplicatedPart = false) {
   let expectedOccurrence;
   if (holder === "property-access" || holder === "element-access") {
     const receiver = pair("Identifier", 3, 2, { text: "object" }, { text: "object" },
-      { core: emptyCore(), role: "value", value: checkedValue(1), resolution: { kind: "definition", definition: ownerId, aliases: [] } },
+      { core: emptyCore(), role: "value", value: checkedValue(1), resolution: { kind: "declarations", definitions: [ownerId] } },
       { ...typedValue(1), role: "value", resolution: { kind: "definition", definition: ownerId, aliases: [] } });
     const target = holder === "property-access" ? name(4, 2, "property-name")
       : pair("StringLiteral", 4, 2, { text: "x", tokenFlags: [] }, { text: "x", tokenFlags: [] },
@@ -400,7 +402,7 @@ function genericFunctionScenario(nodes = { callable: 2, typeParameter: 3, typeNa
         template: template(), attributes: [] }, closure: closureDecisionOf(4, []) } };
   };
   const checkedTypeName = { ...header(nodes.typeName, nodes.typeParameter), kind: "Identifier", text: "T",
-    tsonic: { core: emptyCore(), role: "type-name", resolution: { kind: "definition", definition: typeDefinition, aliases: [] } } };
+    tsonic: { core: emptyCore(), role: "type-name", resolution: { kind: "declarations", definitions: [typeDefinition] } } };
   const checkedType = { ...header(nodes.typeParameter, nodes.callable), kind: "TypeParameter", modifiers: null, name: checkedTypeName,
     constraint: null, expression: null, defaultType: null, tsonic: { core: emptyCore(), parent: definition,
       attributes: [], memory: available(null), definition: typeDefinition, parameter } };
@@ -982,7 +984,7 @@ function argumentScenario(form = "whole", passing = "by-value") {
     core.argumentPassing = available({ role: "argument", mode: passing,
       storageExpression: { kind: "body", value: { body: bodyId, node: expression } } });
     const operand = pair("Identifier", expression, expression - 1, { text: "items" },
-      { core, role: "value", value: checkedValue(5), resolution: { kind: "definition", definition: items, aliases: [] } },
+      { core, role: "value", value: checkedValue(5), resolution: { kind: "declarations", definitions: [items] } },
       { ...typedValue(5), role: "value", resolution: { kind: "definition", definition: items, aliases: [] } });
     const protocol = { kind: "decided", decision: { kind: "spread", asynchronous: false, steps: [],
       value: 2, completion: 0, sent: 0, thrown: 0 } };
@@ -2939,10 +2941,12 @@ for (const kind of ["PropertySignature", "PropertyDeclaration"]) {
 }
 const codecProjectTarget = { target: "project", module: moduleId };
 const codecProjectTargetWire = `ImportTarget(target="project", module=mod:"${moduleId}")`;
-const codecImported = { definition: ownerId, imported: { kind: "definition", definition: ownerId } };
-const codecImportedWire = `TypedImportBinding(definition=def:"${ownerId}", imported=definition(definition=def:"${ownerId}"))`;
-const codecExported = { definition: ownerId, exported: { kind: "module", target: codecProjectTarget } };
-const codecExportedWire = `TypedExportBinding(definition=def:"${ownerId}", exported=module(target=${codecProjectTargetWire}))`;
+const codecImported = { binding: codecBinding };
+const codecImportedWire = `TypedImportBinding(binding=${codecBindingWire})`;
+const codecExported = { binding: codecBinding };
+const codecExportedWire = `TypedExportBinding(binding=${codecBindingWire})`;
+const codecNamespace = { definition: ownerId, binding: codecBinding };
+const codecNamespaceWire = `TypedNamespaceExport(definition=def:"${ownerId}", binding=${codecBindingWire})`;
 for (const packageName of [null, "library-package"]) {
   test(`actual external library module identity retains ${packageName === null ? "no" : "its"} package name`, () => {
     const target = { target: "library", module: { providerId: "provider", providerVersion: "1.0.0", packageName,
@@ -2958,9 +2962,9 @@ for (const kind of ["NamespaceImport", "NamespaceExport", "NamespaceExportDeclar
   test(`actual ${kind} retains its specific module-binding port`, () => {
     const exported = kind !== "NamespaceImport";
     const extra = kind === "NamespaceExportDeclaration" ? { modifiers: nodeList() } : {};
-    assertSyntaxPayload({ ...header(4, 2), kind, ...extra, name: codecName(5, 4), tsonic: exported ? codecExported : codecImported }, [
+    assertSyntaxPayload({ ...header(4, 2), kind, ...extra, name: codecName(5, 4), tsonic: kind === "NamespaceExport" ? codecNamespace : exported ? codecExported : codecImported }, [
       `${kind}(${syntaxHeaderWire(4, 2)}, ${kind === "NamespaceExportDeclaration" ? "modifiers=ModifierList(loc=TextRange(pos=0, end=0), nodes=[]), " : ""}` +
-        `name=n:5, tsonic=${exported ? codecExportedWire : codecImportedWire})`, codecNameWire(5, 4),
+        `name=n:5, tsonic=${kind === "NamespaceExport" ? codecNamespaceWire : exported ? codecExportedWire : codecImportedWire})`, codecNameWire(5, 4),
     ], kind);
   });
 }
@@ -2998,9 +3002,9 @@ for (const kind of ["ImportDeclaration", "JSImportDeclaration"]) {
       const attribute = { ...header(8, 7), kind: "ImportAttribute", name: codecName(9, 8), value: codecName(10, 8), tsonic: null };
       const attributes = present ? { ...header(7, 4), kind: "ImportAttributes", token: "WithKeyword", attributes: nodeList([attribute]), multiLine: true, tsonic: null } : null;
       assertSyntaxPayload({ ...header(4, 2), kind, modifiers: nodeList(), importClause: clause, moduleSpecifier: codecName(specifier, 4), attributes,
-        tsonic: { definition: ownerId, target: codecProjectTarget } }, [
+        tsonic: { target: codecProjectTarget } }, [
         `${kind}(${syntaxHeaderWire(4, 2)}, modifiers=ModifierList(loc=TextRange(pos=0, end=0), nodes=[]), importClause=${present ? "n:5" : "null"}, moduleSpecifier=n:${specifier}, ` +
-          `attributes=${present ? "n:7" : "null"}, tsonic=TypedImport(definition=def:"${ownerId}", target=${codecProjectTargetWire}))`,
+          `attributes=${present ? "n:7" : "null"}, tsonic=TypedImport(target=${codecProjectTargetWire}))`,
         ...(present ? [`ImportClause(${syntaxHeaderWire(5, 4)}, phaseModifier=null, name=null, namedBindings=null, tsonic=${codecImportedWire})`] : []),
         codecNameWire(specifier, 4), ...(present ? [
           `ImportAttributes(${syntaxHeaderWire(7, 4)}, token="WithKeyword", attributes=NodeList(loc=TextRange(pos=0, end=0), nodes=[n:8]), multiLine=true, tsonic=null)`,
@@ -3021,14 +3025,14 @@ test("actual import-equals retains its qualified module reference and binding de
 });
 for (const present of [false, true]) {
   test(`actual export declaration keeps ${present ? "its target and export clause" : "the absent target and clause"}`, () => {
-    const exportClause = present ? { ...header(5, 4), kind: "NamespaceExport", name: codecName(6, 5), tsonic: codecExported } : null;
+    const exportClause = present ? { ...header(5, 4), kind: "NamespaceExport", name: codecName(6, 5), tsonic: codecNamespace } : null;
     assertSyntaxPayload({ ...header(4, 2), kind: "ExportDeclaration", modifiers: nodeList(), isTypeOnly: true, exportClause,
       moduleSpecifier: present ? codecName(7, 4) : null, attributes: null,
-      tsonic: { definition: ownerId, target: present ? codecProjectTarget : null } }, [
+      tsonic: { target: present ? codecProjectTarget : null } }, [
       `ExportDeclaration(${syntaxHeaderWire(4, 2)}, modifiers=ModifierList(loc=TextRange(pos=0, end=0), nodes=[]), isTypeOnly=true, exportClause=${present ? "n:5" : "null"}, ` +
-        `moduleSpecifier=${present ? "n:7" : "null"}, attributes=null, tsonic=TypedExport(definition=def:"${ownerId}", ` +
+        `moduleSpecifier=${present ? "n:7" : "null"}, attributes=null, tsonic=TypedExport(` +
         `target=${present ? codecProjectTargetWire : "null"}))`,
-      ...(present ? [`NamespaceExport(${syntaxHeaderWire(5, 4)}, name=n:6, tsonic=${codecExportedWire})`, codecNameWire(6, 5), codecNameWire(7, 4)] : []),
+      ...(present ? [`NamespaceExport(${syntaxHeaderWire(5, 4)}, name=n:6, tsonic=${codecNamespaceWire})`, codecNameWire(6, 5), codecNameWire(7, 4)] : []),
     ], "export declaration");
     assertSyntaxPayload({ ...header(4, 2), kind: "ExportAssignment", modifiers: nodeList(), isExportEquals: true,
       type: present ? codecType(5, 4) : null, expression: codecName(present ? 6 : 5, 4), tsonic: { definition: ownerId, type: 0 } }, [
@@ -3845,9 +3849,9 @@ test("F4 body capture and lexical scope records retain complete foreign identiti
 test("F4 a complete export retains its present ImportAttributes syntax", () => {
   assertSyntaxPayload({ ...header(4, 2), kind: "ExportDeclaration", modifiers: null, isTypeOnly: false,
     exportClause: null, moduleSpecifier: null, attributes: { ...header(5, 4), kind: "ImportAttributes", token: "WithKeyword",
-      attributes: nodeList(), multiLine: false, tsonic: null }, tsonic: { definition: ownerId, target: null } }, [
+      attributes: nodeList(), multiLine: false, tsonic: null }, tsonic: { target: null } }, [
     `ExportDeclaration(${syntaxHeaderWire(4, 2)}, modifiers=null, isTypeOnly=false, exportClause=null, moduleSpecifier=null, ` +
-      `attributes=n:5, tsonic=TypedExport(definition=def:"${ownerId}", target=null))`,
+      `attributes=n:5, tsonic=TypedExport(target=null))`,
     `ImportAttributes(${syntaxHeaderWire(5, 4)}, token="WithKeyword", attributes=NodeList(loc=TextRange(pos=0, end=0), nodes=[]), multiLine=false, tsonic=null)`,
   ], "export attributes");
 });
@@ -4335,24 +4339,66 @@ for (const resolution of ["local", "definition", "known-aliases", "missing-defin
     const missing = encodeDefId({ module: moduleId, segments: [{ name: "missing", ordinal: 0 }] });
     if (resolution !== "local") value.tsonic.resolution = { kind: "definition",
       definition: resolution === "missing-definition" ? missing : fixture.valueDefinition,
-      aliases: resolution === "known-aliases" ? [fixture.definition, fixture.typeDefinition]
-        : resolution === "missing-alias" ? [missing] : resolution === "repeated-missing-aliases" ? [missing, missing] : [] };
-    const expected = resolution === "missing-definition" || resolution === "missing-alias" || resolution === "repeated-missing-aliases"
-      ? [nodeViolation("cross-owner-qualified", 9, "definition reference does not name an actual declaration")] : [];
+      aliases: resolution === "known-aliases" ? [{ kind: "body", value: { body: body.body, node: value.id } },
+        { kind: "item", value: { owner: fixture.definition, node: value.id } }]
+        : resolution === "missing-alias" ? [{ kind: "item", value: { owner: missing, node: value.id } }]
+          : resolution === "repeated-missing-aliases" ? [0, 1].map(() => ({ kind: "item", value: { owner: missing, node: value.id } })) : [] };
+    const expected = resolution === "missing-definition"
+      ? [nodeViolation("cross-owner-qualified", 9, "definition reference does not name an actual declaration")]
+      : resolution === "missing-alias" || resolution === "repeated-missing-aliases" ? [
+        nodeViolation("cross-owner-qualified", 9, "source reference does not name an actual node in its declared owner"),
+        nodeViolation("cross-owner-qualified", 9, "definition reference does not name an actual declaration"),
+      ] : [];
     assertCompleteValue(product.verifyTir(input, body), expected);
     value.tsonic.resolution = original;
     assertCompleteValue(product.verifyTir(input, body), []);
   });
 }
 
-test("body scalar definitions and aliases share the real nullable declaration cache only within one invocation", async () => {
+test("binding occurrence roles preserve exact qualification and genuine namespace identities", async () => {
+  const { verifyOccurrenceRole } = await import("../../packages/host/dist/ir-tir/verify-occurrences.js");
+  const occurrence = { kind: "item", value: { owner: ownerId, node: 4 } };
+  const target = { ...header(4), kind: "Identifier", text: "binding", tsonic: { role: "binding-name", binding: occurrence } };
+  const source = { ...target, tsonic: { core: emptyCore(), ...target.tsonic } };
+  const check = (actual, checked) => {
+    const findings = [];
+    verifyOccurrenceRole(actual, checked, (rule, node, detail) => findings.push({ rule, node: node.id, detail }));
+    return findings;
+  };
+  assert.deepStrictEqual(check(target, source), []);
+  for (const checked of [undefined, { ...source, tsonic: null }]) assert.deepStrictEqual(check(target, checked), []);
+  for (const [actual, checked] of [
+    [{ ...target, tsonic: { role: "binding-name" } }, source],
+    [target, { ...source, tsonic: { core: emptyCore(), role: "binding-name" } }],
+    [{ ...target, tsonic: { ...target.tsonic, binding: { kind: "body", value: { body: bodyId, node: 4 } } } }, source],
+  ]) assert.deepStrictEqual(check(actual, checked), [{ rule: "binding-capture-owner", node: 4,
+    detail: "typed binding syntax must retain its actual checked qualified occurrence" }]);
+  const namespace = { ...target, kind: "NamespaceExport", name: target,
+    tsonic: { definition: ownerId, binding: occurrence } };
+  const checkedNamespace = { ...namespace, tsonic: { ...namespace.tsonic, core: emptyCore() } };
+  assert.deepStrictEqual(check(namespace, checkedNamespace), []);
+  assert.deepStrictEqual(check(namespace, { ...checkedNamespace, tsonic: { ...checkedNamespace.tsonic, definition: "other" } }), [
+    { rule: "binding-capture-owner", node: 4, detail: "a namespace export must retain its genuine same-node F1 declaration" },
+  ]);
+  const clause = { ...header(4), kind: "ImportClause", phaseModifier: null, name: null, namedBindings: null, tsonic: null };
+  const checkedClause = { ...clause, tsonic: { core: emptyCore(), target: { kind: "available", value: { target: "project", module: moduleId } }, bindings: [occurrence] } };
+  assert.deepStrictEqual(check(clause, checkedClause), []);
+  assert.equal(check({ ...clause, tsonic: { binding: occurrence } }, checkedClause)[0].rule, "binding-capture-owner");
+  assert.deepStrictEqual(check({ ...clause, name: target, tsonic: { binding: occurrence } }, checkedClause), []);
+  for (const [actual, checked] of [[{ ...clause, name: target }, checkedClause],
+    [{ ...clause, name: target, tsonic: { binding: occurrence } }, { ...checkedClause, tsonic: { ...checkedClause.tsonic, bindings: [] } }],
+    [{ ...clause, name: target, tsonic: { binding: { ...occurrence, value: { ...occurrence.value, node: 5 } } } }, checkedClause]])
+    assert.equal(check(actual, checked)[0].rule, "binding-capture-owner");
+});
+
+test("body scalar definitions share the real nullable declaration cache only within one invocation", async () => {
   const { encodeDefId } = await import("../../packages/host/dist/ids/index.js");
   const fixture = genericFunctionScenario();
   const body = fixture.functionTemplate;
   const input = fixture.inputFor(body);
   const value = body.root.body.statements.nodes[0].expression;
   const missing = encodeDefId({ module: moduleId, segments: [{ name: "missing", ordinal: 0 }] });
-  value.tsonic.resolution = { kind: "definition", definition: missing, aliases: [missing, missing] };
+  value.tsonic.resolution = { kind: "definition", definition: missing, aliases: [] };
   const actual = input.declarationOf;
   const queries = [];
   input.declarationOf = definition => { queries.push(definition); return actual(definition); };
@@ -5873,7 +5919,7 @@ test("every TypedString role retains the full closed record and exact UTF16/lone
     [{ role: "type-literal", type: 0 }, 'TypedString(role="type-literal", type=t:0)'],
     [{ role: "module-specifier", target: { target: "project", module: moduleId } },
       `TypedString(role="module-specifier", target=ImportTarget(target="project", module=mod:"${moduleId}"))`],
-    [{ role: "export-name", definition: ownerId }, `TypedString(role="export-name", definition=def:"${ownerId}")`],
+    [{ role: "export-name", binding: codecBinding }, `TypedString(role="export-name", binding=${codecBindingWire})`],
     [{ role: "attribute-value", value: text }, `TypedString(role="attribute-value", value=${JSON.stringify(text)})`],
   ]) assertExpressionRoundTrip("StringLiteral", fields, fieldsWire, phase, wire);
 });
@@ -5882,7 +5928,7 @@ test("every TypedName arm and every resolution discriminant is distinct and full
   const fields = { text: "name" };
   for (const [resolution, wire] of [
     [{ kind: "local", local: { body: bodyId, local: 0 } }, `local(local=${localWire})`],
-    [{ kind: "definition", definition: ownerId, aliases: [ownerId] }, `definition(definition=def:"${ownerId}", aliases=[def:"${ownerId}"])`],
+    [{ kind: "definition", definition: ownerId, aliases: [codecBinding] }, `definition(definition=def:"${ownerId}", aliases=[${codecBindingWire}])`],
     [{ kind: "module", target: { target: "project", module: moduleId } }, `module(target=ImportTarget(target="project", module=mod:"${moduleId}"))`],
     [{ kind: "error", diagnostic: 0 }, "error(diagnostic=0)"],
   ]) assertExpressionRoundTrip("Identifier", fields, 'text="name"', { ...valueFact(), role: "value", resolution },
@@ -5902,6 +5948,7 @@ test("every TypedName arm and every resolution discriminant is distinct and full
     [{ role: "type-name", type: 0, declarations: [ownerId] }, `TypedName(role="type-name", type=t:0, declarations=[def:"${ownerId}"])`],
     [{ role: "label", target: { body: bodyId, node: 0 } }, `TypedName(role="label", target=NodeRef(body=body:"${bodyId}", node=n:0))`],
     [{ role: "private-name", declaration: ownerId }, `TypedName(role="private-name", declaration=def:"${ownerId}")`],
+    [{ role: "binding-name", binding: codecBinding }, `TypedName(role="binding-name", binding=${codecBindingWire})`],
   ]) assertExpressionRoundTrip("Identifier", fields, 'text="name"', phase, wire);
 });
 
@@ -7028,12 +7075,12 @@ for (const kind of ["ThisKeyword", "SuperKeyword"]) {
 for (const kind of ["PrivateIdentifier"]) {
   test(`F4 actual ${kind} loses neither name-position nor value cofindings`, () => {
     const sourceName = (identity, text, parent) => ({ ...header(identity, parent), kind: "Identifier", text,
-      tsonic: { core: emptyCore(), role: "type-name", resolution: { kind: "definition", definition: ownerId, aliases: [] } } });
+      tsonic: { core: emptyCore(), role: "type-name", resolution: { kind: "declarations", definitions: [ownerId] } } });
     const typedName = (identity, text, parent) => ({ ...header(identity, parent), kind: "Identifier", text,
       tsonic: { role: "type-name", type: 0, declarations: [ownerId] } });
     const checked = { ...header(2, 1), kind, ...(kind === "PrivateIdentifier" ? { text: "name" } :
       { left: sourceName(3, "Left", 2), right: sourceName(4, "Right", 2) }),
-      tsonic: { core: emptyCore(), role: "type-name", resolution: { kind: "definition", definition: ownerId, aliases: [] } } };
+      tsonic: { core: emptyCore(), role: "type-name", resolution: { kind: "declarations", definitions: [ownerId] } } };
     const typed = { ...header(2, 1), kind, ...(kind === "PrivateIdentifier" ? { text: "name" } :
       { left: typedName(3, "Left", 2), right: typedName(4, "Right", 2) }),
       tsonic: { role: "declaration-name", declaration: { kind: "definition", definition: ownerId }, storage: null } };
@@ -7055,7 +7102,7 @@ test("F4 QualifiedName uses its genuine EntityName slot and complete module-site
   const name = (id, text) => ({ ...header(id, 4), kind: "Identifier", text,
     tsonic: { role: "type-name", type: 0, declarations: [fixture.definition] } });
   const source = { ...header(4, 3), kind: "QualifiedName", left: sourceName(5, "Left"), right: sourceName(6, "Right"),
-    tsonic: { core: emptyCore(), role: "type-name", resolution: { kind: "definition", definition: fixture.definition, aliases: [] } } };
+    tsonic: { core: emptyCore(), role: "type-name", resolution: { kind: "declarations", definitions: [fixture.definition] } } };
   const typed = { ...header(4, 3), kind: "QualifiedName", left: name(5, "Left"), right: name(6, "Right"),
     tsonic: { role: "declaration-name", declaration: { kind: "definition", definition: fixture.definition }, storage: null } };
   sourceAlias.type = { ...header(3, 1), kind: "TypeReference", typeArguments: null, typeName: source,
@@ -7234,7 +7281,7 @@ test("F4 an actual symbol member key uses its real declaration and authored iden
     ...typedValue(symbolType), role: "value", resolution: { kind: "definition", definition: fixture.fieldDefinition, aliases: [] } } });
   delete member.argumentExpression.tokenFlags;
   Object.assign(sourceMember.argumentExpression, { kind: "Identifier", text: "key", tsonic: { core: emptyCore(),
-    role: "value", value: checkedValue(symbolType), resolution: { kind: "definition", definition: fixture.fieldDefinition, aliases: [] } } });
+    role: "value", value: checkedValue(symbolType), resolution: { kind: "declarations", definitions: [fixture.fieldDefinition] } } });
   delete sourceMember.argumentExpression.tokenFlags;
   fixture.decision.key = key;
   fixture.table.members[0].key = key;

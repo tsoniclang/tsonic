@@ -2,7 +2,7 @@ import { constructBindingPattern, constructImportDeclaration } from "./text-synt
 import { lazyReader, literalReader, nullableReader, sequenceReader } from "./text-construction.js";
 import type { TirRecordCodec } from "./text-layouts.js";
 import type {
-  TypedBinding, TypedBindingElement, TypedBindingPattern, TypedControlTransfer, TypedExport, TypedExportAssignment, TypedExportBinding, TypedImport, TypedImportBinding, TypedIteration, TypedNamespace, TypedParameter, TypedPhase, TypedStorageDeclaration, TypedVariableList
+  TypedBinding, TypedBindingElement, TypedBindingPattern, TypedControlTransfer, TypedExport, TypedExportAssignment, TypedExportBinding, TypedNamespaceExport, TypedImport, TypedImportBinding, TypedIteration, TypedNamespace, TypedParameter, TypedPhase, TypedStorageDeclaration, TypedVariableList
 } from "./contract.js";
 import type {
   Origin
@@ -27,6 +27,7 @@ export interface SyntaxStatementsTextReads {
   readonly work_TypedExport: TirRecordCodec<TypedExport>;
   readonly work_TypedExportAssignment: TirRecordCodec<TypedExportAssignment>;
   readonly work_TypedExportBinding: TirRecordCodec<TypedExportBinding>;
+  readonly work_TypedNamespaceExport: TirRecordCodec<TypedNamespaceExport>;
   readonly work_TypedImport: TirRecordCodec<TypedImport>;
   readonly work_TypedImportBinding: TirRecordCodec<TypedImportBinding>;
   readonly work_TypedIteration: TirRecordCodec<TypedIteration>;
@@ -407,7 +408,7 @@ export const createSyntaxStatementsText = (kernel: TirTextKernel, read: SyntaxSt
     .syntaxHeader(read.work_Origin, read.work_TextRange)
     .syntaxKind("kind", "'NamespaceExport", literalReader<(NamespaceExport<TypedPhase>)["kind"]>("'NamespaceExport", ["NamespaceExport"]))
     .field("name", "$ModuleExportName", value => syntaxReference("$ModuleExportName", value.name), syntaxReads.ModuleExportName)
-    .field("tsonic", "TypedExportBinding", value => read.work_TypedExportBinding.write(value.tsonic), lazyReader(() => read.work_TypedExportBinding.reader))
+    .field("tsonic", "TypedNamespaceExport", value => read.work_TypedNamespaceExport.write(value.tsonic), lazyReader(() => read.work_TypedNamespaceExport.reader))
     .finishSyntax((syntaxKind, field_id, field_origin, field_parent, field_flags, field_loc, field_name, field_tsonic) => ({ id: field_id, origin: field_origin, parent: field_parent, flags: field_flags, loc: field_loc, kind: syntaxKind, name: field_name, tsonic: field_tsonic }), (kind, make) => ({ kind, value: make(kind) })));
   const work_NamedExports: (value: NamedExports<TypedPhase>) => TirTypedRecordWork = defineSyntaxRecord<NamedExports<TypedPhase>>("NamedExports", null, value => value.kind, value => value, null, fields => fields
     .syntaxHeader(read.work_Origin, read.work_TextRange)
@@ -507,7 +508,7 @@ export const createSyntaxStatementsText = (kernel: TirTextKernel, read: SyntaxSt
     .field("phaseModifier", "?ImportPhaseModifier", value => nullableWork(value.phaseModifier, actual => scalarWork("ImportPhaseModifier", actual)), nullableReader(literalReader<NonNullable<(ImportClause<TypedPhase>)["phaseModifier"]>>("ImportPhaseModifier", ["TypeKeyword","DeferKeyword"])))
     .field("name", "?$Identifier", value => nullableWork(value.name, actual => syntaxReference("$Identifier", actual)), nullableReader(syntaxReads.Identifier))
     .field("namedBindings", "?$NamedImportBindings", value => nullableWork(value.namedBindings, actual => syntaxReference("$NamedImportBindings", actual)), nullableReader(syntaxReads.NamedImportBindings))
-    .field("tsonic", "TypedImportBinding", value => read.work_TypedImportBinding.write(value.tsonic), lazyReader(() => read.work_TypedImportBinding.reader))
+    .field("tsonic", "?TypedImportBinding", value => nullableWork(value.tsonic, actual => read.work_TypedImportBinding.write(actual)), nullableReader(lazyReader(() => read.work_TypedImportBinding.reader)))
     .finishSyntax((syntaxKind, field_id, field_origin, field_parent, field_flags, field_loc, field_phaseModifier, field_name, field_namedBindings, field_tsonic) => ({
       id: field_id, origin: field_origin, parent: field_parent, flags: field_flags, loc: field_loc, kind: syntaxKind, phaseModifier: field_phaseModifier, name: field_name, namedBindings: field_namedBindings,
       tsonic: field_tsonic }), (kind, make) => ({ kind, value: make(kind),

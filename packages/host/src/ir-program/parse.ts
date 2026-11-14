@@ -1,12 +1,12 @@
 import type { TextParseResult } from "../diag/contract.js";
 import type { ParseModuleBodies, ModuleBodies, PublishedBody } from "./contract.js";
 import type { ModuleId } from "../ids/contract.js";
-import type { SourceFile } from "../ir-hir/contract.js";
+import type { HirModuleBinding, HirModuleExport, SourceFile } from "../ir-hir/contract.js";
 import type { TirBody, TypedPhase } from "../ir-tir/contract.js";
 import type { MirBody } from "../ir-mir/contract.js";
 import type { BodyFacts } from "../ir-facts/contract.js";
 import type { BodyInstance } from "../ir-types/contract.js";
-import type { BodyRecord, ConstantRecord, DefinitionNode, ModuleExport, ModuleRecord, PackageExport, PackageRecord, ParseProgramIndex, ProgramIndex, SignatureRecord } from "./contract.js";
+import type { BodyRecord, ConstantRecord, DefinitionNode, ModuleRecord, PackageExport, PackageRecord, ParseProgramIndex, ProgramIndex, SignatureRecord } from "./contract.js";
 import { hostDiagnosticCode } from "../diag/index.js";
 import { expansionId, localId, nodeId, sigId, tyId } from "../ids/index.js";
 import { parseFacts, parseMetadata, parseSummary } from "../ir-facts/index.js";
@@ -18,6 +18,8 @@ import { readDiagnostic } from "./parse-diagnostics.js";
 import { readArtifactBindings, readConstValue, readInstance } from "./parse-types.js";
 import type { TextStep } from "./parse-values.js";
 import { arrayText, atomicText, fieldText } from "./parse-values.js";
+import { evaluateText } from "./parse-values.js";
+import { readModuleBindingText, readModuleExportText } from "./text-module-bindings.js";
 import type { SyntaxReadPorts, SyntaxValue } from "./parse-syntax-values.js";
 import { finishSyntaxRecord, readSyntaxReference, resolveSyntaxValue, syntaxArray } from "./parse-syntax-values.js";
 import { readTirBodyText } from "./parse-tir.js";
@@ -222,15 +224,12 @@ function readPackage(cursor: Cursor): TextParseResult<PackageRecord> {
   } };
 }
 
-function readModuleExport(cursor: Cursor): TextParseResult<ModuleExport> {
-  const opened = openRecord(cursor, "ModuleExport");
-  if (opened.kind === "invalid-text") return opened;
-  const name = readField(cursor, opened.value, "name", readString);
-  if (name.kind === "invalid-text") return name;
-  const definition = readField(cursor, opened.value, "definition", readDefinitionId);
-  if (definition.kind === "invalid-text") return definition;
-  const closed = closeRecord(cursor, opened.value);
-  return closed.kind === "invalid-text" ? closed : { kind: "parsed", value: { name: name.value, definition: definition.value } };
+function readModuleExport(cursor: Cursor): TextParseResult<HirModuleExport> {
+  return evaluateText<HirModuleExport>(readModuleExportText(cursor, value => ({ kind: "complete", result: { kind: "parsed", value } })));
+}
+
+function readModuleBinding(cursor: Cursor): TextParseResult<HirModuleBinding> {
+  return evaluateText<HirModuleBinding>(readModuleBindingText(cursor, value => ({ kind: "complete", result: { kind: "parsed", value } })));
 }
 
 function readDefinitionNode(cursor: Cursor): TextParseResult<DefinitionNode> {
@@ -255,8 +254,12 @@ function readModule(cursor: Cursor): TextParseResult<ModuleRecord> {
   if (items.kind === "invalid-text") return items;
   const exports = readField(cursor, opened.value, "exports", next => readArray(next, readModuleExport));
   if (exports.kind === "invalid-text") return exports;
+  const bindings = readField(cursor, opened.value, "bindings", next => readArray(next, readModuleBinding));
+  if (bindings.kind === "invalid-text") return bindings;
+  const checkerDiagnostics = readField(cursor, opened.value, "checkerDiagnostics", next => readArray(next, readDiagnostic));
+  if (checkerDiagnostics.kind === "invalid-text") return checkerDiagnostics;
   const closed = closeRecord(cursor, opened.value);
   return closed.kind === "invalid-text" ? closed : { kind: "parsed", value: {
-    module: module.value, package: owner.value, items: items.value, exports: exports.value,
+    module: module.value, package: owner.value, items: items.value, exports: exports.value, bindings: bindings.value, checkerDiagnostics: checkerDiagnostics.value,
   } };
 }

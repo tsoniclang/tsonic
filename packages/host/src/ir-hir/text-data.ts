@@ -184,10 +184,8 @@ function importTargetData(value: Hir.ImportTarget): HirDataWork {
 function resolutionData(value: Hir.HirResolution): HirDataWork {
   switch (value.kind) {
     case "local": return recordData(value.kind, value, () => [fieldData("local", localRefData(value.local))], { kind: "HirResolution", value });
-    case "definition": return recordData(value.kind, value, () => [fieldData("definition", definitionData(value.definition)),
-      fieldData("aliases", arrayData(value.aliases, definitionData))], { kind: "HirResolution", value });
-    case "module": return recordData(value.kind, value, () => [fieldData("target", importTargetData(value.target))], { kind: "HirResolution", value });
-    case "unresolved": return recordData(value.kind, value, () => [fieldData("checkerDiagnostic", scalarData(value.checkerDiagnostic))], { kind: "HirResolution", value });
+    case "unavailable": return recordData(value.kind, value, () => [fieldData("reason", scalarData(value.reason))], { kind: "HirResolution", value });
+    default: return bindingTargetData(value);
   }
 }
 
@@ -509,7 +507,7 @@ function literalFields(value: Hir.CheckedLiteral): readonly HirDataField[] {
     case "declaration-name": return [fieldData("declaration", declarationTargetData(value.declaration))];
     case "type-literal": return [fieldData("type", capturedData(value.type, typeData)), fieldData("literal", literalTypeData(value.literal))];
     case "module-specifier": return [fieldData("target", capturedData(value.target, importTargetData))];
-    case "export-name": return [fieldData("definition", capturedData(value.definition, definitionData))];
+    case "export-name": return [fieldData("binding", sourceRefData(value.binding))];
     case "attribute-value": return [fieldData("literal", literalData(value.literal))];
   }
 }
@@ -526,6 +524,7 @@ function nameFields(value: Hir.CheckedName): readonly HirDataField[] {
     case "declaration-name": return [fieldData("declaration", declarationTargetData(value.declaration))];
     case "property-name": return propertyFields(value);
     case "type-name": return [fieldData("resolution", resolutionData(value.resolution))];
+    case "binding-name": return [fieldData("binding", sourceRefData(value.binding))];
     case "label": return [fieldData("target", nullableData(value.target, nodeRefData))];
     case "private-name": return [fieldData("declaration", definitionData(value.declaration))];
     case "shorthand-value": return [fieldData("value", valueData(value.value)), fieldData("resolution", resolutionData(value.resolution)), fieldData("key", capturedData(value.key, memberKeyData))];
@@ -654,21 +653,21 @@ function variableData(value: Hir.CheckedVariable): HirDataWork {
 function enumData(value: Hir.CheckedEnum): HirDataWork { return recordData("CheckedEnum", value, () => [...declarationFields(value), fieldData("members", arrayData(value.members, definitionData))]); }
 function namespaceData(value: Hir.CheckedNamespace): HirDataWork { return recordData("CheckedNamespace", value, () => [...declarationFields(value), fieldData("members", arrayData(value.members, definitionData))]); }
 
-function importBindingData(value: Hir.HirImportBinding): HirDataWork {
-  return recordData("HirImportBinding", value, () => [fieldData("local", definitionData(value.local)), fieldData("imported", capturedData(value.imported, definitionData))]);
-}
-
 function importData(value: Hir.CheckedImport): HirDataWork {
-  return recordData("CheckedImport", value, () => [...declarationFields(value), fieldData("target", capturedData(value.target, importTargetData)), fieldData("bindings", arrayData(value.bindings, importBindingData))]);
-}
-
-function exportBindingData(value: Hir.HirExportBinding): HirDataWork {
-  return recordData("HirExportBinding", value, () => [fieldData("name", scalarData(value.name)), fieldData("definition", capturedData(value.definition, definitionData))]);
+  return recordData("CheckedImport", value, () => [...coreFields(value), fieldData("target", capturedData(value.target, importTargetData)), fieldData("bindings", arrayData(value.bindings, sourceRefData))]);
 }
 
 function exportData(value: Hir.CheckedExport): HirDataWork {
-  return recordData("CheckedExport", value, () => [...declarationFields(value), fieldData("exports", arrayData(value.exports, exportBindingData)),
+  return recordData("CheckedExport", value, () => [...coreFields(value),
     fieldData("target", capturedData(value.target, target => nullableData(target, importTargetData)))]);
+}
+
+function exportBindingData(value: Hir.CheckedExportBinding): HirDataWork {
+  return recordData("CheckedExportBinding", value, () => [...coreFields(value), fieldData("binding", sourceRefData(value.binding))]);
+}
+
+function namespaceExportData(value: Hir.CheckedNamespaceExport): HirDataWork {
+  return recordData("CheckedNamespaceExport", value, () => [...declarationFields(value), fieldData("binding", sourceRefData(value.binding))]);
 }
 
 function staticBlockData(value: Hir.CheckedStaticBlock): HirDataWork { return recordData("CheckedStaticBlock", value, () => [...declarationFields(value), fieldData("body", bodyData(value.body))]); }
@@ -769,9 +768,11 @@ export function hirCheckedData(node: Hir.HirNode): HirDataWork {
     case "ImportDeclaration": case "JSImportDeclaration": case "NamespaceImport": case "ImportEqualsDeclaration":
     case "ImportClause": case "ImportSpecifier":
       return importData(node.tsonic);
-    case "ExportAssignment": case "NamespaceExportDeclaration": case "NamespaceExport": case "ExportSpecifier":
-    case "ExportDeclaration":
-      return exportData(node.tsonic);
+    case "ExportAssignment": return recordData("CheckedExportAssignment", node.tsonic, () => declarationFields(node.tsonic));
+    case "NamespaceExport": return namespaceExportData(node.tsonic);
+    case "NamespaceExportDeclaration": case "ExportSpecifier":
+      return exportBindingData(node.tsonic);
+    case "ExportDeclaration": return exportData(node.tsonic);
     case "ClassStaticBlockDeclaration":
       return staticBlockData(node.tsonic);
     case "OmittedExpression": case "RegularExpressionLiteral": case "AsExpression": case "SatisfiesExpression":
@@ -873,6 +874,32 @@ function diagnosticRootData(value: Hir.HirDiagnosticRoot): HirDataWork {
     fieldData("owner", sourceRefData(value.owner)), fieldData("obligations", arrayData(value.obligations, obligationData))]);
 }
 
+export function hirExportTargetData(value: Hir.HirExportTarget): HirDataWork {
+  return value.kind === "declarations"
+    ? recordData(value.kind, value, () => [fieldData("definitions", arrayData(value.definitions, definitionData))], { kind: "HirBindingTarget", value })
+    : recordData(value.kind, value, () => [fieldData("occurrence", sourceRefData(value.occurrence))], { kind: "HirBindingTarget", value });
+}
+
+function bindingTargetData(value: Hir.HirBindingTarget): HirDataWork {
+  switch (value.kind) {
+    case "declarations": case "binding": return hirExportTargetData(value);
+    case "module": return recordData(value.kind, value, () => [fieldData("module", identityData("mod", value.module))], { kind: "HirBindingTarget", value });
+    case "member": return recordData(value.kind, value, () => [fieldData("through", hirExportTargetData(value.through)),
+      fieldData("key", capturedData(value.key, memberKeyData)),
+      fieldData("origins", capturedData(value.origins, origins => arrayData(origins, memberOriginData)))], { kind: "HirBindingTarget", value });
+    case "unresolved": return recordData(value.kind, value, () => [fieldData("diagnostics", arrayData(value.diagnostics, diagnostic =>
+      recordData("CheckerDiagnosticRef", diagnostic, () => [fieldData("module", identityData("mod", diagnostic.module)), fieldData("index", scalarData(diagnostic.index))], { kind: "CheckerDiagnosticRef", value: diagnostic })))], { kind: "HirBindingTarget", value });
+  }
+}
+
+export function hirModuleExportData(value: Hir.HirModuleExport): HirDataWork {
+  return recordData("HirModuleExport", value, () => [fieldData("name", scalarData(value.name)), fieldData("target", hirExportTargetData(value.target))]);
+}
+
+export function hirModuleBindingData(value: Hir.HirModuleBinding): HirDataWork {
+  return recordData("HirModuleBinding", value, () => [fieldData("occurrence", sourceRefData(value.occurrence)), fieldData("target", capturedData(value.target, bindingTargetData))]);
+}
+
 export function hirItemsData(value: readonly Hir.HirDeclarationEntry[]): HirDataWork { return arrayData(value, declarationEntryData); }
 export function hirDiagnosticsData(value: readonly Diag.Diagnostic[]): HirDataWork { return arrayData(value, diagnosticData); }
 export function hirObligationsData(value: readonly Hir.HirDiagnosticRoot[]): HirDataWork { return arrayData(value, diagnosticRootData); }
@@ -880,6 +907,7 @@ export function hirObligationsData(value: readonly Hir.HirDiagnosticRoot[]): Hir
 export function hirModuleData(value: Hir.HirModule): HirRecordWork {
   return recordData("HirModule", value, () => [fieldData("module", identityData("mod", value.module)), fieldData("tree", hirNodeData(value.tree)),
     fieldData("items", hirItemsData(value.items)), fieldData("bodies", arrayData(value.bodies, hirBodyData)),
+    fieldData("exports", arrayData(value.exports, hirModuleExportData)), fieldData("bindings", arrayData(value.bindings, hirModuleBindingData)),
     fieldData("checkerDiagnostics", hirDiagnosticsData(value.checkerDiagnostics)), fieldData("obligations", hirObligationsData(value.obligations))]);
 }
 
