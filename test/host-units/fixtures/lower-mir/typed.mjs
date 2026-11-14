@@ -1,7 +1,6 @@
 // Builders for complete typed bodies (TirBody) used as inputs of the lower-mir cases.
 // A program file writes its typed tree as nested node descriptions; `seal` assigns node identities
 // in pre-order and resolves labels. Nothing here computes a lowering result.
-import { N } from "./names.mjs";
 
 export const MODULE = "M[P[p];m]";
 // Every definition and body identity a program names is recorded, so that the MIR verifier's context can answer for it.
@@ -38,6 +37,8 @@ term("uint32", { kind: "primitive", primitive: "uint32" });
 term("int32Array", { kind: "array", element: T.int32, readonly: false });
 term("int32Fixed4", { kind: "fixed-array", element: T.int32, extent: { length: 4n, runtimeBase: "number" } });
 term("int32Rows", { kind: "array", element: T.int32Array, readonly: false });
+term("int32Fixed4Rows", { kind: "array", element: T.int32Fixed4, readonly: false });
+term("int32Fixed4Grid", { kind: "fixed-array", element: T.int32Fixed4, extent: { length: 4n, runtimeBase: "number" } });
 term("int32Pair", { kind: "tuple", elements: [{ kind: "required", type: T.int32, declaration: null }, { kind: "required", type: T.int32, declaration: null }], readonly: false });
 term("optInt32", { kind: "optional", value: T.int32 });
 term("inner", { kind: "shape", members: [member("x", T.int32)], indexes: [], calls: [], constructs: [] });
@@ -76,9 +77,8 @@ export const operation = decision => decided(typedOperation(decision));
 // The location of an access decision: data reached without a check, or with a required check and its failure kind.
 // `receiver` is "in-place" or "by-reference".
 export const direct = receiver => ({ kind: "data", check: { kind: "none" }, receiver });
-// `extent` is given for an element at a run-time position and for nothing else (a member with a constant key has none).
-export const checked = (failure, receiver, extent = null) =>
-  ({ kind: "data", check: { kind: "required", failure }, receiver, ...(extent === null ? {} : { [N.extent]: extent }) });
+export const checked = (failure, receiver) =>
+  ({ kind: "data", check: { kind: "required", failure }, receiver });
 // The key of an index decision whose key is not a compile-time value is undecided (NEEDS-W4 A8 note).
 export const DYNAMIC_KEY = null;
 export const memberDecision = (key, read, write, location) => ({
@@ -99,7 +99,7 @@ export const endpoint = (name, role, signatureId, withBody = true) => {
 const NO_SCOPE = { classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] };
 /** The context `verifyMir` needs for a graph lowered from `program`: its typed body, the type table, and the declarations and body owners the programs name. */
 export const verificationContext = program => ({
-  limits: { maximumWork: 1000000 }, source: program.tir, types: TABLE,
+  limits: { maximumWork: 1000000 }, source: program.tir, bodyOf: () => null, types: TABLE,
   declarationOf: definition => KNOWN.has(definition) ? { scope: NO_SCOPE, parameterCount: 0, endpoints: ENDPOINTS.get(definition) ?? [] } : null,
   bodyOwner: body => OWNERS.get(body) ?? null,
 });
@@ -147,6 +147,8 @@ export function builders(name, role = "function") {
       b.binary(left, operator, right, { ...value(type), role: "arithmetic", operation: operation(decision) }),
     comparison: (left, operator, right, decision) =>
       b.binary(left, operator, right, { ...value(T.bool), role: "comparison", operation: operation(decision) }),
+    prefix: (operand, operator, type, decision) => ({ kind: "PrefixUnaryExpression", operand, operator,
+      tsonic: { ...value(type), role: "value", operation: operation(decision) } }),
     sequence: (left, right, type) => b.binary(left, "CommaToken", right, { ...value(type), role: "sequence" }),
     assign: (left, operator, right, type, storage, calculation = null, select = null) =>
       b.binary(left, operator, right, { ...value(type), role: "assignment", storage,

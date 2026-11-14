@@ -4,6 +4,8 @@ import { captureModule, captureProgramModules, createCheckerExtensions, extensio
   lowerModuleExports, openCheckedProgram } from "../front/index.js";
 import type { LowerToMir } from "../lower-mir/contract.js";
 import { lowerToMir } from "../lower-mir/index.js";
+import type { Evaluate, ResumeEvaluate } from "../evaluate/contract.js";
+import { evaluate, resumeEvaluate } from "../evaluate/index.js";
 
 /**
  * What Pipeline wires: its run-time connections to the components. One member per public operation of a
@@ -16,6 +18,7 @@ import { lowerToMir } from "../lower-mir/index.js";
 export interface PipelineWiring {
   readonly front: FrontWiring;
   readonly lowerMir: LowerMirWiring;
+  readonly evaluate: EvaluateWiring;
 }
 
 export interface FrontWiring {
@@ -33,9 +36,15 @@ export interface LowerMirWiring {
   readonly lowerToMir: LowerToMir;
 }
 
+export interface EvaluateWiring {
+  readonly evaluate: Evaluate;
+  readonly resumeEvaluate: ResumeEvaluate;
+}
+
 /** The one wiring of the Host: each member is the component's own public operation. */
 export const pipelineWiring: PipelineWiring = {
   front: { createCheckerExtensions, extensionReferencesOf, openCheckedProgram, captureProgramModules, captureModule, lowerModuleDefinitions,
     lowerModuleExports, lowerModule },
   lowerMir: { lowerToMir },
+  evaluate: { evaluate, resumeEvaluate },
 };

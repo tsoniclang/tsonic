@@ -1,10 +1,11 @@
 import type { Violation } from "../diag/contract.js";
 import type { LocalId, NodeId, PlaceId, SigId, TyId } from "../ids/contract.js";
 import { localId, placeId } from "../ids/index.js";
-import type { LiteralTypeValue, LiteralValue, TypeTerm } from "../ir-types/contract.js";
+import type { ExactRational, LiteralTypeValue, LiteralValue, NativePrimitive, TypeTerm } from "../ir-types/contract.js";
 import type { MirBlock, MirBody, MirLocal, MirOperand, MirRule, MirRvalue, MirTerminator, MirVerificationContext, MirViolationSite } from "./contract.js";
 import { chargeWork, controlEdges, densePosition, findSourceNode, read, reversePostorder } from "./verify-control.js";
-import type { SourceNode, WorkMeter } from "./verify-control.js";
+import type { ControlEdge, SourceNode, WorkMeter } from "./verify-control.js";
+import { ownershipOfMode } from "./local-ownership.js";
 
 export function rvalueOperands(value: MirRvalue): readonly MirOperand[] {
   switch (value.kind) {
@@ -340,6 +341,8 @@ interface StorageReading {
   /** The start set the block still has to be read with; null when it is not waiting. */
   waiting: LiveSet | null;
   read: boolean;
+  /** The block's outgoing edges, made once in the first scan; a reading again charges their known count before it reads them. */
+  readonly edges: readonly ControlEdge[];
   /** The next block in the order of reading; null for the last. A sweep that begins later walks from here, copying nothing. */
   next: StorageReading | null;
 }
@@ -373,7 +376,8 @@ export function verifyStorage(
   let entry = empty;
   for (const [position, local] of body.locals.entries()) {
     if (local === undefined || !Object.is(local.id, position)) continue;
-    if (local.role.kind !== "parameter" && local.role.kind !== "receiver" && local.role.kind !== "capture") continue;
+    if (local.role.kind !== "parameter" && local.role.kind !== "receiver" && local.role.kind !== "capture"
+      && ownershipOfMode(local.mode) !== "external") continue;
     const present = withLocal(sets, entry, span, local.id, true);
     if (present === null) return [];
     entry = present;
@@ -438,7 +442,7 @@ export function verifyStorage(
     if (!use(terminatorOperands(block.terminator), { kind: "instruction", body: body.body, block: block.id, statement: null })) return [];
     rankOf[ordered.position] = readings.length;
     const reading: StorageReading = { rank: readings.length, block, changes: marked.map(local => ({ local, live: liveAfter[local] === 1 })),
-      decided, awaiting, start: null, waiting: null, read: false, next: null };
+      decided, awaiting, start: null, waiting: null, read: false, edges: controlEdges(block.terminator), next: null };
     if (last !== null) last.next = reading;
     last = reading;
     readings.push(reading);
@@ -456,7 +460,8 @@ export function verifyStorage(
       const arrived = reading.waiting;
       if (arrived === null) continue;
       reading.waiting = null;
-      const edges = controlEdges(reading.block.terminator);
+      // A block read again pays for its known edges before any of them is read (K-3347).
+      const edges = reading.edges;
       if (reading.read) {
         chargeWork(meter, edges.length);
         if (meter.exhausted) return [];
@@ -527,6 +532,113 @@ export interface ValueVerification {
   readonly signatures: readonly SignatureReference[];
 }
 
+// What a literal constant holds against a native primitive carrier (`constant-type`). The ranges and thresholds are
+// properties of the carriers; Rules' literal fit needs the same facts, and one owner for both is asked of the
+// carrier vocabulary's owner (NEEDS-W2, NEEDS-W5, W4's entries of 2026-11-14). Exact arithmetic only (bigint).
+//   bool        a boolean.
+//   int8 … uint128   an integral number or bigint in the carrier's range; no negative zero.
+//   native-int, native-uint   an integral number or bigint (non-negative for the unsigned one). Snapshot carries
+//                     address width, but its selected-geometry relation to these carriers is not joined here (open).
+//   char        a number naming one UTF-16 code unit. Which literal a char constant carries is not stated by any
+//               record yet (open); this is what every target admits.
+//   float16, float32, float64   a number that rounds to a finite value under round-to-nearest-even: its magnitude
+//               is below 2^(emax+1) - 2^(emax-p-1), the largest finite value plus half its unit in the last place.
+//   decimal     the target's literal conversion: a coefficient below 2^96 at a scale of at most 28, so the value's
+//               denominator divides 10^28 and |value| * 10^scale < 2^96 at the least such scale.
+// Before any of this, a number literal's rational is in canonical form: a positive denominator, coprime to the
+// numerator, negative zero only for zero (as the HIR verifier requires of checked literals). The constants loop checks
+// it once, whatever the declared type; no loop above runs on a denominator that is not positive.
+const DECIMAL_MAXIMUM_SCALE = 28n;
+
+function fixedIntegerWidth(primitive: NativePrimitive): bigint | null {
+  switch (primitive) {
+    case "int8": case "uint8": return 8n;
+    case "int16": case "uint16": case "char": return 16n;
+    case "int32": case "uint32": return 32n;
+    case "int64": case "uint64": return 64n;
+    case "int128": case "uint128": return 128n;
+    default: return null;
+  }
+}
+
+function floatingOverflow(primitive: NativePrimitive): bigint | null {
+  switch (primitive) {
+    case "float16": return 2n ** 16n - 2n ** 4n;
+    case "float32": return 2n ** 128n - 2n ** 103n;
+    case "float64": return 2n ** 1024n - 2n ** 970n;
+    default: return null;
+  }
+}
+
+/** Whether a rational is in canonical form: a positive denominator coprime to the numerator; negative zero only for zero. */
+function canonicalRational(value: ExactRational, meter: WorkMeter): boolean {
+  if (value.denominator <= 0n || value.negativeZero && value.numerator !== 0n) return false;
+  if (value.denominator === 1n) return true;
+  let left = value.numerator < 0n ? -value.numerator : value.numerator;
+  let right = value.denominator;
+  while (right !== 0n) {
+    chargeWork(meter, 1);
+    if (meter.exhausted) return false;
+    const remainder = left % right;
+    left = right;
+    right = remainder;
+  }
+  return left === 1n;
+}
+
+/** The integer a literal states, or null: a bigint, or a number whose canonical rational is integral and not negative zero. */
+function integerOf(value: LiteralValue): bigint | null {
+  return value.kind === "bigint" ? value.value
+    : value.kind === "number" && value.value.denominator === 1n && !value.value.negativeZero ? value.value.numerator : null;
+}
+
+/** The scale at which a positive denominator divides 10^scale, or null when it has another prime factor. */
+function decimalScale(denominator: bigint, meter: WorkMeter): bigint | null {
+  let twos = 0n;
+  let fives = 0n;
+  let rest = denominator;
+  while (rest !== 1n) {
+    chargeWork(meter, 1);
+    if (meter.exhausted) return null;
+    if (rest % 2n !== 0n) break;
+    rest /= 2n;
+    twos += 1n;
+  }
+  while (rest !== 1n) {
+    chargeWork(meter, 1);
+    if (meter.exhausted) return null;
+    if (rest % 5n !== 0n) break;
+    rest /= 5n;
+    fives += 1n;
+  }
+  return rest === 1n ? (twos > fives ? twos : fives) : null;
+}
+
+/** Whether a literal is a value the primitive carrier holds as stated (the table above). */
+function primitiveHolds(value: LiteralValue, primitive: NativePrimitive, meter: WorkMeter): boolean {
+  if (primitive === "bool") return value.kind === "boolean";
+  if (primitive === "native-int" || primitive === "native-uint") {
+    const integer = integerOf(value);
+    return integer !== null && (primitive === "native-int" || integer >= 0n);
+  }
+  const width = fixedIntegerWidth(primitive);
+  if (width !== null) {
+    if (primitive === "char" && value.kind !== "number") return false;
+    const integer = integerOf(value);
+    if (integer === null) return false;
+    const signed = primitive === "int8" || primitive === "int16" || primitive === "int32" || primitive === "int64" || primitive === "int128";
+    const boundary = 2n ** (signed ? width - 1n : width);
+    return integer >= (signed ? -boundary : 0n) && integer < boundary;
+  }
+  if (value.kind !== "number") return false;
+  const magnitude = value.value.numerator < 0n ? -value.value.numerator : value.value.numerator;
+  const overflow = floatingOverflow(primitive);
+  if (overflow !== null) return magnitude < overflow * value.value.denominator;
+  // decimal
+  const scale = decimalScale(value.value.denominator, meter);
+  return scale !== null && scale <= DECIMAL_MAXIMUM_SCALE && magnitude * 10n ** scale / value.value.denominator < 2n ** 96n;
+}
+
 function literalMatches(value: LiteralValue, selected: LiteralTypeValue): boolean {
   switch (value.kind) {
     case "absence": return selected.kind === "absence";
@@ -541,7 +653,7 @@ function literalMatches(value: LiteralValue, selected: LiteralTypeValue): boolea
 
 export function verifyValues(
   body: MirBody, context: MirVerificationContext, nodes: ReadonlyMap<NodeId, SourceNode>,
-  places: ReadonlyMap<PlaceId, PlaceLocation>,
+  places: ReadonlyMap<PlaceId, PlaceLocation>, meter: WorkMeter,
 ): ValueVerification {
   const violations: Violation<MirRule, MirViolationSite>[] = [];
   const types: StorageReference[] = [];
@@ -667,42 +779,7 @@ export function verifyValues(
       if (selected !== null && !(selected.kind === "primitive" && selected.primitive === "int32")) report("completion-selector-total", site);
     }
   }
-  // A literal constant is a value of its declared type. Against a literal type it is that literal; against a native
-  // primitive it is a value the carrier holds exactly as the literal states it: bool a boolean; an integer carrier an
-  // integral number or bigint in its range, with no negative zero; a binary floating carrier a number that rounds to a
-  // finite value; decimal a number with a finite decimal expansion in decimal's range. Against `string` a string;
-  // against the intrinsics `bigint` and `absence` a bigint and the absence; against an optional type the absence or a
-  // value of its type. Other declared types are not compared here. All arithmetic is exact (bigint): nothing is coerced.
-  // Two carriers need a relation the published records do not state, and are held to the range every target admits:
-  // `native-int` and `native-uint` to 32 bits (the target's pointer width is not in the type table), and `char` to a
-  // number naming one UTF-16 code unit (no record says which literal a char constant carries).
-  const integerRanges = new Map<string, readonly [bigint, bigint]>([
-    ["int8", [-(2n ** 7n), 2n ** 7n - 1n]], ["uint8", [0n, 2n ** 8n - 1n]], ["int16", [-(2n ** 15n), 2n ** 15n - 1n]], ["uint16", [0n, 2n ** 16n - 1n]],
-    ["int32", [-(2n ** 31n), 2n ** 31n - 1n]], ["uint32", [0n, 2n ** 32n - 1n]], ["int64", [-(2n ** 63n), 2n ** 63n - 1n]], ["uint64", [0n, 2n ** 64n - 1n]],
-    ["int128", [-(2n ** 127n), 2n ** 127n - 1n]], ["uint128", [0n, 2n ** 128n - 1n]],
-    ["native-int", [-(2n ** 31n), 2n ** 31n - 1n]], ["native-uint", [0n, 2n ** 32n - 1n]], ["char", [0n, 2n ** 16n - 1n]]]);
-  // The smallest magnitude that rounds to infinity under round-to-nearest-even: the largest finite value
-  // 2^(emax+1) - 2^(emax-p) plus half its unit in the last place, 2^(emax+1) - 2^(emax-p-1), for p stored significand bits.
-  const floatOverflow = new Map<string, bigint>([["float16", 2n ** 16n - 2n ** 4n], ["float32", 2n ** 128n - 2n ** 103n], ["float64", 2n ** 1024n - 2n ** 970n]]);
-  const primitiveHolds = (value: LiteralValue, primitive: string): boolean => {
-    if (primitive === "bool") return value.kind === "boolean";
-    const range = integerRanges.get(primitive);
-    if (range !== undefined) {
-      if (primitive === "char" && value.kind !== "number") return false;
-      const integer = value.kind === "bigint" ? value.value
-        : value.kind === "number" && value.value.denominator === 1n && !value.value.negativeZero ? value.value.numerator : null;
-      return integer !== null && integer >= range[0] && integer <= range[1];
-    }
-    if (value.kind !== "number") return false;
-    const magnitude = value.value.numerator < 0n ? -value.value.numerator : value.value.numerator;
-    const overflow = floatOverflow.get(primitive);
-    if (overflow !== undefined) return magnitude < overflow * value.value.denominator;
-    // decimal: a finite decimal expansion (a denominator of twos and fives) within decimal's magnitude, 2^96 - 1.
-    let denominator = value.value.denominator;
-    while (denominator % 2n === 0n) denominator /= 2n;
-    while (denominator % 5n === 0n) denominator /= 5n;
-    return denominator === 1n && magnitude <= (2n ** 96n - 1n) * value.value.denominator;
-  };
+  // A literal constant is a value of its declared type: `literalHolds` below states what each declared type holds.
   // An optional type is looked through once: an optional nested in it is not compared.
   const literalHeld = (value: LiteralValue, type: TyId, nested: boolean): boolean => {
     const selected = term(type);
@@ -712,7 +789,7 @@ export function verifyValues(
       case "string": return value.kind === "string";
       case "optional": return nested || value.kind === "absence" || literalHeld(value, selected.value, true);
       case "intrinsic": return selected.intrinsic === "bigint" ? value.kind === "bigint" : selected.intrinsic === "absence" ? value.kind === "absence" : true;
-      case "primitive": return primitiveHolds(value, selected.primitive);
+      case "primitive": return primitiveHolds(value, selected.primitive, meter);
       default: return true;
     }
   };
@@ -720,7 +797,12 @@ export function verifyValues(
     if (constant === undefined) continue;
     const site: MirViolationSite = { kind: "constant", body: body.body, constant: constant.id };
     types.push({ type: constant.type, site });
-    if (constant.value.kind === "literal" && !literalHeld(constant.value.value, constant.type, false)) report("constant-type", site);
+    // A number literal's rational is checked for canonical form first, once, whatever the declared type.
+    const literal = constant.value.kind === "literal" ? constant.value.value : null;
+    const invalid = literal !== null && (literal.kind === "number" && !canonicalRational(literal.value, meter)
+      || !literalHeld(literal, constant.type, false));
+    if (meter.exhausted) return { violations, types, signatures };
+    if (invalid) report("constant-type", site);
   }
   for (const [position, place] of body.places.entries()) {
     if (place === undefined) continue;
@@ -807,7 +889,13 @@ export function verifyValues(
       case "call": {
         if (terminator.callee.kind === "body") {
           // The signature of an internal body is not a record of this context; operands and the destination resolve.
-          for (const capture of terminator.callee.captures) placeType(capture.place, site);
+          for (const capture of terminator.callee.captures) {
+            if (placeType(capture.place, site) === null) continue;
+            const root = places.get(capture.place)?.root;
+            if (root !== undefined && (root === null || root.source === null
+              || root.source.body !== capture.local.body || root.source.local !== capture.local.local))
+              report("capture-location-exact", site);
+          }
           if (terminator.receiver !== null) operandType(terminator.receiver, site);
           if (terminator.arguments.length !== 0) report("call-arguments-total", site);
           if (terminator.destination !== null) placeType(terminator.destination, site);

@@ -398,7 +398,7 @@ export function mirTransportCases(fixture) {
   const member = { decision: { key: { kind: "text", value: "value" }, origins: [], selectedDeclarations: [], primary: null,
     read: 0, write: 0, getter: null, setter: null, bindings, location: { kind: "data", check: { kind: "none" }, receiver: "in-place" } }, getter: null, setter: null };
   const operand = { kind: "constant", constant: 0 };
-  const local = { id: 0, storage: 0, role: { kind: "temporary" }, source: null, origin: fixture.module.tree.origin };
+  const local = { id: 0, storage: 0, role: { kind: "temporary" }, mode: "local", source: null, origin: fixture.module.tree.origin };
   const root = { id: 0, storage: 0, base: { kind: "local", local: 0 }, origin: local.origin };
   const constant = { id: 0, type: 0, value: { kind: "literal", value: { kind: "absence" } } };
   const site = { origin: local.origin, tir: { body: fixture.bodyId, node: 0 } };
@@ -406,7 +406,7 @@ export function mirTransportCases(fixture) {
   const body = changes => ({ ...structuredClone(source), locals: [local], constants: [constant], places: [root], ...changes });
   const values = [{ kind: "use", operand }, { kind: "unary", operation, operand }, { kind: "binary", operation, left: operand, right: operand },
     { kind: "convert", operation, operand, to: 0 }, { kind: "address-of", place: 0, type: 0 },
-    { kind: "closure", instance, captures: [{ local: { body: fixture.bodyId, local: 0 }, place: 0 }] },
+    { kind: "closure", instance, captures: [{ local: { body: fixture.bodyId, local: 0 }, place: 0, capture: "captured-value" }] },
     ...["array", "tuple", "fixed-array"].map(kind => ({ kind: "aggregate", type: 0, aggregate: { kind, elements: [operand] } })),
     ...["object", "record"].map(kind => ({ kind: "aggregate", type: 0, aggregate: { kind, fields: [{ member, value: operand }] } }))];
   for (const [position, value] of values.entries()) cases.push({ name: `rvalue-${position}-${value.kind}`, body: body({ blocks: [
@@ -426,10 +426,10 @@ export function mirTransportCases(fixture) {
   cases.push({ name: "static-root", body: body({ places: [{ ...root, base: { kind: "static", definition: fixture.definition } }] }) });
   for (const value of [{ kind: "definition", definition: fixture.definition, bindings: { kind: "parametric" } },
     { kind: "metadata", definition: fixture.definition, bindings: { kind: "instantiated", bindings } },
-    { kind: "observation", at: site.tir }, { kind: "constant", reference: { initializer: fixture.instance } }])
+    { kind: "observation", at: site.tir }, { kind: "constant", reference: { initializer: fixture.instance, context: "compile-time" } }])
     cases.push({ name: `constant-${value.kind}`, body: body({ constants: [{ ...constant, value }] }) });
   for (const callee of [{ kind: "direct", resolution: selected }, { kind: "indirect", operand, resolution: selected },
-    { kind: "body", instance, captures: [{ local: { body: fixture.bodyId, local: 0 }, place: 0 }] }])
+    { kind: "body", instance, captures: [{ local: { body: fixture.bodyId, local: 0 }, place: 0, capture: "captured-location" }] }])
     cases.push({ name: `call-${callee.kind}`, body: body({ blocks: [{ ...source.blocks[0], terminator: { ...site,
       kind: "call", callee, receiver: null, arguments: [], destination: null, next: 0, unwind: { kind: "escape" }, step: null,
     } }] }) });
@@ -509,7 +509,7 @@ export function genericCarrierCase(fixture, kind) {
   const bindings = { classBindings: [{ kind: "bound", parameter, type: 1 }], methodBindings: [], capturedBindings: [],
     selfBindings: [{ kind: "bound", owner: fixture.definition, type: 1 }] };
   if (kind === "optional-absence") bindings.classBindings[0].type = 0;
-  const mir = { ...fixture.module.bodies[0].mir, locals: [{ id: 0, storage: 4, role: { kind: "temporary" },
+  const mir = { ...fixture.module.bodies[0].mir, locals: [{ id: 0, storage: 4, role: { kind: "temporary" }, mode: "local",
     source: null, origin: fixture.module.tree.origin }] };
   const index = { ...fixture.index, types };
   const module = { ...fixture.module, bodies: [{ ...fixture.module.bodies[0], mir }] };

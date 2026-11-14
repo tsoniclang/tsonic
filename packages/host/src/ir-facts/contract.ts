@@ -116,9 +116,12 @@ export interface MirPoint {
   readonly statement: number | null;
 }
 
+export type StoreEdge = "continue" | "resume" | "return" | "unwind";
+
 export interface StoreLiveness {
   readonly node: NodeId;
   readonly point: MirPoint;
+  readonly edge: StoreEdge | null;
   readonly observed: boolean;
 }
 
@@ -135,7 +138,7 @@ export interface LocalLiveRange {
 
 export interface BindingStorageFact {
   readonly local: LocalId;
-  readonly scope: "body" | "shared";
+  readonly addressTaken: boolean;
   readonly captured: boolean;
 }
 
@@ -731,6 +734,8 @@ export interface FactsVerificationContext {
 export type PrintFacts = (facts: BodyFacts) => string;
 export type ParseFacts = (text: string) => TextParseResult<BodyFacts>;
 export type VerifyFacts = (facts: BodyFacts, mir: MirBody,
+  context: FactsVerificationContext) => readonly Violation<FactsRule, FactsSite>[];
+export type VerifyLiveness = (facts: LivenessFacts, instance: BodyInstance, mir: MirBody,
   context: FactsVerificationContext) => readonly Violation<FactsRule, FactsSite>[];
 export type PrintSummary = (summary: Summary) => string;
 export type ParseSummary = (text: string) => TextParseResult<Summary>;

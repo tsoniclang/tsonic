@@ -274,7 +274,7 @@ export function metadataOperationFixture(operation, fact, selectedKey, root = "/
   first.index.metadata = [metadata, data];
   const published = first.module.bodies[0];
   const site = { origin: first.module.tree.origin, tir: { body: first.bodyId, node: 0 } };
-  published.mir.locals = [{ id: 0, storage: 2, role: { kind: "temporary" }, source: null, origin: site.origin }];
+  published.mir.locals = [{ id: 0, storage: 2, role: { kind: "temporary" }, mode: "local", source: null, origin: site.origin }];
   published.mir.places = [{ id: 0, base: { kind: "local", local: 0 }, storage: 2, origin: site.origin }];
   const operandKey = selectedKey === "layout" ? key : dataKey;
   published.mir.constants = [{ id: 0, type: 2, value: { kind: "metadata", ...operandKey } }];
@@ -331,7 +331,7 @@ export function publishedArtifactFixture(change) {
     first.answers.set(encodeContextKey(["arenaOf", { kind: "summary", ...key }]), arena);
     first.answers.set(encodeContextKey(["bindingScopesOf", { kind: "summary", summary: key }]), [module.scope]);
     first.answers.set(encodeContextKey(["captureCount", key]), module.module.bodies[0].tir.captures.length);
-    first.index.constants.push({ initializer: module.instance, value: { kind: "absence", type: 0 } });
+    first.index.constants.push({ reference: { initializer: module.instance, context: "compile-time" }, value: { kind: "absence", type: 0 } });
   }
   switch (change) {
     case "none": break;

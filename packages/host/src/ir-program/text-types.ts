@@ -1,5 +1,6 @@
 import type { BindingVector, BodyInstance, Execution, DeclaredExecution, ConstValue, TypeEvidence, TypeComponent, TypeParameter, TypeBinding, SelfBinding, ArtifactBindings, ExactRational, CategoryEvidence, NumericEvidence, SumEvidence, PointerEvidence, ComponentSelector, TypeParameterIdentity, MemberKey, MemberOrigin, LiteralValue, SumArmRole, ConstructionDefinition, SumFamily } from "../ir-types/contract.js";
 import type { TextWork } from "./text-values.js";
+import type { ConstantReference } from "../ir-types/contract.js";
 import { token, text, numeric, numericIdentity, identity, field, record, sequence, deferred, boolean, integer, textSourceNodeRef, textNodeRef, textLocalRef } from "./text-values.js";
 
 export function textBindingVector(value: BindingVector): TextWork {
@@ -26,6 +27,12 @@ export function textExecution(value: Execution): TextWork {
   return deferred(value, () => record("Execution", [
     field("instance", textBodyInstance(value.instance)),
     field("provided", numeric(value.provided)),
+  ]));
+}
+
+export function textConstantReference(value: ConstantReference): TextWork {
+  return deferred(value, () => record("ConstantReference", [
+    field("initializer", textBodyInstance(value.initializer)), field("context", text(value.context)),
   ]));
 }
 

@@ -148,7 +148,7 @@ function evaluate(input) {
         boundProducers: [], origins: [{ id: 0, producers: [], includesAbsence: false, kind: "complete" }], boundaries: [] },
       parameters: [], captures: [], result: 0, thrown: 0, writes: [], retention: [], callbacks: [],
       invocationOnlyParameters: [], suspends: false, bindingDependent: false }];
-      first.index.constants = [{ initializer: first.instance, value: { kind: "absence", type: voidType } }];
+      first.index.constants = [{ reference: { initializer: first.instance, context: "compile-time" }, value: { kind: "absence", type: voidType } }];
       const publication = { table: { terms: [{ kind: "string" }, { kind: "intrinsic", intrinsic: "void" }],
         signatures: signatures.map(signature => ({ ...signature, result: 1 })) },
       types: input.reverse ? [0, 1] : [1, 0], signatures: input.reverse ? [1, 0] : [0, 1] };
@@ -343,9 +343,9 @@ function evaluate(input) {
     case "verify-constant-reference-fixture": {
       const fixture = moduleFixture();
       fixture.module.bodies[0].mir.constants.push({ id: 0, type: 0,
-        value: { kind: "constant", reference: { initializer: fixture.instance } } });
+        value: { kind: "constant", reference: { initializer: fixture.instance, context: "compile-time" } } });
       fixture.index.bodies[0].mirConstantCount = 1;
-      if (input.present) fixture.index.constants.push({ initializer: fixture.instance, value: { kind: "absence", type: 0 } });
+      if (input.present) fixture.index.constants.push({ reference: { initializer: fixture.instance, context: "compile-time" }, value: { kind: "absence", type: 0 } });
       return moduleViolations(fixture.index, fixture.module, fixture.context);
     }
     case "verify-module-change-fixture": {
@@ -414,7 +414,7 @@ function evaluate(input) {
           case "type-reference": fixture.index.types.terms.push({ kind: "array", element: 2, readonly: false }); break;
           case "constant-owner": {
             const missing = encodeBodyId({ owner: fixture.definition, role: "function", ordinal: 0 });
-            fixture.index.constants.push({ initializer: { body: missing, bindings: { kind: "parametric" } },
+            fixture.index.constants.push({ reference: { initializer: { body: missing, bindings: { kind: "parametric" } }, context: "compile-time" },
               value: { kind: "absence", type: 0 } });
             fixture.answers.set(encodeContextKey(["bodyOwner", missing]), null);
             break;
@@ -612,13 +612,13 @@ test("ir-program an external instantiated signature retains both absent declarat
 for (const change of ["control", "missing-scope"]) test(`ir-program instantiated constant ${change} retains the complete binding domain`, () => {
   const fixture = dualInstanceFixture();
   const initializer = fixture.module.bodies[1].instance;
-  fixture.index.constants = [{ initializer, value: { kind: "absence", type: 0 } }];
+  fixture.index.constants = [{ reference: { initializer, context: "compile-time" }, value: { kind: "absence", type: 0 } }];
   let expected = [];
   let index = fixture.index;
   if (change === "missing-scope") {
     const external = moduleFixture("src/external.ts");
     const absent = { body: external.bodyId, bindings: initializer.bindings };
-    index = { ...index, constants: [{ initializer: absent, value: { kind: "absence", type: 0 } }] };
+    index = { ...index, constants: [{ reference: { initializer: absent, context: "compile-time" }, value: { kind: "absence", type: 0 } }] };
     fixture.answers.set(encodeContextKey(["bodyOwner", absent.body]), external.definition);
     fixture.answers.set(encodeContextKey(["bindingScopeOf", external.definition]), null);
     expected = [{ rule: "bindings-complete", site: { kind: "body", instance: absent }, detail: [{ kind: "text", value: external.definition }] }];
@@ -2181,7 +2181,7 @@ test("ir-program every signature record role and actual constant payload retains
     { type: 0, kind: "bigint", value: 9007199254740993n }, { type: 0, kind: "string", value: "\ud800\n" },
     { type: 0, kind: "boolean", value: false }, { type: 0, kind: "absence" },
     { type: 0, kind: "unique-symbol", declaration: fixture.definition }, { type: 0, kind: "error" }];
-  fixture.index.constants = constantValues.map(value => ({ initializer: fixture.instance, value }));
+  fixture.index.constants = constantValues.map(value => ({ reference: { initializer: fixture.instance, context: "compile-time" }, value }));
   const program = { index: fixture.index, modules: [fixture.module] };
   completeProgramValue(product.canonicalizeProgram(program, { table: fixture.index.types, types: [0], signatures: [0] }), program,
     "all complete signature/constant records retain their fields and original ordinal, kind and body identity");

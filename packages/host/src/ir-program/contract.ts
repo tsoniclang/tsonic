@@ -1,7 +1,7 @@
 import type { Diagnostic, TextParseResult, Violation } from "../diag/contract.js";
 import type { BodyId, DefId, DefinitionPath, ModuleId, ModulePath, NodeId, PackageId, SigId } from "../ids/contract.js";
 import type {
-  ArtifactBindings, BindingVector, BodyInstance, ConstValue, TypeExpansionLimits, TypePublication, TypePublicationLimits, TypeTable,
+  ArtifactBindings, BindingVector, BodyInstance, ConstantReference, ConstValue, TypeExpansionLimits, TypePublication, TypePublicationLimits, TypeTable,
 } from "../ir-types/contract.js";
 import type { SourceFile } from "../ir-hir/contract.js";
 import type { TirBody, TirVerifierInput, TypedPhase } from "../ir-tir/contract.js";
@@ -62,7 +62,7 @@ export interface BodyRecord {
 }
 
 export interface ConstantRecord {
-  readonly initializer: BodyInstance;
+  readonly reference: ConstantReference;
   readonly value: ConstValue;
 }
 

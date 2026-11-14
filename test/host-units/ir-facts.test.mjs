@@ -43,7 +43,7 @@ const violation = (rule, site, value) => ({ rule, site, detail: detail(value) })
 const finiteLimits = () => ({ maximumProjectionDepth: 1000000,
   maximumOriginAlternatives: 1000000, maximumRelationalRecordsPerBody: 1000000, maximumRelationalReferencesPerBody: 1000000 });
 
-test("ir-facts: all twelve actual emitted ports, full closed logic and fresh declarations", async suite => {
+test("ir-facts: all thirteen actual emitted ports, full closed logic and fresh declarations", async suite => {
   assert.equal(typeof process.env.TSONIC_TEST_ADMISSION, "string", "the complete unit is admitted in its bounded aggregate group");
   const inspector = new Session();
   inspector.connect();
@@ -97,7 +97,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       ({ ...header(index + 1), kind: "EmptyStatement", tsonic: null })) }, tsonic: null },
     nestedBodies: [], captures: [], scopes: [], evidence: [], asynchronous: false, generator: false });
   const mir = () => ({ body, bindings: parametric(),
-    locals: [{ id: 0, storage: 0, role: { kind: "user" }, source: { body, local: 0 }, origin: sourceOrigin() }], constants: [],
+    locals: [{ id: 0, storage: 0, role: { kind: "user" }, mode: "local", source: { body, local: 0 }, origin: sourceOrigin() }], constants: [],
     places: [{ id: 0, base: { kind: "local", local: 0 }, storage: 0, origin: sourceOrigin() }],
     blocks: [{ id: 0, origin: sourceOrigin(), tir: nodeRef(0), statements: [],
       terminator: { kind: "return", value: null, origin: sourceOrigin(), tir: nodeRef(0) } }], result: 1 });
@@ -194,8 +194,8 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       abiText(64).replace(`item(value=ItemNodeRef(owner=def:"${definitions.abi64}", node=n:0))`, `body(value=${nodeText(1)})`), product.printMetadata, product.parseMetadata);
   }
   await textCase("one real call component", graph(), graphText, product.printCallGraph, product.parseCallGraph);
-  await suite.test("every exported value is exactly the twelve approved own-contract ports", () => {
-    assert.deepEqual(Object.keys(product).sort(), ["parseCallGraph", "parseFacts", "parseMetadata", "parseSummary", "printCallGraph", "printFacts", "printMetadata", "printSummary", "verifyCallGraph", "verifyFacts", "verifyMetadata", "verifySummary"]);
+  await suite.test("every exported value is exactly the thirteen approved own-contract ports", () => {
+    assert.deepEqual(Object.keys(product).sort(), ["parseCallGraph", "parseFacts", "parseMetadata", "parseSummary", "printCallGraph", "printFacts", "printMetadata", "printSummary", "verifyCallGraph", "verifyFacts", "verifyLiveness", "verifyMetadata", "verifySummary"]);
   });
   await suite.test("all four genuinely supplied valid domains return the complete empty violation vector", () => {
     const inputs = setup();
@@ -518,9 +518,9 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     malformed(product.parseFacts, text, offset, ['"reinterpret"'], '"allocate"', "first raw-memory operation", before.length, before.at(-1).length + 1);
   });
   await suite.test("scalar domains and grammar delimiters retain the complete independent rejection", () => {
-    const statement = "StoreLiveness(node=n:1, point=MirPoint(block=b:0, statement=\"zero\"), observed=false)";
+    const statement = "StoreLiveness(node=n:1, point=MirPoint(block=b:0, statement=\"zero\"), edge=null, observed=false)";
     const integer = "IntegerFact(node=n:1, range=IntegerRange(minimum=0, maximum=1n), nonnegative=false)";
-    const badObserved = "StoreLiveness(node=n:1, point=MirPoint(block=b:0, statement=null), observed=0)";
+    const badObserved = "StoreLiveness(node=n:1, point=MirPoint(block=b:0, statement=null), edge=null, observed=0)";
     const vectors = [
       [product.parseMetadata, abiText(64).replace('fingerprint="abi-64"', "fingerprint=0"), "fingerprint=0", "fingerprint=", ["string"], "0"],
       [product.parseFacts, emptyFactsText.replace("stores=[]", `stores=${arrayText([statement])}`), 'statement="zero"', "statement=", ["number"], '"zero"'],
@@ -543,10 +543,10 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   });
   await suite.test("shared inline records are values, not an additional reference arena", () => {
     const point = { block: 0, statement: null };
-    const input = emptyFacts(); input.liveness.stores = [{ node: 1, point, observed: false }, { node: 2, point, observed: true }];
+    const input = emptyFacts(); input.liveness.stores = [{ node: 1, point, edge: null, observed: false }, { node: 2, point, edge: null, observed: true }];
     const expected = emptyFactsText.replace("stores=[]", `stores=${arrayText([
-      "StoreLiveness(node=n:1, point=MirPoint(block=b:0, statement=null), observed=false)",
-      "StoreLiveness(node=n:2, point=MirPoint(block=b:0, statement=null), observed=true)",
+      "StoreLiveness(node=n:1, point=MirPoint(block=b:0, statement=null), edge=null, observed=false)",
+      "StoreLiveness(node=n:2, point=MirPoint(block=b:0, statement=null), edge=null, observed=true)",
     ])}`);
     equal(product.printFacts(input), expected, "complete shared-inline by-value spelling");
     equal(product.parseFacts(expected), { kind: "parsed", value: input }, "complete equal inline values after parsing");
@@ -554,8 +554,8 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     equal(product.verifyFacts(input, supplied.mir, supplied.context), [], "shared inline point is not an inline cycle");
   });
   for (const [name, value, spelling] of [["negative zero", -0, "-0"], ["not a number", NaN, "NaN"], ["positive infinity", Infinity, "+Infinity"], ["negative infinity", -Infinity, "-Infinity"], ["fractional", 0.5, "0.5"], ["exponent", 1e30, "1e+30"]]) {
-    const input = emptyFacts(); input.liveness.stores = [{ node: 1, point: { block: 0, statement: value }, observed: false }];
-    const expected = emptyFactsText.replace("stores=[]", `stores=${arrayText([`StoreLiveness(node=n:1, point=MirPoint(block=b:0, statement=${spelling}), observed=false)`])}`);
+    const input = emptyFacts(); input.liveness.stores = [{ node: 1, point: { block: 0, statement: value }, edge: null, observed: false }];
+    const expected = emptyFactsText.replace("stores=[]", `stores=${arrayText([`StoreLiveness(node=n:1, point=MirPoint(block=b:0, statement=${spelling}), edge=null, observed=false)`])}`);
     await textCase(`total plain number ${name}`, input, expected, product.printFacts, product.parseFacts);
   }
 
@@ -711,7 +711,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       "A value context retains every actual parameter and the actual receiver slot."],
     ["node-resolves", value => { value.initialization.reads = [{ node: 99, place: 0, assigned: true }]; }, nodeSite(99), "Every fact retains an actual source occurrence in its declared body domain."],
     ["place-resolves", value => { value.initialization.reads = [{ node: 1, place: 99, assigned: true }]; }, nodeSite(1), "A place reference resolves in this exact MIR body."],
-    ["mir-point-resolves", value => { value.liveness.stores = [{ node: 1, point: { block: 99, statement: null }, observed: false }]; }, nodeSite(1), "A MIR point names an actual block and statement, or that block's terminator."],
+    ["mir-point-resolves", value => { value.liveness.stores = [{ node: 1, point: { block: 99, statement: null }, edge: null, observed: false }]; }, nodeSite(1), "A MIR point names an actual block and statement, or that block's terminator."],
     ["point-refs-resolve", value => { value.origins.points = [{ point: { block: 99, statement: null }, place: 0, origins: 0 }]; }, bodySite(), "A MIR point names an actual block and statement, or that block's terminator."],
     ["origins-resolves", value => { value.origins.reads = [{ node: 1, place: 0, origins: 99 }]; }, nodeSite(1), "Origins resolve in this exact relational arena."],
     ["boundary-resolves", value => { value.origins.writes = [{ node: 1, operation: "mutation", destination: "binding", targets: [], owner: null, values: [], boundaries: [99] }]; }, nodeSite(1), "A boundary resolves in this exact arena."],
@@ -796,7 +796,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       "A declared relational site must name an existing library export.")]);
   const put = (input, path, value) => { let parent = input; for (const part of path.slice(0, -1)) parent = parent[part]; parent[path.at(-1)] = value; };
   const simpleOrders = [
-    ["stores-order", ["liveness", "stores"], node => ({ node, point: { block: 0, statement: null }, observed: true })],
+    ["stores-order", ["liveness", "stores"], node => ({ node, point: { block: 0, statement: null }, edge: null, observed: true })],
     ["initialization-order", ["initialization", "reads"], node => ({ node, place: 0, assigned: true })],
     ["refinements-order", ["refinements", "refinements"], node => ({ node, guards: [], kind: "proven" })],
     ["reads-order", ["origins", "reads"], node => ({ node, place: 0, origins: 0 })],
@@ -830,7 +830,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
 
   const localSite = local => ({ kind: "local", local: { body, local } });
   const withMirEndpoints = supplied => {
-    supplied.mir.locals.push({ id: 1, storage: 0, role: { kind: "temporary" }, source: null, origin: sourceOrigin(2) });
+    supplied.mir.locals.push({ id: 1, storage: 0, role: { kind: "temporary" }, mode: "local", source: null, origin: sourceOrigin(2) });
     supplied.mir.places.push({ id: 1, base: { kind: "local", local: 1 }, storage: 0, origin: sourceOrigin(2) });
     supplied.mir.blocks[0].statements = [{ kind: "storage-live", local: 0, origin: sourceOrigin(1), tir: nodeRef(1) },
       { kind: "storage-dead", local: 0, origin: sourceOrigin(2), tir: nodeRef(2) }];
@@ -842,16 +842,16 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   const placeMessage = "A place reference resolves in this exact MIR body.";
   const segmentMessage = "A live interval contains ordered actual statement or terminator positions in its own block.";
   const numericReceivers = [
-    ["store node", "stores-order", ["liveness", "stores"], value => ({ node: value, point: { block: 0, statement: null }, observed: false }), value => nodeSite(value),
+    ["store node", "stores-order", ["liveness", "stores"], value => ({ node: value, point: { block: 0, statement: null }, edge: null, observed: false }), value => nodeSite(value),
       [violation("node-resolves", nodeSite(NaN), nodeMessage)], 1],
-    ["store block", "stores-order", ["liveness", "stores"], value => ({ node: 1, point: { block: value, statement: null }, observed: false }), () => nodeSite(1),
+    ["store block", "stores-order", ["liveness", "stores"], value => ({ node: 1, point: { block: value, statement: null }, edge: null, observed: false }), () => nodeSite(1),
       [violation("mir-point-resolves", nodeSite(1), pointMessage)], 0],
-    ["store statement", "stores-order", ["liveness", "stores"], value => ({ node: 1, point: { block: 0, statement: value }, observed: false }), () => nodeSite(1),
+    ["store statement", "stores-order", ["liveness", "stores"], value => ({ node: 1, point: { block: 0, statement: value }, edge: null, observed: false }), () => nodeSite(1),
       [violation("mir-point-resolves", nodeSite(1), pointMessage)], 0],
     ["live local", "locals-order", ["liveness", "locals"], value => ({ local: value, segments: [] }), value => localSite(value),
       [violation("cross-owner-qualified", localSite(NaN), "A live local belongs to this actual MIR local table.")], 0],
-    ["storage local", "locals-order", ["liveness", "bindings"], value => ({ local: value, scope: "shared", captured: false }), value => localSite(value),
-      [violation("cross-owner-qualified", localSite(NaN), "A binding-storage row belongs to this actual MIR local table.")], 0],
+    ["storage local", "locals-order", ["liveness", "bindings"], value => ({ local: value, addressTaken: false, captured: false }), value => localSite(value),
+      [violation("cross-owner-qualified", localSite(NaN), "A binding-storage row belongs to a source binding of this actual MIR local table.")], 0],
     ["captured local", "captures-order", ["liveness", "captures"], value => ({ local: { body: otherBody, local: value }, reads: false, writes: false }), value => ({ kind: "local", local: { body: otherBody, local: value } }),
       [violation("capture-locations-exact", { kind: "local", local: { body: otherBody, local: NaN } }, "A capture retains its actual qualified outer local.")], 0],
     ...["block", "first", "last"].map(field => [
@@ -919,7 +919,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       for (const reverse of [false, true]) await suite.test(`total nullable endpoint ${path.join("/")}/${Object.is(value, -0) ? "-0" : value}/${reverse}`, () => {
         const input = bodyFacts(); const supplied = setup(input); withMirEndpoints(supplied);
         const rows = [value, null].map(statement => path[0] === "liveness"
-          ? { node: 1, point: { block: 0, statement }, observed: false }
+          ? { node: 1, point: { block: 0, statement }, edge: null, observed: false }
           : { point: { block: 0, statement }, place: 0, origins: 0 });
         const site = path[0] === "liveness" ? nodeSite(1) : bodySite();
         const rule = path[0] === "liveness" ? "stores-order" : "points-order";
@@ -940,7 +940,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const input = bodyFacts(); const supplied = setup(input); withMirEndpoints(supplied);
     equal(product.verifyFacts(input, supplied.mir, supplied.context), [], "whole actual baseline");
     input.liveness.stores = values.map(value => ({ node: field === "node" ? ids.nodeId(value) : 1,
-      point: { block: field === "block" ? ids.blockId(value) : 0, statement: field === "statement" ? value : null }, observed: false }));
+      point: { block: field === "block" ? ids.blockId(value) : 0, statement: field === "statement" ? value : null }, edge: null, observed: false }));
     equal(product.verifyFacts(input, supplied.mir, supplied.context), [
       ...(order ? [violation("stores-order", nodeSite(field === "node" ? values[1] : 1), orderMessage)] : []),
       ...(field === "node" ? [] : Array.from({ length: bad }, () => violation("mir-point-resolves", nodeSite(1), pointMessage))),
@@ -959,11 +959,11 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   });
   const endpointOrders = [
     ["same store node statement ordinal", "stores-order", ["liveness", "stores"],
-      [{ node: 1, point: { block: 0, statement: 0 }, observed: false }, { node: 1, point: { block: 0, statement: 1 }, observed: true }], nodeSite(1)],
+      [{ node: 1, point: { block: 0, statement: 0 }, edge: null, observed: false }, { node: 1, point: { block: 0, statement: 1 }, edge: null, observed: true }], nodeSite(1)],
     ["same store node terminator last", "stores-order", ["liveness", "stores"],
-      [{ node: 1, point: { block: 0, statement: 1 }, observed: false }, { node: 1, point: { block: 0, statement: null }, observed: true }], nodeSite(1)],
+      [{ node: 1, point: { block: 0, statement: 1 }, edge: null, observed: false }, { node: 1, point: { block: 0, statement: null }, edge: null, observed: true }], nodeSite(1)],
     ["same store node block ordinal", "stores-order", ["liveness", "stores"],
-      [{ node: 1, point: { block: 0, statement: null }, observed: false }, { node: 1, point: { block: 1, statement: null }, observed: true }], nodeSite(1)],
+      [{ node: 1, point: { block: 0, statement: null }, edge: null, observed: false }, { node: 1, point: { block: 1, statement: null }, edge: null, observed: true }], nodeSite(1)],
     ["same read node place ordinal", "reads-order", ["origins", "reads"], [{ node: 1, place: 0, origins: 0 }, { node: 1, place: 1, origins: 1 }], nodeSite(1)],
     ["same point statement ordinal", "points-order", ["origins", "points"],
       [{ point: { block: 0, statement: 0 }, place: 0, origins: 0 }, { point: { block: 0, statement: 1 }, place: 0, origins: 1 }], bodySite()],
@@ -1004,7 +1004,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     }, input => { input.liveness.locals[0].segments.reverse(); }, [violation("live-segments-order", localSite(0), orderMessage)]);
   }
   const additionalFacts = [
-    ["locals-order", input => { input.liveness.bindings = [{ local: 0, scope: "body", captured: false }]; },
+    ["locals-order", input => { input.liveness.bindings = [{ local: 0, addressTaken: false, captured: false }]; },
       input => { input.liveness.bindings.push(clone(input.liveness.bindings[0])); }, localSite(0), orderMessage],
     ["captures-order", input => { input.liveness.captures = [{ local: { body: otherBody, local: 0 }, reads: true, writes: false }]; },
       input => { input.liveness.captures.push(clone(input.liveness.captures[0])); }, { kind: "local", local: { body: otherBody, local: 0 } }, orderMessage],
@@ -1180,7 +1180,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     };
     });
     supplied.tir.locals = Array.from({ length: count }, (_, id) => ({ id, declaration: { kind: "body", value: nodeRef(id * 13 + 3) }, name: "counter", role: "binding", capturedFrom: null, mutable: true, storage: 0 }));
-    for (const local of supplied.tir.locals.slice(1)) supplied.mir.locals.push({ id: local.id, storage: 0, role: { kind: "user" },
+    for (const local of supplied.tir.locals.slice(1)) supplied.mir.locals.push({ id: local.id, storage: 0, role: { kind: "user" }, mode: "local",
       source: { body, local: local.id }, origin: sourceOrigin(local.declaration.value.node) });
     supplied.context.localExists = selected => selected.body === body
       ? supplied.tir.locals.some(local => Object.is(local.id, selected.local)) : selected.body === otherBody && selected.local === 0;
@@ -1695,14 +1695,14 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   for (const [name, prepare, amend, rule, site, message] of [
     ["a live local", input => { input.liveness.locals = [{ local: 0, segments: [] }]; }, input => { input.liveness.locals[0].local = 99; },
       "cross-owner-qualified", localSite(99), "A live local belongs to this actual MIR local table."],
-    ["a storage local", input => { input.liveness.bindings = [{ local: 0, scope: "shared", captured: true }]; }, input => { input.liveness.bindings[0].local = 99; },
-      "cross-owner-qualified", localSite(99), "A binding-storage row belongs to this actual MIR local table."],
+    ["a storage local", input => { input.liveness.bindings = [{ local: 0, addressTaken: false, captured: true }]; }, input => { input.liveness.bindings[0].local = 99; },
+      "cross-owner-qualified", localSite(99), "A binding-storage row belongs to a source binding of this actual MIR local table."],
     ["a qualified captured local", input => { input.liveness.captures = [{ local: { body: otherBody, local: 0 }, reads: true, writes: false }]; },
       input => { input.liveness.captures[0].local.local = 99; }, "capture-locations-exact", { kind: "local", local: { body: otherBody, local: 99 } },
       "A capture retains its actual qualified outer local."],
-    ["an actual MIR block identity", input => { input.liveness.stores = [{ node: 1, point: { block: 0, statement: null }, observed: true }]; },
+    ["an actual MIR block identity", input => { input.liveness.stores = [{ node: 1, point: { block: 0, statement: null }, edge: null, observed: true }]; },
       (input, supplied) => { supplied.mir.blocks[0].id = 1; }, "mir-point-resolves", nodeSite(1), "A MIR point names an actual block and statement, or that block's terminator."],
-    ["an actual MIR statement boundary", (input, supplied) => { withMirEndpoints(supplied); input.liveness.stores = [{ node: 1, point: { block: 0, statement: 0 }, observed: true }]; },
+    ["an actual MIR statement boundary", (input, supplied) => { withMirEndpoints(supplied); input.liveness.stores = [{ node: 1, point: { block: 0, statement: 0 }, edge: null, observed: true }]; },
       input => { input.liveness.stores[0].point.statement = 2; }, "mir-point-resolves", nodeSite(1), "A MIR point names an actual block and statement, or that block's terminator."],
   ]) await factOpposite(`typed references retain ${name}`, prepare, amend, [violation(rule, site, message)]);
   for (const [name, diagnostic] of [
@@ -2590,8 +2590,19 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   };
   await factTransport("live segment transport", ["liveness", "locals"], "locals=[]", { local: 0, segments: [{ block: 0, first: 0, last: 1 }] },
     `LocalLiveRange(local=l:0, segments=${arrayText(["LiveSegment(block=b:0, first=0, last=1)"])})`);
-  for (const scope of ["body", "shared"]) await factTransport(`binding storage ${scope}`, ["liveness", "bindings"], "bindings=[]", { local: 0, scope, captured: true },
-    `BindingStorageFact(local=l:0, scope="${scope}", captured=true)`);
+  for (const addressTaken of [false, true]) await factTransport(`binding address taken ${addressTaken}`, ["liveness", "bindings"], "bindings=[]", { local: 0, addressTaken, captured: true },
+    `BindingStorageFact(local=l:0, addressTaken=${addressTaken}, captured=true)`);
+  for (const edge of [null, "continue", "resume", "return", "unwind"]) await factTransport(`store edge ${edge}`, ["liveness", "stores"], "stores=[]",
+    { node: 1, point: { block: 0, statement: null }, edge, observed: true },
+    `StoreLiveness(node=n:1, point=MirPoint(block=b:0, statement=null), edge=${edge === null ? "null" : `"${edge}"`}, observed=true)`);
+  await suite.test("obsolete liveness scope and omitted edge carriers are rejected, not reconstructed", () => {
+    const input = emptyFacts();
+    input.liveness.bindings = [{ local: 0, addressTaken: false, captured: true }];
+    const current = product.printFacts(input);
+    assert.equal(product.parseFacts(current.replace("addressTaken=false", 'scope="body"')).kind, "invalid-text");
+    input.liveness.stores = [{ node: 1, point: { block: 0, statement: null }, edge: null, observed: true }];
+    assert.equal(product.parseFacts(product.printFacts(input).replace("edge=null, ", "")).kind, "invalid-text");
+  });
   await factTransport("qualified live capture transport", ["liveness", "captures"], "captures=[]", { local: { body: otherBody, local: 0 }, reads: true, writes: true },
     `CaptureFact(local=LocalRef(body=body:"${otherBody}", local=l:0), reads=true, writes=true)`);
   const refinementRows = [
@@ -3179,16 +3190,16 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   for (const kind of ["live", "storage"]) for (const mode of ["missing", "wrong-id", "negative-zero"]) {
     await factOpposite(`${kind} local requires an actual ${mode} row rather than its in-range position`, input => {
       if (kind === "live") input.liveness.locals = [{ local: 0, segments: [] }];
-      else input.liveness.bindings = [{ local: 0, scope: "shared", captured: true }];
+      else input.liveness.bindings = [{ local: 0, addressTaken: false, captured: true }];
     }, (input, supplied) => {
       if (mode === "missing") supplied.mir.locals = new Array(1);
       else supplied.mir.locals[0].id = mode === "negative-zero" ? -0 : 1;
     }, [violation("cross-owner-qualified", localSite(0), kind === "live"
-      ? "A live local belongs to this actual MIR local table." : "A binding-storage row belongs to this actual MIR local table.")]);
+      ? "A live local belongs to this actual MIR local table." : "A binding-storage row belongs to a source binding of this actual MIR local table.")]);
   }
   for (const kind of ["store", "origin", "segment"]) await factOpposite(`${kind} point cannot resolve to an in-range sparse statement`, (input, supplied) => {
     withMirEndpoints(supplied);
-    if (kind === "store") input.liveness.stores = [{ node: 1, point: { block: 0, statement: 0 }, observed: true }];
+    if (kind === "store") input.liveness.stores = [{ node: 1, point: { block: 0, statement: 0 }, edge: null, observed: true }];
     if (kind === "origin") input.origins.points = [{ point: { block: 0, statement: 0 }, place: 0, origins: 0 }];
     if (kind === "segment") input.liveness.locals = [{ local: 0, segments: [{ block: 0, first: 0, last: 2 }] }];
   }, (input, supplied) => { supplied.mir.blocks[0].statements = new Array(2); }, [violation(
@@ -3197,7 +3208,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       ? "A live interval contains ordered actual statement or terminator positions in its own block."
       : "A MIR point names an actual block and statement, or that block's terminator.")]);
   await factOpposite("a selected in-range sparse MIR block is absent without dereferencing unrelated peer rows", input => {
-    input.liveness.stores = [{ node: 1, point: { block: 0, statement: null }, observed: true }];
+    input.liveness.stores = [{ node: 1, point: { block: 0, statement: null }, edge: null, observed: true }];
   }, (input, supplied) => { supplied.mir.blocks = new Array(1); },
   [violation("mir-point-resolves", nodeSite(1), "A MIR point names an actual block and statement, or that block's terminator.")]);
   await factOpposite("a live segment's later endpoint requires its own actual statement", (input, supplied) => {
@@ -3505,7 +3516,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       `external-input(id=boundary:0, at=node(node=${nodeText(0)}), subject=producer:0, owner=null, bindings=${bindingsText}, context=context:0, detail="unknown")`,
     ])}`);
     const locals = emptyFactsText.replace("locals=[]", `locals=${arrayText(["LocalLiveRange(local=l:0, segments=[])"])}`);
-    const stores = emptyFactsText.replace("stores=[]", `stores=${arrayText(["StoreLiveness(node=n:0, point=MirPoint(block=b:0, statement=null), observed=false)"])}`);
+    const stores = emptyFactsText.replace("stores=[]", `stores=${arrayText(["StoreLiveness(node=n:0, point=MirPoint(block=b:0, statement=null), edge=null, observed=false)"])}`);
     const field = `memory-field(key=${keyText("layout")}, root=field:0, layouts=[], fields=[])`;
     const layout = `memory-layout(key=${keyText("layout")}, root=layout:0, layouts=[], fields=[])`;
     const raw = emptyFactsText.replace("rawLocations=[]", `rawLocations=${arrayText([
@@ -3519,7 +3530,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const transported = [
       value => { const input = emptyFacts(); input.initialization.reads = [{ node: ids.nodeId(value), place: 0, assigned: false }]; return input; },
       value => { const input = emptyFacts(); input.initialization.reads = [{ node: 0, place: ids.placeId(value), assigned: false }]; return input; },
-      value => { const input = emptyFacts(); input.liveness.stores = [{ node: 0, point: { block: ids.blockId(value), statement: null }, observed: false }]; return input; },
+      value => { const input = emptyFacts(); input.liveness.stores = [{ node: 0, point: { block: ids.blockId(value), statement: null }, edge: null, observed: false }]; return input; },
       ...[["id", ids.boundProducerId], ["producer", ids.producerId], ["context", ids.valueContextId]].map(([field, construct]) => value => {
         const input = emptyFacts(); input.arena.boundProducers = [{ id: 0, producer: 0, bindings: emptyBindings(), context: 0, [field]: construct(value) }]; return input;
       }),
@@ -4231,11 +4242,11 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
         mkdirSync(dirname(path), { recursive: true }); copyFileSync(entry.declaration, path);
       }
       const prefix = [
-        'import { printFacts, parseFacts, verifyFacts, printSummary, parseSummary, verifySummary, printMetadata, parseMetadata, verifyMetadata, printCallGraph, parseCallGraph, verifyCallGraph } from "./packages/host/src/ir-facts/index.js";',
+        'import { printFacts, parseFacts, verifyFacts, verifyLiveness, printSummary, parseSummary, verifySummary, printMetadata, parseMetadata, verifyMetadata, printCallGraph, parseCallGraph, verifyCallGraph } from "./packages/host/src/ir-facts/index.js";',
         'import type { BodyFacts, Summary, MetadataRecord, CallGraph, FactsVerificationContext } from "./packages/host/src/ir-facts/contract.js";',
         'import type { MirBody } from "./packages/host/src/ir-mir/contract.js";',
         "declare const facts: BodyFacts; declare const summary: Summary; declare const metadata: MetadataRecord; declare const graph: CallGraph; declare const context: FactsVerificationContext; declare const mir: MirBody;",
-        'const values = [printFacts(facts), parseFacts(""), verifyFacts(facts, mir, context), printSummary(summary), parseSummary(""), verifySummary(summary, context), printMetadata(metadata), parseMetadata(""), verifyMetadata(metadata, context), printCallGraph(graph), parseCallGraph(""), verifyCallGraph(graph, context)]; void values;',
+        'const values = [printFacts(facts), parseFacts(""), verifyFacts(facts, mir, context), verifyLiveness(facts.liveness, facts.instance, mir, context), printSummary(summary), parseSummary(""), verifySummary(summary, context), printMetadata(metadata), parseMetadata(""), verifyMetadata(metadata, context), printCallGraph(graph), parseCallGraph(""), verifyCallGraph(graph, context)]; void values;',
       ].join("\n");
       const cases = [["all-ports", "", []], ["sparse-diagnostics", [
         'import type { Diagnostic } from "./packages/host/src/diag/contract.js";',
@@ -4297,6 +4308,50 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       }
       writeFileSync(resolve(evidence, "strict-consumers.json"), JSON.stringify(results, null, 2));
     } finally { if (stage !== undefined) deps.discard(stage); }
+  });
+
+  await suite.test("standalone Liveness accepts only actual position-qualified terminator edge roles", () => {
+    const input = emptyFacts();
+    const supplied = setup(input, []);
+    const origin = supplied.mir.blocks[0].origin;
+    const tir = nodeRef(0);
+    const operand = { kind: "place", place: 0 };
+    const handler = { kind: "handler", exception: 0, target: 0 };
+    const returnEdge = { destination: 0, target: 0 };
+    const operation = { decision: { kind: "selected", operation: { kind: "discard" }, operands: [], result: 1,
+      execution: { kind: "pure" } }, permissionScope: null };
+    for (const [terminator, allowed] of [
+      [{ kind: "check", place: 0, next: 0, unwind: handler }, ["continue", "unwind"]],
+      [{ kind: "call", callee: { kind: "body", instance: input.instance, captures: [] }, receiver: null, arguments: [],
+        destination: 0, next: 0, unwind: handler, step: null }, ["continue", "unwind"]],
+      [{ kind: "invoke", operation, operands: [], destination: 0, next: 0, unwind: { kind: "none" }, step: null }, ["continue"]],
+      [{ kind: "await", operand, destination: 0, resume: 0, unwind: handler, step: null }, ["resume", "unwind"]],
+      [{ kind: "yield", operand, destination: 0, resume: 0, return: returnEdge, unwind: handler, step: null }, ["resume", "return", "unwind"]],
+      [{ kind: "delegate", iterator: operand, destination: 0, resume: 0, return: returnEdge, unwind: handler, step: null }, ["resume", "return", "unwind"]],
+      [{ kind: "throw", operand, unwind: handler }, ["unwind"]],
+      [{ kind: "throw", operand, unwind: { kind: "escape" } }, []],
+      [{ kind: "goto", target: 0 }, []],
+      [{ kind: "switch", operand, targets: [], otherwise: 0, step: null }, []],
+      [{ kind: "return", value: null }, []],
+      [{ kind: "unreachable" }, []],
+    ]) {
+      const lowered = { ...supplied.mir, blocks: [{ ...supplied.mir.blocks[0], terminator: { origin, tir, ...terminator } }] };
+      for (const edge of [null, "continue", "resume", "return", "unwind"]) {
+        const family = { ...input.liveness, stores: [{ node: 0, point: { block: 0, statement: null }, edge, observed: false }] };
+        const findings = product.verifyLiveness(family, input.instance, lowered, supplied.context);
+        equal(findings, edge === null || allowed.includes(edge) ? [] : [
+          violation("mir-point-resolves", { kind: "node", at: nodeRef(0) },
+            "A store edge names a role of the terminator at its point: continue, resume, return or a handler unwind."),
+        ], `${terminator.kind}/${edge} actual edge`);
+      }
+    }
+    const family = { ...input.liveness, stores: [{ node: 0, point: { block: 0, statement: 0 }, edge: "continue", observed: false }] };
+    const withStatement = { ...supplied.mir, blocks: [{ ...supplied.mir.blocks[0],
+      statements: [{ origin, tir, kind: "storage-live", local: 0 }] }] };
+    equal(product.verifyLiveness(family, input.instance, withStatement, supplied.context), [
+      violation("mir-point-resolves", { kind: "node", at: nodeRef(0) },
+        "A store edge names a role of the terminator at its point: continue, resume, return or a handler unwind."),
+    ], "a statement cannot borrow a terminator edge");
   });
 
   await suite.test("all eight actual emitted product files have nonempty source-identified 100 percent coverage", async () => {

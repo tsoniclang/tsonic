@@ -24,7 +24,7 @@ function constantValue(scan: ProjectionInventory, value: MirConstantValue): Inst
     case "observation": return inventoryFields(scan, 1);
     case "definition":
     case "metadata": return inventoryRecord(scan, 3) ?? inventoryArtifactBindings(scan, value.bindings);
-    case "constant": return inventoryRecord(scan, 2) ?? inventoryRecord(scan, 1) ?? inventoryInstance(scan, value.reference.initializer);
+    case "constant": return inventoryRecord(scan, 2) ?? inventoryRecord(scan, 2) ?? inventoryInstance(scan, value.reference.initializer);
   }
 }
 

@@ -282,7 +282,7 @@ const mirPoint = (writer: Writer, value: MirPoint): void => record(writer, "MirP
 ]);
 const storeLiveness = (writer: Writer, value: StoreLiveness): void => record(writer, "StoreLiveness", [
   ["node", () => identity(writer, "n", value.node)], ["point", () => mirPoint(writer, value.point)],
-  ["observed", () => scalar(writer, value.observed)],
+  ["edge", () => scalar(writer, value.edge)], ["observed", () => scalar(writer, value.observed)],
 ]);
 const liveSegment = (writer: Writer, value: LiveSegment): void => record(writer, "LiveSegment", [
   ["block", () => identity(writer, "b", value.block)], ["first", () => scalar(writer, value.first)],
@@ -292,7 +292,7 @@ const localLiveRange = (writer: Writer, value: LocalLiveRange): void => record(w
   ["local", () => identity(writer, "l", value.local)], ["segments", () => sequence(writer, value.segments, item => liveSegment(writer, item))],
 ]);
 const bindingStorage = (writer: Writer, value: BindingStorageFact): void => record(writer, "BindingStorageFact", [
-  ["local", () => identity(writer, "l", value.local)], ["scope", () => scalar(writer, value.scope)],
+  ["local", () => identity(writer, "l", value.local)], ["addressTaken", () => scalar(writer, value.addressTaken)],
   ["captured", () => scalar(writer, value.captured)],
 ]);
 const captureFact = (writer: Writer, value: CaptureFact): void => record(writer, "CaptureFact", [

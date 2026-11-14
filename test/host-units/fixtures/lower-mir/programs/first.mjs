@@ -6,6 +6,8 @@
 import { PURE, T, builders, declareType, invoking, native, signature, typedBody, typedOperation } from "../typed.mjs";
 
 declareType("float64", { kind: "primitive", primitive: "float64" });
+declareType("literalInt64", { kind: "primitive", primitive: "int64" });
+declareType("literalBigint", { kind: "intrinsic", intrinsic: "bigint" });
 
 const SIGNATURES = new Map();
 /** One signature per program name (`signature` refuses a second declaration of a name); a name stands for one shape. */

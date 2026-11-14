@@ -9,13 +9,14 @@ import { isDeepStrictEqual } from "node:util";
 import { after, before, test } from "node:test";
 import { checkCoverage } from "../architecture/host/coverage.mjs";
 import { hostCatalogue } from "../architecture/host/catalogue.mjs";
-import { parseSources } from "../architecture/host/import-graph.mjs";
+import { parseSources, readImportGraph } from "../architecture/host/import-graph.mjs";
+import { sourceFindings } from "../architecture/host/source-rules.mjs";
 import { compileIsolated, isolationDeps } from "../architecture/host/isolation.mjs";
 import { runCase } from "../host-cases/case.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const tooling = process.env.TSONIC_HOST_TOOLING_ROOT ?? repository;
-const runtimeNames = ["index", "solve", "graph", "ordering", "dominators", "loops", "components"];
+const runtimeNames = ["index", "account", "solve", "graph", "ordering", "dominators", "loops", "components"];
 const sourceFiles = ["contract", ...runtimeNames].map(name => `packages/host/src/dataflow/${name}.ts`);
 const runtimeFiles = runtimeNames.map(name => resolve(repository, `packages/host/dist/dataflow/${name}.js`));
 const caseDirectory = "test/host-cases/dataflow/function";
@@ -61,11 +62,11 @@ before(async () => {
 
 function evaluate(input) {
   switch (input.operation) {
-    case "predecessors": return product.predecessors(input.graph, input.limits);
-    case "orderGraph": return product.orderGraph(input.graph, input.roots, input.limits);
-    case "dominators": return product.dominators(input.graph, input.entry, input.limits);
-    case "naturalLoops": return product.naturalLoops(input.graph, input.entry, input.limits);
-    case "stronglyConnectedComponents": return product.stronglyConnectedComponents(input.graph, input.limits);
+    case "predecessors": return product.predecessors(input.graph, product.createAccount(input.limits));
+    case "orderGraph": return product.orderGraph(input.graph, input.roots, product.createAccount(input.limits));
+    case "dominators": return product.dominators(input.graph, input.entry, product.createAccount(input.limits));
+    case "naturalLoops": return product.naturalLoops(input.graph, input.entry, product.createAccount(input.limits));
+    case "stronglyConnectedComponents": return product.stronglyConnectedComponents(input.graph, product.createAccount(input.limits));
   }
   throw new Error(`Unrecognised authored operation ${input.operation}`);
 }
@@ -101,7 +102,7 @@ function fixtureBody(terminators, statementRows) {
     bindings: { kind: "parametric" },
     // One entry at block 0 for a body with blocks; the fixture has no parameters.
     entries: terminators.length === 0 ? [] : [{ provided: 0, block: identities.blockId(0) }],
-    locals: [{ id: identities.localId(0), storage: identities.tyId(0), role: { kind: "user" }, source: null, origin: site().origin }],
+    locals: [{ id: identities.localId(0), storage: identities.tyId(0), role: { kind: "user" }, mode: "local", source: null, origin: site().origin }],
     constants: [
       { id: identities.constId(0), type: identities.tyId(0), value: { kind: "literal", value: { kind: "absence" } } },
       { id: identities.constId(1), type: identities.tyId(0), value: { kind: "literal", value: { kind: "boolean", value: true } } },
@@ -181,87 +182,87 @@ test("graphOfMir covers every terminator and every failure arm in declared order
     { kind: "invoke", ...invoke, unwind: { kind: "none" } },
   ];
   const body = parsedBody(terminators, terminators.map(() => []));
-  assert.deepEqual(product.graphOfMir(body), {
-
-    successors: [[1], [2, 3, 4], [4], [1], [1, 2], [1], [1, 2], [1], [1, 2], [1, 3], [1, 3, 2],
+  assert.deepEqual(product.graphOfMir(body, product.createAccount(limits)), {
+    kind: "complete", value: { successors: [[1], [2, 3, 4], [4], [1], [1, 2], [1], [1, 2], [1], [1, 2], [1, 3], [1, 3, 2],
       [1, 3], [1, 3, 2], [], [2], [], [], [1], [1, 2], [1], [1], [1]],
+    },
   });
 });
 
 test("all graph ports preserve their complete empty results at zero budgets", () => {
   const graph = { successors: [] };
   const zero = { maximumWork: 0, maximumResultEntries: 0 };
-  complete(product.predecessors(graph, zero), { kind: "complete", value: [] }, "empty predecessors");
-  complete(product.orderGraph(graph, [], zero), { kind: "complete", value: { preorder: [], postorder: [], reachable: [] } },
+  complete(product.predecessors(graph, product.createAccount(zero)), { kind: "complete", value: [] }, "empty predecessors");
+  complete(product.orderGraph(graph, [], product.createAccount(zero)), { kind: "complete", value: { preorder: [], postorder: [], reachable: [] } },
     "empty ordering");
-  complete(product.dominators(graph, 0, zero), { kind: "complete", value: { immediate: [], reachable: [] } },
+  complete(product.dominators(graph, 0, product.createAccount(zero)), { kind: "complete", value: { immediate: [], reachable: [] } },
     "C2942 empty dominators has no invented entry");
-  complete(product.naturalLoops(graph, 0, zero), { kind: "complete", value: [] }, "C2942 empty loops");
-  complete(product.stronglyConnectedComponents(graph, zero),
+  complete(product.naturalLoops(graph, 0, product.createAccount(zero)), { kind: "complete", value: [] }, "C2942 empty loops");
+  complete(product.stronglyConnectedComponents(graph, product.createAccount(zero)),
     { kind: "complete", value: { components: [], componentOf: [] } }, "empty components");
-  complete(product.graphOfMir(parsedBody([], [])), { successors: [] }, "empty typed MIR edge projection");
+  complete(product.graphOfMir(parsedBody([], []), product.createAccount(limits)), { kind: "complete", value: { successors: [] } }, "empty typed MIR edge projection");
 });
 
 test("ordering preserves authored roots and successors rather than sorting the DFS", () => {
   const graph = { successors: [[1, 2], [3], [3], [], []] };
-  complete(product.orderGraph(graph, [0], limits), { kind: "complete", value: {
+  complete(product.orderGraph(graph, [0], product.createAccount(limits)), { kind: "complete", value: {
     preorder: [0, 1, 3, 2], postorder: [3, 1, 2, 0], reachable: [true, true, true, true, false],
   } }, "authored diamond traversal");
-  complete(product.orderGraph({ ...graph, successors: [[2, 1], [3], [3], [], []] }, [0], limits),
+  complete(product.orderGraph({ ...graph, successors: [[2, 1], [3], [3], [], []] }, [0], product.createAccount(limits)),
     { kind: "complete", value: { preorder: [0, 2, 3, 1], postorder: [3, 2, 1, 0], reachable: [true, true, true, true, false] } },
     "the second authored successor order");
-  complete(product.orderGraph(graph, [4, 0, 4], limits), { kind: "complete", value: {
+  complete(product.orderGraph(graph, [4, 0, 4], product.createAccount(limits)), { kind: "complete", value: {
     preorder: [4, 0, 1, 3, 2], postorder: [4, 3, 1, 2, 0], reachable: [true, true, true, true, true],
   } }, "isolated root and repeated root");
-  complete(product.orderGraph(graph, [], limits), { kind: "complete", value: {
+  complete(product.orderGraph(graph, [], product.createAccount(limits)), { kind: "complete", value: {
     preorder: [], postorder: [], reachable: [false, false, false, false, false],
   } }, "no roots does not fabricate reachability");
 });
 
 test("vertex identity is exactly its dense adjacency position", () => {
   const graph = { successors: [[1], [2], [0], [4], [1]] };
-  complete(product.predecessors(graph, limits), { kind: "complete", value: [[2], [0, 4], [1], [], [3]] },
+  complete(product.predecessors(graph, product.createAccount(limits)), { kind: "complete", value: [[2], [0, 4], [1], [], [3]] },
     "numeric index predecessors retain every distinct position");
-  complete(product.stronglyConnectedComponents(graph, limits),
+  complete(product.stronglyConnectedComponents(graph, product.createAccount(limits)),
     { kind: "complete", value: { components: [[0, 1, 2], [3], [4]], componentOf: [0, 0, 0, 1, 2] } },
     "distinct adjacency positions never collapse vertices");
-  complete(product.dominators(graph, 0, limits), { kind: "complete", value: {
+  complete(product.dominators(graph, 0, product.createAccount(limits)), { kind: "complete", value: {
     immediate: [null, 0, 1, null, null], reachable: [true, true, true, false, false],
   } }, "unreachable incoming predecessors cannot change dominance");
-  complete(product.naturalLoops(graph, 0, limits),
+  complete(product.naturalLoops(graph, 0, product.createAccount(limits)),
     { kind: "complete", value: [{ header: 0, backEdges: [2], members: [0, 1, 2] }] },
     "unreachable predecessors never join a natural loop");
-  complete(product.stronglyConnectedComponents({ successors: [[3], [2], [1], [2]] }, limits),
+  complete(product.stronglyConnectedComponents({ successors: [[3], [2], [1], [2]] }, product.createAccount(limits)),
     { kind: "complete", value: { components: [[0], [1, 2], [3]], componentOf: [0, 1, 1, 2] } },
     "the second-pass SCC root2 is not its minimum1; result order ignores discovery order");
 });
 
 test("semidominator compression and final idom correction retain complete dominance", () => {
   const graph = { successors: [[1, 2], [2, 4], [3], [], [3], [3]] };
-  complete(product.dominators(graph, 0, limits), { kind: "complete", value: {
+  complete(product.dominators(graph, 0, product.createAccount(limits)), { kind: "complete", value: {
     immediate: [null, 0, 0, 0, 1, null], reachable: [true, true, true, true, true, false],
   } }, "node3 semi1 is not its immediate dominator0; node5 is unreachable");
-  complete(product.dominators({ successors: [[], [2], []] }, 1, limits),
+  complete(product.dominators({ successors: [[], [2], []] }, 1, product.createAccount(limits)),
     { kind: "complete", value: { immediate: [null, null, 1], reachable: [false, true, true] } },
     "a nonzero actual entry has null idom and does not activate node0");
 });
 
 test("nested natural loops and irreducible components keep distinct complete meanings", () => {
   const graph = { successors: [[1], [2, 5], [3, 4], [2], [1], []] };
-  complete(product.naturalLoops(graph, 0, limits), { kind: "complete", value: [
+  complete(product.naturalLoops(graph, 0, product.createAccount(limits)), { kind: "complete", value: [
     { header: 1, backEdges: [4], members: [1, 2, 3, 4] },
     { header: 2, backEdges: [3], members: [2, 3] },
   ] }, "header order is canonical even when header2 is discovered first");
   const irreducible = { successors: [[1, 2], [3], [3], [1, 2]] };
-  complete(product.naturalLoops(irreducible, 0, limits), { kind: "complete", value: [] },
+  complete(product.naturalLoops(irreducible, 0, product.createAccount(limits)), { kind: "complete", value: [] },
     "an irreducible SCC is not fabricated into a natural loop");
-  complete(product.stronglyConnectedComponents(irreducible, limits),
+  complete(product.stronglyConnectedComponents(irreducible, product.createAccount(limits)),
     { kind: "complete", value: { components: [[0], [1, 2, 3]], componentOf: [0, 1, 1, 1] } },
     "the same irreducible component still belongs to the SCC partition");
-  complete(product.naturalLoops({ successors: [[0, 0]] }, 0, limits),
+  complete(product.naturalLoops({ successors: [[0, 0]] }, 0, product.createAccount(limits)),
     { kind: "complete", value: [{ header: 0, backEdges: [0], members: [0] }] },
     "duplicate self-edges do not duplicate backedges or membership");
-  complete(product.naturalLoops({ successors: [[1], [2], [3, 4], [1], [1]] }, 0, limits),
+  complete(product.naturalLoops({ successors: [[1], [2], [3, 4], [1], [1]] }, 0, product.createAccount(limits)),
     { kind: "complete", value: [{ header: 1, backEdges: [3, 4], members: [1, 2, 3, 4] }] },
     "overlapping reverse membership shares one header union without losing a second backedge");
 });
@@ -271,15 +272,15 @@ test("every graph work/result-entry limit admits its hand-derived boundary and r
   const correction = { successors: [[1, 2], [2, 4], [3], [], [3]] };
   const loop = { successors: [[1], [2, 3, 4], [1], [1], []] };
   const cases = [
-    { name: "predecessors", work: 8, entries: 5, run: budget => product.predecessors(chain, budget),
+    { name: "predecessors", work: 13, entries: 5, run: budget => product.predecessors(chain, product.createAccount(budget)),
       expected: [[], [0], [1]] },
-    { name: "ordering", work: 14, entries: 9, run: budget => product.orderGraph(chain, [0], budget),
+    { name: "ordering", work: 23, entries: 9, run: budget => product.orderGraph(chain, [0], product.createAccount(budget)),
       expected: { preorder: [0, 1, 2], postorder: [2, 1, 0], reachable: [true, true, true] } },
-    { name: "components", work: 24, entries: 9, run: budget => product.stronglyConnectedComponents(chain, budget),
+    { name: "components", work: 45, entries: 9, run: budget => product.stronglyConnectedComponents(chain, product.createAccount(budget)),
       expected: { components: [[0], [1], [2]], componentOf: [0, 1, 2] } },
-    { name: "dominators", work: 65, entries: 10, run: budget => product.dominators(correction, 0, budget),
+    { name: "dominators", work: 75, entries: 10, run: budget => product.dominators(correction, 0, product.createAccount(budget)),
       expected: { immediate: [null, 0, 0, 0, 1], reachable: [true, true, true, true, true] } },
-    { name: "loops", work: 102, entries: 6, run: budget => product.naturalLoops(loop, 0, budget),
+    { name: "loops", work: 123, entries: 6, run: budget => product.naturalLoops(loop, 0, product.createAccount(budget)),
       expected: [{ header: 1, backEdges: [2, 3], members: [1, 2, 3] }] },
   ];
   // Chain: build8; DFS6; SCC extra16; correction graph: build16+DFS12+init5+LT28+final4=65.
@@ -303,18 +304,18 @@ test("every graph work/result-entry limit admits its hand-derived boundary and r
 
 test("zero-work isolated and repeated-edge families obey the same literal accounting", () => {
   const isolated = { successors: [[]] };
-  complete(product.predecessors(isolated, { maximumWork: 2, maximumResultEntries: 1 }),
+  complete(product.predecessors(isolated, product.createAccount({ maximumWork: 3, maximumResultEntries: 1 })),
     { kind: "complete", value: [[]] }, "isolated predecessor row build2/entry1");
-  complete(product.orderGraph(isolated, [0], { maximumWork: 4, maximumResultEntries: 3 }),
+  complete(product.orderGraph(isolated, [0], product.createAccount({ maximumWork: 7, maximumResultEntries: 3 })),
     { kind: "complete", value: { preorder: [0], postorder: [0], reachable: [true] } }, "isolated ordering4/3");
-  complete(product.dominators(isolated, 0, { maximumWork: 5, maximumResultEntries: 2 }),
+  complete(product.dominators(isolated, 0, product.createAccount({ maximumWork: 7, maximumResultEntries: 2 })),
     { kind: "complete", value: { immediate: [null], reachable: [true] } }, "isolated dominance5/2");
-  complete(product.naturalLoops(isolated, 0, { maximumWork: 10, maximumResultEntries: 0 }),
+  complete(product.naturalLoops(isolated, 0, product.createAccount({ maximumWork: 10, maximumResultEntries: 0 })),
     { kind: "complete", value: [] }, "a loop-free result has zero published entries");
-  complete(product.stronglyConnectedComponents(isolated, { maximumWork: 6, maximumResultEntries: 3 }),
+  complete(product.stronglyConnectedComponents(isolated, product.createAccount({ maximumWork: 11, maximumResultEntries: 3 })),
     { kind: "complete", value: { components: [[0]], componentOf: [0] } }, "isolated SCC6/3");
   const repeated = { successors: [[1, 1], [0]] };
-  complete(product.stronglyConnectedComponents(repeated, { maximumWork: 20, maximumResultEntries: 5 }),
+  complete(product.stronglyConnectedComponents(repeated, product.createAccount({ maximumWork: 29, maximumResultEntries: 5 })),
     { kind: "complete", value: { components: [[0, 1]], componentOf: [0, 0] } },
     "6V+2E+Ep=12+6+2=20, duplicate edges remain charged");
 });
@@ -322,11 +323,11 @@ test("zero-work isolated and repeated-edge families obey the same literal accoun
 test("standalone graph density/range and actual invalid maxima are caller defects, not refusals", () => {
   const valid = { successors: [[]] };
   const ports = [
-    budget => product.predecessors(valid, budget),
-    budget => product.orderGraph(valid, [0], budget),
-    budget => product.dominators(valid, 0, budget),
-    budget => product.naturalLoops(valid, 0, budget),
-    budget => product.stronglyConnectedComponents(valid, budget),
+    budget => product.predecessors(valid, product.createAccount(budget)),
+    budget => product.orderGraph(valid, [0], product.createAccount(budget)),
+    budget => product.dominators(valid, 0, product.createAccount(budget)),
+    budget => product.naturalLoops(valid, 0, product.createAccount(budget)),
+    budget => product.stronglyConnectedComponents(valid, product.createAccount(budget)),
   ];
   for (const port of ports) for (const field of ["maximumWork", "maximumResultEntries"]) {
     for (const maximum of [-1, 0.5, NaN, Infinity, -Infinity, Number.MAX_SAFE_INTEGER + 1]) {
@@ -335,18 +336,18 @@ test("standalone graph density/range and actual invalid maxima are caller defect
     }
   }
   for (const row of [undefined, null]) {
-    assert.throws(() => product.predecessors({ successors: [row] }, limits),
+    assert.throws(() => product.predecessors({ successors: [row] }, product.createAccount(limits)),
       { name: "TypeError", message: "vertex 0 is missing" });
   }
-  assert.throws(() => product.predecessors({ successors: new Array(1) }, limits),
+  assert.throws(() => product.predecessors({ successors: new Array(1) }, product.createAccount(limits)),
     { name: "TypeError", message: "vertex 0 is missing" });
   for (const target of [-1, 0.5, NaN, Infinity, 1]) {
-    assert.throws(() => product.predecessors({ successors: [[target]] }, limits),
+    assert.throws(() => product.predecessors({ successors: [[target]] }, product.createAccount(limits)),
       { name: "TypeError", message: `edge target ${target} is missing` });
-    assert.throws(() => product.orderGraph(valid, [target], limits),
+    assert.throws(() => product.orderGraph(valid, [target], product.createAccount(limits)),
       { name: "TypeError", message: `root ${target} is missing` });
   }
-  assert.throws(() => product.predecessors({ successors: [new Array(1)] }, limits),
+  assert.throws(() => product.predecessors({ successors: [new Array(1)] }, product.createAccount(limits)),
     { name: "TypeError", message: "edge target undefined is missing" });
 });
 
@@ -355,16 +356,16 @@ test("a hundred-thousand-vertex chain stays iterative with complete exact graph 
   const vertices = Array.from({ length: depth }, (unusedValue, index) => index);
   const graph = { successors: vertices.map(index => index + 1 < depth ? [index + 1] : []) };
   const budget = { maximumWork: 8_000_000, maximumResultEntries: depth * 3 };
-  complete(product.predecessors(graph, budget),
+  complete(product.predecessors(graph, product.createAccount(budget)),
     { kind: "complete", value: vertices.map(index => index === 0 ? [] : [index - 1]) }, "complete deep predecessor rows");
-  complete(product.orderGraph(graph, [0], budget), { kind: "complete", value: {
+  complete(product.orderGraph(graph, [0], product.createAccount(budget)), { kind: "complete", value: {
     preorder: vertices, postorder: [...vertices].reverse(), reachable: vertices.map(() => true),
   } }, "complete deep traversal");
-  complete(product.dominators(graph, 0, budget), { kind: "complete", value: {
+  complete(product.dominators(graph, 0, product.createAccount(budget)), { kind: "complete", value: {
     immediate: vertices.map(index => index === 0 ? null : index - 1), reachable: vertices.map(() => true),
   } }, "complete deep dominator tree");
-  complete(product.naturalLoops(graph, 0, budget), { kind: "complete", value: [] }, "no invented deep loop");
-  complete(product.stronglyConnectedComponents(graph, budget),
+  complete(product.naturalLoops(graph, 0, product.createAccount(budget)), { kind: "complete", value: [] }, "no invented deep loop");
+  complete(product.stronglyConnectedComponents(graph, product.createAccount(budget)),
     { kind: "complete", value: { components: vertices.map(index => [index]), componentOf: vertices } },
     "complete deep SCC partition");
 });
@@ -446,27 +447,27 @@ test("solve starts at the block of the selected entry and nowhere else", () => {
     terminator: (terminator, state) => terminator.kind === "goto" ? [{ target: terminator.target, state }] : [] };
   // Supplied count 1: the boundary applies at block 0. The prologue of the other entry is not part of this execution:
   // block 1 is unreached and its statement does not change these facts.
-  complete(product.solve(body, 1, problem, limits), { kind: "complete", value: {
+  complete(product.solve(body, 1, problem, product.createAccount(limits)), { kind: "complete", value: {
     entry: [1, 0, 0, 1], exit: [1, 0, 0, 1], reachable: [true, false, false, true] } }, "supplied count 1");
   // Supplied count 0: its block is not reachable from block 0. The boundary applies at block 1 and not again at
   // block 0, which this execution enters with the prologue's state.
-  complete(product.solve(body, 0, problem, limits), { kind: "complete", value: {
+  complete(product.solve(body, 0, problem, product.createAccount(limits)), { kind: "complete", value: {
     entry: [2, 1, 0, 2], exit: [2, 2, 0, 2], reachable: [true, true, false, true] } }, "supplied count 0");
   // The same body with its entries listed in the other order gives the same two results: the count names the entry.
   const reordered = { ...body, entries: [...body.entries].reverse() };
-  complete(product.solve(reordered, 1, problem, limits), product.solve(body, 1, problem, limits), "count 1, reordered");
-  complete(product.solve(reordered, 0, problem, limits), product.solve(body, 0, problem, limits), "count 0, reordered");
+  complete(product.solve(reordered, 1, problem, product.createAccount(limits)), product.solve(body, 1, problem, product.createAccount(limits)), "count 1, reordered");
+  complete(product.solve(reordered, 0, problem, product.createAccount(limits)), product.solve(body, 0, problem, product.createAccount(limits)), "count 0, reordered");
   // A backward problem is bounded by the same execution: only blocks reached from the selected entry take part.
-  const backward = product.solve(body, 0, scalarProblem("backward"), limits);
+  const backward = product.solve(body, 0, scalarProblem("backward"), product.createAccount(limits));
   assert.equal(backward.kind, "complete");
   assert.deepEqual(backward.value.reachable, [true, true, false, true]);
-  assert.deepEqual(product.solve(body, 1, scalarProblem("backward"), limits).value.reachable, [true, false, false, true]);
+  assert.deepEqual(product.solve(body, 1, scalarProblem("backward"), product.createAccount(limits)).value.reachable, [true, false, false, true]);
 });
 
 test("a supplied count the body does not offer is an invariant failure, never block 0", () => {
   const body = twoEntryBody();
   for (const provided of [2, -1, 0.5, Number.NaN])
-    assert.throws(() => product.solve(body, provided, scalarProblem("forward"), limits),
+    assert.throws(() => product.solve(body, provided, scalarProblem("forward"), product.createAccount(limits)),
       error => error instanceof Error && error.message.includes("the body offers no entry for the supplied count"), String(provided));
 });
 
@@ -487,7 +488,7 @@ test("solve retains complete forward per-edge unions, statement order and unreac
       return statementTransfer(statement, state);
     },
     terminator: unionForwardTerminator(lattice) };
-  complete(product.solve(body, 0, problem, limits), { kind: "complete", value: {
+  complete(product.solve(body, 0, problem, product.createAccount(limits)), { kind: "complete", value: {
     entry: [[7], [1, 7], [2, 7], [1, 2, 3, 7], []],
     exit: [[7], [1, 7], [2, 3, 7], [1, 2, 3, 7], []], reachable: [true, true, true, true, false],
   } }, "forward entry/exit are block boundaries, not the terminator's separate edge contributions");
@@ -507,14 +508,14 @@ test("backward liveness passes exit boundary explicitly and reverses statements 
       observed.push({ kind: terminator.kind, successors, boundaryState });
       return terminatorTransfer(terminator, successors, boundaryState);
     } };
-  complete(product.solve(body, 0, problem, limits), { kind: "complete", value: {
+  complete(product.solve(body, 0, problem, product.createAccount(limits)), { kind: "complete", value: {
     entry: [[1, 7], [7], []], exit: [[7], [7], []], reachable: [true, true, false],
   } }, "backward reverse live/dead order generates1 and never activates unreachable exit2");
   complete(observed, [{ kind: "return", successors: [], boundaryState: [7] },
     { kind: "goto", successors: [{ target: identities.blockId(1), state: [7] }], boundaryState: null }],
   "no fake boundary edge or callback for unreachable return");
   const kill = { ...problem, statement: (unusedStatement, state) => state, terminator: () => [] };
-  complete(product.solve(chainBody(1), 0, kill, limits), { kind: "complete", value: {
+  complete(product.solve(chainBody(1), 0, kill, product.createAccount(limits)), { kind: "complete", value: {
     entry: [[]], exit: [[7]], reachable: [true],
   } }, "C2945 constant-bottom terminator kills entry while the actual exit retains boundary7");
 });
@@ -528,7 +529,7 @@ test("all three actual statement arms pass through unchanged in forward or rever
     const statements = [];
     complete(product.solve(body, 0, { ...scalarProblem(direction), statement: (statement, state) => {
       statements.push(statement); return state;
-    } }, limits), { kind: "complete", value: { entry: [1], exit: [1], reachable: [true] } },
+    } }, product.createAccount(limits)), { kind: "complete", value: { entry: [1], exit: [1], reachable: [true] } },
     `${direction} preserves actual complete block-boundary states`);
     complete(statements, direction === "forward" ? body.blocks[0].statements : [...body.blocks[0].statements].reverse(),
       `${direction} forwards every complete original statement payload rather than translating its arm`);
@@ -545,7 +546,7 @@ test("backward preserves original duplicate successor slots and seeds each reach
     observed.push({ kind: terminator.kind, successors, boundaryState });
     return scalar.terminator(terminator, successors, boundaryState);
   } };
-  complete(product.solve(body, 0, problem, limits), { kind: "complete", value: {
+  complete(product.solve(body, 0, problem, product.createAccount(limits)), { kind: "complete", value: {
     entry: [1, 1, 0], exit: [1, 1, 0], reachable: [true, true, false],
   } }, "duplicate CFG edges remain actual callback inputs while unreachable exit2 stays bottom");
   complete(observed, [{ kind: "return", successors: [], boundaryState: 1 },
@@ -554,7 +555,7 @@ test("backward preserves original duplicate successor slots and seeds each reach
   const exits = parsedBody([{ kind: "switch", operand: { kind: "constant", constant: identities.constId(0) },
     targets: [{ constant: identities.constId(1), target: identities.blockId(1) }], otherwise: identities.blockId(2) },
   { kind: "return", value: null }, { kind: "return", value: null }], [[], [], []]);
-  complete(product.solve(exits, 0, scalarProblem("backward"), limits), { kind: "complete", value: {
+  complete(product.solve(exits, 0, scalarProblem("backward"), product.createAccount(limits)), { kind: "complete", value: {
     entry: [1, 1, 1], exit: [1, 1, 1], reachable: [true, true, true],
   } }, "both reachable exits receive the boundary; source block does not receive a fabricated seed");
 });
@@ -565,20 +566,20 @@ test("content equality stabilizes cycles, duplicate returned edges join, and mis
   let calls = 0;
   const problem = { direction: "forward", lattice, boundary: [1], statement: (unusedStatement, state) => state,
     terminator: (terminator, state) => { calls += 1; return [{ target: terminator.target, state: [...state] }]; } };
-  complete(product.solve(self, 0, problem, limits), { kind: "complete", value: {
+  complete(product.solve(self, 0, problem, product.createAccount(limits)), { kind: "complete", value: {
     entry: [[1]], exit: [[1]], reachable: [true],
   } }, "equal content in newly allocated states stabilizes");
   assert.equal(calls, 2, "one changed edge and one equal edge, not allocation-based requeue");
   const duplicate = { ...problem, terminator: terminator => [
     { target: terminator.target, state: [1] }, { target: terminator.target, state: [2] }] };
-  complete(product.solve(self, 0, duplicate, limits), { kind: "complete", value: {
+  complete(product.solve(self, 0, duplicate, product.createAccount(limits)), { kind: "complete", value: {
     entry: [[1, 2]], exit: [[1, 2]], reachable: [true],
   } }, "one declared edge joins all returned contributions rather than overwriting the first");
-  complete(product.solve(chainBody(2), 0, { ...scalarProblem("forward"), terminator: () => [] }, limits),
+  complete(product.solve(chainBody(2), 0, { ...scalarProblem("forward"), terminator: () => [] }, product.createAccount(limits)),
     { kind: "complete", value: { entry: [1, 0], exit: [1, 0], reachable: [true, true] } },
     "structural reachability does not invent an omitted edge contribution");
   const reverse = { ...scalarProblem("backward"), boundary: -1 };
-  complete(product.solve(self, 0, reverse, limits), { kind: "complete", value: {
+  complete(product.solve(self, 0, reverse, product.createAccount(limits)), { kind: "complete", value: {
     entry: [0], exit: [0], reachable: [true],
   } }, "an infinite reachable loop has no exit and never uses even an overflow boundary");
 });
@@ -587,20 +588,21 @@ test("solve exactly admits hand-derived work/result boundaries in both direction
   for (const direction of ["forward", "backward"]) for (const length of [1, 2, 3]) {
     const body = chainBody(length);
     const problem = scalarProblem(direction);
-    const work = direction === "forward" ? 14 * length - 5 : 11 * length - 3;
+    const heap = Array.from({ length }, (_, index) => Math.ceil(Math.log2(index + 1))).reduce((sum, count) => sum + count, 0);
+    const work = direction === "forward" ? 20 * length - 5 + 4 * heap : 17 * length - 1 + 4 * heap;
     const entries = length * 3;
     const expected = { kind: "complete", value: { entry: Array(length).fill(1), exit: Array(length).fill(1),
       reachable: Array(length).fill(true) } };
-    complete(product.solve(body, 0, problem, { maximumWork: work, maximumResultEntries: entries }), expected,
+    complete(product.solve(body, 0, problem, product.createAccount({ maximumWork: work, maximumResultEntries: entries })), expected,
       `${direction} chain${length} exact literal event accounting`);
-    complete(product.solve(body, 0, problem, { maximumWork: work + 1, maximumResultEntries: entries + 1 }), expected,
+    complete(product.solve(body, 0, problem, product.createAccount({ maximumWork: work + 1, maximumResultEntries: entries + 1 })), expected,
       `${direction} chain${length} one allowance above both requirements`);
     for (let maximumWork = 0; maximumWork < work; maximumWork += 1) {
-      complete(product.solve(body, 0, problem, { maximumWork, maximumResultEntries: entries }),
+      complete(product.solve(body, 0, problem, product.createAccount({ maximumWork, maximumResultEntries: entries })),
         { kind: "resource-limit", dimension: "work", maximum: maximumWork }, `${direction} work ${maximumWork}`);
     }
     for (let maximumResultEntries = 0; maximumResultEntries < entries; maximumResultEntries += 1) {
-      complete(product.solve(body, 0, problem, { maximumWork: work, maximumResultEntries }),
+      complete(product.solve(body, 0, problem, product.createAccount({ maximumWork: work, maximumResultEntries })),
         { kind: "resource-limit", dimension: "result-entries", maximum: maximumResultEntries },
         `${direction} result entries ${maximumResultEntries}`);
     }
@@ -634,23 +636,23 @@ test("every supplied overflow site produces the closed state refusal, never comp
       statement: (unusedStatement, state) => state,
       terminator: terminator => [{ target: terminator.target, state: [1] }, { target: terminator.target, state: [2] }] }],
   ];
-  for (const [name, body, problem] of cases) complete(product.solve(body, 0, problem, limits),
+  for (const [name, body, problem] of cases) complete(product.solve(body, 0, problem, product.createAccount(limits)),
     { kind: "resource-limit", dimension: "state", maximum: 1 }, name);
   for (const direction of ["forward", "backward"]) {
     const lattice = finiteLattice(0);
     const problem = { ...scalarProblem(direction), lattice, boundary: [],
       terminator: direction === "forward" ? () => [] : (unusedTerminator, unusedSuccessors, boundaryState) => boundaryState };
-    complete(product.solve(single, 0, problem, limits), { kind: "complete", value: {
+    complete(product.solve(single, 0, problem, product.createAccount(limits)), { kind: "complete", value: {
       entry: [[]], exit: [[]], reachable: [true],
     } }, `${direction} state cardinality exactly0`);
     complete(product.solve(single, 0, { ...problem, boundary: [7], lattice: {
-      ...lattice, isOverflow: state => state === null || state.length > 0 } }, limits),
+      ...lattice, isOverflow: state => state === null || state.length > 0 } }, product.createAccount(limits)),
     { kind: "resource-limit", dimension: "state", maximum: 0 }, `${direction} state cardinality past0`);
   }
   const one = finiteLattice(1);
   complete(product.solve(self, 0, { direction: "forward", lattice: one, boundary: [7],
     statement: (unusedStatement, state) => state,
-    terminator: (terminator, state) => [{ target: terminator.target, state: [...state] }] }, limits),
+    terminator: (terminator, state) => [{ target: terminator.target, state: [...state] }] }, product.createAccount(limits)),
   { kind: "complete", value: { entry: [[7]], exit: [[7]], reachable: [true] } }, "actual cardinality exactly1");
 });
 
@@ -662,7 +664,7 @@ test("generic undefined/null states are values, empty bodies invoke no callbacks
       join: (unusedLeft, right) => right, equals: Object.is, isOverflow: state => state === overflow },
     boundary: bottom, statement: (unusedStatement, state) => state,
     terminator: (terminator, state) => terminator.kind === "goto" ? [{ target: terminator.target, state }] : [] };
-    complete(product.solve(body, 0, problem, limits), { kind: "complete", value: {
+    complete(product.solve(body, 0, problem, product.createAccount(limits)), { kind: "complete", value: {
       entry: [bottom, bottom], exit: [bottom, bottom], reachable: [true, true],
     } }, "a stored undefined contribution is distinguished from an absent contribution");
   }
@@ -671,10 +673,10 @@ test("generic undefined/null states are values, empty bodies invoke no callbacks
     const problem = { direction, boundary: -1, statement: unexpected, terminator: unexpected,
       lattice: { bottom: -1, overflow: -1, stateBound: 0, join: unexpected, equals: unexpected, isOverflow: unexpected } };
     // A body without blocks has no entry: there is no execution to solve, and no block stands in for one.
-    assert.throws(() => product.solve(parsedBody([], []), 0, problem, { maximumWork: 0, maximumResultEntries: 0 }),
+    assert.throws(() => product.solve(parsedBody([], []), 0, problem, product.createAccount({ maximumWork: 0, maximumResultEntries: 0 })),
       error => error instanceof Error && error.message.includes("the body offers no entry for the supplied count"), `${direction} empty domain`);
     const failure = new Error(`${direction} caller callback failed`);
-    assert.throws(() => product.solve(chainBody(1), 0, { ...scalarProblem(direction), terminator: () => { throw failure; } }, limits),
+    assert.throws(() => product.solve(chainBody(1), 0, { ...scalarProblem(direction), terminator: () => { throw failure; } }, product.createAccount(limits)),
       error => error === failure);
   }
   for (const field of ["maximumWork", "maximumResultEntries", "stateBound"]) {
@@ -683,14 +685,14 @@ test("generic undefined/null states are values, empty bodies invoke no callbacks
       const budget = { ...limits };
       if (field === "stateBound") problem.lattice.stateBound = value;
       else budget[field] = value;
-      assert.throws(() => product.solve(body, 0, problem, budget),
+      assert.throws(() => product.solve(body, 0, problem, product.createAccount(budget)),
         { name: "TypeError", message: `${field} must be a nonnegative safe integer` });
     }
   }
   assert.throws(() => product.solve(body, 0, { ...scalarProblem("forward"),
-    terminator: () => [{ target: identities.blockId(0), state: 1 }] }, limits),
+    terminator: () => [{ target: identities.blockId(0), state: 1 }] }, product.createAccount(limits)),
   { name: "TypeError", message: "forward terminator target 0 is not an outgoing edge" });
-  assert.throws(() => product.solve(body, 0, { ...scalarProblem("forward"), terminator: () => new Array(1) }, limits),
+  assert.throws(() => product.solve(body, 0, { ...scalarProblem("forward"), terminator: () => new Array(1) }, product.createAccount(limits)),
     { name: "TypeError", message: "terminator edge 0 is missing" });
 });
 
@@ -700,9 +702,9 @@ test("a genuine sparse MIR statement row is a caller defect in both directions, 
   sparse.blocks[0].statements = new Array(1);
   const present = parsedBody(terminators, [[{ kind: "storage-live", local: identities.localId(0) }]]);
   for (const direction of ["forward", "backward"]) {
-    assert.throws(() => product.solve(sparse, 0, scalarProblem(direction), limits),
+    assert.throws(() => product.solve(sparse, 0, scalarProblem(direction), product.createAccount(limits)),
       { name: "TypeError", message: "statement 0 is missing" });
-    complete(product.solve(present, 0, scalarProblem(direction), limits), { kind: "complete", value: {
+    complete(product.solve(present, 0, scalarProblem(direction), product.createAccount(limits)), { kind: "complete", value: {
       entry: [1], exit: [1], reachable: [true],
     } }, `${direction} retains a complete genuine statement input`);
   }
@@ -712,15 +714,15 @@ test("one header reuses its complete reverse closure across both tail orders and
   const expected = { kind: "complete", value: [{ header: 0, backEdges: [3, 4], members: [0, 1, 2, 3, 4] }] };
   for (const tails of [[3, 4], [4, 3]]) {
     const graph = { successors: [[1], [2], tails, [0], [0]] };
-    complete(product.naturalLoops(graph, 0, { maximumWork: 102, maximumResultEntries: 8 }), expected,
+    complete(product.naturalLoops(graph, 0, product.createAccount({ maximumWork: 136, maximumResultEntries: 8 })), expected,
       "m2/k2: dom57 + tree24 + scan11 + shared closure10 =102; entries1+2+5=8");
-    complete(product.naturalLoops(graph, 0, { maximumWork: 103, maximumResultEntries: 9 }), expected,
+    complete(product.naturalLoops(graph, 0, product.createAccount({ maximumWork: 137, maximumResultEntries: 9 })), expected,
       "one allowance above both requirements");
-    for (let maximumWork = 0; maximumWork < 102; maximumWork += 1) complete(
-      product.naturalLoops(graph, 0, { maximumWork, maximumResultEntries: 8 }),
+    for (let maximumWork = 0; maximumWork < 136; maximumWork += 1) complete(
+      product.naturalLoops(graph, 0, product.createAccount({ maximumWork, maximumResultEntries: 8 })),
       { kind: "resource-limit", dimension: "work", maximum: maximumWork }, `same-header work${maximumWork}`);
     for (let maximumResultEntries = 0; maximumResultEntries < 8; maximumResultEntries += 1) complete(
-      product.naturalLoops(graph, 0, { maximumWork: 102, maximumResultEntries }),
+      product.naturalLoops(graph, 0, product.createAccount({ maximumWork: 136, maximumResultEntries })),
       { kind: "resource-limit", dimension: "result-entries", maximum: maximumResultEntries },
       `same-header entries${maximumResultEntries}`);
   }
@@ -730,7 +732,7 @@ test("one header reuses its complete reverse closure across both tail orders and
   const tails = Array.from({ length: tailCount }, (unusedValue, index) => chainLength + index + 1);
   const graph = { successors: vertices.map(index => index < chainLength ? [index + 1]
     : index === chainLength ? tails : [0]) };
-  complete(product.naturalLoops(graph, 0, { maximumWork: 46_010, maximumResultEntries: 3002 }),
+  complete(product.naturalLoops(graph, 0, product.createAccount({ maximumWork: 84_026, maximumResultEntries: 3002 })),
     { kind: "complete", value: [{ header: 0, backEdges: tails, members: vertices }] },
     "21m+25k+10=46010 work and m+2k+2=3002 entries, not k repeated chain walks");
 });
@@ -824,17 +826,17 @@ test("cycle-specific limit events cover actual repeated transfer and predecessor
   const generating = parsedBody([{ kind: "goto", target: identities.blockId(0) }],
     [[{ kind: "storage-live", local: identities.localId(0) }]]);
   const cases = [
-    { body: self, problem: scalarProblem("forward"), work: 22, entry: [1], exit: [1] },
-    { body: mutual, problem: scalarProblem("forward"), work: 36, entry: [1, 1], exit: [1, 1] },
-    { body: self, problem: backward, work: 11, entry: [0], exit: [0] },
-    { body: generating, problem: { ...backward, statement: () => 1 }, work: 18, entry: [1], exit: [1] },
+    { body: self, problem: scalarProblem("forward"), work: 35, entry: [1], exit: [1] },
+    { body: mutual, problem: scalarProblem("forward"), work: 59, entry: [1, 1], exit: [1, 1] },
+    { body: self, problem: backward, work: 18, entry: [0], exit: [0] },
+    { body: generating, problem: { ...backward, statement: () => 1 }, work: 31, entry: [1], exit: [1] },
   ];
   for (const entry of cases) {
-    complete(product.solve(entry.body, 0, entry.problem, { maximumWork: entry.work, maximumResultEntries: 3 * entry.entry.length }),
+    complete(product.solve(entry.body, 0, entry.problem, product.createAccount({ maximumWork: entry.work, maximumResultEntries: 3 * entry.entry.length })),
       { kind: "complete", value: { entry: entry.entry, exit: entry.exit, reachable: entry.entry.map(() => true) } },
       `cycle ${entry.problem.direction} exact work${entry.work}`);
     for (let maximumWork = 0; maximumWork < entry.work; maximumWork += 1) complete(
-      product.solve(entry.body, 0, entry.problem, { maximumWork, maximumResultEntries: 3 * entry.entry.length }),
+      product.solve(entry.body, 0, entry.problem, product.createAccount({ maximumWork, maximumResultEntries: 3 * entry.entry.length })),
       { kind: "resource-limit", dimension: "work", maximum: maximumWork }, `cycle work ${maximumWork}`);
   }
 });
@@ -850,7 +852,7 @@ test("priority requeue handles several queued ranks, bottom-edge removal and unr
   const problem = { ...scalarProblem("forward"), terminator: (terminator, state) => terminator.kind === "switch"
     ? [{ target: identities.blockId(1), state }, { target: identities.blockId(2), state }]
     : [{ target: terminator.target, state }] };
-  complete(product.solve(branching, 0, problem, limits), { kind: "complete", value: {
+  complete(product.solve(branching, 0, problem, product.createAccount(limits)), { kind: "complete", value: {
     entry: [1, 1, 1, 1, 1, 1, 1], exit: [1, 1, 1, 1, 1, 1, 1], reachable: [true, true, true, true, true, true, true],
   } }, "rank heap requeues an earlier rank while preserving all pending ranks");
   const lattice = finiteLattice();
@@ -861,12 +863,12 @@ test("priority requeue handles several queued ranks, bottom-edge removal and unr
     statement: () => [1], terminator: (terminator, state) => terminator.kind === "goto"
       ? [{ target: terminator.target, state }]
       : [...(state.length === 0 ? [{ target: identities.blockId(0), state: [] }] : []),
-        { target: identities.blockId(1), state }] }, limits), { kind: "complete", value: {
+        { target: identities.blockId(1), state }] }, product.createAccount(limits)), { kind: "complete", value: {
     entry: [[1], [1]], exit: [[1], [1]], reachable: [true, true],
   } }, "removing a previous bottom edge is still bottom, not a stale retained contribution");
   const unreachable = parsedBody([{ kind: "goto", target: identities.blockId(1) }, { kind: "return", value: null },
     { kind: "goto", target: identities.blockId(1) }], [[], [], []]);
-  complete(product.solve(unreachable, 0, scalarProblem("backward"), limits), { kind: "complete", value: {
+  complete(product.solve(unreachable, 0, scalarProblem("backward"), product.createAccount(limits)), { kind: "complete", value: {
     entry: [1, 1, 0], exit: [1, 1, 0], reachable: [true, true, false],
   } }, "a changed entry never schedules an unreachable incoming predecessor");
 });
@@ -874,10 +876,9 @@ test("priority requeue handles several queued ranks, bottom-edge removal and unr
 test("work exhaustion bounds nonconverging caller transfers and never publishes a partial solution", () => {
   const self = parsedBody([{ kind: "goto", target: identities.blockId(0) }], [[]]);
   const problem = { ...scalarProblem("forward"), lattice: { ...scalarProblem("forward").lattice,
-    stateBound: Number.MAX_SAFE_INTEGER, join: Math.max },
+    stateBound: Number.MAX_SAFE_INTEGER, join: (left, right) => Math.max(left, right) },
     terminator: (terminator, state) => [{ target: terminator.target, state: state + 1 }] };
-  for (const maximumWork of [0, 1, 20, 100, 1000]) complete(product.solve(self, 0, problem,
-    { maximumWork, maximumResultEntries: 3 }), { kind: "resource-limit", dimension: "work", maximum: maximumWork },
+  for (const maximumWork of [0, 1, 20, 100, 1000]) complete(product.solve(self, 0, problem, product.createAccount({ maximumWork, maximumResultEntries: 3 })), { kind: "resource-limit", dimension: "work", maximum: maximumWork },
   `unbounded-height caller lattice still obeys exact work${maximumWork}`);
 });
 
@@ -888,13 +889,140 @@ test("both solver directions retain complete hundred-thousand-block solutions wi
   Array.from({ length }, () => []));
   const expected = { kind: "complete", value: { entry: Array(length).fill(1), exit: Array(length).fill(1),
     reachable: Array(length).fill(true) } };
-  for (const direction of ["forward", "backward"]) complete(product.solve(body, 0, scalarProblem(direction),
-    { maximumWork: 3_000_000, maximumResultEntries: 300_000 }), expected, `${direction} complete deep solution`);
+  const heap = Array.from({ length }, (_, index) => Math.ceil(Math.log2(index + 1))).reduce((sum, count) => sum + count, 0);
+  for (const direction of ["forward", "backward"]) complete(product.solve(body, 0, scalarProblem(direction), product.createAccount({ maximumWork: (direction === "forward" ? 20 * length - 5 : 17 * length - 1) + 4 * heap, maximumResultEntries: 300_000 })), expected, `${direction} complete deep solution`);
 });
 
-test("exact seven-port public inventory and complete eight-source owner compile in fresh strict isolation", async () => {
+test("DataflowAccount has the exact existing opaque-owner shape and rejects forged public/mutable/nonstatic handles", () => {
+  const contract = "packages/host/src/dataflow/contract.ts";
+  const implementation = "packages/host/src/dataflow/graph.ts";
+  const body = "export class Account { private readonly rows: number[] = []; private constructor() {} static create(): Account { return new Account(); } }";
+  const inspect = text => {
+    const files = new Map([[contract, 'import type { Account } from "./graph.js";\nexport type DataflowAccount = Account;'], [implementation, text]]);
+    const source = parseSources(files);
+    return sourceFindings(source, files, hostCatalogue, readImportGraph(source, files), quarantineRoots);
+  };
+  assert.deepEqual(inspect(body), []);
+  for (const forged of [body.replace("private constructor", "public constructor"),
+    body.replace("private readonly rows", "public readonly rows"), body.replace("private readonly rows", "private rows"),
+    body.replace("static create", "create")]) {
+    assert.equal(inspect(forged).some(finding => finding.code === "class" && finding.path === implementation), true);
+  }
+});
+
+test("one opaque invocation retains setup charges, original limit snapshots, first refusal and unchanged result/state bounds", async () => {
+  const internal = await import("../../packages/host/dist/dataflow/account.js");
+  const selected = { maximumWork: 17, maximumResultEntries: 3 };
+  const account = product.createAccount(selected);
+  selected.maximumWork = 1000;
+  assert.equal(product.chargeWork(account, 2), null);
+  assert.equal(product.solve(chainBody(1), 0, scalarProblem("forward"), account).kind, "complete");
+  const stop = product.chargeWork(account, 1);
+  assert.deepEqual(stop, { kind: "resource-limit", dimension: "work", maximum: 17 });
+  assert.equal(product.accountFailure(account), stop);
+  assert.equal(product.chargeWork(account, NaN), stop, "nothing is inspected after the first stop");
+  const under = product.createAccount({ maximumWork: 16, maximumResultEntries: 3 });
+  assert.equal(product.chargeWork(under, 2), null);
+  assert.deepEqual(product.solve(chainBody(1), 0, scalarProblem("forward"), under),
+    { kind: "resource-limit", dimension: "work", maximum: 16 });
+  for (const units of [-1, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1])
+    assert.throws(() => product.chargeWork(product.createAccount(limits), units), /work units/);
+  const entries = product.createAccount({ maximumWork: 100, maximumResultEntries: 0 });
+  const entryStop = product.predecessors({ successors: [[]] }, entries);
+  assert.deepEqual(entryStop, { kind: "resource-limit", dimension: "result-entries", maximum: 0 });
+  assert.equal(product.chargeWork(entries, 0), entryStop);
+  assert.equal(internal.takeEntries(entries, 1), entryStop);
+  assert.equal(internal.stopState(entries, 4), entryStop);
+  assert.equal(product.chargeResultEntries(entries, NaN), entryStop);
+  for (const units of [-1, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1])
+    assert.throws(() => product.chargeResultEntries(product.createAccount(limits), units), /result entries/);
+});
+
+test("the actual same account propagates original callback diagnostics before every state/check/transfer/handoff continuation", async () => {
+  const diag = await import("../../packages/host/dist/diag/index.js");
+  const makeRefusal = () => ({ kind: "refused", diagnostics: [diag.resourceLimitDiagnostic({
+    owner: "analyses/origins", limit: "analysis.maximumProjectionDepth", maximum: 0, site: { kind: "none" },
+    unit: { request: { query: "analyses/origins.values", key: "actual-test-execution" }, position: { kind: "result" } },
+  })] });
+  const body = parsedBody([{ kind: "goto", target: identities.blockId(1) }, { kind: "return", value: null }],
+    [[{ kind: "storage-live", local: identities.localId(0) }], []]);
+  for (const direction of ["forward", "backward"]) for (const phase of ["join", "equals", "isOverflow", "statement", "terminator"]) {
+    const account = product.createAccount(limits);
+    const refusal = makeRefusal();
+    const original = scalarProblem(direction);
+    let reached = false;
+    const wrap = (name, operation) => (...args) => {
+      assert.equal(product.accountFailure(account), null, `${direction}/${phase}: no callback after stop`);
+      assert.equal(args.at(-1), account, `${name} receives the original account`);
+      if (name !== phase) return operation(...args);
+      reached = true;
+      assert.equal(product.refuseAccount(account, refusal), refusal);
+      if (name === "isOverflow") return true;
+      if (name === "equals") return false;
+      if (name === "terminator") return direction === "forward" ? [] : original.boundary;
+      return name === "join" ? args[0] : args[1];
+    };
+    const problem = { ...original, lattice: { ...original.lattice,
+      join: wrap("join", original.lattice.join), equals: wrap("equals", original.lattice.equals),
+      isOverflow: wrap("isOverflow", original.lattice.isOverflow) },
+    statement: wrap("statement", original.statement), terminator: wrap("terminator", original.terminator) };
+    assert.equal(product.solve(body, 0, problem, account), refusal);
+    assert.equal(reached, true);
+    assert.equal(product.accountFailure(account), refusal);
+    assert.equal(product.accountFailure(account).diagnostics[0], refusal.diagnostics[0]);
+    assert.equal(product.chargeWork(account, limits.maximumWork), refusal);
+    assert.equal(product.refuseAccount(account, makeRefusal()), refusal);
+    for (const operation of [() => product.graphOfMir(null, account), () => product.solve(null, 0, null, account),
+      () => product.predecessors(null, account), () => product.orderGraph(null, null, account),
+      () => product.dominators(null, 0, account), () => product.naturalLoops(null, 0, account),
+      () => product.stronglyConnectedComponents(null, account)]) assert.equal(operation(), refusal);
+  }
+  const exhausted = product.createAccount({ maximumWork: 0, maximumResultEntries: 0 });
+  const originalStop = product.chargeWork(exhausted, 1);
+  assert.equal(product.refuseAccount(exhausted, makeRefusal()), originalStop, "an existing work refusal wins unchanged");
+});
+
+test("a callback's actual charged work stops every later callback and preserves the original work stop", () => {
+  const body = parsedBody([{ kind: "goto", target: identities.blockId(1) }, { kind: "return", value: null }],
+    [[{ kind: "storage-live", local: identities.localId(0) }], []]);
+  for (const direction of ["forward", "backward"]) for (const phase of ["join", "equals", "isOverflow", "statement", "terminator"]) {
+    const account = product.createAccount(limits);
+    const original = scalarProblem(direction);
+    let stop = null;
+    const wrap = (name, operation) => (...args) => {
+      assert.equal(product.accountFailure(account), null, `${direction}/${phase}: no callback after a charged child fails`);
+      if (name !== phase) return operation(...args);
+      stop = product.chargeWork(account, limits.maximumWork);
+      assert.deepEqual(stop, { kind: "resource-limit", dimension: "work", maximum: limits.maximumWork });
+      if (name === "equals" || name === "isOverflow") return true;
+      if (name === "terminator") return direction === "forward" ? null : original.boundary;
+      return name === "join" ? args[0] : args[1];
+    };
+    const problem = { ...original, lattice: { ...original.lattice, join: wrap("join", original.lattice.join),
+      equals: wrap("equals", original.lattice.equals), isOverflow: wrap("isOverflow", original.lattice.isOverflow) },
+      statement: wrap("statement", original.statement), terminator: wrap("terminator", original.terminator) };
+    assert.equal(product.solve(body, 0, problem, account), stop);
+    assert.equal(stop !== null, true, `${direction}/${phase} reached`);
+  }
+});
+
+test("graph projection charges every row and edge before output growth and respects a stopped invocation before input reads", () => {
+  const body = parsedBody([{ kind: "goto", target: identities.blockId(1) }, { kind: "return", value: null }], [[], []]);
+  for (const dimension of ["maximumWork", "maximumResultEntries"]) {
+    for (let maximum = 0; maximum < 3; maximum += 1) {
+      const account = product.createAccount({ ...limits, [dimension]: maximum });
+      const stop = product.graphOfMir(body, account);
+      assert.deepEqual(stop, { kind: "resource-limit", dimension: dimension === "maximumWork" ? "work" : "result-entries", maximum });
+      assert.equal(product.graphOfMir(null, account), stop);
+    }
+    complete(product.graphOfMir(body, product.createAccount({ ...limits, [dimension]: 3 })),
+      { kind: "complete", value: { successors: [[1], []] } }, `${dimension}: exact graph projection`);
+  }
+});
+
+test("exact account-owned public inventory and complete nine-source owner compile in fresh strict isolation", async () => {
   complete(Object.keys(product).sort(), ["dominators", "graphOfMir", "naturalLoops", "orderGraph", "predecessors", "solve",
-    "stronglyConnectedComponents"].sort(), "no legacy public path or unreceived runtime port");
+    "stronglyConnectedComponents", "createAccount", "chargeWork", "chargeResultEntries", "accountFailure", "refuseAccount"].sort(), "no legacy public path or unreceived runtime port");
   const deps = isolationDeps(tooling, quarantineRoots);
   const module = hostCatalogue.find(module => module.name === "dataflow");
   const report = await compileIsolated(deps, module, { root: repository, sourceFiles,
@@ -902,7 +1030,7 @@ test("exact seven-port public inventory and complete eight-source owner compile 
   writeFileSync(resolve(repository, ".temp/dataflow-isolation-report.json"), `${JSON.stringify(report, null, 2)}\n`);
   assert.equal(report.status, "passed", JSON.stringify(report.findings).slice(0, 4000));
   complete(report.sourceInventory.map(entry => relative(repository, entry.path)).sort(), [...sourceFiles, ...declarationSources].sort(),
-    "eight owner files plus the exact native dependency-production closure");
+    "nine owner files plus the exact native dependency-production closure");
   complete(report.provenance.map(entry => relative(repository, entry.source)).sort(), [...interfaceSources,
     "packages/host/src/ir-types/arena.ts", "packages/host/src/ir-types/data.ts"].sort(),
     "public contracts retain their actual opaque and data declaration dependencies");
@@ -933,7 +1061,11 @@ import type { MirBody } from "./ir-mir/contract.js";
 const ports: readonly [Port.Solve, Port.GraphOfMir, Port.Predecessors, Port.OrderGraph, Port.Dominators,
   Port.NaturalLoops, Port.StronglyConnectedComponents] = [Dataflow.solve, Dataflow.graphOfMir, Dataflow.predecessors,
   Dataflow.orderGraph, Dataflow.dominators, Dataflow.naturalLoops, Dataflow.stronglyConnectedComponents];
+const reserve: Port.ChargeResultEntries = Dataflow.chargeResultEntries;
 export function consume(body: MirBody, graph: Port.DirectedGraph, budget: Port.DataflowLimits): readonly boolean[] {
+  const account = Dataflow.createAccount(budget);
+  const reservation: Port.DataflowStop | null = reserve(account, 0);
+  void reservation;
   const lattice: Port.Lattice<number> = { bottom: 0, overflow: -1, stateBound: 1,
     join: (left, right) => left === -1 || right === -1 ? -1 : Math.max(left, right),
     equals: Object.is, isOverflow: state => state === -1 };
@@ -943,24 +1075,26 @@ export function consume(body: MirBody, graph: Port.DirectedGraph, budget: Port.D
   const backward: Port.BackwardProblem<number> = { direction: "backward", lattice, boundary: 1,
     statement: (statement, state) => statement.kind === "storage-dead" ? 0 : state,
     terminator: (terminator, successors, boundaryState) => terminator.kind === "return" && boundaryState !== null
-      ? boundaryState : successors.reduce((state, successor) => lattice.join(state, successor.state), 0) };
+      ? boundaryState : successors.reduce((state, successor) => lattice.join(state, successor.state, account), 0) };
   const directions: readonly Port.Problem<number>[] = [forward, backward];
   for (const problem of directions) {
-    const result: Port.DataflowResult<Port.FlowSolution<number>> = Dataflow.solve(body, 0, problem, budget);
+    const result: Port.DataflowResult<Port.FlowSolution<number>> = Dataflow.solve(body, 0, problem, account);
     if (result.kind === "complete") return result.value.reachable;
+    if (result.kind === "refused") { void result.diagnostics[0]; return []; }
     const dimension: "work" | "result-entries" | "state" = result.dimension;
     const maximum: number = result.maximum;
     void dimension; void maximum;
   }
-  const projected = Dataflow.graphOfMir(body);
-  void projected; void ports; void Dataflow.predecessors(graph, budget); void Dataflow.orderGraph(graph, [0], budget);
-  void Dataflow.dominators(graph, 0, budget); void Dataflow.naturalLoops(graph, 0, budget);
-  void Dataflow.stronglyConnectedComponents(graph, budget);
+  const projected = Dataflow.graphOfMir(body, account);
+  void projected; void ports; void Dataflow.predecessors(graph, account); void Dataflow.orderGraph(graph, [0], account);
+  void Dataflow.dominators(graph, 0, account); void Dataflow.naturalLoops(graph, 0, account);
+  void Dataflow.stronglyConnectedComponents(graph, account);
   return [];
 }
 `;
   const programs = [{ file: "positive.mts", text: positive }];
   const negatives = [
+    { file: "forged-account.mts", type: "DataflowAccount", body: "  const forged: DataflowAccount = {};\n  void forged; void value;", code: 2741, column: 9 },
     { file: "readonly-entry.mts", type: "FlowSolution<number>", body: "  value.entry[0] = 1;", code: 2542, column: 3 },
     { file: "readonly-exit.mts", type: "FlowSolution<number>", body: "  value.exit = [];", code: 2540, column: 9 },
     { file: "readonly-graph.mts", type: "DirectedGraph", body: "  value.successors.push([]);", code: 2339, column: 20 },
@@ -977,11 +1111,15 @@ export function consume(body: MirBody, graph: Port.DirectedGraph, budget: Port.D
   programs.push({ file: "removed-generic-graph.mts", text:
     `import type { DirectedGraph } from "./dataflow/contract.js";\n${removedGeneric}\n` });
   programs.push({ file: "backward-boundary.mts", text:
-    'import type { BackwardProblem } from "./dataflow/contract.js";\nimport type { MirTerminator } from "./ir-mir/contract.js";\nexport function reject(problem: BackwardProblem<number>, terminator: MirTerminator): number {\n  return problem.terminator(terminator, [], "seed");\n}\n' });
+    'import type { BackwardProblem, DataflowAccount } from "./dataflow/contract.js";\nimport type { MirTerminator } from "./ir-mir/contract.js";\nexport function reject(problem: BackwardProblem<number>, terminator: MirTerminator, account: DataflowAccount): number {\n  return problem.terminator(terminator, [], "seed", account);\n}\n' });
+  const oldLimits = "export function reject(graph: DirectedGraph, limits: DataflowLimits) { return predecessors(graph, limits); }";
+  programs.push({ file: "removed-limits-path.mts", text:
+    'import type { DirectedGraph, DataflowLimits } from "./dataflow/contract.js";\nimport { predecessors } from "./dataflow/index.js";\n' + oldLimits + "\n" });
   const expected = [...negatives.map(entry => ({ file: entry.file, line: 3, column: entry.column, code: entry.code })),
     { file: "removed-generic-graph.mts", line: 2, column: removedGeneric.indexOf("DirectedGraph") + 1, code: 2315 },
     { file: "edge-brand.mts", line: 2, column: 44, code: 2322 },
-    { file: "backward-boundary.mts", line: 4, column: 45, code: 2345 }];
+    { file: "backward-boundary.mts", line: 4, column: 45, code: 2345 },
+    { file: "removed-limits-path.mts", line: 3, column: oldLimits.lastIndexOf("limits") + 1, code: 2741 }];
   const files = programs.map(program => { const file = resolve(stage, program.file); writeFileSync(file, program.text); return file; });
   const config = resolve(stage, "tsconfig.json");
   writeFileSync(config, JSON.stringify({ compilerOptions: { strict: true, noUncheckedIndexedAccess: true,
@@ -1030,7 +1168,7 @@ after(async () => {
     writeFileSync(resolve(directory, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
     writeFileSync(resolve(directory, "source-inputs.json"), `${JSON.stringify(sourceFiles.map(path => ({ path,
       hash: createHash("sha256").update(readFileSync(resolve(repository, path))).digest("hex") })), null, 2)}\n`);
-    assert.equal(result.length, 7, "all seven real runtime owners have nonempty source-identified V8 evidence");
+    assert.equal(result.length, 8, "all eight real runtime owners have nonempty source-identified V8 evidence");
     assert.equal(report.status, "passed", JSON.stringify(report.findings).slice(0, 6000));
     assert.equal(report.files.filter(file => file.status === "not-applicable").length, 1, "the type-only contract is N/A");
     for (const file of report.files.filter(file => file.status === "covered")) {

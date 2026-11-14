@@ -25,7 +25,8 @@ const post = (method, parameters = {}) => new Promise((done, reject) => {
 });
 let createTypeInterner, seedTypeInterner, internType, internSignature, readType, readSignature, exportTypes,
   substitute, substituteSignature, printTypes, parseTypes, runTypeVerifier, encodeSelectorPath, instanceKey, sameInstance, executionKey,
-  declaredExecutionKey;
+  declaredExecutionKey, bindingVectorData, bindingVectorKey, artifactBindingsData, artifactBindingsKey,
+  signatureRequestData, signatureRequestKey;
 
 before(async () => {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true, "the whole suite requires aggregate admission");
@@ -35,7 +36,8 @@ before(async () => {
   await post("Profiler.startPreciseCoverage", { callCount: true, detailed: true });
   ({ createTypeInterner, seedTypeInterner, internType, internSignature, readType, readSignature, exportTypes,
     substitute, substituteSignature, printTypes, parseTypes, verifyTypes: runTypeVerifier, encodeSelectorPath, instanceKey, sameInstance,
-    executionKey, declaredExecutionKey } = await import("../../packages/host/dist/ir-types/index.js"));
+    executionKey, declaredExecutionKey, bindingVectorData, bindingVectorKey, artifactBindingsData, artifactBindingsKey,
+    signatureRequestData, signatureRequestKey } = await import("../../packages/host/dist/ir-types/index.js"));
 });
 const moduleId = encodeModuleId({ package: encodePackageId("ir-types-tests"), path: "main.ts" });
 const definition = name => encodeDefId({ module: moduleId, segments: [{ name, ordinal: 0 }] });
@@ -2950,6 +2952,42 @@ test("executionKey and declaredExecutionKey: the provided count is part of the k
     assert.notEqual(declared(change), declared({}), JSON.stringify(change));
   }
   assert.notEqual(declared({}, 2), declared({}, 1));
+});
+
+test("canonical binding and signature-request projections preserve all fields and individual holes", () => {
+  const vector = vectorOf({ classBindings: [boundAt(0, 1), rigidAt(1)], methodBindings: [rigidAt(1)],
+    capturedBindings: [boundAt(2, 3)], selfBindings: [{ kind: "rigid", owner }, { kind: "bound", owner: other, type: 4 }] });
+  const data = [[["bound", owner, 0, 1], ["rigid", owner, 1]], [["rigid", owner, 1]],
+    [["bound", owner, 2, 3]], [["rigid", owner], ["bound", other, 4]]];
+  assert.deepEqual(bindingVectorData(vector), data);
+  assert.equal(bindingVectorKey(vector), encodeKey(data));
+  const bindings = { kind: "instantiated", bindings: vector };
+  assert.deepEqual(artifactBindingsData(bindings), ["instantiated", data]);
+  assert.equal(artifactBindingsKey(bindings), encodeKey(["instantiated", data]));
+  assert.deepEqual(artifactBindingsData({ kind: "parametric" }), ["parametric"]);
+  assert.notEqual(artifactBindingsKey({ kind: "parametric" }), artifactBindingsKey(instantiated({})));
+  const request = { definition: owner, endpoint: "api-body", ordinal: 2, bindings };
+  const expected = [owner, "api-body", 2, ["instantiated", data]];
+  assert.deepEqual(signatureRequestData(request), expected);
+  assert.equal(signatureRequestKey(request), encodeKey(expected));
+  assert.equal(signatureRequestKey(structuredClone(request)), signatureRequestKey(request));
+  assert.equal(declaredExecutionKey({ request, provided: 1 }), encodeKey(["declared-execution", ...expected, 1]));
+  for (const change of [{ definition: other }, { endpoint: "advertised" }, { endpoint: "api-signature" },
+    { ordinal: 0 }, { bindings: { kind: "parametric" } }]) {
+    assert.notEqual(signatureRequestKey({ ...request, ...change }), signatureRequestKey(request));
+  }
+  for (const family of ["classBindings", "methodBindings", "capturedBindings", "selfBindings"]) {
+    const entry = family === "selfBindings" ? { kind: "rigid", owner } : rigidAt(0);
+    const holed = [];
+    holed[1] = entry;
+    const sparse = vectorOf({ [family]: holed });
+    const filled = vectorOf({ [family]: [entry, entry] });
+    const shorter = vectorOf({ [family]: [entry] });
+    assert.notEqual(bindingVectorKey(sparse), bindingVectorKey(filled), family);
+    assert.notEqual(bindingVectorKey(sparse), bindingVectorKey(shorter), family);
+    assert.notEqual(signatureRequestKey({ ...request, bindings: { kind: "instantiated", bindings: sparse } }),
+      signatureRequestKey({ ...request, bindings: { kind: "instantiated", bindings: filled } }), family);
+  }
 });
 
 test("the complete real ir-types owner compiles against freshly emitted actual allowed dependency declarations", async () => {

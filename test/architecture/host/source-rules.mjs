@@ -2,7 +2,7 @@ import { sourceOwner } from "./catalogue.mjs";
 import { publicDeclarations, quarantineReference, sourceSymbol } from "./import-graph.mjs";
 const producerMembers = (["builder", "seed", "register", "sealRegistration", "provide", "producer", "seal", "set", "delete", "clear", "resourceScope", "withDepth", "authenticate", "authorize", "lease", "questionView"]);
 const scopedOwners = (["KindFunctionDeclaration", "KindFunctionExpression", "KindArrowFunction", "KindMethodDeclaration", "KindConstructor", "KindGetAccessor", "KindSetAccessor"]);
-const opaqueOwners = ({ TypeInterner: "ir-types", CheckerExtensions: "front", CheckedProgram: "front", PluginModule: "plugins", TargetSession: "orchestration" });
+const opaqueOwners = ({ TypeInterner: "ir-types", DataflowAccount: "dataflow", EvaluationContinuation: "evaluate", CheckerExtensions: "front", CheckedProgram: "front", PluginModule: "plugins", TargetSession: "orchestration" });
 const rawCaptureTypes = (["RawModule", "RawTypeTable", "RawTypeId", "RawNumericLiteral"]);
 const sdkPayloads = ({ CompilerExtension: "compiler-extension", SourceDeclarationProvider: "declaration-provider", SourceSemanticsModule: "semantics-module" });
 export function sourceFindings(source, files, catalogue, graph, quarantineRoots) {

@@ -10,7 +10,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { after, before, test as declare } from "node:test";
 import { checkCoverage } from "../architecture/host/coverage.mjs";
 import { parseSources } from "../architecture/host/import-graph.mjs";
-import { ARRAY_STEP, MODULE, PARAMETRIC, T, TABLE, bodyId, def, native, typedOperation, verificationContext } from "./fixtures/lower-mir/typed.mjs";
+import { ARRAY_STEP, EMPTY_BINDINGS, MODULE, PARAMETRIC, SIG, T, TABLE, bodyId, def, native, selected, typedOperation, value, verificationContext } from "./fixtures/lower-mir/typed.mjs";
 import {
   argumentConstantOf, argumentKindsOf, at, blocksWithStatementAt, calleeNameOf, capturedLocalsOf, capturedRootsOf, checkedPlace, checks,
   controlPoints, createsClosure, destinationBaseOf, destinationChainOf, destinationFieldOf, destinationRootOf, edgesOf, effects,
@@ -40,6 +40,8 @@ const test = (name, ...rest) => {
 };
 let produced;
 let lowerToMir;
+/** The query unit a hand-run lowering reports against: the result of a request of the `mirBody` row. */
+const UNIT = { request: { query: "mirBody", key: ["unit"] }, position: { kind: "result" } };
 
 // The coverage gate: every runtime file of lower-mir at 100% of lines, branches and functions over this bank and the
 // case modules it loads; the type-only contract is not applicable.
@@ -75,6 +77,7 @@ before(async () => {
     typeOf: type => types.readType(interner, type),
     signatureOf: signature => types.readSignature(interner, signature),
     limits: { maximumRecords: 100000 },
+    unit: UNIT,
   };
 });
 
@@ -131,6 +134,32 @@ const defectOfLowerMir = error => error instanceof Error && error.cause !== unde
 /** The frontier refusal that names `what`: a compiler defect of lower-mir, not a diagnostic and not a caller defect. */
 const notLoweredYet = what => error => error instanceof Error && error.cause !== undefined && error.cause !== null && error.cause.owner === "lower-mir"
   && error.message === `${FRONTIER}${what}`;
+const convertingNode = (b, name, node, fromType, toType, execution, backing) => ({ ...node, $: "converted", tsonic: at => {
+  const original = typeof node.tsonic === "function" ? node.tsonic(at) : node.tsonic;
+  const from = { root: { kind: "body", value: b.nodeRef(at("converted")) }, path: [] };
+  const to = { root: { kind: "body", value: b.nodeRef(0) }, path: [{ kind: "result", signature: SIG[name] }] };
+  const embedding = { kind: "conversion", conversion: "numeric", proof: { steps: [{ from, to, rule: "numeric", premises: [] }], conclusion: 0 }, check: { kind: "none" } };
+  const identity = backing === "native" ? { kind: "conversion", from: fromType, to: toType, embedding }
+    : { kind: backing, declaration: def(`conversion.${backing}.int32-to-int64`), bindings: EMPTY_BINDINGS };
+  const conversion = typedOperation(selected(identity, [fromType], toType, execution));
+  return { ...original, convertedType: toType, conversion: backing === "native"
+    ? { kind: "convert", role: "return", operation: conversion } : { kind: "backed-convert", role: "return", operation: conversion, embedding } };
+} });
+const narrowingNode = (b, name, node, source, result, failure) => ({ ...node, $: "narrowed", tsonic: at => {
+  const original = typeof node.tsonic === "function" ? node.tsonic(at) : node.tsonic;
+  const root = { kind: "body", value: b.nodeRef(0) };
+  const parameter = { kind: "parameter", signature: SIG[name], index: 0 };
+  const from = { root, path: [parameter] };
+  const to = { root, path: [parameter, { kind: "optional-value" }] };
+  const proof = { steps: [{ from, to, rule: "absence", premises: [] }], conclusion: 0 };
+  return { ...original, narrowing: { kind: "narrowed", source, result, failure, proof } };
+} });
+const labelledBlock = (b, label, statement, target = label) => ({ $: label, kind: "LabeledStatement", label: b.label(label, target), statement,
+  tsonic: at => ({ target: b.nodeRef(at(target)) }) });
+const selectedBreak = (b, target) => ({ kind: "BreakStatement", label: b.label(target, target), tsonic: at => ({ target: b.nodeRef(at(target)) }) });
+const selectedContinue = (b, target, labelled) => ({ kind: "ContinueStatement", label: labelled ? b.label(target, target) : null,
+  tsonic: at => ({ target: b.nodeRef(at(target)) }) });
+const unconditionalFor = (tag, statement, initializer = null) => ({ $: tag, kind: "ForStatement", initializer, condition: null, incrementor: null, statement, tsonic: null });
 const labelled = (program, nodes) => { const names = invert(program.labels); return nodes.map(node => names.get(node) ?? node); };
 const sourceLocal = (mir, local) => mir.locals.find(candidate => candidate.source !== null && candidate.source.local === local).id;
 const statementsOn = path => path.events.filter(item => item.statement !== null);
@@ -158,9 +187,9 @@ function expectedAdd(program, type, unwind) {
   const sum = site(program.at("a+b"));
   const returned = site(program.at("return"));
   const locals = [
-    { id: 0, storage: type, role: { kind: "parameter", index: 0 }, source: { body, local: 0 }, origin: root.origin },
-    { id: 1, storage: type, role: { kind: "parameter", index: 1 }, source: { body, local: 1 }, origin: root.origin },
-    { id: 2, storage: type, role: { kind: "temporary" }, source: null, origin: sum.origin },
+    { id: 0, storage: type, role: { kind: "parameter", index: 0 }, mode: program.tir.params[0].passing, source: { body, local: 0 }, origin: root.origin },
+    { id: 1, storage: type, role: { kind: "parameter", index: 1 }, mode: program.tir.params[1].passing, source: { body, local: 1 }, origin: root.origin },
+    { id: 2, storage: type, role: { kind: "temporary" }, mode: "local", source: null, origin: sum.origin },
   ];
   const places = locals.map(local => ({ id: local.id, base: { kind: "local", local: local.id }, storage: type, origin: local.origin }));
   const [a, b, result] = [0, 1, 2].map(place => ({ kind: "place", place }));
@@ -259,8 +288,10 @@ test("first producer: below the size of its graph a body is refused with one dia
       const refused = attempt(maximumRecords);
       assert.equal(refused.kind, "refused", `limit ${maximumRecords}`);
       assert.equal("value" in refused, false);
-      assert.deepEqual(refused.diagnostics.map(diagnostic => [diagnostic.code.rendered, diagnostic.severity, diagnostic.site, diagnostic.source]),
-        [["TSONIC_MIR_SIZE_LIMIT_EXCEEDED", "error", { kind: "source", origin: originOf(0) }, "lower-mir"]]);
+      assert.deepEqual(refused.diagnostics.map(diagnostic => [diagnostic.code.rendered, diagnostic.severity, diagnostic.site, diagnostic.source, diagnostic.arguments]),
+        [["TSONIC_COMPILER_RESOURCE_LIMIT", "error", { kind: "source", origin: originOf(0) }, "lower-mir",
+          [{ kind: "text", value: "lower-mir.maximumRecords" }, { kind: "number", value: maximumRecords }]]]);
+      assert.deepEqual(refused.diagnostics[0].evidence.slice(0, 2), ["lower-mir.maximumRecords", "mirBody"]);
     }
     const lowered = attempt(9);
     assert.equal(lowered.kind, "ok");
@@ -299,6 +330,31 @@ test("first producer: what a control point that writes cannot change is not save
   assert.deepEqual(mir.blocks[1].statements[1].value.left, { kind: "place", place: 0 });
 });
 
+test("first producer: each exposed read is saved once, distinct reads of one local each, and a saved read never again (K-3352)", () => {
+  const W = plus("int32", T.int32, EXECUTIONS.writes);
+  const P = plus("int32", T.int32);
+  const byReference = { passing: ["byref-readwrite", "by-value"] };
+  const saves = mir => mir.blocks.flatMap(block => block.statements).filter(record => record.kind === "assign" && record.value.kind === "use");
+  // a + ((b (+w) b) (+w) b): a is saved at the first writing control point and is not saved again at the second.
+  let mir = lower(nested("k3352.once", T.int32, ({ leaf, sum, group }) =>
+    sum("outer", leaf("a"), group(sum("second", group(sum("first", leaf("b"), leaf("b"), W)), leaf("b"), W)), P), byReference));
+  assert.deepEqual(saves(mir).map(record => record.value.operand), [{ kind: "place", place: 0 }]);
+  // a + (a + (b (+w) b)): two reads of a wait; each is saved, as its own value.
+  mir = lower(nested("k3352.distinct", T.int32, ({ leaf, sum, group }) =>
+    sum("outer", leaf("a"), group(sum("middle", leaf("a"), group(sum("inner", leaf("b"), leaf("b"), W)), P)), P), byReference));
+  const distinct = saves(mir);
+  assert.deepEqual(distinct.map(record => record.value.operand), [{ kind: "place", place: 0 }, { kind: "place", place: 0 }]);
+  assert.notEqual(distinct[0].place, distinct[1].place);
+  // b + (a + (b (+w) b)), a by reference and b by value: only the read of a is saved (mixed).
+  mir = lower(nested("k3352.mixed", T.int32, ({ leaf, sum, group }) =>
+    sum("outer", leaf("b"), group(sum("middle", leaf("a"), group(sum("inner", leaf("b"), leaf("b"), W)), P)), P), byReference));
+  assert.deepEqual(saves(mir).map(record => record.value.operand), [{ kind: "place", place: 1 }]);
+  // A read of a consumed before the writing control point is not exposed any more: (a + b) + (b (+w) b) saves nothing.
+  mir = lower(nested("k3352.consumed", T.int32, ({ leaf, sum, group }) =>
+    sum("outer", group(sum("first", leaf("a"), leaf("b"), P)), group(sum("second", leaf("b"), leaf("b"), W)), P), byReference));
+  assert.deepEqual(saves(mir), []);
+});
+
 test("first producer: a comparison is placed by its decision like any binary operation", () => {
   const less = native("<", "int32", [T.int32, T.int32], T.bool);
   const program = shaped("first.less", [["a", "required", T.int32], ["b", "required", T.int32]], T.bool,
@@ -309,6 +365,566 @@ test("first producer: a comparison is placed by its decision like any binary ope
   assert.equal(mir.locals[2].storage, T.bool);
 });
 
+test("selected scalar literals use one constant and no temporary or check, with exact graph-size refusal", () => {
+  const cases = [
+    ["true", T.bool, b => b.keyword("TrueKeyword", T.bool), { kind: "boolean", value: true }],
+    ["false", T.bool, b => b.keyword("FalseKeyword", T.bool), { kind: "boolean", value: false }],
+    ["absence", T.absence, b => b.keyword("NullKeyword", T.absence), { kind: "absence" }],
+  ];
+  for (const [name, type, token, number] of [
+    ["zero", T.int32, "0", { numerator: 0n, denominator: 1n, negativeZero: false }],
+    ["fraction", T.float64, "1.5", { numerator: 3n, denominator: 2n, negativeZero: false }],
+    ["native64", T.literalInt64, "9007199254740993", { numerator: 9007199254740993n, denominator: 1n, negativeZero: false }],
+    ["hex64", T.literalInt64, "0x20000000000001", { numerator: 9007199254740993n, denominator: 1n, negativeZero: false }],
+  ]) cases.push([name, type, () => ({ kind: "NumericLiteral", text: token, tokenFlags: [],
+    tsonic: { ...value(type), role: "value", value: number } }), { kind: "number", token, value: number }]);
+  const big = 12345678901234567890123456789012345678901234567890n;
+  cases.push(["bigint", T.literalBigint, () => ({ kind: "BigIntLiteral", text: `${big}n`, tokenFlags: [],
+    tsonic: { ...value(T.literalBigint), role: "value", value: big } }), { kind: "bigint", token: `${big}n`, value: big }]);
+  for (const kind of ["StringLiteral", "NoSubstitutionTemplateLiteral"]) {
+    for (const [name, text, rawText] of [["empty", "", ""], ["escaped", "\n\u0000\u{1f340}", "\\n\\0\\u{1f340}"]]) {
+      cases.push([`${kind}.${name}`, T.string, () => ({ kind, text, tokenFlags: [],
+        ...(kind === "NoSubstitutionTemplateLiteral" ? { rawText, templateFlags: [] } : {}),
+        tsonic: { ...value(T.string), role: "value", value: text } }), { kind: "string", value: text }]);
+    }
+  }
+  for (const [name, type, build, expected] of cases) {
+    const program = shaped(`literal.${name}`, [], type, b => b.block(b.returns(build(b))));
+    const mir = lower(program);
+    assert.deepEqual(mir.constants, [{ id: 0, type, value: { kind: "literal", value: expected } }]);
+    assert.deepEqual([mir.locals, mir.places, mir.blocks.length, mir.blocks[0].statements], [[], [], 1, []]);
+    assert.deepEqual(mir.blocks[0].terminator.value, { kind: "constant", constant: 0 });
+    for (const maximumRecords of [0, 1]) {
+      const outcome = produced({ ...deps, limits: { maximumRecords } }, program.tir, []);
+      assert.equal(outcome.kind, "refused", `${name} under ${maximumRecords}`);
+      assert.equal("value" in outcome, false);
+      assert.deepEqual(outcome.diagnostics.map(diagnostic => diagnostic.code.rendered), ["TSONIC_COMPILER_RESOURCE_LIMIT"]);
+    }
+    assert.deepEqual(produced({ ...deps, limits: { maximumRecords: 2 } }, program.tir, []).value, mir);
+  }
+});
+
+test("literal operands share the canonical constant owner and retain evaluation-side references after ordering", () => {
+  const equal = selected({ kind: "boolean-operator", operator: "===" }, [T.bool, T.bool], T.bool);
+  for (const right of ["TrueKeyword", "FalseKeyword"]) {
+    const program = shaped(`literal.same.${right}`, [], T.bool, b => b.block(b.returns(
+      b.comparison(b.keyword("TrueKeyword", T.bool), "EqualsEqualsEqualsToken", b.keyword(right, T.bool), equal))));
+    const mir = lower(program);
+    const comparison = mir.blocks[0].statements.find(record => record.kind === "assign").value;
+    assert.equal(mir.constants.length, right === "TrueKeyword" ? 1 : 2);
+    assert.deepEqual([comparison.left.kind, comparison.right.kind], ["constant", "constant"]);
+    assert.deepEqual(mir.constants[comparison.left.constant].value, { kind: "literal", value: { kind: "boolean", value: true } });
+    assert.deepEqual(mir.constants[comparison.right.constant].value, { kind: "literal", value: { kind: "boolean", value: right === "TrueKeyword" } });
+    const records = right === "TrueKeyword" ? 6 : 7;
+    for (let maximumRecords = 0; maximumRecords < records; maximumRecords += 1)
+      assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, []).kind, "refused", `${right} under ${maximumRecords}`);
+    assert.deepEqual(produced({ ...deps, limits: { maximumRecords: records } }, program.tir, []).value, mir);
+  }
+});
+
+test("selected unary values use the same operation placement and exact record account for pure and invocation decisions", () => {
+  for (const [name, execution] of Object.entries(EXECUTIONS)) {
+    const decision = native("-", "int32", [T.int32], T.int32, execution);
+    const program = shaped(`unary.${name}`, [["a", "required", T.int32]], T.int32,
+      b => b.block(b.returns({ $: "negated", ...b.prefix(b.id("a", 0, T.int32), "MinusToken", T.int32, decision) })));
+    const mir = lower(program);
+    const site = program.at("negated");
+    if (execution.kind === "pure") {
+      assert.deepEqual(mir.blocks[0].statements.map(record => record.kind), ["storage-live", "assign"]);
+      assert.deepEqual(mir.blocks[0].statements[1].value,
+        { kind: "unary", operation: typedOperation(decision), operand: { kind: "place", place: 0 } });
+      assert.equal(mir.blocks.length, 1);
+    } else {
+      const invoked = mir.blocks[0].terminator;
+      assert.deepEqual(mir.blocks[0].statements.map(record => record.kind), ["storage-live"]);
+      assert.deepEqual([invoked.kind, invoked.operation, invoked.operands, invoked.destination, invoked.tir.node],
+        ["invoke", typedOperation(decision), [{ kind: "place", place: 0 }], 1, site]);
+      assert.deepEqual(invoked.unwind, { kind: execution.failure === "unwind" ? "escape" : execution.failure });
+      assert.equal(mir.blocks.length, 2);
+    }
+    assert.deepEqual(mir.blocks.at(-1).terminator.value, { kind: "place", place: 1 });
+    for (let maximumRecords = 0; maximumRecords < 7; maximumRecords += 1) {
+      const refused = produced({ ...deps, limits: { maximumRecords } }, program.tir, []);
+      assert.equal(refused.kind, "refused", `${name} under ${maximumRecords}`);
+      assert.equal("value" in refused, false);
+    }
+    assert.deepEqual(produced({ ...deps, limits: { maximumRecords: 7 } }, program.tir, []).value, mir);
+  }
+  const not = selected({ kind: "boolean-operator", operator: "!" }, [T.bool], T.bool);
+  const program = shaped("unary.boolean", [["a", "required", T.bool]], T.bool,
+    b => b.block(b.returns(b.prefix(b.id("a", 0, T.bool), "ExclamationToken", T.bool, not))));
+  assert.deepEqual(lower(program).blocks[0].statements[1].value,
+    { kind: "unary", operation: typedOperation(not), operand: { kind: "place", place: 0 } });
+});
+
+test("typeof and void place their selected unary operations after actual operand evaluation", () => {
+  for (const [kind, identity, result] of [["TypeOfExpression", "type-query", T.string], ["VoidExpression", "discard", T.absence]]) {
+    for (const [name, execution] of Object.entries(EXECUTIONS)) {
+      const decision = selected({ kind: identity }, [T.int32], result, execution);
+      const program = shaped(`unary.${kind}.${name}`, [["x", "required", T.int32]], result, b => b.block(b.returns({
+        $: "selected", kind, expression: b.id("x", 0, T.int32), tsonic: value(result, { operation: { kind: "decided", decision: typedOperation(decision) } }),
+      })));
+      const mir = lower(program);
+      if (execution.kind === "pure") assert.deepEqual(mir.blocks[0].statements[1].value,
+        { kind: "unary", operation: typedOperation(decision), operand: { kind: "place", place: 0 } });
+      else {
+        assert.deepEqual(mir.blocks[0].terminator.operands, [{ kind: "place", place: 0 }]);
+        assert.deepEqual(mir.blocks[0].terminator.operation, typedOperation(decision));
+        assert.equal(mir.blocks[0].terminator.unwind.kind, execution.failure === "unwind" ? "escape" : execution.failure);
+      }
+      assert.deepEqual(mir.blocks.at(-1).terminator.value, { kind: "place", place: 1 });
+      for (let maximumRecords = 0; maximumRecords < 7; maximumRecords += 1)
+        assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, []).kind, "refused", `${kind}/${name} under ${maximumRecords}`);
+      assert.deepEqual(produced({ ...deps, limits: { maximumRecords: 7 } }, program.tir, []).value, mir);
+
+      const operandEffect = native("-", "int32", [T.int32], T.int32, EXECUTIONS.writes);
+      const effectful = shaped(`unary.${kind}.${name}.operand-effect`, [["x", "required", T.int32]], result, b => b.block(b.returns({
+        kind, expression: { $: "effect", ...b.prefix(b.id("x", 0, T.int32), "MinusToken", T.int32, operandEffect) },
+        tsonic: value(result, { operation: { kind: "decided", decision: typedOperation(decision) } }),
+      })));
+      const graph = lower(effectful);
+      assert.equal(graph.blocks[0].terminator.tir.node, effectful.at("effect"));
+      assert.deepEqual(graph.blocks[0].terminator.operation, typedOperation(operandEffect));
+      const query = graph.blocks[1];
+      if (execution.kind === "pure") assert.deepEqual(query.statements[1].value.operand, { kind: "place", place: 1 });
+      else assert.deepEqual(query.terminator.operands, [{ kind: "place", place: 1 }]);
+      for (let maximumRecords = 0; maximumRecords < 11; maximumRecords += 1)
+        assert.equal(produced({ ...deps, limits: { maximumRecords } }, effectful.tir, []).kind, "refused", `${kind}/${name} operand effect under ${maximumRecords}`);
+      assert.deepEqual(produced({ ...deps, limits: { maximumRecords: 11 } }, effectful.tir, []).value, graph);
+    }
+    const deferred = shaped(`unary.${kind}.deferred`, [["x", "required", T.int32]], result, b => b.block(b.returns({
+      kind, expression: b.id("x", 0, T.int32), tsonic: value(result, { operation: { kind: "deferred", deferred: null } }),
+    })));
+    assert.throws(() => produced(deps, deferred.tir, []), error => defectOfLowerMir(error) && error.message.includes("deferred operation"));
+  }
+});
+
+test("nested unary values run inside out; a writing unary saves only earlier pending exposed reads", () => {
+  const minus = native("-", "int32", [T.int32], T.int32);
+  const program = shaped("unary.nested", [["a", "required", T.int32]], T.int32, b => b.block(b.returns(
+    { $: "outer", ...b.prefix({ $: "inner", ...b.prefix(b.id("a", 0, T.int32), "MinusToken", T.int32, minus) }, "MinusToken", T.int32, minus) })));
+  const nestedMir = lower(program);
+  const operations = nestedMir.blocks[0].statements.filter(record => record.kind === "assign");
+  assert.deepEqual(operations.map(record => record.tir.node), [program.at("inner"), program.at("outer")]);
+  assert.deepEqual(operations.map(record => record.value.operand), [{ kind: "place", place: 0 }, { kind: "place", place: 1 }]);
+
+  for (const passing of ["by-value", "byref-readwrite"]) {
+    const writes = native("-", "int32", [T.int32], T.int32, EXECUTIONS.writes);
+    const waiting = shaped(`unary.waiting.${passing}`, [["a", "required", T.int32, passing]], T.int32, b => b.block(b.returns(
+      b.arithmetic(b.id("a", 0, T.int32), "PlusToken", b.prefix(b.id("a", 0, T.int32), "MinusToken", T.int32, writes),
+        T.int32, plus("int32", T.int32)))));
+    const mir = lower(waiting);
+    const saved = mir.blocks[0].statements.filter(record => record.kind === "assign");
+    const exposed = passing === "byref-readwrite";
+    assert.equal(saved.length, exposed ? 1 : 0);
+    if (exposed) assert.deepEqual(saved[0].value, { kind: "use", operand: { kind: "place", place: 0 } });
+    assert.deepEqual(mir.blocks[0].terminator.operands, [{ kind: "place", place: 0 }]);
+    assert.deepEqual(mir.blocks[1].statements[1].value.left, { kind: "place", place: exposed ? 1 : 0 });
+    const records = exposed ? 15 : 11;
+    for (let maximumRecords = 0; maximumRecords < records; maximumRecords += 1)
+      assert.equal(produced({ ...deps, limits: { maximumRecords } }, waiting.tir, []).kind, "refused", `${passing} under ${maximumRecords}`);
+    assert.deepEqual(produced({ ...deps, limits: { maximumRecords: records } }, waiting.tir, []).value, mir);
+  }
+});
+
+test("empty statements have no records and expression statements retain effects while discarding their value", () => {
+  const empty = shaped("discard.empty", [], T.void, b => b.block({ kind: "EmptyStatement", tsonic: null }));
+  const bare = lower(empty);
+  assert.deepEqual([bare.locals, bare.places, bare.constants, bare.blocks.length, bare.blocks[0].statements], [[], [], [], 1, []]);
+  assert.equal(produced({ ...deps, limits: { maximumRecords: 0 } }, empty.tir, []).kind, "refused");
+  assert.deepEqual(produced({ ...deps, limits: { maximumRecords: 1 } }, empty.tir, []).value, bare);
+  const decision = native("-", "int32", [T.int32], T.int32, EXECUTIONS.writes);
+  const program = shaped("discard.effect", [["a", "required", T.int32, "byref-readwrite"]], T.void,
+    b => b.block(b.expressionStatement(b.prefix(b.id("a", 0, T.int32), "MinusToken", T.int32, decision)),
+      b.expressionStatement(b.id("a", 0, T.int32)), b.returns(null), b.expressionStatement(b.num("2", T.int32))));
+  const mir = lower(program);
+  assert.deepEqual(mir.blocks.map(block => block.statements.map(record => record.kind)), [["storage-live"], []]);
+  assert.deepEqual(mir.blocks[0].terminator.operands, [{ kind: "place", place: 0 }]);
+  assert.deepEqual([mir.blocks[1].terminator.kind, mir.blocks[1].terminator.value, mir.constants], ["return", null, []]);
+  for (let maximumRecords = 0; maximumRecords < 7; maximumRecords += 1)
+    assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, []).kind, "refused", `discard under ${maximumRecords}`);
+  assert.deepEqual(produced({ ...deps, limits: { maximumRecords: 7 } }, program.tir, []).value, mir);
+});
+
+test("comma sequences execute each operand once in source order and keep only the right result", () => {
+  const decision = native("-", "int32", [T.int32], T.int32, EXECUTIONS.writes);
+  const program = shaped("sequence.effects", [["a", "required", T.int32, "byref-readwrite"]], T.int32,
+    b => b.block(b.returns(b.sequence(
+      { $: "left", ...b.prefix(b.id("a", 0, T.int32), "MinusToken", T.int32, decision) },
+      { $: "right", ...b.prefix(b.id("a", 0, T.int32), "MinusToken", T.int32, decision) }, T.int32))));
+  const mir = lower(program);
+  assert.deepEqual(mir.blocks.slice(0, 2).map(block => [block.terminator.kind, block.terminator.tir.node, block.terminator.operands]),
+    [["invoke", program.at("left"), [{ kind: "place", place: 0 }]], ["invoke", program.at("right"), [{ kind: "place", place: 0 }]]]);
+  assert.deepEqual(mir.blocks.flatMap(block => block.statements).map(record => record.kind), ["storage-live", "storage-live"]);
+  assert.deepEqual(mir.blocks[2].terminator.value, { kind: "place", place: 2 });
+  for (let maximumRecords = 0; maximumRecords < 11; maximumRecords += 1)
+    assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, []).kind, "refused", `sequence under ${maximumRecords}`);
+  assert.deepEqual(produced({ ...deps, limits: { maximumRecords: 11 } }, program.tir, []).value, mir);
+});
+
+test("discard removes only its own exposure while an outer pending read remains protected from a later effect", () => {
+  const decision = native("-", "int32", [T.int32], T.int32, EXECUTIONS.writes);
+  const program = shaped("sequence.outer", [["a", "required", T.int32, "byref-readwrite"], ["b", "required", T.int32, "byref-readwrite"]], T.int32,
+    b => b.block(b.returns(b.arithmetic(b.id("a", 0, T.int32), "PlusToken", b.sequence(b.id("b", 1, T.int32),
+      b.prefix(b.id("b", 1, T.int32), "MinusToken", T.int32, decision), T.int32), T.int32, plus("int32", T.int32)))));
+  const mir = lower(program);
+  const saved = mir.blocks[0].statements.filter(record => record.kind === "assign");
+  assert.deepEqual(saved.map(record => record.value), [{ kind: "use", operand: { kind: "place", place: 0 } }]);
+  assert.deepEqual(mir.blocks[0].terminator.operands, [{ kind: "place", place: 1 }]);
+  assert.deepEqual(mir.blocks[1].statements[1].value.left, { kind: "place", place: 2 });
+  for (let maximumRecords = 0; maximumRecords < 17; maximumRecords += 1)
+    assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, []).kind, "refused", `waiting under ${maximumRecords}`);
+  assert.deepEqual(produced({ ...deps, limits: { maximumRecords: 17 } }, program.tir, []).value, mir);
+});
+
+test("an escaping throw evaluates its selected operand once, names the actual throw and omits unreachable statements", () => {
+  const decision = native("-", "int32", [T.int32], T.int32, EXECUTIONS.unwinds);
+  const cases = [
+    ["constant", [], b => b.keyword("TrueKeyword", T.bool), 2],
+    ["parameter", [["a", "required", T.int32]], b => b.id("a", 0, T.int32), 3],
+    ["invoke", [["a", "required", T.int32]], b => b.prefix(b.id("a", 0, T.int32), "MinusToken", T.int32, decision), 7],
+  ];
+  for (const [name, rows, expression, records] of cases) {
+    const program = shaped(`throw.${name}`, rows, T.void, b => b.block({ $: "throw", ...b.throws(expression(b)) },
+      b.expressionStatement(b.num("9", T.int32)), b.returns(null)));
+    const mir = lower(program);
+    const thrown = mir.blocks.at(-1).terminator;
+    assert.deepEqual([thrown.kind, thrown.tir.node, thrown.unwind], ["throw", program.at("throw"), { kind: "escape" }]);
+    assert.deepEqual(thrown.operand, name === "constant" ? { kind: "constant", constant: 0 }
+      : { kind: "place", place: name === "invoke" ? 1 : 0 });
+    assert.equal(mir.constants.length, name === "constant" ? 1 : 0);
+    assert.equal(mir.blocks.length, name === "invoke" ? 2 : 1);
+    if (name === "invoke") {
+      assert.deepEqual(mir.blocks[0].terminator.operation, typedOperation(decision));
+      assert.deepEqual(mir.blocks[0].terminator.unwind, { kind: "escape" });
+      assert.deepEqual(mir.blocks[0].terminator.operands, [{ kind: "place", place: 0 }]);
+    }
+    for (let maximumRecords = 0; maximumRecords < records; maximumRecords += 1)
+      assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, []).kind, "refused", `${name} under ${maximumRecords}`);
+    assert.deepEqual(produced({ ...deps, limits: { maximumRecords: records } }, program.tir, []).value, mir);
+  }
+});
+
+test("selected native and backed conversions retain raw carriers and exact source decisions under every execution decision", () => {
+  const sources = [
+    ["parameter", b => b.id("a", 0, T.int32), 7, { kind: "place", place: 0 }],
+    ["literal", b => b.num("1", T.int32), 6, { kind: "constant", constant: 0 }],
+    ["parenthesized", b => b.paren(b.id("a", 0, T.int32), T.int32), 7, { kind: "place", place: 0 }],
+    ["binary", b => b.arithmetic(b.id("a", 0, T.int32), "PlusToken", b.id("a", 0, T.int32), T.int32, plus("int32", T.int32)), 11, { kind: "place", place: 1 }],
+    ["unary", b => b.prefix(b.id("a", 0, T.int32), "MinusToken", T.int32, native("-", "int32", [T.int32], T.int32)), 11, { kind: "place", place: 1 }],
+  ];
+  for (const backing of ["native", "core", "library"]) for (const [executionName, execution] of Object.entries(EXECUTIONS)) for (const [sourceName, source, records, operand] of sources) {
+    const name = `conversion.${backing}.${executionName}.${sourceName}`;
+    const program = shaped(name, sourceName === "literal" ? [] : [["a", "required", T.int32]], T.literalInt64,
+      b => b.block(b.returns(convertingNode(b, name, source(b), T.int32, T.literalInt64, execution, backing))));
+    const conversion = program.tir.root.statements.nodes[0].expression.tsonic.conversion.operation;
+    const mir = lower(program);
+    const convertedPlace = sourceName === "literal" ? 0 : sourceName === "binary" || sourceName === "unary" ? 2 : 1;
+    if (execution.kind === "pure") {
+      const stored = mir.blocks[0].statements.at(-1);
+      assert.deepEqual(stored.value, { kind: "convert", operation: conversion, operand, to: T.literalInt64 });
+      assert.equal(stored.place, convertedPlace);
+    } else {
+      assert.deepEqual([mir.blocks[0].terminator.operation, mir.blocks[0].terminator.operands, mir.blocks[0].terminator.destination],
+        [conversion, [operand], convertedPlace]);
+      assert.deepEqual(mir.blocks[0].terminator.unwind, { kind: execution.failure === "unwind" ? "escape" : execution.failure });
+    }
+    assert.equal(mir.locals.at(-1).storage, T.literalInt64);
+    assert.deepEqual(mir.blocks.at(-1).terminator.value, { kind: "place", place: convertedPlace });
+    if (sourceName === "binary" || sourceName === "unary") {
+      assert.equal(mir.blocks[0].statements[1].value.kind, sourceName);
+      assert.equal(mir.locals[1].storage, T.int32);
+      assert.equal(mir.blocks[0].statements[1].tir.node, program.at("converted"));
+    }
+    for (let maximumRecords = 0; maximumRecords < records; maximumRecords += 1)
+      assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, []).kind, "refused", `${name} under ${maximumRecords}`);
+    assert.deepEqual(produced({ ...deps, limits: { maximumRecords: records } }, program.tir, []).value, mir);
+  }
+});
+
+test("a selected writing conversion consumes its source then protects only an earlier exposed operand", () => {
+  const name = "conversion.waiting";
+  const program = shaped(name, [["a", "required", T.literalInt64, "byref-readwrite"], ["b", "required", T.int32, "byref-readwrite"]], T.literalInt64,
+    b => b.block(b.returns(b.arithmetic(b.id("a", 0, T.literalInt64), "PlusToken",
+      convertingNode(b, name, b.id("b", 1, T.int32), T.int32, T.literalInt64, EXECUTIONS.writes, "native"),
+      T.literalInt64, plus("int64", T.literalInt64)))));
+  const mir = lower(program);
+  assert.deepEqual(mir.blocks[0].statements.filter(record => record.kind === "assign").map(record => record.value),
+    [{ kind: "use", operand: { kind: "place", place: 0 } }]);
+  assert.deepEqual(mir.blocks[0].terminator.operands, [{ kind: "place", place: 1 }]);
+  assert.deepEqual(mir.blocks[1].statements[1].value.left, { kind: "place", place: 2 });
+  for (let maximumRecords = 0; maximumRecords < 17; maximumRecords += 1)
+    assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, []).kind, "refused", `conversion waiting under ${maximumRecords}`);
+  assert.deepEqual(produced({ ...deps, limits: { maximumRecords: 17 } }, program.tir, []).value, mir);
+});
+
+test("selected narrowed values check their actual place once with the supplied failure and exact record refusal", () => {
+  for (const failure of ["unwind", "abort"]) for (const form of ["identifier", "wrapper", "constant"]) {
+    const name = `narrow.${failure}.${form}`;
+    const program = shaped(name, [["x", "required", T.optInt32]], T.int32, b => {
+      const node = form === "identifier" ? b.id("x", 0, T.int32)
+        : b.nonNull(form === "constant" ? b.num("1", T.optInt32) : b.id("x", 0, T.optInt32), T.int32, null);
+      return b.block(b.returns(narrowingNode(b, name, node, T.optInt32, T.int32, failure)));
+    });
+    const mir = lower(program);
+    const checked = mir.places.at(-1);
+    assert.deepEqual([checked.storage, checked.base.kind, checked.base.projection, checked.base.tir],
+      [T.int32, "checked", { kind: "refined" }, program.nodeRef("narrowed")]);
+    assert.deepEqual([mir.blocks[0].terminator.kind, mir.blocks[0].terminator.place, mir.blocks[0].terminator.unwind],
+      ["check", checked.id, { kind: failure === "abort" ? "abort" : "escape" }]);
+    assert.deepEqual(mir.blocks[1].terminator.value, { kind: "place", place: checked.id });
+    if (form === "constant") {
+      assert.equal(mir.constants[0].type, T.optInt32);
+      assert.deepEqual(mir.blocks[0].statements[1].value, { kind: "use", operand: { kind: "constant", constant: 0 } });
+    } else assert.deepEqual(mir.blocks[0].statements, []);
+    const records = form === "constant" ? 9 : 5;
+    for (let maximumRecords = 0; maximumRecords < records; maximumRecords += 1) {
+      const outcome = produced({ ...deps, limits: { maximumRecords } }, program.tir, []);
+      assert.equal(outcome.kind, "refused", `${name} under ${maximumRecords}`);
+      assert.equal("value" in outcome, false);
+    }
+    assert.deepEqual(produced({ ...deps, limits: { maximumRecords: records } }, program.tir, []).value, mir);
+  }
+});
+
+test("a selected narrowing precedes its conversion and an exposed refined read is saved before a later write", () => {
+  const convertedName = "narrow.converted";
+  const converted = shaped(convertedName, [["x", "required", T.optInt32]], T.literalInt64, b => b.block(b.returns(
+    convertingNode(b, convertedName, narrowingNode(b, convertedName, b.id("x", 0, T.int32), T.optInt32, T.int32, "abort"),
+      T.int32, T.literalInt64, EXECUTIONS.unwinds, "native"))));
+  const convertedMir = lower(converted);
+  assert.deepEqual(convertedMir.blocks.map(block => block.terminator.kind), ["check", "invoke", "return"]);
+  assert.deepEqual(convertedMir.blocks[1].terminator.operands, [{ kind: "place", place: 1 }]);
+  assert.equal(convertedMir.locals.at(-1).storage, T.literalInt64);
+  for (let maximumRecords = 0; maximumRecords < 9; maximumRecords += 1)
+    assert.equal(produced({ ...deps, limits: { maximumRecords } }, converted.tir, []).kind, "refused", `narrow-convert under ${maximumRecords}`);
+  assert.deepEqual(produced({ ...deps, limits: { maximumRecords: 9 } }, converted.tir, []).value, convertedMir);
+
+  const name = "narrow.waiting";
+  const decision = native("-", "int32", [T.int32], T.int32, EXECUTIONS.writes);
+  const waiting = shaped(name, [["x", "required", T.optInt32, "byref-readwrite"], ["b", "required", T.int32]], T.int32,
+    b => b.block(b.returns(b.arithmetic(narrowingNode(b, name, b.id("x", 0, T.int32), T.optInt32, T.int32, "unwind"), "PlusToken",
+      b.prefix(b.id("b", 1, T.int32), "MinusToken", T.int32, decision), T.int32, plus("int32", T.int32)))));
+  const mir = lower(waiting);
+  assert.deepEqual(mir.blocks.map(block => block.terminator.kind), ["check", "invoke", "return"]);
+  assert.deepEqual(mir.blocks[1].statements.filter(record => record.kind === "assign").map(record => record.value),
+    [{ kind: "use", operand: { kind: "place", place: 1 } }]);
+  assert.deepEqual(mir.blocks[1].terminator.operands, [{ kind: "place", place: 2 }]);
+  assert.deepEqual(mir.blocks[2].statements[1].value.left, { kind: "place", place: 3 });
+  for (let maximumRecords = 0; maximumRecords < 19; maximumRecords += 1)
+    assert.equal(produced({ ...deps, limits: { maximumRecords } }, waiting.tir, []).kind, "refused", `refined waiting under ${maximumRecords}`);
+  assert.deepEqual(produced({ ...deps, limits: { maximumRecords: 19 } }, waiting.tir, []).value, mir);
+});
+
+test("typed expression wrappers evaluate their operand only and retain actual contextual conversions at the wrapper", () => {
+  for (const kind of ["AsExpression", "SatisfiesExpression", "TypeAssertionExpression"]) {
+    const name = `wrapper.identity.${kind}`;
+    const identity = shaped(name, [["x", "required", T.float64]], T.float64,
+      b => b.block(b.returns({ kind, expression: b.id("x", 0, T.float64),
+        type: { kind: "NumberKeyword", tsonic: { type: T.float64, declarations: [] } }, tsonic: value(T.float64) })));
+    const plain = lower(identity);
+    assert.deepEqual([plain.constants, plain.locals.length, plain.places.length, plain.blocks.length, plain.blocks[0].statements], [[], 1, 1, 1, []]);
+    assert.deepEqual(plain.blocks[0].terminator.value, { kind: "place", place: 0 });
+    for (let maximumRecords = 0; maximumRecords < 3; maximumRecords += 1)
+      assert.equal(produced({ ...deps, limits: { maximumRecords } }, identity.tir, []).kind, "refused", `${kind} identity under ${maximumRecords}`);
+    assert.deepEqual(produced({ ...deps, limits: { maximumRecords: 3 } }, identity.tir, []).value, plain);
+
+    const conversionName = `wrapper.converted.${kind}`;
+    const converted = shaped(conversionName, [["x", "required", T.int32]], T.float64,
+      b => b.block(b.returns(convertingNode(b, conversionName, { kind, expression: b.id("x", 0, T.int32),
+        type: { kind: "NumberKeyword", tsonic: { type: T.float64, declarations: [] } }, tsonic: value(T.int32) },
+      T.int32, T.float64, EXECUTIONS.pure, "native"))));
+    const mir = lower(converted);
+    assert.deepEqual([mir.locals.map(local => local.storage), mir.places.map(place => place.storage)], [[T.int32, T.float64], [T.int32, T.float64]]);
+    assert.deepEqual([mir.blocks[0].statements[1].value.kind, mir.blocks[0].statements[1].value.operand, mir.blocks[0].statements[1].tir],
+      ["convert", { kind: "place", place: 0 }, converted.nodeRef("converted")]);
+    for (let maximumRecords = 0; maximumRecords < 7; maximumRecords += 1)
+      assert.equal(produced({ ...deps, limits: { maximumRecords } }, converted.tir, []).kind, "refused", `${kind} converted under ${maximumRecords}`);
+    assert.deepEqual(produced({ ...deps, limits: { maximumRecords: 7 } }, converted.tir, []).value, mir);
+  }
+});
+
+test("selected labelled exits skip the correct remainders and otherwise add no block", () => {
+  const plain = shaped("label.plain", [["x", "required", T.int32]], T.int32, b => b.block(
+    labelledBlock(b, "scope", b.block(b.expressionStatement(b.id("x", 0, T.int32)))), b.returns(b.id("x", 0, T.int32))));
+  const returned = shaped("label.returned", [["x", "required", T.int32]], T.int32, b => b.block(
+    labelledBlock(b, "scope", b.block(b.returns(b.id("x", 0, T.int32)))), b.throws(b.keyword("TrueKeyword", T.bool))));
+  const broken = shaped("label.broken", [["x", "required", T.int32]], T.int32, b => b.block(
+    labelledBlock(b, "scope", b.block(selectedBreak(b, "scope"), b.throws(b.keyword("TrueKeyword", T.bool)))), b.returns(b.id("x", 0, T.int32))));
+  const outer = shaped("label.outer", [["x", "required", T.int32]], T.int32, b => b.block(
+    labelledBlock(b, "out", b.block(labelledBlock(b, "inside", b.block(selectedBreak(b, "out"), b.throws(b.keyword("FalseKeyword", T.bool)))),
+      b.throws(b.keyword("TrueKeyword", T.bool)))), b.returns(b.id("x", 0, T.int32))));
+  const alias = shaped("label.alias", [["x", "required", T.int32]], T.int32, b => b.block(
+    labelledBlock(b, "out", labelledBlock(b, "alias", b.block(selectedBreak(b, "out")), "out")), b.returns(b.id("x", 0, T.int32))));
+  for (const [program, records, blocks] of [[plain, 3, 1], [returned, 3, 1], [broken, 4, 2], [outer, 4, 2], [alias, 4, 2]]) {
+    const mir = lower(program);
+    assert.deepEqual([mir.blocks.length, mir.locals.length, mir.places.length, mir.constants.length], [blocks, 1, 1, 0]);
+    if (blocks === 2) assert.deepEqual([mir.blocks[0].terminator.kind, mir.blocks[0].terminator.target], ["goto", 1]);
+    assert.deepEqual(mir.blocks.at(-1).terminator.value, { kind: "place", place: 0 });
+    for (let maximumRecords = 0; maximumRecords < records; maximumRecords += 1)
+      assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, []).kind, "refused", `${program.tir.body} under ${maximumRecords}`);
+    assert.deepEqual(produced({ ...deps, limits: { maximumRecords: records } }, program.tir, []).value, mir);
+  }
+});
+
+test("an inner selected break resumes its own remainder before an outer break exits its scope", () => {
+  const decision = native("-", "int32", [T.int32], T.int32, EXECUTIONS.writes);
+  const program = shaped("label.inner", [["x", "required", T.int32]], T.int32, b => b.block(
+    labelledBlock(b, "out", b.block(labelledBlock(b, "inside", b.block(selectedBreak(b, "inside"))),
+      b.expressionStatement(b.prefix(b.id("x", 0, T.int32), "MinusToken", T.int32, decision)), selectedBreak(b, "out"),
+      b.throws(b.keyword("TrueKeyword", T.bool)))), b.returns(b.id("x", 0, T.int32))));
+  const mir = lower(program);
+  assert.deepEqual(mir.blocks.map(block => block.terminator.kind), ["goto", "invoke", "goto", "return"]);
+  assert.deepEqual(mir.blocks.map(block => block.statements.map(record => record.kind)), [[], ["storage-live"], [], []]);
+  assert.deepEqual([mir.blocks[0].terminator.target, mir.blocks[1].terminator.next, mir.blocks[2].terminator.target], [1, 2, 3]);
+  assert.deepEqual(mir.blocks[1].terminator.operation, typedOperation(decision));
+  assert.deepEqual(mir.blocks[3].terminator.value, { kind: "place", place: 0 });
+  for (let maximumRecords = 0; maximumRecords < 9; maximumRecords += 1)
+    assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, []).kind, "refused", `inner break under ${maximumRecords}`);
+  assert.deepEqual(produced({ ...deps, limits: { maximumRecords: 9 } }, program.tir, []).value, mir);
+});
+
+test("invalid qualified selected break and label targets are caller defects, never guessed from label spelling", () => {
+  const unknown = shaped("label.unknown", [], T.void, b => b.block({ kind: "BreakStatement", label: null,
+    tsonic: { target: b.nodeRef(0) } }));
+  assert.throws(() => produced(deps, unknown.tir, []), error => defectOfLowerMir(error) && error.message.includes("no active selected target"));
+  const foreign = shaped("label.foreign", [], T.void, b => b.block({ kind: "BreakStatement", label: null,
+    tsonic: { target: { body: bodyId("label.other"), node: 0 } } }));
+  assert.throws(() => produced(deps, foreign.tir, []), error => defectOfLowerMir(error) && error.message.includes("break targets another body"));
+  const foreignLabel = shaped("label.foreign-label", [], T.void, b => b.block({ kind: "LabeledStatement", label: b.label("x", "scope"),
+    statement: { $: "scope", ...b.block() }, tsonic: { target: { body: bodyId("label.other"), node: 0 } } }));
+  assert.throws(() => produced(deps, foreignLabel.tir, []), error => defectOfLowerMir(error) && error.message.includes("label targets another body"));
+});
+
+test("unconditional for loops have a real back edge, selected break/continue and no fabricated normal return", () => {
+  const empty = shaped("for.empty", [], T.void, b => b.block(unconditionalFor("loop", b.block()), b.throws(b.keyword("TrueKeyword", T.bool))));
+  const continuing = shaped("for.continue", [], T.void, b => b.block(unconditionalFor("loop", b.block(selectedContinue(b, "loop", false),
+    b.throws(b.keyword("TrueKeyword", T.bool)))), b.returns(null)));
+  const returned = shaped("for.returned", [["x", "required", T.int32]], T.int32,
+    b => b.block(unconditionalFor("loop", b.block(b.returns(b.id("x", 0, T.int32)))), b.throws(b.keyword("TrueKeyword", T.bool))));
+  const broken = shaped("for.broken", [["x", "required", T.int32]], T.int32,
+    b => b.block(unconditionalFor("loop", b.block({ ...selectedBreak(b, "loop"), label: null })), b.returns(b.id("x", 0, T.int32))));
+  const alias = shaped("for.alias", [["x", "required", T.int32]], T.int32,
+    b => b.block(labelledBlock(b, "scope", unconditionalFor("loop", b.block({ ...selectedBreak(b, "loop"), label: null })), "loop"), b.returns(b.id("x", 0, T.int32))));
+  for (const [program, records, endings] of [[empty, 2, ["goto", "goto"]], [continuing, 2, ["goto", "goto"]],
+    [returned, 4, ["goto", "return"]], [broken, 5, ["goto", "goto", "return"]], [alias, 5, ["goto", "goto", "return"]]]) {
+    const mir = lower(program);
+    assert.deepEqual(mir.blocks.map(block => block.terminator.kind), endings);
+    assert.deepEqual(mir.constants, []);
+    assert.equal(mir.blocks[0].terminator.target, 1);
+    if (records === 2) assert.equal(mir.blocks[1].terminator.target, 1);
+    else assert.deepEqual(mir.blocks.at(-1).terminator.value, { kind: "place", place: 0 });
+    for (let maximumRecords = 0; maximumRecords < records; maximumRecords += 1)
+      assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, []).kind, "refused", `${program.tir.body} under ${maximumRecords}`);
+    assert.deepEqual(produced({ ...deps, limits: { maximumRecords: records } }, program.tir, []).value, mir);
+  }
+});
+
+test("for expression initialization runs once before its head and nested selected loop targets stay distinct", () => {
+  const decision = native("-", "int32", [T.int32], T.int32, EXECUTIONS.writes);
+  const initialized = shaped("for.initialized", [["x", "required", T.int32]], T.int32,
+    b => b.block(unconditionalFor("loop", b.block(b.returns(b.id("x", 0, T.int32))),
+      b.prefix(b.id("x", 0, T.int32), "MinusToken", T.int32, decision))));
+  const mir = lower(initialized);
+  assert.deepEqual(mir.blocks.map(block => block.terminator.kind), ["invoke", "goto", "return"]);
+  assert.deepEqual(mir.blocks.flatMap(block => block.statements).map(record => record.kind), ["storage-live"]);
+  assert.deepEqual(mir.blocks[0].terminator.operation, typedOperation(decision));
+  assert.equal(mir.blocks[1].terminator.target, 2);
+  assert.deepEqual(mir.blocks[2].terminator.value, { kind: "place", place: 0 });
+  for (let maximumRecords = 0; maximumRecords < 8; maximumRecords += 1)
+    assert.equal(produced({ ...deps, limits: { maximumRecords } }, initialized.tir, []).kind, "refused", `for initializer under ${maximumRecords}`);
+  assert.deepEqual(produced({ ...deps, limits: { maximumRecords: 8 } }, initialized.tir, []).value, mir);
+
+  const nested = shaped("for.nested", [], T.void, b => b.block(labelledBlock(b, "outer", unconditionalFor("out-loop", b.block(
+    unconditionalFor("inside", b.block({ ...selectedBreak(b, "inside"), label: null })), selectedContinue(b, "outer", true),
+    b.throws(b.keyword("TrueKeyword", T.bool))))), b.returns(null)));
+  const graph = lower(nested);
+  assert.deepEqual(graph.blocks.map(block => [block.terminator.kind, block.terminator.target]), [["goto", 1], ["goto", 2], ["goto", 3], ["goto", 1]]);
+  assert.deepEqual([graph.constants, graph.locals, graph.places], [[], [], []]);
+  for (let maximumRecords = 0; maximumRecords < 4; maximumRecords += 1)
+    assert.equal(produced({ ...deps, limits: { maximumRecords } }, nested.tir, []).kind, "refused", `nested for under ${maximumRecords}`);
+  assert.deepEqual(produced({ ...deps, limits: { maximumRecords: 4 } }, nested.tir, []).value, graph);
+});
+
+test("for incrementors run after normal completion or selected continues through one actual tail", () => {
+  for (const [name, execution] of Object.entries({ pure: { kind: "pure" }, ...EXECUTIONS })) {
+    const decision = native("-", "int32", [T.int32], T.int32, execution);
+    for (const control of ["normal", "continue", "labelled", "nested", "alias"]) {
+      const program = shaped(`for.incrementor.${name}.${control}`, [["x", "required", T.int32]], T.void, b => {
+        const incrementor = b.prefix(b.id("x", 0, T.int32), "MinusToken", T.int32, decision);
+        const body = control === "normal" ? b.block() : control === "nested" ? b.block(
+          unconditionalFor("inside", b.block({ ...selectedBreak(b, "inside"), label: null })), selectedContinue(b, "scope", true))
+          : b.block(selectedContinue(b, control === "labelled" ? "scope" : "loop", control !== "continue"));
+        const loop = { ...unconditionalFor("loop", body), incrementor };
+        return b.block(control === "labelled" || control === "nested" || control === "alias"
+          ? labelledBlock(b, "scope", loop, control === "alias" ? "loop" : "scope") : loop);
+      });
+      const mir = lower(program);
+      const records = control === "nested" ? 11 : 9;
+      const tail = mir.blocks.find(block => block.statements.some(record => record.kind === "storage-live"));
+      assert.equal(tail !== undefined, true);
+      assert.equal(mir.blocks[0].terminator.target, 1);
+      assert.equal(mir.blocks[control === "nested" ? 3 : 1].terminator.target, tail.id);
+      assert.equal(mir.blocks.at(-1).terminator.kind, "goto");
+      assert.equal(mir.blocks.at(-1).terminator.target, 1);
+      assert.deepEqual(mir.blocks.flatMap(block => block.statements).filter(record => record.kind === "storage-live").length, 1);
+      assert.deepEqual(execution.kind === "pure" ? tail.statements[1].value.operation : tail.terminator.operation, typedOperation(decision));
+      if (execution.kind !== "pure") assert.equal(tail.terminator.unwind.kind, execution.failure === "unwind" ? "escape" : execution.failure);
+      for (let maximumRecords = 0; maximumRecords < records; maximumRecords += 1)
+        assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, []).kind, "refused", `${control}/${name} incrementor under ${maximumRecords}`);
+      assert.deepEqual(produced({ ...deps, limits: { maximumRecords: records } }, program.tir, []).value, mir);
+    }
+  }
+});
+
+test("for incrementors are skipped after break/return and initialization remains before the loop tail", () => {
+  const decision = native("-", "int32", [T.int32], T.int32, EXECUTIONS.writes);
+  for (const control of ["return", "break"]) {
+    const program = shaped(`for.incrementor.skipped.${control}`, [["x", "required", T.int32]], T.int32, b => b.block({
+      ...unconditionalFor("loop", b.block(control === "return" ? b.returns(b.id("x", 0, T.int32)) : { ...selectedBreak(b, "loop"), label: null })),
+      incrementor: b.prefix(b.id("x", 0, T.int32), "MinusToken", T.int32, decision),
+    }, b.returns(b.id("x", 0, T.int32))));
+    const mir = lower(program);
+    assert.equal(mir.blocks.some(block => block.terminator.kind === "invoke"), false);
+    assert.deepEqual(mir.blocks.flatMap(block => block.statements), []);
+    const records = control === "return" ? 4 : 5;
+    for (let maximumRecords = 0; maximumRecords < records; maximumRecords += 1)
+      assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, []).kind, "refused", `skipped ${control} under ${maximumRecords}`);
+    assert.deepEqual(produced({ ...deps, limits: { maximumRecords: records } }, program.tir, []).value, mir);
+  }
+  const initialized = shaped("for.incrementor.initialized", [["x", "required", T.int32]], T.void, b => b.block({
+    ...unconditionalFor("loop", b.block(), b.prefix(b.id("x", 0, T.int32), "MinusToken", T.int32, decision)),
+    incrementor: b.prefix(b.id("x", 0, T.int32), "MinusToken", T.int32, decision),
+  }));
+  const mir = lower(initialized);
+  assert.deepEqual(mir.blocks.map(block => block.terminator.kind), ["invoke", "goto", "goto", "invoke", "goto"]);
+  assert.deepEqual(mir.blocks.map(block => block.terminator.target ?? null), [null, 2, 3, null, 2]);
+  assert.equal(mir.blocks[0].terminator.next, 1);
+  assert.equal(mir.blocks[3].terminator.next, 4);
+  for (let maximumRecords = 0; maximumRecords < 13; maximumRecords += 1)
+    assert.equal(produced({ ...deps, limits: { maximumRecords } }, initialized.tir, []).kind, "refused", `initialized incrementor under ${maximumRecords}`);
+  assert.deepEqual(produced({ ...deps, limits: { maximumRecords: 13 } }, initialized.tir, []).value, mir);
+});
+
+test("conditional for frontiers and invalid selected continue owners remain explicit", () => {
+  const condition = shaped("for.frontier.condition", [], T.void,
+    b => b.block({ ...unconditionalFor("loop", b.block()), condition: b.keyword("TrueKeyword", T.bool) }));
+  assert.throws(() => produced(deps, condition.tir, []), notLoweredYet("a for loop with a condition"));
+  const declaration = shaped("for.frontier.declaration", [], T.void,
+    b => b.block(unconditionalFor("loop", b.block(), b.declarationList([]))));
+  assert.throws(() => produced(deps, declaration.tir, []), notLoweredYet("for initialization by declarations"));
+  const missing = shaped("for.missing-initializer", [], T.void,
+    b => b.block(unconditionalFor("loop", b.block(), { kind: "MissingDeclaration", modifiers: null, tsonic: null })));
+  assert.throws(() => produced(deps, missing.tir, []), error => defectOfLowerMir(error) && error.message.includes("missing declaration in for initialization"));
+  const foreign = shaped("for.foreign", [], T.void, b => b.block({ kind: "ContinueStatement", label: null,
+    tsonic: { target: { body: bodyId("for.other"), node: 0 } } }));
+  assert.throws(() => produced(deps, foreign.tir, []), error => defectOfLowerMir(error) && error.message.includes("continue targets another body"));
+  const unknown = shaped("for.unknown", [], T.void, b => b.block({ kind: "ContinueStatement", label: null, tsonic: { target: b.nodeRef(0) } }));
+  assert.throws(() => produced(deps, unknown.tir, []), error => defectOfLowerMir(error) && error.message.includes("no active loop target"));
+  const block = shaped("for.non-loop", [], T.void, b => b.block(labelledBlock(b, "scope", b.block(selectedContinue(b, "scope", true)))));
+  assert.throws(() => produced(deps, block.tir, []), error => defectOfLowerMir(error) && error.message.includes("no active loop target"));
+});
+
 test("first producer: a record limit that is not a count is the caller's defect, raised before any record is made (K-3338)", () => {
   const program = add("first.add.limit", T.float64, plus("float64", T.float64));
   for (const maximumRecords of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, -1, 1.5, 8.999])
@@ -316,7 +932,7 @@ test("first producer: a record limit that is not a count is the caller's defect,
       error => error instanceof TypeError && error.message === "lower-mir: maximumRecords must be a finite nonnegative integer", String(maximumRecords));
   // Zero is a count: the body is refused with the size-limit diagnostic, not raised. The exact need is admitted.
   const zero = produced({ ...deps, limits: { maximumRecords: 0 } }, program.tir, []);
-  assert.deepEqual([zero.kind, zero.diagnostics.map(diagnostic => diagnostic.code.rendered)], ["refused", ["TSONIC_MIR_SIZE_LIMIT_EXCEEDED"]]);
+  assert.deepEqual([zero.kind, zero.diagnostics.map(diagnostic => diagnostic.code.rendered)], ["refused", ["TSONIC_COMPILER_RESOURCE_LIMIT"]]);
   assert.equal(produced({ ...deps, limits: { maximumRecords: 9 } }, program.tir, []).kind, "ok");
   // The check comes first: a body past the frontier with an invalid limit is still the limit's defect.
   const generator = shaped("first.limit.generator", [["a", "required", T.int32]], T.int32, b => b.block(b.returns(b.id("a", 0, T.int32))), { extra: { generator: true } });
@@ -344,10 +960,20 @@ test("first producer: the frontier is one check that names what it met", () => {
   refused(returning("frontier.captures", a, undefined, undefined, { extra: { captures: [{ local: { body: bodyId("frontier.outer"), local: 0 }, capture: "captured-value" }] } }), "a body that captures");
   for (const role of ["optional", "default", "rest"]) refused(returning(`frontier.${role}`, a, [["a", role, T.int32]]), `a parameter of role ${role}`);
   // Statements and expressions.
-  refused(shaped("frontier.statement", [["a", "required", T.int32]], T.int32, b => b.block(b.expressionStatement(a(b)), b.returns(a(b)))),
-    "the statement ExpressionStatement");
-  refused(returning("frontier.literal", b => b.num("1", T.int32)), "the expression NumericLiteral");
-  refused(returning("frontier.sequence", b => b.sequence(a(b), a(b), T.int32)), "a binary expression of role sequence");
+  refused(shaped("frontier.statement", [["a", "required", T.int32]], T.int32, b => b.block(b.whileLoop(b.keyword("TrueKeyword", T.bool), b.returns(a(b))))),
+    "the statement WhileStatement");
+  refused(returning("frontier.numeric-role", b => ({ ...b.num("1", T.int32), tsonic: { role: "type-literal", type: T.int32 } })),
+    "a numeric literal of role type-literal");
+  refused(returning("frontier.bigint-role", () => ({ kind: "BigIntLiteral", text: "1n", tokenFlags: [],
+    tsonic: { role: "type-literal", type: T.literalBigint } }), [], T.literalBigint), "a bigint literal of role type-literal");
+  refused(returning("frontier.prefix-role", b => ({ ...b.prefix(a(b), "MinusToken", T.int32, P),
+    tsonic: { role: "type-literal", type: T.int32 } })), "a prefix expression of role type-literal");
+  refused(returning("frontier.keyword-role", b => ({ ...b.keyword("TrueKeyword", T.bool), tsonic: { role: "type-literal", type: T.bool } }), [], T.bool),
+    "a keyword literal of role type-literal");
+  refused(returning("frontier.string-role", () => ({ kind: "StringLiteral", text: "x", tokenFlags: [],
+    tsonic: { role: "type-literal", type: T.string } }), [], T.string), "a string literal of role type-literal");
+  refused(returning("frontier.assignment", b => b.assign(b.target("a", 0, T.int32), "EqualsToken", a(b), T.int32, T.int32)),
+    "a binary expression of role assignment");
   refused(returning("frontier.target", b => b.target("a", 0, T.int32)), "an identifier of role assignment-target");
   refused(returning("frontier.global", b => b.global("g", "frontier.g", T.int32)), "a name resolved to a definition");
   refused(shaped("frontier.outerLocal", [["a", "required", T.int32]], T.int32,
@@ -359,19 +985,10 @@ test("first producer: the frontier is one check that names what it met", () => {
   "a local that is not a parameter of the body");
   // Values: the arms of the conversion decision that are not the identity, a narrowed use, a selected demand. None
   // is reached by a checkpoint program yet; each is refused, so none looks lowered.
-  const converting = typedOperation({ kind: "selected", operation: { kind: "core", declaration: def("frontier.convert"), bindings: { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] } },
-    operands: [T.int32], result: T.int32, execution: EXECUTIONS.pure });
   const valued = (name, extra) => returning(name, b => b.id("a", 0, T.int32, { value: extra }));
-  refused(valued("frontier.convert", { conversion: { kind: "convert", role: "return", operation: converting } }), "a conversion by the conversion identity");
-  refused(valued("frontier.backed", { conversion: { kind: "backed-convert", role: "return", embedding: { kind: "identity" }, operation: converting } }),
-    "a conversion backed by a core or library operation");
-  refused(valued("frontier.narrowed", { narrowing: { kind: "narrowed", source: T.int32, result: T.int32, proof: { kind: "identity" }, failure: "unwind" } }), "a narrowed use");
   refused(valued("frontier.demand", { demand: { kind: "never", control: 0 } }), "a value demanded under a selection");
   refused(returning("frontier.parenthesized", b => ({ ...b.paren(a(b), T.int32), tsonic: { ...b.paren(a(b), T.int32).tsonic, demand: { kind: "never", control: 0 } } })),
     "a value demanded under a selection");
-  refused(returning("frontier.sum", b => ({ ...b.arithmetic(a(b), "PlusToken", a(b), T.int32, P),
-    tsonic: { ...b.arithmetic(a(b), "PlusToken", a(b), T.int32, P).tsonic, narrowing: { kind: "narrowed", source: T.int32, result: T.int32, proof: { kind: "identity" }, failure: "unwind" } } })),
-  "a narrowed use");
 });
 
 test("first producer: a body that must not be offered is a caller defect, told from the frontier", () => {
@@ -380,6 +997,8 @@ test("first producer: a body that must not be offered is a caller defect, told f
   const returning = (name, makeExpression, completion = T.int32) =>
     shaped(name, [["a", "required", T.int32]], completion, b => b.block(b.returns(makeExpression(b))));
   const deferred = { invocation: { rule: "embed", input: null }, result: T.int32 };
+  defect(returning("defect.prefix", b => ({ ...b.prefix(b.id("a", 0, T.int32), "MinusToken", T.int32, plus("int32", T.int32)),
+    tsonic: { ...value(T.int32), role: "value", operation: { kind: "deferred", deferred } } })), "a deferred operation");
   defect(returning("defect.conversion", b => b.id("a", 0, T.int32, { value: { conversion: { kind: "deferred", deferred } } })), "a deferred conversion");
   defect(returning("defect.operation", b => ({ ...b.arithmetic(b.id("a", 0, T.int32), "PlusToken", b.id("a", 0, T.int32), T.int32, plus("int32", T.int32)),
     tsonic: { ...b.arithmetic(b.id("a", 0, T.int32), "PlusToken", b.id("a", 0, T.int32), T.int32, plus("int32", T.int32)).tsonic, operation: { kind: "deferred", deferred } } })),
@@ -563,11 +1182,6 @@ for (const policy of POLICIES) {
     if (policy.bounds === "abort") { assert.equal(path.end, "abort"); assert.equal(tested.at(-1), "a[0]#read"); }
     else { assert.equal(path.end, "unwind"); assert.deepEqual(tested, ["a[0]#read", "a[0]#write"]); }
   });
-
-  // Section 7 part 8, WT-6: "in `orderGrow` the callee appends to the same array … in `orderFixed` the extent cannot change
-  // and no second control point is lowered". LowerMir reads no summary and no type: whether the checked extent can
-  // change is the `extent` of the element access decision (K-3238 point 1; W2's field), set in each input. `order`
-  // above carries the same fact, `mutable` (R1 E-1). These cases run when the MIR verifier reads the field (H2).
 
   test(`WT-6 orderGrow (${policy.bounds}/${policy.absent}): a call between the read and the store over a growable carrier: a second control point`, () => {
     const program = wt6(policy).orderGrow;

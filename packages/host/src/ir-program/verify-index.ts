@@ -3,10 +3,10 @@ import type { DefId, ModuleId } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import { verifyMetadata, verifySummary } from "../ir-facts/index.js";
 import { indexSyntaxTree } from "../ir-hir/index.js";
-import { printTypes, verifyTypes } from "../ir-types/index.js";
+import { constantReferenceKey, printTypes, verifyTypes } from "../ir-types/index.js";
 import type { TirVerifierInput } from "../ir-tir/contract.js";
 import type { HirCallableEndpoint } from "../ir-hir/contract.js";
-import type { BindingVerificationInput, BodyInstance, TypeRule, TypeSite } from "../ir-types/contract.js";
+import type { BindingVerificationInput, TypeRule, TypeSite } from "../ir-types/contract.js";
 import type { Violation } from "../diag/contract.js";
 import type {
   ProgramIndex,
@@ -17,7 +17,7 @@ import type {
 } from "./contract.js";
 
 import type { ProgramLookup, ProgramViolation } from "./program-values.js";
-import { artifactBindingData, artifactEnvironmentKey, compareInstances, compareText, instanceKey, numberDetail, programChildRule, programLookup, requireInstantiationMaximum, textDetail, uniqueRows } from "./program-values.js";
+import { artifactBindingData, artifactEnvironmentKey, compareText, numberDetail, programChildRule, programLookup, requireInstantiationMaximum, textDetail, uniqueRows } from "./program-values.js";
 import { verifyBindingBounds, verifyBodyInventory, verifyModules, verifyPackages } from "./verify-structure.js";
 
 function numericPosition(value: number, length: number): boolean {
@@ -164,15 +164,15 @@ function verifyBodyBindings(
     }
   }
   for (const constant of index.constants) {
-    const site: ProgramSite = { kind: "body", instance: constant.initializer };
-    const owner = context.facts.bodyOwner(constant.initializer.body);
+    const site: ProgramSite = { kind: "body", instance: constant.reference.initializer };
+    const owner = context.facts.bodyOwner(constant.reference.initializer.body);
     if (owner === null) {
-      violations.push({ rule: "cross-owner-reference-resolves", site, detail: [textDetail(constant.initializer.body)] });
-    } else if (constant.initializer.bindings.kind === "instantiated") {
+      violations.push({ rule: "cross-owner-reference-resolves", site, detail: [textDetail(constant.reference.initializer.body)] });
+    } else if (constant.reference.initializer.bindings.kind === "instantiated") {
       const scope = context.facts.bindingScopeOf(owner);
       if (scope === null) violations.push({ rule: "bindings-complete", site, detail: [textDetail(owner)] });
       else {
-        bindings.push({ vector: constant.initializer.bindings.bindings, scope });
+        bindings.push({ vector: constant.reference.initializer.bindings.bindings, scope });
         sites.push(site);
       }
     }
@@ -214,17 +214,17 @@ function verifyPublishedRecords(index: ProgramIndex, context: ProgramVerificatio
       violations.push({ rule: programChildRule("summary-valid", child.rule), site, detail: [textDetail(child.rule), ...child.detail] });
     }
   }
-  let previousConstant: BodyInstance | null = null;
+  let previousConstant: string | null = null;
   const constantKeys = new Set<string>();
   for (const constant of index.constants) {
-    const key = instanceKey(constant.initializer);
-    const site: ProgramSite = { kind: "body", instance: constant.initializer };
-    if (previousConstant !== null && compareInstances(previousConstant, constant.initializer) > 0) {
-      violations.push({ rule: "constants-order", site, detail: [textDetail(instanceKey(previousConstant)), textDetail(key)] });
+    const key = constantReferenceKey(constant.reference);
+    const site: ProgramSite = { kind: "body", instance: constant.reference.initializer };
+    if (previousConstant !== null && previousConstant > key) {
+      violations.push({ rule: "constants-order", site, detail: [textDetail(previousConstant), textDetail(key)] });
     }
     if (constantKeys.has(key)) violations.push({ rule: "constant-key-unique", site, detail: [textDetail(key)] });
     constantKeys.add(key);
-    previousConstant = constant.initializer;
+    previousConstant = key;
     if (!numericPosition(constant.value.type, index.types.terms.length)) {
       violations.push({ rule: "constant-type-resolves", site, detail: [numberDetail(constant.value.type)] });
     }

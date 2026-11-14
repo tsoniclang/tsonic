@@ -164,7 +164,9 @@ export function createDecisionWires(scalars: ScalarWires): DecisionWires {
       field("bindings", () => artifactWire, value => value.bindings, bindings => finish(() => ({ body, bindings })))));
 
   const referenceWire = record<ConstantReference>("ConstantReference", () =>
-    field("initializer", () => instanceWire, value => value.initializer, initializer => finish(() => ({ initializer }))));
+    field("initializer", () => instanceWire, value => value.initializer, initializer =>
+      field("context", () => literals(["enum-member", "fixed-array-extent", "compile-time"]), value => value.context,
+        context => finish(() => ({ initializer, context })))));
 
   const rationalWire = record<ExactRational>("ExactRational", () =>
     field("numerator", () => bigintWire, value => value.numerator, numerator =>

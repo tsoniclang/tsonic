@@ -1178,8 +1178,8 @@ for (const path of [...functionCases, ...verifierCases]) {
     assert.equal(result.status, "passed", JSON.stringify(result.status === "failed" ? result : { path }));
   });
 }
-test("exact five annotated runtime ports, no parallel printer or private metadata API", () => {
-  assertCompleteValue(Object.keys(product).sort(), ["memberSelectionKey", "parseTir", "printTir", "verifyTir", "verifyTirModule"]);
+test("exact six annotated runtime ports, no parallel printer or private metadata API", () => {
+  assertCompleteValue(Object.keys(product).sort(), ["memberSelectionKey", "memberStorageKey", "parseTir", "printTir", "verifyTir", "verifyTirModule"]);
 });
 
 test("the member selection key separates two selections that differ in any one field, and is total over lists with holes", () => {
@@ -1248,6 +1248,44 @@ test("the member selection key separates two selections that differ in any one f
   assertCompleteValue(holed[2], [null]);
   assertCompleteValue(holed[10][3], [[null], [], [], []]);
   assertCompleteValue(holed[10][5], [null, ["rest", 0, [null], "by-value"]]);
+});
+
+test("storage member identity retains actual origins, declarations and complete bindings but excludes access and value-result details", () => {
+  const owner = "D[M[P[p];m];owner]";
+  const other = "D[M[P[p];m];other]";
+  const body = "B[D[M[P[p];m];owner];function;0]";
+  const bindings = { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] };
+  const base = { decision: { key: { kind: "text", value: "field" }, origins: [{ kind: "declared", declaration: owner }],
+    selectedDeclarations: [owner], primary: owner, read: 0, write: 0, getter: null, setter: null, bindings,
+    location: { kind: "data", check: { kind: "none" }, receiver: "in-place" } }, getter: null, setter: null };
+  const encode = member => JSON.stringify(product.memberStorageKey(member), (_name, value) => typeof value === "bigint" ? `${value}n` : value);
+  assertCompleteValue(product.memberStorageKey(base), [["text", "field"], [["declared", owner]], [owner], owner, [[], [], [], []]]);
+  const endpoint = { declaration: owner, role: "advertised", signature: 0, body };
+  for (const change of [{ read: null }, { read: 7 }, { write: null }, { write: 8 }, { getter: endpoint }, { setter: endpoint },
+    { location: { kind: "data", check: { kind: "required", failure: "abort" }, receiver: "by-reference" } },
+    { location: { kind: "accessor" } }]) {
+    const changed = { ...base, decision: { ...base.decision, ...change } };
+    assert.equal(encode(changed), encode(base));
+    assert.equal(isDeepStrictEqual(product.memberSelectionKey(changed), product.memberSelectionKey(base)), false);
+  }
+  const changes = [
+    { key: { kind: "text", value: "other" } },
+    { key: { kind: "number", value: { numerator: 1n, denominator: 1n, negativeZero: false } } },
+    { key: { kind: "symbol", declaration: owner } },
+    { origins: [{ kind: "declared", declaration: other }] },
+    { origins: [{ kind: "class-prototype", owner }] },
+    { origins: [{ kind: "mapped", owner: { kind: "body", value: { body, node: 0 } }, key: { kind: "text", value: "field" } }] },
+    { origins: [{ kind: "mapped", owner: { kind: "item", value: { owner, node: 0 } }, key: { kind: "text", value: "field" } }] },
+    { selectedDeclarations: [other] }, { primary: null },
+  ];
+  for (const family of ["classBindings", "methodBindings", "capturedBindings", "selfBindings"]) {
+    const rigid = family === "selfBindings" ? { kind: "rigid", owner } : { kind: "rigid", parameter: { owner, index: 0 } };
+    changes.push({ bindings: { ...bindings, [family]: [rigid] } });
+  }
+  const keys = [base, ...changes.map(change => ({ ...base, decision: { ...base.decision, ...change } }))].map(encode);
+  assert.equal(new Set(keys).size, keys.length);
+  const holes = { ...base, decision: { ...base.decision, origins: new Array(2), selectedDeclarations: new Array(1) } };
+  assertCompleteValue(product.memberStorageKey(holes), [["text", "field"], [null, null], [null], owner, [[], [], [], []]]);
 });
 
 test("the binding vector key encodes each position of each family on its own, a hole included", () => {

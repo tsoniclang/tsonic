@@ -18,7 +18,7 @@ import { compileIsolated, isolationDeps } from "../architecture/host/isolation.m
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const tooling = process.env.TSONIC_HOST_TOOLING_ROOT ?? repository;
 const quarantineRoots = JSON.parse(readFileSync(resolve(repository, "test/architecture/quarantine/areas.json"), "utf8")).areas.map(area => area.directory);
-const names = ["index", "print", "parse", "verify", "verify-control", "verify-laws", "verify-storage", "text", "text-decisions"];
+const names = ["index", "print", "parse", "verify", "verify-control", "verify-laws", "verify-storage", "local-ownership", "text", "text-decisions"];
 const runtimeFiles = names.map(name => resolve(repository, `packages/host/dist/ir-mir/${name}.js`));
 const sourceFiles = [...names, "contract"].map(name => `packages/host/src/ir-mir/${name}.ts`);
 const evidenceDirectory = resolve(repository, ".analysis/20261111-f-ir-mir/unit-proof");
@@ -136,7 +136,7 @@ for (const level of ["function", "verifier"]) for (const name of readdirSync(res
         const value = JSON.parse(input.text);
         const declarations = new Map(value.declarations);
         const owners = new Map(value.bodyOwners);
-        const context = { limits: value.limits, source: value.source, types: value.types, declarationOf: definition => {
+        const context = { limits: value.limits, source: value.source, bodyOf: () => null, types: value.types, declarationOf: definition => {
           assert.equal(declarations.has(definition), true, `fixture declared lookup ${definition}`);
           return declarations.get(definition);
         }, bodyOwner: body => {
@@ -155,8 +155,25 @@ for (const level of ["function", "verifier"]) for (const name of readdirSync(res
   });
 }
 
-test("MIR public index has exactly the four locked ports", () => {
-  same(Object.keys(product).sort(), ["constantKeyOfMir", "parseMir", "printMir", "verifyMir"], "exact public value inventory");
+test("MIR public index has exactly the five current ports", () => {
+  same(Object.keys(product).sort(), ["constantKeyOfMir", "localOwnershipOfMir", "parseMir", "printMir", "verifyMir"], "exact public value inventory");
+});
+
+test("MIR storage modes preserve their exact scalar transport and one ownership projection", () => {
+  const base = parsedBody();
+  for (const [mode, ownership] of [["local", "body"], ["by-value", "body"], ["move", "body"], ["captured-value", "body"],
+    ["byref-readonly", "external"], ["byref-readwrite", "external"], ["byref-writeonly-must-init", "external"],
+    ["borrow-shared", "external"], ["borrow-mut", "external"], ["captured-location", "external"], [null, "undecided"]]) {
+    assert.equal(product.localOwnershipOfMir(mode), ownership);
+    const local = { id: 0, storage: 0, role: { kind: "user" }, mode, source: null, origin: site.origin };
+    const body = { ...base, locals: [local] };
+    const text = product.printMir(body);
+    same(product.parseMir(text), { kind: "parsed", value: body }, "the exact mode survives the canonical codec");
+    assert.equal(product.parseMir(text.replace(/, mode=(?:"[^"]*"|null)/, "")).kind, "invalid-text", "the removed mode-less record is rejected");
+  }
+  const body = { ...base, locals: [{ id: 0, storage: 0, role: { kind: "user" }, mode: "local", source: null, origin: site.origin }] };
+  same(verified({ ...body, locals: [{ ...body.locals[0], mode: "by-value" }] }, sourceContext(base)),
+    [expectedViolation("local-storage-exact", { kind: "local", local: 0 })], "a nonsource local cannot invent parameter ownership");
 });
 
 test("empty typed tables parse unchanged and print every required field in declaration order", () => {
@@ -165,6 +182,26 @@ test("empty typed tables parse unchanged and print every required field in decla
   const actualText = product.printMir(parsed.value);
   comparison(actualText, emptyText, Object.is(actualText, emptyText), "complete empty-table text");
   same(product.parseMir(` \r\n\t${emptyText} \n`), parsed, "all insignificant whitespace retains the complete value");
+});
+
+test("internal capture lookup spends the same verifier account and stops before another owner query", () => {
+  const base = parsedBody(), input = sourceContext(base);
+  const instance = { body: base.body, bindings: base.bindings };
+  const call = { ...base.blocks[0].terminator, kind: "call", callee: { kind: "body", instance, captures: [] },
+    receiver: null, arguments: [], destination: null, next: 1, unwind: { kind: "escape" }, step: null };
+  const body = { ...base, blocks: [{ ...base.blocks[0], terminator: call }, { ...base.blocks[0], id: 1 }] };
+  for (const [maximumWork, expectedQueries] of [[0, 0], [1, 1], [2, 1]]) {
+    let queries = 0;
+    const context = { ...input, limits: { maximumWork }, bodyOf: () => { queries += 1; return input.source; } };
+    same(product.verifyMir(body, context), { kind: "resource-limit", body: base.body, dimension: "work", maximum: maximumWork },
+      "no selection findings are a partial answer when this invocation refuses");
+    assert.equal(queries, expectedQueries, "the original account stops before further acquisition");
+  }
+  let queries = 0;
+  const repeated = { ...body, blocks: [body.blocks[0], { ...body.blocks[0], id: 1, terminator: { ...call, next: 2 } },
+    { ...base.blocks[0], id: 2 }] };
+  verified(repeated, { ...input, bodyOf: () => { queries += 1; return input.source; } });
+  assert.equal(queries, 1, "repeated calls reuse the same ready body at the same exact binding");
 });
 
 test("root, required fields, typed scalar prefixes and trailing text report the actual first error", () => {
@@ -205,7 +242,7 @@ test("MIR identity, variant, Boolean and bigint failures preserve the first exac
   for (const [token, delta, expected, found] of [
     ["01n", 1, "bigint", "1"], ["1.0n", 1, "n", "."], ["1nx", 2, "bigint", "x"], ["-n", 1, "bigint", "n"],
   ]) invalidText(`${bigintPrefix}${token})`, bigintPrefix.length + delta, [expected], found);
-  const passPrefix = `${fieldPrefix}bindings=parametric(), entries=[], locals=[MirLocal(id=l:0, storage=t:0, role=user(), source=null, origin=Origin(module=mod:"M[P[p];m]", start=0, length=0, derived=[lowering(pass=`;
+  const passPrefix = `${fieldPrefix}bindings=parametric(), entries=[], locals=[MirLocal(id=l:0, storage=t:0, role=user(), mode="local", source=null, origin=Origin(module=mod:"M[P[p];m]", start=0, length=0, derived=[lowering(pass=`;
   const passes = ["front", "decls", "infer", "elaborate", "validate", "lower-mir", "evaluate", "metadata", "liveness",
     "initialization", "refinements", "origins", "suspension", "errorStorage", "pointerBacking", "summaries", "pipeline"].map(value => JSON.stringify(value));
   invalidText(`${passPrefix}front)`, passPrefix.length, passes, "f");
@@ -240,8 +277,8 @@ for (const [value, text] of [
   [{ kind: "exception" }, "exception()"], [{ kind: "completion" }, "completion()"],
 ]) {
   test(`MIR local role ${value.kind} retains all required data`, () => {
-    const local = { id: 0, storage: 0, role: value, source: null, origin };
-    const row = `MirLocal(id=l:0, storage=t:0, role=${text}, source=null, origin=${originText})`;
+    const local = { id: 0, storage: 0, role: value, mode: "local", source: null, origin };
+    const row = `MirLocal(id=l:0, storage=t:0, role=${text}, mode="local", source=null, origin=${originText})`;
     roundtrip({ ...emptyValue, locals: [local] }, document(row, "", "", ""), `local ${value.kind}`);
   });
 }
@@ -272,7 +309,7 @@ for (const [value, text] of [
   [{ kind: "metadata", definition: "D[M[P[p];m];run]", bindings: { kind: "instantiated", bindings: bindingVector } },
     `metadata(definition=def:"D[M[P[p];m];run]", bindings=instantiated(bindings=${bindingText}))`],
   [{ kind: "observation", at: nodeRef }, `observation(at=${nodeText})`],
-  [{ kind: "constant", reference: { initializer: instance } }, `constant(reference=ConstantReference(initializer=${instanceText}))`],
+  [{ kind: "constant", reference: { initializer: instance, context: "compile-time" } }, `constant(reference=ConstantReference(initializer=${instanceText}, context="compile-time"))`],
 ]) {
   test(`MIR constant arm ${value.kind} retains its actual qualified context`, () => {
     const constant = { id: 0, type: 0, value };
@@ -317,8 +354,8 @@ for (const [value, text] of [
   [{ kind: "aggregate", type: 0, aggregate: { kind: "record", fields: [{ member, value: placeOperand }] } },
     `aggregate(type=t:0, aggregate=record(fields=[MirAggregateField(member=${memberText}, value=${operandText})]))`],
   [{ kind: "address-of", place: 0, type: 0 }, "address-of(place=p:0, type=t:0)"],
-  [{ kind: "closure", instance, captures: [{ local: { body: bodyIdentity, local: 0 }, place: 0 }] },
-    `closure(instance=${instanceText}, captures=[MirClosureCapture(local=LocalRef(body=body:${JSON.stringify(bodyIdentity)}, local=l:0), place=p:0)])`],
+  [{ kind: "closure", instance, captures: [{ local: { body: bodyIdentity, local: 0 }, place: 0, capture: "captured-value" }] },
+    `closure(instance=${instanceText}, captures=[MirClosureCapture(local=LocalRef(body=body:${JSON.stringify(bodyIdentity)}, local=l:0), place=p:0, capture="captured-value")])`],
 ]) {
   test(`MIR rvalue ${text} is a complete typed round trip`, () => {
     const statement = { ...site, kind: "assign", step: null, place: 0, value };
@@ -332,9 +369,9 @@ for (const [value, text] of [
 test("MIR call of an internal body, an omitted argument and two entries are complete typed round trips", () => {
   // S2-18: the callee that is a body instance with its captures; an argument the call omits; a body with an entry
   // for each supplied count.
-  const terminator = { ...site, kind: "call", step: null, callee: { kind: "body", instance, captures: [{ local: { body: bodyIdentity, local: 0 }, place: 0 }] },
+  const terminator = { ...site, kind: "call", step: null, callee: { kind: "body", instance, captures: [{ local: { body: bodyIdentity, local: 0 }, place: 0, capture: "captured-location" }] },
     receiver: null, arguments: [{ kind: "value", passing: "by-value", operand: constantOperand }, { kind: "omitted" }], destination: null, next: 0, unwind: { kind: "escape" } };
-  const text = `call(${siteText}, callee=body(instance=${instanceText}, captures=[MirClosureCapture(local=LocalRef(body=body:${JSON.stringify(bodyIdentity)}, local=l:0), place=p:0)]), receiver=null, arguments=[value(passing="by-value", operand=${constantOperandText}), omitted()], destination=null, next=b:0, unwind=escape(), step=null)`;
+  const text = `call(${siteText}, callee=body(instance=${instanceText}, captures=[MirClosureCapture(local=LocalRef(body=body:${JSON.stringify(bodyIdentity)}, local=l:0), place=p:0, capture="captured-location")]), receiver=null, arguments=[value(passing="by-value", operand=${constantOperandText}), omitted()], destination=null, next=b:0, unwind=escape(), step=null)`;
   roundtrip({ ...emptyValue, entries: [{ provided: 2, block: 0 }, { provided: 1, block: 0 }], blocks: [{ ...site, id: 0, statements: [], terminator }] },
     document("", "", "", `MirBlock(${siteText}, id=b:0, statements=[], terminator=${text})`, undefined, undefined,
       "MirEntry(provided=2, block=b:0), MirEntry(provided=1, block=b:0)"), "body callee, omitted argument, two entries");
@@ -508,8 +545,8 @@ test("MIR origins retain every lowering pass, exact expansion string and source 
   const derived = [...passes.map(pass => ({ kind: "lowering", pass })), { kind: "expansion", expansion: "\uD800.expansion\n" }];
   const exactOrigin = { ...origin, start: -0, length: 1.25, derived };
   const exactText = `Origin(module=mod:"M[P[p];m]", start=-0, length=1.25, derived=[${passes.map(pass => `lowering(pass=${JSON.stringify(pass)})`).join(", ")}, expansion(expansion=exp:"\\ud800.expansion\\n")])`;
-  const local = { id: 0, storage: 0, role: { kind: "user" }, source: { body: bodyIdentity, local: 2 }, origin: exactOrigin };
-  roundtrip({ ...emptyValue, locals: [local] }, document(`MirLocal(id=l:0, storage=t:0, role=user(), source=LocalRef(body=body:${JSON.stringify(bodyIdentity)}, local=l:2), origin=${exactText})`, "", "", ""), "all origin derivations and unnormalized range");
+  const local = { id: 0, storage: 0, role: { kind: "user" }, mode: "local", source: { body: bodyIdentity, local: 2 }, origin: exactOrigin };
+  roundtrip({ ...emptyValue, locals: [local] }, document(`MirLocal(id=l:0, storage=t:0, role=user(), mode="local", source=LocalRef(body=body:${JSON.stringify(bodyIdentity)}, local=l:2), origin=${exactText})`, "", "", ""), "all origin derivations and unnormalized range");
 });
 
 const returnNodeText = `NodeRef(body=body:${JSON.stringify(bodyIdentity)}, node=n:1)`;
@@ -552,7 +589,7 @@ function sourceContext(body = parsedBody()) {
     assert.equal(bodyOwners.has(identity), true, `no undeclared MIR body-owner lookup: ${identity}`);
     return bodyOwners.get(identity);
   };
-  return { limits: verificationLimits, source, types, declarationOf, declarations, bodyOwner, bodyOwners };
+  return { limits: verificationLimits, source, bodyOf: () => null, types, declarationOf, declarations, bodyOwner, bodyOwners };
 }
 
 /** The findings of a verification that ran to its end. A refusal for resources is not a list of findings and fails the case. */
@@ -596,7 +633,7 @@ test("real source TIR return body verifies straight-line, diamond, loop and unre
 for (const [name, change, expected] of [
   ["entry-block-zero", body => ({ ...body, blocks: [] }),
     [expectedViolation("entry-block-zero", { kind: "body" }), expectedViolation("entries-exact", { kind: "body" })]],
-  ["local-id-dense", body => ({ ...body, locals: [{ id: identities.localId(1), storage: identities.tyId(0), role: { kind: "temporary" }, source: null, origin: body.blocks[0].origin }] }),
+  ["local-id-dense", body => ({ ...body, locals: [{ id: identities.localId(1), storage: identities.tyId(0), role: { kind: "temporary" }, mode: "local", source: null, origin: body.blocks[0].origin }] }),
     [expectedViolation("local-id-dense", { kind: "body" }, [{ kind: "number", value: 0 }])]],
   ["constant-id-dense", body => ({ ...body, constants: [{ id: identities.constId(1), type: identities.tyId(1), value: { kind: "literal", value: { kind: "boolean", value: true } } }] }),
     [expectedViolation("constant-id-dense", { kind: "body" }, [{ kind: "number", value: 0 }])]],
@@ -609,7 +646,7 @@ for (const [name, change, expected] of [
     base: { kind: "local", local: identities.localId(9) } }] }), [expectedViolation("place-root-resolves", { kind: "place", place: 0 })]],
   ["place-parent-precedes", body => ({ ...body, places: [{ id: identities.placeId(0), storage: identities.tyId(0), origin: body.blocks[0].origin,
     base: { kind: "place", place: identities.placeId(0), projection: { kind: "deref" }, tir: nodeRef } }] }), [expectedViolation("place-parent-precedes", { kind: "place", place: 0 })]],
-  ["origin-valid", body => ({ ...body, locals: [{ id: identities.localId(0), storage: identities.tyId(0), role: { kind: "temporary" }, source: null,
+  ["origin-valid", body => ({ ...body, locals: [{ id: identities.localId(0), storage: identities.tyId(0), role: { kind: "temporary" }, mode: "local", source: null,
     origin: { ...body.blocks[0].origin, start: -1 } }] }), [expectedViolation("origin-valid", { kind: "local", local: 0 })]],
   ["tir-node-resolves", body => ({ ...body, blocks: [{ ...body.blocks[0], tir: { body: body.body, node: identities.nodeId(99) } }] }),
     [expectedViolation("tir-node-resolves", { kind: "block", block: 0 })]],
@@ -618,7 +655,7 @@ for (const [name, change, expected] of [
   ["edge-target-resolves", body => ({ ...body, blocks: [{ ...body.blocks[0], terminator: { ...body.blocks[0].terminator,
     kind: "goto", target: identities.blockId(99) } }] }), [expectedViolation("edge-target-resolves", { kind: "instruction", block: 0, statement: null },
     [{ kind: "text", value: "normal" }, { kind: "number", value: 99 }])]],
-  ["completion-selector-total", body => ({ ...body, locals: [{ id: identities.localId(0), storage: identities.tyId(1), role: { kind: "completion" }, source: null, origin: body.blocks[0].origin }] }),
+  ["completion-selector-total", body => ({ ...body, locals: [{ id: identities.localId(0), storage: identities.tyId(1), role: { kind: "completion" }, mode: "local", source: null, origin: body.blocks[0].origin }] }),
     [expectedViolation("completion-selector-total", { kind: "local", local: 0 })]],
 ]) {
   test(`MIR rule ${name} has an independently authored complete valid/opposite vector`, () => {
@@ -652,7 +689,7 @@ test("MIR origins validate exact finite spans at every physical site without rep
   const body = parsedBody();
   const context = sourceContext(body);
   const origin = body.blocks[0].origin;
-  const local = { id: identities.localId(0), storage: identities.tyId(0), role: { kind: "temporary" }, source: null, origin };
+  const local = { id: identities.localId(0), storage: identities.tyId(0), role: { kind: "temporary" }, mode: "local", source: null, origin };
   for (const field of ["start", "length"]) for (const value of [-0, -1, 0.5, NaN, Infinity, -Infinity]) {
     same(verified({ ...body, locals: [{ ...local, origin: { ...origin, [field]: value } }] }, context),
       [expectedViolation("origin-valid", { kind: "local", local: 0 })], `complete invalid ${field}=${String(value)} local span`);
@@ -694,7 +731,7 @@ test("MIR receiver checks cannot silently accept an unresolved source-frame sign
 test("MIR type resolution and closure distinguish unknown IDs, open terms and transitive signature references", () => {
   const body = parsedBody();
   const context = sourceContext(body);
-  const local = { id: identities.localId(0), storage: identities.tyId(99), role: { kind: "temporary" }, source: null, origin: body.blocks[0].origin };
+  const local = { id: identities.localId(0), storage: identities.tyId(99), role: { kind: "temporary" }, mode: "local", source: null, origin: body.blocks[0].origin };
   same(verified({ ...body, locals: [local] }, context), [expectedViolation("type-resolves", { kind: "local", local: 0 }, [{ kind: "number", value: 99 }])], "missing type complete vector");
   const open = { ...context, types: { ...context.types, terms: [...context.types.terms, { kind: "open", group: identities.encodeGroupId([body.body]), variable: 0 }] } };
   same(verified({ ...body, locals: [{ ...local, storage: identities.tyId(5) }] }, open),
@@ -710,7 +747,7 @@ test("borrowed signature parameter holes report the complete unresolved referenc
   const context = sourceContext(body);
   const owner = context.source.owner;
   const local = { id: identities.localId(0), storage: identities.tyId(5),
-    role: { kind: "temporary" }, source: null, origin: body.blocks[0].origin };
+    role: { kind: "temporary" }, mode: "local", source: null, origin: body.blocks[0].origin };
   const parameters = [0, 1].map(() => ({ declaration: owner, kind: "required",
     type: identities.tyId(1), passing: "by-value", initializer: null }));
   const typeParameters = [0, 1].map(index => ({ identity: { owner, index }, declaration: owner,
@@ -745,7 +782,7 @@ test("MIR type closure walks every declared term relation and all signature chil
   const owner = context.source.owner;
   const reference = { kind: "body", value: { body: body.body, node: identities.nodeId(0) } };
   const parameter = { owner, index: 0 };
-  const local = { id: identities.localId(0), storage: identities.tyId(5), role: { kind: "temporary" }, source: null, origin: body.blocks[0].origin };
+  const local = { id: identities.localId(0), storage: identities.tyId(5), role: { kind: "temporary" }, mode: "local", source: null, origin: body.blocks[0].origin };
   const memberRow = { key: { kind: "text", value: "x" }, origins: [], readOrigins: [], writeOrigins: [], kind: "property",
     read: identities.tyId(1), write: identities.tyId(1), optional: false, readonly: false };
   const shapes = [
@@ -842,7 +879,7 @@ test("MIR duplicate constants and canonical storage projections produce only the
   same(verified({ ...body, constants: [first] }, context), [], "one constant valid");
   same(verified({ ...body, constants: [first, { ...first, id: identities.constId(1) }] }, context),
     [expectedViolation("constant-unique", { kind: "constant", constant: 1 })], "duplicate semantic record complete vector");
-  const local = { id: identities.localId(0), storage: identities.tyId(0), role: { kind: "temporary" }, source: null, origin: body.blocks[0].origin };
+  const local = { id: identities.localId(0), storage: identities.tyId(0), role: { kind: "temporary" }, mode: "local", source: null, origin: body.blocks[0].origin };
   const place = { id: identities.placeId(0), storage: identities.tyId(1), base: { kind: "local", local: local.id }, origin: local.origin };
   same(verified({ ...body, locals: [local], places: [place] }, context),
     [expectedViolation("projection-type", { kind: "place", place: 0 })], "local place storage mismatch full vector");
@@ -855,7 +892,7 @@ test("MIR duplicate constants and canonical storage projections produce only the
 test("MIR projection types use only declared local, array and tuple storage without external carrier inference", () => {
   const body = parsedBody();
   const context = sourceContext(body);
-  const local = { id: identities.localId(0), storage: identities.tyId(5), role: { kind: "temporary" }, source: null,
+  const local = { id: identities.localId(0), storage: identities.tyId(5), role: { kind: "temporary" }, mode: "local", source: null,
     origin: body.blocks[0].origin };
   const root = { id: identities.placeId(0), storage: local.storage, base: { kind: "local", local: local.id }, origin: local.origin };
   const constant = { id: identities.constId(0), type: identities.tyId(3), value: { kind: "literal", value: {
@@ -914,7 +951,7 @@ test("MIR body and qualified source owners are checked without accepting a same-
   const context = sourceContext(body);
   const other = identities.encodeBodyId({ owner: context.source.owner, role: "function", ordinal: 1 });
   same(verified({ ...body, body: other }, context), [{ rule: "body-owner", site: { kind: "body", body: other }, detail: [] }], "complete body owner vector");
-  const local = { id: identities.localId(0), storage: identities.tyId(0), role: { kind: "user" }, source: { body: other, local: identities.localId(0) }, origin: body.blocks[0].origin };
+  const local = { id: identities.localId(0), storage: identities.tyId(0), role: { kind: "user" }, mode: "local", source: { body: other, local: identities.localId(0) }, origin: body.blocks[0].origin };
   same(verified({ ...body, locals: [local] }, context), [expectedViolation("cross-owner-qualified", { kind: "local", local: 0 })], "complete foreign local vector");
   const block = { ...body.blocks[0], tir: { body: other, node: identities.nodeId(0) } };
   same(verified({ ...body, blocks: [block] }, context), [expectedViolation("cross-owner-qualified", { kind: "block", block: 0 })], "complete foreign node vector");
@@ -926,7 +963,7 @@ test("MIR body-owner readers distinguish unknown ownership, missing declarations
   const definition = identities.encodeDefId({ module: body.blocks[0].origin.module, segments: [{ name: "constant", ordinal: 0 }] });
   const initializer = identities.encodeBodyId({ owner: definition, role: "function", ordinal: 0 });
   const constant = { id: identities.constId(0), type: identities.tyId(1), value: { kind: "constant",
-    reference: { initializer: { body: initializer, bindings: { kind: "parametric" } } } } };
+    reference: { initializer: { body: initializer, bindings: { kind: "parametric" } }, context: "compile-time" } } };
   const input = { ...body, constants: [constant] };
   context.bodyOwners.set(initializer, null);
   same(verified(input, context), [expectedViolation("definition-resolves", { kind: "constant", constant: 0 })],
@@ -940,7 +977,7 @@ test("MIR body-owner readers distinguish unknown ownership, missing declarations
     parameterCount: 1, endpoints: [] });
   same(verified(input, context), [], "parametric initializer remains an actual parameterized body reference");
   const instantiated = bindings => ({ ...constant, value: { kind: "constant", reference: {
-    initializer: { body: initializer, bindings: { kind: "instantiated", bindings } } } } });
+    initializer: { body: initializer, bindings: { kind: "instantiated", bindings } }, context: "compile-time" } } });
   same(verified({ ...body, constants: [instantiated(bindingVector)] }, context),
     [expectedViolation("bindings-complete", { kind: "constant", constant: 0 })], "scope is read from the canonical owning declaration");
   const bound = { ...bindingVector, classBindings: [{ kind: "bound", parameter, type: identities.tyId(1) }] };
@@ -1017,7 +1054,7 @@ test("MIR metadata, definition and constant-reference records retain all four ac
   const body = parsedBody();
   const context = sourceContext(body);
   for (const kind of ["definition", "metadata", "constant"]) for (const family of ["classBindings", "methodBindings", "capturedBindings", "selfBindings"]) {
-    const value = bindings => kind === "constant" ? { kind, reference: { initializer: { body: body.body, bindings } } }
+    const value = bindings => kind === "constant" ? { kind, reference: { initializer: { body: body.body, bindings }, context: "compile-time" } }
       : { kind, definition: context.source.owner, bindings };
     const constant = { id: identities.constId(0), type: identities.tyId(0),
       value: value({ kind: "instantiated", bindings: bindingVector }) };
@@ -1042,7 +1079,7 @@ test("MIR declaration absence, metadata materialization and instantiated binding
     value: { kind: "constant", constant: constant.id } } }] };
   same(verified({ ...body, constants: [constant] }, context), [], "metadata retained as nonexecutable record");
   same(verified(materialized, context), [], "C2970 direct metadata return is checked against facts only by Program");
-  const local = { id: identities.localId(0), storage: identities.tyId(0), role: { kind: "temporary" }, source: null, origin: place.origin };
+  const local = { id: identities.localId(0), storage: identities.tyId(0), role: { kind: "temporary" }, mode: "local", source: null, origin: place.origin };
   const root = { ...place, base: { kind: "local", local: local.id } };
   const direct = { ...body, locals: [local], places: [root], constants: [constant], blocks: [{ ...body.blocks[0], statements: [
     { ...site, kind: "storage-live", local: local.id },
@@ -1076,7 +1113,7 @@ test("MIR declaration absence, metadata materialization and instantiated binding
 });
 
 function lifetimeBody(body, statements) {
-  const local = { id: identities.localId(0), storage: identities.tyId(1), role: { kind: "temporary" }, source: null, origin: body.blocks[0].origin };
+  const local = { id: identities.localId(0), storage: identities.tyId(1), role: { kind: "temporary" }, mode: "local", source: null, origin: body.blocks[0].origin };
   const place = { id: identities.placeId(0), storage: local.storage, base: { kind: "local", local: local.id }, origin: local.origin };
   return { ...body, locals: [local], places: [place], blocks: [{ ...body.blocks[0], statements: statements(body.blocks[0], local, place) }] };
 }
@@ -1177,7 +1214,7 @@ test("MIR indexed-place lifetime includes actual index locals and never repairs 
   const input = { ...context, types: { ...context.types, terms: [...context.types.terms,
     { kind: "array", element: identities.tyId(1), readonly: false }] } };
   const locals = [5, 3, 1].map((storage, id) => ({ id: identities.localId(id), storage: identities.tyId(storage),
-    role: { kind: "temporary" }, source: null, origin: base.blocks[0].origin }));
+    role: { kind: "temporary" }, mode: "local", source: null, origin: base.blocks[0].origin }));
   const root = { id: identities.placeId(0), storage: locals[0].storage, base: { kind: "local", local: locals[0].id }, origin: locals[0].origin };
   const index = { id: identities.placeId(1), storage: locals[1].storage, base: { kind: "local", local: locals[1].id }, origin: locals[1].origin };
   const element = { id: identities.placeId(2), storage: locals[2].storage, origin: locals[2].origin,
@@ -1289,8 +1326,8 @@ for (const write of [false, true]) test(`MIR preserves the exact selected ${writ
   for (const [definition, count, signature] of [[getterDefinition, 0, 1], [setterDefinition, 1, 2]]) context.declarations.set(definition, {
     scope: emptyScope, parameterCount: count,
     endpoints: [endpointFor(definition, signature, "advertised"), endpointFor(definition, signature, "api-signature")] });
-  const locals = [{ id: identities.localId(0), storage: identities.tyId(5), role: { kind: "parameter", index: 0 }, source: { body: base.body, local: identities.localId(0) }, origin: base.blocks[0].origin },
-    { id: identities.localId(1), storage: identities.tyId(1), role: { kind: "temporary" }, source: null, origin: base.blocks[0].origin }];
+  const locals = [{ id: identities.localId(0), storage: identities.tyId(5), role: { kind: "parameter", index: 0 }, mode: "by-value", source: { body: base.body, local: identities.localId(0) }, origin: base.blocks[0].origin },
+    { id: identities.localId(1), storage: identities.tyId(1), role: { kind: "temporary" }, mode: "local", source: null, origin: base.blocks[0].origin }];
   const places = locals.map((local, position) => ({ id: identities.placeId(position), storage: local.storage, base: { kind: "local", local: local.id }, origin: local.origin }));
   const body = { ...base, entries: [{ provided: 1, block: identities.blockId(0) }], locals, places,
     constants: write ? [{ id: identities.constId(0), type: identities.tyId(1), value: { kind: "literal", value: { kind: "boolean", value: true } } }] : [],
@@ -1329,7 +1366,7 @@ test("MIR selected unary operation matches real TIR data, physical operands and 
     { ...header(1, 0), kind: "ExpressionStatement", expression: prefix, tsonic: null },
     { ...header(4, 0), kind: "ReturnStatement", expression: null, tsonic: null },
   ] } } };
-  const local = { id: identities.localId(0), storage: identities.tyId(1), role: { kind: "temporary" }, source: null, origin: base.blocks[0].origin };
+  const local = { id: identities.localId(0), storage: identities.tyId(1), role: { kind: "temporary" }, mode: "local", source: null, origin: base.blocks[0].origin };
   const place = { id: identities.placeId(0), storage: local.storage, base: { kind: "local", local: local.id }, origin: local.origin };
   const constant = { id: identities.constId(0), type: identities.tyId(1), value: { kind: "literal", value: { kind: "boolean", value: true } } };
   const body = { ...base, locals: [local], places: [place], constants: [constant], blocks: [{ ...base.blocks[0], statements: [
@@ -1399,7 +1436,7 @@ test("MIR binary verifier uses both actual selected operands and its physical re
     { ...header(1, 0), kind: "ExpressionStatement", expression, tsonic: null },
     { ...header(6, 0), kind: "ReturnStatement", expression: null, tsonic: null },
   ] } } };
-  const local = { id: identities.localId(0), storage: identities.tyId(3), role: { kind: "temporary" }, source: null, origin: base.blocks[0].origin };
+  const local = { id: identities.localId(0), storage: identities.tyId(3), role: { kind: "temporary" }, mode: "local", source: null, origin: base.blocks[0].origin };
   const place = { id: identities.placeId(0), storage: local.storage, base: { kind: "local", local: local.id }, origin: local.origin };
   const constant = { id: identities.constId(0), type: identities.tyId(3), value: { kind: "literal", value: { kind: "number", token: "1", value: rational } } };
   const operand = { kind: "constant", constant: constant.id };
@@ -1448,7 +1485,7 @@ for (const kind of ["array", "tuple", "fixed-array"]) {
       : kind === "fixed-array" ? { kind, element: identities.tyId(1), extent: { length: 1n, runtimeBase: "bigint" } }
       : { kind, elements: [{ kind: "required", type: identities.tyId(1), declaration: null }], readonly: false };
     const input = { ...context, source, types: { ...context.types, terms: [...context.types.terms, term] } };
-    const local = { id: identities.localId(0), storage: identities.tyId(5), role: { kind: "temporary" }, source: null, origin: base.blocks[0].origin };
+    const local = { id: identities.localId(0), storage: identities.tyId(5), role: { kind: "temporary" }, mode: "local", source: null, origin: base.blocks[0].origin };
     const place = { id: identities.placeId(0), storage: local.storage, base: { kind: "local", local: local.id }, origin: local.origin };
     const constant = { id: identities.constId(0), type: identities.tyId(1), value: { kind: "literal", value: { kind: "boolean", value: true } } };
     const aggregate = { kind, elements: [{ kind: "constant", constant: constant.id }] };
@@ -1567,7 +1604,7 @@ for (const kind of ["object", "record"]) test(`MIR ${kind} aggregate and object-
   const term = { kind: "shape", members: [{ key, origins: [origin], readOrigins: [origin], writeOrigins: [origin], kind: "property",
     read: identities.tyId(1), write: identities.tyId(1), optional: false, readonly: false }], indexes: [], calls: [], constructs: [] };
   const input = { ...context, source, types: { ...context.types, terms: [...context.types.terms, term] } };
-  const local = { id: identities.localId(0), storage: identities.tyId(5), role: { kind: "temporary" }, source: null, origin: base.blocks[0].origin };
+  const local = { id: identities.localId(0), storage: identities.tyId(5), role: { kind: "temporary" }, mode: "local", source: null, origin: base.blocks[0].origin };
   const place = { id: identities.placeId(0), storage: local.storage, base: { kind: "local", local: local.id }, origin: local.origin };
   const constant = { id: identities.constId(0), type: identities.tyId(1), value: { kind: "literal", value: { kind: "boolean", value: true } } };
   const body = { ...base, locals: [local], places: [place], constants: [constant], blocks: [{ ...base.blocks[0], statements: [
@@ -1680,7 +1717,7 @@ test("MIR explicit int32-to-int64 conversion keeps original and converted TIR ca
     statements: { loc: { pos: 0, end: 0 }, nodes: [{ ...header(1, 0), kind: "ReturnStatement", expression: numeric, tsonic: null }] } } };
   const types = { terms: [...context.types.terms, { kind: "primitive", primitive: "int64" }],
     signatures: [{ ...context.types.signatures[0], result: identities.tyId(5) }] };
-  const local = { id: identities.localId(0), storage: identities.tyId(5), role: { kind: "temporary" }, source: null, origin: base.blocks[0].origin };
+  const local = { id: identities.localId(0), storage: identities.tyId(5), role: { kind: "temporary" }, mode: "local", source: null, origin: base.blocks[0].origin };
   const place = { id: identities.placeId(0), storage: local.storage, base: { kind: "local", local: local.id }, origin: local.origin };
   const constant = { id: identities.constId(0), type: identities.tyId(3), value: { kind: "literal", value: { kind: "number", token: "1", value: rational } } };
   const body = { ...base, result: identities.tyId(5), locals: [local], places: [place], constants: [constant], blocks: [{ ...base.blocks[0],
@@ -1773,7 +1810,7 @@ test("MIR compound Boolean assignment retains its actual selected calculation", 
   ]);
   body.entries = [{ provided: 1, block: identities.blockId(0) }];
   body.constants = [{ id: identities.constId(0), type: identities.tyId(1), value: { kind: "literal", value: { kind: "boolean", value: false } } }];
-  body.locals[0] = { ...body.locals[0], role: { kind: "parameter", index: 0 }, source: { body: base.body, local: identities.localId(0) } };
+  body.locals[0] = { ...body.locals[0], role: { kind: "parameter", index: 0 }, mode: "by-value", source: { body: base.body, local: identities.localId(0) } };
   body.blocks[0].terminator.tir = { body: base.body, node: identities.nodeId(6) };
   const types = { ...context.types, signatures: [{ ...context.types.signatures[0], parameters: [
     { declaration: parameter, kind: "required", type: identities.tyId(1), passing: "by-value", initializer: null },
@@ -1869,7 +1906,9 @@ test("MIR constant-type: a literal is a value its declared native carrier holds 
     ["int64", number(2n ** 63n - 1n), true], ["int64", number(2n ** 63n), false], ["int64", { kind: "bigint", token: "b", value: -(2n ** 63n) }, true],
     ["uint8", number(255n), true], ["uint8", number(256n), false], ["uint8", number(-1n), false],
     ["uint128", { kind: "bigint", token: "b", value: 2n ** 128n - 1n }, true], ["uint128", { kind: "bigint", token: "b", value: 2n ** 128n }, false],
-    ["native-int", number(2n ** 31n - 1n), true], ["native-int", number(2n ** 31n), false], ["native-uint", number(2n ** 32n - 1n), true], ["native-uint", number(-1n), false],
+    // Integrality-only checks: these rows do not establish that the values fit any selected native integer width.
+    ["native-int", number(2n ** 63n), true], ["native-int", number(-(2n ** 63n)), true], ["native-int", number(1n, 2n), false],
+    ["native-uint", number(2n ** 64n), true], ["native-uint", number(-1n), false], ["native-uint", { kind: "bigint", token: "b", value: 5n }, true],
     ["char", number(65535n), true], ["char", number(65536n), false], ["char", { kind: "string", value: "a" }, false],
     // Binary floating carriers: any number that rounds to a finite value; negative zero and fractions are values.
     ["float64", number(1n, 10n), true], ["float64", number(0n, 1n, true), true], ["float64", number(2n ** 1024n - 2n ** 971n), true],
@@ -1877,7 +1916,14 @@ test("MIR constant-type: a literal is a value its declared native carrier holds 
     ["float32", number(2n ** 128n - 2n ** 104n), true], ["float32", number(2n ** 128n - 2n ** 103n - 1n), true], ["float32", number(2n ** 128n - 2n ** 103n), false],
     ["float16", number(65504n), true], ["float16", number(65519n), true], ["float16", number(65520n), false], ["float16", number(131039n, 2n), true], ["float16", number(131040n, 2n), false],
     // decimal: a finite decimal expansion within 2^96 - 1.
+    // decimal: a coefficient below 2^96 at a scale of at most 28.
     ["decimal", number(1n, 10n), true], ["decimal", number(1n, 3n), false], ["decimal", number(2n ** 96n - 1n), true], ["decimal", number(2n ** 96n), false],
+    ["decimal", number(7n, 10n ** 28n), true], ["decimal", number(1n, 10n ** 29n), false], ["decimal", number(1n, 2n ** 100n), false],
+    ["decimal", number(2n ** 68n, 5n ** 28n), false], ["decimal", number(2n ** 68n - 2n, 5n ** 28n), true],
+    ["decimal", number(2n ** 68n - 1n, 5n ** 28n), false],
+    // Canonical form, whatever the type: a zero or negative denominator, a common factor, negative zero of a non-zero.
+    ["decimal", number(1n, 0n), false], ["int32", number(1n, 0n), false], ["unknown", number(1n, 0n), false], ["float64", number(1n, -2n), false],
+    ["int32", number(2n, 2n), false], ["float64", number(2n, 4n), false], ["float64", number(1n, 1n, true), false],
     // Intrinsics and the optional type.
     ["absence", { kind: "absence" }, true], ["absence", number(0n), false], ["bigint", { kind: "bigint", token: "b", value: 1n }, true], ["bigint", number(1n), false],
     ["optional-int32", { kind: "absence" }, true], ["optional-int32", number(5n), true], ["optional-int32", number(1n, 2n), false],
@@ -1894,6 +1940,65 @@ test("MIR constant-type: a literal is a value its declared native carrier holds 
     assert.equal(held(type, value), expected, `${type} ${JSON.stringify(value, (key, item) => typeof item === "bigint" ? String(item) : item)}`);
 });
 
+test("MIR literal validation shares one invocation work account with the remaining verifier", () => {
+  const base = parsedBody();
+  const context = sourceContext(base);
+  const float = identities.tyId(context.types.terms.length);
+  const decimal = identities.tyId(context.types.terms.length + 1);
+  const input = { ...context, types: { ...context.types, terms: [...context.types.terms,
+    { kind: "primitive", primitive: "float64" }, { kind: "primitive", primitive: "decimal" }] } };
+  const constant = (position, type, numerator, denominator) => ({ id: identities.constId(position), type,
+    value: { kind: "literal", value: { kind: "number", token: "n", value: { numerator, denominator, negativeZero: false } } } });
+  const boundary = (constants, required, violations = []) => {
+    const body = { ...base, constants };
+    for (let maximumWork = 0; maximumWork < required; maximumWork += 1) {
+      same(product.verifyMir(body, { ...input, limits: { maximumWork } }),
+        { kind: "resource-limit", body: body.body, dimension: "work", maximum: maximumWork },
+        `literal validation refuses at ${maximumWork} without publishing partial findings`);
+    }
+    same(product.verifyMir(body, { ...input, limits: { maximumWork: required } }),
+      { kind: "complete", violations }, `literal validation completes at its exact shared cost ${required}`);
+  };
+  boundary([constant(0, float, 7n, 1n)], 1);
+  boundary([constant(0, float, 1n, 2n)], 3);
+  boundary([constant(0, float, -1n, 2n)], 3);
+  boundary([constant(0, float, 1n, 2n), constant(1, float, 1n, 3n)], 5);
+  boundary([constant(0, decimal, 1n, 10n)], 6);
+  boundary([constant(0, decimal, 1n, 0n)], 1,
+    [expectedViolation("constant-type", { kind: "constant", constant: 0 })]);
+  boundary([constant(0, float, 2n, 4n)], 3,
+    [expectedViolation("constant-type", { kind: "constant", constant: 0 })]);
+});
+
+test("MIR fixed-width integer constant families retain their exact native bounds", () => {
+  const base = parsedBody();
+  const context = sourceContext(base);
+  const selected = identities.tyId(context.types.terms.length);
+  for (const [primitive, width, signed] of [
+    ["int8", 8n, true], ["uint8", 8n, false], ["int16", 16n, true], ["uint16", 16n, false],
+    ["int32", 32n, true], ["uint32", 32n, false], ["int64", 64n, true], ["uint64", 64n, false],
+    ["int128", 128n, true], ["uint128", 128n, false],
+  ]) {
+    const boundary = 2n ** (signed ? width - 1n : width);
+    const minimum = signed ? -boundary : 0n;
+    const maximum = boundary - 1n;
+    const input = { ...context, types: { ...context.types, terms: [...context.types.terms,
+      { kind: "primitive", primitive }] } };
+    for (const [value, expected] of [
+      [minimum, true], [maximum, true], [minimum - 1n, false], [maximum + 1n, false],
+    ]) {
+      for (const kind of ["number", "bigint"]) {
+        const literal = kind === "number"
+          ? { kind, token: "n", value: { numerator: value, denominator: 1n, negativeZero: false } }
+          : { kind, token: "b", value };
+        const body = { ...base, constants: [{ id: identities.constId(0), type: selected, value: { kind: "literal", value: literal } }] };
+        same(verified(body, input), expected ? [] : [expectedViolation("constant-type", { kind: "constant", constant: 0 })],
+          `${primitive} ${kind} ${value} retains its exact native range`);
+      }
+    }
+  }
+});
+
 test("MIR body receiver presence and exact storage are decided by its genuine source signature", () => {
   const body = parsedBody();
   const context = sourceContext(body);
@@ -1906,7 +2011,7 @@ test("MIR body receiver presence and exact storage are decided by its genuine so
         role: "parameter", capturedFrom: null, mutable: false, storage: identities.tyId(1) }] } };
   same(verified(body, receiverContext), [expectedViolation("body-receiver-exact", { kind: "body" })], "missing receiver complete vector");
   const receiver = { id: identities.localId(0), storage: identities.tyId(1), role: { kind: "receiver" },
-    source: { body: body.body, local: identities.localId(0) }, origin: body.blocks[0].origin };
+    mode: "by-value", source: { body: body.body, local: identities.localId(0) }, origin: body.blocks[0].origin };
   same(verified({ ...body, locals: [receiver] }, receiverContext), [], "one exact receiver valid");
   same(verified({ ...body, locals: [{ ...receiver, source: null }] }, receiverContext),
     [expectedViolation("parameter-source-exact", { kind: "local", local: 0 })], "a receiver that names no source local is not the storage of its row");
@@ -1947,7 +2052,7 @@ function callSetup(passing = "by-value", result = 0, receiver = null) {
     signatures: [...context.types.signatures, { id: identities.sigId(1), declaration: definition, owner: null, composition: null,
       kind: "call", typeParameters: [], receiver: receiver === null ? null : identities.tyId(receiver),
       parameters: [{ declaration: definition, kind: "required", type: identities.tyId(1), passing, initializer: null }], result: identities.tyId(result) }] };
-  const local = { id: identities.localId(0), storage: identities.tyId(1), role: { kind: "temporary" }, source: null, origin: base.blocks[0].origin };
+  const local = { id: identities.localId(0), storage: identities.tyId(1), role: { kind: "temporary" }, mode: "local", source: null, origin: base.blocks[0].origin };
   const place = { id: identities.placeId(0), storage: local.storage, base: { kind: "local", local: local.id }, origin: local.origin };
   const constant = { id: identities.constId(0), type: identities.tyId(1), value: { kind: "literal", value: { kind: "boolean", value: true } } };
   const mirArgument = passing === "by-value" || passing === "move"
@@ -2130,7 +2235,7 @@ test("MIR address-of verifier retains the actual selected carrier and real place
     { ...statement, expression: { ...statement.expression, tsonic: { ...statement.expression.tsonic,
       operation: { kind: "decided", decision: address } } } }, context.source.root.statements.nodes[1],
   ] } } };
-  const destination = { id: identities.localId(1), storage: identities.tyId(6), role: { kind: "temporary" }, source: null,
+  const destination = { id: identities.localId(1), storage: identities.tyId(6), role: { kind: "temporary" }, mode: "local", source: null,
     origin: callBody.locals[0].origin };
   const place = { id: identities.placeId(1), storage: destination.storage, base: { kind: "local", local: destination.id }, origin: destination.origin };
   const body = { ...callBody, locals: [...callBody.locals, destination], places: [...callBody.places, place], blocks: [{ ...callBody.blocks[0], statements: [
@@ -2171,7 +2276,7 @@ test("MIR actual throw escape, handler and unreachable terminators have complete
   const missing = { ...body, blocks: [{ ...body.blocks[0], terminator: { ...body.blocks[0].terminator,
     operand: { kind: "constant", constant: identities.constId(99) } } }] };
   same(verified(missing, input), [expectedViolation("operand-resolves", at)], "complete missing throw operand vector");
-  const exception = { id: identities.localId(0), storage: identities.tyId(4), role: { kind: "exception" }, source: null, origin: base.blocks[0].origin };
+  const exception = { id: identities.localId(0), storage: identities.tyId(4), role: { kind: "exception" }, mode: "local", source: null, origin: base.blocks[0].origin };
   const place = { id: identities.placeId(0), storage: exception.storage, base: { kind: "local", local: exception.id }, origin: exception.origin };
   const handled = { ...body, locals: [exception], places: [place], blocks: [{ ...body.blocks[0], statements: [
     { ...site, kind: "storage-live", local: exception.id },
@@ -2351,7 +2456,7 @@ for (const kind of ["await", "yield", "delegate"]) for (const handler of [false,
           { ...header(5, 0), kind: "ReturnStatement", expression: null, tsonic: null },
         ] } } };
     const locals = [1, 0, 4].map((storage, id) => ({ id: identities.localId(id), storage: identities.tyId(storage),
-      role: { kind: "temporary" }, source: null, origin: base.blocks[0].origin }));
+      role: { kind: "temporary" }, mode: "local", source: null, origin: base.blocks[0].origin }));
     const places = locals.map(local => ({ id: identities.placeId(local.id), storage: local.storage,
       base: { kind: "local", local: local.id }, origin: local.origin }));
     const constant = { id: identities.constId(0), type: identities.tyId(1), value: { kind: "literal", value: { kind: "boolean", value: true } } };
@@ -2419,11 +2524,11 @@ for (const closureKind of ["ArrowFunction", "FunctionExpression"]) test(`MIR ${c
       { ...header(6, 0), kind: "ReturnStatement", expression: null, tsonic: null }] } } };
   const types = { terms: [...context.types.terms, { kind: "callable", calls: [identities.sigId(1)], constructs: [] }], signatures: [context.types.signatures[0],
     { ...context.types.signatures[0], id: identities.sigId(1), declaration: definition, owner: null }] };
-  const local = { id: identities.localId(0), storage: identities.tyId(5), role: { kind: "temporary" }, source: null, origin: base.blocks[0].origin };
-  const capture = { id: identities.localId(1), storage: identities.tyId(1), role: { kind: "capture", index: 0 }, source: captured, origin: local.origin };
+  const local = { id: identities.localId(0), storage: identities.tyId(5), role: { kind: "temporary" }, mode: "local", source: null, origin: base.blocks[0].origin };
+  const capture = { id: identities.localId(1), storage: identities.tyId(1), role: { kind: "capture", index: 0 }, mode: "captured-location", source: captured, origin: local.origin };
   const places = [{ id: identities.placeId(0), storage: local.storage, base: { kind: "local", local: local.id }, origin: local.origin },
     { id: identities.placeId(1), storage: capture.storage, base: { kind: "local", local: capture.id }, origin: local.origin }];
-  const value = { kind: "closure", instance: { body: nested, bindings: { kind: "parametric" } }, captures: [{ local: captured, place: places[1].id }] };
+  const value = { kind: "closure", instance: { body: nested, bindings: { kind: "parametric" } }, captures: [{ local: captured, place: places[1].id, capture: "captured-location" }] };
   const body = { ...base, locals: [local, capture], places, blocks: [{ ...base.blocks[0], statements: [
     { ...site, kind: "storage-live", local: local.id },
     { ...site, tir: { body: base.body, node: identities.nodeId(2) }, kind: "assign", step: null, place: places[0].id, value },
@@ -2433,6 +2538,24 @@ for (const closureKind of ["ArrowFunction", "FunctionExpression"]) test(`MIR ${c
     parameterCount: 0, endpoints: [{ declaration: definition, role: "api-body", signature: identities.sigId(1), body: nested }] });
   context.bodyOwners.set(nested, definition);
   same(verified(body, input), [], "complete exact qualified closure capture vector");
+  const captureMode = mode => ({ ...body, blocks: [{ ...body.blocks[0], statements: [body.blocks[0].statements[0], {
+    ...body.blocks[0].statements[1], value: { ...value, captures: [{ ...value.captures[0], capture: mode }] },
+  }] }] });
+  const valueContext = { ...input, source: { ...source, root: { ...source.root, statements: { ...source.root.statements, nodes: [
+    { ...source.root.statements.nodes[0], expression: { ...arrow, tsonic: { ...arrow.tsonic,
+      closure: { ...arrow.tsonic.closure, decision: { ...arrow.tsonic.closure.decision,
+        captures: [{ local: captured, capture: "captured-value" }] } } } } }, source.root.statements.nodes[1],
+  ] } } } };
+  same(verified(captureMode("captured-value"), valueContext), [], "outgoing by-value capture does not inherit incoming captured-location ownership");
+  same(verified(captureMode("captured-value"), input), [expectedViolation("local-storage-exact", { kind: "instruction", block: 0, statement: 1 })],
+    "a copied value cannot substitute for the actual creating-side selected location");
+  same(verified(body, valueContext), [expectedViolation("local-storage-exact", { kind: "instruction", block: 0, statement: 1 })],
+    "an outgoing location cannot substitute for the creating-side selected value");
+  same(verified({ ...body, locals: [local, { ...capture, mode: "captured-value" }] }, input),
+    [expectedViolation("local-storage-exact", { kind: "local", local: 1 })], "the child's incoming mode is checked independently");
+  const captureText = product.printMir(body);
+  assert.equal(product.parseMir(captureText.replace(', capture="captured-location")', ")")).kind, "invalid-text",
+    "the old mode-less outgoing capture record is rejected");
   // The captured locals are the ones the typed closure's outcome names: the saved evidence of a deferred closure rule
   // names them as the decision's rows do; a closure that saved another rule names none.
   const withClosure = closure => ({ ...input, source: { ...source, root: { ...source.root, statements: { ...source.root.statements,
@@ -2440,10 +2563,22 @@ for (const closureKind of ["ArrowFunction", "FunctionExpression"]) test(`MIR ${c
   const savedContext = { occurrence: { body: base.body, node: identities.nodeId(2) }, origin: base.blocks[0].origin, bindings: bindingVector };
   const savedEvidence = { type: identities.tyId(5), component: { kind: "body", value: savedContext.occurrence }, category: { kind: "known", category: "callable" },
     numeric: null, sum: null, nominal: null, pointer: null };
-  same(verified(body, withClosure({ kind: "deferred", deferred: { result: identities.tyId(5), invocation: { rule: "closure", input: {
+  const deferredBody = { ...body, blocks: [{ ...body.blocks[0], statements: [body.blocks[0].statements[0], {
+    ...body.blocks[0].statements[1], value: { ...value, captures: [{ ...value.captures[0], capture: null }] },
+  }] }] };
+  const readyBindings = { kind: "instantiated", bindings: bindingVector };
+  const undecidedReady = { ...deferredBody, bindings: readyBindings };
+  assert.equal(verified(undecidedReady, { ...withClosure({ kind: "deferred", deferred: { result: identities.tyId(5),
+    invocation: { rule: "closure", input: { context: savedContext, callable: savedEvidence,
+      captures: [{ local: captured, value: savedEvidence, reassignable: true, incoming: { kind: "binding" } }] } } } }),
+    source: { ...withClosure({ kind: "deferred", deferred: { result: identities.tyId(5), invocation: { rule: "closure", input: {
+      context: savedContext, callable: savedEvidence, captures: [{ local: captured, value: savedEvidence,
+        reassignable: true, incoming: { kind: "binding" } }] } } } }).source, bindings: readyBindings } })
+    .some(finding => finding.rule === "local-storage-exact"), true, "ready closure creation cannot carry an undecided mode");
+  same(verified(deferredBody, withClosure({ kind: "deferred", deferred: { result: identities.tyId(5), invocation: { rule: "closure", input: {
     context: savedContext, callable: savedEvidence, captures: [{ local: captured, value: savedEvidence, reassignable: true, incoming: { kind: "binding" } }] } } } })),
   [], "a deferred closure rule names the captured locals by its saved evidence");
-  same(verified(body, withClosure({ kind: "deferred", deferred: { result: identities.tyId(5), invocation: { rule: "refinement", input: {
+  same(verified(deferredBody, withClosure({ kind: "deferred", deferred: { result: identities.tyId(5), invocation: { rule: "refinement", input: {
     context: savedContext, source: savedEvidence, checked: savedEvidence } } } })),
   [expectedViolation("capture-location-exact", { kind: "instruction", block: 0, statement: 1 }),
     expectedViolation("capture-location-exact", { kind: "instruction", block: 0, statement: 1 })],
@@ -2455,7 +2590,7 @@ for (const closureKind of ["ArrowFunction", "FunctionExpression"]) test(`MIR ${c
     "a physical closure cannot omit its actual selected capture slot");
   const differentCaptured = { ...captured, local: identities.localId(4) };
   const wrongSelectedSlot = { ...body, blocks: [{ ...body.blocks[0], statements: [body.blocks[0].statements[0], {
-    ...body.blocks[0].statements[1], value: { ...value, captures: [{ local: differentCaptured, place: places[1].id }] },
+    ...body.blocks[0].statements[1], value: { ...value, captures: [{ local: differentCaptured, place: places[1].id, capture: "captured-location" }] },
   }] }] };
   same(verified(wrongSelectedSlot, input), [
     expectedViolation("capture-location-exact", { kind: "instruction", block: 0, statement: 1 }),
@@ -2465,7 +2600,7 @@ for (const closureKind of ["ArrowFunction", "FunctionExpression"]) test(`MIR ${c
   same(verified(nonordinalCapture, input), [expectedViolation("capture-location-exact", { kind: "local", local: 1 })],
     "a nonordinal capture index is not a valid borrowed source slot");
   const wrongPlace = { ...body, blocks: [{ ...body.blocks[0], statements: [body.blocks[0].statements[0], {
-    ...body.blocks[0].statements[1], value: { ...value, captures: [{ local: captured, place: places[0].id }] },
+    ...body.blocks[0].statements[1], value: { ...value, captures: [{ local: captured, place: places[0].id, capture: "captured-location" }] },
   }] }] };
   same(verified(wrongPlace, input), [expectedViolation("capture-location-exact", { kind: "instruction", block: 0, statement: 1 })],
     "the correct capture label cannot authenticate an unrelated live temporary place");
@@ -2473,7 +2608,7 @@ for (const closureKind of ["ArrowFunction", "FunctionExpression"]) test(`MIR ${c
     { ...places[1], storage: identities.tyId(6) }, { ...places[1], id: identities.placeId(2),
       base: { kind: "place", place: places[1].id, projection: { kind: "element", index: 0 }, tir: nodeRef } }],
     blocks: [{ ...body.blocks[0], statements: [body.blocks[0].statements[0], { ...body.blocks[0].statements[1],
-      value: { ...value, captures: [{ local: captured, place: identities.placeId(2) }] },
+      value: { ...value, captures: [{ local: captured, place: identities.placeId(2), capture: "captured-location" }] },
     }] }] };
   const projectedInput = { ...input, source: { ...source, locals: [{ ...source.locals[0], storage: identities.tyId(6) }] },
     types: { ...types, terms: [...types.terms, { kind: "tuple", readonly: false,
@@ -2481,18 +2616,18 @@ for (const closureKind of ["ArrowFunction", "FunctionExpression"]) test(`MIR ${c
   same(verified(projected, projectedInput), [], "a real tuple projection preserves its actual paired capture root identity");
   const staticCapture = { ...body, places: [...places, { ...places[1], id: identities.placeId(2),
     base: { kind: "static", definition: context.source.owner } }], blocks: [{ ...body.blocks[0], statements: [body.blocks[0].statements[0], {
-      ...body.blocks[0].statements[1], value: { ...value, captures: [{ local: captured, place: identities.placeId(2) }] },
+      ...body.blocks[0].statements[1], value: { ...value, captures: [{ local: captured, place: identities.placeId(2), capture: "captured-location" }] },
     }] }] };
   same(verified(staticCapture, input), [expectedViolation("capture-location-exact", { kind: "instruction", block: 0, statement: 1 })],
     "static storage cannot impersonate the declared captured local");
   const missingCapture = { ...body, blocks: [{ ...body.blocks[0], statements: [body.blocks[0].statements[0], {
-    ...body.blocks[0].statements[1], value: { ...value, captures: [{ local: captured, place: identities.placeId(99) }] },
+    ...body.blocks[0].statements[1], value: { ...value, captures: [{ local: captured, place: identities.placeId(99), capture: "captured-location" }] },
   }] }] };
   same(verified(missingCapture, input), [expectedViolation("operand-resolves", { kind: "instruction", block: 0, statement: 1 })],
     "a missing capture place remains an unresolved reference rather than an invented paired location");
   const invalidRoot = { ...body, places: [...places, { ...places[1], id: identities.placeId(2),
     base: { kind: "place", place: identities.placeId(2), projection: { kind: "deref" }, tir: nodeRef } }], blocks: [{ ...body.blocks[0], statements: [
-    body.blocks[0].statements[0], { ...body.blocks[0].statements[1], value: { ...value, captures: [{ local: captured, place: identities.placeId(2) }] } },
+    body.blocks[0].statements[0], { ...body.blocks[0].statements[1], value: { ...value, captures: [{ local: captured, place: identities.placeId(2), capture: "captured-location" }] } },
   ] }] };
   same(verified(invalidRoot, input), [expectedViolation("place-parent-precedes", { kind: "place", place: 2 })],
     "an invalid parent chain retains its exact reference violation without fabricating a root identity");
@@ -2863,7 +2998,7 @@ test("MIR 100000-place parent chain prints, parses, type-checks and reaches its 
   const base = parsedBody();
   const context = sourceContext(base);
   const count = 100000;
-  const local = { id: identities.localId(0), storage: identities.tyId(5), role: { kind: "temporary" }, source: null, origin: base.blocks[0].origin };
+  const local = { id: identities.localId(0), storage: identities.tyId(5), role: { kind: "temporary" }, mode: "local", source: null, origin: base.blocks[0].origin };
   const places = [{ id: identities.placeId(0), storage: identities.tyId(5), base: { kind: "local", local: local.id }, origin: local.origin }];
   const texts = [`MirPlace(id=p:0, base=local(local=l:0), storage=t:5, origin=${originText})`];
   for (let position = 1; position <= count; position += 1) {
@@ -2874,7 +3009,7 @@ test("MIR 100000-place parent chain prints, parses, type-checks and reaches its 
   const statements = [{ ...site, kind: "storage-live", local: local.id }, { ...site, kind: "assign", step: null, place: places[0].id,
     value: { kind: "use", operand: { kind: "place", place: identities.placeId(count) } } }];
   const body = { ...base, locals: [local], places, blocks: [{ ...base.blocks[0], statements }] };
-  const text = document(`MirLocal(id=l:0, storage=t:5, role=temporary(), source=null, origin=${originText})`, "", texts.join(", "),
+  const text = document(`MirLocal(id=l:0, storage=t:5, role=temporary(), mode="local", source=null, origin=${originText})`, "", texts.join(", "),
     `MirBlock(${siteText}, id=b:0, statements=[storage-live(${siteText}, local=l:0), assign(${siteText}, place=p:0, value=use(operand=place(place=p:100000)), step=null)], terminator=return(${returnSiteText}, value=null))`, undefined, undefined, entryText);
   roundtrip(body, text, "complete 100000-level arena-reference chain");
   const recursiveType = { ...context, types: { ...context.types, terms: [...context.types.terms, { kind: "array", element: identities.tyId(5), readonly: false }] } };
@@ -2943,7 +3078,7 @@ test("MIR JSON strings preserve every escape and reject complete lexical/type fa
 });
 
 const dependencyNames = ["ids", "diag", "ir-types", "ir-hir", "ir-infer", "ir-tir"];
-const interfaceSources = ["ids/contract", "ids/index", "diag/contract", "ir-types/contract", "ir-hir/contract", "ir-hir/index", "ir-infer/contract", "ir-tir/contract"]
+const interfaceSources = ["ids/contract", "ids/index", "diag/contract", "ir-types/contract", "ir-types/index", "ir-hir/contract", "ir-hir/index", "ir-infer/contract", "ir-tir/contract"]
   .map(name => `packages/host/src/${name}.ts`);
 
 test("MIR complete module isolates against real original public dependency values and actual strict declaration closure", async () => {
@@ -3009,7 +3144,7 @@ export const body: MirBody = { body: identity, bindings: { kind: "parametric" },
   locals: [], constants: [], places: [], result: tyId(0),
   blocks: [{ origin, tir: { body: identity, node: nodeId(0) }, id: blockId(0), statements: [],
     terminator: { origin, tir: { body: identity, node: nodeId(1) }, kind: "return", value: null } }] };
-export const context: MirVerificationContext = { limits: { maximumWork: 0 }, source, types, bodyOwner: selected => selected === identity ? definition : null,
+export const context: MirVerificationContext = { limits: { maximumWork: 0 }, source, bodyOf: () => null, types, bodyOwner: selected => selected === identity ? definition : null,
   declarationOf: selected => selected === definition ? {
   scope: { classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] }, parameterCount: 0, endpoints: [] } : null };
 const ports: readonly [PrintMir, ParseMir, VerifyMir] = [Mir.printMir, Mir.parseMir, Mir.verifyMir];
@@ -3070,9 +3205,9 @@ after(async () => {
     writeFileSync(resolve(evidenceDirectory, "coverage.json"), `${JSON.stringify(report, null, 2)}\n`);
     writeFileSync(resolve(evidenceDirectory, "source-inputs.json"), `${JSON.stringify(sourceFiles.map(path => ({ path,
       hash: createHash("sha256").update(readFileSync(resolve(repository, path))).digest("hex") })), null, 2)}\n`);
-    assert.equal(result.length, 9, "all nine genuine runtime owners need nonempty source-identified raw evidence");
+    assert.equal(result.length, 10, "all ten genuine runtime owners need nonempty source-identified raw evidence");
     assert.equal(report.status, "passed", JSON.stringify(report.findings).slice(0, 6000));
-    assert.equal(report.files.filter(file => file.status === "covered").length, 9);
+    assert.equal(report.files.filter(file => file.status === "covered").length, 10);
     assert.equal(report.files.filter(file => file.status === "not-applicable").length, 1, "only the actual type-only contract is N/A");
     for (const file of report.files.filter(file => file.status === "covered")) {
       assert.equal(file.lines, 100, basename(file.path));

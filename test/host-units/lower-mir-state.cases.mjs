@@ -21,7 +21,7 @@ before(async () => {
 /** One small graph, written as a lowering would: a local, its place, a constant, a block with one statement and a return. */
 function record(lowering) {
   const steps = [];
-  const local = state.newLocal(lowering, 0, { kind: "temporary" }, null, origin);
+  const local = state.newLocal(lowering, 0, { kind: "temporary" }, "local", null, origin);
   steps.push(["local", local]);
   // A caller uses an identity only when it was given one.
   const place = local === null ? null : state.placeOfLocal(lowering, local);
@@ -74,7 +74,7 @@ test("after a refusal nothing is recorded, entered, ended or added", () => {
   const beforeMore = recorded();
   assert.deepEqual(beforeMore, [1, 1, 1, 0, 0, 3]);
   // A later caller that kept going would get no identity to use and would change nothing.
-  assert.equal(state.newLocal(lowering, 0, { kind: "temporary" }, null, origin), null);
+  assert.equal(state.newLocal(lowering, 0, { kind: "temporary" }, "local", null, origin), null);
   assert.equal(state.newPlace(lowering, { kind: "local", local: 0 }, 0, origin), null);
   assert.equal(state.newBlock(lowering, site), null);
   assert.equal(state.constantOperand(lowering, 0, { kind: "literal", value: { kind: "boolean", value: false } }), null);
@@ -103,7 +103,7 @@ test("a refusal while a block is open leaves that block as it was and is not a d
 test("after a refusal a cached place and a cached constant are not answered (K-3281)", () => {
   // Three records fit: a local, its place and a constant. Both identities are cached before the refusal.
   const lowering = fresh(3);
-  const local = state.newLocal(lowering, 0, { kind: "temporary" }, null, origin);
+  const local = state.newLocal(lowering, 0, { kind: "temporary" }, "local", null, origin);
   const place = state.placeOfLocal(lowering, local);
   const constant = state.constantOperand(lowering, 0, literal);
   assert.equal(state.placeOfLocal(lowering, local), place);
@@ -128,7 +128,7 @@ test("assembly: constants take their canonical order and every reference to a co
   // Three constants recorded in an order that is not the canonical one.
   const values = [{ kind: "string", value: "x" }, { kind: "boolean", value: true }, { kind: "boolean", value: false }];
   const [text, yes, no] = values.map(constantOf);
-  const local = state.newLocal(lowering, 0, { kind: "temporary" }, null, origin);
+  const local = state.newLocal(lowering, 0, { kind: "temporary" }, "local", null, origin);
   const place = state.placeOfLocal(lowering, local);
   const operation = { decision: { kind: "selected", operation: { kind: "boolean-operator", operator: "!" }, operands: [0], result: 0, execution: { kind: "pure" } },
     permissionScope: null };

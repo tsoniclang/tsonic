@@ -59,18 +59,21 @@ after(async () => {
   } finally { session.disconnect(); }
 });
 
+const UNIT = { request: { query: "mirBody", key: ["unit"] }, position: { kind: "result" } };
+
 /** A run as Pipeline holds it at the typed-body barrier, for the hand-built table of the lowering fixtures. */
 const runFor = program => {
   const interner = types.seedTypeInterner(TABLE);
   const declared = verificationContext(program);
   return { interner, table: TABLE, defs: { completionSelector: T.int32, exceptionStorage: T.unknown }, lowering: { maximumRecords: 1000 },
-    verification: { maximumWork: 100000 }, declarationOf: declared.declarationOf, bodyOwner: declared.bodyOwner };
+    verification: { maximumWork: 100000 }, declarationOf: declared.declarationOf, bodyOwner: declared.bodyOwner, bodyOf: declared.bodyOf };
 };
 
 test("the deps of lowerToMir are the run's type and signature views, its canonical types and its size limit", () => {
   const program = add("step.add.deps", T.float64, plus("float64", T.float64));
   const run = runFor(program);
-  const deps = step.lowerMirDeps(run);
+  const deps = step.lowerMirDeps(run, UNIT);
+  assert.equal(deps.unit, UNIT);
   assert.equal(deps.defs, run.defs);
   assert.equal(deps.limits, run.lowering);
   assert.deepEqual(deps.typeOf(T.float64), types.readType(run.interner, T.float64));
@@ -83,7 +86,7 @@ test("the verifier's context is the run's limit, the typed body, the run's table
   const program = add("step.add.context", T.float64, plus("float64", T.float64));
   const run = runFor(program);
   const context = step.mirVerificationContext(run, program.tir);
-  assert.deepEqual(Object.keys(context).sort(), ["bodyOwner", "declarationOf", "limits", "source", "types"]);
+  assert.deepEqual(Object.keys(context).sort(), ["bodyOf", "bodyOwner", "declarationOf", "limits", "source", "types"]);
   assert.equal(context.limits, run.verification);
   assert.equal(context.source, program.tir);
   assert.equal(context.types, run.table);
@@ -95,12 +98,13 @@ test("through the wiring: the typed body of add is lowered with the step's deps 
   for (const execution of ["pure", "unwinds"]) {
     const program = add(`step.add.${execution}`, T.float64, plus("float64", T.float64, EXECUTIONS[execution]));
     const run = runFor(program);
-    const lowered = wiring.lowerMir.lowerToMir(step.lowerMirDeps(run), program.tir, []);
+    const lowered = wiring.lowerMir.lowerToMir(step.lowerMirDeps(run, UNIT), program.tir, []);
     assert.equal(lowered.kind, "ok");
     assert.deepEqual(lowered.diagnostics, []);
     assert.deepEqual(verifyMir(lowered.value, step.mirVerificationContext(run, program.tir)), { kind: "complete", violations: [] });
     // The size limit is the run's: below the graph's nine records the step's deps refuse it.
-    assert.equal(wiring.lowerMir.lowerToMir(step.lowerMirDeps({ ...run, lowering: { maximumRecords: 8 } }), program.tir, []).kind, "refused");
+    const refused = wiring.lowerMir.lowerToMir(step.lowerMirDeps({ ...run, lowering: { maximumRecords: 8 } }, UNIT), program.tir, []);
+    assert.deepEqual([refused.kind, refused.diagnostics.map(diagnostic => diagnostic.code.rendered)], ["refused", ["TSONIC_COMPILER_RESOURCE_LIMIT"]]);
     // The verification limit is the run's: under a limit of zero the graph is refused for resources, not judged.
     assert.equal(verifyMir(lowered.value, step.mirVerificationContext({ ...run, verification: { maximumWork: 0 } }, program.tir)).kind, "resource-limit");
   }

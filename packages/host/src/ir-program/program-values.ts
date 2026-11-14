@@ -1,6 +1,7 @@
 import type { MessageArgument, Violation } from "../diag/contract.js";
 import type { BodyId, DefId, KeyData, ModuleId, PackageId, SigId, TyId } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
+import { constantReferenceKey } from "../ir-types/index.js";
 import type {
   ArtifactBindings, BindingVector, BodyInstance, ComponentSelector, PointerEvidence, SelfBinding, TypeBinding,
   TypeComponent, TypeEvidence, TypeParameter, TypeParameterIdentity,
@@ -357,7 +358,7 @@ export function programLookup(index: ProgramIndex): ProgramLookup {
     instances: uniqueRows(index.bodies, record => instanceKey(record.instance)),
     metadata: uniqueRows(index.metadata, record => artifactEnvironmentKey(record.key.definition, record.key.bindings)),
     summaries: uniqueRows(index.summaries, record => artifactEnvironmentKey(record.key.definition, record.key.bindings)),
-    constants: uniqueRows(index.constants, record => instanceKey(record.initializer)),
+    constants: uniqueRows(index.constants, record => constantReferenceKey(record.reference)),
   };
 }
 

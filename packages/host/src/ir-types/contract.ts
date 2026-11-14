@@ -1,6 +1,6 @@
 import type { TyId, SigId, DefId, KeyData, SourceNodeRef, LocalRef } from "../ids/contract.js";
 import type { TextParseResult, Violation } from "../diag/contract.js";
-import type { ArtifactBindings, BodyInstance, ComponentSelector, Execution, TypeTerm, Signature, SignatureInput, TypeTable, BindingVector, TypeParameterIdentity, TypeEvidence } from "./data.js";
+import type { ArtifactBindings, BodyInstance, ComponentSelector, ConstantReference, Execution, TypeTerm, Signature, SignatureInput, TypeTable, BindingVector, TypeParameterIdentity, TypeEvidence } from "./data.js";
 import type { TypeArena } from "./arena.js";
 export type * from "./data.js";
 
@@ -36,8 +36,16 @@ export interface DeclaredExecution {
   readonly provided: number;
 }
 
+export type BindingVectorData = (vector: BindingVector) => KeyData;
+export type ArtifactBindingsData = (bindings: ArtifactBindings) => KeyData;
+export type BindingVectorKey = (vector: BindingVector) => string;
+export type ArtifactBindingsKey = (bindings: ArtifactBindings) => string;
+export type SignatureRequestData = (request: SignatureRequest) => KeyData;
+export type SignatureRequestKey = (request: SignatureRequest) => string;
+
 /** The canonical key text of a body instance: the body and its complete bindings, a binding-vector hole as null at its position. */
 export type InstanceKey = (instance: BodyInstance) => string;
+export type ConstantReferenceKey = (reference: ConstantReference) => string;
 /** Whether two body instances are the same instance: equal instance keys. The one public instance comparison. */
 export type SameInstance = (left: BodyInstance, right: BodyInstance) => boolean;
 /** The canonical key text of an execution: its instance key and its provided count. */
@@ -72,6 +80,12 @@ export type TypePublicationResult =
   | { readonly kind: "resource-limit"; readonly dimension: "work" | "created-records"; readonly maximum: number };
 export type ExportTypes = (interner: TypeInterner, limits: TypePublicationLimits) => TypePublicationResult;
 export type Substitute = (interner: TypeInterner, types: readonly TyId[], bindings: BindingVector, limits: TypeExpansionLimits) => TypeTransform<readonly TyId[]>;
+export interface BindingValues {
+  readonly types: readonly TyId[];
+  readonly bindings: readonly BindingVector[];
+}
+export type SubstituteBindingValues = (interner: TypeInterner, values: BindingValues,
+  bindings: BindingVector, limits: TypeExpansionLimits) => TypeTransform<BindingValues>;
 export type SubstituteSignature = (
   interner: TypeInterner,
   signatures: readonly SigId[],
@@ -102,6 +116,8 @@ export interface BindingScope {
   readonly capturedParameters: readonly TypeParameterIdentity[];
   readonly selfOwners: readonly DefId[];
 }
+
+export type RigidBindings = (scope: BindingScope) => BindingVector;
 
 export interface BindingVerificationInput {
   readonly vector: BindingVector;

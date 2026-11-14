@@ -28,7 +28,7 @@ const BODY = bodyId("storage");
 const endpoint = role => ({ declaration: def("storage"), role, signature: SIG, body: BODY });
 const declaration = { scope: { classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] }, parameterCount: 0,
   endpoints: [endpoint("advertised"), endpoint("api-body")] };
-const contextOf = maximumWork => ({ limits: { maximumWork }, source: source.tir, types: TABLE,
+const contextOf = maximumWork => ({ limits: { maximumWork }, source: source.tir, bodyOf: () => null, types: TABLE,
   declarationOf: definition => definition === def("storage") ? declaration : null, bodyOwner: body => body === BODY ? def("storage") : null });
 const site = label => ({ origin: { module: "M[P[p];m]", start: source.at(label), length: 1, derived: [] }, tir: { body: BODY, node: source.at(label) } });
 const AT = site("root");
@@ -42,9 +42,9 @@ const branch = (operand, first, second) => ({ ...AT, kind: "switch", operand, ta
 const either = (first, second) => branch({ kind: "constant", constant: 1 }, first, second);
 const eitherOn = (local, first, second) => branch({ kind: "place", place: local }, first, second);
 const done = () => ({ ...site("return"), kind: "return", value: null });
-const temporary = id => ({ id, storage: T.bool, role: { kind: "temporary" }, source: null, origin: AT.origin });
-const parameters = () => [{ id: 0, storage: T.int32, role: { kind: "parameter", index: 0 }, source: { body: BODY, local: 0 }, origin: AT.origin },
-  { id: 1, storage: T.optInt32, role: { kind: "parameter", index: 1 }, source: { body: BODY, local: 1 }, origin: AT.origin }];
+const temporary = id => ({ id, storage: T.bool, role: { kind: "temporary" }, mode: "local", source: null, origin: AT.origin });
+const parameters = () => [{ id: 0, storage: T.int32, role: { kind: "parameter", index: 0 }, mode: "by-value", source: { body: BODY, local: 0 }, origin: AT.origin },
+  { id: 1, storage: T.optInt32, role: { kind: "parameter", index: 1 }, mode: "by-value", source: { body: BODY, local: 1 }, origin: AT.origin }];
 const placesOf = locals => locals.map(local => ({ id: local.id, base: { kind: "local", local: local.id }, storage: local.storage, origin: AT.origin }));
 
 /**
@@ -324,6 +324,22 @@ test("storage: a use reaches the locals of every index operand on the way, throu
   const outside = { ...record([temporary(0)], [[[placeUse(1)], done()]]),
     places: [...placesOf([temporary(0)]), { id: 1, storage: T.bool, origin: AT.origin, base: { kind: "place", place: 0, projection: { kind: "index", operand: { kind: "place", place: 7 } } } }] };
   assert.deepEqual(pass(outside).findings, []);
+});
+
+test("storage work: a block of many edges read again pays for its known edges before reading them (K-3347)", () => {
+  // Block 1 uses local 0 and branches by a switch of 50 targets to block 2, otherwise to block 3; block 2 ends local 0
+  // and goes back to block 1. Order of reading 0, 1, 3, 2. Units: the empty set 1; the place pass, one visit and one
+  // root 2; the use x = x, two operands of one node and one local 4. First sweep: block 0's marker 1; block 1's 51
+  // edges bring one object to block 2 and to block 3, no meet; block 2's marker 1 and its meet at block 1 1, which
+  // lowers block 1: a second sweep of three blocks 3. Second sweep: block 1 read again pays its 51 known edges 51,
+  // meets block 2 once (the 49 other edges bring the same object, nothing entered) 1 and block 3 once 1; block 3 read
+  // again has no edge; block 2 read again pays its one edge 1 and its marker 1, and brings block 1 its own start. The
+  // lookups of local 0 in block 1 and in block 2 2. Total 70.
+  const locals = [temporary(0)];
+  const fanout = { ...AT, kind: "switch", operand: { kind: "constant", constant: 0 },
+    targets: Array.from({ length: 50 }, (_, constant) => ({ constant, target: 2 })), otherwise: 3, step: null };
+  const body = record(locals, [[[live(0)], goto(1)], [[use(0)], fanout], [[dead(0)], goto(1)], [[], done()]]);
+  exactly(body, 70, [finding(1, 0, 0), finding(2, 0, 0)], "a 50-target switch in a lowered loop");
 });
 
 // ---- the sets themselves: nothing is entered and nothing is made after the account is exhausted --------------

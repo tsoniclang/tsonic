@@ -7,10 +7,53 @@
 // under producer P reached by segment s is the key of the producer P/s: the entry symbol of that cell when P's root
 // is an entry producer, and the cell's own name when P is an allocation.
 import type { InvariantFailure } from "../../diag/contract.js";
-import { requirePresent, throwInvariant } from "../../diag/index.js";
+import { throwInvariant } from "../../diag/index.js";
 import type { NodeId, Origin } from "../../ids/contract.js";
-import type { MemberKey } from "../../ir-types/contract.js";
+import { encodeKey } from "../../ids/index.js";
 import type { MemberSelection } from "../../ir-tir/contract.js";
+import { memberSelectionKey, memberStorageKey } from "../../ir-tir/index.js";
+import type { DataflowAccount, DataflowStop } from "../../dataflow/contract.js";
+import { accountFailure, chargeWork } from "../../dataflow/index.js";
+import type { BindingVector, MemberKey } from "../../ir-types/contract.js";
+
+const textWork = (account: DataflowAccount, text: string): boolean => chargeWork(account, 8 * (1 + text.length)) === null;
+
+export const bindingWork = (account: DataflowAccount, bindings: BindingVector): boolean => {
+  if (chargeWork(account, 4) !== null) return false;
+  for (const rows of [bindings.classBindings, bindings.methodBindings, bindings.capturedBindings]) {
+    if (chargeWork(account, 8 * rows.length) !== null) return false;
+    for (const row of rows) if (!textWork(account, row.parameter.owner)) return false;
+  }
+  if (chargeWork(account, 8 * bindings.selfBindings.length) !== null) return false;
+  for (const row of bindings.selfBindings) if (!textWork(account, row.owner)) return false;
+  return true;
+};
+
+const keyWork = (account: DataflowAccount, key: MemberKey): boolean => key.kind === "text" ? textWork(account, key.value)
+  : key.kind === "symbol" ? textWork(account, key.declaration) : chargeWork(account, 8) === null;
+
+export const memberWork = (account: DataflowAccount, member: MemberSelection): boolean => {
+  if (chargeWork(account, 16) !== null) return false;
+  const decision = member.decision;
+  if (!keyWork(account, decision.key) || !bindingWork(account, decision.bindings)) return false;
+  if (chargeWork(account, 8 * (decision.origins.length + decision.selectedDeclarations.length)) !== null) return false;
+  for (const origin of decision.origins) {
+    switch (origin.kind) {
+      case "declared": if (!textWork(account, origin.declaration)) return false; break;
+      case "class-prototype": if (!textWork(account, origin.owner)) return false; break;
+      case "mapped":
+        if (!textWork(account, origin.owner.kind === "body" ? origin.owner.value.body : origin.owner.value.owner)
+          || !keyWork(account, origin.key)) return false;
+        break;
+    }
+  }
+  for (const declaration of decision.selectedDeclarations) if (!textWork(account, declaration)) return false;
+  if (decision.primary !== null && !textWork(account, decision.primary)) return false;
+  return true;
+};
+
+export const segmentWork = (account: DataflowAccount, segment: SegmentSpec | null): boolean =>
+  segment !== null && segment.kind === "field" ? memberWork(account, segment.member) : chargeWork(account, 1) === null;
 
 export type RootSpec =
   | { readonly kind: "receiver" }
@@ -22,18 +65,23 @@ export type SegmentSpec =
   | { readonly kind: "index"; readonly index: number }
   | { readonly kind: "element" };
 
-export interface ProducerSpec {
+export type ProducerSpec = {
   readonly key: string;
   readonly root: RootSpec;
-  readonly segments: readonly SegmentSpec[];
-}
-
-const missingSegment: InvariantFailure = { owner: "analyses/origins", query: null, origin: null,
-  message: "origins: two paths of equal length differ in length" };
+  readonly depth: number;
+} & (
+  | { readonly parent: null; readonly segment: null }
+  | { readonly parent: number; readonly segment: SegmentSpec }
+);
 
 export const frontier =(origin: Origin | null, message: string): never => {
   const failure: InvariantFailure = { owner: "analyses/origins", query: null, origin, message: `origins: ${message}` };
   return throwInvariant(failure);
+};
+
+export const requiredStop = (account: DataflowAccount): DataflowStop => {
+  const failure = accountFailure(account);
+  return failure === null ? frontier(null, "caller defect: a failed operation has no invocation stop") : failure;
 };
 
 const rootKey = (root: RootSpec): string => {
@@ -44,18 +92,12 @@ const rootKey = (root: RootSpec): string => {
   }
 };
 
-const memberKeyText = (key: MemberKey): string => {
-  switch (key.kind) {
-    case "text": return `t${JSON.stringify(key.value)}`;
-    case "number": return `n${key.value.numerator}/${key.value.denominator}/${String(key.value.negativeZero)}`;
-    case "symbol": return `s${JSON.stringify(key.declaration)}`;
-  }
+export const fieldSegment = (member: MemberSelection): SegmentSpec => {
+  if (member.decision.location.kind !== "data") return frontier(null, "caller defect: a field projection does not select a data location");
+  return { kind: "field", key: encodeKey(memberStorageKey(member)), member };
 };
 
-export const fieldSegment = (member: MemberSelection): SegmentSpec =>
-  ({ kind: "field", key: memberKeyText(member.decision.key), member });
-
-const segmentKey = (segment: SegmentSpec): string => {
+export const segmentKey = (segment: SegmentSpec): string => {
   switch (segment.kind) {
     case "field": return `f${segment.key}`;
     case "index": return `i${segment.index}`;
@@ -63,39 +105,40 @@ const segmentKey = (segment: SegmentSpec): string => {
   }
 };
 
-export const rootSpec = (root: RootSpec): ProducerSpec => ({ key: rootKey(root), root, segments: [] });
+export const representativeKey = (segment: SegmentSpec | null): string =>
+  segment !== null && segment.kind === "field" ? encodeKey(memberSelectionKey(segment.member)) : "";
 
-export const childSpec = (parent: ProducerSpec, segment: SegmentSpec): ProducerSpec =>
-  ({ key: `${parent.key}/${segmentKey(segment)}`, root: parent.root, segments: [...parent.segments, segment] });
+export const rootSpec = (root: RootSpec): ProducerSpec => ({ key: rootKey(root), root, parent: null, segment: null, depth: 0 });
 
-// Ranks order keys without depending on how a body numbers anything: a kind rank, then a number, then a text.
-type Rank = readonly [number, number, string];
+export const childSpec = (parent: ProducerSpec, parentId: number, segment: SegmentSpec): ProducerSpec =>
+  ({ key: `${parentId}/${segmentKey(segment)}`, root: parent.root, parent: parentId, segment, depth: parent.depth + 1 });
 
-const rootRank = (root: RootSpec): Rank => {
+const rootRank = (root: RootSpec): number => {
   switch (root.kind) {
-    case "receiver": return [0, 0, ""];
-    case "parameter": return [1, root.index, ""];
-    case "allocation": return [2, root.node, ""];
+    case "receiver": return 0;
+    case "parameter": return 1;
+    case "allocation": return 2;
   }
 };
 
-const segmentRank = (segment: SegmentSpec): Rank => {
+const segmentRank = (segment: SegmentSpec): number => {
   switch (segment.kind) {
-    case "field": return [0, 0, segment.key];
-    case "index": return [1, segment.index, ""];
-    case "element": return [2, 0, ""];
+    case "field": return 0;
+    case "index": return 1;
+    case "element": return 2;
   }
 };
 
-const compareRanks = (left: Rank, right: Rank): number =>
-  (left[0] - right[0]) || (left[1] - right[1]) || (Number(left[2] > right[2]) - Number(left[2] < right[2]));
+export const compareRoots = (left: RootSpec, right: RootSpec): number => {
+  const rank = rootRank(left) - rootRank(right);
+  if (rank !== 0) return rank;
+  const value = (root: RootSpec): number => root.kind === "receiver" ? 0 : root.kind === "parameter" ? root.index : root.node;
+  return value(left) - value(right);
+};
 
-// Paths compare by length first, so a parent precedes each of its children, then segment by segment.
-export const comparePaths = (left: readonly SegmentSpec[], right: readonly SegmentSpec[]): number =>
-  (left.length - right.length) || left.reduce((order, segment, index) =>
-    order || compareRanks(segmentRank(segment), segmentRank(requirePresent(right[index], missingSegment))), 0);
-
-export const compareProducers = (left: ProducerSpec, right: ProducerSpec): number =>
-  compareRanks(rootRank(left.root), rootRank(right.root)) || comparePaths(left.segments, right.segments);
-
-export const pathKey = (segments: readonly SegmentSpec[]): string => segments.map(segmentKey).join("/");
+export const compareSegments = (left: SegmentSpec, right: SegmentSpec): number => {
+  const rank = segmentRank(left) - segmentRank(right);
+  if (rank !== 0) return rank;
+  if (left.kind === "field" && right.kind === "field") return Number(left.key > right.key) - Number(left.key < right.key);
+  return left.kind === "index" && right.kind === "index" ? left.index - right.index : 0;
+};

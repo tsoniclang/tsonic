@@ -32,7 +32,9 @@ export const canonicalizeProgram: CanonicalizeProgram = (program, publication) =
       summaries: index.summaries.map(summary => rewriteSummary(rewrite, summary, {
         definition: summary.key.definition, bindings: rewriteArtifactBindings(rewrite, summary.key.bindings),
       })),
-      constants: index.constants.map(record => ({ initializer: rewriteInstance(rewrite, record.initializer), value: rewriteConstant(rewrite, record.value) })),
+      constants: index.constants.map(record => ({ reference: {
+        initializer: rewriteInstance(rewrite, record.reference.initializer), context: record.reference.context,
+      }, value: rewriteConstant(rewrite, record.value) })),
       diagnostics: index.diagnostics,
     },
     modules: program.modules.map((module, position) => rewriteModuleSyntax(rewrite, module, `HostProgram.modules[${position}]`)),

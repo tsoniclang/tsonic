@@ -4,7 +4,7 @@ import type { BlockId, BodyId, ConstId, LocalId, LocalRef, Origin, PlaceId, TyId
 import { blockId, constId, localId, placeId } from "../ids/index.js";
 import type { ArtifactBindings } from "../ir-types/contract.js";
 import type {
-  MirBlock, MirBody, MirCallArgument, MirConstant, MirConstantValue, MirEntry, MirLocal, MirLocalRole, MirOperand, MirPlace,
+  MirBlock, MirBody, MirCallArgument, MirConstant, MirConstantValue, MirEntry, MirLocal, MirLocalRole, MirLocalStorageMode, MirOperand, MirPlace,
   MirPlaceBase, MirRvalue, MirSite, MirStatement, MirTerminator,
 } from "../ir-mir/contract.js";
 import { constantKeyOfMir } from "../ir-mir/index.js";
@@ -64,10 +64,10 @@ function charge(state: LowerState): boolean {
 }
 
 /** A new local, or null when the lowering is refused. */
-export function newLocal(state: LowerState, storage: TyId, role: MirLocalRole, source: LocalRef | null, origin: Origin): LocalId | null {
+export function newLocal(state: LowerState, storage: TyId, role: MirLocalRole, mode: MirLocalStorageMode, source: LocalRef | null, origin: Origin): LocalId | null {
   if (!charge(state)) return null;
   const id = localId(state.locals.length);
-  state.locals.push({ id, storage, role, source, origin });
+  state.locals.push({ id, storage, role, mode, source, origin });
   return id;
 }
 

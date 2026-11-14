@@ -3,6 +3,7 @@ import type { BlockId, BodyId, DefId, NodeId, NodeRef, Origin, PlaceId } from ".
 import { encodeKey } from "../ids/index.js";
 import { callableEndpointKey, childrenOfSyntax, hasOverloadEndpoints, selectedEndpointRoleFaults, walkSyntaxTree } from "../ir-hir/index.js";
 import type { ApplicationDecision } from "../ir-infer/contract.js";
+import type { BodyInstance } from "../ir-types/contract.js";
 import type { MemberSelection, ResolvedCallee, TirBody, TirNode, TirProtocol, TirProtocolStep, TypedOperation } from "../ir-tir/contract.js";
 import { wireText } from "./text.js";
 import type { DecisionWires } from "./text-decisions.js";
@@ -272,6 +273,7 @@ export function validOrigin(origin: Origin): boolean {
 
 export function verifySelections(
   body: MirBody, context: MirVerificationContext, nodes: ReadonlyMap<NodeId, SourceNode>, texts: WireTexts,
+  internalBody: (instance: BodyInstance) => TirBody | undefined, meter: WorkMeter,
 ): readonly Violation<MirRule, MirViolationSite>[] {
   const violations: Violation<MirRule, MirViolationSite>[] = [];
   const report = (rule: MirRule, site: MirViolationSite): void => { violations.push({ rule, site, detail: [] }); };
@@ -380,6 +382,9 @@ export function verifySelections(
           for (const [index, capture] of value.captures.entries()) {
             const expected = named?.[index]?.local;
             if (expected === undefined || expected.body !== capture.local.body || !Object.is(expected.local, capture.local.local)) report("capture-location-exact", site);
+            const selectedMode = outcome.kind === "decided" ? outcome.decision.captures[index]?.capture : null;
+            if (selectedMode !== undefined && capture.capture !== selectedMode) report("local-storage-exact", site);
+            else if (capture.capture === null && body.bindings.kind !== "parametric") report("local-storage-exact", site);
           }
         }
       }
@@ -391,8 +396,21 @@ export function verifySelections(
       // An internal body is executed only where the typed body places it: at the node that names that body, or, for
       // the default of a parameter of this body, in the entry that omits the parameter.
       if (block.terminator.callee.kind !== "body") callee(block.terminator.callee.resolution, source, site);
-      else if (source !== undefined && !source.bodies.has(block.terminator.callee.instance.body)
-        && !parameterDefaults.has(block.terminator.callee.instance.body)) report("operation-selected", site);
+      else {
+        const selected = block.terminator.callee;
+        if (source !== undefined && !source.bodies.has(selected.instance.body)
+          && !parameterDefaults.has(selected.instance.body)) report("operation-selected", site);
+        const target = internalBody(selected.instance);
+        if (meter.exhausted) return violations;
+        if (target === undefined || target.captures.length !== selected.captures.length) report("capture-location-exact", site);
+        for (const [index, capture] of selected.captures.entries()) {
+          const expected = target?.captures[index];
+          if (expected === undefined || expected.local.body !== capture.local.body || expected.local.local !== capture.local.local)
+            report("capture-location-exact", site);
+          if (expected !== undefined && expected.capture !== capture.capture
+            || capture.capture === null && body.bindings.kind !== "parametric") report("local-storage-exact", site);
+        }
+      }
     }
   }
   return violations;

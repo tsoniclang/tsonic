@@ -132,7 +132,7 @@ function rewriteMirConstant(rewrite: TypeRewrite, value: MirConstantValue): MirC
     case "definition":
     case "metadata": return { kind: value.kind, definition: value.definition, bindings: rewriteArtifactBindings(rewrite, value.bindings) };
     case "constant": return {
-      kind: "constant", reference: { initializer: rewriteInstance(rewrite, value.reference.initializer) },
+      kind: "constant", reference: { initializer: rewriteInstance(rewrite, value.reference.initializer), context: value.reference.context },
     };
   }
 }
@@ -242,7 +242,7 @@ function rewriteTerminator(rewrite: TypeRewrite, terminator: MirTerminator, at: 
 export function rewriteMirBody(rewrite: TypeRewrite, body: MirBody, at: string, bindings: ArtifactBindings): MirBody {
   return {
     body: body.body, bindings, entries: body.entries,
-    locals: body.locals.map(local => ({ id: local.id, storage: rewrite.type(local.storage), role: local.role, source: local.source, origin: local.origin })),
+    locals: body.locals.map(local => ({ id: local.id, storage: rewrite.type(local.storage), role: local.role, mode: local.mode, source: local.source, origin: local.origin })),
     constants: body.constants.map(constant => ({ id: constant.id, type: rewrite.type(constant.type), value: rewriteMirConstant(rewrite, constant.value) })),
     places: body.places.map(place => ({ id: place.id, base: rewritePlaceBase(rewrite, place.base), storage: rewrite.type(place.storage), origin: place.origin })),
     blocks: body.blocks.map((block, position) => ({

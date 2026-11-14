@@ -15,7 +15,7 @@ import { parseTypes } from "../ir-types/index.js";
 import type { Cursor, RecordFields } from "./parse-values.js";
 import { choice, closeRecord, delimiter, invalid, nullable, openRecord, readArray, readBodyId, readChild, readDefinitionId, readField, readModuleId, readNodeId, readNumber, readPackageId, readSignatureId, readString, whitespace } from "./parse-values.js";
 import { readDiagnostic } from "./parse-diagnostics.js";
-import { readArtifactBindings, readConstValue, readInstance } from "./parse-types.js";
+import { readArtifactBindings, readConstantReference, readConstValue, readInstance } from "./parse-types.js";
 import type { TextStep } from "./parse-values.js";
 import { arrayText, atomicText, fieldText } from "./parse-values.js";
 import type { SyntaxReadPorts, SyntaxValue } from "./parse-syntax-values.js";
@@ -145,13 +145,13 @@ function readConstantRecord(cursor: Cursor): TextParseResult<ConstantRecord> {
   const opened = delimiter(cursor, "(");
   if (opened.kind === "invalid-text") return opened;
   const fields: RecordFields = { given: new Set<string>() };
-  const initializer = readField(cursor, fields, "initializer", readInstance);
-  if (initializer.kind === "invalid-text") return initializer;
+  const reference = readField(cursor, fields, "reference", readConstantReference);
+  if (reference.kind === "invalid-text") return reference;
   const value = readField(cursor, fields, "value", readConstValue);
   if (value.kind === "invalid-text") return value;
   const closed = closeRecord(cursor, fields);
   return closed.kind === "invalid-text" ? closed : { kind: "parsed", value: {
-    initializer: initializer.value, value: value.value
+    reference: reference.value, value: value.value
   } };
 }
 

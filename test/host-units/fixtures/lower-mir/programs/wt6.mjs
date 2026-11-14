@@ -14,7 +14,6 @@
 //   }
 // `policy.bounds` and `policy.absent` are the selected failure kinds ("unwind" | "abort") that Rules
 // has written into the index and narrowing decisions. Integer `+` is selected as a pure operation.
-import { N } from "../names.mjs";
 import { DYNAMIC_KEY, SIG, T, builders, callee, checked, direct, endpoint, mapped, narrowed, native, selection, signature, typedBody } from "../typed.mjs";
 
 const ADD = native("+", "int32", [T.int32, T.int32], T.int32);
@@ -46,12 +45,9 @@ const returnFirst = (b, arrayLocal, arrayType, indexLocation, label) =>
     b.read(T.int32, selection(DYNAMIC_KEY, T.int32, T.int32, indexLocation))) });
 
 export function wt6(policy) {
-  // The access decision states the receiver and the extent of the carrier (K-3238 point 1): lowering reads both and
-  // derives neither from the type. A dense array is a reference to a carrier whose extent can change; a fixed array
-  // is storage in place whose extent cannot; the third is a fixed carrier reached through a reference.
-  const dense = checked(policy.bounds, "by-reference", N.extentMutable);
-  const fixed = checked(policy.bounds, "in-place", N.extentFixed);
-  const fixedByReference = checked(policy.bounds, "by-reference", N.extentFixed);
+  const dense = checked(policy.bounds, "by-reference");
+  const fixed = checked(policy.bounds, "in-place");
+  const fixedByReference = checked(policy.bounds, "by-reference");
 
   const g = builders("orderGrow");
   const orderGrow = typedBody("orderGrow", { signature: SIG_ORDER_GROW, completion: T.int32,

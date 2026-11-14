@@ -4,7 +4,7 @@ import type { TirBody } from "../ir-tir/contract.js";
 import { printFacts, printMetadata, printSummary } from "../ir-facts/index.js";
 import { printMir } from "../ir-mir/index.js";
 import { printTypes } from "../ir-types/index.js";
-import { textArtifactBindings, textBindingVector, textBodyInstance, textConstValue, textTypeEvidence } from "./text-types.js";
+import { textArtifactBindings, textBindingVector, textBodyInstance, textConstantReference, textConstValue, textTypeEvidence } from "./text-types.js";
 import { textHirLexicalScope } from "./text-core.js";
 import { textBodyCaptureRow } from "./text-inference.js";
 import { createSyntaxText, syntaxText } from "./print-syntax.js";
@@ -62,7 +62,7 @@ function bodyRecord(value: BodyRecord): TextWork {
 
 function constantRecord(value: ConstantRecord): TextWork {
   return deferred(value, () => record("ConstantRecord", [
-    field("initializer", textBodyInstance(value.initializer)), field("value", textConstValue(value.value)),
+    field("reference", textConstantReference(value.reference)), field("value", textConstValue(value.value)),
   ]));
 }
 

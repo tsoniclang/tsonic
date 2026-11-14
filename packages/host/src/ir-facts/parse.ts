@@ -485,8 +485,9 @@ const mirPoint: Decode<MirPoint> = (state, input) => then(fields(state, input, "
 const storeLiveness: Decode<StoreLiveness> = (state, input) => then(fields(state, input, "StoreLiveness"), values =>
     then(readField(state, values, "node", node), nodeValue =>
     then(readField(state, values, "point", mirPoint), pointValue =>
+    then(readField(state, values, "edge", (state, input) => nullable(state, input, (state, input) => literal(state, input, ["continue", "resume", "return", "unwind"]))), edgeValue =>
     then(readField(state, values, "observed", scalarBoolean), observedValue =>
-      finishRecord<StoreLiveness>(state, values, { node: nodeValue, point: pointValue, observed: observedValue })))));
+      finishRecord<StoreLiveness>(state, values, { node: nodeValue, point: pointValue, edge: edgeValue, observed: observedValue }))))));
 const liveSegment: Decode<LiveSegment> = (state, input) => then(fields(state, input, "LiveSegment"), values =>
     then(readField(state, values, "block", block), blockValue =>
     then(readField(state, values, "first", scalarNumber), firstValue =>
@@ -498,9 +499,9 @@ const localLiveRange: Decode<LocalLiveRange> = (state, input) => then(fields(sta
       finishRecord<LocalLiveRange>(state, values, { local: localValue, segments: segmentsValue }))));
 const bindingStorage: Decode<BindingStorageFact> = (state, input) => then(fields(state, input, "BindingStorageFact"), values =>
     then(readField(state, values, "local", local), localValue =>
-    then(readField(state, values, "scope", (state, input) => literal(state, input, ["body","shared"])), scopeValue =>
+    then(readField(state, values, "addressTaken", scalarBoolean), addressTakenValue =>
     then(readField(state, values, "captured", scalarBoolean), capturedValue =>
-      finishRecord<BindingStorageFact>(state, values, { local: localValue, scope: scopeValue, captured: capturedValue })))));
+      finishRecord<BindingStorageFact>(state, values, { local: localValue, addressTaken: addressTakenValue, captured: capturedValue })))));
 const captureFact: Decode<CaptureFact> = (state, input) => then(fields(state, input, "CaptureFact"), values =>
     then(readField(state, values, "local", localRef), localValue =>
     then(readField(state, values, "reads", scalarBoolean), readsValue =>

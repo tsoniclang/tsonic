@@ -1,6 +1,6 @@
 import type { Violation } from "../diag/contract.js";
 import type { AccessLocation, CheckRequirement, ReceiverAccess } from "../ir-infer/contract.js";
-import type { BlockId, LocalId, NodeId, PlaceId } from "../ids/contract.js";
+import type { BlockId, NodeId, PlaceId } from "../ids/contract.js";
 import type {
   MirBlock, MirBody, MirClosureCapture, MirLocal, MirOperand, MirPlaceBase, MirProjection, MirRule, MirRvalue, MirStepRef, MirVerificationContext, MirViolationSite,
 } from "./contract.js";
@@ -8,13 +8,13 @@ import { controlEdges, densePosition, findSourceNode } from "./verify-control.js
 import { chargeWork, read, reversePostorder } from "./verify-control.js";
 import type { SourceNode, SourceStep, WireTexts, WorkMeter } from "./verify-control.js";
 import type { PlaceLocation } from "./verify-storage.js";
+import { ownershipOfMode } from "./local-ownership.js";
 
 // The graph laws a lowered body satisfies beyond reference and type validity. Every check is a pass over the
 // records of the body; none follows paths. Law numbers are those of the lowering specification's list of ten.
 // The decisions a record carries or its node selected say whether an operation is pure, whether it writes, how a
 // control point fails, whether an access needs a check and how its receiver is reached; the graph agrees with them
-// and selects none of it. Law 3 is enforced for every checked place as the contract states it; the stable kind for
-// a fixed extent needs the extent field of the element access decision and is added with it.
+// and selects none of it. Law 3 is enforced for every checked place as the contract states it.
 export function verifyLaws(
   body: MirBody, context: MirVerificationContext, nodes: ReadonlyMap<NodeId, SourceNode>, texts: WireTexts,
   places: ReadonlyMap<PlaceId, PlaceLocation>, meter: WorkMeter,
@@ -90,7 +90,9 @@ export function verifyLaws(
     writes[root] = read(writes, root, 0) + 1;
     handedOut[root] = 1;
   };
-  const captured = (captures: readonly MirClosureCapture[]): void => { for (const capture of captures) handed(capture.place); };
+  const captured = (captures: readonly MirClosureCapture[]): void => {
+    for (const capture of captures) if (capture.capture !== "captured-value") handed(capture.place);
+  };
   // The locals that hold the result of a completion test (a step of role `done`), each with the record that wrote it.
   const completions = new Map<number, CompletionResult>();
   const completionWrites = new Uint32Array(body.locals.length);
@@ -139,12 +141,16 @@ export function verifyLaws(
   // code, so it is never stable and never an index. A parameter passed by value or moved is a private cell.
   // The receiver is the row of role `this`, one of these rows: its local is found as a parameter's is, by the source
   // local it names.
-  const referents = new Set<LocalId>();
+  // A captured location is the creator's storage in the same way: the local of role `capture` whose retained mode
+  // says `captured-location`. A captured value is the body's own cell. A row whose capture is null (the parametric
+  // template of a body whose creator saved the closure rule; verifyRows refuses it elsewhere) states no mode: its
+  // local counts as handed out and written by other code, and nothing is said of its markers.
   const notOwned = new Uint8Array(body.locals.length);
-  for (const parameter of context.source.params) if (parameter.passing !== "by-value" && parameter.passing !== "move") referents.add(parameter.local);
   for (const local of body.locals) {
-    if (local === undefined || local.source === null || local.source.body !== context.source.body || !referents.has(local.source.local)) continue;
-    notOwned[local.id] = 1;
+    if (local === undefined) continue;
+    const ownership = ownershipOfMode(local.mode);
+    if (ownership === "body") continue;
+    if (ownership === "external") notOwned[local.id] = 1;
     writes[local.id] = read(writes, local.id, 0) + 1;
     cellWrites[local.id] = read(cellWrites, local.id, 0) + 1;
     handedOut[local.id] = 1;
@@ -153,12 +159,23 @@ export function verifyLaws(
   // Whether a checked place is of the stable kind (the contract's law 3) and the local whose cell it views, and the
   // first checked place of each node.
   const stable = new Uint8Array(body.places.length);
-  const stableLocal = new Int32Array(body.places.length);
+  const privateLocation = new Uint8Array(body.places.length);
   // How the check of a checked place fails, by its decision: 1 unwinds, 2 ends the process, 0 when no decision says.
   const failureOf = new Uint8Array(body.places.length);
   const checkedAt = new Map<number, CheckedBase>();
   for (const [position, place] of body.places.entries()) {
-    if (place === undefined || place.base.kind !== "place" && place.base.kind !== "checked") continue;
+    if (place === undefined) continue;
+    if (place.base.kind === "local") {
+      if (densePosition(place.base.local, body.locals.length) && handedOut[place.base.local] !== 1) privateLocation[position] = 1;
+      continue;
+    }
+    if (place.base.kind === "static") continue;
+    if (densePosition(place.base.place, position) && privateLocation[place.base.place] === 1) {
+      const projection = place.base.projection;
+      const indexCell = projection.kind === "index" && projection.operand.kind === "place" ? read(cellOf, projection.operand.place, -1) : -1;
+      if (projection.kind !== "index" || projection.operand.kind === "constant" || indexCell >= 0 && handedOut[indexCell] !== 1)
+        privateLocation[position] = 1;
+    }
     if (place.base.kind === "checked" && Object.is(place.id, position)) {
       if (place.base.tir.body === context.source.body) {
         // One node can carry checks of several kinds (an element that is also narrowed); each kind has one view.
@@ -173,8 +190,14 @@ export function verifyLaws(
         const count = read(cellWrites, parent.base.local, 0);
         if (local !== undefined && handedOut[parent.base.local] !== 1 && (presentOnEntry(local) ? count === 0 : count === 1)) {
           stable[position] = 1;
-          stableLocal[position] = parent.base.local;
         }
+      }
+      if (place.base.projection.kind === "index" && densePosition(place.base.place, position)) {
+        const receiver = body.places[place.base.place];
+        const selected = receiver === undefined ? undefined : context.types.terms[receiver.storage];
+        const above = read(checkedAbove, place.base.place, -1);
+        if ((selected?.kind === "fixed-array" || selected?.kind === "declared" && selected.extent !== null) && privateLocation[position] === 1
+          && (above < 0 || stable[above] === 1)) stable[position] = 1;
       }
     }
     // A narrowed view of a cell exists only as the result of its check.
@@ -295,50 +318,76 @@ export function verifyLaws(
     stored(place);
   };
   /** Stamps, for a mutable place, the local it is rooted at and each local that indexes it. */
-  const depend = (checked: PlaceId): void => {
-    const location = places.get(checked);
-    if (location === undefined) return;
-    if (location.root !== null) mutableLocals[location.root.id] = mutableNow;
-    for (let index = location.indices; index !== null; index = index.parent) {
-      const root = rootOf(index.place);
-      if (root !== null) mutableLocals[root] = mutableNow;
-    }
+  // Index chains share their prefixes (placeLocations), so the chain nodes walked are remembered with the mutable count
+  // they were walked in. A node walked in the current count ends the walk: it and every node after it are stamped
+  // already. A node walked in an earlier count is walked again, and that repeat is charged before it is done.
+  const walked = new Map<NonNullable<PlaceLocation["indices"]>, number>();
+  const stableWalked = new Map<NonNullable<PlaceLocation["indices"]>, number>();
+  const remember = (local: number, count: number, stableSpan: boolean): void => {
+    const dependencies = stableSpan ? stableLocals : mutableLocals;
+    const before = read(dependencies, local, 0);
+    if (stableSpan && before !== 0 && before !== count) superseded.add(before);
+    dependencies[local] = count;
   };
+  const depend = (checked: PlaceId, stableSpan: boolean): boolean => {
+    const location = places.get(checked);
+    if (location === undefined) return true;
+    const count = stableSpan ? stableNow : mutableNow;
+    const seen = stableSpan ? stableWalked : walked;
+    if (location.root !== null) remember(location.root.id, count, stableSpan);
+    for (let index = location.indices; index !== null; index = index.parent) {
+      const at = seen.get(index);
+      if (at === count) return true;
+      if (at !== undefined) {
+        charge(1);
+        if (meter.exhausted) return false;
+      }
+      seen.set(index, count);
+      const root = rootOf(index.place);
+      if (root !== null) remember(root, count, stableSpan);
+    }
+    return true;
+  };
+  // Each charged helper answers whether it completed. A false answer is the account's refusal: the caller stops
+  // before anything after the call (a copy, a stamp, an append, a snapshot, a hand-over) and answers false itself.
   /** Makes a stable place available: appended to the list when this view ends it, otherwise to a copy of the view. */
-  const hold = (checked: PlaceId): void => {
+  const hold = (checked: PlaceId): boolean => {
     if (stamp[checked] === stableNow) {
-      if (read(slot, checked, 0) < visible) return;
-      copyView();
-    } else if (log.length !== visible) copyView();
+      if (read(slot, checked, 0) < visible) return true;
+      if (!copyView()) return false;
+    } else if (log.length !== visible && !copyView()) return false;
+    return append(checked);
+  };
+  /** Appends a stable place to the list this view ends. Not charged: the copy or meet that makes such a list is. */
+  const append = (checked: PlaceId): boolean => {
+    if (!depend(checked, true)) return false;
     const old = read(stamp, checked, 0);
     if (old !== 0) superseded.add(old);
     stamp[checked] = stableNow;
     slot[checked] = log.length;
     log.push(checked);
     visible = log.length;
-    // A stable place is the narrowed view of a local's own cell: it depends on that local and on no index. A count
-    // whose stamp on the local is overwritten is superseded with it.
-    const root = read(stableLocal, checked, 0);
-    const before = read(stableLocals, root, 0);
-    if (before !== 0 && before !== stableNow) superseded.add(before);
-    stableLocals[root] = stableNow;
+    return true;
   };
-  const copyView = (): void => {
+  /** Copies the view into a fresh list that it ends. False: the account refused the copy, and nothing was copied. */
+  const copyView = (): boolean => {
     const facts = log;
     const count = visible;
     endStable();
     charge(count);
-    if (meter.exhausted) return;
-    for (const fact of facts.slice(0, count)) hold(fact);
+    if (meter.exhausted) return false;
+    for (const fact of facts.slice(0, count)) if (!append(fact)) return false;
+    return true;
   };
-  const begin = (checked: PlaceId): void => {
+  const begin = (checked: PlaceId): boolean => {
     const place = densePosition(checked, body.places.length) ? body.places[checked] : undefined;
-    if (place === undefined || place.base.kind !== "checked" || !Object.is(place.id, checked)) return;
+    if (place === undefined || place.base.kind !== "checked" || !Object.is(place.id, checked)) return true;
     const above = read(checkedAbove, place.base.place, -1);
-    if (above >= 0 && !available(above)) return;
-    if (stable[checked] === 1) { hold(checked); return; }
+    if (above >= 0 && !available(above)) return true;
+    if (stable[checked] === 1) return hold(checked);
+    if (!depend(checked, false)) return false;
     stamp[checked] = mutableNow;
-    depend(checked);
+    return true;
   };
   // What an edge hands to a block that is not continued into, and the sets handed to each block not yet read.
   const nothing: StableSet = { log: [], visible: 0, count: 0 };
@@ -365,50 +414,49 @@ export function verifyLaws(
   const arrivedAt = new Uint32Array(body.places.length);
   let merges = 0;
   /** Starts a block that is not continued into: no mutable place, and the stable places every incoming edge brings. */
-  const enter = (head: number): void => {
+  const enter = (head: number): boolean => {
     endMutable();
     const sets = arriving[head];
     arriving[head] = undefined;
     const first = sets === undefined ? undefined : sets[0];
     // An entry, and an edge whose source is not read yet, hand over no set: the count of sets falls short of the
     // count of incoming edges and nothing is kept.
-    if (sets === undefined || first === undefined || sets.length !== incoming[head]) { endStable(); return; }
+    if (sets === undefined || first === undefined || sets.length !== incoming[head]) { endStable(); return true; }
     charge(sets.length);
-    if (meter.exhausted) return;
+    if (meter.exhausted) return false;
     let one = true;
     let shortest = first.visible;
     for (const set of sets) {
       if (set.log !== first.log || set.count !== first.count) one = false;
       if (set.visible < shortest) shortest = set.visible;
     }
-    if (shortest === 0) { endStable(); return; }
+    if (shortest === 0) { endStable(); return true; }
     if (one) {
       // Prefixes of one list: the shortest is what all of them bring.
       stableNow = first.count;
       log = first.log;
       visible = shortest;
-      if (superseded.has(first.count)) copyView();
-      return;
+      return !superseded.has(first.count) || copyView();
     }
     merges += 1;
     for (const set of sets) {
       charge(set.visible);
-      if (meter.exhausted) return;
+      if (meter.exhausted) return false;
       for (const fact of set.log.slice(0, set.visible)) {
         if (arrivedAt[fact] !== merges) { arrivedAt[fact] = merges; arrivals[fact] = 0; }
         arrivals[fact] = read(arrivals, fact, 0) + 1;
       }
     }
     endStable();
-    for (const fact of first.log.slice(0, first.visible)) if (arrivals[fact] === sets.length) hold(fact);
+    for (const fact of first.log.slice(0, first.visible)) if (arrivals[fact] === sets.length && !append(fact)) return false;
+    return true;
   };
-  const chain = (head: number): void => {
-    if (meter.exhausted) return;
-    enter(head);
-    for (let position = head; position >= 0 && visited[position] !== 1 && !meter.exhausted;) {
+  const chain = (head: number): boolean => {
+    if (!enter(head)) return false;
+    for (let position = head; position >= 0 && visited[position] !== 1;) {
       visited[position] = 1;
       const block = body.blocks[position];
-      if (block === undefined) return;
+      if (block === undefined) return true;
       for (const [index, statement] of block.statements.entries()) {
         if (statement.kind === "assign") {
           useValue(statement.value, block.id, index);
@@ -471,7 +519,10 @@ export function verifyLaws(
           endMutable();
           delivered(terminator.destination, block.id);
           break;
-        case "check": begin(terminator.place); break;
+        case "check":
+          // A refused copy stops the chain here: nothing is handed to the next block.
+          if (!begin(terminator.place)) return false;
+          break;
         case "goto": case "switch": case "throw": case "return": case "unreachable": break;
       }
       const next = continuation(block);
@@ -479,18 +530,20 @@ export function verifyLaws(
       if (next < 0 && target >= 0) give(target, snapshot());
       position = next;
     }
+    return true;
   };
   // Blocks are read in reverse postorder of the control edges, from the entries and then from every block not
   // reached, so that the sources of a block's forward edges are read before it. A chain is read from its head.
   const roots: number[] = [];
   for (const entry of body.entries) roots.push(entry.block);
   for (const position of body.blocks.keys()) roots.push(position);
-  for (const ordered of reversePostorder(body, roots)) if (inherits[ordered.position] !== 1 && visited[ordered.position] !== 1) chain(ordered.position);
+  for (const ordered of reversePostorder(body, roots)) {
+    if (inherits[ordered.position] !== 1 && visited[ordered.position] !== 1 && !chain(ordered.position)) return violations;
+  }
   // Blocks left over form a closed ring that nothing enters; each is read once all the same.
-  for (const [position, block] of body.blocks.entries()) if (block !== undefined && visited[position] !== 1) chain(position);
-
-  // Past the limit the body has no answer: what follows is not read.
-  if (meter.exhausted) return violations;
+  for (const [position, block] of body.blocks.entries()) {
+    if (block !== undefined && visited[position] !== 1 && !chain(position)) return violations;
+  }
 
   // Law 6: a protocol step names its step. A record that names a step executes that step's callee or operation, and
   // a record that executes the callee or operation of a step of its node's protocols names it. A record that names

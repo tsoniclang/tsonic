@@ -1,3 +1,4 @@
+import type { UnitRef } from "../diag/contract.js";
 import type { DefId, BodyId } from "../ids/contract.js";
 import type { InferenceDeclaration } from "../ir-infer/contract.js";
 import type { MirVerificationContext, MirVerificationLimits } from "../ir-mir/contract.js";
@@ -15,7 +16,12 @@ import type { LowerMirDefs, LowerMirDeps, LowerMirLimits } from "../lower-mir/co
 export interface LowerMirRun {
   /** The run's type interner: lowering reads types and signatures through it. */
   readonly interner: TypeInterner;
-  /** The run's type table at the typed-body barrier, the table the verifier checks references against. */
+  /**
+   * The table the verifier checks references against: the table `exportTypes` publishes from this same interner at
+   * the typed-body barrier, so that lowering (reading the interner) and verification (reading the table) see one set
+   * of types. The step does not export it itself: the export has its own limits and refusal, which are the barrier's.
+   * Pipeline's barrier driver supplies it; that call is not written yet (W4-2.md, the step's open items).
+   */
   readonly table: TypeTable;
   readonly defs: LowerMirDefs;
   /** The size limit of one lowered graph (`LowerMirLimits`). Its place in `CompilerLimits` is NEEDS-W4 D2. */
@@ -24,15 +30,16 @@ export interface LowerMirRun {
   readonly verification: MirVerificationLimits;
   readonly declarationOf: (definition: DefId) => InferenceDeclaration | null;
   readonly bodyOwner: (body: BodyId) => DefId | null;
+  readonly bodyOf: MirVerificationContext["bodyOf"];
 }
 
-/** The deps of `lowerToMir`: the run's type and signature views, the canonical types and the size limit. */
-export function lowerMirDeps(run: LowerMirRun): LowerMirDeps {
+/** The deps of `lowerToMir` for one query unit: the run's type and signature views, the canonical types and the size limit. */
+export function lowerMirDeps(run: LowerMirRun, unit: UnitRef): LowerMirDeps {
   return { defs: run.defs, typeOf: type => readType(run.interner, type), signatureOf: signature => readSignature(run.interner, signature),
-    limits: run.lowering };
+    limits: run.lowering, unit };
 }
 
 /** The context in which the graph of `body` is verified at the lowered-body barrier. */
 export function mirVerificationContext(run: LowerMirRun, body: TirBody): MirVerificationContext {
-  return { limits: run.verification, source: body, types: run.table, declarationOf: run.declarationOf, bodyOwner: run.bodyOwner };
+  return { limits: run.verification, source: body, bodyOf: run.bodyOf, types: run.table, declarationOf: run.declarationOf, bodyOwner: run.bodyOwner };
 }

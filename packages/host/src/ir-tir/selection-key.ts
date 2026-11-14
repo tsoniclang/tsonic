@@ -2,16 +2,14 @@ import type { KeyData } from "../ids/contract.js";
 import type { HirCallableEndpoint } from "../ir-hir/contract.js";
 import { callableEndpointKey } from "../ir-hir/index.js";
 import type { AccessLocation, ParameterMapping } from "../ir-infer/contract.js";
-import type { BindingVector, MemberKey, MemberOrigin } from "../ir-types/contract.js";
-import type { MemberSelectionKey, ResolvedCallee } from "./contract.js";
-import { bindingVectorData } from "./verify-instances.js";
+import type { MemberKey, MemberOrigin } from "../ir-types/contract.js";
+import { bindingVectorData } from "../ir-types/index.js";
+import type { MemberSelectionKey, MemberStorageKey, ResolvedCallee } from "./contract.js";
 
 const each = <Value>(values: readonly Value[], project: (value: Value) => KeyData): KeyData =>
   Array.from(values, value => value === undefined ? null : project(value));
 
 const endpointKey = (endpoint: HirCallableEndpoint | null): KeyData => endpoint === null ? null : callableEndpointKey(endpoint);
-
-const bindingsKey = (bindings: BindingVector): KeyData => bindingVectorData(bindings);
 
 const memberKey = (key: MemberKey): KeyData => {
   switch (key.kind) {
@@ -49,12 +47,12 @@ const calleeKey = (callee: ResolvedCallee | null): KeyData => {
   const activation = callee.activation;
   return [
     decision.candidate, endpointKey(decision.advertised), endpointKey(decision.api),
-    bindingsKey(decision.bindings), bindingsKey(decision.implementationBindings),
+    bindingVectorData(decision.bindings), bindingVectorData(decision.implementationBindings),
     each(decision.parameters, parameterKey),
     [decision.completion.signature, decision.completion.completion, decision.completion.yielded, decision.completion.sent],
     decision.result, decision.activation,
     activation === null ? null : [activation.body, activation.bindings.kind === "parametric"
-      ? [activation.bindings.kind] : [activation.bindings.kind, bindingsKey(activation.bindings.bindings)]],
+      ? [activation.bindings.kind] : [activation.bindings.kind, bindingVectorData(activation.bindings.bindings)]],
   ];
 };
 
@@ -63,7 +61,13 @@ export const selectionKey: MemberSelectionKey = member => {
   return [
     memberKey(decision.key), each(decision.origins, originKey),
     each(decision.selectedDeclarations, declaration => declaration), decision.primary, decision.read, decision.write,
-    endpointKey(decision.getter), endpointKey(decision.setter), bindingsKey(decision.bindings),
+    endpointKey(decision.getter), endpointKey(decision.setter), bindingVectorData(decision.bindings),
     locationKey(decision.location), calleeKey(member.getter), calleeKey(member.setter),
   ];
+};
+
+export const storageKey: MemberStorageKey = member => {
+  const decision = member.decision;
+  return [memberKey(decision.key), each(decision.origins, originKey),
+    each(decision.selectedDeclarations, declaration => declaration), decision.primary, bindingVectorData(decision.bindings)];
 };

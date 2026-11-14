@@ -5,7 +5,7 @@ import type { MemberSelection, ResolvedCallee, TirVerifierInput } from "../ir-ti
 import { verifyTir, verifyTirModule } from "../ir-tir/index.js";
 import { verifyFacts } from "../ir-facts/index.js";
 import { verifyMir } from "../ir-mir/index.js";
-import { printTypes } from "../ir-types/index.js";
+import { constantReferenceKey, printTypes } from "../ir-types/index.js";
 import type { NodeId } from "../ids/contract.js";
 import type { SyntaxNode } from "../ir-hir/contract.js";
 import type { TypedPhase } from "../ir-tir/contract.js";
@@ -192,7 +192,7 @@ function verifyReferenceRoots(
     switch (constant.value.kind) {
       case "metadata": metadata(constant.value, path); break;
       case "constant": {
-        const key = instanceKey(constant.value.reference.initializer);
+        const key = constantReferenceKey(constant.value.reference);
         const record = lookup.constants.get(key);
         if (record === undefined || record === null) missing("binding-artifact-present", path + ".reference", key);
         break;
@@ -334,7 +334,7 @@ export function verifyPublishedChildren(
         violations.push({ rule: programChildRule("tir-valid", child.rule), site, detail: [textDetail(child.rule), ...child.detail] });
       }
       const mir = verifyMir(published.mir, {
-        limits: context.mirVerification, source: published.tir, types: index.types,
+        limits: context.mirVerification, source: published.tir, bodyOf: input.bodyOf, types: index.types,
         declarationOf: input.declarationOf, bodyOwner: context.facts.bodyOwner,
       });
       // A body past its limit is the answer for the module: it names the body, and nothing gathered so far is a finding.

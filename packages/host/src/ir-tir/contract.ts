@@ -679,6 +679,7 @@ export type TirSite =
 // The structural key of a member selection: every field of its decision and of its selected getter and setter callees.
 // Equal key data are equal selections. Total over a record whose lists have holes: a hole is projected as null.
 export type MemberSelectionKey = (member: MemberSelection) => KeyData;
+export type MemberStorageKey = (member: MemberSelection) => KeyData;
 export type PrintTir = (body: TirBody) => string;
 export type ParseTir = (text: string) => TextParseResult<TirBody>;
 export type VerifyTir = (input: TirVerifierInput, body: TirBody) => readonly Violation<TirRule, TirSite>[];

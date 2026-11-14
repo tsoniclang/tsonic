@@ -1,5 +1,6 @@
-import type { Result } from "../diag/contract.js";
-import type { LocalRef, SigId, TyId } from "../ids/contract.js";
+import type { Result, UnitRef } from "../diag/contract.js";
+import type { SigId, TyId } from "../ids/contract.js";
+import type { BodyCaptureRow } from "../ir-infer/contract.js";
 import type { BodyInstance, SignatureOf, TypeOf } from "../ir-types/contract.js";
 import type { MirBody } from "../ir-mir/contract.js";
 import type { TirBody } from "../ir-tir/contract.js";
@@ -20,11 +21,13 @@ export interface LowerMirDeps {
   readonly typeOf: TypeOf;
   readonly signatureOf: SignatureOf;
   readonly limits: LowerMirLimits;
+  /** The query unit Pipeline runs this lowering for: the unit a refusal for the size limit is reported against. */
+  readonly unit: UnitRef;
 }
 
 export interface InternalBodyInput {
   readonly instance: BodyInstance;
-  readonly captures: readonly LocalRef[];
+  readonly captures: readonly BodyCaptureRow[];
   readonly signature: SigId;
 }
 

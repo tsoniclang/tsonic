@@ -1,5 +1,4 @@
 // WT-5, WT-8, WT-9, WT-10, WT-11 and S-1 (spec/inputs/WALKTHROUGH-PROGRAMS.md).
-import { N } from "../names.mjs";
 import { DYNAMIC_KEY, EMPTY_BINDINGS, PURE, T, arrayIteration, bodyId, builders, callee, checked, core, decided, def, direct, invoking,
   mapped, narrowed, native, operation, protocol, selected, selection, signature, step, typedBody, value } from "../typed.mjs";
 
@@ -99,7 +98,7 @@ export function wt10(policy) {
           b.property(b.id("a", 1, T.int32Array), "length", b.read(T.int32, selection("length", T.int32, null, direct("by-reference")))), LESS) },
         b.postfix(b.target("i", 3, T.int32, { kind: "read-write", storage: T.int32, read: T.int32, narrowing: null, evidenceIndex: null }), "PlusPlusToken", T.int32, T.int32, ADD),
         compound(b, 2, { $: "a[i]", ...b.element(b.id("a", 1, T.int32Array), b.id("i", 3, T.int32),
-          b.read(T.int32, selection(DYNAMIC_KEY, T.int32, T.int32, checked(policy.bounds, "by-reference", N.extentMutable)))) }, "sum+=a[i]", ADD, T.int32)) },
+          b.read(T.int32, selection(DYNAMIC_KEY, T.int32, T.int32, checked(policy.bounds, "by-reference")))) }, "sum+=a[i]", ADD, T.int32)) },
       b.ifElse(guard("guard#1"), b.block(b.expressionStatement(direct0(b, "pure", SIG_PURE, T.void, "pure()")),
         compound(b, 2, narrowedV("o.x#1", "o.x.v#1"), "sum+=o.x.v", ADD, T.int32))),
       b.ifElse(guard("guard#2"), b.block(
