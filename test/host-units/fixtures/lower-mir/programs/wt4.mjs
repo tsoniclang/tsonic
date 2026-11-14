@@ -4,7 +4,7 @@
 //   export function f(x: int32 | null = next(), y: int32 = x ?? 0): int32 { return (x ?? -1) + y; }
 //   export function calls(): int32 { return f() + f(null) + f(undefined) + f(1) + f(1, 2); }
 // The two parameter defaults are bodies of their own (section 5 part 1 row 3).
-import { PARAMETRIC, SIG, T, bodyId, builders, callee, mapped, native, omittedMapping, selected, signature, typedBody, typedOperation } from "../typed.mjs";
+import { PARAMETRIC, SIG, T, bodyId, builders, callee, defaultMapping, mapped, native, selected, signature, typedBody, typedOperation } from "../typed.mjs";
 
 const ADD = native("+", "int32", [T.int32, T.int32], T.int32);
 const X_DEFAULT = bodyId("f.x", "default");
@@ -59,12 +59,12 @@ export function wt4() {
   const omitted = (parameter, body) => ({ kind: "omitted", parameter, value: { kind: "initializer", instance: { body, bindings: PARAMETRIC } } });
   const callF = (label, args, mappings, argumentsOf) => ({ $: label, ...c.call(c.global("f", "f", T.unknown), args, T.int32,
     at => ({ callee: callee("f", SIG_F, mappings, T.int32), receiver: null, arguments: argumentsOf(at) })) });
-  const one = (label, argument) => callF(label, [{ $: `${label}#0`, ...argument }], [mapped(0, 0), omittedMapping(1, T.int32)],
+  const one = (label, argument) => callF(label, [{ $: `${label}#0`, ...argument }], [mapped(0, 0), defaultMapping(1, "f.y")],
     at => [{ kind: "provided", parameter: 0, expression: at(`${label}#0`) }, omitted(1, Y_DEFAULT)]);
   const sum = (left, right) => c.arithmetic(left, "PlusToken", right, T.int32, ADD);
   const calls = typedBody("calls", { signature: SIG_CALLS, completion: T.int32,
     root: c.block(c.returns(sum(sum(sum(sum(
-      callF("f()", [], [omittedMapping(0, T.optInt32), omittedMapping(1, T.int32)], () => [omitted(0, X_DEFAULT), omitted(1, Y_DEFAULT)]),
+      callF("f()", [], [defaultMapping(0, "f.x"), defaultMapping(1, "f.y")], () => [omitted(0, X_DEFAULT), omitted(1, Y_DEFAULT)]),
       one("f(null)", c.keyword("NullKeyword", T.absence))),
       one("f(undefined)", c.global("undefined", "undefined", T.absence))),
       one("f(1)", c.num("1", T.int32))),

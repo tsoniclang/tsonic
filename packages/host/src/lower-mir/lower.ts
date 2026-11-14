@@ -11,7 +11,7 @@ import type { ControlScope, Lowering, Work } from "./model.js";
 import { callerDefect, failure, notLoweredYet, siteOf } from "./model.js";
 import { held, popOperand, pushOperand, saveHandedOut, saveReads, temporary } from "./operands.js";
 import { breaks, continues, endDo, endElse, endFor, endLabel, endThen, endWhile, enterDo, enterFor, enterIf, enterWhile, loopCondition, nextFor } from "./control.js";
-import { enterCall, finishCall } from "./calls.js";
+import { argumentPlace, enterCall, finishCall } from "./calls.js";
 import { addEntry, constantOperand, createState, emitStatement, enterBlock, finishBody, newBlock, newLocal, newPlace, placeOfLocal, terminate } from "./state.js";
 
 // The lowering of one typed body into its MIR graph.
@@ -50,7 +50,7 @@ export function lowerBody(deps: LowerMirDeps, body: TirBody, internal: readonly 
   if (root.kind === "SourceFile") return notLoweredYet("a module initializer body", root.origin);
   if (body.asynchronous || body.generator) return notLoweredYet("an asynchronous body or a generator", root.origin);
   const lowering: Lowering = { state: createState(body.body, body.bindings, body.completion, deps.limits), typeOf: deps.typeOf, body, work: [], operands: [],
-    exposed: new Set(), reads: new Map(), localOf: new Map(), labels: new Map(), preservedLocals: new Set() };
+    exposed: new Set(), reads: new Map(), localOf: new Map(), labels: new Map(), preservedLocals: new Set(), receiver: null };
   const mir = enter(lowering, root) && walk(lowering) ? finish(deps, lowering) : null;
   return mir === null ? { kind: "refused", diagnostics: [sizeLimit(deps, body)] } : { kind: "ok", value: mir, diagnostics: [] };
 }
@@ -72,11 +72,13 @@ function enter(lowering: Lowering, root: Block<TypedPhase> | Expression<TypedPha
   let parameters = 0;
   for (const row of body.params) {
     if (row.role !== "required" && row.role !== "this") return notLoweredYet(`a parameter of role ${row.role}`, root.origin);
+    if (row.role === "this" && lowering.receiver !== null) return callerDefect("two selected receiver parameter rows", root.origin);
     const role: MirLocalRole = row.role === "this" ? { kind: "receiver" } : { kind: "parameter", index: parameters };
     const local = newLocal(state, row.storage, role, row.passing,
       { body: body.body, local: row.local }, root.origin);
     if (local === null) return false;
     if (row.role !== "this") parameters += 1;
+    else lowering.receiver = local;
     lowering.localOf.set(row.local, local);
     // The local of a row not passed by value or moved is the caller's storage: handed out from entry.
     if (localOwnershipOfMir(row.passing) === "external") lowering.preservedLocals.add(local);
@@ -128,6 +130,7 @@ function walk(lowering: Lowering): boolean {
   for (let next = lowering.work.pop(); next !== undefined; next = lowering.work.pop()) {
     const done = next.kind === "statement" ? statement(lowering, next.node)
       : next.kind === "expression" ? expression(lowering, next.node)
+        : next.kind === "argument-place" ? argumentPlace(lowering, next.node)
         : next.kind === "call" ? finishCall(lowering, next)
         : next.kind === "operation" ? operation(lowering, next)
           : next.kind === "narrow" ? narrow(lowering, next.node, next.narrowing)
@@ -239,6 +242,17 @@ function literal(lowering: Lowering, node: NodeHeader, payload: TypedValue, sele
 function expression(lowering: Lowering, node: Expression<TypedPhase>): boolean {
   const { state, body } = lowering;
   switch (node.kind) {
+    case "ThisKeyword": {
+      const payload = node.tsonic;
+      if (payload.role !== "receiver") return callerDefect("a receiver expression without its selected receiver", node.origin);
+      value(lowering, payload, node);
+      const local = lowering.receiver;
+      if (local === null) return notLoweredYet("a receiver without its selected receiver row", node.origin);
+      const place = placeOfLocal(state, local);
+      if (place === null) return false;
+      pushOperand(lowering, { operand: { kind: "place", place }, inPlace: local, storage: rawType(payload), site: siteOf(body, node) });
+      return true;
+    }
     case "TrueKeyword":
     case "FalseKeyword":
     case "NullKeyword": {

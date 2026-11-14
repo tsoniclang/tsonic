@@ -10,7 +10,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { after, before, test as declare } from "node:test";
 import { checkCoverage } from "../architecture/host/coverage.mjs";
 import { parseSources } from "../architecture/host/import-graph.mjs";
-import { ARRAY_STEP, EMPTY_BINDINGS, MODULE, PARAMETRIC, SIG, T, TABLE, bodyId, callee, declareType, def, mapped, native, selected, signature, typedOperation, value, verificationContext } from "./fixtures/lower-mir/typed.mjs";
+import { ARRAY_STEP, EMPTY_BINDINGS, MODULE, PARAMETRIC, SIG, T, TABLE, bodyId, callee, declareType, def, defaultMapping, mapped, native, omittedMapping, selected, signature, typedOperation, value, verificationContext } from "./fixtures/lower-mir/typed.mjs";
 import {
   argumentConstantOf, argumentKindsOf, at, blocksWithStatementAt, calleeNameOf, capturedLocalsOf, capturedRootsOf, checkedPlace, checks,
   controlPoints, createsClosure, destinationBaseOf, destinationChainOf, destinationFieldOf, destinationRootOf, edgesOf, effects,
@@ -36,6 +36,8 @@ const CALLER_DEFECT = "caller defect: ";
 let current = null;
 const literalTrue = declareType("lowerLiteralTrue", { kind: "literal", value: { kind: "boolean", value: true }, base: T.bool });
 const literalFalse = declareType("lowerLiteralFalse", { kind: "literal", value: { kind: "boolean", value: false }, base: T.bool });
+const indirectSignature = signature("lower.indirect.target", [["x", T.int32]], T.int32);
+const indirectType = declareType("lowerIndirectCallable", { kind: "callable", calls: [indirectSignature], constructs: [] });
 const test = (name, ...rest) => {
   const run = rest.pop();
   return declare(name, ...rest, context => { current = context; return run(context); });
@@ -782,6 +784,32 @@ test("selected direct calls retain argument order, passing and original unwindin
   }
 });
 
+test("omitted fixed arguments stay omitted while a supplied native absence remains a value", () => {
+  for (const defaults of [false, true]) for (const count of [0, 1, 2]) {
+    const name = `call.omitted.${defaults}.${count}`;
+    const target = `${name}.target`;
+    const initializers = [bodyId(`${target}.p0`, "default"), bodyId(`${target}.p1`, "default")];
+    const sig = signature(target, [0, 1].map(index => [`p${index}`, T.absence, defaults ? "default" : "optional", defaults ? initializers[index] : null]), T.int32);
+    const program = shaped(name, [], T.int32, b => ({ $: "call", ...b.call(b.global(target, target, T.unknown),
+      Array.from({ length: count }, (_, index) => ({ $: `argument${index}`, ...b.keyword("NullKeyword", T.absence) })), T.int32,
+      at => ({ callee: callee(target, sig, [0, 1].map(index => index < count ? mapped(index, index)
+        : defaults ? defaultMapping(index, `${target}.p${index}`) : omittedMapping(index, T.absence)), T.int32), receiver: null,
+      arguments: [0, 1].map(parameter => parameter < count ? { kind: "provided", parameter, expression: at(`argument${parameter}`) }
+        : { kind: "omitted", parameter, value: defaults ? { kind: "initializer", instance: { body: initializers[parameter], bindings: PARAMETRIC } } : { kind: "absence" } }) })) }));
+    const mir = lower(program);
+    const call = mir.blocks[0].terminator;
+    assert.equal(call.kind, "call");
+    assert.deepEqual(call.arguments.map(argument => argument.kind), [0, 1].map(index => index < count ? "value" : "omitted"));
+    for (const argument of call.arguments) if (argument.kind === "value")
+      assert.deepEqual(mir.constants[argument.operand.constant].value, { kind: "literal", value: { kind: "absence" } });
+    const size = mir.locals.length + mir.places.length + mir.constants.length + mir.blocks.length
+      + mir.blocks.reduce((total, block) => total + block.statements.length, 0);
+    for (let maximumRecords = 0; maximumRecords < size; maximumRecords += 1)
+      assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, []).kind, "refused", `${name} under ${maximumRecords}`);
+    assert.equal(produced({ ...deps, limits: { maximumRecords: size } }, program.tir, []).kind, "ok");
+  }
+});
+
 test("nested call arguments execute in authored order and protect only genuinely exposed earlier values", () => {
   for (const passing of ["by-value", "byref-readwrite"]) {
     const name = `call.nested.${passing}`;
@@ -804,24 +832,183 @@ test("nested call arguments execute in authored order and protect only genuinely
   }
 });
 
-test("direct-call frontiers and mismatched selected inputs never invent a callee, receiver or parameter", () => {
+test("selected indirect targets execute before arguments and preserve exposed target reads exactly once", () => {
+  for (const targetKind of ["local", "parenthesized", "factory"]) for (const passing of ["by-value", "byref-readwrite"]) {
+    const name = `call.indirect.${targetKind}.${passing}`;
+    const program = shaped(name, [["f", "required", indirectType, passing]], T.int32, b => {
+      const read = { $: "target-read", ...b.id("f", 0, indirectType) };
+      const target = targetKind === "factory" ? directApplication(b, `${name}.factory`, [], indirectType)
+        : targetKind === "parenthesized" ? b.paren(read, indirectType) : read;
+      const argument = directApplication(b, `${name}.argument`, [b.num("1", T.int32)]);
+      return { $: "indirect-call", ...b.call(target, [argument], T.int32, at => ({
+        callee: { ...callee("lower.indirect.target", indirectSignature, [mapped(0, 0)], T.int32), activation: null },
+        receiver: null, arguments: [{ kind: "provided", parameter: 0, expression: at(argument.$) }],
+      })) };
+    });
+    const mir = lower(program);
+    const calls = walk(mir).events.filter(item => item.kind === "call");
+    assert.deepEqual(calls.map(item => item.node),
+      [...(targetKind === "factory" ? [`${name}.factory`] : []), `${name}.argument`, "indirect-call"].map(label => program.at(label)));
+    const outer = mir.blocks.find(block => block.terminator.tir.node === program.at("indirect-call")).terminator;
+    assert.equal(outer.callee.kind, "indirect");
+    assert.deepEqual(outer.callee.resolution, program.tir.root.tsonic.application.decision.callee);
+    const copies = targetKind === "factory" ? [] : mir.blocks.flatMap(block => block.statements)
+      .filter(statement => statement.kind === "assign" && statement.tir.node === program.at("target-read"));
+    assert.equal(copies.length, targetKind !== "factory" && passing !== "by-value" ? 1 : 0);
+    if (copies.length !== 0) assert.deepEqual(outer.callee.operand, { kind: "place", place: copies[0].place });
+    else if (targetKind === "factory") {
+      const factory = mir.blocks.find(block => block.terminator.tir.node === program.at(`${name}.factory`)).terminator;
+      assert.deepEqual(outer.callee.operand, { kind: "place", place: factory.destination });
+    } else assert.equal(rootLocalOf(mir, outer.callee.operand.place), 0);
+    const size = mir.locals.length + mir.places.length + mir.constants.length + mir.blocks.length
+      + mir.blocks.reduce((total, block) => total + block.statements.length, 0);
+    for (let maximumRecords = 0; maximumRecords < size; maximumRecords += 1)
+      assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, []).kind, "refused", `${name} under ${maximumRecords}`);
+    assert.equal(produced({ ...deps, limits: { maximumRecords: size } }, program.tir, []).kind, "ok");
+  }
+});
+
+test("selected local place arguments preserve the location, passing and actual pending read without a value copy", () => {
+  for (const mode of ["byref-readonly", "byref-readwrite", "byref-writeonly-must-init", "borrow-shared", "borrow-mut"])
+    for (const incoming of ["by-value", "byref-readwrite"]) for (const wrapped of [false, true]) {
+      const name = `call.place.${mode}.${incoming}.${wrapped}`;
+      const target = `${name}.target`;
+      const sig = signature(target, [["cell", T.int32, "required", null, mode], ["value", T.int32]], T.int32);
+      const program = shaped(name, [["x", "required", T.int32, incoming]], T.int32, b => {
+        const read = { $: "place-read", ...b.id("x", 0, T.int32) };
+        const place = { ...(wrapped ? b.paren(read, T.int32) : read), $: "place-argument" };
+        const effect = directApplication(b, `${name}.effect`, []);
+        const call = { $: "place-call", ...b.call(b.global(target, target, T.unknown), [place, effect], T.int32, at => ({
+          callee: callee(target, sig, [mapped(0, 0, mode), mapped(1, 1)], T.int32), receiver: null,
+          arguments: [{ kind: "provided", parameter: 0, expression: at("place-argument") }, { kind: "provided", parameter: 1, expression: at(effect.$) }],
+        })) };
+        return b.arithmetic({ $: "earlier", ...b.id("x", 0, T.int32) }, "PlusToken", call, T.int32, plus("int32", T.int32));
+      });
+      program.tir.locals[0].mutable = true;
+      const mir = lower(program);
+      const outerBlock = mir.blocks.find(block => block.terminator.tir.node === program.at("place-call"));
+      const argument = outerBlock.terminator.arguments[0];
+      assert.equal(argument.kind, "place");
+      assert.equal(argument.passing, mode);
+      assert.equal(rootLocalOf(mir, argument.place), 0);
+      const copies = mir.blocks.flatMap(block => block.statements)
+        .filter(statement => statement.kind === "assign" && statement.tir.node === program.at("earlier"));
+      const writable = mode !== "byref-readonly" && mode !== "borrow-shared";
+      assert.equal(copies.length, incoming !== "by-value" || writable ? 1 : 0);
+      if (copies.length !== 0) {
+        const beforeEffect = mir.blocks.find(block => block.terminator.tir.node === program.at(`${name}.effect`));
+        assert.equal(beforeEffect.statements.includes(copies[0]), incoming !== "by-value");
+        assert.equal(outerBlock.statements.includes(copies[0]), incoming === "by-value");
+      }
+      assert.equal(mir.blocks.flatMap(block => block.statements).some(statement => statement.kind === "assign"
+        && statement.tir.node === program.at("place-argument")), false, "passing a local location does not load its value");
+      const size = mir.locals.length + mir.places.length + mir.constants.length + mir.blocks.length
+        + mir.blocks.reduce((total, block) => total + block.statements.length, 0);
+      for (let maximumRecords = 0; maximumRecords < size; maximumRecords += 1)
+        assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, []).kind, "refused", `${name} under ${maximumRecords}`);
+      assert.equal(produced({ ...deps, limits: { maximumRecords: size } }, program.tir, []).kind, "ok");
+    }
+});
+
+test("a local actually handed to a writable call remains exposed for later calls, unlike a readonly borrow", () => {
+  for (const mode of ["byref-readwrite", "borrow-shared"]) {
+    const name = `call.place.later.${mode}`;
+    const target = `${name}.target`;
+    const sig = signature(target, [["cell", T.int32, "required", null, mode]], T.int32);
+    const program = shaped(name, [["x", "required", T.int32]], T.int32, b => {
+      const call = b.call(b.global(target, target, T.unknown), [{ $: "place", ...b.id("x", 0, T.int32) }], T.int32, at => ({
+        callee: callee(target, sig, [mapped(0, 0, mode)], T.int32), receiver: null,
+        arguments: [{ kind: "provided", parameter: 0, expression: at("place") }],
+      }));
+      return b.sequence(call, b.arithmetic({ $: "later-read", ...b.id("x", 0, T.int32) }, "PlusToken",
+        directApplication(b, `${name}.later`, []), T.int32, plus("int32", T.int32)), T.int32);
+    });
+    program.tir.locals[0].mutable = true;
+    const mir = lower(program);
+    const copies = mir.blocks.flatMap(block => block.statements)
+      .filter(statement => statement.kind === "assign" && statement.tir.node === program.at("later-read"));
+    assert.equal(copies.length, mode === "byref-readwrite" ? 1 : 0);
+  }
+});
+
+test("repeated place arguments share their actual local location and refuse before its first allocation", () => {
+  const name = "call.place.repeated";
+  const target = `${name}.target`;
+  const sig = signature(target, [["left", T.int32, "required", null, "borrow-mut"], ["right", T.int32, "required", null, "borrow-mut"]], T.int32);
+  const program = shaped(name, [["x", "required", T.int32]], T.int32, b => b.call(b.global(target, target, T.unknown),
+    [0, 1].map(index => ({ $: `place${index}`, ...b.id("x", 0, T.int32) })), T.int32, at => ({
+      callee: callee(target, sig, [mapped(0, 0, "borrow-mut"), mapped(1, 1, "borrow-mut")], T.int32), receiver: null,
+      arguments: [0, 1].map(parameter => ({ kind: "provided", parameter, expression: at(`place${parameter}`) })),
+    })));
+  program.tir.locals[0].mutable = true;
+  const mir = lower(program);
+  const arguments_ = mir.blocks[0].terminator.arguments;
+  assert.deepEqual(arguments_[0], arguments_[1]);
+  assert.equal(rootLocalOf(mir, arguments_[0].place), 0);
+  const size = mir.locals.length + mir.places.length + mir.constants.length + mir.blocks.length
+    + mir.blocks.reduce((total, block) => total + block.statements.length, 0);
+  for (let maximumRecords = 0; maximumRecords < size; maximumRecords += 1)
+    assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, []).kind, "refused", `repeated places under ${maximumRecords}`);
+  assert.equal(produced({ ...deps, limits: { maximumRecords: size } }, program.tir, []).kind, "ok");
+});
+
+test("place argument input defects do not select a value conversion, missing local or different cell", () => {
+  const cases = [
+    ["role", node => { node.tsonic.role = "declaration-name"; }, "a place argument without its selected value"],
+    ["conversion", node => { node.tsonic.conversion = { kind: "deferred" }; }, "a place argument has a value conversion or narrowing"],
+    ["narrowing", node => { node.tsonic.narrowing = { kind: "narrowed" }; }, "a place argument has a value conversion or narrowing"],
+    ["wrapper-conversion", node => { node.kind = "ParenthesizedExpression"; node.expression = { ...node };
+      node.expression.kind = "Identifier"; node.tsonic = { ...node.tsonic, conversion: { kind: "deferred" } }; }, "a place argument has a value conversion or narrowing"],
+    ["wrapper-narrowing", node => { node.kind = "ParenthesizedExpression"; node.expression = { ...node };
+      node.expression.kind = "Identifier"; node.tsonic = { ...node.tsonic, narrowing: { kind: "narrowed" } }; }, "a place argument has a value conversion or narrowing"],
+    ["missing-local", node => { node.tsonic.resolution.local.local = 42; }, "a place argument has no local storage in the body"],
+    ["foreign-local", node => { node.tsonic.resolution.local.body = bodyId("place.foreign"); }, "a place argument has no local storage in the body"],
+  ];
+  for (const [name, amend, message] of cases) {
+    const target = `call.place.invalid.${name}`;
+    const sig = signature(target, [["cell", T.int32, "required", null, "borrow-mut"]], T.int32);
+    const program = shaped(`${target}.caller`, [["x", "required", T.int32]], T.int32, b => b.call(b.global(target, target, T.unknown),
+      [{ $: "place", ...b.id("x", 0, T.int32) }], T.int32, at => ({
+        callee: callee(target, sig, [mapped(0, 0, "borrow-mut")], T.int32), receiver: null,
+        arguments: [{ kind: "provided", parameter: 0, expression: at("place") }],
+      })));
+    amend(program.tir.root.arguments.nodes[0]);
+    assert.throws(() => produced(deps, program.tir, []), error => defectOfLowerMir(error) && error.message === `${CALLER_DEFECT}${message}`, name);
+  }
+  const name = "call.place.definition";
+  const program = shaped(name, [], T.int32, b => directApplication(b, name, [b.global("x", "place.external", T.int32)], T.int32, "borrow-mut"));
+  assert.throws(() => produced(deps, program.tir, []), notLoweredYet("a place argument resolved to a definition"));
+});
+
+test("call frontiers and mismatched selected inputs never invent a callee, receiver or parameter", () => {
   const cases = [
     ["operation", node => { node.tsonic.operation = { kind: "decided", decision: typedOperation(plus("int32", T.int32)) }; }, false, "a call with a selected operation"],
     ["deferred", node => { node.tsonic.application = { kind: "deferred", deferred: { invocation: { rule: "embed", input: null }, result: T.int32 } }; }, true, "a deferred call application"],
     ["receiver", node => { node.tsonic.application.decision.receiver = node.expression.id; }, false, "a call with a receiver"],
-    ["evaluated", node => { node.expression.tsonic.resolution = { kind: "local", local: { body: bodyId("direct.local"), local: 0 } }; }, false, "an evaluated call target"],
+    ["foreign-local", node => { node.expression.tsonic.resolution = { kind: "local", local: { body: bodyId("direct.local"), local: 0 } }; }, false, "a local that is not a parameter of the body"],
     ["other-declaration", node => { node.expression.tsonic.resolution.definition = def("direct.other"); }, true, "a direct call target differs from its selected declaration"],
     ["spread", node => { const argument = node.arguments.nodes[0]; node.arguments.nodes[0] = { ...argument, kind: "SpreadElement", expression: argument }; }, false, "a spread call argument"],
-    ["missing-argument", node => { node.tsonic.application.decision.arguments = []; }, false, "a call with omitted or rest parameters"],
-    ["missing-parameter", node => { node.tsonic.application.decision.callee.decision.parameters = []; }, false, "a call with omitted or rest parameters"],
-    ["omitted", node => { node.tsonic.application.decision.arguments[0] = { kind: "omitted", parameter: 0, value: { kind: "absence" } }; }, false, "a call with omitted, rest or expanded arguments"],
+    ["missing-argument", node => { node.tsonic.application.decision.arguments = []; }, false, "a call with unmatched argument and parameter inventories"],
+    ["missing-parameter", node => { node.tsonic.application.decision.callee.decision.parameters = []; }, false, "a call with unmatched argument and parameter inventories"],
+    ["omitted", node => { node.tsonic.application.decision.arguments[0] = { kind: "omitted", parameter: 0, value: { kind: "absence" } }; }, true, "an omitted call argument differs from its selected default"],
+    ["omitted-source", node => { node.tsonic.application.decision.arguments[0] = { kind: "omitted", parameter: 0, value: { kind: "absence" } };
+      node.tsonic.application.decision.callee.decision.parameters[0] = omittedMapping(0, T.int32); }, true, "a call has source arguments absent from its selection"],
+    ["omitted-rest", node => { node.tsonic.application.decision.arguments[0] = { kind: "omitted", parameter: 0, value: { kind: "empty-rest" } }; }, false, "a rest call argument"],
+    ["rest-mapping", node => { node.tsonic.application.decision.arguments[0] = { kind: "omitted", parameter: 0, value: { kind: "absence" } };
+      node.tsonic.application.decision.callee.decision.parameters[0] = { kind: "rest", parameter: 0, arguments: [], passing: "by-value" }; }, false, "a rest call argument"],
+    ["initializer-mismatch", node => { node.tsonic.application.decision.arguments[0] = { kind: "omitted", parameter: 0,
+      value: { kind: "initializer", instance: { body: bodyId("direct.other-default", "default"), bindings: PARAMETRIC } } };
+      node.tsonic.application.decision.callee.decision.parameters[0] = defaultMapping(0, "direct.expected-default"); }, true, "an omitted call argument names another initializer"],
+    ["interior-omitted", node => { const application = node.tsonic.application.decision;
+      application.arguments = [{ kind: "omitted", parameter: 0, value: { kind: "absence" } }, { ...application.arguments[0], parameter: 1 }];
+      application.callee.decision.parameters = [omittedMapping(0, T.int32), mapped(1, 0)]; }, true, "an omitted call argument precedes a supplied parameter"],
     ["default", node => { node.tsonic.application.decision.callee.decision.parameters[0] = { kind: "default", parameter: 0, initializer: bodyId("direct.default", "default") }; }, false, "a call with omitted, rest or expanded arguments"],
     ["component", node => { node.tsonic.application.decision.callee.decision.parameters[0].component = 0; }, false, "a call with omitted, rest or expanded arguments"],
     ["argument-position", node => { node.tsonic.application.decision.arguments[0].parameter = 1; }, true, "a call argument differs from its actual selected mapping"],
     ["argument-source", node => { node.tsonic.application.decision.arguments[0].expression = node.id; }, true, "a call argument differs from its actual selected mapping"],
     ["parameter-position", node => { node.tsonic.application.decision.callee.decision.parameters[0].parameter = 1; }, true, "a call argument differs from its actual selected mapping"],
     ["parameter-source", node => { node.tsonic.application.decision.callee.decision.parameters[0].argument = 1; }, true, "a call argument differs from its actual selected mapping"],
-    ["place-passed", node => { node.tsonic.application.decision.callee.decision.parameters[0].passing = "borrow-shared"; }, false, "a place-passed call argument"],
+    ["place-passed", node => { node.tsonic.application.decision.callee.decision.parameters[0].passing = "borrow-shared"; }, false, "a place argument of kind NumericLiteral"],
   ];
   for (const [name, change, caller, message] of cases) {
     const program = shaped(`direct.invalid.${name}`, [], T.int32, b => directApplication(b, `direct.invalid.${name}`, [b.num("1", T.int32)]));
@@ -829,6 +1016,46 @@ test("direct-call frontiers and mismatched selected inputs never invent a callee
     assert.throws(() => produced(deps, program.tir, []), error => caller ? defectOfLowerMir(error) && error.message === `${CALLER_DEFECT}${message}`
       : notLoweredYet(message)(error), name);
   }
+});
+
+test("a selected receiver read is the actual receiver slot, not a supplied argument, copied object or owner-name guess", () => {
+  for (const passing of ["by-value", "move", "byref-readonly", "byref-readwrite", "borrow-shared", "borrow-mut"]) {
+    const name = `receiver.actual.${passing}`;
+    const program = shaped(name, [["self", "this", T.int32, passing], ["x", "required", T.int32]], T.int32,
+      b => b.arithmetic({ $: "receiver", ...b.keyword("ThisKeyword", T.int32, "receiver"),
+        tsonic: { ...value(T.int32), role: "receiver", owner: def(`${name}.class`) } }, "PlusToken",
+      directApplication(b, `${name}.effect`, []), T.int32, plus("int32", T.int32)), { receiver: T.int32 });
+    const mir = lower(program);
+    assert.deepEqual(mir.entries.map(entry => entry.provided), [1]);
+    assert.deepEqual(mir.locals[0].role, { kind: "receiver" });
+    assert.equal(mir.locals[0].mode, passing);
+    assert.deepEqual(mir.locals[0].source, { body: program.tir.body, local: 0 });
+    const copies = mir.blocks.flatMap(block => block.statements)
+      .filter(statement => statement.kind === "assign" && statement.tir.node === program.at("receiver"));
+    assert.equal(copies.length, passing === "by-value" || passing === "move" ? 0 : 1);
+    if (copies.length !== 0) assert.equal(rootLocalOf(mir, copies[0].value.operand.place), 0);
+    const size = mir.locals.length + mir.places.length + mir.constants.length + mir.blocks.length
+      + mir.blocks.reduce((total, block) => total + block.statements.length, 0);
+    for (let maximumRecords = 0; maximumRecords < size; maximumRecords += 1)
+      assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, []).kind, "refused", `${name} under ${maximumRecords}`);
+    assert.equal(produced({ ...deps, limits: { maximumRecords: size } }, program.tir, []).kind, "ok");
+  }
+});
+
+test("receiver lowering does not guess lexical captures, accept two receiver rows or invent a missing selected value", () => {
+  const make = name => shaped(name, [["self", "this", T.int32]], T.int32,
+    b => ({ ...b.keyword("ThisKeyword", T.int32, "receiver"), tsonic: { ...value(T.int32), role: "receiver", owner: def(`${name}.class`) } }), { receiver: T.int32 });
+  const missing = make("receiver.missing");
+  missing.tir.params = [];
+  assert.throws(() => produced(deps, missing.tir, []), notLoweredYet("a receiver without its selected receiver row"));
+  const role = make("receiver.role");
+  role.tir.root.tsonic.role = "value";
+  assert.throws(() => produced(deps, role.tir, []), error => defectOfLowerMir(error)
+    && error.message === `${CALLER_DEFECT}a receiver expression without its selected receiver`);
+  const duplicate = make("receiver.duplicate");
+  duplicate.tir.params.push(duplicate.tir.params[0]);
+  assert.throws(() => produced(deps, duplicate.tir, []), error => defectOfLowerMir(error)
+    && error.message === `${CALLER_DEFECT}two selected receiver parameter rows`);
 });
 
 test("an actual selected expression body returns its value at that occurrence without a fabricated statement", () => {

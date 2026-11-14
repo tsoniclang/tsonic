@@ -19,7 +19,8 @@ export const callerDefect = (what: string, origin: Origin): never => invariant(`
 export type Work =
   | { readonly kind: "statement"; readonly node: Statement<TypedPhase> }
   | { readonly kind: "expression"; readonly node: Expression<TypedPhase> }
-  | { readonly kind: "call"; readonly node: CallExpression<TypedPhase>; readonly application: TirApplication }
+  | { readonly kind: "argument-place"; readonly node: Expression<TypedPhase> }
+  | { readonly kind: "call"; readonly node: CallExpression<TypedPhase>; readonly application: TirApplication; readonly direct: boolean }
   | { readonly kind: "operation"; readonly node: NodeHeader; readonly operation: TypedOperation; readonly form: "unary" | "binary" }
   | { readonly kind: "operation"; readonly node: NodeHeader; readonly operation: TypedOperation; readonly form: "convert"; readonly to: TyId }
   | { readonly kind: "narrow"; readonly node: NodeHeader; readonly narrowing: Extract<NonNullable<TypedValue["narrowing"]>, { readonly kind: "narrowed" }> }
@@ -77,6 +78,7 @@ export interface Lowering {
   readonly localOf: Map<LocalId, LocalId>;
   readonly labels: Map<NodeId, ControlScope>;
   readonly preservedLocals: Set<LocalId>;
+  receiver: LocalId | null;
 }
 
 export const siteOf = (body: TirBody, node: NodeHeader): MirSite => ({ origin: node.origin, tir: { body: body.body, node: node.id } });

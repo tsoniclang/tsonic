@@ -18,6 +18,25 @@ before(async () => {
   state = await import("../../packages/host/dist/lower-mir/state.js");
 });
 
+test("the private call finisher rejects a missing or projected place instead of silently passing a copied value", async () => {
+  const { finishCall } = await import("../../packages/host/dist/lower-mir/calls.js");
+  const node = { id: 0, origin, arguments: { nodes: [{ id: 1 }] } };
+  const pending = { kind: "call", node, direct: true, application: {
+    arguments: [{ kind: "provided", parameter: 0, expression: 1 }],
+    callee: { decision: { parameters: [{ kind: "argument", parameter: 0, argument: 0, component: null, passing: "borrow-mut" }] } },
+  } };
+  for (const [operand, message] of [
+    [{ kind: "constant", constant: 0 }, "a place argument completed without a place"],
+    [{ kind: "place", place: 0 }, "a local place argument has a projected place"],
+  ]) {
+    const lowering = { state: { places: [{ base: { kind: "place" } }] }, exposed: new Set(), reads: new Map(),
+      operands: [{ operand, inPlace: null }] };
+    assert.throws(() => finishCall(lowering, pending), error => error instanceof Error
+      && error.message === `caller defect: ${message}` && error.cause.owner === "lower-mir");
+    assert.equal(lowering.operands.length, 0);
+  }
+});
+
 /** One small graph, written as a lowering would: a local, its place, a constant, a block with one statement and a return. */
 function record(lowering) {
   const steps = [];
