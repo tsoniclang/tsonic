@@ -725,27 +725,37 @@ export type FactsBindingTarget =
   | { readonly kind: "summary"; readonly summary: SummaryKey }
   | { readonly kind: "metadata"; readonly metadata: MetadataKey };
 
-export interface FactsVerificationContext {
-  readonly limits: AnalysisLimits;
-  readonly tirBody: (instance: BodyInstance) => TirBody;
-  readonly bodyOwner: (body: BodyId) => DefId | null;
+export interface BindingVerificationContext {
   readonly types: TypeTable;
-  readonly signatureIdOf: (request: SignatureRequest) => SigId | null;
-  readonly declarationSourceOf: (definition: DefId) => SourceNodeRef | null;
-  readonly diagnostics: readonly Diagnostic[];
   readonly bindingScopeOf: (definition: DefId) => BindingScope | null;
   readonly bindingScopesOf: (target: FactsBindingTarget) => readonly BindingScope[] | null;
   readonly nominalOf: (definition: DefId) => NominalDefinition | null;
+  readonly nodeExists: (node: SourceNodeRef) => boolean;
+  readonly localExists: (local: LocalRef) => boolean;
+}
+
+export interface MetadataVerificationContext extends BindingVerificationContext {
+  readonly definitionExists: (definition: DefId) => boolean;
+  readonly metadataOf: (key: MetadataKey) => MetadataRecord | null;
+}
+
+export interface ObservationVerificationContext extends BindingVerificationContext {
+  readonly bodyOwner: (body: BodyId) => DefId | null;
+  readonly metadataOf: (key: MetadataKey) => MetadataRecord | null;
+}
+
+export interface FactsVerificationContext extends MetadataVerificationContext, ObservationVerificationContext {
+  readonly limits: AnalysisLimits;
+  readonly tirBody: (instance: BodyInstance) => TirBody;
+  readonly signatureIdOf: (request: SignatureRequest) => SigId | null;
+  readonly declarationSourceOf: (definition: DefId) => SourceNodeRef | null;
+  readonly diagnostics: readonly Diagnostic[];
   readonly bindingDependentOf: (definition: DefId) => boolean | null;
   readonly captureCount: (key: SummaryKey) => number | null;
   readonly callbackSignaturesOf: (key: SummaryKey, parameter: number) => readonly SigId[] | null;
   readonly arenaOf: (owner: RelationalOwner) => RelationalArena | null;
-  readonly definitionExists: (definition: DefId) => boolean;
   readonly libraryExportExists: (identity: LibraryExportIdentity) => boolean;
   readonly declaredSiteCount: (identity: LibraryExportIdentity) => number | null;
-  readonly nodeExists: (node: SourceNodeRef) => boolean;
-  readonly localExists: (local: LocalRef) => boolean;
-  readonly metadataOf: (key: MetadataKey) => MetadataRecord | null;
 }
 
 export type PrintFacts = (facts: BodyFacts) => string;
@@ -755,7 +765,7 @@ export interface ObservationsVerificationInput {
   readonly source: HirBody;
   readonly bodyOf: (body: BodyId) => HirBody | null;
   readonly nodeOf: (node: SourceNodeRef) => HirNode | null;
-  readonly facts: FactsVerificationContext;
+  readonly facts: ObservationVerificationContext;
   readonly types: TypeInterner;
   readonly typeExpansion: TypeExpansionLimits;
 }
@@ -778,7 +788,7 @@ export type VerifySummary = (summary: Summary,
 export type PrintMetadata = (metadata: MetadataRecord) => string;
 export type ParseMetadata = (text: string) => TextParseResult<MetadataRecord>;
 export type VerifyMetadata = (metadata: MetadataRecord,
-  context: FactsVerificationContext) => readonly Violation<MetadataRule, FactsSite>[];
+  context: MetadataVerificationContext) => readonly Violation<MetadataRule, FactsSite>[];
 export type VerifyCallGraph = (graph: CallGraph,
   context: FactsVerificationContext) => readonly Violation<CallGraphRule, FactsSite>[];
 export type PrintCallGraph = (graph: CallGraph) => string;

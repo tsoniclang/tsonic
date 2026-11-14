@@ -30,8 +30,29 @@ export interface ResolvedSourceReceiverValueEvidence {
 type PublicSelectedPropertyAccess<Selection> = Selection extends CheckerResolvedSourcePropertyAccessInfo ? Omit<Selection, "selectedIndex"> & {
     readonly selectedIndex?: TypeIndexInfo;
 } : never;
-export type ResolvedSourcePropertyAccessInfo = PublicSelectedPropertyAccess<CheckerResolvedSourcePropertyAccessInfo> & {
+/**
+ * What a property access selects.
+ *
+ * "member": a member of the receiver's type, with the receiver, the selected symbol and declaration and the types.
+ *
+ * "module-exported-value": the access reads the `default` member the checker makes for the namespace of a
+ * CommonJS-format module (`ns.default`), which stands for the module's exported value. That member has no
+ * declaration and its symbol is shared between modules, so nothing is taken from the symbol. `target` names the
+ * module only where the receiver EXPRESSION proves it: when the receiver is an import's own namespace binding it is
+ * what getAliasStep gives for that binding (the module's `export =` assignment when it has one, the module
+ * otherwise); when the receiver is `await import("m")` itself it is the same for that module. For any other receiver
+ * (a variable the namespace value flowed into, a parameter, a conditional) `target` is nothing: the checker knows
+ * that the member is a module's exported value and not which module. The receiver's type does not tell: a value
+ * typed by one import's namespace may be another module's. The member's own symbol is shared by every module whose
+ * exported value has the same type, and its Parent is the first such module: a consumer takes the module only from
+ * `target`, never from that symbol.
+ */
+export type ResolvedSourcePropertyAccessInfo = (PublicSelectedPropertyAccess<CheckerResolvedSourcePropertyAccessInfo> & {
+    readonly kind: "member";
     readonly receiver: CheckerResolvedSourcePropertyAccessInfo["receiver"] & ResolvedSourceReceiverValueEvidence;
+}) | {
+    readonly kind: "module-exported-value";
+    readonly target: Symbol | undefined;
 };
 export type ResolvedSourceElementAccessInfo = CheckerResolvedSourceElementAccessInfo & {
     readonly receiver: CheckerResolvedSourceElementAccessInfo["receiver"] & ResolvedSourceReceiverValueEvidence;
@@ -51,6 +72,38 @@ export interface ResolvedSourceObjectLiteralElementInfo {
     readonly sourceSelectedDeclarations: readonly Node[];
     readonly sourceSelectedType: Type;
 }
+/**
+ * One step of an alias chain: what an alias binding names directly.
+ *
+ * "symbol": the step is a symbol, itself an alias when the chain continues.
+ * - import specifier, export specifier: the module's export of that name, or the local entity that a
+ *   local `export { a }` names;
+ * - default import: the module's default export;
+ * - `import x = require(...)`, namespace import, `export * as ns`: the module itself, or, for a module
+ *   with `export =`, the symbol of that assignment (an alias when the assignment names an entity; declared
+ *   by the assignment either way). The assignment is never skipped, and the symbol the checker makes for
+ *   a namespace import of a CommonJS-format file is never the answer;
+ * - `import x = N.v`: the named entity.
+ *
+ * "exported-value-member": an import or export specifier that names a member of the value a module
+ * exports with `export =`. The checker finds such a member on the final value behind the assignment, so
+ * the step is not a symbol of the module: `exportAssignment` is the assignment's symbol, the boundary
+ * the binding passes, and `member` is the member found behind it, or nothing. When `member` is nothing,
+ * the steps from `exportAssignment` tell which: they end at a value that has no such member, or they end
+ * at an alias that does not resolve.
+ *
+ * Not covered: a destructured `require` in a JavaScript file (`const { a } = require("m")`), whose alias
+ * is a binding element. It is answered as a "symbol" step with the checker's own target, which lies
+ * behind the module's `export =`.
+ */
+export type ResolvedAliasStep = {
+    readonly kind: "symbol";
+    readonly symbol: Symbol;
+} | {
+    readonly kind: "exported-value-member";
+    readonly exportAssignment: Symbol;
+    readonly member: Symbol | undefined;
+};
 export interface ResolvedSourceStorageInfo {
     readonly expression: Node;
     readonly storageExpression: Node;
@@ -73,6 +126,22 @@ export interface TypeCheckerQueries {
     readonly getResolvedSymbol: (node: GoPtr<Node>) => GoPtr<Symbol>;
     readonly getResolvedSymbolOrNil: (node: GoPtr<Node>) => GoPtr<Symbol>;
     readonly getAliasedSymbol: (symbol: GoPtr<Symbol>) => GoPtr<Symbol>;
+    /**
+     * One step of an alias chain (see ResolvedAliasStep). Nothing, and no throw, for a symbol that is not
+     * an alias and for an alias whose own step did not resolve (a missing module, or a missing export of a
+     * module without `export =`). A member of a circular alias chain has a step: following the steps from it
+     * returns to a symbol already visited, which is how a caller finds the cycle's members.
+     *
+     * Compare what the two alias queries return by declaration, never by symbol identity. getAliasedSymbol
+     * gives the final target of the whole chain, and for a namespace import, in an ECMAScript-format file,
+     * of a CommonJS-format file that target is a symbol made for that import declaration: it has the
+     * target's declarations and is a different object for each import declaration. Steps are symbols of
+     * modules and declarations, but one export reached by two bindings is not promised to be one object.
+     *
+     * Cost: a step that did not resolve is not remembered. Each further call for that alias runs the step
+     * again and creates its diagnostic again. Ask once per binding and keep the answer; never once per use.
+     */
+    readonly getAliasStep: (symbol: GoPtr<Symbol>) => GoPtr<ResolvedAliasStep>;
     readonly getTypeOfSymbol: (symbol: GoPtr<Symbol>) => GoPtr<Type>;
     readonly getWriteTypeOfSymbol: (symbol: GoPtr<Symbol>) => GoPtr<Type>;
     readonly getDeclaredTypeOfSymbol: (symbol: GoPtr<Symbol>) => GoPtr<Type>;

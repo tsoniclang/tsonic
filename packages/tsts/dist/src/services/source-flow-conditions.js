@@ -64,7 +64,7 @@ export function resolveSourceFlowConditionInfo(checker, reference) {
             if (!outcomes.has(assumed)) {
                 outcomes.add(assumed);
                 selectedOutcomes.set(current.Node, outcomes);
-                candidates.push(Object.freeze({ expression: current.Node, assumed }));
+                candidates.push({ expression: current.Node, assumed });
             }
         }
         if ((flags & FlowFlagsReduceLabel) !== 0) {
@@ -122,10 +122,8 @@ export function resolveSourceFlowConditionInfo(checker, reference) {
                 pending.push(predecessor);
         }
         if (!bypasses)
-            conditions.push(Object.freeze({
-                ...candidate, assignments: Object.freeze([...assignments]),
-            }));
+            conditions.push({ ...candidate, assignments: [...assignments] });
     }
-    return Object.freeze({ reference, conditions: Object.freeze(conditions) });
+    return { reference, conditions };
 }
 //# sourceMappingURL=source-flow-conditions.js.map

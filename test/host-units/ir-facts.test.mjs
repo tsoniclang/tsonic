@@ -4473,7 +4473,21 @@ test("ir-facts: all seventeen actual emitted ports, full closed logic and fresh 
         "declare const facts: BodyFacts; declare const summary: Summary; declare const metadata: MetadataRecord; declare const graph: CallGraph; declare const context: FactsVerificationContext; declare const mir: MirBody;",
         'const values = [printFacts(facts), parseFacts(""), verifyFacts(facts, mir, context), printSummary(summary), parseSummary(""), verifySummary(summary, context), printMetadata(metadata), parseMetadata(""), verifyMetadata(metadata, context), printCallGraph(graph), parseCallGraph(""), verifyCallGraph(graph, context), verifyLiveness(facts.liveness, facts.execution.instance, mir, context)]; void values;',
       ].join("\n");
-      const cases = [["all-ports", "", []], ["sparse-diagnostics", [
+      const cases = [["all-ports", "", []], ["early-verification-views", [
+        'import { verifyObservations } from "./packages/host/src/ir-facts/index.js";',
+        'import type { BindingVerificationContext, MetadataVerificationContext, ObservationVerificationContext, BodyObservations, ObservationsVerificationInput } from "./packages/host/src/ir-facts/contract.js";',
+        "declare const observations: BodyObservations; declare const input: ObservationsVerificationInput;",
+        "const binding: BindingVerificationContext = { types: context.types, bindingScopeOf: context.bindingScopeOf, bindingScopesOf: context.bindingScopesOf, nominalOf: context.nominalOf, nodeExists: context.nodeExists, localExists: context.localExists };",
+        "const metadataContext: MetadataVerificationContext = { ...binding, definitionExists: context.definitionExists, metadataOf: context.metadataOf };",
+        "const observationContext: ObservationVerificationContext = { ...binding, bodyOwner: context.bodyOwner, metadataOf: context.metadataOf };",
+        "verifyMetadata(metadata, metadataContext); verifyObservations(observations, { ...input, facts: observationContext });",
+      ].join("\n"), []], ["early-metadata-no-flow-reader", [
+        'import type { MetadataVerificationContext } from "./packages/host/src/ir-facts/contract.js";',
+        "declare const early: MetadataVerificationContext; early.tirBody;",
+      ].join("\n"), [2339]], ["early-observations-no-summary-reader", [
+        'import type { ObservationVerificationContext } from "./packages/host/src/ir-facts/contract.js";',
+        "declare const early: ObservationVerificationContext; early.captureCount;",
+      ].join("\n"), [2339]], ["sparse-diagnostics", [
         'import type { Diagnostic } from "./packages/host/src/diag/contract.js";',
         "const diagnostics: readonly Diagnostic[] = new Array<Diagnostic>(3);",
         "const supplied: FactsVerificationContext = { ...context, diagnostics };",

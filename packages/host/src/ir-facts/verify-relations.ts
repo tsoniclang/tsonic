@@ -10,7 +10,7 @@ import type {
 } from "../ir-types/contract.js";
 import { artifactBindingsKey, bindingVectorData, executionKey, verifyTypes } from "../ir-types/index.js";
 import type {
-  BodyFacts, BodyObservations, EscapeTarget, FactsBindingTarget, FactsRule, FactsSite, FactsVerificationContext, MetadataRecord,
+  BindingVerificationContext, BodyFacts, BodyObservations, EscapeTarget, FactsBindingTarget, FactsRule, FactsSite, FactsVerificationContext, MetadataRecord, MetadataVerificationContext, ObservationVerificationContext,
   RelationalArena, RelationalOwner, RelationalSite, Summary,
 } from "./contract.js";
 
@@ -192,7 +192,7 @@ export const summaryBindingInputs = (summary: Summary, context: FactsVerificatio
   return entries;
 };
 
-export const observationBindingInputs = (value: BodyObservations, context: FactsVerificationContext): readonly FactBindingInput[] => {
+export const observationBindingInputs = (value: BodyObservations, context: ObservationVerificationContext): readonly FactBindingInput[] => {
   const entries: FactBindingInput[] = [];
   const root: FactsSite = { kind: "body", instance: value.instance };
   const definition = context.bodyOwner(value.instance.body);
@@ -217,7 +217,7 @@ export const metadataBindingInputs = (metadata: MetadataRecord): readonly FactBi
 };
 
 const collectStorageOrigins = (
-  member: MemberStorageSelection, site: FactsSite, context: FactsVerificationContext, violations: Violation<FactsRule, FactsSite>[],
+  member: MemberStorageSelection, site: FactsSite, context: MetadataVerificationContext, violations: Violation<FactsRule, FactsSite>[],
 ): void => {
   const report = (rule: FactsRule, text: string): void => { violations.push({ rule, site, detail: [{ kind: "text", value: text }] }); };
   const key = (value: MemberKey): void => {
@@ -243,7 +243,7 @@ const collectStorageOrigins = (
 };
 
 const collectStorageDeclarations = (
-  member: MemberStorageSelection, site: FactsSite, context: FactsVerificationContext, violations: Violation<FactsRule, FactsSite>[],
+  member: MemberStorageSelection, site: FactsSite, context: MetadataVerificationContext, violations: Violation<FactsRule, FactsSite>[],
 ): void => {
   const report = (rule: FactsRule, text: string): void => { violations.push({ rule, site, detail: [{ kind: "text", value: text }] }); };
   for (const selected of member.selectedDeclarations) if (!context.definitionExists(selected)) {
@@ -252,7 +252,7 @@ const collectStorageDeclarations = (
 };
 
 export const collectStorageChecks = (
-  member: MemberStorageSelection, site: FactsSite, context: FactsVerificationContext, violations: Violation<FactsRule, FactsSite>[],
+  member: MemberStorageSelection, site: FactsSite, context: MetadataVerificationContext, violations: Violation<FactsRule, FactsSite>[],
 ): void => {
   collectStorageOrigins(member, site, context, violations);
   collectStorageDeclarations(member, site, context, violations);
@@ -298,7 +298,7 @@ export const verifyFactBindings = (
   entries: readonly FactBindingInput[],
   target: FactsBindingTarget,
   root: FactsSite,
-  context: FactsVerificationContext,
+  context: BindingVerificationContext,
 ): readonly Violation<FactsRule, FactsSite>[] => {
   const inputs: BindingVerificationInput[] = [];
   const checks: { readonly site: FactsSite; readonly first: number; readonly end: number }[] = [];

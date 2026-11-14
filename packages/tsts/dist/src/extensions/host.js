@@ -114,7 +114,7 @@ export class ExtensionDiagnosticStore {
                 diagnosticRanges: new Map(),
                 savepoints: [],
                 savepointStates: new WeakMap(),
-                ownerAuthority: { stack: [] },
+                ownerAuthority: { stack: [], pendingRegistrarExtensionId: null },
                 rangesSealed: false,
             };
             this.#ownerId = undefined;
@@ -1104,7 +1104,16 @@ export class ProviderRegistry {
         this.#requiredProviderModules = snapshotRequiredProviderModules(requiredProviderModules);
         this.#materializationRound = materializationRound;
     }
+    /**
+     * The one registration. Who asked is taken first: the id the host left pending for this call (an extension's
+     * checked initializer capability), or null when the embedding host calls directly. It is cleared as it is taken,
+     * so nothing this call runs, a getter of the provider included, and no call nested in it can see it. A provider
+     * object that is registered stays as it was registered: the call returns before any record is made.
+     */
     registerSourceDeclarationProvider(provider) {
+        const authority = getDiagnosticStoreOwnerAuthority(this.#diagnostics);
+        const registrarExtensionId = authority.pendingRegistrarExtensionId;
+        authority.pendingRegistrarExtensionId = null;
         this.#assertHostOwnedRegistration("source declaration provider");
         if (this.#sourceDeclarationProviderRegistrations.has(provider)) {
             return true;
@@ -1113,7 +1122,7 @@ export class ProviderRegistry {
             this.#diagnostics.append(createRegistrationClosedDiagnostic("source declaration provider"));
             return false;
         }
-        const registration = snapshotSourceDeclarationProviderRegistration(provider);
+        const registration = snapshotSourceDeclarationProviderRegistration(provider, registrarExtensionId);
         if (registration.kind === "invalid") {
             this.#diagnostics.append(createHostDiagnostic({
                 extensionCode: "INVALID_SOURCE_DECLARATION_PROVIDER",
@@ -1571,6 +1580,7 @@ export class ProviderRegistry {
         const artifactDeclarationModel = freezeProviderDeclarationModel(canonicalizeProviderAbiModel(declarationModel));
         const candidate = Object.freeze({
             providerIdentity: owner.provider.identity,
+            registrarExtensionId: owner.provider.registrarExtensionId,
             resolution,
             materialization: declarationRequest.materialization,
             declarationModel,
@@ -2181,6 +2191,7 @@ export class ProviderRegistry {
                 moduleSpecifier: ownerResolution.moduleSpecifier,
                 providerModuleId: ownerResolution.providerModuleId,
                 provider: plan.candidate.providerIdentity,
+                registrarExtensionId: plan.candidate.registrarExtensionId,
                 declarationModel: plan.declarationModel,
                 sourceText,
                 readOnly: true,
@@ -2302,6 +2313,7 @@ export class ProviderRegistry {
             moduleSpecifier: candidate.resolution.moduleSpecifier,
             providerModuleId: candidate.resolution.providerModuleId,
             provider: candidate.providerIdentity,
+            registrarExtensionId: candidate.registrarExtensionId,
             declarationModel,
             sourceText,
             readOnly: true,
@@ -2663,7 +2675,16 @@ export class ExtensionHost {
     }
     #registerSourceDeclarationProviderForExtension(extensionId, provider) {
         this.#assertRegistrationOwner(extensionId, "source declaration provider");
-        return runWithoutExtensionOwnerAuthority(this.#ownerAuthority, () => this.providers.registerSourceDeclarationProvider(provider));
+        return runWithoutExtensionOwnerAuthority(this.#ownerAuthority, () => {
+            const previous = this.#ownerAuthority.pendingRegistrarExtensionId;
+            this.#ownerAuthority.pendingRegistrarExtensionId = extensionId;
+            try {
+                return this.providers.registerSourceDeclarationProvider(provider);
+            }
+            finally {
+                this.#ownerAuthority.pendingRegistrarExtensionId = previous;
+            }
+        });
     }
     #failSemanticFinalization() {
         if (this.#semanticFinalizationState === "finalized") {
@@ -3985,7 +4006,7 @@ function snapshotProviderIdentity(identity) {
         ...(displayName === undefined ? {} : { displayName }),
     });
 }
-function snapshotSourceDeclarationProviderRegistration(provider) {
+function snapshotSourceDeclarationProviderRegistration(provider, registrarExtensionId) {
     try {
         const identity = snapshotProviderIdentity(provider.identity);
         const declarationMaterialization = provider.declarationMaterialization;
@@ -4008,6 +4029,7 @@ function snapshotSourceDeclarationProviderRegistration(provider) {
             kind: "valid",
             provider: Object.freeze({
                 identity,
+                registrarExtensionId,
                 declarationMaterialization,
                 ownsModule: (specifier, context) => ownsModule.call(provider, specifier, context),
                 resolveModule: (specifier, context) => resolveModule.call(provider, specifier, context),

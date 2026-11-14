@@ -35,6 +35,7 @@ import { ParsedCommandLine_as_ResolvedProjectReference, ParsedCommandLine_Compil
 import { fileIncludeKindAutomaticTypeDirectiveFile, fileIncludeKindImport, fileIncludeKindLibFile, fileIncludeKindReferenceFile, fileIncludeKindRootFile, fileIncludeKindTypeReferenceDirective, FileIncludeReason_isReferencedFile, } from "./fileInclude.js";
 import { filesParser_getProcessedFiles, filesParser_parse, parseTask_addSubTask, } from "./filesparser.js";
 import { processingDiagnosticKindExplainingFileInclude, processingDiagnosticKindUnknownReference, } from "./processingDiagnostic.js";
+import { boundLibraryPriority, libraryBindingOf, selectedLibraryFile } from "./librarybinding.js";
 import { projectReferenceFileMapper_getCompilerOptionsForFile, projectReferenceFileMapper_getRedirectForResolution, projectReferenceFileMapper_getRedirectParsedCommandLineForResolution, } from "./projectreferencefilemapper.js";
 import { createProjectReferenceParseTasks, projectReferenceParser_parse, } from "./projectreferenceparser.js";
 import { PhaseParse, PhaseProgram, Tracing_Push } from "../tracing/tracing.js";
@@ -361,6 +362,7 @@ export function redirectsFile_Path(receiver) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/fileloader.go::func::processAllProgramFiles","kind":"func","status":"implemented","sigHash":"e38059a13537c31d50a7ef49c7d0d511f7b51bcbfa1e1375a459fe88a6b62a6f","bodyHash":"d480563f6ce2ad89532596ed6fb94becd172fbecf039dc11100a6f4651d5f558"}
+ * @tsgo-override {"category":"embedding-host","allow":["body"],"reason":"The loader's library binding is derived once from ProgramOptions (librarybinding.ts: the default library directory, or the caller's selected library files) and handed out in processedFiles; the default library and each lib entry are rooted through it, and a name the selected files do not bind is reported (TS2726) instead of being looked for in the default directory. Ordinary input keeps the directory rule exactly."}
  *
  * Go source:
  * func processAllProgramFiles(
@@ -440,7 +442,8 @@ export function processAllProgramFiles(opts, singleThreaded) {
     const loader = {
         opts: opts,
         resolver: undefined,
-        defaultLibraryPath: GetNormalizedAbsolutePath(opts.Host.DefaultLibraryPath(), opts.Host.GetCurrentDirectory()),
+        libraries: libraryBindingOf(opts),
+        libraryDiagnostics: [],
         comparePathsOptions: {
             UseCaseSensitiveFileNames: opts.Host.FS().UseCaseSensitiveFileNames(),
             CurrentDirectory: opts.Host.GetCurrentDirectory(),
@@ -484,14 +487,20 @@ export function processAllProgramFiles(opts, singleThreaded) {
             if (compilerOptions.Lib === undefined) {
                 const name = GetDefaultLibFileName(compilerOptions);
                 const libFile = fileLoader_pathForLibFile(loader, name);
-                fileLoader_addRootTask(loader, libFile.path, libFile, {
+                const includeReason = {
                     kind: fileIncludeKindLibFile,
                     data: undefined,
                     relativeFileNameDiag: undefined,
                     relativeFileNameDiagOnce: new OnceImpl(),
                     diag: undefined,
                     diagOnce: new OnceImpl(),
-                });
+                };
+                if (libFile === undefined) {
+                    loader.libraryDiagnostics.push({ kind: processingDiagnosticKindUnknownReference, data: includeReason });
+                }
+                else {
+                    fileLoader_addRootTask(loader, libFile.path, libFile, includeReason);
+                }
             }
             else {
                 for (let index = 0; index < compilerOptions.Lib.length; index++) {
@@ -499,14 +508,20 @@ export function processAllProgramFiles(opts, singleThreaded) {
                     const [name, ok] = GetLibFileName(lib);
                     if (ok) {
                         const libFile = fileLoader_pathForLibFile(loader, name);
-                        fileLoader_addRootTask(loader, libFile.path, libFile, {
+                        const includeReason = {
                             kind: fileIncludeKindLibFile,
                             data: index,
                             relativeFileNameDiag: undefined,
                             relativeFileNameDiagOnce: new OnceImpl(),
                             diag: undefined,
                             diagOnce: new OnceImpl(),
-                        });
+                        };
+                        if (libFile === undefined) {
+                            loader.libraryDiagnostics.push({ kind: processingDiagnosticKindUnknownReference, data: includeReason });
+                        }
+                        else {
+                            fileLoader_addRootTask(loader, libFile.path, libFile, includeReason);
+                        }
                     }
                     // !!! error on unknown name
                 }
@@ -894,6 +909,7 @@ export function fileLoader_sortLibs(receiver, libFiles) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/fileloader.go::method::fileLoader.getDefaultLibFilePriority","kind":"method","status":"implemented","sigHash":"29ee2103e7fd671229456e38cd308ceb42905ea2e5b1483bf0abda56ec00b434","bodyHash":"c9c7c67c7b3230a46837eb0ed7c5266c270e35b95f8e8fba8e5cd2ec6813e08a"}
+ * @tsgo-override {"category":"embedding-host","allow":["body"],"reason":"The order is the program's one library binding's (librarybinding.ts boundLibraryPriority): in the directory kind exactly the Go body's prefix and base-name rule, moved there unchanged; for selected library files by the names bound to the file's path."}
  *
  * Go source:
  * func (p *fileLoader) getDefaultLibFilePriority(a *ast.SourceFile) int {
@@ -917,20 +933,7 @@ export function fileLoader_sortLibs(receiver, libFiles) {
  * }
  */
 export function fileLoader_getDefaultLibFilePriority(receiver, a) {
-    const defaultLibraryPath = RemoveTrailingDirectorySeparator(receiver.defaultLibraryPath);
-    const aFileName = SourceFile_FileName(a);
-    if (strings.HasPrefix(aFileName, defaultLibraryPath) && aFileName.length > defaultLibraryPath.length && aFileName.charCodeAt(defaultLibraryPath.length) === DirectorySeparator) {
-        const basename = aFileName.slice(strings.LastIndexByte(aFileName, DirectorySeparator) + 1);
-        if (basename === "lib.d.ts" || basename === "lib.es6.d.ts") {
-            return 0;
-        }
-        const name = strings.TrimSuffix(strings.TrimPrefix(basename, "lib."), ".d.ts");
-        const index = slices.Index(Libs, name);
-        if (index !== -1) {
-            return index + 1;
-        }
-    }
-    return Libs.length + 2;
+    return boundLibraryPriority(receiver.libraries, SourceFile_FileName(a), SourceFile_Path(a));
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/fileloader.go::method::fileLoader.loadSourceFileMetaData","kind":"method","status":"implemented","sigHash":"52b29481881acea04f31c6031f028ef2d8dd0bb77e94245bbfa6d3738f7b12a2","bodyHash":"0b67c7e4d0c687b4e8b65171f738960dc56d8b732b97620160aaeac15581a66c"}
@@ -1598,6 +1601,7 @@ export function fileLoader_createSyntheticImport(receiver, text, file) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/fileloader.go::method::fileLoader.pathForLibFile","kind":"method","status":"implemented","sigHash":"b2680645d713772d080c54de200347fdb7ec655d4e99847a4093a2537faf0b06","bodyHash":"4960e9e4f465d31610cfae01bf77be4f15ffa0837bb4c20873f17ee46da65e30"}
+ * @tsgo-override {"category":"embedding-host","allow":["body"],"reason":"The library file of a name is the program's library binding's (librarybinding.ts): in the directory kind CombinePaths of the default library directory and the name, as the Go body, then the libReplacement resolution; for selected library files the bound file or none, with no replacement and no default directory."}
  *
  * Go source:
  * func (p *fileLoader) pathForLibFile(name string) *LibFile {
@@ -1631,9 +1635,13 @@ export function fileLoader_pathForLibFile(receiver, name) {
     if (ok) {
         return cached;
     }
-    let path = CombinePaths(receiver.defaultLibraryPath, name);
+    const selected = selectedLibraryFile(receiver.libraries, name);
+    if (selected === undefined) {
+        return undefined;
+    }
+    let path = selected;
     let replaced = false;
-    if (Tristate_IsTrue(ParsedCommandLine_CompilerOptions(receiver.opts.Config).LibReplacement) && name !== "lib.d.ts") {
+    if (receiver.libraries.kind === "directory" && Tristate_IsTrue(ParsedCommandLine_CompilerOptions(receiver.opts.Config).LibReplacement) && name !== "lib.d.ts") {
         const libraryName = getLibraryNameFromLibFileName(name);
         const resolveFrom = getInferredLibraryNameResolveFrom(ParsedCommandLine_CompilerOptions(receiver.opts.Config), receiver.opts.Host.GetCurrentDirectory(), name);
         const [resolution, trace] = fileLoader_resolveLibrary(receiver, libraryName, resolveFrom);

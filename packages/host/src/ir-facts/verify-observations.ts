@@ -5,7 +5,7 @@ import type { HirNode, HirObservationCapture } from "../ir-hir/contract.js";
 import { childrenOfSyntax } from "../ir-hir/index.js";
 import type { BindingValues, BindingVector } from "../ir-types/contract.js";
 import { bindingVectorKey, rigidBindings, substituteBindingValues } from "../ir-types/index.js";
-import type { FactsRule, FactsSite, FactsVerificationContext, MetadataKey, VerifyObservations } from "./contract.js";
+import type { FactsRule, FactsSite, ObservationVerificationContext, MetadataKey, VerifyObservations } from "./contract.js";
 import { observationBindingInputs, sameBindings, validIndex, verifyFactBindings } from "./verify-relations.js";
 
 const sourceKey = (source: SourceNodeRef): string => encodeKey([source.kind,
@@ -21,7 +21,7 @@ function descriptorBindings(node: HirNode | null, occurrence: SourceNodeRef, kin
     ? memory.value.bindings.value : null;
 }
 
-const descriptorAgrees = (key: MetadataKey, expected: BindingVector | undefined, context: FactsVerificationContext): boolean => {
+const descriptorAgrees = (key: MetadataKey, expected: BindingVector | undefined, context: ObservationVerificationContext): boolean => {
   if (expected === undefined) return false;
   if (key.bindings.kind === "instantiated") return bindingVectorKey(expected) === bindingVectorKey(key.bindings.bindings);
   const scope = context.bindingScopeOf(key.definition);

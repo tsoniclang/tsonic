@@ -52,7 +52,7 @@ function fixture(name, type = T.bool, makeRoot = b => b.block(b.returns(b.keywor
   const checked = mir.verifyMir(parsed.value, verificationContext(program));
   same(checked, { kind: "complete", violations: [] }, "the actual selected typed-body/MIR barrier completed");
   const body = parsed.value;
-  const deps = { ...views, selectedNativeFacts: nativeFactsFixture(), limits };
+  const deps = { ...views, types: types.viewTypes(interner), selectedNativeFacts: nativeFactsFixture(), limits };
   const entry = { body: body.body, bindings: body.bindings };
   return { body, deps, entry, unit, start: (selected = limits) => product.evaluate({ ...deps, limits: selected }, entry, body, [], "compile-time", unit) };
 }
@@ -469,22 +469,89 @@ test("floating bit allowances use the actual supplied full encoding, including z
   for (const [primitive, interchange, width] of [["float16", "ieee754-binary16", 16], ["float32", "ieee754-binary32", 32], ["float64", "ieee754-binary64", 64]]) {
     const type = types.internType(interner, { kind: "primitive", primitive });
     const format = { carrier: primitive, interchange, nanSignObservable: false, nanPayloadObservable: false, signalingNaNObservable: false };
-    const deps = { ...value.deps, typeOf: id => types.readType(interner, id), selectedNativeFacts: { ...nativeFactsFixture(), floatingFormats: [format] } };
+    const deps = { ...value.deps, types: types.viewTypes(interner), typeOf: id => types.readType(interner, id), selectedNativeFacts: { ...nativeFactsFixture(), floatingFormats: [format] } };
     for (const bits of [0n, 1n << BigInt(width - 1), (1n << BigInt(width)) - 1n]) {
       for (const field of ["maximumIntermediateBits", "maximumResultBits"]) {
         for (let maximum = 0; maximum <= width; maximum += 1) {
-          const machine = { deps: { ...deps, limits: { ...limits, [field]: maximum } }, result: null, unit: value.unit };
+          const machine = { deps: { ...deps, limits: { ...limits, [field]: maximum } }, result: null, arithmetic: 0, unit: value.unit };
           assert.equal(valueFits(machine, { kind: "floating", type, bits }, field, origin), maximum === width, `${primitive}/${field}/${bits}/${maximum}`);
           assert.equal(machine.result === null, maximum === width);
         }
       }
     }
-    const invoke = (selectedDeps, bits = 0n, selectedType = type) => valueFits({ deps: selectedDeps, result: null, unit: value.unit },
+    const invoke = (selectedDeps, bits = 0n, selectedType = type) => valueFits({ deps: selectedDeps, result: null, arithmetic: 0, unit: value.unit },
       { kind: "floating", type: selectedType, bits }, "maximumIntermediateBits", origin);
     assert.throws(() => invoke({ ...deps, selectedNativeFacts: { ...deps.selectedNativeFacts, floatingFormats: [] } }), /selected carrier format/u);
     assert.throws(() => invoke({ ...deps, selectedNativeFacts: { ...deps.selectedNativeFacts, floatingFormats: [{ ...format, interchange: "unknown" }] } }), /valid selected encoding/u);
     for (const bits of [-1n, 1n << BigInt(width)]) assert.throws(() => invoke(deps, bits), /valid selected encoding/u);
     for (const selectedType of [T.int32, T.string]) assert.throws(() => invoke(deps, 0n, selectedType), /actual selected native carrier/u);
+  }
+});
+
+test("floating literal-base consumption charges the original evaluation invocation before every actual type read", async () => {
+  const value = fixture("evaluate-floating-literal-chain");
+  const { valueFits } = await import("../../packages/host/dist/evaluate/budget.js");
+  const origin = value.body.blocks[0].origin;
+  const interner = types.seedTypeInterner(TABLE);
+  const primitive = types.internType(interner, { kind: "primitive", primitive: "float32" });
+  const first = types.internType(interner, { kind: "literal", base: primitive,
+    value: { kind: "number", value: { numerator: 1n, denominator: 1n, negativeZero: false } } });
+  const selected = types.internType(interner, { kind: "literal", base: first,
+    value: { kind: "number", value: { numerator: 2n, denominator: 1n, negativeZero: false } } });
+  const view = types.viewTypes(interner);
+  const format = { carrier: "float32", interchange: "ieee754-binary32",
+    nanSignObservable: false, nanPayloadObservable: false, signalingNaNObservable: false };
+  for (const field of ["maximumIntermediateBits", "maximumResultBits"]) {
+    for (let maximum = 0; maximum <= 3; maximum += 1) {
+      const reads = [];
+      const deps = { ...value.deps, types: view, typeOf: type => { reads.push(type); return types.readType(interner, type); },
+        selectedNativeFacts: { ...nativeFactsFixture(), floatingFormats: [format] },
+        limits: { ...limits, [field]: 32, maximumArithmeticWork: maximum } };
+      const machine = { deps, arithmetic: 0, result: null, unit: value.unit };
+      const floating = { kind: "floating", type: selected, bits: 0n };
+      assert.equal(valueFits(machine, floating, field, origin), maximum === 3);
+      same(reads, [selected, first, primitive].slice(0, maximum), "only actual charged rows are read, including the endpoint");
+      assert.equal(machine.arithmetic, maximum);
+      if (maximum < 3) {
+        const refusal = machine.result;
+        same(refusal.diagnostics[0].arguments,
+          [{ kind: "text", value: "evaluation.maximumArithmeticWork" }, { kind: "number", value: maximum }],
+          "the original arithmetic account owns the first refusal");
+        assert.equal(valueFits(machine, floating, field, origin), false);
+        assert.equal(machine.result, refusal);
+        assert.equal(reads.length, maximum, "an already-refused invocation performs no later row read");
+      } else {
+        assert.equal(valueFits(machine, floating, field, origin), false, "a second read borrows the exhausted original invocation");
+        assert.equal(machine.arithmetic, 3);
+        assert.equal(reads.length, 3);
+      }
+    }
+    const deps = { ...value.deps, types: view, typeOf: type => types.readType(interner, type),
+      selectedNativeFacts: { ...nativeFactsFixture(), floatingFormats: [format] },
+      limits: { ...limits, [field]: 31, maximumArithmeticWork: 3 } };
+    const machine = { deps, arithmetic: 0, result: null, unit: value.unit };
+    assert.equal(valueFits(machine, { kind: "floating", type: selected, bits: 0n }, field, origin), false);
+    assert.equal(machine.arithmetic, 3);
+    same(machine.result.diagnostics[0].arguments,
+      [{ kind: "text", value: `evaluation.${field}` }, { kind: "number", value: 31 }],
+      "after the charged relation completes, the full encoding owns its actual bit refusal");
+    const invoke = typeOf => valueFits({ deps: { ...deps, typeOf }, arithmetic: 0, result: null, unit: value.unit },
+      { kind: "floating", type: selected, bits: 0n }, field, origin);
+    assert.throws(() => invoke(() => undefined), /complete ready type row/u);
+    const invalidBase = { kind: "literal", base: selected,
+      value: { kind: "number", value: { numerator: 0n, denominator: 1n, negativeZero: false } } };
+    const malformed = { ...deps, types: { terms: [invalidBase], signatures: [] }, typeOf: () => invalidBase,
+      limits: { ...limits, maximumArithmeticWork: 4 } };
+    assert.throws(() => valueFits({ deps: malformed, arithmetic: 0, result: null, unit: value.unit },
+      { kind: "floating", type: 0, bits: 0n }, field, origin), /actual ready type domain/u);
+    let missingDomainReads = 0;
+    const missing = { ...deps, types: { terms: [], signatures: [] },
+      typeOf: type => { missingDomainReads += 1; return types.readType(interner, type); } };
+    const missingMachine = { deps: missing, arithmetic: 0, result: null, unit: value.unit };
+    assert.throws(() => valueFits(missingMachine, { kind: "floating", type: selected, bits: 0n }, field, origin),
+      /actual ready type domain/u);
+    assert.equal(missingDomainReads, 0, "a mismatched captured domain is not repaired by a valid unrelated reader");
+    assert.equal(missingMachine.arithmetic, 0);
   }
 });
 

@@ -1,6 +1,5 @@
 import { NewOrderedMapWithSizeHint, OrderedMap_Set } from "../collections/ordered_map.js";
 import { NewSetWithSizeHint, Set_Add } from "../collections/set.js";
-import { AllowDuplicateNames, Unmarshal } from "../json/json.js";
 import { Expected_GetValue } from "./expected.js";
 import { JSONValueTypeArray, JSONValueTypeBoolean, JSONValueTypeNotPresent, JSONValueTypeNull, JSONValueTypeNumber, JSONValueTypeObject, JSONValueTypeString } from "./jsonvalue.js";
 import { objectKindUnknown } from "./exportsorimports.js";
@@ -170,6 +169,7 @@ export function DependencyFields_GetRuntimeDependencyNames(receiver) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/packagejson/packagejson.go::func::Parse","kind":"func","status":"implemented","sigHash":"4c992a9162975647c2c2d8ab3d90f1b0489695032a2311c82949afc07c4e45d3","bodyHash":"fa47abb81da5366c35b09cf693a9e82c424f521ee3c68a5f2b256a297aa43b12"}
+ * @tsgo-override {"category":"runtime-correctness","allow":["body"],"reason":"The Go body unmarshals the bytes once into Fields with the pinned JSON library. Here the bytes are decoded once (keeping a leading byte-order mark, which JSON.parse rejects, and refusing ill-formed UTF-8, as the library does) and parsed once by JSON.parse, which takes the last of duplicate names as AllowDuplicateNames does; decodeFields builds the fields from that one parse. JSON.parse accepts two inputs the library refuses, and both are refused here before the fields are built: an escaped surrogate that is not half of an escaped pair, in any string token of the text, member names and the values of discarded duplicate names included (one pass over the string tokens of the accepted text, since the parsed value no longer holds a discarded duplicate); and a root that is an array, a string, a number or a boolean (null and an object are accepted, as by the library). The order is the library's: an array root is refused before its strings are read; for any other root the string tokens are checked first, then the root's kind. One difference in the error only: for an array root whose content is not valid JSON (a trailing comma, an unclosed array) the library names the array, refusing it at its first token, while JSON.parse here reports the syntax error; both are errors with empty fields. An earlier form parsed the same bytes twice, each time with a decoder that removed a mark. Limit: the refusal of ill-formed UTF-8 holds for bytes given to Parse. Module resolution does not give it a file's bytes: the file read replaces ill-formed bytes by U+FFFD and the resolver re-encodes that text, so a package.json file with ill-formed UTF-8 is still read here, where the Go resolver, which passes the file's bytes, refuses it."}
  *
  * Go source:
  * func Parse(data []byte) (Fields, error) {
@@ -181,17 +181,114 @@ export function DependencyFields_GetRuntimeDependencyNames(receiver) {
  * }
  */
 export function Parse(data) {
-    const f = {};
-    const err = Unmarshal(data, f, AllowDuplicateNames(true));
-    if (err !== undefined) {
-        return [{}, err];
-    }
+    // One decode and one parse of the bytes, as the Go body's single Unmarshal. The decoder keeps a leading byte-order
+    // mark, which JSON.parse rejects, and throws on ill-formed UTF-8; JSON.parse takes the last of duplicate names.
     try {
-        return [decodeFields(globalThis.JSON.parse(new globalThis.TextDecoder("utf-8").decode(new globalThis.Uint8Array(data)))), undefined];
+        const text = new globalThis.TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(new globalThis.Uint8Array(data));
+        const value = globalThis.JSON.parse(text);
+        // The library's order: an array root is refused at its first token, before any string in it is read; for every
+        // other root the string tokens are read first, then the root's kind decides.
+        if (globalThis.Array.isArray(value)) {
+            return [{}, new globalThis.Error(`cannot unmarshal a JSON array into package.json fields`)];
+        }
+        const unpaired = firstUnpairedSurrogateEscape(text);
+        if (unpaired >= 0) {
+            return [{}, new globalThis.Error(`invalid surrogate pair in a string at offset ${unpaired}`)];
+        }
+        if (value !== null && typeof value !== "object") {
+            return [{}, new globalThis.Error(`cannot unmarshal a JSON ${jsonRootKind(value)} into package.json fields`)];
+        }
+        return [decodeFields(value), undefined];
     }
     catch (error) {
         return [{}, error instanceof globalThis.Error ? error : new globalThis.Error(String(error))];
     }
+}
+/**
+ * The offset of the first escaped surrogate that is not half of an escaped pair, in any string token of `text`, or
+ * -1. The pinned JSON library refuses such an escape wherever it is (a member name, an ignored member, a value later
+ * replaced by a duplicate name); JSON.parse accepts it, and its value no longer holds a replaced duplicate, so the
+ * check reads the text: the same decoded string JSON.parse has just accepted.
+ *
+ * Because JSON.parse accepted the text, outside its string tokens there is no quotation mark and no backslash, so a
+ * quotation mark outside a token opens one; inside a token a backslash escapes exactly the next character, or `u`
+ * and four hexadecimal digits. An escaped high surrogate must be followed at once by an escaped low surrogate:
+ * anything else after it (the closing quotation mark, a plain character, any other escape, a second high) is the
+ * error, and so is an escaped low surrogate that does not follow an escaped high one. Raw characters are not checked:
+ * no raw surrogate can reach JSON.parse, because the bytes passed the fatal UTF-8 decoder, which refuses an encoded
+ * surrogate.
+ */
+function firstUnpairedSurrogateEscape(text) {
+    let state = "outside";
+    let highEscape = -1;
+    let index = 0;
+    while (index < text.length) {
+        const code = text.charCodeAt(index);
+        switch (state) {
+            case "outside":
+                if (code === 0x22) {
+                    state = "inside";
+                }
+                index += 1;
+                break;
+            case "inside":
+                if (code === 0x5c) {
+                    state = "after-backslash";
+                }
+                else if (code === 0x22) {
+                    state = "outside";
+                }
+                index += 1;
+                break;
+            case "after-backslash":
+                if (code === 0x75) {
+                    const unit = hexUnit(text, index + 1);
+                    if (unit >= 0xdc00 && unit <= 0xdfff) {
+                        return index - 1;
+                    }
+                    if (unit >= 0xd800 && unit <= 0xdbff) {
+                        highEscape = index - 1;
+                        state = "after-high-escape";
+                    }
+                    else {
+                        state = "inside";
+                    }
+                    index += 5;
+                }
+                else {
+                    state = "inside";
+                    index += 1;
+                }
+                break;
+            case "after-high-escape":
+                if (code === 0x5c && text.charCodeAt(index + 1) === 0x75) {
+                    const unit = hexUnit(text, index + 2);
+                    if (unit >= 0xdc00 && unit <= 0xdfff) {
+                        state = "inside";
+                        index += 6;
+                        break;
+                    }
+                }
+                return highEscape;
+        }
+    }
+    return state === "after-high-escape" ? highEscape : -1;
+}
+/**
+ * The code unit of the four hexadecimal digits at `start`, upper or lower case alike. JSON.parse has accepted the
+ * escape, so they are hexadecimal digits.
+ */
+function hexUnit(text, start) {
+    let unit = 0;
+    for (let index = start; index < start + 4; index += 1) {
+        const code = text.charCodeAt(index);
+        const digit = code <= 0x39 ? code - 0x30 : (code | 0x20) - 0x57;
+        unit = unit * 16 + digit;
+    }
+    return unit;
+}
+function jsonRootKind(value) {
+    return typeof value === "string" ? "string" : typeof value === "number" ? "number" : "boolean";
 }
 function decodeFields(value) {
     const object = isPlainObject(value) ? value : {};

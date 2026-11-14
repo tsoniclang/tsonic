@@ -1,7 +1,11 @@
 import { Background } from "../go/context.js";
 import { SourceFile_FileName } from "../internal/ast/ast.js";
 import { NewProgram, Program_BindSourceFiles, Program_GetBindDiagnostics, Program_GetConfigFileParsingDiagnostics, Program_GetDeclarationDiagnostics, Program_GetGlobalDiagnostics, Program_GetProgramDiagnostics, Program_GetSemanticDiagnostics, Program_GetSourceFile, Program_GetSuggestionDiagnostics, Program_GetSyntacticDiagnostics, Program_getSourceFilesToEmit, } from "../internal/compiler/program.js";
-import { GetParsedCommandLineOfConfigFile } from "../internal/tsoptions/tsconfigparsing.js";
+import { GetParsedCommandLineOfConfigFile, GetSupportedExtensions, convertCompilerOptionsFromJsonWorker } from "../internal/tsoptions/tsconfigparsing.js";
+import { NewParsedCommandLine } from "../internal/tsoptions/parsedcommandline.js";
+import { GetNormalizedAbsolutePath } from "../internal/tspath/path.js";
+import { FileExtensionIsOneOf } from "../internal/tspath/extension.js";
+import { NewOrderedMapWithSizeHint, OrderedMap_Set } from "../internal/collections/ordered_map.js";
 import { snapshotExtensionHostOptionsForCompilerSession, } from "../extensions/host.js";
 import { attachExtensionHost, getExtensionHost } from "../extensions/index.js";
 import { finalizeExtensionSemantics } from "../extensions/compiler-integration.js";
@@ -178,36 +182,52 @@ function diagnosticKindRequiresSemanticProgram(kind) {
         || kind === "all";
 }
 export function createCompilerSessionFromFiles(options) {
-    const configFileName = options.configFileName ?? `${options.currentDirectory}/tsconfig.json`;
     const files = options.files instanceof Map ? new Map(options.files) : new Map(Object.entries(options.files));
-    if (!files.has(configFileName)) {
-        files.set(configFileName, JSON.stringify({
-            compilerOptions: options.compilerOptions ?? {},
-            files: options.rootFiles ?? inferRootFiles(options.currentDirectory, files),
-        }));
-    }
     const fileSystem = createInMemoryFileSystem({
         files,
+        ...(options.includeBundledLibraries !== undefined ? { includeBundledLibraries: options.includeBundledLibraries } : {}),
         ...(options.useCaseSensitiveFileNames !== undefined ? { useCaseSensitiveFileNames: options.useCaseSensitiveFileNames } : {}),
     });
     const host = createCompilerHost({
         currentDirectory: options.currentDirectory,
         fileSystem,
+        ...(options.includeBundledLibraries !== undefined ? { includeBundledLibraries: options.includeBundledLibraries } : {}),
     });
-    const defaultOptions = {};
-    const [config, configErrors] = GetParsedCommandLineOfConfigFile(configFileName, defaultOptions, undefined, host, undefined);
-    if ((configErrors ?? []).length !== 0) {
-        const programOptions = { Config: config, Host: host };
-        return createCompilerSession({
-            programOptions,
-            ...(options.extensionHostOptions !== undefined ? { extensionHostOptions: options.extensionHostOptions } : {}),
-            ...(options.context !== undefined ? { context: options.context } : {}),
+    let config;
+    if (options.configFileName !== undefined) {
+        if (options.compilerOptions !== undefined || options.rootFiles !== undefined) {
+            throw new Error("A compiler session over files takes either a configuration file name, or compiler options and root files; both were given.");
+        }
+        const configFileName = GetNormalizedAbsolutePath(options.configFileName, options.currentDirectory);
+        if (!fileSystem.FileExists(configFileName)) {
+            throw new Error(`The configuration file '${options.configFileName}' is not among the session's files.`);
+        }
+        [config] = GetParsedCommandLineOfConfigFile(configFileName, {}, undefined, host, undefined);
+    }
+    else {
+        // The options are the supplied values, read by the compiler's reader of a configuration object; the roots are the
+        // supplied ones. There is no text and no file: nothing is written into the file system, no path is named, no
+        // tsconfig among the files is opened, and no diagnostic is made about a files list nobody wrote.
+        const [compilerOptions, optionErrors] = convertCompilerOptionsFromJsonWorker(configurationObject(options.compilerOptions ?? {}), options.currentDirectory, "");
+        const rootFiles = options.rootFiles !== undefined
+            ? options.rootFiles.map(fileName => GetNormalizedAbsolutePath(fileName, options.currentDirectory))
+            : [...inferRootFiles(files, GetSupportedExtensions(compilerOptions, []).flat())];
+        const supplied = NewParsedCommandLine(compilerOptions, rootFiles, {
+            UseCaseSensitiveFileNames: fileSystem.UseCaseSensitiveFileNames(),
+            CurrentDirectory: options.currentDirectory,
         });
+        if (supplied === undefined) {
+            throw new Error("NewParsedCommandLine returned no parsed command line.");
+        }
+        // The reader's errors are the parsed command line's errors (the constructor starts them empty).
+        supplied.Errors = [...optionErrors];
+        config = supplied;
     }
     return createCompilerSession({
         programOptions: {
             Config: config,
             Host: host,
+            ...(options.selectedLibraries !== undefined ? { SelectedLibraries: options.selectedLibraries } : {}),
         },
         ...(options.extensionHostOptions !== undefined ? { extensionHostOptions: options.extensionHostOptions } : {}),
         ...(options.context !== undefined ? { context: options.context } : {}),
@@ -242,20 +262,26 @@ function getDiagnostics(program, context, kind, sourceFile) {
             ];
     }
 }
+// A plain value as the compiler's configuration reader takes a parsed configuration: an object becomes an ordered map
+// in the order of its own keys, an array keeps its elements, everything else is itself.
+function configurationObject(value) {
+    if (Array.isArray(value)) {
+        return value.map(configurationObject);
+    }
+    if (value !== null && typeof value === "object") {
+        const entries = Object.entries(value);
+        const map = NewOrderedMapWithSizeHint(entries.length);
+        for (const [key, entry] of entries) {
+            OrderedMap_Set(map, key, configurationObject(entry));
+        }
+        return map;
+    }
+    return value;
+}
 function diagnosticsOrEmpty(diagnostics) {
     return diagnostics ?? [];
 }
-function inferRootFiles(currentDirectory, files) {
-    const rootFiles = [];
-    const prefix = currentDirectory.endsWith("/") ? currentDirectory : `${currentDirectory}/`;
-    for (const fileName of files.keys()) {
-        if (fileName === `${currentDirectory}/tsconfig.json`) {
-            continue;
-        }
-        if (fileName.startsWith(prefix) && /\.(?:ts|tsx|js|jsx|mts|cts)$/.test(fileName)) {
-            rootFiles.push(fileName.slice(prefix.length));
-        }
-    }
-    return rootFiles.sort();
+function inferRootFiles(files, supportedExtensions) {
+    return [...files.keys()].filter(fileName => FileExtensionIsOneOf(fileName, supportedExtensions)).sort();
 }
 //# sourceMappingURL=compiler-session.js.map
