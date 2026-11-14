@@ -4,7 +4,7 @@
 //   export function f(x: int32 | null = next(), y: int32 = x ?? 0): int32 { return (x ?? -1) + y; }
 //   export function calls(): int32 { return f() + f(null) + f(undefined) + f(1) + f(1, 2); }
 // The two parameter defaults are bodies of their own (section 5 part 1 row 3).
-import { PARAMETRIC, SIG, T, bodyId, builders, callee, mapped, native, omittedMapping, signature, typedBody } from "../typed.mjs";
+import { PARAMETRIC, SIG, T, bodyId, builders, callee, mapped, native, omittedMapping, selected, signature, typedBody, typedOperation } from "../typed.mjs";
 
 const ADD = native("+", "int32", [T.int32, T.int32], T.int32);
 const X_DEFAULT = bodyId("f.x", "default");
@@ -31,21 +31,28 @@ export function wt4() {
 
   // The default of x: `next()`.
   const dx = builders("f.x", "default");
+  const nextCall = dx.call(dx.global("next", "next", T.unknown), [], T.int32,
+    () => ({ callee: callee("next", SIG_NEXT, [], T.int32), receiver: null, arguments: [] }));
   const xDefault = typedBody("f.x", { role: "default", signature: SIG_X_DEFAULT, completion: T.optInt32,
-    root: { $: "next()", ...dx.call(dx.global("next", "next", T.unknown), [], T.int32,
-      () => ({ callee: callee("next", SIG_NEXT, [], T.int32), receiver: null, arguments: [] })) } });
+    root: { $: "next()", ...nextCall, tsonic: at => {
+      const from = { root: { kind: "body", value: dx.nodeRef(at("next()")) }, path: [] };
+      const to = { root: { kind: "body", value: dx.nodeRef(0) }, path: [{ kind: "result", signature: SIG_X_DEFAULT }] };
+      const embedding = { kind: "conversion", conversion: "absence", proof: { steps: [{ from, to, rule: "absence", premises: [] }], conclusion: 0 }, check: { kind: "none" } };
+      return { ...nextCall.tsonic(at), convertedType: T.optInt32, conversion: { kind: "convert", role: "return",
+        operation: typedOperation(selected({ kind: "conversion", from: T.int32, to: T.optInt32, embedding }, [T.int32], T.optInt32)) } };
+    } } });
 
   // The default of y: `x ?? 0`; it reads the parameter x of f as a capture.
   const dy = builders("f.y", "default");
   const yDefault = typedBody("f.y", { role: "default", signature: SIG_Y_DEFAULT, completion: T.int32,
     locals: [["x", "capture", T.optInt32, false, { body: bodyId("f"), local: 0 }]],
-    captures: [{ body: bodyId("f"), local: 0 }],
+    captures: [{ local: { body: bodyId("f"), local: 0 }, capture: "captured-location" }],
     root: coalesce(dy, dy.id("x", 0, T.optInt32), dy.num("0", T.int32), T.int32, { self: "x??0", control: "x", right: "0" }) });
 
   // The ready data Pipeline supplies for the initializer executions f places (section 7 part 1).
   const internal = [
     { instance: { body: X_DEFAULT, bindings: PARAMETRIC }, captures: [], signature: SIG_X_DEFAULT },
-    { instance: { body: Y_DEFAULT, bindings: PARAMETRIC }, captures: [{ body: bodyId("f"), local: 0 }], signature: SIG_Y_DEFAULT },
+    { instance: { body: Y_DEFAULT, bindings: PARAMETRIC }, captures: [{ local: { body: bodyId("f"), local: 0 }, capture: "captured-location" }], signature: SIG_Y_DEFAULT },
   ];
 
   const c = builders("calls");

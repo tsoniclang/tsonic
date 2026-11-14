@@ -96,7 +96,7 @@ export function placeOfLocal(state: LowerState, local: LocalId): PlaceId | null 
  * A constant operand, or null when the lowering is refused. Equal constants are one record; the final identities are
  * assigned when the body is assembled.
  */
-export function constantOperand(state: LowerState, type: TyId, value: MirConstantValue): MirOperand | null {
+export function constantOperand(state: LowerState, type: TyId, value: MirConstantValue): Extract<MirOperand, { readonly kind: "constant" }> | null {
   if (state.refused) return null;
   const key = constantKeyOfMir(type, value);
   if (key === null) return throwInvariant(invariant("a constant's bindings are not complete"));
