@@ -73,7 +73,7 @@ const SIG_FETCHED = signature("fetched", [["id", T.int32]], T.unknown);
 const SIG_HANDLES = signature("handles", [["n", T.int32]], T.int32);
 const SIG_GENERATOR_NEXT = signature("Generator.next", [], T.unknown, T.unknown);
 const SIG_GENERATOR_RETURN = signature("Generator.return", [], T.unknown, T.unknown);
-export const GENERATOR_STEP = Object.freeze({ acquire: 0, next: 1, done: 2, value: 3, finish: 4 });
+export const GENERATOR_STEP = { acquire: 0, next: 1, done: 2, value: 3, finish: 4 };
 export function handles() {
   const b = builders("handles");
   // The iteration protocol selected for a generator handle: `next` and `finish` are calls of the handle's own members.
@@ -118,7 +118,7 @@ export const quotients = () => ({
 });
 /** The activation mode a creating call's decision carries. */
 export const activationOf = item => item.record.callee.resolution.decision.activation;
-export const ACTIVATION = Object.freeze({ atCreation: "at-creation", whenFirstDriven: "when-first-driven" });
+export const ACTIVATION = { atCreation: "at-creation", whenFirstDriven: "when-first-driven" };
 
 // Part 7: "a node kind the admitted vocabulary excludes".
 //   export function excluded(): int32 { with (0) {} return 0; }

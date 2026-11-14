@@ -14,10 +14,10 @@ export const bodyId = (name, role = "function", ordinal = 0) => {
   OWNERS.set(id, def(name));
   return id;
 };
-export const PARAMETRIC = Object.freeze({ kind: "parametric" });
-export const EMPTY_BINDINGS = Object.freeze({ classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] });
+export const PARAMETRIC = { kind: "parametric" };
+export const EMPTY_BINDINGS = { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] };
 export const instanceOf = (name, role = "function") => ({ body: bodyId(name, role), bindings: PARAMETRIC });
-const LOC = Object.freeze({ pos: 0, end: 512 });
+const LOC = { pos: 0, end: 512 };
 
 // ---- type table -------------------------------------------------------------------------
 // One table for all programs. `T.<name>` is the TyId; `SIG.<name>` the SigId.
@@ -64,7 +64,7 @@ export const TABLE = { terms, signatures };
 // ---- decisions (COMMON-DATA §3) -----------------------------------------------------------
 // The execution of an operation decision: a pure value computation, or an invocation with whether it writes
 // existing storage and its failure kind ("none", "unwind" or "abort").
-export const PURE = Object.freeze({ kind: "pure" });
+export const PURE = { kind: "pure" };
 export const invoking = (failure, writesStorage) => ({ kind: "invocation", writesStorage, failure });
 export const selected = (operation, operands, result, execution = PURE) =>
   ({ kind: "selected", operation, operands, result, execution });
@@ -96,7 +96,7 @@ export const endpoint = (name, role, signatureId, withBody = true) => {
   ENDPOINTS.set(made.declaration, family);
   return made;
 };
-const NO_SCOPE = Object.freeze({ classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] });
+const NO_SCOPE = { classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] };
 /** The context `verifyMir` needs for a graph lowered from `program`: its typed body, the type table, and the declarations and body owners the programs name. */
 export const verificationContext = program => ({
   limits: { maximumWork: 1000000 }, source: program.tir, types: TABLE,
@@ -267,7 +267,7 @@ export const core = (name, operands, result, execution) =>
 export const library = (name, operands, result, execution) =>
   selected({ kind: "library", declaration: def(name), bindings: EMPTY_BINDINGS }, operands, result, execution);
 /** The position of each step in the iteration protocol below; a record that performs a step names { protocol, step }. */
-export const ARRAY_STEP = Object.freeze({ acquire: 0, next: 1, done: 2, value: 3, finish: 4 });
+export const ARRAY_STEP = { acquire: 0, next: 1, done: 2, value: 3, finish: 4 };
 /** A body `return ((…(7)…));` with `depth` parentheses. Built without recursion: the sealing walk above is recursive. */
 export function deepBody(name, signatureId, depth) {
   const program = typedBody(name, { signature: signatureId, completion: T.int32, root: { kind: "Block", statements: list(), multiLine: true, tsonic: null } });
