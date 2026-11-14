@@ -4,7 +4,10 @@ import { encodeBodyId, encodeDefId, encodeKey, encodeModuleId, encodePackageId }
 import { bindingTargetKey, declarationInstanceKey, libraryExportKey,
   relationalOwnerKey, sourceReferenceKey } from "./fixtures/verification-keys.mjs";
 
-import { artifactBindingsData, instanceKey } from "../../packages/host/dist/ir-types/index.js";
+import { artifactBindingsData, instanceKey, nativeFactsKey } from "../../packages/host/dist/ir-types/index.js";
+import { nativeFactsFixture } from "./fixtures/native-facts.mjs";
+const selectedNativeFacts = nativeFactsFixture();
+const selectedNativeFactsKey = nativeFactsKey(selectedNativeFacts);
 import { summaryKey } from "../../packages/host/dist/ir-facts/index.js";
 
 export function encodeContextKey([name, key]) {
@@ -40,6 +43,8 @@ function exactLookup(supplied) {
 
 function contextFor(input, lookup) {
   return {
+    nativeFactsKey: input.context.nativeFactsKey,
+    selectedNativeFacts: input.context.selectedNativeFacts,
     resources: createProgramVerificationWork(input.context.limits),
     mirVerification: input.context.mirVerification,
     modulePathOf: module => lookup("modulePathOf", module),
@@ -123,7 +128,7 @@ export function moduleFixture(path = "src/main.ts", root = "/program") {
   const published = { instance, tir, mir, observations: { instance, rows: [] }, facts: [facts] };
   const module = { module: moduleId, tree, bodies: [published] };
   const index = {
-    schema: 1, rootPackage: packageId,
+    schema: 1, nativeFactsKey: selectedNativeFactsKey, rootPackage: packageId,
     packages: [{ id: packageId, name: null, packageRoot: root, sourceRoot: root + "/src", dependencies: [], exports: [] }],
     modules: [{ module: moduleId, package: packageId, items: [{ definition, node: 0 }], exports: [] }],
     types, signatures: [], bodies: [{ instance, module: moduleId, owner: definition, root: 0,
@@ -175,7 +180,7 @@ export function moduleFixture(path = "src/main.ts", root = "/program") {
     typeExpansion: { maximumDepth: 128, maximumVisits: 10000, maximumUnionMembers: 128, maximumIntersectionMembers: 128 } };
   const analysisLimits = { maximumProjectionDepth: 128,
     maximumOriginAlternatives: 128, maximumRelationalRecordsPerBody: 10000, maximumRelationalReferencesPerBody: 10000 };
-  return { index, module, context: contextFor({ index, context: { limits, analysisLimits, mirVerification: { maximumWork: 100000 } } }, lookup), tirInput, instance, definition, bodyId, answers: supplied, scope };
+  return { index, module, context: contextFor({ index, context: { limits, analysisLimits, nativeFactsKey: index.nativeFactsKey, selectedNativeFacts, mirVerification: { maximumWork: 100000 } } }, lookup), tirInput, instance, definition, bodyId, answers: supplied, scope };
 }
 
 export function authoredMethodGraph(module) {
@@ -424,10 +429,9 @@ export function metadataFieldFixture(operandKey) {
   first.index.types.terms.push({ kind: "shape", members: [{ key, origins: [origin], readOrigins: [origin],
     writeOrigins: [origin], kind: "property", read: 1, write: 1, optional: false, readonly: false }],
   indexes: [], calls: [], constructs: [] });
-  const member = { decision: { key, origins: [origin], selectedDeclarations: [], primary: null,
-    read: 1, write: 1, getter: null, setter: null, bindings, location: { kind: "data", check: { kind: "none" }, receiver: "in-place" } }, getter: null, setter: null };
+  const member = { key, origins: [origin], selectedDeclarations: [], primary: null, bindings };
   const field = { id: 0, occurrence, owner: 3, selector: occurrence, selection: occurrence, member,
-    primary: null, selectedDeclarations: [], value: 1, layout: 0, byteOffset: 0n, byteAlignment: 1n };
+    value: 1, layout: 0, byteOffset: 0n, byteAlignment: 1n };
   metadata.root = 1;
   const layoutOccurrence = { kind: "body", value: { body: first.bodyId, node: 6 } };
   metadata.layouts.push({ id: 1, occurrence: layoutOccurrence,

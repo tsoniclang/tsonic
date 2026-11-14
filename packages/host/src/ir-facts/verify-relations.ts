@@ -6,7 +6,7 @@ import type { HirCallableEndpoint } from "../ir-hir/contract.js";
 import type { MemberSelection, ResolvedCallee } from "../ir-tir/contract.js";
 import { memberSelectionKey } from "../ir-tir/index.js";
 import type {
-  ArtifactBindings, BindingVector, BindingVerificationInput, MemberKey,
+  ArtifactBindings, BindingVector, BindingVerificationInput, MemberKey, MemberStorageSelection,
 } from "../ir-types/contract.js";
 import { artifactBindingsKey, bindingVectorData, executionKey, verifyTypes } from "../ir-types/index.js";
 import type {
@@ -206,31 +206,20 @@ export const observationBindingInputs = (value: BodyObservations, context: Facts
   return entries;
 };
 
-export const metadataBindingInputs = (metadata: MetadataRecord, context: FactsVerificationContext): readonly FactBindingInput[] => {
+export const metadataBindingInputs = (metadata: MetadataRecord): readonly FactBindingInput[] => {
   const entries: FactBindingInput[] = [];
   const site: FactsSite = { kind: "metadata", metadata: metadata.key };
   appendArtifactBindings(metadata.key.bindings, metadata.key.definition, site, entries);
-  if (metadata.kind !== "data-layout") for (const field of metadata.fields) appendMemberBindings(field.member, site, context, entries);
+  if (metadata.kind !== "data-layout") for (const field of metadata.fields) {
+    entries.push({ vector: field.member.bindings, definition: field.member.primary, site });
+  }
   return entries;
 };
 
-export const collectSelectionChecks = (
-  selection: MemberSelection, site: FactsSite, context: FactsVerificationContext, violations: Violation<FactsRule, FactsSite>[],
+const collectStorageOrigins = (
+  member: MemberStorageSelection, site: FactsSite, context: FactsVerificationContext, violations: Violation<FactsRule, FactsSite>[],
 ): void => {
   const report = (rule: FactsRule, text: string): void => { violations.push({ rule, site, detail: [{ kind: "text", value: text }] }); };
-  const type = (id: number | null): void => {
-    if (id !== null && (!validIndex(id, context.types.terms.length) || context.types.terms[id] === undefined)) {
-      report("type-resolves", "A selected member type resolves in the actual supplied type table.");
-    }
-  };
-  const endpoint = (value: HirCallableEndpoint | null): void => {
-    if (value === null) return;
-    if (!context.definitionExists(value.declaration)) report("producer-resolves", "A selected member endpoint retains its actual declaration.");
-    if (!validIndex(value.signature, context.types.signatures.length) || !Object.is(context.types.signatures[value.signature]?.id, value.signature)) {
-      report("signature-resolves", "A selected member endpoint resolves in the actual supplied signature table.");
-    }
-  };
-  const member = selection.decision;
   const key = (value: MemberKey): void => {
     if (value.kind === "symbol" && !context.definitionExists(value.declaration)) {
       report("producer-resolves", "A selected member symbol key retains its actual declaration.");
@@ -251,10 +240,44 @@ export const collectSelectionChecks = (
         break;
     }
   }
-  type(member.read); type(member.write); endpoint(member.getter); endpoint(member.setter);
+};
+
+const collectStorageDeclarations = (
+  member: MemberStorageSelection, site: FactsSite, context: FactsVerificationContext, violations: Violation<FactsRule, FactsSite>[],
+): void => {
+  const report = (rule: FactsRule, text: string): void => { violations.push({ rule, site, detail: [{ kind: "text", value: text }] }); };
   for (const selected of member.selectedDeclarations) if (!context.definitionExists(selected)) {
     report("producer-resolves", "A selected member retains its actual selected declaration group.");
   }
+};
+
+export const collectStorageChecks = (
+  member: MemberStorageSelection, site: FactsSite, context: FactsVerificationContext, violations: Violation<FactsRule, FactsSite>[],
+): void => {
+  collectStorageOrigins(member, site, context, violations);
+  collectStorageDeclarations(member, site, context, violations);
+};
+
+export const collectSelectionChecks = (
+  selection: MemberSelection, site: FactsSite, context: FactsVerificationContext, violations: Violation<FactsRule, FactsSite>[],
+): void => {
+  const report = (rule: FactsRule, text: string): void => { violations.push({ rule, site, detail: [{ kind: "text", value: text }] }); };
+  const type = (id: number | null): void => {
+    if (id !== null && (!validIndex(id, context.types.terms.length) || context.types.terms[id] === undefined)) {
+      report("type-resolves", "A selected member type resolves in the actual supplied type table.");
+    }
+  };
+  const endpoint = (value: HirCallableEndpoint | null): void => {
+    if (value === null) return;
+    if (!context.definitionExists(value.declaration)) report("producer-resolves", "A selected member endpoint retains its actual declaration.");
+    if (!validIndex(value.signature, context.types.signatures.length) || !Object.is(context.types.signatures[value.signature]?.id, value.signature)) {
+      report("signature-resolves", "A selected member endpoint resolves in the actual supplied signature table.");
+    }
+  };
+  const member = selection.decision;
+  collectStorageOrigins(member, site, context, violations);
+  type(member.read); type(member.write); endpoint(member.getter); endpoint(member.setter);
+  collectStorageDeclarations(member, site, context, violations);
   for (const callee of [selection.getter, selection.setter]) {
     if (callee === null) continue;
     const decision = callee.decision;

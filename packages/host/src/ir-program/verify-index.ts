@@ -4,7 +4,7 @@ import type { DefId, ModuleId } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import { summaryKey, verifyMetadata, verifySummary } from "../ir-facts/index.js";
 import { indexSyntaxTree } from "../ir-hir/index.js";
-import { artifactBindingsData, artifactBindingsKey, constantReferenceKey, executionKey, instanceKey, printTypes, verifyTypes } from "../ir-types/index.js";
+import { artifactBindingsData, artifactBindingsKey, constantReferenceKey, executionKey, floatingBitsFit, instanceKey, nativeFactsKey, printTypes, verifyNativeFacts, verifyTypes } from "../ir-types/index.js";
 import type { TirVerifierInput } from "../ir-tir/contract.js";
 import type { HirCallableEndpoint } from "../ir-hir/contract.js";
 import type { BindingVerificationInput, Execution, TypeRule, TypeSite } from "../ir-types/contract.js";
@@ -226,8 +226,23 @@ function verifyPublishedRecords(index: ProgramIndex, context: ProgramVerificatio
     if (constantKeys.has(key)) violations.push({ rule: "constant-key-unique", site, detail: [textDetail(key)] });
     constantKeys.add(key);
     previousConstant = key;
-    if (!numericPosition(constant.value.type, index.types.terms.length)) {
+    const term = index.types.terms[constant.value.type];
+    if (!numericPosition(constant.value.type, index.types.terms.length) || term === undefined) {
       violations.push({ rule: "constant-type-resolves", site, detail: [numberDetail(constant.value.type)] });
+    } else {
+      const carrier = term.kind === "primitive" ? term.primitive : null;
+      if (constant.value.kind === "floating") {
+        if (carrier === null) throw new TypeError("Program floating constants require their actual selected native carrier");
+        const format = context.selectedNativeFacts.floatingFormats.find(row => row.carrier === carrier);
+        if (format === undefined && (carrier === "float16" || carrier === "float32" || carrier === "float64")) {
+          throw new TypeError("Program floating constants require the selected carrier format");
+        }
+        if (format === undefined || !floatingBitsFit(constant.value.bits, format)) {
+          violations.push({ rule: "constant-floating-value", site, detail: [] });
+        }
+      } else if (constant.value.kind === "number" && (carrier === "float16" || carrier === "float32" || carrier === "float64")) {
+        violations.push({ rule: "constant-floating-value", site, detail: [] });
+      }
     }
   }
   const ordered = orderDiagnostics(index.diagnostics);
@@ -262,10 +277,19 @@ function verifyExecutions(lookup: ProgramLookup, index: ProgramIndex): readonly 
 }
 
 export const verifyProgramIndex: VerifyProgramIndex = (index, context) => {
+  if (typeof context.nativeFactsKey !== "string" || context.nativeFactsKey.length === 0) {
+    throw new TypeError("Program verification requires the selected native facts identity");
+  }
+  if (verifyNativeFacts(context.selectedNativeFacts).length !== 0 || nativeFactsKey(context.selectedNativeFacts) !== context.nativeFactsKey) {
+    throw new TypeError("Program verification requires the matching selected native facts record");
+  }
   requireInstantiationMaximum(ProgramWork.state(context.resources).limits.maximumBindingVectorsPerArtifact, "maximumBindingVectorsPerArtifact");
   const lookup = programLookup(index);
   const violations: ProgramViolation[] = [];
   if (index.schema !== 1) violations.push({ rule: "schema-supported", site: { kind: "index" }, detail: [numberDetail(index.schema)] });
+  if (typeof index.nativeFactsKey !== "string" || index.nativeFactsKey.length === 0 || index.nativeFactsKey !== context.nativeFactsKey) {
+    violations.push({ rule: "native-facts-identity", site: { kind: "index" }, detail: [] });
+  }
   for (const group of [verifyPackages(lookup, index), verifyModules(lookup, index, context), verifyBodyInventory(lookup, index, context), verifyExecutions(lookup, index)]) {
     for (const violation of group) violations.push(violation);
   }

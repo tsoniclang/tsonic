@@ -7,6 +7,7 @@ import { Session } from "node:inspector";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test, { after, before } from "node:test";
 import { runCase } from "../host-cases/case.mjs";
+import { nativeFactsFixture } from "./fixtures/native-facts.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const tooling = process.env.TSONIC_HOST_TOOLING_ROOT ?? repository;
@@ -19,7 +20,9 @@ const emittedDirectory = resolve(repository, "packages/host/dist/snapshot");
 const runtimeNames = ["index", "verify", "verify-packages", "verify-extensions"];
 const runtimeFiles = runtimeNames.map(name => resolve(emittedDirectory, `${name}.js`));
 const ownedSources = ["contract", ...runtimeNames].map(name => `${sourceDirectory}/${name}.ts`);
-const dependencySources = ["contract", "index", "identity", "key"].map(name => `packages/host/src/ids/${name}.ts`);
+const dependencySources = ["contract", "index", "identity", "key"].map(name => `packages/host/src/ids/${name}.ts`)
+  .concat(...["ir-types", "diag"].map(directory => readdirSync(resolve(repository, `packages/host/src/${directory}`))
+    .filter(name => name.endsWith(".ts")).map(name => `packages/host/src/${directory}/${name}`)));
 const coverageSession = new Session();
 let product;
 let identities;
@@ -86,6 +89,9 @@ function issue(rule, site, ...details) { return { rule, site, detail: details.ma
 function sparseIssue(site, field, index = 0) {
   return { rule: "stable-order", site, detail: [{ kind: "text", value: field }, { kind: "number", value: index }] };
 }
+function nativeIssue(rule, field, index) {
+  return issue("native-facts-valid", { kind: "snapshot" }, rule, field, index === null ? "root" : String(index));
+}
 
 
 
@@ -112,7 +118,7 @@ function snapshot() {
     selection: { target: { id: "native", surfaces: [], options: { kind: "record", fields: [] } }, providerId: "native-provider", capabilityIds: [], surfaceIds: [] },
     contributions: { declarationFiles: [], declarationPolicy: { bundledLibraries: [], installedDeclarations: "none" },
       requiredProviderModules: [], compilerExtensions: [], declarationProviders: [], semanticModules: [], safetyProviders: [], dataLayouts: [] },
-    platform: { layouts: [] },
+    nativeFacts: nativeFactsFixture(),
   };
 }
 function verify(value, expected, actual = []) {
@@ -155,7 +161,7 @@ function declaration(exportId = "layout", providerId = "provider") {
 function layout(value, exportId = "layout", byteOrder = "little", addressWidth = 64) {
   const identity = declaration(exportId);
   const registration = { declaration: identity, layout: { fingerprint: "abi-layout", byteOrder, addressWidth } };
-  value.platform.layouts.push(registration);
+  value.nativeFacts.geometry.layouts.push(registration);
   value.contributions.dataLayouts.push(identity);
   return registration;
 }
@@ -542,12 +548,22 @@ for (const byteOrder of ["little", "big"]) for (const addressWidth of [32, 64]) 
 test("platform-layout-unique distinguishes a repeated exact ABI identity from a second declaration", () => {
   const value = snapshot();
   const entry = layout(value);
-  value.platform.layouts.push({ ...entry });
-  verify(value, [issue("platform-layout-unique", { kind: "platform", declaration: declaration() }, "layout")]);
+  value.nativeFacts.geometry.layouts.push({ ...entry });
+  verify(value, [nativeIssue("native-fact-unique", "geometry.layouts", 1)]);
   const contributed = snapshot();
   layout(contributed);
   contributed.contributions.dataLayouts.push(declaration());
   verify(contributed, [issue("platform-layout-unique", { kind: "platform", declaration: declaration() }, "contribution")]);
+});
+test("the selected session native receipt is mandatory and never inferred from geometry or target identity", () => {
+  for (const nativeFacts of [null, undefined]) {
+    const value = snapshot();
+    value.nativeFacts = nativeFacts;
+    verify(value, [nativeIssue("native-fact-value", "nativeFacts", null)]);
+  }
+  const value = snapshot();
+  value.nativeFacts.divisionByZero[0].law = "unknown";
+  verify(value, [nativeIssue("native-fact-value", "divisionByZero", 0)]);
 });
 for (const field of ["providerId", "providerVersion", "providerModuleId", "moduleSpecifier", "exportId", "fingerprint"]) {
   test(`platform-layout-valid rejects an absent authored identity scalar ${field}`, () => {
@@ -555,7 +571,7 @@ for (const field of ["providerId", "providerVersion", "providerModuleId", "modul
     const entry = layout(value);
     if (field === "fingerprint") entry.layout.fingerprint = "";
     else entry.declaration[field] = "";
-    verify(value, [issue("platform-layout-valid", { kind: "platform", declaration: { ...entry.declaration } }, "identity")]);
+    verify(value, [nativeIssue("native-fact-value", "geometry.layouts", 0)]);
   });
 }
 test("contribution-layouts-exact compares all five declaration identity fields, missing rows and extra rows", () => {
@@ -652,8 +668,8 @@ test("platform-layouts-order compares the complete declaration identity, not ins
   const reversed = snapshot();
   layout(reversed, "a");
   layout(reversed, "b");
-  reversed.platform.layouts.reverse();
-  verify(reversed, [issue("platform-layouts-order", { kind: "snapshot" }, "platform.layouts")]);
+  reversed.nativeFacts.geometry.layouts.reverse();
+  verify(reversed, [nativeIssue("native-fact-order", "geometry.layouts", 1)]);
 });
 test("stable-order validates actual dependency names and kinds without changing authored surface order", () => {
   const value = snapshot();
@@ -745,8 +761,8 @@ for (const field of ["declarationFiles", "compilerExtensions", "declarationProvi
 }
 test("sparse platform layouts, actual extension references, roots and selection vectors retain original field locations", () => {
   const layouts = snapshot();
-  layouts.platform.layouts = new Array(1);
-  verify(layouts, [sparseIssue({ kind: "snapshot" }, "platform.layouts")]);
+  layouts.nativeFacts.geometry.layouts = new Array(1);
+  verify(layouts, [nativeIssue("native-fact-value", "geometry.layouts", 0)]);
   verify(snapshot(), [sparseIssue({ kind: "snapshot" }, "actualExtensionReferences")], new Array(1));
   const roots = snapshot();
   roots.roots = new Array(2);
@@ -820,8 +836,8 @@ test("the whole snapshot module earns fresh strict isolation using real ids prod
   const report = await compileIsolated(isolationDeps(tooling, data.areas.map(area => area.directory)),
     hostCatalogue.find(module => module.name === "snapshot"), {
       root: repository, sourceFiles: ownedSources,
-      interfaceSources: ["packages/host/src/ids/contract.ts", "packages/host/src/ids/index.ts", "packages/host/src/diag/contract.ts"],
-      declarationSources: [...dependencySources, "packages/host/src/diag/contract.ts"],
+      interfaceSources: ["packages/host/src/ids/contract.ts", "packages/host/src/ids/index.ts", "packages/host/src/diag/contract.ts", "packages/host/src/diag/index.ts", "packages/host/src/ir-types/contract.ts", "packages/host/src/ir-types/index.ts"],
+      declarationSources: dependencySources,
       outputDirectory: ".temp/host-f-snapshot/isolation",
     });
   writeFileSync(resolve(evidenceDirectory, "isolation.json"), `${JSON.stringify(report, null, 2)}\n`);
@@ -829,11 +845,12 @@ test("the whole snapshot module earns fresh strict isolation using real ids prod
   assert.deepEqual(report.findings, []);
   assert.equal(report.diagnostics.length, 2);
   assert.deepEqual(report.sourceInventory.map(entry => relative(repository, entry.path).split(sep).join("/")).sort(),
-    [...ownedSources, ...dependencySources, "packages/host/src/diag/contract.ts"].sort());
+    [...ownedSources, ...dependencySources].sort());
   assert.deepEqual(report.provenance.map(entry => relative(repository, entry.source).split(sep).join("/")).sort(),
-    ["packages/host/src/diag/contract.ts", "packages/host/src/ids/contract.ts", "packages/host/src/ids/index.ts"]);
+    ["diag/contract", "diag/index", "ids/contract", "ids/index", "ir-types/arena", "ir-types/contract", "ir-types/data", "ir-types/index", "ir-types/native-facts-data"]
+      .map(name => `packages/host/src/${name}.ts`));
   assert.equal(report.loadedInventory.every(path => report.expectedInventory.includes(path)), true);
-  for (const entry of ["ids/contract", "ids/index", "diag/contract"]) {
+  for (const entry of ["ids/contract", "ids/index", "diag/contract", "ir-types/contract", "ir-types/index"]) {
     assert.equal(report.loadedInventory.some(path => path.endsWith(`/isolated/packages/host/src/${entry}.d.ts`)), true, entry);
     assert.equal(report.loadedInventory.some(path => path.endsWith(`/isolated/packages/host/src/${entry}.ts`)), false, entry);
   }
@@ -841,7 +858,7 @@ test("the whole snapshot module earns fresh strict isolation using real ids prod
 
 test("fresh real public declarations admit a cast-free consumer and reject exact readonly, port and shape opposites", () => {
   const stage = mkdtempSync(resolve(evidenceDirectory, "consumer-"));
-  for (const [directory, names] of [["snapshot", ["contract", ...runtimeNames]], ["ids", ["contract", "index", "identity", "key"]], ["diag", ["contract"]]]) {
+  for (const [directory, names] of [["snapshot", ["contract", ...runtimeNames]], ["ids", ["contract", "index", "identity", "key"]], ["diag", ["contract"]], ["ir-types", ["contract", "data", "arena", "native-facts-data"]]]) {
     mkdirSync(resolve(stage, directory));
     for (const name of names) writeFileSync(resolve(stage, directory, `${name}.d.ts`),
       readFileSync(resolve(repository, "packages/host/dist", directory, `${name}.d.ts`)));
@@ -852,8 +869,9 @@ test("fresh real public declarations admit a cast-free consumer and reject exact
     + 'import type { ModuleId } from "./ids/contract.js";\n'
     + 'import type { ProjectSnapshot, VerifySnapshot, ExtensionReferenceEntry, SnapshotRule, SnapshotSite } from "./snapshot/contract.js";\n'
     + 'import type { Violation } from "./diag/contract.js";\n'
+    + 'import type { SelectedNativeFacts } from "./ir-types/contract.js"; export declare const selectedNativeFacts: SelectedNativeFacts;\n'
     + 'export const root = encodePackageId("/project"); export const entry = encodeModuleId({ package: root, path: "src/main.ts" });\n'
-    + 'export const value: ProjectSnapshot = { packages: {fingerprint:"bytes",rootPackage:root,packages:[],components:[],modules:[],files:[],libraryData:[]},entryPoint:entry,roots:[],selection:{target:{id:"target",surfaces:[],options:{kind:"record",fields:[]}},providerId:"provider",capabilityIds:[],surfaceIds:[]},contributions:{declarationFiles:[],declarationPolicy:{bundledLibraries:[],installedDeclarations:"none"},requiredProviderModules:[],compilerExtensions:[],declarationProviders:[],semanticModules:[],safetyProviders:[],dataLayouts:[]},platform:{layouts:[]}};\n'
+    + 'export const value: ProjectSnapshot = { packages: {fingerprint:"bytes",rootPackage:root,packages:[],components:[],modules:[],files:[],libraryData:[]},entryPoint:entry,roots:[],selection:{target:{id:"target",surfaces:[],options:{kind:"record",fields:[]}},providerId:"provider",capabilityIds:[],surfaceIds:[]},contributions:{declarationFiles:[],declarationPolicy:{bundledLibraries:[],installedDeclarations:"none"},requiredProviderModules:[],compilerExtensions:[],declarationProviders:[],semanticModules:[],safetyProviders:[],dataLayouts:[]},nativeFacts:selectedNativeFacts};\n'
     + 'export function consume(snapshot: ProjectSnapshot, references: readonly ExtensionReferenceEntry[]): readonly Violation<SnapshotRule,SnapshotSite>[] { const verify: VerifySnapshot = verifySnapshot; return verify(snapshot,references); }\n'
     + 'export function sparse(snapshot: ProjectSnapshot): readonly Violation<SnapshotRule,SnapshotSite>[] { return verifySnapshot({...snapshot,roots:new Array<ModuleId>(1)},[]); }\n';
   writeFileSync(resolve(stage, "consumer.ts"), source
@@ -880,8 +898,10 @@ test("fresh real public declarations admit a cast-free consumer and reject exact
   assert.equal(positive.status, 0, positive.text);
   assert.deepEqual(positive.text.split(/\r?\n/u).filter(path => path.startsWith(stage))
     .map(path => relative(stage, path).split(sep).join("/")).sort(),
-  ["consumer.ts", "diag/contract.d.ts", "ids/contract.d.ts", "ids/index.d.ts", "snapshot/contract.d.ts", "snapshot/index.d.ts"]);
+  ["consumer.ts", "diag/contract.d.ts", "ids/contract.d.ts", "ids/index.d.ts", "ir-types/arena.d.ts", "ir-types/contract.d.ts", "ir-types/data.d.ts", "ir-types/native-facts-data.d.ts", "snapshot/contract.d.ts", "snapshot/index.d.ts"]);
   const negative = [
+    ["removed-platform-receipt.ts", 2353, 'import type { ProjectSnapshot } from "./snapshot/contract.js"; export function old(value:ProjectSnapshot):void { const {nativeFacts,...rest}=value; const old:ProjectSnapshot={...rest,platform:{layouts:[]}}; void old; }'],
+    ["missing-native-receipt.ts", 2741, 'import type { ProjectSnapshot } from "./snapshot/contract.js"; export function old(value:ProjectSnapshot):ProjectSnapshot { const {nativeFacts,...rest}=value; return rest; }'],
     ["removed-object-options.ts", 2739, 'import type { TargetOptions } from "./snapshot/contract.js"; export const old: TargetOptions = {};'],
     ["readonly-option-fields.ts", 2339, 'import type { TargetOptions } from "./snapshot/contract.js"; export function mutate(value: TargetOptions): void { value.fields.push(["enabled",true]); }'],
     ["json-excludes-bigint.ts", 2322, 'import type { TargetOptions } from "./snapshot/contract.js"; export const wrong: TargetOptions = {kind:"record",fields:[["bits",1n]]};'],

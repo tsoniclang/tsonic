@@ -9,6 +9,7 @@ import { checkCoverage } from "../architecture/host/coverage.mjs";
 import { parseSources } from "../architecture/host/import-graph.mjs";
 import { T, TABLE, EMPTY_BINDINGS, selected, verificationContext, application, SIG } from "./fixtures/lower-mir/typed.mjs";
 import { shaped } from "./fixtures/lower-mir/programs/first.mjs";
+import { nativeFactsFixture } from "./fixtures/native-facts.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const runtimeFiles = ["index", "machine", "budget", "pause"].map(name => resolve(repository, `packages/host/dist/evaluate/${name}.js`));
@@ -51,7 +52,7 @@ function fixture(name, type = T.bool, makeRoot = b => b.block(b.returns(b.keywor
   const checked = mir.verifyMir(parsed.value, verificationContext(program));
   same(checked, { kind: "complete", violations: [] }, "the actual selected typed-body/MIR barrier completed");
   const body = parsed.value;
-  const deps = { ...views, limits };
+  const deps = { ...views, selectedNativeFacts: nativeFactsFixture(), limits };
   const entry = { body: body.body, bindings: body.bindings };
   return { body, deps, entry, unit, start: (selected = limits) => product.evaluate({ ...deps, limits: selected }, entry, body, [], "compile-time", unit) };
 }
@@ -458,6 +459,33 @@ test("every closed scalar transport obeys exact bit bounds without native carrie
     "the actual largest count boundary does not overflow a maximum+1 guard");
   assert.equal(valueFits(machine, { kind: "error", type: T.bool }, "maximumIntermediateBits", value.body.blocks[0].origin), true,
     "the internal size relation assigns no fabricated payload to an error carrier");
+});
+
+test("floating bit allowances use the actual supplied full encoding, including zero and all payload bits", async () => {
+  const value = fixture("evaluate-floating-budget");
+  const { valueFits } = await import("../../packages/host/dist/evaluate/budget.js");
+  const origin = value.body.blocks[0].origin;
+  const interner = types.seedTypeInterner(TABLE);
+  for (const [primitive, interchange, width] of [["float16", "ieee754-binary16", 16], ["float32", "ieee754-binary32", 32], ["float64", "ieee754-binary64", 64]]) {
+    const type = types.internType(interner, { kind: "primitive", primitive });
+    const format = { carrier: primitive, interchange, nanSignObservable: false, nanPayloadObservable: false, signalingNaNObservable: false };
+    const deps = { ...value.deps, typeOf: id => types.readType(interner, id), selectedNativeFacts: { ...nativeFactsFixture(), floatingFormats: [format] } };
+    for (const bits of [0n, 1n << BigInt(width - 1), (1n << BigInt(width)) - 1n]) {
+      for (const field of ["maximumIntermediateBits", "maximumResultBits"]) {
+        for (let maximum = 0; maximum <= width; maximum += 1) {
+          const machine = { deps: { ...deps, limits: { ...limits, [field]: maximum } }, result: null, unit: value.unit };
+          assert.equal(valueFits(machine, { kind: "floating", type, bits }, field, origin), maximum === width, `${primitive}/${field}/${bits}/${maximum}`);
+          assert.equal(machine.result === null, maximum === width);
+        }
+      }
+    }
+    const invoke = (selectedDeps, bits = 0n, selectedType = type) => valueFits({ deps: selectedDeps, result: null, unit: value.unit },
+      { kind: "floating", type: selectedType, bits }, "maximumIntermediateBits", origin);
+    assert.throws(() => invoke({ ...deps, selectedNativeFacts: { ...deps.selectedNativeFacts, floatingFormats: [] } }), /selected carrier format/u);
+    assert.throws(() => invoke({ ...deps, selectedNativeFacts: { ...deps.selectedNativeFacts, floatingFormats: [{ ...format, interchange: "unknown" }] } }), /valid selected encoding/u);
+    for (const bits of [-1n, 1n << BigInt(width)]) assert.throws(() => invoke(deps, bits), /valid selected encoding/u);
+    for (const selectedType of [T.int32, T.string]) assert.throws(() => invoke(deps, 0n, selectedType), /actual selected native carrier/u);
+  }
 });
 
 test("actual root, storage and constant invariants reject malformed selected records without fake outcomes", () => {

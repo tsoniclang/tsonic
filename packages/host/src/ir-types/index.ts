@@ -1,4 +1,4 @@
-import type { CreateTypeInterner, SeedTypeInterner, InternType, InternSignature, ReadType, ReadSignature, ViewTypes,
+import type { NativeFactsKey, FloatingBitsFit, FloatingFormatWidth, PlatformDeclarationKey, VerifyNativeFacts, MemberStorageData, CreateTypeInterner, SeedTypeInterner, InternType, InternSignature, ReadType, ReadSignature, ViewTypes,
   ExportTypes, Substitute, SubstituteSignature, PrintTypes, ParseTypes, VerifyTypes, EncodeSelectorPath, InstanceKey, SameInstance, ExecutionKey,
   DeclaredExecutionKey, BindingVectorKey, ArtifactBindingsKey, BindingVectorData, ArtifactBindingsData,
   SignatureRequestData, SignatureRequestKey, ConstantReferenceKey, SubstituteBindingValues, RigidBindings } from "./contract.js";
@@ -8,12 +8,19 @@ import { substitute as transform, substituteSignature as transformSignature, sub
 import { printTypes as print } from "./print.js";
 import { parseTypes as parse } from "./parse.js";
 import { verifyTypes as verify } from "./verify.js";
+import { nativeFactsKey as nativeKey, floatingBitsFit as floatingFit, floatingFormatWidth as floatingWidth, platformDeclarationKey as platformKey, verifyNativeFacts as verifyNative } from "./native-facts.js";
 import { selectorPathKey } from "./selector-path.js";
 import { artifactBindingsData as projectArtifactBindings, artifactBindingsKeyOf, bindingVectorData as projectBindingVector,
   bindingVectorKeyOf, declaredExecutionKeyOf, executionKeyOf, instanceKeyOf, sameInstanceAs,
-  signatureRequestData as projectSignatureRequest, signatureRequestKeyOf, constantReferenceKeyOf, rigidBindings as rigid } from "./value.js";
+  signatureRequestData as projectSignatureRequest, signatureRequestKeyOf, constantReferenceKeyOf, rigidBindings as rigid, memberStorageData as projectMemberStorage } from "./value.js";
 
 export const createTypeInterner: CreateTypeInterner = create;
+export const nativeFactsKey: NativeFactsKey = nativeKey;
+export const floatingBitsFit: FloatingBitsFit = floatingFit;
+export const floatingFormatWidth: FloatingFormatWidth = floatingWidth;
+export const platformDeclarationKey: PlatformDeclarationKey = platformKey;
+export const verifyNativeFacts: VerifyNativeFacts = verifyNative;
+export const memberStorageData: MemberStorageData = projectMemberStorage;
 export const seedTypeInterner: SeedTypeInterner = seed;
 export const internType: InternType = intern;
 export const internSignature: InternSignature = signature;

@@ -21,7 +21,7 @@ export const canonicalizeProgram: CanonicalizeProgram = (program, publication) =
   const index = program.index;
   return {
     index: {
-      schema: index.schema, rootPackage: index.rootPackage, packages: index.packages, modules: index.modules,
+      schema: index.schema, nativeFactsKey: index.nativeFactsKey, rootPackage: index.rootPackage, packages: index.packages, modules: index.modules,
       types: publication.table, signatures: index.signatures.map(record => rewriteSignature(rewrite, record)),
       bodies: index.bodies.map(record => ({
         instance: rewriteInstance(rewrite, record.instance), module: record.module, owner: record.owner, root: record.root,

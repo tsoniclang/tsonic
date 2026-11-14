@@ -117,6 +117,7 @@ export function rewriteConstant(rewrite: TypeReferenceRewrite, value: ConstValue
   const type = rewrite.type(value.type);
   switch (value.kind) {
     case "number": return { type, kind: "number", value: value.value };
+    case "floating": return { type, kind: "floating", bits: value.bits };
     case "bigint": return { type, kind: "bigint", value: value.value };
     case "string": return { type, kind: "string", value: value.value };
     case "boolean": return { type, kind: "boolean", value: value.value };

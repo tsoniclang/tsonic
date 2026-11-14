@@ -151,8 +151,8 @@ function rewriteLayout(rewrite: TypeRewrite, layout: MemoryLayout): MemoryLayout
 function rewriteMemoryField(rewrite: TypeRewrite, field: MemoryField): MemoryField {
   return {
     id: field.id, occurrence: field.occurrence, owner: rewrite.type(field.owner), selector: field.selector,
-    selection: field.selection, member: rewriteSelection(rewrite, field.member), primary: field.primary,
-    selectedDeclarations: field.selectedDeclarations, value: rewrite.type(field.value), layout: field.layout,
+    selection: field.selection, member: { ...field.member, bindings: rewriteBindings(rewrite, field.member.bindings) },
+    value: rewrite.type(field.value), layout: field.layout,
     byteOffset: field.byteOffset, byteAlignment: field.byteAlignment,
   };
 }

@@ -3,7 +3,7 @@ import type {
   BlockId, BodyId, BoundProducerId, ComponentId, DefId, LayoutId, LibraryExportIdentity, LocalId, LocalRef, MemoryFieldId, NodeId, NodeRef,
   OpenBoundaryId, OriginsId, PlaceId, ProducerId, ProjectionPathId, SigId, SourceNodeRef, TyId, ValueContextId,
 } from "../ids/contract.js";
-import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, DeclaredExecution, Execution, NominalDefinition, PassingMode, SignatureRequest, TypeExpansionLimits, TypeInterner, TypeTable } from "../ir-types/contract.js";
+import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, DeclaredExecution, Execution, MemberStorageSelection, NominalDefinition, PassingMode, SignatureRequest, TypeExpansionLimits, TypeInterner, TypeTable } from "../ir-types/contract.js";
 import type { DeclarationTarget, HirBody, HirNode } from "../ir-hir/contract.js";
 import type { MemberSelection, ResolvedCallee, TirBody } from "../ir-tir/contract.js";
 import type { MirBody } from "../ir-mir/contract.js";
@@ -481,9 +481,7 @@ export interface MemoryField {
   readonly owner: TyId;
   readonly selector: SourceNodeRef;
   readonly selection: SourceNodeRef;
-  readonly member: MemberSelection;
-  readonly primary: DefId | null;
-  readonly selectedDeclarations: readonly DefId[];
+  readonly member: MemberStorageSelection;
   readonly value: TyId;
   readonly layout: LayoutId;
   readonly byteOffset: bigint;

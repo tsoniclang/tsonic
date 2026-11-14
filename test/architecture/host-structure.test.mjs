@@ -21,7 +21,7 @@ const expectedImports = ([
   ["ids", []], ["diag", ["ids"]], ["ir-types", first.slice(0, 2)], ["ir-hir", first.slice(0, 3)],
   ["ir-infer", [...first.slice(0, 4), "step"]], ["ir-tir", [...first.slice(0, 4), "ir-infer"]], ["ir-mir", [...first.slice(0, 5), "ir-infer"]], ["ir-facts", [...first.slice(0, 6), "ir-infer", "snapshot"]],
   ["ir-program", [...first, "ir-infer"]], ["dataflow", ["ids", "diag", "ir-mir"]], ["query", ["ids", "diag", "step"]],
-  ["libraries", ["ids", "diag", "ir-types", "ir-facts", "ir-tir", "snapshot"]], ["snapshot", ["ids", "diag"]], ["step", []],
+  ["libraries", ["ids", "diag", "ir-types", "ir-facts", "ir-tir", "snapshot"]], ["snapshot", ["ids", "diag", "ir-types"]], ["step", []],
   ["front", [...first.slice(0, 4), "libraries", "snapshot"]], ["decls", [...first.slice(0, 4), "libraries", "ir-infer", "step"]],
   ["rules", [...first.slice(0, 4), "libraries", "ir-infer"]], ["infer", [...first.slice(0, 4), "dataflow", "ir-infer", "step"]],
   ["elaborate", [...first.slice(0, 5), "ir-infer", "step"]], ["validate", [...first.slice(0, 5), "libraries", "ir-infer"]],
@@ -32,7 +32,7 @@ const expectedImports = ([
   ["pipeline", [...first.slice(0, 4), "ir-infer", ...first.slice(4), "ir-program", "dataflow", "query", "libraries", "snapshot", "step", "front", "decls", "rules", "infer", "elaborate", "validate", "lower-mir", "evaluate", "metadata",
     "analyses/liveness", "analyses/initialization", "analyses/refinements", "analyses/origins", "analyses/suspension", "analyses/errorStorage", "analyses/pointerBacking", "summaries"]],
   ...["project", "packages", "plugins", "artifacts"].map(name => [name, ["ids", "diag", "snapshot"]]),
-  ["orchestration", ["ids", "diag", "snapshot", "ir-program", "pipeline", "project", "packages", "plugins", "artifacts"]],
+  ["orchestration", ["ids", "diag", "ir-types", "snapshot", "ir-program", "pipeline", "project", "packages", "plugins", "artifacts"]],
   ["cli", ["orchestration", "diag", "snapshot"]], ["create-tsonic", ["orchestration", "diag", "snapshot"]],
 ]);
 

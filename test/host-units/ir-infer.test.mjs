@@ -3280,7 +3280,7 @@ test("fresh emitted declarations admit all nine ports and reject exact readonly,
   for (const module of ["ir-infer", ...dependencies]) {
     mkdirSync(resolve(stage, module));
     for (const name of module === "ir-infer" ? ["contract.d.ts", "index.d.ts"]
-      : module === "ir-types" ? ["contract.d.ts", "arena.d.ts", "data.d.ts"] : ["contract.d.ts"])
+      : module === "ir-types" ? ["contract.d.ts", "arena.d.ts", "data.d.ts", "native-facts-data.d.ts"] : ["contract.d.ts"])
       writeFileSync(resolve(stage, module, name), readFileSync(resolve(repository, `packages/host/dist/${module}/${name}`)));
   }
   writeFileSync(resolve(stage, "package.json"), JSON.stringify({ type: "module", private: true }));
@@ -3332,7 +3332,7 @@ export function consume(input: InferVerificationInput, constraints: ConstraintSe
   assert.equal(accepted.status, 0, accepted.text);
   deepEqual(accepted.text.split(/\r?\n/u).filter(path => path.startsWith(stage)).map(path => relative(stage, path).split(sep).join("/")).sort(),
     ["consumer.ts", "diag/contract.d.ts", "ids/contract.d.ts", "ir-hir/contract.d.ts", "ir-infer/contract.d.ts", "ir-infer/index.d.ts",
-      "ir-types/contract.d.ts", "ir-types/arena.d.ts", "ir-types/data.d.ts"].sort());
+      "ir-types/contract.d.ts", "ir-types/arena.d.ts", "ir-types/data.d.ts", "ir-types/native-facts-data.d.ts"].sort());
   const negatives = [
     ["readonly-bodies.ts", 'import type { InferenceGroup } from "./ir-infer/contract.js"; export function change(value: InferenceGroup) { value.bodies.push(); }', 2339],
     ["readonly-owner.ts", 'import type { ConstraintSet } from "./ir-infer/contract.js"; export function change(value: ConstraintSet) { value.body = value.body; }', 2540],

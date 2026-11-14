@@ -1244,10 +1244,10 @@ test("the member selection key separates two selections that differ in any one f
   holes.getter.decision.parameters = [undefined, { kind: "rest", parameter: 0, arguments: new Array(1), passing: "by-value" }];
   holes.getter.decision.bindings = vector({ classBindings: new Array(1) });
   const holed = product.memberSelectionKey(holes);
-  assertCompleteValue(holed[1], [null, null]);
-  assertCompleteValue(holed[2], [null]);
-  assertCompleteValue(holed[10][3], [[null], [], [], []]);
-  assertCompleteValue(holed[10][5], [null, ["rest", 0, [null], "by-value"]]);
+  assertCompleteValue(holed[0][1], [null, null]);
+  assertCompleteValue(holed[0][2], [null]);
+  assertCompleteValue(holed[6][3], [[null], [], [], []]);
+  assertCompleteValue(holed[6][5], [null, ["rest", 0, [null], "by-value"]]);
 });
 
 test("the binding vector key encodes each position of each family on its own, a hole included", () => {

@@ -2269,7 +2269,8 @@ test("ir-facts: all seventeen actual emitted ports, full closed logic and fresh 
   const member = (primary = definitions.field) => ({ decision: { key: { kind: "text", value: "value" }, origins: [{ kind: "declared", declaration: primary }],
     selectedDeclarations: [primary], primary, read: 0, write: 0, getter: null, setter: null, bindings: emptyBindings(), location: { kind: "data", check: { kind: "none" }, receiver: "in-place" } }, getter: null, setter: null });
   const memoryField = (id = 0, primary = definitions.field) => ({ id, occurrence: itemRef(primary), owner: 3,
-    selector: itemRef(primary), selection: itemRef(primary), member: member(primary), primary, selectedDeclarations: [primary],
+    selector: itemRef(primary), selection: itemRef(primary), member: { key: { kind: "text", value: "value" },
+      origins: [{ kind: "declared", declaration: primary }], selectedDeclarations: [primary], primary, bindings: emptyBindings() },
     value: 0, layout: 0, byteOffset: 0n, byteAlignment: 8n });
   const withField = (input, supplied) => {
     supplied.scopeRows.metadata = [emptyScope()];
@@ -2318,23 +2319,23 @@ test("ir-facts: all seventeen actual emitted ports, full closed logic and fresh 
     return { scope, selected };
   };
   const provenanceCases = [
-    ["mapped item", selected => { selected.decision.origins = [{ kind: "mapped", owner: itemRef(definitions.other), key: { kind: "text", value: "value" } }]; },
-      selected => { selected.decision.origins[0].owner.value.node = ids.nodeId(99); }, "node-resolves",
+    ["mapped item", selected => { selected.origins = [{ kind: "mapped", owner: itemRef(definitions.other), key: { kind: "text", value: "value" } }]; },
+      selected => { selected.origins[0].owner.value.node = ids.nodeId(99); }, "node-resolves",
       "A selected member origin retains its actual qualified source occurrence."],
-    ["mapped body", selected => { selected.decision.origins = [{ kind: "mapped", owner: { kind: "body", value: { body: otherBody, node: ids.nodeId(0) } }, key: { kind: "number", value: { numerator: 1n, denominator: 1n, negativeZero: false } } }]; },
-      selected => { selected.decision.origins[0].owner.value.node = ids.nodeId(99); }, "node-resolves",
+    ["mapped body", selected => { selected.origins = [{ kind: "mapped", owner: { kind: "body", value: { body: otherBody, node: ids.nodeId(0) } }, key: { kind: "number", value: { numerator: 1n, denominator: 1n, negativeZero: false } } }]; },
+      selected => { selected.origins[0].owner.value.node = ids.nodeId(99); }, "node-resolves",
       "A selected member origin retains its actual qualified source occurrence."],
-    ["declared origin", selected => { selected.decision.origins = [{ kind: "declared", declaration: definitions.other }]; },
-      selected => { selected.decision.origins[0].declaration = definitions.missing; }, "producer-resolves",
+    ["declared origin", selected => { selected.origins = [{ kind: "declared", declaration: definitions.other }]; },
+      selected => { selected.origins[0].declaration = definitions.missing; }, "producer-resolves",
       "A selected member origin retains its actual declaration."],
-    ["class prototype", selected => { selected.decision.origins = [{ kind: "class-prototype", owner: definitions.other }]; },
-      selected => { selected.decision.origins[0].owner = definitions.missing; }, "producer-resolves",
+    ["class prototype", selected => { selected.origins = [{ kind: "class-prototype", owner: definitions.other }]; },
+      selected => { selected.origins[0].owner = definitions.missing; }, "producer-resolves",
       "A selected member origin retains its actual declaration."],
-    ["selected symbol", selected => { selected.decision.key = { kind: "symbol", declaration: definitions.other }; },
-      selected => { selected.decision.key.declaration = definitions.missing; }, "producer-resolves",
+    ["selected symbol", selected => { selected.key = { kind: "symbol", declaration: definitions.other }; },
+      selected => { selected.key.declaration = definitions.missing; }, "producer-resolves",
       "A selected member symbol key retains its actual declaration."],
-    ["mapped symbol", selected => { selected.decision.origins = [{ kind: "mapped", owner: itemRef(definitions.other), key: { kind: "symbol", declaration: definitions.other } }]; },
-      selected => { selected.decision.origins[0].key.declaration = definitions.missing; }, "producer-resolves",
+    ["mapped symbol", selected => { selected.origins = [{ kind: "mapped", owner: itemRef(definitions.other), key: { kind: "symbol", declaration: definitions.other } }]; },
+      selected => { selected.origins[0].key.declaration = definitions.missing; }, "producer-resolves",
       "A selected member symbol key retains its actual declaration."],
   ];
   await factOpposite("a null-primary mapped origin still resolves its independently supplied item occurrence", (input, supplied) => {
@@ -2347,23 +2348,23 @@ test("ir-facts: all seventeen actual emitted ports, full closed logic and fresh 
   for (const [name, prepare, amend, rule, message] of provenanceCases) {
     for (const kind of ["field", "method-value"]) {
       await factOpposite(`${kind} ${name} resolves its genuine qualified provenance`, (input, supplied) => {
-        const selected = member(); prepare(selected);
+        const selected = member(); prepare(selected.decision);
         input.arena.projections.push({ id: 2, parent: null, projection: { kind, member: selected } });
         supplied.scopeRows.body.unshift(emptyScope());
-      }, input => amend(input.arena.projections[2].projection.member),
+      }, input => amend(input.arena.projections[2].projection.member.decision),
       [violation(rule, arenaSite("projection", "projection", 2), message)]);
       await summaryOpposite(`${kind} ${name} retains the summary result projection`, (input, supplied) => {
-        const selected = member(); prepare(selected);
+        const selected = member(); prepare(selected.decision);
         input.arena.projections.push({ id: 2, parent: null, projection: { kind, member: selected } });
         supplied.scopeRows.summary.unshift(emptyScope());
-      }, input => amend(input.arena.projections[2].projection.member),
+      }, input => amend(input.arena.projections[2].projection.member.decision),
       [violation("summary-finite", { kind: "projection", owner: summaryOwner(summary().key), projection: 2 }, message)]);
     }
     await factOpposite(`closed-array ${name} resolves its genuine qualified provenance`, (input, supplied) => {
-      const selected = member(); prepare(selected);
+      const selected = member(); prepare(selected.decision);
       input.closedArrays = [{ node: 1, kind: "closed", declarations: [], references: [], literals: [], elements: [selected] }];
       supplied.scopeRows.body.push(emptyScope());
-    }, input => amend(input.closedArrays[0].elements[0]), [violation(rule, nodeSite(1), message)]);
+    }, input => amend(input.closedArrays[0].elements[0].decision), [violation(rule, nodeSite(1), message)]);
     await metadataOpposite(`physical ${name} retains all selected-member findings`, (input, supplied) => {
       withField(input, supplied); prepare(input.fields[0].member);
     }, input => amend(input.fields[0].member), [
@@ -2444,12 +2445,31 @@ test("ir-facts: all seventeen actual emitted ports, full closed logic and fresh 
   [violation("bindings-complete", nodeSite(1), bindingMessage)]);
   await metadataOpposite("canonical physical member scope is not its enclosing layout", (input, supplied) => {
     withField(input, supplied); const { scope, selected } = scopedMember();
-    input.fields[0].primary = null; input.fields[0].selectedDeclarations = []; input.fields[0].member = selected;
+    const decision = selected.decision;
+    input.fields[0].member = { key: decision.key, origins: decision.origins, selectedDeclarations: decision.selectedDeclarations,
+      primary: decision.primary, bindings: decision.bindings };
     supplied.scopeRows.metadata = [scope];
-  }, input => { input.fields[0].member.decision.bindings.classBindings = []; }, [
+  }, input => { input.fields[0].member.bindings.classBindings = []; }, [
     violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence."),
     violation("bindings-complete", metadataSite(), bindingMessage),
   ]);
+  await metadataOpposite("physical member bindings retain their actual selected type domain", (input, supplied) => {
+    withField(input, supplied);
+    const { scope, selected } = scopedMember();
+    const decision = selected.decision;
+    decision.bindings.classBindings = [{ kind: "bound", parameter: scope.classParameters[0], type: 0 }];
+    input.fields[0].member = { key: decision.key, origins: decision.origins, selectedDeclarations: decision.selectedDeclarations,
+      primary: decision.primary, bindings: decision.bindings };
+    supplied.scopeRows.metadata = [scope];
+  }, input => { input.fields[0].member.bindings.classBindings[0].type = 99; }, [
+    violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence."),
+    violation("type-resolves", metadataSite(), "Every bound type resolves in the actual supplied canonical type table."),
+  ]);
+  await metadataOpposite("physical selected declarations cannot repeat within one field", withField,
+    input => { input.fields[0].member.selectedDeclarations.push(definitions.field); }, [
+      violation("selected-declarations-order", metadataSite(), "Selected field declarations must be distinct and ordered by identity."),
+      violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence."),
+    ]);
   await factOpposite("a genuine member declaration remains an additional scope authority", (input, supplied) => {
     const { scope, selected } = scopedMember(); selected.decision.primary = definitions.field; selected.decision.selectedDeclarations = [definitions.field];
     input.arena.projections.push({ id: 2, parent: null, projection: { kind: "field", member: selected } });
@@ -2565,10 +2585,10 @@ test("ir-facts: all seventeen actual emitted ports, full closed logic and fresh 
     ["layout-stride-exact", unchanged, input => { input.layouts[0].stride = 16n; }, "Layout stride must equal its finalized authored value."],
     ["field-offset-exact", withField, input => { input.fields[0].byteOffset = 8n; }, "A field offset must equal its finalized authored value."],
     ["field-alignment-valid", withField, input => { input.fields[0].byteAlignment = 4n; }, "A field alignment must equal its finalized authored value."],
-    ["selected-declarations-order", (input, supplied) => { withField(input, supplied); input.fields[0].selectedDeclarations.push(definitions.other);
-      input.fields[0].member.decision.selectedDeclarations.push(definitions.other); }, input => { input.fields[0].selectedDeclarations.reverse(); input.fields[0].member.decision.selectedDeclarations.reverse(); },
+    ["selected-declarations-order", (input, supplied) => { withField(input, supplied); input.fields[0].member.selectedDeclarations.push(definitions.other);
+    }, input => { input.fields[0].member.selectedDeclarations.reverse(); },
       "Selected field declarations must be distinct and ordered by identity."],
-    ["member-correspondence-exact", withField, input => { input.fields[0].primary = definitions.other; }, "A field retains its complete selected member group, primary and value correspondence."],
+    ["member-correspondence-exact", withField, input => { input.fields[0].member.primary = definitions.other; }, "A field retains its complete selected member group, primary and value correspondence."],
     ["data-layout-reference-resolves", unchanged, (input, supplied) => { supplied.metadataRows.set(definitions.abi64, null); }, "Every layout must name an actual finalized data-layout declaration."],
     ["array-extent-exact", withArray, input => { input.layouts[1].runtimeBase = "number"; }, "An array retains its exact fixed extent, runtime base and selected element type."],
     ["layout-geometry-consistent", (input, supplied) => { withField(input, supplied); input.fields.push(memoryField(1, definitions.other)); supplied.scopeRows.metadata.push(emptyScope()); },
@@ -2582,21 +2602,20 @@ test("ir-facts: all seventeen actual emitted ports, full closed logic and fresh 
         ? [violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence.")] : [])]);
   const mappedField = (input, supplied) => {
     withField(input, supplied);
-    const field = input.fields[0]; field.primary = null; field.selectedDeclarations = [];
-    field.member.decision.primary = null; field.member.decision.selectedDeclarations = [];
-    field.member.decision.origins = [{ kind: "mapped", owner: itemRef(definitions.layout), key: { kind: "text", value: "value" } }];
+    const field = input.fields[0]; field.member.primary = null; field.member.selectedDeclarations = [];
+    field.member.origins = [{ kind: "mapped", owner: itemRef(definitions.layout), key: { kind: "text", value: "value" } }];
   };
   await metadataOpposite("a genuine mapped field retains its known empty declaration group", mappedField,
-    input => { input.fields[0].member.decision.read = 1; },
+    input => { input.fields[0].member.key = { kind: "text", value: "different-field" }; },
     [violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence.")]);
   await metadataOpposite("self-consistent field data cannot replace the finalized captured selection", withField,
-    input => { input.fields[0].member.decision.origins = [{ kind: "class-prototype", owner: definitions.other }]; },
+    input => { input.fields[0].member.origins = [{ kind: "class-prototype", owner: definitions.other }]; },
     [violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence.")]);
-  for (const location of [{ kind: "data", check: { kind: "required", failure: "unwind" }, receiver: "in-place" },
-    { kind: "data", check: { kind: "required", failure: "abort" }, receiver: "in-place" },
-    { kind: "data", check: { kind: "none" }, receiver: "by-reference" }])
-    await metadataOpposite(`a field's selected access location is part of the captured selection: ${location.check.kind} ${location.check.failure ?? ""} ${location.receiver}`, withField,
-      input => { input.fields[0].member.decision.location = location; },
+  for (const key of [{ kind: "text", value: "other" },
+    { kind: "number", value: { numerator: 1n, denominator: 1n, negativeZero: false } },
+    { kind: "symbol", declaration: definitions.other }])
+    await metadataOpposite(`a physical field retains the actual selected ${key.kind} key`, withField,
+      input => { input.fields[0].member.key = key; },
       [violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence.")]);
   await metadataOpposite("finalized physical fields cannot disappear", withField, input => { input.layouts[1].fields = []; },
     [violation("layout-fields-resolve", metadataSite(), "A value layout retains its complete finalized physical field vector in authored order.")]);
@@ -2719,17 +2738,15 @@ test("ir-facts: all seventeen actual emitted ports, full closed logic and fresh 
       violation("field-alignment-valid", metadataSite(), "A field offset must preserve its selected positive power-of-two alignment."),
       violation("field-alignment-valid", metadataSite(), "A field alignment must equal its finalized authored value."),
     ]);
-  await metadataOpposite("selected member type failures retain the metadata result domain", withField,
-    input => { input.fields[0].member.decision.read = 99; }, [
+  await metadataOpposite("physical member origins retain genuine declaration evidence without runtime decisions", withField,
+    input => { input.fields[0].member.origins[0].declaration = definitions.missing; }, [
       violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence."),
-      violation("type-resolves", metadataSite(), "A selected member type resolves in the actual supplied type table."),
+      violation("member-correspondence-exact", metadataSite(), "A selected member origin retains its actual declaration."),
     ]);
-  await metadataOpposite("selected member signature failures retain the metadata result domain", (input, supplied) => {
-    withField(input, supplied); input.fields[0].member.decision.getter = { declaration: definitions.f, role: "api-signature", signature: 0, body: null }; input.fields[0].member.decision.location = { kind: "accessor" };
-  }, input => { input.fields[0].member.decision.getter.signature = 99; }, [
-    violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence."),
-    violation("member-correspondence-exact", metadataSite(), "A selected member endpoint resolves in the actual supplied signature table."),
-  ]);
+  await metadataOpposite("physical member primary retains its actual selected declaration", withField,
+    input => { input.fields[0].member.primary = null; }, [
+      violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence."),
+    ]);
   await metadataOpposite("bindings-complete", (input, supplied) => {
     supplied.context.bindingScopeOf = () => ({ ...emptyScope(), classParameters: [{ owner: definitions.layout, index: 0 }] });
   }, input => { input.key.bindings = { kind: "instantiated", bindings: emptyBindings() }; }, [
@@ -3080,14 +3097,25 @@ test("ir-facts: all seventeen actual emitted ports, full closed logic and fresh 
   const metadataOccurrence = `item(value=ItemNodeRef(owner=def:"${definitions.layout}", node=n:0))`;
   const baseLayoutText = `value(id=layout:0, occurrence=${metadataOccurrence}, source=t:0, dataLayout=def:"${definitions.abi64}", byteSize=8n, byteAlignment=8n, stride=8n, fields=[])`;
   const physicalOccurrence = `item(value=ItemNodeRef(owner=def:"${definitions.field}", node=n:0))`;
-  const physicalMemberText = selectionText('text(value="value")', [`declared(declaration=def:"${definitions.field}")`]);
-  const physicalFieldText = `MemoryField(id=field:0, occurrence=${physicalOccurrence}, owner=t:3, selector=${physicalOccurrence}, selection=${physicalOccurrence}, member=${physicalMemberText}, primary=def:"${definitions.field}", selectedDeclarations=${arrayText([`def:"${definitions.field}"`])}, value=t:0, layout=layout:0, byteOffset=0n, byteAlignment=8n)`;
+  const physicalMemberText = `MemberStorageSelection(key=text(value="value"), origins=${arrayText([`declared(declaration=def:"${definitions.field}")`])}, selectedDeclarations=${arrayText([`def:"${definitions.field}"`])}, primary=def:"${definitions.field}", bindings=${bindingsText})`;
+  const physicalFieldText = `MemoryField(id=field:0, occurrence=${physicalOccurrence}, owner=t:3, selector=${physicalOccurrence}, selection=${physicalOccurrence}, member=${physicalMemberText}, value=t:0, layout=layout:0, byteOffset=0n, byteAlignment=8n)`;
   for (const kind of ["memory-layout", "memory-field"]) {
     const input = metadata(); withField(input, setup()); input.kind = kind; if (kind === "memory-field") input.root = 0;
     const expected = `${kind}(key=${keyText("layout")}, root=${kind === "memory-layout" ? "layout:1" : "field:0"}, layouts=${arrayText([baseLayoutText,
       `value(id=layout:1, occurrence=${metadataOccurrence}, source=t:3, dataLayout=def:"${definitions.abi64}", byteSize=16n, byteAlignment=8n, stride=16n, fields=${arrayText(["field:0"])})`,
     ])}, fields=${arrayText([physicalFieldText])})\n`;
     await textCase(`complete physical metadata transport ${kind}`, input, expected, product.printMetadata, product.parseMetadata);
+  }
+  for (const [name, replacement] of [["runtime selection", selectionText('text(value="value")', [`declared(declaration=def:"${definitions.field}")`])],
+    ["runtime read", physicalMemberText.replace(", bindings=", ", read=t:0, bindings=")],
+    ["runtime accessor", physicalMemberText.replace(", bindings=", ", getter=null, bindings=")]]) {
+    await suite.test(`physical metadata codec rejects former ${name} payloads`, () => {
+      const input = metadata(); withField(input, setup());
+      const current = product.printMetadata(input);
+      const invalid = current.replace(physicalMemberText, replacement);
+      assert.notEqual(invalid, current, "the independent old-form opposite actually changes the selected physical field");
+      assert.equal(product.parseMetadata(invalid).kind, "invalid-text", "runtime member decisions are not physical layout evidence");
+    });
   }
   for (const width of [32, 64]) await suite.test(`actual selected ${width}-bit metadata and exact array extents`, () => {
     const input = metadata(); const supplied = setup();
@@ -3122,8 +3150,8 @@ test("ir-facts: all seventeen actual emitted ports, full closed logic and fresh 
     supplied.context.nominalOf = definition => ({ kind: "declared", facets: definition === definitions.other ? ["instance"] : ["instance", "value"] });
     input.layouts[0].source = 4; input.layouts[0].byteSize = 0n; input.layouts[0].stride = 0n;
     input.layouts[1].byteSize = 0n; input.layouts[1].stride = 0n;
-    input.fields[0].value = 4; input.fields[0].member.decision.read = 4; input.fields[0].member.decision.write = 4;
-    const second = memoryField(1, definitions.capture); second.value = 4; second.member.decision.read = 4; second.member.decision.write = 4;
+    input.fields[0].value = 4;
+    const second = memoryField(1, definitions.capture); second.value = 4;
     input.fields.push(second); input.layouts[1].fields.push(1); supplied.metadataRows.set(definitions.layout, clone(input));
     supplyScopes(supplied, { kind: "metadata", metadata: input.key }, [emptyScope(), emptyScope()]);
     equal(product.verifyMetadata(input, supplied.context), [], "full zero-sized geometry vector");
@@ -3433,10 +3461,6 @@ test("ir-facts: all seventeen actual emitted ports, full closed logic and fresh 
     (input, supplied) => { delete supplied.types.terms[field === "owner" ? 3 : 0]; }, [
       violation("type-resolves", metadataSite(), "A layout source type must exist in the supplied canonical type table."),
       violation("type-resolves", metadataSite(), "A field owner and value must resolve in the supplied canonical type table."),
-      ...(field === "value" ? [
-        violation("type-resolves", metadataSite(), "A selected member type resolves in the actual supplied type table."),
-        violation("type-resolves", metadataSite(), "A selected member type resolves in the actual supplied type table."),
-      ] : []),
     ]);
   for (const mode of ["missing", "wrong-id", "negative-zero"]) {
     await factOpposite(`a foreign formal requires its actual ${mode} producer row`, invocationFixture, (input, supplied) => {
@@ -4177,27 +4201,6 @@ test("ir-facts: all seventeen actual emitted ports, full closed logic and fresh 
     equal(product.verifyFacts(input, supplied.mir, supplied.context), [violation("bindings-complete", { kind: "execution", execution: input.execution }, bindingMessage)],
       "complete independently declared reversed self-owner scope refusal");
   });
-  for (const kind of ["argument", "default", "rest"]) await metadataOpposite(`original raw canonical accessor ${kind} mapping`, (input, supplied) => {
-    withField(input, supplied);
-    const facts = bodyFacts(); accessorSelection(facts, supplied);
-    const selected = facts.arena.projections[2].projection.member;
-    const formal = supplied.types.signatures[1].parameters[0];
-    if (kind === "default") {
-      formal.kind = "default";
-      formal.initializer = ids.encodeBodyId({ owner: definitions.parameter, role: "default-argument", ordinal: 0 });
-      selected.getter.decision.parameters = [{ kind, parameter: 0, initializer: formal.initializer }];
-    } else if (kind === "rest") {
-      formal.kind = "rest"; formal.type = 4;
-      supplied.types.terms.push({ kind: "array", element: 0, readonly: false });
-      selected.getter.decision.parameters = [{ kind, parameter: 0, arguments: [0], passing: "by-value" }];
-    } else {
-      formal.kind = "required";
-      selected.getter.decision.parameters = [{ kind, parameter: 0, argument: 0, component: null, passing: "by-value" }];
-    }
-    input.fields[0].member = selected;
-    supplied.scopeRows.metadata = [emptyScope(), emptyScope(), emptyScope()];
-  }, input => { input.fields[0].member.getter.decision.candidate = 1; },
-  [violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence.")]);
   const physicalRecord = supplied => {
     const record = metadata(); withField(record, supplied);
     supplied.metadataRows.set(definitions.layout, clone(record));
@@ -4226,14 +4229,15 @@ test("ir-facts: all seventeen actual emitted ports, full closed logic and fresh 
     withField(input, supplied);
     const second = memoryField(1, definitions.other); second.byteOffset = 8n;
     input.fields.push(second); input.layouts[1].fields.push(1); supplied.scopeRows.metadata.push(emptyScope());
-  }, input => { input.fields[1].primary = definitions.field; }, [
+  }, input => { input.fields[1].member.primary = definitions.field; }, [
     violation("layout-geometry-consistent", metadataSite(), "A layout cannot repeat the same selected physical declaration."),
     violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence."),
   ]);
   await metadataOpposite("original raw missing selected physical declaration retains complete selected group", withField,
-    input => { input.fields[0].selectedDeclarations = [definitions.missing]; }, [
+    input => { input.fields[0].member.selectedDeclarations = [definitions.missing]; }, [
       violation("definition-resolves", metadataSite(), "A selected physical declaration must exist in the supplied definition inventory."),
       violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence."),
+      violation("member-correspondence-exact", metadataSite(), "A selected member retains its actual selected declaration group."),
     ]);
 
   await suite.test("failed comparison occurrences with identical labels retain both complete values", () => {

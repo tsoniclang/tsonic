@@ -1,7 +1,7 @@
 import type { Diagnostic, TextParseResult, Violation } from "../diag/contract.js";
 import type { BodyId, DefId, DefinitionPath, ModuleId, ModulePath, NodeId, PackageId, SigId } from "../ids/contract.js";
 import type {
-  ArtifactBindings, BindingVector, BodyInstance, ConstantReference, ConstValue, Execution, SignatureEndpoint, TypePublication, TypeTable,
+  ArtifactBindings, BindingVector, BodyInstance, ConstantReference, ConstValue, Execution, SelectedNativeFacts, SignatureEndpoint, TypePublication, TypeTable,
 } from "../ir-types/contract.js";
 import type { SourceFile } from "../ir-hir/contract.js";
 import type { TirBody, TirVerifierInput, TypedPhase } from "../ir-tir/contract.js";
@@ -73,6 +73,7 @@ export type SupportedProgramSchema = 1;
 
 export interface ProgramIndex {
   readonly schema: number;
+  readonly nativeFactsKey: string;
   readonly rootPackage: PackageId;
   readonly packages: readonly PackageRecord[];
   readonly modules: readonly ModuleRecord[];
@@ -131,9 +132,9 @@ export type ProgramRule =
   | "signature-endpoints-exact" | "body-index-order" | "body-owner-resolves" | "body-module-resolves"
   | "body-root-resolves" | "node-body-ownership" | "mir-counts-integral"
   | "metadata-order" | "metadata-key-unique" | "summaries-order"
-  | "summary-key-unique" | "constants-order" | "constant-key-unique" | "constant-type-resolves"
+  | "summary-key-unique" | "constants-order" | "constant-key-unique" | "constant-type-resolves" | "constant-floating-value"
   | "diagnostics-order" | "bindings-complete" | "binding-artifact-present" | "binding-vectors-bounded"
-  | "shared-type-table" | "types-valid" | "metadata-valid" | "summary-valid"
+  | "shared-type-table" | "native-facts-identity" | "types-valid" | "metadata-valid" | "summary-valid"
   | "chunk-module-resolves" | "chunk-tree-module-exact" | "chunk-bodies-order" | "body-levels-total"
   | "body-instance-exact" | "mir-index-counts-exact" | "tir-valid" | "mir-valid"
   | "facts-valid" | "cross-owner-qualified" | "cross-owner-reference-resolves"
@@ -150,6 +151,8 @@ export type ParseModuleBodies = (index: ProgramIndex, text: string) => TextParse
 export type ProgramVerificationWork = ProgramWork;
 export type CreateProgramVerificationWork = (limits: InstantiationLimits) => ProgramVerificationWork;
 export interface ProgramVerificationContext {
+  readonly nativeFactsKey: string;
+  readonly selectedNativeFacts: SelectedNativeFacts;
   readonly facts: FactsVerificationContext;
   readonly resources: ProgramVerificationWork;
   /** The limit of each body's MIR verification, as the limit setter gave it. Each body has its own account. */

@@ -14,7 +14,7 @@ import type { AccessLocation, CheckRequirement, ApplicationDecision, CompletionE
 import type { MemberSelection, ResolvedCallee } from "../ir-tir/contract.js";
 import type {
   ArtifactBindings, BindingVector, BodyInstance, DeclaredExecution, Execution, SignatureRequest, ExactRational, MemberKey, MemberOrigin, SelfBinding,
-  TypeBinding, TypeParameterIdentity,
+  TypeBinding, TypeParameterIdentity, MemberStorageSelection,
 } from "../ir-types/contract.js";
 import type { CallbackInput, SummaryCallback } from "../snapshot/contract.js";
 import type {
@@ -433,6 +433,14 @@ const memberSelection: Decode<MemberSelection> = (state, input) => then(fields(s
     then(readField(state, values, "getter", (state, input) => nullable(state, input, resolved)), getterValue =>
     then(readField(state, values, "setter", (state, input) => nullable(state, input, resolved)), setterValue =>
       finishRecord<MemberSelection>(state, values, { decision: decisionValue, getter: getterValue, setter: setterValue })))));
+const memberStorageSelection: Decode<MemberStorageSelection> = (state, input) => then(fields(state, input, "MemberStorageSelection"), values =>
+    then(readField(state, values, "key", memberKey), keyValue =>
+    then(readField(state, values, "origins", (state, input) => sequence(state, input, memberOrigin)), originsValue =>
+    then(readField(state, values, "selectedDeclarations", (state, input) => sequence(state, input, definition)), selectedDeclarationsValue =>
+    then(readField(state, values, "primary", (state, input) => nullable(state, input, definition)), primaryValue =>
+    then(readField(state, values, "bindings", bindings), bindingsValue =>
+      finishRecord<MemberStorageSelection>(state, values, { key: keyValue, origins: originsValue,
+        selectedDeclarations: selectedDeclarationsValue, primary: primaryValue, bindings: bindingsValue })))))));
 const libraryModule: Decode<LibraryModuleIdentity> = (state, input) => then(fields(state, input, "LibraryModuleIdentity"), values =>
     then(readField(state, values, "providerId", scalarString), providerIdValue =>
     then(readField(state, values, "providerVersion", scalarString), providerVersionValue =>
@@ -745,14 +753,12 @@ const memoryField: Decode<MemoryField> = (state, input) => then(fields(state, in
     then(readField(state, values, "owner", typeIdentity), ownerValue =>
     then(readField(state, values, "selector", sourceRef), selectorValue =>
     then(readField(state, values, "selection", sourceRef), selectionValue =>
-    then(readField(state, values, "member", memberSelection), memberValue =>
-    then(readField(state, values, "primary", (state, input) => nullable(state, input, definition)), primaryValue =>
-    then(readField(state, values, "selectedDeclarations", (state, input) => sequence(state, input, definition)), selectedDeclarationsValue =>
+    then(readField(state, values, "member", memberStorageSelection), memberValue =>
     then(readField(state, values, "value", typeIdentity), valueValue =>
     then(readField(state, values, "layout", layout), layoutValue =>
     then(readField(state, values, "byteOffset", scalarBigint), byteOffsetValue =>
     then(readField(state, values, "byteAlignment", scalarBigint), byteAlignmentValue =>
-      finishRecord<MemoryField>(state, values, { id: idValue, occurrence: occurrenceValue, owner: ownerValue, selector: selectorValue, selection: selectionValue, member: memberValue, primary: primaryValue, selectedDeclarations: selectedDeclarationsValue, value: valueValue, layout: layoutValue, byteOffset: byteOffsetValue, byteAlignment: byteAlignmentValue }))))))))))))));
+      finishRecord<MemoryField>(state, values, { id: idValue, occurrence: occurrenceValue, owner: ownerValue, selector: selectorValue, selection: selectionValue, member: memberValue, value: valueValue, layout: layoutValue, byteOffset: byteOffsetValue, byteAlignment: byteAlignmentValue }))))))))))));
 const observation: Decode<ObservationFact> = (state, input) => then(fields(state, input, "ObservationFact"), values =>
     then(readField(state, values, "node", node), nodeValue =>
     then(readField(state, values, "operation", (state, input) => literal(state, input, ["size","alignment","stride","field-offset"])), operationValue =>

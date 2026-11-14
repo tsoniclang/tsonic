@@ -61,6 +61,11 @@ export function textConstValue(value: ConstValue): TextWork {
       field("type", numericIdentity("t", value.type)),
       field("value", integer(value.value)),
     ]);
+      case "floating":
+        return record(value.kind, [
+      field("type", numericIdentity("t", value.type)),
+      field("bits", integer(value.bits)),
+    ]);
       case "string":
         return record(value.kind, [
       field("type", numericIdentity("t", value.type)),

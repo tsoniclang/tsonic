@@ -1,3 +1,4 @@
+import type { CheckFailure, HandleActivation, ReceiverAccess } from "../ir-types/contract.js";
 import type {
   BlockId, BodyId, ConstId, DefId, Derivation, ExpansionId, LocalId, LocalRef,
   ModuleId, NodeId, NodeRef, Origin, PlaceId, SigId, SourceNodeRef, TyId,
@@ -13,11 +14,7 @@ import type {
   TypeComponent, TypeParameterIdentity,
 } from "../ir-types/contract.js";
 import type { HirBinaryOperator, HirCallableEndpoint, HirUnaryOperator } from "../ir-hir/contract.js";
-import type {
-  ApplicationDecision, CompletionEndpoint, ConstructionPartDecision, CorrespondenceStep,
-  AccessLocation, CheckFailure, CheckRequirement, EmbeddingDecision, EmbeddingProof, FailureKind, HandleActivation, MemberDecision, OperationDecision, OperationExecution, OperationIdentity, ReceiverAccess,
-  ParameterMapping, ProtocolKind, ProtocolStepDecision, ProtocolStepOperation,
-} from "../ir-infer/contract.js";
+import type { ApplicationDecision, CompletionEndpoint, ConstructionPartDecision, CorrespondenceStep, AccessLocation, CheckRequirement, EmbeddingDecision, EmbeddingProof, FailureKind, MemberDecision, OperationDecision, OperationExecution, OperationIdentity, ParameterMapping, ProtocolKind, ProtocolStepDecision, ProtocolStepOperation } from "../ir-infer/contract.js";
 import type { MemberSelection, ResolvedCallee, TypedOperation } from "../ir-tir/contract.js";
 import { choice, field, finish, identityWire, literals, nullable, numberToken, ownedScalar, record, stringToken, variants, vector } from "./text.js";
 import type { ScalarWires } from "./text.js";

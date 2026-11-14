@@ -4,6 +4,7 @@ import { isDeepStrictEqual } from "node:util";
 import * as program from "../../../packages/host/dist/ir-program/index.js";
 import * as facts from "../../../packages/host/dist/ir-facts/index.js";
 import { artifactBindingsKey, declaredExecutionKey, executionKey } from "../../../packages/host/dist/ir-types/index.js";
+import { nativeFactsKey } from "../../../packages/host/dist/ir-types/index.js";
 import { encodeContextKey, moduleFixture } from "../ir-program-fixtures.mjs";
 
 const complete = result => {
@@ -13,6 +14,104 @@ const complete = result => {
 const rules = result => complete(result).map(row => row.rule);
 
 export async function executionCases(suite) {
+await suite.test("the Program retains the exact selected native record identity once without owning a second record", () => {
+  const fixture = moduleFixture();
+  assert.deepEqual(program.verifyProgramIndex(fixture.index, fixture.context), []);
+  fixture.index.nativeFactsKey += "different-session-facts";
+  assert.deepEqual(program.verifyProgramIndex(fixture.index, fixture.context), [
+    { rule: "native-facts-identity", site: { kind: "index" }, detail: [] },
+  ]);
+  for (const value of [undefined, ""]) {
+    fixture.index.nativeFactsKey = value;
+    assert.deepEqual(program.verifyProgramIndex(fixture.index, fixture.context), [
+      { rule: "native-facts-identity", site: { kind: "index" }, detail: [] },
+    ]);
+    assert.throws(() => program.verifyProgramIndex(fixture.index, { ...fixture.context, nativeFactsKey: value }),
+      error => error instanceof TypeError && error.message === "Program verification requires the selected native facts identity");
+  }
+  for (const selectedNativeFacts of [undefined, null, { ...fixture.context.selectedNativeFacts, floatingFormats: undefined },
+    { ...fixture.context.selectedNativeFacts, absentAccessFailure: "abort" }]) {
+    assert.throws(() => program.verifyProgramIndex(fixture.index, { ...fixture.context, selectedNativeFacts }),
+      error => error instanceof TypeError && error.message === "Program verification requires the matching selected native facts record");
+  }
+});
+
+await suite.test("selected floating constants retain exact bits through publication and current codecs", () => {
+  const fixture = moduleFixture();
+  fixture.index.types.terms.push({ kind: "primitive", primitive: "float64" });
+  const reference = { initializer: fixture.instance, context: "compile-time" };
+  const bitsValues = [0n, 0x8000000000000000n, 0x3ff0000000000000n, 0x7ff0000000000000n,
+    0xfff0000000000000n, 0x7ff8000000000001n, 0xfff8000000000002n, 0x7ff0000000000001n, 0xffffffffffffffffn];
+  for (const bits of bitsValues) {
+    fixture.index.constants = [{ reference, value: { kind: "floating", type: 1, bits } }];
+    assert.deepEqual(program.verifyProgramIndex(fixture.index, fixture.context), []);
+    const text = program.printProgramIndex(fixture.index);
+    assert.equal(text.includes(`floating(type=t:1, bits=${bits}n)`), true);
+    const parsed = program.parseProgramIndex(text);
+    assert.equal(isDeepStrictEqual(parsed, { kind: "parsed", value: fixture.index }), true, "exact floating encoding round trip");
+    const publication = { table: { terms: [fixture.index.types.terms[1], fixture.index.types.terms[0]],
+      signatures: [{ ...fixture.index.types.signatures[0], result: 1 }] }, types: [1, 0], signatures: [0] };
+    const published = program.canonicalizeProgram({ index: fixture.index, modules: [] }, publication);
+    assert.deepEqual(published.index.constants[0].value, { kind: "floating", type: 0, bits });
+    const old = text.replace(`bits=${bits}n`, `value=${bits}n`);
+    assert.equal(program.parseProgramIndex(old).kind, "invalid-text");
+    for (const malformed of [text.replace("floating(type=t:1", "floating(type=x:1"),
+      text.replace(`bits=${bits}n)`, `bits=${bits}n;)`)]) {
+      const result = program.parseProgramIndex(malformed);
+      assert.equal(result.kind, "invalid-text");
+      const offset = malformed.indexOf("floating(type=x:") !== -1 ? malformed.indexOf("type=x:", malformed.indexOf("floating(")) + 5
+        : malformed.indexOf(";)", malformed.indexOf("floating("));
+      assert.deepEqual(result, { kind: "invalid-text", offset, line: 1, column: offset + 1,
+        expected: malformed[offset] === "x" ? ["t:"] : [")"], found: malformed[offset] });
+    }
+  }
+});
+
+await suite.test("floating publication distinguishes invalid encodings from missing genuine carrier evidence", () => {
+  const fixture = moduleFixture();
+  fixture.index.types.terms.push({ kind: "primitive", primitive: "float64" }, { kind: "primitive", primitive: "bool" });
+  const reference = { initializer: fixture.instance, context: "compile-time" };
+  const issue = { rule: "constant-floating-value", site: { kind: "body", instance: fixture.instance }, detail: [] };
+  for (const bits of [-1n, 1n << 64n, undefined, 0]) {
+    fixture.index.constants = [{ reference, value: { kind: "floating", type: 1, bits } }];
+    assert.deepEqual(program.verifyProgramIndex(fixture.index, fixture.context), [issue]);
+  }
+  fixture.index.constants = [{ reference, value: { kind: "floating", type: 2, bits: 0n } }];
+  assert.deepEqual(program.verifyProgramIndex(fixture.index, fixture.context), [issue]);
+  fixture.index.constants = [{ reference, value: { kind: "floating", type: 0, bits: 0n } }];
+  assert.throws(() => program.verifyProgramIndex(fixture.index, fixture.context),
+    error => error instanceof TypeError && error.message === "Program floating constants require their actual selected native carrier");
+  fixture.index.constants = [{ reference, value: { kind: "number", type: 1,
+    value: { numerator: 1n, denominator: 1n, negativeZero: false } } }];
+  assert.deepEqual(program.verifyProgramIndex(fixture.index, fixture.context), [issue]);
+  fixture.index.constants = [{ reference, value: { kind: "floating", type: 999, bits: 0n } }];
+  assert.deepEqual(program.verifyProgramIndex(fixture.index, fixture.context),
+    [{ rule: "constant-type-resolves", site: { kind: "body", instance: fixture.instance }, detail: [{ kind: "number", value: 999 }] }]);
+  const selectedNativeFacts = { ...fixture.context.selectedNativeFacts, floatingFormats: [] };
+  const context = { ...fixture.context, selectedNativeFacts, nativeFactsKey: nativeFactsKey(selectedNativeFacts) };
+  fixture.index.nativeFactsKey = context.nativeFactsKey;
+  fixture.index.constants = [{ reference, value: { kind: "floating", type: 1, bits: 0n } }];
+  assert.throws(() => program.verifyProgramIndex(fixture.index, context),
+    error => error instanceof TypeError && error.message === "Program floating constants require the selected carrier format");
+  const supplied = { ...selectedNativeFacts, floatingFormats: [{ carrier: "float64", interchange: "ieee754-binary16",
+    nanSignObservable: false, nanPayloadObservable: false, signalingNaNObservable: false }] };
+  const suppliedContext = { ...context, selectedNativeFacts: supplied, nativeFactsKey: nativeFactsKey(supplied) };
+  fixture.index.nativeFactsKey = suppliedContext.nativeFactsKey;
+  fixture.index.constants[0].value.bits = 0xffffn;
+  assert.deepEqual(program.verifyProgramIndex(fixture.index, suppliedContext), []);
+  fixture.index.constants[0].value.bits = 0x10000n;
+  assert.deepEqual(program.verifyProgramIndex(fixture.index, suppliedContext), [issue]);
+});
+
+await suite.test("Program codec rejects the former complete index that omitted selected native identity", () => {
+  const fixture = moduleFixture();
+  const current = program.printProgramIndex(fixture.index);
+  const removed = current.slice(0, current.lastIndexOf(", nativeFactsKey=")) + ")\n";
+  const result = program.parseProgramIndex(removed);
+  assert.equal(result.kind, "invalid-text");
+  assert.deepEqual(result.expected, [","]);
+});
+
 await suite.test("actual required execution inventory rejects duplicate and reversed keys without adding unselected entries", () => {
   for (const change of ["duplicate", "reverse"]) {
     const fixture = moduleFixture();

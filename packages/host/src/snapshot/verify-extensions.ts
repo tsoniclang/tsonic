@@ -1,7 +1,9 @@
 import type { Violation } from "../diag/contract.js";
 import { encodeKey } from "../ids/index.js";
+import type { PlatformDeclaration } from "../ir-types/contract.js";
+import { platformDeclarationKey, verifyNativeFacts } from "../ir-types/index.js";
 import type {
-  ExtensionReference, ExtensionReferenceEntry, PlatformDeclaration, ProjectSnapshot,
+  ExtensionReference, ExtensionReferenceEntry, ProjectSnapshot,
   SnapshotRule, SnapshotSite,
 } from "./contract.js";
 import type { PackageVerification } from "./verify-packages.js";
@@ -9,11 +11,6 @@ import { snapshotRows } from "./verify-packages.js";
 
 function referenceKey(reference: ExtensionReference): string {
   return encodeKey([reference.package, reference.moduleSpecifier, reference.exportId, reference.version]);
-}
-
-function declarationKey(declaration: PlatformDeclaration): string {
-  return encodeKey([declaration.providerId, declaration.providerVersion, declaration.providerModuleId,
-    declaration.moduleSpecifier, declaration.exportId]);
 }
 
 function platformSite(declaration: PlatformDeclaration): SnapshotSite {
@@ -78,31 +75,24 @@ export function verifySnapshotExtensions(snapshot: ProjectSnapshot,
   for (const path of files) {
     if (!packages.filePaths.has(path)) add("contribution-files-resolve", { kind: "file", path }, path);
   }
-  const layouts = snapshotRows(snapshot.platform.layouts, snapshotSite, "platform.layouts", violations);
-  const layoutKeys = new Set<string>();
-  let previousLayout: string | null = null;
-  let unorderedLayouts = false;
-  for (const registration of layouts) {
-    const declaration = registration.declaration;
-    const site = platformSite(declaration);
-    const key = declarationKey(declaration);
-    if (layoutKeys.has(key)) add("platform-layout-unique", site, "layout");
-    layoutKeys.add(key);
-    if (previousLayout !== null && key < previousLayout) unorderedLayouts = true;
-    previousLayout = key;
-    if ([declaration.providerId, declaration.providerVersion, declaration.providerModuleId,
-      declaration.moduleSpecifier, declaration.exportId, registration.layout.fingerprint].some(value => value.length === 0)) {
-      add("platform-layout-valid", site, "identity");
-    }
+  const nativeFindings = verifyNativeFacts(snapshot.nativeFacts);
+  for (const finding of nativeFindings) {
+    add("native-facts-valid", snapshotSite, finding.rule, finding.site.field,
+      finding.site.index === null ? "root" : String(finding.site.index));
   }
-  if (unorderedLayouts) add("platform-layouts-order", snapshotSite, "platform.layouts");
+  const geometryValid = !nativeFindings.some(finding => finding.site.field === "nativeFacts"
+    || finding.site.field === "geometry" || finding.site.field === "geometry.layouts");
+  const layoutKeys = geometryValid ? new Set<string>() : null;
+  if (layoutKeys !== null) {
+    for (const registration of snapshot.nativeFacts.geometry.layouts) layoutKeys.add(platformDeclarationKey(registration.declaration));
+  }
   const contributedLayouts = new Set<string>();
   for (const declaration of snapshotRows(contributions.dataLayouts, snapshotSite, "dataLayouts", violations)) {
-    const key = declarationKey(declaration);
+    const key = platformDeclarationKey(declaration);
     if (contributedLayouts.has(key)) add("platform-layout-unique", platformSite(declaration), "contribution");
     contributedLayouts.add(key);
   }
-  if (layoutKeys.size !== contributedLayouts.size || [...layoutKeys].some(key => !contributedLayouts.has(key))) {
+  if (layoutKeys !== null && (layoutKeys.size !== contributedLayouts.size || [...layoutKeys].some(key => !contributedLayouts.has(key)))) {
     add("contribution-layouts-exact", snapshotSite, "dataLayouts");
   }
   const prefixes = snapshotRows(contributions.requiredProviderModules, snapshotSite, "requiredProviderModules", violations)

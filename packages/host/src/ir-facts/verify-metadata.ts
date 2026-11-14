@@ -1,11 +1,11 @@
 import type { MessageArgument, Violation } from "../diag/contract.js";
 import type { DefId, MemoryFieldId } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
-import { memberSelectionKey } from "../ir-tir/index.js";
+import { memberStorageData } from "../ir-types/index.js";
 import type {
   FactsRule, FactsSite, MemoryField, MemoryLayout, MetadataRule, VerifyMetadata,
 } from "./contract.js";
-import { collectSelectionChecks, metadataBindingInputs, sameBindings, validIndex, verifyFactBindings } from "./verify-relations.js";
+import { collectStorageChecks, metadataBindingInputs, sameBindings, validIndex, verifyFactBindings } from "./verify-relations.js";
 
 interface OccupiedField {
   readonly start: bigint;
@@ -43,7 +43,7 @@ export const verifyMetadata: VerifyMetadata = (metadata, context) => {
   };
   const memberViolations: Violation<FactsRule, FactsSite>[] = [];
   const finish = (): readonly Violation<MetadataRule, FactsSite>[] => {
-    for (const violation of verifyFactBindings(metadataBindingInputs(metadata, context), { kind: "metadata", metadata: metadata.key }, site, context)) memberViolations.push(violation);
+    for (const violation of verifyFactBindings(metadataBindingInputs(metadata), { kind: "metadata", metadata: metadata.key }, site, context)) memberViolations.push(violation);
     for (const violation of memberViolations) violations.push({ rule: violation.rule === "type-resolves" ? "type-resolves"
       : violation.rule === "bindings-complete" ? "bindings-complete" : "member-correspondence-exact", site, detail: violation.detail });
     return (violations);
@@ -175,11 +175,11 @@ export const verifyMetadata: VerifyMetadata = (metadata, context) => {
         if (child.dataLayout !== layout.dataLayout) {
           report("data-layout-reference-resolves", "A physical field cannot select a child from a different ABI declaration.");
         }
-        if (field.primary !== null) {
-          if (declarations.has(field.primary)) {
+        if (field.member.primary !== null) {
+          if (declarations.has(field.member.primary)) {
             report("layout-geometry-consistent", "A layout cannot repeat the same selected physical declaration.");
           }
-          declarations.add(field.primary);
+          declarations.add(field.member.primary);
         }
         if (field.byteOffset < 0n || child.byteSize < 0n || field.byteOffset > layout.byteSize - child.byteSize ||
           field.byteAlignment <= 0n || field.byteAlignment > layout.byteAlignment ||
@@ -218,10 +218,9 @@ export const verifyMetadata: VerifyMetadata = (metadata, context) => {
     else if (child.source !== field.value) {
       report("member-correspondence-exact", "A field's value type must equal its selected child layout source type.");
     }
-    const selected = field.member.decision;
-    collectSelectionChecks(field.member, site, context, memberViolations);
+    collectStorageChecks(field.member, site, context, memberViolations);
     let previous: DefId | undefined;
-    for (const declaration of field.selectedDeclarations) {
+    for (const declaration of field.member.selectedDeclarations) {
       if (previous !== undefined && previous >= declaration) {
         report("selected-declarations-order", "Selected field declarations must be distinct and ordered by identity.");
       }
@@ -234,12 +233,8 @@ export const verifyMetadata: VerifyMetadata = (metadata, context) => {
     if (canonicalFields !== null && (captured === undefined || !Object.is(captured.id, field.id))) {
       report("cross-owner-qualified", "A field retains its actual finalized row and local identity in the selected metadata.");
     }
-    if (selected.primary !== field.primary ||
-      selected.selectedDeclarations.length !== field.selectedDeclarations.length ||
-      selected.selectedDeclarations.some((declaration, position) => declaration !== field.selectedDeclarations[position]) ||
-      field.primary !== null && !field.selectedDeclarations.includes(field.primary) ||
-      selected.read !== field.value && selected.write !== field.value ||
-      captured !== undefined && Object.is(captured.id, field.id) && encodeKey(memberSelectionKey(captured.member)) !== encodeKey(memberSelectionKey(field.member))) {
+    if (field.member.primary !== null && !field.member.selectedDeclarations.includes(field.member.primary) ||
+      captured !== undefined && Object.is(captured.id, field.id) && encodeKey(memberStorageData(captured.member)) !== encodeKey(memberStorageData(field.member))) {
       report("member-correspondence-exact", "A field retains its complete selected member group, primary and value correspondence.");
     }
     if (captured !== undefined && Object.is(captured.id, field.id)) {

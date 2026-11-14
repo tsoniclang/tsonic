@@ -888,12 +888,12 @@ for (const path of casePaths.filter(path => path.includes("/function/"))) {
   for (const text of documents) authoredDocuments.push({ text, index: expected.value?.program?.index ?? input.index });
 }
 const signatureFixture = moduleFixture();
-const emptyWireIndex = { schema: 1, rootPackage: signatureFixture.index.rootPackage, packages: [], modules: [],
+const emptyWireIndex = { schema: 1, nativeFactsKey: signatureFixture.index.nativeFactsKey, rootPackage: signatureFixture.index.rootPackage, packages: [], modules: [],
   types: { terms: [], signatures: [] }, signatures: [], bodies: [], executions: [], metadata: [], summaries: [], constants: [], diagnostics: [] };
 for (const kind of ["advertised", "api-signature", "api-body"]) for (const body of kind === "api-body" ? [null, signatureFixture.bodyId] : [undefined]) {
   const record = { definition: signatureFixture.definition, bindings: { kind: "parametric" }, ordinal: 0, signature: 0, kind,
     ...(body === undefined ? {} : { body }) };
-  const text = `ProgramIndex(schema=1, rootPackage=pkg:${JSON.stringify(emptyWireIndex.rootPackage)}, packages=[], modules=[], types=TypeTable(terms=[], signatures=[]), signatures=[${kind}(definition=def:${JSON.stringify(record.definition)}, bindings=parametric(), ordinal=0, signature=sig:0${body === undefined ? "" : `, body=${body === null ? "null" : `body:${JSON.stringify(body)}`}`})], bodies=[], executions=[], metadata=[], summaries=[], constants=[], diagnostics=[])`;
+  const text = `ProgramIndex(schema=1, rootPackage=pkg:${JSON.stringify(emptyWireIndex.rootPackage)}, packages=[], modules=[], types=TypeTable(terms=[], signatures=[]), signatures=[${kind}(definition=def:${JSON.stringify(record.definition)}, bindings=parametric(), ordinal=0, signature=sig:0${body === undefined ? "" : `, body=${body === null ? "null" : `body:${JSON.stringify(body)}`}`})], bodies=[], executions=[], metadata=[], summaries=[], constants=[], diagnostics=[], nativeFactsKey=${JSON.stringify(emptyWireIndex.nativeFactsKey)})`;
   const index = { ...emptyWireIndex, signatures: [record] };
   authoredDocuments.push({ text, index });
   test(`ir-program independent ${kind}/${String(body)} complete literal retains every signature-record field`, () => {
@@ -918,7 +918,7 @@ for (const kind of ["advertised", "api-signature", "api-body"]) for (const body 
     methodBindings: [], capturedBindings: [], selfBindings: [{ kind: "rigid", owner: signatureFixture.definition }, { kind: "bound", owner: other, type: 0 }] };
   const definition = JSON.stringify(signatureFixture.definition);
   const bindings = `instantiated(bindings=BindingVector(classBindings=[rigid(parameter=TypeParameterIdentity(owner=def:${definition}, index=0)), bound(parameter=TypeParameterIdentity(owner=def:${definition}, index=1), type=t:0)], methodBindings=[], capturedBindings=[], selfBindings=[rigid(owner=def:${definition}), bound(owner=def:${JSON.stringify(other)}, type=t:0)]))`;
-  const text = `ProgramIndex(schema=1, rootPackage=pkg:${JSON.stringify(emptyWireIndex.rootPackage)}, packages=[], modules=[], types=TypeTable(terms=[], signatures=[]), signatures=[advertised(definition=def:${definition}, bindings=${bindings}, ordinal=0, signature=sig:0)], bodies=[], executions=[], metadata=[], summaries=[], constants=[], diagnostics=[])`;
+  const text = `ProgramIndex(schema=1, rootPackage=pkg:${JSON.stringify(emptyWireIndex.rootPackage)}, packages=[], modules=[], types=TypeTable(terms=[], signatures=[]), signatures=[advertised(definition=def:${definition}, bindings=${bindings}, ordinal=0, signature=sig:0)], bodies=[], executions=[], metadata=[], summaries=[], constants=[], diagnostics=[], nativeFactsKey=${JSON.stringify(emptyWireIndex.nativeFactsKey)})`;
   const index = { ...emptyWireIndex, signatures: [{ kind: "advertised", definition: signatureFixture.definition,
     bindings: { kind: "instantiated", bindings: vector }, ordinal: 0, signature: 0 }] };
   authoredDocuments.push({ text, index });
@@ -1184,7 +1184,7 @@ for (const [name, { index, text, offset, firstField }] of extraFieldFaults)
 
 test("ir-program independent complete escaped package strings retain every decoded UTF16 code unit", () => {
   const pkg = JSON.stringify(emptyWireIndex.rootPackage);
-  const text = `ProgramIndex("sch\\u0065ma"=1, rootPackage=pkg:${pkg}, packages=[PackageRecord(id=pkg:${pkg}, name="quote\\\"\\/slash\\\\\\b\\f\\n\\r\\t\\u00AF\\uD800", packageRoot="/program", sourceRoot="/program/src", dependencies=[], exports=[])], modules=[], types=TypeTable(terms=[], signatures=[]), signatures=[], bodies=[], executions=[], metadata=[], summaries=[], constants=[], diagnostics=[])`;
+  const text = `ProgramIndex("sch\\u0065ma"=1, rootPackage=pkg:${pkg}, packages=[PackageRecord(id=pkg:${pkg}, name="quote\\\"\\/slash\\\\\\b\\f\\n\\r\\t\\u00AF\\uD800", packageRoot="/program", sourceRoot="/program/src", dependencies=[], exports=[])], modules=[], types=TypeTable(terms=[], signatures=[]), signatures=[], bodies=[], executions=[], metadata=[], summaries=[], constants=[], diagnostics=[], nativeFactsKey=${JSON.stringify(emptyWireIndex.nativeFactsKey)})`;
   const index = { ...emptyWireIndex, packages: [{ id: emptyWireIndex.rootPackage, name: 'quote"/slash\\\b\f\n\r\t\u00af\ud800',
     packageRoot: "/program", sourceRoot: "/program/src", dependencies: [], exports: [] }] };
   completeProgramValue(product.parseProgramIndex(text), { kind: "parsed", value: index }, "complete escapes include uppercase hexadecimal, quoted field spelling and a lone UTF16 surrogate");
@@ -2325,6 +2325,7 @@ test("ir-program every signature record role and actual constant payload retains
     { kind: "api-body", definition: fixture.definition, bindings, ordinal: 0, signature: 0, body: fixture.bodyId },
   ];
   const constantValues = [{ type: 0, kind: "number", value: { numerator: 1n, denominator: 2n, negativeZero: false } },
+    { type: 0, kind: "floating", bits: 0x8000000000000000n },
     { type: 0, kind: "bigint", value: 9007199254740993n }, { type: 0, kind: "string", value: "\ud800\n" },
     { type: 0, kind: "boolean", value: false }, { type: 0, kind: "absence" },
     { type: 0, kind: "unique-symbol", declaration: fixture.definition }, { type: 0, kind: "error" }];
@@ -2472,7 +2473,9 @@ test("ir-program metadata witness kernel preserves selected descriptor opposites
     statement.value = form === "binary" ? { kind: "binary", operation, left: operand, right: operand }
       : { kind: "aggregate", type: 2, aggregate: form === "tuple" ? { kind: "tuple", elements: [operand, operand] }
         : { kind: "record", fields: [0, 1].map(() => ({
-          member: first.index.metadata.find(value => value.kind === "memory-field").fields[0].member, value: operand })) } };
+          member: { decision: { ...first.index.metadata.find(value => value.kind === "memory-field").fields[0].member,
+            read: 1, write: 1, getter: null, setter: null, location: { kind: "data", check: { kind: "none" }, receiver: "in-place" } },
+            getter: null, setter: null }, value: operand })) } };
     const prepared = verificationTypes(first.index, first.context.resources);
     assert.equal(prepared.kind, "complete");
     const initial = { work: ProgramWork.state(first.context.resources).work, created: ProgramWork.state(first.context.resources).created };

@@ -186,9 +186,11 @@ function readProgramIndex(cursor: Cursor): TextParseResult<ProgramIndex> {
   if (constants.kind === "invalid-text") return constants;
   const diagnostics = readField(cursor, fields, "diagnostics", next => readArray(next, readDiagnostic));
   if (diagnostics.kind === "invalid-text") return diagnostics;
+  const nativeFactsKey = readField(cursor, fields, "nativeFactsKey", readString);
+  if (nativeFactsKey.kind === "invalid-text") return nativeFactsKey;
   const closed = closeRecord(cursor, fields);
   return closed.kind === "invalid-text" ? closed : { kind: "parsed", value: {
-    schema: schema.value, rootPackage: rootPackage.value, packages: packages.value, modules: modules.value, types: types.value, signatures: signatures.value, bodies: bodies.value, executions: executions.value, metadata: metadata.value, summaries: summaries.value, constants: constants.value, diagnostics: diagnostics.value
+    schema: schema.value, nativeFactsKey: nativeFactsKey.value, rootPackage: rootPackage.value, packages: packages.value, modules: modules.value, types: types.value, signatures: signatures.value, bodies: bodies.value, executions: executions.value, metadata: metadata.value, summaries: summaries.value, constants: constants.value, diagnostics: diagnostics.value
   } };
 }
 

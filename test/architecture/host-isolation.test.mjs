@@ -322,7 +322,7 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
     ...["index.ts", "invariant.ts", "order.ts"].map(name => `${host}/diag/${name}`),
     ...["index.ts", "identity.ts", "key.ts"].map(name => `${host}/ids/${name}`),
     ...["index.ts", "arena.ts", "data.ts", "publication-fields.ts", "publication-read.ts", "work.ts", "value.ts", "interner.ts", "canonical.ts", "copy.ts", "text-readers.ts", "text-values.ts", "text-components.ts", "text-records.ts", "normalize.ts",
-      "substitute.ts", "print.ts", "parse.ts", "verify.ts", "selector-path.ts"].map(name => `${host}/ir-types/${name}`),
+      "substitute.ts", "print.ts", "parse.ts", "verify.ts", "selector-path.ts", "native-facts.ts", "native-facts-data.ts"].map(name => `${host}/ir-types/${name}`),
     ...["index.ts", "pragmas.ts", "endpoints.ts", "children.ts", "walk.ts", "print.ts", "parse.ts", "verify.ts", "verify-syntax.ts",
       "verify-bindings.ts", "verify-captures.ts", "text-data.ts", "text-syntax.ts", "text-construction.ts", "text-read-model.ts",
       "text-readers.ts", "text-read-scalars.ts", ...Array.from({ length: 10 }, (unusedValue, position) => `text-read-${position}.ts`),

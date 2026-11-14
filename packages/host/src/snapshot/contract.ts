@@ -1,5 +1,6 @@
 import type { Diagnostic, Violation } from "../diag/contract.js";
 import type { LibraryExportIdentity, ModuleId, PackageId } from "../ids/contract.js";
+import type { PlatformDeclaration, SelectedNativeFacts } from "../ir-types/contract.js";
 
 export type JsonValue =
   | null
@@ -220,29 +221,6 @@ export interface PackageSnapshot {
   readonly libraryData: readonly PackageLibraryData[];
 }
 
-export interface PlatformDeclaration {
-  readonly providerId: string;
-  readonly providerVersion: string;
-  readonly providerModuleId: string;
-  readonly moduleSpecifier: string;
-  readonly exportId: string;
-}
-
-export interface PlatformLayout {
-  readonly fingerprint: string;
-  readonly byteOrder: "little" | "big";
-  readonly addressWidth: 32 | 64;
-}
-
-export interface PlatformLayoutRegistration {
-  readonly declaration: PlatformDeclaration;
-  readonly layout: PlatformLayout;
-}
-
-export interface PlatformFacts {
-  readonly layouts: readonly PlatformLayoutRegistration[];
-}
-
 export interface ExtensionReference {
   readonly package: PackageId;
   readonly moduleSpecifier: string;
@@ -298,7 +276,7 @@ export interface ProjectSnapshot {
   readonly roots: readonly ModuleId[];
   readonly selection: SelectedTarget;
   readonly contributions: SourceContributions;
-  readonly platform: PlatformFacts;
+  readonly nativeFacts: SelectedNativeFacts;
 }
 
 export interface EffectFailure {
@@ -341,7 +319,7 @@ export type SnapshotRule =
   | "selection-surface-unique"
   | "selection-surfaces-agree"
   | "platform-layout-unique"
-  | "platform-layout-valid"
+  | "native-facts-valid"
   | "extension-reference-unique"
   | "extension-package-resolves"
   | "extension-reference-kinds-exact"
@@ -355,7 +333,6 @@ export type SnapshotRule =
   | "files-order"
   | "exports-order"
   | "components-order"
-  | "platform-layouts-order"
   | "stable-order";
 
 export type SnapshotSite =

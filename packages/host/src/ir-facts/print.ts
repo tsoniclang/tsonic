@@ -4,7 +4,7 @@ import type { AccessLocation, CheckRequirement, ApplicationDecision, CompletionE
 import type { MemberSelection, ResolvedCallee } from "../ir-tir/contract.js";
 import type {
   ArtifactBindings, BindingVector, BodyInstance, DeclaredExecution, Execution, SignatureRequest, ExactRational, MemberKey, MemberOrigin, SelfBinding,
-  TypeBinding, TypeParameterIdentity,
+  TypeBinding, TypeParameterIdentity, MemberStorageSelection,
 } from "../ir-types/contract.js";
 import type { CallbackInput, SummaryCallback } from "../snapshot/contract.js";
 import type {
@@ -212,6 +212,12 @@ const resolved = (writer: Writer, value: ResolvedCallee): void => record(writer,
 const memberSelection = (writer: Writer, value: MemberSelection): void => record(writer, "MemberSelection", [
   ["decision", () => memberDecision(writer, value.decision)], ["getter", () => nullable(writer, value.getter, item => resolved(writer, item))],
   ["setter", () => nullable(writer, value.setter, item => resolved(writer, item))],
+]);
+const memberStorageSelection = (writer: Writer, value: MemberStorageSelection): void => record(writer, "MemberStorageSelection", [
+  ["key", () => memberKey(writer, value.key)], ["origins", () => sequence(writer, value.origins, item => memberOrigin(writer, item))],
+  ["selectedDeclarations", () => sequence(writer, value.selectedDeclarations, item => identity(writer, "def", item))],
+  ["primary", () => nullable(writer, value.primary, item => identity(writer, "def", item))],
+  ["bindings", () => bindings(writer, value.bindings)],
 ]);
 const libraryModule = (writer: Writer, value: LibraryModuleIdentity): void => record(writer, "LibraryModuleIdentity", [
   ["providerId", () => scalar(writer, value.providerId)], ["providerVersion", () => scalar(writer, value.providerVersion)],
@@ -467,8 +473,7 @@ const fieldRef = (writer: Writer, value: MetadataFieldRef): void => record(write
 const memoryField = (writer: Writer, value: MemoryField): void => record(writer, "MemoryField", [
   ["id", () => identity(writer, "field", value.id)], ["occurrence", () => sourceRef(writer, value.occurrence)],
   ["owner", () => identity(writer, "t", value.owner)], ["selector", () => sourceRef(writer, value.selector)],
-  ["selection", () => sourceRef(writer, value.selection)], ["member", () => memberSelection(writer, value.member)],
-  ["primary", () => nullable(writer, value.primary, item => identity(writer, "def", item))], ["selectedDeclarations", () => sequence(writer, value.selectedDeclarations, item => identity(writer, "def", item))],
+  ["selection", () => sourceRef(writer, value.selection)], ["member", () => memberStorageSelection(writer, value.member)],
   ["value", () => identity(writer, "t", value.value)], ["layout", () => identity(writer, "layout", value.layout)],
   ["byteOffset", () => scalar(writer, value.byteOffset)], ["byteAlignment", () => scalar(writer, value.byteAlignment)],
 ]);

@@ -1,5 +1,6 @@
+import type { ReceiverAccess } from "../ir-types/contract.js";
 import type { Violation } from "../diag/contract.js";
-import type { AccessLocation, CheckRequirement, ReceiverAccess } from "../ir-infer/contract.js";
+import type { AccessLocation, CheckRequirement } from "../ir-infer/contract.js";
 import type { BlockId, NodeId, PlaceId } from "../ids/contract.js";
 import type {
   MirBlock, MirBody, MirClosureCapture, MirLocal, MirOperand, MirPlaceBase, MirProjection, MirRule, MirRvalue, MirStepRef, MirVerificationContext, MirViolationSite,

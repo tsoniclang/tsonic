@@ -1,7 +1,8 @@
 import type { BodyId, CandidateListId, DefId, GroupId, LocalRef, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { Diagnostic, Result, TextParseResult, Violation } from "../diag/contract.js";
-import type { BindingScope, BindingVector, LiteralValue, MemberKey, MemberOrigin, NativePrimitive, NominalDefinition, PassingMode, TypeComponent, TypeEvidence, TypeParameterIdentity, TypeTable } from "../ir-types/contract.js";
+import type { BindingScope, BindingVector, LiteralValue, MemberKey, MemberOrigin, MemberStorageSelection, NativePrimitive, NominalDefinition, PassingMode, TypeComponent, TypeEvidence, TypeParameterIdentity, TypeTable } from "../ir-types/contract.js";
 import type { HirBinaryOperator, HirCallableEndpoint, HirCandidateList, HirCoreCapture, HirUnaryOperator } from "../ir-hir/contract.js";
+import type { CheckFailure, HandleActivation, ReceiverAccess } from "../ir-types/contract.js";
 
 export type InferredPart =
   | { readonly kind: "return" | "yield" | "variable" | "field" }
@@ -359,7 +360,6 @@ export interface CoreInput {
   readonly permissionScope: NodeRef | null;
 }
 
-export type CheckFailure = "unwind" | "abort";
 export type FailureKind = "none" | CheckFailure;
 
 export type CheckRequirement =
@@ -370,13 +370,9 @@ export type OperationExecution =
   | { readonly kind: "pure" }
   | { readonly kind: "invocation"; readonly writesStorage: boolean; readonly failure: FailureKind };
 
-export type ReceiverAccess = "in-place" | "by-reference";
-
 export type AccessLocation =
   | { readonly kind: "data"; readonly check: CheckRequirement; readonly receiver: ReceiverAccess }
   | { readonly kind: "accessor" };
-
-export type HandleActivation = "at-creation" | "when-first-driven";
 
 // The logical capture of one captured local. A captured location preserves its source location identity: the closure and
 // the creating body denote the same storage. A captured value is the value the binding holds at creation; when that value
@@ -440,16 +436,11 @@ export type EmbeddingDecision =
   | { readonly kind: "conversion"; readonly conversion: ConversionKind; readonly proof: EmbeddingProof; readonly check: CheckRequirement }
   | { readonly kind: "refused"; readonly reason: "incompatible-domain" | "lossy-numeric" | "missing-correspondence" | "passing-mode" | "rigid-parameter" };
 
-export interface MemberDecision {
-  readonly key: MemberKey;
-  readonly origins: readonly MemberOrigin[];
-  readonly selectedDeclarations: readonly DefId[];
-  readonly primary: DefId | null;
+export interface MemberDecision extends MemberStorageSelection {
   readonly read: TyId | null;
   readonly write: TyId | null;
   readonly getter: HirCallableEndpoint | null;
   readonly setter: HirCallableEndpoint | null;
-  readonly bindings: BindingVector;
   readonly location: AccessLocation;
 }
 

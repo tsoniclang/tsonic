@@ -75,6 +75,7 @@ export const printProgramIndex: PrintProgramIndex = index => `${emitText(deferre
   field("metadata", sequence(index.metadata, value => token(printMetadata(value).trimEnd()))),
   field("summaries", sequence(index.summaries, value => token(printSummary(value).trimEnd()))),
   field("constants", sequence(index.constants, constantRecord)), field("diagnostics", sequence(index.diagnostics, textDiagnostic)),
+  field("nativeFactsKey", text(index.nativeFactsKey)),
 ])), "ProgramIndex")}\n`;
 
 function tirBodyRecord(value: TirBody, context: SyntaxTextContext): TextWork {

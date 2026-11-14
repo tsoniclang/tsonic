@@ -1,0 +1,25 @@
+export function nativeFactsFixture() {
+  return {
+    carrierHolding: [{ carrier: "bool", holding: "in-place" }, { carrier: "float64", holding: "in-place" },
+      { carrier: "int64", holding: "in-place" }, { carrier: "native-int", holding: "in-place" }],
+    nativeIntegerWidths: [{ carrier: "native-int", bits: 128 }, { carrier: "native-uint", bits: 64 }],
+    floatingFormats: [{ carrier: "float64", interchange: "ieee754-binary64",
+      nanSignObservable: true, nanPayloadObservable: true, signalingNaNObservable: true }],
+    integerOverflow: [{ carrier: "int64", operation: "add", result: "int64", law: "wrap" }],
+    divisionByZero: [{ carrier: "float64", law: "ieee754" }, { carrier: "int64", law: "unwind" }],
+    remainderByZero: [{ carrier: "float64", law: "ieee754" }, { carrier: "int64", law: "abort" }],
+    signedQuotientOverflow: [{ carrier: "int64", law: "abort" }],
+    divisionRounding: [{ carrier: "int64", rounding: "toward-zero" }],
+    remainderSign: [{ carrier: "int64", sign: "dividend" }],
+    invalidShiftCount: [{ carrier: "int64", law: { kind: "mask", mask: 63n } }],
+    conversions: [{ from: "float64", to: "int64", rounding: "toward-zero",
+      outOfRange: { kind: "saturate" }, notANumber: { kind: "constant", value: 0n },
+      positiveInfinity: { kind: "constant", value: 9223372036854775807n },
+      negativeInfinity: { kind: "constant", value: -9223372036854775808n } }],
+    arrayIndexFailure: "unwind", tupleIndexFailure: "abort", fixedArrayIndexFailure: "unwind", stringIndexFailure: "abort",
+    absentAccessFailure: "unwind", typeTestFailure: "abort", allocationFailure: "observable",
+    handleActivation: "when-first-driven", destinationCheck: "before-value", byPlaceArgumentCheck: "after-later-arguments",
+    cleanupFailure: "replace-pending", derivedFieldInitialization: "after-base", constructionIdentity: "available",
+    geometry: { layouts: [] },
+  };
+}

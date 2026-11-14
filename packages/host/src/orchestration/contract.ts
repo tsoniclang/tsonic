@@ -1,5 +1,6 @@
 import type { Diagnostic, InvariantFailure, Result } from "../diag/contract.js";
 import type { PackageId } from "../ids/contract.js";
+import type { SelectedNativeFacts } from "../ir-types/contract.js";
 import type { HostProgram } from "../ir-program/contract.js";
 import type {
   CheckerExtensions, CompilerLimits, HostAnalysisResult, PrepareImports,
@@ -30,7 +31,7 @@ import type {
 } from "../project/contract.js";
 import type {
   EffectResult, ImportPreparation, PackageSnapshot, SelectedSurfaces, SelectedTarget, SourceContributions,
-  PlatformLayoutRegistration, ProjectSnapshot, TargetOptions, TargetSelection, VirtualDeclarationFile,
+  ProjectSnapshot, TargetOptions, TargetSelection, VirtualDeclarationFile,
 } from "../snapshot/contract.js";
 
 export type TargetSession = object & { readonly identityKind: "target-session" };
@@ -153,7 +154,7 @@ export interface OrchestrationDeps {
 export interface CapturedSourceContributions {
   readonly contributions: SourceContributions;
   readonly files: readonly VirtualDeclarationFile[];
-  readonly layouts: readonly PlatformLayoutRegistration[];
+  readonly nativeFacts: SelectedNativeFacts;
 }
 
 export type CompilationEffect =

@@ -343,7 +343,10 @@ export function nullableSyntaxCases(node, definition, body) {
 export function relationalTransportArtifacts(fixture) {
   const facts = structuredClone(fixture.module.bodies[0].facts[0]);
   const bindings = { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] };
-  const member = fixture.index.metadata[0].fields[0].member;
+  const physical = fixture.index.metadata[0].fields[0];
+  const member = { decision: { ...physical.member, read: physical.value, write: physical.value,
+    getter: null, setter: null, location: { kind: "data", check: { kind: "none" }, receiver: "in-place" } },
+    getter: null, setter: null };
   const at = { body: fixture.bodyId, node: 0 };
   const bodyOwner = { kind: "body", execution: facts.execution };
   const summary = { kind: "body", execution: facts.execution };

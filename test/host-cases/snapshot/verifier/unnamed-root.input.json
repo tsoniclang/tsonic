@@ -3,27 +3,111 @@
     "packages": {
       "fingerprint": "captured-project-bytes",
       "rootPackage": "P[%002Fproject]",
-      "packages": [{
-        "id": "P[%002Fproject]", "name": null, "version": null,
-        "packageRoot": "/project", "sourceRoot": "/project/src", "manifestPath": null,
-        "dependencies": [],
-        "exports": [{ "specifier": "./main.js", "module": "M[P[%002Fproject];src%002Fmain.ts]" }],
-        "pluginEntry": null, "libraryEntry": null
-      }],
-      "components": [{ "representative": "P[%002Fproject]", "packages": ["P[%002Fproject]"], "dependencies": [] }],
-      "modules": [{ "id": "M[P[%002Fproject];src%002Fmain.ts]", "package": "P[%002Fproject]", "path": "/project/src/main.ts", "role": "source" }],
-      "files": [{ "kind": "physical", "path": "/project/src/main.ts", "realPath": "/real/project/src/main.ts", "text": "export {};\n" }],
+      "packages": [
+        {
+          "id": "P[%002Fproject]",
+          "name": null,
+          "version": null,
+          "packageRoot": "/project",
+          "sourceRoot": "/project/src",
+          "manifestPath": null,
+          "dependencies": [],
+          "exports": [
+            {
+              "specifier": "./main.js",
+              "module": "M[P[%002Fproject];src%002Fmain.ts]"
+            }
+          ],
+          "pluginEntry": null,
+          "libraryEntry": null
+        }
+      ],
+      "components": [
+        {
+          "representative": "P[%002Fproject]",
+          "packages": [
+            "P[%002Fproject]"
+          ],
+          "dependencies": []
+        }
+      ],
+      "modules": [
+        {
+          "id": "M[P[%002Fproject];src%002Fmain.ts]",
+          "package": "P[%002Fproject]",
+          "path": "/project/src/main.ts",
+          "role": "source"
+        }
+      ],
+      "files": [
+        {
+          "kind": "physical",
+          "path": "/project/src/main.ts",
+          "realPath": "/real/project/src/main.ts",
+          "text": "export {};\n"
+        }
+      ],
       "libraryData": []
     },
     "entryPoint": "M[P[%002Fproject];src%002Fmain.ts]",
-    "roots": ["M[P[%002Fproject];src%002Fmain.ts]"],
-    "selection": { "target": { "id": "native", "surfaces": [], "options": { "kind": "record", "fields": [] } }, "providerId": "native-provider", "capabilityIds": [], "surfaceIds": [] },
-    "contributions": {
-      "declarationFiles": [], "declarationPolicy": { "bundledLibraries": [], "installedDeclarations": "none" },
-      "requiredProviderModules": [], "compilerExtensions": [], "declarationProviders": [],
-      "semanticModules": [], "safetyProviders": [], "dataLayouts": []
+    "roots": [
+      "M[P[%002Fproject];src%002Fmain.ts]"
+    ],
+    "selection": {
+      "target": {
+        "id": "native",
+        "surfaces": [],
+        "options": {
+          "kind": "record",
+          "fields": []
+        }
+      },
+      "providerId": "native-provider",
+      "capabilityIds": [],
+      "surfaceIds": []
     },
-    "platform": { "layouts": [] }
+    "contributions": {
+      "declarationFiles": [],
+      "declarationPolicy": {
+        "bundledLibraries": [],
+        "installedDeclarations": "none"
+      },
+      "requiredProviderModules": [],
+      "compilerExtensions": [],
+      "declarationProviders": [],
+      "semanticModules": [],
+      "safetyProviders": [],
+      "dataLayouts": []
+    },
+    "nativeFacts": {
+      "carrierHolding": [],
+      "nativeIntegerWidths": [],
+      "integerOverflow": [],
+      "divisionByZero": [],
+      "remainderByZero": [],
+      "signedQuotientOverflow": [],
+      "divisionRounding": [],
+      "remainderSign": [],
+      "invalidShiftCount": [],
+      "conversions": [],
+      "arrayIndexFailure": "unwind",
+      "tupleIndexFailure": "unwind",
+      "fixedArrayIndexFailure": "unwind",
+      "stringIndexFailure": "unwind",
+      "absentAccessFailure": "unwind",
+      "typeTestFailure": "unwind",
+      "allocationFailure": "observable",
+      "handleActivation": "at-creation",
+      "destinationCheck": "before-value",
+      "byPlaceArgumentCheck": "before-later-arguments",
+      "cleanupFailure": "replace-pending",
+      "derivedFieldInitialization": "after-base",
+      "constructionIdentity": "available",
+      "geometry": {
+        "layouts": []
+      },
+      "floatingFormats": []
+    }
   },
   "actualExtensionReferences": []
 }

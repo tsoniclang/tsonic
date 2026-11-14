@@ -2,32 +2,13 @@ import type { KeyData } from "../ids/contract.js";
 import type { HirCallableEndpoint } from "../ir-hir/contract.js";
 import { callableEndpointKey } from "../ir-hir/index.js";
 import type { AccessLocation, ParameterMapping } from "../ir-infer/contract.js";
-import type { MemberKey, MemberOrigin } from "../ir-types/contract.js";
-import { artifactBindingsData, bindingVectorData } from "../ir-types/index.js";
+import { artifactBindingsData, bindingVectorData, memberStorageData } from "../ir-types/index.js";
 import type { MemberSelectionKey, ResolvedCallee } from "./contract.js";
 
 const each = <Value>(values: readonly Value[], project: (value: Value) => KeyData): KeyData =>
   Array.from(values, value => value === undefined ? null : project(value));
 
 const endpointKey = (endpoint: HirCallableEndpoint | null): KeyData => endpoint === null ? null : callableEndpointKey(endpoint);
-
-const memberKey = (key: MemberKey): KeyData => {
-  switch (key.kind) {
-    case "text": return [key.kind, key.value];
-    case "number": return [key.kind, key.value.numerator, key.value.denominator, key.value.negativeZero];
-    case "symbol": return [key.kind, key.declaration];
-  }
-};
-
-const originKey = (origin: MemberOrigin): KeyData => {
-  switch (origin.kind) {
-    case "declared": return [origin.kind, origin.declaration];
-    case "class-prototype": return [origin.kind, origin.owner];
-    case "mapped": return [origin.kind, origin.owner.kind,
-      origin.owner.kind === "body" ? origin.owner.value.body : origin.owner.value.owner,
-      origin.owner.value.node, memberKey(origin.key)];
-  }
-};
 
 const locationKey = (location: AccessLocation): KeyData => location.kind === "accessor" ? [location.kind]
   : [location.kind, location.check.kind === "none" ? [location.check.kind] : [location.check.kind, location.check.failure], location.receiver];
@@ -58,9 +39,8 @@ const calleeKey = (callee: ResolvedCallee | null): KeyData => {
 export const selectionKey: MemberSelectionKey = member => {
   const decision = member.decision;
   return [
-    memberKey(decision.key), each(decision.origins, originKey),
-    each(decision.selectedDeclarations, declaration => declaration), decision.primary, decision.read, decision.write,
-    endpointKey(decision.getter), endpointKey(decision.setter), bindingVectorData(decision.bindings),
+    memberStorageData(decision), decision.read, decision.write,
+    endpointKey(decision.getter), endpointKey(decision.setter),
     locationKey(decision.location), calleeKey(member.getter), calleeKey(member.setter),
   ];
 };

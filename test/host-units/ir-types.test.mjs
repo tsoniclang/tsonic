@@ -13,12 +13,13 @@ import { hostCatalogue } from "../architecture/host/catalogue.mjs";
 import { compileIsolated, isolationDeps } from "../architecture/host/isolation.mjs";
 import { checkCoverage } from "../architecture/host/coverage.mjs";
 import { parseSources } from "../architecture/host/import-graph.mjs";
+import { nativeFactsCases } from "./ir-types-native-facts.cases.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const tooling = process.env.TSONIC_HOST_TOOLING_ROOT ?? repository;
-const productNames = ["index", "work", "value", "selector-path", "arena", "interner", "canonical", "copy", "normalize", "publication-fields", "publication-read", "substitute", "print", "parse", "text-readers", "text-values", "text-components", "text-records", "verify"];
+const productNames = ["index", "work", "value", "selector-path", "arena", "interner", "canonical", "copy", "normalize", "publication-fields", "publication-read", "substitute", "print", "parse", "text-readers", "text-values", "text-components", "text-records", "verify", "native-facts"];
 const runtimeFiles = productNames.map(name => resolve(repository, `packages/host/dist/ir-types/${name}.js`));
-const sourceFiles = [...productNames, "contract", "data"].map(name => resolve(repository, `packages/host/src/ir-types/${name}.ts`));
+const sourceFiles = [...productNames, "contract", "data", "native-facts-data"].map(name => resolve(repository, `packages/host/src/ir-types/${name}.ts`));
 const session = new Session();
 const post = (method, parameters = {}) => new Promise((done, reject) => {
   session.post(method, parameters, (error, result) => error === null ? done(result) : reject(error));
@@ -43,6 +44,9 @@ const moduleId = encodeModuleId({ package: encodePackageId("ir-types-tests"), pa
 const definition = name => encodeDefId({ module: moduleId, segments: [{ name, ordinal: 0 }] });
 const owner = definition("Owner");
 const other = definition("Other");
+test("selected native fact contract data has one exact canonical owner", async suite => {
+  await nativeFactsCases(suite, await import("../../packages/host/dist/ir-types/index.js"));
+});
 const method = definition("method");
 const captured = definition("captured");
 const body = encodeBodyId({ owner, role: "function", ordinal: 0 });
@@ -81,6 +85,28 @@ const verificationInputs = {
 const verifyTypes = input => runTypeVerifier({ ...input, ...verificationInputs });
 const source = { kind: "body", value: { body, node: 0 } };
 const itemSource = { kind: "item", value: { owner, node: 0 } };
+test("physical member storage projects only the canonical qualified selection and complete binding families", async () => {
+  const { memberStorageData } = await import("../../packages/host/dist/ir-types/index.js");
+  const bindings = emptyBindings();
+  const selection = { key: { kind: "text", value: "field" }, origins: [{ kind: "declared", declaration: owner }],
+    selectedDeclarations: [owner], primary: owner, bindings };
+  assert.deepEqual(memberStorageData(selection), [["text", "field"], [["declared", owner]], [owner], owner, bindingVectorData(bindings)]);
+  const original = encodeKey(memberStorageData(selection));
+  for (const key of [{ kind: "number", value: { numerator: 1n, denominator: 3n, negativeZero: false } },
+    { kind: "symbol", declaration: other }]) assert.notEqual(encodeKey(memberStorageData({ ...selection, key })), original);
+  for (const origin of [{ kind: "class-prototype", owner }, { kind: "mapped", owner: source, key: selection.key },
+    { kind: "mapped", owner: itemSource, key: { kind: "symbol", declaration: other } }]) {
+    assert.notEqual(encodeKey(memberStorageData({ ...selection, origins: [origin] })), original);
+  }
+  for (const change of [{ primary: null }, { selectedDeclarations: [other] },
+    { bindings: { ...bindings, classBindings: [{ kind: "bound", parameter: { owner, index: 0 }, type: 1 }] } }]) {
+    assert.notEqual(encodeKey(memberStorageData({ ...selection, ...change })), original);
+  }
+  const late = { ...selection, read: 1, write: 2, getter: null, setter: null, location: { kind: "accessor" } };
+  assert.equal(encodeKey(memberStorageData(late)), original, "runtime access decisions never select a physical field identity");
+  assert.notEqual(encodeKey(memberStorageData({ ...selection, origins: new Array(1) })), original);
+  assert.notEqual(encodeKey(memberStorageData({ ...selection, selectedDeclarations: new Array(1) })), original);
+});
 const emptyBindings = () => ({ classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] });
 const emptyScope = () => ({ classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] });
 const limits = (changes = {}) => ({ maximumDepth: 128, maximumVisits: 131072,
@@ -3198,7 +3224,7 @@ test("the complete real ir-types owner compiles against freshly emitted actual a
   const areas = JSON.parse(readFileSync(process.env.TSONIC_HOST_QUARANTINE_AREAS
     ?? resolve(repository, "test/architecture/quarantine/areas.json"), "utf8"));
   const module = hostCatalogue.find(module => module.name === "ir-types");
-  const own = ["contract", "data", ...productNames]
+  const own = ["contract", "data", "native-facts-data", ...productNames]
     .map(name => `packages/host/src/ir-types/${name}.ts`);
   const ids = readdirSync(resolve(repository, "packages/host/src/ids")).filter(path => path.endsWith(".ts"))
     .map(path => `packages/host/src/ids/${path}`);

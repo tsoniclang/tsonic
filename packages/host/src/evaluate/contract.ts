@@ -1,5 +1,5 @@
 import type { Diagnostic, UnitRequest, UnitResult } from "../diag/contract.js";
-import type { BodyInstance, ConstantContext, ConstValue, SignatureOf, TypeOf } from "../ir-types/contract.js";
+import type { BodyInstance, ConstantContext, ConstValue, SelectedNativeFacts, SignatureOf, TypeOf } from "../ir-types/contract.js";
 import type { MirBody } from "../ir-mir/contract.js";
 import type { Step } from "../step/contract.js";
 import type { EvaluationSuspension } from "./pause.js";
@@ -17,6 +17,7 @@ export interface EvaluatorLimits {
 export interface EvaluateDeps {
   readonly typeOf: TypeOf;
   readonly signatureOf: SignatureOf;
+  readonly selectedNativeFacts: SelectedNativeFacts;
   readonly limits: EvaluatorLimits;
 }
 
