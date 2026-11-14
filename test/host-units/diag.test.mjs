@@ -102,10 +102,77 @@ function assertOrder(input, expected, label) {
   assert.equal(input.every((value, index) => value === beforeOrder[index]), true, `${label}: input order remains unchanged`);
 }
 
-test("the runtime index exposes only the five approved diagnostic ports", () => {
-  assert.deepEqual(Object.keys(product).sort(), ["hostDiagnosticCode", "lookupDiagnostic", "orderDiagnostics", "requirePresent", "throwInvariant"]);
+test("the runtime index exposes only the eight approved diagnostic ports", () => {
+  assert.deepEqual(Object.keys(product).sort(), ["diagnosticIdentityKey", "hostDiagnosticCode", "lookupDiagnostic", "orderDiagnostics", "requirePresent", "resourceLimitDiagnostic", "throwInvariant", "unitPositionData"]);
   assert.deepEqual(readdirSync(resolve(repository, sourceDirectory)).filter(name => name.endsWith(".ts")).sort(),
     ["contract.ts", "index.ts", "invariant.ts", "order.ts"]);
+});
+
+test("MR-14: diagnostic identity is the captured checker reference, or the originating unit and code; one key gives its equality and its order", () => {
+  const key = product.diagnosticIdentityKey;
+  const unit = (query, requestKey, position) => ({ request: { query, key: requestKey }, position });
+  const host = (code, value) => ({ kind: "host", code, unit: value });
+  const body = node => ({ kind: "source-node", node: { kind: "body", value: { body: "m#f", node } } });
+  const item = node => ({ kind: "source-node", node: { kind: "item", value: { owner: "m#f", node } } });
+  const template = host("TSONIC_LOCAL_TYPE_CONFLICT", unit("tirBody", ["m#f", { kind: "record", fields: [["kind", "parametric"]] }], body(4)));
+  const sameAgain = host("TSONIC_LOCAL_TYPE_CONFLICT", unit("tirBody", ["m#f", { kind: "record", fields: [["kind", "parametric"]] }], body(4)));
+  const distinct = [
+    { kind: "checker", diagnostic: { module: "m.ts", index: 0 } },
+    { kind: "checker", diagnostic: { module: "m.ts", index: 1 } },
+    { kind: "checker", diagnostic: { module: "n.ts", index: 0 } },
+    template,
+    host("TSONIC_LOCAL_TYPE_ACCUMULATOR", template.unit),
+    host("TSONIC_LOCAL_TYPE_CONFLICT", unit("tirBody", ["m#f", { kind: "record", fields: [["kind", "instantiated"], ["class", ["int32"]]] }], body(4))),
+    host("TSONIC_LOCAL_TYPE_CONFLICT", unit("tirBody", ["m#f", { kind: "record", fields: [["kind", "parametric"]] }], body(5))),
+    host("TSONIC_LOCAL_TYPE_CONFLICT", unit("tirBody", ["m#f", { kind: "record", fields: [["kind", "parametric"]] }], item(4))),
+    host("TSONIC_LOCAL_TYPE_CONFLICT", unit("tirBody", ["m#f", { kind: "record", fields: [["kind", "parametric"]] }], { kind: "result" })),
+    host("TSONIC_LOCAL_TYPE_CONFLICT", unit("tirBody", ["m#f", { kind: "record", fields: [["kind", "parametric"]] }], { kind: "module-node", module: "m.ts", node: 4 })),
+    host("TSONIC_LOCAL_TYPE_CONFLICT", unit("mirBody", ["m#f", { kind: "record", fields: [["kind", "parametric"]] }], body(4))),
+    host("TSONIC_LOCAL_TYPE_UNSUPPORTED", unit("produceType", ["m#Pair"], { kind: "component", path: [["construction-argument", "Map", 0]] })),
+    host("TSONIC_LOCAL_TYPE_UNSUPPORTED", unit("produceType", ["m#Pair"], { kind: "component", path: [["construction-argument", "Map", 1]] })),
+    host("TSONIC_LOCAL_TYPE_UNSUPPORTED", unit("produceType", ["m#Pair"], { kind: "component", path: [] })),
+    host("TSONIC_LOCAL_TYPE_UNSUPPORTED", unit("produceType", ["m#Pair"], { kind: "result" })),
+    host("TSONIC_LOCAL_TYPE_UNSUPPORTED", unit("solutionOf", "g", { kind: "inference-variable", group: "g", variable: 0 })),
+    host("TSONIC_LOCAL_TYPE_UNSUPPORTED", unit("solutionOf", "g", { kind: "inference-variable", group: "g", variable: 1 })),
+    host("TSONIC_LOCAL_TYPE_UNSUPPORTED", unit("solutionOf", "g", { kind: "inference-variable", group: "other", variable: 0 })),
+    host("TSONIC_LOCAL_TYPE_UNSUPPORTED", unit("produceType", ["m#Pair"], { kind: "component", path: [["construction-argument", "Map", 1], ["element"]] })),
+  ];
+  const second = () => host("TSONIC_LOCAL_TYPE_UNSUPPORTED", unit("produceType", ["m#Pair"], { kind: "component", path: [["construction-argument", "Map", 1]] }));
+  assert.equal(key(second()), key(second()), "one component path is one position");
+  assert.equal(key(template), key(sameAgain), "the same unit and code are one identity, whatever object holds them");
+  const keys = distinct.map(key);
+  assert.equal(new Set(keys).size, distinct.length, "a different code, binding, node, owner kind, position or producing fact is a different identity");
+  assert.equal(keys.every(value => typeof value === "string"), true);
+  assert.deepEqual([...keys].sort(), [...keys].reverse().sort(), "the order of identities is the order of their keys");
+});
+
+test("the resource-limit diagnostic names its owner, the one limit field, its maximum and the exact unit the owner stopped at", () => {
+  const key = { kind: "record", fields: [["b", 2], ["a", 1]] };
+  const report = { owner: "query", limit: "query.maximumRecords", maximum: 16, site: { kind: "none" },
+    unit: { request: { query: "signature", key }, position: { kind: "result" } } };
+  const diagnostic = product.resourceLimitDiagnostic(report);
+  assert.deepEqual(diagnostic, { code: { kind: "host", name: "TSONIC_COMPILER_RESOURCE_LIMIT", rendered: "TSONIC_COMPILER_RESOURCE_LIMIT" },
+    severity: "error", site: { kind: "none" }, source: "query",
+    evidence: ["query.maximumRecords", "signature", "O2:S1:aF1:S1:bF2:", "A1:S6:result"],
+    message: "A compiler resource limit was reached.",
+    arguments: [{ kind: "text", value: "query.maximumRecords" }, { kind: "number", value: 16 }], related: [], fix: null });
+  assert.equal(diagnostic.site, report.site);
+  const origin = { module: "m.ts", start: 3, length: 4, derived: [] };
+  const located = product.resourceLimitDiagnostic({ owner: "lower-mir", limit: "lowering.maximumRecords", maximum: 2,
+    site: { kind: "source", origin }, unit: { request: { query: "mirBody", key: "b" },
+      position: { kind: "source-node", node: { kind: "body", value: { body: "b", node: 7 } } } } });
+  assert.deepEqual(located.evidence, ["lowering.maximumRecords", "mirBody", "S1:b", "A4:S11:source-nodeS4:bodyS1:bF7:"],
+    "the unit's whole position, in the same canonical form as a diagnostic identity's");
+  const atNode = position => product.resourceLimitDiagnostic({ ...report, unit: { request: report.unit.request, position } }).evidence[3];
+  assert.equal(atNode({ kind: "module-node", module: "m.ts", node: 4 }), "A3:S11:module-nodeS4:m.tsF4:");
+  assert.deepEqual(product.unitPositionData({ kind: "inference-variable", group: "g", variable: 0 }), ["inference-variable", "g", 0]);
+  assert.notEqual(atNode({ kind: "component", path: [0] }), atNode({ kind: "component", path: [1] }), "two components of one type are two positions");
+  assert.notEqual(atNode({ kind: "source-node", node: { kind: "body", value: { body: "b", node: 7 } } }),
+    atNode({ kind: "source-node", node: { kind: "body", value: { body: "b", node: 8 } } }), "two nodes of one body are two positions");
+  assert.equal(located.site.origin, origin);
+  assert.equal(located.source, "lower-mir");
+  assert.notEqual(product.resourceLimitDiagnostic(report), diagnostic, "each call builds its own record");
+  assert.deepEqual(product.orderDiagnostics([diagnostic, located]), [located, diagnostic], "a located limit diagnostic orders before an unlocated one");
 });
 
 for (const name of descriptors) {
@@ -436,7 +503,7 @@ test("the complete actual diag module passes fresh strict isolation against the 
   assert.equal(report.loadedInventory.some(path => path.endsWith("/isolated/packages/host/src/ids/key.d.ts")), false);
 });
 
-test("fresh genuine emitted declarations admit the five ports and reject readonly/shape opposites exactly", () => {
+test("fresh genuine emitted declarations admit the six ports and the cause records, and reject readonly/shape opposites exactly", () => {
   const stage = mkdtempSync(resolve(evidenceDirectory, "consumer-"));
   mkdirSync(resolve(stage, "diag"));
   mkdirSync(resolve(stage, "ids"));
@@ -468,12 +535,42 @@ test("fresh genuine emitted declarations admit the five ports and reject readonl
     writeFileSync(resolve(stage, `${name}.log`), text);
     return { status: result.status, text };
   };
-  const accepted = run("positive.json", ["consumer.ts", "owner-consumer.ts"]);
+  writeFileSync(resolve(stage, "cause-consumer.ts"), `import { resourceLimitDiagnostic } from "./diag/index.js";
+import type { Cause, CheckerDiagnosticRef, Diagnostic, DiagnosticIdentity, ErrorValue, ResourceLimitDiagnostic, ResourceLimitReport, UnitPosition, UnitRef } from "./diag/contract.js";
+import type { GroupId, ModuleId, NodeId, SourceNodeRef } from "./ids/contract.js";
+export function causes(module: ModuleId, node: NodeId, source: SourceNodeRef, group: GroupId, code: Diagnostic["code"]): ErrorValue {
+  const captured: CheckerDiagnosticRef = { module, index: 0 };
+  const positions: readonly UnitPosition[] = [{ kind: "result" }, { kind: "module-node", module, node }, { kind: "source-node", node: source },
+    { kind: "component", path: [["argument", 1], "element"] }, { kind: "inference-variable", group, variable: 0 }];
+  const unit: UnitRef = { request: { query: "bindingTargets", key: [module] }, position: { kind: "module-node", module, node } };
+  const original: DiagnosticIdentity = { kind: "checker", diagnostic: captured };
+  const detected: DiagnosticIdentity | null = code.kind === "host" ? { kind: "host", unit, code: code.name } : null;
+  const dependent: Cause = { kind: "unit", unit };
+  const grounded: Cause = { kind: "diagnostic", diagnostic: detected ?? original };
+  void positions;
+  return { kind: "error", causes: [grounded, dependent] };
+}
+export function describe(cause: Cause): string {
+  switch (cause.kind) {
+    case "diagnostic": return cause.diagnostic.kind === "checker" ? String(cause.diagnostic.diagnostic.index) : cause.diagnostic.code;
+    case "unit": return cause.unit.request.query + ":" + cause.unit.position.kind;
+  }
+}
+export function limit(report: ResourceLimitReport): Diagnostic { const build: ResourceLimitDiagnostic = resourceLimitDiagnostic; return build(report); }
+`);
+  const accepted = run("positive.json", ["cause-consumer.ts", "consumer.ts", "owner-consumer.ts"]);
   assert.equal(accepted.status, 0, accepted.text);
   const loaded = accepted.text.split(/\r?\n/u).filter(path => path.startsWith(stage));
   assert.deepEqual(loaded.map(path => relative(stage, path).split(sep).join("/")).sort(),
-    ["consumer.ts", "diag/contract.d.ts", "diag/index.d.ts", "ids/contract.d.ts", "owner-consumer.ts"]);
+    ["cause-consumer.ts", "consumer.ts", "diag/contract.d.ts", "diag/index.d.ts", "ids/contract.d.ts", "owner-consumer.ts"]);
   const negatives = [
+    ["cause-third-arm.ts", 'import type { Cause } from "./diag/contract.js"; export const wrong: Cause = { kind: "unassociated" };', 2322],
+    ["cause-null.ts", 'import type { ErrorValue } from "./diag/contract.js"; export const wrong: ErrorValue = { kind: "error", causes: [] };', 2322],
+    ["checker-reference-without-module.ts", 'import type { CheckerDiagnosticRef } from "./diag/contract.js"; export const wrong: CheckerDiagnosticRef = { index: 0 };', 2741],
+    ["unit-without-position.ts", 'import type { UnitRef } from "./diag/contract.js"; export const wrong: UnitRef = { request: { query: "q", key: null } };', 2741],
+    ["unit-position-fourth-arm.ts", 'import type { UnitPosition } from "./diag/contract.js"; export const wrong: UnitPosition = { kind: "nearest-node" };', 2322],
+    ["readonly-cause-unit.ts", 'import type { UnitRef } from "./diag/contract.js"; export function move(unit: UnitRef): void { unit.position = { kind: "result" }; }', 2540],
+    ["limit-without-unit.ts", 'import { resourceLimitDiagnostic } from "./diag/index.js"; resourceLimitDiagnostic({ owner: "query", limit: "query.maximumRecords", maximum: 1, site: { kind: "none" } });', 2741],
     ["readonly-order.ts", 'import { orderDiagnostics } from "./diag/index.js"; orderDiagnostics([]).push();', 2339],
     ["wrong-code.ts", 'import { lookupDiagnostic } from "./diag/index.js"; lookupDiagnostic({ definitions: [] }, 1);', 2345],
     ["incomplete-invariant.ts", 'import { throwInvariant } from "./diag/index.js"; throwInvariant({ owner: "infer", query: null, origin: null });', 2741],
