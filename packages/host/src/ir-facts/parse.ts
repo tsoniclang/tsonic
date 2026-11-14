@@ -412,8 +412,7 @@ const memberDecision: Decode<MemberDecision> = (state, input) => then(fields(sta
 const resolved: Decode<ResolvedCallee> = (state, input) => then(fields(state, input, "ResolvedCallee"), values =>
     then(readField(state, values, "decision", application), decisionValue =>
     then(readField(state, values, "activation", (state, input) => nullable(state, input, bodyInstance)), activationValue =>
-    then(readField(state, values, "captures", (state, input) => sequence(state, input, localRef)), capturesValue =>
-      finishRecord<ResolvedCallee>(state, values, { decision: decisionValue, activation: activationValue, captures: capturesValue })))));
+      finishRecord<ResolvedCallee>(state, values, { decision: decisionValue, activation: activationValue }))));
 const memberSelection: Decode<MemberSelection> = (state, input) => then(fields(state, input, "MemberSelection"), values =>
     then(readField(state, values, "decision", memberDecision), decisionValue =>
     then(readField(state, values, "getter", (state, input) => nullable(state, input, resolved)), getterValue =>

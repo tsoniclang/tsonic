@@ -1,4 +1,4 @@
-import type { KeyData, ModuleId, NodeId, Origin, SourceNodeRef } from "../ids/contract.js";
+import type { GroupId, KeyData, ModuleId, NodeId, Origin, SourceNodeRef } from "../ids/contract.js";
 
 export type HostDiagnosticCode = string & {
   readonly diagnosticKind: "host";
@@ -71,6 +71,7 @@ export type UnitPosition =
   | { readonly kind: "result" }
   | { readonly kind: "module-node"; readonly module: ModuleId; readonly node: NodeId }
   | { readonly kind: "source-node"; readonly node: SourceNodeRef }
+  | { readonly kind: "inference-variable"; readonly group: GroupId; readonly variable: number }
   | { readonly kind: "component"; readonly path: readonly KeyData[] };
 
 export interface UnitRef {
@@ -98,6 +99,34 @@ export interface ErrorValue {
   readonly kind: "error";
   readonly causes: readonly [Cause, ...Cause[]];
 }
+
+export interface UnitAnswerPosition {
+  readonly position: UnitPosition;
+  readonly error: ErrorValue | null;
+}
+
+export interface UnitValue<Value> {
+  readonly value: Value;
+  readonly positions: readonly UnitAnswerPosition[];
+}
+
+export interface UnitDiagnostic {
+  readonly identity: DiagnosticIdentity;
+  readonly diagnostic: Diagnostic;
+}
+
+export type UnitResult<Value> =
+  | { readonly kind: "ok"; readonly value: Value; readonly diagnostics: readonly Diagnostic[];
+      readonly positions: readonly UnitAnswerPosition[]; readonly emissions: readonly UnitDiagnostic[] }
+  | { readonly kind: "refused"; readonly diagnostics: readonly [Diagnostic, ...Diagnostic[]] };
+
+export type UnitErrorRead =
+  | { readonly kind: "uncomputed" }
+  | { readonly kind: "invalid-position" }
+  | { readonly kind: "completed"; readonly error: ErrorValue | null }
+  | { readonly kind: "refused"; readonly diagnostics: readonly [Diagnostic, ...Diagnostic[]] };
+
+export type UnitPositionData = (position: UnitPosition) => KeyData;
 
 export interface ResourceLimitReport {
   readonly owner: InvariantOwner;

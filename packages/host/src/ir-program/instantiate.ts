@@ -1,6 +1,6 @@
+import { bindingVectorKey } from "../ir-types/index.js";
 import type { ArtifactBindings, BindingVector, TypeExpansionLimits, TypeTransform } from "../ir-types/contract.js";
 import type { ArtifactReference, Instantiate, InstantiatedArtifact, InstantiationResult, ModuleBodies, ProgramIndex } from "./contract.js";
-import { encodeKey } from "../ids/index.js";
 import { requirePresent } from "../diag/index.js";
 import type { InvariantFailure } from "../diag/contract.js";
 import type { TirBody } from "../ir-tir/contract.js";
@@ -9,10 +9,7 @@ import type { BodyFacts, Summary } from "../ir-facts/contract.js";
 import { exportTypes, seedTypeInterner, substitute, substituteSignature } from "../ir-types/index.js";
 import type { InstantiationMeter, InstantiationStop } from "./program-values.js";
 import type { TypeRewrite } from "./canonical-types.js";
-import {
-  admitBindingVector, bindingData, chargeInstantiationWork, createBindingLookup, createInstantiationMeter,
-  createProjectionInventory, drainProjectionInventory, inventoryRecord,
-} from "./program-values.js";
+import { admitBindingVector, chargeInstantiationWork, createBindingLookup, createInstantiationMeter, createProjectionInventory, drainProjectionInventory, inventoryRecord } from "./program-values.js";
 import type { ProjectionInventory } from "./program-values.js";
 import { admitTypeSeed, stabilizePublication } from "./instantiate-types.js";
 import { inventoryBodyFacts, inventorySummary } from "./instantiate-facts.js";
@@ -51,7 +48,7 @@ function bindingKey(meter: InstantiationMeter, bindings: BindingVector): string 
       if (stop !== null) return stop;
     }
   }
-  return encodeKey(bindingData(bindings));
+  return bindingVectorKey(bindings);
 }
 
 function admitVector(meter: InstantiationMeter, keys: Set<string>, key: string): InstantiationStop | null {

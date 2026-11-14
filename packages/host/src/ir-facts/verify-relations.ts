@@ -1,13 +1,13 @@
 import type { MessageArgument, Violation } from "../diag/contract.js";
-import type { DefId, KeyData, LocalRef, NodeId, NodeRef } from "../ids/contract.js";
+import type { DefId, KeyData, NodeId, NodeRef } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import type { HirCallableEndpoint } from "../ir-hir/contract.js";
-import type { AccessLocation, ParameterMapping } from "../ir-infer/contract.js";
 import type { MemberSelection, ResolvedCallee } from "../ir-tir/contract.js";
+import { memberSelectionKey } from "../ir-tir/index.js";
 import type {
-  ArtifactBindings, BindingVector, BindingVerificationInput, BodyInstance, MemberKey, MemberOrigin, TypeBinding,
+  ArtifactBindings, BindingVector, BindingVerificationInput, MemberKey,
 } from "../ir-types/contract.js";
-import { verifyTypes } from "../ir-types/index.js";
+import { artifactBindingsData, artifactBindingsKey, bindingVectorData, verifyTypes } from "../ir-types/index.js";
 import type {
   BodyFacts, EscapeTarget, FactsBindingTarget, FactsRule, FactsSite, FactsVerificationContext, MetadataRecord,
   RelationalArena, RelationalOwner, RelationalSite, Summary,
@@ -48,90 +48,12 @@ export const relationalUsage = (arena: RelationalArena): {
     arena.boundProducers.length + arena.origins.length + arena.boundaries.length, references, depth, alternatives };
 };
 
-const typeBindingData = (binding: TypeBinding): KeyData => binding.kind === "bound"
-  ? [binding.kind, binding.parameter.owner, binding.parameter.index, binding.type]
-  : [binding.kind, binding.parameter.owner, binding.parameter.index];
-
-export const bindingsData = (bindings: BindingVector): KeyData => [
-  bindings.classBindings.map(typeBindingData),
-  bindings.methodBindings.map(typeBindingData),
-  bindings.capturedBindings.map(typeBindingData),
-  bindings.selfBindings.map(binding => binding.kind === "bound"
-    ? [binding.kind, binding.owner, binding.type] : [binding.kind, binding.owner]),
-];
-
-export const artifactData = (bindings: ArtifactBindings): KeyData =>
-  bindings.kind === "parametric" ? [bindings.kind] : [bindings.kind, bindingsData(bindings.bindings)];
-
 export const sameBindings = (left: ArtifactBindings, right: ArtifactBindings): boolean =>
-  encodeKey(artifactData(left)) === encodeKey(artifactData(right));
-
-export const sameCaptures = (left: readonly LocalRef[], right: readonly LocalRef[]): boolean => {
-  if (left.length !== right.length) return false;
-  for (const [index, capture] of left.entries()) {
-    const selected = right[index];
-    if (capture === undefined || selected === undefined || capture.body !== selected.body || !Object.is(capture.local, selected.local)) return false;
-  }
-  return true;
-};
-
-export const instanceKey = (instance: BodyInstance): string => encodeKey([instance.body, artifactData(instance.bindings)]);
+  artifactBindingsKey(left) === artifactBindingsKey(right);
 
 export const ownerKey = (owner: RelationalOwner): string => owner.kind === "body"
-  ? encodeKey([owner.kind, owner.instance.body, artifactData(owner.instance.bindings)])
-  : encodeKey([owner.kind, owner.definition, artifactData(owner.bindings)]);
-
-const endpointData = (endpoint: HirCallableEndpoint | null): KeyData => endpoint === null ? null
-  : [endpoint.declaration, endpoint.role, endpoint.signature, endpoint.body];
-
-const parameterData = (parameter: ParameterMapping): KeyData => {
-  switch (parameter.kind) {
-    case "argument": return [parameter.kind, parameter.parameter, parameter.argument, parameter.component, parameter.passing];
-    case "default": return [parameter.kind, parameter.parameter, parameter.initializer];
-    case "omitted": return [parameter.kind, parameter.parameter, parameter.type];
-    case "rest": return [parameter.kind, parameter.parameter, parameter.arguments, parameter.passing];
-  }
-};
-
-export const calleeData = (callee: ResolvedCallee | null): KeyData => callee === null ? null : [
-  callee.decision.candidate, endpointData(callee.decision.advertised), endpointData(callee.decision.api),
-  bindingsData(callee.decision.bindings),
-  bindingsData(callee.decision.implementationBindings),
-  callee.decision.parameters.map(parameterData),
-  [callee.decision.completion.signature, callee.decision.completion.completion,
-    callee.decision.completion.yielded, callee.decision.completion.sent],
-  callee.decision.result, callee.decision.activation,
-  callee.activation === null ? null : [callee.activation.body, artifactData(callee.activation.bindings)],
-  Array.from(callee.captures, capture => capture === undefined ? null : [capture.body, capture.local]),
-];
-
-const memberKeyData = (key: MemberKey): KeyData => {
-  switch (key.kind) {
-    case "text": return [key.kind, key.value];
-    case "number": return [key.kind, key.value.numerator, key.value.denominator, key.value.negativeZero];
-    case "symbol": return [key.kind, key.declaration];
-  }
-};
-
-const memberOriginData = (origin: MemberOrigin): KeyData => {
-  switch (origin.kind) {
-    case "declared": return [origin.kind, origin.declaration];
-    case "class-prototype": return [origin.kind, origin.owner];
-    case "mapped": return [origin.kind, origin.owner.kind,
-      origin.owner.kind === "body" ? origin.owner.value.body : origin.owner.value.owner,
-      origin.owner.value.node, memberKeyData(origin.key)];
-  }
-};
-
-const locationData = (location: AccessLocation): KeyData => location.kind === "accessor" ? [location.kind]
-  : [location.kind, location.check.kind === "none" ? [location.check.kind] : [location.check.kind, location.check.failure], location.receiver];
-
-export const memberData = (member: MemberSelection): KeyData => [
-  memberKeyData(member.decision.key), member.decision.origins.map(memberOriginData),
-  member.decision.selectedDeclarations, member.decision.primary, member.decision.read, member.decision.write,
-  endpointData(member.decision.getter), endpointData(member.decision.setter), bindingsData(member.decision.bindings),
-  locationData(member.decision.location), calleeData(member.getter), calleeData(member.setter),
-];
+  ? encodeKey([owner.kind, owner.instance.body, artifactBindingsData(owner.instance.bindings)])
+  : encodeKey([owner.kind, owner.definition, artifactBindingsData(owner.bindings)]);
 
 export const relationalSiteData = (site: RelationalSite): KeyData => site.kind === "node"
   ? [site.kind, site.node.body, site.node.node]
@@ -331,11 +253,8 @@ export const collectSelectionChecks = (
       report("signature-resolves", "A selected member completion retains its actual signature.");
     }
     type(decision.result); type(decision.completion.completion); type(decision.completion.yielded); type(decision.completion.sent);
-    for (const capture of callee.captures) if (capture === undefined || !context.localExists(capture)) {
+    if (callee.activation !== null) for (const row of context.tirBody(callee.activation).captures) if (row === undefined || !context.localExists(row.local)) {
       report("capture-locations-exact", "A selected accessor retains its actual captured storage locations.");
-    }
-    if (callee.activation !== null && !sameCaptures(context.tirBody(callee.activation).captures, callee.captures)) {
-      report("capture-locations-exact", "A selected accessor retains its actual ordered captured-location vector.");
     }
     for (const parameter of decision.parameters) if (parameter.kind === "omitted") type(parameter.type);
   }
@@ -437,7 +356,7 @@ export const verifyRelationalArena = (
       collectSelectionChecks(projection.member, site, context, violations);
     }
     const data: KeyData = projection.kind === "field" || projection.kind === "method-value"
-      ? [projection.kind, memberData(projection.member)]
+      ? [projection.kind, memberSelectionKey(projection.member)]
       : projection.kind === "index" ? [projection.kind, projection.constant] : [projection.kind];
     const key = encodeKey([path.parent, data]);
     if (projections.has(key)) report("projection-unique", site, "A parent and selected projection must identify exactly one arena row.");
@@ -540,10 +459,10 @@ export const verifyRelationalArena = (
     if (!validIndex(bound.context, arena.contexts.length) || !Object.is(arena.contexts[bound.context]?.id, bound.context)) {
       report("context-resolves", site, "A bound alternative must retain its actual value context in the same arena.");
     }
-    const key = encodeKey([bound.producer, bindingsData(bound.bindings), bound.context]);
+    const key = encodeKey([bound.producer, bindingVectorData(bound.bindings), bound.context]);
     const expected = canonical?.boundProducers[index];
     if (alternatives.has(key) || canonical !== null && (expected === undefined || !Object.is(expected.id, bound.id) ||
-      encodeKey([expected.producer, bindingsData(expected.bindings), expected.context]) !== key)) {
+      encodeKey([expected.producer, bindingVectorData(expected.bindings), expected.context]) !== key)) {
       report("origin-alternatives-correlated", site, "Producer, complete type bindings and value context remain one canonical correlated alternative.");
     }
     alternatives.add(key);

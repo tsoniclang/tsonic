@@ -1,6 +1,6 @@
-import type { AccessLocation, CheckRequirement, ClosureDecision, ClosureInput, OperationExecution, DeferredDecision, EmbeddingDecision, MemberDecision, ApplicationDecision, ConstructionPartDecision, OperationDecision, RefinementDecision, DeferredInvocation, EmbeddingProof, ParameterMapping, CompletionEndpoint, OperationIdentity, RuleOutcome, EmbedInput, DomainFitInput, MemoryEquivalentInput, MemberInput, IndexInput, LiteralConstructionInput, CandidateInput, OperatorInput, LiteralFitInput, ProtocolInput, RefinementInput, LibraryInput, CoreInput, CorrespondenceStep, ProtocolStepDecision, RuleContext, LiteralConstructionPart, CandidateArgument, CandidateEndpoint, ProtocolStepOperation } from "../ir-infer/contract.js";
+import type { AccessLocation, BodyCaptureRow, CaptureRow, CaptureSource, CheckRequirement, ClosureDecision, ClosureInput, OperationExecution, DeferredDecision, EmbeddingDecision, MemberDecision, ApplicationDecision, ConstructionPartDecision, OperationDecision, RefinementDecision, DeferredInvocation, EmbeddingProof, ParameterMapping, CompletionEndpoint, OperationIdentity, RuleOutcome, EmbedInput, DomainFitInput, MemoryEquivalentInput, MemberInput, IndexInput, LiteralConstructionInput, CandidateInput, OperatorInput, LiteralFitInput, ProtocolInput, RefinementInput, LibraryInput, CoreInput, CorrespondenceStep, ProtocolStepDecision, RuleContext, LiteralConstructionPart, CandidateArgument, CandidateEndpoint, ProtocolStepOperation } from "../ir-infer/contract.js";
 import type { TextWork } from "./text-values.js";
-import { token, text, numeric, numericIdentity, identity, field, record, sequence, deferred, boolean, textNodeRef, textOrigin, textDiagnostic } from "./text-values.js";
+import { token, text, numeric, numericIdentity, identity, field, record, sequence, deferred, boolean, textNodeRef, textLocalRef, textOrigin, textDiagnostic } from "./text-values.js";
 import { textMemberKey, textMemberOrigin, textBindingVector, textTypeComponent, textTypeEvidence, textLiteralValue } from "./text-types.js";
 import { textHirCallableEndpoint, textHirCoreCapture } from "./text-core.js";
 
@@ -507,7 +507,47 @@ export function textClosureInput(value: ClosureInput): TextWork {
     return record("ClosureInput", [
       field("context", textRuleContext(value.context)),
       field("callable", textTypeEvidence(value.callable)),
-      field("captures", sequence(value.captures, entry0 => textTypeEvidence(entry0))),
+      field("captures", sequence(value.captures, entry0 => record("ClosureCaptureEvidence", [
+        field("local", textLocalRef(entry0.local)),
+        field("value", textTypeEvidence(entry0.value)),
+        field("reassignable", boolean(entry0.reassignable)),
+        field("incoming", textCaptureSource(entry0.incoming)),
+      ]))),
+    ]);
+  });
+}
+
+export function textCaptureSource(value: CaptureSource): TextWork {
+  return deferred(value, () => {
+    switch (value.kind) {
+      case "binding":
+        return record(value.kind, []);
+      case "parameter":
+        return record(value.kind, [
+      field("passing", text(value.passing)),
+    ]);
+      case "capture":
+        return record(value.kind, [
+      field("capture", text(value.capture)),
+    ]);
+    }
+  });
+}
+
+export function textCaptureRow(value: CaptureRow): TextWork {
+  return deferred(value, () => {
+    return record("CaptureRow", [
+      field("local", textLocalRef(value.local)),
+      field("capture", text(value.capture)),
+    ]);
+  });
+}
+
+export function textBodyCaptureRow(value: BodyCaptureRow): TextWork {
+  return deferred(value, () => {
+    return record("CaptureRow", [
+      field("local", textLocalRef(value.local)),
+      field("capture", value.capture === null ? token("null") : text(value.capture)),
     ]);
   });
 }
@@ -516,7 +556,7 @@ export function textClosureDecision(value: ClosureDecision): TextWork {
   return deferred(value, () => {
     return record("ClosureDecision", [
       field("carrier", numericIdentity("t", value.carrier)),
-      field("captures", sequence(value.captures, entry0 => text(entry0))),
+      field("captures", sequence(value.captures, textCaptureRow)),
       field("execution", textOperationExecution(value.execution)),
     ]);
   });

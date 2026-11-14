@@ -2946,6 +2946,7 @@ export function SortAndDeduplicateDiagnostics(diags) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/program.go::func::compactAndMergeRelatedInfos","kind":"func","status":"implemented","sigHash":"42709cae8871346e6c6a3377b0e66bcbe09454353ad492549702e97ff9075513","bodyHash":"e765bda8e871e462ee82676791c0e23190a24aa3ca2eb57fefec4b4ae6fb8b40"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"A run of two or more equal diagnostics is always published as a clone carrying runMembers, the added diagnostics it stands for (flattened through earlier published clones), so a cause recorded on any added diagnostic of the run leads to the published one by identity. The Go body publishes the first added diagnostic itself when no member has related information; the published code, range, message and merged related information are unchanged."}
  *
  * Go source:
  * func compactAndMergeRelatedInfos(diagnostics []*ast.Diagnostic) []*ast.Diagnostic {
@@ -2992,10 +2993,37 @@ export function compactAndMergeRelatedInfos(diags) {
             n++;
         }
         if (n > 1) {
-            let relatedInfos = [];
+            // A run of two or more is always published as a clone that carries the added diagnostics it stands for, flattened:
+            // a member that is itself a published clone contributes its own members, so repeated deduplication loses none.
+            // One pass over the run: related information is appended in run order, and members are kept in first-seen order
+            // with an identity set, so the work is linear in the member references of the run.
+            const relatedInfos = [];
+            const members = [];
+            const seen = new Set();
             for (let k = 0; k < n; k++) {
-                relatedInfos = [...relatedInfos, ...(Diagnostic_RelatedInformation(diags[i + k]) ?? [])];
+                const entry = diags[i + k];
+                if (entry === undefined) {
+                    throw new globalThis.Error("compactAndMergeRelatedInfos: a run of equal diagnostics contains an undefined entry");
+                }
+                for (const info of Diagnostic_RelatedInformation(entry) ?? []) {
+                    relatedInfos.push(info);
+                }
+                for (const member of entry.runMembers ?? [entry]) {
+                    if (member === undefined) {
+                        throw new globalThis.Error("compactAndMergeRelatedInfos: a published diagnostic's run members contain an undefined entry");
+                    }
+                    if (!seen.has(member)) {
+                        seen.add(member);
+                        members.push(member);
+                    }
+                }
             }
+            const clone = Diagnostic_Clone(d);
+            if (clone === undefined) {
+                throw new globalThis.Error("compactAndMergeRelatedInfos: a run of equal diagnostics has no first diagnostic");
+            }
+            clone.runMembers = members;
+            d = clone;
             if (relatedInfos.length > 0) {
                 relatedInfos.sort(CompareDiagnostics);
                 // compact: remove adjacent equal entries
@@ -3005,7 +3033,7 @@ export function compactAndMergeRelatedInfos(diags) {
                         compacted.push(relatedInfos[m]);
                     }
                 }
-                d = Diagnostic_SetRelatedInfo(Diagnostic_Clone(d), compacted);
+                d = Diagnostic_SetRelatedInfo(d, compacted);
             }
         }
         result.push(d);

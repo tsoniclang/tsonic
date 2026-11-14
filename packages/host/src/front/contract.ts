@@ -1,8 +1,8 @@
 import type { Diagnostic, Result } from "../diag/contract.js";
-import type { DefId, DefinitionSegment, LibraryExportIdentity, LibraryModuleIdentity, ModuleId, NodeId, Origin, PackageId, RawCandidateListId, RawComponentId,
+import type { DefId, DefinitionSegment, LibraryExportIdentity, LibraryModuleIdentity, ModuleId, NodeId, Origin, PackageId, SourceNodeRef, RawCandidateListId, RawComponentId,
   RawDataLayoutId, RawMemberTableId, RawMemoryFieldId, RawMemoryLayoutId, RawSignatureId, RawSymbolId, RawTypeId, TyId } from "../ids/contract.js";
 import type { LiteralValue, NativePrimitive, PassingMode, TypeEvidence, TypeExpansionLimits, TypeInterner } from "../ir-types/contract.js";
-import type { HirModule, SourceFile, SyntaxPhase } from "../ir-hir/contract.js";
+import type { HirModule, HirModuleBinding, HirModuleExport, SourceFile, SyntaxPhase } from "../ir-hir/contract.js";
 import type { LibraryCatalogue, WellKnownSymbol } from "../libraries/contract.js";
 import type { ExtensionReferenceEntry, ImportPreparation, LibraryRoleEntry, PackageSnapshot, ProjectSnapshot } from "../snapshot/contract.js";
 import type { ExtensionTable, OpenedProgram } from "./handles.js";
@@ -64,6 +64,7 @@ export interface CaptureDeps {
 
 export interface LowerDeps {
   readonly definitionOf: (reference: RawNodeRef) => DefId;
+  readonly bindingOccurrenceOf: (reference: RawNodeRef) => SourceNodeRef | null;
   readonly definitionOfExport: (identity: LibraryExportIdentity) => DefId;
   readonly sourceTextOf: (module: ModuleId) => string;
   readonly libraries: LibraryCatalogue;
@@ -403,6 +404,19 @@ export interface RawModuleExport {
   readonly name: string;
   readonly declaration: RawNodeRef;
   readonly module: ModuleId;
+}
+
+export type RawBindingTarget =
+  | { readonly kind: "declarations"; readonly declarations: readonly [RawNodeRef, ...RawNodeRef[]] }
+  | { readonly kind: "binding"; readonly occurrence: RawNodeRef }
+  | { readonly kind: "module"; readonly module: ModuleId }
+  | { readonly kind: "member"; readonly through: readonly [RawNodeRef, ...RawNodeRef[]];
+      readonly member: RawFact<RawSymbolId>; readonly key: RawFact<RawMemberKey>;
+      readonly origins: RawFact<readonly RawMemberOrigin[]> };
+
+export interface RawBinding {
+  readonly binding: RawNodeRef;
+  readonly target: RawFact<RawBindingTarget>;
 }
 
 export interface RawImplementation {
@@ -773,6 +787,7 @@ export interface RawModule {
   readonly references: readonly RawReference[];
   readonly links: readonly RawModuleLink[];
   readonly exports: readonly RawModuleExport[];
+  readonly bindings: readonly RawBinding[];
   readonly implementations: readonly RawImplementation[];
   readonly heritage: readonly RawHeritageEdge[];
   readonly constructors: readonly RawConstructor[];
@@ -850,20 +865,16 @@ export interface ModuleDefinitionRow {
 export interface ModuleDefinitions {
   readonly module: ModuleId;
   readonly rows: readonly ModuleDefinitionRow[];
+  readonly bindingSources: readonly { readonly node: NodeId; readonly occurrence: SourceNodeRef }[];
 }
 
 export type LowerModuleDefinitions = (module: RawModule) => Result<ModuleDefinitions>;
 
-/** One exported name of a module and its declaration group, in canonical declaration order. */
-export interface ModuleExportEntry {
-  readonly name: string;
-  readonly definitions: readonly DefId[];
-}
-
 /** The export entries of one module, in ascending order of name. */
 export interface ModuleExports {
   readonly module: ModuleId;
-  readonly entries: readonly ModuleExportEntry[];
+  readonly entries: readonly HirModuleExport[];
+  readonly bindings: readonly HirModuleBinding[];
 }
 
 export type LowerModuleExports = (deps: LowerDeps, module: RawModule) => Result<ModuleExports>;

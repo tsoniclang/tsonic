@@ -1,0 +1,69 @@
+import type { KeyData } from "../ids/contract.js";
+import type { HirCallableEndpoint } from "../ir-hir/contract.js";
+import { callableEndpointKey } from "../ir-hir/index.js";
+import type { AccessLocation, ParameterMapping } from "../ir-infer/contract.js";
+import type { BindingVector, MemberKey, MemberOrigin } from "../ir-types/contract.js";
+import type { MemberSelectionKey, ResolvedCallee } from "./contract.js";
+import { bindingVectorData } from "../ir-types/index.js";
+
+const each = <Value>(values: readonly Value[], project: (value: Value) => KeyData): KeyData =>
+  Array.from(values, value => value === undefined ? null : project(value));
+
+const endpointKey = (endpoint: HirCallableEndpoint | null): KeyData => endpoint === null ? null : callableEndpointKey(endpoint);
+
+const bindingsKey = (bindings: BindingVector): KeyData => bindingVectorData(bindings);
+
+const memberKey = (key: MemberKey): KeyData => {
+  switch (key.kind) {
+    case "text": return [key.kind, key.value];
+    case "number": return [key.kind, key.value.numerator, key.value.denominator, key.value.negativeZero];
+    case "symbol": return [key.kind, key.declaration];
+  }
+};
+
+const originKey = (origin: MemberOrigin): KeyData => {
+  switch (origin.kind) {
+    case "declared": return [origin.kind, origin.declaration];
+    case "class-prototype": return [origin.kind, origin.owner];
+    case "mapped": return [origin.kind, origin.owner.kind,
+      origin.owner.kind === "body" ? origin.owner.value.body : origin.owner.value.owner,
+      origin.owner.value.node, memberKey(origin.key)];
+  }
+};
+
+const locationKey = (location: AccessLocation): KeyData => location.kind === "accessor" ? [location.kind]
+  : [location.kind, location.check.kind === "none" ? [location.check.kind] : [location.check.kind, location.check.failure], location.receiver];
+
+const parameterKey = (parameter: ParameterMapping): KeyData => {
+  switch (parameter.kind) {
+    case "argument": return [parameter.kind, parameter.parameter, parameter.argument, parameter.component, parameter.passing];
+    case "default": return [parameter.kind, parameter.parameter, parameter.initializer];
+    case "omitted": return [parameter.kind, parameter.parameter, parameter.type];
+    case "rest": return [parameter.kind, parameter.parameter, each(parameter.arguments, argument => argument), parameter.passing];
+  }
+};
+
+const calleeKey = (callee: ResolvedCallee | null): KeyData => {
+  if (callee === null) return null;
+  const decision = callee.decision;
+  const activation = callee.activation;
+  return [
+    decision.candidate, endpointKey(decision.advertised), endpointKey(decision.api),
+    bindingsKey(decision.bindings), bindingsKey(decision.implementationBindings),
+    each(decision.parameters, parameterKey),
+    [decision.completion.signature, decision.completion.completion, decision.completion.yielded, decision.completion.sent],
+    decision.result, decision.activation,
+    activation === null ? null : [activation.body, activation.bindings.kind === "parametric"
+      ? [activation.bindings.kind] : [activation.bindings.kind, bindingsKey(activation.bindings.bindings)]],
+  ];
+};
+
+export const selectionKey: MemberSelectionKey = member => {
+  const decision = member.decision;
+  return [
+    memberKey(decision.key), each(decision.origins, originKey),
+    each(decision.selectedDeclarations, declaration => declaration), decision.primary, decision.read, decision.write,
+    endpointKey(decision.getter), endpointKey(decision.setter), bindingsKey(decision.bindings),
+    locationKey(decision.location), calleeKey(member.getter), calleeKey(member.setter),
+  ];
+};

@@ -73,7 +73,7 @@ export function createReadGroup0(readers: () => HirTextReaders): HirReadGroup0 {
       const field_value = read("value", readers().identity_t);
       return { fields: [field_value], value: () => ({ kind: "available", value: field_value.value() }) };
     });
-  const record_10 = recordReader<{ readonly kind: "unavailable"; readonly reason: "checker-error" | "not-provided" | "parameter-dependent"; }>("unavailable", read => {
+  const record_10 = recordReader<{ readonly kind: "unavailable"; readonly reason: "checker-error" | "not-provided" | "parameter-dependent" | "missing-original-component" | "incomplete-association" | "unsupported-checked-structure"; }>("unavailable", read => {
       const field_reason = read("reason", readers().literal_3);
       return { fields: [field_reason], value: () => ({ kind: "unavailable", reason: field_reason.value() }) };
     });

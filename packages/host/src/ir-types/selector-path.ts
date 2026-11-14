@@ -4,6 +4,7 @@ import type { ComponentSelector, MemberKey, MemberOrigin } from "./data.js";
 interface SelectorPathWork {
   readonly path: readonly ComponentSelector[];
   readonly into: KeyData[];
+  position: number;
 }
 
 function sourceKey(node: SourceNodeRef): readonly KeyData[] {
@@ -44,7 +45,7 @@ function selectorKey(selected: ComponentSelector, work: SelectorPathWork[]): rea
     case "type-argument": return [selected.kind, selected.declaration, selected.index];
     case "sum-arm": {
       const nested: KeyData[] = [];
-      work.push({ path: selected.family.component.path, into: nested });
+      work.push({ path: selected.family.component.path, into: nested, position: 0 });
       return [selected.kind, selected.family.origin, sourceKey(selected.family.component.root), nested,
         selected.family.parameters.map(parameter => [parameter.owner, parameter.index]),
         selected.family.roles.map(role => [role.authoredIndex, sourceKey(role.component), role.member]), selected.index];
@@ -62,10 +63,22 @@ function selectorKey(selected: ComponentSelector, work: SelectorPathWork[]): rea
  */
 export function selectorPathKey(path: readonly ComponentSelector[]): readonly KeyData[] {
   const root: KeyData[] = [];
-  const work: SelectorPathWork[] = [{ path, into: root }];
-  for (let frame = work.pop(); frame !== undefined; frame = work.pop()) {
-    const current = frame;
-    current.path.forEach(selected => { current.into.push(selectorKey(selected, work)); });
+  const work: SelectorPathWork[] = [{ path, into: root, position: 0 }];
+  const active = new Set<readonly ComponentSelector[]>();
+  for (let frame = work.at(-1); frame !== undefined; frame = work.at(-1)) {
+    if (frame.position === 0) {
+      if (active.has(frame.path)) throw new TypeError("A selector path must be acyclic");
+      active.add(frame.path);
+    }
+    if (frame.position === frame.path.length) {
+      active.delete(frame.path);
+      work.pop();
+      continue;
+    }
+    const selected = frame.path[frame.position];
+    if (selected === undefined) throw new TypeError("A selector path must retain every selector");
+    frame.position += 1;
+    frame.into.push(selectorKey(selected, work));
   }
   return root;
 }

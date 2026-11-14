@@ -29,6 +29,7 @@ import type { DuplicateSourceFile, LibFile, processedFiles } from "./fileloader.
 import type { CompilerHost } from "./host.js";
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/program.go::type::ProgramOptions","kind":"type","status":"implemented","sigHash":"9eb7d18f0dae3f15940de7ca327de6159681203c5eb38cedc77879444adaee3f","bodyHash":"fd2579730de2d43c0ed258754b40e4b212195c5b2a367c70b29872aca609e055"}
+ * @tsgo-override {"category":"embedding-host","allow":["signature"],"reason":"One optional field: the program's library files selected by the caller (library file name to file). Absent, the program takes its libraries from the host's default library directory exactly as before.","goSignature":"interface{Config:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/tsoptions/parsedcommandline.ts::ParsedCommandLine>;CreateCheckerPool:(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/compiler/program.ts::Program>)=>packages/tsts/src/internal/compiler/checkerpool.ts::CheckerPool;Host:packages/tsts/src/internal/compiler/host.ts::CompilerHost;ProjectName:string;SingleThreaded:packages/tsts/src/internal/core/tristate.ts::Tristate;Tracing:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/tracing/tracing.ts::Tracing>;TypingsLocation:string;UseSourceOfProjectReference:packages/tsts/src/go/scalars.ts::bool;canUseProjectReferenceSource?:()=>packages/tsts/src/go/scalars.ts::bool}","tsSignature":"interface{Config:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/tsoptions/parsedcommandline.ts::ParsedCommandLine>;CreateCheckerPool?:(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/compiler/program.ts::Program>)=>packages/tsts/src/internal/compiler/checkerpool.ts::CheckerPool;Host:packages/tsts/src/internal/compiler/host.ts::CompilerHost;ProjectName?:string;SelectedLibraries?:global::ReadonlyMap<string,string>;SingleThreaded?:packages/tsts/src/internal/core/tristate.ts::Tristate;Tracing?:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/tracing/tracing.ts::Tracing>;TypingsLocation?:string;UseSourceOfProjectReference?:packages/tsts/src/go/scalars.ts::bool}"}
  *
  * Go source:
  * ProgramOptions struct {
@@ -51,6 +52,12 @@ export interface ProgramOptions {
     TypingsLocation?: string;
     ProjectName?: string;
     Tracing?: GoPtr<Tracing_bcfc8412>;
+    /**
+     * The program's library files, selected by the caller: library file name (as GetLibFileName gives it) to the file
+     * of the program that is that library. When given, an empty map included, it is the only source of library files
+     * (librarybinding.ts); when absent, the host's default library directory is.
+     */
+    SelectedLibraries?: ReadonlyMap<string, string>;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/program.go::method::ProgramOptions.canUseProjectReferenceSource","kind":"method","status":"implemented","sigHash":"ec0b72e7f02ed0bbf938625750f60c5c5ca5fb65607e514b72a434b8d968f95a","bodyHash":"5e9030cdbbc310a7c9c2432c0044f7f9256331e4eb290b6426f0aa7d4db4e9f3"}
@@ -1884,6 +1891,7 @@ export declare function isCommentOrBlankLine(text: string, pos: int): bool;
 export declare function SortAndDeduplicateDiagnostics(diags: GoSlice<GoPtr<Diagnostic>>): GoSlice<GoPtr<Diagnostic>>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/program.go::func::compactAndMergeRelatedInfos","kind":"func","status":"implemented","sigHash":"42709cae8871346e6c6a3377b0e66bcbe09454353ad492549702e97ff9075513","bodyHash":"e765bda8e871e462ee82676791c0e23190a24aa3ca2eb57fefec4b4ae6fb8b40"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"A run of two or more equal diagnostics is always published as a clone carrying runMembers, the added diagnostics it stands for (flattened through earlier published clones), so a cause recorded on any added diagnostic of the run leads to the published one by identity. The Go body publishes the first added diagnostic itself when no member has related information; the published code, range, message and merged related information are unchanged."}
  *
  * Go source:
  * func compactAndMergeRelatedInfos(diagnostics []*ast.Diagnostic) []*ast.Diagnostic {

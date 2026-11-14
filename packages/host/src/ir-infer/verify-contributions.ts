@@ -260,7 +260,7 @@ function boundsCoverTypes(table: TypeTable, group: GroupId, roots: readonly TyId
 }
 
 function contributionFootprint(input: InferVerificationInput, inventory: Inventory,
-  root: OwnedConstraint, typeFlags: ReadonlyMap<number, number>, bounds: ReadonlySet<number>, visitData: DataVisitor): boolean | null {
+  root: OwnedConstraint, typeFlags: ReadonlyMap<number, number>, bounds: ReadonlySet<number>, reads: readonly number[], visitData: DataVisitor): boolean | null {
   const visited = new Set<string>();
   const variables = new Set<number>();
   const types = new Set<TyId>();
@@ -280,7 +280,7 @@ function contributionFootprint(input: InferVerificationInput, inventory: Invento
         break;
       case "refine": types.add(value.source); types.add(value.checked); types.add(value.result); break;
       case "closure":
-        for (const capture of value.captures) types.add(capture);
+        for (const capture of value.captures) types.add(capture.type);
         types.add(value.result);
         break;
       case "default":
@@ -297,7 +297,7 @@ function contributionFootprint(input: InferVerificationInput, inventory: Invento
     }
   }
   for (const variable of variables) if (!bounds.has(variable)) return false;
-  return boundsCoverTypes(input.types, input.group.id, [...types].filter(type => ((typeFlags.get(type) ?? 0) & 4) !== 0), bounds, visitData);
+  return boundsCoverTypes(input.types, input.group.id, [...types].filter(type => ((typeFlags.get(type) ?? 0) & 4) !== 0), new Set([...bounds, ...reads]), visitData);
 }
 
 export function verifyContributions(input: InferVerificationInput, inventory: Inventory,
@@ -328,10 +328,10 @@ export function verifyContributions(input: InferVerificationInput, inventory: In
         if (selected !== null && (candidate === undefined || candidate === null))
           emit(output, "candidate-reference", site, "candidate");
       }
-      const footprintKey = encodeKey([reference, contribution.bounds]);
+      const footprintKey = encodeKey([reference, contribution.reads, contribution.bounds]);
       let footprint = footprints.get(footprintKey);
       if (footprint === undefined) {
-        footprint = contributionFootprint(input, inventory, target, typeFlags, new Set(contribution.bounds), visitData);
+        footprint = contributionFootprint(input, inventory, target, typeFlags, new Set(contribution.bounds), contribution.reads, visitData);
         footprints.set(footprintKey, footprint);
       }
       if (footprint === false) emit(output, "contribution-footprint-complete", site, "bounds");

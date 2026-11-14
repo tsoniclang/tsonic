@@ -6,6 +6,12 @@ import { printHir as print } from "./print.js";
 import { verifyHir as verify } from "./verify.js";
 import { orderPragmaArguments as orderPragmas } from "./pragmas.js";
 import { callableEndpointKey as endpointKey, hasOverloadEndpoints as overloadEndpoints, selectedEndpointRoleFaults as roleFaults } from "./endpoints.js";
+import type { CreateModuleBindingViews, ProjectExportDeclarations, ResolveModuleBinding } from "./contract.js";
+import { createModuleBindingViews as bindingViews, projectExportDeclarations as exportDeclarations, resolveModuleBinding as resolveBinding } from "./bindings.js";
+
+export const resolveModuleBinding: ResolveModuleBinding = resolveBinding;
+export const createModuleBindingViews: CreateModuleBindingViews = bindingViews;
+export const projectExportDeclarations: ProjectExportDeclarations = exportDeclarations;
 
 export const childrenOfSyntax: ChildrenOfSyntax = children;
 export const indexSyntaxTree: IndexSyntaxTree = index;

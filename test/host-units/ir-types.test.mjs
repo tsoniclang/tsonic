@@ -23,8 +23,9 @@ const session = new Session();
 const post = (method, parameters = {}) => new Promise((done, reject) => {
   session.post(method, parameters, (error, result) => error === null ? done(result) : reject(error));
 });
-let createTypeInterner, seedTypeInterner, internType, internSignature, readType, readSignature, exportTypes,
-  substitute, substituteSignature, printTypes, parseTypes, runTypeVerifier, encodeSelectorPath;
+let createTypeInterner, seedTypeInterner, internType, internSignature, readType, readSignature, viewTypes, exportTypes,
+  substitute, substituteSignature, printTypes, parseTypes, runTypeVerifier, encodeSelectorPath,
+  bindingVectorData, bindingVectorKey, artifactBindingsData, artifactBindingsKey, signatureRequestData, signatureRequestKey, instanceKey;
 
 before(async () => {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true, "the whole suite requires aggregate admission");
@@ -32,8 +33,10 @@ before(async () => {
   await post("Debugger.enable");
   await post("Profiler.enable");
   await post("Profiler.startPreciseCoverage", { callCount: true, detailed: true });
-  ({ createTypeInterner, seedTypeInterner, internType, internSignature, readType, readSignature, exportTypes,
-    substitute, substituteSignature, printTypes, parseTypes, verifyTypes: runTypeVerifier, encodeSelectorPath } = await import("../../packages/host/dist/ir-types/index.js"));
+  ({ createTypeInterner, seedTypeInterner, internType, internSignature, readType, readSignature, viewTypes, exportTypes,
+    substitute, substituteSignature, printTypes, parseTypes, verifyTypes: runTypeVerifier, encodeSelectorPath,
+    bindingVectorData, bindingVectorKey, artifactBindingsData, artifactBindingsKey,
+    signatureRequestData, signatureRequestKey, instanceKey } = await import("../../packages/host/dist/ir-types/index.js"));
 });
 const moduleId = encodeModuleId({ package: encodePackageId("ir-types-tests"), path: "main.ts" });
 const definition = name => encodeDefId({ module: moduleId, segments: [{ name, ordinal: 0 }] });
@@ -94,6 +97,52 @@ const violation = (rule, site, field, value) => ({ rule, site,
   detail: [{ kind: "text", value: field }, ...(value === undefined ? [] : [{ kind: "number", value }])] });
 const typeSite = type => ({ kind: "type", type });
 const signatureSite = signature => ({ kind: "signature", signature });
+
+test("one readonly run view retains actual row identities, domain and append-only growth without publication", () => {
+  const interner = createTypeInterner();
+  const view = viewTypes(interner);
+  const terms = view.terms;
+  const signatures = view.signatures;
+  assert.deepEqual(view, { terms: [], signatures: [] });
+  const text = internType(interner, { kind: "string" });
+  const numeric = internType(interner, primitive);
+  const callable = internSignature(interner, signature({ result: numeric }));
+  assert.deepEqual([text, numeric, callable], [0, 1, 0], "run IDs are not canonical-publication remaps");
+  assert.equal(view.terms[text] === readType(interner, text), true);
+  assert.equal(view.terms[numeric] === readType(interner, numeric), true);
+  assert.equal(view.signatures[callable] === readSignature(interner, callable), true);
+  const original = view.terms[numeric];
+  for (let position = 0; position < 4096; position += 1) {
+    internType(interner, { kind: "literal", value: { kind: "string", value: `value-${position}` }, base: text });
+    assert.equal(viewTypes(interner) === view, true);
+    assert.equal(viewTypes(interner).terms === terms && viewTypes(interner).signatures === signatures, true);
+  }
+  assert.equal(view.terms.length, 4098);
+  assert.equal(view.signatures.length, 1);
+  assert.equal(view.terms[numeric] === original, true);
+  assert.equal(viewTypes(createTypeInterner()) === view, false);
+});
+
+test("seeded and substituted rows enter the same readonly run view with their genuine IDs", () => {
+  const input = { terms: [primitive, primitive], signatures: [{ id: 0, ...signature() }] };
+  const seeded = seedTypeInterner(input);
+  const seedView = viewTypes(seeded);
+  assert.equal(seedView.terms.length, 2, "the view does not deduplicate or canonicalize seeded IDs");
+  assert.equal(seedView.terms[1] === readType(seeded, 1), true);
+  assert.equal(seedView.signatures[0] === readSignature(seeded, 0), true);
+  assert.equal(seedView.terms === input.terms || seedView.signatures === input.signatures, false);
+  const parameter = { owner, index: 0 };
+  const formal = internType(seeded, { kind: "param", parameter });
+  const array = internType(seeded, { kind: "array", element: formal, readonly: false });
+  const generic = internSignature(seeded, signature({ result: array }));
+  const transformed = substituteSignature(seeded, [generic],
+    { ...emptyBindings(), classBindings: [{ kind: "bound", parameter, type: 0 }] }, limits());
+  assert.equal(transformed.kind, "complete");
+  const selected = transformed.value[0];
+  assert.equal(seedView.signatures[selected] === readSignature(seeded, selected), true);
+  assert.deepEqual(seedView.terms[readSignature(seeded, selected).result], { kind: "array", element: 0, readonly: false });
+  assert.equal(viewTypes(seeded) === seedView, true);
+});
 
 test("batched substitution preserves empty results and validates the one supplied environment", () => {
   const interner = seedTypeInterner({ terms: [primitive], signatures: [{ id: 0, ...signature() }] });
@@ -2884,11 +2933,68 @@ test("the one selector-path encoding: each selector is one array beginning with 
   assert.notEqual(encodeKey(encodeSelectorPath([{ kind: "sum-arm", family: family("authored", [first, second]), index: 0 }])),
     encodeKey(encodeSelectorPath([{ kind: "sum-arm", family: family("authored", [first]), index: 0 }, second])),
     "a selector of a family's own path is not a selector of the outer path");
+  const shared = [{ kind: "array-element" }];
+  assert.deepEqual(encodeSelectorPath([
+    { kind: "sum-arm", family: family("authored", shared), index: 0 },
+    { kind: "sum-arm", family: family("inferred", shared), index: 1 },
+  ]).map(selected => selected[3]), [[["array-element"]], [["array-element"]]],
+  "sharing a completed path is not a cycle");
+  const cyclic = [];
+  cyclic.push({ kind: "sum-arm", family: family("authored", cyclic), index: 0 });
+  assert.throws(() => encodeSelectorPath(cyclic), /acyclic/u, "a self cycle is a caller defect, not unbounded expansion");
+  const firstPath = [];
+  const secondPath = [{ kind: "sum-arm", family: family("authored", firstPath), index: 0 }];
+  firstPath.push({ kind: "sum-arm", family: family("authored", secondPath), index: 0 });
+  assert.throws(() => encodeSelectorPath(firstPath), /acyclic/u, "a cycle spanning paths is rejected at its actual repeated ancestor");
+  assert.throws(() => encodeSelectorPath(new Array(1)), /retain every selector/u,
+    "a sparse path is a caller defect rather than an omitted selector");
   let deep = [];
   for (let level = 0; level < 20000; level += 1) deep = [{ kind: "sum-arm", family: family("authored", deep), index: 0 }];
   let depth = 0;
   for (let current = encodeSelectorPath(deep); current.length === 1; current = current[0][3]) depth += 1;
   assert.equal(depth, 20000, "a deeply nested family path is encoded without native recursion");
+});
+
+test("canonical binding and signature-request projections preserve all fields and individual holes", () => {
+  const bound = { kind: "bound", parameter: { owner, index: 0 }, type: 1 };
+  const rigid = { kind: "rigid", parameter: { owner: other, index: 1 } };
+  const vector = { classBindings: [bound, rigid], methodBindings: [rigid], capturedBindings: [bound],
+    selfBindings: [{ kind: "rigid", owner }, { kind: "bound", owner: other, type: 2 }] };
+  const data = [[["bound", owner, 0, 1], ["rigid", other, 1]], [["rigid", other, 1]],
+    [["bound", owner, 0, 1]], [["rigid", owner], ["bound", other, 2]]];
+  assert.deepEqual(bindingVectorData(vector), data);
+  assert.equal(bindingVectorKey(vector), encodeKey(data));
+  const bindings = { kind: "instantiated", bindings: vector };
+  assert.deepEqual(artifactBindingsData(bindings), ["instantiated", data]);
+  assert.equal(artifactBindingsKey(bindings), encodeKey(["instantiated", data]));
+  assert.equal(instanceKey({ body, bindings }), encodeKey([body, ["instantiated", data]]));
+  assert.equal(instanceKey({ body, bindings: { kind: "parametric" } }), encodeKey([body, ["parametric"]]));
+  assert.notEqual(instanceKey({ body, bindings }), instanceKey({ body: otherBody, bindings }));
+  assert.deepEqual(artifactBindingsData({ kind: "parametric" }), ["parametric"]);
+  assert.notEqual(artifactBindingsKey({ kind: "parametric" }), artifactBindingsKey({ kind: "instantiated", bindings: emptyBindings() }));
+  const request = { definition: owner, endpoint: "api-body", ordinal: 2, bindings };
+  const expected = [owner, "api-body", 2, ["instantiated", data]];
+  assert.deepEqual(signatureRequestData(request), expected);
+  assert.equal(signatureRequestKey(request), encodeKey(expected));
+  assert.equal(signatureRequestKey(structuredClone(request)), signatureRequestKey(request));
+  for (const change of [{ definition: other }, { endpoint: "advertised" }, { endpoint: "api-signature" },
+    { ordinal: 0 }, { bindings: { kind: "parametric" } }]) {
+    assert.notEqual(signatureRequestKey({ ...request, ...change }), signatureRequestKey(request));
+  }
+  for (const family of ["classBindings", "methodBindings", "capturedBindings", "selfBindings"]) {
+    const entry = family === "selfBindings" ? { kind: "rigid", owner } : rigid;
+    const holed = [];
+    holed[1] = entry;
+    const sparse = { ...emptyBindings(), [family]: holed };
+    const filled = { ...emptyBindings(), [family]: [entry, entry] };
+    const shorter = { ...emptyBindings(), [family]: [entry] };
+    assert.notEqual(bindingVectorKey(sparse), bindingVectorKey(filled), family);
+    assert.notEqual(bindingVectorKey(sparse), bindingVectorKey(shorter), family);
+    assert.notEqual(instanceKey({ body, bindings: { kind: "instantiated", bindings: sparse } }),
+      instanceKey({ body, bindings: { kind: "instantiated", bindings: filled } }), family);
+    assert.notEqual(signatureRequestKey({ ...request, bindings: { kind: "instantiated", bindings: sparse } }),
+      signatureRequestKey({ ...request, bindings: { kind: "instantiated", bindings: filled } }), family);
+  }
 });
 
 test("the complete real ir-types owner compiles against freshly emitted actual allowed dependency declarations", async () => {
@@ -2964,11 +3070,21 @@ test("fresh public declarations admit real strict readers and reject the entire 
   assert.equal(invalidBatch.status, 1, invalidBatch.diagnostics.slice(-8000));
   assert.deepEqual([...invalidBatch.diagnostics.matchAll(/error TS(\d+):/gu)].map(match => Number(match[1])),
     [2345, 2345, 2322, 2322, 2542, 2339], invalidBatch.diagnostics.slice(-8000));
-  write("seed-reader.ts", 'import { internType } from "./declarations/ir-types/index.js";\nimport type { TypeInterner } from "./declarations/ir-types/contract.js";\nconst fabricated = { identityKind: "type-interner", terms: [], signatures: [], typeKeys: new Map(), signatureKeys: new Map(), substitutions: new Map() };\nexport const forbidden: TypeInterner = fabricated;\nexport function inaccessible(interner: TypeInterner): void {\n  internType(fabricated, { kind: "string" });\n  interner.typeRows;\n  interner.terms;\n}\n');
+  write("seed-reader.ts", 'import { internType } from "./declarations/ir-types/index.js";\nimport type { TypeInterner } from "./declarations/ir-types/contract.js";\nconst fabricated = { identityKind: "type-interner", terms: [], signatures: [], typeKeys: new Map(), signatureKeys: new Map(), substitutions: new Map() };\nexport const forbidden: TypeInterner = fabricated;\nexport function inaccessible(interner: TypeInterner): void {\n  internType(fabricated, { kind: "string" });\n  interner.table;\n  interner.terms;\n}\n');
   const invalidOwner = run(resolve(stage, "consumer.json"));
   assert.equal(invalidOwner.status, 1, invalidOwner.diagnostics.slice(-8000));
   assert.deepEqual([...invalidOwner.diagnostics.matchAll(/error TS(\d+):/gu)].map(match => Number(match[1])),
     [2739, 2739, 2341, 2576], invalidOwner.diagnostics.slice(-8000));
+  write("view-reader.ts", 'import { viewTypes } from "./declarations/ir-types/index.js";\nimport type { TypeInterner, TypeTable, ViewTypes } from "./declarations/ir-types/contract.js";\nexport const operation: ViewTypes = viewTypes;\nexport function current(interner: TypeInterner): TypeTable { return operation(interner); }\n');
+  write("view-consumer.json", { extends: resolve(repository, "tsconfig.base.json"), compilerOptions: {
+    noEmit: true, types: [], skipLibCheck: false, strict: true, noUncheckedIndexedAccess: true, exactOptionalPropertyTypes: true },
+    files: [resolve(stage, "view-reader.ts")], include: [] });
+  assert.deepEqual(run(resolve(stage, "view-consumer.json")), { status: 0, diagnostics: "" });
+  write("view-reader.ts", 'import { viewTypes } from "./declarations/ir-types/index.js";\nimport type { TypeInterner } from "./declarations/ir-types/contract.js";\nexport function forbidden(interner: TypeInterner): void {\nconst table = viewTypes(interner);\ntable.terms = [];\ntable.terms.push({ kind: "error" });\ntable.terms[0] = { kind: "error" };\ntable.signatures = [];\ntable.signatures.push(table.signatures[0]!);\n}\n');
+  const invalidView = run(resolve(stage, "view-consumer.json"));
+  assert.equal(invalidView.status, 1, invalidView.diagnostics.slice(-8000));
+  assert.deepEqual([...invalidView.diagnostics.matchAll(/error TS(\d+):/gu)].map(match => Number(match[1])),
+    [2540, 2339, 2542, 2540, 2339], invalidView.diagnostics.slice(-8000));
 });
 
 after(async () => {

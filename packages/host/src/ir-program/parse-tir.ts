@@ -1,19 +1,19 @@
 import type { DefId, BodyId, NodeId, LocalId, TyId, SigId, SourceNodeRef, LocalRef } from "../ids/contract.js";
 import type { BindingVector, ArtifactBindings, BodyInstance, PassingMode, TypeEvidence } from "../ir-types/contract.js";
 import type { BodyRoot, ImportTarget, HirLexicalScope } from "../ir-hir/contract.js";
-import type { FlowRole, EmbeddingDecision, MemberDecision, ApplicationDecision, OperationDecision, DeferredDecision, RefinementDecision } from "../ir-infer/contract.js";
-import type { TypedOperation, TirResolution, ResolvedCallee, MemberSelection, TirArgument, TirRestPart, TirApplication, TirProtocolStep, TirProtocol, TirSelection, TirDemand, ConversionDecision, TypedValue, TargetAccess, TypedPhase, TirLocal, TirParam, TirBody } from "../ir-tir/contract.js";
-import type { Cursor, RecordFields, TextStep } from "./parse-values.js";
+import type { BodyCaptureRow, FlowRole, EmbeddingDecision, MemberDecision, ApplicationDecision, OperationDecision, OperationIdentity, DeferredDecision, RefinementDecision } from "../ir-infer/contract.js";
+import type { BackedConversionIdentity, ConversionIdentity, TypedOperationOf, TypedOperation, TirResolution, ResolvedCallee, MemberSelection, TirArgument, TirRestPart, TirApplication, TirProtocolStep, TirProtocol, TirSelection, TirDemand, ConversionDecision, TypedValue, TargetAccess, TypedPhase, TirLocal, TirParam, TirBody } from "../ir-tir/contract.js";
+import type { Cursor, RecordFields, TextReader, TextStep } from "./parse-values.js";
 import type { SyntaxValue, SyntaxReadPorts } from "./parse-syntax-values.js";
 import { delimiter, readString, readNumber, choice, readBoolean, readStringChoice, readSignatureId, openRecord, closeRecord, readDefinitionId, readBodyId, readTypeId, readNodeId, readLocalId, acceptText, atomicText, fieldText, nullableText, arrayText } from "./parse-values.js";
 import { readTypeEvidenceText, readBindings, readArtifactBindings, readInstance } from "./parse-types.js";
 import { readSourceNodeRef, readLocalRef } from "./parse-diagnostics.js";
 import { readHirLexicalScopeText, readImportTargetText } from "./parse-core.js";
-import { readDeferredDecisionText, readEmbeddingDecisionText, readMemberDecisionText, readApplicationDecisionText, readOperationDecisionText, readRefinementDecisionText } from "./parse-inference.js";
+import { readBodyCaptureRowText, readDeferredDecisionText, readEmbeddingDecisionText, readMemberDecisionText, readApplicationDecisionText, readBackedIdentityText, readConversionIdentityText, readOperationDecisionWith, readOperationIdentityText, readRefinementDecisionText } from "./parse-inference.js";
 import { resolveSyntaxValue, finishSyntaxRecord, readSyntaxReference } from "./parse-syntax-values.js";
 
 export function readConversionDecisionText<Root>(cursor: Cursor, finish: (value: ConversionDecision) => TextStep<Root>): TextStep<Root> {
-  return atomicText(cursor, next => choice(next, ["identity","convert","deferred"]), label =>
+  return atomicText(cursor, next => choice(next, ["identity","convert","backed-convert","deferred"]), label =>
     atomicText(cursor, next => delimiter(next, "("), () => {
       const fields: RecordFields = { given: new Set<string>() };
       switch (label) {
@@ -22,8 +22,15 @@ export function readConversionDecisionText<Root>(cursor: Cursor, finish: (value:
       acceptText({ kind: label }, finish));
         case "convert":
           return fieldText<FlowRole, Root>(cursor, fields, "role", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["initialization","assignment","argument","return","receiver","yield","member-write"]), done), roleValue =>
+    fieldText<TypedOperationOf<ConversionIdentity>, Root>(cursor, fields, "operation",
+      (next, done) => readTypedOperationWith(next, readConversionIdentityText, done), operationValue =>
+      atomicText(cursor, next => closeRecord(next, fields), () =>
+          acceptText({ kind: label, role: roleValue, operation: operationValue }, finish))));
+        case "backed-convert":
+          return fieldText<FlowRole, Root>(cursor, fields, "role", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["initialization","assignment","argument","return","receiver","yield","member-write"]), done), roleValue =>
     fieldText<EmbeddingDecision, Root>(cursor, fields, "embedding", readEmbeddingDecisionText, embeddingValue =>
-      fieldText<TypedOperation, Root>(cursor, fields, "operation", readTypedOperationText, operationValue =>
+      fieldText<TypedOperationOf<BackedConversionIdentity>, Root>(cursor, fields, "operation",
+        (next, done) => readTypedOperationWith(next, readBackedIdentityText, done), operationValue =>
         atomicText(cursor, next => closeRecord(next, fields), () =>
             acceptText({ kind: label, role: roleValue, embedding: embeddingValue, operation: operationValue }, finish)))));
         case "deferred":
@@ -126,8 +133,15 @@ export function readTirProtocolText<Root>(cursor: Cursor, finish: (value: TirPro
 }
 
 export function readTypedOperationText<Root>(cursor: Cursor, finish: (value: TypedOperation) => TextStep<Root>): TextStep<Root> {
+  return readTypedOperationWith(cursor, readOperationIdentityText, finish);
+}
+
+function readTypedOperationWith<Identity extends OperationIdentity, Root>(
+  cursor: Cursor, readIdentity: TextReader<Identity>, finish: (value: TypedOperationOf<Identity>) => TextStep<Root>,
+): TextStep<Root> {
   return atomicText(cursor, next => openRecord(next, "TypedOperation"), fields =>
-    fieldText<OperationDecision, Root>(cursor, fields, "decision", readOperationDecisionText, decisionValue =>
+    fieldText<OperationDecision & { readonly operation: Identity }, Root>(cursor, fields, "decision",
+      (next, done) => readOperationDecisionWith(next, readIdentity, done), decisionValue =>
     fieldText<NodeId | null, Root>(cursor, fields, "permissionScope", (next, done) => nullableText(next, (next, done) => atomicText(next, readNodeId, done), done), permissionScopeValue =>
       atomicText(cursor, next => closeRecord(next, fields), () =>
           acceptText({ decision: decisionValue, permissionScope: permissionScopeValue }, finish)))));
@@ -170,9 +184,8 @@ export function readResolvedCalleeText<Root>(cursor: Cursor, finish: (value: Res
   return atomicText(cursor, next => openRecord(next, "ResolvedCallee"), fields =>
     fieldText<ApplicationDecision, Root>(cursor, fields, "decision", readApplicationDecisionText, decisionValue =>
     fieldText<BodyInstance | null, Root>(cursor, fields, "activation", (next, done) => nullableText(next, (next, done) => atomicText(next, readInstance, done), done), activationValue =>
-      fieldText<readonly (LocalRef)[], Root>(cursor, fields, "captures", (next, done) => arrayText(next, (next, done) => atomicText(next, readLocalRef, done), done), capturesValue =>
-        atomicText(cursor, next => closeRecord(next, fields), () =>
-            acceptText({ decision: decisionValue, activation: activationValue, captures: capturesValue }, finish))))));
+      atomicText(cursor, next => closeRecord(next, fields), () =>
+          acceptText({ decision: decisionValue, activation: activationValue }, finish)))));
 }
 
 export function readTirArgumentText<Root>(cursor: Cursor, finish: (value: TirArgument) => TextStep<Root>): TextStep<Root> {
@@ -287,7 +300,7 @@ export function readTirBodyText<Root>(cursor: Cursor, ports: SyntaxReadPorts, fi
     fieldText<readonly (TirLocal)[], Root>(cursor, fields, "locals", (next, done) => arrayText(next, readTirLocalText, done), localsValue =>
     fieldText<SyntaxValue<BodyRoot<TypedPhase>>, Root>(cursor, fields, "root", (next, done) => readSyntaxReference(next, ports.BodyRoot, done), rootValue =>
     fieldText<readonly (BodyId)[], Root>(cursor, fields, "nestedBodies", (next, done) => arrayText(next, (next, done) => atomicText(next, readBodyId, done), done), nestedBodiesValue =>
-    fieldText<readonly (LocalRef)[], Root>(cursor, fields, "captures", (next, done) => arrayText(next, (next, done) => atomicText(next, readLocalRef, done), done), capturesValue =>
+    fieldText<readonly (BodyCaptureRow)[], Root>(cursor, fields, "captures", (next, done) => arrayText(next, readBodyCaptureRowText, done), capturesValue =>
     fieldText<readonly (HirLexicalScope)[], Root>(cursor, fields, "scopes", (next, done) => arrayText(next, readHirLexicalScopeText, done), scopesValue =>
     fieldText<readonly (TypeEvidence)[], Root>(cursor, fields, "evidence", (next, done) => arrayText(next, readTypeEvidenceText, done), evidenceValue =>
     fieldText<boolean, Root>(cursor, fields, "asynchronous", (next, done) => atomicText(next, readBoolean, done), asynchronousValue =>

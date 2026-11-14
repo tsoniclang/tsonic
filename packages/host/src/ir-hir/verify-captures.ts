@@ -9,7 +9,7 @@ import { hirArray, hirChoice, hirDiscriminant, hirNumericIdentity, hirStringIden
 
 function captured(value: HirShape): HirChoiceShape {
   return hirChoice(hirVariant("available", [["value", value]]),
-    hirVariant("unavailable", [["reason", hirLiteral("checker-error", "parameter-dependent", "not-provided")]]));
+    hirVariant("unavailable", [["reason", hirLiteral("checker-error", "parameter-dependent", "not-provided", "missing-original-component", "incomplete-association", "unsupported-checked-structure")]]));
 }
 
 function variants(name: string, field: string, arms: readonly (readonly [string | number, readonly HirField[]])[],

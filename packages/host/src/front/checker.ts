@@ -73,6 +73,7 @@ export interface SessionInputs {
   readonly currentDirectory: string;
   readonly files: ReadonlyMap<string, string>;
   readonly rootFiles: readonly string[];
+  readonly selectedLibraries: ReadonlyMap<string, string>;
   readonly options: Readonly<Record<string, boolean | string | readonly string[]>>;
   readonly modules: ReadonlyMap<string, ModuleId>;
   readonly packageNames: ReadonlyMap<PackageId, string | null>;
@@ -107,19 +108,23 @@ export function sessionInputs(snapshot: ProjectSnapshot): SessionInputs {
   snapshot.packages.files.forEach(file => { files.set(file.path, file.text); });
   const rootFiles: string[] = [];
   const rooted = new Set<string>();
-  const root = (path: string | undefined): void => {
+  const root = (path: string | undefined): string => {
     if (path === undefined) throw new TypeError("front: a root, contributed declaration or bundled library of the snapshot names no module of the snapshot");
     if (!rooted.has(path)) {
       rooted.add(path);
       rootFiles.push(path);
     }
+    return path;
   };
   snapshot.roots.forEach(module => { root(paths.get(module)); });
   snapshot.contributions.declarationModules.forEach(module => { root(paths.get(module)); });
-  snapshot.contributions.declarationPolicy.bundledLibraries.forEach(module => { root(paths.get(module)); });
+  const selectedLibraries = new Map<string, string>();
+  snapshot.contributions.declarationPolicy.bundledLibraries.forEach(binding => {
+    selectedLibraries.set(binding.name, root(paths.get(binding.module)));
+  });
   const options: Record<string, boolean | string | readonly string[]> = {};
   optionSet(snapshot.contributions.declarationPolicy.installedDeclarations).forEach(option => { options[option.name] = option.value; });
-  return ({ currentDirectory: projectRoot, files, rootFiles, options, modules, packageNames });
+  return ({ currentDirectory: projectRoot, files, rootFiles, selectedLibraries, options, modules, packageNames });
 }
 
 /**
@@ -136,6 +141,8 @@ export function openProgram(deps: CaptureDeps, snapshot: ProjectSnapshot, prepar
     files: inputs.files,
     rootFiles: inputs.rootFiles,
     compilerOptions: inputs.options,
+    selectedLibraries: inputs.selectedLibraries,
+    includeBundledLibraries: false,
     extensionHostOptions: {
       extensions: ExtensionTable.extensions(deps.extensions),
       requiredProviderModules: snapshot.contributions.requiredProviderModules.map(required => required.providerId === null

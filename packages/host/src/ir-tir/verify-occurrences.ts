@@ -1,7 +1,7 @@
 import type { DefId, LocalRef, NodeId, SourceNodeRef } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import type { HirNode } from "../ir-hir/contract.js";
-import type { ApplicationDecision, DeferredDecision, MemberDecision, RuleOutcome } from "../ir-infer/contract.js";
+import type { ApplicationDecision, DeferredDecision, MemberDecision, OperationDecision, RuleOutcome } from "../ir-infer/contract.js";
 import type { BodyInstance, TypeEvidence, TypeTable } from "../ir-types/contract.js";
 import type { MemberSelection, ResolvedCallee, TirBody, TirMemberOccurrence, TirModule, TirNode, TirProtocol, TirRule, TypedBodyTemplate, TypedOperation, TypedValue } from "./contract.js";
 import type { TirLayouts, TirReference, TirRecordAssociation, TirRecordLayout, TirScalarValue, TirTypedWork, TirValuePath } from "./text-layouts.js";
@@ -176,7 +176,7 @@ export const deferredEvidence = (deferred: DeferredDecision): readonly TypeEvide
     case "refinement": return [invocation.input.source, invocation.input.checked];
     case "library": return [...(invocation.input.receiver === null ? [] : [invocation.input.receiver]), ...invocation.input.arguments, invocation.input.result];
     case "core": return [...invocation.input.operands, invocation.input.result];
-    case "closure": return [invocation.input.callable, ...invocation.input.captures];
+    case "closure": return [invocation.input.callable, ...invocation.input.captures.map(capture => capture.value)];
   }
 };
 
@@ -229,7 +229,8 @@ export const collectTirSemantics = (nodes: readonly TirNode[]): TirSemanticInven
     const phase = node.tsonic;
     if (phase === null) continue;
     const value = typedValueOf(node);
-    if (value?.conversion.kind === "convert") pending.push({ kind: "operation", value: value.conversion.operation, node });
+    if (value?.conversion.kind === "convert" || value?.conversion.kind === "backed-convert")
+      pending.push({ kind: "operation", value: value.conversion.operation, node });
     if (value?.conversion.kind === "deferred") pending.push({ kind: "deferred", value: value.conversion.deferred, node });
     if ("operation" in phase) operation(phase.operation, node);
     if ("construction" in phase) operation(phase.construction, node);
@@ -299,9 +300,11 @@ export const verifyValueEndpoints = (body: TirBody, node: TirNode, emit: TirOccu
   const conversion = value.conversion;
   if (conversion.kind === "identity") {
     if (value.type !== value.convertedType) emit("conversion-destination", node, "conversion does not retain its destination endpoint");
-  } else if (conversion.kind === "convert") {
-    const decision = conversion.operation.decision;
+  } else if (conversion.kind === "convert" || conversion.kind === "backed-convert") {
+    const decision: OperationDecision = conversion.operation.decision;
     const operation = decision.operation;
+    if (conversion.kind === "convert" ? operation.kind !== "conversion" : operation.kind !== "library" && operation.kind !== "core")
+      emit("conversion-operation", node, "a conversion is carried out by the conversion identity, and a backed conversion by a core or library operation");
     if (decision.operands.length !== 1 || decision.operands[0] !== value.type ||
       operation.kind === "conversion" && operation.from !== value.type) {
       emit("conversion-source", node, "conversion does not retain its value source endpoint");

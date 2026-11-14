@@ -43,7 +43,9 @@ type PublicSelectedPropertyAccess<Selection> = Selection extends CheckerResolved
  * otherwise); when the receiver is `await import("m")` itself it is the same for that module. For any other receiver
  * (a variable the namespace value flowed into, a parameter, a conditional) `target` is nothing: the checker knows
  * that the member is a module's exported value and not which module. The receiver's type does not tell: a value
- * typed by one import's namespace may be another module's.
+ * typed by one import's namespace may be another module's. The member's own symbol is shared by every module whose
+ * exported value has the same type, and its Parent is the first such module: a consumer takes the module only from
+ * `target`, never from that symbol.
  */
 export type ResolvedSourcePropertyAccessInfo = (PublicSelectedPropertyAccess<CheckerResolvedSourcePropertyAccessInfo> & {
     readonly kind: "member";

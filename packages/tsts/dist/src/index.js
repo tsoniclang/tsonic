@@ -2,6 +2,7 @@ export { CommandLine } from "./internal/execute/tsc.js";
 export { TstsSourceProviderContractVersion, argumentPassingFactKey, associatedTypeFactKey, attributeFactKey, canonicalIdentityFactKey, constGenericFactKey, createSourceSemanticsExtension, defaultValueFactKey, defineExtensionFactKey, fieldFactKey, getProviderMemberSurfaceKey, isProviderWellKnownSymbolName, flowStateFactKey, functionPointerFactKey, pointerFactKey, pointerOperationFactKey, rawPointerFactKey, rawPointerOperationFactKey, providerTypeFamilyFactKey, providerVirtualDeclarationFactKey, sourcePrimitive, sourceSemanticsExtensionId, sourcePrimitiveFactKey, sourceMarkerFactKey, structFactKey, } from "./extensions/index.js";
 export { ParseBuildCommandLine, ParseCommandLine } from "./internal/tsoptions/commandlineparser.js";
 export { barebonesLibContent, flattenDiagnosticMessageText, formatDiagnostics, transpile, transpileDeclaration, transpileModule } from "./services/transpile.js";
+export { getDiagnosticRunMembers } from "./services/diagnostic-run-members.js";
 export { createCompilerHost, createInMemoryFileSystem, getBundledLibraryClosure, getBundledLibraryPath, withBundledLibraries } from "./services/embedding-host.js";
 export { createCompilerSession, createCompilerSessionFromFiles, createCompilerSessionFromProgram } from "./services/compiler-session.js";
 export * from "./internal/ast/symbolflags.js";

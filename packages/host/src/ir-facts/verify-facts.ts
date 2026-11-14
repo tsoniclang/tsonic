@@ -1,3 +1,4 @@
+import { instanceKey } from "../ir-types/index.js";
 import type { Violation } from "../diag/contract.js";
 import type { NodeId, NodeRef } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
@@ -9,10 +10,7 @@ import type {
   ArgumentTransport, EscapeTarget, FactsRule, FactsSite, MemoryField, MemoryLayout, MetadataFieldRef, MetadataLayoutRef, MirPoint, RelationalOwner,
   RetentionFact, VerifyFacts,
 } from "./contract.js";
-import {
-  collectSelectionChecks, compareNumbers, escapeData, factBindingInputs, instanceKey, ownerKey, relationalUsage, sameBindings, sameCaptures, validIndex,
-  verifyFactBindings, verifyRelationalArena,
-} from "./verify-relations.js";
+import { collectSelectionChecks, compareNumbers, escapeData, factBindingInputs, ownerKey, relationalUsage, sameBindings, validIndex, verifyFactBindings, verifyRelationalArena,  } from "./verify-relations.js";
 
 const compareText = (left: string, right: string): number => left === right ? 0 : left < right ? -1 : 1;
 const compareNullableNumber = (left: number | null, right: number | null, nullOrder: -1 | 1): number => {
@@ -390,25 +388,24 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
       const dependent = context.bindingDependentOf(decision.api.declaration);
       const environment: ArtifactBindings | null = dependent === null ? null : dependent
         ? { kind: "instantiated", bindings: decision.implementationBindings } : { kind: "parametric" };
-      let activationValid = true;
-      let capturesValid = true;
-      if (activation !== null) {
-        const actual = context.tirBody(activation);
-        activationValid = actual.body === activation.body && actual.owner === decision.api.declaration &&
-          sameBindings(actual.bindings, activation.bindings) && environment !== null && sameBindings(activation.bindings, environment);
-        capturesValid = sameCaptures(actual.captures, alternative.resolution.captures);
-      }
+      const actual = activation === null ? null : context.tirBody(activation);
+      const captured = actual === null ? 0 : actual.captures.length;
+      const activationValid = actual === null || activation === null || actual.body === activation.body && actual.owner === decision.api.declaration &&
+        sameBindings(actual.bindings, activation.bindings) && environment !== null && sameBindings(activation.bindings, environment);
       if (alternative.summary.definition !== decision.api.declaration || environment === null || !sameBindings(alternative.summary.bindings, environment) ||
         !activationValid) report("summary-reference-exact", site,
         "An invocation names the actual selected declaration and exact instantiated summary environment.");
       const captureSet = new Set<string>();
-      for (const capture of alternative.resolution.captures) if (capture !== undefined) captureSet.add(encodeKey([capture.body, capture.local]));
-      if (!capturesValid || captureSet.size !== alternative.resolution.captures.length ||
-        receiver !== undefined && receiver.captures.length !== alternative.resolution.captures.length) {
+      if (actual !== null) for (const row of actual.captures) {
+        if (row === undefined || !context.localExists(row.local)) {
+          report("capture-locations-exact", site, "An invocation capture retains its actual qualified local location.");
+          continue;
+        }
+        captureSet.add(encodeKey([row.local.body, row.local.local]));
+      }
+      if (captureSet.size !== captured || receiver !== undefined && receiver.captures.length !== captured) {
         report("invocation-contexts-correlated", site, "Each invocation alternative retains its own complete actual captured-location vector.");
       }
-      for (const capture of alternative.resolution.captures) if (capture === undefined || !context.localExists(capture)) report("capture-locations-exact", site,
-        "An invocation capture retains its actual qualified local location.");
     }
   }
   nodeOrder(facts.origins.callbacks, "callbacks-order");

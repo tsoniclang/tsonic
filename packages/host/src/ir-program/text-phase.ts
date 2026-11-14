@@ -1,6 +1,6 @@
 import type { TypedName, TypedPropertyKey, TypedDecorator, TypedIteration, TypedControlTransfer, TypedVariableList, TypedClassValue, TypedOmission, TypedKeyword, TypedString, TypedNumber, TypedBigInt, TypedBinary, TypedPrefix, TypedUpdate, TypedProtocolValue, TypedClosure, TypedConditional, TypedMember, TypedApplication, TypedSpread, TypedTemplate, TypedConstruction, TypedObjectSpread, TypedProperty, TypedShorthand, TypedUnary, TypedInstantiation } from "../ir-tir/contract.js";
 import type { TextWork } from "./text-values.js";
-import { token, text, numeric, numericIdentity, identity, field, record, sequence, deferred, boolean, integer, textNodeRef, textLocalRef } from "./text-values.js";
+import { token, text, numeric, numericIdentity, identity, field, record, sequence, deferred, boolean, integer, textNodeRef } from "./text-values.js";
 import { textConversionDecision, textTirDemand, textTirResolution, textTargetAccess, textTirApplication, textTirProtocol, textTypedOperation, textTirSelection, textMemberSelection } from "./text-tir.js";
 import { textRefinementDecision, textRuleOutcome, textConstructionPartDecision, textApplicationDecision, textClosureDecision } from "./text-inference.js";
 import { textMemberKey, textExactRational, textBindingVector } from "./text-types.js";
@@ -444,7 +444,6 @@ export function textTypedClosure(value: TypedClosure): TextWork {
       field("evidenceIndex", (value.evidenceIndex === null ? token("null") : numeric(value.evidenceIndex))),
       field("demand", textTirDemand(value.demand)),
       field("callable", textTypedCallable(value.callable)),
-      field("captures", sequence(value.captures, entry0 => textLocalRef(entry0))),
       field("closure", textRuleOutcome(value.closure, textClosureDecision)),
     ]);
   });

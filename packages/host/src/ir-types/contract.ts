@@ -1,6 +1,6 @@
 import type { TyId, SigId, DefId, KeyData, SourceNodeRef, LocalRef } from "../ids/contract.js";
 import type { TextParseResult, Violation } from "../diag/contract.js";
-import type { ArtifactBindings, ComponentSelector, TypeTerm, Signature, SignatureInput, TypeTable, BindingVector, TypeParameterIdentity, TypeEvidence } from "./data.js";
+import type { ArtifactBindings, BodyInstance, ComponentSelector, TypeTerm, Signature, SignatureInput, TypeTable, BindingVector, TypeParameterIdentity, TypeEvidence } from "./data.js";
 import type { TypeArena } from "./arena.js";
 export type * from "./data.js";
 
@@ -26,6 +26,14 @@ export interface SignatureRequest {
   readonly bindings: ArtifactBindings;
 }
 
+export type BindingVectorData = (vector: BindingVector) => KeyData;
+export type ArtifactBindingsData = (bindings: ArtifactBindings) => KeyData;
+export type BindingVectorKey = (vector: BindingVector) => string;
+export type ArtifactBindingsKey = (bindings: ArtifactBindings) => string;
+export type SignatureRequestData = (request: SignatureRequest) => KeyData;
+export type SignatureRequestKey = (request: SignatureRequest) => string;
+export type InstanceKey = (instance: BodyInstance) => string;
+
 export type TypeTransform<Value> =
   | { readonly kind: "complete"; readonly value: Value }
   | { readonly kind: "resource-limit"; readonly dimension: "depth" | "visits" | "union-members" | "intersection-members";
@@ -37,6 +45,7 @@ export type InternType = (interner: TypeInterner, term: TypeTerm) => TyId;
 export type InternSignature = (interner: TypeInterner, signature: SignatureInput) => SigId;
 export type ReadType = (interner: TypeInterner, type: TyId) => TypeTerm;
 export type ReadSignature = (interner: TypeInterner, signature: SigId) => Signature;
+export type ViewTypes = (interner: TypeInterner) => TypeTable;
 export type TypeOf = (type: TyId) => TypeTerm;
 export type SignatureOf = (signature: SigId) => Signature;
 export interface TypePublication {

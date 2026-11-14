@@ -3038,7 +3038,7 @@ function coreArmInputs() {
     add("markers", `struct/${count}/${reverse}`, { struct: { valueType: true, fields: available(reverse ? fields.reverse() : fields) },
       field: markerField(), defaultValue: { typeNode: bodySource(5), type: available(0) }, jsString: true });
   }
-  for (const reason of ["checker-error", "parameter-dependent", "not-provided"])
+  for (const reason of ["checker-error", "parameter-dependent", "not-provided", "missing-original-component", "incomplete-association", "unsupported-checked-structure"])
     add("markers", `unavailable-fields/${reason}`, { struct: { valueType: false, fields: unavailable(reason) }, field: null, defaultValue: null, jsString: false });
   for (const kind of ["builder-state", "application"]) add("attribute", kind, { occurrence: bodySource(2), applicationTarget: bodySource(6),
     selectedMember: { selectedDeclaration: bodySource(3), declarations: [bodySource(3)] }, applicationMemberKind: "method", applicationPlacement: "constructor",
@@ -3059,7 +3059,7 @@ function coreArmInputs() {
   for (const value of [null, "moved", "borrowed-shared", "borrowed-mut"]) add("flowState", String(value), value);
   add("provider", "actual provider definition", definitionIdentity);
   for (const field of ["provider", "markers", "pointerType", "pointerOperation", "fieldBinding", "recordBinding", "attribute", "safety", "argumentPassing", "flowState"])
-    for (const reason of ["checker-error", "parameter-dependent", "not-provided"])
+    for (const reason of ["checker-error", "parameter-dependent", "not-provided", "missing-original-component", "incomplete-association", "unsupported-checked-structure"])
       rows.push({ field, name: `${field}/${reason}`, captured: unavailable(reason) });
   // Binding captures whose descriptor references are unavailable: the record is complete and needs no descriptor node.
   for (const [name, change] of [["complete", {}], ["bindings unavailable", { bindings: unavailable("parameter-dependent") }],

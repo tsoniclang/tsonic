@@ -1,6 +1,7 @@
 import type { BodyId, BodyPath, CandidateListId, DefId, DefinitionPath, LocalId, LocalRef, LibraryModuleIdentity, ModuleId, NodeId, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { Diagnostic, TextParseResult, Violation } from "../diag/contract.js";
 import type { ArtifactBindings, BindingScope, BindingVector, LiteralTypeValue, LiteralValue, MemberKey, MemberOrigin, NominalDefinition, PassingMode, TypeComponent, TypeParameter, TypeParameterIdentity, TypeTable } from "../ir-types/contract.js";
+export type * from "./binding-data.js";
 
 export interface TextRange {
   readonly pos: number;
@@ -3872,7 +3873,7 @@ export type BodyRoot<P extends Phase> = SourceFile<P> | Block<P> | Expression<P>
 
 export type CapturedFact<Value> =
   | { readonly kind: "available"; readonly value: Value }
-  | { readonly kind: "unavailable"; readonly reason: "checker-error" | "parameter-dependent" | "not-provided" };
+  | { readonly kind: "unavailable"; readonly reason: "checker-error" | "parameter-dependent" | "not-provided" | "missing-original-component" | "incomplete-association" | "unsupported-checked-structure" };
 
 export interface HirCheckerViews {
   readonly read: CapturedFact<TyId>;

@@ -62,7 +62,8 @@ export async function loadFrontFixture() {
       entryPoint: moduleOf(project, `src/${Object.keys(sourceFiles)[0]}`),
       roots: [...Object.keys(sourceFiles).map(name => moduleOf(project, `src/${name}`)), ...otherRoots].sort(),
       selection: { target: { id: "native", surfaces: [], options: { kind: "record", fields: [] } }, providerId: "native-provider", capabilityIds: [], surfaceIds: [] },
-      contributions: { declarationModules: [], declarationPolicy: { bundledLibraries: libraries.map(library => moduleOf(checker, library.name)).sort(), installedDeclarations },
+      contributions: { declarationModules: [], declarationPolicy: { bundledLibraries: libraries.map(library => ({ name: library.name, module: moduleOf(checker, library.name) }))
+        .sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0), installedDeclarations },
         requiredProviderModules, compilerExtensions, declarationProviders, semanticModules, safetyProviders: [], dataLayouts: [] },
       platform: { layouts: [] },
     };
@@ -87,12 +88,17 @@ export async function loadFrontFixture() {
   /** The dependencies of lowerModuleExports and lowerModule for a program whose declarations are all in one module. */
   function lowerDepsFor(definitions, interner, sourceText) {
     const byNode = new Map(definitions.rows.map(row => [row.node, row.definition]));
+    const bindings = new Map(definitions.bindingSources.map(row => [row.node, row.occurrence]));
     return {
       definitionOf: reference => {
         assert.equal(reference.module, definitions.module, "every declaration of this program is in its one module");
         const definition = byNode.get(reference.node);
         assert.notEqual(definition, undefined, `node ${reference.node} has a definition identity`);
         return definition;
+      },
+      bindingOccurrenceOf: reference => {
+        assert.equal(reference.module, definitions.module, "every binding of this fixture is in its actual module");
+        return bindings.get(reference.node) ?? null;
       },
       definitionOfExport: () => assert.fail("no library export is named by this program"),
       sourceTextOf: () => sourceText, libraries: { sources: [] }, types: interner,

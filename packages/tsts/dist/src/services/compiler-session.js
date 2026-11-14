@@ -185,11 +185,13 @@ export function createCompilerSessionFromFiles(options) {
     const files = options.files instanceof Map ? new Map(options.files) : new Map(Object.entries(options.files));
     const fileSystem = createInMemoryFileSystem({
         files,
+        ...(options.includeBundledLibraries !== undefined ? { includeBundledLibraries: options.includeBundledLibraries } : {}),
         ...(options.useCaseSensitiveFileNames !== undefined ? { useCaseSensitiveFileNames: options.useCaseSensitiveFileNames } : {}),
     });
     const host = createCompilerHost({
         currentDirectory: options.currentDirectory,
         fileSystem,
+        ...(options.includeBundledLibraries !== undefined ? { includeBundledLibraries: options.includeBundledLibraries } : {}),
     });
     let config;
     if (options.configFileName !== undefined) {
@@ -225,6 +227,7 @@ export function createCompilerSessionFromFiles(options) {
         programOptions: {
             Config: config,
             Host: host,
+            ...(options.selectedLibraries !== undefined ? { SelectedLibraries: options.selectedLibraries } : {}),
         },
         ...(options.extensionHostOptions !== undefined ? { extensionHostOptions: options.extensionHostOptions } : {}),
         ...(options.context !== undefined ? { context: options.context } : {}),

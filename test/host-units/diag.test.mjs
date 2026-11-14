@@ -102,8 +102,8 @@ function assertOrder(input, expected, label) {
   assert.equal(input.every((value, index) => value === beforeOrder[index]), true, `${label}: input order remains unchanged`);
 }
 
-test("the runtime index exposes only the seven approved diagnostic ports", () => {
-  assert.deepEqual(Object.keys(product).sort(), ["diagnosticIdentityKey", "hostDiagnosticCode", "lookupDiagnostic", "orderDiagnostics", "requirePresent", "resourceLimitDiagnostic", "throwInvariant"]);
+test("the runtime index exposes only the eight approved diagnostic ports", () => {
+  assert.deepEqual(Object.keys(product).sort(), ["diagnosticIdentityKey", "hostDiagnosticCode", "lookupDiagnostic", "orderDiagnostics", "requirePresent", "resourceLimitDiagnostic", "throwInvariant", "unitPositionData"]);
   assert.deepEqual(readdirSync(resolve(repository, sourceDirectory)).filter(name => name.endsWith(".ts")).sort(),
     ["contract.ts", "index.ts", "invariant.ts", "order.ts"]);
 });
@@ -132,6 +132,9 @@ test("MR-14: diagnostic identity is the captured checker reference, or the origi
     host("TSONIC_LOCAL_TYPE_UNSUPPORTED", unit("produceType", ["m#Pair"], { kind: "component", path: [["construction-argument", "Map", 1]] })),
     host("TSONIC_LOCAL_TYPE_UNSUPPORTED", unit("produceType", ["m#Pair"], { kind: "component", path: [] })),
     host("TSONIC_LOCAL_TYPE_UNSUPPORTED", unit("produceType", ["m#Pair"], { kind: "result" })),
+    host("TSONIC_LOCAL_TYPE_UNSUPPORTED", unit("solutionOf", "g", { kind: "inference-variable", group: "g", variable: 0 })),
+    host("TSONIC_LOCAL_TYPE_UNSUPPORTED", unit("solutionOf", "g", { kind: "inference-variable", group: "g", variable: 1 })),
+    host("TSONIC_LOCAL_TYPE_UNSUPPORTED", unit("solutionOf", "g", { kind: "inference-variable", group: "other", variable: 0 })),
     host("TSONIC_LOCAL_TYPE_UNSUPPORTED", unit("produceType", ["m#Pair"], { kind: "component", path: [["construction-argument", "Map", 1], ["element"]] })),
   ];
   const second = () => host("TSONIC_LOCAL_TYPE_UNSUPPORTED", unit("produceType", ["m#Pair"], { kind: "component", path: [["construction-argument", "Map", 1]] }));
@@ -162,6 +165,7 @@ test("the resource-limit diagnostic names its owner, the one limit field, its ma
     "the unit's whole position, in the same canonical form as a diagnostic identity's");
   const atNode = position => product.resourceLimitDiagnostic({ ...report, unit: { request: report.unit.request, position } }).evidence[3];
   assert.equal(atNode({ kind: "module-node", module: "m.ts", node: 4 }), "A3:S11:module-nodeS4:m.tsF4:");
+  assert.deepEqual(product.unitPositionData({ kind: "inference-variable", group: "g", variable: 0 }), ["inference-variable", "g", 0]);
   assert.notEqual(atNode({ kind: "component", path: [0] }), atNode({ kind: "component", path: [1] }), "two components of one type are two positions");
   assert.notEqual(atNode({ kind: "source-node", node: { kind: "body", value: { body: "b", node: 7 } } }),
     atNode({ kind: "source-node", node: { kind: "body", value: { body: "b", node: 8 } } }), "two nodes of one body are two positions");
@@ -533,11 +537,11 @@ test("fresh genuine emitted declarations admit the six ports and the cause recor
   };
   writeFileSync(resolve(stage, "cause-consumer.ts"), `import { resourceLimitDiagnostic } from "./diag/index.js";
 import type { Cause, CheckerDiagnosticRef, Diagnostic, DiagnosticIdentity, ErrorValue, ResourceLimitDiagnostic, ResourceLimitReport, UnitPosition, UnitRef } from "./diag/contract.js";
-import type { ModuleId, NodeId, SourceNodeRef } from "./ids/contract.js";
-export function causes(module: ModuleId, node: NodeId, source: SourceNodeRef, code: Diagnostic["code"]): ErrorValue {
+import type { GroupId, ModuleId, NodeId, SourceNodeRef } from "./ids/contract.js";
+export function causes(module: ModuleId, node: NodeId, source: SourceNodeRef, group: GroupId, code: Diagnostic["code"]): ErrorValue {
   const captured: CheckerDiagnosticRef = { module, index: 0 };
   const positions: readonly UnitPosition[] = [{ kind: "result" }, { kind: "module-node", module, node }, { kind: "source-node", node: source },
-    { kind: "component", path: [["argument", 1], "element"] }];
+    { kind: "component", path: [["argument", 1], "element"] }, { kind: "inference-variable", group, variable: 0 }];
   const unit: UnitRef = { request: { query: "bindingTargets", key: [module] }, position: { kind: "module-node", module, node } };
   const original: DiagnosticIdentity = { kind: "checker", diagnostic: captured };
   const detected: DiagnosticIdentity | null = code.kind === "host" ? { kind: "host", unit, code: code.name } : null;

@@ -1,4 +1,4 @@
-import type { Cause, Diagnostic, Result } from "../diag/contract.js";
+import type { Cause, Diagnostic, UnitDiagnostic, UnitErrorRead, UnitRef, UnitResult, UnitValue } from "../diag/contract.js";
 import type { KeyData } from "../ids/contract.js";
 
 export interface FactKey {
@@ -10,6 +10,7 @@ export interface FactKey {
 export interface CycleMember<Witness> {
   readonly fact: FactKey;
   readonly witness: Witness;
+  readonly answerPolicy: CycleAnswerCapability;
 }
 
 export interface ClosedCycle<Witness> {
@@ -17,33 +18,41 @@ export interface ClosedCycle<Witness> {
 }
 
 /** What the one classifier decides for one member of a closed cycle. The set is closed. */
-export type CycleOutcome =
+export type CycleOutcome<ErrorData> =
   | { readonly kind: "refused"; readonly diagnostic: Diagnostic }
-  | { readonly kind: "error"; readonly cause: Cause };
+  | { readonly kind: "error"; readonly cause: Cause; readonly data: ErrorData; readonly diagnostics: readonly Diagnostic[];
+      readonly emissions: readonly UnitDiagnostic[] };
 
 /** One outcome per member, in the order of `cycle.members`. */
-export type ClassifyCycle<Witness> = (cycle: ClosedCycle<Witness>) => readonly CycleOutcome[];
+export type ClassifyCycle<Witness, ErrorData> = (cycle: ClosedCycle<Witness>) => readonly CycleOutcome<ErrorData>[];
 
-export interface Query<Inputs, Key extends KeyData, Value, Witness> {
+export type CycleAnswerCapability = "typed-error" | "refusal-only";
+
+export type CycleAnswerPolicy<Key, Value, ErrorData> =
+  | { readonly kind: "typed-error"; readonly construct: (key: Key, cause: Cause, data: ErrorData) => UnitValue<Value> }
+  | { readonly kind: "refusal-only" };
+
+export interface Query<Inputs, Key, Value, Witness, ErrorData> {
   readonly name: string;
+  readonly keyData: (key: Key) => KeyData;
   /**
    * A computation states each diagnostic it earns once: with its next request, with its abandonment, or, when it
    * was earned after the last request, in its final result. Its final result therefore carries only what was earned
    * after its last request; the kernel keeps the earlier chunks and builds the complete result of the fact from them.
    * The kernel does not check that a computation states no diagnostic twice.
    */
-  readonly compute: (context: QueryContext<Inputs, Witness>, key: Key) => QueryComputation<Inputs, Value, Witness>;
+  readonly compute: (context: QueryContext<Inputs, Witness, ErrorData>, key: Key) => QueryComputation<Inputs, Value, Witness, ErrorData>;
   /**
-   * The error value of this fact's type for the cause the one classifier gave `key` in a closed cycle. It builds a
-   * value from the cause and from nothing else. It is not consulted for a member the classifier refused, and it has
-   * no way to refuse or to change another member's outcome: the kernel builds every result from the classifier's outcomes.
+   * The registered capability to construct this fact's typed error from the classified cause, or refusal only when
+   * its value has no error arm. The classifier receives this policy's kind with the cycle member. A constructor is
+   * never consulted for a refused member; an error outcome for a refusal-only member is a classifier-contract defect.
    */
-  readonly errorValue: (key: Key, cause: Cause) => Value;
+  readonly answerPolicy: CycleAnswerPolicy<Key, Value, ErrorData>;
 }
 
-export type QueryComputation<Inputs, Value, Witness> =
-  | Result<Value>
-  | QueryDependency<Inputs, Value, Witness>
+export type QueryComputation<Inputs, Value, Witness, ErrorData> =
+  | UnitResult<Value>
+  | QueryDependency<Inputs, Value, Witness, ErrorData>
   | QueryAbandonment;
 
 export interface QueryAbandonment {
@@ -53,9 +62,9 @@ export interface QueryAbandonment {
   readonly earned: readonly Diagnostic[];
 }
 
-export interface QueryDependency<Inputs, Value, Witness> {
+export interface QueryDependency<Inputs, Value, Witness, ErrorData> {
   readonly kind: "dependency";
-  readonly schedule: (scheduler: QueryScheduler<Inputs, Value, Witness>) => void;
+  readonly schedule: (scheduler: QueryScheduler<Inputs, Value, Witness, ErrorData>) => void;
 }
 
 export interface QueryRequest<Witness> {
@@ -69,19 +78,21 @@ export interface QueryRequest<Witness> {
   readonly earned: readonly Diagnostic[];
 }
 
-export interface QueryScheduler<Inputs, Value, Witness> {
-  readonly request: <Key extends KeyData, Dependency>(
-    query: Query<Inputs, Key, Dependency, Witness>, key: Key, request: QueryRequest<Witness>,
-    resume: (value: Dependency) => QueryComputation<Inputs, Value, Witness>,
+export interface QueryScheduler<Inputs, Value, Witness, ErrorData> {
+  readonly request: <Key, Dependency>(
+    query: Query<Inputs, Key, Dependency, Witness, ErrorData>, key: Key, request: QueryRequest<Witness>,
+    resume: (value: Dependency) => QueryComputation<Inputs, Value, Witness, ErrorData>,
   ) => void;
 }
 
-export interface QueryContext<Inputs, Witness> {
+export interface QueryContext<Inputs, Witness, ErrorData> {
   readonly inputs: Inputs;
-  readonly get: <Key extends KeyData, Dependency, Value>(
-    query: Query<Inputs, Key, Dependency, Witness>, key: Key, request: QueryRequest<Witness>,
-    resume: (value: Dependency) => QueryComputation<Inputs, Value, Witness>,
-  ) => QueryDependency<Inputs, Value, Witness>;
+  readonly fact: FactKey;
+  readonly errorOf: (unit: UnitRef) => UnitErrorRead;
+  readonly get: <Key, Dependency, Value>(
+    query: Query<Inputs, Key, Dependency, Witness, ErrorData>, key: Key, request: QueryRequest<Witness>,
+    resume: (value: Dependency) => QueryComputation<Inputs, Value, Witness, ErrorData>,
+  ) => QueryDependency<Inputs, Value, Witness, ErrorData>;
 }
 
 export interface QueryStat {
@@ -110,9 +121,10 @@ export type RunResult<Value> =
   | { readonly kind: "completed"; readonly value: Value; readonly diagnostics: readonly Diagnostic[] }
   | { readonly kind: "refused"; readonly diagnostics: readonly [Diagnostic, ...Diagnostic[]] };
 
-export interface Database<Inputs, Witness> {
+export interface Database<Inputs, Witness, ErrorData> {
   readonly inputs: Inputs;
-  readonly run: <Key extends KeyData, Value>(query: Query<Inputs, Key, Value, Witness>, key: Key) => RunResult<Value>;
+  readonly run: <Key, Value>(query: Query<Inputs, Key, Value, Witness, ErrorData>, key: Key) => RunResult<Value>;
+  readonly errorOf: (unit: UnitRef) => UnitErrorRead;
   readonly diagnostics: () => readonly Diagnostic[];
   readonly stats: () => readonly QueryStat[];
   readonly trace: () => readonly TraceEvent[];
@@ -120,6 +132,6 @@ export interface Database<Inputs, Witness> {
 
 export type TraceRecording = "recorded" | "off";
 
-export type CreateDatabase = <Inputs, Witness>(
-  inputs: Inputs, limits: QueryLimits, classifyCycle: ClassifyCycle<Witness>, trace: TraceRecording,
-) => Database<Inputs, Witness>;
+export type CreateDatabase = <Inputs, Witness, ErrorData>(
+  inputs: Inputs, limits: QueryLimits, classifyCycle: ClassifyCycle<Witness, ErrorData>, trace: TraceRecording,
+) => Database<Inputs, Witness, ErrorData>;

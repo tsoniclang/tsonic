@@ -73,6 +73,7 @@ export interface includeExplainingDiagnostic {
 export declare function processingDiagnostic_asIncludeExplainingDiagnostic(receiver: GoPtr<processingDiagnostic>): GoPtr<includeExplainingDiagnostic>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/processingDiagnostic.go::method::processingDiagnostic.toDiagnostic","kind":"method","status":"implemented","sigHash":"f8a7bbbf4d642e66207b5d767ec108073772a4af46c03ec462321279da892744","bodyHash":"90321122e964a36111a1d2c666440924d392eea8ca150ab4d6ab3246989a55aa"}
+ * @tsgo-override {"category":"embedding-host","allow":["body"],"reason":"Two cases reached only when the caller selected the program's library files: a known library name in a lib directive that the selection does not bind gets the unknown-library diagnostic without a spelling suggestion (one would name another library); the default library or a lib entry the selection does not bind is reported as that diagnostic for the library file name, as a compiler diagnostic. Every other case is the Go body's."}
  *
  * Go source:
  * func (d *processingDiagnostic) toDiagnostic(program *Program) *ast.Diagnostic {

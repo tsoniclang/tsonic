@@ -10,7 +10,7 @@ import type { Schema } from "./text-data.js";
 
 export interface UnavailableRecord {
   readonly kind: "unavailable";
-  readonly reason: "checker-error" | "parameter-dependent" | "not-provided";
+  readonly reason: "checker-error" | "parameter-dependent" | "not-provided" | "missing-original-component" | "incomplete-association" | "unsupported-checked-structure";
 }
 
 export interface AvailableSignatureRecord {
@@ -95,7 +95,7 @@ export interface CaptureValuesSchemas {
   readonly hirInferenceContributionSchema: RecordSchema<HirInferenceContribution>;
   readonly hirContributionRoleSchema: Schema<"argument" | "context" | "receiver" | "result" | "type-argument">;
   readonly unavailableSchema: RecordSchema<UnavailableRecord>;
-  readonly unavailableReasonSchema: Schema<"checker-error" | "not-provided" | "parameter-dependent">;
+  readonly unavailableReasonSchema: Schema<"checker-error" | "not-provided" | "parameter-dependent" | "missing-original-component" | "incomplete-association" | "unsupported-checked-structure">;
   readonly capturedSignatureSchema: RecordSchema<AvailableSignatureRecord | UnavailableRecord>;
   readonly availableSignatureSchema: RecordSchema<AvailableSignatureRecord>;
   readonly capturedBindingsSchema: RecordSchema<AvailableBindingsRecord | UnavailableRecord>;
@@ -169,7 +169,7 @@ export function createCaptureValuesSchemas(data: DataSchemas, evidence: Evidence
     return { fields: [reason], value: () => ({ kind: "unavailable", reason: reason.value() }) };
   });
 
-  const unavailableReasonSchema = enumSchema("UnavailableReason", ["checker-error","parameter-dependent","not-provided"]);
+  const unavailableReasonSchema = enumSchema("UnavailableReason", ["checker-error","parameter-dependent","not-provided","missing-original-component","incomplete-association","unsupported-checked-structure"]);
 
   const capturedSignatureSchema: RecordSchema<AvailableSignatureRecord | UnavailableRecord> = unionSchema<AvailableSignatureRecord | UnavailableRecord>("CapturedSignature",
     () => [availableSignatureSchema, unavailableSchema], value => {

@@ -509,7 +509,7 @@ export function createDecisionWires(scalars: ScalarWires): DecisionWires {
   const calleeWire = record<ResolvedCallee>("ResolvedCallee", () =>
     field("decision", () => applicationWire, value => value.decision, decision =>
       field("activation", () => nullable(() => instanceWire), value => value.activation, activation =>
-        field("captures", () => vector(() => localRefWire), value => value.captures, captures => finish(() => ({ decision, activation, captures }))))));
+        finish(() => ({ decision, activation })))));
 
   const selectionWire = record<MemberSelection>("MemberSelection", () =>
     field("decision", () => memberDecision, value => value.decision, decision =>

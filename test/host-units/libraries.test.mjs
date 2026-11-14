@@ -227,7 +227,7 @@ function isolationInputs(deps) {
       candidates.set(local, readFileSync(path, "utf8"));
     }
   }
-  const interfaces = ["ids/contract", "ids/index", "diag/contract", "diag/index", "ir-types/contract",
+  const interfaces = ["ids/contract", "ids/index", "diag/contract", "diag/index", "ir-types/contract", "ir-types/index",
     "ir-tir/contract", "ir-facts/contract", "snapshot/contract"].map(path => `packages/host/src/${path}.ts`);
   for (const path of interfaces) assert.equal(candidates.has(path), true, `actual prerequisite source exists: ${path}`);
   const graph = readImportGraph(parseSources(candidates), candidates);

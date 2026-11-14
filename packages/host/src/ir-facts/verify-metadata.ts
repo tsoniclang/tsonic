@@ -4,7 +4,8 @@ import { encodeKey } from "../ids/index.js";
 import type {
   FactsRule, FactsSite, MemoryField, MemoryLayout, MetadataRule, VerifyMetadata,
 } from "./contract.js";
-import { collectSelectionChecks, memberData, metadataBindingInputs, sameBindings, validIndex, verifyFactBindings } from "./verify-relations.js";
+import { memberSelectionKey } from "../ir-tir/index.js";
+import { collectSelectionChecks, metadataBindingInputs, sameBindings, validIndex, verifyFactBindings } from "./verify-relations.js";
 
 interface OccupiedField {
   readonly start: bigint;
@@ -238,7 +239,7 @@ export const verifyMetadata: VerifyMetadata = (metadata, context) => {
       selected.selectedDeclarations.some((declaration, position) => declaration !== field.selectedDeclarations[position]) ||
       field.primary !== null && !field.selectedDeclarations.includes(field.primary) ||
       selected.read !== field.value && selected.write !== field.value ||
-      captured !== undefined && Object.is(captured.id, field.id) && encodeKey(memberData(captured.member)) !== encodeKey(memberData(field.member))) {
+      captured !== undefined && Object.is(captured.id, field.id) && encodeKey(memberSelectionKey(captured.member)) !== encodeKey(memberSelectionKey(field.member))) {
       report("member-correspondence-exact", "A field retains its complete selected member group, primary and value correspondence.");
     }
     if (captured !== undefined && Object.is(captured.id, field.id)) {

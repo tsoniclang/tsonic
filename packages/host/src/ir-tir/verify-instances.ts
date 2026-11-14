@@ -1,9 +1,11 @@
-import type { BodyId, LocalRef, NodeId } from "../ids/contract.js";
-import { encodeKey } from "../ids/index.js";
-import type { BindingScope, BindingVector, BodyInstance, TypeBinding } from "../ir-types/contract.js";
+import type { BodyId, DefId, LocalRef, NodeId } from "../ids/contract.js";
+import { instanceKey } from "../ir-types/index.js";
+import type { BindingScope } from "../ir-types/contract.js";
 import type { CheckedPhase, HirBody, HirNode } from "../ir-hir/contract.js";
+import type { CaptureSource } from "../ir-infer/contract.js";
+import { captureRequiresLocation, sameCaptureSource } from "../ir-infer/index.js";
 import { childrenOfSyntax } from "../ir-hir/index.js";
-import type { TirBody, TirModule, TirNode, TirSelection, TirVerifierInput, TypedBinding, TypedPhase } from "./contract.js";
+import type { TirBody, TirModule, TirNode, TirParam, TirSelection, TirVerifierInput, TypedBinding, TypedPhase } from "./contract.js";
 import type { TirOccurrenceEmit } from "./verify-occurrences.js";
 import type { TirSemanticInventory, TirStructure } from "./verify-occurrences.js";
 import { sameLocalReference, sameSourceReference, typedValueOf } from "./verify-occurrences.js";
@@ -261,12 +263,52 @@ export const verifyControlledContexts = (
 };
 
 export const verifyBindingSlots = (
-  body: TirBody, nodes: readonly TirNode[], originals: ReadonlyMap<NodeId, HirNode>, emit: TirOccurrenceEmit,
+  input: TirVerifierInput, body: TirBody, nodes: readonly TirNode[], originals: ReadonlyMap<NodeId, HirNode>, emit: TirOccurrenceEmit,
 ): void => {
-  const parameters = new Map(body.params.map(parameter => [parameter.declaration, parameter]));
+  const sources = input.source.bodies;
+  const reassignable = (reference: LocalRef): boolean | null => {
+    for (const source of sources) if (source !== undefined && source.body === reference.body) return source.locals[reference.local]?.mutable ?? null;
+    return null;
+  };
+  // Where the storage of a captured local comes from in the body that declares it, or null when nothing here says. The
+  // declaration facts are read from the checked body. A name bound under a parameter pattern has the parameter role and
+  // no parameter record: its storage is the body's own. A local that is itself a capture of the creating body has its
+  // logical capture in the creating body's typed rows, which the verification of the created body does not hold: no
+  // evidence here; Infer judges it against the constraint's evidence.
+  const incomingOf = (reference: LocalRef): CaptureSource | null => {
+    for (const source of sources) if (source !== undefined && source.body === reference.body) {
+      const local = source.locals[reference.local];
+      if (local === undefined || local.role === "capture") return null;
+      const parameter = local.role === "parameter" ? source.params.find(candidate => candidate.local === reference.local) : undefined;
+      return parameter === undefined ? { kind: "binding" } : { kind: "parameter", passing: parameter.passing };
+    }
+    return null;
+  };
+  const parameterOwners = new Map<NodeId, TirBody>();
+  const parameters = new Map<TirBody, ReadonlyMap<DefId, TirParam>>([[body, new Map(body.params.map(parameter => [parameter.declaration, parameter]))]]);
+  for (const node of nodes) {
+    if (node.kind !== "FunctionDeclaration" && node.kind !== "MethodDeclaration" && node.kind !== "Constructor"
+      && node.kind !== "GetAccessor" && node.kind !== "SetAccessor" && node.kind !== "ArrowFunction" && node.kind !== "FunctionExpression") continue;
+    const callable = node.kind === "ArrowFunction" || node.kind === "FunctionExpression" ? node.tsonic.callable : node.tsonic;
+    if (callable.template === null) continue;
+    if (callable.template.body === body.body && node === body.root) continue;
+    const nested = input.bodyOf({ body: callable.template.body, bindings: { kind: "parametric" } });
+    if (nested === null || nested.body !== callable.template.body || nested.owner !== callable.definition
+      || nested.bindings.kind !== "parametric") continue;
+    parameters.set(nested, new Map(nested.params.map(parameter => [parameter.declaration, parameter])));
+    for (const parameter of node.parameters.nodes) {
+      parameterOwners.set(parameter.id, nested);
+      const names: TirNode[] = [parameter.name];
+      for (let name = names.pop(); name !== undefined; name = names.pop()) {
+        parameterOwners.set(name.id, nested);
+        for (const child of childrenOfSyntax<TypedPhase>(name)) names.push(child);
+      }
+    }
+  }
   const storage = (reference: LocalRef, type: number | null, node: TirNode): void => {
-    const local = body.locals[reference.local];
-    if (reference.body !== body.body || local === undefined || type === null || !Object.is(local.storage, type)) {
+    const owner = parameterOwners.get(node.id) ?? body;
+    const local = owner.locals[reference.local];
+    if (reference.body !== owner.body || local === undefined || type === null || !Object.is(local.storage, type)) {
       emit("binding-storage", node, "binding occurrence does not retain its actual qualified local storage slot");
     }
   };
@@ -281,7 +323,7 @@ export const verifyBindingSlots = (
       if (phase.role === "binding") binding(phase, node);
     } else if (node.kind === "Parameter") {
       storage(node.tsonic.local, node.tsonic.storage, node);
-      const parameter = parameters.get(node.tsonic.declaration);
+      const parameter = parameters.get(parameterOwners.get(node.id) ?? body)?.get(node.tsonic.declaration);
       if (parameter === undefined || parameter.local !== node.tsonic.local.local || parameter.passing !== node.tsonic.passing ||
         parameter.initializer !== node.tsonic.initializer) emit("parameter-order", node, "parameter occurrence does not retain its actual declared formal and local association");
     }
@@ -289,58 +331,36 @@ export const verifyBindingSlots = (
       node.tsonic.role === "declaration-name" && node.tsonic.declaration.kind === "local") {
       storage(node.tsonic.declaration.local, node.tsonic.storage, node);
     } else if (node.kind === "ArrowFunction" || node.kind === "FunctionExpression") {
-      const actual = node.tsonic.callable.template;
-      if (actual !== null && node.tsonic.captures.some(capture => capture !== undefined && capture.body === actual.body)) {
-        emit("capture-qualified", node, "closure captures contain a local from the closure's own body");
-      }
-      const original = originals.get(node.id);
-      if (original?.kind === "ArrowFunction" || original?.kind === "FunctionExpression") {
-        let captures = node.tsonic.captures.length === original.tsonic.captures.length;
-        for (let position = 0; position < node.tsonic.captures.length; position++) {
-          const captured = node.tsonic.captures[position];
-          const expected = original.tsonic.captures[position];
-          if (captured === undefined || expected === undefined || !sameLocalReference(captured, expected)) captures = false;
-        }
-        if (!captures) emit("capture-qualified", node, "closure captures do not retain the real authored outer-local sequence");
-      }
+      // The captured locals of a closure are the ones its outcome names: the rows of the decision, or the saved evidence of
+      // the deferred closure rule, read where they stand. A closure that defers another rule names none.
       const closure = node.tsonic.closure;
-      if (closure.kind === "decided" && closure.decision.captures.length !== node.tsonic.captures.length)
-        emit("closure-capture-total", node, "closure decision does not state one logical capture per captured local, in order");
+      const named: readonly { readonly local: LocalRef }[] | null = closure.kind === "decided" ? closure.decision.captures
+        : closure.deferred.invocation.rule === "closure" ? closure.deferred.invocation.input.captures : null;
+      const actual = node.tsonic.callable.template;
+      const original = originals.get(node.id);
+      if (named === null) emit("closure-capture-total", node, "a deferred closure does not save the closure rule's evidence of its captured locals");
+      else {
+        if (actual !== null && named.some(capture => capture.local.body === actual.body))
+          emit("capture-qualified", node, "closure captures contain a local from the closure's own body");
+        if ((original?.kind === "ArrowFunction" || original?.kind === "FunctionExpression") &&
+          (named.length !== original.tsonic.captures.length || named.some((capture, position) => {
+            const expected = original.tsonic.captures[position];
+            return expected === undefined || !sameLocalReference(capture.local, expected);
+          }))) emit("capture-qualified", node, "closure captures do not retain the real authored outer-local sequence");
+      }
+      if (closure.kind === "decided") {
+        if (closure.decision.captures.some(row => row.capture === "captured-value" &&
+          captureRequiresLocation(reassignable(row.local) === true, incomingOf(row.local) ?? { kind: "binding" })))
+          emit("closure-capture-binding", node, "a binding whose storage another party can write is a captured location");
+      } else if (closure.deferred.invocation.rule === "closure") {
+        if (closure.deferred.invocation.input.captures.some(capture => {
+          const evidence = reassignable(capture.local);
+          const incoming = incomingOf(capture.local);
+          return evidence !== null && capture.reassignable !== evidence || incoming !== null && !sameCaptureSource(capture.incoming, incoming);
+        })) emit("closure-capture-binding", node, "saved capture evidence does not state the binding evidence of its captured locals");
+      }
     }
   }
-};
-
-const bindingKeys = (bindings: readonly TypeBinding[]): readonly string[] | null => {
-  const keys: string[] = [];
-  for (let position = 0; position < bindings.length; position++) {
-    const binding = bindings[position];
-    if (binding === undefined) return null;
-    keys.push(binding.kind === "rigid"
-      ? encodeKey({ kind: "record", fields: [["kind", binding.kind], ["owner", binding.parameter.owner], ["index", binding.parameter.index]] })
-      : encodeKey({ kind: "record", fields: [["kind", binding.kind], ["owner", binding.parameter.owner], ["index", binding.parameter.index], ["type", binding.type]] }));
-  }
-  return keys;
-};
-
-export const bindingVectorKey = (vector: BindingVector): string | null => {
-  const classes = bindingKeys(vector.classBindings);
-  const methods = bindingKeys(vector.methodBindings);
-  const captured = bindingKeys(vector.capturedBindings);
-  if (classes === null || methods === null || captured === null) return null;
-  const self: string[] = [];
-  for (let position = 0; position < vector.selfBindings.length; position++) {
-    const binding = vector.selfBindings[position];
-    if (binding === undefined) return null;
-    self.push(binding.kind === "rigid" ? encodeKey({ kind: "record", fields: [["kind", binding.kind], ["owner", binding.owner]] })
-      : encodeKey({ kind: "record", fields: [["kind", binding.kind], ["owner", binding.owner], ["type", binding.type]] }));
-  }
-  return encodeKey({ kind: "record", fields: [["classBindings", classes], ["methodBindings", methods], ["capturedBindings", captured], ["selfBindings", self]] });
-};
-
-export const instanceKey = (instance: BodyInstance): string | null => {
-  if (instance.bindings.kind === "parametric") return encodeKey({ kind: "record", fields: [["body", instance.body], ["kind", instance.bindings.kind]] });
-  const bindings = bindingVectorKey(instance.bindings.bindings);
-  return bindings === null ? null : encodeKey({ kind: "record", fields: [["body", instance.body], ["kind", instance.bindings.kind], ["bindings", bindings]] });
 };
 
 export const verifyPublishedInstance = (
@@ -359,7 +379,6 @@ export const verifyPublicationInventory = (module: TirModule, selected: TirBody,
     if (body === undefined) { duplicate = true; continue; }
     if (body === selected) selectedCount++;
     const key = instanceKey({ body: body.body, bindings: body.bindings });
-    if (key === null) continue;
     if (keys.has(key)) duplicate = true;
     keys.add(key);
   }

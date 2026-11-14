@@ -1,7 +1,7 @@
 import type { BodyId, CandidateListId, DefId, GroupId, LocalRef, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
-import type { Diagnostic, Result, TextParseResult, Violation } from "../diag/contract.js";
-import type { BindingScope, BindingVector, LiteralValue, MemberKey, MemberOrigin, NativePrimitive, NominalDefinition, PassingMode, TypeComponent, TypeEvidence, TypeParameterIdentity, TypeTable } from "../ir-types/contract.js";
-import type { HirBinaryOperator, HirCallableEndpoint, HirCandidateList, HirCoreCapture, HirUnaryOperator } from "../ir-hir/contract.js";
+import type { Diagnostic, ErrorValue, Result, TextParseResult, UnitRef, Violation } from "../diag/contract.js";
+import type { BindingScope, BindingVector, BodyInstance, LiteralValue, MemberKey, MemberOrigin, NativePrimitive, NominalDefinition, PassingMode, SignatureRequest, TypeComponent, TypeEvidence, TypeParameterIdentity, TypeTable } from "../ir-types/contract.js";
+import type { HirBinaryOperator, HirCallableEndpoint, HirCandidateList, HirCoreCapture, HirUnaryOperator, HirNode } from "../ir-hir/contract.js";
 
 export type InferredPart =
   | { readonly kind: "return" | "yield" | "variable" | "field" }
@@ -11,6 +11,26 @@ export interface InferredSignaturePart {
   readonly definition: DefId;
   readonly part: InferredPart;
 }
+
+export type InferredPartsOf = (definition: DefId, declaration: HirNode) => readonly InferredSignaturePart[];
+export type InferredPartKey = (part: InferredSignaturePart) => string;
+
+export interface InferredPartType {
+  readonly part: InferredSignaturePart;
+  readonly type: TyId;
+  readonly error: ErrorValue | null;
+  readonly origin: UnitRef;
+}
+
+export interface InferredPartRequest {
+  readonly kind: "inferred-part";
+  readonly part: InferredSignaturePart;
+}
+
+export type SignaturePlacement =
+  | { readonly kind: "endpoint"; readonly request: SignatureRequest; readonly parts: readonly InferredPartType[] }
+  | { readonly kind: "callable-body"; readonly instance: BodyInstance; readonly parts: readonly InferredPartType[] }
+  | { readonly kind: "execution-body"; readonly instance: BodyInstance; readonly completion: TyId; readonly error: ErrorValue | null };
 
 export type InferenceVariable = { readonly id: number; readonly occurrence: NodeRef } & (
   | { readonly kind: "signature"; readonly signature: InferredSignaturePart }
@@ -143,11 +163,26 @@ export interface RefinementConstraint {
   readonly result: TyId;
 }
 
+// Where the storage of a captured binding comes from in the body that creates the closure: a binding of that body's own,
+// one of its parameters with the passing mode of the declaration, or one of its own captures with the logical capture its
+// row states. A by-reference parameter and a captured location denote storage that exists outside the body.
+export type CaptureSource =
+  | { readonly kind: "binding" }
+  | { readonly kind: "parameter"; readonly passing: PassingMode }
+  | { readonly kind: "capture"; readonly capture: LogicalCapture };
+
+export interface ClosureCapture {
+  readonly local: LocalRef;
+  readonly type: TyId;
+  readonly reassignable: boolean;
+  readonly incoming: CaptureSource;
+}
+
 export interface ClosureConstraint {
   readonly kind: "closure";
   readonly occurrence: NodeRef;
   readonly created: BodyId;
-  readonly captures: readonly TyId[];
+  readonly captures: readonly ClosureCapture[];
   readonly result: TyId;
   readonly bindings: BindingVector;
 }
@@ -178,7 +213,7 @@ export interface ConstraintSet {
   readonly body: BodyId;
   readonly variables: readonly InferenceVariable[];
   readonly candidates: readonly HirCandidateList[];
-  readonly evidence: readonly TypeEvidence[];
+  readonly evidence: readonly InferenceValue[];
   readonly constraints: readonly Constraint[];
 }
 
@@ -363,21 +398,47 @@ export type AccessLocation =
 
 export type HandleActivation = "at-creation" | "when-first-driven";
 
-// The logical captured values and locations of a closure, one per captured local in order. A captured location preserves
-// its source location identity. Neither value selects a physical copy: Origins' and PointerBacking's facts and the native
+// The logical capture of one captured local. A captured location preserves its source location identity: the closure and
+// the creating body denote the same storage. A captured value is the value the binding holds at creation; when that value
+// is an object reference, the object's contents stay shared and writable through it, so a captured value says nothing
+// about immutability of contents. Neither selects a physical copy: Origins' and PointerBacking's facts and the native
 // compiler justify any later representation.
 export type LogicalCapture = "captured-value" | "captured-location";
 
+// One capture: the captured source local and its logical capture. The creator's decision and the created body state the
+// same rows in the same order.
+export interface CaptureRowOf<Capture extends LogicalCapture | null> {
+  readonly local: LocalRef;
+  readonly capture: Capture;
+}
+
+// A row of a closure decision: the capture is decided.
+export type CaptureRow = CaptureRowOf<LogicalCapture>;
+
+// A row of a created body. Its capture is the creator's decided row; it is null only in the parametric template of a body
+// whose creator saved the closure rule for instantiation, and then on every row: each instance carries the decided rows.
+export type BodyCaptureRow = CaptureRowOf<LogicalCapture | null>;
+
 export interface ClosureDecision {
   readonly carrier: TyId;
-  readonly captures: readonly LogicalCapture[];
+  readonly captures: readonly CaptureRow[];
   readonly execution: OperationExecution;
+}
+
+// The ready evidence of one captured local, in the order of the closure's captured locals: its identity, its type, and
+// whether its binding can be reassigned by its declaration. The fact is about the binding, not about the object it holds,
+// and not about whether a reassignment occurs.
+export interface ClosureCaptureEvidence {
+  readonly local: LocalRef;
+  readonly value: TypeEvidence;
+  readonly reassignable: boolean;
+  readonly incoming: CaptureSource;
 }
 
 export interface ClosureInput {
   readonly context: RuleContext;
   readonly callable: TypeEvidence;
-  readonly captures: readonly TypeEvidence[];
+  readonly captures: readonly ClosureCaptureEvidence[];
 }
 
 export type ConversionKind = "numeric" | "literal-fit" | "absence" | "union-injection" | "shape" | "callable" | "readonly";
@@ -509,16 +570,19 @@ export type RefinementDecision =
   | { readonly kind: "identity"; readonly type: TyId }
   | { readonly kind: "narrowed"; readonly source: TyId; readonly result: TyId; readonly proof: EmbeddingProof; readonly failure: CheckFailure };
 
-export interface FinalVariable {
-  readonly variable: number;
+export interface InferenceValue {
   readonly value: TypeEvidence;
+  readonly error: ErrorValue | null;
 }
 
-export interface VariableBound {
+export interface FinalVariable extends InferenceValue {
+  readonly variable: number;
+}
+
+export interface VariableBound extends InferenceValue {
   readonly contribution: ContributionKey;
   readonly variable: number;
   readonly kind: "producer" | "demand";
-  readonly value: TypeEvidence;
 }
 
 export interface FinalizationInput {
@@ -526,22 +590,23 @@ export interface FinalizationInput {
   readonly producers: readonly VariableBound[];
   readonly demands: readonly VariableBound[];
   readonly default: DefaultConstraint | null;
-  readonly declaredConstraint: TypeEvidence | null;
-  readonly declaredDefault: TypeEvidence | null;
+  readonly declaredConstraint: InferenceValue | null;
+  readonly declaredDefault: InferenceValue | null;
 }
 
 export interface BoundCheckInput {
   readonly variable: InferenceVariable;
-  readonly final: TypeEvidence;
+  readonly final: InferenceValue;
   readonly bound: VariableBound;
 }
 
 export type BoundCheckOutcome =
+  | { readonly kind: "error"; readonly error: ErrorValue }
   | { readonly kind: "satisfied"; readonly embedding: EmbeddingDecision }
   | { readonly kind: "refused"; readonly reason: "signature-use-demand" | "conflicting-destinations" | "accumulator-widening" | "binder-constraint" | "literal-inexact" };
 
 export interface VariableRule {
-  readonly finalize: (input: FinalizationInput) => Result<TypeEvidence>;
+  readonly finalize: (input: FinalizationInput) => Result<InferenceValue>;
   readonly check: (input: BoundCheckInput) => Result<BoundCheckOutcome>;
 }
 
@@ -552,18 +617,19 @@ export interface EnumerationInput<ConstraintKind extends Constraint> {
   readonly reference: ConstraintRef;
   readonly variables: readonly InferenceVariable[];
   readonly candidates: readonly HirCandidateList[];
-  readonly evidence: readonly TypeEvidence[];
+  readonly evidence: readonly InferenceValue[];
 }
 
 export interface ContributionEvaluation<ConstraintKind extends Constraint> {
   readonly contribution: AtomicContribution;
   readonly constraint: ConstraintKind;
   readonly candidates: readonly HirCandidateList[];
-  readonly evidence: readonly TypeEvidence[];
+  readonly evidence: readonly InferenceValue[];
   readonly reads: readonly FinalVariable[];
 }
 
 export type ConstraintDecision =
+  | { readonly kind: "error"; readonly error: ErrorValue }
   | { readonly kind: "eq"; readonly equivalent: boolean }
   | { readonly kind: "flow" | "literal"; readonly embedding: EmbeddingDecision }
   | { readonly kind: "member" | "index"; readonly member: MemberDecision }
@@ -677,7 +743,7 @@ export type InferRule = "group-order" | "group-ownership" | "inferred-part-ident
   | "binding-vector-complete" | "parameter-mapping-total" | "endpoint-agreement"
   | "proof-reference" | "proof-order" | "qualified-reference" | "body-completion-endpoints"
   | "construction-part-total" | "protocol-channels" | "api-endpoint-role" | "deferred-invocation"
-  | "access-location" | "closure-capture-total";
+  | "access-location" | "closure-capture-total" | "closure-capture-binding";
 
 export type InferSite =
   | { readonly kind: "group"; readonly group: GroupId }
@@ -716,3 +782,6 @@ export type ParseInferenceGroup = (text: string) => TextParseResult<InferenceGro
 export type PrintSolution = (solution: Solution) => string;
 export type ParseSolution = (text: string) => TextParseResult<Solution>;
 export type VerifyInference = (input: InferVerificationInput) => readonly Violation<InferRule, InferSite>[];
+export type CompareContributionKeys = (left: ContributionKey, right: ContributionKey) => number;
+export type CaptureRequiresLocation = (reassignable: boolean, incoming: CaptureSource) => boolean;
+export type SameCaptureSource = (left: CaptureSource, right: CaptureSource) => boolean;

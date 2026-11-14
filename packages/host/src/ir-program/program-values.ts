@@ -1,5 +1,6 @@
+import { artifactBindingsData, artifactBindingsKey, instanceKey } from "../ir-types/index.js";
 import type { MessageArgument, Violation } from "../diag/contract.js";
-import type { BodyId, DefId, KeyData, ModuleId, PackageId, SigId, TyId } from "../ids/contract.js";
+import type { BodyId, DefId, ModuleId, PackageId, SigId, TyId } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import type {
   ArtifactBindings, BindingVector, BodyInstance, ComponentSelector, PointerEvidence, SelfBinding, TypeBinding,
@@ -288,42 +289,8 @@ export function requireInstantiationMaximum(value: number, name: string): void {
   }
 }
 
-function typeBindingData(binding: TypeBinding): KeyData {
-  switch (binding.kind) {
-    case "rigid": return ["rigid", binding.parameter.owner, binding.parameter.index];
-    case "bound": return ["bound", binding.parameter.owner, binding.parameter.index, binding.type];
-  }
-}
-
-function selfBindingData(binding: SelfBinding): KeyData {
-  switch (binding.kind) {
-    case "rigid": return ["rigid", binding.owner];
-    case "bound": return ["bound", binding.owner, binding.type];
-  }
-}
-
-export function bindingData(bindings: BindingVector): KeyData {
-  return [
-    bindings.classBindings.map(typeBindingData),
-    bindings.methodBindings.map(typeBindingData),
-    bindings.capturedBindings.map(typeBindingData),
-    bindings.selfBindings.map(selfBindingData),
-  ];
-}
-
-export function artifactBindingData(bindings: ArtifactBindings): KeyData {
-  switch (bindings.kind) {
-    case "parametric": return ["parametric"];
-    case "instantiated": return ["instantiated", bindingData(bindings.bindings)];
-  }
-}
-
-export function instanceKey(instance: BodyInstance): string {
-  return encodeKey([instance.body, artifactBindingData(instance.bindings)]);
-}
-
 export function artifactEnvironmentKey(definition: DefId, bindings: ArtifactBindings): string {
-  return encodeKey([definition, artifactBindingData(bindings)]);
+  return encodeKey([definition, artifactBindingsData(bindings)]);
 }
 
 export function uniqueRows<Identity, Value>(
@@ -375,5 +342,5 @@ export function compareText(left: string, right: string): number {
 
 export function compareInstances(left: BodyInstance, right: BodyInstance): number {
   return compareText(left.body, right.body)
-    || compareText(encodeKey(artifactBindingData(left.bindings)), encodeKey(artifactBindingData(right.bindings)));
+    || compareText(artifactBindingsKey(left.bindings), artifactBindingsKey(right.bindings));
 }

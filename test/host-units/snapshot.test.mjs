@@ -561,7 +561,7 @@ test("contributed-declaration-module: a contributed declaration is a declaration
   virtual.packages.files.push({ kind: "virtual", path: "/virtual/prelude.d.ts", text: "", owner: packageId("/missing") });
   verify(virtual, [issue("virtual-file-owner-resolves", fileSite("/virtual/prelude.d.ts"), packageId("/missing"))]);
 });
-test("S2-5: the bundled declaration libraries are declaration-role modules of a package, named by the declaration policy: each once, in ascending order of identity", () => {
+test("S2-5: logical library names select captured declaration modules without a file-name constraint", () => {
   const carried = snapshot();
   const { id } = peer(carried, "/checker");
   const add = (name, text, role = "declaration") => {
@@ -572,23 +572,26 @@ test("S2-5: the bundled declaration libraries are declaration-role modules of a 
     carried.packages.files.sort((left, right) => left.path < right.path ? -1 : 1);
     return module;
   };
-  const first = add("lib.es2021.d.ts", "// the text the session reads\n");
-  const second = add("lib.es2022.d.ts", "");
-  const ordered = [first, second].sort();
+  const first = add("captured-first.d.ts", "// the text the session reads\n");
+  const second = add("captured-second.d.ts", "");
+  const ordered = [{ name: "lib.es2021.d.ts", module: first }, { name: "lib.es2022.d.ts", module: second }];
   carried.contributions.declarationPolicy.bundledLibraries = ordered;
   verify(carried, []);
-  assert.equal(carried.packages.files.find(file => file.path === "/checker/lib.es2021.d.ts").text, "// the text the session reads\n",
+  assert.equal(carried.packages.files.find(file => file.path === "/checker/captured-first.d.ts").text, "// the text the session reads\n",
     "the text is the module's captured file text; the policy holds no second copy");
   const absent = moduleId(id, "lib.absent.d.ts");
   const missing = structuredClone(carried);
-  missing.contributions.declarationPolicy.bundledLibraries = [absent];
+  missing.contributions.declarationPolicy.bundledLibraries = [{ name: "lib.absent.d.ts", module: absent }];
   verify(missing, [issue("bundled-library-declaration", { kind: "module", module: absent }, absent)]);
   const sourceRole = structuredClone(carried);
-  sourceRole.contributions.declarationPolicy.bundledLibraries = [sourceRole.entryPoint];
+  sourceRole.contributions.declarationPolicy.bundledLibraries = [{ name: "lib.es2021.d.ts", module: sourceRole.entryPoint }];
   verify(sourceRole, [issue("bundled-library-declaration", { kind: "module", module: sourceRole.entryPoint }, sourceRole.entryPoint)]);
   const repeated = structuredClone(carried);
-  repeated.contributions.declarationPolicy.bundledLibraries = [first, first];
-  verify(repeated, [issue("bundled-library-unique", { kind: "module", module: first }, first)]);
+  repeated.contributions.declarationPolicy.bundledLibraries = [ordered[0], { name: ordered[0].name, module: second }];
+  verify(repeated, [issue("bundled-library-unique", { kind: "snapshot" }, ordered[0].name)]);
+  const sameModule = structuredClone(carried);
+  sameModule.contributions.declarationPolicy.bundledLibraries = ordered.map(binding => ({ ...binding, module: first }));
+  verify(sameModule, []);
   const unordered = structuredClone(carried);
   unordered.contributions.declarationPolicy.bundledLibraries = [...ordered].reverse();
   verify(unordered, [issue("bundled-libraries-order", { kind: "snapshot" }, "bundledLibraries")]);
@@ -596,11 +599,19 @@ test("S2-5: the bundled declaration libraries are declaration-role modules of a 
   fileOnly.packages.files.push({ kind: "virtual", path: "/checker/zz-file-without-module.d.ts", text: "", owner: id });
   fileOnly.packages.files.sort((left, right) => left.path < right.path ? -1 : 1);
   const stray = moduleId(id, "zz-file-without-module.d.ts");
-  fileOnly.contributions.declarationPolicy.bundledLibraries = [...ordered, stray].sort();
+  fileOnly.contributions.declarationPolicy.bundledLibraries = [...ordered, { name: "lib.stray.d.ts", module: stray }];
   verify(fileOnly, [issue("bundled-library-declaration", { kind: "module", module: stray }, stray)]);
   const sparse = snapshot();
   sparse.contributions.declarationPolicy.bundledLibraries = new Array(1);
   verify(sparse, [sparseIssue({ kind: "snapshot" }, "bundledLibraries")]);
+  for (const binding of [first, { module: first }, { name: 1, module: first }, { name: "", module: first }, { name: "lib.es2021.d.ts" }]) {
+    const malformed = structuredClone(carried);
+    malformed.contributions.declarationPolicy.bundledLibraries = [binding];
+    verify(malformed, [issue("bundled-library-binding", { kind: "snapshot" }, "bundledLibraries")]);
+  }
+  const portable = structuredClone(carried);
+  portable.contributions.declarationPolicy.bundledLibraries = [{ name: "vocabulary-owned-by-front", module: first }];
+  verify(portable, []);
 });
 for (const byteOrder of ["little", "big"]) for (const addressWidth of [32, 64]) {
   test(`platform inputs preserve the explicit ${byteOrder}/${addressWidth} native ABI without a host guess`, () => {
@@ -927,6 +938,7 @@ test("fresh real public declarations admit a cast-free consumer and reject exact
     + 'export function consume(snapshot: ProjectSnapshot, references: readonly ExtensionReferenceEntry[]): readonly Violation<SnapshotRule,SnapshotSite>[] { const verify: VerifySnapshot = verifySnapshot; return verify(snapshot,references); }\n'
     + 'export function sparse(snapshot: ProjectSnapshot): readonly Violation<SnapshotRule,SnapshotSite>[] { return verifySnapshot({...snapshot,roots:new Array<ModuleId>(1)},[]); }\n';
   writeFileSync(resolve(stage, "consumer.ts"), source
+    + 'export const capturedLibraries: import("./snapshot/contract.js").SourceDeclarationPolicy = {bundledLibraries:[{name:"lib.es2024.d.ts",module:entry}],installedDeclarations:"none"};\n'
     + 'export const nativeOptions: import("./snapshot/contract.js").TargetOptions = {kind:"record",fields:[["metadata",{kind:"record",fields:[["enabled",true],["values",[null,0,"text"]]]}]]};\n');
   const compiler = resolve(tooling, "node_modules/@typescript/native-preview/bin/tsgo.js");
   const configuration = files => ({ compilerOptions: {
@@ -952,6 +964,7 @@ test("fresh real public declarations admit a cast-free consumer and reject exact
     .map(path => relative(stage, path).split(sep).join("/")).sort(),
   ["consumer.ts", "diag/contract.d.ts", "ids/contract.d.ts", "ids/index.d.ts", "snapshot/contract.d.ts", "snapshot/index.d.ts"]);
   const negative = [
+    ["removed-library-vector.ts", 2322, 'import type { SourceDeclarationPolicy } from "./snapshot/contract.js"; import { entry } from "./consumer.js"; export const old: SourceDeclarationPolicy = {bundledLibraries:[entry],installedDeclarations:"none"};'],
     ["removed-object-options.ts", 2739, 'import type { TargetOptions } from "./snapshot/contract.js"; export const old: TargetOptions = {};'],
     ["readonly-option-fields.ts", 2339, 'import type { TargetOptions } from "./snapshot/contract.js"; export function mutate(value: TargetOptions): void { value.fields.push(["enabled",true]); }'],
     ["json-excludes-bigint.ts", 2322, 'import type { TargetOptions } from "./snapshot/contract.js"; export const wrong: TargetOptions = {kind:"record",fields:[["bits",1n]]};'],

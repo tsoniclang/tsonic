@@ -50,12 +50,244 @@ function diagnostic(number, path, message) {
     message, arguments: ([]), related: ([]), fix: null });
 }
 
+const unitError = construct => (key, cause, data) => ({ value: construct(key, cause, data), positions: [{ position: { kind: "result" }, error: { kind: "error", causes: [cause] } }] });
 const unbounded = { maximumRecords: Number.MAX_SAFE_INTEGER };
 const none = { witness: null, earned: [] };
 const noCycle = () => { throw new Error("this case closes no cycle"); };
 const fact = (query, key, encodedKey) => ({ query, key, encodedKey });
-const cause = { kind: "unit", unit: { request: { query: "classified", key: null }, position: { kind: "result" } } };
-const errors = cycle => cycle.members.map(() => ({ kind: "error", cause }));
+const cause = { kind: "diagnostic", diagnostic: { kind: "checker", diagnostic: { module: "classified", index: 0 } } };
+const errors = cycle => cycle.members.map(() => ({ kind: "error", data: null, emissions: [], cause, diagnostics: [] }));
+
+const resultPosition = { kind: "result" };
+const unitAt = (query, key, position = resultPosition) => ({ request: { query, key }, position });
+const unitCause = unit => ({ kind: "unit", unit });
+const hostCause = unit => ({ kind: "diagnostic", diagnostic: { kind: "host", unit, code: "TSONIC_UNIT_CYCLE" } });
+const hostError = () => ({ ...diagnostic(0, "actual.ts", "actual detected semantic cycle"), code: {
+  kind: "host", name: "TSONIC_UNIT_CYCLE", rendered: "TSONIC_UNIT_CYCLE" } });
+const errorPositions = (position, causes) => ({ position, error: { kind: "error", causes } });
+
+test("distinct finalized inference-variable positions retain their exact error or known-null without source-node collision", () => {
+  const group = "G[actual-completed-group]";
+  const position = variable => ({ kind: "inference-variable", group, variable });
+  const failed = unitAt("solutionOf", group, position(0));
+  const cause = hostCause(failed);
+  const detected = hostError();
+  const error = { kind: "error", causes: [cause] };
+  const query = { name: "solutionOf", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => ({
+    kind: "ok", value: ["error type", "known type"], diagnostics: [detected], emissions: [{ identity: cause.diagnostic, diagnostic: detected }],
+    positions: [{ position: position(0), error }, { position: position(1), error: null },
+      errorPositions(resultPosition, [unitCause(failed)])] }) };
+  const database = product.createDatabase(null, unbounded, noCycle, "recorded");
+  assert.deepEqual(database.errorOf(failed), { kind: "uncomputed" });
+  assert.equal(database.run(query, group).kind, "completed");
+  const read = database.errorOf(failed);
+  assert.equal(read.kind, "completed");
+  assert.equal(read.error, error, "the finalized variable retains its original ErrorValue object");
+  assert.deepEqual(database.errorOf(unitAt("solutionOf", group, position(1))), { kind: "completed", error: null });
+  for (const variable of [-0, -1, 2, 0.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1])
+    assert.deepEqual(database.errorOf(unitAt("solutionOf", group, position(variable))), { kind: "invalid-position" });
+  assert.deepEqual(database.errorOf(unitAt("solutionOf", group, { ...position(0), group: "different-group" })), { kind: "invalid-position" });
+  assert.deepEqual(database.errorOf(unitAt("solutionOf", "different-group", position(0))), { kind: "uncomputed" });
+  assert.deepEqual(database.errorOf(unitAt("solutionOf", group, { kind: "source-node", node: { kind: "body", value: { body: "same-syntax", node: 0 } } })),
+    { kind: "invalid-position" }, "a source occurrence is not an inferred variable's position");
+  assert.equal(database.run(query, group).kind, "completed");
+  assert.deepEqual(database.diagnostics(), [detected]);
+});
+
+test("unit completion retains actual declared positions, normal multi-cause absorption and exact emission identity", () => {
+  const source = { kind: "source-node", node: { kind: "body", value: { body: "actual-body", node: 3 } } };
+  const detected = hostError();
+  const root = unitAt("actual-root", ["binding", 1], source);
+  const original = hostCause(root);
+  const emitted = { identity: original.diagnostic, diagnostic: detected };
+  const leaf = { name: "actual-root", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => ({
+    kind: "ok", value: "error type", diagnostics: [detected], emissions: [emitted], positions: [
+      errorPositions(source, [original]), errorPositions(resultPosition, [unitCause(root)]),
+      { position: { kind: "module-node", module: "actual.ts", node: 8 }, error: null }] }) };
+  const second = { name: "second", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: context =>
+    context.get(leaf, root.request.key, none, value => {
+      const read = context.errorOf(root);
+      assert.equal(read.kind, "completed");
+      assert.equal(read.error.causes[0] === original, true);
+      return { kind: "ok", value, diagnostics: [], emissions: [], positions: [errorPositions(resultPosition, [unitCause(root)])] };
+    }) };
+  const third = { name: "third", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: context =>
+    context.get(second, 7, none, value => ({ kind: "ok", value, diagnostics: [], emissions: [],
+      positions: [errorPositions(resultPosition, [unitCause(unitAt("second", 7)), unitCause(root)])] })) };
+  const database = product.createDatabase(null, unbounded, noCycle, "recorded");
+  assert.deepEqual(database.errorOf(root), { kind: "uncomputed" });
+  assert.equal(database.run(third, null).kind, "completed");
+  assert.deepEqual(database.errorOf(unitAt("third", null)), { kind: "completed", error: {
+    kind: "error", causes: [unitCause(unitAt("second", 7)), unitCause(root)] } });
+  assert.deepEqual(database.errorOf(unitAt("actual-root", root.request.key, { kind: "module-node", module: "actual.ts", node: 8 })), { kind: "completed", error: null });
+  assert.deepEqual(database.errorOf(unitAt("actual-root", root.request.key, { kind: "module-node", module: "actual.ts", node: 9 })), { kind: "invalid-position" });
+  assert.deepEqual(database.errorOf(unitAt("actual-root", ["binding", 2], source)), { kind: "uncomputed" });
+  database.run(third, null);
+  assert.deepEqual(database.diagnostics(), [detected]);
+  const refusal = { name: "refusing", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => ({ kind: "refused", diagnostics: [detected] }) };
+  database.run(refusal, null);
+  assert.deepEqual(database.errorOf(unitAt("refusing", null)), { kind: "refused", diagnostics: [detected] });
+});
+
+test("all typed-error cycle rotations ground in one real originating host unit and emit once", () => {
+  for (const start of ["A", "B", "C"]) {
+    const detected = hostError();
+    const root = unitAt("C", null);
+    const original = hostCause(root);
+    const rows = {};
+    for (const [name, next] of [["A", "B"], ["B", "C"], ["C", "A"]]) rows[name] = {
+      name, keyData: key => key, answerPolicy: { kind: "typed-error", construct: unitError(() => `${name}:error`) },
+      compute: context => context.get(rows[next], null, none, () => { throw new Error("no partial cycle resumption"); }) };
+    const database = product.createDatabase(null, unbounded, cycle => cycle.members.map(member => {
+      const origin = member.fact.query === "C";
+      return { kind: "error", data: null, cause: origin ? original : unitCause(root), diagnostics: origin ? [detected] : [],
+        emissions: origin ? [{ identity: original.diagnostic, diagnostic: detected }] : [] };
+    }), "recorded");
+    assert.equal(database.run(rows[start], null).value, `${start}:error`);
+    for (const name of ["A", "B", "C"]) {
+      assert.equal(database.run(rows[name], null).value, `${name}:error`);
+      assert.equal(database.errorOf(unitAt(name, null)).kind, "completed");
+    }
+    assert.deepEqual(database.diagnostics(), [detected]);
+  }
+});
+
+test("uncomputed, invalid, known-null and ungrounded causes never publish a semantic answer", () => {
+  const source = { kind: "source-node", node: { kind: "item", value: { owner: "actual-owner", node: 2 } } };
+  const result = unitAt("bad", null);
+  const detected = hostError();
+  const own = hostCause(result);
+  const elsewhere = hostCause(unitAt("bad", null, source));
+  const good = { kind: "ok", value: 0, diagnostics: [detected], emissions: [{ identity: own.diagnostic, diagnostic: detected }],
+    positions: [errorPositions(resultPosition, [own])] };
+  const cases = [
+    { ...good, positions: [] },
+    { ...good, positions: [good.positions[0], good.positions[0]] },
+    { ...good, positions: [errorPositions(resultPosition, [])] },
+    { ...good, emissions: [] },
+    { ...good, diagnostics: [] },
+    { ...good, emissions: [good.emissions[0], good.emissions[0]] },
+    { ...good, emissions: [{ identity: own.diagnostic, diagnostic: diagnostic(1, "x", "wrong") }], diagnostics: [] },
+    (() => { const wrong = diagnostic(1, "x", "wrong"); return { ...good, diagnostics: [wrong], emissions: [{ identity: own.diagnostic, diagnostic: wrong }] }; })(),
+    { ...good, emissions: [{ identity: { ...own.diagnostic, code: "OTHER_CODE" }, diagnostic: detected }] },
+    { ...good, emissions: [{ identity: { ...own.diagnostic, unit: unitAt("bad", "other") }, diagnostic: detected }] },
+    { ...good, emissions: [{ identity: elsewhere.diagnostic, diagnostic: detected }] },
+    { ...good, positions: [errorPositions(source, [elsewhere]), errorPositions(resultPosition, [own])], emissions: [{ identity: elsewhere.diagnostic, diagnostic: detected }] },
+    { ...good, positions: [errorPositions(resultPosition, [unitCause(unitAt("missing", null))])] },
+    { ...good, positions: [errorPositions(resultPosition, [unitCause(unitAt("bad", null, source))])] },
+    { ...good, positions: [{ position: source, error: null }, errorPositions(resultPosition, [unitCause(unitAt("bad", null, source))])] },
+    { ...good, positions: [errorPositions(resultPosition, [unitCause(result)])] },
+    { ...good, positions: [errorPositions(resultPosition, [unitCause(unitAt("bad", null, source))]), errorPositions(source, [own])] },
+  ];
+  for (const value of cases) {
+    const database = product.createDatabase(null, unbounded, noCycle, "off");
+    const row = { name: "bad", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => value };
+    assert.throws(() => database.run(row, null), error => error.name === "Error");
+    assert.deepEqual(database.errorOf(result), { kind: "uncomputed" });
+    assert.deepEqual(database.diagnostics(), []);
+  }
+});
+
+test("classified error data stays in the same row relation; wrong payloads and ungrounded cycles settle no member", () => {
+  for (const wrong of [false, true]) {
+    const payload = { kind: wrong ? "layout" : "declared-signature", ready: { original: true } };
+    const rows = {};
+    const firstCause = { kind: "diagnostic", diagnostic: { kind: "checker", diagnostic: { module: "actual.ts", index: 0 } } };
+    for (const [name, next] of [["A", "B"], ["B", "A"]]) rows[name] = {
+      name, keyData: key => key, answerPolicy: { kind: "typed-error", construct: unitError((key, cause, data) => {
+        assert.equal(data === payload, true);
+        if (data.kind !== "declared-signature") throw new Error("wrong actual row payload arm");
+        return key;
+      }) }, compute: context => context.get(rows[next], null, none, () => { throw new Error("not resumed"); }) };
+    const database = product.createDatabase(null, unbounded, cycle => cycle.members.map(() => ({ kind: "error", data: payload,
+      cause: firstCause, emissions: [], diagnostics: [] })), "off");
+    if (wrong) {
+      assert.throws(() => database.run(rows.A, null), /wrong actual row payload arm/u);
+      assert.deepEqual(database.errorOf(unitAt("A", null)), { kind: "uncomputed" });
+      assert.deepEqual(database.errorOf(unitAt("B", null)), { kind: "uncomputed" });
+    } else assert.equal(database.run(rows.A, null).kind, "completed");
+  }
+  for (const mode of ["cycle", "dropped-cause", "refused-dependency"]) {
+    const rows = {};
+    const diagnostic = hostError();
+    const database = product.createDatabase(null, unbounded, cycle => cycle.members.map(member => ({ kind: "error", data: null,
+      cause: unitCause(unitAt(member.fact.query === "A" ? "B" : "A", null)), emissions: [], diagnostics: [] })), "off");
+    for (const [name, next] of [["A", "B"], ["B", "A"]]) rows[name] = {
+      name, keyData: key => key, answerPolicy: { kind: "typed-error", construct: mode === "dropped-cause"
+        ? () => ({ value: 0, positions: [{ position: resultPosition, error: null }] }) : unitError(() => 0) },
+      compute: context => context.get(rows[next], null, none, () => { throw new Error("not resumed"); }) };
+    if (mode === "refused-dependency") {
+      const refused = { name: "refused", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => ({ kind: "refused", diagnostics: [diagnostic] }) };
+      database.run(refused, null);
+      rows.A.compute = () => ({ kind: "ok", value: 0, diagnostics: [], emissions: [], positions: [errorPositions(resultPosition, [unitCause(unitAt("refused", null))])] });
+    }
+    assert.throws(() => database.run(rows.A, null), error => error.name === "Error");
+    assert.deepEqual(database.errorOf(unitAt("A", null)), { kind: "uncomputed" });
+    assert.deepEqual(database.errorOf(unitAt("B", null)), { kind: "uncomputed" });
+  }
+});
+
+test("a borrowed same-code diagnostic is not a detector emission at another position or request", () => {
+  const root = unitAt("origin", null);
+  const detected = hostError();
+  const original = hostCause(root);
+  const origin = { name: "origin", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => ({
+    kind: "ok", value: 0, diagnostics: [detected], emissions: [{ identity: original.diagnostic, diagnostic: detected }],
+    positions: [errorPositions(resultPosition, [original])] }) };
+  for (const attachBorrowed of [false, true]) {
+    const database = product.createDatabase(null, unbounded, noCycle, "off");
+    const own = hostCause(unitAt("borrower", null));
+    const borrower = { name: "borrower", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: context =>
+      context.get(origin, null, none, () => ({ kind: "ok", value: 0, diagnostics: [detected],
+        emissions: attachBorrowed ? [{ identity: original.diagnostic, diagnostic: detected }] : [], positions: [errorPositions(resultPosition, [own])] })) };
+    assert.throws(() => database.run(borrower, null), error => error.name === "Error");
+    assert.deepEqual(database.errorOf(unitAt("borrower", null)), { kind: "uncomputed" });
+    assert.deepEqual(database.diagnostics(), [detected]);
+  }
+});
+
+test("answer position and emission records consume the same existing bound before retained allocation", () => {
+  for (const maximumRecords of [0, 1, 2, 3]) {
+    const database = product.createDatabase(null, { maximumRecords }, noCycle, "off");
+    const row = { name: "positions", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => ({ kind: "ok", value: 7,
+      diagnostics: [], emissions: [], positions: [{ position: { kind: "module-node", module: "actual.ts", node: 1 }, error: null }, { position: resultPosition, error: null }] }) };
+    assert.equal(database.run(row, null).kind, maximumRecords === 3 ? "completed" : "refused");
+    assert.deepEqual(database.errorOf(unitAt("positions", null)), maximumRecords === 3 ? { kind: "completed", error: null } : { kind: "uncomputed" });
+  }
+  const self = { name: "limited-cycle", keyData: key => key, answerPolicy: { kind: "typed-error", construct: unitError(() => 0) },
+    compute: context => context.get(self, null, none, () => { throw new Error("not resumed"); }) };
+  const database = product.createDatabase(null, { maximumRecords: 5 }, errors, "recorded");
+  assert.equal(database.run(self, null).kind, "refused");
+  assert.deepEqual(database.errorOf(unitAt("limited-cycle", null)), { kind: "uncomputed" });
+  const detected = hostError();
+  const own = hostCause(unitAt("late-error", null));
+  const late = { name: "late-error", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => ({
+    kind: "ok", value: 0, diagnostics: [detected], emissions: [{ identity: own.diagnostic, diagnostic: detected }], positions: [errorPositions(resultPosition, [own])] }) };
+  for (const maximumRecords of [2, 3]) {
+    const bounded = product.createDatabase(null, { maximumRecords }, noCycle, "off");
+    assert.equal(bounded.run(late, null).kind, maximumRecords === 3 ? "completed" : "refused");
+    assert.deepEqual(bounded.diagnostics(), maximumRecords === 3 ? [detected] : [detected, limitReached(2, "late-error", "N")]);
+  }
+  const cycleOrigin = hostCause(unitAt("late-cycle", null));
+  const cycle = { name: "late-cycle", keyData: key => key, answerPolicy: { kind: "typed-error", construct: unitError(() => 0) },
+    compute: context => context.get(cycle, null, none, () => { throw new Error("not resumed"); }) };
+  const cycleBound = product.createDatabase(null, { maximumRecords: 1 }, closed => closed.members.map(() => ({
+    kind: "error", data: null, cause: cycleOrigin, diagnostics: [detected], emissions: [{ identity: cycleOrigin.diagnostic, diagnostic: detected }] })), "off");
+  assert.equal(cycleBound.run(cycle, null).kind, "refused");
+  assert.deepEqual(cycleBound.errorOf(unitAt("late-cycle", null)), { kind: "uncomputed" });
+  assert.deepEqual(cycleBound.diagnostics(), [detected, limitReached(1, "late-cycle", "N")]);
+  let reads = 0;
+  for (const size of [16, 64, 256]) {
+    reads = 0;
+    const positions = Array.from({ length: size }, (_, index) => ({ position: { kind: "module-node", module: "actual.ts", get node() { reads += 1; return index; } }, error: null }));
+    const row = { name: "indexed", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => ({ kind: "ok", value: size, diagnostics: [], emissions: [], positions }) };
+    const database = product.createDatabase(null, { maximumRecords: size + 1 }, noCycle, "off");
+    assert.equal(database.run(row, null).kind, "completed");
+    assert.equal(reads, size, "each actual position is indexed once at publication");
+    for (let index = 0; index < size; index += 1) assert.deepEqual(database.errorOf(unitAt("indexed", null, { kind: "module-node", module: "actual.ts", node: index })), { kind: "completed", error: null });
+    assert.equal(reads, size, "position lookup does not rescan stored positions");
+  }
+});
 const limitReached = (maximum, name, encodedKey) => ({ code: { kind: "host", name: "TSONIC_COMPILER_RESOURCE_LIMIT", rendered: "TSONIC_COMPILER_RESOURCE_LIMIT" },
   severity: "error", site: { kind: "none" }, source: "query", evidence: ["query.maximumRecords", name, encodedKey, "A1:S6:result"],
   message: "A compiler resource limit was reached.", arguments: [{ kind: "text", value: "query.maximumRecords" }, { kind: "number", value: maximum }], related: [], fix: null });
@@ -66,7 +298,7 @@ function evaluate(input) {
   const database = product.createDatabase(null, unbounded, noCycle, "recorded");
   const queries = new Map(input.queries.map(entry => [entry.name, {
     expected: entry.value,
-    query: { name: entry.name, errorValue: noCycle, compute: () => ({ kind: "ok", value: entry.value, diagnostics: [] }) },
+    query: { name: entry.name, keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: entry.value, diagnostics: [] }) },
   }]));
   const values = [];
   for (const request of input.requests) {
@@ -127,9 +359,9 @@ test("construction retains arbitrary actual Inputs rather than encoding, copying
 
 test("one actual query definition receives each database's own Inputs and independent memo", () => {
   let received;
-  const query = { name: "input", errorValue: noCycle, compute: (database, key) => {
+  const query = { name: "input", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: (database, key) => {
     received = database;
-    return { kind: "ok", value: `${database.inputs.prefix}:${key}`, diagnostics: [] };
+    return { kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: `${database.inputs.prefix}:${key}`, diagnostics: [] };
   } };
   const left = product.createDatabase({ prefix: "left" }, unbounded, noCycle, "recorded");
   const right = product.createDatabase({ prefix: "right" }, unbounded, noCycle, "recorded");
@@ -148,11 +380,45 @@ test("one actual query definition receives each database's own Inputs and indepe
   assert.deepEqual(right.diagnostics(), []);
 });
 
+test("a registered projection defines identity once per demand while computation and cycle construction keep the original typed key", () => {
+  const projections = [];
+  const computed = [];
+  const constructed = [];
+  const original = { label: "recursive", evidence: new Map([["ready", 7]]) };
+  const equivalent = { label: "recursive", evidence: new Map([["different", 9]]) };
+  const leafKey = { label: "leaf", evidence: new Map() };
+  let captured;
+  const query = { name: "typed-key", keyData: key => { projections.push(key); return key.label; },
+    answerPolicy: { kind: "typed-error", construct: unitError((key, received) => {
+      constructed.push(key);
+      assert.equal(received === cause, true, "the original classified cause");
+      return { key };
+    }) },
+    compute: (context, key) => {
+      computed.push(key);
+      assert.equal(context.fact.query, "typed-key");
+      assert.equal(context.fact.key, key.label);
+      if (key === leafKey) return { kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: { key }, diagnostics: [] };
+      return context.get(query, equivalent, none, () => { throw new Error("a settled cycle does not resume"); });
+    } };
+  const database = product.createDatabase(null, unbounded, cycle => { captured = cycle; return errors(cycle); }, "recorded");
+  const first = database.run(query, original);
+  assert.equal(first.kind, "completed");
+  assert.equal(first.value.key === original, true, "constructor gets the actual active computation's key, not an equivalent reconstruction");
+  assert.equal(database.run(query, equivalent).value === first.value, true, "equivalent projection is the same completed fact");
+  assert.equal(database.run(query, leafKey).value.key === leafKey, true);
+  assert.deepEqual(projections, [original, equivalent, equivalent, leafKey]);
+  assert.deepEqual(computed, [original, leafKey]);
+  assert.deepEqual(constructed, [original]);
+  assert.deepEqual(captured.members.map(member => member.fact), [fact("typed-key", "recursive", "S9:recursive")]);
+  assert.deepEqual(database.trace().filter(event => event.kind === "dependency").map(event => event.state), ["cold", "active", "warm", "cold"]);
+});
+
 test("completed wrappers memoize undefined, functions, bigint and every scalar without a missing-value fallback", () => {
   const callable = () => 7;
   const values = [undefined, null, false, true, 0, -0, NaN, Infinity, -Infinity, 9007199254740995n,
     "", ({ value: 1 }), ([]), callable];
-  const query = { name: "values", errorValue: noCycle, compute: (_, key) => ({ kind: "ok", value: values[key], diagnostics: [] }) };
+  const query = { name: "values", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: (_, key) => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: values[key], diagnostics: [] }) };
   const database = product.createDatabase(null, unbounded, noCycle, "recorded");
   for (const [key, expected] of values.entries()) {
     for (let request = 0; request < 2; request += 1) {
@@ -166,7 +432,7 @@ test("completed wrappers memoize undefined, functions, bigint and every scalar w
 test("numeric key identity includes exact bigint, negative zero, infinities and all framed scalar distinctions", () => {
   const keys = [0, -0, 1, 1n, "1", NaN, Infinity, -Infinity, 9007199254740995n, false, true, null];
   let computed = 0;
-  const query = { name: "scalars", errorValue: noCycle, compute: () => ({ kind: "ok", value: ++computed, diagnostics: [] }) };
+  const query = { name: "scalars", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: ++computed, diagnostics: [] }) };
   const database = product.createDatabase(null, unbounded, noCycle, "recorded");
   for (const [index, key] of keys.entries()) {
     assert.deepEqual(database.run(query, key), { kind: "completed", value: index + 1, diagnostics: [] });
@@ -182,8 +448,8 @@ test("completed ok and refused diagnostic vectors retain exact snapshots without
   const first = diagnostic(1, "a.ts", "first");
   const second = diagnostic(2, "b.ts", "second");
   const supplied = [second, first];
-  const query = { name: "ok", errorValue: noCycle, compute: () => ({ kind: "ok", value: 7, diagnostics: supplied }) };
-  const refused = { name: "refused", errorValue: noCycle, compute: () => ({ kind: "refused", diagnostics: [first, second] }) };
+  const query = { name: "ok", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: 7, diagnostics: supplied }) };
+  const refused = { name: "refused", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => ({ kind: "refused", diagnostics: [first, second] }) };
   const database = product.createDatabase(null, unbounded, noCycle, "recorded");
   const original = database.run(query, null);
   assert.deepEqual(original, { kind: "completed", value: 7, diagnostics: [second, first] });
@@ -212,11 +478,11 @@ test("ok sparse vectors retain empty, absent and later present slots across root
       { supplied: [second, , first, ,], expected: [second, , first, ,], aggregate: [first, second] },
     ]) {
       let continuation = 0;
-      const child = { name: "child", errorValue: noCycle,
-        compute: () => ({ kind: "ok", value: 7, diagnostics: vector.supplied }) };
-      const parent = { name: "parent", errorValue: noCycle, compute: context => context.get(child, null, none, value => {
+      const child = { name: "child", keyData: key => key, answerPolicy: { kind: "refusal-only" },
+        compute: () => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: 7, diagnostics: vector.supplied }) };
+      const parent = { name: "parent", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: context => context.get(child, null, none, value => {
         continuation += 1;
-        return { kind: "ok", value: value + 1, diagnostics: [] };
+        return { kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: value + 1, diagnostics: [] };
       }) };
       const database = product.createDatabase(null, unbounded, noCycle, "recorded");
       const selected = route === "root" ? child : parent;
@@ -261,11 +527,11 @@ test("nonempty refused sparse vectors retain real heads and absent tails through
       { supplied: [second, , first, ,], expected: [second, , first, ,], aggregate: [first, second] },
     ]) {
       let continuation = 0;
-      const child = { name: "child", errorValue: noCycle,
+      const child = { name: "child", keyData: key => key, answerPolicy: { kind: "refusal-only" },
         compute: () => ({ kind: "refused", diagnostics: vector.supplied }) };
-      const parent = { name: "parent", errorValue: noCycle, compute: context => context.get(child, null, none, value => {
+      const parent = { name: "parent", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: context => context.get(child, null, none, value => {
         continuation += 1;
-        return { kind: "ok", value, diagnostics: [] };
+        return { kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value, diagnostics: [] };
       }) };
       const database = product.createDatabase(null, unbounded, noCycle, "recorded");
       const selected = route === "root" ? child : parent;
@@ -304,11 +570,11 @@ test("A to B to C computes once, records actual hits and publishes each complete
   const rootDiagnostic = diagnostic(1, "a.ts", "root");
   const middleDiagnostic = diagnostic(2, "b.ts", "middle");
   const leafDiagnostic = diagnostic(3, "c.ts", "leaf");
-  const leaf = { name: "C", errorValue: noCycle, compute: () => ({ kind: "ok", value: 2, diagnostics: [leafDiagnostic] }) };
-  const middle = { name: "B", errorValue: noCycle, compute: database => database.get(leaf, null, none, value => ({ kind: "ok", value: value + 1, diagnostics: [middleDiagnostic] })) };
-  const root = { name: "A", errorValue: noCycle, compute: context => context.get(middle, null,
+  const leaf = { name: "C", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: 2, diagnostics: [leafDiagnostic] }) };
+  const middle = { name: "B", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: database => database.get(leaf, null, none, value => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: value + 1, diagnostics: [middleDiagnostic] })) };
+  const root = { name: "A", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: context => context.get(middle, null,
     none, left => context.get(middle, null, none, right => context.get(leaf, null,
-      none, last => ({ kind: "ok", value: left + right + last, diagnostics: [rootDiagnostic] })))) };
+      none, last => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: left + right + last, diagnostics: [rootDiagnostic] })))) };
   const database = product.createDatabase(null, unbounded, noCycle, "recorded");
   assert.deepEqual(database.run(root, null), { kind: "completed", value: 8, diagnostics: [rootDiagnostic] });
   const previous = database.stats();
@@ -329,10 +595,10 @@ test("a refused dependency abandons its caller, preserves the complete vector an
   const first = diagnostic(1, "a.ts", "refusal one");
   const second = diagnostic(2, "b.ts", "refusal two");
   let afterDependency = 0;
-  const child = { name: "child", errorValue: noCycle, compute: () => ({ kind: "refused", diagnostics: [first, second] }) };
-  const parent = { name: "parent", errorValue: noCycle, compute: context => context.get(child, null, none, value => {
+  const child = { name: "child", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => ({ kind: "refused", diagnostics: [first, second] }) };
+  const parent = { name: "parent", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: context => context.get(child, null, none, value => {
     afterDependency += 1;
-    return { kind: "ok", value, diagnostics: [] };
+    return { kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value, diagnostics: [] };
   }) };
   const database = product.createDatabase(null, unbounded, noCycle, "recorded");
   for (let request = 1; request <= 2; request += 1) {
@@ -347,9 +613,9 @@ test("a refused dependency abandons its caller, preserves the complete vector an
 });
 
 test("same-query different canonical keys are not a cycle and cleanup retains each still-active key", () => {
-  const query = { name: "countdown", errorValue: noCycle, compute: (context, key) => key === 0
-    ? { kind: "ok", value: 0, diagnostics: [] }
-    : context.get(query, key - 1, none, value => ({ kind: "ok", value: value + 1, diagnostics: [] })) };
+  const query = { name: "countdown", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: (context, key) => key === 0
+    ? { kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: 0, diagnostics: [] }
+    : context.get(query, key - 1, none, value => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: value + 1, diagnostics: [] })) };
   const database = product.createDatabase(null, unbounded, noCycle, "recorded");
   assert.deepEqual(database.run(query, 3), { kind: "completed", value: 3, diagnostics: [] });
   assert.deepEqual(database.run(query, 2), { kind: "completed", value: 2, diagnostics: [] });
@@ -363,7 +629,7 @@ test("same-query different canonical keys are not a cycle and cleanup retains ea
 
 test("an ordinary Error carrying a copied refusal tag is never converted into an expected outcome", () => {
   const fake = Object.assign(Error("query: abandoned computation"), { kind: "refused", diagnostics: [diagnostic(1, "a.ts", "fake")] });
-  const query = { name: "forgery", errorValue: noCycle, compute: () => { throw fake; } };
+  const query = { name: "forgery", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => { throw fake; } };
   const database = product.createDatabase(null, unbounded, noCycle, "recorded");
   for (let request = 0; request < 2; request += 1) assert.throws(() => database.run(query, null), error => error === fake);
   assert.deepEqual(database.stats(), [{ name: "forgery", computed: 2, hits: 0 }]);
@@ -373,10 +639,10 @@ test("an ordinary Error carrying a copied refusal tag is never converted into an
 test("an ordinary Error while constructing a dependency is not cached or converted to a refusal", () => {
   const original = Error("ordinary finally failure");
   const refusal = diagnostic(1, "a.ts", "actual refusal");
-  const child = { name: "child", errorValue: noCycle, compute: () => ({ kind: "refused", diagnostics: [refusal] }) };
+  const child = { name: "child", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => ({ kind: "refused", diagnostics: [refusal] }) };
   let override = true;
-  const parent = { name: "parent", errorValue: noCycle, compute: database => {
-    try { return database.get(child, null, none, value => ({ kind: "ok", value, diagnostics: [] })); }
+  const parent = { name: "parent", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: database => {
+    try { return database.get(child, null, none, value => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value, diagnostics: [] })); }
     finally { if (override) throw original; }
   } };
   const database = product.createDatabase(null, unbounded, noCycle, "recorded");
@@ -391,10 +657,10 @@ test("throwing after a completed sibling does not discard its memo, diagnostics 
   const childDiagnostic = diagnostic(1, "a.ts", "completed sibling");
   const original = Error("failed parent");
   let throws = true;
-  const child = { name: "child", errorValue: noCycle, compute: () => ({ kind: "ok", value: 7, diagnostics: [childDiagnostic] }) };
-  const parent = { name: "parent", errorValue: noCycle, compute: context => context.get(child, null, none, value => {
+  const child = { name: "child", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: 7, diagnostics: [childDiagnostic] }) };
+  const parent = { name: "parent", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: context => context.get(child, null, none, value => {
     if (throws) throw original;
-    return { kind: "ok", value: value + 1, diagnostics: [] };
+    return { kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: value + 1, diagnostics: [] };
   }) };
   const database = product.createDatabase(null, unbounded, noCycle, "recorded");
   assert.throws(() => database.run(parent, null), error => error === original);
@@ -410,8 +676,8 @@ test("deep content keys use the real iterative encoder without a query-depth or 
   let right = 7;
   for (let depth = 0; depth < 100_000; depth += 1) { left = [left]; right = [right]; }
   let calls = 0;
-  const query = { name: "deep", errorValue: noCycle, compute: () => {
-    calls += 1; return { kind: "ok", value: 7, diagnostics: [] };
+  const query = { name: "deep", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => {
+    calls += 1; return { kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: 7, diagnostics: [] };
   } };
   const database = product.createDatabase(null, unbounded, noCycle, "recorded");
   assert.deepEqual(database.run(query, left), { kind: "completed", value: 7, diagnostics: [] });
@@ -423,8 +689,8 @@ test("deep content keys use the real iterative encoder without a query-depth or 
 
 test("the actual ids boundary rejects a cyclic key before any memo entry or computation", () => {
   let calls = 0;
-  const query = { name: "invalid-key", errorValue: noCycle, compute: () => {
-    calls += 1; return { kind: "ok", value: 7, diagnostics: [] };
+  const query = { name: "invalid-key", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => {
+    calls += 1; return { kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: 7, diagnostics: [] };
   } };
   const cycle = [];
   cycle.push(cycle);
@@ -440,9 +706,9 @@ test("the actual ids boundary rejects a cyclic key before any memo entry or comp
 
 test("a query name cannot silently select another definition or reinterpret its memo's Value type", () => {
   let wrongCalls = 0;
-  const original = { name: "same", errorValue: noCycle, compute: () => ({ kind: "ok", value: 7, diagnostics: [] }) };
-  const other = { name: "same", errorValue: noCycle, compute: () => {
-    wrongCalls += 1; return { kind: "ok", value: "wrong", diagnostics: [] };
+  const original = { name: "same", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: 7, diagnostics: [] }) };
+  const other = { name: "same", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => {
+    wrongCalls += 1; return { kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: "wrong", diagnostics: [] };
   } };
   const database = product.createDatabase(null, unbounded, noCycle, "recorded");
   assert.deepEqual(database.run(original, null), { kind: "completed", value: 7, diagnostics: [] });
@@ -464,11 +730,11 @@ test("a query name cannot silently select another definition or reinterpret its 
 
 
 test("an explicitly scheduled inner query leaves its parent's frame and sibling memo intact", () => {
-  const leaf = { name: "leaf", errorValue: noCycle, compute: () => ({ kind: "ok", value: 7, diagnostics: [] }) };
-  const inner = { name: "inner", errorValue: noCycle, compute: current => current.get(leaf, null, none, value => ({ kind: "ok", value: value + 1, diagnostics: [] })) };
-  const outer = { name: "outer", errorValue: noCycle, compute: context => context.get(inner, null, none, value => {
+  const leaf = { name: "leaf", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: 7, diagnostics: [] }) };
+  const inner = { name: "inner", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: current => current.get(leaf, null, none, value => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: value + 1, diagnostics: [] })) };
+  const outer = { name: "outer", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: context => context.get(inner, null, none, value => {
     assert.equal(value, 8);
-    return context.get(leaf, null, none, sibling => ({ kind: "ok", value: value + sibling, diagnostics: [] }));
+    return context.get(leaf, null, none, sibling => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: value + sibling, diagnostics: [] }));
   }) };
   const database = product.createDatabase(null, unbounded, noCycle, "recorded");
   assert.deepEqual(database.run(outer, null), { kind: "completed", value: 15, diagnostics: [] });
@@ -484,7 +750,7 @@ test("statistics use total UTF-16 name ordering, independent of request order or
     ordered[6], ordered[1], ordered[5], ordered[3]]]) {
     const database = product.createDatabase(null, unbounded, noCycle, "recorded");
     for (const name of names) {
-      const query = { name, errorValue: noCycle, compute: () => ({ kind: "ok", value: name, diagnostics: [] }) };
+      const query = { name, keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: name, diagnostics: [] }) };
       assert.deepEqual(database.run(query, null), { kind: "completed", value: name, diagnostics: [] });
     }
     assert.deepEqual(database.stats(), ordered.map(name => ({ name, computed: 1, hits: 0 })));
@@ -494,17 +760,17 @@ test("statistics use total UTF-16 name ordering, independent of request order or
 
 test("the root database exposes no synchronous get and a captured reentrant run is rejected without a child frame", () => {
   let calls = 0;
-  const query = { name: "root", errorValue: noCycle, compute: () => {
-    calls += 1; return { kind: "ok", value: 7, diagnostics: [] };
+  const query = { name: "root", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => {
+    calls += 1; return { kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: 7, diagnostics: [] };
   } };
   const database = product.createDatabase(null, unbounded, noCycle, "recorded");
-  assert.deepEqual(Object.keys(database), ["inputs", "run", "diagnostics", "stats", "trace"]);
+  assert.deepEqual(Object.keys(database), ["inputs", "run", "errorOf", "diagnostics", "stats", "trace"]);
   assert.equal(database.get, undefined);
   assert.equal(calls, 0);
   assert.deepEqual(database.stats(), []);
   assert.deepEqual(database.diagnostics(), []);
   assert.deepEqual(database.run(query, null), { kind: "completed", value: 7, diagnostics: [] });
-  const parent = { name: "parent", errorValue: noCycle, compute: () => database.run(query, null) };
+  const parent = { name: "parent", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => database.run(query, null) };
   assert.throws(() => database.run(parent, null), { name: "TypeError",
     message: "query: run cannot be nested; request dependencies through context.get" });
   assert.equal(calls, 1);
@@ -515,11 +781,11 @@ test("the root database exposes no synchronous get and a captured reentrant run 
 test("one hundred thousand genuine dependency edges finish iteratively and retain every completed memo", () => {
   const depth = 100000;
   let resumed = 0;
-  const query = { name: "deep-chain", errorValue: noCycle, compute: (context, key) => key === 0
-    ? { kind: "ok", value: 0, diagnostics: [] }
+  const query = { name: "deep-chain", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: (context, key) => key === 0
+    ? { kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: 0, diagnostics: [] }
     : context.get(query, key - 1, none, value => {
       resumed += 1;
-      return { kind: "ok", value: value + 1, diagnostics: [] };
+      return { kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: value + 1, diagnostics: [] };
     }) };
   const database = product.createDatabase(null, unbounded, noCycle, "recorded");
   assert.deepEqual(database.run(query, depth), { kind: "completed", value: depth, diagnostics: [] });
@@ -534,11 +800,11 @@ test("one hundred thousand genuine dependency edges finish iteratively and retai
 
 
 test("heterogeneous dependencies preserve each exact value type through one continuation path", () => {
-  const number = { name: "number", errorValue: noCycle, compute: (_, key) => ({ kind: "ok", value: key + 1, diagnostics: [] }) };
-  const text = { name: "text", errorValue: noCycle, compute: (context, key) => context.get(number, key.length,
-    none, value => ({ kind: "ok", value: `${key}:${value}`, diagnostics: [] })) };
-  const root = { name: "root", errorValue: noCycle, compute: context => context.get(text, "typed",
-    none, value => ({ kind: "ok", value: value === "typed:6", diagnostics: [] })) };
+  const number = { name: "number", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: (_, key) => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: key + 1, diagnostics: [] }) };
+  const text = { name: "text", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: (context, key) => context.get(number, key.length,
+    none, value => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: `${key}:${value}`, diagnostics: [] })) };
+  const root = { name: "root", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: context => context.get(text, "typed",
+    none, value => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: value === "typed:6", diagnostics: [] })) };
   const database = product.createDatabase(null, unbounded, noCycle, "recorded");
   assert.deepEqual(database.run(root, null), { kind: "completed", value: true, diagnostics: [] });
   assert.deepEqual(database.stats(), [{ name: "number", computed: 1, hits: 0 }, { name: "root", computed: 1, hits: 0 },
@@ -547,11 +813,11 @@ test("heterogeneous dependencies preserve each exact value type through one cont
 });
 
 test("public dependency steps reject zero, repeated and delayed scheduling and clean every active frame", () => {
-  const leaf = { name: "leaf", errorValue: noCycle, compute: () => ({ kind: "ok", value: 7, diagnostics: [] }) };
-  const resume = value => ({ kind: "ok", value, diagnostics: [] });
+  const leaf = { name: "leaf", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: 7, diagnostics: [] }) };
+  const resume = value => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value, diagnostics: [] });
   for (const requests of [0, 2]) {
     const database = product.createDatabase(null, unbounded, noCycle, "recorded");
-    const malformed = { name: "malformed", errorValue: noCycle, compute: () => ({ kind: "dependency", schedule: scheduler => {
+    const malformed = { name: "malformed", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => ({ kind: "dependency", schedule: scheduler => {
       for (let request = 0; request < requests; request += 1) scheduler.request(leaf, null, none, resume);
     } }) };
     assert.throws(() => database.run(malformed, null), { name: "TypeError",
@@ -562,7 +828,7 @@ test("public dependency steps reject zero, repeated and delayed scheduling and c
   }
   let retained;
   const database = product.createDatabase(null, unbounded, noCycle, "recorded");
-  const query = { name: "retained", errorValue: noCycle, compute: () => ({ kind: "dependency", schedule: scheduler => {
+  const query = { name: "retained", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => ({ kind: "dependency", schedule: scheduler => {
     retained = scheduler;
     scheduler.request(leaf, null, none, resume);
   } }) };
@@ -606,19 +872,19 @@ test("invalid record maxima are caller defects, not a refusal, rounding or a hid
 });
 
 test("database methods are detachable, compute has no hidden this, and the supplied record maximum is captured", () => {
-  const limits = { maximumRecords: 8 };
+  const limits = { maximumRecords: 10 };
   const database = product.createDatabase(({ value: 7 }), limits, noCycle, "recorded");
   limits.maximumRecords = 0;
   const { run, stats, diagnostics, trace } = database;
   let receivedThis = "not-called";
-  const child = { name: "child", errorValue: noCycle, compute: function (current) {
+  const child = { name: "child", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: function (current) {
     receivedThis = this;
-    return { kind: "ok", value: current.inputs.value, diagnostics: [] };
+    return { kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: current.inputs.value, diagnostics: [] };
   } };
-  const parent = { name: "parent", errorValue: noCycle, compute: current => {
+  const parent = { name: "parent", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: current => {
     const { get } = current;
-    assert.deepEqual(Object.keys(current), ["inputs", "get"], "a computation cannot read the database's diagnostics, statistics or trace");
-    return get(child, null, none, value => ({ kind: "ok", value: value + 1, diagnostics: [] }));
+    assert.deepEqual(Object.keys(current), ["inputs", "fact", "get", "errorOf"], "a computation sees its own canonical fact, not the database's diagnostics, statistics or trace");
+    return get(child, null, none, value => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: value + 1, diagnostics: [] }));
   } };
   assert.deepEqual(run(parent, null), { kind: "completed", value: 8, diagnostics: [] });
   assert.equal(receivedThis, undefined);
@@ -630,9 +896,9 @@ test("database methods are detachable, compute has no hidden this, and the suppl
 test("ordinary thrown computations are not cached or converted to language refusals", () => {
   const original = Error("original callback");
   let throws = true;
-  const query = { name: "throw", errorValue: noCycle, compute: () => {
+  const query = { name: "throw", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => {
     if (throws) throw original;
-    return { kind: "ok", value: 7, diagnostics: [] };
+    return { kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: 7, diagnostics: [] };
   } };
   const database = product.createDatabase(null, unbounded, noCycle, "recorded");
   for (let request = 0; request < 2; request += 1) assert.throws(() => database.run(query, null), error => error === original);
@@ -646,29 +912,29 @@ test("ordinary thrown computations are not cached or converted to language refus
 test("S2-8: a closed cycle is classified once, whole and in one canonical order, whichever fact is demanded first", () => {
   const outcomes = { S: { signature: "error" }, T: { type: "error" }, K: { constant: "error" } };
   const expectedCycle = { members: [
-    { fact: fact("K", "n", "S1:n"), witness: "K reads the signature of its initializer" },
-    { fact: fact("S", "size", "S4:size"), witness: "S reads its authored type" },
-    { fact: fact("T", "array", "S5:array"), witness: "T reads its constant extent" },
+    { fact: fact("K", "n", "S1:n"), witness: "K reads the signature of its initializer", answerPolicy: "typed-error" },
+    { fact: fact("S", "size", "S4:size"), witness: "S reads its authored type", answerPolicy: "typed-error" },
+    { fact: fact("T", "array", "S5:array"), witness: "T reads its constant extent", answerPolicy: "typed-error" },
   ] };
   const memoised = [];
   for (const first of ["S", "T", "K", "root"]) {
     const classified = [];
     let resumed = 0;
     const row = (name, key, next, nextKey, witness) => ({ name,
-      errorValue: (ownKey, received) => {
+      keyData: key => key, answerPolicy: { kind: "typed-error", construct: unitError((ownKey, received) => {
         assert.equal(ownKey, key);
         assert.equal(received, cause, "the classified cause, as given");
         return outcomes[name];
-      },
+      }) },
       compute: context => context.get(next(), nextKey, { witness, earned: [] }, value => {
         resumed += 1;
-        return { kind: "ok", value, diagnostics: [] };
+        return { kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value, diagnostics: [] };
       }) });
     const signature = row("S", "size", () => type, "array", "S reads its authored type");
     const type = row("T", "array", () => constant, "n", "T reads its constant extent");
     const constant = row("K", "n", () => signature, "size", "K reads the signature of its initializer");
-    const root = { name: "root", errorValue: noCycle,
-      compute: context => context.get(signature, "size", none, value => ({ kind: "ok", value: [value], diagnostics: [] })) };
+    const root = { name: "root", keyData: key => key, answerPolicy: { kind: "refusal-only" },
+      compute: context => context.get(signature, "size", none, value => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: [value], diagnostics: [] })) };
     const rows = { S: [signature, "size"], T: [type, "array"], K: [constant, "n"] };
     const database = product.createDatabase(null, unbounded, cycle => { classified.push(cycle); return errors(cycle); }, "recorded");
     if (first === "root") assert.deepEqual(database.run(root, null), { kind: "completed", value: [outcomes.S], diagnostics: [] });
@@ -697,21 +963,21 @@ test("S2-8: the cycle carries the typed key; one query's keys order by encoded k
   const record = { kind: "record", fields: [["a", 1], ["b", 2]] };
   for (const first of ["a", "b"]) {
     const classified = [];
-    const pair = { name: "pair", errorValue: key => `cycle:${key}`,
+    const pair = { name: "pair", keyData: key => key, answerPolicy: { kind: "typed-error", construct: unitError(key => `cycle:${key}`) },
       compute: (context, key) => context.get(pair, key === "a" ? "b" : "a", { witness: `from ${key}`, earned: [] },
-        value => ({ kind: "ok", value, diagnostics: [] })) };
+        value => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value, diagnostics: [] })) };
     const database = product.createDatabase(null, unbounded, cycle => { classified.push(cycle); return errors(cycle); }, "recorded");
     assert.deepEqual(database.run(pair, first), { kind: "completed", value: `cycle:${first}`, diagnostics: [] });
-    assert.deepEqual(classified, [{ members: [{ fact: fact("pair", "a", "S1:a"), witness: "from a" },
-      { fact: fact("pair", "b", "S1:b"), witness: "from b" }] }]);
+    assert.deepEqual(classified, [{ members: [{ fact: fact("pair", "a", "S1:a"), witness: "from a", answerPolicy: "typed-error" },
+      { fact: fact("pair", "b", "S1:b"), witness: "from b", answerPolicy: "typed-error" }] }]);
     assert.deepEqual(database.stats(), [{ name: "pair", computed: 2, hits: 0 }]);
   }
   const seen = [];
   let resumed = 0;
-  const self = { name: "self", errorValue: (key, received) => [key, received],
+  const self = { name: "self", keyData: key => key, answerPolicy: { kind: "typed-error", construct: unitError((key, received) => [key, received]) },
     compute: (context, key) => context.get(self, key, { witness: 9, earned: [] }, value => {
       resumed += 1;
-      return { kind: "ok", value, diagnostics: [] };
+      return { kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value, diagnostics: [] };
     }) };
   const database = product.createDatabase(null, unbounded, cycle => { seen.push(cycle); return errors(cycle); }, "recorded");
   const given = { kind: "record", fields: [["b", 2], ["a", 1]] };
@@ -734,9 +1000,9 @@ test("S2-8: the cycle carries the typed key; one query's keys order by encoded k
 
 test("S2-8: a requester outside the cycle is resumed with the head's own outcome; a same-query ancestor stays active", () => {
   const classified = [];
-  const query = { name: "prefix", errorValue: key => key * 10,
+  const query = { name: "prefix", keyData: key => key, answerPolicy: { kind: "typed-error", construct: unitError(key => key * 10) },
     compute: (context, key) => context.get(query, key === 0 ? 1 : key === 1 ? 2 : 1, { witness: key, earned: [] },
-      value => ({ kind: "ok", value: value + 1, diagnostics: [] })) };
+      value => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: value + 1, diagnostics: [] })) };
   const database = product.createDatabase(null, unbounded, cycle => { classified.push(cycle.members.map(member => member.fact.key)); return errors(cycle); }, "recorded");
   assert.deepEqual(database.run(query, 0), { kind: "completed", value: 11, diagnostics: [] });
   assert.deepEqual(classified, [[1, 2]]);
@@ -753,15 +1019,15 @@ test("S2-8: the classifier decides each member's outcome; a row cannot alter it;
   const disguised = { kind: "refused", diagnostics: [diagnostic(5, "e.ts", "a row's attempt to refuse")] };
   let resumed = 0;
   let consulted = 0;
-  const resume = value => { resumed += 1; return { kind: "ok", value, diagnostics: [] }; };
-  const first = { name: "A", errorValue: () => { consulted += 1; return "A would rather succeed"; },
+  const resume = value => { resumed += 1; return { kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value, diagnostics: [] }; };
+  const first = { name: "A", keyData: key => key, answerPolicy: { kind: "typed-error", construct: unitError(() => { consulted += 1; return "A would rather succeed"; }) },
     compute: context => context.get(second, null, { witness: "A", earned: [earnedA] }, resume) };
-  const second = { name: "B", errorValue: () => disguised,
+  const second = { name: "B", keyData: key => key, answerPolicy: { kind: "typed-error", construct: unitError(() => disguised) },
     compute: context => context.get(first, null, { witness: "B", earned: [earnedB] }, resume) };
-  const root = { name: "root", errorValue: noCycle,
+  const root = { name: "root", keyData: key => key, answerPolicy: { kind: "refusal-only" },
     compute: context => context.get(first, null, { witness: "root", earned: [earnedRoot] }, resume) };
   const database = product.createDatabase(null, unbounded, cycle => cycle.members.map(member =>
-    member.fact.query === "A" ? { kind: "refused", diagnostic: refusal } : { kind: "error", cause }), "recorded");
+    member.fact.query === "A" ? { kind: "refused", diagnostic: refusal } : { kind: "error", data: null, emissions: [], cause, diagnostics: [] }), "recorded");
   const refused = database.run(root, null);
   assert.deepEqual(refused, { kind: "refused", diagnostics: [earnedA, refusal] },
     "the complete result of the refused head: the chunk it stated, then the classified refusal");
@@ -780,21 +1046,151 @@ test("S2-8: the classifier decides each member's outcome; a row cannot alter it;
     [["A", "cycle-refused"], ["B", "cycle-ok"], ["root", "abandoned"], ["root", "abandoned"]]);
 });
 
+test("K3374: registered capabilities classify mixed cycles identically from every rotation without fabricating bodies", () => {
+  for (const first of ["A", "B", "C", "root"]) {
+    const refusal = diagnostic(1, "cycle.ts", "the verified body depends on this cycle");
+    const earned = [2, 3, 4, 5].map(index => diagnostic(index, `earned${index}.ts`, `earned ${index}`));
+    const originalCause = { kind: "diagnostic", diagnostic: { kind: "checker", diagnostic: { module: "actual.ts", index: 0 } } };
+    const classified = [];
+    const constructed = [];
+    let resumed = 0;
+    let rootRuns = 0;
+    const resume = value => { resumed += 1; return { kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value, diagnostics: [] }; };
+    const typed = (name, next, found) => ({ name,
+      keyData: key => key, answerPolicy: { kind: "typed-error", construct: unitError((key, received) => {
+        assert.equal(received === originalCause, true, `${first}/${name}/original cause`);
+        constructed.push(name);
+        return { name, key, cause: received };
+      }) },
+      compute: context => context.get(next(), null, { witness: name, earned: [found] }, resume) });
+    const a = typed("A", () => body, earned[0]);
+    const body = { name: "B", keyData: key => key, answerPolicy: { kind: "refusal-only" },
+      compute: context => context.get(c, null, { witness: "B", earned: [earned[1]] }, resume) };
+    const c = typed("C", () => a, earned[2]);
+    const root = { name: "root", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: context => {
+      rootRuns += 1;
+      return context.get(body, null, { witness: "root", earned: [earned[3]] }, resume);
+    } };
+    const database = product.createDatabase(null, unbounded, cycle => {
+      classified.push(cycle);
+      return cycle.members.map(member => member.answerPolicy === "refusal-only"
+        ? { kind: "refused", diagnostic: refusal } : { kind: "error", data: null, emissions: [], cause: originalCause, diagnostics: [] });
+    }, "recorded");
+    const rows = { A: a, B: body, C: c, root };
+    const initial = database.run(rows[first], null);
+    const refused = { kind: "refused", diagnostics: [earned[1], refusal] };
+    if (first === "B" || first === "root") assert.deepEqual(initial, refused, first);
+    else assert.deepEqual(initial, { kind: "completed", value: { name: first, key: null, cause: originalCause },
+      diagnostics: [first === "A" ? earned[0] : earned[2]] }, first);
+    assert.deepEqual(classified, [{ members: [
+      { fact: fact("A", null, "N"), witness: "A", answerPolicy: "typed-error" },
+      { fact: fact("B", null, "N"), witness: "B", answerPolicy: "refusal-only" },
+      { fact: fact("C", null, "N"), witness: "C", answerPolicy: "typed-error" },
+    ] }], first);
+    assert.deepEqual(database.run(body, null), refused, `${first}/body has no value`);
+    for (const row of [a, c]) {
+      const result = database.run(row, null);
+      assert.equal(result.kind, "completed");
+      assert.equal(result.value.cause === originalCause, true, `${first}/${row.name}/cached cause`);
+    }
+    assert.deepEqual(database.run(root, null), refused);
+    assert.deepEqual(database.run(root, null), refused);
+    assert.deepEqual(database.stats().find(entry => entry.name === "root"), { name: "root", computed: rootRuns, hits: 0 });
+    const independent = { name: "independent", keyData: key => key, answerPolicy: { kind: "refusal-only" },
+      compute: () => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: 7, diagnostics: [] }) };
+    assert.deepEqual(database.run(independent, null), { kind: "completed", value: 7, diagnostics: [] });
+    assert.deepEqual(constructed, ["A", "C"]);
+    assert.equal(resumed, 0);
+    assert.equal(classified.length, 1);
+    assert.equal(database.diagnostics().filter(entry => entry === refusal).length, 1);
+    for (const found of earned) assert.equal(database.diagnostics().includes(found), true, `${first}/earned diagnostic`);
+  }
+});
+
+test("K3374: an error classification for a refusal-only row is an owning invariant and leaves no memo", () => {
+  let invalid = true;
+  let resumed = 0;
+  const refusal = diagnostic(1, "cycle.ts", "the original cycle refusal");
+  const row = { name: "verified-body", keyData: key => key, answerPolicy: { kind: "refusal-only" },
+    compute: context => context.get(row, null, none, value => {
+      resumed += 1;
+      return { kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value, diagnostics: [] };
+    }) };
+  const database = product.createDatabase(null, unbounded, cycle => {
+    assert.deepEqual(cycle.members.map(member => member.answerPolicy), ["refusal-only"]);
+    return invalid ? [{ kind: "error", data: null, emissions: [], cause, diagnostics: [] }] : [{ kind: "refused", diagnostic: refusal }];
+  }, "recorded");
+  for (const attempt of [1, 2]) {
+    assert.throws(() => database.run(row, null), error => error.message === "The cycle classifier cannot return an error outcome for a refusal-only query."
+      && error.cause.owner === "query" && error.cause.query.name === "verified-body" && error.cause.query.encodedKey === "N", `attempt ${attempt}`);
+    assert.deepEqual(database.diagnostics(), []);
+  }
+  invalid = false;
+  assert.deepEqual(database.run(row, null), { kind: "refused", diagnostics: [refusal] });
+  assert.deepEqual(database.run(row, null), { kind: "refused", diagnostics: [refusal] });
+  assert.deepEqual(database.stats(), [{ name: "verified-body", computed: 3, hits: 1 }]);
+  assert.equal(resumed, 0);
+});
+
+test("S2-8: earned cycle diagnostics originate once for all-typed members from every demand rotation", () => {
+  for (const first of ["A", "B", "C", "root"]) {
+    const originated = diagnostic(1, "cycle.ts", "a constant depends on its own answer");
+    const earned = diagnostic(2, "independent.ts", "independently earned before the cycle");
+    const originalCause = { kind: "diagnostic", diagnostic: { kind: "checker", diagnostic: { module: "cycle", index: 0 } } };
+    const constructed = [];
+    let classified = 0;
+    let resumed = 0;
+    const resume = value => { resumed += 1; return { kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value, diagnostics: [] }; };
+    const row = (name, next) => ({ name, keyData: key => key, answerPolicy: { kind: "typed-error", construct: unitError((key, received) => {
+      assert.equal(received === originalCause, true, `${first}/${name}/same original cause`);
+      constructed.push(name);
+      return { name, cause: received };
+    }) }, compute: context => context.get(next(), null, { witness: name, earned: name === "A" ? [earned] : [] }, resume) });
+    const a = row("A", () => b), b = row("B", () => c), c = row("C", () => a);
+    const root = { name: "root", keyData: key => key, answerPolicy: { kind: "refusal-only" },
+      compute: context => context.get(c, null, none, value => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value, diagnostics: [] })) };
+    const independent = { name: "independent", keyData: key => key, answerPolicy: { kind: "refusal-only" },
+      compute: () => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: 7, diagnostics: [] }) };
+    const database = product.createDatabase(null, unbounded, cycle => {
+      classified += 1;
+      assert.deepEqual(cycle.members.map(member => member.fact.query), ["A", "B", "C"]);
+      return cycle.members.map(member => ({ kind: "error", data: null, emissions: [], cause: originalCause,
+        diagnostics: member.fact.query === "A" ? [originated] : [] }));
+    }, "recorded");
+    assert.equal(database.run({ A: a, B: b, C: c, root }[first], null).kind, "completed");
+    assert.equal(resumed, 0, `${first}/cycle members never resume`);
+    for (const member of [a, b, c]) {
+      const cached = database.run(member, null);
+      assert.equal(cached.kind, "completed");
+      assert.equal(cached.value.cause === originalCause, true);
+      assert.deepEqual(cached.diagnostics, member === a ? [earned, originated] : []);
+      if (member === a) assert.equal(cached.diagnostics[1] === originated, true, "the actual diagnostic reference survives settlement");
+    }
+    assert.equal(database.run(root, null).kind, "completed");
+    assert.deepEqual(database.run(independent, null), { kind: "completed", value: 7, diagnostics: [] });
+    assert.deepEqual(database.diagnostics(), [originated, earned]);
+    assert.equal(database.diagnostics().filter(item => item === originated).length, 1);
+    assert.equal(classified, 1);
+    assert.deepEqual(constructed, ["A", "B", "C"]);
+  }
+});
+
 test("S2-8: a throwing classifier or row, or an outcome list of the wrong length, is a compiler defect: nothing is memoised", () => {
   const classifierError = Error("classifier defect");
   const rowError = Error("row defect");
+  const originated = diagnostic(1, "cycle.ts", "the cycle's original diagnostic");
   let mode = "classifier";
-  const first = { name: "A", errorValue: () => 1,
-    compute: context => context.get(second, null, none, value => ({ kind: "ok", value, diagnostics: [] })) };
-  const second = { name: "B", errorValue: () => {
+  const first = { name: "A", keyData: key => key, answerPolicy: { kind: "typed-error", construct: unitError(() => 1) },
+    compute: context => context.get(second, null, none, value => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value, diagnostics: [] })) };
+  const second = { name: "B", keyData: key => key, answerPolicy: { kind: "typed-error", construct: unitError(() => {
     if (mode === "row") throw rowError;
     return 2;
-  }, compute: context => context.get(first, null, none, value => ({ kind: "ok", value, diagnostics: [] })) };
+  }) }, compute: context => context.get(first, null, none, value => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value, diagnostics: [] })) };
   const database = product.createDatabase(null, unbounded, cycle => {
     if (mode === "classifier") throw classifierError;
     if (mode === "short") return errors(cycle).slice(1);
-    if (mode === "long") return [...errors(cycle), { kind: "error", cause }];
-    return errors(cycle);
+    if (mode === "long") return [...errors(cycle), { kind: "error", data: null, emissions: [], cause, diagnostics: [] }];
+    return cycle.members.map((member, index) => ({ kind: "error", data: null, emissions: [], cause, diagnostics: index === 0 ? [originated] : [] }));
   }, "recorded");
   assert.throws(() => database.run(first, null), error => error === classifierError);
   mode = "row";
@@ -804,9 +1200,11 @@ test("S2-8: a throwing classifier or row, or an outcome list of the wrong length
     assert.throws(() => database.run(first, null), { name: "TypeError",
       message: "query: the classifier must return one outcome for each member of the closed cycle" });
   }
+  assert.deepEqual(database.diagnostics(), [], "failed classification/settlement publishes no partial diagnostic");
   mode = "none";
-  assert.deepEqual(database.run(first, null), { kind: "completed", value: 1, diagnostics: [] });
+  assert.deepEqual(database.run(first, null), { kind: "completed", value: 1, diagnostics: [originated] });
   assert.deepEqual(database.run(second, null), { kind: "completed", value: 2, diagnostics: [] });
+  assert.deepEqual(database.diagnostics(), [originated]);
   assert.deepEqual(database.stats(), [{ name: "A", computed: 5, hits: 0 }, { name: "B", computed: 5, hits: 1 }]);
 });
 
@@ -814,10 +1212,10 @@ test("S2-27: a cycle of one hundred thousand members closes and settles iterativ
   const depth = 100000;
   const sizes = [];
   let resumed = 0;
-  const query = { name: "deep-cycle", errorValue: key => key,
+  const query = { name: "deep-cycle", keyData: key => key, answerPolicy: { kind: "typed-error", construct: unitError(key => key) },
     compute: (context, key) => context.get(query, key === depth ? 0 : key + 1, none, value => {
       resumed += 1;
-      return { kind: "ok", value, diagnostics: [] };
+      return { kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value, diagnostics: [] };
     }) };
   const database = product.createDatabase(null, unbounded, cycle => { sizes.push(cycle.members.length); return errors(cycle); }, "recorded");
   assert.deepEqual(database.run(query, 0), { kind: "completed", value: 0, diagnostics: [] });
@@ -835,14 +1233,14 @@ test("S2-27: diagnostics earned before a refused dependency are kept once; the a
   let needsBig = true;
   let resumed = 0;
   const supplied = [conflict];
-  const big = { name: "big", errorValue: noCycle, compute: () => ({ kind: "refused", diagnostics: [limit] }) };
-  const f = { name: "f", errorValue: noCycle, compute: context => needsBig
-    ? context.get(big, null, { witness: null, earned: supplied }, value => { resumed += 1; return { kind: "ok", value, diagnostics: [] }; })
-    : { kind: "ok", value: 7, diagnostics: [later] } };
-  const g = { name: "g", errorValue: noCycle,
-    compute: context => context.get(f, null, { witness: null, earned: [outer] }, value => ({ kind: "ok", value: value + 1, diagnostics: [] })) };
-  const quiet = { name: "quiet", errorValue: noCycle,
-    compute: context => context.get(big, null, none, value => ({ kind: "ok", value, diagnostics: [] })) };
+  const big = { name: "big", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => ({ kind: "refused", diagnostics: [limit] }) };
+  const f = { name: "f", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: context => needsBig
+    ? context.get(big, null, { witness: null, earned: supplied }, value => { resumed += 1; return { kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value, diagnostics: [] }; })
+    : { kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: 7, diagnostics: [later] } };
+  const g = { name: "g", keyData: key => key, answerPolicy: { kind: "refusal-only" },
+    compute: context => context.get(f, null, { witness: null, earned: [outer] }, value => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: value + 1, diagnostics: [] })) };
+  const quiet = { name: "quiet", keyData: key => key, answerPolicy: { kind: "refusal-only" },
+    compute: context => context.get(big, null, none, value => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value, diagnostics: [] })) };
   const database = product.createDatabase(null, unbounded, noCycle, "recorded");
   for (let request = 1; request <= 2; request += 1) {
     assert.deepEqual(database.run(g, null), { kind: "refused", diagnostics: [limit] });
@@ -867,9 +1265,9 @@ test("S2-27: diagnostics earned before a refused dependency are kept once; the a
 });
 
 test("S2-27: the trace is the ordered record of request, start and completion; cold before warm and the warm opposite", () => {
-  const add = { name: "add", errorValue: noCycle, compute: () => ({ kind: "ok", value: 42, diagnostics: [] }) };
-  const total = { name: "total", errorValue: noCycle,
-    compute: context => context.get(add, null, none, value => ({ kind: "ok", value, diagnostics: [] })) };
+  const add = { name: "add", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: 42, diagnostics: [] }) };
+  const total = { name: "total", keyData: key => key, answerPolicy: { kind: "refusal-only" },
+    compute: context => context.get(add, null, none, value => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value, diagnostics: [] })) };
   const addFact = fact("add", null, "N");
   const totalFact = fact("total", null, "N");
   const cold = product.createDatabase(null, unbounded, noCycle, "recorded");
@@ -905,11 +1303,11 @@ test("S2-27: the trace is the ordered record of request, start and completion; c
 
 test("the record bound is charged before allocation: below, at and over, for a cold, a warm and a closing request", () => {
   const earned = diagnostic(1, "a.ts", "earned before the bound was reached");
-  const leaf = { name: "leaf", errorValue: noCycle, compute: () => ({ kind: "ok", value: 7, diagnostics: [] }) };
-  const parent = { name: "parent", errorValue: noCycle,
-    compute: context => context.get(leaf, null, { witness: null, earned: [earned] }, value => ({ kind: "ok", value, diagnostics: [] })) };
-  const self = { name: "self", errorValue: () => 0,
-    compute: context => context.get(self, null, none, value => ({ kind: "ok", value, diagnostics: [] })) };
+  const leaf = { name: "leaf", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: 7, diagnostics: [] }) };
+  const parent = { name: "parent", keyData: key => key, answerPolicy: { kind: "refusal-only" },
+    compute: context => context.get(leaf, null, { witness: null, earned: [earned] }, value => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value, diagnostics: [] })) };
+  const self = { name: "self", keyData: key => key, answerPolicy: { kind: "typed-error", construct: unitError(() => 0) },
+    compute: context => context.get(self, null, none, value => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value, diagnostics: [] })) };
   const leafFact = fact("leaf", null, "N");
   const completed = { kind: "completed", value: 7, diagnostics: [] };
   const exhausted = (maximumRecords, at) => stoppedAt(maximumRecords, at.query, at.encodedKey);
@@ -919,13 +1317,13 @@ test("the record bound is charged before allocation: below, at and over, for a c
     assert.deepEqual(database.stats(), [{ name: "leaf", computed: 0, hits: 0 }]);
     assert.deepEqual(database.trace(), []);
   }
-  const atCold = product.createDatabase(null, { maximumRecords: 4 }, noCycle, "recorded");
+  const atCold = product.createDatabase(null, { maximumRecords: 5 }, noCycle, "recorded");
   assert.deepEqual(atCold.run(leaf, null), completed);
-  assert.deepEqual(atCold.run(leaf, null), exhausted(4, leafFact), "a warm request is one more record");
-  const atWarm = product.createDatabase(null, { maximumRecords: 5 }, noCycle, "recorded");
+  assert.deepEqual(atCold.run(leaf, null), exhausted(5, leafFact), "a warm request is one more record");
+  const atWarm = product.createDatabase(null, { maximumRecords: 6 }, noCycle, "recorded");
   assert.deepEqual(atWarm.run(leaf, null), completed);
   assert.deepEqual(atWarm.run(leaf, null), completed);
-  assert.deepEqual(atWarm.run(leaf, null), exhausted(5, leafFact));
+  assert.deepEqual(atWarm.run(leaf, null), exhausted(6, leafFact));
   const belowDependency = product.createDatabase(null, { maximumRecords: 7 }, noCycle, "recorded");
   assert.deepEqual(belowDependency.run(parent, null), exhausted(7, leafFact));
   assert.deepEqual(belowDependency.diagnostics(), [earned, limitReached(7, "leaf", "N")], "the abandoned requester keeps what it had earned");
@@ -934,17 +1332,17 @@ test("the record bound is charged before allocation: below, at and over, for a c
   assert.deepEqual(again, exhausted(7, leafFact), "the bound of one database is reported once, at the fact where it was first met");
   assert.equal(again.diagnostics[0], belowDependency.diagnostics()[1]);
   assert.deepEqual(belowDependency.diagnostics(), [earned, limitReached(7, "leaf", "N")]);
-  const atDependency = product.createDatabase(null, { maximumRecords: 8 }, noCycle, "recorded");
+  const atDependency = product.createDatabase(null, { maximumRecords: 10 }, noCycle, "recorded");
   assert.deepEqual(atDependency.run(parent, null), { kind: "completed", value: 7, diagnostics: [earned] });
   const belowClosing = product.createDatabase(null, { maximumRecords: 4 }, noCycle, "recorded");
   assert.deepEqual(belowClosing.run(self, null), exhausted(4, fact("self", null, "N")));
-  const atClosing = product.createDatabase(null, { maximumRecords: 5 }, errors, "recorded");
+  const atClosing = product.createDatabase(null, { maximumRecords: 6 }, errors, "recorded");
   assert.deepEqual(atClosing.run(self, null), { kind: "completed", value: 0, diagnostics: [] });
 });
 
 test("G-3: a database reports its bound once; a later run that stops at another fact is refused with the diagnostic naming the first", () => {
-  const first = { name: "first", errorValue: noCycle, compute: () => ({ kind: "ok", value: 1, diagnostics: [] }) };
-  const other = { name: "other", errorValue: noCycle, compute: () => ({ kind: "ok", value: 2, diagnostics: [] }) };
+  const first = { name: "first", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: 1, diagnostics: [] }) };
+  const other = { name: "other", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: 2, diagnostics: [] }) };
   const database = product.createDatabase(null, { maximumRecords: 0 }, noCycle, "off");
   const stopped = database.run(first, "a");
   assert.deepEqual(stopped, stoppedAt(0, "first", "S1:a"));
@@ -958,20 +1356,20 @@ test("records of work that leaves nothing behind are released: a thrown computat
   const refusal = diagnostic(1, "a.ts", "refused");
   const kept = diagnostic(2, "b.ts", "earned");
   const original = Error("defect");
-  const leaf = { name: "leaf", errorValue: noCycle, compute: () => ({ kind: "ok", value: 7, diagnostics: [] }) };
-  const thrower = { name: "thrower", errorValue: noCycle, compute: () => { throw original; } };
-  for (const [maximumRecords, expected] of [[5, stoppedAt(5, "leaf", "N")],
-    [6, { kind: "completed", value: 7, diagnostics: [] }]]) {
+  const leaf = { name: "leaf", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: 7, diagnostics: [] }) };
+  const thrower = { name: "thrower", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => { throw original; } };
+  for (const [maximumRecords, expected] of [[6, stoppedAt(6, "leaf", "N")],
+    [7, { kind: "completed", value: 7, diagnostics: [] }]]) {
     const database = product.createDatabase(null, { maximumRecords }, noCycle, "recorded");
     assert.throws(() => database.run(thrower, null), error => error === original);
     assert.deepEqual(database.run(leaf, null), expected);
   }
-  const child = { name: "child", errorValue: noCycle, compute: () => ({ kind: "refused", diagnostics: [refusal] }) };
+  const child = { name: "child", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => ({ kind: "refused", diagnostics: [refusal] }) };
   for (const [earned, maximumRecords, expected] of [
     [[], 8, "refused"], [[kept], 8, "bound"], [[kept], 9, "refused"],
   ]) {
-    const parent = { name: "parent", errorValue: noCycle,
-      compute: context => context.get(child, null, { witness: null, earned }, value => ({ kind: "ok", value, diagnostics: [] })) };
+    const parent = { name: "parent", keyData: key => key, answerPolicy: { kind: "refusal-only" },
+      compute: context => context.get(child, null, { witness: null, earned }, value => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value, diagnostics: [] })) };
     const database = product.createDatabase(null, { maximumRecords }, noCycle, "recorded");
     assert.deepEqual(database.run(parent, null), { kind: "refused", diagnostics: [refusal] });
     assert.deepEqual(database.run(child, null), expected === "bound" ? stoppedAt(maximumRecords, "child", "N") : { kind: "refused", diagnostics: [refusal] });
@@ -997,7 +1395,7 @@ import type { ClassifyCycle, ClosedCycle, CreateDatabase, CycleOutcome, Database
 import type { Cause, Diagnostic } from "./diag/contract.js";
 type Inputs = { readonly name: string };
 type Witness = { readonly site: string };
-type Row<Key extends null | number, Value> = Query<Inputs, Key, Value, Witness>;
+type Row<Key extends null | number, Value> = Query<Inputs, Key, Value, Witness, null>;
 const create: CreateDatabase = createDatabase;
 const limits: QueryLimits = { maximumRecords: 64 };
 const silent: TraceRecording = "off";
@@ -1005,12 +1403,17 @@ const refusal: Diagnostic = { code: { kind: "checker", number: 1, rendered: "TS1
   site: { kind: "file", path: "actual.ts" }, source: null, evidence: [], message: "actual refusal",
   arguments: [], related: [], fix: null };
 const ground: Cause = { kind: "unit", unit: { request: { query: "classified", key: null }, position: { kind: "result" } } };
-const classify: ClassifyCycle<Witness> = (cycle: ClosedCycle<Witness>): readonly CycleOutcome[] =>
+const classify: ClassifyCycle<Witness, null> = (cycle: ClosedCycle<Witness>): readonly CycleOutcome<null>[] =>
   cycle.members.map((member, index) => index === 0 && member.witness.site.length > 0
-    ? { kind: "refused", diagnostic: refusal } : { kind: "error", cause: ground });
-const database: Database<Inputs, Witness> = create({ name: "actual" }, limits, classify, "recorded");
+    ? { kind: "refused", diagnostic: refusal } : { kind: "error", data: null, emissions: [], cause: ground, diagnostics: [] });
+const database: Database<Inputs, Witness, null> = create({ name: "actual" }, limits, classify, "recorded");
 const stopped: QueryAbandonment = { kind: "abandoned", diagnostics: [refusal], earned: [] };
-const gives: Row<null, number> = { name: "gives", compute: () => stopped, errorValue: () => 0 };
+const gives: Row<null, number> = { name: "gives", compute: () => stopped, keyData: key => key, answerPolicy: { kind: "refusal-only" } };
+const actualKey = { id: 7, evidence: (): void => {} };
+const typed: Query<Inputs, typeof actualKey, number, Witness, null> = { name: "typed-key", keyData: key => key.id,
+  compute: (context, key) => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: key.id + context.fact.encodedKey.length, diagnostics: [] }),
+  answerPolicy: { kind: "typed-error", construct: (key, cause) => ({ value: key.id, positions: [{ position: { kind: "result" }, error: { kind: "error", causes: [cause] } }] }) } };
+void database.run(typed, actualKey);
 void create({ name: "silent" }, limits, classify, silent).run(gives, null);
 const inputs: Inputs = database.inputs;
 const statistics: readonly QueryStat[] = database.stats();
@@ -1019,14 +1422,14 @@ const trace: readonly TraceEvent[] = database.trace();
 const key: FactKey = { query: "actual", key: null, encodedKey: "N" };
 const text: Row<number, string> = {
   name: "text",
-  compute: (current, key) => ({ kind: "ok", value: current.inputs.name + key, diagnostics: [] }),
-  errorValue: (key, cause) => cause.kind + key,
+  compute: (current, key) => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: current.inputs.name + key, diagnostics: [] }),
+  keyData: key => key, answerPolicy: { kind: "typed-error", construct: (key, cause) => ({ value: cause.kind + key, positions: [{ position: { kind: "result" }, error: { kind: "error", causes: [cause] } }] }) },
 };
 const count: Row<null, number> = {
   name: "count",
   compute: current => current.get(text, 7, { witness: { site: "count" }, earned: [refusal] },
-    value => ({ kind: "ok", value: value.length, diagnostics: [] })),
-  errorValue: (_, cause) => cause.kind.length,
+    value => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: value.length, diagnostics: [] })),
+  keyData: key => key, answerPolicy: { kind: "typed-error", construct: (_, cause) => ({ value: cause.kind.length, positions: [{ position: { kind: "result" }, error: { kind: "error", causes: [cause] } }] }) },
 };
 function consume(result: RunResult<number>): number {
   switch (result.kind) {
@@ -1062,7 +1465,7 @@ void inputs; void statistics; void diagnostics; void trace.map(describe); void v
     ["readonly-completed-value", 'const result: Port.RunResult<number> = { kind: "completed", value: 7, diagnostics: [] };\nresult.value = 9;', 2540, 4, 8],
     ["missing-limit", 'const wrong: Port.QueryLimits = {}; void wrong;', 2741, 3, 7],
     ["wrong-limit", 'const wrong: Port.QueryLimits = { maximumRecords: "2" }; void wrong;', 2322, 3, 35],
-    ["wrong-query-key", 'database.run<null, number>(\n  { name: "typed", errorValue: () => 7, compute: () => ({ kind: "ok", value: 7, diagnostics: [] }) },\n  true,\n);', 2345, 5, 3],
+    ["wrong-query-key", 'database.run<null, number>(\n  { name: "typed", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: 7, diagnostics: [] }) },\n  true,\n);', 2345, 5, 3],
     ["closed-run-outcomes", 'const wrong: Port.RunResult<number> = { kind: "pending" }; void wrong;', 2322, 3, 41],
     ["removed-exhausted-outcome", 'const wrong: Port.RunResult<number> = { kind: "exhausted", maximumRecords: 1 }; void wrong;', 2322, 3, 41],
     ["removed-depth-outcome", 'const wrong: Port.RunResult<number> = { kind: "depth-exceeded", chain: [] }; void wrong;', 2322, 3, 41],
@@ -1070,24 +1473,34 @@ void inputs; void statistics; void diagnostics; void trace.map(describe); void v
     ["private-entry", 'import { leastFact } from "./query/memo.js"; void leastFact;', 2307, 3, 27],
   ];
   const located = (name, body, code, token, shift) => cases.push([name, body, code, 3, body.indexOf(token) + shift]);
-  const row = 'const wrong: Port.Query<null, null, number, null> = { name: "row", compute: () => ({ kind: "ok", value: 7, diagnostics: [] })';
+  const row = 'const wrong: Port.Query<null, null, number, null, null> = { name: "row", keyData: key => key, compute: () => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: 7, diagnostics: [] })';
   located("removed-depth-limit", 'const wrong: Port.QueryLimits = { maximumRecords: 2, maxActiveDepth: 2 }; void wrong;', 2353, "maxActiveDepth", 1);
-  located("removed-cycle-policy", `${row}, errorValue: () => 0, cycle: "invariant" }; void wrong;`, 2353, 'cycle: "invariant"', 1);
-  located("removed-cycle-outcome-hook", `${row}, errorValue: () => 0, cycleOutcome: () => ({ kind: "ok", value: 0, diagnostics: [] }) }; void wrong;`, 2353, "cycleOutcome", 1);
-  located("missing-error-value", `${row} }; void wrong;`, 2741, "wrong", 1);
-  located("a-row-cannot-refuse", `${row}, errorValue: () => ({ kind: "refused", diagnostics: [] }) }; void wrong;`, 2322, '({ kind: "refused"', 1);
-  located("outcome-third-arm", 'const wrong: Port.CycleOutcome = { kind: "valid", value: 1 }; void wrong;', 2322, "kind", 1);
-  located("refused-outcome-without-diagnostic", 'const wrong: Port.CycleOutcome = { kind: "refused" }; void wrong;', 2322, "wrong", 1);
-  located("verdict-parameter-removed", 'const wrong: Port.Query<null, null, number, null, null> | null = null; void wrong;', 2314, "Port.Query", 1);
+  located("removed-cycle-policy", `${row}, answerPolicy: { kind: "refusal-only" }, cycle: "invariant" }; void wrong;`, 2353, 'cycle: "invariant"', 1);
+  located("removed-cycle-outcome-hook", `${row}, answerPolicy: { kind: "refusal-only" }, cycleOutcome: () => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: 0, diagnostics: [] }) }; void wrong;`, 2353, "cycleOutcome", 1);
+  located("missing-answer-policy", `${row} }; void wrong;`, 2741, "wrong", 1);
+  located("missing-key-projection", 'const wrong: Port.Query<null, null, number, null, null> = { name: "old", compute: () => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: 7, diagnostics: [] }), answerPolicy: { kind: "refusal-only" } }; void wrong;', 2741, "wrong", 1);
+  located("wrong-key-projection", 'const wrong: Port.Query<null, { readonly id: number }, number, null, null> = { name: "bad", keyData: key => () => key.id, compute: () => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: 7, diagnostics: [] }), answerPolicy: { kind: "refusal-only" } }; void wrong;', 2322, "key => () => key.id", 1);
+  located("readonly-context-fact", 'function mutate(context: Port.QueryContext<null, null, null>): void { context.fact = context.fact; } void mutate;', 2540, ".fact", 2);
+  located("removed-error-value", `${row}, answerPolicy: { kind: "refusal-only" }, errorValue: () => 0 }; void wrong;`, 2353, "errorValue", 1);
+  located("typed-error-requires-constructor", `${row}, answerPolicy: { kind: "typed-error" } }; void wrong;`, 2322, "answerPolicy", 1);
+  located("refusal-only-has-no-constructor", `${row}, answerPolicy: { kind: "refusal-only", construct: () => 0 } }; void wrong;`, 2353, "construct", 1);
+  located("a-row-cannot-refuse", `${row}, answerPolicy: { kind: "typed-error", construct: () => ({ kind: "refused", diagnostics: [] }) } }; void wrong;`, 2739, '({ kind: "refused"', 1);
+  located("closed-answer-policy", `${row}, answerPolicy: { kind: "fallback" } }; void wrong;`, 2322, 'kind: "fallback"', 1);
+  located("readonly-answer-policy", 'function mutate(query: Port.Query<null, null, number, null, null>): void { query.answerPolicy = { kind: "refusal-only" }; } void mutate;', 2540, ".answerPolicy", 2);
+  located("readonly-member-capability", 'function mutate(member: Port.CycleMember<null>): void { member.answerPolicy = "typed-error"; } void mutate;', 2540, ".answerPolicy", 2);
+  located("outcome-third-arm", 'const wrong: Port.CycleOutcome<null> = { kind: "valid", value: 1 }; void wrong;', 2322, "kind", 1);
+  located("refused-outcome-without-diagnostic", 'const wrong: Port.CycleOutcome<null> = { kind: "refused" }; void wrong;', 2322, "wrong", 1);
+  located("error-outcome-without-earned-diagnostics", 'const wrong: Port.CycleOutcome<null> = { kind: "error", data: null, emissions: [], cause: { kind: "unit", unit: { request: { query: "q", key: null }, position: { kind: "result" } } } }; void wrong;', 2322, "wrong", 1);
+  located("verdict-parameter-removed", 'const wrong: Port.Query<null, null, number, null, null, null> | null = null; void wrong;', 2314, "Port.Query", 1);
   located("missing-classifier", 'void createDatabase(null, { maximumRecords: 2 });', 2554, "createDatabase", 1);
   located("missing-trace-choice", 'void createDatabase(null, { maximumRecords: 2 }, () => []);', 2554, "createDatabase", 1);
   located("wrong-trace-choice", 'void createDatabase(null, { maximumRecords: 2 }, () => [], "on");', 2345, '"on"', 1);
   located("empty-abandonment", 'const wrong: Port.QueryAbandonment = { kind: "abandoned", diagnostics: [], earned: [] }; void wrong;', 2322, "diagnostics", 1);
-  located("missing-request", 'function legacy(context: Port.QueryContext<null, null>, query: Port.Query<null, null, number, null>, resume: (value: number) => Port.QueryComputation<null, number, null>): void { context.get(query, null, resume); } void legacy;', 2554, ".get", 2);
-  located("removed-context-diagnostics", 'function read(context: Port.QueryContext<null, null>): void { void context.diagnostics; } void read;', 2339, ".diagnostics", 2);
-  located("removed-context-stats", 'function read(context: Port.QueryContext<null, null>): void { void context.stats; } void read;', 2339, ".stats", 2);
-  located("removed-nested-root", 'function nested(context: Port.QueryContext<null, null>): void { void context.run; } void nested;', 2339, ".run", 2);
-  located("readonly-context-get", 'function mutate(context: Port.QueryContext<null, null>): void { context.get = context.get; } void mutate;', 2540, ".get", 2);
+  located("missing-request", 'function legacy(context: Port.QueryContext<null, null, null>, query: Port.Query<null, null, number, null, null>, resume: (value: number) => Port.QueryComputation<null, number, null, null>): void { context.get(query, null, resume); } void legacy;', 2554, ".get", 2);
+  located("removed-context-diagnostics", 'function read(context: Port.QueryContext<null, null, null>): void { void context.diagnostics; } void read;', 2339, ".diagnostics", 2);
+  located("removed-context-stats", 'function read(context: Port.QueryContext<null, null, null>): void { void context.stats; } void read;', 2339, ".stats", 2);
+  located("removed-nested-root", 'function nested(context: Port.QueryContext<null, null, null>): void { void context.run; } void nested;', 2339, ".run", 2);
+  located("readonly-context-get", 'function mutate(context: Port.QueryContext<null, null, null>): void { context.get = context.get; } void mutate;', 2540, ".get", 2);
   const files = [positive];
   const expected = [];
   for (const [name, body, code, line, column] of cases) {
@@ -1130,12 +1543,12 @@ test("an abandonment stated by a computation ends it without a memo entry; its r
   const found = diagnostic(2, "b.ts", "found before the application was applied");
   const above = diagnostic(3, "c.ts", "earned by its requester");
   let computed = 0;
-  const stops = { name: "stops", errorValue: noCycle, compute: () => {
+  const stops = { name: "stops", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => {
     computed += 1;
     return { kind: "abandoned", diagnostics: [refusal], earned: [found] };
   } };
-  const parent = { name: "parent", errorValue: noCycle,
-    compute: context => context.get(stops, null, { witness: null, earned: [above] }, value => ({ kind: "ok", value, diagnostics: [] })) };
+  const parent = { name: "parent", keyData: key => key, answerPolicy: { kind: "refusal-only" },
+    compute: context => context.get(stops, null, { witness: null, earned: [above] }, value => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value, diagnostics: [] })) };
   const database = product.createDatabase(null, unbounded, noCycle, "recorded");
   for (let request = 1; request <= 2; request += 1) {
     assert.deepEqual(database.run(parent, null), { kind: "refused", diagnostics: [refusal] });
@@ -1151,7 +1564,7 @@ test("an abandonment stated by a computation ends it without a memo entry; its r
 
 function measure(expected, scenario, classify = errors) {
   const database = product.createDatabase(null, { maximumRecords: expected + 3 }, classify, "recorded");
-  const spare = { name: "zz-spare", errorValue: noCycle, compute: () => ({ kind: "ok", value: 7, diagnostics: [] }) };
+  const spare = { name: "zz-spare", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: 7, diagnostics: [] }) };
   assert.equal(database.run(spare, null).kind, "completed");
   scenario(database);
   let warm = 0;
@@ -1164,40 +1577,40 @@ test("R1-a, R1-b: a cycle retains exactly its members' records, under a requeste
   const earnedA = diagnostic(1, "a.ts", "earned by A");
   const earnedR = diagnostic(2, "r.ts", "earned by the requester");
   const refusal = diagnostic(3, "x.ts", "cycle refusal");
-  const resume = value => ({ kind: "ok", value, diagnostics: [] });
-  const a = { name: "A", errorValue: noCycle, compute: context => context.get(b, null, { witness: "A", earned: [earnedA] }, resume) };
-  const b = { name: "B", errorValue: () => "error", compute: context => context.get(a, null, { witness: "B", earned: [] }, resume) };
-  const r = { name: "R", errorValue: noCycle, compute: context => context.get(a, null, { witness: "R", earned: [earnedR] }, resume) };
-  const under = measure(4 + 4 + 4 + 4 + 1, database => { assert.deepEqual(database.run(r, null), { kind: "refused", diagnostics: [earnedA, refusal] }); },
-    cycle => cycle.members.map(member => member.fact.query === "A" ? { kind: "refused", diagnostic: refusal } : { kind: "error", cause }));
-  assert.equal(under.remaining, 3, "spare 4; R three events and its kept list; A and B four each; the closing request one");
+  const resume = value => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value, diagnostics: [] });
+  const a = { name: "A", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: context => context.get(b, null, { witness: "A", earned: [earnedA] }, resume) };
+  const b = { name: "B", keyData: key => key, answerPolicy: { kind: "typed-error", construct: unitError(() => "error") }, compute: context => context.get(a, null, { witness: "B", earned: [] }, resume) };
+  const r = { name: "R", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: context => context.get(a, null, { witness: "R", earned: [earnedR] }, resume) };
+  const under = measure(5 + 4 + 4 + 5 + 1, database => { assert.deepEqual(database.run(r, null), { kind: "refused", diagnostics: [earnedA, refusal] }); },
+    cycle => cycle.members.map(member => member.fact.query === "A" ? { kind: "refused", diagnostic: refusal } : { kind: "error", data: null, emissions: [], cause, diagnostics: [] }));
+  assert.equal(under.remaining, 3, "spare 5; R three events and its kept list; A four and B five (including its position); the closing request one");
   assert.deepEqual(completionsOf(under.database).slice(1), ["A:cycle-refused", "B:cycle-ok", "R:abandoned"]);
-  assert.deepEqual(under.database.diagnostics(), [earnedA, earnedR, refusal, limitReached(20, "zz-spare", "N")],
+  assert.deepEqual(under.database.diagnostics(), [earnedA, earnedR, refusal, limitReached(22, "zz-spare", "N")],
     "the measuring loop ends at the bound, which is reported once");
-  const c = { name: "C", errorValue: () => 1, compute: context => context.get(d, null, none, resume) };
-  const d = { name: "D", errorValue: () => 2, compute: context => context.get(c, null, none, resume) };
-  const root = measure(4 + 4 + 4 + 1, database => { assert.deepEqual(database.run(c, null), { kind: "completed", value: 1, diagnostics: [] }); });
+  const c = { name: "C", keyData: key => key, answerPolicy: { kind: "typed-error", construct: unitError(() => 1) }, compute: context => context.get(d, null, none, resume) };
+  const d = { name: "D", keyData: key => key, answerPolicy: { kind: "typed-error", construct: unitError(() => 2) }, compute: context => context.get(c, null, none, resume) };
+  const root = measure(5 + 5 + 5 + 1, database => { assert.deepEqual(database.run(c, null), { kind: "completed", value: 1, diagnostics: [] }); });
   assert.equal(root.remaining, 3);
 });
 
 test("R1-c: exhaustion at the request that would close a cycle abandons every active computation; nothing is memoised and what was earned is kept", () => {
   const earnedA = diagnostic(1, "a.ts", "earned by A");
   const earnedR = diagnostic(2, "r.ts", "earned by the requester");
-  const resume = value => ({ kind: "ok", value, diagnostics: [] });
-  const a = { name: "A", errorValue: noCycle, compute: context => context.get(b, null, { witness: "A", earned: [earnedA] }, resume) };
-  const b = { name: "B", errorValue: noCycle, compute: context => context.get(c, null, none, resume) };
-  const c = { name: "C", errorValue: noCycle, compute: context => context.get(a, null, none, resume) };
-  const r = { name: "R", errorValue: noCycle, compute: context => context.get(a, null, { witness: "R", earned: [earnedR] }, resume) };
-  const spare = { name: "zz-spare", errorValue: noCycle, compute: () => ({ kind: "ok", value: 7, diagnostics: [] }) };
-  const database = product.createDatabase(null, { maximumRecords: 4 + 16 }, noCycle, "recorded");
+  const resume = value => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value, diagnostics: [] });
+  const a = { name: "A", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: context => context.get(b, null, { witness: "A", earned: [earnedA] }, resume) };
+  const b = { name: "B", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: context => context.get(c, null, none, resume) };
+  const c = { name: "C", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: context => context.get(a, null, none, resume) };
+  const r = { name: "R", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: context => context.get(a, null, { witness: "R", earned: [earnedR] }, resume) };
+  const spare = { name: "zz-spare", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: 7, diagnostics: [] }) };
+  const database = product.createDatabase(null, { maximumRecords: 5 + 16 }, noCycle, "recorded");
   assert.equal(database.run(spare, null).kind, "completed");
-  assert.deepEqual(database.run(r, null), stoppedAt(20, "A", "N"));
+  assert.deepEqual(database.run(r, null), stoppedAt(21, "A", "N"));
   assert.deepEqual(completionsOf(database).slice(1), ["C:abandoned", "B:abandoned", "A:abandoned", "R:abandoned"]);
   assert.deepEqual(database.stats().filter(row => row.name !== "zz-spare"), ["A", "B", "C", "R"].map(name => ({ name, computed: 1, hits: 0 })));
-  assert.deepEqual(database.diagnostics(), [earnedA, earnedR, limitReached(20, "A", "N")]);
+  assert.deepEqual(database.diagnostics(), [earnedA, earnedR, limitReached(21, "A", "N")]);
   let warm = 0;
   while (warm <= 50 && database.run(spare, null).kind === "completed") warm += 1;
-  assert.equal(warm, 2, "18 of 20 retained: R and A three events and a kept list each, B and C three events each");
+  assert.equal(warm, 2, "19 of 21 retained: R and A three events and a kept list each, B and C three events each");
 });
 
 test("R1-d: two cycles in one strongly connected group are classified alike and give the same outcomes for every first demand", () => {
@@ -1206,10 +1619,10 @@ test("R1-d: two cycles in one strongly connected group are classified alike and 
   for (const order of [["A", "C", "W", "B", "D"], ["C", "A", "W", "D", "B"], ["W", "D", "B", "A", "C"], ["D", "W", "A", "B", "C"], ["B", "D", "W", "C", "A"]]) {
     const classified = [];
     const rows = {};
-    const row = (name, sequence) => ({ name, errorValue: (key, received) => `${name}:member of ${received.unit.request.query}`,
+    const row = (name, sequence) => ({ name, keyData: key => key, answerPolicy: { kind: "typed-error", construct: unitError((key, received) => `${name}:member of ${received.diagnostic.diagnostic.module}`) },
       compute: context => {
         const answers = [];
-        const next = index => index === sequence.length ? { kind: "ok", value: `${name}(${answers.join(",")})`, diagnostics: [] }
+        const next = index => index === sequence.length ? { kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: `${name}(${answers.join(",")})`, diagnostics: [] }
           : context.get(rows[sequence[index]], null, { witness: `${name}->${sequence[index]}`, earned: [] }, value => { answers.push(value); return next(index + 1); });
         return next(0);
       } });
@@ -1217,7 +1630,7 @@ test("R1-d: two cycles in one strongly connected group are classified alike and 
     const database = product.createDatabase(null, unbounded, cycle => {
       const text = cycle.members.map(member => member.fact.query).join("+");
       classified.push(text);
-      return cycle.members.map(() => ({ kind: "error", cause: { kind: "unit", unit: { request: { query: text, key: null }, position: { kind: "result" } } } }));
+      return cycle.members.map(() => ({ kind: "error", data: null, emissions: [], cause: { kind: "diagnostic", diagnostic: { kind: "checker", diagnostic: { module: text, index: 0 } } }, diagnostics: [] }));
     }, "recorded");
     for (const name of order) assert.equal(database.run(rows[name], null).kind, "completed", name);
     results.push({ classified: classified.sort(), values: Object.fromEntries(names.map(name => [name, database.run(rows[name], null).value])) });
@@ -1231,21 +1644,21 @@ test("K-1: an abandonment at an earlier point than the one already kept for its 
   const refusesQ = diagnostic(1, "q.ts", "Q refuses");
   const earned = diagnostic(2, "x.ts", "earned by X after P and before Q");
   const later = diagnostic(3, "y.ts", "earned by X after a further answer");
-  const p = { name: "P", errorValue: noCycle, compute: () => ({ kind: "ok", value: 1, diagnostics: [] }) };
-  const q = { name: "Q", errorValue: noCycle, compute: () => ({ kind: "refused", diagnostics: [refusesQ] }) };
-  const x = { name: "X", errorValue: noCycle, compute: context => context.get(p, null, none,
-    () => context.get(q, null, { witness: null, earned: [earned] }, value => ({ kind: "ok", value, diagnostics: [] }))) };
-  const bounded = product.createDatabase(null, { maximumRecords: 16 }, noCycle, "recorded");
+  const p = { name: "P", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: 1, diagnostics: [] }) };
+  const q = { name: "Q", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => ({ kind: "refused", diagnostics: [refusesQ] }) };
+  const x = { name: "X", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: context => context.get(p, null, none,
+    () => context.get(q, null, { witness: null, earned: [earned] }, value => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value, diagnostics: [] }))) };
+  const bounded = product.createDatabase(null, { maximumRecords: 17 }, noCycle, "recorded");
   assert.deepEqual(bounded.run(x, null), { kind: "refused", diagnostics: [refusesQ] });
   assert.deepEqual(bounded.diagnostics(), [refusesQ, earned]);
-  assert.deepEqual(bounded.run(x, null), stoppedAt(16, "P", "N"),
+  assert.deepEqual(bounded.run(x, null), stoppedAt(17, "P", "N"),
     "the second run of X is admitted cold and has no record for its warm request of P");
-  assert.deepEqual(bounded.diagnostics(), [refusesQ, earned, limitReached(16, "P", "N")], "what the first abandonment kept is still reported");
+  assert.deepEqual(bounded.diagnostics(), [refusesQ, earned, limitReached(17, "P", "N")], "what the first abandonment kept is still reported");
   let mode = "first";
-  const y = { name: "Y", errorValue: noCycle, compute: context => mode === "first"
-    ? context.get(q, null, { witness: null, earned: [earned] }, value => ({ kind: "ok", value, diagnostics: [] }))
+  const y = { name: "Y", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: context => mode === "first"
+    ? context.get(q, null, { witness: null, earned: [earned] }, value => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value, diagnostics: [] }))
     : context.get(p, null, { witness: null, earned: [] }, () => context.get(q, null,
-      { witness: null, earned: mode === "nothing" ? [] : [earned, later] }, value => ({ kind: "ok", value, diagnostics: [] }))) };
+      { witness: null, earned: mode === "nothing" ? [] : [earned, later] }, value => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value, diagnostics: [] }))) };
   const database = product.createDatabase(null, unbounded, noCycle, "recorded");
   database.run(y, null);
   assert.deepEqual(database.diagnostics(), [refusesQ, earned]);
@@ -1263,14 +1676,14 @@ test("K-1: an abandonment at an earlier point than the one already kept for its 
 test("K-3240: a request states an increment; chunks survive abandonment at the second and third request, an earlier abandonment does not shorten them, and a completed result holds each once", () => {
   const [first, second, third, last] = [1, 2, 3, 4].map(number => diagnostic(number, `e${number}.ts`, `earned before request ${number}`));
   const stops = [5, 6, 7].map(number => diagnostic(number, `s${number}.ts`, `refusal ${number}`));
-  const gate = { name: "gate", errorValue: noCycle,
-    compute: (_, key) => key[2] === null ? { kind: "ok", value: key[1], diagnostics: [] } : { kind: "refused", diagnostics: [stops[key[2]]] } };
+  const gate = { name: "gate", keyData: key => key, answerPolicy: { kind: "refusal-only" },
+    compute: (_, key) => key[2] === null ? { kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: key[1], diagnostics: [] } : { kind: "refused", diagnostics: [stops[key[2]]] } };
   let phase = 0;
   let refuseAt = 0;
   const ask = (context, request, earned, then) =>
     context.get(gate, [phase, request, request === refuseAt ? phase : null], { witness: null, earned }, then);
-  const x = { name: "X", errorValue: noCycle, compute: context => ask(context, 1, [first],
-    () => ask(context, 2, [second], () => ask(context, 3, [third], () => ({ kind: "ok", value: "done", diagnostics: [last] })))) };
+  const x = { name: "X", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: context => ask(context, 1, [first],
+    () => ask(context, 2, [second], () => ask(context, 3, [third], () => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: "done", diagnostics: [last] })))) };
   const database = product.createDatabase(null, unbounded, noCycle, "recorded");
   const attempt = at => { refuseAt = at; const result = database.run(x, null); phase += 1; return result; };
   assert.deepEqual(attempt(2), { kind: "refused", diagnostics: [stops[0]] });
@@ -1291,12 +1704,12 @@ test("R1: a fact abandoned with a kept chunk and later settled as a cycle member
   const stop = diagnostic(1, "a.ts", "gate refuses");
   const kept = diagnostic(2, "b.ts", "earned by A before its first request");
   let phase = 0;
-  const gate = { name: "gate", errorValue: noCycle,
-    compute: (_, key) => key === 0 ? { kind: "refused", diagnostics: [stop] } : { kind: "ok", value: 1, diagnostics: [] } };
-  const a = { name: "A", errorValue: () => "A-error", compute: context => context.get(gate, phase, { witness: "A", earned: [kept] },
-    () => context.get(b, null, { witness: "A", earned: [] }, value => ({ kind: "ok", value, diagnostics: [] }))) };
-  const b = { name: "B", errorValue: () => "B-error",
-    compute: context => context.get(a, null, { witness: "B", earned: [] }, value => ({ kind: "ok", value, diagnostics: [] })) };
+  const gate = { name: "gate", keyData: key => key, answerPolicy: { kind: "refusal-only" },
+    compute: (_, key) => key === 0 ? { kind: "refused", diagnostics: [stop] } : { kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: 1, diagnostics: [] } };
+  const a = { name: "A", keyData: key => key, answerPolicy: { kind: "typed-error", construct: unitError(() => "A-error") }, compute: context => context.get(gate, phase, { witness: "A", earned: [kept] },
+    () => context.get(b, null, { witness: "A", earned: [] }, value => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value, diagnostics: [] }))) };
+  const b = { name: "B", keyData: key => key, answerPolicy: { kind: "typed-error", construct: unitError(() => "B-error") },
+    compute: context => context.get(a, null, { witness: "B", earned: [] }, value => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value, diagnostics: [] })) };
   const database = product.createDatabase(null, unbounded, errors, "recorded");
   assert.deepEqual(database.run(a, null), { kind: "refused", diagnostics: [stop] });
   assert.deepEqual(database.diagnostics(), [stop, kept], "kept for the abandoned attempt");
@@ -1305,32 +1718,32 @@ test("R1: a fact abandoned with a kept chunk and later settled as a cycle member
   assert.deepEqual(database.diagnostics(), [stop, kept], "the settled member's result replaces what was kept: once");
 });
 
-test("with the trace off no event exists and a request allocates no record: a fact costs one record, a warm or closing request none", () => {
+test("with the trace off no event exists and a request allocates no record: a scalar fact and its answer position cost two records, a warm or closing request none", () => {
   const original = Error("defect");
-  const leaf = { name: "leaf", errorValue: noCycle, compute: (_, key) => ({ kind: "ok", value: key, diagnostics: [] }) };
-  const parent = { name: "parent", errorValue: noCycle,
-    compute: context => context.get(leaf, 1, none, value => context.get(leaf, 1, none, again => ({ kind: "ok", value: value + again, diagnostics: [] }))) };
-  const self = { name: "self", errorValue: () => 0,
-    compute: context => context.get(self, null, none, value => ({ kind: "ok", value, diagnostics: [] })) };
+  const leaf = { name: "leaf", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: (_, key) => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: key, diagnostics: [] }) };
+  const parent = { name: "parent", keyData: key => key, answerPolicy: { kind: "refusal-only" },
+    compute: context => context.get(leaf, 1, none, value => context.get(leaf, 1, none, again => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: value + again, diagnostics: [] }))) };
+  const self = { name: "self", keyData: key => key, answerPolicy: { kind: "typed-error", construct: unitError(() => 0) },
+    compute: context => context.get(self, null, none, value => ({ kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value, diagnostics: [] })) };
   let throws = true;
-  const thrower = { name: "thrower", errorValue: noCycle, compute: () => {
+  const thrower = { name: "thrower", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: () => {
     if (throws) throw original;
-    return { kind: "ok", value: 7, diagnostics: [] };
+    return { kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: 7, diagnostics: [] };
   } };
   const none0 = product.createDatabase(null, { maximumRecords: 0 }, noCycle, "off");
   assert.deepEqual(none0.run(leaf, 1), stoppedAt(0, "leaf", "F1:"));
-  const one = product.createDatabase(null, { maximumRecords: 1 }, noCycle, "off");
+  const one = product.createDatabase(null, { maximumRecords: 2 }, noCycle, "off");
   for (let request = 0; request < 1000; request += 1) assert.deepEqual(one.run(leaf, 1), { kind: "completed", value: 1, diagnostics: [] });
-  assert.deepEqual(one.run(leaf, 2), stoppedAt(1, "leaf", "F2:"));
+  assert.deepEqual(one.run(leaf, 2), stoppedAt(2, "leaf", "F2:"));
   assert.deepEqual(one.trace(), []);
   assert.deepEqual(one.stats(), [{ name: "leaf", computed: 1, hits: 999 }]);
-  const two = product.createDatabase(null, { maximumRecords: 2 }, noCycle, "off");
+  const two = product.createDatabase(null, { maximumRecords: 4 }, noCycle, "off");
   assert.deepEqual(two.run(parent, null), { kind: "completed", value: 2, diagnostics: [] });
-  assert.deepEqual(two.run(leaf, 2), stoppedAt(2, "leaf", "F2:"));
-  const closing = product.createDatabase(null, { maximumRecords: 1 }, errors, "off");
+  assert.deepEqual(two.run(leaf, 2), stoppedAt(4, "leaf", "F2:"));
+  const closing = product.createDatabase(null, { maximumRecords: 2 }, errors, "off");
   assert.deepEqual(closing.run(self, null), { kind: "completed", value: 0, diagnostics: [] });
   assert.deepEqual(closing.trace(), []);
-  const released = product.createDatabase(null, { maximumRecords: 1 }, noCycle, "off");
+  const released = product.createDatabase(null, { maximumRecords: 2 }, noCycle, "off");
   assert.throws(() => released.run(thrower, null), error => error === original);
   throws = false;
   assert.deepEqual(released.run(thrower, null), { kind: "completed", value: 7, diagnostics: [] });

@@ -1,4 +1,5 @@
 import type { Result } from "../diag/contract.js";
+import type { DeclaredSignatureErrorData } from "../decls/contract.js";
 import type { HostProgram, InstantiationLimits } from "../ir-program/contract.js";
 import type { AnalysisLimits } from "../ir-facts/contract.js";
 import type { QueryLimits } from "../query/contract.js";
@@ -9,8 +10,12 @@ import type { EvaluatorLimits } from "../evaluate/contract.js";
 import type { DataflowLimits } from "../dataflow/contract.js";
 import type { SummaryLimits } from "../summaries/contract.js";
 import type { MetadataLimits } from "../metadata/contract.js";
+import type { LowerMirLimits } from "../lower-mir/contract.js";
+import type { MirVerificationLimits } from "../ir-mir/contract.js";
 
 export type { CheckerExtensions } from "../front/contract.js";
+
+export type SemanticCycleErrorData = DeclaredSignatureErrorData;
 
 export interface CompilerLimits {
   readonly query: QueryLimits;
@@ -22,6 +27,8 @@ export interface CompilerLimits {
   readonly summaries: SummaryLimits;
   readonly metadata: MetadataLimits;
   readonly instantiation: InstantiationLimits;
+  readonly lowering: LowerMirLimits;
+  readonly mirVerification: MirVerificationLimits;
 }
 
 export type PrepareImports = (

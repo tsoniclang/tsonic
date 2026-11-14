@@ -1,5 +1,5 @@
 import type { DefinitionSegment, ModuleId, NodeId } from "../ids/contract.js";
-import type { ModuleDefinitionRow } from "./contract.js";
+import type { ModuleDefinitionRow, ModuleDefinitions } from "./contract.js";
 import { encodeDefId } from "../ids/index.js";
 import type * as Hir from "../ir-hir/contract.js";
 import { childrenOfSyntax } from "../ir-hir/index.js";
@@ -52,10 +52,22 @@ interface Owner {
  * before it, whatever their kind. The counters belong to the owner itself (its node), never to a spelling of its
  * path, so names holding `#`, `/` or `:` cannot make two owners share a counter (K-3343).
  */
-export function definitionRows(module: ModuleId, tree: Hir.SourceFile<Hir.SyntaxPhase>): readonly ModuleDefinitionRow[] {
+export function isBindingKind(kind: string, hasName: boolean): boolean {
+  switch (kind) {
+    case "ImportClause": return hasName;
+    case "ImportSpecifier": case "NamespaceImport": case "ImportEqualsDeclaration": case "ExportSpecifier":
+    case "NamespaceExport": case "NamespaceExportDeclaration": return true;
+    default: return false;
+  }
+}
+
+export function moduleIdentities(module: ModuleId, tree: Hir.SourceFile<Hir.SyntaxPhase>): ModuleDefinitions {
   const rows: ModuleDefinitionRow[] = [];
+  const bindingSources: ModuleDefinitions["bindingSources"][number][] = [];
   const counts = new Map<NodeId, Map<string, number>>();
-  const visit = (node: Hir.SyntaxNode<Hir.SyntaxPhase>, owner: Owner | null): void => {
+  const pending: { readonly node: Hir.SyntaxNode<Hir.SyntaxPhase>; readonly owner: Owner | null }[] = [{ node: tree, owner: null }];
+  for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
+    const { node, owner } = next;
     const name = identityName(node);
     let inner = owner;
     if (name !== null) {
@@ -70,8 +82,16 @@ export function definitionRows(module: ModuleId, tree: Hir.SourceFile<Hir.Syntax
       rows.push({ node: node.id, kind: node.kind, segments, definition: encodeDefId({ module, segments }) });
       inner = { node: node.id, segments };
     }
-    childrenOfSyntax(node).forEach(child => { visit(child, inner); });
-  };
-  visit(tree, null);
-  return rows;
+    if (isBindingKind(node.kind, node.kind !== "ImportClause" || node.name !== null)) {
+      if (inner === null) throw new TypeError("front: a binding has no genuine enclosing declaration identity");
+      bindingSources.push({ node: node.id, occurrence: { kind: "item", value: {
+        owner: encodeDefId({ module, segments: inner.segments }), node: node.id } } });
+    }
+    const children = childrenOfSyntax(node);
+    for (let index = children.length - 1; index >= 0; index -= 1) {
+      const child = children[index];
+      if (child !== undefined) pending.push({ node: child, owner: inner });
+    }
+  }
+  return { module, rows, bindingSources };
 }

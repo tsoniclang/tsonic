@@ -93,7 +93,7 @@ export function readCapturedFactText<Value, Root>(cursor: Cursor, readValue: Tex
     atomicText(cursor, next => closeRecord(next, fields), () =>
         acceptText({ kind: label, value: valueValue }, finish)));
         case "unavailable":
-          return fieldText<"checker-error" | "parameter-dependent" | "not-provided", Root>(cursor, fields, "reason", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["checker-error","parameter-dependent","not-provided"]), done), reasonValue =>
+          return fieldText<"checker-error" | "parameter-dependent" | "not-provided" | "missing-original-component" | "incomplete-association" | "unsupported-checked-structure", Root>(cursor, fields, "reason", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["checker-error","parameter-dependent","not-provided","missing-original-component","incomplete-association","unsupported-checked-structure"]), done), reasonValue =>
     atomicText(cursor, next => closeRecord(next, fields), () =>
         acceptText({ kind: label, reason: reasonValue }, finish)));
       }

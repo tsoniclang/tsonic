@@ -161,28 +161,41 @@ function rewriteOperationIdentity(rewrite: TypeRewrite, operation: OperationIden
         sent: operation.sent === null ? null : rewrite.type(operation.sent),
         thrown: rewrite.type(operation.thrown),
       };
-    case "conversion":
-      return {
-        kind: "conversion", from: rewrite.type(operation.from), to: rewrite.type(operation.to),
-        embedding: rewriteEmbedding(rewrite, operation.embedding, `${at}.embedding`),
-      };
+    case "conversion": return rewriteConversionIdentity(rewrite, operation, at);
     case "library":
-    case "core":
-      return {
-        kind: operation.kind, declaration: operation.declaration,
-        bindings: rewriteBindings(rewrite, operation.bindings),
-      };
+    case "core": return rewriteBackedIdentity(rewrite, operation);
   }
 }
 
-export function rewriteOperation(rewrite: TypeRewrite, operation: OperationDecision, at: string): OperationDecision {
+export function rewriteConversionIdentity(
+  rewrite: TypeRewrite, operation: OperationIdentity & { readonly kind: "conversion" }, at: string,
+): OperationIdentity & { readonly kind: "conversion" } {
+  return {
+    kind: "conversion", from: rewrite.type(operation.from), to: rewrite.type(operation.to),
+    embedding: rewriteEmbedding(rewrite, operation.embedding, `${at}.embedding`),
+  };
+}
+
+export function rewriteBackedIdentity(
+  rewrite: TypeRewrite, operation: OperationIdentity & { readonly kind: "library" | "core" },
+): OperationIdentity & { readonly kind: "library" | "core" } {
+  return { kind: operation.kind, declaration: operation.declaration, bindings: rewriteBindings(rewrite, operation.bindings) };
+}
+
+export function rewriteOperationAs<Identity extends OperationIdentity>(
+  rewrite: TypeRewrite, operation: OperationDecision, identity: Identity,
+): OperationDecision & { readonly operation: Identity } {
   return {
     kind: "selected",
-    operation: rewriteOperationIdentity(rewrite, operation.operation, `${at}.operation`),
+    operation: identity,
     operands: operation.operands.map(operand => rewrite.type(operand)),
     result: rewrite.type(operation.result),
     execution: operation.execution,
   };
+}
+
+export function rewriteOperation(rewrite: TypeRewrite, operation: OperationDecision, at: string): OperationDecision {
+  return rewriteOperationAs(rewrite, operation, rewriteOperationIdentity(rewrite, operation.operation, `${at}.operation`));
 }
 
 function rewriteContext(rewrite: TypeRewrite, context: RuleContext): RuleContext {
@@ -278,7 +291,8 @@ function rewriteInvocation(rewrite: TypeRewrite, invocation: DeferredInvocation,
     case "closure":
       return { rule: "closure", input: {
         context, callable: rewriteEvidence(rewrite, invocation.input.callable),
-        captures: invocation.input.captures.map(capture => rewriteEvidence(rewrite, capture)),
+        captures: invocation.input.captures.map(capture => ({ local: capture.local, value: rewriteEvidence(rewrite, capture.value),
+          reassignable: capture.reassignable, incoming: capture.incoming })),
       } };
   }
 }

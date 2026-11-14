@@ -1,4 +1,4 @@
-import type { CandidateArgument, CandidateEndpoint, CandidateInput, ClosureInput, CoreInput, DomainFitInput, EmbedInput, IndexInput, LibraryInput, LiteralConstructionInput, LiteralConstructionPart, LiteralFitInput, MemberInput, MemoryEquivalentInput, OperatorInput, ProtocolInput, RefinementInput, RuleContext } from "./contract.js";
+import type { CandidateArgument, CandidateEndpoint, CandidateInput, ClosureCaptureEvidence, ClosureInput, CoreInput, DomainFitInput, EmbedInput, IndexInput, LibraryInput, LiteralConstructionInput, LiteralConstructionPart, LiteralFitInput, MemberInput, MemoryEquivalentInput, OperatorInput, ProtocolInput, RefinementInput, RuleContext } from "./contract.js";
 import type { CaptureValuesSchemas } from "./text-capture-values.js";
 import type { CapturesSchemas } from "./text-captures.js";
 import type { ConstraintsSchemas } from "./text-constraints.js";
@@ -214,13 +214,14 @@ export interface RuleInputsSchemas {
   readonly libraryInputSchema: RecordSchema<LibraryInput>;
   readonly coreInputSchema: RecordSchema<CoreInput>;
   readonly closureInputSchema: RecordSchema<ClosureInput>;
+  readonly closureCaptureEvidenceSchema: RecordSchema<ClosureCaptureEvidence>;
 }
 
 export function createRuleInputsSchemas(captureValues: CaptureValuesSchemas, captures: CapturesSchemas, constraints: ConstraintsSchemas, data: DataSchemas, evidence: EvidenceSchemas): RuleInputsSchemas {
   const { diagnosticSchema, hirCallableEndpointSchema } = captureValues;
   const { hirCoreCaptureSchema } = captures;
-  const { accessRoleSchema, constructionKindSchema, flowRoleSchema, operatorSchema } = constraints;
-  const { bindingVectorSchema, booleanSchema, defSchema, literalValueSchema, memberKeySchema, memberOriginSchema, nodeRefSchema, numberSchema, originSchema } = data;
+  const { accessRoleSchema, captureSourceSchema, constructionKindSchema, flowRoleSchema, operatorSchema } = constraints;
+  const { bindingVectorSchema, booleanSchema, defSchema, literalValueSchema, localRefSchema, memberKeySchema, memberOriginSchema, nodeRefSchema, numberSchema, originSchema } = data;
   const { typeEvidenceSchema } = evidence;
   const ruleContextSchema = recordSchema<RuleContext>("RuleContext", "RuleContext", read => {
     const occurrence = read("occurrence", () => nodeRefSchema, value => value.occurrence);
@@ -536,11 +537,18 @@ export function createRuleInputsSchemas(captureValues: CaptureValuesSchemas, cap
     const permissionScope = read("permissionScope", () => nullableSchema(nodeRefSchema), value => value.permissionScope);
     return { fields: [context, captured, declaration, operands, result, permissionScope], value: () => ({ context: context.value(), captured: captured.value(), declaration: declaration.value(), operands: operands.value(), result: result.value(), permissionScope: permissionScope.value() }) };
   });
+  const closureCaptureEvidenceSchema = recordSchema<ClosureCaptureEvidence>("ClosureCaptureEvidence", "ClosureCaptureEvidence", read => {
+    const local = read("local", () => localRefSchema, value => value.local);
+    const value = read("value", () => typeEvidenceSchema, record => record.value);
+    const reassignable = read("reassignable", () => booleanSchema, record => record.reassignable);
+    const incoming = read("incoming", () => captureSourceSchema, record => record.incoming);
+    return { fields: [local, value, reassignable, incoming], value: () => ({ local: local.value(), value: value.value(), reassignable: reassignable.value(), incoming: incoming.value() }) };
+  });
   const closureInputSchema = recordSchema<ClosureInput>("ClosureInput", "ClosureInput", read => {
     const context = read("context", () => ruleContextSchema, value => value.context);
     const callable = read("callable", () => typeEvidenceSchema, value => value.callable);
-    const captures = read("captures", () => arraySchema(typeEvidenceSchema), value => value.captures);
+    const captures = read("captures", () => arraySchema(closureCaptureEvidenceSchema), value => value.captures);
     return { fields: [context, callable, captures], value: () => ({ context: context.value(), callable: callable.value(), captures: captures.value() }) };
   });
-  return { closureInputSchema, ruleContextSchema, embedInputSchema, domainFitInputSchema, memoryEquivalentInputSchema, memberInputSchema, indexInputSchema, literalConstructionInputSchema, literalConstructionPartSchema, constructionElementSchema, constructionPropertySchema, constructionSpreadSchema, candidateInputSchema, callInputSchema, constructInputSchema, getterInputSchema, setterInputSchema, candidateArgumentSchema, candidateValueSchema, candidateSpreadSchema, candidateEndpointSchema, operatorInputSchema, literalFitInputSchema, protocolInputSchema, iterateInputSchema, awaitInputSchema, yieldInputSchema, delegateInputSchema, disposeInputSchema, spreadInputSchema, passingInputSchema, pointerInputSchema, refinementInputSchema, libraryInputSchema, coreInputSchema };
+  return { closureCaptureEvidenceSchema, closureInputSchema, ruleContextSchema, embedInputSchema, domainFitInputSchema, memoryEquivalentInputSchema, memberInputSchema, indexInputSchema, literalConstructionInputSchema, literalConstructionPartSchema, constructionElementSchema, constructionPropertySchema, constructionSpreadSchema, candidateInputSchema, callInputSchema, constructInputSchema, getterInputSchema, setterInputSchema, candidateArgumentSchema, candidateValueSchema, candidateSpreadSchema, candidateEndpointSchema, operatorInputSchema, literalFitInputSchema, protocolInputSchema, iterateInputSchema, awaitInputSchema, yieldInputSchema, delegateInputSchema, disposeInputSchema, spreadInputSchema, passingInputSchema, pointerInputSchema, refinementInputSchema, libraryInputSchema, coreInputSchema };
 }

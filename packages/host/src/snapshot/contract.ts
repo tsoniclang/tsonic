@@ -255,14 +255,13 @@ export interface ExtensionReferenceEntry {
   readonly reference: ExtensionReference;
 }
 
+export interface SourceLibraryBinding {
+  readonly name: string;
+  readonly module: ModuleId;
+}
+
 export interface SourceDeclarationPolicy {
-  /**
-   * The declaration libraries bundled with the checker, as modules of this snapshot: a bundled library is a
-   * declaration-role module of a package like any other declaration file, and its text is its captured file's
-   * text. A checked program is opened on exactly these texts, never on what an installed checker happens to
-   * bundle. Ascending order of module identity, each module once.
-   */
-  readonly bundledLibraries: readonly ModuleId[];
+  readonly bundledLibraries: readonly SourceLibraryBinding[];
   readonly installedDeclarations: "none" | "package-contract";
 }
 
@@ -361,6 +360,7 @@ export type SnapshotRule =
   | "contributed-declaration-unique"
   | "contributed-declarations-order"
   | "bundled-library-declaration"
+  | "bundled-library-binding"
   | "bundled-library-unique"
   | "bundled-libraries-order"
   | "virtual-file-owner-resolves"

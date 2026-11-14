@@ -90,15 +90,21 @@ export function verifySnapshotExtensions(snapshot: ProjectSnapshot,
     previousContributed = module;
   }
   if (unorderedContributed) add("contributed-declarations-order", snapshotSite, "declarationModules");
-  const libraries = new Set<ModuleId>();
-  let previousLibrary: ModuleId | null = null;
+  const libraries = new Set<string>();
+  let previousLibrary: string | null = null;
   let unorderedLibraries = false;
-  for (const module of snapshotRows(contributions.declarationPolicy.bundledLibraries, snapshotSite, "bundledLibraries", violations)) {
+  for (const binding of snapshotRows(contributions.declarationPolicy.bundledLibraries, snapshotSite, "bundledLibraries", violations)) {
+    if (typeof binding !== "object" || typeof binding.name !== "string" || binding.name.length === 0
+      || typeof binding.module !== "string") {
+      add("bundled-library-binding", snapshotSite, "bundledLibraries");
+      continue;
+    }
+    const { name, module } = binding;
     if (!declarationModules.has(module)) add("bundled-library-declaration", { kind: "module", module }, module);
-    if (libraries.has(module)) add("bundled-library-unique", { kind: "module", module }, module);
-    libraries.add(module);
-    if (previousLibrary !== null && module < previousLibrary) unorderedLibraries = true;
-    previousLibrary = module;
+    if (libraries.has(name)) add("bundled-library-unique", snapshotSite, name);
+    libraries.add(name);
+    if (previousLibrary !== null && name < previousLibrary) unorderedLibraries = true;
+    previousLibrary = name;
   }
   if (unorderedLibraries) add("bundled-libraries-order", snapshotSite, "bundledLibraries");
   const layouts = snapshotRows(snapshot.platform.layouts, snapshotSite, "platform.layouts", violations);

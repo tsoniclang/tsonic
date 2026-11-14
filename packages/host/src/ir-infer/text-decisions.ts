@@ -1,6 +1,9 @@
 import { createDataSchemas } from "./text-data.js";
 import { createContributionsSchemas } from "./text-contributions.js";
 import { createEvidenceSchemas } from "./text-evidence.js";
+import { createErrorSchemas } from "./text-errors.js";
+import type { ErrorSchemas } from "./text-errors.js";
+import type { ErrorValue } from "../diag/contract.js";
 import { createCaptureValuesSchemas } from "./text-capture-values.js";
 import { createPointersSchemas } from "./text-pointers.js";
 import { createCapturesSchemas } from "./text-captures.js";
@@ -30,6 +33,7 @@ export interface ProducerBoundRecord {
   readonly contribution: ContributionKey;
   readonly variable: number;
   readonly value: TypeEvidence;
+  readonly error: ErrorValue | null;
 }
 
 export interface DemandBoundRecord {
@@ -37,6 +41,7 @@ export interface DemandBoundRecord {
   readonly contribution: ContributionKey;
   readonly variable: number;
   readonly value: TypeEvidence;
+  readonly error: ErrorValue | null;
 }
 
 export interface SatisfiedCheckRecord {
@@ -179,7 +184,7 @@ export interface DecisionsSchemas {
   readonly stageRoot: (input: TextRoot) => Staged;
 }
 
-export function createDecisionsSchemas(captureValues: CaptureValuesSchemas, constraints: ConstraintsSchemas, contributions: ContributionsSchemas, data: DataSchemas, decisionValues: DecisionValuesSchemas, evidence: EvidenceSchemas, invocations: InvocationsSchemas, operations: OperationsSchemas): DecisionsSchemas {
+export function createDecisionsSchemas(captureValues: CaptureValuesSchemas, constraints: ConstraintsSchemas, contributions: ContributionsSchemas, data: DataSchemas, decisionValues: DecisionValuesSchemas, evidence: EvidenceSchemas, invocations: InvocationsSchemas, operations: OperationsSchemas, errors: ErrorSchemas): DecisionsSchemas {
   const { hirCandidateListSchema } = captureValues;
   const { constraintSchema, constraintSetSchema, inferenceGroupSchema, inferenceVariableSchema } = constraints;
   const { atomicContributionSchema, constraintRefSchema, contributionKeySchema } = contributions;
@@ -188,6 +193,11 @@ export function createDecisionsSchemas(captureValues: CaptureValuesSchemas, cons
   const { typeComponentSchema, typeEvidenceSchema } = evidence;
   const { deferredDecisionSchema } = invocations;
   const { closureDecisionSchema, operationDecisionSchema, operationOutcomeSchema } = operations;
+  const errorValueSchema = errors.errorSchema;
+  const errorDecisionSchema = recordSchema<{ readonly kind: "error"; readonly error: ErrorValue }>("ErrorDecision", "error", read => {
+    const error = read("error", () => errorValueSchema, value => value.error);
+    return { fields: [error], value: () => ({ kind: "error", error: error.value() }) };
+  });
   const solutionSchema = recordSchema<Solution>("Solution", "Solution", read => {
     const group = read("group", () => groupSchema, value => value.group);
     const variables = read("variables", () => arraySchema(finalVariableSchema), value => value.variables);
@@ -200,7 +210,8 @@ export function createDecisionsSchemas(captureValues: CaptureValuesSchemas, cons
   const finalVariableSchema = recordSchema<FinalVariable>("FinalVariable", "FinalVariable", read => {
     const variable = read("variable", () => numberSchema, value => value.variable);
     const value = read("value", () => typeEvidenceSchema, value => value.value);
-    return { fields: [variable, value], value: () => ({ variable: variable.value(), value: value.value() }) };
+    const error = read("error", () => nullableSchema(errorValueSchema), value => value.error);
+    return { fields: [variable, value, error], value: () => ({ variable: variable.value(), value: value.value(), error: error.value() }) };
   });
 
   const solvedConstraintSchema = recordSchema<SolvedConstraint>("SolvedConstraint", "SolvedConstraint", read => {
@@ -229,19 +240,22 @@ export function createDecisionsSchemas(captureValues: CaptureValuesSchemas, cons
     const contribution = read("contribution", () => contributionKeySchema, value => value.contribution);
     const variable = read("variable", () => numberSchema, value => value.variable);
     const value = read("value", () => typeEvidenceSchema, value => value.value);
-    return { fields: [contribution, variable, value], value: () => ({ kind: "producer", contribution: contribution.value(), variable: variable.value(), value: value.value() }) };
+    const error = read("error", () => nullableSchema(errorValueSchema), value => value.error);
+    return { fields: [contribution, variable, value, error], value: () => ({ kind: "producer", contribution: contribution.value(), variable: variable.value(), value: value.value(), error: error.value() }) };
   });
 
   const demandBoundSchema = recordSchema<DemandBoundRecord>("DemandBound", "demand", read => {
     const contribution = read("contribution", () => contributionKeySchema, value => value.contribution);
     const variable = read("variable", () => numberSchema, value => value.variable);
     const value = read("value", () => typeEvidenceSchema, value => value.value);
-    return { fields: [contribution, variable, value], value: () => ({ kind: "demand", contribution: contribution.value(), variable: variable.value(), value: value.value() }) };
+    const error = read("error", () => nullableSchema(errorValueSchema), value => value.error);
+    return { fields: [contribution, variable, value, error], value: () => ({ kind: "demand", contribution: contribution.value(), variable: variable.value(), value: value.value(), error: error.value() }) };
   });
 
   const boundCheckOutcomeSchema: RecordSchema<BoundCheckOutcome> = unionSchema<BoundCheckOutcome>("BoundCheckOutcome",
-    () => [satisfiedCheckSchema, refusedCheckSchema], value => {
+    () => [satisfiedCheckSchema, refusedCheckSchema, errorDecisionSchema], value => {
     switch (value.kind) {
+      case "error": return errorDecisionSchema.stage(value);
       case "satisfied": return satisfiedCheckSchema.stage(value);
       case "refused": return refusedCheckSchema.stage(value);
     }
@@ -269,8 +283,9 @@ export function createDecisionsSchemas(captureValues: CaptureValuesSchemas, cons
   });
 
   const constraintDecisionSchema: RecordSchema<ConstraintDecision> = unionSchema<ConstraintDecision>("ConstraintDecision",
-    () => [equalityDecisionSchema, flowDecisionSchema, literalDecisionSchema, memberConstraintDecisionSchema, indexConstraintDecisionSchema, callDecisionSchema, constructDecisionSchema, operatorConstraintDecisionSchema, constructionDecisionSchema, protocolDecisionSchema, refinementConstraintDecisionSchema, dischargeDecisionSchema, defaultDecisionSchema, closureConstraintDecisionSchema, deferredConstraintDecisionSchema], value => {
+    () => [equalityDecisionSchema, flowDecisionSchema, literalDecisionSchema, memberConstraintDecisionSchema, indexConstraintDecisionSchema, callDecisionSchema, constructDecisionSchema, operatorConstraintDecisionSchema, constructionDecisionSchema, protocolDecisionSchema, refinementConstraintDecisionSchema, dischargeDecisionSchema, defaultDecisionSchema, closureConstraintDecisionSchema, deferredConstraintDecisionSchema, errorDecisionSchema], value => {
     switch (value.kind) {
+      case "error": return errorDecisionSchema.stage(value);
       case "eq": return equalityDecisionSchema.stage(value);
       case "flow": return flowDecisionSchema.stage(value);
       case "literal": return literalDecisionSchema.stage(value);
@@ -393,14 +408,15 @@ export function createTextSchemas(): DecisionsSchemas {
   const data = createDataSchemas();
   const contributions = createContributionsSchemas(data);
   const evidence = createEvidenceSchemas(data);
+  const errors = createErrorSchemas(data, evidence);
   const captureValues = createCaptureValuesSchemas(data, evidence);
   const pointers = createPointersSchemas(captureValues, data, evidence);
   const captures = createCapturesSchemas(captureValues, data, pointers);
-  const constraints = createConstraintsSchemas(captureValues, captures, contributions, data, evidence);
+  const constraints = createConstraintsSchemas(captureValues, captures, contributions, data, errors);
   const decisionValues = createDecisionValuesSchemas(captureValues, constraints, data, evidence);
   const ruleInputs = createRuleInputsSchemas(captureValues, captures, constraints, data, evidence);
   const invocations = createInvocationsSchemas(data, ruleInputs);
   const operations = createOperationsSchemas(constraints, data, decisionValues, evidence, invocations);
-  return createDecisionsSchemas(captureValues, constraints, contributions, data, decisionValues, evidence, invocations, operations);
+  return createDecisionsSchemas(captureValues, constraints, contributions, data, decisionValues, evidence, invocations, operations, errors);
 }
 

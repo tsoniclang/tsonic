@@ -15,7 +15,7 @@ export interface HirReadGroup0 {
   readonly record_7: HirReader<{ readonly kind: "item"; readonly value: Ids.ItemNodeRef; }>;
   readonly record_8: HirReader<Ids.ItemNodeRef>;
   readonly record_9: HirReader<{ readonly kind: "available"; readonly value: Ids.TyId; }>;
-  readonly record_10: HirReader<{ readonly kind: "unavailable"; readonly reason: "checker-error" | "not-provided" | "parameter-dependent"; }>;
+  readonly record_10: HirReader<{ readonly kind: "unavailable"; readonly reason: "checker-error" | "not-provided" | "parameter-dependent" | "missing-original-component" | "incomplete-association" | "unsupported-checked-structure"; }>;
   readonly record_11: HirReader<Ids.LocalRef>;
   readonly record_12: HirReader<Hir.HirLexicalScope>;
   readonly record_13: HirReader<Hir.HirAttribute>;

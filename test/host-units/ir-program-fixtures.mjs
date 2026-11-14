@@ -36,6 +36,7 @@ function exactLookup(supplied) {
 function contextFor(input, lookup) {
   return {
     limits: input.context.limits,
+    mirVerification: input.context.mirVerification,
     modulePathOf: module => lookup("modulePathOf", module),
     definitionPathOf: definition => lookup("definitionPathOf", definition),
     tirOf: module => lookup("tirOf", module),
@@ -99,7 +100,7 @@ export function moduleFixture(path = "src/main.ts", root = "/program") {
   };
   const site = { origin, tir: { body: bodyId, node: 0 } };
   const mir = {
-    body: bodyId, bindings: instance.bindings, locals: [], constants: [], places: [],
+    body: bodyId, bindings: instance.bindings, entries: [{ provided: 0, block: 0 }], locals: [], constants: [], places: [],
     blocks: [{ ...site, id: 0, statements: [], terminator: { ...site, kind: "return", value: null } }], result: 0,
   };
   const arena = { projections: [], producers: [], contexts: [], boundProducers: [], origins: [], boundaries: [] };
@@ -165,7 +166,8 @@ export function moduleFixture(path = "src/main.ts", root = "/program") {
     typeExpansion: { maximumDepth: 128, maximumVisits: 10000, maximumUnionMembers: 128, maximumIntersectionMembers: 128 } };
   const analysisLimits = { maximumBlocksPerBody: 128, maximumPlacesPerBody: 128, maximumProjectionDepth: 128,
     maximumOriginAlternatives: 128, maximumRelationalRecordsPerBody: 10000, maximumRelationalReferencesPerBody: 10000 };
-  return { index, module, context: contextFor({ index, context: { limits, analysisLimits } }, lookup), tirInput, instance, definition, bodyId, answers: supplied, scope };
+  const mirVerification = { maximumWork: 1000000 };
+  return { index, module, context: contextFor({ index, context: { limits, analysisLimits, mirVerification } }, lookup), tirInput, instance, definition, bodyId, answers: supplied, scope };
 }
 
 export function authoredMethodGraph(module) {
@@ -279,7 +281,7 @@ export function metadataOperationFixture(operation, fact, selectedKey, root = "/
   published.mir.constants = [{ id: 0, type: 2, value: { kind: "metadata", ...operandKey } }];
   published.mir.blocks[0].statements = [
     { ...site, kind: "storage-live", local: 0 },
-    { ...site, kind: "assign", place: 0, value: { kind: "use", operand: { kind: "constant", constant: 0 } } },
+    { ...site, kind: "assign", place: 0, value: { kind: "use", operand: { kind: "constant", constant: 0 } }, step: null },
     { ...site, kind: "storage-dead", local: 0 },
   ];
   first.index.bodies[0].mirLocalCount = 1;

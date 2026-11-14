@@ -1,13 +1,7 @@
 import type { Result } from "../diag/contract.js";
-import type { DefId, TyId } from "../ids/contract.js";
+import type { TypeExpansionLimits, TypeInterner } from "../ir-types/contract.js";
 import type {
-  ArtifactBindings, BodyInstance, ConstantContext, ConstValue, MemberTable, Signature, TypeEvidence, TypeExpansionLimits, TypeInterner, TypeProductionRequest,
-} from "../ir-types/contract.js";
-import type {
-  CheckedPhase, Declaration, HirAttribute,
-} from "../ir-hir/contract.js";
-import type {
-  ApplicationDecision, CandidateInput, CoreInput, DomainFitInput, EmbedInput,
+  ApplicationDecision, CandidateInput, ClosureDecision, ClosureInput, CoreInput, DomainFitInput, EmbedInput,
   EmbeddingDecision, IndexInput, LibraryInput, LiteralConstructionInput, LiteralFitInput,
   MemberDecision, MemberInput, MemoryEquivalentInput, OperationDecision, OperatorInput,
   ProtocolInput, RefinementDecision, RefinementInput, RuleOutcome, RuleTable,
@@ -18,12 +12,6 @@ export interface RulesDeps {
   readonly libraries: Libraries;
   readonly types: TypeInterner;
   readonly typeExpansion: TypeExpansionLimits;
-  readonly itemOf: (definition: DefId) => Declaration<CheckedPhase>;
-  readonly membersOf: (type: TyId) => MemberTable;
-  readonly signatureOf: (definition: DefId, bindings: ArtifactBindings) => Signature;
-  readonly attributesOf: (definition: DefId) => readonly HirAttribute[];
-  readonly constValue: (initializer: BodyInstance, context: ConstantContext) => ConstValue;
-  readonly produceType: (request: TypeProductionRequest) => TypeEvidence;
 }
 
 export type Embed = (
@@ -90,5 +78,10 @@ export type Core = (
   deps: RulesDeps,
   input: CoreInput,
 ) => Result<RuleOutcome<OperationDecision>>;
+
+export type DecideClosure = (
+  deps: RulesDeps,
+  input: ClosureInput,
+) => Result<RuleOutcome<ClosureDecision>>;
 
 export type CreateRuleTable = (deps: RulesDeps) => RuleTable;

@@ -110,6 +110,14 @@ declare const extensionFactResolverSavepointIdentity: unique symbol;
 declare const providerRegistrationSavepointIdentity: unique symbol;
 interface ExtensionOwnerAuthority {
     readonly stack: string[];
+    /**
+     * Provenance of one provider registration call; it grants nothing and is not "who is acting" (that is `stack`).
+     * One writer: ExtensionHost's #registerSourceDeclarationProviderForExtension sets it to the extension id it has
+     * just checked, for the one registry call it makes, and restores what was there. One reader: the provider
+     * registry's registration takes it and clears it as its first act, before it reads anything of the provider.
+     * Null at every other time.
+     */
+    pendingRegistrarExtensionId: string | null;
 }
 interface ExtensionFactMutation {
     readonly subject: ExtensionFactSubject;
@@ -468,6 +476,11 @@ export interface ProviderVirtualDeclarationDocument {
     readonly moduleSpecifier: string;
     readonly providerModuleId: string;
     readonly provider: ProviderIdentity;
+    /**
+     * The id of the extension whose initializer registered `provider`; null when the embedding host registered it
+     * directly. An extension id may be the empty string: compare with null, never by truthiness.
+     */
+    readonly registrarExtensionId: string | null;
     readonly declarationModel: ProviderDeclarationModel;
     readonly sourceText: string;
     readonly readOnly: true;
@@ -610,6 +623,12 @@ export declare class ExtensionFactResolver {
 export declare class ProviderRegistry {
     #private;
     constructor(diagnostics: ExtensionDiagnosticStore, requiredProviderModules?: readonly RequiredProviderModuleSpec[], materializationRound?: ProviderMaterializationRound);
+    /**
+     * The one registration. Who asked is taken first: the id the host left pending for this call (an extension's
+     * checked initializer capability), or null when the embedding host calls directly. It is cleared as it is taken,
+     * so nothing this call runs, a getter of the provider included, and no call nested in it can see it. A provider
+     * object that is registered stays as it was registered: the call returns before any record is made.
+     */
     registerSourceDeclarationProvider(provider: SourceDeclarationProvider): boolean;
     get hasSourceDeclarationProviders(): boolean;
     requiresProviderForModule(specifier: string): RequiredProviderModuleSpec | undefined;

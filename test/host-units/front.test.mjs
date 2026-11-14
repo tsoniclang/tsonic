@@ -297,13 +297,58 @@ test("a program file that is no module of the snapshot is an invariant failure; 
 function sessionDiagnostics(snapshot) {
   const inputs = checkerModule.sessionInputs(snapshot);
   const session = sdk.createCompilerSessionFromFiles({ currentDirectory: inputs.currentDirectory, files: inputs.files,
-    rootFiles: inputs.rootFiles, compilerOptions: inputs.options, useCaseSensitiveFileNames: true });
+    rootFiles: inputs.rootFiles, compilerOptions: inputs.options, selectedLibraries: inputs.selectedLibraries,
+    includeBundledLibraries: false, useCaseSensitiveFileNames: true });
   const checked = session.checkSource();
   return session.getDiagnostics("all").map(diagnostic => `TS${diagnostic.code} ${diagnostic.file === undefined ? "(no file)" : checked.ast.getFileName(diagnostic.file)}`);
 }
 const usesMap = { "main.mts": "export const m = new Map<string, number>();\n" };
 const collection = "lib.es2015.collection.d.ts";
 const snapshotModules = snapshot => snapshot.packages.modules.map(module => ({ kind: "snapshot", module: module.id }));
+
+test("logical library names bind arbitrary captured basenames through the one explicit selected map", () => {
+  const snapshot = projectSnapshot({ sourceFiles: usesMap, libraries: bundled() });
+  let index = 0;
+  for (const module of snapshot.packages.modules.filter(module => module.package === packageOf("/checker"))) {
+    const file = snapshot.packages.files.find(file => file.path === module.path);
+    const path = `/checker/captured-${index++}.d.ts`;
+    file.path = path;
+    module.path = path;
+  }
+  snapshot.packages.files.sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
+  const inputs = checkerModule.sessionInputs(snapshot);
+  assert.deepEqual([...inputs.selectedLibraries], snapshot.contributions.declarationPolicy.bundledLibraries.map(binding =>
+    [binding.name, snapshot.packages.modules.find(module => module.id === binding.module).path]));
+  assert.equal([...inputs.selectedLibraries.values()].every(path => path.startsWith("/checker/captured-")), true);
+  assert.deepEqual(sessionDiagnostics(snapshot), []);
+  assert.deepEqual(openAndCapture(snapshot).set.modules, snapshotModules(snapshot));
+});
+
+test("an explicit empty library map stays empty while contributed captured declarations remain roots", () => {
+  const snapshot = projectSnapshot({ sourceFiles: usesMap, libraries: bundled() });
+  snapshot.contributions.declarationModules = snapshot.contributions.declarationPolicy.bundledLibraries.map(binding => binding.module).sort();
+  snapshot.contributions.declarationPolicy.bundledLibraries = [];
+  assert.equal(checkerModule.sessionInputs(snapshot).selectedLibraries.size, 0);
+  assert.deepEqual(sessionDiagnostics(snapshot), []);
+  assert.deepEqual(openAndCapture(snapshot).set.modules, snapshotModules(snapshot));
+});
+
+test("a direct SDK-library import reads no uncaptured text and captured-only sessions have no bundled filesystem fallback", () => {
+  const installed = sdk.getBundledLibraryClosure(["lib.dom.d.ts"]).find(library => library.name === "lib.dom.d.ts");
+  assert.equal(installed !== undefined, true);
+  const snapshot = projectSnapshot({ sourceFiles: { "main.mts": `import { Document } from ${JSON.stringify(installed.path)};\nexport const d: Document | null = null;\n` }, libraries: bundled() });
+  assert.equal(snapshot.packages.files.some(file => file.path === installed.path), false);
+  assert.deepEqual(sessionDiagnostics(snapshot), ["TS2307 /project/src/main.mts"]);
+  assert.deepEqual(openAndCapture(snapshot).set.modules, snapshotModules(snapshot));
+  const inputs = checkerModule.sessionInputs(snapshot);
+  const ordinary = sdk.createCompilerSessionFromFiles({ currentDirectory: inputs.currentDirectory, files: inputs.files,
+    rootFiles: inputs.rootFiles, compilerOptions: inputs.options, selectedLibraries: inputs.selectedLibraries });
+  assert.equal(ordinary.host.FS().ReadFile(installed.path)[1], true);
+  const capturedOnly = sdk.createCompilerSessionFromFiles({ currentDirectory: inputs.currentDirectory, files: inputs.files,
+    rootFiles: inputs.rootFiles, compilerOptions: inputs.options, selectedLibraries: inputs.selectedLibraries,
+    includeBundledLibraries: false });
+  assert.equal(capturedOnly.host.FS().ReadFile(installed.path)[1], false);
+});
 
 test("libraries, present: a declaration of a library that is reached only through other libraries' references is visible, and every program file is a captured module", () => {
   const libraries = bundled();
@@ -340,7 +385,7 @@ test("libraries, transitive: the checker follows no library reference; the modul
   assert.deepEqual(sessionDiagnostics(stillListed), [], "the collection library is listed, so its declarations are present without the library whose reference led to it");
   assert.deepEqual(openAndCapture(stillListed).set.modules, snapshotModules(stillListed));
   const onlyTop = projectSnapshot({ sourceFiles: usesMap, libraries: bundled() });
-  onlyTop.contributions.declarationPolicy.bundledLibraries = [moduleOf(packageOf("/checker"), "lib.es2024.d.ts")];
+  onlyTop.contributions.declarationPolicy.bundledLibraries = [{ name: "lib.es2024.d.ts", module: moduleOf(packageOf("/checker"), "lib.es2024.d.ts") }];
   assert.deepEqual(snapshots.verifySnapshot(onlyTop, []), []);
   assert.deepEqual([...new Set(sessionDiagnostics(onlyTop))], ["TS2318 (no file)", "TS2583 /project/src/main.mts"],
     "captured but unlisted libraries are not reached through the listed one's references: its chain of references is not followed");
@@ -378,7 +423,7 @@ test("caller defects of the extension table and of opening are refused as defect
   assert.throws(() => front.openCheckedProgram({ extensions: table, navigationCapture }, noRoot, preparation),
     { name: "TypeError", message: "front: the snapshot's root package is not among its packages" });
   const twiceRooted = projectSnapshot({ sourceFiles: plainSources, libraries });
-  twiceRooted.contributions.declarationModules = [twiceRooted.contributions.declarationPolicy.bundledLibraries[0]];
+  twiceRooted.contributions.declarationModules = [twiceRooted.contributions.declarationPolicy.bundledLibraries[0].module];
   assert.equal(openAndCapture(twiceRooted).set.modules.length, 2 + libraries.length, "a module that is a root twice over (a bundled library that is also contributed) is one root");
 });
 
@@ -645,7 +690,8 @@ test("checkpoint 1: add is opened through the checker and the snapshot, captured
   const lowerDeps = lowerDepsFor(definitions.value, interner, addSource);
   // The export entry.
   const exported = front.lowerModuleExports(lowerDeps, raw.value);
-  assert.deepEqual(exported, { kind: "ok", diagnostics: [], value: { module, entries: [{ name: "add", definitions: [addDefinition] }] } });
+  assert.deepEqual(exported, { kind: "ok", diagnostics: [], value: { module,
+    entries: [{ name: "add", target: { kind: "declarations", definitions: [addDefinition] } }], bindings: [] } });
   // The checked module.
   const lowered = front.lowerModule(lowerDeps, raw.value);
   assert.equal(lowered.kind, "ok");
@@ -747,6 +793,62 @@ test("K-3313.3: a parameter without an annotation is not given another slot's ty
     { name: "TypeError", message: "front: the conversion of a module's checker diagnostics waits for the checker's message accessor" });
 });
 
+test("callable values retain real signatures and direct recursive calls retain the SDK's selected declarations", async () => {
+  const hir = await import("../../packages/host/dist/ir-hir/index.js");
+  const types = await import("../../packages/host/dist/ir-types/index.js");
+  const source = "export function left(n: number): number { return right(n); }\nexport function right(n: number): number { return left(n); }\n";
+  const captured = checkedModuleOf(source);
+  assert.deepEqual(verifyChecked(captured.checked, captured.interner), []);
+  const nodes = hir.indexSyntaxTree(captured.checked.tree);
+  const functions = nodes.filter(node => node.kind === "FunctionDeclaration");
+  assert.deepEqual(functions.map(node => node.name.text), ["left", "right"]);
+  const calls = nodes.filter(node => node.kind === "CallExpression");
+  assert.equal(calls.length, 2);
+  for (const [index, call] of calls.entries()) {
+    const target = functions[1 - index];
+    const application = call.tsonic.application;
+    assert.equal(application.kind, "available");
+    const selected = types.readSignature(captured.interner, application.value.resolvedSignature.value);
+    assert.equal(selected.declaration, target.tsonic.definition);
+    assert.deepEqual(types.readType(captured.interner, selected.result), { kind: "primitive", primitive: "float64" });
+    assert.equal(selected.parameters[0].declaration, ids.encodeDefId({ module: captured.module,
+      segments: [{ name: target.name.text, ordinal: 0 }, { name: "n", ordinal: 0 }] }));
+    const callee = types.readType(captured.interner, call.expression.tsonic.value.views.read.value);
+    assert.equal(callee.kind, "callable");
+    assert.equal(callee.calls.length, 1);
+    assert.equal(types.readSignature(captured.interner, callee.calls[0]).declaration, target.tsonic.definition);
+    const body = captured.checked.bodies.find(body => body.owner === functions[index].tsonic.definition);
+    assert.equal(body.candidateLists.length, 1);
+    assert.equal(body.candidateLists[0].candidates[0].declaration, target.tsonic.definition);
+  }
+  for (const table of [captured.raw.types.types, captured.raw.types.signatures, captured.raw.types.members])
+    for (let index = 0; index < table.length; index += 1) assert.equal(table[index]?.id, index, "a captured table is dense after forward signature dependencies");
+});
+
+test("an applicable SDK receipt is not a complete overload inventory, and missing singleton evidence never manufactures one", async () => {
+  const overloads = openedModule("declare function choose(value: number): number;\ndeclare function choose(value: boolean): boolean;\nexport function invoke(value: number): number { return choose(value); }\n");
+  assert.throws(() => front.captureModule(overloads.deps, overloads.program, overloads.module),
+    { name: "TypeError", message: "front: complete applicable candidate capture is not implemented without a proven singleton declaration order" });
+  const types = await import("../../packages/host/dist/ir-types/index.js");
+  const source = "export function left(n: number): number { return right(n); }\nexport function right(n: number): number { return left(n); }\n";
+  const { raw, definitions } = checkedModuleOf(source);
+  const convert = changed => front.lowerModule(lowerDepsFor(definitions, types.createTypeInterner(), source), changed);
+  for (const reason of ["checker-error", "parameter-dependent", "not-provided", "missing-original-component", "incomplete-association", "unsupported-checked-structure"]) {
+    const changed = { ...raw, calls: raw.calls.map(call => ({ ...call, declarationOrder: { kind: "unavailable", reason, diagnostics: [] } })) };
+    assert.throws(() => convert(changed), { name: "TypeError",
+      message: "front: complete applicable candidate conversion is not implemented without a proven singleton declaration order" });
+  }
+  const selected = raw.types.candidates[0].candidates[0];
+  for (const patch of [{ classArguments: [{}] }, { signatureArguments: [{}] }, { receiver: selected.application.callee }]) {
+    const changed = { ...raw, types: { ...raw.types, candidates: raw.types.candidates.map(list => ({ ...list,
+      candidates: list.candidates.map(candidate => ({ ...candidate, application: { ...candidate.application, ...patch } })) })) } };
+    assert.throws(() => convert(changed), { name: "TypeError", message: "front: nonempty call candidate binding conversion is not implemented" });
+  }
+  const obligations = { ...raw, types: { ...raw.types, candidates: raw.types.candidates.map(list => ({ ...list,
+    candidates: list.candidates.map(candidate => ({ ...candidate, constraints: [{}] })) })) } };
+  assert.throws(() => convert(obligations), { name: "TypeError", message: "front: call candidate conditional failure conversion is not implemented" });
+});
+
 test("the checker's boolean is the scalar boolean; a union holding it is not a scalar and is refused by name", () => {
   const scalar = openedModule("export function same(flag: boolean): boolean { return flag; }\n");
   const raw = front.captureModule(scalar.deps, scalar.program, scalar.module);
@@ -765,7 +867,7 @@ test("the frontier check names the first unwritten form in preorder (R3 L-2)", a
   assert.equal(raw.kind, "ok");
   const definitions = front.lowerModuleDefinitions(raw.value);
   assert.throws(() => front.lowerModule(lowerDepsFor(definitions.value, types.createTypeInterner(), sourceText), raw.value),
-    { name: "TypeError", message: "front: checked annotation not implemented: ParenthesizedExpression" });
+    { name: "TypeError", message: "front: checked annotation not implemented: AsteriskToken" });
 });
 
 // K-3313.1: one declaration-target law. Expectations written before the run.
@@ -862,7 +964,7 @@ test("the identity inputs through the real producer: captureModule and lowerModu
   const keywordFiles = ["function-with-namespace /project/src/a.ts", "augmentation-and-reexport /project/src/aug.ts", "augmentation-before-original /project/src/0aug.ts",
     "same-kind-merges /project/src/a.ts", "module-declaration-forms /project/src/g.ts", "module-declaration-forms /project/src/ambient.d.ts"];
   const agreeingFiles = ["augmentation-and-reexport /project/src/a.ts", "augmentation-and-reexport /project/src/b.ts", "default-expression /project/src/u.ts",
-    "augmentation-before-original /project/src/a.ts", "default-expression-order /project/src/main.ts"];
+    "augmentation-before-original /project/src/a.ts", "default-expression-order /project/src/main.ts", "renamed-reexports /project/src/s.ts"];
   const typeFrontier = /^front: the captured form of the checker type .+ is not implemented$/u;
   const outcomes = { agreed: [], keyword: [], type: [] };
   for (const entry of cases) {
@@ -884,7 +986,7 @@ test("the identity inputs through the real producer: captureModule and lowerModu
       try { raw = front.captureModule(deps, program, module); } catch (error) {
         assert.equal(error instanceof TypeError, true, label);
         if (error.message === keyword) outcomes.keyword.push(label);
-        else if (typeFrontier.test(error.message)) outcomes.type.push(label);
+        else if (typeFrontier.test(error.message) || error.message === "front: the captured members of a callable checker type are not implemented") outcomes.type.push(label);
         else assert.fail(`${label}: refused outside the named frontiers: ${error.message}`);
         continue;
       }
@@ -897,7 +999,7 @@ test("the identity inputs through the real producer: captureModule and lowerModu
   }
   assert.deepEqual(outcomes.agreed.sort(), [...agreeingFiles].sort());
   assert.deepEqual(outcomes.keyword.sort(), [...keywordFiles].sort());
-  assert.equal(outcomes.type.length, 31, "every other file of the 42 is refused at the checker-type frontier");
+  assert.equal(outcomes.type.length, 30, "every other file of the 42 is refused at the checker-type frontier");
 });
 
 // K-3297 item 3 and R2's V-1/V-2: capture limits before growth, one numbering of every file, cached on the opened program.
@@ -1019,7 +1121,7 @@ test("K-3341 many parameters: refused at zero and one under the fact count, acce
 
 // K-3340: lowering keeps each fact's availability and reason as captured. Constructed raw modules from add's real capture (node 13
 // is a + b, node 14 is the use of a, node 4 is parameter a). Expectations written before the run.
-test("K-3340: views, storage places, memory and layout observations keep present, proven-null and unavailable states with each reason; reasons HIR has no arm for are a named frontier", async () => {
+test("K-3340: views, storage places, memory and layout observations keep present, proven-null and unavailable states with each reason, the reasons of missing evidence included", async () => {
   const hir = await import("../../packages/host/dist/ir-hir/index.js");
   const types = await import("../../packages/host/dist/ir-types/index.js");
   const { deps, program, module } = openedModule(addSource);
@@ -1044,13 +1146,19 @@ test("K-3340: views, storage places, memory and layout observations keep present
   const binary = raw.checkerViews.find(view => view.node.node === 13);
   const present = lower(withView({ kind: "available", value: binary.read.value }));
   assert.deepEqual(present.at(13).value.views.declared, { kind: "available", value: present.float64 });
-  for (const reason of ["checker-error", "parameter-dependent", "not-provided"])
-    assert.deepEqual(lower(withView(unavailable(reason))).at(13).value.views.declared, { kind: "unavailable", reason });
-  for (const reason of ["missing-original-component", "incomplete-association", "unsupported-checked-structure"])
-    assert.throws(() => lower(withView(unavailable(reason))), { name: "TypeError",
-      message: `front: the lowering of a fact (declared view) unavailable for the reason ${reason} is not implemented (HIR's captured fact has no such reason)` });
   // A storage row: proven absence and an unavailable place are kept; a present place is a named frontier.
   const withStorage = fact => ({ ...raw, storage: [{ node: { module, node: 14 }, fact }] });
+  for (const reason of ["checker-error", "parameter-dependent", "not-provided", "missing-original-component", "incomplete-association", "unsupported-checked-structure"]) {
+    const fact = unavailable(reason);
+    const captured = lower({ ...withStorage(fact),
+      checkerViews: raw.checkerViews.map(view => view.node.node === 14 ? { ...view, read: fact, declared: fact, contextual: fact } : view),
+      core: raw.core.map(row => row.node.node === 14 ? { ...row, markers: fact, metadata: fact, layoutQuery: fact } : row),
+    }).at(14);
+    for (const [field, value] of [["read", captured.value.views.read], ["declared", captured.value.views.declared],
+      ["contextual", captured.value.views.contextual], ["place", captured.value.place], ["memory", captured.value.memory],
+      ["observation", captured.value.observation], ["markers", captured.core.markers]])
+      assert.deepEqual(value, { kind: "unavailable", reason }, `${field}/${reason}`);
+  }
   assert.deepEqual(lower(withStorage(absent)).at(14).value.place, absent);
   assert.deepEqual(lower(withStorage(unavailable("checker-error"))).at(14).value.place, { kind: "unavailable", reason: "checker-error" });
   assert.throws(() => lower(withStorage({ kind: "available", value: { expression: { module, node: 14 }, storageExpression: { module, node: 14 }, type: binary.read.value,
@@ -1058,8 +1166,7 @@ test("K-3340: views, storage places, memory and layout observations keep present
   // Core facts keep their reasons, markers included; memory comes from the node's metadata.
   assert.deepEqual(lower(withCore(4, "metadata", unavailable("parameter-dependent"))).at(4).memory, { kind: "unavailable", reason: "parameter-dependent" });
   assert.deepEqual(lower(withCore(4, "markers", unavailable("checker-error"))).at(4).core.markers, { kind: "unavailable", reason: "checker-error" });
-  assert.throws(() => lower(withCore(13, "layoutQuery", unavailable("incomplete-association"))), { name: "TypeError",
-    message: "front: the lowering of a fact (layout query) unavailable for the reason incomplete-association is not implemented (HIR's captured fact has no such reason)" });
+  assert.deepEqual(lower(withCore(13, "layoutQuery", unavailable("incomplete-association"))).at(13).value.observation, { kind: "unavailable", reason: "incomplete-association" });
 });
 
 // K-3361: the explicit this receiver and the declaration's type parameters are the checker's and the syntax's. Expectations

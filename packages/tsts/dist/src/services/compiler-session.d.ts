@@ -38,6 +38,8 @@ export interface InMemoryCompilerSessionOptions {
     readonly compilerOptions?: Record<string, unknown>;
     readonly extensionHostOptions?: ExtensionHostOptions;
     readonly useCaseSensitiveFileNames?: boolean;
+    readonly selectedLibraries?: ReadonlyMap<string, string>;
+    readonly includeBundledLibraries?: boolean;
     readonly context?: Context;
 }
 export interface CompilerSession {

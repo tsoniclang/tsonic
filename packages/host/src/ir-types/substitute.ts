@@ -6,7 +6,7 @@ import { storedType, storedSignature } from "./interner.js";
 import { TypeArena } from "./arena.js";
 import { remapTerm, remapSignature, normalizeType, orderedSignature, inspectGraphValue } from "./canonical.js";
 import { copyType, copySignature } from "./copy.js";
-import { typeIdentifier, signatureIdentifier, required } from "./value.js";
+import { bindingVectorKeyOf, typeIdentifier, signatureIdentifier, required } from "./value.js";
 import type { ExpansionResult, ExpansionStop } from "./work.js";
 import { typeText, signatureText } from "./print.js";
 
@@ -58,14 +58,6 @@ function parameterKey(value: TypeParameterIdentity): string {
   return encodeKey([value.owner, value.index]);
 }
 
-function bindingKey(value: BindingVector): string {
-  const family = (bindings: readonly TypeBinding[]): readonly (readonly (string | number)[])[] => bindings.map(binding =>
-    binding.kind === "bound" ? [binding.kind, binding.parameter.owner, binding.parameter.index, binding.type]
-      : [binding.kind, binding.parameter.owner, binding.parameter.index]);
-  return encodeKey([family(value.classBindings), family(value.methodBindings), family(value.capturedBindings),
-    value.selfBindings.map(binding => binding.kind === "bound" ? [binding.kind, binding.owner, binding.type] : [binding.kind, binding.owner])]);
-}
-
 function admittedLimits(limits: TypeExpansionLimits): void {
   if (![limits.maximumDepth, limits.maximumVisits, limits.maximumUnionMembers, limits.maximumIntersectionMembers]
     .every(value => Number.isSafeInteger(value) && value >= 0))
@@ -89,7 +81,7 @@ function edge(plan: Plan, kind: "type" | "signature", identity: number): Plan {
 function prepareSubstitution(interner: TypeInterner, bindings: BindingVector, limits: TypeExpansionLimits): SubstitutionEnvironment {
   admittedLimits(limits);
   const storage = interner;
-  const key = encodeKey([bindingKey(bindings), limits.maximumDepth, limits.maximumVisits,
+  const key = encodeKey([bindingVectorKeyOf(bindings), limits.maximumDepth, limits.maximumVisits,
     limits.maximumUnionMembers, limits.maximumIntersectionMembers]);
   const parameters = new Map<string, TypeBinding>();
   for (const family of [bindings.classBindings, bindings.methodBindings, bindings.capturedBindings])
