@@ -19,7 +19,7 @@ const data = "export interface Data { readonly value: number; }";
 const first = ["ids", "diag", "ir-types", "ir-hir", "ir-tir", "ir-mir", "ir-facts"];
 const expectedImports = ([
   ["ids", []], ["diag", ["ids"]], ["ir-types", first.slice(0, 2)], ["ir-hir", first.slice(0, 3)],
-  ["ir-infer", [...first.slice(0, 4), "step"]], ["ir-tir", [...first.slice(0, 4), "ir-infer"]], ["ir-mir", [...first.slice(0, 5), "ir-infer"]], ["ir-facts", [...first.slice(0, 6), "ir-infer", "snapshot"]],
+  ["ir-infer", [...first.slice(0, 4), "step"]], ["ir-tir", [...first.slice(0, 4), "ir-infer"]], ["ir-mir", [...first.slice(0, 5), "ir-infer"]], ["ir-facts", [...first.slice(0, 6), "ir-infer", "snapshot", "dataflow"]],
   ["ir-program", [...first, "ir-infer"]], ["dataflow", ["ids", "diag", "ir-mir"]], ["query", ["ids", "diag", "step"]],
   ["libraries", ["ids", "diag", "ir-types", "ir-facts", "ir-tir", "snapshot"]], ["snapshot", ["ids", "diag", "ir-types"]], ["step", []],
   ["front", [...first.slice(0, 4), "libraries", "snapshot"]], ["decls", [...first.slice(0, 4), "libraries", "ir-infer", "step"]],
@@ -434,7 +434,7 @@ test("non-owning opaque declarations retain their owner-qualified type-only bran
   expect([[file("ir-types", "contract.ts"), 'export type TypeInterner = object & { readonly identityKind: "type-interner" };']], [at("contract-shape", file("ir-types", "contract.ts"))]);
 });
 
-for (const [owner, capability] of [["ir-types", "TypeInterner"], ["ir-program", "ProgramVerificationWork"], ["evaluate", "EvaluationContinuation"]]) {
+for (const [owner, capability] of [["ir-types", "TypeInterner"], ["ir-program", "ProgramVerificationWork"], ["evaluate", "EvaluationContinuation"], ["dataflow", "DataflowAccount"]]) {
   test(`native ${capability} has only private storage and a private constructor`, () => {
     const contract = file(owner, "contract.ts");
     const implementation = file(owner, "arena.ts");

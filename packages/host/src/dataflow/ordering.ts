@@ -1,6 +1,8 @@
-import type { DataflowResult, DirectedGraph, GraphOrdering, DataflowLimits } from "./contract.js";
-import type { DataflowStop, GraphNode, GraphView, Meter } from "./graph.js";
-import { buildGraph, createMeter, graphNode, takeEntries, takeWork } from "./graph.js";
+import type { DataflowResult, DirectedGraph, GraphOrdering, DataflowAccount } from "./contract.js";
+import type { DataflowStop } from "./account.js";
+import type { GraphNode, GraphView } from "./graph.js";
+import { buildGraph, graphNode } from "./graph.js";
+import { takeEntries, takeWork } from "./account.js";
 
 export interface TraversalNode<Vertex> {
   readonly vertex: GraphNode<Vertex>;
@@ -21,7 +23,7 @@ interface Frame<Vertex> {
 export function walkGraph<Vertex>(
   graph: GraphView<Vertex>,
   roots: Iterable<number>,
-  meter: Meter,
+  meter: DataflowAccount,
   published: boolean,
 ): DataflowResult<Traversal<Vertex>> {
   const reached = new Set<number>();
@@ -69,15 +71,18 @@ export function walkGraph<Vertex>(
 export function orderingOfGraph(
   input: DirectedGraph,
   roots: readonly number[],
-  limits: DataflowLimits,
+  meter: DataflowAccount,
 ): DataflowResult<GraphOrdering> {
-  const meter = createMeter(limits);
+  const priorStop = takeWork(meter, 0);
+  if (priorStop !== null) return priorStop;
   const entryStop = takeEntries(meter, input.successors.length);
   if (entryStop !== null) return entryStop;
   const graph = buildGraph(input, meter);
-  if (graph.kind === "resource-limit") return graph;
+  if (graph.kind !== "complete") return graph;
   const traversal = walkGraph(graph.value, roots, meter, true);
-  if (traversal.kind === "resource-limit") return traversal;
+  if (traversal.kind !== "complete") return traversal;
+  const publicationStop = takeWork(meter, traversal.value.preorder.length + traversal.value.postorder.length + graph.value.nodes.length);
+  if (publicationStop !== null) return publicationStop;
   return { kind: "complete", value: {
     preorder: traversal.value.preorder.map(node => node.vertex.index),
     postorder: traversal.value.postorder.map(node => node.index),

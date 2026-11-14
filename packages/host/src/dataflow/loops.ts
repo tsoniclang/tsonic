@@ -1,10 +1,12 @@
 import type { InvariantFailure } from "../diag/contract.js";
 import { requirePresent } from "../diag/index.js";
-import type { DataflowLimits, DataflowResult, DirectedGraph, NaturalLoop } from "./contract.js";
+import type { DataflowAccount, DataflowResult, DirectedGraph, NaturalLoop } from "./contract.js";
 import type { Dominance, DominanceNode } from "./dominators.js";
 import { dominate } from "./dominators.js";
-import type { DataflowStop, GraphNode, Meter } from "./graph.js";
-import { buildGraph, createMeter, takeEntries, takeWork } from "./graph.js";
+import type { DataflowStop } from "./account.js";
+import type { GraphNode } from "./graph.js";
+import { buildGraph, sortRecords } from "./graph.js";
+import { takeEntries, takeWork } from "./account.js";
 
 const missingLoopDominatorParent: InvariantFailure = ({
   owner: "dataflow", query: null, origin: null, message: "loop dominator parent is missing",
@@ -33,7 +35,7 @@ interface LoopGroup {
   readonly members: Set<number>;
 }
 
-function intervalsOf<Vertex>(dominance: Dominance<Vertex>, meter: Meter): DataflowResult<ReadonlyMap<number, Interval>> {
+function intervalsOf<Vertex>(dominance: Dominance<Vertex>, meter: DataflowAccount): DataflowResult<ReadonlyMap<number, Interval>> {
   const rows = new Map<number, IntervalRow<Vertex>>();
   for (const node of dominance.records.values()) {
     const rowStop = takeWork(meter);
@@ -78,7 +80,7 @@ function addMembers<Vertex>(
   header: GraphNode<Vertex>,
   group: LoopGroup,
   reachable: ReadonlySet<number>,
-  meter: Meter,
+  meter: DataflowAccount,
 ): DataflowStop | null {
   const headerWork = takeWork(meter);
   if (headerWork !== null) return headerWork;
@@ -118,16 +120,17 @@ function addMembers<Vertex>(
 export function loopsOfGraph(
   input: DirectedGraph,
   entry: number,
-  limits: DataflowLimits,
+  meter: DataflowAccount,
 ): DataflowResult<readonly NaturalLoop[]> {
-  const meter = createMeter(limits);
+  const priorStop = takeWork(meter, 0);
+  if (priorStop !== null) return priorStop;
   const graph = buildGraph(input, meter);
-  if (graph.kind === "resource-limit") return graph;
+  if (graph.kind !== "complete") return graph;
   if (graph.value.nodes.length === 0) return { kind: "complete", value: [] };
   const dominance = dominate(graph.value, entry, meter);
-  if (dominance.kind === "resource-limit") return dominance;
+  if (dominance.kind !== "complete") return dominance;
   const intervals = intervalsOf(dominance.value, meter);
-  if (intervals.kind === "resource-limit") return intervals;
+  if (intervals.kind !== "complete") return intervals;
   const loops = new Map<number, LoopGroup>();
   for (const source of graph.value.nodes) {
     const rowStop = takeWork(meter);
@@ -154,10 +157,19 @@ export function loopsOfGraph(
       if (memberStop !== null) return memberStop;
     }
   }
-  const value = [...loops.values()].sort((left, right) => left.header - right.header).map(group => ({
-    header: group.header,
-    backEdges: [...group.backEdges].sort((left, right) => left - right),
-    members: [...group.members].sort((left, right) => left - right),
-  }));
+  const rowStop = takeWork(meter, loops.size);
+  if (rowStop !== null) return rowStop;
+  const ordered = sortRecords([...loops.values()], (left, right) => left.header - right.header, meter);
+  if (ordered.kind !== "complete") return ordered;
+  const value: NaturalLoop[] = [];
+  for (const group of ordered.value) {
+    const workStop = takeWork(meter, 1 + group.backEdges.size + group.members.size);
+    if (workStop !== null) return workStop;
+    const backEdges = sortRecords([...group.backEdges], (left, right) => left - right, meter);
+    if (backEdges.kind !== "complete") return backEdges;
+    const members = sortRecords([...group.members], (left, right) => left - right, meter);
+    if (members.kind !== "complete") return members;
+    value.push({ header: group.header, backEdges: backEdges.value, members: members.value });
+  }
   return { kind: "complete", value };
 }

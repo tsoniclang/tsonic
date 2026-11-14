@@ -10,6 +10,13 @@ import { verifyMetadata as checkMetadata } from "./verify-metadata.js";
 import { verifySummary as checkSummary } from "./verify-summary.js";
 import { summaryKey as identifySummary } from "./summary-key.js";
 import { verifyObservations as checkObservations } from "./verify-observations.js";
+import { conditionAnd as andConditions, conditionOr as orConditions, conditionEquals as equalConditions, conditionSubstitute as substituteConditions } from "./conditions.js";
+import type { ConditionAnd, ConditionOr, ConditionEquals, ConditionSubstitute } from "./contract.js";
+
+export const conditionAnd: ConditionAnd = andConditions;
+export const conditionOr: ConditionOr = orConditions;
+export const conditionEquals: ConditionEquals = equalConditions;
+export const conditionSubstitute: ConditionSubstitute = substituteConditions;
 
 export const printFacts: PrintFacts = writeFacts;
 export const parseFacts: ParseFacts = readFacts;

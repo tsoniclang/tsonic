@@ -15,8 +15,8 @@ import { runCase } from "../host-cases/case.mjs";
 import { signatureRequestKey } from "../../packages/host/dist/ir-types/index.js";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
-const sourceNames = ["index", "print", "parse", "summary-key", "verify-observations", "verify-facts", "verify-relations", "verify-summary", "verify-metadata", "verify-call-graph"];
-const sourceFiles = ["contract", ...sourceNames].map(name => `packages/host/src/ir-facts/${name}.ts`);
+const sourceNames = ["index", "print", "parse", "summary-key", "conditions", "verify-observations", "verify-facts", "verify-relations", "verify-summary", "verify-metadata", "verify-call-graph"];
+const sourceFiles = ["contract", "conditions-data", ...sourceNames].map(name => `packages/host/src/ir-facts/${name}.ts`);
 const hash = text => createHash("sha256").update(text).digest("hex");
 const sourceHashes = sourceFiles.map(path => [path, hash(readFileSync(resolve(repository, path)))]);
 const equal = (actual, expected, label, evidence) => {
@@ -41,9 +41,9 @@ const emptyScope = () => ({ classParameters: [], methodParameters: [], capturedP
 const detail = value => [{ kind: "text", value }];
 const violation = (rule, site, value) => ({ rule, site, detail: detail(value) });
 const finiteLimits = () => ({ maximumProjectionDepth: 1000000,
-  maximumOriginAlternatives: 1000000, maximumRelationalRecordsPerBody: 1000000, maximumRelationalReferencesPerBody: 1000000 });
+  maximumOriginAlternatives: 1000000, maximumConditionAlternatives: 1000000, maximumRelationalRecordsPerBody: 1000000, maximumRelationalReferencesPerBody: 1000000 });
 
-test("ir-facts: all seventeen actual emitted ports, full closed logic and fresh declarations", async suite => {
+test("ir-facts: all twenty-one actual emitted ports, full closed logic and fresh declarations", async suite => {
   assert.equal(typeof process.env.TSONIC_TEST_ADMISSION, "string", "the complete unit is admitted in its bounded aggregate group");
   const inspector = new Session();
   inspector.connect();
@@ -53,6 +53,8 @@ test("ir-facts: all seventeen actual emitted ports, full closed logic and fresh 
   await post("Profiler.startPreciseCoverage", { callCount: true, detailed: true });
   suite.after(async () => { await post("Profiler.stopPreciseCoverage"); inspector.disconnect(); });
   const product = await import("../../packages/host/dist/ir-facts/index.js");
+  const { conditionCases } = await import("./fixtures/facts-conditions.mjs");
+  await conditionCases(suite);
   const { bindingTargetKey, relationalOwnerKey } = await import("./fixtures/verification-keys.mjs");
   const ids = await import("../../packages/host/dist/ids/index.js");
   const { observationCases } = await import("./fixtures/facts-observations.mjs");
@@ -208,8 +210,8 @@ test("ir-facts: all seventeen actual emitted ports, full closed logic and fresh 
       abiText(64).replace(`item(value=ItemNodeRef(owner=def:"${definitions.abi64}", node=n:0))`, `body(value=${nodeText(1)})`), product.printMetadata, product.parseMetadata);
   }
   await textCase("one real call component", graph(), graphText, product.printCallGraph, product.parseCallGraph);
-  await suite.test("every exported value is exactly the current seventeen own-contract ports", () => {
-    assert.deepEqual(Object.keys(product).sort(), ["parseCallGraph", "parseFacts", "parseMetadata", "parseObservations", "parseSummary", "printCallGraph", "printFacts", "printMetadata", "printObservations", "printSummary", "summaryKey", "verifyCallGraph", "verifyFacts", "verifyLiveness", "verifyMetadata", "verifyObservations", "verifySummary"]);
+  await suite.test("every exported value is exactly the current twenty-one own-contract ports", () => {
+    assert.deepEqual(Object.keys(product).sort(), ["conditionAnd", "conditionEquals", "conditionOr", "conditionSubstitute", "parseCallGraph", "parseFacts", "parseMetadata", "parseObservations", "parseSummary", "printCallGraph", "printFacts", "printMetadata", "printObservations", "printSummary", "summaryKey", "verifyCallGraph", "verifyFacts", "verifyLiveness", "verifyMetadata", "verifyObservations", "verifySummary"]);
   });
   await suite.test("all four genuinely supplied valid domains return the complete empty violation vector", () => {
     const inputs = setup();
@@ -4435,7 +4437,7 @@ test("ir-facts: all seventeen actual emitted ports, full closed logic and fresh 
     const areas = JSON.parse(readFileSync(resolve(repository, "test/architecture/quarantine/areas.json"), "utf8"));
     const deps = isolationDeps(tooling, areas.areas.map(area => area.directory));
     const interfaces = ["ids/contract", "ids/index", "diag/contract", "ir-types/contract", "ir-types/index", "ir-hir/contract", "ir-hir/index",
-      "ir-infer/contract", "ir-tir/contract", "ir-tir/index", "ir-mir/contract", "snapshot/contract"].map(name => `packages/host/src/${name}.ts`);
+      "ir-infer/contract", "ir-tir/contract", "ir-tir/index", "ir-mir/contract", "snapshot/contract", "dataflow/contract", "dataflow/index"].map(name => `packages/host/src/${name}.ts`);
     const files = new Map();
     const visit = directory => {
       for (const entry of readdirSync(resolve(repository, directory), { withFileTypes: true })) {
@@ -4445,7 +4447,7 @@ test("ir-facts: all seventeen actual emitted ports, full closed logic and fresh 
         else if (entry.name.endsWith(".ts") && !entry.name.endsWith(".d.ts")) files.set(path, readFileSync(resolve(repository, path), "utf8"));
       }
     };
-    for (const name of ["ids", "diag", "ir-types", "ir-hir", "ir-infer", "ir-tir", "ir-mir", "snapshot"]) visit(`packages/host/src/${name}`);
+    for (const name of ["ids", "diag", "ir-types", "ir-hir", "ir-infer", "ir-tir", "ir-mir", "snapshot", "dataflow"]) visit(`packages/host/src/${name}`);
     const graph = readImportGraph(parseSources(files), files);
     const production = new Set(interfaces);
     for (const path of production) for (const edge of graph) if (edge.source === path && edge.target !== null) {

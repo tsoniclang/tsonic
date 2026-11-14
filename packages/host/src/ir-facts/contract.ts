@@ -8,10 +8,19 @@ import type { DeclarationTarget, HirBody, HirNode } from "../ir-hir/contract.js"
 import type { MemberSelection, ResolvedCallee, TirBody } from "../ir-tir/contract.js";
 import type { MirBody } from "../ir-mir/contract.js";
 import type { CallbackInput, SummaryCallback } from "../snapshot/contract.js";
+import type { DataflowResult } from "../dataflow/contract.js";
+import type { Condition, ConditionLimits } from "./conditions-data.js";
+export type { Condition, ConditionLimits } from "./conditions-data.js";
+
+export type ConditionOr = (left: Condition, right: Condition, limits: ConditionLimits) => DataflowResult<Condition>;
+export type ConditionAnd = (left: Condition, right: Condition, limits: ConditionLimits) => DataflowResult<Condition>;
+export type ConditionEquals = (left: Condition, right: Condition, limits: ConditionLimits) => DataflowResult<boolean>;
+export type ConditionSubstitute = (condition: Condition, events: readonly Condition[], limits: ConditionLimits) => DataflowResult<Condition>;
 
 export interface AnalysisLimits {
   readonly maximumProjectionDepth: number;
   readonly maximumOriginAlternatives: number;
+  readonly maximumConditionAlternatives: number;
   readonly maximumRelationalRecordsPerBody: number;
   readonly maximumRelationalReferencesPerBody: number;
 }

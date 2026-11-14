@@ -1,6 +1,7 @@
-import type { DataflowLimits, DataflowResult, DirectedGraph, GraphComponents } from "./contract.js";
+import type { DataflowAccount, DataflowResult, DirectedGraph, GraphComponents } from "./contract.js";
 import type { GraphNode } from "./graph.js";
-import { buildGraph, createMeter, takeEntries, takeWork } from "./graph.js";
+import { buildGraph, sortRecords } from "./graph.js";
+import { takeEntries, takeWork } from "./account.js";
 import { walkGraph } from "./ordering.js";
 
 interface Component {
@@ -10,15 +11,16 @@ interface Component {
 
 export function componentsOfGraph(
   input: DirectedGraph,
-  limits: DataflowLimits,
+  meter: DataflowAccount,
 ): DataflowResult<GraphComponents> {
-  const meter = createMeter(limits);
+  const priorStop = takeWork(meter, 0);
+  if (priorStop !== null) return priorStop;
   const entryStop = takeEntries(meter, input.successors.length);
   if (entryStop !== null) return entryStop;
   const graph = buildGraph(input, meter);
-  if (graph.kind === "resource-limit") return graph;
+  if (graph.kind !== "complete") return graph;
   const traversal = walkGraph(graph.value, graph.value.nodes.map(node => node.index), meter, false);
-  if (traversal.kind === "resource-limit") return traversal;
+  if (traversal.kind !== "complete") return traversal;
   const visited = new Set<number>();
   const components: Component[] = [];
   for (const root of [...traversal.value.postorder].reverse()) {
@@ -48,13 +50,19 @@ export function componentsOfGraph(
         }
       }
     }
-    members.sort((left, right) => left - right);
-    components.push({ minimum, members });
+    const ordered = sortRecords(members, (left, right) => left - right, meter);
+    if (ordered.kind !== "complete") return ordered;
+    components.push({ minimum, members: ordered.value });
   }
-  components.sort((left, right) => left.minimum - right.minimum);
+  const orderedComponents = sortRecords(components, (left, right) => left.minimum - right.minimum, meter);
+  if (orderedComponents.kind !== "complete") return orderedComponents;
   const componentOf: number[] = [];
-  for (const [componentIndex, component] of components.entries()) {
+  for (const [componentIndex, component] of orderedComponents.value.entries()) {
+    const workStop = takeWork(meter, 1 + component.members.length);
+    if (workStop !== null) return workStop;
     for (const member of component.members) componentOf[member] = componentIndex;
   }
-  return { kind: "complete", value: { components: components.map(component => component.members), componentOf } };
+  const resultStop = takeWork(meter, components.length);
+  if (resultStop !== null) return resultStop;
+  return { kind: "complete", value: { components: orderedComponents.value.map(component => component.members), componentOf } };
 }

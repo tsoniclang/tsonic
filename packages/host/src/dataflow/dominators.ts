@@ -1,8 +1,9 @@
 import type { InvariantFailure } from "../diag/contract.js";
 import { requirePresent } from "../diag/index.js";
-import type { DataflowLimits, DataflowResult, DirectedGraph, DominatorTree } from "./contract.js";
-import type { GraphNode, GraphView, Meter } from "./graph.js";
-import { buildGraph, createMeter, takeEntries, takeWork } from "./graph.js";
+import type { DataflowAccount, DataflowResult, DirectedGraph, DominatorTree } from "./contract.js";
+import type { GraphNode, GraphView } from "./graph.js";
+import { buildGraph } from "./graph.js";
+import { takeEntries, takeWork } from "./account.js";
 import type { Traversal } from "./ordering.js";
 import { walkGraph } from "./ordering.js";
 
@@ -43,7 +44,7 @@ function semiOf<Vertex>(node: DominanceNode<Vertex>): DominanceNode<Vertex> {
   return node.semi === null ? node : node.semi;
 }
 
-function evaluate<Vertex>(node: DominanceNode<Vertex>, meter: Meter): DataflowResult<DominanceNode<Vertex>> {
+function evaluate<Vertex>(node: DominanceNode<Vertex>, meter: DataflowAccount): DataflowResult<DominanceNode<Vertex>> {
   const evaluationStop = takeWork(meter);
   if (evaluationStop !== null) return evaluationStop;
   const pending: { readonly node: DominanceNode<Vertex>; readonly parent: DominanceNode<Vertex> }[] = [];
@@ -67,9 +68,9 @@ function evaluate<Vertex>(node: DominanceNode<Vertex>, meter: Meter): DataflowRe
   return { kind: "complete", value: labelOf(node) };
 }
 
-export function dominate<Vertex>(graph: GraphView<Vertex>, entry: number, meter: Meter): DataflowResult<Dominance<Vertex>> {
+export function dominate<Vertex>(graph: GraphView<Vertex>, entry: number, meter: DataflowAccount): DataflowResult<Dominance<Vertex>> {
   const traversal = walkGraph(graph, [entry], meter, false);
-  if (traversal.kind === "resource-limit") return traversal;
+  if (traversal.kind !== "complete") return traversal;
   const records = new Map<number, DominanceNode<Vertex>>();
   const ordered: DominanceNode<Vertex>[] = [];
   for (const { vertex, parent: parentVertex } of traversal.value.preorder) {
@@ -93,7 +94,7 @@ export function dominate<Vertex>(graph: GraphView<Vertex>, entry: number, meter:
       const record = records.get(predecessor.index);
       if (record === undefined) continue;
       const evaluated = evaluate(record, meter);
-      if (evaluated.kind === "resource-limit") return evaluated;
+      if (evaluated.kind !== "complete") return evaluated;
       const candidate = semiOf(evaluated.value);
       if (candidate.rank < semiOf(node).rank) node.semi = candidate;
     }
@@ -103,7 +104,7 @@ export function dominate<Vertex>(graph: GraphView<Vertex>, entry: number, meter:
       const bucketStop = takeWork(meter);
       if (bucketStop !== null) return bucketStop;
       const evaluated = evaluate(member, meter);
-      if (evaluated.kind === "resource-limit") return evaluated;
+      if (evaluated.kind !== "complete") return evaluated;
       member.immediate = semiOf(evaluated.value).rank < semiOf(member).rank ? evaluated.value : node.parent;
     }
     node.parent.bucket.length = 0;
@@ -124,18 +125,21 @@ export function dominate<Vertex>(graph: GraphView<Vertex>, entry: number, meter:
 export function dominatorsOfGraph(
   input: DirectedGraph,
   entry: number,
-  limits: DataflowLimits,
+  meter: DataflowAccount,
 ): DataflowResult<DominatorTree> {
-  const meter = createMeter(limits);
+  const priorStop = takeWork(meter, 0);
+  if (priorStop !== null) return priorStop;
   const resultStop = takeEntries(meter, input.successors.length * 2);
   if (resultStop !== null) return resultStop;
   const graph = buildGraph(input, meter);
-  if (graph.kind === "resource-limit") return graph;
+  if (graph.kind !== "complete") return graph;
   if (graph.value.nodes.length === 0) {
     return { kind: "complete", value: { immediate: [], reachable: [] } };
   }
   const dominance = dominate(graph.value, entry, meter);
-  if (dominance.kind === "resource-limit") return dominance;
+  if (dominance.kind !== "complete") return dominance;
+  const publicationStop = takeWork(meter, graph.value.nodes.length * 2);
+  if (publicationStop !== null) return publicationStop;
   return { kind: "complete", value: {
     immediate: graph.value.nodes.map(vertex => {
       const node = dominance.value.records.get(vertex.index);
