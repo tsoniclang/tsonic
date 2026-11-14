@@ -22,6 +22,7 @@ export interface InferDeps {
   readonly membersOf: (type: TyId) => MemberTable;
   readonly constValue: (initializer: BodyInstance, context: ConstantContext) => ConstValue;
   readonly produceType: (request: TypeProductionRequest) => TypeEvidence;
+  readonly rules: RuleTable;
   readonly types: TypeInterner;
   readonly typeExpansion: TypeExpansionLimits;
   readonly limits: InferenceLimits;
@@ -36,12 +37,10 @@ export type ConstraintsOf = (deps: InferDeps, body: HirBody) => Result<Constrain
 
 export type EnumerateContributions = (
   deps: InferDeps,
-  rules: RuleTable,
   constraints: readonly ConstraintSet[],
 ) => Result<readonly AtomicContribution[]>;
 
 export type SolveGroup = (
   deps: InferDeps,
-  rules: RuleTable,
   constraints: readonly ConstraintSet[],
 ) => Result<Solution>;

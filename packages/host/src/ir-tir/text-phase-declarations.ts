@@ -15,13 +15,15 @@ import type {
   ClassDeclaration, ClassElement, ClassExpression, DeclarationTarget, EnumDeclaration, EnumMember, ExpressionWithTypeArguments, HeritageClause, HirAttribute, HirCallableEndpoint, ImportTarget, InterfaceDeclaration, ModifierList, NodeList, TextRange, TypeAliasDeclaration, TypeElement, TypeParameterDeclaration
 } from "../ir-hir/contract.js";
 import type {
-  RefinementDecision, RuleOutcome
+  ClosureDecision, DeferredDecision, RefinementDecision, RuleOutcome
 } from "../ir-infer/contract.js";
 import type { TirTextKernel, TirTypedRecordWork } from "./text-layouts.js";
 import { scalarWork, referenceWork, syntaxReference, nullableWork, sequenceWork } from "./text-layouts.js";
 
 export interface PhaseDeclarationsTextReads {
   readonly work_BindingVector: TirRecordCodec<BindingVector>;
+  readonly work_ClosureDecision: TirRecordCodec<ClosureDecision>;
+  readonly work_DeferredDecision: TirRecordCodec<DeferredDecision>;
   readonly work_ConversionDecision: TirRecordCodec<ConversionDecision>;
   readonly work_DeclarationTarget: TirRecordCodec<DeclarationTarget>;
   readonly work_HirAttribute: TirRecordCodec<HirAttribute>;
@@ -142,6 +144,18 @@ export const createPhaseDeclarationsText = (kernel: TirTextKernel, read: PhaseDe
       definition: field_definition, parameters: field_parameters, signatures: field_signatures, template: field_template,
       attributes: field_attributes,
     })));
+  const work_O_ClosureDecision__decided: TirRecordCodec<RuleOutcome<ClosureDecision> & { readonly kind: "decided" }> = defineRecord<RuleOutcome<ClosureDecision> & { readonly kind: "decided" }>("O<ClosureDecision>#decided", "O<ClosureDecision>", { field: "kind", value: "decided" }, "decided", null, null, fields => fields
+    .field("decision", "ClosureDecision", value => read.work_ClosureDecision.write(value.decision), lazyReader(() => read.work_ClosureDecision.reader))
+    .finish((field_decision) => ({ kind: "decided", decision: field_decision })));
+  const work_O_ClosureDecision__deferred: TirRecordCodec<RuleOutcome<ClosureDecision> & { readonly kind: "deferred" }> = defineRecord<RuleOutcome<ClosureDecision> & { readonly kind: "deferred" }>("O<ClosureDecision>#deferred", "O<ClosureDecision>", { field: "kind", value: "deferred" }, "deferred", null, null, fields => fields
+    .field("deferred", "DeferredDecision", value => read.work_DeferredDecision.write(value.deferred), lazyReader(() => read.work_DeferredDecision.reader))
+    .finish((field_deferred) => ({ kind: "deferred", deferred: field_deferred })));
+  const work_O_ClosureDecision_: TirRecordCodec<RuleOutcome<ClosureDecision>> = unionRecord<RuleOutcome<ClosureDecision>>("O<ClosureDecision>", (value: RuleOutcome<ClosureDecision>): TirTypedRecordWork => {
+    switch (value.kind) {
+      case "decided": return work_O_ClosureDecision__decided.write(value);
+      case "deferred": return work_O_ClosureDecision__deferred.write(value);
+    }
+  }, () => [work_O_ClosureDecision__decided.reader, work_O_ClosureDecision__deferred.reader]);
   const work_TypedClosure: TirRecordCodec<TypedClosure> = defineRecord<TypedClosure>("TypedClosure", "TypedClosure", null, "TypedClosure", null, null, fields => fields
     .field("type", "t", value => referenceWork("t", value.type), typeReader)
     .field("convertedType", "t", value => referenceWork("t", value.convertedType), typeReader)
@@ -150,10 +164,10 @@ export const createPhaseDeclarationsText = (kernel: TirTextKernel, read: PhaseDe
     .field("evidenceIndex", "?number", value => nullableWork(value.evidenceIndex, actual => scalarWork("number", actual)), nullableReader(numberReader))
     .field("demand", "TirDemand", value => read.work_TirDemand.write(value.demand), lazyReader(() => read.work_TirDemand.reader))
     .field("callable", "TypedCallable", value => work_TypedCallable.write(value.callable), lazyReader(() => work_TypedCallable.reader))
-    .field("captures", "[LocalRef]", value => sequenceWork("[LocalRef]", value.captures, actual => read.work_LocalRef.write(actual)), sequenceReader("[LocalRef]", lazyReader(() => read.work_LocalRef.reader)))
-    .finish((field_type, field_convertedType, field_conversion, field_narrowing, field_evidenceIndex, field_demand, field_callable, field_captures) => ({
+    .field("closure", "O<ClosureDecision>", value => work_O_ClosureDecision_.write(value.closure), lazyReader(() => work_O_ClosureDecision_.reader))
+    .finish((field_type, field_convertedType, field_conversion, field_narrowing, field_evidenceIndex, field_demand, field_callable, field_closure) => ({
       type: field_type, convertedType: field_convertedType, conversion: field_conversion, narrowing: field_narrowing,
-      evidenceIndex: field_evidenceIndex, demand: field_demand, callable: field_callable, captures: field_captures,
+      evidenceIndex: field_evidenceIndex, demand: field_demand, callable: field_callable, closure: field_closure,
     })));
   const work_TypedClass: TirRecordCodec<TypedClass> = defineRecord<TypedClass>("TypedClass", "TypedClass", null, "TypedClass", null, null, fields => fields
     .field("definition", "def", value => referenceWork("def", value.definition), definitionReader)

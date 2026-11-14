@@ -1,6 +1,6 @@
 import type { BodyId, BodyPath, CandidateListId, DefId, DefinitionPath, LocalId, LocalRef, LibraryModuleIdentity, ModuleId, NodeId, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { Diagnostic, TextParseResult, Violation } from "../diag/contract.js";
-import type { ArtifactBindings, BindingScope, BindingVector, LiteralTypeValue, LiteralValue, MemberKey, MemberOrigin, NominalDefinition, PassingMode, TypeComponent, TypeParameter, TypeParameterIdentity, TypeTable } from "../ir-types/contract.js";
+import type { ArtifactBindings, BindingScope, BindingVector, LiteralTypeValue, LiteralValue, MemberKey, MemberOrigin, NominalDefinition, PassingMode, SignatureEndpoint, TypeComponent, TypeParameter, TypeParameterIdentity, TypeTable } from "../ir-types/contract.js";
 
 export interface TextRange {
   readonly pos: number;
@@ -3919,7 +3919,7 @@ export interface HirInferenceContribution {
 
 export interface HirCallableEndpoint {
   readonly declaration: DefId;
-  readonly role: "advertised" | "api-signature" | "api-body";
+  readonly role: SignatureEndpoint;
   readonly signature: SigId;
   readonly body: BodyId | null;
 }

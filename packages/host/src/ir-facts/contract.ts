@@ -3,15 +3,13 @@ import type {
   BlockId, BodyId, BoundProducerId, ComponentId, DefId, LayoutId, LibraryExportIdentity, LocalId, LocalRef, MemoryFieldId, NodeId, NodeRef,
   OpenBoundaryId, OriginsId, PlaceId, ProducerId, ProjectionPathId, SigId, SourceNodeRef, TyId, ValueContextId,
 } from "../ids/contract.js";
-import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, NominalDefinition, PassingMode, TypeTable } from "../ir-types/contract.js";
-import type { DeclarationTarget } from "../ir-hir/contract.js";
+import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, DeclaredExecution, Execution, NominalDefinition, PassingMode, SignatureRequest, TypeExpansionLimits, TypeInterner, TypeTable } from "../ir-types/contract.js";
+import type { DeclarationTarget, HirBody, HirNode } from "../ir-hir/contract.js";
 import type { MemberSelection, ResolvedCallee, TirBody } from "../ir-tir/contract.js";
 import type { MirBody } from "../ir-mir/contract.js";
 import type { CallbackInput, SummaryCallback } from "../snapshot/contract.js";
 
 export interface AnalysisLimits {
-  readonly maximumBlocksPerBody: number;
-  readonly maximumPlacesPerBody: number;
   readonly maximumProjectionDepth: number;
   readonly maximumOriginAlternatives: number;
   readonly maximumRelationalRecordsPerBody: number;
@@ -19,11 +17,11 @@ export interface AnalysisLimits {
 }
 
 export type RelationalOwner =
-  | { readonly kind: "body"; readonly instance: BodyInstance }
-  | { readonly kind: "summary"; readonly definition: DefId; readonly bindings: ArtifactBindings };
+  | { readonly kind: "body"; readonly execution: Execution }
+  | { readonly kind: "summary"; readonly key: SummaryKey };
 
 export type RelationalSite =
-  | { readonly kind: "node"; readonly node: NodeRef }
+  | { readonly kind: "node"; readonly node: SourceNodeRef }
   | { readonly kind: "declared"; readonly identity: LibraryExportIdentity; readonly site: number };
 
 export interface ProducerRef {
@@ -118,9 +116,17 @@ export interface MirPoint {
   readonly statement: number | null;
 }
 
+// A store is an executed operation: identified and ordered by its position in the lowered body; its node is the source
+// occurrence (S2-23, K-14). A store made on one outgoing edge of a terminator names that edge by its role (K-3370, K-3372):
+// `continue` the next edge of call and invoke, `resume` the resume edge of await, yield and delegate, `return` the return
+// edge of yield and delegate, `unwind` a handler unwind edge. Each terminator kind has at most one edge per role, so the
+// point and the edge together name one position. `null` is a store at a statement or at the terminator itself.
+export type StoreEdge = "continue" | "resume" | "return" | "unwind";
+
 export interface StoreLiveness {
   readonly node: NodeId;
   readonly point: MirPoint;
+  readonly edge: StoreEdge | null;
   readonly observed: boolean;
 }
 
@@ -135,9 +141,11 @@ export interface LocalLiveRange {
   readonly segments: readonly LiveSegment[];
 }
 
+// Per source binding of the body (a MIR local with a source): whether the body itself takes its address or captures it.
+// No alias or identity fact: that is Origins' alone (COMPONENTS §10.2.1 Liveness).
 export interface BindingStorageFact {
   readonly local: LocalId;
-  readonly scope: "body" | "shared";
+  readonly addressTaken: boolean;
   readonly captured: boolean;
 }
 
@@ -239,7 +247,10 @@ export interface WrittenOriginsReason {
   readonly detail: string;
 }
 
+// A write and an escape are executed operations: identified and ordered by position, with the node as the source
+// occurrence (S2-23).
 export interface WriteFact {
+  readonly point: MirPoint;
   readonly node: NodeId;
   readonly operation: "initialization" | "mutation";
   readonly destination: "binding" | "member" | "element" | "pointer";
@@ -259,6 +270,7 @@ export type EscapeTarget =
   | { readonly kind: "external"; readonly boundary: OpenBoundaryId };
 
 export interface EscapeFact {
+  readonly point: MirPoint;
   readonly node: NodeId;
   readonly producer: ProducerId;
   readonly target: EscapeTarget;
@@ -275,10 +287,11 @@ export interface ArgumentTransport {
   readonly projection: ProjectionPathId | null;
 }
 
-export interface SummaryKey {
-  readonly definition: DefId;
-  readonly bindings: ArtifactBindings;
-}
+export type SummaryKey =
+  | { readonly kind: "body"; readonly execution: Execution }
+  | { readonly kind: "declared"; readonly execution: DeclaredExecution };
+
+export type SummaryIdentity = (key: SummaryKey) => string;
 
 export interface InvocationAlternative {
   readonly resolution: ResolvedCallee;
@@ -334,6 +347,13 @@ export interface ConstructionAlternative {
   readonly regions: readonly InstanceRegion[];
 }
 
+// What each storage cell holds at each finite exit, in terms of what it held at entry; the normal and the unwinding exit
+// are distinct (COMPONENTS §10.2 Origins; COMMON-DATA §8).
+export interface ExitContents {
+  readonly onReturn: readonly SummaryWrite[];
+  readonly onUnwind: readonly SummaryWrite[];
+}
+
 export interface OriginFacts {
   readonly points: readonly PointPlaceOrigins[];
   readonly reads: readonly ReadOriginsFact[];
@@ -346,6 +366,7 @@ export interface OriginFacts {
   readonly frontiers: readonly ValueFrontier[];
   readonly constructions: readonly ConstructionAlternative[];
   readonly instanceRegions: readonly InstanceRegion[];
+  readonly exitContents: ExitContents;
 }
 
 export interface OriginsResult {
@@ -486,8 +507,12 @@ export interface ObservationFact {
   readonly field: MetadataFieldRef | null;
   readonly result: TyId;
   readonly value: bigint;
-  readonly context: ValueContextId;
   readonly bindings: BindingVector;
+}
+
+export interface BodyObservations {
+  readonly instance: BodyInstance;
+  readonly rows: readonly ObservationFact[];
 }
 
 export interface RawLocationFact {
@@ -552,19 +577,8 @@ export type ClosedArrayFact = { readonly node: NodeId } & (
       readonly elements: readonly MemberSelection[] }
 );
 
-export interface BodyMetadataResult {
-  readonly instance: BodyInstance;
-  readonly observations: readonly ObservationFact[];
-  readonly rawLocations: readonly RawLocationFact[];
-  readonly fieldBindings: readonly MemoryFieldBindingFact[];
-  readonly recordBindings: readonly MemoryRecordBindingFact[];
-  readonly memoryBindings: readonly MemoryBindingInventoryEntry[];
-  readonly selectedMemoryDeclarations: readonly DefId[];
-  readonly closedArrays: readonly ClosedArrayFact[];
-}
-
 export interface BodyFacts {
-  readonly instance: BodyInstance;
+  readonly execution: Execution;
   readonly arena: RelationalArena;
   readonly liveness: LivenessFacts;
   readonly initialization: InitializationFacts;
@@ -573,7 +587,6 @@ export interface BodyFacts {
   readonly suspension: SuspensionFacts;
   readonly errorStorage: ErrorStorageFacts;
   readonly pointerBacking: PointerBackingFacts;
-  readonly observations: readonly ObservationFact[];
   readonly rawLocations: readonly RawLocationFact[];
   readonly fieldBindings: readonly MemoryFieldBindingFact[];
   readonly recordBindings: readonly MemoryRecordBindingFact[];
@@ -646,6 +659,7 @@ export interface CallGraph {
 }
 
 export type FactsRule =
+  | "execution-entry-exact"
   | "body-instance-exact" | "cross-owner-qualified" | "type-resolves" | "signature-resolves" | "bindings-complete"
   | "relational-site-resolves" | "declared-site-ordinal"
   | "producer-id-dense" | "context-id-dense" | "bound-producer-id-dense" | "origins-id-dense" | "boundary-id-dense"
@@ -668,6 +682,7 @@ export type FactsRule =
   | "memory-binding-error-diagnostic" | "analysis-limits-respected";
 
 export type SummaryRule =
+  | "summary-entry-exact"
   | "definition-resolves" | "signature-resolves" | "bindings-complete" | "cross-owner-qualified"
   | "relational-site-resolves" | "declared-site-ordinal"
   | "parameters-total" | "parameters-order" | "captures-total" | "captures-order"
@@ -690,7 +705,9 @@ export type CallGraphRule =
 
 export type FactsSite =
   | { readonly kind: "body"; readonly instance: BodyInstance }
-  | { readonly kind: "node"; readonly at: NodeRef }
+  | { readonly kind: "execution"; readonly execution: Execution }
+  | { readonly kind: "definition"; readonly definition: DefId }
+  | { readonly kind: "node"; readonly at: SourceNodeRef }
   | { readonly kind: "declared-site"; readonly owner: RelationalOwner;
       readonly identity: LibraryExportIdentity; readonly site: number }
   | { readonly kind: "local"; readonly local: LocalRef }
@@ -706,6 +723,7 @@ export type FactsSite =
 
 export type FactsBindingTarget =
   | { readonly kind: "body"; readonly instance: BodyInstance }
+  | { readonly kind: "observations"; readonly instance: BodyInstance }
   | { readonly kind: "summary"; readonly summary: SummaryKey }
   | { readonly kind: "metadata"; readonly metadata: MetadataKey };
 
@@ -714,6 +732,8 @@ export interface FactsVerificationContext {
   readonly tirBody: (instance: BodyInstance) => TirBody;
   readonly bodyOwner: (body: BodyId) => DefId | null;
   readonly types: TypeTable;
+  readonly signatureIdOf: (request: SignatureRequest) => SigId | null;
+  readonly declarationSourceOf: (definition: DefId) => SourceNodeRef | null;
   readonly diagnostics: readonly Diagnostic[];
   readonly bindingScopeOf: (definition: DefId) => BindingScope | null;
   readonly bindingScopesOf: (target: FactsBindingTarget) => readonly BindingScope[] | null;
@@ -731,8 +751,27 @@ export interface FactsVerificationContext {
 }
 
 export type PrintFacts = (facts: BodyFacts) => string;
+export type PrintObservations = (observations: BodyObservations) => string;
+export type ParseObservations = (text: string) => TextParseResult<BodyObservations>;
+export interface ObservationsVerificationInput {
+  readonly source: HirBody;
+  readonly bodyOf: (body: BodyId) => HirBody | null;
+  readonly nodeOf: (node: SourceNodeRef) => HirNode | null;
+  readonly facts: FactsVerificationContext;
+  readonly types: TypeInterner;
+  readonly typeExpansion: TypeExpansionLimits;
+}
+export type ObservationsVerification =
+  | { readonly kind: "complete"; readonly violations: readonly Violation<FactsRule, FactsSite>[] }
+  | { readonly kind: "resource-limit"; readonly dimension: "depth" | "visits" | "union-members" | "intersection-members";
+      readonly maximum: number };
+export type VerifyObservations = (observations: BodyObservations,
+  input: ObservationsVerificationInput) => ObservationsVerification;
 export type ParseFacts = (text: string) => TextParseResult<BodyFacts>;
 export type VerifyFacts = (facts: BodyFacts, mir: MirBody,
+  context: FactsVerificationContext) => readonly Violation<FactsRule, FactsSite>[];
+// The liveness family of one execution on its own, by the same rules verifyFacts applies to it (verifyFacts calls this).
+export type VerifyLiveness = (liveness: LivenessFacts, instance: BodyInstance, mir: MirBody,
   context: FactsVerificationContext) => readonly Violation<FactsRule, FactsSite>[];
 export type PrintSummary = (summary: Summary) => string;
 export type ParseSummary = (text: string) => TextParseResult<Summary>;

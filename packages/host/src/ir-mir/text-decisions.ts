@@ -15,7 +15,7 @@ import type {
 import type { HirBinaryOperator, HirCallableEndpoint, HirUnaryOperator } from "../ir-hir/contract.js";
 import type {
   ApplicationDecision, CompletionEndpoint, ConstructionPartDecision, CorrespondenceStep,
-  EmbeddingDecision, EmbeddingProof, MemberDecision, OperationDecision, OperationIdentity,
+  AccessLocation, CheckFailure, CheckRequirement, EmbeddingDecision, EmbeddingProof, FailureKind, HandleActivation, MemberDecision, OperationDecision, OperationExecution, OperationIdentity, ReceiverAccess,
   ParameterMapping, ProtocolKind, ProtocolStepDecision, ProtocolStepOperation,
 } from "../ir-infer/contract.js";
 import type { MemberSelection, ResolvedCallee, TypedOperation } from "../ir-tir/contract.js";
@@ -164,7 +164,9 @@ export function createDecisionWires(scalars: ScalarWires): DecisionWires {
       field("bindings", () => artifactWire, value => value.bindings, bindings => finish(() => ({ body, bindings })))));
 
   const referenceWire = record<ConstantReference>("ConstantReference", () =>
-    field("initializer", () => instanceWire, value => value.initializer, initializer => finish(() => ({ initializer }))));
+    field("initializer", () => instanceWire, value => value.initializer, initializer =>
+      field("context", () => literals(["enum-member", "fixed-array-extent", "compile-time"]), value => value.context,
+        context => finish(() => ({ initializer, context })))));
 
   const rationalWire = record<ExactRational>("ExactRational", () =>
     field("numerator", () => bigintWire, value => value.numerator, numerator =>
@@ -368,11 +370,57 @@ export function createDecisionWires(scalars: ScalarWires): DecisionWires {
     field("steps", () => vector(() => correspondence), value => value.steps, steps =>
       field("conclusion", () => numberWire, value => value.conclusion, conclusion => finish(() => ({ steps, conclusion })))));
 
+  const noCheck = record<CheckRequirement & { readonly kind: "none" }>("none", () => finish(() => ({ kind: "none" })));
+
+  const requiredCheck = record<CheckRequirement & { readonly kind: "required" }>("required", () =>
+    field("failure", () => literals<CheckFailure>(["unwind", "abort"]), value => value.failure, failure => finish(() => ({ kind: "required", failure }))));
+
+  const checkWire: Wire<CheckRequirement> = variants([
+    choice("none", () => noCheck), choice("required", () => requiredCheck),
+  ], (value, path, next) => {
+    switch (value.kind) {
+      case "none": return noCheck.write(value, path, next);
+      case "required": return requiredCheck.write(value, path, next);
+    }
+  });
+
+  const dataLocation = record<AccessLocation & { readonly kind: "data" }>("data", () =>
+    field("check", () => checkWire, value => value.check, check =>
+      field("receiver", () => literals<ReceiverAccess>(["in-place", "by-reference"]), value => value.receiver, receiver => finish(() => ({ kind: "data", check, receiver })))));
+
+  const accessorLocation = record<AccessLocation & { readonly kind: "accessor" }>("accessor", () => finish(() => ({ kind: "accessor" })));
+
+  const locationWire: Wire<AccessLocation> = variants([
+    choice("data", () => dataLocation), choice("accessor", () => accessorLocation),
+  ], (value, path, next) => {
+    switch (value.kind) {
+      case "data": return dataLocation.write(value, path, next);
+      case "accessor": return accessorLocation.write(value, path, next);
+    }
+  });
+
+  const pureExecution = record<OperationExecution & { readonly kind: "pure" }>("pure", () => finish(() => ({ kind: "pure" })));
+
+  const invocationExecution = record<OperationExecution & { readonly kind: "invocation" }>("invocation", () =>
+    field("writesStorage", () => booleanWire, value => value.writesStorage, writesStorage =>
+      field("failure", () => literals<FailureKind>(["none", "unwind", "abort"]), value => value.failure, failure =>
+        finish(() => ({ kind: "invocation", writesStorage, failure })))));
+
+  const executionWire: Wire<OperationExecution> = variants([
+    choice("pure", () => pureExecution), choice("invocation", () => invocationExecution),
+  ], (value, path, next) => {
+    switch (value.kind) {
+      case "pure": return pureExecution.write(value, path, next);
+      case "invocation": return invocationExecution.write(value, path, next);
+    }
+  });
+
   const identityEmbedding = record<EmbeddingDecision & { readonly kind: "identity" }>("identity", () => finish(() => ({ kind: "identity" })));
 
   const convertedEmbedding = record<EmbeddingDecision & { readonly kind: "conversion" }>("conversion", () =>
     field("conversion", () => conversionWire, value => value.conversion, conversion =>
-      field("proof", () => proof, value => value.proof, proof => finish(() => ({ kind: "conversion", conversion, proof })))));
+      field("proof", () => proof, value => value.proof, proof =>
+        field("check", () => checkWire, value => value.check, check => finish(() => ({ kind: "conversion", conversion, proof, check }))))));
 
   const refusedEmbedding = record<EmbeddingDecision & { readonly kind: "refused" }>("refused", () =>
     field("reason", () => literals(["incompatible-domain", "lossy-numeric", "missing-correspondence", "passing-mode", "rigid-parameter"]),
@@ -404,7 +452,8 @@ export function createDecisionWires(scalars: ScalarWires): DecisionWires {
                 field("getter", () => nullable(() => endpointWire), value => value.getter, getter =>
                   field("setter", () => nullable(() => endpointWire), value => value.setter, setter =>
                     field("bindings", () => bindingsWire, value => value.bindings, bindings =>
-                      finish(() => ({ key, origins, selectedDeclarations, primary, read, write, getter, setter, bindings }))))))))))));
+                      field("location", () => locationWire, value => value.location, location =>
+                        finish(() => ({ key, origins, selectedDeclarations, primary, read, write, getter, setter, bindings, location })))))))))))));
 
   const passingWire: Wire<PassingMode> = literals([
     "by-value", "byref-readonly", "byref-readwrite", "byref-writeonly-must-init", "borrow-shared", "borrow-mut", "move",
@@ -456,12 +505,13 @@ export function createDecisionWires(scalars: ScalarWires): DecisionWires {
               field("parameters", () => vector(() => mappingWire), value => value.parameters, parameters =>
                 field("completion", () => completionWire, value => value.completion, completion =>
                   field("result", () => typeWire, value => value.result, result =>
-                    finish(() => ({ candidate, advertised, api, bindings, implementationBindings, parameters, completion, result })))))))))));
+                    field("activation", () => nullable(() => literals<HandleActivation>(["at-creation", "when-first-driven"])), value => value.activation, activation =>
+                      finish(() => ({ candidate, advertised, api, bindings, implementationBindings, parameters, completion, result, activation }))))))))))));
 
   const calleeWire = record<ResolvedCallee>("ResolvedCallee", () =>
     field("decision", () => applicationWire, value => value.decision, decision =>
       field("activation", () => nullable(() => instanceWire), value => value.activation, activation =>
-        field("captures", () => vector(() => localRefWire), value => value.captures, captures => finish(() => ({ decision, activation, captures }))))));
+        finish(() => ({ decision, activation })))));
 
   const selectionWire = record<MemberSelection>("MemberSelection", () =>
     field("decision", () => memberDecision, value => value.decision, decision =>
@@ -598,7 +648,8 @@ export function createDecisionWires(scalars: ScalarWires): DecisionWires {
   const operationDecision = record<OperationDecision>("selected", () =>
     field("operation", () => operationIdentity, value => value.operation, operation =>
       field("operands", () => vector(() => typeWire), value => value.operands, operands =>
-        field("result", () => typeWire, value => value.result, result => finish(() => ({ kind: "selected", operation, operands, result }))))));
+        field("result", () => typeWire, value => value.result, result =>
+          field("execution", () => executionWire, value => value.execution, execution => finish(() => ({ kind: "selected", operation, operands, result, execution })))))));
 
   const operationWire = record<TypedOperation>("TypedOperation", () =>
     field("decision", () => operationDecision, value => value.decision, decision =>

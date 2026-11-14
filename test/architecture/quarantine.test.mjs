@@ -53,7 +53,7 @@ for (const [name, path, text] of [
   ["new top-level source", "tools/run.mjs", `import "../${archived}";\n`],
   ["multiline import", "test/scripts/current.mjs", `import {\n} from "../../${archived}";\n`],
   ["build script", "scripts/build/all.sh", `node ${archived}\n`],
-  ["test registry", "test/scripts/suite-definition.mjs", `export const files = [${JSON.stringify(archived)}];\n`],
+  ["test entry", "package.json", `${JSON.stringify({ type: "module", scripts: { test: `node --test ${archived}/unit.test.mjs` } })}\n`],
 ]) test(`active ${name} cannot import or refer to the reading tree`, () => fixture(({ write, check }) => {
   write(path, text);
   check(finding(path));

@@ -1,15 +1,16 @@
+import { summaryBindings, summaryDefinition, summaryKey } from "./summary-key.js";
 import type { MessageArgument, Violation } from "../diag/contract.js";
-import type { DefId, KeyData, LocalRef, NodeId, NodeRef } from "../ids/contract.js";
+import type { DefId, KeyData, NodeId, SourceNodeRef } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import type { HirCallableEndpoint } from "../ir-hir/contract.js";
-import type { ParameterMapping } from "../ir-infer/contract.js";
 import type { MemberSelection, ResolvedCallee } from "../ir-tir/contract.js";
+import { memberSelectionKey } from "../ir-tir/index.js";
 import type {
-  ArtifactBindings, BindingVector, BindingVerificationInput, MemberKey, MemberOrigin,
+  ArtifactBindings, BindingVector, BindingVerificationInput, MemberKey,
 } from "../ir-types/contract.js";
-import { artifactBindingsData, artifactBindingsKey, bindingVectorData, verifyTypes } from "../ir-types/index.js";
+import { artifactBindingsKey, bindingVectorData, executionKey, verifyTypes } from "../ir-types/index.js";
 import type {
-  BodyFacts, EscapeTarget, FactsBindingTarget, FactsRule, FactsSite, FactsVerificationContext, MetadataRecord,
+  BodyFacts, BodyObservations, EscapeTarget, FactsBindingTarget, FactsRule, FactsSite, FactsVerificationContext, MetadataRecord,
   RelationalArena, RelationalOwner, RelationalSite, Summary,
 } from "./contract.js";
 
@@ -51,70 +52,11 @@ export const relationalUsage = (arena: RelationalArena): {
 export const sameBindings = (left: ArtifactBindings, right: ArtifactBindings): boolean =>
   artifactBindingsKey(left) === artifactBindingsKey(right);
 
-export const sameCaptures = (left: readonly LocalRef[], right: readonly LocalRef[]): boolean => {
-  if (left.length !== right.length) return false;
-  for (const [index, capture] of left.entries()) {
-    const selected = right[index];
-    if (capture === undefined || selected === undefined || capture.body !== selected.body || !Object.is(capture.local, selected.local)) return false;
-  }
-  return true;
-};
-
-export const ownerKey = (owner: RelationalOwner): string => owner.kind === "body"
-  ? encodeKey([owner.kind, owner.instance.body, artifactBindingsData(owner.instance.bindings)])
-  : encodeKey([owner.kind, owner.definition, artifactBindingsData(owner.bindings)]);
-
-const endpointData = (endpoint: HirCallableEndpoint | null): KeyData => endpoint === null ? null
-  : [endpoint.declaration, endpoint.role, endpoint.signature, endpoint.body];
-
-const parameterData = (parameter: ParameterMapping): KeyData => {
-  switch (parameter.kind) {
-    case "argument": return [parameter.kind, parameter.parameter, parameter.argument, parameter.component, parameter.passing];
-    case "default": return [parameter.kind, parameter.parameter, parameter.initializer];
-    case "omitted": return [parameter.kind, parameter.parameter, parameter.type];
-    case "rest": return [parameter.kind, parameter.parameter, parameter.arguments, parameter.passing];
-  }
-};
-
-export const calleeData = (callee: ResolvedCallee | null): KeyData => callee === null ? null : [
-  callee.decision.candidate, endpointData(callee.decision.advertised), endpointData(callee.decision.api),
-  bindingVectorData(callee.decision.bindings),
-  bindingVectorData(callee.decision.implementationBindings),
-  callee.decision.parameters.map(parameterData),
-  [callee.decision.completion.signature, callee.decision.completion.completion,
-    callee.decision.completion.yielded, callee.decision.completion.sent],
-  callee.decision.result,
-  callee.activation === null ? null : [callee.activation.body, artifactBindingsData(callee.activation.bindings)],
-  Array.from(callee.captures, capture => capture === undefined ? null : [capture.body, capture.local]),
-];
-
-const memberKeyData = (key: MemberKey): KeyData => {
-  switch (key.kind) {
-    case "text": return [key.kind, key.value];
-    case "number": return [key.kind, key.value.numerator, key.value.denominator, key.value.negativeZero];
-    case "symbol": return [key.kind, key.declaration];
-  }
-};
-
-const memberOriginData = (origin: MemberOrigin): KeyData => {
-  switch (origin.kind) {
-    case "declared": return [origin.kind, origin.declaration];
-    case "class-prototype": return [origin.kind, origin.owner];
-    case "mapped": return [origin.kind, origin.owner.kind,
-      origin.owner.kind === "body" ? origin.owner.value.body : origin.owner.value.owner,
-      origin.owner.value.node, memberKeyData(origin.key)];
-  }
-};
-
-export const memberData = (member: MemberSelection): KeyData => [
-  memberKeyData(member.decision.key), member.decision.origins.map(memberOriginData),
-  member.decision.selectedDeclarations, member.decision.primary, member.decision.read, member.decision.write,
-  endpointData(member.decision.getter), endpointData(member.decision.setter), bindingVectorData(member.decision.bindings),
-  calleeData(member.getter), calleeData(member.setter),
-];
+export const ownerKey = (owner: RelationalOwner): string => encodeKey([owner.kind, owner.kind === "body"
+  ? executionKey(owner.execution) : summaryKey(owner.key)]);
 
 export const relationalSiteData = (site: RelationalSite): KeyData => site.kind === "node"
-  ? [site.kind, site.node.body, site.node.node]
+  ? [site.kind, site.node.kind, site.node.kind === "body" ? site.node.value.body : site.node.value.owner, site.node.value.node]
   : [site.kind, site.identity.module.providerId, site.identity.module.providerVersion, site.identity.module.packageName,
     site.identity.module.moduleSpecifier, site.identity.module.providerModuleId,
     site.identity.exportId, site.identity.memberId, site.identity.signatureId, site.site];
@@ -134,12 +76,15 @@ export const relationalSite = (owner: RelationalOwner, at: RelationalSite): Fact
   ? { kind: "node", at: at.node } : { kind: "declared-site", owner, identity: at.identity, site: at.site };
 
 export const ownerSite = (owner: RelationalOwner): FactsSite => owner.kind === "body"
-  ? { kind: "body", instance: owner.instance }
-  : { kind: "summary", summary: { definition: owner.definition, bindings: owner.bindings } };
+  ? { kind: "execution", execution: owner.execution } : { kind: "summary", summary: owner.key };
 
-export const nodeOwnedBy = (owner: RelationalOwner, node: NodeRef, context: FactsVerificationContext): boolean => {
-  if (owner.kind === "body") return node.body === owner.instance.body;
-  return context.bodyOwner(node.body) === owner.definition;
+export const nodeOwnedBy = (owner: RelationalOwner, node: SourceNodeRef, context: FactsVerificationContext): boolean => {
+  if (owner.kind === "body") return node.kind === "body" && node.value.body === owner.execution.instance.body;
+  if (owner.key.kind === "body") return node.kind === "body" && node.value.body === owner.key.execution.instance.body;
+  const source = context.declarationSourceOf(owner.key.execution.request.definition);
+  if (source === null || source.value.node !== node.value.node) return false;
+  return source.kind === "body" ? node.kind === "body" && source.value.body === node.value.body
+    : node.kind === "item" && source.value.owner === node.value.owner;
 };
 
 export interface FactBindingInput {
@@ -157,10 +102,10 @@ const appendArtifactBindings = (
 const appendOwnerBindings = (
   owner: RelationalOwner, site: FactsSite, context: FactsVerificationContext, entries: FactBindingInput[],
 ): void => {
-  if (owner.kind === "summary") appendArtifactBindings(owner.bindings, owner.definition, site, entries);
-  else if (owner.instance.bindings.kind === "instantiated") {
-    appendArtifactBindings(owner.instance.bindings, context.tirBody(owner.instance).owner, site, entries);
-  }
+  if (owner.kind === "summary") {
+    const definition = summaryDefinition(owner.key, context);
+    if (definition !== null) appendArtifactBindings(summaryBindings(owner.key), definition, site, entries);
+  } else appendArtifactBindings(owner.execution.instance.bindings, context.tirBody(owner.execution.instance).owner, site, entries);
 };
 
 const appendCalleeBindings = (
@@ -184,7 +129,7 @@ const appendMemberBindings = (
 const appendArenaBindings = (
   arena: RelationalArena, owner: RelationalOwner, context: FactsVerificationContext, entries: FactBindingInput[],
 ): void => {
-  const definition = owner.kind === "summary" ? owner.definition : context.tirBody(owner.instance).owner;
+  const definition = owner.kind === "summary" ? summaryDefinition(owner.key, context) : context.bodyOwner(owner.execution.instance.body);
   for (const path of arena.projections) if (path.projection.kind === "field" || path.projection.kind === "method-value") {
     appendMemberBindings(path.projection.member, { kind: "projection", owner, projection: path.id }, context, entries);
   }
@@ -202,15 +147,15 @@ const appendArenaBindings = (
 
 export const factBindingInputs = (facts: BodyFacts, context: FactsVerificationContext): readonly FactBindingInput[] => {
   const entries: FactBindingInput[] = [];
-  const owner: RelationalOwner = { kind: "body", instance: facts.instance };
-  appendArtifactBindings(facts.instance.bindings, context.tirBody(facts.instance).owner, ownerSite(owner), entries);
+  const owner: RelationalOwner = { kind: "body", execution: facts.execution };
+  appendArtifactBindings(facts.execution.instance.bindings, context.tirBody(facts.execution.instance).owner, ownerSite(owner), entries);
   appendArenaBindings(facts.arena, owner, context, entries);
-  const site = (node: NodeId): FactsSite => ({ kind: "node", at: { body: facts.instance.body, node } });
+  const site = (node: NodeId): FactsSite => ({ kind: "node", at: { kind: "body", value: { body: facts.execution.instance.body, node } } });
   for (const invocation of facts.origins.invocations) for (const alternative of invocation.alternatives) {
     const at = site(invocation.node);
     appendCalleeBindings(alternative.resolution, at, context, entries);
     for (const argument of alternative.arguments) appendOwnerBindings(argument.formal.owner, at, context, entries);
-    appendArtifactBindings(alternative.summary.bindings, alternative.summary.definition, at, entries);
+    appendOwnerBindings({ kind: "summary", key: alternative.summary }, at, context, entries);
   }
   for (const callback of facts.origins.callbacks) appendOwnerBindings(callback.argument.formal.owner, site(callback.node), context, entries);
   for (const activation of facts.origins.activations) {
@@ -220,12 +165,6 @@ export const factBindingInputs = (facts: BodyFacts, context: FactsVerificationCo
   }
   for (const construction of facts.origins.constructions) if (construction.body !== null && construction.body.bindings.kind === "instantiated") {
     appendArtifactBindings(construction.body.bindings, context.tirBody(construction.body).owner, site(construction.node), entries);
-  }
-  for (const observation of facts.observations) {
-    const at = site(observation.node);
-    appendArtifactBindings(observation.layout.metadata.bindings, observation.layout.metadata.definition, at, entries);
-    if (observation.field !== null) appendArtifactBindings(observation.field.metadata.bindings, observation.field.metadata.definition, at, entries);
-    entries.push({ vector: observation.bindings, definition: observation.layout.metadata.definition, site: at });
   }
   for (const raw of facts.rawLocations) {
     const at = site(raw.node); appendArtifactBindings(raw.layout.metadata.bindings, raw.layout.metadata.definition, at, entries);
@@ -247,9 +186,23 @@ export const factBindingInputs = (facts: BodyFacts, context: FactsVerificationCo
 
 export const summaryBindingInputs = (summary: Summary, context: FactsVerificationContext): readonly FactBindingInput[] => {
   const entries: FactBindingInput[] = [];
-  const owner: RelationalOwner = { kind: "summary", definition: summary.key.definition, bindings: summary.key.bindings };
-  appendArtifactBindings(summary.key.bindings, summary.key.definition, ownerSite(owner), entries);
+  const owner: RelationalOwner = { kind: "summary", key: summary.key };
+  appendOwnerBindings(owner, ownerSite(owner), context, entries);
   appendArenaBindings(summary.arena, owner, context, entries);
+  return entries;
+};
+
+export const observationBindingInputs = (value: BodyObservations, context: FactsVerificationContext): readonly FactBindingInput[] => {
+  const entries: FactBindingInput[] = [];
+  const root: FactsSite = { kind: "body", instance: value.instance };
+  const definition = context.bodyOwner(value.instance.body);
+  if (definition !== null) appendArtifactBindings(value.instance.bindings, definition, root, entries);
+  for (const row of value.rows) {
+    const site: FactsSite = { kind: "node", at: { kind: "body", value: { body: value.instance.body, node: row.node } } };
+    appendArtifactBindings(row.layout.metadata.bindings, row.layout.metadata.definition, site, entries);
+    if (row.field !== null) appendArtifactBindings(row.field.metadata.bindings, row.field.metadata.definition, site, entries);
+    entries.push({ vector: row.bindings, definition: null, site });
+  }
   return entries;
 };
 
@@ -311,11 +264,8 @@ export const collectSelectionChecks = (
       report("signature-resolves", "A selected member completion retains its actual signature.");
     }
     type(decision.result); type(decision.completion.completion); type(decision.completion.yielded); type(decision.completion.sent);
-    for (const capture of callee.captures) if (capture === undefined || !context.localExists(capture)) {
+    if (callee.activation !== null) for (const row of context.tirBody(callee.activation).captures) if (row === undefined || !context.localExists(row.local)) {
       report("capture-locations-exact", "A selected accessor retains its actual captured storage locations.");
-    }
-    if (callee.activation !== null && !sameCaptures(context.tirBody(callee.activation).captures, callee.captures)) {
-      report("capture-locations-exact", "A selected accessor retains its actual ordered captured-location vector.");
     }
     for (const parameter of decision.parameters) if (parameter.kind === "omitted") type(parameter.type);
   }
@@ -397,7 +347,7 @@ export const verifyRelationalArena = (
         report("declared-site-ordinal", site, "A logical site ordinal must name an actual declared allocation site of that export.");
       }
     } else {
-      if (!context.nodeExists({ kind: "body", value: at.node })) {
+      if (!context.nodeExists(at.node)) {
         report("relational-site-resolves", site, "A relational site must retain an existing qualified source occurrence.");
       }
       if (!nodeOwnedBy(owner, at.node, context)) {
@@ -417,7 +367,7 @@ export const verifyRelationalArena = (
       collectSelectionChecks(projection.member, site, context, violations);
     }
     const data: KeyData = projection.kind === "field" || projection.kind === "method-value"
-      ? [projection.kind, memberData(projection.member)]
+      ? [projection.kind, memberSelectionKey(projection.member)]
       : projection.kind === "index" ? [projection.kind, projection.constant] : [projection.kind];
     const key = encodeKey([path.parent, data]);
     if (projections.has(key)) report("projection-unique", site, "A parent and selected projection must identify exactly one arena row.");
@@ -448,11 +398,11 @@ export const verifyRelationalArena = (
         }
         break;
       case "suspension-input":
-        checkSite({ kind: "node", node: producer.at });
+        checkSite({ kind: "node", node: { kind: "body", value: producer.at } });
         identity = [producer.at.body, producer.at.node, producer.channel];
         break;
       case "call-result":
-        checkSite({ kind: "node", node: producer.at });
+        checkSite({ kind: "node", node: { kind: "body", value: producer.at } });
         identity = [producer.at.body, producer.at.node, producer.callee.kind,
           producer.callee.kind === "direct" ? producer.callee.definition : null];
         if (producer.callee.kind === "direct" && !context.definitionExists(producer.callee.definition)) {

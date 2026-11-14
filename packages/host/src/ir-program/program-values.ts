@@ -1,14 +1,17 @@
+import type { InstantiationMeter, InstantiationStop } from "./work.js";
+import { chargeInstantiationWork, emitInstantiationRecord } from "./work.js";
+import { summaryKey } from "../ir-facts/index.js";
 import type { MessageArgument, Violation } from "../diag/contract.js";
 import type { BodyId, DefId, ModuleId, PackageId, SigId, TyId } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
+import { artifactBindingsData, artifactBindingsKey, constantReferenceKey, executionKey, instanceKey } from "../ir-types/index.js";
 import type {
-  ArtifactBindings, BindingVector, BodyInstance, ComponentSelector, PointerEvidence, SelfBinding, TypeBinding,
+  ArtifactBindings, BindingVector, BodyInstance, Execution, ComponentSelector, PointerEvidence, SelfBinding, TypeBinding,
   TypeComponent, TypeEvidence, TypeParameter, TypeParameterIdentity,
 } from "../ir-types/contract.js";
-import { artifactBindingsData, artifactBindingsKey, instanceKey } from "../ir-types/index.js";
 import type { HirCallableEndpoint } from "../ir-hir/contract.js";
-import type { BodyRecord, ConstantRecord, DefinitionNode, InstantiationLimits, ModuleRecord, PackageRecord, ProgramIndex, ProgramRule, ProgramSite } from "./contract.js";
-import type { MetadataRecord, Summary } from "../ir-facts/contract.js";
+import type { BodyRecord, ConstantRecord, DefinitionNode, ModuleRecord, PackageRecord, ProgramIndex, ProgramRule, ProgramSite, SummaryArtifactReference } from "./contract.js";
+import type { MetadataRecord, Summary, SummaryKey } from "../ir-facts/contract.js";
 
 export interface DefinitionLocation {
   readonly module: ModuleId;
@@ -21,6 +24,8 @@ export interface ProgramLookup {
   readonly definitions: ReadonlyMap<DefId, DefinitionLocation | null>;
   readonly bodies: ReadonlyMap<BodyId, readonly BodyRecord[]>;
   readonly instances: ReadonlyMap<string, BodyRecord | null>;
+  readonly executions: ReadonlyMap<string, Execution | null>;
+  readonly executionsByInstance: ReadonlyMap<string, readonly Execution[]>;
   readonly metadata: ReadonlyMap<string, MetadataRecord | null>;
   readonly summaries: ReadonlyMap<string, Summary | null>;
   readonly constants: ReadonlyMap<string, ConstantRecord | null>;
@@ -34,46 +39,10 @@ export function programChildRule(
   return child === "cross-owner-qualified" ? "cross-owner-qualified" : group;
 }
 
-export interface InstantiationMeter {
-  readonly limits: InstantiationLimits;
-  work: number;
-  created: number;
-}
-
-export type InstantiationStop = {
-  readonly kind: "resource-limit";
-  readonly dimension: "work" | "created-records" | "binding-vectors";
-  readonly maximum: number;
-};
-
-export function createInstantiationMeter(limits: InstantiationLimits): InstantiationMeter {
-  requireInstantiationMaximum(limits.maximumWork, "maximumWork");
-  requireInstantiationMaximum(limits.maximumCreatedRecords, "maximumCreatedRecords");
-  requireInstantiationMaximum(limits.maximumBindingVectorsPerArtifact, "maximumBindingVectorsPerArtifact");
-  return { limits, work: 0, created: 0 };
-}
-
-export function chargeInstantiationWork(meter: InstantiationMeter): InstantiationStop | null {
-  if (meter.work >= meter.limits.maximumWork) {
-    return { kind: "resource-limit", dimension: "work", maximum: meter.limits.maximumWork };
-  }
-  meter.work += 1;
-  return null;
-}
-
-export function emitInstantiationRecord(meter: InstantiationMeter): InstantiationStop | null {
-  const work = chargeInstantiationWork(meter);
-  if (work !== null) return work;
-  if (meter.created >= meter.limits.maximumCreatedRecords) {
-    return { kind: "resource-limit", dimension: "created-records", maximum: meter.limits.maximumCreatedRecords };
-  }
-  meter.created += 1;
-  return null;
-}
-
 export function admitBindingVector(meter: InstantiationMeter, distinctCount: number): InstantiationStop | null {
-  if (distinctCount >= meter.limits.maximumBindingVectorsPerArtifact) {
-    return { kind: "resource-limit", dimension: "binding-vectors", maximum: meter.limits.maximumBindingVectorsPerArtifact };
+  const limits = meter.limits;
+  if (distinctCount >= limits.maximumBindingVectorsPerArtifact) {
+    return { kind: "resource-limit", dimension: "binding-vectors", maximum: limits.maximumBindingVectorsPerArtifact };
   }
   return null;
 }
@@ -283,15 +252,21 @@ export function inventoryEvidence(scan: ProjectionInventory, value: TypeEvidence
   return inventoryRecord(scan, 7) ?? inventoryType(scan, value.type);
 }
 
-export function requireInstantiationMaximum(value: number, name: string): void {
-  if (!Number.isSafeInteger(value) || value < 0) {
-    throw new TypeError(`Invalid InstantiationLimits.${name}`);
-  }
-}
-
 export function artifactEnvironmentKey(definition: DefId, bindings: ArtifactBindings): string {
   return encodeKey([definition, artifactBindingsData(bindings)]);
 }
+
+export const summaryBindingsOf = (key: SummaryKey): ArtifactBindings => key.kind === "body"
+  ? key.execution.instance.bindings : key.execution.request.bindings;
+
+export const summaryReferenceOf = (key: SummaryKey): SummaryArtifactReference => key.kind === "body"
+  ? { kind: "summary", target: "body", body: key.execution.instance.body, provided: key.execution.provided }
+  : { kind: "summary", target: "declared", definition: key.execution.request.definition,
+      endpoint: key.execution.request.endpoint, ordinal: key.execution.request.ordinal, provided: key.execution.provided };
+
+export const summaryReferenceKey = (reference: SummaryArtifactReference): string => encodeKey(reference.target === "body"
+  ? [reference.target, reference.body, reference.provided]
+  : [reference.target, reference.definition, reference.endpoint, reference.ordinal, reference.provided]);
 
 export function uniqueRows<Identity, Value>(
   rows: readonly Value[],
@@ -316,15 +291,24 @@ export function programLookup(index: ProgramIndex): ProgramLookup {
     if (previous === undefined) bodies.set(record.instance.body, [record]);
     else previous.push(record);
   }
+  const executionsByInstance = new Map<string, Execution[]>();
+  for (const execution of index.executions) {
+    const key = instanceKey(execution.instance);
+    const previous = executionsByInstance.get(key);
+    if (previous === undefined) executionsByInstance.set(key, [execution]);
+    else previous.push(execution);
+  }
   return {
     packages: uniqueRows(index.packages, record => record.id),
     modules: uniqueRows(index.modules, record => record.module),
     definitions: uniqueRows(definitions, location => location.entry.definition),
     bodies,
     instances: uniqueRows(index.bodies, record => instanceKey(record.instance)),
+    executions: uniqueRows(index.executions, executionKey),
+    executionsByInstance,
     metadata: uniqueRows(index.metadata, record => artifactEnvironmentKey(record.key.definition, record.key.bindings)),
-    summaries: uniqueRows(index.summaries, record => artifactEnvironmentKey(record.key.definition, record.key.bindings)),
-    constants: uniqueRows(index.constants, record => instanceKey(record.initializer)),
+    summaries: uniqueRows(index.summaries, record => summaryKey(record.key)),
+    constants: uniqueRows(index.constants, record => constantReferenceKey(record.reference)),
   };
 }
 
@@ -343,4 +327,8 @@ export function compareText(left: string, right: string): number {
 export function compareInstances(left: BodyInstance, right: BodyInstance): number {
   return compareText(left.body, right.body)
     || compareText(artifactBindingsKey(left.bindings), artifactBindingsKey(right.bindings));
+}
+
+export function compareExecutions(left: Execution, right: Execution): number {
+  return compareInstances(left.instance, right.instance) || left.provided - right.provided;
 }

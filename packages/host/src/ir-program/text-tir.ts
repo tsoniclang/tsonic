@@ -26,6 +26,11 @@ export function textConversionDecision(value: ConversionDecision): TextWork {
       case "convert":
         return record(value.kind, [
       field("role", text(value.role)),
+      field("operation", textTypedOperation(value.operation)),
+    ]);
+      case "backed-convert":
+        return record(value.kind, [
+      field("role", text(value.role)),
       field("embedding", textEmbeddingDecision(value.embedding)),
       field("operation", textTypedOperation(value.operation)),
     ]);
@@ -166,7 +171,6 @@ export function textResolvedCallee(value: ResolvedCallee): TextWork {
     return record("ResolvedCallee", [
       field("decision", textApplicationDecision(value.decision)),
       field("activation", (value.activation === null ? token("null") : textBodyInstance(value.activation))),
-      field("captures", sequence(value.captures, entry0 => textLocalRef(entry0))),
     ]);
   });
 }

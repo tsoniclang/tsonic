@@ -57,6 +57,7 @@ export interface Execution {
 
 export interface ConstantReference {
   readonly initializer: BodyInstance;
+  readonly context: ConstantContext;
 }
 
 export type ConstantContext = "enum-member" | "fixed-array-extent" | "compile-time";

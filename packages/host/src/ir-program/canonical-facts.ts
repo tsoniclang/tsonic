@@ -1,17 +1,17 @@
 import type {
-  ArgumentTransport, BodyFacts, ClosedArrayFact, MemoryField, MemoryLayout, MetadataFieldRef,
+  ArgumentTransport, BodyFacts, BodyObservations, ClosedArrayFact, MemoryField, MemoryLayout, MetadataFieldRef,
   MetadataKey, MetadataLayoutRef, MetadataRecord, OriginFacts, ProducerRef, RelationalArena,
   RelationalOwner, Summary, SummaryKey,
 } from "../ir-facts/contract.js";
 import type { TypeRewrite } from "./canonical-types.js";
-import type { BodyInstance } from "../ir-types/contract.js";
-import { rewriteArtifactBindings, rewriteBindings, rewriteInstance } from "./canonical-types.js";
+import type { Execution } from "../ir-types/contract.js";
+import { rewriteArtifactBindings, rewriteBindings, rewriteDeclaredExecution, rewriteExecution, rewriteInstance } from "./canonical-types.js";
 import { rewriteCallee, rewriteSelection } from "./canonical-tir.js";
 
 function rewriteRelationalOwner(rewrite: TypeRewrite, owner: RelationalOwner): RelationalOwner {
   switch (owner.kind) {
-    case "body": return { kind: "body", instance: rewriteInstance(rewrite, owner.instance) };
-    case "summary": return { kind: "summary", definition: owner.definition, bindings: rewriteArtifactBindings(rewrite, owner.bindings) };
+    case "body": return { kind: "body", execution: rewriteExecution(rewrite, owner.execution) };
+    case "summary": return { kind: "summary", key: rewriteSummaryKey(rewrite, owner.key) };
   }
 }
 
@@ -52,13 +52,14 @@ function rewriteArena(rewrite: TypeRewrite, arena: RelationalArena): RelationalA
   };
 }
 
-function rewriteSummaryKey(rewrite: TypeRewrite, key: SummaryKey): SummaryKey {
-  return { definition: key.definition, bindings: rewriteArtifactBindings(rewrite, key.bindings) };
+export function rewriteSummaryKey(rewrite: TypeRewrite, key: SummaryKey): SummaryKey {
+  return key.kind === "body" ? { kind: "body", execution: rewriteExecution(rewrite, key.execution) }
+    : { kind: "declared", execution: rewriteDeclaredExecution(rewrite, key.execution) };
 }
 
 function rewriteOrigins(rewrite: TypeRewrite, origins: OriginFacts): OriginFacts {
   return {
-    points: origins.points, reads: origins.reads, subjects: origins.subjects, writes: origins.writes, escapes: origins.escapes,
+    points: origins.points, reads: origins.reads, subjects: origins.subjects, writes: origins.writes, escapes: origins.escapes, exitContents: origins.exitContents,
     invocations: origins.invocations.map(invocation => ({
       node: invocation.node, kind: invocation.kind,
       alternatives: invocation.alternatives.map(alternative => ({
@@ -94,6 +95,14 @@ function rewriteFieldRef(rewrite: TypeRewrite, reference: MetadataFieldRef): Met
   return { metadata: rewriteMetadataKey(rewrite, reference.metadata), field: reference.field };
 }
 
+export function rewriteObservations(rewrite: TypeRewrite, observations: BodyObservations): BodyObservations {
+  return { instance: rewriteInstance(rewrite, observations.instance), rows: observations.rows.map(row => ({
+    node: row.node, operation: row.operation, operand: row.operand,
+    layout: rewriteLayoutRef(rewrite, row.layout), field: row.field === null ? null : rewriteFieldRef(rewrite, row.field),
+    result: rewrite.type(row.result), value: row.value, bindings: rewriteBindings(rewrite, row.bindings),
+  })) };
+}
+
 function rewriteClosedArray(rewrite: TypeRewrite, fact: ClosedArrayFact): ClosedArrayFact {
   switch (fact.kind) {
     case "unproven": return fact;
@@ -104,18 +113,12 @@ function rewriteClosedArray(rewrite: TypeRewrite, fact: ClosedArrayFact): Closed
   }
 }
 
-export function rewriteBodyFacts(rewrite: TypeRewrite, facts: BodyFacts, instance: BodyInstance): BodyFacts {
+export function rewriteBodyFacts(rewrite: TypeRewrite, facts: BodyFacts, execution: Execution): BodyFacts {
   return {
-    instance, arena: rewriteArena(rewrite, facts.arena),
+    execution, arena: rewriteArena(rewrite, facts.arena),
     liveness: facts.liveness, initialization: facts.initialization, refinements: facts.refinements,
     origins: rewriteOrigins(rewrite, facts.origins), suspension: facts.suspension,
     errorStorage: facts.errorStorage, pointerBacking: facts.pointerBacking,
-    observations: facts.observations.map(observation => ({
-      node: observation.node, operation: observation.operation, operand: observation.operand,
-      layout: rewriteLayoutRef(rewrite, observation.layout), field: observation.field === null ? null : rewriteFieldRef(rewrite, observation.field),
-      result: rewrite.type(observation.result), value: observation.value, context: observation.context,
-      bindings: rewriteBindings(rewrite, observation.bindings),
-    })),
     rawLocations: facts.rawLocations.map(location => ({
       node: location.node, operation: location.operation, pointee: rewrite.type(location.pointee),
       layout: rewriteLayoutRef(rewrite, location.layout), context: location.context, bindings: rewriteBindings(rewrite, location.bindings),

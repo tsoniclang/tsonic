@@ -1,5 +1,5 @@
 import type { ModuleId, DefId, BodyId, NodeId, NodeRef, TyId, SigId, LibraryModuleIdentity, SourceNodeRef, LocalRef } from "../ids/contract.js";
-import type { BindingVector, PassingMode, TypeComponent } from "../ir-types/contract.js";
+import type { BindingVector, PassingMode, SignatureEndpoint, TypeComponent } from "../ir-types/contract.js";
 import type { CapturedFact, ImportTarget, HirAttribute, HirCallableEndpoint, HirCapturedType, HirFieldMarkerCapture, HirMarkersCapture, HirPointerTypeCapture, HirIntegerOperandCapture, HirAddressIntegerCapture, HirPointerOperationCapture, HirAttributeCapture, HirSafetySelectionCapture, HirSafetyCapture, HirArgumentPassingCapture, HirCoreCapture, DeclarationTarget, HirLexicalScope, HirFieldBindingCapture, HirRecordBindingCapture, HirRecordFieldBindingCapture } from "../ir-hir/contract.js";
 import type { Cursor, RecordFields, TextStep, TextReader } from "./parse-values.js";
 import { delimiter, readString, choice, readBoolean, readStringChoice, readSignatureId, readNumberChoice, openRecord, closeRecord, readModuleId, readDefinitionId, readBodyId, readTypeId, readNodeId, acceptText, atomicText, fieldText, nullableText, arrayText } from "./parse-values.js";
@@ -9,7 +9,7 @@ import { readNodeRef, readSourceNodeRef, readLocalRef, readLibraryModuleIdentity
 export function readHirCallableEndpointText<Root>(cursor: Cursor, finish: (value: HirCallableEndpoint) => TextStep<Root>): TextStep<Root> {
   return atomicText(cursor, next => openRecord(next, "HirCallableEndpoint"), fields =>
     fieldText<DefId, Root>(cursor, fields, "declaration", (next, done) => atomicText(next, readDefinitionId, done), declarationValue =>
-    fieldText<"advertised" | "api-signature" | "api-body", Root>(cursor, fields, "role", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["advertised","api-signature","api-body"]), done), roleValue =>
+    fieldText<SignatureEndpoint, Root>(cursor, fields, "role", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["advertised","api-signature","api-body"]), done), roleValue =>
       fieldText<SigId, Root>(cursor, fields, "signature", (next, done) => atomicText(next, readSignatureId, done), signatureValue =>
         fieldText<BodyId | null, Root>(cursor, fields, "body", (next, done) => nullableText(next, (next, done) => atomicText(next, readBodyId, done), done), bodyValue =>
           atomicText(cursor, next => closeRecord(next, fields), () =>

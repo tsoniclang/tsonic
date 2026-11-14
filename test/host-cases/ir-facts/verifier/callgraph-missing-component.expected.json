@@ -5,11 +5,8 @@
       "code": "component-membership-exact",
       "message": "Each graph definition must belong to exactly one component.",
       "site": {
-        "kind": "summary",
-        "summary": {
-          "definition": "D[M[P[facts];main.ts];f]",
-          "bindings": { "kind": "parametric" }
-        }
+        "kind": "definition",
+        "definition": "D[M[P[facts];main.ts];f]"
       }
     }
   ]

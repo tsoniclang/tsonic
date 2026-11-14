@@ -270,6 +270,8 @@ export const verifyMemberDecision = (
     if (declared.size !== 0 && !declared.has(declaration)) origins = false;
   }
   if (!origins) emit("member-origin", node, "member selection does not retain a real member key and its actual declared origins");
+  if ((decision.location.kind === "accessor") !== (decision.getter !== null || decision.setter !== null))
+    emit("access-location", node, "member location is an accessor exactly when a getter or setter is selected");
   return actualOrigins;
 };
 
@@ -338,8 +340,7 @@ export const verifyProtocolOperation = (operation: TypedOperation, node: TirNode
 export const verifyActivation = (
   callee: ResolvedCallee, node: TirNode, emit: TirOccurrenceEmit,
 ): void => {
-  if (callee.activation !== null && callee.activation.body !== callee.decision.api.body ||
-    callee.activation === null && callee.captures.length !== 0) {
-    emit("call-endpoints", node, "callee activation and captures do not retain their actual API body");
+  if (callee.activation !== null && callee.activation.body !== callee.decision.api.body) {
+    emit("call-endpoints", node, "callee activation does not retain its actual API body");
   }
 };

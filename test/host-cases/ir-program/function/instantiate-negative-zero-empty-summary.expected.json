@@ -1,1 +1,21 @@
-{"kind":"accepted","value":{"kind":"missing-binding-artifact","artifact":{"kind":"summary","definition":"D[M[P[%002Fprogram];src%002Fmain.ts];missing]"},"bindings":{"classBindings":[],"methodBindings":[],"capturedBindings":[],"selfBindings":[]}},"diagnostics":[]}
+{
+  "kind": "accepted",
+  "value": {
+    "kind": "missing-binding-artifact",
+    "artifact": {
+      "kind": "summary",
+      "definition": "D[M[P[%002Fprogram];src%002Fmain.ts];missing]",
+      "target": "declared",
+      "endpoint": "api-signature",
+      "ordinal": 2,
+      "provided": 0
+    },
+    "bindings": {
+      "classBindings": [],
+      "methodBindings": [],
+      "capturedBindings": [],
+      "selfBindings": []
+    }
+  },
+  "diagnostics": []
+}

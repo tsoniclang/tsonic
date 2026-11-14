@@ -1,4 +1,4 @@
-import type { ApplicationDecision, ConstructionPartDecision, DeferredDecision, EmbeddingDecision, OperationDecision, OperationIdentity, ProtocolStepDecision, ProtocolStepOperation, RuleOutcome } from "./contract.js";
+import type { ApplicationDecision, CaptureRow, ClosureDecision, ConstructionPartDecision, DeferredDecision, EmbeddingDecision, OperationDecision, OperationExecution, OperationIdentity, ProtocolStepDecision, ProtocolStepOperation, RuleOutcome } from "./contract.js";
 import type { ConstraintsSchemas } from "./text-constraints.js";
 import { arraySchema, enumSchema, nullableSchema, recordSchema, unionSchema } from "./text-data.js";
 import type { DataSchemas } from "./text-data.js";
@@ -133,7 +133,23 @@ export interface DeferredOperationRecord {
   readonly deferred: DeferredDecision;
 }
 
+export interface PureExecutionRecord {
+  readonly kind: "pure";
+
+}
+
+export interface InvocationExecutionRecord {
+  readonly kind: "invocation";
+  readonly writesStorage: boolean;
+  readonly failure: "none" | "unwind" | "abort";
+}
+
 export interface OperationsSchemas {
+  readonly closureDecisionSchema: RecordSchema<ClosureDecision>;
+  readonly captureRowSchema: RecordSchema<CaptureRow>;
+  readonly operationExecutionSchema: RecordSchema<OperationExecution>;
+  readonly pureExecutionSchema: RecordSchema<PureExecutionRecord>;
+  readonly invocationExecutionSchema: RecordSchema<InvocationExecutionRecord>;
   readonly constructionPartDecisionSchema: RecordSchema<ConstructionPartDecision>;
   readonly operationDecisionSchema: RecordSchema<OperationDecision>;
   readonly operationIdentitySchema: RecordSchema<OperationIdentity>;
@@ -169,9 +185,9 @@ export interface OperationsSchemas {
 }
 
 export function createOperationsSchemas(constraints: ConstraintsSchemas, data: DataSchemas, decisionValues: DecisionValuesSchemas, evidence: EvidenceSchemas, invocations: InvocationsSchemas): OperationsSchemas {
-  const { operatorSchema, protocolKindSchema } = constraints;
-  const { bindingVectorSchema, booleanSchema, defSchema, nodeRefSchema, numberSchema, tSchema } = data;
-  const { applicationDecisionSchema, embeddingDecisionSchema, memberDecisionSchema } = decisionValues;
+  const { logicalCaptureSchema, operatorSchema, protocolKindSchema } = constraints;
+  const { bindingVectorSchema, booleanSchema, defSchema, localRefSchema, nodeRefSchema, numberSchema, tSchema } = data;
+  const { applicationDecisionSchema, embeddingDecisionSchema, failureKindSchema, memberDecisionSchema } = decisionValues;
   const { typeComponentSchema } = evidence;
   const { deferredDecisionSchema } = invocations;
   const constructionPartDecisionSchema = recordSchema<ConstructionPartDecision>("ConstructionPartDecision", "ConstructionPartDecision", read => {
@@ -187,7 +203,39 @@ export function createOperationsSchemas(constraints: ConstraintsSchemas, data: D
     const operation = read("operation", () => operationIdentitySchema, value => value.operation);
     const operands = read("operands", () => arraySchema(tSchema), value => value.operands);
     const result = read("result", () => tSchema, value => value.result);
-    return { fields: [operation, operands, result], value: () => ({ kind: "selected", operation: operation.value(), operands: operands.value(), result: result.value() }) };
+    const execution = read("execution", () => operationExecutionSchema, value => value.execution);
+    return { fields: [operation, operands, result, execution], value: () => ({ kind: "selected", operation: operation.value(), operands: operands.value(), result: result.value(), execution: execution.value() }) };
+  });
+
+  const captureRowSchema = recordSchema<CaptureRow>("CaptureRow", "CaptureRow", read => {
+    const local = read("local", () => localRefSchema, value => value.local);
+    const capture = read("capture", () => logicalCaptureSchema, value => value.capture);
+    return { fields: [local, capture], value: () => ({ local: local.value(), capture: capture.value() }) };
+  });
+
+  const closureDecisionSchema = recordSchema<ClosureDecision>("ClosureDecision", "ClosureDecision", read => {
+    const carrier = read("carrier", () => tSchema, value => value.carrier);
+    const captures = read("captures", () => arraySchema(captureRowSchema), value => value.captures);
+    const execution = read("execution", () => operationExecutionSchema, value => value.execution);
+    return { fields: [carrier, captures, execution], value: () => ({ carrier: carrier.value(), captures: captures.value(), execution: execution.value() }) };
+  });
+
+  const operationExecutionSchema: RecordSchema<OperationExecution> = unionSchema<OperationExecution>("OperationExecution",
+    () => [pureExecutionSchema, invocationExecutionSchema], value => {
+    switch (value.kind) {
+      case "pure": return pureExecutionSchema.stage(value);
+      case "invocation": return invocationExecutionSchema.stage(value);
+    }
+  });
+
+  const pureExecutionSchema = recordSchema<PureExecutionRecord>("PureExecution", "pure", () => {
+    return { fields: [], value: () => ({ kind: "pure" }) };
+  });
+
+  const invocationExecutionSchema = recordSchema<InvocationExecutionRecord>("InvocationExecution", "invocation", read => {
+    const writesStorage = read("writesStorage", () => booleanSchema, value => value.writesStorage);
+    const failure = read("failure", () => failureKindSchema, value => value.failure);
+    return { fields: [writesStorage, failure], value: () => ({ kind: "invocation", writesStorage: writesStorage.value(), failure: failure.value() }) };
   });
 
   const operationIdentitySchema: RecordSchema<OperationIdentity> = unionSchema<OperationIdentity>("OperationIdentity",
@@ -361,5 +409,5 @@ export function createOperationsSchemas(constraints: ConstraintsSchemas, data: D
   });
 
   const nativePrimitiveSchema = enumSchema("NativePrimitive", ["bool","char","int8","uint8","int16","uint16","int32","uint32","int64","uint64","int128","uint128","native-int","native-uint","float16","float32","float64","decimal"]);
-  return { constructionPartDecisionSchema, operationDecisionSchema, operationIdentitySchema, nativeOperatorSchema, bigintOperatorSchema, stringOperatorSchema, stringOperatorTokenSchema, booleanOperatorSchema, booleanOperatorTokenSchema, absenceTestSchema, objectConstructionSchema, arrayConstructionSchema, protocolOperationSchema, conversionOperationSchema, libraryOperationSchema, coreOperationSchema, pointerAddressSchema, pointerReadSchema, pointerWriteSchema, pointerOffsetSchema, typeQuerySchema, discardSchema, protocolStepDecisionSchema, protocolStepRoleSchema, protocolStepOperationSchema, protocolCallSchema, protocolCoreSchema, protocolCompletionSchema, operationOutcomeSchema, decidedOperationSchema, deferredOperationSchema, nativePrimitiveSchema };
+  return { closureDecisionSchema, captureRowSchema, operationExecutionSchema, pureExecutionSchema, invocationExecutionSchema, constructionPartDecisionSchema, operationDecisionSchema, operationIdentitySchema, nativeOperatorSchema, bigintOperatorSchema, stringOperatorSchema, stringOperatorTokenSchema, booleanOperatorSchema, booleanOperatorTokenSchema, absenceTestSchema, objectConstructionSchema, arrayConstructionSchema, protocolOperationSchema, conversionOperationSchema, libraryOperationSchema, coreOperationSchema, pointerAddressSchema, pointerReadSchema, pointerWriteSchema, pointerOffsetSchema, typeQuerySchema, discardSchema, protocolStepDecisionSchema, protocolStepRoleSchema, protocolStepOperationSchema, protocolCallSchema, protocolCoreSchema, protocolCompletionSchema, operationOutcomeSchema, decidedOperationSchema, deferredOperationSchema, nativePrimitiveSchema };
 }

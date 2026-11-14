@@ -1,12 +1,12 @@
-import type { DefId, BodyId, TyId, SigId, NodeRef, Origin } from "../ids/contract.js";
+import type { DefId, BodyId, TyId, SigId, LocalRef, NodeRef, Origin } from "../ids/contract.js";
 import type { Diagnostic } from "../diag/contract.js";
 import type { NativePrimitive, BindingVector, LiteralValue, MemberKey, MemberOrigin, PassingMode, TypeComponent, TypeEvidence } from "../ir-types/contract.js";
 import type { HirCallableEndpoint, HirUnaryOperator, HirBinaryOperator, HirCoreCapture } from "../ir-hir/contract.js";
-import type { FlowRole, AccessRole, ProtocolKind, RuleContext, EmbedInput, DomainFitInput, MemoryEquivalentInput, MemberInput, IndexInput, LiteralConstructionPart, LiteralConstructionInput, CandidateArgument, CandidateEndpoint, CandidateInput, OperatorInput, LiteralFitInput, ProtocolInput, RefinementInput, LibraryInput, CoreInput, ConversionKind, CorrespondenceStep, EmbeddingProof, EmbeddingDecision, MemberDecision, ParameterMapping, CompletionEndpoint, ApplicationDecision, ConstructionPartDecision, ProtocolStepDecision, ProtocolStepOperation, OperationIdentity, OperationDecision, DeferredInvocation, DeferredDecision, RuleOutcome, RefinementDecision } from "../ir-infer/contract.js";
+import type { AccessLocation, BodyCaptureRow, CaptureRow, CaptureSource, LogicalCapture, CheckFailure, CheckRequirement, ClosureCaptureEvidence, ClosureDecision, ClosureInput, FailureKind, HandleActivation, OperationExecution, ReceiverAccess, FlowRole, AccessRole, ProtocolKind, RuleContext, EmbedInput, DomainFitInput, MemoryEquivalentInput, MemberInput, IndexInput, LiteralConstructionPart, LiteralConstructionInput, CandidateArgument, CandidateEndpoint, CandidateInput, OperatorInput, LiteralFitInput, ProtocolInput, RefinementInput, LibraryInput, CoreInput, ConversionKind, CorrespondenceStep, EmbeddingProof, EmbeddingDecision, MemberDecision, ParameterMapping, CompletionEndpoint, ApplicationDecision, ConstructionPartDecision, ProtocolStepDecision, ProtocolStepOperation, OperationIdentity, OperationDecision, DeferredInvocation, DeferredDecision, RuleOutcome, RefinementDecision } from "../ir-infer/contract.js";
 import type { Cursor, RecordFields, TextStep, TextReader } from "./parse-values.js";
 import { delimiter, readNumber, choice, readBoolean, readStringChoice, readSignatureId, openRecord, closeRecord, readDefinitionId, readBodyId, readTypeId, acceptText, atomicText, fieldText, nullableText, arrayText } from "./parse-values.js";
 import { readTypeEvidenceText, readTypeComponentText, readMemberKeyText, readMemberOriginText, readLiteralValueText, readBindings } from "./parse-types.js";
-import { readNodeRef, readDiagnostic, readOrigin } from "./parse-diagnostics.js";
+import { readLocalRef, readNodeRef, readDiagnostic, readOrigin } from "./parse-diagnostics.js";
 import { readHirCallableEndpointText, readHirCoreCaptureText } from "./parse-core.js";
 
 export function readDeferredDecisionText<Root>(cursor: Cursor, finish: (value: DeferredDecision) => TextStep<Root>): TextStep<Root> {
@@ -28,8 +28,9 @@ export function readEmbeddingDecisionText<Root>(cursor: Cursor, finish: (value: 
         case "conversion":
           return fieldText<ConversionKind, Root>(cursor, fields, "conversion", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["numeric","literal-fit","absence","union-injection","shape","callable","readonly"]), done), conversionValue =>
     fieldText<EmbeddingProof, Root>(cursor, fields, "proof", readEmbeddingProofText, proofValue =>
-      atomicText(cursor, next => closeRecord(next, fields), () =>
-          acceptText({ kind: label, conversion: conversionValue, proof: proofValue }, finish))));
+      fieldText<CheckRequirement, Root>(cursor, fields, "check", readCheckRequirementText, checkValue =>
+        atomicText(cursor, next => closeRecord(next, fields), () =>
+            acceptText({ kind: label, conversion: conversionValue, proof: proofValue, check: checkValue }, finish)))));
         case "refused":
           return fieldText<"incompatible-domain" | "lossy-numeric" | "missing-correspondence" | "passing-mode" | "rigid-parameter", Root>(cursor, fields, "reason", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["incompatible-domain","lossy-numeric","missing-correspondence","passing-mode","rigid-parameter"]), done), reasonValue =>
     atomicText(cursor, next => closeRecord(next, fields), () =>
@@ -49,8 +50,59 @@ export function readMemberDecisionText<Root>(cursor: Cursor, finish: (value: Mem
               fieldText<HirCallableEndpoint | null, Root>(cursor, fields, "getter", (next, done) => nullableText(next, readHirCallableEndpointText, done), getterValue =>
                 fieldText<HirCallableEndpoint | null, Root>(cursor, fields, "setter", (next, done) => nullableText(next, readHirCallableEndpointText, done), setterValue =>
                   fieldText<BindingVector, Root>(cursor, fields, "bindings", (next, done) => atomicText(next, readBindings, done), bindingsValue =>
-                    atomicText(cursor, next => closeRecord(next, fields), () =>
-                        acceptText({ key: keyValue, origins: originsValue, selectedDeclarations: selectedDeclarationsValue, primary: primaryValue, read: readValue, write: writeValue, getter: getterValue, setter: setterValue, bindings: bindingsValue }, finish))))))))))));
+                    fieldText<AccessLocation, Root>(cursor, fields, "location", readAccessLocationText, locationValue =>
+                      atomicText(cursor, next => closeRecord(next, fields), () =>
+                          acceptText({ key: keyValue, origins: originsValue, selectedDeclarations: selectedDeclarationsValue, primary: primaryValue, read: readValue, write: writeValue, getter: getterValue, setter: setterValue, bindings: bindingsValue, location: locationValue }, finish)))))))))))));
+}
+
+export function readCheckRequirementText<Root>(cursor: Cursor, finish: (value: CheckRequirement) => TextStep<Root>): TextStep<Root> {
+  return atomicText(cursor, next => choice(next, ["none","required"]), label =>
+    atomicText(cursor, next => delimiter(next, "("), () => {
+      const fields: RecordFields = { given: new Set<string>() };
+      switch (label) {
+        case "none":
+          return atomicText(cursor, next => closeRecord(next, fields), () =>
+      acceptText({ kind: label }, finish));
+        case "required":
+          return fieldText<CheckFailure, Root>(cursor, fields, "failure", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["unwind","abort"]), done), failureValue =>
+    atomicText(cursor, next => closeRecord(next, fields), () =>
+        acceptText({ kind: label, failure: failureValue }, finish)));
+      }
+    }));
+}
+
+export function readAccessLocationText<Root>(cursor: Cursor, finish: (value: AccessLocation) => TextStep<Root>): TextStep<Root> {
+  return atomicText(cursor, next => choice(next, ["data","accessor"]), label =>
+    atomicText(cursor, next => delimiter(next, "("), () => {
+      const fields: RecordFields = { given: new Set<string>() };
+      switch (label) {
+        case "data":
+          return fieldText<CheckRequirement, Root>(cursor, fields, "check", readCheckRequirementText, checkValue =>
+    fieldText<ReceiverAccess, Root>(cursor, fields, "receiver", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["in-place","by-reference"]), done), receiverValue =>
+      atomicText(cursor, next => closeRecord(next, fields), () =>
+          acceptText({ kind: label, check: checkValue, receiver: receiverValue }, finish))));
+        case "accessor":
+          return atomicText(cursor, next => closeRecord(next, fields), () =>
+      acceptText({ kind: label }, finish));
+      }
+    }));
+}
+
+export function readOperationExecutionText<Root>(cursor: Cursor, finish: (value: OperationExecution) => TextStep<Root>): TextStep<Root> {
+  return atomicText(cursor, next => choice(next, ["pure","invocation"]), label =>
+    atomicText(cursor, next => delimiter(next, "("), () => {
+      const fields: RecordFields = { given: new Set<string>() };
+      switch (label) {
+        case "pure":
+          return atomicText(cursor, next => closeRecord(next, fields), () =>
+      acceptText({ kind: label }, finish));
+        case "invocation":
+          return fieldText<boolean, Root>(cursor, fields, "writesStorage", (next, done) => atomicText(next, readBoolean, done), writesStorageValue =>
+    fieldText<FailureKind, Root>(cursor, fields, "failure", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["none","unwind","abort"]), done), failureValue =>
+      atomicText(cursor, next => closeRecord(next, fields), () =>
+          acceptText({ kind: label, writesStorage: writesStorageValue, failure: failureValue }, finish))));
+      }
+    }));
 }
 
 export function readApplicationDecisionText<Root>(cursor: Cursor, finish: (value: ApplicationDecision) => TextStep<Root>): TextStep<Root> {
@@ -63,8 +115,9 @@ export function readApplicationDecisionText<Root>(cursor: Cursor, finish: (value
             fieldText<readonly (ParameterMapping)[], Root>(cursor, fields, "parameters", (next, done) => arrayText(next, readParameterMappingText, done), parametersValue =>
               fieldText<CompletionEndpoint, Root>(cursor, fields, "completion", readCompletionEndpointText, completionValue =>
                 fieldText<TyId, Root>(cursor, fields, "result", (next, done) => atomicText(next, readTypeId, done), resultValue =>
-                  atomicText(cursor, next => closeRecord(next, fields), () =>
-                      acceptText({ candidate: candidateValue, advertised: advertisedValue, api: apiValue, bindings: bindingsValue, implementationBindings: implementationBindingsValue, parameters: parametersValue, completion: completionValue, result: resultValue }, finish)))))))))));
+                  fieldText<HandleActivation | null, Root>(cursor, fields, "activation", (next, done) => nullableText(next, (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["at-creation","when-first-driven"]), done), done), activationValue =>
+                    atomicText(cursor, next => closeRecord(next, fields), () =>
+                        acceptText({ candidate: candidateValue, advertised: advertisedValue, api: apiValue, bindings: bindingsValue, implementationBindings: implementationBindingsValue, parameters: parametersValue, completion: completionValue, result: resultValue, activation: activationValue }, finish))))))))))));
 }
 
 export function readConstructionPartDecisionText<Root>(cursor: Cursor, finish: (value: ConstructionPartDecision) => TextStep<Root>): TextStep<Root> {
@@ -78,15 +131,18 @@ export function readConstructionPartDecisionText<Root>(cursor: Cursor, finish: (
                 acceptText({ part: partValue, source: sourceValue, destination: destinationValue, member: memberValue, embedding: embeddingValue }, finish))))))));
 }
 
-export function readOperationDecisionText<Root>(cursor: Cursor, finish: (value: OperationDecision) => TextStep<Root>): TextStep<Root> {
+export function readOperationDecisionWith<Identity extends OperationIdentity, Root>(
+  cursor: Cursor, readIdentity: TextReader<Identity>, finish: (value: OperationDecision & { readonly operation: Identity }) => TextStep<Root>,
+): TextStep<Root> {
   return atomicText(cursor, next => choice(next, ["selected"]), label =>
     atomicText(cursor, next => delimiter(next, "("), () => {
       const fields: RecordFields = { given: new Set<string>() };
-      return fieldText<OperationIdentity, Root>(cursor, fields, "operation", readOperationIdentityText, operationValue =>
+      return fieldText<Identity, Root>(cursor, fields, "operation", readIdentity, operationValue =>
     fieldText<readonly (TyId)[], Root>(cursor, fields, "operands", (next, done) => arrayText(next, (next, done) => atomicText(next, readTypeId, done), done), operandsValue =>
       fieldText<TyId, Root>(cursor, fields, "result", (next, done) => atomicText(next, readTypeId, done), resultValue =>
-        atomicText(cursor, next => closeRecord(next, fields), () =>
-            acceptText({ kind: label, operation: operationValue, operands: operandsValue, result: resultValue }, finish)))));
+        fieldText<OperationExecution, Root>(cursor, fields, "execution", readOperationExecutionText, executionValue =>
+          atomicText(cursor, next => closeRecord(next, fields), () =>
+              acceptText({ kind: label, operation: operationValue, operands: operandsValue, result: resultValue, execution: executionValue }, finish))))));
     }));
 }
 
@@ -103,15 +159,16 @@ export function readRefinementDecisionText<Root>(cursor: Cursor, finish: (value:
           return fieldText<TyId, Root>(cursor, fields, "source", (next, done) => atomicText(next, readTypeId, done), sourceValue =>
     fieldText<TyId, Root>(cursor, fields, "result", (next, done) => atomicText(next, readTypeId, done), resultValue =>
       fieldText<EmbeddingProof, Root>(cursor, fields, "proof", readEmbeddingProofText, proofValue =>
-        atomicText(cursor, next => closeRecord(next, fields), () =>
-            acceptText({ kind: label, source: sourceValue, result: resultValue, proof: proofValue }, finish)))));
+        fieldText<CheckFailure, Root>(cursor, fields, "failure", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["unwind","abort"]), done), failureValue =>
+          atomicText(cursor, next => closeRecord(next, fields), () =>
+              acceptText({ kind: label, source: sourceValue, result: resultValue, proof: proofValue, failure: failureValue }, finish))))));
       }
     }));
 }
 
 export function readDeferredInvocationText<Root>(cursor: Cursor, finish: (value: DeferredInvocation) => TextStep<Root>): TextStep<Root> {
   return atomicText(cursor, next => openRecord(next, "DeferredInvocation"), fields =>
-    fieldText<"embed" | "domain-fit" | "memory-equivalent" | "member" | "index" | "construct-literal" | "candidate" | "operator" | "literal-fit" | "protocol" | "refinement" | "library" | "core", Root>(cursor, fields, "rule", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["embed","domain-fit","memory-equivalent","member","index","construct-literal","candidate","operator","literal-fit","protocol","refinement","library","core"]), done), ruleValue => {
+    fieldText<"embed" | "domain-fit" | "memory-equivalent" | "member" | "index" | "construct-literal" | "candidate" | "operator" | "literal-fit" | "protocol" | "refinement" | "library" | "core" | "closure", Root>(cursor, fields, "rule", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["embed","domain-fit","memory-equivalent","member","index","construct-literal","candidate","operator","literal-fit","protocol","refinement","library","core","closure"]), done), ruleValue => {
     switch (ruleValue) {
       case "embed":
         return fieldText<EmbedInput, Root>(cursor, fields, "input", readEmbedInputText, inputValue =>
@@ -163,6 +220,10 @@ export function readDeferredInvocationText<Root>(cursor: Cursor, finish: (value:
             acceptText({ rule: ruleValue, input: inputValue }, finish)));
       case "core":
         return fieldText<CoreInput, Root>(cursor, fields, "input", readCoreInputText, inputValue =>
+        atomicText(cursor, next => closeRecord(next, fields), () =>
+            acceptText({ rule: ruleValue, input: inputValue }, finish)));
+      case "closure":
+        return fieldText<ClosureInput, Root>(cursor, fields, "input", readClosureInputText, inputValue =>
         atomicText(cursor, next => closeRecord(next, fields), () =>
             acceptText({ rule: ruleValue, input: inputValue }, finish)));
     }
@@ -219,6 +280,40 @@ export function readCompletionEndpointText<Root>(cursor: Cursor, finish: (value:
               acceptText({ signature: signatureValue, completion: completionValue, yielded: yieldedValue, sent: sentValue }, finish)))))));
 }
 
+function conversionIdentityFields<Root>(
+  cursor: Cursor, fields: RecordFields, finish: (value: OperationIdentity & { readonly kind: "conversion" }) => TextStep<Root>,
+): TextStep<Root> {
+  return fieldText<TyId, Root>(cursor, fields, "from", (next, done) => atomicText(next, readTypeId, done), fromValue =>
+    fieldText<TyId, Root>(cursor, fields, "to", (next, done) => atomicText(next, readTypeId, done), toValue =>
+      fieldText<EmbeddingDecision, Root>(cursor, fields, "embedding", readEmbeddingDecisionText, embeddingValue =>
+        atomicText(cursor, next => closeRecord(next, fields), () =>
+            acceptText({ kind: "conversion", from: fromValue, to: toValue, embedding: embeddingValue }, finish)))));
+}
+
+function backedIdentityFields<Root>(
+  cursor: Cursor, fields: RecordFields, label: "library" | "core",
+  finish: (value: OperationIdentity & { readonly kind: "library" | "core" }) => TextStep<Root>,
+): TextStep<Root> {
+  return fieldText<DefId, Root>(cursor, fields, "declaration", (next, done) => atomicText(next, readDefinitionId, done), declarationValue =>
+    fieldText<BindingVector, Root>(cursor, fields, "bindings", (next, done) => atomicText(next, readBindings, done), bindingsValue =>
+      atomicText(cursor, next => closeRecord(next, fields), () =>
+          acceptText({ kind: label, declaration: declarationValue, bindings: bindingsValue }, finish))));
+}
+
+export function readConversionIdentityText<Root>(
+  cursor: Cursor, finish: (value: OperationIdentity & { readonly kind: "conversion" }) => TextStep<Root>,
+): TextStep<Root> {
+  return atomicText(cursor, next => choice(next, ["conversion"]), () =>
+    atomicText(cursor, next => delimiter(next, "("), () => conversionIdentityFields(cursor, { given: new Set<string>() }, finish)));
+}
+
+export function readBackedIdentityText<Root>(
+  cursor: Cursor, finish: (value: OperationIdentity & { readonly kind: "library" | "core" }) => TextStep<Root>,
+): TextStep<Root> {
+  return atomicText(cursor, next => choice(next, ["library", "core"]), label =>
+    atomicText(cursor, next => delimiter(next, "("), () => backedIdentityFields(cursor, { given: new Set<string>() }, label, finish)));
+}
+
 export function readOperationIdentityText<Root>(cursor: Cursor, finish: (value: OperationIdentity) => TextStep<Root>): TextStep<Root> {
   return atomicText(cursor, next => choice(next, ["native-operator","bigint-operator","string-operator","boolean-operator","absence-test","object-construction","array-construction","protocol","conversion","library","core","pointer-address","pointer-read","pointer-write","pointer-offset","type-query","discard"]), label =>
     atomicText(cursor, next => delimiter(next, "("), () => {
@@ -261,18 +356,9 @@ export function readOperationIdentityText<Root>(cursor: Cursor, finish: (value: 
                 fieldText<TyId, Root>(cursor, fields, "thrown", (next, done) => atomicText(next, readTypeId, done), thrownValue =>
                   atomicText(cursor, next => closeRecord(next, fields), () =>
                       acceptText({ kind: label, protocol: protocolValue, asynchronous: asynchronousValue, steps: stepsValue, value: valueValue, completion: completionValue, yielded: yieldedValue, sent: sentValue, thrown: thrownValue }, finish))))))))));
-        case "conversion":
-          return fieldText<TyId, Root>(cursor, fields, "from", (next, done) => atomicText(next, readTypeId, done), fromValue =>
-    fieldText<TyId, Root>(cursor, fields, "to", (next, done) => atomicText(next, readTypeId, done), toValue =>
-      fieldText<EmbeddingDecision, Root>(cursor, fields, "embedding", readEmbeddingDecisionText, embeddingValue =>
-        atomicText(cursor, next => closeRecord(next, fields), () =>
-            acceptText({ kind: label, from: fromValue, to: toValue, embedding: embeddingValue }, finish)))));
+        case "conversion": return conversionIdentityFields(cursor, fields, finish);
         case "library":
-        case "core":
-          return fieldText<DefId, Root>(cursor, fields, "declaration", (next, done) => atomicText(next, readDefinitionId, done), declarationValue =>
-    fieldText<BindingVector, Root>(cursor, fields, "bindings", (next, done) => atomicText(next, readBindings, done), bindingsValue =>
-      atomicText(cursor, next => closeRecord(next, fields), () =>
-          acceptText({ kind: label, declaration: declarationValue, bindings: bindingsValue }, finish))));
+        case "core": return backedIdentityFields(cursor, fields, label, finish);
         case "pointer-address":
         case "pointer-read":
         case "pointer-write":
@@ -442,6 +528,70 @@ export function readCoreInputText<Root>(cursor: Cursor, finish: (value: CoreInpu
             fieldText<NodeRef | null, Root>(cursor, fields, "permissionScope", (next, done) => nullableText(next, (next, done) => atomicText(next, readNodeRef, done), done), permissionScopeValue =>
               atomicText(cursor, next => closeRecord(next, fields), () =>
                   acceptText({ context: contextValue, captured: capturedValue, declaration: declarationValue, operands: operandsValue, result: resultValue, permissionScope: permissionScopeValue }, finish)))))))));
+}
+
+export function readClosureInputText<Root>(cursor: Cursor, finish: (value: ClosureInput) => TextStep<Root>): TextStep<Root> {
+  return atomicText(cursor, next => openRecord(next, "ClosureInput"), fields =>
+    fieldText<RuleContext, Root>(cursor, fields, "context", readRuleContextText, contextValue =>
+    fieldText<TypeEvidence, Root>(cursor, fields, "callable", readTypeEvidenceText, callableValue =>
+      fieldText<readonly (ClosureCaptureEvidence)[], Root>(cursor, fields, "captures", (next, done) => arrayText(next, readClosureCaptureEvidenceText, done), capturesValue =>
+        atomicText(cursor, next => closeRecord(next, fields), () =>
+            acceptText({ context: contextValue, callable: callableValue, captures: capturesValue }, finish))))));
+}
+
+export function readClosureCaptureEvidenceText<Root>(cursor: Cursor, finish: (value: ClosureCaptureEvidence) => TextStep<Root>): TextStep<Root> {
+  return atomicText(cursor, next => openRecord(next, "ClosureCaptureEvidence"), fields =>
+    fieldText<LocalRef, Root>(cursor, fields, "local", (next, done) => atomicText(next, readLocalRef, done), localValue =>
+    fieldText<TypeEvidence, Root>(cursor, fields, "value", readTypeEvidenceText, valueValue =>
+      fieldText<boolean, Root>(cursor, fields, "reassignable", (next, done) => atomicText(next, readBoolean, done), reassignableValue =>
+        fieldText<CaptureSource, Root>(cursor, fields, "incoming", readCaptureSourceText, incomingValue =>
+          atomicText(cursor, next => closeRecord(next, fields), () =>
+            acceptText({ local: localValue, value: valueValue, reassignable: reassignableValue, incoming: incomingValue }, finish)))))));
+}
+
+export function readCaptureSourceText<Root>(cursor: Cursor, finish: (value: CaptureSource) => TextStep<Root>): TextStep<Root> {
+  return atomicText(cursor, next => choice(next, ["binding","parameter","capture"]), label =>
+    atomicText(cursor, next => delimiter(next, "("), () => {
+      const fields: RecordFields = { given: new Set<string>() };
+      switch (label) {
+        case "binding":
+          return atomicText(cursor, next => closeRecord(next, fields), () =>
+            acceptText({ kind: label }, finish));
+        case "parameter":
+          return fieldText<PassingMode, Root>(cursor, fields, "passing", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["by-value","byref-readonly","byref-readwrite","byref-writeonly-must-init","borrow-shared","borrow-mut","move"]), done), passingValue =>
+            atomicText(cursor, next => closeRecord(next, fields), () =>
+              acceptText({ kind: label, passing: passingValue }, finish)));
+        case "capture":
+          return fieldText<LogicalCapture, Root>(cursor, fields, "capture", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["captured-value","captured-location"]), done), captureValue =>
+            atomicText(cursor, next => closeRecord(next, fields), () =>
+              acceptText({ kind: label, capture: captureValue }, finish)));
+      }
+    }));
+}
+
+export function readCaptureRowText<Root>(cursor: Cursor, finish: (value: CaptureRow) => TextStep<Root>): TextStep<Root> {
+  return atomicText(cursor, next => openRecord(next, "CaptureRow"), fields =>
+    fieldText<LocalRef, Root>(cursor, fields, "local", (next, done) => atomicText(next, readLocalRef, done), localValue =>
+      fieldText<LogicalCapture, Root>(cursor, fields, "capture", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["captured-value","captured-location"]), done), captureValue =>
+        atomicText(cursor, next => closeRecord(next, fields), () =>
+          acceptText({ local: localValue, capture: captureValue }, finish)))));
+}
+
+export function readBodyCaptureRowText<Root>(cursor: Cursor, finish: (value: BodyCaptureRow) => TextStep<Root>): TextStep<Root> {
+  return atomicText(cursor, next => openRecord(next, "CaptureRow"), fields =>
+    fieldText<LocalRef, Root>(cursor, fields, "local", (next, done) => atomicText(next, readLocalRef, done), localValue =>
+      fieldText<LogicalCapture | null, Root>(cursor, fields, "capture", (next, done) => nullableText(next, (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["captured-value","captured-location"]), done), done), captureValue =>
+        atomicText(cursor, next => closeRecord(next, fields), () =>
+          acceptText({ local: localValue, capture: captureValue }, finish)))));
+}
+
+export function readClosureDecisionText<Root>(cursor: Cursor, finish: (value: ClosureDecision) => TextStep<Root>): TextStep<Root> {
+  return atomicText(cursor, next => openRecord(next, "ClosureDecision"), fields =>
+    fieldText<TyId, Root>(cursor, fields, "carrier", (next, done) => atomicText(next, readTypeId, done), carrierValue =>
+    fieldText<readonly (CaptureRow)[], Root>(cursor, fields, "captures", (next, done) => arrayText(next, readCaptureRowText, done), capturesValue =>
+      fieldText<OperationExecution, Root>(cursor, fields, "execution", readOperationExecutionText, executionValue =>
+        atomicText(cursor, next => closeRecord(next, fields), () =>
+            acceptText({ carrier: carrierValue, captures: capturesValue, execution: executionValue }, finish))))));
 }
 
 export function readCorrespondenceStepText<Root>(cursor: Cursor, finish: (value: CorrespondenceStep) => TextStep<Root>): TextStep<Root> {

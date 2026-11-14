@@ -1,8 +1,10 @@
 import type { BodyId, LocalRef, NodeId } from "../ids/contract.js";
 import type { BindingScope } from "../ir-types/contract.js";
-import { instanceKey } from "../ir-types/index.js";
+import { bindingVectorKey, instanceKey } from "../ir-types/index.js";
 import type { CheckedPhase, HirBody, HirNode } from "../ir-hir/contract.js";
 import { childrenOfSyntax } from "../ir-hir/index.js";
+import type { CaptureSource, LogicalCapture } from "../ir-infer/contract.js";
+import { captureRequiresLocation, sameCaptureSource } from "../ir-infer/index.js";
 import type { TirBody, TirModule, TirNode, TirSelection, TirVerifierInput, TypedBinding, TypedPhase } from "./contract.js";
 import type { TirOccurrenceEmit } from "./verify-occurrences.js";
 import type { TirSemanticInventory, TirStructure } from "./verify-occurrences.js";
@@ -261,8 +263,64 @@ export const verifyControlledContexts = (
 };
 
 export const verifyBindingSlots = (
-  body: TirBody, nodes: readonly TirNode[], originals: ReadonlyMap<NodeId, HirNode>, emit: TirOccurrenceEmit,
+  body: TirBody, nodes: readonly TirNode[], originals: ReadonlyMap<NodeId, HirNode>, sources: readonly (HirBody | undefined)[],
+  published: readonly (TirBody | undefined)[], emit: TirOccurrenceEmit,
 ): void => {
+  const reassignable = (reference: LocalRef): boolean | null => {
+    for (const source of sources) if (source !== undefined && source.body === reference.body) return source.locals[reference.local]?.mutable ?? null;
+    return null;
+  };
+  // Where the storage of a captured local comes from in the body that declares it, or null when nothing here says. The
+  // declaration facts are read from the checked body. A name bound under a parameter pattern has the parameter role and
+  // no parameter record: its storage is the body's own. A local that is itself a capture of the creating body has its
+  // logical capture in the creating artifact's typed row for the local it was captured from.
+  //
+  // The creating artifact is the one that creates this body: a published artifact of the creating body whose tree holds
+  // this body's root as a closure naming this body with this body's lexical bindings. Exactly one such artifact gives its
+  // rows; none or several is missing context, and nothing is read. A null row (a template whose creating closure saved the
+  // closure rule) states nothing yet. Publication order does not matter.
+  const creators = new Map<BodyId, TirBody | null>();
+  const contains = (root: TirNode): TirNode | null => {
+    const pending: TirNode[] = [root];
+    for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
+      if (node.id === body.root.id) return node;
+      pending.push(...childrenOfSyntax<TypedPhase>(node));
+    }
+    return null;
+  };
+  const creatorOf = (creating: BodyId): TirBody | null => {
+    const known = creators.get(creating);
+    if (known !== undefined) return known;
+    const environment = bindingVectorKey(body.lexicalBindings);
+    let selected: TirBody | null = null;
+    let count = 0;
+    for (const candidate of published) if (candidate !== undefined && candidate.body === creating) {
+      const node = contains(candidate.root);
+      const template = node !== null && (node.kind === "ArrowFunction" || node.kind === "FunctionExpression") ? node.tsonic.callable.template : null;
+      if (template !== null && template.body === body.body && bindingVectorKey(template.lexicalBindings) === environment) {
+        selected = candidate;
+        count += 1;
+      }
+    }
+    const creator = count === 1 ? selected : null;
+    creators.set(creating, creator);
+    return creator;
+  };
+  const enclosingRow = (creating: BodyId, from: LocalRef): LogicalCapture | null =>
+    creatorOf(creating)?.captures.find(row => sameLocalReference(row.local, from))?.capture ?? null;
+  const incomingOf = (reference: LocalRef): CaptureSource | null => {
+    for (const source of sources) if (source !== undefined && source.body === reference.body) {
+      const local = source.locals[reference.local];
+      if (local === undefined) return null;
+      if (local.role === "capture") {
+        const capture = local.capturedFrom === null ? null : enclosingRow(reference.body, local.capturedFrom);
+        return capture === null ? null : { kind: "capture", capture };
+      }
+      const parameter = local.role === "parameter" ? source.params.find(candidate => candidate.local === reference.local) : undefined;
+      return parameter === undefined ? { kind: "binding" } : { kind: "parameter", passing: parameter.passing };
+    }
+    return null;
+  };
   const parameters = new Map(body.params.map(parameter => [parameter.declaration, parameter]));
   const storage = (reference: LocalRef, type: number | null, node: TirNode): void => {
     const local = body.locals[reference.local];
@@ -289,19 +347,37 @@ export const verifyBindingSlots = (
       node.tsonic.role === "declaration-name" && node.tsonic.declaration.kind === "local") {
       storage(node.tsonic.declaration.local, node.tsonic.storage, node);
     } else if (node.kind === "ArrowFunction" || node.kind === "FunctionExpression") {
+      // The captured locals of a closure are the ones its outcome names: the rows of the decision, or the saved evidence of
+      // the deferred closure rule, read where they stand. A closure that defers another rule names none.
+      const closure = node.tsonic.closure;
+      const named: readonly { readonly local: LocalRef }[] | null = closure.kind === "decided" ? closure.decision.captures
+        : closure.deferred.invocation.rule === "closure" ? closure.deferred.invocation.input.captures : null;
       const actual = node.tsonic.callable.template;
-      if (actual !== null && node.tsonic.captures.some(capture => capture !== undefined && capture.body === actual.body)) {
-        emit("capture-qualified", node, "closure captures contain a local from the closure's own body");
-      }
       const original = originals.get(node.id);
-      if (original?.kind === "ArrowFunction" || original?.kind === "FunctionExpression") {
-        let captures = node.tsonic.captures.length === original.tsonic.captures.length;
-        for (let position = 0; position < node.tsonic.captures.length; position++) {
-          const captured = node.tsonic.captures[position];
-          const expected = original.tsonic.captures[position];
-          if (captured === undefined || expected === undefined || !sameLocalReference(captured, expected)) captures = false;
-        }
-        if (!captures) emit("capture-qualified", node, "closure captures do not retain the real authored outer-local sequence");
+      if (named === null) emit("closure-capture-total", node, "a deferred closure does not save the closure rule's evidence of its captured locals");
+      else {
+        if (actual !== null && named.some(capture => capture.local.body === actual.body))
+          emit("capture-qualified", node, "closure captures contain a local from the closure's own body");
+        if ((original?.kind === "ArrowFunction" || original?.kind === "FunctionExpression") &&
+          (named.length !== original.tsonic.captures.length || named.some((capture, position) => {
+            const expected = original.tsonic.captures[position];
+            return expected === undefined || !sameLocalReference(capture.local, expected);
+          }))) emit("capture-qualified", node, "closure captures do not retain the real authored outer-local sequence");
+      }
+      if (closure.kind === "decided") {
+        if (closure.decision.captures.some(row => {
+          if (row.capture !== "captured-value") return false;
+          const incoming = incomingOf(row.local);
+          // with no incoming storage known, only the reassignment fact is evidence
+          return incoming === null ? reassignable(row.local) === true : captureRequiresLocation(reassignable(row.local) === true, incoming);
+        }))
+          emit("closure-capture-binding", node, "a binding whose storage another party can write is a captured location");
+      } else if (closure.deferred.invocation.rule === "closure") {
+        if (closure.deferred.invocation.input.captures.some(capture => {
+          const evidence = reassignable(capture.local);
+          const incoming = incomingOf(capture.local);
+          return evidence !== null && capture.reassignable !== evidence || incoming !== null && !sameCaptureSource(capture.incoming, incoming);
+        })) emit("closure-capture-binding", node, "saved capture evidence does not state the binding evidence of its captured locals");
       }
     }
   }

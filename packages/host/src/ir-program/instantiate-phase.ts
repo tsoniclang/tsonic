@@ -16,11 +16,9 @@ import type {
 import type {
   CapturedFact, HirCapturedType, HirCoreCapture, HirFieldBindingCapture, HirFieldMarkerCapture, HirMarkersCapture, HirPointerTypeCapture, HirRecordBindingCapture,
 } from "../ir-hir/contract.js";
-import type { InstantiationStop, ProjectionInventory } from "./program-values.js";
-import {
-  inventoryBindings, inventoryComponent, inventoryEach, inventoryEndpoint, inventoryEvidence, inventoryFields,
-  inventoryInstance, inventoryParameter, inventoryRecord, inventorySignature, inventoryType,
-} from "./program-values.js";
+import type { ProjectionInventory } from "./program-values.js";
+import type { InstantiationStop } from "./work.js";
+import { inventoryBindings, inventoryComponent, inventoryEach, inventoryEndpoint, inventoryEvidence, inventoryFields, inventoryInstance, inventoryParameter, inventoryRecord, inventorySignature, inventoryType } from "./program-values.js";
 
 function embeddingProof(scan: ProjectionInventory, value: EmbeddingProof): InstantiationStop | null {
   inventoryEach(scan, value.steps, step => inventoryRecord(scan, 4)
@@ -32,7 +30,7 @@ export function inventoryEmbedding(scan: ProjectionInventory, value: EmbeddingDe
   switch (value.kind) {
     case "identity":
     case "refused": return inventoryFields(scan, 1);
-    case "conversion": return inventoryRecord(scan, 3) ?? embeddingProof(scan, value.proof);
+    case "conversion": return inventoryRecord(scan, 4) ?? embeddingProof(scan, value.proof);
   }
 }
 
@@ -45,7 +43,7 @@ function memberDecision(scan: ProjectionInventory, value: MemberDecision): Insta
     const setter = value.setter;
     scan.pending.push(() => inventoryEndpoint(scan, setter));
   }
-  return inventoryRecord(scan, 9) ?? inventoryType(scan, value.read)
+  return inventoryRecord(scan, 10) ?? inventoryType(scan, value.read)
     ?? inventoryType(scan, value.write) ?? inventoryBindings(scan, value.bindings);
 }
 
@@ -58,7 +56,7 @@ export function inventoryApplication(scan: ProjectionInventory, value: Applicati
       case "omitted": return inventoryRecord(scan, 3) ?? inventoryType(scan, parameter.type);
     }
   });
-  return inventoryRecord(scan, 8) ?? inventoryEndpoint(scan, value.advertised) ?? inventoryEndpoint(scan, value.api)
+  return inventoryRecord(scan, 9) ?? inventoryEndpoint(scan, value.advertised) ?? inventoryEndpoint(scan, value.api)
     ?? inventoryBindings(scan, value.bindings) ?? inventoryBindings(scan, value.implementationBindings)
     ?? inventoryRecord(scan, 4) ?? inventorySignature(scan, value.completion.signature)
     ?? inventoryType(scan, value.completion.completion) ?? inventoryType(scan, value.completion.yielded)
@@ -112,7 +110,7 @@ function operationIdentity(scan: ProjectionInventory, value: OperationIdentity):
 function operationDecision(scan: ProjectionInventory, value: OperationDecision): InstantiationStop | null {
   inventoryEach(scan, value.operands, type => inventoryType(scan, type));
   scan.pending.push(() => operationIdentity(scan, value.operation));
-  return inventoryRecord(scan, 4) ?? inventoryType(scan, value.result);
+  return inventoryRecord(scan, 5) ?? inventoryType(scan, value.result);
 }
 
 export function inventoryTypedOperation(scan: ProjectionInventory, value: TypedOperation): InstantiationStop | null {
@@ -122,7 +120,7 @@ export function inventoryTypedOperation(scan: ProjectionInventory, value: TypedO
 export function inventoryRefinement(scan: ProjectionInventory, value: RefinementDecision): InstantiationStop | null {
   switch (value.kind) {
     case "identity": return inventoryRecord(scan, 2) ?? inventoryType(scan, value.type);
-    case "narrowed": return inventoryRecord(scan, 4) ?? inventoryType(scan, value.source)
+    case "narrowed": return inventoryRecord(scan, 5) ?? inventoryType(scan, value.source)
       ?? inventoryType(scan, value.result) ?? embeddingProof(scan, value.proof);
   }
 }
@@ -170,6 +168,9 @@ function invocation(scan: ProjectionInventory, value: DeferredInvocation): Insta
     case "core":
       inventoryEach(scan, value.input.operands, operand => inventoryEvidence(scan, operand));
       return inventoryRecord(scan, 6) ?? inventoryCoreCapture(scan, value.input.captured) ?? inventoryEvidence(scan, value.input.result);
+    case "closure":
+      inventoryEach(scan, value.input.captures, capture => inventoryRecord(scan, 4) ?? inventoryEvidence(scan, capture.value));
+      return inventoryRecord(scan, 3) ?? inventoryEvidence(scan, value.input.callable);
   }
 }
 
@@ -236,7 +237,8 @@ export function inventoryProtocol(scan: ProjectionInventory, value: TirProtocol)
 function conversion(scan: ProjectionInventory, value: ConversionDecision): InstantiationStop | null {
   switch (value.kind) {
     case "identity": return inventoryFields(scan, 1);
-    case "convert": return inventoryRecord(scan, 4) ?? inventoryEmbedding(scan, value.embedding) ?? inventoryTypedOperation(scan, value.operation);
+    case "convert": return inventoryRecord(scan, 3) ?? inventoryTypedOperation(scan, value.operation);
+    case "backed-convert": return inventoryRecord(scan, 4) ?? inventoryEmbedding(scan, value.embedding) ?? inventoryTypedOperation(scan, value.operation);
     case "deferred": return inventoryRecord(scan, 2) ?? inventoryDeferred(scan, value.deferred);
   }
 }
@@ -460,7 +462,9 @@ export function inventoryCallable(scan: ProjectionInventory, value: TypedCallabl
 }
 
 export function inventoryClosure(scan: ProjectionInventory, value: TypedClosure): InstantiationStop | null {
-  return inventoryRecord(scan, 8) ?? inventoryValue(scan, value) ?? inventoryCallable(scan, value.callable);
+  return inventoryRecord(scan, 8) ?? inventoryValue(scan, value) ?? inventoryCallable(scan, value.callable)
+    ?? inventoryOutcome(scan, value.closure, decision =>
+      inventoryRecord(scan, 3) ?? inventoryEach(scan, decision.captures, () => inventoryRecord(scan, 2)) ?? inventoryType(scan, decision.carrier));
 }
 
 export function inventoryClass(scan: ProjectionInventory, value: TypedClass): InstantiationStop | null {

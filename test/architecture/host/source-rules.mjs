@@ -2,7 +2,8 @@ import { sourceOwner } from "./catalogue.mjs";
 import { publicDeclarations, quarantineReference, sourceSymbol } from "./import-graph.mjs";
 const producerMembers = (["builder", "seed", "register", "sealRegistration", "provide", "producer", "seal", "set", "delete", "clear", "resourceScope", "withDepth", "authenticate", "authorize", "lease", "questionView"]);
 const scopedOwners = (["KindFunctionDeclaration", "KindFunctionExpression", "KindArrowFunction", "KindMethodDeclaration", "KindConstructor", "KindGetAccessor", "KindSetAccessor"]);
-const opaqueOwners = ({ TypeInterner: "ir-types", CheckerExtensions: "front", CheckedProgram: "front", PluginModule: "plugins", TargetSession: "orchestration" });
+const nativeOpaqueOwners = ({ TypeInterner: "ir-types", ProgramVerificationWork: "ir-program" });
+const opaqueOwners = ({ ...nativeOpaqueOwners, CheckerExtensions: "front", CheckedProgram: "front", PluginModule: "plugins", TargetSession: "orchestration" });
 const rawCaptureTypes = (["RawModule", "RawTypeTable", "RawTypeId", "RawNumericLiteral"]);
 const sdkPayloads = ({ CompilerExtension: "compiler-extension", SourceDeclarationProvider: "declaration-provider", SourceSemanticsModule: "semantics-module" });
 export function sourceFindings(source, files, catalogue, graph, quarantineRoots) {
@@ -82,7 +83,7 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
     const declaration = ast.parent(intersection);
     if (!ast.is.IsIntersectionTypeNode(intersection) || !ast.is.IsTypeAliasDeclaration(declaration) ||
       ![module.contract, module.contract.replace(/\.ts$/u, ".d.ts")].includes(file) ||
-      opaqueOwners[ast.text(ast.name(declaration))] !== module.name || ast.text(ast.name(declaration)) === "TypeInterner") return false;
+      opaqueOwners[ast.text(ast.name(declaration))] !== module.name || nativeOpaqueOwners[ast.text(ast.name(declaration))] !== undefined) return false;
     const children = ast.children(intersection).filter(child => child !== undefined);
     const brand = children.find(child => ast.is.IsTypeLiteralNode(child));
     if (children.length !== 2 || brand === undefined || !children.includes(node)) return false;

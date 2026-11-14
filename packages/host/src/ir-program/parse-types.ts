@@ -1,5 +1,6 @@
 import type { TextParseResult } from "../diag/contract.js";
-import type { TypeEvidence, CategoryEvidence, NumericEvidence, SumEvidence, PointerEvidence, TypeComponent, ComponentSelector, TypeParameter, TypeParameterIdentity, SourceCategory, LiteralValue, BindingVector, SumArmRole, ConstructionDefinition, MemberOrigin, SumFamily, MemberKey, ExactRational, ArtifactBindings, BodyInstance, ConstValue, SelfBinding, TypeBinding } from "../ir-types/contract.js";
+import type { ConstantReference } from "../ir-types/contract.js";
+import type { TypeEvidence, CategoryEvidence, NumericEvidence, SumEvidence, PointerEvidence, TypeComponent, ComponentSelector, TypeParameter, TypeParameterIdentity, SourceCategory, LiteralValue, BindingVector, SumArmRole, ConstructionDefinition, MemberOrigin, SumFamily, MemberKey, ExactRational, ArtifactBindings, BodyInstance, ConstValue, SelfBinding, TypeBinding, Execution, DeclaredExecution, SignatureRequest } from "../ir-types/contract.js";
 import type { TyId, SourceNodeRef, DefId, NodeRef, SigId, LocalRef } from "../ids/contract.js";
 import type { Cursor, RecordFields, TextStep } from "./parse-values.js";
 import { acceptText, atomicText, fieldText, arrayText, nullableText, readStringChoice } from "./parse-values.js";
@@ -480,6 +481,44 @@ export function readArtifactBindings(cursor: Cursor): TextParseResult<ArtifactBi
   }
 }
 
+export function readExecution(cursor: Cursor): TextParseResult<Execution> {
+  const opened = openRecord(cursor, "Execution");
+  if (opened.kind === "invalid-text") return opened;
+  const instance = readField(cursor, opened.value, "instance", readInstance);
+  if (instance.kind === "invalid-text") return instance;
+  const provided = readField(cursor, opened.value, "provided", readNumber);
+  if (provided.kind === "invalid-text") return provided;
+  const closed = closeRecord(cursor, opened.value);
+  return closed.kind === "invalid-text" ? closed : { kind: "parsed", value: { instance: instance.value, provided: provided.value } };
+}
+
+function readSignatureRequest(cursor: Cursor): TextParseResult<SignatureRequest> {
+  const opened = openRecord(cursor, "SignatureRequest");
+  if (opened.kind === "invalid-text") return opened;
+  const definition = readField(cursor, opened.value, "definition", readDefinitionId);
+  if (definition.kind === "invalid-text") return definition;
+  const endpoint = readField(cursor, opened.value, "endpoint", next => readStringChoice(next, ["advertised", "api-signature", "api-body"]));
+  if (endpoint.kind === "invalid-text") return endpoint;
+  const ordinal = readField(cursor, opened.value, "ordinal", readNumber);
+  if (ordinal.kind === "invalid-text") return ordinal;
+  const bindings = readField(cursor, opened.value, "bindings", readArtifactBindings);
+  if (bindings.kind === "invalid-text") return bindings;
+  const closed = closeRecord(cursor, opened.value);
+  return closed.kind === "invalid-text" ? closed : { kind: "parsed",
+    value: { definition: definition.value, endpoint: endpoint.value, ordinal: ordinal.value, bindings: bindings.value } };
+}
+
+export function readDeclaredExecution(cursor: Cursor): TextParseResult<DeclaredExecution> {
+  const opened = openRecord(cursor, "DeclaredExecution");
+  if (opened.kind === "invalid-text") return opened;
+  const request = readField(cursor, opened.value, "request", readSignatureRequest);
+  if (request.kind === "invalid-text") return request;
+  const provided = readField(cursor, opened.value, "provided", readNumber);
+  if (provided.kind === "invalid-text") return provided;
+  const closed = closeRecord(cursor, opened.value);
+  return closed.kind === "invalid-text" ? closed : { kind: "parsed", value: { request: request.value, provided: provided.value } };
+}
+
 export function readInstance(cursor: Cursor): TextParseResult<BodyInstance> {
   const opened = openRecord(cursor, "BodyInstance");
   if (opened.kind === "invalid-text") return opened;
@@ -489,4 +528,15 @@ export function readInstance(cursor: Cursor): TextParseResult<BodyInstance> {
   if (bindings.kind === "invalid-text") return bindings;
   const closed = closeRecord(cursor, opened.value);
   return closed.kind === "invalid-text" ? closed : { kind: "parsed", value: { body: body.value, bindings: bindings.value } };
+}
+
+export function readConstantReference(cursor: Cursor): TextParseResult<ConstantReference> {
+  const opened = openRecord(cursor, "ConstantReference");
+  if (opened.kind === "invalid-text") return opened;
+  const initializer = readField(cursor, opened.value, "initializer", readInstance);
+  if (initializer.kind === "invalid-text") return initializer;
+  const context = readField(cursor, opened.value, "context", next => readStringChoice(next, ["enum-member", "fixed-array-extent", "compile-time"]));
+  if (context.kind === "invalid-text") return context;
+  const closed = closeRecord(cursor, opened.value);
+  return closed.kind === "invalid-text" ? closed : { kind: "parsed", value: { initializer: initializer.value, context: context.value } };
 }

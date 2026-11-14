@@ -2,7 +2,7 @@ import { lazyReader, literalReader, nullableReader, sequenceReader } from "./tex
 import { unionRecord } from "./text-layouts.js";
 import type { TirRecordCodec } from "./text-layouts.js";
 import type {
-  ConversionDecision, MemberSelection, ModuleBindingTarget, ResolvedCallee, TargetAccess, TirApplication, TirArgument, TirBody, TirDemand, TirLocal, TirParam, TirProtocol, TirProtocolStep, TirResolution, TirRestPart, TirSelection, TypedCallable, TypedClosure, TypedOperation, TypedPhase, TypedSourceFile, TypedStaticBlock
+  BackedConversionIdentity, ConversionDecision, ConversionIdentity, MemberSelection, ModuleBindingTarget, ResolvedCallee, TargetAccess, TirApplication, TirArgument, TirBody, TirDemand, TirLocal, TirParam, TirProtocol, TirProtocolStep, TirResolution, TirRestPart, TirSelection, TypedCallable, TypedClosure, TypedOperation, TypedOperationOf, TypedPhase, TypedSourceFile, TypedStaticBlock
 } from "./contract.js";
 import type {
   ArtifactBindings, BindingVector, BodyInstance, TypeEvidence
@@ -14,13 +14,14 @@ import type {
   ArrowFunction, Block, CheckJsDirective, ClassStaticBlockDeclaration, CommentDirective, ConstructorDeclaration, FunctionDeclaration, FunctionExpression, GetAccessorDeclaration, HirLexicalScope, ImportTarget, MethodDeclaration, ModifierList, NodeList, ParameterDeclaration, Pragma, SetAccessorDeclaration, SourceFile, Statement, TextRange, TypeParameterDeclaration
 } from "../ir-hir/contract.js";
 import type {
-  ApplicationDecision, DeferredDecision, EmbeddingDecision, MemberDecision, RefinementDecision, RuleOutcome
+  ApplicationDecision, BodyCaptureRow, DeferredDecision, EmbeddingDecision, MemberDecision, RefinementDecision, RuleOutcome
 } from "../ir-infer/contract.js";
 import type { TirTextKernel, TirTypedRecordWork } from "./text-layouts.js";
 import { scalarWork, referenceWork, syntaxReference, nullableWork, sequenceWork, withBindingOwner } from "./text-layouts.js";
 
 export interface BodyTextReads {
   readonly work_ApplicationDecision: TirRecordCodec<ApplicationDecision>;
+  readonly work_BodyCaptureRow: TirRecordCodec<BodyCaptureRow>;
   readonly work_ArtifactBindings: TirRecordCodec<ArtifactBindings>;
   readonly work_BindingVector: TirRecordCodec<BindingVector>;
   readonly work_BodyInstance: TirRecordCodec<BodyInstance>;
@@ -45,6 +46,8 @@ export interface BodyTextReads {
   readonly work_TypedCallable: TirRecordCodec<TypedCallable>;
   readonly work_TypedClosure: TirRecordCodec<TypedClosure>;
   readonly work_TypedOperation: TirRecordCodec<TypedOperation>;
+  readonly work_TypedOperation_conversion: TirRecordCodec<TypedOperationOf<ConversionIdentity>>;
+  readonly work_TypedOperation_backed: TirRecordCodec<TypedOperationOf<BackedConversionIdentity>>;
   readonly work_TypedSourceFile: TirRecordCodec<TypedSourceFile>;
   readonly work_TypedStaticBlock: TirRecordCodec<TypedStaticBlock>;
 }
@@ -136,7 +139,7 @@ export const createBodyText = (kernel: TirTextKernel, read: BodyTextReads): Body
     .field("locals", "[TirLocal]", value => sequenceWork("[TirLocal]", value.locals, actual => work_TirLocal.write(actual)), sequenceReader("[TirLocal]", lazyReader(() => work_TirLocal.reader)))
     .field("root", "$BodyRoot", value => syntaxReference("$BodyRoot", value.root), syntaxReads.BodyRoot)
     .field("nestedBodies", "[body]", value => sequenceWork("[body]", value.nestedBodies, actual => scalarWork("body", actual)), sequenceReader("[body]", bodyReader))
-    .field("captures", "[LocalRef]", value => sequenceWork("[LocalRef]", value.captures, actual => read.work_LocalRef.write(actual)), sequenceReader("[LocalRef]", lazyReader(() => read.work_LocalRef.reader)))
+    .field("captures", "[CaptureRow]", value => sequenceWork("[CaptureRow]", value.captures, actual => read.work_BodyCaptureRow.write(actual)), sequenceReader("[CaptureRow]", lazyReader(() => read.work_BodyCaptureRow.reader)))
     .field("scopes", "[HirLexicalScope]", value => sequenceWork("[HirLexicalScope]", value.scopes, actual => read.work_HirLexicalScope.write(actual)), sequenceReader("[HirLexicalScope]", lazyReader(() => read.work_HirLexicalScope.reader)))
     .field("evidence", "[TypeEvidence]", value => sequenceWork("[TypeEvidence]", value.evidence, actual => read.work_TypeEvidence.write(actual)), sequenceReader("[TypeEvidence]", lazyReader(() => read.work_TypeEvidence.reader)))
     .field("asynchronous", "boolean", value => scalarWork("boolean", value.asynchronous), booleanReader)
@@ -186,8 +189,7 @@ export const createBodyText = (kernel: TirTextKernel, read: BodyTextReads): Body
   const work_ResolvedCallee: TirRecordCodec<ResolvedCallee> = defineRecord<ResolvedCallee>("ResolvedCallee", "ResolvedCallee", null, "ResolvedCallee", null, null, fields => fields
     .field("decision", "ApplicationDecision", value => read.work_ApplicationDecision.write(value.decision), lazyReader(() => read.work_ApplicationDecision.reader))
     .field("activation", "?BodyInstance", value => nullableWork(value.activation, actual => read.work_BodyInstance.write(actual)), nullableReader(lazyReader(() => read.work_BodyInstance.reader)))
-    .field("captures", "[LocalRef]", value => sequenceWork("[LocalRef]", value.captures, actual => read.work_LocalRef.write(actual)), sequenceReader("[LocalRef]", lazyReader(() => read.work_LocalRef.reader)))
-    .finish((field_decision, field_activation, field_captures) => ({ decision: field_decision, activation: field_activation, captures: field_captures })));
+    .finish((field_decision, field_activation) => ({ decision: field_decision, activation: field_activation })));
   const work_MemberSelection: TirRecordCodec<MemberSelection> = defineRecord<MemberSelection>("MemberSelection", "MemberSelection", null, "MemberSelection", null, value => ({ kind: "member-selection", value }), fields => fields
     .field("decision", "MemberDecision", value => read.work_MemberDecision.write(value.decision), lazyReader(() => read.work_MemberDecision.reader))
     .field("getter", "?ResolvedCallee", value => nullableWork(value.getter, actual => work_ResolvedCallee.write(actual)), nullableReader(lazyReader(() => work_ResolvedCallee.reader)))
@@ -275,9 +277,13 @@ export const createBodyText = (kernel: TirTextKernel, read: BodyTextReads): Body
     .finish(() => ({ kind: "identity" })));
   const work_ConversionDecision_convert: TirRecordCodec<ConversionDecision & { readonly kind: "convert" }> = defineRecord<ConversionDecision & { readonly kind: "convert" }>("ConversionDecision#convert", "ConversionDecision", { field: "kind", value: "convert" }, "convert", null, null, fields => fields
     .field("role", "FlowRole", value => scalarWork("FlowRole", value.role), literalReader<(ConversionDecision & { readonly kind: "convert" })["role"]>("FlowRole", ["initialization","assignment","argument","return","receiver","yield","member-write"]))
+    .field("operation", "TypedOperation", value => read.work_TypedOperation_conversion.write(value.operation), lazyReader(() => read.work_TypedOperation_conversion.reader))
+    .finish((field_role, field_operation) => ({ kind: "convert", role: field_role, operation: field_operation })));
+  const work_ConversionDecision_backed_convert: TirRecordCodec<ConversionDecision & { readonly kind: "backed-convert" }> = defineRecord<ConversionDecision & { readonly kind: "backed-convert" }>("ConversionDecision#backed-convert", "ConversionDecision", { field: "kind", value: "backed-convert" }, "backed-convert", null, null, fields => fields
+    .field("role", "FlowRole", value => scalarWork("FlowRole", value.role), literalReader<(ConversionDecision & { readonly kind: "backed-convert" })["role"]>("FlowRole", ["initialization","assignment","argument","return","receiver","yield","member-write"]))
     .field("embedding", "EmbeddingDecision", value => read.work_EmbeddingDecision.write(value.embedding), lazyReader(() => read.work_EmbeddingDecision.reader))
-    .field("operation", "TypedOperation", value => read.work_TypedOperation.write(value.operation), lazyReader(() => read.work_TypedOperation.reader))
-    .finish((field_role, field_embedding, field_operation) => ({ kind: "convert", role: field_role, embedding: field_embedding, operation: field_operation })));
+    .field("operation", "TypedOperation", value => read.work_TypedOperation_backed.write(value.operation), lazyReader(() => read.work_TypedOperation_backed.reader))
+    .finish((field_role, field_embedding, field_operation) => ({ kind: "backed-convert", role: field_role, embedding: field_embedding, operation: field_operation })));
   const work_ConversionDecision_deferred: TirRecordCodec<ConversionDecision & { readonly kind: "deferred" }> = defineRecord<ConversionDecision & { readonly kind: "deferred" }>("ConversionDecision#deferred", "ConversionDecision", { field: "kind", value: "deferred" }, "deferred", null, null, fields => fields
     .field("deferred", "DeferredDecision", value => read.work_DeferredDecision.write(value.deferred), lazyReader(() => read.work_DeferredDecision.reader))
     .finish((field_deferred) => ({ kind: "deferred", deferred: field_deferred })));
@@ -501,9 +507,10 @@ export const createBodyText = (kernel: TirTextKernel, read: BodyTextReads): Body
     switch (value.kind) {
       case "identity": return work_ConversionDecision_identity.write(value);
       case "convert": return work_ConversionDecision_convert.write(value);
+      case "backed-convert": return work_ConversionDecision_backed_convert.write(value);
       case "deferred": return work_ConversionDecision_deferred.write(value);
     }
-  }, () => [work_ConversionDecision_identity.reader, work_ConversionDecision_convert.reader, work_ConversionDecision_deferred.reader]);
+  }, () => [work_ConversionDecision_identity.reader, work_ConversionDecision_convert.reader, work_ConversionDecision_backed_convert.reader, work_ConversionDecision_deferred.reader]);
   const work_TargetAccess: TirRecordCodec<TargetAccess> = unionRecord<TargetAccess>("TargetAccess", (value: TargetAccess): TirTypedRecordWork => {
     switch (value.kind) {
       case "write": return work_TargetAccess_write.write(value);

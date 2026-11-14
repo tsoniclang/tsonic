@@ -1,7 +1,7 @@
 import type { CanonicalizeProgram, SignatureRecord } from "./contract.js";
 import type { TypeRewrite } from "./canonical-types.js";
-import { publicationRewrite, rewriteArtifactBindings, rewriteConstant, rewriteInstance } from "./canonical-types.js";
-import { rewriteMetadata, rewriteSummary } from "./canonical-facts.js";
+import { publicationRewrite, rewriteArtifactBindings, rewriteConstant, rewriteExecution, rewriteInstance } from "./canonical-types.js";
+import { rewriteMetadata, rewriteSummary, rewriteSummaryKey } from "./canonical-facts.js";
 import { rewriteModuleSyntax } from "./canonical-syntax.js";
 
 function rewriteSignature(rewrite: TypeRewrite, record: SignatureRecord): SignatureRecord {
@@ -28,11 +28,12 @@ export const canonicalizeProgram: CanonicalizeProgram = (program, publication) =
         mirLocalCount: record.mirLocalCount, mirConstantCount: record.mirConstantCount,
         mirPlaceCount: record.mirPlaceCount, mirBlockCount: record.mirBlockCount,
       })),
+      executions: index.executions.map(execution => rewriteExecution(rewrite, execution)),
       metadata: index.metadata.map(record => rewriteMetadata(rewrite, record)),
-      summaries: index.summaries.map(summary => rewriteSummary(rewrite, summary, {
-        definition: summary.key.definition, bindings: rewriteArtifactBindings(rewrite, summary.key.bindings),
-      })),
-      constants: index.constants.map(record => ({ initializer: rewriteInstance(rewrite, record.initializer), value: rewriteConstant(rewrite, record.value) })),
+      summaries: index.summaries.map(summary => rewriteSummary(rewrite, summary, rewriteSummaryKey(rewrite, summary.key))),
+      constants: index.constants.map(record => ({ reference: {
+        initializer: rewriteInstance(rewrite, record.reference.initializer), context: record.reference.context,
+      }, value: rewriteConstant(rewrite, record.value) })),
       diagnostics: index.diagnostics,
     },
     modules: program.modules.map((module, position) => rewriteModuleSyntax(rewrite, module, `HostProgram.modules[${position}]`)),

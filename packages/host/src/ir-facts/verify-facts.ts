@@ -1,17 +1,19 @@
+import { summaryBindings, summaryDefinition, summaryKey } from "./summary-key.js";
 import type { Violation } from "../diag/contract.js";
-import type { NodeId, NodeRef } from "../ids/contract.js";
+import type { LocalId, NodeId, NodeRef } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import type { DeclarationTarget } from "../ir-hir/contract.js";
 import { childrenOfSyntax } from "../ir-hir/index.js";
-import type { TirNode, TypedPhase } from "../ir-tir/contract.js";
+import type { MirTerminator } from "../ir-mir/contract.js";
+import type { TirBody, TirNode, TypedPhase } from "../ir-tir/contract.js";
 import type { ArtifactBindings, BodyInstance } from "../ir-types/contract.js";
 import { instanceKey } from "../ir-types/index.js";
 import type {
   ArgumentTransport, EscapeTarget, FactsRule, FactsSite, MemoryField, MemoryLayout, MetadataFieldRef, MetadataLayoutRef, MirPoint, RelationalOwner,
-  RetentionFact, VerifyFacts,
+  RetentionFact, StoreEdge, VerifyFacts, VerifyLiveness,
 } from "./contract.js";
 import {
-  collectSelectionChecks, compareNumbers, escapeData, factBindingInputs, ownerKey, relationalUsage, sameBindings, sameCaptures, validIndex,
+  collectSelectionChecks, compareNumbers, escapeData, factBindingInputs, ownerKey, relationalUsage, sameBindings, validIndex,
   verifyFactBindings, verifyRelationalArena,
 } from "./verify-relations.js";
 
@@ -35,28 +37,8 @@ interface TransportShape {
   readonly component: number | null;
 }
 
-export const verifyFacts: VerifyFacts = (facts, mir, context) => {
-  const violations: Violation<FactsRule, FactsSite>[] = [];
-  const bodySite: FactsSite = { kind: "body", instance: facts.instance };
-  const owner: RelationalOwner = { kind: "body", instance: facts.instance };
-  const tir = context.tirBody(facts.instance);
-  const at = (node: NodeId): FactsSite => ({ kind: "node", at: { body: facts.instance.body, node } });
-  const report = (rule: FactsRule, site: FactsSite, text: string): void => {
-    violations.push({ rule, site, detail: [{ kind: "text", value: text }] });
-  };
-  if (facts.instance.body !== mir.body || facts.instance.body !== tir.body ||
-    !sameBindings(facts.instance.bindings, mir.bindings) || !sameBindings(facts.instance.bindings, tir.bindings)) {
-    report("body-instance-exact", bodySite, "Facts, TIR and MIR retain one exact body and complete binding environment.");
-  }
-  const definition = tir.owner;
-  if (!context.definitionExists(definition)) {
-    report("cross-owner-qualified", bodySite, "The actual checked body retains an existing declaration owner.");
-  }
-  const diagnosticSites = new Set<string>();
-  for (const diagnostic of context.diagnostics) if (diagnostic !== undefined && diagnostic.severity === "error" && diagnostic.site.kind === "source") {
-    const origin = diagnostic.site.origin; diagnosticSites.add(encodeKey([origin.module, origin.start, origin.length]));
-  }
-  for (const violation of verifyRelationalArena(facts.arena, owner, context)) violations.push(violation);
+// The body's own syntax nodes (nested bodies' subtrees excluded) and those that carry a typed value.
+function bodyNodes(tir: TirBody): { readonly nodes: ReadonlyMap<NodeId, TirNode>; readonly valueNodes: ReadonlySet<NodeId> } {
   const nodes = new Map<NodeId, TirNode>();
   const valueNodes = new Set<NodeId>();
   const nestedBodies = new Set(tir.nestedBodies);
@@ -73,15 +55,124 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
       nestedBodies.has(annotation.initializer) && "initializer" in node && node.initializer !== null ? node.initializer.id : null;
     for (const child of childrenOfSyntax<TypedPhase>(node)) if (child.id !== bodyRoot && child.id !== initializerRoot) pending.push(child);
   }
+  return { nodes, valueNodes };
+}
+
+// MIR points: a store, a write and an escape are ordered by position first, then by their source occurrence.
+const comparePoints = (left: MirPoint, right: MirPoint): number =>
+  compareNumbers(left.block, right.block) || compareNullableNumber(left.statement, right.statement, 1);
+
+// The liveness family of one execution: the laws verifyFacts applies to it, available on their own to the family's producer.
+// The edge roles a terminator has: at most one edge per role (K-3370). `unwind` only when the terminator unwinds to a handler.
+const hasStoreEdge = (terminator: MirTerminator, edge: StoreEdge): boolean => {
+  switch (terminator.kind) {
+    case "check": case "call": case "invoke": return edge === "continue" || edge === "unwind" && terminator.unwind.kind === "handler";
+    case "await": return edge === "resume" || edge === "unwind" && terminator.unwind.kind === "handler";
+    case "yield": case "delegate": return edge === "resume" || edge === "return" || edge === "unwind" && terminator.unwind.kind === "handler";
+    case "throw": return edge === "unwind" && terminator.unwind.kind === "handler";
+    case "goto": case "switch": case "return": case "unreachable": return false;
+  }
+};
+const storeEdgeOrder: readonly (StoreEdge | null)[] = [null, "continue", "resume", "return", "unwind"];
+const compareEdges = (left: StoreEdge | null, right: StoreEdge | null): number => storeEdgeOrder.indexOf(left) - storeEdgeOrder.indexOf(right);
+
+export const verifyLiveness: VerifyLiveness = (liveness, instance, mir, context) => {
+  const violations: Violation<FactsRule, FactsSite>[] = [];
+  const report = (rule: FactsRule, site: FactsSite, text: string): void => { violations.push({ rule, site, detail: [{ kind: "text", value: text }] }); };
+  const { nodes } = bodyNodes(context.tirBody(instance));
+  const at = (node: NodeId): FactsSite => ({ kind: "node", at: { kind: "body", value: { body: instance.body, node } } });
+  const localSite = (local: LocalId): FactsSite => ({ kind: "local", local: { body: instance.body, local } });
+  const ordered = <Value>(rows: readonly Value[], rule: FactsRule, comparator: (left: Value, right: Value) => number, site: (row: Value) => FactsSite): void => {
+    let previous: Value | null = null;
+    for (const row of rows) {
+      if (previous !== null && comparator(previous, row) >= 0) report(rule, site(row), "Fact rows retain distinct canonical endpoint order.");
+      previous = row;
+    }
+  };
+  ordered(liveness.stores, "stores-order", (left, right) => comparePoints(left.point, right.point) || compareEdges(left.edge, right.edge) ||
+    compareNumbers(left.node, right.node), row => at(row.node));
+  for (const store of liveness.stores) {
+    if (!context.nodeExists({ kind: "body", value: { body: instance.body, node: store.node } }) || !nodes.has(store.node)) {
+      report("node-resolves", at(store.node), "Every fact retains an actual source occurrence in its declared body domain.");
+    }
+    const block = validIndex(store.point.block, mir.blocks.length) ? mir.blocks[store.point.block] : undefined;
+    if (block === undefined || !Object.is(block.id, store.point.block) || store.point.statement !== null &&
+      (!validIndex(store.point.statement, block.statements.length) || block.statements[store.point.statement] === undefined)) {
+      report("mir-point-resolves", at(store.node), "A MIR point names an actual block and statement, or that block's terminator.");
+    } else if (store.edge !== null && (store.point.statement !== null || !hasStoreEdge(block.terminator, store.edge))) {
+      report("mir-point-resolves", at(store.node), "A store edge names a role of the terminator at its point: continue, resume, return or a handler unwind.");
+    }
+  }
+  ordered(liveness.locals, "locals-order", (left, right) => compareNumbers(left.local, right.local), row => localSite(row.local));
+  ordered(liveness.bindings, "locals-order", (left, right) => compareNumbers(left.local, right.local), row => localSite(row.local));
+  for (const local of liveness.locals) {
+    const site = localSite(local.local);
+    if (!validIndex(local.local, mir.locals.length) || !Object.is(mir.locals[local.local]?.id, local.local)) {
+      report("cross-owner-qualified", site, "A live local belongs to this actual MIR local table.");
+    }
+    ordered(local.segments, "live-segments-order", (left, right) => compareNumbers(left.block, right.block) || compareNumbers(left.first, right.first) || compareNumbers(left.last, right.last), () => site);
+    for (const segment of local.segments) {
+      const block = validIndex(segment.block, mir.blocks.length) ? mir.blocks[segment.block] : undefined;
+      if (block === undefined || !Object.is(block.id, segment.block) || !validIndex(segment.first, block.statements.length + 1) ||
+        !validIndex(segment.last, block.statements.length + 1) || segment.last < segment.first ||
+        segment.first < block.statements.length && block.statements[segment.first] === undefined ||
+        segment.last < block.statements.length && block.statements[segment.last] === undefined) report("live-segments-bounds", site,
+        "A live interval contains ordered actual statement or terminator positions in its own block.");
+    }
+  }
+  // A binding row is one per source binding: a MIR local of this table that has a source.
+  for (const storage of liveness.bindings) {
+    const local = validIndex(storage.local, mir.locals.length) ? mir.locals[storage.local] : undefined;
+    if (local === undefined || !Object.is(local.id, storage.local) || local.source === null) {
+      report("cross-owner-qualified", localSite(storage.local), "A binding-storage row belongs to a source binding of this actual MIR local table.");
+    }
+  }
+  ordered(liveness.captures, "captures-order", (left, right) => compareText(left.local.body, right.local.body) || compareNumbers(left.local.local, right.local.local), row => ({ kind: "local", local: row.local }));
+  for (const capture of liveness.captures) if (!context.localExists(capture.local)) {
+    report("capture-locations-exact", { kind: "local", local: capture.local }, "A capture retains its actual qualified outer local.");
+  }
+  return violations;
+};
+
+export const verifyFacts: VerifyFacts = (facts, mir, context) => {
+  const violations: Violation<FactsRule, FactsSite>[] = [];
+  const bodySite: FactsSite = { kind: "execution", execution: facts.execution };
+  const owner: RelationalOwner = { kind: "body", execution: facts.execution };
+  const tir = context.tirBody(facts.execution.instance);
+  const at = (node: NodeId): FactsSite => ({ kind: "node", at: { kind: "body", value: { body: facts.execution.instance.body, node } } });
+  const report = (rule: FactsRule, site: FactsSite, text: string): void => {
+    violations.push({ rule, site, detail: [{ kind: "text", value: text }] });
+  };
+  if (facts.execution.instance.body !== mir.body || facts.execution.instance.body !== tir.body ||
+    !sameBindings(facts.execution.instance.bindings, mir.bindings) || !sameBindings(facts.execution.instance.bindings, tir.bindings)) {
+    report("body-instance-exact", bodySite, "Facts, TIR and MIR retain one exact body and complete binding environment.");
+  }
+  const provided = facts.execution.provided;
+  const firstEntry = mir.entries[0];
+  const entryPosition = firstEntry === undefined ? -1 : firstEntry.provided - provided;
+  const entry = validIndex(entryPosition, mir.entries.length) ? mir.entries[entryPosition] : undefined;
+  if (!Number.isSafeInteger(provided) || provided < 0 || Object.is(provided, -0) || entry === undefined || !Object.is(entry.provided, provided)) {
+    report("execution-entry-exact", bodySite, "Facts name an actual supplied-count entry of their exact MIR body instance.");
+  }
+  const definition = tir.owner;
+  if (!context.definitionExists(definition)) {
+    report("cross-owner-qualified", bodySite, "The actual checked body retains an existing declaration owner.");
+  }
+  const diagnosticSites = new Set<string>();
+  for (const diagnostic of context.diagnostics) if (diagnostic !== undefined && diagnostic.severity === "error" && diagnostic.site.kind === "source") {
+    const origin = diagnostic.site.origin; diagnosticSites.add(encodeKey([origin.module, origin.start, origin.length]));
+  }
+  for (const violation of verifyRelationalArena(facts.arena, owner, context)) violations.push(violation);
+  const { nodes, valueNodes } = bodyNodes(tir);
   const nodeRef = (reference: NodeRef, site: FactsSite, local = true): void => {
     if (!context.nodeExists({ kind: "body", value: reference }) || local && !nodes.has(reference.node)) {
       report("node-resolves", site, "Every fact retains an actual source occurrence in its declared body domain.");
     }
-    if (local && reference.body !== facts.instance.body) {
+    if (local && reference.body !== facts.execution.instance.body) {
       report("cross-owner-qualified", site, "A local fact cannot borrow the same numeric node index from another body.");
     }
   };
-  const node = (id: NodeId): void => nodeRef({ body: facts.instance.body, node: id }, at(id));
+  const node = (id: NodeId): void => nodeRef({ body: facts.execution.instance.body, node: id }, at(id));
   const point = (value: MirPoint, site: FactsSite, rule: "mir-point-resolves" | "point-refs-resolve" = "mir-point-resolves"): void => {
     const block = validIndex(value.block, mir.blocks.length) ? mir.blocks[value.block] : undefined;
     if (block === undefined || !Object.is(block.id, value.block) || value.statement !== null &&
@@ -147,7 +238,10 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
           context.types.signatures[tir.signature]?.receiver === null) report("producer-resolves", site, "A receiver escape retains an actual receiver slot.");
         path(value.path, site); break;
       case "callback": case "suspension":
-        if (value.at.kind === "node") nodeRef(value.at.node, site);
+        if (value.at.kind === "node") {
+          if (value.at.node.kind === "body") nodeRef(value.at.node.value, site);
+          else report("cross-owner-qualified", site, "A body retention occurrence belongs to this exact source body.");
+        }
         else {
           if (!context.libraryExportExists(value.at.identity)) report("relational-site-resolves", site, "An escape retains an existing declared library export.");
           const count = context.declaredSiteCount(value.at.identity);
@@ -171,33 +265,7 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
     }
   }
 
-  ordered(facts.liveness.stores, "stores-order", (left, right) => compareNumbers(left.node, right.node) || compareNumbers(left.point.block, right.point.block) ||
-    compareNullableNumber(left.point.statement, right.point.statement, 1), row => at(row.node));
-  for (const store of facts.liveness.stores) { node(store.node); point(store.point, at(store.node)); }
-  ordered(facts.liveness.locals, "locals-order", (left, right) => compareNumbers(left.local, right.local), row => ({ kind: "local", local: { body: facts.instance.body, local: row.local } }));
-  ordered(facts.liveness.bindings, "locals-order", (left, right) => compareNumbers(left.local, right.local), row => ({ kind: "local", local: { body: facts.instance.body, local: row.local } }));
-  for (const local of facts.liveness.locals) {
-    const site: FactsSite = { kind: "local", local: { body: facts.instance.body, local: local.local } };
-    if (!validIndex(local.local, mir.locals.length) || !Object.is(mir.locals[local.local]?.id, local.local)) {
-      report("cross-owner-qualified", site, "A live local belongs to this actual MIR local table.");
-    }
-    ordered(local.segments, "live-segments-order", (left, right) => compareNumbers(left.block, right.block) || compareNumbers(left.first, right.first) || compareNumbers(left.last, right.last), () => site);
-    for (const segment of local.segments) {
-      const block = validIndex(segment.block, mir.blocks.length) ? mir.blocks[segment.block] : undefined;
-      if (block === undefined || !Object.is(block.id, segment.block) || !validIndex(segment.first, block.statements.length + 1) ||
-        !validIndex(segment.last, block.statements.length + 1) || segment.last < segment.first ||
-        segment.first < block.statements.length && block.statements[segment.first] === undefined ||
-        segment.last < block.statements.length && block.statements[segment.last] === undefined) report("live-segments-bounds", site,
-        "A live interval contains ordered actual statement or terminator positions in its own block.");
-    }
-  }
-  for (const storage of facts.liveness.bindings) if (!validIndex(storage.local, mir.locals.length) || !Object.is(mir.locals[storage.local]?.id, storage.local)) {
-    report("cross-owner-qualified", { kind: "local", local: { body: facts.instance.body, local: storage.local } }, "A binding-storage row belongs to this actual MIR local table.");
-  }
-  ordered(facts.liveness.captures, "captures-order", (left, right) => compareText(left.local.body, right.local.body) || compareNumbers(left.local.local, right.local.local), row => ({ kind: "local", local: row.local }));
-  for (const capture of facts.liveness.captures) if (!context.localExists(capture.local)) {
-    report("capture-locations-exact", { kind: "local", local: capture.local }, "A capture retains its actual qualified outer local.");
-  }
+  for (const violation of verifyLiveness(facts.liveness, facts.execution.instance, mir, context)) violations.push(violation);
   nodeOrder(facts.initialization.reads, "initialization-order");
   for (const read of facts.initialization.reads) { node(read.node); place(read.place, at(read.node)); }
   nodeOrder(facts.refinements.refinements, "refinements-order");
@@ -254,17 +322,24 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
   ordered(facts.origins.subjects, "subjects-order", (left, right) => compareNumbers(left.node, right.node) || compareText(left.role, right.role) ||
     compareNullableNumber(left.path, right.path, -1), row => at(row.node));
   for (const subject of facts.origins.subjects) { node(subject.node); path(subject.path, at(subject.node)); origins(subject.origins, at(subject.node)); }
-  nodeOrder(facts.origins.writes, "writes-order");
+  ordered(facts.origins.writes, "writes-order", (left, right) => comparePoints(left.point, right.point) || compareNumbers(left.node, right.node), row => at(row.node));
   for (const write of facts.origins.writes) {
-    node(write.node); const site = at(write.node);
+    node(write.node); const site = at(write.node); point(write.point, site);
     for (const id of write.targets) producer(id, site, true);
     if (write.owner !== null) producer(write.owner, site, true);
     for (const value of write.values) { if (value.source !== null) nodeRef(value.source, site); origins(value.origins, site); }
     for (const id of write.boundaries) boundary(id, site);
   }
-  ordered(facts.origins.escapes, "escapes-order", (left, right) => compareNumbers(left.node, right.node) || compareNumbers(left.producer, right.producer) ||
-    compareText(encodeKey(escapeData(left.target)), encodeKey(escapeData(right.target))), row => at(row.node));
-  for (const escape of facts.origins.escapes) { node(escape.node); producer(escape.producer, at(escape.node)); target(escape.target, at(escape.node)); }
+  ordered(facts.origins.escapes, "escapes-order", (left, right) => comparePoints(left.point, right.point) || compareNumbers(left.node, right.node) ||
+    compareNumbers(left.producer, right.producer) || compareText(encodeKey(escapeData(left.target)), encodeKey(escapeData(right.target))), row => at(row.node));
+  for (const escape of facts.origins.escapes) {
+    node(escape.node); point(escape.point, at(escape.node)); producer(escape.producer, at(escape.node)); target(escape.target, at(escape.node));
+  }
+  // Exit contents: per exit, the writes are distinct, ordered by target producer and value origins, and resolve in this arena.
+  for (const exit of [facts.origins.exitContents.onReturn, facts.origins.exitContents.onUnwind]) {
+    ordered(exit, "writes-order", (left, right) => compareNumbers(left.target, right.target) || compareNumbers(left.value, right.value), () => bodySite);
+    for (const write of exit) { producer(write.target, bodySite); origins(write.value, bodySite); }
+  }
   const checkArgument = (argument: ArgumentTransport, site: FactsSite): void => {
     origins(argument.actual, site); path(argument.projection, site);
     if (!Number.isSafeInteger(argument.parameterIndex) || argument.parameterIndex < 0 || Object.is(argument.parameterIndex, -0) ||
@@ -367,8 +442,7 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
           if (rows === undefined) rests.set(argument.parameterIndex, [argument]); else rows.push(argument);
         }
         supplied.set(argument.parameterIndex, (supplied.get(argument.parameterIndex) ?? 0) + 1);
-        if (argument.formal.owner.kind !== "summary" || argument.formal.owner.definition !== alternative.summary.definition ||
-          !sameBindings(argument.formal.owner.bindings, alternative.summary.bindings)) report("cross-owner-qualified", site,
+        if (argument.formal.owner.kind !== "summary" || summaryKey(argument.formal.owner.key) !== summaryKey(alternative.summary)) report("cross-owner-qualified", site,
           "An argument's formal producer belongs to this exact callee summary and complete binding environment.");
       }
       for (const [index, parameter] of selected?.parameters.entries() ?? []) {
@@ -391,25 +465,31 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
       const dependent = context.bindingDependentOf(decision.api.declaration);
       const environment: ArtifactBindings | null = dependent === null ? null : dependent
         ? { kind: "instantiated", bindings: decision.implementationBindings } : { kind: "parametric" };
-      let activationValid = true;
-      let capturesValid = true;
-      if (activation !== null) {
-        const actual = context.tirBody(activation);
-        activationValid = actual.body === activation.body && actual.owner === decision.api.declaration &&
-          sameBindings(actual.bindings, activation.bindings) && environment !== null && sameBindings(activation.bindings, environment);
-        capturesValid = sameCaptures(actual.captures, alternative.resolution.captures);
-      }
-      if (alternative.summary.definition !== decision.api.declaration || environment === null || !sameBindings(alternative.summary.bindings, environment) ||
-        !activationValid) report("summary-reference-exact", site,
+      // The captured locations of an invocation are the rows of its activation body; a callee without an activation has none.
+      const actual = activation === null ? null : context.tirBody(activation);
+      const captured = actual === null ? 0 : actual.captures.length;
+      const activationValid = actual === null || activation === null || actual.body === activation.body && actual.owner === decision.api.declaration &&
+        sameBindings(actual.bindings, activation.bindings) && environment !== null && sameBindings(activation.bindings, environment);
+      const provided = decision.parameters.reduce((count, parameter) => count + (parameter.kind === "argument" ? 1 : 0), 0);
+      const summary = alternative.summary;
+      const selectedExecution = activation === null
+        ? summary.kind === "declared" && summary.execution.request.definition === decision.api.declaration &&
+          summary.execution.request.endpoint === decision.api.role && context.signatureIdOf(summary.execution.request) === decision.api.signature
+        : summary.kind === "body" && instanceKey(summary.execution.instance) === instanceKey(activation);
+      if (summaryDefinition(summary, context) !== decision.api.declaration || environment === null || !sameBindings(summaryBindings(summary), environment) ||
+        !selectedExecution || !Object.is(summary.execution.provided, provided) || !activationValid) report("summary-reference-exact", site,
         "An invocation names the actual selected declaration and exact instantiated summary environment.");
       const captureSet = new Set<string>();
-      for (const capture of alternative.resolution.captures) if (capture !== undefined) captureSet.add(encodeKey([capture.body, capture.local]));
-      if (!capturesValid || captureSet.size !== alternative.resolution.captures.length ||
-        receiver !== undefined && receiver.captures.length !== alternative.resolution.captures.length) {
+      if (actual !== null) for (const row of actual.captures) {
+        if (row === undefined || !context.localExists(row.local)) {
+          report("capture-locations-exact", site, "An invocation capture retains its actual qualified local location.");
+          continue;
+        }
+        captureSet.add(encodeKey([row.local.body, row.local.local]));
+      }
+      if (captureSet.size !== captured || receiver !== undefined && receiver.captures.length !== captured) {
         report("invocation-contexts-correlated", site, "Each invocation alternative retains its own complete actual captured-location vector.");
       }
-      for (const capture of alternative.resolution.captures) if (capture === undefined || !context.localExists(capture)) report("capture-locations-exact", site,
-        "An invocation capture retains its actual qualified local location.");
     }
   }
   nodeOrder(facts.origins.callbacks, "callbacks-order");
@@ -476,9 +556,9 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
       if (!context.definitionExists(region.owner)) report("cross-owner-qualified", site, "Each constructor region retains its actual lexical declaration owner."); }
   }
   ordered(facts.origins.instanceRegions, "regions-order", (left, right) => compareText(left.owner, right.owner) || compareText(left.node.body, right.node.body) ||
-    compareNumbers(left.node.node, right.node.node) || compareNumbers(left.context, right.context), row => ({ kind: "node", at: row.node }));
+    compareNumbers(left.node.node, right.node.node) || compareNumbers(left.context, right.context), row => ({ kind: "node", at: { kind: "body", value: row.node } }));
   for (const region of facts.origins.instanceRegions) {
-    const site: FactsSite = { kind: "node", at: region.node };
+    const site: FactsSite = { kind: "node", at: { kind: "body", value: region.node } };
     nodeRef(region.node, site, false); valueContext(region.context, bodySite);
     if (!context.definitionExists(region.owner)) report("cross-owner-qualified", site, "An instance region retains its actual lexical declaration owner.");
   }
@@ -503,7 +583,7 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
   }
   for (const source of facts.arena.producers) if (source.kind === "suspension-input") {
     const selected = suspensionKinds.get(source.at.node);
-    if (source.at.body !== facts.instance.body || selected === undefined || source.channel === "sent" && selected === "await") {
+    if (source.at.body !== facts.execution.instance.body || selected === undefined || source.channel === "sent" && selected === "await") {
       report("suspension-input-site", { kind: "producer", owner, producer: source.id }, "A suspension input retains the actual supported suspension channel and occurrence.");
     }
   }
@@ -569,24 +649,6 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
       "A field reference retains its actual metadata declaration, complete binding environment and local field ID.");
     return selected;
   };
-  nodeOrder(facts.observations, "observations-order");
-  for (const observation of facts.observations) {
-    node(observation.node); const site = at(observation.node); nodeRef(observation.operand, site);
-    type(observation.result, site); valueContext(observation.context, site);
-    const layout = metadataLayout(observation.layout, site);
-    const field = observation.field === null ? undefined : metadataField(observation.field, site);
-    if (observation.operation === "field-offset" ? field === undefined : observation.field !== null) {
-      report("observation-field-exact", site, "Only a field-offset observation names the actual selected field metadata.");
-    }
-    if (layout !== undefined) {
-      const expected = observation.operation === "size" ? layout.byteSize : observation.operation === "alignment" ? layout.byteAlignment
-        : observation.operation === "stride" ? layout.stride : field?.byteOffset;
-      if (expected !== undefined && expected !== observation.value) report("observation-exact-value", site,
-        "The observation retains the exact authored bigint size, alignment, stride or field offset.");
-      if (field !== undefined && field.owner !== layout.source) report("observation-field-exact", site,
-        "A field-offset observation retains the selected field's actual owner layout.");
-    }
-  }
   nodeOrder(facts.rawLocations, "raw-locations-order");
   for (const raw of facts.rawLocations) {
     node(raw.node); const site = at(raw.node); type(raw.pointee, site); valueContext(raw.context, site);
@@ -632,7 +694,7 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
       ordered(array.declarations, "closed-array-declarations-order", compareDeclarations, () => site);
       for (const declaration of array.declarations) {
         if (declaration.kind === "local") {
-          if (declaration.local.body !== facts.instance.body || !validIndex(declaration.local.local, tir.locals.length) ||
+          if (declaration.local.body !== facts.execution.instance.body || !validIndex(declaration.local.local, tir.locals.length) ||
             !Object.is(tir.locals[declaration.local.local]?.id, declaration.local.local)) report("cross-owner-qualified", site,
             "A closed array's local declaration is a local of this actual checked body.");
         } else if (!context.definitionExists(declaration.definition)) report("cross-owner-qualified", site,
@@ -643,13 +705,12 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
       for (const element of array.elements) collectSelectionChecks(element, site, context, violations);
     }
   }
-  for (const violation of verifyFactBindings(factBindingInputs(facts, context), { kind: "body", instance: facts.instance }, bodySite, context)) violations.push(violation);
+  for (const violation of verifyFactBindings(factBindingInputs(facts, context), { kind: "body", instance: facts.execution.instance }, bodySite, context)) violations.push(violation);
   const limits = context.limits;
   const usage = relationalUsage(facts.arena);
-  if (mir.blocks.length > limits.maximumBlocksPerBody || mir.places.length > limits.maximumPlacesPerBody ||
-    usage.depth > limits.maximumProjectionDepth || usage.alternatives > limits.maximumOriginAlternatives ||
+  if (usage.depth > limits.maximumProjectionDepth || usage.alternatives > limits.maximumOriginAlternatives ||
     usage.records > limits.maximumRelationalRecordsPerBody || usage.references > limits.maximumRelationalReferencesPerBody) {
-    report("analysis-limits-respected", bodySite, "Published blocks, places, projection depth, alternatives, relational rows and references respect the actual six producer limits.");
+    report("analysis-limits-respected", bodySite, "Published projection depth, alternatives, relational rows and references respect the actual four producer limits.");
   }
   return (violations);
 };

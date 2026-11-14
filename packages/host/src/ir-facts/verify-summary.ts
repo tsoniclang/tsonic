@@ -1,3 +1,4 @@
+import { summaryDefinition } from "./summary-key.js";
 import type { Violation } from "../diag/contract.js";
 import { encodeKey } from "../ids/index.js";
 import type { Signature } from "../ir-types/contract.js";
@@ -14,19 +15,40 @@ const targetKey = (target: EscapeTarget): string => encodeKey(escapeData(target)
 export const verifySummary: VerifySummary = (summary, context) => {
   const violations: Violation<SummaryRule, FactsSite>[] = [];
   const site: FactsSite = { kind: "summary", summary: summary.key };
-  const owner: RelationalOwner = { kind: "summary", definition: summary.key.definition, bindings: summary.key.bindings };
+  const owner: RelationalOwner = { kind: "summary", key: summary.key };
   const report = (rule: SummaryRule, text: string, at: FactsSite = site): void => {
     violations.push({ rule, site: at, detail: [{ kind: "text", value: text }] });
   };
-  if (!context.definitionExists(summary.key.definition)) {
+  const definition = summaryDefinition(summary.key, context);
+  if (definition === null || !context.definitionExists(definition)) {
     report("definition-resolves", "A summary must name an existing declaration in the supplied inventory.");
   }
   const signature = validIndex(summary.signature, context.types.signatures.length) ? context.types.signatures[summary.signature] : undefined;
   if (signature === undefined || !Object.is(signature.id, summary.signature)) {
     report("signature-resolves", "A summary must name an existing declaration-instantiated signature.");
   }
-  if (signature !== undefined && signature.declaration !== null && signature.declaration !== summary.key.definition) {
+  if (signature !== undefined && signature.declaration !== null && signature.declaration !== definition) {
     report("cross-owner-qualified", "The summary signature must retain its actual declaration owner.");
+  }
+  const expectedSignature = summary.key.kind === "declared" ? context.signatureIdOf(summary.key.execution.request)
+    : definition === null ? null : context.tirBody(summary.key.execution.instance).signature;
+  if (signature !== undefined && (expectedSignature === null || !Object.is(expectedSignature, summary.signature))) {
+    report("signature-resolves", "The summary retains the signature of its exact selected execution request.");
+  }
+  if (signature !== undefined) {
+    let fixed = 0;
+    let minimum = 0;
+    let complete = true;
+    for (const parameter of signature.parameters) {
+      if (parameter === undefined) { complete = false; continue; }
+      if (parameter.kind === "rest") continue;
+      fixed += 1;
+      if (parameter.kind === "required" && parameter.initializer === null) minimum = fixed;
+    }
+    const provided = summary.key.execution.provided;
+    if (complete && (!Number.isSafeInteger(provided) || provided < minimum || provided > fixed || Object.is(provided, -0))) {
+      report("summary-entry-exact", "The selected provided count is an admissible fixed-argument entry of this exact signature.");
+    }
   }
   for (const violation of verifyRelationalArena(summary.arena, owner, context)) {
     const rule: SummaryRule = violation.rule === "cross-owner-qualified" ||
@@ -37,7 +59,7 @@ export const verifySummary: VerifySummary = (summary, context) => {
   if (capturedCount === null || !Number.isSafeInteger(capturedCount) || capturedCount < 0 || Object.is(capturedCount, -0) || summary.captures.length !== capturedCount) {
     report("captures-total", "A summary retains every location in the actual declaration capture inventory.");
   }
-  const dependent = context.bindingDependentOf(summary.key.definition);
+  const dependent = definition === null ? null : context.bindingDependentOf(definition);
   if (dependent === null || dependent !== summary.bindingDependent) {
     report("summary-binding-dependence", "Summary dependence equals the supplied declaration's actual binding dependence.");
   }
@@ -105,7 +127,7 @@ export const verifySummary: VerifySummary = (summary, context) => {
     const target = retention.into;
     if (target.kind === "callback" || target.kind === "suspension") {
       if (target.at.kind === "node") {
-        if (!context.nodeExists({ kind: "body", value: target.at.node })) report("relational-site-resolves", "A retention target retains its actual source occurrence.");
+        if (!context.nodeExists(target.at.node)) report("relational-site-resolves", "A retention target retains its actual source occurrence.");
         if (!nodeOwnedBy(owner, target.at.node, context)) report("cross-owner-qualified", "A retention target retains its actual summary declaration owner.");
       } else {
         if (!context.libraryExportExists(target.at.identity)) report("relational-site-resolves", "A retention target retains its actual library export.");

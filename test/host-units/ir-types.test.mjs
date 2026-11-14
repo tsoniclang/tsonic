@@ -23,7 +23,7 @@ const session = new Session();
 const post = (method, parameters = {}) => new Promise((done, reject) => {
   session.post(method, parameters, (error, result) => error === null ? done(result) : reject(error));
 });
-let createTypeInterner, seedTypeInterner, internType, internSignature, readType, readSignature, exportTypes,
+let createTypeInterner, seedTypeInterner, internType, internSignature, readType, readSignature, viewTypes, exportTypes,
   substitute, substituteSignature, substituteBindingValues, printTypes, parseTypes, runTypeVerifier, encodeSelectorPath,
   instanceKey, sameInstance, executionKey, declaredExecutionKey, bindingVectorKey, artifactBindingsKey, bindingVectorData,
   artifactBindingsData, signatureRequestData, signatureRequestKey, rigidBindings;
@@ -34,7 +34,7 @@ before(async () => {
   await post("Debugger.enable");
   await post("Profiler.enable");
   await post("Profiler.startPreciseCoverage", { callCount: true, detailed: true });
-  ({ createTypeInterner, seedTypeInterner, internType, internSignature, readType, readSignature, exportTypes,
+  ({ createTypeInterner, seedTypeInterner, internType, internSignature, readType, readSignature, viewTypes, exportTypes,
     substitute, substituteSignature, substituteBindingValues, printTypes, parseTypes, verifyTypes: runTypeVerifier, encodeSelectorPath,
     instanceKey, sameInstance, executionKey, declaredExecutionKey, bindingVectorKey, artifactBindingsKey, bindingVectorData,
     artifactBindingsData, signatureRequestData, signatureRequestKey, rigidBindings } = await import("../../packages/host/dist/ir-types/index.js"));
@@ -113,6 +113,70 @@ const violation = (rule, site, field, value) => ({ rule, site,
   detail: [{ kind: "text", value: field }, ...(value === undefined ? [] : [{ kind: "number", value }])] });
 const typeSite = type => ({ kind: "type", type });
 const signatureSite = signature => ({ kind: "signature", signature });
+
+test("constant reference keys retain producer context and the complete initializer instance", async () => {
+  const { constantReferenceKey } = await import("../../packages/host/dist/ir-types/index.js");
+  const initializer = { body, bindings: { kind: "parametric" } };
+  const keys = ["enum-member", "fixed-array-extent", "compile-time"].map(context => constantReferenceKey({ initializer, context }));
+  assert.equal(new Set(keys).size, 3, "the same initializer under distinct selected contexts is not the same receipt");
+  assert.equal(constantReferenceKey({ initializer: { ...initializer }, context: "compile-time" }), keys[2]);
+  assert.notEqual(constantReferenceKey({ initializer: { ...initializer, body: otherBody }, context: "compile-time" }), keys[2]);
+  const families = ["classBindings", "methodBindings", "capturedBindings", "selfBindings"];
+  for (const family of families) {
+    const binding = family === "selfBindings" ? { kind: "rigid", owner } : { kind: "rigid", parameter: { owner, index: 0 } };
+    const reference = vector => ({ initializer: { body, bindings: { kind: "instantiated", bindings: { ...emptyBindings(), [family]: vector } } },
+      context: "enum-member" });
+    assert.notEqual(constantReferenceKey(reference([binding, undefined])), constantReferenceKey(reference([undefined, binding])));
+    assert.notEqual(constantReferenceKey(reference([binding])), constantReferenceKey(reference([binding, undefined])));
+    assert.notEqual(constantReferenceKey(reference([])), constantReferenceKey({ initializer, context: "enum-member" }));
+  }
+});
+
+test("one readonly run view retains actual row identities, domain and append-only growth without publication", () => {
+  const interner = createTypeInterner();
+  const view = viewTypes(interner);
+  const terms = view.terms;
+  const signatures = view.signatures;
+  assert.deepEqual(view, { terms: [], signatures: [] });
+  const text = internType(interner, { kind: "string" });
+  const numeric = internType(interner, primitive);
+  const callable = internSignature(interner, signature({ result: numeric }));
+  assert.deepEqual([text, numeric, callable], [0, 1, 0], "run IDs are not canonical-publication remaps");
+  assert.equal(view.terms[text] === readType(interner, text), true);
+  assert.equal(view.terms[numeric] === readType(interner, numeric), true);
+  assert.equal(view.signatures[callable] === readSignature(interner, callable), true);
+  const original = view.terms[numeric];
+  for (let position = 0; position < 4096; position += 1) {
+    internType(interner, { kind: "literal", value: { kind: "string", value: `value-${position}` }, base: text });
+    assert.equal(viewTypes(interner) === view, true);
+    assert.equal(viewTypes(interner).terms === terms && viewTypes(interner).signatures === signatures, true);
+  }
+  assert.equal(view.terms.length, 4098);
+  assert.equal(view.signatures.length, 1);
+  assert.equal(view.terms[numeric] === original, true);
+  assert.equal(viewTypes(createTypeInterner()) === view, false);
+});
+
+test("seeded and substituted rows enter the same readonly run view with their genuine IDs", () => {
+  const input = { terms: [primitive, primitive], signatures: [{ id: 0, ...signature() }] };
+  const seeded = seedTypeInterner(input);
+  const seedView = viewTypes(seeded);
+  assert.equal(seedView.terms.length, 2, "the view does not deduplicate or canonicalize seeded IDs");
+  assert.equal(seedView.terms[1] === readType(seeded, 1), true);
+  assert.equal(seedView.signatures[0] === readSignature(seeded, 0), true);
+  assert.equal(seedView.terms === input.terms || seedView.signatures === input.signatures, false);
+  const parameter = { owner, index: 0 };
+  const formal = internType(seeded, { kind: "param", parameter });
+  const array = internType(seeded, { kind: "array", element: formal, readonly: false });
+  const generic = internSignature(seeded, signature({ result: array }));
+  const transformed = substituteSignature(seeded, [generic],
+    { ...emptyBindings(), classBindings: [{ kind: "bound", parameter, type: 0 }] }, limits());
+  assert.equal(transformed.kind, "complete");
+  const selected = transformed.value[0];
+  assert.equal(seedView.signatures[selected] === readSignature(seeded, selected), true);
+  assert.deepEqual(seedView.terms[readSignature(seeded, selected).result], { kind: "array", element: 0, readonly: false });
+  assert.equal(viewTypes(seeded) === seedView, true);
+});
 
 test("batched substitution preserves empty results and validates the one supplied environment", () => {
   const interner = seedTypeInterner({ terms: [primitive], signatures: [{ id: 0, ...signature() }] });
@@ -3203,11 +3267,28 @@ test("fresh public declarations admit real strict readers and reject the entire 
   assert.equal(invalidBatch.status, 1, invalidBatch.diagnostics.slice(-8000));
   assert.deepEqual([...invalidBatch.diagnostics.matchAll(/error TS(\d+):/gu)].map(match => Number(match[1])),
     [2345, 2345, 2322, 2322, 2542, 2339], invalidBatch.diagnostics.slice(-8000));
-  write("seed-reader.ts", 'import { internType } from "./declarations/ir-types/index.js";\nimport type { TypeInterner } from "./declarations/ir-types/contract.js";\nconst fabricated = { identityKind: "type-interner", terms: [], signatures: [], typeKeys: new Map(), signatureKeys: new Map(), substitutions: new Map() };\nexport const forbidden: TypeInterner = fabricated;\nexport function inaccessible(interner: TypeInterner): void {\n  internType(fabricated, { kind: "string" });\n  interner.typeRows;\n  interner.terms;\n}\n');
+  write("seed-reader.ts", 'import { internType } from "./declarations/ir-types/index.js";\nimport type { TypeInterner } from "./declarations/ir-types/contract.js";\nconst fabricated = { identityKind: "type-interner", terms: [], signatures: [], typeKeys: new Map(), signatureKeys: new Map(), substitutions: new Map() };\nexport const forbidden: TypeInterner = fabricated;\nexport function inaccessible(interner: TypeInterner): void {\n  internType(fabricated, { kind: "string" });\n  interner.table;\n  interner.terms;\n}\n');
   const invalidOwner = run(resolve(stage, "consumer.json"));
   assert.equal(invalidOwner.status, 1, invalidOwner.diagnostics.slice(-8000));
   assert.deepEqual([...invalidOwner.diagnostics.matchAll(/error TS(\d+):/gu)].map(match => Number(match[1])),
     [2739, 2739, 2341, 2576], invalidOwner.diagnostics.slice(-8000));
+  write("view-reader.ts", 'import { viewTypes } from "./declarations/ir-types/index.js";\nimport type { TypeInterner, TypeTable, ViewTypes } from "./declarations/ir-types/contract.js";\nexport const operation: ViewTypes = viewTypes;\nexport function current(interner: TypeInterner): TypeTable { return operation(interner); }\n');
+  write("view-consumer.json", { extends: resolve(repository, "tsconfig.base.json"), compilerOptions: {
+    noEmit: true, types: [], skipLibCheck: false, strict: true, noUncheckedIndexedAccess: true, exactOptionalPropertyTypes: true },
+    files: [resolve(stage, "view-reader.ts")], include: [] });
+  assert.deepEqual(run(resolve(stage, "view-consumer.json")), { status: 0, diagnostics: "" });
+  write("view-reader.ts", 'import { viewTypes } from "./declarations/ir-types/index.js";\nimport type { TypeInterner } from "./declarations/ir-types/contract.js";\nexport function forbidden(interner: TypeInterner): void {\nconst table = viewTypes(interner);\ntable.terms = [];\ntable.terms.push({ kind: "error" });\ntable.terms[0] = { kind: "error" };\ntable.signatures = [];\ntable.signatures.push(table.signatures[0]!);\n}\n');
+  const invalidView = run(resolve(stage, "view-consumer.json"));
+  assert.equal(invalidView.status, 1, invalidView.diagnostics.slice(-8000));
+  assert.deepEqual([...invalidView.diagnostics.matchAll(/error TS(\d+):/gu)].map(match => Number(match[1])),
+    [2540, 2339, 2542, 2540, 2339], invalidView.diagnostics.slice(-8000));
+  write("view-reader.ts", 'import { constantReferenceKey } from "./declarations/ir-types/index.js";\nimport type { BodyInstance, ConstantContext, ConstantReference, ConstantReferenceKey, SignatureEndpoint, SignatureRequest } from "./declarations/ir-types/contract.js";\nexport const key: ConstantReferenceKey = constantReferenceKey;\nexport function reference(initializer: BodyInstance, context: ConstantContext): ConstantReference { return { initializer, context }; }\nexport function endpoint(request: SignatureRequest): SignatureEndpoint { return request.endpoint; }\n');
+  assert.deepEqual(run(resolve(stage, "view-consumer.json")), { status: 0, diagnostics: "" });
+  write("view-reader.ts", 'import type { BodyInstance, ConstantReference, SignatureEndpoint } from "./declarations/ir-types/contract.js";\nexport function forbidden(initializer: BodyInstance, reference: ConstantReference): void {\nconst old: ConstantReference = { initializer };\nconst wrong: ConstantReference = { initializer, context: "requester" };\nconst endpoint: SignatureEndpoint = "initializer";\nreference.context = "compile-time";\nvoid old; void wrong; void endpoint;\n}\n');
+  const invalidReference = run(resolve(stage, "view-consumer.json"));
+  assert.equal(invalidReference.status, 1, invalidReference.diagnostics.slice(-8000));
+  assert.deepEqual([...invalidReference.diagnostics.matchAll(/error TS(\d+):/gu)].map(match => Number(match[1])),
+    [2741, 2322, 2322, 2540], invalidReference.diagnostics.slice(-8000));
 });
 
 after(async () => {

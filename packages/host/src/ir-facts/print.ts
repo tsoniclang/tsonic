@@ -1,17 +1,17 @@
 import type { LibraryExportIdentity, LibraryModuleIdentity, LocalRef, NodeRef, SourceNodeRef } from "../ids/contract.js";
 import type { DeclarationTarget, HirCallableEndpoint } from "../ir-hir/contract.js";
-import type { ApplicationDecision, CompletionEndpoint, MemberDecision, ParameterMapping } from "../ir-infer/contract.js";
+import type { AccessLocation, CheckRequirement, ApplicationDecision, CompletionEndpoint, MemberDecision, ParameterMapping } from "../ir-infer/contract.js";
 import type { MemberSelection, ResolvedCallee } from "../ir-tir/contract.js";
 import type {
-  ArtifactBindings, BindingVector, BodyInstance, ExactRational, MemberKey, MemberOrigin, SelfBinding,
+  ArtifactBindings, BindingVector, BodyInstance, DeclaredExecution, Execution, SignatureRequest, ExactRational, MemberKey, MemberOrigin, SelfBinding,
   TypeBinding, TypeParameterIdentity,
 } from "../ir-types/contract.js";
 import type { CallbackInput, SummaryCallback } from "../snapshot/contract.js";
 import type {
-  ArgumentTransport, BindingStorageFact, BodyFacts, BoundActivation, BoundProducer, BoundRecordField,
+  ArgumentTransport, BindingStorageFact, BodyFacts, BodyObservations, BoundActivation, BoundProducer, BoundRecordField,
   CallbackEntry, CallComponent, CallEdge, CallGraph, CaptureEffect, CaptureFact, CaptureLocation,
   ClosedArrayFact, ClosedArrayReason, ConstructionAlternative, CountedLoopFact, EffectPaths,
-  ErrorInvalidationFact, ErrorInvalidationReason, ErrorStorageFact, ErrorStorageFacts, EscapeFact, EscapeTarget,
+  ErrorInvalidationFact, ErrorInvalidationReason, ErrorStorageFact, ErrorStorageFacts, EscapeFact, EscapeTarget, ExitContents,
   InitializationFact, InitializationFacts, InstanceRegion, IntegerFact, IntegerRange, InvocationAlternative, InvocationFact,
   LiveSegment, LivenessFacts, LocalLiveRange, MemoryBindingInventoryEntry, MemoryField, MemoryFieldBindingFact,
   MemoryLayout, MemoryRecordBindingFact, MetadataFieldRef, MetadataKey, MetadataLayoutRef, MetadataRecord,
@@ -137,6 +137,17 @@ const artifact = (writer: Writer, value: ArtifactBindings): void => record(write
 const bodyInstance = (writer: Writer, value: BodyInstance): void => record(writer, "BodyInstance", [
   ["body", () => identity(writer, "body", value.body)], ["bindings", () => artifact(writer, value.bindings)],
 ]);
+const execution = (writer: Writer, value: Execution): void => record(writer, "Execution", [
+  ["instance", () => bodyInstance(writer, value.instance)], ["provided", () => scalar(writer, value.provided)],
+]);
+const signatureRequest = (writer: Writer, value: SignatureRequest): void => record(writer, "SignatureRequest", [
+  ["definition", () => identity(writer, "def", value.definition)], ["endpoint", () => scalar(writer, value.endpoint)],
+  ["ordinal", () => scalar(writer, value.ordinal)], ["bindings", () => artifact(writer, value.bindings)],
+]);
+const declaredExecution = (writer: Writer, value: DeclaredExecution): void => record(writer, "DeclaredExecution", [
+  ["request", () => signatureRequest(writer, value.request)], ["provided", () => scalar(writer, value.provided)],
+]);
+
 const rational = (writer: Writer, value: ExactRational): void => record(writer, "ExactRational", [
   ["numerator", () => scalar(writer, value.numerator)], ["denominator", () => scalar(writer, value.denominator)],
   ["negativeZero", () => scalar(writer, value.negativeZero)],
@@ -177,7 +188,13 @@ const application = (writer: Writer, value: ApplicationDecision): void => record
   ["implementationBindings", () => bindings(writer, value.implementationBindings)],
   ["parameters", () => sequence(writer, value.parameters, item => parameterMapping(writer, item))],
   ["completion", () => completion(writer, value.completion)], ["result", () => identity(writer, "t", value.result)],
+  ["activation", () => scalar(writer, value.activation)],
 ]);
+const checkRequirement = (writer: Writer, value: CheckRequirement): void =>
+  record(writer, value.kind, value.kind === "required" ? [["failure", () => scalar(writer, value.failure)]] : []);
+const accessLocation = (writer: Writer, value: AccessLocation): void =>
+  record(writer, value.kind, value.kind === "data"
+    ? [["check", () => checkRequirement(writer, value.check)], ["receiver", () => scalar(writer, value.receiver)]] : []);
 const memberDecision = (writer: Writer, value: MemberDecision): void => record(writer, "MemberDecision", [
   ["key", () => memberKey(writer, value.key)], ["origins", () => sequence(writer, value.origins, item => memberOrigin(writer, item))],
   ["selectedDeclarations", () => sequence(writer, value.selectedDeclarations, item => identity(writer, "def", item))],
@@ -186,11 +203,11 @@ const memberDecision = (writer: Writer, value: MemberDecision): void => record(w
   ["write", () => nullable(writer, value.write, item => identity(writer, "t", item))],
   ["getter", () => nullable(writer, value.getter, item => endpoint(writer, item))],
   ["setter", () => nullable(writer, value.setter, item => endpoint(writer, item))], ["bindings", () => bindings(writer, value.bindings)],
+  ["location", () => accessLocation(writer, value.location)],
 ]);
 const resolved = (writer: Writer, value: ResolvedCallee): void => record(writer, "ResolvedCallee", [
   ["decision", () => application(writer, value.decision)],
   ["activation", () => nullable(writer, value.activation, item => bodyInstance(writer, item))],
-  ["captures", () => sequence(writer, value.captures, item => localRef(writer, item))],
 ]);
 const memberSelection = (writer: Writer, value: MemberSelection): void => record(writer, "MemberSelection", [
   ["decision", () => memberDecision(writer, value.decision)], ["getter", () => nullable(writer, value.getter, item => resolved(writer, item))],
@@ -206,10 +223,9 @@ const libraryExport = (writer: Writer, value: LibraryExportIdentity): void => re
   ["memberId", () => scalar(writer, value.memberId)], ["signatureId", () => scalar(writer, value.signatureId)],
 ]);
 const owner = (writer: Writer, value: RelationalOwner): void => record(writer, value.kind, value.kind === "body"
-  ? [["instance", () => bodyInstance(writer, value.instance)]]
-  : [["definition", () => identity(writer, "def", value.definition)], ["bindings", () => artifact(writer, value.bindings)]]);
+  ? [["execution", () => execution(writer, value.execution)]] : [["key", () => summaryKey(writer, value.key)]]);
 const site = (writer: Writer, value: RelationalSite): void => record(writer, value.kind, value.kind === "node"
-  ? [["node", () => nodeRef(writer, value.node)]]
+  ? [["node", () => sourceRef(writer, value.node)]]
   : [["identity", () => libraryExport(writer, value.identity)], ["site", () => scalar(writer, value.site)]]);
 const producerRef = (writer: Writer, value: ProducerRef): void => record(writer, "ProducerRef", [
   ["owner", () => owner(writer, value.owner)], ["producer", () => identity(writer, "producer", value.producer)],
@@ -276,7 +292,7 @@ const mirPoint = (writer: Writer, value: MirPoint): void => record(writer, "MirP
 ]);
 const storeLiveness = (writer: Writer, value: StoreLiveness): void => record(writer, "StoreLiveness", [
   ["node", () => identity(writer, "n", value.node)], ["point", () => mirPoint(writer, value.point)],
-  ["observed", () => scalar(writer, value.observed)],
+  ["edge", () => scalar(writer, value.edge)], ["observed", () => scalar(writer, value.observed)],
 ]);
 const liveSegment = (writer: Writer, value: LiveSegment): void => record(writer, "LiveSegment", [
   ["block", () => identity(writer, "b", value.block)], ["first", () => scalar(writer, value.first)],
@@ -286,7 +302,7 @@ const localLiveRange = (writer: Writer, value: LocalLiveRange): void => record(w
   ["local", () => identity(writer, "l", value.local)], ["segments", () => sequence(writer, value.segments, item => liveSegment(writer, item))],
 ]);
 const bindingStorage = (writer: Writer, value: BindingStorageFact): void => record(writer, "BindingStorageFact", [
-  ["local", () => identity(writer, "l", value.local)], ["scope", () => scalar(writer, value.scope)],
+  ["local", () => identity(writer, "l", value.local)], ["addressTaken", () => scalar(writer, value.addressTaken)],
   ["captured", () => scalar(writer, value.captured)],
 ]);
 const captureFact = (writer: Writer, value: CaptureFact): void => record(writer, "CaptureFact", [
@@ -344,13 +360,13 @@ const writtenOrigins = (writer: Writer, value: WrittenOrigins): void => record(w
   ["reason", () => nullable(writer, value.reason, item => writtenReason(writer, item))],
 ]);
 const writeFact = (writer: Writer, value: WriteFact): void => record(writer, "WriteFact", [
-  ["node", () => identity(writer, "n", value.node)], ["operation", () => scalar(writer, value.operation)],
+  ["point", () => mirPoint(writer, value.point)], ["node", () => identity(writer, "n", value.node)], ["operation", () => scalar(writer, value.operation)],
   ["destination", () => scalar(writer, value.destination)], ["targets", () => sequence(writer, value.targets, item => identity(writer, "bound", item))],
   ["owner", () => nullable(writer, value.owner, item => identity(writer, "bound", item))], ["values", () => sequence(writer, value.values, item => writtenOrigins(writer, item))],
   ["boundaries", () => sequence(writer, value.boundaries, item => identity(writer, "boundary", item))],
 ]);
 const escapeFact = (writer: Writer, value: EscapeFact): void => record(writer, "EscapeFact", [
-  ["node", () => identity(writer, "n", value.node)], ["producer", () => identity(writer, "producer", value.producer)],
+  ["point", () => mirPoint(writer, value.point)], ["node", () => identity(writer, "n", value.node)], ["producer", () => identity(writer, "producer", value.producer)],
   ["target", () => escapeTarget(writer, value.target)],
 ]);
 const argumentTransport = (writer: Writer, value: ArgumentTransport): void => record(writer, "ArgumentTransport", [
@@ -360,8 +376,8 @@ const argumentTransport = (writer: Writer, value: ArgumentTransport): void => re
   ["actual", () => identity(writer, "origins", value.actual)], ["formal", () => producerRef(writer, value.formal)],
   ["projection", () => nullable(writer, value.projection, item => identity(writer, "path", item))],
 ]);
-const summaryKey = (writer: Writer, value: SummaryKey): void => record(writer, "SummaryKey", [
-  ["definition", () => identity(writer, "def", value.definition)], ["bindings", () => artifact(writer, value.bindings)],
+const summaryKey = (writer: Writer, value: SummaryKey): void => record(writer, value.kind, [
+  ["execution", () => value.kind === "body" ? execution(writer, value.execution) : declaredExecution(writer, value.execution)],
 ]);
 const invocationAlternative = (writer: Writer, value: InvocationAlternative): void => record(writer, "InvocationAlternative", [
   ["resolution", () => resolved(writer, value.resolution)], ["context", () => identity(writer, "context", value.context)],
@@ -402,6 +418,11 @@ const originFacts = (writer: Writer, value: OriginFacts): void => record(writer,
   ["callbacks", () => sequence(writer, value.callbacks, item => callbackEntry(writer, item))], ["activations", () => sequence(writer, value.activations, item => activation(writer, item))],
   ["frontiers", () => sequence(writer, value.frontiers, item => frontier(writer, item))], ["constructions", () => sequence(writer, value.constructions, item => construction(writer, item))],
   ["instanceRegions", () => sequence(writer, value.instanceRegions, item => instanceRegion(writer, item))],
+  ["exitContents", () => exitContents(writer, value.exitContents)],
+]);
+const exitContents = (writer: Writer, value: ExitContents): void => record(writer, "ExitContents", [
+  ["onReturn", () => sequence(writer, value.onReturn, item => summaryWrite(writer, item))],
+  ["onUnwind", () => sequence(writer, value.onUnwind, item => summaryWrite(writer, item))],
 ]);
 const retention = (writer: Writer, value: RetentionFact): void => record(writer, "RetentionFact", [
   ["source", () => identity(writer, "producer", value.source)], ["into", () => escapeTarget(writer, value.into)],
@@ -455,7 +476,7 @@ const observation = (writer: Writer, value: ObservationFact): void => record(wri
   ["node", () => identity(writer, "n", value.node)], ["operation", () => scalar(writer, value.operation)],
   ["operand", () => nodeRef(writer, value.operand)], ["layout", () => layoutRef(writer, value.layout)],
   ["field", () => nullable(writer, value.field, item => fieldRef(writer, item))], ["result", () => identity(writer, "t", value.result)],
-  ["value", () => scalar(writer, value.value)], ["context", () => identity(writer, "context", value.context)],
+  ["value", () => scalar(writer, value.value)],
   ["bindings", () => bindings(writer, value.bindings)],
 ]);
 const rawLocation = (writer: Writer, value: RawLocationFact): void => record(writer, "RawLocationFact", [
@@ -480,11 +501,11 @@ const recordBinding = (writer: Writer, value: MemoryRecordBindingFact): void => 
   ["fields", () => sequence(writer, value.fields, item => boundRecordField(writer, item))],
 ]);
 const bodyFacts = (writer: Writer, value: BodyFacts): void => record(writer, "BodyFacts", [
-  ["instance", () => bodyInstance(writer, value.instance)], ["arena", () => arena(writer, value.arena)],
+  ["execution", () => execution(writer, value.execution)], ["arena", () => arena(writer, value.arena)],
   ["liveness", () => liveness(writer, value.liveness)], ["initialization", () => initialization(writer, value.initialization)],
   ["refinements", () => refinements(writer, value.refinements)], ["origins", () => originFacts(writer, value.origins)],
   ["suspension", () => suspension(writer, value.suspension)], ["errorStorage", () => errorStorage(writer, value.errorStorage)],
-  ["pointerBacking", () => pointerBacking(writer, value.pointerBacking)], ["observations", () => sequence(writer, value.observations, item => observation(writer, item))],
+  ["pointerBacking", () => pointerBacking(writer, value.pointerBacking)],
   ["rawLocations", () => sequence(writer, value.rawLocations, item => rawLocation(writer, item))], ["fieldBindings", () => sequence(writer, value.fieldBindings, item => fieldBinding(writer, item))],
   ["recordBindings", () => sequence(writer, value.recordBindings, item => recordBinding(writer, item))], ["memoryBindings", () => sequence(writer, value.memoryBindings, item => memoryInventory(writer, item))],
   ["selectedMemoryDeclarations", () => sequence(writer, value.selectedMemoryDeclarations, item => identity(writer, "def", item))], ["closedArrays", () => sequence(writer, value.closedArrays, item => closedArray(writer, item))],
@@ -623,6 +644,9 @@ const callCallee = (writer: Writer, edge: CallEdge): void => {
 };
 
 export const printFacts: PrintFacts = facts => finish(facts, bodyFacts);
+export const printObservations = (value: BodyObservations): string => finish(value, (writer, value) => record(writer, "BodyObservations", [
+  ["instance", () => bodyInstance(writer, value.instance)], ["rows", () => sequence(writer, value.rows, item => observation(writer, item))],
+]));
 export const printSummary: PrintSummary = value => finish(value, summary);
 export const printMetadata: PrintMetadata = value => finish(value, metadata);
 export const printCallGraph: PrintCallGraph = value => finish(value, callGraph);

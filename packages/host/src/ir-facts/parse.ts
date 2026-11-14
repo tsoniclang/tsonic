@@ -10,24 +10,24 @@ import {
   tyId, valueContextId,
 } from "../ids/index.js";
 import type { DeclarationTarget, HirCallableEndpoint } from "../ir-hir/contract.js";
-import type { ApplicationDecision, CompletionEndpoint, MemberDecision, ParameterMapping } from "../ir-infer/contract.js";
+import type { AccessLocation, CheckRequirement, ApplicationDecision, CompletionEndpoint, MemberDecision, ParameterMapping } from "../ir-infer/contract.js";
 import type { MemberSelection, ResolvedCallee } from "../ir-tir/contract.js";
 import type {
-  ArtifactBindings, BindingVector, BodyInstance, ExactRational, MemberKey, MemberOrigin, SelfBinding,
+  ArtifactBindings, BindingVector, BodyInstance, DeclaredExecution, Execution, SignatureRequest, ExactRational, MemberKey, MemberOrigin, SelfBinding,
   TypeBinding, TypeParameterIdentity,
 } from "../ir-types/contract.js";
 import type { CallbackInput, SummaryCallback } from "../snapshot/contract.js";
 import type {
-  ArgumentTransport, BindingStorageFact, BodyFacts, BoundActivation, BoundProducer, BoundRecordField,
+  ArgumentTransport, BindingStorageFact, BodyFacts, BodyObservations, BoundActivation, BoundProducer, BoundRecordField,
   CallbackEntry, CallComponent, CallEdge, CallGraph, CaptureEffect, CaptureFact, CaptureLocation,
   ClosedArrayFact, ClosedArrayReason, ConstructionAlternative, CountedLoopFact, EffectPaths,
-  ErrorInvalidationFact, ErrorInvalidationReason, ErrorStorageFact, ErrorStorageFacts, EscapeFact, EscapeTarget,
+  ErrorInvalidationFact, ErrorInvalidationReason, ErrorStorageFact, ErrorStorageFacts, EscapeFact, EscapeTarget, ExitContents,
   InitializationFact, InitializationFacts, InstanceRegion, IntegerFact, IntegerRange, InvocationAlternative, InvocationFact,
   LiveSegment, LivenessFacts, LocalLiveRange, MemoryBindingInventoryEntry, MemoryField, MemoryFieldBindingFact,
   MemoryLayout, MemoryRecordBindingFact, MetadataFieldRef, MetadataKey, MetadataLayoutRef, MetadataRecord,
   MirPoint, ObservationFact, OpenBoundary, OpenBoundaryRef, OriginFacts, Origins, ParameterEffect, ParameterSlot,
   PointPlaceOrigins, PointerBackingFact, PointerBackingFacts, PointerBackingOperation, PointerBackingProducer,
-  ParseCallGraph, ParseFacts, ParseMetadata, ParseSummary, Producer, ProducerRef, Projection, ProjectionPath,
+  ParseCallGraph, ParseFacts, ParseMetadata, ParseObservations, ParseSummary, Producer, ProducerRef, Projection, ProjectionPath,
   RawLocationFact, ReadOriginsFact, RefinementFact, RefinementFacts, RefinementInvalidation, RefinementReason,
   RelationalArena, RelationalOwner, RelationalSite, RetentionFact, StoreLiveness, SubjectOriginsFact, Summary,
   SummaryKey, SummaryWrite, SuspensionFact, SuspensionFacts, SuspensionValue, ValueContext, ValueFrontier,
@@ -350,6 +350,21 @@ const bodyInstance: Decode<BodyInstance> = (state, input) => then(fields(state, 
     then(readField(state, values, "body", body), bodyValue =>
     then(readField(state, values, "bindings", artifact), bindingsValue =>
       finishRecord<BodyInstance>(state, values, { body: bodyValue, bindings: bindingsValue }))));
+const execution: Decode<Execution> = (state, input) => then(fields(state, input, "Execution"), values =>
+    then(readField(state, values, "instance", bodyInstance), instanceValue =>
+    then(readField(state, values, "provided", scalarNumber), provided =>
+      finishRecord<Execution>(state, values, { instance: instanceValue, provided }))));
+const signatureRequest: Decode<SignatureRequest> = (state, input) => then(fields(state, input, "SignatureRequest"), values =>
+    then(readField(state, values, "definition", definition), definitionValue =>
+    then(readField(state, values, "endpoint", (state, input) => literal(state, input, ["advertised", "api-signature", "api-body"])), endpoint =>
+    then(readField(state, values, "ordinal", scalarNumber), ordinal =>
+    then(readField(state, values, "bindings", artifact), bindings =>
+      finishRecord<SignatureRequest>(state, values, { definition: definitionValue, endpoint, ordinal, bindings }))))));
+const declaredExecution: Decode<DeclaredExecution> = (state, input) => then(fields(state, input, "DeclaredExecution"), values =>
+    then(readField(state, values, "request", signatureRequest), request =>
+    then(readField(state, values, "provided", scalarNumber), provided =>
+      finishRecord<DeclaredExecution>(state, values, { request, provided }))));
+
 const rational: Decode<ExactRational> = (state, input) => then(fields(state, input, "ExactRational"), values =>
     then(readField(state, values, "numerator", scalarBigint), numeratorValue =>
     then(readField(state, values, "denominator", scalarBigint), denominatorValue =>
@@ -376,7 +391,27 @@ const application: Decode<ApplicationDecision> = (state, input) => then(fields(s
     then(readField(state, values, "parameters", (state, input) => sequence(state, input, parameterMapping)), parametersValue =>
     then(readField(state, values, "completion", completion), completionValue =>
     then(readField(state, values, "result", typeIdentity), resultValue =>
-      finishRecord<ApplicationDecision>(state, values, { candidate: candidateValue, advertised: advertisedValue, api: apiValue, bindings: bindingsValue, implementationBindings: implementationBindingsValue, parameters: parametersValue, completion: completionValue, result: resultValue }))))))))));
+    then(readField(state, values, "activation", (state, input) => nullable(state, input, (state, input) => literal(state, input, ["at-creation","when-first-driven"]))), activationValue =>
+      finishRecord<ApplicationDecision>(state, values, { candidate: candidateValue, advertised: advertisedValue, api: apiValue, bindings: bindingsValue, implementationBindings: implementationBindingsValue, parameters: parametersValue, completion: completionValue, result: resultValue, activation: activationValue })))))))))));
+const checkRequirement: Decode<CheckRequirement> = (state, input) => then(label(input, ["none","required"]), kind => {
+  switch (kind) {
+    case "none": return then(fields(state, input, "none"), values =>
+      finishRecord<CheckRequirement>(state, values, { kind: "none" }));
+    case "required": return then(fields(state, input, "required"), values =>
+    then(readField(state, values, "failure", (state, input) => literal(state, input, ["unwind","abort"])), failureValue =>
+      finishRecord<CheckRequirement>(state, values, { kind: "required", failure: failureValue })));
+  }
+});
+const accessLocation: Decode<AccessLocation> = (state, input) => then(label(input, ["data","accessor"]), kind => {
+  switch (kind) {
+    case "data": return then(fields(state, input, "data"), values =>
+    then(readField(state, values, "check", checkRequirement), checkValue =>
+    then(readField(state, values, "receiver", (state, input) => literal(state, input, ["in-place","by-reference"])), receiverValue =>
+      finishRecord<AccessLocation>(state, values, { kind: "data", check: checkValue, receiver: receiverValue }))));
+    case "accessor": return then(fields(state, input, "accessor"), values =>
+      finishRecord<AccessLocation>(state, values, { kind: "accessor" }));
+  }
+});
 const memberDecision: Decode<MemberDecision> = (state, input) => then(fields(state, input, "MemberDecision"), values =>
     then(readField(state, values, "key", memberKey), keyValue =>
     then(readField(state, values, "origins", (state, input) => sequence(state, input, memberOrigin)), originsValue =>
@@ -387,12 +422,12 @@ const memberDecision: Decode<MemberDecision> = (state, input) => then(fields(sta
     then(readField(state, values, "getter", (state, input) => nullable(state, input, endpoint)), getterValue =>
     then(readField(state, values, "setter", (state, input) => nullable(state, input, endpoint)), setterValue =>
     then(readField(state, values, "bindings", bindings), bindingsValue =>
-      finishRecord<MemberDecision>(state, values, { key: keyValue, origins: originsValue, selectedDeclarations: selectedDeclarationsValue, primary: primaryValue, read: readValue, write: writeValue, getter: getterValue, setter: setterValue, bindings: bindingsValue })))))))))));
+    then(readField(state, values, "location", accessLocation), locationValue =>
+      finishRecord<MemberDecision>(state, values, { key: keyValue, origins: originsValue, selectedDeclarations: selectedDeclarationsValue, primary: primaryValue, read: readValue, write: writeValue, getter: getterValue, setter: setterValue, bindings: bindingsValue, location: locationValue }))))))))))));
 const resolved: Decode<ResolvedCallee> = (state, input) => then(fields(state, input, "ResolvedCallee"), values =>
     then(readField(state, values, "decision", application), decisionValue =>
     then(readField(state, values, "activation", (state, input) => nullable(state, input, bodyInstance)), activationValue =>
-    then(readField(state, values, "captures", (state, input) => sequence(state, input, localRef)), capturesValue =>
-      finishRecord<ResolvedCallee>(state, values, { decision: decisionValue, activation: activationValue, captures: capturesValue })))));
+      finishRecord<ResolvedCallee>(state, values, { decision: decisionValue, activation: activationValue }))));
 const memberSelection: Decode<MemberSelection> = (state, input) => then(fields(state, input, "MemberSelection"), values =>
     then(readField(state, values, "decision", memberDecision), decisionValue =>
     then(readField(state, values, "getter", (state, input) => nullable(state, input, resolved)), getterValue =>
@@ -465,8 +500,9 @@ const mirPoint: Decode<MirPoint> = (state, input) => then(fields(state, input, "
 const storeLiveness: Decode<StoreLiveness> = (state, input) => then(fields(state, input, "StoreLiveness"), values =>
     then(readField(state, values, "node", node), nodeValue =>
     then(readField(state, values, "point", mirPoint), pointValue =>
+    then(readField(state, values, "edge", (state, input) => nullable(state, input, (state, input) => literal(state, input, ["continue", "resume", "return", "unwind"]))), edgeValue =>
     then(readField(state, values, "observed", scalarBoolean), observedValue =>
-      finishRecord<StoreLiveness>(state, values, { node: nodeValue, point: pointValue, observed: observedValue })))));
+      finishRecord<StoreLiveness>(state, values, { node: nodeValue, point: pointValue, edge: edgeValue, observed: observedValue }))))));
 const liveSegment: Decode<LiveSegment> = (state, input) => then(fields(state, input, "LiveSegment"), values =>
     then(readField(state, values, "block", block), blockValue =>
     then(readField(state, values, "first", scalarNumber), firstValue =>
@@ -478,9 +514,9 @@ const localLiveRange: Decode<LocalLiveRange> = (state, input) => then(fields(sta
       finishRecord<LocalLiveRange>(state, values, { local: localValue, segments: segmentsValue }))));
 const bindingStorage: Decode<BindingStorageFact> = (state, input) => then(fields(state, input, "BindingStorageFact"), values =>
     then(readField(state, values, "local", local), localValue =>
-    then(readField(state, values, "scope", (state, input) => literal(state, input, ["body","shared"])), scopeValue =>
+    then(readField(state, values, "addressTaken", scalarBoolean), addressTakenValue =>
     then(readField(state, values, "captured", scalarBoolean), capturedValue =>
-      finishRecord<BindingStorageFact>(state, values, { local: localValue, scope: scopeValue, captured: capturedValue })))));
+      finishRecord<BindingStorageFact>(state, values, { local: localValue, addressTaken: addressTakenValue, captured: capturedValue })))));
 const captureFact: Decode<CaptureFact> = (state, input) => then(fields(state, input, "CaptureFact"), values =>
     then(readField(state, values, "local", localRef), localValue =>
     then(readField(state, values, "reads", scalarBoolean), readsValue =>
@@ -554,6 +590,7 @@ const writtenOrigins: Decode<WrittenOrigins> = (state, input) => then(fields(sta
     then(readField(state, values, "reason", (state, input) => nullable(state, input, writtenReason)), reasonValue =>
       finishRecord<WrittenOrigins>(state, values, { source: sourceValue, origins: originsValue, reason: reasonValue })))));
 const writeFact: Decode<WriteFact> = (state, input) => then(fields(state, input, "WriteFact"), values =>
+    then(readField(state, values, "point", mirPoint), pointValue =>
     then(readField(state, values, "node", node), nodeValue =>
     then(readField(state, values, "operation", (state, input) => literal(state, input, ["initialization","mutation"])), operationValue =>
     then(readField(state, values, "destination", (state, input) => literal(state, input, ["binding","member","element","pointer"])), destinationValue =>
@@ -561,12 +598,13 @@ const writeFact: Decode<WriteFact> = (state, input) => then(fields(state, input,
     then(readField(state, values, "owner", (state, input) => nullable(state, input, bound)), ownerValue =>
     then(readField(state, values, "values", (state, input) => sequence(state, input, writtenOrigins)), valuesValue =>
     then(readField(state, values, "boundaries", (state, input) => sequence(state, input, boundary)), boundariesValue =>
-      finishRecord<WriteFact>(state, values, { node: nodeValue, operation: operationValue, destination: destinationValue, targets: targetsValue, owner: ownerValue, values: valuesValue, boundaries: boundariesValue })))))))));
+      finishRecord<WriteFact>(state, values, { point: pointValue, node: nodeValue, operation: operationValue, destination: destinationValue, targets: targetsValue, owner: ownerValue, values: valuesValue, boundaries: boundariesValue }))))))))));
 const escapeFact: Decode<EscapeFact> = (state, input) => then(fields(state, input, "EscapeFact"), values =>
+    then(readField(state, values, "point", mirPoint), pointValue =>
     then(readField(state, values, "node", node), nodeValue =>
     then(readField(state, values, "producer", producerIdentity), producerValue =>
     then(readField(state, values, "target", escapeTarget), targetValue =>
-      finishRecord<EscapeFact>(state, values, { node: nodeValue, producer: producerValue, target: targetValue })))));
+      finishRecord<EscapeFact>(state, values, { point: pointValue, node: nodeValue, producer: producerValue, target: targetValue }))))));
 const argumentTransport: Decode<ArgumentTransport> = (state, input) => then(fields(state, input, "ArgumentTransport"), values =>
     then(readField(state, values, "authoredIndex", (state, input) => nullable(state, input, scalarNumber)), authoredIndexValue =>
     then(readField(state, values, "parameter", definition), parameterValue =>
@@ -577,10 +615,12 @@ const argumentTransport: Decode<ArgumentTransport> = (state, input) => then(fiel
     then(readField(state, values, "formal", producerRef), formalValue =>
     then(readField(state, values, "projection", (state, input) => nullable(state, input, path)), projectionValue =>
       finishRecord<ArgumentTransport>(state, values, { authoredIndex: authoredIndexValue, parameter: parameterValue, parameterIndex: parameterIndexValue, repeated: repeatedValue, passing: passingValue, actual: actualValue, formal: formalValue, projection: projectionValue }))))))))));
-const summaryKey: Decode<SummaryKey> = (state, input) => then(fields(state, input, "SummaryKey"), values =>
-    then(readField(state, values, "definition", definition), definitionValue =>
-    then(readField(state, values, "bindings", artifact), bindingsValue =>
-      finishRecord<SummaryKey>(state, values, { definition: definitionValue, bindings: bindingsValue }))));
+const summaryKey: Decode<SummaryKey> = (state, input) => then(label(input, ["body", "declared"]), kind =>
+  then(fields(state, input, kind), values => kind === "body"
+    ? then(readField(state, values, "execution", execution), selected =>
+      finishRecord<SummaryKey>(state, values, { kind, execution: selected }))
+    : then(readField(state, values, "execution", declaredExecution), selected =>
+      finishRecord<SummaryKey>(state, values, { kind, execution: selected }))));
 const invocationAlternative: Decode<InvocationAlternative> = (state, input) => then(fields(state, input, "InvocationAlternative"), values =>
     then(readField(state, values, "resolution", resolved), resolutionValue =>
     then(readField(state, values, "context", contextIdentity), contextValue =>
@@ -640,7 +680,12 @@ const originFacts: Decode<OriginFacts> = (state, input) => then(fields(state, in
     then(readField(state, values, "frontiers", (state, input) => sequence(state, input, frontier)), frontiersValue =>
     then(readField(state, values, "constructions", (state, input) => sequence(state, input, construction)), constructionsValue =>
     then(readField(state, values, "instanceRegions", (state, input) => sequence(state, input, instanceRegion)), instanceRegionsValue =>
-      finishRecord<OriginFacts>(state, values, { points: pointsValue, reads: readsValue, subjects: subjectsValue, writes: writesValue, escapes: escapesValue, invocations: invocationsValue, callbacks: callbacksValue, activations: activationsValue, frontiers: frontiersValue, constructions: constructionsValue, instanceRegions: instanceRegionsValue })))))))))))));
+    then(readField(state, values, "exitContents", exitContents), exitContentsValue =>
+      finishRecord<OriginFacts>(state, values, { points: pointsValue, reads: readsValue, subjects: subjectsValue, writes: writesValue, escapes: escapesValue, invocations: invocationsValue, callbacks: callbacksValue, activations: activationsValue, frontiers: frontiersValue, constructions: constructionsValue, instanceRegions: instanceRegionsValue, exitContents: exitContentsValue }))))))))))))));
+const exitContents: Decode<ExitContents> = (state, input) => then(fields(state, input, "ExitContents"), values =>
+    then(readField(state, values, "onReturn", (state, input) => sequence(state, input, summaryWrite)), onReturnValue =>
+    then(readField(state, values, "onUnwind", (state, input) => sequence(state, input, summaryWrite)), onUnwindValue =>
+      finishRecord<ExitContents>(state, values, { onReturn: onReturnValue, onUnwind: onUnwindValue }))));
 const retention: Decode<RetentionFact> = (state, input) => then(fields(state, input, "RetentionFact"), values =>
     then(readField(state, values, "source", producerIdentity), sourceValue =>
     then(readField(state, values, "into", escapeTarget), intoValue =>
@@ -716,9 +761,12 @@ const observation: Decode<ObservationFact> = (state, input) => then(fields(state
     then(readField(state, values, "field", (state, input) => nullable(state, input, fieldRef)), fieldValue =>
     then(readField(state, values, "result", typeIdentity), resultValue =>
     then(readField(state, values, "value", scalarBigint), valueValue =>
-    then(readField(state, values, "context", contextIdentity), contextValue =>
     then(readField(state, values, "bindings", bindings), bindingsValue =>
-      finishRecord<ObservationFact>(state, values, { node: nodeValue, operation: operationValue, operand: operandValue, layout: layoutValue, field: fieldValue, result: resultValue, value: valueValue, context: contextValue, bindings: bindingsValue })))))))))));
+      finishRecord<ObservationFact>(state, values, { node: nodeValue, operation: operationValue, operand: operandValue, layout: layoutValue, field: fieldValue, result: resultValue, value: valueValue, bindings: bindingsValue }))))))))));
+const bodyObservations: Decode<BodyObservations> = (state, input) => then(fields(state, input, "BodyObservations"), values =>
+  then(readField(state, values, "instance", bodyInstance), instanceValue =>
+    then(readField(state, values, "rows", (state, input) => sequence(state, input, observation)), rowsValue =>
+      finishRecord<BodyObservations>(state, values, { instance: instanceValue, rows: rowsValue }))));
 const rawLocation: Decode<RawLocationFact> = (state, input) => then(fields(state, input, "RawLocationFact"), values =>
     then(readField(state, values, "node", node), nodeValue =>
     then(readField(state, values, "operation", (state, input) => literal(state, input, ["to-raw","reinterpret"])), operationValue =>
@@ -752,7 +800,7 @@ const recordBinding: Decode<MemoryRecordBindingFact> = (state, input) => then(fi
     then(readField(state, values, "fields", (state, input) => sequence(state, input, boundRecordField)), fieldsValue =>
       finishRecord<MemoryRecordBindingFact>(state, values, { node: nodeValue, result: resultValue, layoutExpression: layoutExpressionValue, layout: layoutValue, context: contextValue, bindings: bindingsValue, fields: fieldsValue })))))))));
 const bodyFacts: Decode<BodyFacts> = (state, input) => then(fields(state, input, "BodyFacts"), values =>
-    then(readField(state, values, "instance", bodyInstance), instanceValue =>
+    then(readField(state, values, "execution", execution), executionValue =>
     then(readField(state, values, "arena", arena), arenaValue =>
     then(readField(state, values, "liveness", liveness), livenessValue =>
     then(readField(state, values, "initialization", initialization), initializationValue =>
@@ -761,14 +809,13 @@ const bodyFacts: Decode<BodyFacts> = (state, input) => then(fields(state, input,
     then(readField(state, values, "suspension", suspension), suspensionValue =>
     then(readField(state, values, "errorStorage", errorStorage), errorStorageValue =>
     then(readField(state, values, "pointerBacking", pointerBacking), pointerBackingValue =>
-    then(readField(state, values, "observations", (state, input) => sequence(state, input, observation)), observationsValue =>
     then(readField(state, values, "rawLocations", (state, input) => sequence(state, input, rawLocation)), rawLocationsValue =>
     then(readField(state, values, "fieldBindings", (state, input) => sequence(state, input, fieldBinding)), fieldBindingsValue =>
     then(readField(state, values, "recordBindings", (state, input) => sequence(state, input, recordBinding)), recordBindingsValue =>
     then(readField(state, values, "memoryBindings", (state, input) => sequence(state, input, memoryInventory)), memoryBindingsValue =>
     then(readField(state, values, "selectedMemoryDeclarations", (state, input) => sequence(state, input, definition)), selectedMemoryDeclarationsValue =>
     then(readField(state, values, "closedArrays", (state, input) => sequence(state, input, closedArray)), closedArraysValue =>
-      finishRecord<BodyFacts>(state, values, { instance: instanceValue, arena: arenaValue, liveness: livenessValue, initialization: initializationValue, refinements: refinementsValue, origins: originsValue, suspension: suspensionValue, errorStorage: errorStorageValue, pointerBacking: pointerBackingValue, observations: observationsValue, rawLocations: rawLocationsValue, fieldBindings: fieldBindingsValue, recordBindings: recordBindingsValue, memoryBindings: memoryBindingsValue, selectedMemoryDeclarations: selectedMemoryDeclarationsValue, closedArrays: closedArraysValue }))))))))))))))))));
+      finishRecord<BodyFacts>(state, values, { execution: executionValue, arena: arenaValue, liveness: livenessValue, initialization: initializationValue, refinements: refinementsValue, origins: originsValue, suspension: suspensionValue, errorStorage: errorStorageValue, pointerBacking: pointerBackingValue, rawLocations: rawLocationsValue, fieldBindings: fieldBindingsValue, recordBindings: recordBindingsValue, memoryBindings: memoryBindingsValue, selectedMemoryDeclarations: selectedMemoryDeclarationsValue, closedArrays: closedArraysValue })))))))))))))))));
 const parameterEffect: Decode<ParameterEffect> = (state, input) => then(fields(state, input, "ParameterEffect"), values =>
     then(readField(state, values, "slot", parameterSlot), slotValue =>
     then(readField(state, values, "reads", effectPaths), readsValue =>
@@ -905,21 +952,16 @@ const memberOrigin: Decode<MemberOrigin> = (state, input) => then(label(input, [
       finishRecord<MemberOrigin>(state, values, { kind: "mapped", owner: ownerValue, key: keyValue }))));
   }
 });
-const owner: Decode<RelationalOwner> = (state, input) => then(label(input, ["body","summary"]), kind => {
-  switch (kind) {
-    case "body": return then(fields(state, input, "body"), values =>
-    then(readField(state, values, "instance", bodyInstance), instanceValue =>
-      finishRecord<RelationalOwner>(state, values, { kind: "body", instance: instanceValue })));
-    case "summary": return then(fields(state, input, "summary"), values =>
-    then(readField(state, values, "definition", definition), definitionValue =>
-    then(readField(state, values, "bindings", artifact), bindingsValue =>
-      finishRecord<RelationalOwner>(state, values, { kind: "summary", definition: definitionValue, bindings: bindingsValue }))));
-  }
-});
+const owner: Decode<RelationalOwner> = (state, input) => then(label(input, ["body", "summary"]), kind =>
+  then(fields(state, input, kind), values => kind === "body"
+    ? then(readField(state, values, "execution", execution), selected =>
+      finishRecord<RelationalOwner>(state, values, { kind, execution: selected }))
+    : then(readField(state, values, "key", summaryKey), key =>
+      finishRecord<RelationalOwner>(state, values, { kind, key }))));
 const site: Decode<RelationalSite> = (state, input) => then(label(input, ["node","declared"]), kind => {
   switch (kind) {
     case "node": return then(fields(state, input, "node"), values =>
-    then(readField(state, values, "node", nodeRef), nodeValue =>
+    then(readField(state, values, "node", sourceRef), nodeValue =>
       finishRecord<RelationalSite>(state, values, { kind: "node", node: nodeValue })));
     case "declared": return then(fields(state, input, "declared"), values =>
     then(readField(state, values, "identity", libraryExport), identityValue =>
@@ -1311,6 +1353,7 @@ const parse = <Value>(text: string, decode: Decode<Value>): TextParseResult<Valu
 };
 
 export const parseFacts: ParseFacts = text => parse(text, bodyFacts);
+export const parseObservations: ParseObservations = text => parse(text, bodyObservations);
 export const parseSummary: ParseSummary = text => parse(text, summary);
 export const parseMetadata: ParseMetadata = text => parse(text, metadata);
 export const parseCallGraph: ParseCallGraph = text => parse(text, callGraph);

@@ -1,6 +1,6 @@
 import type { KeyData } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
-import type { ArtifactBindings, BindingVector, BodyInstance, Execution, SelfBinding, TypeBinding } from "./data.js";
+import type { ArtifactBindings, BindingVector, BodyInstance, ConstantReference, Execution, SelfBinding, TypeBinding } from "./data.js";
 import type { DeclaredExecution, RigidBindings, SignatureRequest } from "./contract.js";
 export { tyId as typeIdentifier, sigId as signatureIdentifier } from "../ids/index.js";
 
@@ -36,6 +36,7 @@ export const signatureRequestKeyOf = (request: SignatureRequest): string => enco
 const instanceData = (instance: BodyInstance): KeyData => [instance.body, artifactBindingsData(instance.bindings)];
 
 export const instanceKeyOf = (instance: BodyInstance): string => encodeKey(instanceData(instance));
+export const constantReferenceKeyOf = (reference: ConstantReference): string => encodeKey([instanceData(reference.initializer), reference.context]);
 
 export const sameInstanceAs = (left: BodyInstance, right: BodyInstance): boolean => instanceKeyOf(left) === instanceKeyOf(right);
 

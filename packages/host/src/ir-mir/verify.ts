@@ -1,12 +1,15 @@
 import type { Violation } from "../diag/contract.js";
 import type { BodyId, DefId, KeyData, LocalRef, SigId, TyId } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
+import { constantReferenceKey } from "../ir-types/index.js";
 import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, LiteralValue, SelfBinding, TypeBinding, TypeComponent, TypeTable, TypeTerm } from "../ir-types/contract.js";
 import type { ApplicationDecision, EmbeddingDecision, InferenceDeclaration } from "../ir-infer/contract.js";
 import type { MemberSelection, ResolvedCallee, TirBody, TypedOperation } from "../ir-tir/contract.js";
-import type { MirBody, MirConstantValue, MirRule, MirVerificationContext, MirViolationSite } from "./contract.js";
-import { densePosition, sourceNodes, validOrigin, verifyEdges, verifySelections } from "./verify-control.js";
+import type { MirBody, MirConstantValue, MirRule, MirVerification, MirVerificationContext, MirViolationSite } from "./contract.js";
+import { createWireTexts, densePosition, sourceNodes, validOrigin, verifyEdges, verifySelections } from "./verify-control.js";
+import type { WorkMeter } from "./verify-control.js";
 import { placeLocations, verifyStorage, verifyValues } from "./verify-storage.js";
+import { verifyLaws } from "./verify-laws.js";
 import type { SignatureReference } from "./verify-storage.js";
 import { childPath, createScalarWires, rootPath, showPath } from "./text.js";
 import { createDecisionWires } from "./text-decisions.js";
@@ -231,6 +234,12 @@ function literalKey(value: LiteralValue): KeyData {
   }
 }
 
+/** The one ordering and uniqueness key of a constant, for the verifier and for producers. */
+export function constantKey(type: TyId, value: MirConstantValue): string | null {
+  const selected = constantValueKey(value);
+  return selected === null ? null : encodeKey([type, selected]);
+}
+
 function constantValueKey(value: MirConstantValue): KeyData | null {
   switch (value.kind) {
     case "literal": return { kind: "record", fields: [["kind", value.kind], ["value", literalKey(value.value)]] };
@@ -242,8 +251,8 @@ function constantValueKey(value: MirConstantValue): KeyData | null {
     case "constant": {
       const selected = value.reference.initializer;
       const bindings = artifactValue(selected.bindings);
-      return bindings === null ? null : { kind: "record", fields: [["kind", value.kind], ["reference", { kind: "record",
-        fields: [["initializer", { kind: "record", fields: [["body", selected.body], ["bindings", bindings]] }]] }]] };
+      return bindings === null ? null : { kind: "record", fields: [["kind", value.kind],
+        ["reference", constantReferenceKey(value.reference)]] };
     }
   }
 }
@@ -284,7 +293,10 @@ export function verifyRows(
     if (!validOrigin(local.origin)) violations.push({ rule: "origin-valid", site, detail: [] });
     if (local.role.kind === "capture") {
       const captured = densePosition(local.role.index, source.captures.length) ? source.captures[local.role.index] : undefined;
-      if (captured === undefined || local.source === null || !sameLocal(local.source, captured))
+      // A capture row states its mode in every ready instance; it is null only in the parametric template of a body
+      // whose creator saved the closure rule for instantiation.
+      const template = source.dependence === "binding-dependent" && source.bindings.kind === "parametric";
+      if (captured === undefined || local.source === null || !sameLocal(local.source, captured.local) || captured.capture === null && !template)
         violations.push({ rule: "capture-location-exact", site, detail: [] });
     } else if (local.source !== null) {
       const selected = densePosition(local.source.local, source.locals.length) ? source.locals[local.source.local] : undefined;
@@ -293,6 +305,18 @@ export function verifyRows(
       else if (!Object.is(local.storage, selected.storage)) violations.push({ rule: "projection-type", site, detail: [] });
     }
   }
+  // A local of role `receiver` or `parameter` names the source local of its row: the receiver the row of role `this`,
+  // parameter i the i-th of the other rows. The laws read from that row whether the local is the caller's storage.
+  let receiverRow: TirBody["params"][number] | undefined;
+  const parameterRows: TirBody["params"][number][] = [];
+  for (const row of source.params) if (row.role === "this") receiverRow = row; else parameterRows.push(row);
+  for (const local of body.locals) {
+    if (local === undefined || local.role.kind !== "receiver" && local.role.kind !== "parameter") continue;
+    const row = local.role.kind === "receiver" ? receiverRow
+      : densePosition(local.role.index, parameterRows.length) ? parameterRows[local.role.index] : undefined;
+    if (row === undefined || local.source === null || local.source.body !== source.body || !Object.is(local.source.local, row.local))
+      violations.push({ rule: "parameter-source-exact", site: { kind: "local", body: body.body, local: local.id }, detail: [] });
+  }
   const constants = new Set<string>();
   let previous: string | null = null;
   for (const [position, constant] of body.constants.entries()) {
@@ -300,9 +324,8 @@ export function verifyRows(
       detail: [{ kind: "number", value: position }] });
     if (constant === undefined) continue;
     const site: MirViolationSite = { kind: "constant", body: body.body, constant: constant.id };
-    const value = constantValueKey(constant.value);
-    if (value === null) { violations.push({ rule: "bindings-complete", site, detail: [] }); continue; }
-    const key = encodeKey([constant.type, value]);
+    const key = constantKey(constant.type, constant.value);
+    if (key === null) { violations.push({ rule: "bindings-complete", site, detail: [] }); continue; }
     if (constants.has(key)) violations.push({ rule: "constant-unique", site, detail: [] });
     constants.add(key);
     if (previous !== null && previous > key) violations.push({ rule: "constants-order", site, detail: [] });
@@ -328,7 +351,7 @@ export function verifyRows(
       case "static":
         if (declarationOf(place.base.definition) === null) violations.push({ rule: "definition-resolves", site, detail: [] });
         break;
-      case "place":
+      case "place": case "checked":
         if (!densePosition(place.base.place, position)) violations.push({ rule: "place-parent-precedes", site, detail: [] });
         else if (body.places[place.base.place] === undefined) violations.push({ rule: "place-root-resolves", site, detail: [] });
         break;
@@ -469,7 +492,7 @@ function decisionReferences(
     if (value.kind === "definition" || value.kind === "metadata") artifact(value.bindings, value.definition, site);
     if (value.kind === "constant") instance(value.reference.initializer, site);
   }
-  for (const place of body.places) if (place !== undefined && place.base.kind === "place" && place.base.projection.kind === "field")
+  for (const place of body.places) if (place !== undefined && (place.base.kind === "place" || place.base.kind === "checked") && place.base.projection.kind === "field")
     member(place.base.projection.member, { kind: "place", body: body.body, place: place.id });
   for (const [blockPosition, block] of body.blocks.entries()) {
     if (block === undefined) continue;
@@ -485,13 +508,22 @@ function decisionReferences(
       if (value.kind === "closure") instance(value.instance, site);
     }
     const site: MirViolationSite = { kind: "instruction", body: body.body, block: block.id, statement: null };
-    if (block.terminator.kind === "call") callee(block.terminator.callee.resolution, site);
+    if (block.terminator.kind === "call") {
+      if (block.terminator.callee.kind === "body") instance(block.terminator.callee.instance, site);
+      else callee(block.terminator.callee.resolution, site);
+    }
     if (block.terminator.kind === "invoke") operation(block.terminator.operation, site, childPath(blockPath, ".terminator.operation"));
   }
   return violations;
 }
 
-export function verifyBody(body: MirBody, context: MirVerificationContext): readonly Violation<MirRule, MirViolationSite>[] {
+export function verifyBody(body: MirBody, context: MirVerificationContext): MirVerification {
+  // The caller sets the limit; a value that is not a count is the caller's defect, as in the query kernel.
+  const maximumWork = context.limits.maximumWork;
+  if (!Number.isInteger(maximumWork) || maximumWork < 0) throw new TypeError("ir-mir: maximumWork must be a finite nonnegative integer");
+  // One account for this body: every pass charges it, and it is not reset between passes.
+  const meter: WorkMeter = { spent: 0, maximum: maximumWork, exhausted: false };
+  const refusal: MirVerification = { kind: "resource-limit", body: body.body, dimension: "work", maximum: meter.maximum };
   const declarations = new Map<DefId, InferenceDeclaration | null>();
   const owners = new Map<BodyId, DefId | null>();
   const declarationOf = (definition: DefId): InferenceDeclaration | null => {
@@ -508,17 +540,27 @@ export function verifyBody(body: MirBody, context: MirVerificationContext): read
     owners.set(body, selected);
     return selected;
   };
-  const input: MirVerificationContext = { source: context.source, types: context.types, declarationOf, bodyOwner };
+  const input: MirVerificationContext = { limits: context.limits, source: context.source, types: context.types, declarationOf, bodyOwner };
   const wires = createDecisionWires(createScalarWires());
-  const nodes = sourceNodes(input.source, wires);
+  const texts = createWireTexts(wires);
+  const nodes = sourceNodes(input.source, texts);
   const rows = verifyRows(body, input.source, input.types, declarationOf);
   const places = placeLocations(body);
-  const values = verifyValues(body, input, nodes, places);
+  const values = verifyValues(body, input, nodes, places, meter);
+  if (meter.exhausted) return refusal;
   const types: TypeReference[] = [...values.types];
   const signatures: SignatureReference[] = [...values.signatures];
   const decisions = decisionReferences(body, input, types, signatures);
+  const edges = verifyEdges(body);
+  const selections = verifySelections(body, input, nodes, texts);
+  const storage = verifyStorage(body, places, meter);
+  if (meter.exhausted) return refusal;
+  const laws = verifyLaws(body, input, nodes, texts, places, meter);
+  // Past the limit the body is neither accepted nor found invalid: the findings gathered so far are not an answer,
+  // and the remaining passes are not run.
+  if (meter.exhausted) return refusal;
   const violations: Violation<MirRule, MirViolationSite>[] = [];
-  for (const family of [rows, values.violations, verifyEdges(body), verifySelections(body, input, nodes, wires), verifyStorage(body, places),
-    decisions, verifyTypeReferences(input.types, types, signatures)]) for (const violation of family) violations.push(violation);
-  return violations;
+  for (const family of [rows, values.violations, edges, selections, storage, laws, decisions,
+    verifyTypeReferences(input.types, types, signatures)]) for (const violation of family) violations.push(violation);
+  return { kind: "complete", violations };
 }

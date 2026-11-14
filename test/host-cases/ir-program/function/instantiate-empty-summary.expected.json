@@ -4,7 +4,11 @@
     "kind": "missing-binding-artifact",
     "artifact": {
       "kind": "summary",
-      "definition": "D[M[P[%002Fprogram];src%002Fmain.ts];missing]"
+      "definition": "D[M[P[%002Fprogram];src%002Fmain.ts];missing]",
+      "provided": 0,
+      "target": "declared",
+      "endpoint": "api-signature",
+      "ordinal": 2
     },
     "bindings": {
       "classBindings": [],

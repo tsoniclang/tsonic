@@ -1,6 +1,6 @@
-import type { DeferredDecision, EmbeddingDecision, MemberDecision, ApplicationDecision, ConstructionPartDecision, OperationDecision, RefinementDecision, DeferredInvocation, EmbeddingProof, ParameterMapping, CompletionEndpoint, OperationIdentity, RuleOutcome, EmbedInput, DomainFitInput, MemoryEquivalentInput, MemberInput, IndexInput, LiteralConstructionInput, CandidateInput, OperatorInput, LiteralFitInput, ProtocolInput, RefinementInput, LibraryInput, CoreInput, CorrespondenceStep, ProtocolStepDecision, RuleContext, LiteralConstructionPart, CandidateArgument, CandidateEndpoint, ProtocolStepOperation } from "../ir-infer/contract.js";
+import type { AccessLocation, BodyCaptureRow, CaptureRow, CaptureSource, CheckRequirement, ClosureDecision, ClosureInput, OperationExecution, DeferredDecision, EmbeddingDecision, MemberDecision, ApplicationDecision, ConstructionPartDecision, OperationDecision, RefinementDecision, DeferredInvocation, EmbeddingProof, ParameterMapping, CompletionEndpoint, OperationIdentity, RuleOutcome, EmbedInput, DomainFitInput, MemoryEquivalentInput, MemberInput, IndexInput, LiteralConstructionInput, CandidateInput, OperatorInput, LiteralFitInput, ProtocolInput, RefinementInput, LibraryInput, CoreInput, CorrespondenceStep, ProtocolStepDecision, RuleContext, LiteralConstructionPart, CandidateArgument, CandidateEndpoint, ProtocolStepOperation } from "../ir-infer/contract.js";
 import type { TextWork } from "./text-values.js";
-import { token, text, numeric, numericIdentity, identity, field, record, sequence, deferred, boolean, textNodeRef, textOrigin, textDiagnostic } from "./text-values.js";
+import { token, text, numeric, numericIdentity, identity, field, record, sequence, deferred, boolean, textNodeRef, textLocalRef, textOrigin, textDiagnostic } from "./text-values.js";
 import { textMemberKey, textMemberOrigin, textBindingVector, textTypeComponent, textTypeEvidence, textLiteralValue } from "./text-types.js";
 import { textHirCallableEndpoint, textHirCoreCapture } from "./text-core.js";
 
@@ -22,10 +22,52 @@ export function textEmbeddingDecision(value: EmbeddingDecision): TextWork {
         return record(value.kind, [
       field("conversion", text(value.conversion)),
       field("proof", textEmbeddingProof(value.proof)),
+      field("check", textCheckRequirement(value.check)),
     ]);
       case "refused":
         return record(value.kind, [
       field("reason", text(value.reason)),
+    ]);
+    }
+  });
+}
+
+export function textCheckRequirement(value: CheckRequirement): TextWork {
+  return deferred(value, () => {
+    switch (value.kind) {
+      case "none":
+        return record(value.kind, []);
+      case "required":
+        return record(value.kind, [
+      field("failure", text(value.failure)),
+    ]);
+    }
+  });
+}
+
+export function textAccessLocation(value: AccessLocation): TextWork {
+  return deferred(value, () => {
+    switch (value.kind) {
+      case "data":
+        return record(value.kind, [
+      field("check", textCheckRequirement(value.check)),
+      field("receiver", text(value.receiver)),
+    ]);
+      case "accessor":
+        return record(value.kind, []);
+    }
+  });
+}
+
+export function textOperationExecution(value: OperationExecution): TextWork {
+  return deferred(value, () => {
+    switch (value.kind) {
+      case "pure":
+        return record(value.kind, []);
+      case "invocation":
+        return record(value.kind, [
+      field("writesStorage", boolean(value.writesStorage)),
+      field("failure", text(value.failure)),
     ]);
     }
   });
@@ -43,6 +85,7 @@ export function textMemberDecision(value: MemberDecision): TextWork {
       field("getter", (value.getter === null ? token("null") : textHirCallableEndpoint(value.getter))),
       field("setter", (value.setter === null ? token("null") : textHirCallableEndpoint(value.setter))),
       field("bindings", textBindingVector(value.bindings)),
+      field("location", textAccessLocation(value.location)),
     ]);
   });
 }
@@ -58,6 +101,7 @@ export function textApplicationDecision(value: ApplicationDecision): TextWork {
       field("parameters", sequence(value.parameters, entry0 => textParameterMapping(entry0))),
       field("completion", textCompletionEndpoint(value.completion)),
       field("result", numericIdentity("t", value.result)),
+      field("activation", (value.activation === null ? token("null") : text(value.activation))),
     ]);
   });
 }
@@ -80,6 +124,7 @@ export function textOperationDecision(value: OperationDecision): TextWork {
       field("operation", textOperationIdentity(value.operation)),
       field("operands", sequence(value.operands, entry0 => numericIdentity("t", entry0))),
       field("result", numericIdentity("t", value.result)),
+      field("execution", textOperationExecution(value.execution)),
     ]);
   });
 }
@@ -96,6 +141,7 @@ export function textRefinementDecision(value: RefinementDecision): TextWork {
       field("source", numericIdentity("t", value.source)),
       field("result", numericIdentity("t", value.result)),
       field("proof", textEmbeddingProof(value.proof)),
+      field("failure", text(value.failure)),
     ]);
     }
   });
@@ -168,6 +214,11 @@ export function textDeferredInvocation(value: DeferredInvocation): TextWork {
         return record("DeferredInvocation", [
       field("rule", text(value.rule)),
       field("input", textCoreInput(value.input)),
+    ]);
+      case "closure":
+        return record("DeferredInvocation", [
+      field("rule", text(value.rule)),
+      field("input", textClosureInput(value.input)),
     ]);
     }
   });
@@ -447,6 +498,66 @@ export function textCoreInput(value: CoreInput): TextWork {
       field("operands", sequence(value.operands, entry0 => textTypeEvidence(entry0))),
       field("result", textTypeEvidence(value.result)),
       field("permissionScope", (value.permissionScope === null ? token("null") : textNodeRef(value.permissionScope))),
+    ]);
+  });
+}
+
+export function textClosureInput(value: ClosureInput): TextWork {
+  return deferred(value, () => {
+    return record("ClosureInput", [
+      field("context", textRuleContext(value.context)),
+      field("callable", textTypeEvidence(value.callable)),
+      field("captures", sequence(value.captures, entry0 => record("ClosureCaptureEvidence", [
+        field("local", textLocalRef(entry0.local)),
+        field("value", textTypeEvidence(entry0.value)),
+        field("reassignable", boolean(entry0.reassignable)),
+        field("incoming", textCaptureSource(entry0.incoming)),
+      ]))),
+    ]);
+  });
+}
+
+export function textCaptureSource(value: CaptureSource): TextWork {
+  return deferred(value, () => {
+    switch (value.kind) {
+      case "binding":
+        return record(value.kind, []);
+      case "parameter":
+        return record(value.kind, [
+      field("passing", text(value.passing)),
+    ]);
+      case "capture":
+        return record(value.kind, [
+      field("capture", text(value.capture)),
+    ]);
+    }
+  });
+}
+
+export function textCaptureRow(value: CaptureRow): TextWork {
+  return deferred(value, () => {
+    return record("CaptureRow", [
+      field("local", textLocalRef(value.local)),
+      field("capture", text(value.capture)),
+    ]);
+  });
+}
+
+export function textBodyCaptureRow(value: BodyCaptureRow): TextWork {
+  return deferred(value, () => {
+    return record("CaptureRow", [
+      field("local", textLocalRef(value.local)),
+      field("capture", value.capture === null ? token("null") : text(value.capture)),
+    ]);
+  });
+}
+
+export function textClosureDecision(value: ClosureDecision): TextWork {
+  return deferred(value, () => {
+    return record("ClosureDecision", [
+      field("carrier", numericIdentity("t", value.carrier)),
+      field("captures", sequence(value.captures, textCaptureRow)),
+      field("execution", textOperationExecution(value.execution)),
     ]);
   });
 }

@@ -1,5 +1,6 @@
 import type {
   ApplicationDecision,
+  ClosureDecision,
   ConstructionPartDecision,
   DeferredDecision,
   DeferredInvocation,
@@ -38,6 +39,7 @@ export function rewriteEmbedding(rewrite: TypeRewrite, decision: EmbeddingDecisi
       return {
         kind: "conversion", conversion: decision.conversion,
         proof: rewriteEmbeddingProof(rewrite, decision.proof, `${at}.proof`),
+        check: decision.check,
       };
   }
 }
@@ -53,6 +55,7 @@ export function rewriteMember(rewrite: TypeRewrite, member: MemberDecision): Mem
     getter: member.getter === null ? null : rewriteEndpoint(rewrite, member.getter),
     setter: member.setter === null ? null : rewriteEndpoint(rewrite, member.setter),
     bindings: rewriteBindings(rewrite, member.bindings),
+    location: member.location,
   };
 }
 
@@ -82,6 +85,7 @@ export function rewriteApplication(rewrite: TypeRewrite, application: Applicatio
       sent: application.completion.sent === null ? null : rewrite.type(application.completion.sent),
     },
     result: rewrite.type(application.result),
+    activation: application.activation,
   };
 }
 
@@ -157,27 +161,41 @@ function rewriteOperationIdentity(rewrite: TypeRewrite, operation: OperationIden
         sent: operation.sent === null ? null : rewrite.type(operation.sent),
         thrown: rewrite.type(operation.thrown),
       };
-    case "conversion":
-      return {
-        kind: "conversion", from: rewrite.type(operation.from), to: rewrite.type(operation.to),
-        embedding: rewriteEmbedding(rewrite, operation.embedding, `${at}.embedding`),
-      };
+    case "conversion": return rewriteConversionIdentity(rewrite, operation, at);
     case "library":
-    case "core":
-      return {
-        kind: operation.kind, declaration: operation.declaration,
-        bindings: rewriteBindings(rewrite, operation.bindings),
-      };
+    case "core": return rewriteBackedIdentity(rewrite, operation);
   }
 }
 
-export function rewriteOperation(rewrite: TypeRewrite, operation: OperationDecision, at: string): OperationDecision {
+export function rewriteConversionIdentity(
+  rewrite: TypeRewrite, operation: OperationIdentity & { readonly kind: "conversion" }, at: string,
+): OperationIdentity & { readonly kind: "conversion" } {
+  return {
+    kind: "conversion", from: rewrite.type(operation.from), to: rewrite.type(operation.to),
+    embedding: rewriteEmbedding(rewrite, operation.embedding, `${at}.embedding`),
+  };
+}
+
+export function rewriteBackedIdentity(
+  rewrite: TypeRewrite, operation: OperationIdentity & { readonly kind: "library" | "core" },
+): OperationIdentity & { readonly kind: "library" | "core" } {
+  return { kind: operation.kind, declaration: operation.declaration, bindings: rewriteBindings(rewrite, operation.bindings) };
+}
+
+export function rewriteOperationAs<Identity extends OperationIdentity>(
+  rewrite: TypeRewrite, operation: OperationDecision, identity: Identity,
+): OperationDecision & { readonly operation: Identity } {
   return {
     kind: "selected",
-    operation: rewriteOperationIdentity(rewrite, operation.operation, `${at}.operation`),
+    operation: identity,
     operands: operation.operands.map(operand => rewrite.type(operand)),
     result: rewrite.type(operation.result),
+    execution: operation.execution,
   };
+}
+
+export function rewriteOperation(rewrite: TypeRewrite, operation: OperationDecision, at: string): OperationDecision {
+  return rewriteOperationAs(rewrite, operation, rewriteOperationIdentity(rewrite, operation.operation, `${at}.operation`));
 }
 
 function rewriteContext(rewrite: TypeRewrite, context: RuleContext): RuleContext {
@@ -270,7 +288,17 @@ function rewriteInvocation(rewrite: TypeRewrite, invocation: DeferredInvocation,
         declaration: invocation.input.declaration, operands: invocation.input.operands.map(operand => rewriteEvidence(rewrite, operand)),
         result: rewriteEvidence(rewrite, invocation.input.result), permissionScope: invocation.input.permissionScope,
       } };
+    case "closure":
+      return { rule: "closure", input: {
+        context, callable: rewriteEvidence(rewrite, invocation.input.callable),
+        captures: invocation.input.captures.map(capture => ({ local: capture.local, value: rewriteEvidence(rewrite, capture.value),
+          reassignable: capture.reassignable, incoming: capture.incoming })),
+      } };
   }
+}
+
+export function rewriteClosureDecision(rewrite: TypeRewrite, decision: ClosureDecision): ClosureDecision {
+  return { carrier: rewrite.type(decision.carrier), captures: decision.captures, execution: decision.execution };
 }
 
 export function rewriteDeferred(rewrite: TypeRewrite, deferred: DeferredDecision, at: string): DeferredDecision {
@@ -295,6 +323,7 @@ export function rewriteRefinement(rewrite: TypeRewrite, refinement: RefinementDe
     case "narrowed": return {
       kind: "narrowed", source: rewrite.type(refinement.source), result: rewrite.type(refinement.result),
       proof: rewriteEmbeddingProof(rewrite, refinement.proof, `${at}.proof`),
+      failure: refinement.failure,
     };
   }
 }

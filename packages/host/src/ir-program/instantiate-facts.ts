@@ -2,17 +2,15 @@ import type {
   ArgumentTransport, BodyFacts, MetadataFieldRef, MetadataKey, MetadataLayoutRef, OriginFacts,
   ProducerRef, RelationalArena, RelationalOwner, Summary, SummaryKey,
 } from "../ir-facts/contract.js";
-import type { InstantiationStop, ProjectionInventory } from "./program-values.js";
-import {
-  inventoryArtifactBindings, inventoryBindings, inventoryEach, inventoryFields, inventoryInstance,
-  inventoryRecord, inventorySignature, inventoryType,
-} from "./program-values.js";
+import type { ProjectionInventory } from "./program-values.js";
+import type { InstantiationStop } from "./work.js";
+import { inventoryArtifactBindings, inventoryBindings, inventoryEach, inventoryFields, inventoryInstance, inventoryRecord, inventorySignature, inventoryType } from "./program-values.js";
 import { inventoryCallee, inventorySelection } from "./instantiate-phase.js";
 
 function relationalOwner(scan: ProjectionInventory, value: RelationalOwner): InstantiationStop | null {
   switch (value.kind) {
-    case "body": return inventoryRecord(scan, 2) ?? inventoryInstance(scan, value.instance);
-    case "summary": return inventoryRecord(scan, 3) ?? inventoryArtifactBindings(scan, value.bindings);
+    case "body": return inventoryRecord(scan, 2) ?? inventoryRecord(scan, 2) ?? inventoryInstance(scan, value.execution.instance);
+    case "summary": return inventoryRecord(scan, 2) ?? summaryKey(scan, value.key);
   }
 }
 
@@ -41,7 +39,9 @@ function arena(scan: ProjectionInventory, value: RelationalArena): Instantiation
 }
 
 function summaryKey(scan: ProjectionInventory, value: SummaryKey): InstantiationStop | null {
-  return inventoryRecord(scan, 2) ?? inventoryArtifactBindings(scan, value.bindings);
+  return inventoryRecord(scan, 2) ?? inventoryRecord(scan, 2) ?? (value.kind === "body"
+    ? inventoryInstance(scan, value.execution.instance)
+    : inventoryRecord(scan, 4) ?? inventoryArtifactBindings(scan, value.execution.request.bindings));
 }
 
 function metadataKey(scan: ProjectionInventory, value: MetadataKey): InstantiationStop | null {
@@ -69,13 +69,10 @@ function origins(scan: ProjectionInventory, value: OriginFacts): InstantiationSt
     ?? (activation.entry === null ? null : transport(scan, activation.entry)));
   inventoryEach(scan, value.constructions, construction => inventoryRecord(scan, 6)
     ?? (construction.body === null ? null : inventoryInstance(scan, construction.body)));
-  return inventoryRecord(scan, 11);
+  return inventoryRecord(scan, 12);
 }
 
 export function inventoryBodyFacts(scan: ProjectionInventory, value: BodyFacts): InstantiationStop | null {
-  inventoryEach(scan, value.observations, observation => inventoryRecord(scan, 9)
-    ?? layoutRef(scan, observation.layout) ?? (observation.field === null ? null : fieldRef(scan, observation.field))
-    ?? inventoryType(scan, observation.result) ?? inventoryBindings(scan, observation.bindings));
   inventoryEach(scan, value.rawLocations, location => inventoryRecord(scan, 6) ?? inventoryType(scan, location.pointee)
     ?? layoutRef(scan, location.layout) ?? inventoryBindings(scan, location.bindings));
   inventoryEach(scan, value.fieldBindings, binding => inventoryRecord(scan, 9)
@@ -91,9 +88,10 @@ export function inventoryBodyFacts(scan: ProjectionInventory, value: BodyFacts):
         return inventoryRecord(scan, 6);
     }
   });
-  return inventoryRecord(scan, 16) ?? arena(scan, value.arena) ?? origins(scan, value.origins);
+  return inventoryRecord(scan, 15) ?? inventoryRecord(scan, 2) ?? inventoryInstance(scan, value.execution.instance)
+    ?? arena(scan, value.arena) ?? origins(scan, value.origins);
 }
 
 export function inventorySummary(scan: ProjectionInventory, value: Summary): InstantiationStop | null {
-  return inventoryRecord(scan, 13) ?? inventorySignature(scan, value.signature) ?? arena(scan, value.arena);
+  return inventoryRecord(scan, 13) ?? summaryKey(scan, value.key) ?? inventorySignature(scan, value.signature) ?? arena(scan, value.arena);
 }

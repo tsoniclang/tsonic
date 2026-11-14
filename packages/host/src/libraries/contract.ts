@@ -1,7 +1,6 @@
 import type { DefId, LibraryExportIdentity, LibraryModuleIdentity, LibraryTypeId } from "../ids/contract.js";
 import type { Result, Violation } from "../diag/contract.js";
-import type { BindingVector, ExactRational, LiteralTypeValue, NativePrimitive, PassingMode, Signature } from "../ir-types/contract.js";
-import type { Summary } from "../ir-facts/contract.js";
+import type { BindingScope, BindingVector, ExactRational, LiteralTypeValue, NativePrimitive, PassingMode, Signature, SignatureRequest } from "../ir-types/contract.js";
 import type { MemberSelection } from "../ir-tir/contract.js";
 import type { LibraryAuthoredSummary, LibraryRole, LibraryRoleEntry } from "../snapshot/contract.js";
 
@@ -133,9 +132,9 @@ export interface LibraryRoleBinding {
   readonly definition: DefId;
 }
 
-export interface LibraryDeclaredSummary {
-  readonly identity: LibraryExportIdentity;
-  readonly summary: Summary;
+export interface AdmittedNativeGuarantee {
+  readonly statement: LibraryAuthoredSummary;
+  readonly declaration: DefId;
 }
 
 export interface LibraryCatalogue {
@@ -150,7 +149,7 @@ export interface BoundLibraries {
 export interface Libraries {
   readonly sources: readonly SourceLibrary[];
   readonly sourceRoles: readonly LibraryRoleBinding[];
-  readonly declaredSummaries: readonly LibraryDeclaredSummary[];
+  readonly guarantees: readonly AdmittedNativeGuarantee[];
 }
 
 export type BindRoles = (
@@ -158,21 +157,22 @@ export type BindRoles = (
   definitionOfExport: (identity: LibraryExportIdentity) => DefId,
 ) => Result<BoundLibraries>;
 
-export interface LibraryExportBinding {
-  readonly definition: DefId;
-  readonly signature: Signature | null;
-  readonly member: MemberSelection | null;
-  readonly bindings: BindingVector;
-}
+export type NativeExportAssociation = { readonly identity: LibraryExportIdentity;
+  readonly member: MemberSelection | null } & (
+  | { readonly kind: "callable"; readonly request: SignatureRequest; readonly signature: Signature; readonly scope: BindingScope;
+      readonly guarantee: LibraryExportIdentity | null }
+  | { readonly kind: "noncallable"; readonly declaration: DefId; readonly bindings: BindingVector }
+);
 
-export type BindSummaries = (
+export type AdmitGuarantees = (
   bound: BoundLibraries,
   declared: readonly LibraryAuthoredSummary[],
-  signatureOfExport: (identity: LibraryExportIdentity) => LibraryExportBinding | null,
+  associations: readonly NativeExportAssociation[],
 ) => Result<Libraries>;
 
 export type LibraryRolesOf = (libraries: BoundLibraries, role: LibraryRole) => readonly DefId[];
 export type LibraryRoleOf = (libraries: LibraryCatalogue, identity: LibraryExportIdentity) => LibraryRole | null;
+export type LibraryExportKey = (identity: LibraryExportIdentity) => string;
 
 export type LibraryRule =
   | "source-ids-unique" | "module-identities-order" | "module-identities-unique"
@@ -186,7 +186,7 @@ export type LibraryRule =
   | "authored-summary-id-dense" | "authored-summary-reference-resolves" | "authored-summary-path-parent-precedes"
   | "authored-summary-parameter-range" | "authored-summary-capture-range" | "authored-summary-site-integral"
   | "authored-summary-producer-unique" | "authored-summary-origins-order" | "authored-summary-effects-order"
-  | "summary-binding-definition-exact" | "summary-binding-signature-exact";
+  | "summary-binding-definition-exact" | "summary-binding-signature-exact" | "summary-binding-origin-exact";
 
 export type LibrarySite =
   | { readonly kind: "catalogue" }
@@ -213,7 +213,7 @@ export interface LibraryRoleVerificationContext {
 }
 
 export interface LibraryVerificationContext extends LibraryRoleVerificationContext {
-  readonly signatureOfExport: (identity: LibraryExportIdentity) => LibraryExportBinding | null;
+  readonly associations: readonly NativeExportAssociation[];
 }
 
 export type VerifyBoundLibraries = (libraries: BoundLibraries,

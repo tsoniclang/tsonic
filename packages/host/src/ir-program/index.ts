@@ -1,5 +1,6 @@
 import type {
   CanonicalizeProgram,
+  CreateProgramVerificationWork,
   Instantiate,
   ParseModuleBodies,
   ParseProgramIndex,
@@ -14,8 +15,10 @@ import { parseModuleBodies as parseModule, parseProgramIndex as parseIndex } fro
 import { printModuleBodies as printModule, printProgramIndex as printIndex } from "./print.js";
 import { verifyProgramIndex as verifyIndex } from "./verify-index.js";
 import { verifyModuleBodies as verifyModule } from "./verify-module.js";
+import { createProgramVerificationWork as createWork } from "./verification-work.js";
 
 export const canonicalizeProgram: CanonicalizeProgram = canonicalize;
+export const createProgramVerificationWork: CreateProgramVerificationWork = createWork;
 export const printProgramIndex: PrintProgramIndex = printIndex;
 export const parseProgramIndex: ParseProgramIndex = parseIndex;
 export const printModuleBodies: PrintModuleBodies = printModule;

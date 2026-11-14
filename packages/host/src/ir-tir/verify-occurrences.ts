@@ -1,7 +1,7 @@
 import type { DefId, LocalRef, NodeId, SourceNodeRef } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import type { HirNode } from "../ir-hir/contract.js";
-import type { ApplicationDecision, DeferredDecision, MemberDecision, RuleOutcome } from "../ir-infer/contract.js";
+import type { ApplicationDecision, DeferredDecision, MemberDecision, OperationDecision, RuleOutcome } from "../ir-infer/contract.js";
 import type { BodyInstance, TypeEvidence, TypeTable } from "../ir-types/contract.js";
 import type { MemberSelection, ResolvedCallee, TirBody, TirMemberOccurrence, TirModule, TirNode, TirProtocol, TirRule, TypedBodyTemplate, TypedOperation, TypedValue } from "./contract.js";
 import type { TirLayouts, TirReference, TirRecordAssociation, TirRecordLayout, TirScalarValue, TirTypedWork, TirValuePath } from "./text-layouts.js";
@@ -176,6 +176,7 @@ export const deferredEvidence = (deferred: DeferredDecision): readonly TypeEvide
     case "refinement": return [invocation.input.source, invocation.input.checked];
     case "library": return [...(invocation.input.receiver === null ? [] : [invocation.input.receiver]), ...invocation.input.arguments, invocation.input.result];
     case "core": return [...invocation.input.operands, invocation.input.result];
+    case "closure": return [invocation.input.callable, ...invocation.input.captures.map(capture => capture.value)];
   }
 };
 
@@ -228,7 +229,8 @@ export const collectTirSemantics = (nodes: readonly TirNode[]): TirSemanticInven
     const phase = node.tsonic;
     if (phase === null) continue;
     const value = typedValueOf(node);
-    if (value?.conversion.kind === "convert") pending.push({ kind: "operation", value: value.conversion.operation, node });
+    if (value?.conversion.kind === "convert" || value?.conversion.kind === "backed-convert")
+      pending.push({ kind: "operation", value: value.conversion.operation, node });
     if (value?.conversion.kind === "deferred") pending.push({ kind: "deferred", value: value.conversion.deferred, node });
     if ("operation" in phase) operation(phase.operation, node);
     if ("construction" in phase) operation(phase.construction, node);
@@ -238,6 +240,7 @@ export const collectTirSemantics = (nodes: readonly TirNode[]): TirSemanticInven
     if ("protocols" in phase) for (const [ordinal, selected] of phase.protocols.entries()) protocol(selected, node, ordinal);
     if ("template" in phase) template(phase.template, node);
     if ("callable" in phase) template(phase.callable.template, node);
+    if ("closure" in phase && phase.closure.kind === "deferred") pending.push({ kind: "deferred", value: phase.closure.deferred, node });
     if (node.kind === "BinaryExpression" && node.tsonic.role === "assignment") operation(node.tsonic.calculation, node);
     if (node.kind === "CallExpression" || node.kind === "NewExpression" || node.kind === "TaggedTemplateExpression" || node.kind === "Decorator") {
       const application = node.tsonic.application;
@@ -297,9 +300,16 @@ export const verifyValueEndpoints = (body: TirBody, node: TirNode, emit: TirOccu
   const conversion = value.conversion;
   if (conversion.kind === "identity") {
     if (value.type !== value.convertedType) emit("conversion-destination", node, "conversion does not retain its destination endpoint");
-  } else if (conversion.kind === "convert") {
-    const decision = conversion.operation.decision;
+  } else if (conversion.kind === "convert" || conversion.kind === "backed-convert") {
+    const decision: OperationDecision = conversion.operation.decision;
     const operation = decision.operation;
+    if (conversion.kind === "convert" ? operation.kind !== "conversion" : operation.kind !== "library" && operation.kind !== "core")
+      emit("conversion-operation", node, "a conversion is carried out by the conversion identity, and a backed conversion by a core or library operation");
+    // A conversion that is carried out embeds by a conversion: an identity embedding needs no operation and a refused one is
+    // not carried out. Whether the conversion is the right one is the acceptance replay's (Validate's embedding-replay).
+    const embedding = conversion.kind === "backed-convert" ? conversion.embedding : operation.kind === "conversion" ? operation.embedding : null;
+    if (embedding !== null && embedding.kind !== "conversion")
+      emit("conversion-carried", node, "a carried-out conversion states a conversion embedding");
     if (decision.operands.length !== 1 || decision.operands[0] !== value.type ||
       operation.kind === "conversion" && operation.from !== value.type) {
       emit("conversion-source", node, "conversion does not retain its value source endpoint");

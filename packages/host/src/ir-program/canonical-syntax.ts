@@ -4,8 +4,8 @@ import { inventorySyntax, moduleSyntaxRoots } from "./syntax-arena.js";
 import type { TypedPhase } from "../ir-tir/contract.js";
 import type { ModuleBodies } from "./contract.js";
 import type { TypeRewrite } from "./canonical-types.js";
-import { rewriteArtifactBindings, rewriteInstance } from "./canonical-types.js";
-import { rewriteBodyFacts } from "./canonical-facts.js";
+import { rewriteArtifactBindings, rewriteExecution, rewriteInstance } from "./canonical-types.js";
+import { rewriteBodyFacts, rewriteObservations } from "./canonical-facts.js";
 import { rewriteTirBody, rewriteMirBody } from "./canonical-tir.js";
 import type { SyntaxCopyPorts } from "./syntax-arena.js";
 import { planSyntaxNode } from "./syntax-arena.js";
@@ -449,7 +449,8 @@ export function rewriteModuleSyntax(rewrite: TypeRewrite, module: ModuleBodies, 
       instance: rewriteInstance(rewrite, body.instance),
       tir: rewriteTirBody(rewrite, body.tir, ports.BodyRoot(body.tir.root)(), rewriteArtifactBindings(rewrite, body.tir.bindings)),
       mir: rewriteMirBody(rewrite, body.mir, at + ".bodies[" + position + "].mir", rewriteArtifactBindings(rewrite, body.mir.bindings)),
-      facts: rewriteBodyFacts(rewrite, body.facts, rewriteInstance(rewrite, body.facts.instance)),
+      facts: body.facts.map(facts => rewriteBodyFacts(rewrite, facts, rewriteExecution(rewrite, facts.execution))),
+      observations: rewriteObservations(rewrite, body.observations),
     })),
   };
 }

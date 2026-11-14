@@ -1,12 +1,13 @@
+import { ProgramWork } from "./work.js";
 import { orderDiagnostics } from "../diag/index.js";
 import type { DefId, ModuleId } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
-import { verifyMetadata, verifySummary } from "../ir-facts/index.js";
+import { summaryKey, verifyMetadata, verifySummary } from "../ir-facts/index.js";
 import { indexSyntaxTree } from "../ir-hir/index.js";
-import { artifactBindingsData, artifactBindingsKey, instanceKey, printTypes, verifyTypes } from "../ir-types/index.js";
+import { artifactBindingsData, artifactBindingsKey, constantReferenceKey, executionKey, instanceKey, printTypes, verifyTypes } from "../ir-types/index.js";
 import type { TirVerifierInput } from "../ir-tir/contract.js";
 import type { HirCallableEndpoint } from "../ir-hir/contract.js";
-import type { BindingVerificationInput, BodyInstance, TypeRule, TypeSite } from "../ir-types/contract.js";
+import type { BindingVerificationInput, Execution, TypeRule, TypeSite } from "../ir-types/contract.js";
 import type { Violation } from "../diag/contract.js";
 import type {
   ProgramIndex,
@@ -17,7 +18,8 @@ import type {
 } from "./contract.js";
 
 import type { ProgramLookup, ProgramViolation } from "./program-values.js";
-import { artifactEnvironmentKey, compareInstances, compareText, numberDetail, programChildRule, programLookup, requireInstantiationMaximum, textDetail, uniqueRows } from "./program-values.js";
+import { artifactEnvironmentKey, compareExecutions, compareText, numberDetail, programChildRule, programLookup, summaryBindingsOf, summaryReferenceOf, textDetail, uniqueRows } from "./program-values.js";
+import { requireInstantiationMaximum } from "./work.js";
 import { verifyBindingBounds, verifyBodyInventory, verifyModules, verifyPackages } from "./verify-structure.js";
 
 function numericPosition(value: number, length: number): boolean {
@@ -164,15 +166,15 @@ function verifyBodyBindings(
     }
   }
   for (const constant of index.constants) {
-    const site: ProgramSite = { kind: "body", instance: constant.initializer };
-    const owner = context.facts.bodyOwner(constant.initializer.body);
+    const site: ProgramSite = { kind: "body", instance: constant.reference.initializer };
+    const owner = context.facts.bodyOwner(constant.reference.initializer.body);
     if (owner === null) {
-      violations.push({ rule: "cross-owner-reference-resolves", site, detail: [textDetail(constant.initializer.body)] });
-    } else if (constant.initializer.bindings.kind === "instantiated") {
+      violations.push({ rule: "cross-owner-reference-resolves", site, detail: [textDetail(constant.reference.initializer.body)] });
+    } else if (constant.reference.initializer.bindings.kind === "instantiated") {
       const scope = context.facts.bindingScopeOf(owner);
       if (scope === null) violations.push({ rule: "bindings-complete", site, detail: [textDetail(owner)] });
       else {
-        bindings.push({ vector: constant.initializer.bindings.bindings, scope });
+        bindings.push({ vector: constant.reference.initializer.bindings.bindings, scope });
         sites.push(site);
       }
     }
@@ -198,33 +200,32 @@ function verifyPublishedRecords(index: ProgramIndex, context: ProgramVerificatio
       violations.push({ rule: programChildRule("metadata-valid", child.rule), site, detail: [textDetail(child.rule), ...child.detail] });
     }
   }
-  let previousSummary: { readonly definition: DefId; readonly environment: string } | null = null;
+  let previousSummary: string | null = null;
   const summaryKeys = new Set<string>();
   for (const summary of index.summaries) {
-    const environment = artifactBindingsKey(summary.key.bindings);
-    const key = artifactEnvironmentKey(summary.key.definition, summary.key.bindings);
-    const site: ProgramSite = { kind: "artifact", artifact: { kind: "summary", definition: summary.key.definition }, bindings: summary.key.bindings };
-    if (previousSummary !== null && (compareText(previousSummary.definition, summary.key.definition) || compareText(previousSummary.environment, environment)) > 0) {
-      violations.push({ rule: "summaries-order", site, detail: [textDetail(previousSummary.definition), textDetail(previousSummary.environment), textDetail(key)] });
+    const key = summaryKey(summary.key);
+    const site: ProgramSite = { kind: "artifact", artifact: summaryReferenceOf(summary.key), bindings: summaryBindingsOf(summary.key) };
+    if (previousSummary !== null && compareText(previousSummary, key) > 0) {
+      violations.push({ rule: "summaries-order", site, detail: [textDetail(previousSummary), textDetail(key)] });
     }
     if (summaryKeys.has(key)) violations.push({ rule: "summary-key-unique", site, detail: [textDetail(key)] });
     summaryKeys.add(key);
-    previousSummary = { definition: summary.key.definition, environment };
+    previousSummary = key;
     for (const child of verifySummary(summary, context.facts)) {
       violations.push({ rule: programChildRule("summary-valid", child.rule), site, detail: [textDetail(child.rule), ...child.detail] });
     }
   }
-  let previousConstant: BodyInstance | null = null;
+  let previousConstant: string | null = null;
   const constantKeys = new Set<string>();
   for (const constant of index.constants) {
-    const key = instanceKey(constant.initializer);
-    const site: ProgramSite = { kind: "body", instance: constant.initializer };
-    if (previousConstant !== null && compareInstances(previousConstant, constant.initializer) > 0) {
-      violations.push({ rule: "constants-order", site, detail: [textDetail(instanceKey(previousConstant)), textDetail(key)] });
+    const key = constantReferenceKey(constant.reference);
+    const site: ProgramSite = { kind: "body", instance: constant.reference.initializer };
+    if (previousConstant !== null && previousConstant > key) {
+      violations.push({ rule: "constants-order", site, detail: [textDetail(previousConstant), textDetail(key)] });
     }
     if (constantKeys.has(key)) violations.push({ rule: "constant-key-unique", site, detail: [textDetail(key)] });
     constantKeys.add(key);
-    previousConstant = constant.initializer;
+    previousConstant = key;
     if (!numericPosition(constant.value.type, index.types.terms.length)) {
       violations.push({ rule: "constant-type-resolves", site, detail: [numberDetail(constant.value.type)] });
     }
@@ -236,12 +237,36 @@ function verifyPublishedRecords(index: ProgramIndex, context: ProgramVerificatio
   return violations;
 }
 
+function verifyExecutions(lookup: ProgramLookup, index: ProgramIndex): readonly ProgramViolation[] {
+  const violations: ProgramViolation[] = [];
+  const keys = new Set<string>();
+  let previous: Execution | null = null;
+  for (const execution of index.executions) {
+    const site: ProgramSite = { kind: "body", instance: execution.instance };
+    const key = executionKey(execution);
+    if (previous !== null && compareExecutions(previous, execution) >= 0) {
+      violations.push({ rule: "executions-order", site, detail: [textDetail(executionKey(previous)), textDetail(key)] });
+    }
+    previous = execution;
+    if (keys.has(key)) violations.push({ rule: "execution-key-unique", site, detail: [textDetail(key)] });
+    keys.add(key);
+    const body = lookup.instances.get(instanceKey(execution.instance));
+    if (body === undefined || body === null) {
+      violations.push({ rule: "execution-body-resolves", site, detail: [textDetail(key)] });
+    }
+    if (!Number.isSafeInteger(execution.provided) || execution.provided < 0 || Object.is(execution.provided, -0)) {
+      violations.push({ rule: "execution-entry-resolves", site, detail: [numberDetail(execution.provided)] });
+    }
+  }
+  return violations;
+}
+
 export const verifyProgramIndex: VerifyProgramIndex = (index, context) => {
-  requireInstantiationMaximum(context.limits.maximumBindingVectorsPerArtifact, "maximumBindingVectorsPerArtifact");
+  requireInstantiationMaximum(ProgramWork.state(context.resources).limits.maximumBindingVectorsPerArtifact, "maximumBindingVectorsPerArtifact");
   const lookup = programLookup(index);
   const violations: ProgramViolation[] = [];
   if (index.schema !== 1) violations.push({ rule: "schema-supported", site: { kind: "index" }, detail: [numberDetail(index.schema)] });
-  for (const group of [verifyPackages(lookup, index), verifyModules(lookup, index, context), verifyBodyInventory(lookup, index, context)]) {
+  for (const group of [verifyPackages(lookup, index), verifyModules(lookup, index, context), verifyBodyInventory(lookup, index, context), verifyExecutions(lookup, index)]) {
     for (const violation of group) violations.push(violation);
   }
   if (printTypes(index.types) !== printTypes(context.facts.types)) {

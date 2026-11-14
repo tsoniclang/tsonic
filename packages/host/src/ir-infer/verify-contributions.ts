@@ -191,6 +191,7 @@ function roleMatches(value: Constraint, key: ContributionKey): boolean {
     case "refine": return role.kind === "refinement";
     case "discharge": return role.kind === "discharge";
     case "default": return role.kind === "default";
+    case "closure": return false;
   }
 }
 
@@ -278,6 +279,10 @@ function contributionFootprint(input: InferVerificationInput, inventory: Invento
         types.add(value.result);
         break;
       case "refine": types.add(value.source); types.add(value.checked); types.add(value.result); break;
+      case "closure":
+        for (const capture of value.captures) types.add(capture.type);
+        types.add(value.result);
+        break;
       case "default":
         variables.add(value.variable);
         if (value.type !== null) types.add(value.type);

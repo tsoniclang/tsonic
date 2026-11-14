@@ -1,7 +1,9 @@
 import type { BodyRoot, SyntaxNode } from "../ir-hir/contract.js";
 import type { TypedPhase } from "../ir-tir/contract.js";
-import type { InstantiationStop, ProjectionInventory } from "./program-values.js";
-import { chargeInstantiationWork, drainProjectionInventory, inventoryFields, inventoryRecord } from "./program-values.js";
+import type { ProjectionInventory } from "./program-values.js";
+import type { InstantiationStop } from "./work.js";
+import { drainProjectionInventory, inventoryFields, inventoryRecord } from "./program-values.js";
+import { chargeInstantiationWork } from "./work.js";
 import type { SyntaxInventory } from "./syntax-arena.js";
 import { walkSyntax } from "./syntax-arena.js";
 import { inventoryExportAssignment } from "./instantiate-phase.js";

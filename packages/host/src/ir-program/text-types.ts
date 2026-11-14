@@ -1,5 +1,6 @@
-import type { BindingVector, BodyInstance, ConstValue, TypeEvidence, TypeComponent, TypeParameter, TypeBinding, SelfBinding, ArtifactBindings, ExactRational, CategoryEvidence, NumericEvidence, SumEvidence, PointerEvidence, ComponentSelector, TypeParameterIdentity, MemberKey, MemberOrigin, LiteralValue, SumArmRole, ConstructionDefinition, SumFamily } from "../ir-types/contract.js";
+import type { BindingVector, BodyInstance, Execution, DeclaredExecution, ConstValue, TypeEvidence, TypeComponent, TypeParameter, TypeBinding, SelfBinding, ArtifactBindings, ExactRational, CategoryEvidence, NumericEvidence, SumEvidence, PointerEvidence, ComponentSelector, TypeParameterIdentity, MemberKey, MemberOrigin, LiteralValue, SumArmRole, ConstructionDefinition, SumFamily } from "../ir-types/contract.js";
 import type { TextWork } from "./text-values.js";
+import type { ConstantReference } from "../ir-types/contract.js";
 import { token, text, numeric, numericIdentity, identity, field, record, sequence, deferred, boolean, integer, textSourceNodeRef, textNodeRef, textLocalRef } from "./text-values.js";
 
 export function textBindingVector(value: BindingVector): TextWork {
@@ -20,6 +21,31 @@ export function textBodyInstance(value: BodyInstance): TextWork {
       field("bindings", textArtifactBindings(value.bindings)),
     ]);
   });
+}
+
+export function textConstantReference(value: ConstantReference): TextWork {
+  return deferred(value, () => record("ConstantReference", [
+    field("initializer", textBodyInstance(value.initializer)), field("context", text(value.context)),
+  ]));
+}
+
+export function textExecution(value: Execution): TextWork {
+  return deferred(value, () => record("Execution", [
+    field("instance", textBodyInstance(value.instance)),
+    field("provided", numeric(value.provided)),
+  ]));
+}
+
+export function textDeclaredExecution(value: DeclaredExecution): TextWork {
+  return deferred(value, () => record("DeclaredExecution", [
+    field("request", record("SignatureRequest", [
+      field("definition", identity("def", value.request.definition)),
+      field("endpoint", text(value.request.endpoint)),
+      field("ordinal", numeric(value.request.ordinal)),
+      field("bindings", textArtifactBindings(value.request.bindings)),
+    ])),
+    field("provided", numeric(value.provided)),
+  ]));
 }
 
 export function textConstValue(value: ConstValue): TextWork {

@@ -24,7 +24,7 @@ export type FlowRole = "initialization" | "assignment" | "argument" | "return" |
 export type AccessRole = "read" | "write" | "call";
 export type ProtocolKind = "iterate" | "await" | "yield" | "delegate" | "dispose" | "spread" | "argument-passing" | "pointer";
 export type RuleIdentity = "embed" | "domain-fit" | "memory-equivalent" | "member" | "index"
-  | "construct-literal" | "candidate" | "operator" | "literal-fit" | "protocol" | "refinement" | "library" | "core";
+  | "construct-literal" | "candidate" | "operator" | "literal-fit" | "protocol" | "refinement" | "library" | "core" | "closure";
 
 export interface EqualityConstraint {
   readonly kind: "eq";
@@ -143,6 +143,30 @@ export interface RefinementConstraint {
   readonly result: TyId;
 }
 
+// Where the storage of a captured binding comes from in the body that creates the closure: a binding of that body's own,
+// one of its parameters with the passing mode of the declaration, or one of its own captures with the logical capture its
+// row states. A by-reference parameter and a captured location denote storage that exists outside the body.
+export type CaptureSource =
+  | { readonly kind: "binding" }
+  | { readonly kind: "parameter"; readonly passing: PassingMode }
+  | { readonly kind: "capture"; readonly capture: LogicalCapture };
+
+export interface ClosureCapture {
+  readonly local: LocalRef;
+  readonly type: TyId;
+  readonly reassignable: boolean;
+  readonly incoming: CaptureSource;
+}
+
+export interface ClosureConstraint {
+  readonly kind: "closure";
+  readonly occurrence: NodeRef;
+  readonly created: BodyId;
+  readonly captures: readonly ClosureCapture[];
+  readonly result: TyId;
+  readonly bindings: BindingVector;
+}
+
 export interface DischargeConstraint {
   readonly kind: "discharge";
   readonly occurrence: NodeRef;
@@ -162,7 +186,7 @@ export interface DefaultConstraint {
 
 export type Constraint = EqualityConstraint | FlowConstraint | LiteralConstraint | OperatorConstraint
   | MemberConstraint | IndexConstraint | CallConstraint | ConstructConstraint | LiteralConstructionConstraint
-  | ProtocolConstraint | RefinementConstraint | DischargeConstraint | DefaultConstraint;
+  | ProtocolConstraint | RefinementConstraint | DischargeConstraint | DefaultConstraint | ClosureConstraint;
 
 export interface ConstraintSet {
   readonly group: GroupId;
@@ -335,6 +359,68 @@ export interface CoreInput {
   readonly permissionScope: NodeRef | null;
 }
 
+export type CheckFailure = "unwind" | "abort";
+export type FailureKind = "none" | CheckFailure;
+
+export type CheckRequirement =
+  | { readonly kind: "none" }
+  | { readonly kind: "required"; readonly failure: CheckFailure };
+
+export type OperationExecution =
+  | { readonly kind: "pure" }
+  | { readonly kind: "invocation"; readonly writesStorage: boolean; readonly failure: FailureKind };
+
+export type ReceiverAccess = "in-place" | "by-reference";
+
+export type AccessLocation =
+  | { readonly kind: "data"; readonly check: CheckRequirement; readonly receiver: ReceiverAccess }
+  | { readonly kind: "accessor" };
+
+export type HandleActivation = "at-creation" | "when-first-driven";
+
+// The logical capture of one captured local. A captured location preserves its source location identity: the closure and
+// the creating body denote the same storage. A captured value is the value the binding holds at creation; when that value
+// is an object reference, the object's contents stay shared and writable through it, so a captured value says nothing
+// about immutability of contents. Neither selects a physical copy: Origins' and PointerBacking's facts and the native
+// compiler justify any later representation.
+export type LogicalCapture = "captured-value" | "captured-location";
+
+// One capture: the captured source local and its logical capture. The creator's decision and the created body state the
+// same rows in the same order.
+export interface CaptureRowOf<Capture extends LogicalCapture | null> {
+  readonly local: LocalRef;
+  readonly capture: Capture;
+}
+
+// A row of a closure decision: the capture is decided.
+export type CaptureRow = CaptureRowOf<LogicalCapture>;
+
+// A row of a created body. Its capture is the creator's decided row; it is null only in the parametric template of a body
+// whose creator saved the closure rule for instantiation, and then on every row: each instance carries the decided rows.
+export type BodyCaptureRow = CaptureRowOf<LogicalCapture | null>;
+
+export interface ClosureDecision {
+  readonly carrier: TyId;
+  readonly captures: readonly CaptureRow[];
+  readonly execution: OperationExecution;
+}
+
+// The ready evidence of one captured local, in the order of the closure's captured locals: its identity, its type, and
+// whether its binding can be reassigned by its declaration. The fact is about the binding, not about the object it holds,
+// and not about whether a reassignment occurs.
+export interface ClosureCaptureEvidence {
+  readonly local: LocalRef;
+  readonly value: TypeEvidence;
+  readonly reassignable: boolean;
+  readonly incoming: CaptureSource;
+}
+
+export interface ClosureInput {
+  readonly context: RuleContext;
+  readonly callable: TypeEvidence;
+  readonly captures: readonly ClosureCaptureEvidence[];
+}
+
 export type ConversionKind = "numeric" | "literal-fit" | "absence" | "union-injection" | "shape" | "callable" | "readonly";
 
 export interface CorrespondenceStep {
@@ -351,7 +437,7 @@ export interface EmbeddingProof {
 
 export type EmbeddingDecision =
   | { readonly kind: "identity" }
-  | { readonly kind: "conversion"; readonly conversion: ConversionKind; readonly proof: EmbeddingProof }
+  | { readonly kind: "conversion"; readonly conversion: ConversionKind; readonly proof: EmbeddingProof; readonly check: CheckRequirement }
   | { readonly kind: "refused"; readonly reason: "incompatible-domain" | "lossy-numeric" | "missing-correspondence" | "passing-mode" | "rigid-parameter" };
 
 export interface MemberDecision {
@@ -364,6 +450,7 @@ export interface MemberDecision {
   readonly getter: HirCallableEndpoint | null;
   readonly setter: HirCallableEndpoint | null;
   readonly bindings: BindingVector;
+  readonly location: AccessLocation;
 }
 
 export type ParameterMapping =
@@ -388,6 +475,7 @@ export interface ApplicationDecision {
   readonly parameters: readonly ParameterMapping[];
   readonly completion: CompletionEndpoint;
   readonly result: TyId;
+  readonly activation: HandleActivation | null;
 }
 
 export interface ConstructionPartDecision {
@@ -430,6 +518,7 @@ export interface OperationDecision {
   readonly operation: OperationIdentity;
   readonly operands: readonly TyId[];
   readonly result: TyId;
+  readonly execution: OperationExecution;
 }
 
 export type DeferredInvocation =
@@ -445,7 +534,8 @@ export type DeferredInvocation =
   | { readonly rule: "protocol"; readonly input: ProtocolInput }
   | { readonly rule: "refinement"; readonly input: RefinementInput }
   | { readonly rule: "library"; readonly input: LibraryInput }
-  | { readonly rule: "core"; readonly input: CoreInput };
+  | { readonly rule: "core"; readonly input: CoreInput }
+  | { readonly rule: "closure"; readonly input: ClosureInput };
 
 export interface DeferredDecision {
   readonly invocation: DeferredInvocation;
@@ -458,7 +548,7 @@ export type RuleOutcome<Decision> =
 
 export type RefinementDecision =
   | { readonly kind: "identity"; readonly type: TyId }
-  | { readonly kind: "narrowed"; readonly source: TyId; readonly result: TyId; readonly proof: EmbeddingProof };
+  | { readonly kind: "narrowed"; readonly source: TyId; readonly result: TyId; readonly proof: EmbeddingProof; readonly failure: CheckFailure };
 
 export interface FinalVariable {
   readonly variable: number;
@@ -524,6 +614,7 @@ export type ConstraintDecision =
   | { readonly kind: "refine"; readonly refinement: RefinementDecision }
   | { readonly kind: "discharge"; readonly proof: DischargeProof }
   | { readonly kind: "default"; readonly type: TyId }
+  | { readonly kind: "closure"; readonly closure: ClosureDecision }
   | { readonly kind: "deferred"; readonly deferred: DeferredDecision };
 
 export interface DischargeObligationProof {
@@ -585,6 +676,7 @@ export interface RuleTable {
   readonly refinement: (input: RefinementInput) => Result<RuleOutcome<RefinementDecision>>;
   readonly library: (input: LibraryInput) => Result<RuleOutcome<OperationDecision>>;
   readonly core: (input: CoreInput) => Result<RuleOutcome<OperationDecision>>;
+  readonly closure: (input: ClosureInput) => Result<RuleOutcome<ClosureDecision>>;
   readonly variables: VariableRules;
   readonly constraints: ConstraintSchemes;
 }
@@ -622,10 +714,11 @@ export type InferRule = "group-order" | "group-ownership" | "inferred-part-ident
   | "contribution-key-unique" | "contribution-order" | "contribution-role"
   | "contribution-reads-bounds-declared" | "contribution-footprint-complete"
   | "one-publication-per-variable" | "solution-total" | "solution-order"
-  | "no-open-in-solution" | "check-recorded" | "decision-kind"
+  | "no-open-in-solution" | "check-recorded" | "flow-check-agreement" | "operation-types" | "decision-kind"
   | "binding-vector-complete" | "parameter-mapping-total" | "endpoint-agreement"
   | "proof-reference" | "proof-order" | "qualified-reference" | "body-completion-endpoints"
-  | "construction-part-total" | "protocol-channels" | "api-endpoint-role" | "deferred-invocation";
+  | "construction-part-total" | "protocol-channels" | "api-endpoint-role" | "deferred-invocation"
+  | "access-location" | "closure-capture-total" | "closure-capture-binding";
 
 export type InferSite =
   | { readonly kind: "group"; readonly group: GroupId }
@@ -664,3 +757,7 @@ export type ParseInferenceGroup = (text: string) => TextParseResult<InferenceGro
 export type PrintSolution = (solution: Solution) => string;
 export type ParseSolution = (text: string) => TextParseResult<Solution>;
 export type VerifyInference = (input: InferVerificationInput) => readonly Violation<InferRule, InferSite>[];
+// Whether a captured binding with this evidence can only be a captured location. False decides nothing: a binding that
+// cannot be reassigned and whose storage is the creating body's own may be either.
+export type CaptureRequiresLocation = (reassignable: boolean, incoming: CaptureSource) => boolean;
+export type SameCaptureSource = (left: CaptureSource, right: CaptureSource) => boolean;
