@@ -12,9 +12,9 @@ import type {
   TyId,
 } from "../ids/contract.js";
 import type {
-  ArtifactBindings, BodyInstance, ConstantReference, LiteralValue, PlacePassingMode, TypeTable,
+  ArtifactBindings, BodyInstance, ConstantReference, LiteralValue, PassingMode, PlacePassingMode, TypeTable,
 } from "../ir-types/contract.js";
-import type { InferenceDeclaration } from "../ir-infer/contract.js";
+import type { InferenceDeclaration, LogicalCapture } from "../ir-infer/contract.js";
 import type { MemberSelection, ResolvedCallee, TirBody, TypedOperation } from "../ir-tir/contract.js";
 
 export interface MirSite {
@@ -31,11 +31,14 @@ export type MirLocalRole =
 // A local of role `receiver` or `parameter` is the storage of a parameter row of the typed body and names that row's
 // source local: the receiver names the local of the row of role `this`; parameter i names the local of the i-th of
 // the other rows. For these two roles `source` is never null. Whether such a local is the body's own slot or the
-// caller's storage is read from its row's passing mode (graph laws 3 and 8), and from nothing else.
+// caller's storage is read from its selected storage mode (graph laws 3 and 8), verified against that row even when
+// another local role names the same source binding. Null is only an undecided capture of a parametric template.
+export type MirLocalStorageMode = "local" | PassingMode | LogicalCapture | null;
 export interface MirLocal {
   readonly id: LocalId;
   readonly storage: TyId;
   readonly role: MirLocalRole;
+  readonly mode: MirLocalStorageMode;
   readonly source: LocalRef | null;
   readonly origin: Origin;
 }
@@ -87,13 +90,15 @@ export type MirProjection =
 //     for a local present on entry) and the local is not handed out (no address taken, no hand-over by place in a
 //     writing mode, no capture). The local of a parameter or of the receiver that is not passed by value or moved is the
 //     caller's storage, used with no dereference: it is handed out from entry and written by other code, so no view of it is
-//     stable and it is not an index; an index held in such a parameter is first copied into a local written once. Every other checked place is mutable. The second stable kind, the bounds of an
-//     element whose access decision states a fixed extent, is added with that field; until then an `index` view is mutable.
+//     stable and it is not an index; an index held in such a parameter is first copied into a local written once.
+//     Bounds of an index into a selected `fixed-array` or `declared` type with an extent are also stable when the
+//     receiver and index depend only on body-owned, unexposed cells and no enclosing check is mutable.
+//     The actual parent place's type supplies the extent; there is no second extent decision. Every other checked place is mutable.
 //   - Mutable availability ends at a `call`, `await`, `yield` or `delegate`, and at an `invoke` whose decision says
 //     it writes existing storage; at a value written into a
 //     place that is not a local's own cell, or into the cell of a local that is handed out; and at a value written into
 //     the cell of, or a storage marker of, a local that an available place is rooted at or indexed by.
-//   - Stable availability ends only at a value written into the cell of, or a storage marker of, its local.
+//   - Stable availability ends only at a value written into the cell of, or a storage marker of, any receiver or index local it depends on.
 //   - The destination of a terminator is used after the terminator's own effect.
 //   - A checked place, or a place under one, is never the destination of a terminator: not of a result, not of an
 //     exception, not of the value a suspension returns with.
@@ -105,9 +110,9 @@ export type MirProjection =
 // available again elsewhere since, the prefix is copied. The worst case is the number of edges not continued
 // along times the number of stable checked places, which is quadratic when both grow with the body. That work is
 // charged to the body's one account (`MirVerificationLimits.maximumWork`): one unit for each place counted or
-// copied and for each incoming edge of a block not continued into. Making a mutable place available stamps the locals
-// its index chain depends on; index chains share their prefixes, a chain node already stamped in the current mutable
-// span ends the walk, and one unit is charged for each chain node stamped again in a later span. Lists are kept only until the block they were
+// copied and for each incoming edge of a block not continued into. Making a place available stamps the locals
+// its index chain depends on; index chains share their prefixes, a chain node already stamped in the current stable or mutable
+// span ends the walk, and one unit is charged for each chain node stamped again in a later span of that kind. Lists are kept only until the block they were
 // handed to has been read.
 // A second check of the same place makes it available again. All checked places of one node have one parent and one
 // index: a later check re-resolves the place the first check resolved, through the same saved receiver and index.
@@ -143,6 +148,7 @@ export type MirAggregate =
 export interface MirClosureCapture {
   readonly local: LocalRef;
   readonly place: PlaceId;
+  readonly capture: LogicalCapture | null;
 }
 
 export type MirRvalue =
@@ -340,6 +346,7 @@ export type MirRule =
   | "entries-exact"
   | "omission-admitted"
   | "storage-marker-exact"
+  | "local-storage-exact"
   | "effect-site-unique";
 
 export type MirViolationSite =
@@ -354,6 +361,8 @@ export type MirViolationSite =
 // emits constants in the order the verifier requires by using this one function. Null when the constant's bindings
 // are not complete.
 export type ConstantKeyOfMir = (type: TyId, value: MirConstantValue) => string | null;
+export type MirLocalOwnership = "body" | "external" | "undecided";
+export type LocalOwnershipOfMir = (mode: MirLocalStorageMode) => MirLocalOwnership;
 export type PrintMir = (body: MirBody) => string;
 export type ParseMir = (text: string) => TextParseResult<MirBody>;
 // The limit of one body's verification. Verification has one account for each body: every pass that does work
@@ -374,6 +383,7 @@ export type MirVerification =
 export interface MirVerificationContext {
   readonly limits: MirVerificationLimits;
   readonly source: TirBody;
+  readonly bodyOf: (instance: BodyInstance) => TirBody | null;
   readonly types: TypeTable;
   readonly declarationOf: (definition: DefId) => InferenceDeclaration | null;
   readonly bodyOwner: (body: BodyId) => DefId | null;

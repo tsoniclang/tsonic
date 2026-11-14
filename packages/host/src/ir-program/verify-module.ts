@@ -246,7 +246,7 @@ export function verifyPublishedChildren(
         violations.push({ rule: programChildRule("tir-valid", child.rule), site, detail: [textDetail(child.rule), ...child.detail] });
       }
       const mir = verifyMir(published.mir, {
-        limits: context.mirVerification, source: published.tir, types: index.types,
+        limits: context.mirVerification, source: published.tir, bodyOf: input.bodyOf, types: index.types,
         declarationOf: input.declarationOf, bodyOwner: context.facts.bodyOwner,
       });
       // A body past its limit is the answer for the module: it names the body, and nothing gathered so far is a finding.

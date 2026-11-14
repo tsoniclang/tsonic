@@ -337,7 +337,7 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
       "text-constraints.ts", "text-contributions.ts", "text-data.ts", "text-decision-values.ts",
       "text-decisions.ts", "text-evidence.ts", "text-invocations.ts", "text-operations.ts", "text-pointers.ts",
       "text-rule-inputs.ts", "verify-contributions.ts", "verify-solution.ts", "verify.ts"].map(name => `${host}/ir-infer/${name}`),
-    ...["index.ts", "parse.ts", "print.ts", "text-decisions.ts", "text.ts", "verify-control.ts",
+    ...["index.ts", "local-ownership.ts", "parse.ts", "print.ts", "text-decisions.ts", "text.ts", "verify-control.ts",
       "verify-storage.ts", "verify-laws.ts", "verify.ts"].map(name => `${host}/ir-mir/${name}`),
     ...["canonical-facts.ts", "canonical-inference.ts", "canonical-phase.ts", "canonical-syntax.ts",
       "canonical-tir.ts", "canonical-types.ts", "canonical.ts", "index.ts", "instantiate-facts.ts",

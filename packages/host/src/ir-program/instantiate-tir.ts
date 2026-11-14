@@ -101,7 +101,7 @@ function terminator(scan: ProjectionInventory, value: MirTerminator): Instantiat
 }
 
 export function inventoryMirBody(scan: ProjectionInventory, value: MirBody): InstantiationStop | null {
-  inventoryEach(scan, value.locals, local => inventoryRecord(scan, 5) ?? inventoryType(scan, local.storage));
+  inventoryEach(scan, value.locals, local => inventoryRecord(scan, 6) ?? inventoryType(scan, local.storage));
   inventoryEach(scan, value.constants, constant => inventoryRecord(scan, 3) ?? inventoryType(scan, constant.type) ?? constantValue(scan, constant.value));
   inventoryEach(scan, value.places, place => inventoryRecord(scan, 4) ?? placeBase(scan, place.base) ?? inventoryType(scan, place.storage));
   inventoryEach(scan, value.blocks, block => {

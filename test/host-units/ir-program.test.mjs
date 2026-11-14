@@ -1730,8 +1730,11 @@ for (const kind of ["literal", "definition", "observation", "place", "closure-pa
       const block = mir.blocks[0];
       block.terminator = { origin: block.origin, tir: block.tir, kind: "call", callee: { kind: "body", instance, captures: [] }, receiver: null,
         arguments: [], destination: null, next: 0, unwind: { kind: "escape" }, step: null };
-      if (kind === "body-callee-instantiated") expected.push(missing("mir.blocks[0].terminator.callee.instance",
-        encodeKey([first.bodyId, ["instantiated", [[], [], [], []]]])));
+      if (kind === "body-callee-instantiated") {
+        first.answers.set(encodeContextKey(["bodyOf", instance]), null);
+        expected.push(missing("mir.blocks[0].terminator.callee.instance",
+          encodeKey([first.bodyId, ["instantiated", [[], [], [], []]]])));
+      }
     } else if (kind === "field-accessors") {
       const advertised = { declaration: first.definition, role: "advertised", signature: 0, body: null };
       const callee = { decision: { candidate: 0, advertised, api: { ...advertised, role: "api-signature" }, bindings, implementationBindings: bindings,
@@ -1746,6 +1749,7 @@ for (const kind of ["literal", "definition", "observation", "place", "closure-pa
       expected.push(missing("mir.constants[0].value", key), missing("observations.rows[0].layout.metadata", key));
     }
     if (kind.startsWith("closure-") || kind.startsWith("body-callee-")) expected.push({ rule: "mir-valid", site, detail: [{ kind: "text", value: "operation-selected" }] });
+    if (kind === "body-callee-instantiated") expected.push({ rule: "mir-valid", site, detail: [{ kind: "text", value: "capture-location-exact" }] });
     completeProgramValue(moduleViolations(first.index, first.module, first.context), expected,
       "the complete whole-body result includes every owning publication and child finding without filtering");
   });

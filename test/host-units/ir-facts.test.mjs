@@ -102,7 +102,7 @@ test("ir-facts: all seventeen actual emitted ports, full closed logic and fresh 
       ({ ...header(index + 1), kind: "EmptyStatement", tsonic: null })) }, tsonic: null },
     nestedBodies: [], captures: [], scopes: [], evidence: [], asynchronous: false, generator: false });
   const mir = () => ({ body, bindings: parametric(), entries: [{ provided: 0, block: 0 }],
-    locals: [{ id: 0, storage: 0, role: { kind: "user" }, source: { body, local: 0 }, origin: sourceOrigin() }], constants: [],
+    locals: [{ id: 0, storage: 0, role: { kind: "user" }, mode: "local", source: { body, local: 0 }, origin: sourceOrigin() }], constants: [],
     places: [{ id: 0, base: { kind: "local", local: 0 }, storage: 0, origin: sourceOrigin() }],
     blocks: [{ id: 0, origin: sourceOrigin(), tir: nodeRef(0), statements: [],
       terminator: { kind: "return", value: null, origin: sourceOrigin(), tir: nodeRef(0) } }], result: 1 });
@@ -881,7 +881,7 @@ test("ir-facts: all seventeen actual emitted ports, full closed logic and fresh 
 
   const localSite = local => ({ kind: "local", local: { body, local } });
   const withMirEndpoints = supplied => {
-    supplied.mir.locals.push({ id: 1, storage: 0, role: { kind: "temporary" }, source: null, origin: sourceOrigin(2) });
+    supplied.mir.locals.push({ id: 1, storage: 0, role: { kind: "temporary" }, mode: "local", source: null, origin: sourceOrigin(2) });
     supplied.mir.places.push({ id: 1, base: { kind: "local", local: 1 }, storage: 0, origin: sourceOrigin(2) });
     supplied.mir.blocks[0].statements = [{ kind: "storage-live", local: 0, origin: sourceOrigin(1), tir: nodeRef(1) },
       { kind: "storage-dead", local: 0, origin: sourceOrigin(2), tir: nodeRef(2) }];
@@ -1284,7 +1284,7 @@ test("ir-facts: all seventeen actual emitted ports, full closed logic and fresh 
     };
     });
     supplied.tir.locals = Array.from({ length: count }, (_, id) => ({ id, declaration: { kind: "body", value: nodeRef(id * 13 + 3) }, name: "counter", role: "binding", capturedFrom: null, mutable: true, storage: 0 }));
-    for (const local of supplied.tir.locals.slice(1)) supplied.mir.locals.push({ id: local.id, storage: 0, role: { kind: "user" },
+    for (const local of supplied.tir.locals.slice(1)) supplied.mir.locals.push({ id: local.id, storage: 0, role: { kind: "user" }, mode: "local",
       source: { body, local: local.id }, origin: sourceOrigin(local.declaration.value.node) });
     supplied.context.localExists = selected => selected.body === body
       ? supplied.tir.locals.some(local => Object.is(local.id, selected.local)) : selected.body === otherBody && selected.local === 0;
@@ -4344,7 +4344,7 @@ test("ir-facts: all seventeen actual emitted ports, full closed logic and fresh 
         passing: parameter.passing, initializer: null, storage: 0 }));
       supplied.tir.locals = supplied.tir.params.map(parameter => ({ id: parameter.local, declaration: itemRef(parameter.declaration),
         name: "parameter", role: "parameter", capturedFrom: null, mutable: true, storage: 0 }));
-      supplied.mir.locals = parameters.map((parameter, id) => ({ id, storage: parameter.type, role: { kind: "parameter", index: id },
+      supplied.mir.locals = parameters.map((parameter, id) => ({ id, storage: parameter.type, role: { kind: "parameter", index: id }, mode: parameter.passing,
         source: { body, local: id }, origin: sourceOrigin(id) }));
       supplied.mir.entries = [2, 1, 0].map(provided => ({ provided, block: 0 }));
       equal(product.verifyFacts(input, supplied.mir, supplied.context), [], "the explicitly selected entry resolves in the complete authored entry table");

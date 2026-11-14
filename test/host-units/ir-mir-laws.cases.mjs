@@ -2,8 +2,6 @@
 // imports it, and its cases run and are counted there. It is not a test entry of its own.
 // Cases for the graph laws of a lowered body (COMPONENTS section 7 part 9, laws 1 and 4 to 10; S2-18).
 // One hand-written graph satisfies them; each other case changes one thing and names the law it breaks.
-// Law 2 and the agreement of failure kinds with decisions wait for the decision fields (S2-11). Law 3 is cased as
-// ruled (K-3238, relayed by the controller); its fixed-extent kind waits for `extent` on the element access decision.
 //   function laws(a: int32[], i: int32, o?: int32): int32 { for (const v of a) { use(v); } bump(i); o!; o!; o!; await o; await o; yield i; yield* a; return a[i]; }
 // (the two awaits and the two yields are nodes for the cases of law 6 on suspensions; no case lowers them together)
 // where `bump` takes its parameter by reference for reading and writing.
@@ -12,6 +10,7 @@ import { before, test } from "node:test";
 import { EMPTY_BINDINGS, PARAMETRIC, T, TABLE, bodyId, builders, def, narrowed, signature, typedBody, value } from "./fixtures/lower-mir/typed.mjs";
 
 const SIG_LAWS = signature("laws", [["a", T.int32Array], ["i", T.int32], ["o", T.optInt32, "optional"]], T.int32);
+const SIG_FIXED = signature("laws.fixed", [["a", T.int32Fixed4], ["i", T.int32], ["o", T.optInt32, "optional"]], T.int32);
 const SIG_USE = signature("laws.use", [["v", T.int32]], T.void);
 const SIG_BUMP = signature("laws.bump", [["v", T.int32, "required", null, "byref-readwrite"]], T.void);
 const SIG_TWO = signature("laws.two", [["x", T.optInt32, "optional"], ["y", T.optInt32, "optional"]], T.void);
@@ -51,11 +50,11 @@ const NARROWED = narrowed(T.optInt32, T.int32, "unwind");
 const PURE_OPERATION = { decision: { kind: "selected", operation: { kind: "core", declaration: def("laws.pure"), bindings: EMPTY_BINDINGS },
   operands: [T.unknown], result: T.int32, execution: { kind: "pure" } }, permissionScope: null };
 const b = builders("laws");
-const typed = iterate => typedBody("laws", { signature: SIG_LAWS, completion: T.int32,
-  locals: [["a", "parameter", T.int32Array], ["i", "parameter", T.int32], ["o", "parameter", T.optInt32], ["v", "binding", T.int32]],
-  params: [[0, "required", T.int32Array], [1, "required", T.int32], [2, "optional", T.optInt32]],
+const typed = (iterate, arrayType = T.int32Array, selectedSignature = SIG_LAWS, index = INDEX, position = () => b.id("i", 1, T.int32)) => typedBody("laws", { signature: selectedSignature, completion: T.int32,
+  locals: [["a", "parameter", arrayType], ["i", "parameter", T.int32], ["o", "parameter", T.optInt32], ["v", "binding", T.int32]],
+  params: [[0, "required", arrayType], [1, "required", T.int32], [2, "optional", T.optInt32]],
   root: b.block(
-    { $: "for", ...b.forOf(b.declarationList([b.variable(b.declName("v", 3), 3, T.int32)]), b.id("a", 0, T.int32Array),
+    { $: "for", ...b.forOf(b.declarationList([b.variable(b.declName("v", 3), 3, T.int32)]), b.id("a", 0, arrayType),
       b.block(b.expressionStatement({ $: "use(v)", ...b.call(b.global("use", "laws.use", T.unknown), [{ $: "v", ...b.id("v", 3, T.int32) }], T.void,
         at => ({ callee: USE_CALLEE, receiver: null, arguments: [{ kind: "provided", parameter: 0, expression: at("v") }] })) })), iterate) },
     b.expressionStatement({ $: "bump(i)", ...b.call(b.global("bump", "laws.bump", T.unknown), [{ $: "i of bump", ...b.id("i", 1, T.int32) }], T.void,
@@ -66,18 +65,31 @@ const typed = iterate => typedBody("laws", { signature: SIG_LAWS, completion: T.
     b.expressionStatement({ $: "await#bare", ...b.awaits(b.id("o", 2, T.optInt32), T.optInt32, AWAIT_BARE) }),
     b.expressionStatement({ $: "await#step", ...b.awaits(b.id("o", 2, T.optInt32), T.optInt32, AWAIT_STEP) }),
     b.expressionStatement({ $: "yield", ...b.yields(b.id("i", 1, T.int32), T.unknown, YIELD) }),
-    b.expressionStatement({ $: "yield*", ...b.yields(b.id("a", 0, T.int32Array), T.unknown, DELEGATE, true) }),
-    { $: "return", ...b.returns({ $: "a[i]", ...b.element({ $: "a", ...b.id("a", 0, T.int32Array) }, { $: "i", ...b.id("i", 1, T.int32) },
-      { ...value(T.int32, { narrowing: NARROWED }), role: "value", selection: { kind: "decided", decision: INDEX } }) }) }) });
+    b.expressionStatement({ $: "yield*", ...b.yields(b.id("a", 0, arrayType), T.unknown, DELEGATE, true) }),
+    { $: "return", ...b.returns({ $: "a[i]", ...b.element({ $: "a", ...b.id("a", 0, arrayType) }, { $: "i", ...position() },
+      { ...value(T.int32, { narrowing: NARROWED }), role: "value", selection: { kind: "decided", decision: index } }) }) }) });
 const source = typed(ITERATE);
+const FIXED_ACQUIRE = { ...ACQUIRE, decision: { ...ACQUIRE.decision, operands: [T.int32Fixed4] } };
+const fixedSource = typed({ ...ITERATE, steps: [{ ...ITERATE.steps[0], operation: FIXED_ACQUIRE }, ...ITERATE.steps.slice(1)] },
+  T.int32Fixed4, SIG_FIXED, { ...INDEX, decision: { ...INDEX.decision, location: { ...INDEX.decision.location, receiver: "in-place" } } });
 
 const BODY = bodyId("laws");
 const site = label => ({ origin: { module: "M[P[p];m]", start: source.at(label), length: 1, derived: [] }, tir: { body: BODY, node: source.at(label) } });
-const local = (id, storage, role, sourceLocal = null) => ({ id, storage, role, source: sourceLocal === null ? null : { body: BODY, local: sourceLocal },
+const local = (id, storage, role, sourceLocal = null, mode = sourceLocal === null ? "local"
+  : source.tir.params.find(row => row.local === sourceLocal)?.passing ?? "local") => ({ id, storage, role, mode, source: sourceLocal === null ? null : { body: BODY, local: sourceLocal },
   origin: site("for").origin });
 const place = (id, base, storage) => ({ id, base, storage, origin: site("for").origin });
 const p = id => ({ kind: "place", place: id });
 const step = index => ({ protocol: 0, step: index });
+const selectedModes = (body, given) => ({ ...body, locals: body.locals.map(local => {
+  if (local.role.kind === "capture") {
+    const row = given.source.captures[local.role.index];
+    assert.equal(row !== undefined, true, "the selected capture row exists in this fixture");
+    return { ...local, mode: row.capture };
+  }
+  const parameter = local.source?.body === given.source.body ? given.source.params.find(row => row.local === local.source.local) : undefined;
+  return { ...local, mode: parameter === undefined ? "local" : parameter.passing };
+}) });
 
 /**
  * The graph that satisfies every law. Places 0 to 9 are the locals 0 to 9; place 10 is the checked element a[i].
@@ -138,6 +150,7 @@ let printMir;
 let parseMir;
 let constantKeyOfMir;
 let context;
+let fixedContext;
 
 before(async () => {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true, "MIR law cases require a guarded admission");
@@ -146,8 +159,9 @@ before(async () => {
     endpoints: [endpoint(name, "advertised", sig), endpoint(name, "api-body", sig)] });
   const declared = new Map([["laws", SIG_USE], ["laws.use", SIG_USE], ["laws.bump", SIG_BUMP], ["laws.two", SIG_TWO], ["laws.acquire", SIG_USE],
     ["laws.next", SIG_USE], ["laws.done", SIG_USE], ["laws.value", SIG_USE], ["laws.await", SIG_USE], ["laws.pure", SIG_USE]].map(([name, sig]) => [def(name), declaration(name, sig)]));
-  context = { limits: { maximumWork: 100000 }, source: source.tir, types: TABLE, declarationOf: definition => declared.get(definition) ?? null,
+  context = { limits: { maximumWork: 100000 }, source: source.tir, bodyOf: () => null, types: TABLE, declarationOf: definition => declared.get(definition) ?? null,
     bodyOwner: body => body === BODY ? def("laws") : body === bodyId("laws.use") ? def("laws.use") : body === bodyId("laws.bump") ? def("laws.bump") : body === bodyId("laws.two") ? def("laws.two") : null };
+  fixedContext = { ...context, source: fixedSource.tir };
 });
 
 /** The findings of a verification that ran to its end; a refusal for resources is not a list of findings. */
@@ -162,6 +176,15 @@ const all = body => found(body).map(violation => violation.rule);
 /** The same, for the body taken as asynchronous: a suspension stands only in a body that can suspend. */
 const allAsync = body => found(body, { ...context, source: { ...context.source, asynchronous: true } }).map(violation => violation.rule);
 const changed = change => { const body = good(); change(body); return body; };
+const fixed = body => {
+  for (const position of [0, 8]) {
+    body.locals[position].storage = T.int32Fixed4;
+    body.places[position].storage = T.int32Fixed4;
+  }
+  body.blocks[0].terminator.operation = FIXED_ACQUIRE;
+  return body;
+};
+const allFixed = body => found(fixed(body), fixedContext).map(violation => violation.rule);
 
 test("the graph that satisfies the laws has no law violation, and its text form is read back equal", () => {
   assert.deepEqual(laws(good()), []);
@@ -190,7 +213,7 @@ test("law 1: a call cannot end the process or be unable to fail", () => {
 });
 
 test("law 1: a control point fails as its decision says", () => {
-  const lawRules = (body, given) => found(body, given).filter(violation => LAW_RULES.has(violation.rule)).map(violation => violation.rule);
+  const lawRules = (body, given) => found(selectedModes(body, given), given).filter(violation => LAW_RULES.has(violation.rule)).map(violation => violation.rule);
   // The access decision of a[i] says its check unwinds: a check that ends the process disagrees.
   assert.deepEqual(laws(changed(body => { body.blocks[6].terminator.unwind = { kind: "abort" }; })), ["failure-kind-exact"]);
   // An invoked operation that cannot fail has no failure arm; one that unwinds has an edge or leaves the body.
@@ -273,7 +296,7 @@ test("laws 1 and 4: a view is checked exactly where its decision requires, and a
   // Indexed directly through `a` when `a` is passed by reference: the receiver is held in the caller's storage, which
   // other code writes. The lowering saves it first, as the satisfying graph does.
   const byReference = { ...context, source: { ...context.source, params: context.source.params.map((row, position) => position === 0 ? { ...row, passing: "byref-readwrite" } : row) } };
-  assert.deepEqual(found(changed(body => { body.places[10].base.place = 0; }), byReference).filter(violation => LAW_RULES.has(violation.rule)).map(violation => violation.rule),
+  assert.deepEqual(found(selectedModes(changed(body => { body.places[10].base.place = 0; }), byReference), byReference).filter(violation => LAW_RULES.has(violation.rule)).map(violation => violation.rule),
     ["receiver-stable"]);
   // The saved receiver written a second time.
   assert.deepEqual(laws(changed(body => { body.blocks[6].statements.push({ ...site("a"), kind: "assign", place: 8, value: { kind: "use", operand: p(0) }, step: null }); })),
@@ -344,7 +367,7 @@ test("law 4: every way the index local's cell can be written is a write", () => 
   // have other findings (no reference type and no second body in this fixture); only the law rules are compared.
   assert.deepEqual(laws(changed(body => { body.blocks[7].statements.unshift(
     { ...site("i"), kind: "assign", place: 9, value: { kind: "address-of", place: 7, type: T.int32 }, step: null }); })), ["index-operand-stable"]);
-  const captures = [{ local: { body: BODY, local: 1 }, place: 7 }];
+  const captures = [{ local: { body: BODY, local: 1 }, place: 7, capture: "captured-location" }];
   assert.deepEqual(laws(changed(body => { body.blocks[7].statements.unshift(
     { ...site("i"), kind: "assign", place: 4, value: { kind: "closure", instance: { body: bodyId("laws.use"), bindings: PARAMETRIC }, captures }, step: null }); })), ["index-operand-stable"]);
   assert.deepEqual(laws(changed(body => { body.blocks[5].terminator.callee = { kind: "body", instance: { body: bodyId("laws.use"), bindings: PARAMETRIC }, captures }; })),
@@ -413,14 +436,107 @@ test("law 3: a suspension between the check and the use ends mutable availabilit
   assert.deepEqual(all(changed(body => { suspended(body, true); })), ["suspension-admitted"]);
 });
 
-const WAITS_EXTENT = { todo: "waits for `extent: CarrierExtent` on the element access decision (W2, the commit after A1)" };
-test("law 3: a fixed extent with an unchanged receiver and index stays available across a call (point 4)", WAITS_EXTENT, () => {
-  // With `extent: "fixed"` on the decision of a[i], the call between the check and the use ends nothing.
-  assert.deepEqual(all(changed(body => { body.blocks[3].terminator.targets[0].target = 6; body.blocks[6].terminator.next = 9; body.blocks[9].terminator.next = 7; })), []);
+const checkedBeforeCall = body => {
+  body.blocks[3].terminator.targets[0].target = 6;
+  body.blocks[6].terminator.next = 9;
+  body.blocks[9].terminator.next = 7;
+};
+test("law 3: a fixed extent with an unchanged receiver and index stays available across a call (point 4)", () => {
+  assert.deepEqual(allFixed(changed(checkedBeforeCall)), []);
+  assert.deepEqual(all(changed(checkedBeforeCall)), ["checked-place-available"]);
+  const literalSource = typed({ ...ITERATE, steps: [{ ...ITERATE.steps[0], operation: FIXED_ACQUIRE }, ...ITERATE.steps.slice(1)] },
+    T.int32Fixed4, SIG_FIXED, { ...INDEX, decision: { ...INDEX.decision, location: { ...INDEX.decision.location, receiver: "in-place" } } },
+    () => b.num("0", T.int32));
+  const constantIndex = fixed(changed(checkedBeforeCall));
+  constantIndex.constants.push({ id: 2, type: T.int32, value: { kind: "literal", value: { kind: "number", token: "0",
+    value: { numerator: 0n, denominator: 1n, negativeZero: false } } } });
+  constantIndex.places[10].base.projection.operand = { kind: "constant", constant: 2 };
+  assert.deepEqual(found(constantIndex, { ...fixedContext, source: literalSource.tir }), []);
 });
-test("law 3: a fixed extent does not survive a write of its saved receiver (point 4)", WAITS_EXTENT, () => {
-  // Until the field exists this graph is refused as every mutable place is; with it, it must still be refused.
-  assert.fail("the fixed-extent kind is not implemented");
+test("law 3: an actual declared extent is fixed, but a declared carrier without an extent is not", () => {
+  const definition = def("laws.fixed-carrier");
+  for (const extent of [{ length: 4n, runtimeBase: "number" }, null]) {
+    const terms = [...TABLE.terms];
+    terms[T.int32Fixed4] = { kind: "declared", definition, arguments: [], facet: "instance", extent };
+    const given = { ...fixedContext, types: { ...TABLE, terms }, declarationOf: key => key === definition
+      ? { scope: { classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] }, parameterCount: 0, endpoints: [] }
+      : context.declarationOf(key) };
+    assert.deepEqual(found(fixed(changed(checkedBeforeCall)), given).map(finding => finding.rule), extent === null ? ["checked-place-available"] : []);
+  }
+});
+test("law 3: a fixed extent does not survive a write or lifetime restart of its saved receiver (point 4)", () => {
+  for (const statements of [
+    [{ ...site("a"), kind: "assign", place: 8, value: { kind: "use", operand: p(0) }, step: null }],
+    [{ ...site("a"), kind: "storage-live", local: 8 }],
+  ]) assert.deepEqual(allFixed(changed(body => { checkedBeforeCall(body); body.blocks[9].statements.push(...statements); })), ["checked-place-available"]);
+  assert.deepEqual(allFixed(changed(body => {
+    checkedBeforeCall(body);
+    body.blocks[9].statements.push({ ...site("i"), kind: "storage-live", local: 7 });
+  })), ["checked-place-available"]);
+  assert.deepEqual(allFixed(changed(body => {
+    checkedBeforeCall(body);
+    body.blocks[9].statements.push({ ...site("i"), kind: "assign", place: 7, value: { kind: "use", operand: p(1) }, step: null });
+  })), ["index-operand-stable", "checked-place-available"]);
+});
+
+test("law 3: fixed inner bounds retain the actual enclosing checked-location dependency", async () => {
+  const { verifyLaws } = await import("../../packages/host/dist/ir-mir/verify-laws.js");
+  const { createWireTexts, sourceNodes } = await import("../../packages/host/dist/ir-mir/verify-control.js");
+  const { placeLocations } = await import("../../packages/host/dist/ir-mir/verify-storage.js");
+  const { createDecisionWires } = await import("../../packages/host/dist/ir-mir/text-decisions.js");
+  const { createScalarWires } = await import("../../packages/host/dist/ir-mir/text.js");
+  const texts = createWireTexts(createDecisionWires(createScalarWires()));
+  for (const storage of [T.int32Fixed4Grid, T.int32Fixed4Rows]) {
+    const name = `laws.rows.${storage}`;
+    const builder = builders(name);
+    const selected = (read, write) => ({ ...INDEX, decision: { ...INDEX.decision, read, write,
+      location: { ...INDEX.decision.location, receiver: "in-place" } } });
+    const selectedSignature = signature(name, [["rows", storage], ["i", T.int32], ["j", T.int32]], T.int32);
+    const program = typedBody(name, { signature: selectedSignature, completion: T.int32,
+      locals: [["rows", "parameter", storage], ["i", "parameter", T.int32], ["j", "parameter", T.int32]],
+      params: [[0, "required", storage], [1, "required", T.int32], [2, "required", T.int32]],
+      root: builder.block(
+        builder.expressionStatement({ $: "inner", ...builder.element({ $: "outer", ...builder.element(builder.id("rows", 0, storage),
+          builder.id("i", 1, T.int32), { ...value(T.int32Fixed4), role: "value", selection: { kind: "decided", decision: selected(T.int32Fixed4, T.int32Fixed4) } }) },
+        builder.id("j", 2, T.int32), { ...value(T.int32), role: "value", selection: { kind: "decided", decision: selected(T.int32, T.int32) } }) }),
+        builder.expressionStatement({ $: "call", ...builder.call(builder.global("use", "laws.use", T.unknown),
+          [{ $: "argument", ...builder.id("i", 1, T.int32) }], T.void,
+          at => ({ callee: USE_CALLEE, receiver: null, arguments: [{ kind: "provided", parameter: 0, expression: at("argument") }] })) }),
+        { $: "result", ...builder.returns(builder.num("0", T.int32)) }) });
+    const own = bodyId(name);
+    const origin = { module: "M[P[p];m]", start: 0, length: 1, derived: [] };
+    const at = label => ({ origin, tir: { body: own, node: program.at(label) } });
+    const body = { body: own, bindings: PARAMETRIC, entries: [{ provided: 3, block: 0 }], result: T.int32,
+      locals: [storage, T.int32, T.int32, T.int32].map((type, id) => ({ id, storage: type, mode: id < 3 ? "by-value" : "local",
+        role: id < 3 ? { kind: "parameter", index: id } : { kind: "temporary" }, source: id < 3 ? { body: own, local: id } : null, origin })),
+      constants: [{ id: 0, type: T.int32, value: { kind: "literal", value: { kind: "number", token: "0", value: { numerator: 0n, denominator: 1n, negativeZero: false } } } }],
+      places: [storage, T.int32, T.int32, T.int32].map((type, id) => ({ id, storage: type, base: { kind: "local", local: id }, origin })),
+      blocks: [
+        { ...at("outer"), id: 0, statements: [{ ...at("outer"), kind: "storage-live", local: 3 }],
+          terminator: { ...at("outer"), kind: "check", place: 4, next: 1, unwind: { kind: "escape" } } },
+        { ...at("inner"), id: 1, statements: [], terminator: { ...at("inner"), kind: "check", place: 5, next: 2, unwind: { kind: "escape" } } },
+        { ...at("call"), id: 2, statements: [{ ...at("inner"), kind: "assign", place: 3, value: { kind: "use", operand: p(5) }, step: null }],
+          terminator: { ...at("call"), kind: "call", callee: { kind: "direct", resolution: USE_CALLEE }, receiver: null,
+            arguments: [{ kind: "value", passing: "by-value", operand: p(1) }], destination: null, next: 3, unwind: { kind: "escape" }, step: null } },
+        { ...at("result"), id: 3, statements: [{ ...at("inner"), kind: "assign", place: 3, value: { kind: "use", operand: p(5) }, step: null }],
+          terminator: { ...at("result"), kind: "return", value: { kind: "constant", constant: 0 } } },
+      ] };
+    body.places.push({ origin, id: 4, storage: T.int32Fixed4,
+      base: { kind: "checked", place: 0, projection: { kind: "index", operand: p(1) }, tir: at("outer").tir } },
+    { origin, id: 5, storage: T.int32,
+      base: { kind: "checked", place: 4, projection: { kind: "index", operand: p(2) }, tir: at("inner").tir } });
+    const given = { ...context, source: program.tir, bodyOwner: key => key === own ? def(name) : context.bodyOwner(key),
+      declarationOf: key => key === def(name) ? { scope: { classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] },
+        parameterCount: 0, endpoints: [endpoint(name, "advertised", selectedSignature), endpoint(name, "api-body", selectedSignature)] } : context.declarationOf(key) };
+    const parsed = parseMir(printMir(body));
+    assert.equal(parsed.kind, "parsed");
+    assert.deepEqual(parsed.value, body);
+    assert.deepEqual(found(body, given).map(finding => finding.rule), storage === T.int32Fixed4Grid ? [] : ["checked-place-available"]);
+    const sparse = structuredClone(body);
+    sparse.places[0] = undefined;
+    assert.doesNotThrow(() => verifyLaws(sparse, given, sourceNodes(given.source, texts), texts, placeLocations(sparse),
+      { spent: 0, maximum: 100000, exhausted: false }));
+  }
 });
 
 /** A saved copy of `o` in local 10 (place 11) and its narrowed view, place 12, checked in a new block 10 that continues to `bump(i)`. */
@@ -485,9 +601,12 @@ test("law 3 at a merge: a stable place checked before a branch is available afte
   assert.deepEqual(all(staged(body => { checkedThenDiamond(body, { atMerge: [READ()] }); })), ["checked-place-available"]);
 });
 
-test("law 3 at a merge: fixed[i] += c ? 1 : 2 has no second bounds control point for the join", WAITS_EXTENT, () => {
-  // UNVERIFIED until `extent` exists: with a fixed extent the read of a[i] where the arms meet has no finding.
-  assert.deepEqual(all(staged(body => { checkedThenDiamond(body, { atMerge: [READ()] }); })), []);
+test("law 3 at a merge: fixed[i] += c ? 1 : 2 has no second bounds control point for the join", () => {
+  assert.deepEqual(allFixed(staged(body => { checkedThenDiamond(body, { atMerge: [READ()] }); })), []);
+  assert.deepEqual(all(staged(body => { checkedThenDiamond(body, { atMerge: [READ()] }); })), ["checked-place-available"]);
+  for (const local of [7, 8]) assert.deepEqual(allFixed(staged(body => {
+    checkedThenDiamond(body, { atMerge: [READ()], inOtherArm: [{ ...site("return"), kind: "storage-live", local }] });
+  })), ["checked-place-available"]);
 });
 
 test("law 3 at a merge: the same fact on every incoming edge, or none", () => {
@@ -691,6 +810,7 @@ const boundaryBodies = () => [
       blockOf(14, [readView(12), readView(15)], returns(p(9))));
   }),
 ];
+const fixedBoundaryBodies = () => boundaryBodies().map(fixed);
 
 test("the work limit is one boundary for every body: below it a refusal, from it on the complete answer", () => {
   // Each limit below the boundary exhausts the account at a different charge: an incoming edge, a place counted, a
@@ -709,13 +829,14 @@ test("the work limit is one boundary for every body: below it a refusal, from it
   // Second body. Law 3: 10 = the loop's two arms + one edge into each of
   // blocks 10 and 11 + the two edges into the merge (block 14) + the two places on each of the two different lists
   // that arrive there.
-  const needs = [159 + 8, 143 + 10];
-  const bodies = boundaryBodies();
+  const needs = [159 + 8, 143 + 10, 159 + 12, 143 + 15];
+  const bodies = [...boundaryBodies(), ...fixedBoundaryBodies()];
   for (const [position, body] of bodies.entries()) {
+    const given = position < 2 ? context : fixedContext;
     const need = needs[position];
     const kinds = [];
     for (let maximumWork = 0; maximumWork <= need + 10; maximumWork += 1) {
-      const outcome = verifyMir(body, { ...context, limits: { maximumWork } });
+      const outcome = verifyMir(body, { ...given, limits: { maximumWork } });
       if (outcome.kind === "complete") assert.deepEqual(outcome.violations, []);
       else assert.deepEqual(outcome, { kind: "resource-limit", body: BODY, dimension: "work", maximum: maximumWork });
       kinds.push(outcome.kind);
@@ -752,17 +873,19 @@ test("law 3 under every limit: once the account refuses, the law pass charges no
       blockOf(13, [readView(15), readView(12)], returns(p(9))), blockOf(14, [readView(17), readView(12)], returns(p(9))));
   });
   assert.deepEqual(all(three), []);
-  const scan = [three, ...boundaryBodies()];
+  const scan = [three, ...boundaryBodies(), ...fixedBoundaryBodies()];
   for (const [position, body] of scan.entries()) {
+    const given = position < 3 ? context : fixedContext;
+    const selectedNodes = position < 3 ? nodes : sourceNodes(given.source, texts);
     const places = placeLocations(body);
     const unlimited = recording(1000000);
-    verifyLaws(body, context, nodes, texts, places, unlimited);
+    verifyLaws(body, given, selectedNodes, texts, places, unlimited);
     // The law pass's own need on this body; below it every limit refuses inside the pass, and no charge follows.
     const need = unlimited.total;
     assert.equal(need > 0, true, `body ${position}`);
     for (let maximum = 0; maximum <= need; maximum += 1) {
       const meter = recording(maximum);
-      verifyLaws(body, context, nodes, texts, places, meter);
+      verifyLaws(body, given, selectedNodes, texts, places, meter);
       assert.equal(meter.exhausted, maximum < need, `body ${position} under ${maximum}`);
       assert.equal(meter.afterRefusal, 0, `body ${position} under ${maximum}: a charge after the refusal`);
     }
@@ -820,14 +943,19 @@ test("law 3 stops private copies, stamps and handoffs immediately after a charge
         blockOf(3, [], checkOf(10, "a[i]", 1)),
       ];
     });
-    const bodies = [...boundaryBodies(), ring];
+    const bodies = [...boundaryBodies(), ring, ...fixedBoundaryBodies()];
     for (const [position, body] of bodies.entries()) {
+      const given = position < 3 ? context : fixedContext;
+      const selectedNodes = position < 3 ? nodes : sourceNodes(given.source, texts);
       const places = placeLocations(body);
-      const required = [8, 10, 1][position];
+      const unlimited = { spent: 0, maximum: 1000000, exhausted: false };
+      verifyLaws(body, given, selectedNodes, texts, places, unlimited);
+      const required = unlimited.spent;
+      assert.equal(required, [8, 10, 1, 12, 15][position]);
       for (let maximum = 0; maximum <= required; maximum += 1) {
         const observation = { meter: { spent: 0, maximum, exhausted: false }, afterRefusal: [] };
         active = observation;
-        const findings = verifyLaws(body, context, nodes, texts, places, observation.meter);
+        const findings = verifyLaws(body, given, selectedNodes, texts, places, observation.meter);
         active = null;
         assert.equal(observation.meter.exhausted, maximum < required, `body ${position} under ${maximum}`);
         assert.deepEqual(observation.afterRefusal, [], `body ${position} under ${maximum}: no private work after refusal`);
@@ -937,7 +1065,7 @@ test("malformed bodies: a record that names a row the body does not have is repo
 test("the local of a by-reference parameter is the caller's storage: never stable, never an index (R1 N-1, K-3271)", () => {
   const passed = (parameter, passing) => ({ ...context, source: { ...context.source,
     params: context.source.params.map((row, position) => position === parameter ? { ...row, passing } : row) } });
-  const lawRules = (body, given) => found(body, given).filter(violation => LAW_RULES.has(violation.rule)).map(violation => violation.rule);
+  const lawRules = (body, given) => found(selectedModes(body, given), given).filter(violation => LAW_RULES.has(violation.rule)).map(violation => violation.rule);
   // R1 (a): the narrowed view of a parameter's own cell is checked, `bump` is called, the view is read. The view here
   // is of `a` (the fixture has no narrowing node of that type; the type finding is not a law rule).
   const viewOfParameter = changed(body => {
@@ -986,7 +1114,7 @@ test("the local of a by-reference parameter is the caller's storage: never stabl
 test("law 8: a storage marker is about a slot the body owns (K-3278)", () => {
   const passed = (parameter, passing) => ({ ...context, source: { ...context.source,
     params: context.source.params.map((row, position) => position === parameter ? { ...row, passing } : row) } });
-  const rules = (body, given) => found(body, given).map(violation => violation.rule);
+  const rules = (body, given) => found(selectedModes(body, given), given).map(violation => violation.rule);
   // The slot of `a` ends after its last use, before the return.
   const ended = changed(body => { body.blocks[7].statements.push({ ...site("return"), kind: "storage-dead", local: 0 }); });
   // Passed by value or moved, the slot is the body's own and may end.
@@ -1003,7 +1131,7 @@ test("law 8: a storage marker is about a slot the body owns (K-3278)", () => {
   // the satisfying graph begins local 3, and here a row passed by reference has that source local.
   const named = { ...context, source: { ...context.source,
     params: [...context.source.params, { ...context.source.params[1], local: 3, role: "rest", passing: "byref-readwrite" }] } };
-  assert.deepEqual(found(good(), named).filter(violation => violation.rule === "storage-marker-exact").map(violation => violation.site.statement), [0]);
+  assert.deepEqual(found(selectedModes(good(), named), named).filter(violation => violation.rule === "storage-marker-exact").map(violation => violation.site.statement), [0]);
   // The receiver, whose local names the source local of the row of role `this`: its slot may end when its row is passed by value, and may not when it is passed by reference.
   const receiverEnded = changed(body => {
     body.locals.push(local(10, T.optInt32, { kind: "receiver" }, 4));
@@ -1012,9 +1140,18 @@ test("law 8: a storage marker is about a slot the body owns (K-3278)", () => {
   const receiving = passing => ({ ...context, source: { ...context.source,
     locals: [...context.source.locals, { ...context.source.locals[2], id: 4, name: "this" }],
     params: [{ ...context.source.params[2], local: 4, role: "this", passing }, ...context.source.params] } });
-  const markerRules = (body, given) => found(body, given).filter(violation => violation.rule === "storage-marker-exact").map(violation => violation.rule);
+  const markerRules = (body, given) => found(selectedModes(body, given), given).filter(violation => violation.rule === "storage-marker-exact").map(violation => violation.rule);
   assert.deepEqual(markerRules(receiverEnded, receiving("by-value")), []);
   assert.deepEqual(markerRules(receiverEnded, receiving("byref-readwrite")), ["storage-marker-exact"]);
+  const incoming = passed(1, "byref-readwrite");
+  const alias = selectedModes(changed(body => {
+    body.locals.push(local(10, T.int32, { kind: "user" }, 1, "byref-readwrite"));
+    body.places.push(place(11, { kind: "local", local: 10 }, T.int32));
+    body.blocks[0].statements.push({ ...site("i"), kind: "assign", place: 9,
+      value: { kind: "use", operand: p(11) }, step: null });
+  }), incoming);
+  assert.deepEqual(found(alias, incoming).filter(violation => ["storage-live-before-use", "storage-marker-exact", "local-storage-exact"]
+    .includes(violation.rule)), [], "a real caller-owned referent is present on entry even under a source-binding role alias");
 });
 
 test("a local of role receiver or parameter names the source local of its row", () => {
@@ -1044,7 +1181,7 @@ test("law 8 and law 3 read the capture row: a captured location is the creator's
     body.blocks[7].statements.push({ ...site("return"), kind: "storage-dead", local: 10 });
   });
   const withRow = (capture, extra = {}) => ({ ...context, source: { ...context.source, ...extra, captures: [{ local: { body: BODY, local: 2 }, capture }] } });
-  const rules = (body, given, rule) => found(body, given).filter(violation => violation.rule === rule).map(violation => violation.site);
+  const rules = (body, given, rule) => found(selectedModes(body, given), given).filter(violation => violation.rule === rule).map(violation => violation.site);
   // A captured location: the end marker is a finding, the only marker finding.
   assert.deepEqual(rules(ended, withRow("captured-location"), "storage-marker-exact").map(site => site.statement), [1]);
   // A captured value: the body's own slot may end.
@@ -1066,7 +1203,7 @@ test("law 8 and law 3 read the capture row: a captured location is the creator's
     body.blocks.push({ ...site("return"), id: 10, statements: [{ ...site("o!"), kind: "assign", place: 9, value: { kind: "use", operand: p(12) }, step: null }],
       terminator: { ...site("return"), kind: "return", value: p(9) } });
   });
-  const lawRules = given => found(viewed, given).filter(violation => LAW_RULES.has(violation.rule)).map(violation => violation.rule);
+  const lawRules = given => found(selectedModes(viewed, given), given).filter(violation => LAW_RULES.has(violation.rule)).map(violation => violation.rule);
   assert.deepEqual(lawRules(withRow("captured-value")), []);
   assert.deepEqual(lawRules(withRow("captured-location")), ["checked-place-available"]);
   assert.deepEqual(lawRules(withRow(null, { dependence: "binding-dependent" })), ["checked-place-available"]);
@@ -1103,7 +1240,7 @@ test("a call of an internal body stands at the node that names the body, or is t
     body.blocks[8] = { ...site("for"), id: 8, statements: [], terminator: { ...site("for"), kind: "call", callee, receiver, arguments: [],
       destination: 2, next: 0, unwind: { kind: "escape" }, step: null } };
   });
-  const withDefault = { ...context, source: { ...context.source, params: context.source.params.map((parameter, position) =>
+  const withDefault = { ...context, bodyOf: () => ({ ...source.tir, body: DEFAULT, captures: [] }), source: { ...context.source, params: context.source.params.map((parameter, position) =>
     position === 2 ? { ...parameter, role: "default", initializer: DEFAULT } : parameter) } };
   const rules = (body, given) => found(body, given).map(violation => violation.rule);
   // The body is the default of the parameter: the call is not refused as unselected.
@@ -1111,6 +1248,32 @@ test("a call of an internal body stands at the node that names the body, or is t
   assert.equal(rules(prologue(p(0)), withDefault).includes("operation-selected"), false);
   // No parameter and no node names it.
   assert.equal(rules(prologue(null), context).includes("operation-selected"), true);
+  for (const capture of ["captured-value", "captured-location"]) {
+    const qualified = { body: BODY, local: 1 };
+    const target = { ...source.tir, body: DEFAULT, captures: [{ local: qualified, capture }] };
+    const input = { ...withDefault, bodyOf: () => target };
+    const graph = prologue(null);
+    graph.blocks[8].terminator.callee = { ...callee, captures: [{ local: qualified, place: 1, capture }] };
+    assert.equal(rules(graph, input).includes("local-storage-exact"), false, "actual internal capture mode agrees with ready rows");
+    assert.equal(rules(graph, input).includes("capture-location-exact"), false, "qualified ready and physical source agree");
+    const opposite = structuredClone(graph);
+    opposite.blocks[8].terminator.callee.captures[0].capture = capture === "captured-value" ? "captured-location" : "captured-value";
+    assert.equal(rules(opposite, input).includes("local-storage-exact"), true, "outgoing body-call mode cannot be guessed from the source local");
+    assert.equal(rules(graph, { ...input, bodyOf: () => null }).includes("capture-location-exact"), true, "missing ready input is not fabricated");
+    assert.equal(rules(graph, { ...input, bodyOf: () => ({ ...target, body: BODY }) }).includes("capture-location-exact"), true, "a different body's capture rows are not selected");
+    assert.equal(rules(graph, { ...input, bodyOf: () => ({ ...target, bindings: { kind: "instantiated", bindings: EMPTY_BINDINGS } }) })
+      .includes("capture-location-exact"), true, "another artifact binding does not authorize these rows");
+    const missingPlace = structuredClone(graph);
+    missingPlace.blocks[8].terminator.callee.captures[0].place = 99;
+    assert.equal(rules(missingPlace, input).includes("operand-resolves"), true, "a missing physical capture place is not authenticated");
+    const ready = { kind: "instantiated", bindings: EMPTY_BINDINGS };
+    const unknown = structuredClone(graph);
+    unknown.bindings = ready;
+    unknown.blocks[8].terminator.callee.captures[0].capture = null;
+    assert.equal(rules(unknown, { ...input, source: { ...input.source, bindings: ready },
+      bodyOf: () => ({ ...target, captures: [{ local: qualified, capture: null }] }) }).includes("local-storage-exact"), true,
+    "ready body calls cannot preserve an undecided creating-side mode");
+  }
 });
 
 test("law 3: a stable place stays available across a suspension; a mutable one does not", () => {

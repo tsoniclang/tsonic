@@ -1,8 +1,9 @@
 import type { DefId, LocalId, Origin, NodeRef } from "../ids/contract.js";
 import type { ArtifactBindings, PlacePassingMode } from "../ir-types/contract.js";
+import type { LogicalCapture } from "../ir-infer/contract.js";
 import type {
   MirAggregate, MirAggregateField, MirBlock, MirBody, MirCallArgument, MirCallee,
-  MirClosureCapture, MirConstant, MirConstantValue, MirEntry, MirLocal, MirLocalRole,
+  MirClosureCapture, MirConstant, MirConstantValue, MirEntry, MirLocal, MirLocalRole, MirLocalStorageMode,
   MirOperand, MirPlace, MirPlaceBase, MirProjection, MirRvalue, MirSite,
   MirStatement, MirStepRef, MirSuspensionReturn, MirSwitchTarget, MirTerminator, MirUnwind,
 } from "./contract.js";
@@ -24,8 +25,11 @@ export function createBodyWire(): Wire<MirBody> {
       field("tir", () => nodeRefWire, value => value.tir, tir => tail(origin, tir)));
   }
 
+  const captureWire = nullable(() => literals<LogicalCapture>(["captured-value", "captured-location"]));
+  const modeWire: Wire<MirLocalStorageMode> = nullable(() => literals<Exclude<MirLocalStorageMode, null>>(
+    ["local", "by-value", "byref-readonly", "byref-readwrite", "byref-writeonly-must-init",
+      "borrow-shared", "borrow-mut", "move", "captured-value", "captured-location"]));
   const receiverRole = record<MirLocalRole & { readonly kind: "receiver" }>("receiver", () => finish(() => ({ kind: "receiver" })));
-
   function indexedRole<Kind extends "parameter" | "capture">(kind: Kind) {
     return record<{ readonly kind: Kind; readonly index: number }>(kind, () =>
       field("index", () => numberWire, value => value.index, index => finish(() => ({ kind, index }))));
@@ -51,8 +55,9 @@ export function createBodyWire(): Wire<MirBody> {
     field("id", () => localWire, value => value.id, id =>
       field("storage", () => typeWire, value => value.storage, storage =>
         field("role", () => roleWire, value => value.role, role =>
-          field("source", () => nullable(() => localRefWire), value => value.source, source =>
-            field("origin", () => originWire, value => value.origin, origin => finish(() => ({ id, storage, role, source, origin }))))))));
+          field("mode", () => modeWire, value => value.mode, mode =>
+            field("source", () => nullable(() => localRefWire), value => value.source, source =>
+              field("origin", () => originWire, value => value.origin, origin => finish(() => ({ id, storage, role, mode, source, origin })))))))));
 
   const constantLiteral = record<MirConstantValue & { readonly kind: "literal" }>("literal", () =>
     field("value", () => literalWire, value => value.value, value => finish(() => ({ kind: "literal", value }))));
@@ -182,7 +187,8 @@ export function createBodyWire(): Wire<MirBody> {
 
   const closureCapture = record<MirClosureCapture>("MirClosureCapture", () =>
     field("local", () => localRefWire, value => value.local, local =>
-      field("place", () => placeWire, value => value.place, place => finish(() => ({ local, place })))));
+      field("place", () => placeWire, value => value.place, place =>
+        field("capture", () => captureWire, value => value.capture, capture => finish(() => ({ local, place, capture }))))));
 
   const useRvalue = record<MirRvalue & { readonly kind: "use" }>("use", () =>
     field("operand", () => operandWire, value => value.operand, operand => finish(() => ({ kind: "use", operand }))));

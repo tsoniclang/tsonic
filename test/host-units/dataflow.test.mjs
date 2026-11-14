@@ -101,7 +101,7 @@ function fixtureBody(terminators, statementRows) {
     bindings: { kind: "parametric" },
     // One entry at block 0 for a body with blocks; the fixture has no parameters.
     entries: terminators.length === 0 ? [] : [{ provided: 0, block: identities.blockId(0) }],
-    locals: [{ id: identities.localId(0), storage: identities.tyId(0), role: { kind: "user" }, source: null, origin: site().origin }],
+    locals: [{ id: identities.localId(0), storage: identities.tyId(0), role: { kind: "user" }, mode: "local", source: null, origin: site().origin }],
     constants: [
       { id: identities.constId(0), type: identities.tyId(0), value: { kind: "literal", value: { kind: "absence" } } },
       { id: identities.constId(1), type: identities.tyId(0), value: { kind: "literal", value: { kind: "boolean", value: true } } },

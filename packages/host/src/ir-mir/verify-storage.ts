@@ -5,6 +5,7 @@ import type { ExactRational, LiteralTypeValue, LiteralValue, NativePrimitive, Ty
 import type { MirBlock, MirBody, MirLocal, MirOperand, MirRule, MirRvalue, MirTerminator, MirVerificationContext, MirViolationSite } from "./contract.js";
 import { chargeWork, controlEdges, densePosition, findSourceNode, read, reversePostorder } from "./verify-control.js";
 import type { ControlEdge, SourceNode, WorkMeter } from "./verify-control.js";
+import { ownershipOfMode } from "./local-ownership.js";
 
 export function rvalueOperands(value: MirRvalue): readonly MirOperand[] {
   switch (value.kind) {
@@ -375,7 +376,8 @@ export function verifyStorage(
   let entry = empty;
   for (const [position, local] of body.locals.entries()) {
     if (local === undefined || !Object.is(local.id, position)) continue;
-    if (local.role.kind !== "parameter" && local.role.kind !== "receiver" && local.role.kind !== "capture") continue;
+    if (local.role.kind !== "parameter" && local.role.kind !== "receiver" && local.role.kind !== "capture"
+      && ownershipOfMode(local.mode) !== "external") continue;
     const present = withLocal(sets, entry, span, local.id, true);
     if (present === null) return [];
     entry = present;
@@ -887,7 +889,13 @@ export function verifyValues(
       case "call": {
         if (terminator.callee.kind === "body") {
           // The signature of an internal body is not a record of this context; operands and the destination resolve.
-          for (const capture of terminator.callee.captures) placeType(capture.place, site);
+          for (const capture of terminator.callee.captures) {
+            if (placeType(capture.place, site) === null) continue;
+            const root = places.get(capture.place)?.root;
+            if (root !== undefined && (root === null || root.source === null
+              || root.source.body !== capture.local.body || root.source.local !== capture.local.local))
+              report("capture-location-exact", site);
+          }
           if (terminator.receiver !== null) operandType(terminator.receiver, site);
           if (terminator.arguments.length !== 0) report("call-arguments-total", site);
           if (terminator.destination !== null) placeType(terminator.destination, site);

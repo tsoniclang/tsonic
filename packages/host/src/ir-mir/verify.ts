@@ -1,12 +1,12 @@
 import type { Violation } from "../diag/contract.js";
-import type { BodyId, DefId, KeyData, LocalRef, SigId, TyId } from "../ids/contract.js";
+import type { BodyId, DefId, KeyData, LocalId, LocalRef, SigId, TyId } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
-import { constantReferenceKey } from "../ir-types/index.js";
-import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, LiteralValue, SelfBinding, TypeBinding, TypeComponent, TypeTable, TypeTerm } from "../ir-types/contract.js";
+import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, LiteralValue, PassingMode, TypeComponent, TypeTable, TypeTerm } from "../ir-types/contract.js";
+import { artifactBindingsData, artifactBindingsKey, constantReferenceKey, instanceKey } from "../ir-types/index.js";
 import type { ApplicationDecision, EmbeddingDecision, InferenceDeclaration } from "../ir-infer/contract.js";
 import type { MemberSelection, ResolvedCallee, TirBody, TypedOperation } from "../ir-tir/contract.js";
 import type { MirBody, MirConstantValue, MirRule, MirVerification, MirVerificationContext, MirViolationSite } from "./contract.js";
-import { createWireTexts, densePosition, sourceNodes, validOrigin, verifyEdges, verifySelections } from "./verify-control.js";
+import { chargeWork, createWireTexts, densePosition, sourceNodes, validOrigin, verifyEdges, verifySelections } from "./verify-control.js";
 import type { WorkMeter } from "./verify-control.js";
 import { placeLocations, verifyStorage, verifyValues } from "./verify-storage.js";
 import { verifyLaws } from "./verify-laws.js";
@@ -177,49 +177,12 @@ export function verifyTypeReferences(
   return violations;
 }
 
-function bindingValue(value: TypeBinding): KeyData {
-  const parameter: KeyData = { kind: "record", fields: [["owner", value.parameter.owner], ["index", value.parameter.index]] };
-  return value.kind === "bound"
-    ? { kind: "record", fields: [["kind", value.kind], ["parameter", parameter], ["type", value.type]] }
-    : { kind: "record", fields: [["kind", value.kind], ["parameter", parameter]] };
-}
-
-function selfValue(value: SelfBinding): KeyData {
-  return value.kind === "bound" ? { kind: "record", fields: [["kind", value.kind], ["owner", value.owner], ["type", value.type]] }
-    : { kind: "record", fields: [["kind", value.kind], ["owner", value.owner]] };
-}
-
-function vectorValue(vector: BindingVector): KeyData | null {
-  const family = (bindings: readonly TypeBinding[]): readonly KeyData[] | null => {
-    const values: KeyData[] = [];
-    for (const binding of bindings) {
-      if (binding === undefined) return null;
-      values.push(bindingValue(binding));
-    }
-    return values;
-  };
-  const classBindings = family(vector.classBindings);
-  const methodBindings = family(vector.methodBindings);
-  const capturedBindings = family(vector.capturedBindings);
-  if (classBindings === null || methodBindings === null || capturedBindings === null) return null;
-  const selfBindings: KeyData[] = [];
-  for (const binding of vector.selfBindings) {
-    if (binding === undefined) return null;
-    selfBindings.push(selfValue(binding));
-  }
-  return { kind: "record", fields: [["classBindings", classBindings], ["methodBindings", methodBindings],
-    ["capturedBindings", capturedBindings], ["selfBindings", selfBindings]] };
-}
-
-function artifactValue(bindings: ArtifactBindings): KeyData | null {
-  if (bindings.kind === "parametric") return { kind: "record", fields: [["kind", "parametric"]] };
-  const value = vectorValue(bindings.bindings);
-  return value === null ? null : { kind: "record", fields: [["kind", "instantiated"], ["bindings", value]] };
-}
-
-export function artifactKey(bindings: ArtifactBindings): string | null {
-  const value = artifactValue(bindings);
-  return value === null ? null : encodeKey(value);
+function bindingsPresent(bindings: ArtifactBindings): boolean {
+  if (bindings.kind === "parametric") return true;
+  const vector = bindings.bindings;
+  for (const rows of [vector.classBindings, vector.methodBindings, vector.capturedBindings, vector.selfBindings])
+    for (const row of rows) if (row === undefined) return false;
+  return true;
 }
 
 function literalKey(value: LiteralValue): KeyData {
@@ -244,14 +207,13 @@ function constantValueKey(value: MirConstantValue): KeyData | null {
   switch (value.kind) {
     case "literal": return { kind: "record", fields: [["kind", value.kind], ["value", literalKey(value.value)]] };
     case "definition": case "metadata": {
-      const bindings = artifactValue(value.bindings);
-      return bindings === null ? null : { kind: "record", fields: [["kind", value.kind], ["definition", value.definition], ["bindings", bindings]] };
+      return !bindingsPresent(value.bindings) ? null : { kind: "record", fields: [["kind", value.kind],
+        ["definition", value.definition], ["bindings", artifactBindingsData(value.bindings)]] };
     }
     case "observation": return { kind: "record", fields: [["kind", value.kind], ["at", { kind: "record", fields: [["body", value.at.body], ["node", value.at.node]] }]] };
     case "constant": {
       const selected = value.reference.initializer;
-      const bindings = artifactValue(selected.bindings);
-      return bindings === null ? null : { kind: "record", fields: [["kind", value.kind],
+      return !bindingsPresent(selected.bindings) ? null : { kind: "record", fields: [["kind", value.kind],
         ["reference", constantReferenceKey(value.reference)]] };
     }
   }
@@ -269,8 +231,8 @@ export function verifyRows(
   const bodySite: MirViolationSite = { kind: "body", body: body.body };
   if (body.body !== source.body)
     violations.push({ rule: "body-owner", site: bodySite, detail: [] });
-  const bindings = artifactKey(body.bindings);
-  if (bindings === null || bindings !== artifactKey(source.bindings)) violations.push({ rule: "bindings-complete", site: bodySite, detail: [] });
+  if (!bindingsPresent(body.bindings) || artifactBindingsKey(body.bindings) !== artifactBindingsKey(source.bindings))
+    violations.push({ rule: "bindings-complete", site: bodySite, detail: [] });
   if (declarationOf(source.owner) === null) violations.push({ rule: "definition-resolves", site: bodySite, detail: [] });
   const selectedSignature = densePosition(source.signature, types.signatures.length) ? types.signatures[source.signature] : undefined;
   const signature = selectedSignature !== undefined && Object.is(selectedSignature.id, source.signature) ? selectedSignature : undefined;
@@ -285,6 +247,14 @@ export function verifyRows(
   if (signature !== undefined && (signature.receiver === null ? receiverCount !== 0
     : receiverCount !== 1 || !Object.is(receiverStorage, signature.receiver)))
     violations.push({ rule: "body-receiver-exact", site: bodySite, detail: [] });
+  const parameterModes = new Map<LocalId, PassingMode>();
+  let receiverRow: TirBody["params"][number] | undefined;
+  const parameterRows: TirBody["params"][number][] = [];
+  for (const parameter of source.params) {
+    parameterModes.set(parameter.local, parameter.passing);
+    if (parameter.role === "this") receiverRow = parameter;
+    else parameterRows.push(parameter);
+  }
   for (const [position, local] of body.locals.entries()) {
     if (local === undefined || !Object.is(local.id, position)) violations.push({ rule: "local-id-dense", site: bodySite,
       detail: [{ kind: "number", value: position }] });
@@ -298,18 +268,24 @@ export function verifyRows(
       const template = source.dependence === "binding-dependent" && source.bindings.kind === "parametric";
       if (captured === undefined || local.source === null || !sameLocal(local.source, captured.local) || captured.capture === null && !template)
         violations.push({ rule: "capture-location-exact", site, detail: [] });
-    } else if (local.source !== null) {
-      const selected = densePosition(local.source.local, source.locals.length) ? source.locals[local.source.local] : undefined;
-      if (local.source.body !== source.body || selected === undefined || !Object.is(selected.id, local.source.local))
-        violations.push({ rule: "cross-owner-qualified", site, detail: [] });
-      else if (!Object.is(local.storage, selected.storage)) violations.push({ rule: "projection-type", site, detail: [] });
+      if (captured !== undefined && local.mode !== captured.capture)
+        violations.push({ rule: "local-storage-exact", site, detail: [] });
+    } else {
+      const parameter = local.role.kind === "receiver" ? receiverRow : local.role.kind === "parameter"
+        ? densePosition(local.role.index, parameterRows.length) ? parameterRows[local.role.index] : undefined : null;
+      const expectedMode = parameter === null ? local.source !== null && local.source.body === source.body
+        ? parameterModes.get(local.source.local) ?? "local" : "local" : parameter?.passing;
+      if (expectedMode !== undefined && local.mode !== expectedMode) violations.push({ rule: "local-storage-exact", site, detail: [] });
+      if (local.source !== null) {
+        const selected = densePosition(local.source.local, source.locals.length) ? source.locals[local.source.local] : undefined;
+        if (local.source.body !== source.body || selected === undefined || !Object.is(selected.id, local.source.local))
+          violations.push({ rule: "cross-owner-qualified", site, detail: [] });
+        else if (!Object.is(local.storage, selected.storage)) violations.push({ rule: "projection-type", site, detail: [] });
+      }
     }
   }
   // A local of role `receiver` or `parameter` names the source local of its row: the receiver the row of role `this`,
   // parameter i the i-th of the other rows. The laws read from that row whether the local is the caller's storage.
-  let receiverRow: TirBody["params"][number] | undefined;
-  const parameterRows: TirBody["params"][number][] = [];
-  for (const row of source.params) if (row.role === "this") receiverRow = row; else parameterRows.push(row);
   for (const local of body.locals) {
     if (local === undefined || local.role.kind !== "receiver" && local.role.kind !== "parameter") continue;
     const row = local.role.kind === "receiver" ? receiverRow
@@ -540,7 +516,7 @@ export function verifyBody(body: MirBody, context: MirVerificationContext): MirV
     owners.set(body, selected);
     return selected;
   };
-  const input: MirVerificationContext = { limits: context.limits, source: context.source, types: context.types, declarationOf, bodyOwner };
+  const input: MirVerificationContext = { limits: context.limits, source: context.source, bodyOf: context.bodyOf, types: context.types, declarationOf, bodyOwner };
   const wires = createDecisionWires(createScalarWires());
   const texts = createWireTexts(wires);
   const nodes = sourceNodes(input.source, texts);
@@ -552,7 +528,30 @@ export function verifyBody(body: MirBody, context: MirVerificationContext): MirV
   const signatures: SignatureReference[] = [...values.signatures];
   const decisions = decisionReferences(body, input, types, signatures);
   const edges = verifyEdges(body);
-  const selections = verifySelections(body, input, nodes, texts);
+  const keyOf = (selected: BodyInstance): string | null => {
+    const bindings = selected.bindings;
+    const size = bindings.kind === "parametric" ? 0 : bindings.bindings.classBindings.length + bindings.bindings.methodBindings.length
+      + bindings.bindings.capturedBindings.length + bindings.bindings.selfBindings.length;
+    chargeWork(meter, 1 + size);
+    return meter.exhausted || !bindingsPresent(bindings) ? null : instanceKey(selected);
+  };
+  const internal = new Map<string, TirBody | null>();
+  const selections = verifySelections(body, input, nodes, texts, selected => {
+    const key = keyOf(selected);
+    if (key === null) return undefined;
+    let target = internal.get(key);
+    if (target === undefined) {
+      target = input.bodyOf(selected);
+      if (target !== null) {
+        const actual = keyOf({ body: target.body, bindings: target.bindings });
+        if (meter.exhausted) return undefined;
+        if (actual !== key) target = null;
+      }
+      internal.set(key, target);
+    }
+    return target ?? undefined;
+  }, meter);
+  if (meter.exhausted) return refusal;
   const storage = verifyStorage(body, places, meter);
   if (meter.exhausted) return refusal;
   const laws = verifyLaws(body, input, nodes, texts, places, meter);

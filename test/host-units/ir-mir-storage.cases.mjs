@@ -28,7 +28,7 @@ const BODY = bodyId("storage");
 const endpoint = role => ({ declaration: def("storage"), role, signature: SIG, body: BODY });
 const declaration = { scope: { classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] }, parameterCount: 0,
   endpoints: [endpoint("advertised"), endpoint("api-body")] };
-const contextOf = maximumWork => ({ limits: { maximumWork }, source: source.tir, types: TABLE,
+const contextOf = maximumWork => ({ limits: { maximumWork }, source: source.tir, bodyOf: () => null, types: TABLE,
   declarationOf: definition => definition === def("storage") ? declaration : null, bodyOwner: body => body === BODY ? def("storage") : null });
 const site = label => ({ origin: { module: "M[P[p];m]", start: source.at(label), length: 1, derived: [] }, tir: { body: BODY, node: source.at(label) } });
 const AT = site("root");
@@ -42,9 +42,9 @@ const branch = (operand, first, second) => ({ ...AT, kind: "switch", operand, ta
 const either = (first, second) => branch({ kind: "constant", constant: 1 }, first, second);
 const eitherOn = (local, first, second) => branch({ kind: "place", place: local }, first, second);
 const done = () => ({ ...site("return"), kind: "return", value: null });
-const temporary = id => ({ id, storage: T.bool, role: { kind: "temporary" }, source: null, origin: AT.origin });
-const parameters = () => [{ id: 0, storage: T.int32, role: { kind: "parameter", index: 0 }, source: { body: BODY, local: 0 }, origin: AT.origin },
-  { id: 1, storage: T.optInt32, role: { kind: "parameter", index: 1 }, source: { body: BODY, local: 1 }, origin: AT.origin }];
+const temporary = id => ({ id, storage: T.bool, role: { kind: "temporary" }, mode: "local", source: null, origin: AT.origin });
+const parameters = () => [{ id: 0, storage: T.int32, role: { kind: "parameter", index: 0 }, mode: "by-value", source: { body: BODY, local: 0 }, origin: AT.origin },
+  { id: 1, storage: T.optInt32, role: { kind: "parameter", index: 1 }, mode: "by-value", source: { body: BODY, local: 1 }, origin: AT.origin }];
 const placesOf = locals => locals.map(local => ({ id: local.id, base: { kind: "local", local: local.id }, storage: local.storage, origin: AT.origin }));
 
 /**
