@@ -376,7 +376,12 @@ export function verifyLaws(
     endStable();
     charge(count);
     if (meter.exhausted) return false;
-    for (const fact of facts.slice(0, count)) if (!append(fact)) return false;
+    let remaining = count;
+    for (const fact of facts) {
+      if (remaining === 0) break;
+      remaining -= 1;
+      if (!append(fact)) return false;
+    }
     return true;
   };
   const begin = (checked: PlaceId): boolean => {
@@ -442,13 +447,21 @@ export function verifyLaws(
     for (const set of sets) {
       charge(set.visible);
       if (meter.exhausted) return false;
-      for (const fact of set.log.slice(0, set.visible)) {
+      let remaining = set.visible;
+      for (const fact of set.log) {
+        if (remaining === 0) break;
+        remaining -= 1;
         if (arrivedAt[fact] !== merges) { arrivedAt[fact] = merges; arrivals[fact] = 0; }
         arrivals[fact] = read(arrivals, fact, 0) + 1;
       }
     }
     endStable();
-    for (const fact of first.log.slice(0, first.visible)) if (arrivals[fact] === sets.length && !append(fact)) return false;
+    let remaining = first.visible;
+    for (const fact of first.log) {
+      if (remaining === 0) break;
+      remaining -= 1;
+      if (arrivals[fact] === sets.length && !append(fact)) return false;
+    }
     return true;
   };
   const chain = (head: number): boolean => {

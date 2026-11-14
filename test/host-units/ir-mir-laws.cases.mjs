@@ -795,6 +795,23 @@ test("law 3 at a merge: prefixes of one list, a place checked twice, and a view 
   assert.deepEqual(all(third([readView(15)])), ["checked-place-available"]);
 });
 
+test("law 3 at a merge: a shared prefix excludes its later tail when meeting a different list", () => {
+  const meeting = atMerge => staged(body => {
+    body.locals.push(local(13, T.optInt32, { kind: "temporary" }));
+    body.places.push(place(16, { kind: "local", local: 13 }, T.optInt32), viewOf(17, 16, "o!#3"));
+    body.blocks[0].statements.push({ ...site("for"), kind: "storage-live", local: 13 });
+    body.blocks[7].statements.push({ ...site("o"), kind: "assign", place: 16, value: { kind: "use", operand: p(2) }, step: null });
+    body.blocks[7].terminator = checkOf(12, "o!", 10);
+    body.blocks.push(blockOf(10, [], branch(11, 12)), blockOf(11, [], checkOf(17, "o!#3", 17)),
+      blockOf(12, [], checkOf(15, "o!#2", 13)), blockOf(13, [], branch(14, 15)), blockOf(14, [], jump(18)),
+      blockOf(15, [], checkOf(17, "o!#3", 16)), blockOf(16, [readView(17)], returns(p(9))),
+      blockOf(17, [], jump(18)), blockOf(18, atMerge, returns(p(9))));
+  });
+  assert.deepEqual(all(meeting([readView(12)])), []);
+  assert.deepEqual(all(meeting([readView(15)])), ["checked-place-available"]);
+  assert.deepEqual(all(meeting([readView(17)])), ["checked-place-available"]);
+});
+
 /** The two bodies of the boundary scan. */
 const boundaryBodies = () => [
   staged(body => {
