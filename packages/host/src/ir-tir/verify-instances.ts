@@ -1,6 +1,6 @@
-import type { BodyId, KeyData, LocalRef, NodeId } from "../ids/contract.js";
-import { encodeKey } from "../ids/index.js";
-import type { BindingScope, BindingVector, BodyInstance, SelfBinding, TypeBinding } from "../ir-types/contract.js";
+import type { BodyId, LocalRef, NodeId } from "../ids/contract.js";
+import type { BindingScope } from "../ir-types/contract.js";
+import { bindingVectorKey, instanceKey } from "../ir-types/index.js";
 import type { CheckedPhase, HirBody, HirNode } from "../ir-hir/contract.js";
 import { childrenOfSyntax } from "../ir-hir/index.js";
 import type { CaptureSource, LogicalCapture } from "../ir-infer/contract.js";
@@ -382,24 +382,6 @@ export const verifyBindingSlots = (
     }
   }
 };
-
-// One binding vector key: every position of the four families on its own, a hole as null at its position. Two vectors that
-// differ at any position, or in which positions hold a binding, have different keys; equal vectors have equal keys.
-const typeBindingData = (binding: TypeBinding | undefined): KeyData => binding === undefined ? null : binding.kind === "rigid"
-  ? [binding.kind, binding.parameter.owner, binding.parameter.index]
-  : [binding.kind, binding.parameter.owner, binding.parameter.index, binding.type];
-
-const selfBindingData = (binding: SelfBinding | undefined): KeyData => binding === undefined ? null : binding.kind === "rigid"
-  ? [binding.kind, binding.owner] : [binding.kind, binding.owner, binding.type];
-
-export const bindingVectorData = (vector: BindingVector): KeyData => [Array.from(vector.classBindings, typeBindingData),
-  Array.from(vector.methodBindings, typeBindingData), Array.from(vector.capturedBindings, typeBindingData), Array.from(vector.selfBindings, selfBindingData)];
-
-export const bindingVectorKey = (vector: BindingVector): string => encodeKey(bindingVectorData(vector));
-
-export const instanceKey = (instance: BodyInstance): string => instance.bindings.kind === "parametric"
-  ? encodeKey({ kind: "record", fields: [["body", instance.body], ["kind", instance.bindings.kind]] })
-  : encodeKey({ kind: "record", fields: [["body", instance.body], ["kind", instance.bindings.kind], ["bindings", bindingVectorKey(instance.bindings.bindings)]] });
 
 export const verifyPublishedInstance = (
   published: TirBody | null, node: TirNode | null, emit: TirOccurrenceEmit,

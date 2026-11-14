@@ -1,12 +1,12 @@
 import type { Diagnostic, TextParseResult, Violation } from "../diag/contract.js";
 import type { BodyId, DefId, DefinitionPath, ModuleId, ModulePath, NodeId, PackageId, SigId } from "../ids/contract.js";
 import type {
-  ArtifactBindings, BindingVector, BodyInstance, ConstValue, TypeExpansionLimits, TypePublication, TypePublicationLimits, TypeTable,
+  ArtifactBindings, BindingVector, BodyInstance, ConstValue, Execution, SignatureRequest, TypeExpansionLimits, TypeInterner, TypePublication, TypePublicationLimits, TypeTable,
 } from "../ir-types/contract.js";
 import type { SourceFile } from "../ir-hir/contract.js";
 import type { TirBody, TirVerifierInput, TypedPhase } from "../ir-tir/contract.js";
-import type { MirBody } from "../ir-mir/contract.js";
-import type { BodyFacts, FactsVerificationContext, MetadataRecord, Summary } from "../ir-facts/contract.js";
+import type { MirBody, MirVerificationLimits } from "../ir-mir/contract.js";
+import type { BodyFacts, BodyObservations, FactsVerificationContext, MetadataRecord, Summary } from "../ir-facts/contract.js";
 
 export interface PackageExport {
   readonly specifier: string;
@@ -76,6 +76,7 @@ export interface ProgramIndex {
   readonly types: TypeTable;
   readonly signatures: readonly SignatureRecord[];
   readonly bodies: readonly BodyRecord[];
+  readonly executions: readonly Execution[];
   readonly metadata: readonly MetadataRecord[];
   readonly summaries: readonly Summary[];
   readonly constants: readonly ConstantRecord[];
@@ -86,7 +87,8 @@ export interface PublishedBody {
   readonly instance: BodyInstance;
   readonly tir: TirBody;
   readonly mir: MirBody;
-  readonly facts: BodyFacts;
+  readonly observations: BodyObservations;
+  readonly facts: readonly BodyFacts[];
 }
 
 export interface ModuleBodies {
@@ -105,9 +107,16 @@ export interface InstantiationLimits extends TypePublicationLimits {
   readonly typeExpansion: TypeExpansionLimits;
 }
 
+export type SummaryArtifactReference = { readonly kind: "summary"; readonly provided: number } & (
+  | { readonly target: "body"; readonly body: BodyId }
+  | { readonly target: "declared"; readonly definition: DefId; readonly endpoint: SignatureRequest["endpoint"]; readonly ordinal: number }
+);
+
 export type ArtifactReference =
-  | { readonly kind: "tir" | "mir" | "facts"; readonly body: BodyId }
-  | { readonly kind: "summary" | "metadata"; readonly definition: DefId };
+  | { readonly kind: "tir" | "mir"; readonly body: BodyId }
+  | { readonly kind: "facts"; readonly body: BodyId; readonly provided: number }
+  | SummaryArtifactReference
+  | { readonly kind: "metadata"; readonly definition: DefId };
 
 export type InstantiatedArtifact =
   | { readonly kind: "tir"; readonly body: TirBody }
@@ -142,7 +151,9 @@ export type ProgramRule =
   | "body-instance-exact" | "mir-index-counts-exact" | "tir-valid" | "mir-valid"
   | "facts-valid" | "cross-owner-qualified" | "cross-owner-reference-resolves"
   | "metadata-constant-not-materialised"
-  | "template-body-shared" | "nested-body-boundary" | "instance-node-ids-exact";
+  | "template-body-shared" | "nested-body-boundary" | "instance-node-ids-exact"
+  | "executions-order" | "execution-key-unique" | "execution-body-resolves" | "execution-entry-resolves"
+  | "facts-execution-total" | "facts-execution-order";
 
 export type ProgramSite =
   | { readonly kind: "index" }
@@ -159,9 +170,19 @@ export type PrintProgramIndex = (index: ProgramIndex) => string;
 export type ParseProgramIndex = (text: string) => TextParseResult<ProgramIndex>;
 export type PrintModuleBodies = (index: ProgramIndex, module: ModuleBodies) => string;
 export type ParseModuleBodies = (index: ProgramIndex, text: string) => TextParseResult<ModuleBodies>;
+export interface ProgramVerificationWork {
+  readonly limits: InstantiationLimits;
+  work: number;
+  created: number;
+  seed: { readonly kind: "unseeded" }
+    | { readonly kind: "seeded"; readonly table: TypeTable; readonly types: TypeInterner }
+    | { readonly kind: "refused"; readonly table: TypeTable; readonly stop: ModuleBodiesVerification & { readonly kind: "resource-limit" } };
+}
 export interface ProgramVerificationContext {
   readonly facts: FactsVerificationContext;
-  readonly limits: InstantiationLimits;
+  readonly resources: ProgramVerificationWork;
+  /** The limit of each body's MIR verification, as the limit setter gave it. Each body has its own account. */
+  readonly mirVerification: MirVerificationLimits;
   readonly modulePathOf: (module: ModuleId) => ModulePath | null;
   readonly definitionPathOf: (definition: DefId) => DefinitionPath | null;
   readonly tirOf: (module: ModuleId) => TirVerifierInput | null;
@@ -173,11 +194,20 @@ export type VerifyProgramIndex = (
   index: ProgramIndex,
   context: ProgramVerificationContext,
 ) => readonly Violation<ProgramRule, ProgramSite>[];
+// The answer for the bodies of one module. `complete` carries every finding. `resource-limit` says that the MIR
+// verification of the named body passed its limit: the module is neither accepted nor found invalid, and no
+// finding is reported for it.
+export type ModuleBodiesVerification =
+  | { readonly kind: "complete"; readonly violations: readonly Violation<ProgramRule, ProgramSite>[] }
+  | { readonly kind: "resource-limit"; readonly body: BodyInstance; readonly dimension: "work"; readonly maximum: number }
+  | { readonly kind: "resource-limit"; readonly site: ProgramSite;
+      readonly dimension: "work" | "created-records" | "depth" | "visits" | "union-members" | "intersection-members";
+      readonly maximum: number };
 export type VerifyModuleBodies = (
   index: ProgramIndex,
   module: ModuleBodies,
   context: ProgramVerificationContext,
-) => readonly Violation<ProgramRule, ProgramSite>[];
+) => ModuleBodiesVerification;
 export type Instantiate = (
   index: ProgramIndex,
   module: ModuleBodies,

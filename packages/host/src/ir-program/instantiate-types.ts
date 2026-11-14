@@ -8,10 +8,10 @@ import type {
 } from "../ir-types/contract.js";
 import type { TypeReferenceRewrite } from "./canonical-types.js";
 import { publicationRewrite, rewriteComponent, rewriteParameter } from "./canonical-types.js";
-import type { InstantiationMeter, InstantiationStop } from "./program-values.js";
+import type { InstantiationMeter, InstantiationAllocationStop } from "./program-values.js";
 import { chargeInstantiationWork, emitInstantiationRecord } from "./program-values.js";
 
-type SeedTask = () => InstantiationStop | null;
+type SeedTask = () => InstantiationAllocationStop | null;
 
 interface SeedScan {
   readonly mode: "seed" | "transport";
@@ -20,7 +20,7 @@ interface SeedScan {
   readonly components: Set<TypeComponent>;
 }
 
-function projected(scan: SeedScan, count: number): InstantiationStop | null {
+function projected(scan: SeedScan, count: number): InstantiationAllocationStop | null {
   if (scan.mode === "seed") return null;
   for (let position = 0; position < count; position += 1) {
     const stop = emitInstantiationRecord(scan.meter);
@@ -29,7 +29,7 @@ function projected(scan: SeedScan, count: number): InstantiationStop | null {
   return null;
 }
 
-function fields(scan: SeedScan, count: number): InstantiationStop | null {
+function fields(scan: SeedScan, count: number): InstantiationAllocationStop | null {
   for (let position = 0; position < count; position += 1) {
     const stop = chargeInstantiationWork(scan.meter);
     if (stop !== null) return stop;
@@ -37,7 +37,7 @@ function fields(scan: SeedScan, count: number): InstantiationStop | null {
   return null;
 }
 
-function each<Value>(scan: SeedScan, values: readonly Value[], visit: (value: Value) => InstantiationStop | null): void {
+function each<Value>(scan: SeedScan, values: readonly Value[], visit: (value: Value) => InstantiationAllocationStop | null): void {
   const iterator = values.values();
   const next: SeedTask = () => {
     const item = iterator.next();
@@ -48,7 +48,7 @@ function each<Value>(scan: SeedScan, values: readonly Value[], visit: (value: Va
   scan.pending.push(next);
 }
 
-function reference(scan: SeedScan, _identity: TyId | SigId): InstantiationStop | null {
+function reference(scan: SeedScan, _identity: TyId | SigId): InstantiationAllocationStop | null {
   return scan.mode === "seed" ? emitInstantiationRecord(scan.meter) : chargeInstantiationWork(scan.meter);
 }
 
@@ -56,11 +56,11 @@ function references(scan: SeedScan, values: readonly (TyId | SigId)[]): void {
   each(scan, values, value => reference(scan, value));
 }
 
-function optionalReference(scan: SeedScan, value: TyId | null): InstantiationStop | null {
+function optionalReference(scan: SeedScan, value: TyId | null): InstantiationAllocationStop | null {
   return value === null ? null : reference(scan, value);
 }
 
-function literal(scan: SeedScan, value: LiteralTypeValue): InstantiationStop | null {
+function literal(scan: SeedScan, value: LiteralTypeValue): InstantiationAllocationStop | null {
   if (scan.mode === "transport") return null;
   switch (value.kind) {
     case "number": return fields(scan, 5);
@@ -72,7 +72,7 @@ function literal(scan: SeedScan, value: LiteralTypeValue): InstantiationStop | n
   }
 }
 
-function memberKey(scan: SeedScan, value: MemberKey): InstantiationStop | null {
+function memberKey(scan: SeedScan, value: MemberKey): InstantiationAllocationStop | null {
   switch (value.kind) {
     case "number": return fields(scan, 5);
     case "text":
@@ -80,7 +80,7 @@ function memberKey(scan: SeedScan, value: MemberKey): InstantiationStop | null {
   }
 }
 
-function origin(scan: SeedScan, value: MemberOrigin): InstantiationStop | null {
+function origin(scan: SeedScan, value: MemberOrigin): InstantiationAllocationStop | null {
   switch (value.kind) {
     case "declared":
     case "class-prototype": return fields(scan, 2);
@@ -88,22 +88,22 @@ function origin(scan: SeedScan, value: MemberOrigin): InstantiationStop | null {
   }
 }
 
-function parameter(scan: SeedScan, value: TypeParameter): InstantiationStop | null {
+function parameter(scan: SeedScan, value: TypeParameter): InstantiationAllocationStop | null {
   return projected(scan, 1) ?? fields(scan, scan.mode === "seed" ? 6 : 4)
     ?? optionalReference(scan, value.constraint) ?? optionalReference(scan, value.default);
 }
 
-function signatureParameter(scan: SeedScan, value: SignatureParameter): InstantiationStop | null {
+function signatureParameter(scan: SeedScan, value: SignatureParameter): InstantiationAllocationStop | null {
   return projected(scan, 1) ?? fields(scan, 5) ?? reference(scan, value.type);
 }
 
-function construction(scan: SeedScan, value: ConstructionDefinition): InstantiationStop | null {
+function construction(scan: SeedScan, value: ConstructionDefinition): InstantiationAllocationStop | null {
   if (scan.mode === "transport") return null;
   each(scan, value.captures, () => fields(scan, 2));
   return fields(scan, 4);
 }
 
-function member(scan: SeedScan, value: Member): InstantiationStop | null {
+function member(scan: SeedScan, value: Member): InstantiationAllocationStop | null {
   if (scan.mode === "seed") {
     each(scan, value.origins, item => origin(scan, item));
     each(scan, value.readOrigins, item => origin(scan, item));
@@ -113,19 +113,19 @@ function member(scan: SeedScan, value: Member): InstantiationStop | null {
     ?? optionalReference(scan, value.read) ?? optionalReference(scan, value.write);
 }
 
-function indexSignature(scan: SeedScan, value: IndexSignature): InstantiationStop | null {
+function indexSignature(scan: SeedScan, value: IndexSignature): InstantiationAllocationStop | null {
   return projected(scan, 1) ?? fields(scan, 5) ?? reference(scan, value.key) ?? reference(scan, value.read)
     ?? optionalReference(scan, value.write);
 }
 
-function family(scan: SeedScan, value: SumFamily): InstantiationStop | null {
+function family(scan: SeedScan, value: SumFamily): InstantiationAllocationStop | null {
   if (scan.mode === "seed") each(scan, value.parameters, () => fields(scan, 2));
   each(scan, value.roles, role => projected(scan, 1) ?? fields(scan, scan.mode === "seed" ? 7 : 3) ?? reference(scan, role.member));
   scan.pending.push(() => component(scan, value.component));
   return projected(scan, 1) ?? fields(scan, 4);
 }
 
-function selector(scan: SeedScan, value: ComponentSelector): InstantiationStop | null {
+function selector(scan: SeedScan, value: ComponentSelector): InstantiationAllocationStop | null {
   const step = chargeInstantiationWork(scan.meter);
   if (step !== null) return step;
   if (scan.mode === "transport") {
@@ -188,7 +188,7 @@ function selector(scan: SeedScan, value: ComponentSelector): InstantiationStop |
   }
 }
 
-function component(scan: SeedScan, value: TypeComponent): InstantiationStop | null {
+function component(scan: SeedScan, value: TypeComponent): InstantiationAllocationStop | null {
   if (scan.components.has(value)) throw new TypeError("Inline cycle in instantiation seed TypeComponent");
   scan.components.add(value);
   scan.pending.push(() => { scan.components.delete(value); return null; });
@@ -196,7 +196,7 @@ function component(scan: SeedScan, value: TypeComponent): InstantiationStop | nu
   return projected(scan, 1) ?? fields(scan, scan.mode === "seed" ? 6 : 2);
 }
 
-function term(scan: SeedScan, value: TypeTerm): InstantiationStop | null {
+function term(scan: SeedScan, value: TypeTerm): InstantiationAllocationStop | null {
   const row = emitInstantiationRecord(scan.meter);
   if (row !== null) return row;
   switch (value.kind) {
@@ -247,7 +247,7 @@ function term(scan: SeedScan, value: TypeTerm): InstantiationStop | null {
   }
 }
 
-function signature(scan: SeedScan, value: Signature): InstantiationStop | null {
+function signature(scan: SeedScan, value: Signature): InstantiationAllocationStop | null {
   const row = emitInstantiationRecord(scan.meter);
   if (row !== null) return row;
   each(scan, value.typeParameters, item => parameter(scan, item));
@@ -261,7 +261,7 @@ function signature(scan: SeedScan, value: Signature): InstantiationStop | null {
     ?? optionalReference(scan, value.receiver) ?? reference(scan, value.result);
 }
 
-function admitTable(meter: InstantiationMeter, table: TypeTable, mode: "seed" | "transport"): InstantiationStop | null {
+function admitTable(meter: InstantiationMeter, table: TypeTable, mode: "seed" | "transport"): InstantiationAllocationStop | null {
   const scan: SeedScan = { mode, meter, pending: [], components: new Set() };
   each(scan, table.signatures, value => signature(scan, value));
   each(scan, table.terms, value => term(scan, value));
@@ -274,7 +274,7 @@ function admitTable(meter: InstantiationMeter, table: TypeTable, mode: "seed" | 
   return null;
 }
 
-export function admitTypeSeed(meter: InstantiationMeter, table: TypeTable): InstantiationStop | null {
+export function admitTypeSeed(meter: InstantiationMeter, table: TypeTable): InstantiationAllocationStop | null {
   return admitTable(meter, table, "seed");
 }
 
@@ -342,7 +342,7 @@ type Images<Identity, Value> = {
 function anchorImages<Identity extends number, Value>(
   meter: InstantiationMeter, oldCount: number, images: readonly Identity[], rows: readonly Value[],
   identity: (position: number) => Identity,
-): Images<Identity, Value> | InstantiationStop {
+): Images<Identity, Value> | InstantiationAllocationStop {
   const stable = new Map<Identity, Identity>();
   for (const [position, image] of images.entries()) {
     if (position >= oldCount) break;
@@ -381,7 +381,7 @@ export type StablePublication = {
 
 export function stabilizePublication(
   meter: InstantiationMeter, original: TypeTable, publication: TypePublication,
-): StablePublication | InstantiationStop {
+): StablePublication | InstantiationAllocationStop {
   const types = anchorImages(meter, original.terms.length, publication.types, publication.table.terms, tyId);
   if ("kind" in types) return types;
   const signatures = anchorImages(meter, original.signatures.length, publication.signatures, publication.table.signatures, sigId);

@@ -2,9 +2,9 @@ import type { DefId, LocalId, Origin, NodeRef } from "../ids/contract.js";
 import type { ArtifactBindings, PlacePassingMode } from "../ir-types/contract.js";
 import type {
   MirAggregate, MirAggregateField, MirBlock, MirBody, MirCallArgument, MirCallee,
-  MirClosureCapture, MirConstant, MirConstantValue, MirLocal, MirLocalRole,
+  MirClosureCapture, MirConstant, MirConstantValue, MirEntry, MirLocal, MirLocalRole,
   MirOperand, MirPlace, MirPlaceBase, MirProjection, MirRvalue, MirSite,
-  MirStatement, MirSuspensionReturn, MirSwitchTarget, MirTerminator, MirUnwind,
+  MirStatement, MirStepRef, MirSuspensionReturn, MirSwitchTarget, MirTerminator, MirUnwind,
 } from "./contract.js";
 import { createDecisionWires } from "./text-decisions.js";
 import { choice, field, finish, literals, nullable, record, variants, vector, wireText } from "./text.js";
@@ -108,15 +108,18 @@ export function createBodyWire(): Wire<MirBody> {
 
   const projectionDeref = record<MirProjection & { readonly kind: "deref" }>("deref", () => finish(() => ({ kind: "deref" })));
 
+  const projectionRefined = record<MirProjection & { readonly kind: "refined" }>("refined", () => finish(() => ({ kind: "refined" })));
+
   const projectionWire: Wire<MirProjection> = variants([
     choice("field", () => projectionField), choice("index", () => projectionIndex), choice("element", () => numberedProjection("element")),
-    choice("deref", () => projectionDeref), choice("capture", () => numberedProjection("capture")),
+    choice("deref", () => projectionDeref), choice("capture", () => numberedProjection("capture")), choice("refined", () => projectionRefined),
   ], (value, path, next) => {
     switch (value.kind) {
       case "field": return projectionField.write(value, path, next);
       case "index": return projectionIndex.write(value, path, next);
       case "element": case "capture": return numberedProjection(value.kind).write(value, path, next);
       case "deref": return projectionDeref.write(value, path, next);
+      case "refined": return projectionRefined.write(value, path, next);
     }
   });
 
@@ -128,14 +131,22 @@ export function createBodyWire(): Wire<MirBody> {
 
   const basePlace = record<MirPlaceBase & { readonly kind: "place" }>("place", () =>
     field("place", () => placeWire, value => value.place, place =>
-      field("projection", () => projectionWire, value => value.projection, projection => finish(() => ({ kind: "place", place, projection })))));
+      field("projection", () => projectionWire, value => value.projection, projection =>
+        field("tir", () => nodeRefWire, value => value.tir, tir => finish(() => ({ kind: "place", place, projection, tir }))))));
 
-  const baseWire: Wire<MirPlaceBase> = variants([choice("local", () => baseLocal), choice("static", () => baseStatic), choice("place", () => basePlace)],
+  const baseChecked = record<MirPlaceBase & { readonly kind: "checked" }>("checked", () =>
+    field("place", () => placeWire, value => value.place, place =>
+      field("projection", () => projectionWire, value => value.projection, projection =>
+        field("tir", () => nodeRefWire, value => value.tir, tir => finish(() => ({ kind: "checked", place, projection, tir }))))));
+
+  const baseWire: Wire<MirPlaceBase> = variants([choice("local", () => baseLocal), choice("static", () => baseStatic),
+    choice("place", () => basePlace), choice("checked", () => baseChecked)],
     (value, path, next) => {
       switch (value.kind) {
         case "local": return baseLocal.write(value, path, next);
         case "static": return baseStatic.write(value, path, next);
         case "place": return basePlace.write(value, path, next);
+        case "checked": return baseChecked.write(value, path, next);
       }
     });
 
@@ -190,10 +201,6 @@ export function createBodyWire(): Wire<MirBody> {
       field("operand", () => operandWire, value => value.operand, operand =>
         field("to", () => typeWire, value => value.to, to => finish(() => ({ kind: "convert", operation, operand, to }))))));
 
-  const refineRvalue = record<MirRvalue & { readonly kind: "refine" }>("refine", () =>
-    field("operand", () => operandWire, value => value.operand, operand =>
-      field("to", () => typeWire, value => value.to, to => finish(() => ({ kind: "refine", operand, to })))));
-
   const aggregateRvalue = record<MirRvalue & { readonly kind: "aggregate" }>("aggregate", () =>
     field("type", () => typeWire, value => value.type, type =>
       field("aggregate", () => aggregateWire, value => value.aggregate, aggregate => finish(() => ({ kind: "aggregate", type, aggregate })))));
@@ -208,23 +215,28 @@ export function createBodyWire(): Wire<MirBody> {
 
   const rvalueWire: Wire<MirRvalue> = variants([
     choice("use", () => useRvalue), choice("unary", () => unaryRvalue), choice("binary", () => binaryRvalue), choice("convert", () => convertRvalue),
-    choice("refine", () => refineRvalue), choice("aggregate", () => aggregateRvalue), choice("address-of", () => addressRvalue), choice("closure", () => closureRvalue),
+    choice("aggregate", () => aggregateRvalue), choice("address-of", () => addressRvalue), choice("closure", () => closureRvalue),
   ], (value, path, next) => {
     switch (value.kind) {
       case "use": return useRvalue.write(value, path, next);
       case "unary": return unaryRvalue.write(value, path, next);
       case "binary": return binaryRvalue.write(value, path, next);
       case "convert": return convertRvalue.write(value, path, next);
-      case "refine": return refineRvalue.write(value, path, next);
       case "aggregate": return aggregateRvalue.write(value, path, next);
       case "address-of": return addressRvalue.write(value, path, next);
       case "closure": return closureRvalue.write(value, path, next);
     }
   });
 
+  const stepRef = record<MirStepRef>("MirStepRef", () =>
+    field("protocol", () => numberWire, value => value.protocol, protocol =>
+      field("step", () => numberWire, value => value.step, step => finish(() => ({ protocol, step })))));
+  const stepWire = nullable(() => stepRef);
+
   const assignStatement = record<MirStatement & { readonly kind: "assign" }>("assign", () => siteFields((origin, tir) =>
     field("place", () => placeWire, value => value.place, place =>
-      field("value", () => rvalueWire, value => value.value, value => finish(() => ({ origin, tir, kind: "assign", place, value }))))));
+      field("value", () => rvalueWire, value => value.value, value =>
+        field("step", () => stepWire, statement => statement.step, step => finish(() => ({ origin, tir, kind: "assign", place, value, step })))))));
 
   function storageStatement<Kind extends "storage-live" | "storage-dead">(kind: Kind) {
     return record<MirSite & { readonly kind: Kind; readonly local: LocalId }>(kind, () => siteFields((origin, tir) =>
@@ -246,8 +258,20 @@ export function createBodyWire(): Wire<MirBody> {
 
   const escapeUnwind = record<MirUnwind & { readonly kind: "escape" }>("escape", () => finish(() => ({ kind: "escape" })));
 
-  const unwindWire: Wire<MirUnwind> = variants([choice("handler", () => handlerUnwind), choice("escape", () => escapeUnwind)],
-    (value, path, next) => value.kind === "handler" ? handlerUnwind.write(value, path, next) : escapeUnwind.write(value, path, next));
+  const abortUnwind = record<MirUnwind & { readonly kind: "abort" }>("abort", () => finish(() => ({ kind: "abort" })));
+
+  const noneUnwind = record<MirUnwind & { readonly kind: "none" }>("none", () => finish(() => ({ kind: "none" })));
+
+  const unwindWire: Wire<MirUnwind> = variants([choice("handler", () => handlerUnwind), choice("escape", () => escapeUnwind),
+    choice("abort", () => abortUnwind), choice("none", () => noneUnwind)],
+    (value, path, next) => {
+      switch (value.kind) {
+        case "handler": return handlerUnwind.write(value, path, next);
+        case "escape": return escapeUnwind.write(value, path, next);
+        case "abort": return abortUnwind.write(value, path, next);
+        case "none": return noneUnwind.write(value, path, next);
+      }
+    });
 
   const suspensionReturn = record<MirSuspensionReturn>("MirSuspensionReturn", () =>
     field("destination", () => placeWire, value => value.destination, destination =>
@@ -267,8 +291,17 @@ export function createBodyWire(): Wire<MirBody> {
     field("passing", () => placePassing, value => value.passing, passing =>
       field("place", () => placeWire, value => value.place, place => finish(() => ({ kind: "place", passing, place })))));
 
-  const argumentWire: Wire<MirCallArgument> = variants([choice("value", () => valueArgument), choice("place", () => placeArgument)],
-    (value, path, next) => value.kind === "value" ? valueArgument.write(value, path, next) : placeArgument.write(value, path, next));
+  const omittedArgument = record<MirCallArgument & { readonly kind: "omitted" }>("omitted", () => finish(() => ({ kind: "omitted" })));
+
+  const argumentWire: Wire<MirCallArgument> = variants([choice("value", () => valueArgument), choice("place", () => placeArgument),
+    choice("omitted", () => omittedArgument)],
+    (value, path, next) => {
+      switch (value.kind) {
+        case "value": return valueArgument.write(value, path, next);
+        case "place": return placeArgument.write(value, path, next);
+        case "omitted": return omittedArgument.write(value, path, next);
+      }
+    });
 
   const directCallee = record<MirCallee & { readonly kind: "direct" }>("direct", () =>
     field("resolution", () => calleeWire, value => value.resolution, resolution => finish(() => ({ kind: "direct", resolution }))));
@@ -277,8 +310,19 @@ export function createBodyWire(): Wire<MirBody> {
     field("operand", () => operandWire, value => value.operand, operand =>
       field("resolution", () => calleeWire, value => value.resolution, resolution => finish(() => ({ kind: "indirect", operand, resolution })))));
 
-  const mirCallee: Wire<MirCallee> = variants([choice("direct", () => directCallee), choice("indirect", () => indirectCallee)],
-    (value, path, next) => value.kind === "direct" ? directCallee.write(value, path, next) : indirectCallee.write(value, path, next));
+  const bodyCallee = record<MirCallee & { readonly kind: "body" }>("body", () =>
+    field("instance", () => instanceWire, value => value.instance, instance =>
+      field("captures", () => vector(() => closureCapture), value => value.captures, captures => finish(() => ({ kind: "body", instance, captures })))));
+
+  const mirCallee: Wire<MirCallee> = variants([choice("direct", () => directCallee), choice("indirect", () => indirectCallee),
+    choice("body", () => bodyCallee)],
+    (value, path, next) => {
+      switch (value.kind) {
+        case "direct": return directCallee.write(value, path, next);
+        case "indirect": return indirectCallee.write(value, path, next);
+        case "body": return bodyCallee.write(value, path, next);
+      }
+    });
 
   const gotoTerminator = record<MirTerminator & { readonly kind: "goto" }>("goto", () => siteFields((origin, tir) =>
     field("target", () => blockWire, value => value.target, target => finish(() => ({ origin, tir, kind: "goto", target })))));
@@ -286,7 +330,13 @@ export function createBodyWire(): Wire<MirBody> {
   const switchTerminator = record<MirTerminator & { readonly kind: "switch" }>("switch", () => siteFields((origin, tir) =>
     field("operand", () => operandWire, value => value.operand, operand =>
       field("targets", () => vector(() => switchTarget), value => value.targets, targets =>
-        field("otherwise", () => blockWire, value => value.otherwise, otherwise => finish(() => ({ origin, tir, kind: "switch", operand, targets, otherwise })))))));
+        field("otherwise", () => blockWire, value => value.otherwise, otherwise =>
+          field("step", () => stepWire, value => value.step, step => finish(() => ({ origin, tir, kind: "switch", operand, targets, otherwise, step }))))))));
+
+  const checkTerminator = record<MirTerminator & { readonly kind: "check" }>("check", () => siteFields((origin, tir) =>
+    field("place", () => placeWire, value => value.place, place =>
+      field("next", () => blockWire, value => value.next, next =>
+        field("unwind", () => unwindWire, value => value.unwind, unwind => finish(() => ({ origin, tir, kind: "check", place, next, unwind })))))));
 
   const callTerminator = record<MirTerminator & { readonly kind: "call" }>("call", () => siteFields((origin, tir) =>
     field("callee", () => mirCallee, value => value.callee, callee =>
@@ -295,7 +345,8 @@ export function createBodyWire(): Wire<MirBody> {
           field("destination", () => nullable(() => placeWire), value => value.destination, destination =>
             field("next", () => blockWire, value => value.next, next =>
               field("unwind", () => unwindWire, value => value.unwind, unwind =>
-                finish(() => ({ origin, tir, kind: "call", callee, receiver, arguments: argumentsValue, destination, next, unwind }))))))))));
+                field("step", () => stepWire, value => value.step, step =>
+                  finish(() => ({ origin, tir, kind: "call", callee, receiver, arguments: argumentsValue, destination, next, unwind, step })))))))))));
 
   const invokeTerminator = record<MirTerminator & { readonly kind: "invoke" }>("invoke", () => siteFields((origin, tir) =>
     field("operation", () => operationWire, value => value.operation, operation =>
@@ -303,13 +354,15 @@ export function createBodyWire(): Wire<MirBody> {
         field("destination", () => nullable(() => placeWire), value => value.destination, destination =>
           field("next", () => blockWire, value => value.next, next =>
             field("unwind", () => unwindWire, value => value.unwind, unwind =>
-              finish(() => ({ origin, tir, kind: "invoke", operation, operands, destination, next, unwind })))))))));
+              field("step", () => stepWire, value => value.step, step =>
+                finish(() => ({ origin, tir, kind: "invoke", operation, operands, destination, next, unwind, step }))))))))));
 
   const awaitTerminator = record<MirTerminator & { readonly kind: "await" }>("await", () => siteFields((origin, tir) =>
     field("operand", () => operandWire, value => value.operand, operand =>
       field("destination", () => placeWire, value => value.destination, destination =>
         field("resume", () => blockWire, value => value.resume, resume =>
-          field("unwind", () => unwindWire, value => value.unwind, unwind => finish(() => ({ origin, tir, kind: "await", operand, destination, resume, unwind }))))))));
+          field("unwind", () => unwindWire, value => value.unwind, unwind =>
+            field("step", () => stepWire, value => value.step, step => finish(() => ({ origin, tir, kind: "await", operand, destination, resume, unwind, step })))))))));
 
   const yieldTerminator = record<MirTerminator & { readonly kind: "yield" }>("yield", () => siteFields((origin, tir) =>
     field("operand", () => nullable(() => operandWire), value => value.operand, operand =>
@@ -317,7 +370,8 @@ export function createBodyWire(): Wire<MirBody> {
         field("resume", () => blockWire, value => value.resume, resume =>
           field("return", () => suspensionReturn, value => value.return, returnValue =>
             field("unwind", () => unwindWire, value => value.unwind, unwind =>
-              finish(() => ({ origin, tir, kind: "yield", operand, destination, resume, return: returnValue, unwind })))))))));
+              field("step", () => stepWire, value => value.step, step =>
+                finish(() => ({ origin, tir, kind: "yield", operand, destination, resume, return: returnValue, unwind, step }))))))))));
 
   const delegateTerminator = record<MirTerminator & { readonly kind: "delegate" }>("delegate", () => siteFields((origin, tir) =>
     field("iterator", () => operandWire, value => value.iterator, iterator =>
@@ -325,7 +379,8 @@ export function createBodyWire(): Wire<MirBody> {
         field("resume", () => blockWire, value => value.resume, resume =>
           field("return", () => suspensionReturn, value => value.return, returnValue =>
             field("unwind", () => unwindWire, value => value.unwind, unwind =>
-              finish(() => ({ origin, tir, kind: "delegate", iterator, destination, resume, return: returnValue, unwind })))))))));
+              field("step", () => stepWire, value => value.step, step =>
+                finish(() => ({ origin, tir, kind: "delegate", iterator, destination, resume, return: returnValue, unwind, step }))))))))));
 
   const throwTerminator = record<MirTerminator & { readonly kind: "throw" }>("throw", () => siteFields((origin, tir) =>
     field("operand", () => operandWire, value => value.operand, operand =>
@@ -338,13 +393,15 @@ export function createBodyWire(): Wire<MirBody> {
     siteFields((origin, tir) => finish(() => ({ origin, tir, kind: "unreachable" }))));
 
   const terminatorWire: Wire<MirTerminator> = variants([
-    choice("goto", () => gotoTerminator), choice("switch", () => switchTerminator), choice("call", () => callTerminator), choice("invoke", () => invokeTerminator),
+    choice("goto", () => gotoTerminator), choice("switch", () => switchTerminator), choice("check", () => checkTerminator),
+    choice("call", () => callTerminator), choice("invoke", () => invokeTerminator),
     choice("await", () => awaitTerminator), choice("yield", () => yieldTerminator), choice("delegate", () => delegateTerminator), choice("throw", () => throwTerminator),
     choice("return", () => returnTerminator), choice("unreachable", () => unreachableTerminator),
   ], (value, path, next) => {
     switch (value.kind) {
       case "goto": return gotoTerminator.write(value, path, next);
       case "switch": return switchTerminator.write(value, path, next);
+      case "check": return checkTerminator.write(value, path, next);
       case "call": return callTerminator.write(value, path, next);
       case "invoke": return invokeTerminator.write(value, path, next);
       case "await": return awaitTerminator.write(value, path, next);
@@ -361,13 +418,18 @@ export function createBodyWire(): Wire<MirBody> {
       field("statements", () => vector(() => statementWire), value => value.statements, statements =>
         field("terminator", () => terminatorWire, value => value.terminator, terminator => finish(() => ({ origin, tir, id, statements, terminator })))))));
 
+  const mirEntry = record<MirEntry>("MirEntry", () =>
+    field("provided", () => numberWire, value => value.provided, provided =>
+      field("block", () => blockWire, value => value.block, block => finish(() => ({ provided, block })))));
+
   const mirBodyWire = record<MirBody>("MirBody", () =>
     field("body", () => bodyWire, value => value.body, body =>
       field("bindings", () => artifactWire, value => value.bindings, bindings =>
+       field("entries", () => vector(() => mirEntry), value => value.entries, entries =>
         field("locals", () => vector(() => mirLocal), value => value.locals, locals =>
           field("constants", () => vector(() => mirConstant), value => value.constants, constants =>
             field("places", () => vector(() => mirPlace), value => value.places, places =>
               field("blocks", () => vector(() => mirBlock), value => value.blocks, blocks =>
-                field("result", () => typeWire, value => value.result, result => finish(() => ({ body, bindings, locals, constants, places, blocks, result }))))))))));
+                field("result", () => typeWire, value => value.result, result => finish(() => ({ body, bindings, entries, locals, constants, places, blocks, result })))))))))));
   return mirBodyWire;
 }

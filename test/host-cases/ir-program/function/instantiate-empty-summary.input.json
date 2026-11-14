@@ -30,7 +30,8 @@
     "metadata": [],
     "summaries": [],
     "constants": [],
-    "diagnostics": []
+    "diagnostics": [],
+    "executions": []
   },
   "module": {
     "module": "M[P[%002Fprogram];src%002Fmain.ts]",
@@ -87,7 +88,11 @@
   },
   "artifact": {
     "kind": "summary",
-    "definition": "D[M[P[%002Fprogram];src%002Fmain.ts];missing]"
+    "definition": "D[M[P[%002Fprogram];src%002Fmain.ts];missing]",
+    "target": "declared",
+    "endpoint": "api-signature",
+    "ordinal": 2,
+    "provided": 0
   },
   "bindings": {
     "classBindings": [],

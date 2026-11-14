@@ -340,14 +340,14 @@ export function nullableSyntaxCases(node, definition, body) {
   return result;
 }
 
-export function relationalTransportFacts(fixture) {
-  const facts = structuredClone(fixture.module.bodies[0].facts);
+export function relationalTransportArtifacts(fixture) {
+  const facts = structuredClone(fixture.module.bodies[0].facts[0]);
   const bindings = { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] };
   const member = fixture.index.metadata[0].fields[0].member;
   const at = { body: fixture.bodyId, node: 0 };
-  const bodyOwner = { kind: "body", instance: fixture.instance };
-  const summaryOwner = { kind: "summary", definition: fixture.definition, bindings: { kind: "parametric" } };
-  const summary = { definition: fixture.definition, bindings: { kind: "parametric" } };
+  const bodyOwner = { kind: "body", execution: facts.execution };
+  const summary = { kind: "body", execution: facts.execution };
+  const summaryOwner = { kind: "summary", key: summary };
   const advertised = { declaration: fixture.definition, role: "advertised", signature: 0, body: null };
   const application = { candidate: 0, advertised, api: { ...advertised, role: "api-signature" }, bindings,
     implementationBindings: bindings, parameters: [], completion: { signature: 0, completion: 0, yielded: null, sent: null }, result: 0, activation: null };
@@ -364,7 +364,7 @@ export function relationalTransportFacts(fixture) {
     contexts: [{ id: 0, receiver: null, arguments: [0], captures: [] }],
     boundProducers: [{ id: 0, producer: 0, bindings, context: 0 }],
     origins: [{ id: 0, producers: [0], includesAbsence: false, kind: "complete" }],
-    boundaries: [{ id: 0, kind: "external-input", at: { kind: "node", node: at }, subject: 0, owner: null,
+    boundaries: [{ id: 0, kind: "external-input", at: { kind: "node", node: { kind: "body", value: at } }, subject: 0, owner: null,
       bindings, context: 0, detail: "external structural carrier" }],
   };
   facts.origins.invocations = [{ node: 0, kind: "call", alternatives: [{ resolution, context: 0,
@@ -376,14 +376,14 @@ export function relationalTransportFacts(fixture) {
     { node: 0, root: at, allocation: at, implementation: fixture.definition, body: fixture.instance, regions: [] }];
   facts.rawLocations = [{ node: 0, operation: "to-raw", pointee: 1,
     layout: { metadata: fixture.index.metadata[0].key, layout: 1 }, context: 0, bindings }];
-  facts.observations = [null, { metadata: fixture.index.metadata[0].key, field: 0 }].map(field => ({
+  const observations = { instance: fixture.instance, rows: [null, { metadata: fixture.index.metadata[0].key, field: 0 }].map(field => ({
     node: 0, operation: field === null ? "size" : "field-offset", operand: at,
-    layout: { metadata: fixture.index.metadata[0].key, layout: 0 }, field, result: 0, value: 0n, context: 0, bindings,
-  }));
+    layout: { metadata: fixture.index.metadata[0].key, layout: 0 }, field, result: 0, value: 0n, bindings,
+  })) };
   facts.closedArrays = [{ node: 0, kind: "unproven", reason: { kind: "no-local-allocation", at } },
     { node: 0, kind: "closed", declarations: [{ kind: "local", local: { body: fixture.instance.body, local: 0 } },
       { kind: "definition", definition: fixture.definition }], references: [at], literals: [at], elements: [member] }];
-  return facts;
+  return { facts, observations };
 }
 
 export function mirTransportCases(fixture) {
@@ -405,34 +405,38 @@ export function mirTransportCases(fixture) {
   const cases = [];
   const body = changes => ({ ...structuredClone(source), locals: [local], constants: [constant], places: [root], ...changes });
   const values = [{ kind: "use", operand }, { kind: "unary", operation, operand }, { kind: "binary", operation, left: operand, right: operand },
-    { kind: "convert", operation, operand, to: 0 }, { kind: "refine", operand, to: 0 }, { kind: "address-of", place: 0, type: 0 },
+    { kind: "convert", operation, operand, to: 0 }, { kind: "address-of", place: 0, type: 0 },
     { kind: "closure", instance, captures: [{ local: { body: fixture.bodyId, local: 0 }, place: 0 }] },
     ...["array", "tuple", "fixed-array"].map(kind => ({ kind: "aggregate", type: 0, aggregate: { kind, elements: [operand] } })),
     ...["object", "record"].map(kind => ({ kind: "aggregate", type: 0, aggregate: { kind, fields: [{ member, value: operand }] } }))];
   for (const [position, value] of values.entries()) cases.push({ name: `rvalue-${position}-${value.kind}`, body: body({ blocks: [
-    { ...source.blocks[0], statements: [{ ...site, kind: "assign", place: 0, value }] },
+    { ...source.blocks[0], statements: [{ ...site, kind: "assign", place: 0, value, step: null }] },
   ] }) });
   for (const projection of [{ kind: "field", member }, { kind: "element", index: 0 }, { kind: "index", operand },
-    { kind: "deref" }, { kind: "capture", index: 0 }]) cases.push({ name: `projection-${projection.kind}`, body: body({
-    places: [root, { ...root, id: 1, base: { kind: "place", place: 0, projection } }],
-  }) });
+    { kind: "deref" }, { kind: "capture", index: 0 }, { kind: "refined" }]) {
+    for (const kind of ["place", "checked"]) cases.push({ name: `${kind}-projection-${projection.kind}`, body: body({
+      places: [root, { ...root, id: 1, base: { kind, place: 0, projection, tir: site.tir } }],
+    }) });
+  }
   cases.push({ name: "static-root", body: body({ places: [{ ...root, base: { kind: "static", definition: fixture.definition } }] }) });
   for (const value of [{ kind: "definition", definition: fixture.definition, bindings: { kind: "parametric" } },
     { kind: "metadata", definition: fixture.definition, bindings: { kind: "instantiated", bindings } },
     { kind: "observation", at: site.tir }, { kind: "constant", reference: { initializer: fixture.instance } }])
     cases.push({ name: `constant-${value.kind}`, body: body({ constants: [{ ...constant, value }] }) });
-  for (const callee of [{ kind: "direct", resolution: selected }, { kind: "indirect", operand, resolution: selected }])
+  for (const callee of [{ kind: "direct", resolution: selected }, { kind: "indirect", operand, resolution: selected },
+    { kind: "body", instance, captures: [{ local: { body: fixture.bodyId, local: 0 }, place: 0 }] }])
     cases.push({ name: `call-${callee.kind}`, body: body({ blocks: [{ ...source.blocks[0], terminator: { ...site,
-      kind: "call", callee, receiver: null, arguments: [], destination: null, next: 0, unwind: { kind: "escape" },
+      kind: "call", callee, receiver: null, arguments: [], destination: null, next: 0, unwind: { kind: "escape" }, step: null,
     } }] }) });
   cases.push({ name: "invoke", body: body({ blocks: [{ ...source.blocks[0], terminator: { ...site, kind: "invoke", operation,
-    operands: [operand], destination: null, next: 0, unwind: { kind: "escape" },
+    operands: [operand], destination: null, next: 0, unwind: { kind: "escape" }, step: null,
   } }] }) });
   for (const terminator of [{ kind: "goto", target: 0 },
-    { kind: "switch", operand, targets: [{ constant: 0, target: 0 }], otherwise: 0 },
-    { kind: "await", operand, destination: 0, resume: 0, unwind: { kind: "escape" } },
-    { kind: "yield", operand, destination: 0, resume: 0, return: { destination: 0, target: 0 }, unwind: { kind: "escape" } },
-    { kind: "delegate", iterator: operand, destination: 0, resume: 0, return: { destination: 0, target: 0 }, unwind: { kind: "escape" } },
+    { kind: "switch", operand, targets: [{ constant: 0, target: 0 }], otherwise: 0, step: null },
+    { kind: "check", place: 0, next: 0, unwind: { kind: "escape" } },
+    { kind: "await", operand, destination: 0, resume: 0, unwind: { kind: "escape" }, step: null },
+    { kind: "yield", operand, destination: 0, resume: 0, return: { destination: 0, target: 0 }, unwind: { kind: "escape" }, step: null },
+    { kind: "delegate", iterator: operand, destination: 0, resume: 0, return: { destination: 0, target: 0 }, unwind: { kind: "escape" }, step: null },
     { kind: "throw", operand, unwind: { kind: "handler", exception: 0, target: 0 } }])
     cases.push({ name: `terminator-${terminator.kind}`, body: body({ blocks: [{ ...source.blocks[0], terminator: { ...site, ...terminator } }] }) });
   return cases;

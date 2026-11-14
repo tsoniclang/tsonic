@@ -124,7 +124,8 @@ export function predecessorsOfGraph(
 function unwindTargets(unwind: MirUnwind): readonly BlockId[] {
   switch (unwind.kind) {
     case "handler": return [unwind.target];
-    case "escape": return [];
+    // A failure that leaves the body, one that ends the process, and a control point that cannot fail have no edge.
+    case "escape": case "abort": case "none": return [];
   }
 }
 
@@ -137,6 +138,7 @@ export function terminatorTargets(terminator: MirTerminator): Iterable<BlockId> 
   switch (terminator.kind) {
     case "goto": return [terminator.target];
     case "switch": return switchTargets(terminator.targets, terminator.otherwise);
+    case "check":
     case "call":
     case "invoke": return [terminator.next, ...unwindTargets(terminator.unwind)];
     case "await": return [terminator.resume, ...unwindTargets(terminator.unwind)];

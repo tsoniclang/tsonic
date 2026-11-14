@@ -4,10 +4,11 @@ import type { ArtifactBindings, BodyInstance } from "../ir-types/contract.js";
 import { encodeKey } from "../ids/index.js";
 import type { ProgramIndex, ProgramSite, ProgramVerificationContext } from "./contract.js";
 import type { ProgramLookup, ProgramViolation } from "./program-values.js";
-import { bindingData, compareInstances, compareText, instanceKey, numberDetail, textDetail } from "./program-values.js";
+import { compareInstances, compareText, numberDetail, summaryBindingsOf, summaryReferenceKey, summaryReferenceOf, textDetail } from "./program-values.js";
+import { bindingVectorKey, instanceKey } from "../ir-types/index.js";
 
 export function verifyBindingBounds(index: ProgramIndex, context: ProgramVerificationContext): readonly ProgramViolation[] {
-  const maximum = context.limits.maximumBindingVectorsPerArtifact;
+  const maximum = context.resources.limits.maximumBindingVectorsPerArtifact;
   const groups = new Map<string, { readonly bindings: Set<string>; exceeded: boolean }>();
   const violations: ProgramViolation[] = [];
   function register(artifact: string, bindings: ArtifactBindings, site: ProgramSite): void {
@@ -18,7 +19,7 @@ export function verifyBindingBounds(index: ProgramIndex, context: ProgramVerific
       groups.set(artifact, group);
     }
     if (group.exceeded) return;
-    const key = encodeKey(bindingData(bindings.bindings));
+    const key = bindingVectorKey(bindings.bindings);
     if (group.bindings.has(key)) return;
     group.bindings.add(key);
     if (group.bindings.size > maximum) {
@@ -30,8 +31,8 @@ export function verifyBindingBounds(index: ProgramIndex, context: ProgramVerific
   for (const metadata of index.metadata) register(encodeKey(["metadata", metadata.key.definition]), metadata.key.bindings, {
     kind: "artifact", artifact: { kind: "metadata", definition: metadata.key.definition }, bindings: metadata.key.bindings,
   });
-  for (const summary of index.summaries) register(encodeKey(["summary", summary.key.definition]), summary.key.bindings, {
-    kind: "artifact", artifact: { kind: "summary", definition: summary.key.definition }, bindings: summary.key.bindings,
+  for (const summary of index.summaries) register(summaryReferenceKey(summaryReferenceOf(summary.key)), summaryBindingsOf(summary.key), {
+    kind: "artifact", artifact: summaryReferenceOf(summary.key), bindings: summaryBindingsOf(summary.key),
   });
   return violations;
 }

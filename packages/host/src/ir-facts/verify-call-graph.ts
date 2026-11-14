@@ -1,13 +1,15 @@
+import { summaryDefinition } from "./summary-key.js";
 import type { MessageArgument, Violation } from "../diag/contract.js";
 import type { ComponentId, DefId } from "../ids/contract.js";
-import { encodeComponentId, encodeKey } from "../ids/index.js";
+import { encodeComponentId } from "../ids/index.js";
+import { artifactBindingsKey } from "../ir-types/index.js";
 import type {
   CallComponent, CallEdge, CallGraphRule, FactsSite, VerifyCallGraph,
 } from "./contract.js";
-import { artifactData, compareNumbers, ownerKey, validIndex } from "./verify-relations.js";
+import { compareNumbers, ownerKey, validIndex } from "./verify-relations.js";
 
 const definitionSite = (definition: DefId): FactsSite => ({
-  kind: "summary", summary: { definition, bindings: { kind: "parametric" } },
+  kind: "definition", definition,
 });
 
 const componentSite = (component: CallComponent): FactsSite => ({ kind: "component", component: component.id });
@@ -49,8 +51,8 @@ const compareEdges = (left: CallEdge, right: CallEdge): number => {
       }
       break;
   }
-  const leftBindings = encodeKey(artifactData(left.bindings));
-  const rightBindings = encodeKey(artifactData(right.bindings));
+  const leftBindings = artifactBindingsKey(left.bindings);
+  const rightBindings = artifactBindingsKey(right.bindings);
   return leftBindings === rightBindings ? 0 : leftBindings < rightBindings ? -1 : 1;
 };
 
@@ -146,7 +148,7 @@ export const verifyCallGraph: VerifyCallGraph = (graph, context) => {
   }
   let previousEdge: CallEdge | undefined;
   for (const edge of graph.edges) {
-    const site: FactsSite = { kind: "node", at: edge.at };
+    const site: FactsSite = { kind: "node", at: { kind: "body", value: edge.at } };
     if (previousEdge !== undefined && compareEdges(previousEdge, edge) >= 0) {
       report("edges-order", site, "Call edges must be distinct and ordered by caller, occurrence and callee.");
     }
@@ -179,7 +181,7 @@ export const verifyCallGraph: VerifyCallGraph = (graph, context) => {
     } else {
       const owner = edge.callee.boundary.owner;
       const arena = context.arenaOf(owner);
-      const actualOwner = owner.kind === "summary" ? owner.definition : context.tirBody(owner.instance).owner;
+      const actualOwner = owner.kind === "summary" ? summaryDefinition(owner.key, context) : context.bodyOwner(owner.execution.instance.body);
       if (arena === null || !validIndex(edge.callee.boundary.boundary, arena.boundaries.length) ||
         !Object.is(arena.boundaries[edge.callee.boundary.boundary]?.id, edge.callee.boundary.boundary) || actualOwner !== edge.caller) {
         report("cross-owner-qualified", site, "An open call retains its actual caller-owned relational boundary and complete environment.");

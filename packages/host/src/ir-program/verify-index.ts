@@ -1,12 +1,12 @@
 import { orderDiagnostics } from "../diag/index.js";
 import type { DefId, ModuleId } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
-import { verifyMetadata, verifySummary } from "../ir-facts/index.js";
+import { summaryKey, verifyMetadata, verifySummary } from "../ir-facts/index.js";
 import { indexSyntaxTree } from "../ir-hir/index.js";
-import { printTypes, verifyTypes } from "../ir-types/index.js";
+import { artifactBindingsData, artifactBindingsKey, executionKey, instanceKey, printTypes, verifyTypes } from "../ir-types/index.js";
 import type { TirVerifierInput } from "../ir-tir/contract.js";
 import type { HirCallableEndpoint } from "../ir-hir/contract.js";
-import type { BindingVerificationInput, BodyInstance, TypeRule, TypeSite } from "../ir-types/contract.js";
+import type { BindingVerificationInput, BodyInstance, Execution, TypeRule, TypeSite } from "../ir-types/contract.js";
 import type { Violation } from "../diag/contract.js";
 import type {
   ProgramIndex,
@@ -17,7 +17,7 @@ import type {
 } from "./contract.js";
 
 import type { ProgramLookup, ProgramViolation } from "./program-values.js";
-import { artifactBindingData, artifactEnvironmentKey, compareInstances, compareText, instanceKey, numberDetail, programChildRule, programLookup, requireInstantiationMaximum, textDetail, uniqueRows } from "./program-values.js";
+import { artifactEnvironmentKey, compareExecutions, compareInstances, compareText, numberDetail, programChildRule, programLookup, requireInstantiationMaximum, summaryBindingsOf, summaryReferenceOf, textDetail, uniqueRows } from "./program-values.js";
 import { verifyBindingBounds, verifyBodyInventory, verifyModules, verifyPackages } from "./verify-structure.js";
 
 function numericPosition(value: number, length: number): boolean {
@@ -25,7 +25,7 @@ function numericPosition(value: number, length: number): boolean {
 }
 
 function signatureKey(record: SignatureRecord): string {
-  return encodeKey([artifactBindingData(record.bindings), record.kind, record.ordinal]);
+  return encodeKey([artifactBindingsData(record.bindings), record.kind, record.ordinal]);
 }
 
 function compareSignature(left: SignatureRecord, right: SignatureRecord): number {
@@ -185,7 +185,7 @@ function verifyPublishedRecords(index: ProgramIndex, context: ProgramVerificatio
   let previousMetadata: { readonly definition: DefId; readonly environment: string } | null = null;
   const metadataKeys = new Set<string>();
   for (const record of index.metadata) {
-    const environment = encodeKey(artifactBindingData(record.key.bindings));
+    const environment = artifactBindingsKey(record.key.bindings);
     const key = artifactEnvironmentKey(record.key.definition, record.key.bindings);
     const site: ProgramSite = { kind: "artifact", artifact: { kind: "metadata", definition: record.key.definition }, bindings: record.key.bindings };
     if (previousMetadata !== null && (compareText(previousMetadata.definition, record.key.definition) || compareText(previousMetadata.environment, environment)) > 0) {
@@ -198,18 +198,17 @@ function verifyPublishedRecords(index: ProgramIndex, context: ProgramVerificatio
       violations.push({ rule: programChildRule("metadata-valid", child.rule), site, detail: [textDetail(child.rule), ...child.detail] });
     }
   }
-  let previousSummary: { readonly definition: DefId; readonly environment: string } | null = null;
+  let previousSummary: string | null = null;
   const summaryKeys = new Set<string>();
   for (const summary of index.summaries) {
-    const environment = encodeKey(artifactBindingData(summary.key.bindings));
-    const key = artifactEnvironmentKey(summary.key.definition, summary.key.bindings);
-    const site: ProgramSite = { kind: "artifact", artifact: { kind: "summary", definition: summary.key.definition }, bindings: summary.key.bindings };
-    if (previousSummary !== null && (compareText(previousSummary.definition, summary.key.definition) || compareText(previousSummary.environment, environment)) > 0) {
-      violations.push({ rule: "summaries-order", site, detail: [textDetail(previousSummary.definition), textDetail(previousSummary.environment), textDetail(key)] });
+    const key = summaryKey(summary.key);
+    const site: ProgramSite = { kind: "artifact", artifact: summaryReferenceOf(summary.key), bindings: summaryBindingsOf(summary.key) };
+    if (previousSummary !== null && compareText(previousSummary, key) > 0) {
+      violations.push({ rule: "summaries-order", site, detail: [textDetail(previousSummary), textDetail(key)] });
     }
     if (summaryKeys.has(key)) violations.push({ rule: "summary-key-unique", site, detail: [textDetail(key)] });
     summaryKeys.add(key);
-    previousSummary = { definition: summary.key.definition, environment };
+    previousSummary = key;
     for (const child of verifySummary(summary, context.facts)) {
       violations.push({ rule: programChildRule("summary-valid", child.rule), site, detail: [textDetail(child.rule), ...child.detail] });
     }
@@ -236,12 +235,36 @@ function verifyPublishedRecords(index: ProgramIndex, context: ProgramVerificatio
   return violations;
 }
 
+function verifyExecutions(lookup: ProgramLookup, index: ProgramIndex): readonly ProgramViolation[] {
+  const violations: ProgramViolation[] = [];
+  const keys = new Set<string>();
+  let previous: Execution | null = null;
+  for (const execution of index.executions) {
+    const site: ProgramSite = { kind: "body", instance: execution.instance };
+    const key = executionKey(execution);
+    if (previous !== null && compareExecutions(previous, execution) >= 0) {
+      violations.push({ rule: "executions-order", site, detail: [textDetail(executionKey(previous)), textDetail(key)] });
+    }
+    previous = execution;
+    if (keys.has(key)) violations.push({ rule: "execution-key-unique", site, detail: [textDetail(key)] });
+    keys.add(key);
+    const body = lookup.instances.get(instanceKey(execution.instance));
+    if (body === undefined || body === null) {
+      violations.push({ rule: "execution-body-resolves", site, detail: [textDetail(key)] });
+    }
+    if (!Number.isSafeInteger(execution.provided) || execution.provided < 0 || Object.is(execution.provided, -0)) {
+      violations.push({ rule: "execution-entry-resolves", site, detail: [numberDetail(execution.provided)] });
+    }
+  }
+  return violations;
+}
+
 export const verifyProgramIndex: VerifyProgramIndex = (index, context) => {
-  requireInstantiationMaximum(context.limits.maximumBindingVectorsPerArtifact, "maximumBindingVectorsPerArtifact");
+  requireInstantiationMaximum(context.resources.limits.maximumBindingVectorsPerArtifact, "maximumBindingVectorsPerArtifact");
   const lookup = programLookup(index);
   const violations: ProgramViolation[] = [];
   if (index.schema !== 1) violations.push({ rule: "schema-supported", site: { kind: "index" }, detail: [numberDetail(index.schema)] });
-  for (const group of [verifyPackages(lookup, index), verifyModules(lookup, index, context), verifyBodyInventory(lookup, index, context)]) {
+  for (const group of [verifyPackages(lookup, index), verifyModules(lookup, index, context), verifyBodyInventory(lookup, index, context), verifyExecutions(lookup, index)]) {
     for (const violation of group) violations.push(violation);
   }
   if (printTypes(index.types) !== printTypes(context.facts.types)) {

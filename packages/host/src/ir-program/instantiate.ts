@@ -1,17 +1,16 @@
 import type { ArtifactBindings, BindingVector, TypeExpansionLimits, TypeTransform } from "../ir-types/contract.js";
 import type { ArtifactReference, Instantiate, InstantiatedArtifact, InstantiationResult, ModuleBodies, ProgramIndex } from "./contract.js";
-import { encodeKey } from "../ids/index.js";
 import { requirePresent } from "../diag/index.js";
 import type { InvariantFailure } from "../diag/contract.js";
 import type { TirBody } from "../ir-tir/contract.js";
 import type { MirBody } from "../ir-mir/contract.js";
 import type { BodyFacts, Summary } from "../ir-facts/contract.js";
-import { exportTypes, seedTypeInterner, substitute, substituteSignature } from "../ir-types/index.js";
+import { bindingVectorKey, exportTypes, seedTypeInterner, substitute, substituteSignature } from "../ir-types/index.js";
 import type { InstantiationMeter, InstantiationStop } from "./program-values.js";
 import type { TypeRewrite } from "./canonical-types.js";
 import {
-  admitBindingVector, bindingData, chargeInstantiationWork, createBindingLookup, createInstantiationMeter,
-  createProjectionInventory, drainProjectionInventory, inventoryRecord,
+  admitBindingVector, chargeInstantiationWork, createBindingLookup, createInstantiationMeter,
+  createProjectionInventory, drainProjectionInventory, inventoryRecord, summaryBindingsOf, summaryReferenceKey, summaryReferenceOf,
 } from "./program-values.js";
 import type { ProjectionInventory } from "./program-values.js";
 import { admitTypeSeed, stabilizePublication } from "./instantiate-types.js";
@@ -29,10 +28,12 @@ type StructuralArtifact =
   | { readonly kind: "summary"; readonly summary: Summary };
 
 type ArtifactCandidate = {
+  readonly kind: "candidate";
   readonly artifact: StructuralArtifact;
   readonly bindings: ArtifactBindings;
   readonly dependence: "parametric" | "binding-dependent";
 } | {
+  readonly kind: "candidate";
   readonly artifact: InstantiatedArtifact & { readonly kind: "metadata" };
   readonly bindings: ArtifactBindings;
   readonly dependence: "binding-dependent" | "independent-data";
@@ -51,7 +52,7 @@ function bindingKey(meter: InstantiationMeter, bindings: BindingVector): string 
       if (stop !== null) return stop;
     }
   }
-  return encodeKey(bindingData(bindings));
+  return bindingVectorKey(bindings);
 }
 
 function admitVector(meter: InstantiationMeter, keys: Set<string>, key: string): InstantiationStop | null {
@@ -64,7 +65,7 @@ function admitVector(meter: InstantiationMeter, keys: Set<string>, key: string):
 
 function select<Value>(
   meter: InstantiationMeter, values: readonly Value[], bindings: BindingVector,
-  candidateOf: (value: Value) => ArtifactCandidate | null,
+  candidateOf: (value: Value) => ArtifactCandidate | InstantiationStop | null,
 ): ArtifactSelection {
   const keys = new Set<string>();
   let requested: string | null = null;
@@ -75,6 +76,7 @@ function select<Value>(
     if (work !== null) return work;
     const candidate = candidateOf(value);
     if (candidate === null) continue;
+    if (candidate.kind === "resource-limit") return candidate;
     if (candidate.dependence === "independent-data") return { kind: "exact", artifact: candidate.artifact };
     if (requested === null) {
       const key = bindingKey(meter, bindings);
@@ -111,24 +113,39 @@ export function selectArtifact(
 ): ArtifactSelection {
   switch (artifact.kind) {
     case "tir":
-    case "mir":
-    case "facts": return select(meter, module.bodies, bindings, value => {
+    case "mir": return select(meter, module.bodies, bindings, value => {
       if (value.instance.body !== artifact.body) return null;
       const selected: StructuralArtifact = artifact.kind === "tir" ? { kind: "tir", body: value.tir }
-        : artifact.kind === "mir" ? { kind: "mir", body: value.mir } : { kind: "facts", facts: value.facts };
-      return { artifact: selected, bindings: value.instance.bindings, dependence: value.tir.dependence };
+        : { kind: "mir", body: value.mir };
+      return { kind: "candidate", artifact: selected, bindings: value.instance.bindings, dependence: value.tir.dependence };
     });
-    case "summary": return select(meter, index.summaries, bindings, summary => {
-      if (summary.key.definition !== artifact.definition) return null;
+    case "facts": return select(meter, module.bodies, bindings, value => {
+      if (value.instance.body !== artifact.body) return null;
+      let selected: BodyFacts | null = null;
+      for (const facts of value.facts) {
+        const stop = chargeInstantiationWork(meter);
+        if (stop !== null) return stop;
+        if (facts.execution.provided !== artifact.provided) continue;
+        if (selected !== null) throw new TypeError("Duplicate execution facts artifact");
+        selected = facts;
+      }
+      return selected === null ? null : { kind: "candidate", artifact: { kind: "facts", facts: selected },
+        bindings: selected.execution.instance.bindings, dependence: value.tir.dependence };
+    });
+    case "summary": {
+      const reference = summaryReferenceKey(artifact);
+      return select(meter, index.summaries, bindings, summary => {
+      if (summaryReferenceKey(summaryReferenceOf(summary.key)) !== reference) return null;
       return {
-        artifact: { kind: "summary", summary }, bindings: summary.key.bindings,
+        kind: "candidate", artifact: { kind: "summary", summary }, bindings: summaryBindingsOf(summary.key),
         dependence: summary.bindingDependent ? "binding-dependent" : "parametric",
       };
-    });
+      });
+    }
     case "metadata": return select(meter, index.metadata, bindings, metadata => {
       if (metadata.key.definition !== artifact.definition) return null;
       return {
-        artifact: { kind: "metadata", metadata }, bindings: metadata.key.bindings,
+        kind: "candidate", artifact: { kind: "metadata", metadata }, bindings: metadata.key.bindings,
         dependence: metadata.kind === "data-layout" ? "independent-data" : "binding-dependent",
       };
     });
@@ -167,14 +184,20 @@ function prepareArtifact(scan: ProjectionInventory, artifact: StructuralArtifact
       const body = inventoryRecord(scan, 2) ?? inventoryBodyFacts(scan, artifact.facts) ?? drainProjectionInventory(scan);
       if (body !== null) return body;
       return { kind: "complete", project: (rewrite, bindings) => ({
-        kind: "facts", facts: rewriteBodyFacts(rewrite, artifact.facts, { body: artifact.facts.instance.body, bindings }),
+        kind: "facts", facts: rewriteBodyFacts(rewrite, artifact.facts, {
+          instance: { body: artifact.facts.execution.instance.body, bindings }, provided: artifact.facts.execution.provided,
+        }),
       }) };
     }
     case "summary": {
       const body = inventoryRecord(scan, 2) ?? inventorySummary(scan, artifact.summary) ?? drainProjectionInventory(scan);
       if (body !== null) return body;
       return { kind: "complete", project: (rewrite, bindings) => ({
-        kind: "summary", summary: rewriteSummary(rewrite, artifact.summary, { definition: artifact.summary.key.definition, bindings }),
+        kind: "summary", summary: rewriteSummary(rewrite, artifact.summary, artifact.summary.key.kind === "body"
+          ? { kind: "body", execution: { instance: { body: artifact.summary.key.execution.instance.body, bindings },
+              provided: artifact.summary.key.execution.provided } }
+          : { kind: "declared", execution: { request: { ...artifact.summary.key.execution.request, bindings },
+              provided: artifact.summary.key.execution.provided } }),
       }) };
     }
   }

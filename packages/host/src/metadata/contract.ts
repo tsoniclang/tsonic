@@ -1,12 +1,13 @@
 import type { Result } from "../diag/contract.js";
-import type { DefId, TyId } from "../ids/contract.js";
-import type { ArtifactBindings, BodyInstance, ConstantContext, ConstValue, MemberTable, TypeOf } from "../ir-types/contract.js";
+import type { DefId, SourceNodeRef, TyId } from "../ids/contract.js";
+import type { ArtifactBindings, BodyInstance, ConstantContext, ConstValue, MemberTable, TypeOf, TypeTable } from "../ir-types/contract.js";
 import type {
-  CapturedFact, CheckedPhase, Declaration, HirBody, HirMemoryFieldCapture, HirMemoryLayoutCapture, HirObservationCapture,
+  CapturedFact, CheckedPhase, Declaration, HirMemoryFieldCapture, HirMemoryLayoutCapture, HirObservationCapture,
 } from "../ir-hir/contract.js";
 import type {
-  AnalysisLimits, BodyMetadataResult, MetadataKey, MetadataRecord, OriginsResult,
+  AnalysisLimits, BodyObservations, MetadataKey, MetadataRecord,
 } from "../ir-facts/contract.js";
+import type { Step } from "../step/contract.js";
 
 export interface MetadataLimits {
   readonly maximumWork: number;
@@ -25,14 +26,17 @@ export interface MetadataDeps {
   readonly metadataLimits: MetadataLimits;
 }
 
-export interface BodyMetadataDeps {
-  readonly capturedObservationsOf: (instance: BodyInstance) => readonly HirObservationCapture[];
-  readonly originsOf: (instance: BodyInstance) => OriginsResult;
-  readonly metadataOf: (key: MetadataKey) => MetadataRecord | null;
-  readonly typeOf: TypeOf;
-  readonly membersOf: (type: TyId) => MemberTable;
-  readonly limits: AnalysisLimits;
-  readonly metadataLimits: MetadataLimits;
+export interface ObservationDeclaration {
+  readonly source: SourceNodeRef;
+  readonly definition: DefId;
+}
+
+export interface ObservationsInput {
+  readonly instance: BodyInstance;
+  readonly captures: readonly HirObservationCapture[];
+  readonly declarations: readonly ObservationDeclaration[];
+  readonly types: TypeTable;
+  readonly limits: MetadataLimits;
 }
 
 export type MetadataOf = (
@@ -41,8 +45,7 @@ export type MetadataOf = (
   bindings: ArtifactBindings,
 ) => Result<MetadataRecord | null>;
 
-export type BodyMetadataOf = (
-  deps: BodyMetadataDeps,
-  body: HirBody,
-  bindings: ArtifactBindings,
-) => Result<BodyMetadataResult>;
+export type ObservationsOf = (input: ObservationsInput) => Step<Result<BodyObservations>, MetadataKey, ObservationsInput>;
+
+export type ResumeObservations = (input: ObservationsInput,
+  answers: readonly Result<MetadataRecord | null>[]) => Result<BodyObservations>;

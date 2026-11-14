@@ -1,1 +1,9 @@
-{"kind":"accepted","value":{"kind":"resource-limit","dimension":"type-visits","maximum":1},"diagnostics":[]}
+{
+  "kind": "accepted",
+  "value": {
+    "kind": "resource-limit",
+    "dimension": "type-visits",
+    "maximum": 2
+  },
+  "diagnostics": []
+}

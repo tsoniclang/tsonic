@@ -44,7 +44,7 @@ export const hostCatalogue = ([
   row("evaluate", "component", [...first(6), "libraries", "ir-infer", "step"]),
   row("metadata", "component", [...first(4), "ir-facts", "step"]),
   ...analyses.map(name => row(`analyses/${name}`, "component", [...first(7), "dataflow", ...(decisionReadingAnalyses.includes(name) ? ["ir-infer"] : [])])),
-  row("summaries", "component", [...first(7), "dataflow", "ir-infer"]),
+  row("summaries", "component", [...first(7), "dataflow", "ir-infer", "libraries"]),
   row("pipeline", "pipeline", [...libraries, ...components]),
   ...drivers.map(name => row(name, "driver", ["ids", "diag", "snapshot"], `${root}/${name}`,
     [{ path: `${root}/${name}/effects.ts`, role: name === "plugins" ? "plugin-loading" : "effects" }])),

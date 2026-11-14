@@ -1,9 +1,9 @@
 import type { Violation } from "../diag/contract.js";
-import type { BlockId, DefId, NodeId, NodeRef, Origin, PlaceId } from "../ids/contract.js";
+import type { BlockId, BodyId, DefId, NodeId, NodeRef, Origin, PlaceId } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import { callableEndpointKey, childrenOfSyntax, hasOverloadEndpoints, selectedEndpointRoleFaults, walkSyntaxTree } from "../ir-hir/index.js";
 import type { ApplicationDecision } from "../ir-infer/contract.js";
-import type { MemberSelection, ResolvedCallee, TirBody, TirNode, TirProtocol, TypedOperation } from "../ir-tir/contract.js";
+import type { MemberSelection, ResolvedCallee, TirBody, TirNode, TirProtocol, TirProtocolStep, TypedOperation } from "../ir-tir/contract.js";
 import { wireText } from "./text.js";
 import type { DecisionWires } from "./text-decisions.js";
 import type { MirBlock, MirBody, MirRule, MirSite, MirTerminator, MirUnwind, MirVerificationContext, MirViolationSite } from "./contract.js";
@@ -20,7 +20,7 @@ export interface ControlEdge {
 }
 
 function unwindEdge(unwind: MirUnwind): readonly ControlEdge[] {
-  return unwind.kind === "escape" ? [] : [{ kind: "unwind", target: unwind.target, destination: unwind.exception }];
+  return unwind.kind === "handler" ? [{ kind: "unwind", target: unwind.target, destination: unwind.exception }] : [];
 }
 
 export function controlEdges(terminator: MirTerminator): readonly ControlEdge[] {
@@ -30,6 +30,7 @@ export function controlEdges(terminator: MirTerminator): readonly ControlEdge[] 
       ...terminator.targets.map((target): ControlEdge => ({ kind: "normal", target: target.target, destination: null })),
       { kind: "normal", target: terminator.otherwise, destination: null },
     ];
+    case "check": return [{ kind: "normal", target: terminator.next, destination: null }, ...unwindEdge(terminator.unwind)];
     case "call": case "invoke": return [
       { kind: "normal", target: terminator.next, destination: terminator.destination }, ...unwindEdge(terminator.unwind),
     ];
@@ -46,54 +47,62 @@ export function controlEdges(terminator: MirTerminator): readonly ControlEdge[] 
   }
 }
 
-export function densePosition(value: number, length: number): boolean {
-  return Number.isSafeInteger(value) && !Object.is(value, -0) && value >= 0 && value < length;
-}
-
-export interface ControlGraph {
-  readonly vertices: readonly ControlVertex[];
-  readonly reachable: ReadonlySet<number>;
-}
-
-export interface ControlVertex {
-  readonly id: number;
+/** A block with its position in the body. */
+export interface OrderedBlock {
+  readonly position: number;
   readonly block: MirBlock;
-  readonly successors: readonly ControlVertex[];
-  readonly predecessors: readonly ControlVertex[];
 }
 
-export function controlGraph(body: MirBody): ControlGraph {
-  const builders = new Map<number, {
-    readonly vertex: ControlVertex;
-    readonly successors: ControlVertex[];
-    readonly predecessors: ControlVertex[];
-  }>();
-  for (const [position, block] of body.blocks.entries()) {
-    if (block === undefined || !Object.is(block.id, position)) continue;
-    const successors: ControlVertex[] = [];
-    const predecessors: ControlVertex[] = [];
-    const vertex: ControlVertex = { id: position, block, successors, predecessors };
-    builders.set(position, { vertex, successors, predecessors });
-  }
-  for (const from of builders.values()) {
-    for (const edge of controlEdges(from.vertex.block.terminator)) {
-      if (!densePosition(edge.target, body.blocks.length)) continue;
-      const to = builders.get(edge.target);
-      if (to !== undefined) {
-        from.successors.push(to.vertex);
-        to.predecessors.push(from.vertex);
+/**
+ * The blocks reachable from `roots` along control edges, in reverse postorder of one depth-first walk: a block comes
+ * after the source of each of its edges that is not a back edge of that walk. Roots are taken in the order given; a
+ * position that holds no block is skipped.
+ */
+export function reversePostorder(body: MirBody, roots: readonly number[]): readonly OrderedBlock[] {
+  const postorder: OrderedBlock[] = [];
+  const reached = new Uint8Array(body.blocks.length);
+  for (const root of roots) {
+    const start = densePosition(root, reached.length) ? body.blocks[root] : undefined;
+    if (start === undefined || reached[root] === 1) continue;
+    reached[root] = 1;
+    const frames: SearchFrame[] = [{ position: root, block: start, edges: controlEdges(start.terminator), next: 0 }];
+    for (let frame = frames.at(-1); frame !== undefined; frame = frames.at(-1)) {
+      const candidate = frame.edges[frame.next];
+      if (candidate === undefined) {
+        postorder.push({ position: frame.position, block: frame.block });
+        frames.pop();
+        continue;
       }
+      frame.next += 1;
+      const block = densePosition(candidate.target, reached.length) ? body.blocks[candidate.target] : undefined;
+      if (block === undefined || reached[candidate.target] === 1) continue;
+      reached[candidate.target] = 1;
+      frames.push({ position: candidate.target, block, edges: controlEdges(block.terminator), next: 0 });
     }
   }
-  const reachable = new Set<number>();
-  const entry = builders.get(0);
-  const pending: ControlVertex[] = entry === undefined ? [] : [entry.vertex];
-  for (const selected of pending) {
-    if (reachable.has(selected.id)) continue;
-    reachable.add(selected.id);
-    for (const successor of selected.successors) pending.push(successor);
-  }
-  return { vertices: Array.from(builders.values(), value => value.vertex), reachable };
+  return postorder.reverse();
+}
+
+/** One block on the path of the depth-first walk, with the edge it looks at next. */
+interface SearchFrame {
+  readonly position: number;
+  readonly block: MirBlock;
+  readonly edges: readonly ControlEdge[];
+  next: number;
+}
+
+/**
+ * The number a table holds at a position, or `outside` for a position the table does not have. The verifier's tables
+ * are sized by the body's rows, so a position outside one comes only from a record that names a row the body does
+ * not have; that defect is reported by the rule that owns the reference.
+ */
+export function read(table: ArrayLike<number>, position: number, outside: number): number {
+  const value = table[position];
+  return value === undefined ? outside : value;
+}
+
+export function densePosition(value: number, length: number): boolean {
+  return Number.isSafeInteger(value) && !Object.is(value, -0) && value >= 0 && value < length;
 }
 
 export function verifyEdges(body: MirBody): readonly Violation<MirRule, MirViolationSite>[] {
@@ -129,6 +138,51 @@ export interface SourceNode {
   readonly node: TirNode;
   readonly operations: ReadonlySet<string>;
   readonly callees: ReadonlySet<string>;
+  readonly protocols: readonly TirProtocol[];
+  /** Per protocol of the node, per step: the text of its selected operation and of its callee, if it has one. */
+  readonly steps: readonly (readonly SourceStep[])[];
+  readonly bodies: ReadonlySet<BodyId>;
+}
+
+/** The account of one body's verification (`MirVerificationLimits`). A pass stops reading once it is exhausted. */
+export interface WorkMeter {
+  spent: number;
+  readonly maximum: number;
+  exhausted: boolean;
+}
+
+export function chargeWork(meter: WorkMeter, units: number): void {
+  meter.spent += units;
+  if (meter.spent > meter.maximum) meter.exhausted = true;
+}
+
+export interface SourceStep {
+  readonly role: TirProtocolStep["role"];
+  readonly operation: string;
+  readonly callee: string | null;
+}
+
+/** The text of a selected callee or operation, computed once per record and shared by every rule that compares it. */
+export interface WireTexts {
+  readonly callee: (selected: ResolvedCallee) => string;
+  readonly operation: (selected: TypedOperation) => string;
+}
+
+export function createWireTexts(wires: DecisionWires): WireTexts {
+  const callees = new Map<ResolvedCallee, string>();
+  const operations = new Map<TypedOperation, string>();
+  return {
+    callee: selected => {
+      let text = callees.get(selected);
+      if (text === undefined) { text = wireText(wires.calleeWire, selected); callees.set(selected, text); }
+      return text;
+    },
+    operation: selected => {
+      let text = operations.get(selected);
+      if (text === undefined) { text = wireText(wires.operationWire, selected); operations.set(selected, text); }
+      return text;
+    },
+  };
 }
 
 export function findSourceNode(nodes: ReadonlyMap<NodeId, SourceNode>, identity: NodeId): SourceNode | undefined {
@@ -149,8 +203,7 @@ function bodyBoundaries(node: TirNode): ReadonlySet<NodeId> {
   return excluded;
 }
 
-export function sourceNodes(source: TirBody, wires: DecisionWires): ReadonlyMap<NodeId, SourceNode> {
-  const { calleeWire, operationWire } = wires;
+export function sourceNodes(source: TirBody, texts: WireTexts): ReadonlyMap<NodeId, SourceNode> {
   const visited = new Set<NodeId>();
   const boundaries = new Set<NodeId>();
   const pending: TirNode[] = [source.root];
@@ -167,31 +220,46 @@ export function sourceNodes(source: TirBody, wires: DecisionWires): ReadonlyMap<
     const operations = new Set<string>();
     const callees = new Set<string>();
     const protocols: TirProtocol[] = [];
-    const operation = (selected: TypedOperation): void => { operations.add(wireText(operationWire, selected)); };
+    const bodies = new Set<BodyId>();
+    const operation = (selected: TypedOperation): void => { operations.add(texts.operation(selected)); };
     const selection = (selected: MemberSelection): void => {
-      if (selected.getter !== null) callees.add(wireText(calleeWire, selected.getter));
-      if (selected.setter !== null) callees.add(wireText(calleeWire, selected.setter));
+      if (selected.getter !== null) callees.add(texts.callee(selected.getter));
+      if (selected.setter !== null) callees.add(texts.callee(selected.setter));
     };
     const payload = node.tsonic;
     if (payload !== null) {
       if ("operation" in payload && payload.operation !== null && payload.operation.kind === "decided") operation(payload.operation.decision);
       if ("calculation" in payload && payload.calculation !== null && payload.calculation.kind === "decided") operation(payload.calculation.decision);
       if ("construction" in payload && payload.construction.kind === "decided") operation(payload.construction.decision);
-      if ("conversion" in payload && payload.conversion.kind === "convert") operation(payload.conversion.operation);
+      // Both arms of a conversion carry the operation that performs it: the conversion identity, or the core or
+      // library operation that backs it.
+      if ("conversion" in payload && (payload.conversion.kind === "convert" || payload.conversion.kind === "backed-convert"))
+        operation(payload.conversion.operation);
       if ("application" in payload && payload.application !== null && payload.application.kind === "decided"
-        && "callee" in payload.application.decision) callees.add(wireText(calleeWire, payload.application.decision.callee));
+        && "callee" in payload.application.decision) callees.add(texts.callee(payload.application.decision.callee));
       if ("selection" in payload && payload.selection !== null && payload.selection.kind === "decided") {
         selection(payload.selection.decision);
       }
       if ("member" in payload && payload.member.kind === "decided") selection(payload.member.decision);
       if ("protocol" in payload && payload.protocol.kind === "decided") protocols.push(payload.protocol.decision);
       if ("protocols" in payload) for (const protocol of payload.protocols) if (protocol.kind === "decided") protocols.push(protocol.decision);
+      // The bodies a node executes by a call of its own: the initializer of the binding, parameter or storage it
+      // declares. A template is the body of a closure or a declaration, which a call of an internal body never runs.
+      if ("initializer" in payload && payload.initializer !== null) bodies.add(payload.initializer);
     }
-    for (const protocol of protocols) for (const step of protocol.steps) {
-      operation(step.operation);
-      if (step.callee !== null) callees.add(wireText(calleeWire, step.callee));
+    const steps: SourceStep[][] = [];
+    for (const protocol of protocols) {
+      const row: SourceStep[] = [];
+      for (const step of protocol.steps) {
+        const operationText = texts.operation(step.operation);
+        const calleeText = step.callee === null ? null : texts.callee(step.callee);
+        operations.add(operationText);
+        if (calleeText !== null) callees.add(calleeText);
+        row.push({ role: step.role, operation: operationText, callee: calleeText });
+      }
+      steps.push(row);
     }
-    nodes.set(node.id, { node, operations, callees });
+    nodes.set(node.id, { node, operations, callees, protocols, steps, bodies });
   }
   return nodes;
 }
@@ -203,12 +271,13 @@ export function validOrigin(origin: Origin): boolean {
 }
 
 export function verifySelections(
-  body: MirBody, context: MirVerificationContext, nodes: ReadonlyMap<NodeId, SourceNode>, wires: DecisionWires,
+  body: MirBody, context: MirVerificationContext, nodes: ReadonlyMap<NodeId, SourceNode>, texts: WireTexts,
 ): readonly Violation<MirRule, MirViolationSite>[] {
-  const { calleeWire, operationWire } = wires;
   const violations: Violation<MirRule, MirViolationSite>[] = [];
   const report = (rule: MirRule, site: MirViolationSite): void => { violations.push({ rule, site, detail: [] }); };
   const knownNode = (node: NodeId): boolean => findSourceNode(nodes, node) !== undefined;
+  const parameterDefaults = new Set<BodyId>();
+  for (const parameter of context.source.params) if (parameter.initializer !== null) parameterDefaults.add(parameter.initializer);
   const reference = (node: NodeRef, site: MirViolationSite): SourceNode | undefined => {
     if (node.body !== context.source.body) { report("cross-owner-qualified", site); return undefined; }
     const selected = findSourceNode(nodes, node.node);
@@ -250,7 +319,7 @@ export function verifySelections(
   };
   const operation = (selected: TypedOperation, source: SourceNode | undefined, site: MirViolationSite): void => {
     // One finding per operation occurrence: it differs from its source, or one of its call steps is not a valid selection.
-    let selection = source !== undefined && !source.operations.has(wireText(operationWire, selected));
+    let selection = source !== undefined && !source.operations.has(texts.operation(selected));
     if (selection) report("operation-selected", site);
     if (selected.permissionScope !== null && !knownNode(selected.permissionScope)) report("tir-node-resolves", site);
     const identity = selected.decision.operation;
@@ -269,7 +338,7 @@ export function verifySelections(
   };
   const callee = (selected: ResolvedCallee, source: SourceNode | undefined, site: MirViolationSite): void => {
     // One finding per callee occurrence: it differs from its source, or it is not a valid selection of its family.
-    if (source !== undefined && !source.callees.has(wireText(calleeWire, selected)) || !validSelection(selected.decision))
+    if (source !== undefined && !source.callees.has(texts.callee(selected)) || !validSelection(selected.decision))
       report("operation-selected", site);
     definition(selected.decision.api.declaration, site);
     definition(selected.decision.advertised.declaration, site);
@@ -280,9 +349,11 @@ export function verifySelections(
     if (constant.value.kind === "observation") reference(constant.value.at, site);
   }
   for (const place of body.places) {
-    if (place === undefined || place.base.kind !== "place" || place.base.projection.kind !== "field") continue;
+    if (place === undefined || place.base.kind !== "place" && place.base.kind !== "checked") continue;
     const site: MirViolationSite = { kind: "place", body: body.body, place: place.id };
-    member(place.base.projection.member, site);
+    // Every projected place names the node of the typed body whose access it implements.
+    reference(place.base.tir, site);
+    if (place.base.projection.kind === "field") member(place.base.projection.member, site);
   }
   for (const block of body.blocks) {
     if (block === undefined) continue;
@@ -316,7 +387,13 @@ export function verifySelections(
     const site: MirViolationSite = { kind: "instruction", body: body.body, block: block.id, statement: null };
     const source = at(block.terminator, site);
     if (block.terminator.kind === "invoke") operation(block.terminator.operation, source, site);
-    if (block.terminator.kind === "call") callee(block.terminator.callee.resolution, source, site);
+    if (block.terminator.kind === "call") {
+      // An internal body is executed only where the typed body places it: at the node that names that body, or, for
+      // the default of a parameter of this body, in the entry that omits the parameter.
+      if (block.terminator.callee.kind !== "body") callee(block.terminator.callee.resolution, source, site);
+      else if (source !== undefined && !source.bodies.has(block.terminator.callee.instance.body)
+        && !parameterDefaults.has(block.terminator.callee.instance.body)) report("operation-selected", site);
+    }
   }
   return violations;
 }

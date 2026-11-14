@@ -1,7 +1,9 @@
 import type { Result } from "../diag/contract.js";
 import type { DataflowLimits } from "../dataflow/contract.js";
-import type { DefId } from "../ids/contract.js";
-import type { BodyInstance, SignatureOf, TypeOf } from "../ir-types/contract.js";
+import type { DefId, SourceNodeRef } from "../ids/contract.js";
+import type { BindingScope, BodyInstance, DeclaredExecution, Signature, SignatureOf, TypeOf } from "../ir-types/contract.js";
+import type { AdmittedNativeGuarantee, NativeExportAssociation } from "../libraries/contract.js";
+import type { ParameterMapping } from "../ir-infer/contract.js";
 import type { CheckedPhase, Declaration } from "../ir-hir/contract.js";
 import type { TirBody } from "../ir-tir/contract.js";
 import type {
@@ -13,6 +15,18 @@ export interface SummaryLimits {
   readonly maximumIterationsPerComponent: number;
   readonly maximumComponentSize: number;
 }
+
+export type DeclaredSummaryInput = {
+  readonly execution: DeclaredExecution;
+  readonly signature: Signature;
+  readonly parameters: readonly ParameterMapping[];
+  readonly source: SourceNodeRef;
+} & (
+  | { readonly kind: "native"; readonly guarantee: AdmittedNativeGuarantee; readonly associations: readonly NativeExportAssociation[] }
+  | { readonly kind: "unknown"; readonly scope: BindingScope; readonly bindingDependent: boolean; readonly suspends: boolean }
+);
+
+export type BindDeclaredSummary = (input: DeclaredSummaryInput) => Result<Summary>;
 
 export interface CallGraphDeps {
   readonly itemOf: (definition: DefId) => Declaration<CheckedPhase>;

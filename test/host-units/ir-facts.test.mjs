@@ -12,10 +12,10 @@ import { hostCatalogue } from "../architecture/host/catalogue.mjs";
 import { parseSources, readImportGraph } from "../architecture/host/import-graph.mjs";
 import { compileIsolated, isolationDeps } from "../architecture/host/isolation.mjs";
 import { runCase } from "../host-cases/case.mjs";
-import { bindingTargetKey, declarationInstanceKey, relationalOwnerKey } from "./fixtures/verification-keys.mjs";
+import { signatureRequestKey } from "../../packages/host/dist/ir-types/index.js";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
-const sourceNames = ["index", "print", "parse", "verify-facts", "verify-relations", "verify-summary", "verify-metadata", "verify-call-graph"];
+const sourceNames = ["index", "print", "parse", "summary-key", "verify-observations", "verify-facts", "verify-relations", "verify-summary", "verify-metadata", "verify-call-graph"];
 const sourceFiles = ["contract", ...sourceNames].map(name => `packages/host/src/ir-facts/${name}.ts`);
 const hash = text => createHash("sha256").update(text).digest("hex");
 const sourceHashes = sourceFiles.map(path => [path, hash(readFileSync(resolve(repository, path)))]);
@@ -43,7 +43,7 @@ const violation = (rule, site, value) => ({ rule, site, detail: detail(value) })
 const finiteLimits = () => ({ maximumProjectionDepth: 1000000,
   maximumOriginAlternatives: 1000000, maximumRelationalRecordsPerBody: 1000000, maximumRelationalReferencesPerBody: 1000000 });
 
-test("ir-facts: all twelve actual emitted ports, full closed logic and fresh declarations", async suite => {
+test("ir-facts: all seventeen actual emitted ports, full closed logic and fresh declarations", async suite => {
   assert.equal(typeof process.env.TSONIC_TEST_ADMISSION, "string", "the complete unit is admitted in its bounded aggregate group");
   const inspector = new Session();
   inspector.connect();
@@ -53,7 +53,10 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   await post("Profiler.startPreciseCoverage", { callCount: true, detailed: true });
   suite.after(async () => { await post("Profiler.stopPreciseCoverage"); inspector.disconnect(); });
   const product = await import("../../packages/host/dist/ir-facts/index.js");
+  const { bindingTargetKey, relationalOwnerKey } = await import("./fixtures/verification-keys.mjs");
   const ids = await import("../../packages/host/dist/ids/index.js");
+  const { observationCases } = await import("./fixtures/facts-observations.mjs");
+  await observationCases(suite);
   const packageId = ids.encodePackageId("facts");
   const moduleId = ids.encodeModuleId({ package: packageId, path: "main.ts" });
   const definition = name => ids.encodeDefId({ module: moduleId, segments: [{ name, ordinal: 0 }] });
@@ -61,13 +64,14 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   const body = ids.encodeBodyId({ owner: definitions.f, role: "function", ordinal: 0 });
   const otherBody = ids.encodeBodyId({ owner: definitions.other, role: "function", ordinal: 0 });
   const instance = () => ({ body, bindings: parametric() });
-  const owner = () => ({ kind: "body", instance: instance() });
+  const execution = () => ({ instance: instance(), provided: 0 });
+  const owner = () => ({ kind: "body", execution: execution() });
   const ownerKey = value => ids.encodeKey(relationalOwnerKey(value));
   const targetKey = value => ids.encodeKey(bindingTargetKey(value));
-  const callbackKey = (value, parameter) => ids.encodeKey([declarationInstanceKey(value), parameter]);
-  const summaryOwner = selected => ({ kind: "summary", definition: selected.definition, bindings: selected.bindings });
-  const nodeSite = node => ({ kind: "node", at: { body, node } });
-  const bodySite = () => ({ kind: "body", instance: instance() });
+  const callbackKey = (value, parameter) => ids.encodeKey([product.summaryKey(value), parameter]);
+  const summaryOwner = key => ({ kind: "summary", key });
+  const nodeSite = node => ({ kind: "node", at: { kind: "body", value: { body, node } } });
+  const bodySite = () => ({ kind: "execution", execution: execution() });
   const sourceOrigin = (start = 0) => ({ module: moduleId, start, length: 1, derived: [] });
   const header = (id, parent = 0) => ({ id, origin: sourceOrigin(id), parent: id === 0 ? null : parent,
     flags: [], loc: { pos: id, end: id + 1 } });
@@ -77,32 +81,34 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     composition: null, kind: "call", typeParameters: [], receiver, parameters, result: 1 });
   const arena = () => ({ projections: [{ id: 0, parent: null, projection: { kind: "deref" } },
     { id: 1, parent: 0, projection: { kind: "element" } }],
-    producers: [{ id: 0, path: null, kind: "allocation", at: { kind: "node", node: nodeRef(1) } }],
+    producers: [{ id: 0, path: null, kind: "allocation", at: { kind: "node", node: { kind: "body", value: nodeRef(1) } } }],
     contexts: [{ id: 0, receiver: null, arguments: [], captures: [] }],
     boundProducers: [{ id: 0, producer: 0, bindings: emptyBindings(), context: 0 }],
     origins: [{ id: 0, producers: [], includesAbsence: false, kind: "complete" },
       { id: 1, producers: [0], includesAbsence: false, kind: "complete" }],
-    boundaries: [{ id: 0, kind: "external-input", at: { kind: "node", node: nodeRef(1) }, subject: 0, owner: null,
+    boundaries: [{ id: 0, kind: "external-input", at: { kind: "node", node: { kind: "body", value: nodeRef(1) } }, subject: 0, owner: null,
       bindings: emptyBindings(), context: 0, detail: "unknown" }] });
-  const bodyFacts = () => ({ instance: instance(), arena: arena(),
+  const bodyFacts = () => ({ execution: execution(), arena: arena(),
     liveness: { stores: [], locals: [], bindings: [], captures: [] }, initialization: { reads: [] },
     refinements: { refinements: [], integers: [], countedLoops: [] },
     origins: { points: [], reads: [], subjects: [], writes: [], escapes: [], invocations: [], callbacks: [], activations: [], frontiers: [], constructions: [], instanceRegions: [],
       exitContents: { onReturn: [], onUnwind: [] } },
     suspension: { suspensions: [] }, errorStorage: { errors: [] }, pointerBacking: { pointers: [] },
-    observations: [], rawLocations: [], fieldBindings: [], recordBindings: [], memoryBindings: [], selectedMemoryDeclarations: [], closedArrays: [] });
+    rawLocations: [], fieldBindings: [], recordBindings: [], memoryBindings: [], selectedMemoryDeclarations: [], closedArrays: [] });
   const emptyFacts = () => ({ ...bodyFacts(), arena: { projections: [], producers: [], contexts: [], boundProducers: [], origins: [], boundaries: [] } });
   const tir = () => ({ body, owner: definitions.f, bindings: parametric(), lexicalBindings: emptyBindings(), dependence: "parametric", signature: 0,
     completion: 1, yielded: null, sent: null, params: [], locals: [],
     root: { ...header(0), kind: "Block", statements: { loc: { pos: 0, end: 32 }, nodes: Array.from({ length: 31 }, (_, index) =>
       ({ ...header(index + 1), kind: "EmptyStatement", tsonic: null })) }, tsonic: null },
     nestedBodies: [], captures: [], scopes: [], evidence: [], asynchronous: false, generator: false });
-  const mir = () => ({ body, bindings: parametric(),
+  const mir = () => ({ body, bindings: parametric(), entries: [{ provided: 0, block: 0 }],
     locals: [{ id: 0, storage: 0, role: { kind: "user" }, source: { body, local: 0 }, origin: sourceOrigin() }], constants: [],
     places: [{ id: 0, base: { kind: "local", local: 0 }, storage: 0, origin: sourceOrigin() }],
     blocks: [{ id: 0, origin: sourceOrigin(), tir: nodeRef(0), statements: [],
       terminator: { kind: "return", value: null, origin: sourceOrigin(), tir: nodeRef(0) } }], result: 1 });
-  const summary = () => ({ key: { definition: definitions.f, bindings: parametric() }, signature: 0, arena: arena(),
+  const summaryKey = () => ({ kind: "body", execution: execution() });
+  const calleeSummaryKey = () => ({ kind: "declared", execution: { request: { definition: definitions.callee, endpoint: "api-signature", ordinal: 0, bindings: parametric() }, provided: 2 } });
+  const summary = () => ({ key: summaryKey(), signature: 0, arena: arena(),
     parameters: [], captures: [], result: 1, thrown: 0, writes: [], retention: [], callbacks: [], invocationOnlyParameters: [], suspends: false, bindingDependent: false });
   const abi = (width = 64) => ({ key: { definition: definitions[`abi${width}`], bindings: parametric() }, kind: "data-layout",
     occurrence: itemRef(definitions[`abi${width}`]), fingerprint: `abi-${width}`, byteOrder: "little", addressWidth: width });
@@ -121,9 +127,10 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const bodyRows = new Map([[body, originalTir]]);
     const bodyOwners = new Map([[body, definitions.f], [otherBody, definitions.other]]);
     const callbackSignatures = new Map();
+    const signatureRequests = new Map();
     const scopeRows = { body: factScopes, summary: [emptyScope(), emptyScope()], metadata: [] };
     const scopeInventories = new Map([
-      [targetKey({ kind: "body", instance: canonical.instance }), clone(scopeRows.body)],
+      [targetKey({ kind: "body", instance: canonical.execution.instance }), clone(scopeRows.body)],
       [targetKey({ kind: "summary", summary: originalSummary.key }), clone(scopeRows.summary)],
       ...["layout", "abi32", "abi64"].map(name => [targetKey({ kind: "metadata", metadata: { definition: definitions[name], bindings: parametric() } }), []]),
     ]);
@@ -131,9 +138,11 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const tables = { terms: [{ kind: "primitive", primitive: "int64" }, { kind: "intrinsic", intrinsic: "void" },
       { kind: "fixed-array", element: 0, extent: { length: 9007199254740993n, runtimeBase: "bigint" } }], signatures: [signature()] };
     const metadataRows = new Map([[definitions.layout, originalMetadata], [definitions.abi32, abi(32)], [definitions.abi64, abi(64)], [definitions.missing, null]]);
-    const canonicalArenas = new Map([[ownerKey(owner()), original.arena], [ownerKey(summaryOwner(originalSummary.key)), originalSummary.arena]]);
+    const canonicalArenas = new Map([[ownerKey({ kind: "body", execution: canonical.execution }), original.arena], [ownerKey(summaryOwner(originalSummary.key)), originalSummary.arena]]);
     const context = {
       limits: finiteLimits(), types: tables, diagnostics: [],
+      declarationSourceOf: selected => itemRef(selected),
+      signatureIdOf: request => signatureRequests.get(signatureRequestKey(request)) ?? null,
       tirBody: selected => { const record = bodyRows.get(selected.body); assert.equal(record !== undefined, true, "named actual TIR lookup"); return record; },
       bodyOwner: selected => { assert.equal(bodyOwners.has(selected), true, "named actual body owner inventory"); return bodyOwners.get(selected); },
       definitionExists: selected => { assert.equal(Object.values(definitions).includes(selected), true, "named definition inventory"); return selected !== definitions.missing; },
@@ -148,30 +157,34 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       nominalOf: selected => { assert.equal(Object.values(definitions).includes(selected), true, "named nominal declaration inventory");
         return [definitions.layout, definitions.field].includes(selected) ? { kind: "declared", facets: ["instance", "value"] } : null; },
       bindingDependentOf: selected => { assert.equal(Object.values(definitions).includes(selected), true, "actual named dependence inventory"); return selected === definitions.missing ? null : false; },
-      captureCount: selected => { assert.equal(selected.definition, definitions.f, "actual independent capture inventory"); return 0; },
+      captureCount: selected => { assert.equal(selected.kind === "body" && selected.execution.instance.body === body, true, "actual independent capture inventory"); return 0; },
       callbackSignaturesOf: (selected, index) => { const key = callbackKey(selected, index);
         assert.equal(callbackSignatures.has(key), true, "named actual callback signature inventory"); return callbackSignatures.get(key); },
       arenaOf: selected => {
-        assert.equal(selected.kind === "body" ? [body, otherBody].includes(selected.instance.body)
-          : Object.values(definitions).includes(selected.definition), true, "named qualified arena inventory");
+        assert.equal(selected.kind === "body" ? bodyOwners.has(selected.execution.instance.body)
+          : selected.key.kind === "body" ? bodyOwners.has(selected.key.execution.instance.body)
+          : Object.values(definitions).includes(selected.key.execution.request.definition), true, "named qualified arena inventory");
         return canonicalArenas.get(ownerKey(selected)) ?? null; },
       metadataOf: selected => { assert.equal(metadataRows.has(selected.definition), true, "named actual metadata inventory");
         const record = metadataRows.get(selected.definition);
         return record !== null && isDeepStrictEqual(record.key.bindings, selected.bindings) ? record : null; },
     };
     return { canonical: original, summary: originalSummary, metadata: originalMetadata, mir: originalMir, tir: originalTir,
-      types: tables, context, metadataRows, canonicalArenas, bodyRows, bodyOwners, callbackSignatures, scopeRows, scopeInventories };
+      types: tables, context, metadataRows, canonicalArenas, bodyRows, bodyOwners, callbackSignatures, signatureRequests, scopeRows, scopeInventories };
   };
 
   const arrayText = records => records.length === 0 ? "[]" : `[\n  ${records.join(",\n  ")}\n]`;
+  const executionText = `Execution(instance=BodyInstance(body=body:"${body}", bindings=parametric()), provided=0)`;
+  const bodySummaryText = `body(execution=${executionText})`;
+  const calleeSummaryText = `declared(execution=DeclaredExecution(request=SignatureRequest(definition=def:"${definitions.callee}", endpoint="api-signature", ordinal=0, bindings=parametric()), provided=2))`;
   const instanceText = `BodyInstance(body=body:"${body}", bindings=parametric())`;
   const bindingsText = "BindingVector(classBindings=[], methodBindings=[], capturedBindings=[], selfBindings=[])";
   const nodeText = id => `NodeRef(body=body:"${body}", node=n:${id})`;
   const keyText = name => `MetadataKey(definition=def:"${definitions[name]}", bindings=parametric())`;
-  const emptyFactsText = `BodyFacts(instance=${instanceText}, arena=RelationalArena(projections=[], producers=[], contexts=[], boundProducers=[], origins=[], boundaries=[]), liveness=LivenessFacts(stores=[], locals=[], bindings=[], captures=[]), initialization=InitializationFacts(reads=[]), refinements=RefinementFacts(refinements=[], integers=[], countedLoops=[]), origins=OriginFacts(points=[], reads=[], subjects=[], writes=[], escapes=[], invocations=[], callbacks=[], activations=[], frontiers=[], constructions=[], instanceRegions=[], exitContents=ExitContents(onReturn=[], onUnwind=[])), suspension=SuspensionFacts(suspensions=[]), errorStorage=ErrorStorageFacts(errors=[]), pointerBacking=PointerBackingFacts(pointers=[]), observations=[], rawLocations=[], fieldBindings=[], recordBindings=[], memoryBindings=[], selectedMemoryDeclarations=[], closedArrays=[])\n`;
+  const emptyFactsText = `BodyFacts(execution=Execution(instance=${instanceText}, provided=0), arena=RelationalArena(projections=[], producers=[], contexts=[], boundProducers=[], origins=[], boundaries=[]), liveness=LivenessFacts(stores=[], locals=[], bindings=[], captures=[]), initialization=InitializationFacts(reads=[]), refinements=RefinementFacts(refinements=[], integers=[], countedLoops=[]), origins=OriginFacts(points=[], reads=[], subjects=[], writes=[], escapes=[], invocations=[], callbacks=[], activations=[], frontiers=[], constructions=[], instanceRegions=[], exitContents=ExitContents(onReturn=[], onUnwind=[])), suspension=SuspensionFacts(suspensions=[]), errorStorage=ErrorStorageFacts(errors=[]), pointerBacking=PointerBackingFacts(pointers=[]), rawLocations=[], fieldBindings=[], recordBindings=[], memoryBindings=[], selectedMemoryDeclarations=[], closedArrays=[])\n`;
   const emptySummary = () => ({ ...summary(), arena: { projections: [], producers: [], contexts: [], boundProducers: [],
     origins: [{ id: 0, producers: [], includesAbsence: false, kind: "complete" }], boundaries: [] }, result: 0 });
-  const emptySummaryText = `Summary(key=SummaryKey(definition=def:"${definitions.f}", bindings=parametric()), signature=sig:0, arena=RelationalArena(projections=[], producers=[], contexts=[], boundProducers=[], origins=${arrayText(["complete(id=origins:0, producers=[], includesAbsence=false)"])}, boundaries=[]), parameters=[], captures=[], result=origins:0, thrown=origins:0, writes=[], retention=[], callbacks=[], invocationOnlyParameters=[], suspends=false, bindingDependent=false)\n`;
+  const emptySummaryText = `Summary(key=body(execution=${executionText}), signature=sig:0, arena=RelationalArena(projections=[], producers=[], contexts=[], boundProducers=[], origins=${arrayText(["complete(id=origins:0, producers=[], includesAbsence=false)"])}, boundaries=[]), parameters=[], captures=[], result=origins:0, thrown=origins:0, writes=[], retention=[], callbacks=[], invocationOnlyParameters=[], suspends=false, bindingDependent=false)\n`;
   const abiText = width => `data-layout(key=${keyText(`abi${width}`)}, occurrence=item(value=ItemNodeRef(owner=def:"${definitions[`abi${width}`]}", node=n:0)), fingerprint="abi-${width}", byteOrder="little", addressWidth=${width})\n`;
   const graphText = `CallGraph(definitions=${arrayText([`def:"${definitions.f}"`])}, edges=[], components=${arrayText([
     `CallComponent(id=component:"${ids.encodeComponentId([definitions.f])}", definitions=${arrayText([`def:"${definitions.f}"`])}, dependencies=[])`])})\n`;
@@ -195,8 +208,8 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       abiText(64).replace(`item(value=ItemNodeRef(owner=def:"${definitions.abi64}", node=n:0))`, `body(value=${nodeText(1)})`), product.printMetadata, product.parseMetadata);
   }
   await textCase("one real call component", graph(), graphText, product.printCallGraph, product.parseCallGraph);
-  await suite.test("every exported value is exactly the twelve approved own-contract ports", () => {
-    assert.deepEqual(Object.keys(product).sort(), ["parseCallGraph", "parseFacts", "parseMetadata", "parseSummary", "printCallGraph", "printFacts", "printMetadata", "printSummary", "verifyCallGraph", "verifyFacts", "verifyLiveness", "verifyMetadata", "verifySummary"]);
+  await suite.test("every exported value is exactly the current seventeen own-contract ports", () => {
+    assert.deepEqual(Object.keys(product).sort(), ["parseCallGraph", "parseFacts", "parseMetadata", "parseObservations", "parseSummary", "printCallGraph", "printFacts", "printMetadata", "printObservations", "printSummary", "summaryKey", "verifyCallGraph", "verifyFacts", "verifyLiveness", "verifyMetadata", "verifyObservations", "verifySummary"]);
   });
   await suite.test("all four genuinely supplied valid domains return the complete empty violation vector", () => {
     const inputs = setup();
@@ -213,7 +226,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     equal(product.verifyFacts(facts, supplied.mir, supplied.context), [], "complete no-vector body");
     equal(product.verifySummary(retained, supplied.context), [], "complete no-vector summary");
     equal(product.verifyMetadata(abi(64), supplied.context), [], "complete no-vector metadata");
-    for (const target of [{ kind: "body", instance: facts.instance }, { kind: "summary", summary: retained.key }, { kind: "metadata", metadata: abi(64).key }]) {
+    for (const target of [{ kind: "body", instance: facts.execution.instance }, { kind: "summary", summary: retained.key }, { kind: "metadata", metadata: abi(64).key }]) {
       supplyScopes(supplied, target, null);
     }
     const message = "The complete binding-scope occurrence inventory must resolve for this exact verification root.";
@@ -292,10 +305,10 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   ]) await suite.test(`typed metadata rejects ${name}`, () => malformed(product.parseMetadata, text, 0, expected,
     name === "an unknown metadata record" ? "Unknown" : "0", name));
   const firstPositionPorts = [
-    ["facts", product.parseFacts, "BodyFacts", "instance", ["BodyFacts"], ["BodyInstance"],
-      `BodyFacts(instance=${instanceText}`, "arena", ["RelationalArena"], "BodyFacts(instance=BodyInstance(body=body:"],
-    ["summary", product.parseSummary, "Summary", "key", ["Summary"], ["SummaryKey"],
-      `Summary(key=SummaryKey(definition=def:"${definitions.f}", bindings=parametric())`, "signature", ["sig:number"], "Summary(key=SummaryKey(definition=def:"],
+    ["facts", product.parseFacts, "BodyFacts", "execution", ["BodyFacts"], ["Execution"],
+      `BodyFacts(execution=${executionText}`, "arena", ["RelationalArena"], "BodyFacts(execution=Execution(instance=BodyInstance(body=body:"],
+    ["summary", product.parseSummary, "Summary", "key", ["Summary"], ["body", "declared"],
+      `Summary(key=${bodySummaryText}`, "signature", ["sig:number"], "Summary(key=body(execution=Execution(instance=BodyInstance(body=body:"],
     ["metadata", product.parseMetadata, "data-layout", "key", ["data-layout", "memory-layout", "memory-field"], ["MetadataKey"],
       `data-layout(key=${keyText("abi64")}`, "occurrence", ["body", "item"], "data-layout(key=MetadataKey(definition=def:"],
     ["call graph", product.parseCallGraph, "CallGraph", "definitions", ["CallGraph"], ["array"],
@@ -370,8 +383,8 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   const projectionRow = "ProjectionPath(id=path:0, parent=null, projection=deref())";
   const layoutRow = `value(id=layout:0, occurrence=item(value=ItemNodeRef(owner=def:"${definitions.layout}", node=n:0)), source=t:0, dataLayout=def:"${definitions.abi64}", byteSize=8n, byteAlignment=8n, stride=8n, fields=[])`;
   const firstPositionArrays = [
-    ["facts", product.parseFacts, `BodyFacts(instance=${instanceText}, arena=RelationalArena(projections=[`, projectionRow, ["ProjectionPath"]],
-    ["summary", product.parseSummary, `Summary(key=SummaryKey(definition=def:"${definitions.f}", bindings=parametric()), signature=sig:0, arena=RelationalArena(projections=[`, projectionRow, ["ProjectionPath"]],
+    ["facts", product.parseFacts, `BodyFacts(execution=${executionText}, arena=RelationalArena(projections=[`, projectionRow, ["ProjectionPath"]],
+    ["summary", product.parseSummary, `Summary(key=${bodySummaryText}, signature=sig:0, arena=RelationalArena(projections=[`, projectionRow, ["ProjectionPath"]],
     ["metadata", product.parseMetadata, `memory-layout(key=${keyText("layout")}, root=layout:0, layouts=[`, layoutRow, ["value", "array"]],
     ["call graph", product.parseCallGraph, "CallGraph(definitions=[", `def:"${definitions.f}"`, ["def:string"]],
   ];
@@ -410,7 +423,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     malformed(parse, invalid, offset, ["end of record"], '"', `${name}: complete surplus-field-first vector`, before.length, before.at(-1).length + 1);
   });
   for (const [name, parse, text, value, firstField, nextField] of [
-    ["facts", product.parseFacts, emptyFactsText, emptyFacts(), "instance", "arena"],
+    ["facts", product.parseFacts, emptyFactsText, emptyFacts(), "execution", "arena"],
     ["summary", product.parseSummary, emptySummaryText, emptySummary(), "key", "signature"],
     ["metadata", product.parseMetadata, abiText(64), abi(64), "key", "occurrence"],
     ["call graph", product.parseCallGraph, graphText, graph(), "definitions", "edges"],
@@ -448,7 +461,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
         before.length, before.at(-1).length + 1);
     });
   }
-  const nestedFieldPrefix = `BodyFacts(instance=BodyInstance(body=body:"${body}", `;
+  const nestedFieldPrefix = `BodyFacts(execution=Execution(instance=BodyInstance(body=body:"${body}", `;
   for (const [label, suffix, relative, expected, found] of [
     ["unquoted shared-prefix duplicate", "body=@", 1, ["unique record field"], "body"],
     ["quoted shared-prefix duplicate", '"body"=@', 2, ["unique record field"], '"body"'],
@@ -458,7 +471,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   ]) await suite.test(`nested record: decoded ${label}`, () => {
     malformed(product.parseFacts, nestedFieldPrefix + suffix, nestedFieldPrefix.length + relative, expected, found, `complete nested ${label}`);
   });
-  const emptyRecordPrefix = `Summary(key=SummaryKey(definition=def:"${definitions.f}", bindings=parametric(`;
+  const emptyRecordPrefix = `Summary(key=declared(execution=DeclaredExecution(request=SignatureRequest(definition=def:"${definitions.f}", endpoint="api-signature", ordinal=0, bindings=parametric(`;
   for (const [label, suffix, relative, found] of [
     ["unquoted extra name", "extra=@", 0, "extra"],
     ["extra name", '"extra', 1, '"'],
@@ -503,8 +516,8 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     });
   }
   await suite.test("an earlier typed field error cannot be hidden by a later field-name error", () => {
-    const text = "BodyFacts(instance=0, wrong=[])";
-    malformed(product.parseFacts, text, text.indexOf("0"), ["BodyInstance"], "0", "first typed field");
+    const text = "BodyFacts(execution=0, wrong=[])";
+    malformed(product.parseFacts, text, text.indexOf("0"), ["Execution"], "0", "first typed field");
   });
   await suite.test("an earlier invalidation occurrence error cannot be hidden by surplus fields", () => {
     const row = "ErrorStorageFact(node=n:1, origins=origins:0, writes=[], retention=[], invalidations=[invalidated(at=0, owner=origins:0, cause=\"suspension\", extra=0)])";
@@ -519,9 +532,9 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     malformed(product.parseFacts, text, offset, ['"reinterpret"'], '"allocate"', "first raw-memory operation", before.length, before.at(-1).length + 1);
   });
   await suite.test("scalar domains and grammar delimiters retain the complete independent rejection", () => {
-    const statement = "StoreLiveness(node=n:1, point=MirPoint(block=b:0, statement=\"zero\"), observed=false)";
+    const statement = "StoreLiveness(node=n:1, point=MirPoint(block=b:0, statement=\"zero\"), edge=null, observed=false)";
     const integer = "IntegerFact(node=n:1, range=IntegerRange(minimum=0, maximum=1n), nonnegative=false)";
-    const badObserved = "StoreLiveness(node=n:1, point=MirPoint(block=b:0, statement=null), observed=0)";
+    const badObserved = "StoreLiveness(node=n:1, point=MirPoint(block=b:0, statement=null), edge=null, observed=0)";
     const vectors = [
       [product.parseMetadata, abiText(64).replace('fingerprint="abi-64"', "fingerprint=0"), "fingerprint=0", "fingerprint=", ["string"], "0"],
       [product.parseFacts, emptyFactsText.replace("stores=[]", `stores=${arrayText([statement])}`), 'statement="zero"', "statement=", ["number"], '"zero"'],
@@ -544,10 +557,10 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   });
   await suite.test("shared inline records are values, not an additional reference arena", () => {
     const point = { block: 0, statement: null };
-    const input = emptyFacts(); input.liveness.stores = [{ node: 1, point, observed: false }, { node: 2, point, observed: true }];
+    const input = emptyFacts(); input.liveness.stores = [{ node: 1, point, edge: null, observed: false }, { node: 2, point, edge: null, observed: true }];
     const expected = emptyFactsText.replace("stores=[]", `stores=${arrayText([
-      "StoreLiveness(node=n:1, point=MirPoint(block=b:0, statement=null), observed=false)",
-      "StoreLiveness(node=n:2, point=MirPoint(block=b:0, statement=null), observed=true)",
+      "StoreLiveness(node=n:1, point=MirPoint(block=b:0, statement=null), edge=null, observed=false)",
+      "StoreLiveness(node=n:2, point=MirPoint(block=b:0, statement=null), edge=null, observed=true)",
     ])}`);
     equal(product.printFacts(input), expected, "complete shared-inline by-value spelling");
     equal(product.parseFacts(expected), { kind: "parsed", value: input }, "complete equal inline values after parsing");
@@ -555,10 +568,31 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     equal(product.verifyFacts(input, supplied.mir, supplied.context), [], "shared inline point is not an inline cycle");
   });
   for (const [name, value, spelling] of [["negative zero", -0, "-0"], ["not a number", NaN, "NaN"], ["positive infinity", Infinity, "+Infinity"], ["negative infinity", -Infinity, "-Infinity"], ["fractional", 0.5, "0.5"], ["exponent", 1e30, "1e+30"]]) {
-    const input = emptyFacts(); input.liveness.stores = [{ node: 1, point: { block: 0, statement: value }, observed: false }];
-    const expected = emptyFactsText.replace("stores=[]", `stores=${arrayText([`StoreLiveness(node=n:1, point=MirPoint(block=b:0, statement=${spelling}), observed=false)`])}`);
+    const input = emptyFacts(); input.liveness.stores = [{ node: 1, point: { block: 0, statement: value }, edge: null, observed: false }];
+    const expected = emptyFactsText.replace("stores=[]", `stores=${arrayText([`StoreLiveness(node=n:1, point=MirPoint(block=b:0, statement=${spelling}), edge=null, observed=false)`])}`);
     await textCase(`total plain number ${name}`, input, expected, product.printFacts, product.parseFacts);
   }
+  for (const edge of [null, "continue", "resume", "return", "unwind"]) {
+    const input = emptyFacts();
+    input.liveness.stores = [{ node: 1, point: { block: 0, statement: null }, edge, observed: true }];
+    const expected = emptyFactsText.replace("stores=[]", `stores=${arrayText([
+      `StoreLiveness(node=n:1, point=MirPoint(block=b:0, statement=null), edge=${JSON.stringify(edge)}, observed=true)`,
+    ])}`);
+    await textCase(`store edge ${edge} exact transport`, input, expected, product.printFacts, product.parseFacts);
+  }
+  await suite.test("store edge is required and rejects removed block and successor spellings", () => {
+    const old = "StoreLiveness(node=n:1, point=MirPoint(block=b:0, statement=null), observed=false)";
+    const missing = emptyFactsText.replace("stores=[]", `stores=${arrayText([old])}`);
+    const offset = missing.indexOf("observed=false"); const before = missing.slice(0, offset).split("\n");
+    malformed(product.parseFacts, missing, offset, ["edge"], "observed", "omitted edge is not an implicit null", before.length, before.at(-1).length + 1);
+    for (const [spelling, found] of [["b:0", "b"], ["0", "0"], ['"next"', '"next"'], ['"normal"', '"normal"'], ['"handler"', '"handler"']]) {
+      const row = old.replace("observed=false", `edge=${spelling}, observed=false`);
+      const text = emptyFactsText.replace("stores=[]", `stores=${arrayText([row])}`);
+      const position = text.indexOf(`edge=${spelling}`) + "edge=".length; const lines = text.slice(0, position).split("\n");
+      malformed(product.parseFacts, text, position, ['"continue"', '"resume"', '"return"', '"unwind"'], found,
+        `removed edge spelling ${spelling}`, lines.length, lines.at(-1).length + 1);
+    }
+  });
 
   for (const [name, value, spelling] of [["negative zero", -0, "-0"], ["NaN", NaN, "NaN"], ["positive infinity", Infinity, "+Infinity"],
     ["negative infinity", -Infinity, "-Infinity"], ["negative", -1, "-1"], ["fractional", 0.5, "0.5"]]) {
@@ -604,7 +638,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   };
   const libraryText = 'LibraryExportIdentity(module=LibraryModuleIdentity(providerId="fixture", providerVersion="1", packageName=null, moduleSpecifier="facts", providerModuleId="main"), exportId="allocation", memberId=null, signatureId=null)';
   const producerTexts = [
-    [{ kind: "allocation", at: { kind: "node", node: nodeRef(1) } }, `allocation(id=producer:0, path=null, at=node(node=${nodeText(1)}))`],
+    [{ kind: "allocation", at: { kind: "node", node: { kind: "body", value: nodeRef(1) } } }, `allocation(id=producer:0, path=null, at=node(node=body(value=${nodeText(1)})))`],
     [{ kind: "allocation", at: { kind: "declared", identity: libraryIdentity, site: 0 } }, `allocation(id=producer:0, path=null, at=declared(identity=${libraryText}, site=0))`],
     [{ kind: "parameter", index: 0 }, "parameter(id=producer:0, path=null, index=0)"],
     [{ kind: "capture", index: 0 }, "capture(id=producer:0, path=null, index=0)"],
@@ -629,10 +663,10 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     await arenaTextCase(`origin transport ${kind}`, "origins", [row], [`${kind}(id=origins:0, producers=${arrayText(["bound:0", "bound:1"])}, includesAbsence=true${kind === "open" ? `, boundaries=${arrayText(["boundary:1", "boundary:0"])}` : ""})`]);
   }
   for (const kind of ["external-input", "external-write", "opaque-write", "opaque-result", "unclassified-exposure", "opaque-invocation", "unresolved-transport"]) {
-    const row = { id: 0, kind, at: { kind: "node", node: nodeRef(1) }, subject: 0, owner: 1, bindings: emptyBindings(), context: 0, detail: "unknown" };
-    await arenaTextCase(`open boundary transport ${kind}`, "boundaries", [row], [`${kind}(id=boundary:0, at=node(node=${nodeText(1)}), subject=producer:0, owner=producer:1, bindings=${bindingsText}, context=context:0, detail="unknown")`]);
+    const row = { id: 0, kind, at: { kind: "node", node: { kind: "body", value: nodeRef(1) } }, subject: 0, owner: 1, bindings: emptyBindings(), context: 0, detail: "unknown" };
+    await arenaTextCase(`open boundary transport ${kind}`, "boundaries", [row], [`${kind}(id=boundary:0, at=node(node=body(value=${nodeText(1)})), subject=producer:0, owner=producer:1, bindings=${bindingsText}, context=context:0, detail="unknown")`]);
     row.owner = null;
-    await arenaTextCase(`open boundary without invented owner ${kind}`, "boundaries", [row], [`${kind}(id=boundary:0, at=node(node=${nodeText(1)}), subject=producer:0, owner=null, bindings=${bindingsText}, context=context:0, detail="unknown")`]);
+    await arenaTextCase(`open boundary without invented owner ${kind}`, "boundaries", [row], [`${kind}(id=boundary:0, at=node(node=body(value=${nodeText(1)})), subject=producer:0, owner=null, bindings=${bindingsText}, context=context:0, detail="unknown")`]);
   }
   const fullBindings = {
     classBindings: [{ kind: "bound", parameter: { owner: definitions.f, index: 0 }, type: 0 }, { kind: "rigid", parameter: { owner: definitions.f, index: 1 } }],
@@ -648,12 +682,12 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   await arenaTextCase("all four complete binding-vector families retain correlation", "boundProducers", [{ id: 0, producer: 1, bindings: fullBindings, context: 0 }],
     [`BoundProducer(id=bound:0, producer=producer:1, bindings=${fullBindingsText}, context=context:0)`]);
   {
-    const input = emptyFacts(); input.instance.bindings = { kind: "instantiated", bindings: fullBindings };
+    const input = emptyFacts(); input.execution.instance.bindings = { kind: "instantiated", bindings: fullBindings };
     await textCase("complete instantiated body identity transport", input,
       emptyFactsText.replace("bindings=parametric()", `bindings=instantiated(bindings=${fullBindingsText})`), product.printFacts, product.parseFacts);
   }
   {
-    const input = emptySummary(); input.key.bindings = { kind: "instantiated", bindings: fullBindings };
+    const input = emptySummary(); input.key.execution.instance.bindings = { kind: "instantiated", bindings: fullBindings };
     await textCase("complete instantiated summary identity transport", input,
       emptySummaryText.replace("bindings=parametric()", `bindings=instantiated(bindings=${fullBindingsText})`), product.printSummary, product.parseSummary);
   }
@@ -670,12 +704,30 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     ])}`), product.printCallGraph, product.parseCallGraph);
   }
 
+  const prepareInvocationKeys = (input, supplied) => {
+    for (const invocation of input.origins.invocations) for (const alternative of invocation.alternatives) {
+      const before = summaryOwner(clone(alternative.summary));
+      const arena = supplied.canonicalArenas.get(ownerKey(before));
+      const provided = alternative.resolution.decision.parameters.filter(parameter => parameter.kind === "argument").length;
+      if (alternative.resolution.activation !== null) {
+        alternative.summary = { kind: "body", execution: { instance: clone(alternative.resolution.activation), provided } };
+      } else {
+        assert.equal(alternative.summary.kind, "declared", "a bodyless fixture supplies its actual complete declaration request");
+        alternative.summary.execution.provided = provided;
+        supplied.signatureRequests.set(signatureRequestKey(alternative.summary.execution.request), alternative.resolution.decision.api.signature);
+      }
+      const after = summaryOwner(alternative.summary);
+      if (arena !== undefined) supplied.canonicalArenas.set(ownerKey(after), arena);
+      for (const argument of alternative.arguments) if (isDeepStrictEqual(argument.formal.owner, before)) argument.formal.owner = clone(after);
+    }
+  };
   const factOpposite = async (name, prepare, amend, expected) => suite.test(name, () => {
     const input = bodyFacts();
     const supplied = setup(input);
     prepare(input, supplied);
-    supplied.canonicalArenas.set(ownerKey({ kind: "body", instance: input.instance }), clone(input.arena));
-    supplyScopes(supplied, { kind: "body", instance: input.instance }, supplied.scopeRows.body);
+    prepareInvocationKeys(input, supplied);
+    supplied.canonicalArenas.set(ownerKey({ kind: "body", execution: input.execution }), clone(input.arena));
+    supplyScopes(supplied, { kind: "body", instance: input.execution.instance }, supplied.scopeRows.body);
     equal(product.verifyFacts(input, supplied.mir, supplied.context), [], `${name}: independently valid complete fixture`);
     const invalid = clone(input);
     amend(invalid, supplied);
@@ -687,9 +739,9 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   const basicCases = [
     ["body-instance-exact", (value, supplied) => { supplied.mir.bindings = { kind: "instantiated", bindings: emptyBindings() }; }, bodySite(),
       "Facts, TIR and MIR retain one exact body and complete binding environment."],
-    ["cross-owner-qualified", value => { value.arena.producers[0].at.node.body = otherBody; }, { kind: "node", at: { body: otherBody, node: 1 } },
+    ["cross-owner-qualified", value => { value.arena.producers[0].at.node.value.body = otherBody; }, { kind: "node", at: { kind: "body", value: { body: otherBody, node: 1 } } },
       "A relational occurrence must belong to the same actual body or summary owner."],
-    ["relational-site-resolves", value => { value.arena.producers[0].at.node.node = 99; }, nodeSite(99),
+    ["relational-site-resolves", value => { value.arena.producers[0].at.node.value.node = 99; }, nodeSite(99),
       "A relational site must retain an existing qualified source occurrence."],
     ["producer-id-dense", value => { value.arena.producers[0].id = 9; }, arenaSite("producer", "producer", 9), "Producer IDs must equal their dense arena positions."],
     ["context-id-dense", value => { value.arena.contexts[0].id = 9; }, arenaSite("context", "context", 9), "Value-context IDs must equal their dense arena positions."],
@@ -712,7 +764,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       "A value context retains every actual parameter and the actual receiver slot."],
     ["node-resolves", value => { value.initialization.reads = [{ node: 99, place: 0, assigned: true }]; }, nodeSite(99), "Every fact retains an actual source occurrence in its declared body domain."],
     ["place-resolves", value => { value.initialization.reads = [{ node: 1, place: 99, assigned: true }]; }, nodeSite(1), "A place reference resolves in this exact MIR body."],
-    ["mir-point-resolves", value => { value.liveness.stores = [{ node: 1, point: { block: 99, statement: null }, observed: false }]; }, nodeSite(1), "A MIR point names an actual block and statement, or that block's terminator."],
+    ["mir-point-resolves", value => { value.liveness.stores = [{ node: 1, point: { block: 99, statement: null }, edge: null, observed: false }]; }, nodeSite(1), "A MIR point names an actual block and statement, or that block's terminator."],
     ["point-refs-resolve", value => { value.origins.points = [{ point: { block: 99, statement: null }, place: 0, origins: 0 }]; }, bodySite(), "A MIR point names an actual block and statement, or that block's terminator."],
     ["origins-resolves", value => { value.origins.reads = [{ node: 1, place: 0, origins: 99 }]; }, nodeSite(1), "Origins resolve in this exact relational arena."],
     ["boundary-resolves", value => { value.origins.writes = [{ point: { block: 0, statement: null }, node: 1, operation: "mutation", destination: "binding", targets: [], owner: null, values: [], boundaries: [99] }]; }, nodeSite(1), "A boundary resolves in this exact arena."],
@@ -797,7 +849,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       "A declared relational site must name an existing library export.")]);
   const put = (input, path, value) => { let parent = input; for (const part of path.slice(0, -1)) parent = parent[part]; parent[path.at(-1)] = value; };
   const simpleOrders = [
-    ["stores-order", ["liveness", "stores"], node => ({ node, point: { block: 0, statement: null }, observed: true })],
+    ["stores-order", ["liveness", "stores"], node => ({ node, point: { block: 0, statement: null }, edge: null, observed: true })],
     ["initialization-order", ["initialization", "reads"], node => ({ node, place: 0, assigned: true })],
     ["refinements-order", ["refinements", "refinements"], node => ({ node, guards: [], kind: "proven" })],
     ["reads-order", ["origins", "reads"], node => ({ node, place: 0, origins: 0 })],
@@ -806,15 +858,13 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     ["escapes-order", ["origins", "escapes"], node => ({ node, point: { block: 0, statement: null }, producer: 0, target: { kind: "return" } })],
     ["invocations-order", ["origins", "invocations"], node => ({ node, kind: "call", alternatives: [], boundaries: [] })],
     ["callbacks-order", ["origins", "callbacks"], node => ({ node, argument: { authoredIndex: 0, parameter: definitions.parameter, parameterIndex: 0,
-      repeated: false, passing: "by-value", actual: 0, formal: { owner: { kind: "summary", definition: definitions.callee, bindings: parametric() }, producer: 0 }, projection: null }, timing: "synchronous", rejection: null, inputs: [] })],
+      repeated: false, passing: "by-value", actual: 0, formal: { owner: summaryOwner(calleeSummaryKey()), producer: 0 }, projection: null }, timing: "synchronous", rejection: null, inputs: [] })],
     ["activations-order", ["origins", "activations"], node => ({ node, activation: instance(), context: 0, caller: null, entry: { authoredIndex: 0, parameter: definitions.parameter, parameterIndex: 0,
-      repeated: false, passing: "by-value", actual: 0, formal: { owner: { kind: "summary", definition: definitions.callee, bindings: parametric() }, producer: 0 }, projection: null } })],
+      repeated: false, passing: "by-value", actual: 0, formal: { owner: summaryOwner(calleeSummaryKey()), producer: 0 }, projection: null } })],
     ["frontiers-order", ["origins", "frontiers"], node => ({ node, kind: "origin", subject: 0, context: 0 })],
     ["constructions-order", ["origins", "constructions"], node => ({ node, root: nodeRef(node), allocation: nodeRef(node), implementation: null, body: null, regions: [] })],
     ["errors-order", ["errorStorage", "errors"], node => ({ node, origins: 1, writes: [], retention: [], invalidations: [] })],
     ["pointers-order", ["pointerBacking", "pointers"], node => ({ node, returned: false, origins: 1, producers: [] })],
-    ["observations-order", ["observations"], node => ({ node, operation: "size", operand: nodeRef(node), layout: { metadata: { definition: definitions.layout, bindings: parametric() }, layout: 0 },
-      field: null, result: 0, value: 8n, context: 0, bindings: emptyBindings() })],
     ["raw-locations-order", ["rawLocations"], node => ({ node, operation: "to-raw", pointee: 0, layout: { metadata: { definition: definitions.layout, bindings: parametric() }, layout: 0 }, context: 0, bindings: emptyBindings() })],
     ["record-bindings-order", ["recordBindings"], node => ({ node, result: 0, layoutExpression: nodeRef(node), layout: { metadata: { definition: definitions.layout, bindings: parametric() }, layout: 0 }, context: 0, bindings: emptyBindings(), fields: [] })],
     ["memory-bindings-order", ["memoryBindings"], node => ({ node, kind: "bound", record: 3 })],
@@ -822,8 +872,8 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   ];
   for (const [rule, path, row] of simpleOrders) await factOpposite(rule, (input, supplied) => {
     put(input, path, [row(1), row(2)]);
-    if (["observations-order", "raw-locations-order", "record-bindings-order"].includes(rule)) supplied.scopeRows.body.push(emptyScope(), emptyScope());
-    if (rule === "callbacks-order" || rule === "activations-order") supplied.canonicalArenas.set(ownerKey({ kind: "summary", definition: definitions.callee, bindings: parametric() }), { ...arena(), producers: [{ id: 0, path: null, kind: "parameter", index: 0 }] });
+    if (["raw-locations-order", "record-bindings-order"].includes(rule)) supplied.scopeRows.body.push(emptyScope(), emptyScope());
+    if (rule === "callbacks-order" || rule === "activations-order") supplied.canonicalArenas.set(ownerKey(summaryOwner(calleeSummaryKey())), { ...arena(), producers: [{ id: 0, path: null, kind: "parameter", index: 0 }] });
     if (rule === "memory-bindings-order") input.recordBindings = [{ node: 3, result: 0, layoutExpression: nodeRef(3),
       layout: { metadata: { definition: definitions.layout, bindings: parametric() }, layout: 0 }, context: 0, bindings: emptyBindings(), fields: [] }];
     if (rule === "memory-bindings-order") supplied.scopeRows.body.push(emptyScope());
@@ -842,12 +892,74 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   const pointMessage = "A MIR point names an actual block and statement, or that block's terminator.";
   const placeMessage = "A place reference resolves in this exact MIR body.";
   const segmentMessage = "A live interval contains ordered actual statement or terminator positions in its own block.";
+  const storeEdgeMessage = "A store edge names a role of the terminator at its point: continue, resume, return or a handler unwind.";
+  const edgeOperand = { kind: "copy", place: 0 };
+  const edgeEndpoint = role => ({ declaration: definitions.f, role, signature: 0, body: null });
+  const edgeResolution = { decision: { candidate: 0, advertised: edgeEndpoint("advertised"), api: edgeEndpoint("api-signature"),
+    bindings: emptyBindings(), implementationBindings: emptyBindings(), parameters: [],
+    completion: { signature: 0, completion: 1, yielded: null, sent: null }, result: 1, activation: null }, activation: null };
+  const edgeOperation = { permissionScope: null, decision: { kind: "selected", operation: { kind: "library", declaration: definitions.callee, bindings: emptyBindings() },
+    operands: [0, 0], result: 0, execution: { kind: "invocation", writesStorage: false, failure: "unwind" } } };
+  const edgeTerminators = [
+    [{ kind: "goto", target: 1 }, []],
+    [{ kind: "switch", operand: edgeOperand, targets: [], otherwise: 1 }, []],
+    [{ kind: "return", value: null }, []],
+    [{ kind: "unreachable" }, []],
+    [{ kind: "check", place: 0, next: 1, unwind: { kind: "abort" } }, ["continue"]],
+  ];
+  for (const unwind of [{ kind: "escape" }, { kind: "handler", exception: 0, target: 1 }]) {
+    const unwinding = unwind.kind === "handler" ? ["unwind"] : [];
+    edgeTerminators.push(
+      [{ kind: "check", place: 0, next: 1, unwind }, ["continue", ...unwinding]],
+      [{ kind: "call", callee: { kind: "direct", resolution: edgeResolution }, receiver: null, arguments: [], destination: null, next: 1, unwind }, ["continue", ...unwinding]],
+      [{ kind: "invoke", operation: edgeOperation, operands: [edgeOperand, edgeOperand], destination: 0, next: 1, unwind }, ["continue", ...unwinding]],
+      [{ kind: "await", operand: edgeOperand, destination: 0, resume: 1, unwind }, ["resume", ...unwinding]],
+      [{ kind: "yield", operand: edgeOperand, destination: 0, resume: 1, return: { destination: 0, target: 1 }, unwind }, ["resume", "return", ...unwinding]],
+      [{ kind: "delegate", iterator: edgeOperand, destination: 0, resume: 1, return: { destination: 0, target: 1 }, unwind }, ["resume", "return", ...unwinding]],
+      [{ kind: "throw", operand: edgeOperand, unwind }, unwinding],
+    );
+  }
+  for (const [terminator, roles] of edgeTerminators) {
+    const label = `${terminator.kind}/${terminator.unwind?.kind ?? "no-unwind"}`;
+    await suite.test(`store edge roles resolve only actual ${label} successor roles`, () => {
+      const input = bodyFacts(); const supplied = setup(input); withMirEndpoints(supplied);
+      supplied.mir.blocks[0].terminator = { origin: sourceOrigin(1), tir: nodeRef(1), ...terminator };
+      for (const edge of [null, "continue", "resume", "return", "unwind"]) {
+        input.liveness.stores = [{ node: 1, point: { block: 0, statement: null }, edge, observed: true }];
+        const expected = edge === null || roles.includes(edge) ? [] : [violation("mir-point-resolves", nodeSite(1), storeEdgeMessage)];
+        equal(product.verifyLiveness(input.liveness, input.execution.instance, supplied.mir, supplied.context), expected, `${label}: actual terminator edge ${edge}`);
+        equal(product.verifyFacts(input, supplied.mir, supplied.context), expected, `${label}: whole facts use the same edge law ${edge}`);
+        input.liveness.stores[0].point.statement = 0;
+        equal(product.verifyLiveness(input.liveness, input.execution.instance, supplied.mir, supplied.context), edge === null ? [] :
+          [violation("mir-point-resolves", nodeSite(1), storeEdgeMessage)], `${label}: a statement only admits null edge`);
+      }
+    });
+    if (roles.length > 0) await suite.test(`store edge order precedes source occurrence for ${label}`, () => {
+      const input = bodyFacts(); const supplied = setup(input); withMirEndpoints(supplied);
+      supplied.mir.blocks[0].terminator = { origin: sourceOrigin(1), tir: nodeRef(1), ...terminator };
+      input.liveness.stores = [null, ...roles].map((edge, index) => ({ node: roles.length + 1 - index,
+        point: { block: 0, statement: null }, edge, observed: false }));
+      equal(product.verifyLiveness(input.liveness, input.execution.instance, supplied.mir, supplied.context), [], "edge role precedes descending occurrence identity");
+      const ordered = clone(input.liveness.stores);
+      for (let index = 1; index < ordered.length; index += 1) {
+        input.liveness.stores = clone(ordered);
+        [input.liveness.stores[index - 1], input.liveness.stores[index]] = [input.liveness.stores[index], input.liveness.stores[index - 1]];
+        equal(product.verifyLiveness(input.liveness, input.execution.instance, supplied.mir, supplied.context),
+          [violation("stores-order", nodeSite(ordered[index - 1].node), orderMessage)], "one reversed adjacent edge yields one complete ordering violation");
+      }
+      input.liveness.stores = [clone(ordered[1]), { ...ordered[1], observed: true }];
+      equal(product.verifyLiveness(input.liveness, input.execution.instance, supplied.mir, supplied.context),
+        [violation("stores-order", nodeSite(ordered[1].node), orderMessage)], "observed does not distinguish duplicate point, edge and occurrence");
+      input.liveness.stores = [{ ...ordered[1], node: 1 }, { ...ordered[1], node: 2 }];
+      equal(product.verifyLiveness(input.liveness, input.execution.instance, supplied.mir, supplied.context), [], "same edge retains ascending source occurrence");
+    });
+  }
   const numericReceivers = [
-    ["store node", "stores-order", ["liveness", "stores"], value => ({ node: value, point: { block: 0, statement: null }, observed: false }), value => nodeSite(value),
+    ["store node", "stores-order", ["liveness", "stores"], value => ({ node: value, point: { block: 0, statement: null }, edge: null, observed: false }), value => nodeSite(value),
       [violation("node-resolves", nodeSite(NaN), nodeMessage)], 1],
-    ["store block", "stores-order", ["liveness", "stores"], value => ({ node: 1, point: { block: value, statement: null }, observed: false }), () => nodeSite(1),
+    ["store block", "stores-order", ["liveness", "stores"], value => ({ node: 1, point: { block: value, statement: null }, edge: null, observed: false }), () => nodeSite(1),
       [violation("mir-point-resolves", nodeSite(1), pointMessage)], 0],
-    ["store statement", "stores-order", ["liveness", "stores"], value => ({ node: 1, point: { block: 0, statement: value }, observed: false }), () => nodeSite(1),
+    ["store statement", "stores-order", ["liveness", "stores"], value => ({ node: 1, point: { block: 0, statement: value }, edge: null, observed: false }), () => nodeSite(1),
       [violation("mir-point-resolves", nodeSite(1), pointMessage)], 0],
     ["live local", "locals-order", ["liveness", "locals"], value => ({ local: value, segments: [] }), value => localSite(value),
       [violation("cross-owner-qualified", localSite(NaN), "A live local belongs to this actual MIR local table.")], 0],
@@ -920,7 +1032,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       for (const reverse of [false, true]) await suite.test(`total nullable endpoint ${path.join("/")}/${Object.is(value, -0) ? "-0" : value}/${reverse}`, () => {
         const input = bodyFacts(); const supplied = setup(input); withMirEndpoints(supplied);
         const rows = [value, null].map(statement => path[0] === "liveness"
-          ? { node: 1, point: { block: 0, statement }, observed: false }
+          ? { node: 1, point: { block: 0, statement }, edge: null, observed: false }
           : { point: { block: 0, statement }, place: 0, origins: 0 });
         const site = path[0] === "liveness" ? nodeSite(1) : bodySite();
         const rule = path[0] === "liveness" ? "stores-order" : "points-order";
@@ -941,7 +1053,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const input = bodyFacts(); const supplied = setup(input); withMirEndpoints(supplied);
     equal(product.verifyFacts(input, supplied.mir, supplied.context), [], "whole actual baseline");
     input.liveness.stores = values.map(value => ({ node: field === "node" ? ids.nodeId(value) : 1,
-      point: { block: field === "block" ? ids.blockId(value) : 0, statement: field === "statement" ? value : null }, observed: false }));
+      point: { block: field === "block" ? ids.blockId(value) : 0, statement: field === "statement" ? value : null }, edge: null, observed: false }));
     equal(product.verifyFacts(input, supplied.mir, supplied.context), [
       ...(order ? [violation("stores-order", nodeSite(field === "node" ? values[1] : 1), orderMessage)] : []),
       ...(field === "node" ? [] : Array.from({ length: bad }, () => violation("mir-point-resolves", nodeSite(1), pointMessage))),
@@ -960,11 +1072,11 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   });
   const endpointOrders = [
     ["same store node statement ordinal", "stores-order", ["liveness", "stores"],
-      [{ node: 1, point: { block: 0, statement: 0 }, observed: false }, { node: 1, point: { block: 0, statement: 1 }, observed: true }], nodeSite(1)],
+      [{ node: 1, point: { block: 0, statement: 0 }, edge: null, observed: false }, { node: 1, point: { block: 0, statement: 1 }, edge: null, observed: true }], nodeSite(1)],
     ["same store node terminator last", "stores-order", ["liveness", "stores"],
-      [{ node: 1, point: { block: 0, statement: 1 }, observed: false }, { node: 1, point: { block: 0, statement: null }, observed: true }], nodeSite(1)],
+      [{ node: 1, point: { block: 0, statement: 1 }, edge: null, observed: false }, { node: 1, point: { block: 0, statement: null }, edge: null, observed: true }], nodeSite(1)],
     ["same store node block ordinal", "stores-order", ["liveness", "stores"],
-      [{ node: 1, point: { block: 0, statement: null }, observed: false }, { node: 1, point: { block: 1, statement: null }, observed: true }], nodeSite(1)],
+      [{ node: 1, point: { block: 0, statement: null }, edge: null, observed: false }, { node: 1, point: { block: 1, statement: null }, edge: null, observed: true }], nodeSite(1)],
     ["same read node place ordinal", "reads-order", ["origins", "reads"], [{ node: 1, place: 0, origins: 0 }, { node: 1, place: 1, origins: 1 }], nodeSite(1)],
     ["same point statement ordinal", "points-order", ["origins", "points"],
       [{ point: { block: 0, statement: 0 }, place: 0, origins: 0 }, { point: { block: 0, statement: 1 }, place: 0, origins: 1 }], bodySite()],
@@ -1017,14 +1129,6 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       input => { input.origins.instanceRegions.push(clone(input.origins.instanceRegions[0])); }, nodeSite(1), orderMessage],
     ["selected-declarations-order", input => { input.selectedMemoryDeclarations = [definitions.f, definitions.other]; },
       input => { input.selectedMemoryDeclarations.reverse(); }, bodySite(), orderMessage],
-    ["type-resolves", input => { input.observations = [{ node: 1, operation: "size", operand: nodeRef(1), layout: { metadata: { definition: definitions.layout, bindings: parametric() }, layout: 0 }, field: null, result: 0, value: 8n, context: 0, bindings: emptyBindings() }]; },
-      input => { input.observations[0].result = 99; }, nodeSite(1), "A fact type resolves in the actual supplied type table."],
-    ["metadata-reference-resolves", input => { input.observations = [{ node: 1, operation: "size", operand: nodeRef(1), layout: { metadata: { definition: definitions.layout, bindings: parametric() }, layout: 0 }, field: null, result: 0, value: 8n, context: 0, bindings: emptyBindings() }]; },
-      input => { input.observations[0].layout.layout = 99; }, nodeSite(1), "A layout reference retains its actual metadata declaration, complete binding environment and local layout ID."],
-    ["observation-exact-value", input => { input.observations = [{ node: 1, operation: "stride", operand: nodeRef(1), layout: { metadata: { definition: definitions.layout, bindings: parametric() }, layout: 0 }, field: null, result: 0, value: 8n, context: 0, bindings: emptyBindings() }]; },
-      input => { input.observations[0].value = 9n; }, nodeSite(1), "The observation retains the exact authored bigint size, alignment, stride or field offset."],
-    ["observation-field-exact", input => { input.observations = [{ node: 1, operation: "alignment", operand: nodeRef(1), layout: { metadata: { definition: definitions.layout, bindings: parametric() }, layout: 0 }, field: null, result: 0, value: 8n, context: 0, bindings: emptyBindings() }]; },
-      input => { input.observations[0].operation = "field-offset"; }, nodeSite(1), "Only a field-offset observation names the actual selected field metadata."],
     ["pointer-backing-family-exact", input => { input.pointerBacking.pointers = [{ node: 1, returned: false, origins: 1, producers: [{ producer: 0, operation: { family: "typed-location", operation: "allocate", at: nodeRef(1) } }] }]; },
       input => { input.pointerBacking.pointers[0].origins = 0; }, nodeSite(1), "Each pointer backing retains its own correlated producer and exact typed-location or raw-memory operation."],
     ["error-invalidations-order", input => { input.errorStorage.errors = [{ node: 1, origins: 1, writes: [], retention: [], invalidations: [{ at: nodeRef(2), owner: 1, kind: "preserved" }] }]; },
@@ -1036,7 +1140,6 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   ];
   for (const [rule, prepare, amend, site, message] of additionalFacts) await factOpposite(rule, (input, supplied) => {
     prepare(input, supplied);
-    if (["type-resolves", "metadata-reference-resolves", "observation-exact-value", "observation-field-exact"].includes(rule)) supplied.scopeRows.body.push(emptyScope());
   }, amend, [violation(rule, site, message)]);
   await factOpposite("instance regions retain their actual lexical declaration inventory", input => {
     input.origins.instanceRegions = [{ owner: definitions.f, node: nodeRef(1), context: 0 }];
@@ -1260,18 +1363,39 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
 
   const completePaths = () => ({ kind: "complete", paths: [] });
   const parameter = (declaration = definitions.parameter, type = 0) => ({ declaration, kind: "required", type, passing: "by-value", initializer: null });
-  const summarySite = () => ({ kind: "summary", summary: { definition: definitions.f, bindings: parametric() } });
+  const summarySite = (provided = 0) => ({ kind: "summary", summary: { kind: "body", execution: { instance: instance(), provided } } });
   const summaryOpposite = async (name, prepare, amend, expected) => suite.test(`summary ${name}`, () => {
     const supplied = setup(); const input = summary();
-    prepare(input, supplied); supplied.canonicalArenas.set(ownerKey(summaryOwner(input.key)), clone(input.arena));
+    prepare(input, supplied);
+    const previousKey = clone(input.key);
+    input.key.execution.provided = supplied.types.signatures[input.signature].parameters.filter(parameter => parameter !== undefined && parameter.kind !== "rest").length;
+    supplied.tir.signature = input.signature;
+    for (let parameter = 0; parameter < supplied.types.signatures[input.signature].parameters.length; parameter += 1) {
+      const previous = callbackKey(previousKey, parameter);
+      if (supplied.callbackSignatures.has(previous)) supplied.callbackSignatures.set(callbackKey(input.key, parameter), supplied.callbackSignatures.get(previous));
+    }
+    supplied.canonicalArenas.set(ownerKey(summaryOwner(input.key)), clone(input.arena));
     supplyScopes(supplied, { kind: "summary", summary: input.key }, supplied.scopeRows.summary);
     equal(product.verifySummary(input, supplied.context), [], `summary ${name}: complete valid value`);
     const invalid = clone(input); amend(invalid, supplied);
-    equal(product.verifySummary(invalid, supplied.context), expected, `summary ${name}: complete opposite vector`);
+    const findings = expected.map(finding => {
+      const site = finding.site;
+      if (site.kind === "summary" && isDeepStrictEqual(site.summary, summaryKey())) return {
+        ...finding, site: summarySite(input.key.execution.provided),
+      };
+      if ("owner" in site && isDeepStrictEqual(site.owner, summaryOwner(summaryKey()))) return {
+        ...finding, site: { ...site, owner: summaryOwner({ kind: "body", execution: { instance: instance(), provided: input.key.execution.provided } }) },
+      };
+      return finding;
+    });
+    equal(product.verifySummary(invalid, supplied.context), findings, `summary ${name}: complete opposite vector`);
   });
   const oneParameter = (input, supplied) => {
     supplied.types.signatures[0] = signature(0, [parameter()]);
+    input.key.execution.provided = 1;
     input.parameters = [{ slot: { kind: "parameter", index: 0 }, reads: completePaths(), writes: completePaths() }];
+    supplied.canonicalArenas.set(ownerKey(summaryOwner(input.key)), clone(input.arena));
+    supplyScopes(supplied, { kind: "summary", summary: input.key }, supplied.scopeRows.summary);
   };
   const oneCallback = (input, supplied) => {
     oneParameter(input, supplied);
@@ -1288,7 +1412,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     input.parameters[0][role].paths = [0];
     equal(product.verifySummary(input, supplied.context), [], "whole actual parameter path control");
     input.parameters[0][role].paths = paths.map(ids.projectionPathId);
-    equal(product.verifySummary(input, supplied.context), Array.from({ length: count }, () => violation("summary-finite", summarySite(),
+    equal(product.verifySummary(input, supplied.context), Array.from({ length: count }, () => violation("summary-finite", summarySite(1),
       "Effect paths are distinct ordered references into the summary's own finite arena.")), "whole path-reference and preceding-key findings");
   });
   for (const [name, indices, count] of [
@@ -1357,8 +1481,8 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       input[field] = values.map(row);
       const expected = [];
       for (const [position, missing] of absent.entries()) {
-        const orderFinding = position === 1 && descending ? [violation(rule, summarySite(), orderText)] : [];
-        const missingFinding = missing ? [violation(missingRule, summarySite(), missingText)] : [];
+        const orderFinding = position === 1 && descending ? [violation(rule, summarySite(1), orderText)] : [];
+        const missingFinding = missing ? [violation(missingRule, summarySite(1), missingText)] : [];
         expected.push(...(field === "callbacks" || field === "invocationOnlyParameters"
           ? [...orderFinding, ...missingFinding] : [...missingFinding, ...orderFinding]));
       }
@@ -1383,13 +1507,14 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
         arguments: [{ kind: "provided", parameter: 0, expression: 3 }, { kind: "provided", parameter: 1, expression: 4 }] } }, operation: null } };
     input.refinements.integers = [1, 2, 3, 4].map(node => ({ node, range: null, nonnegative: false }));
     supplied.mir.blocks[0].tir = nodeRef(1); supplied.mir.blocks[0].terminator.tir = nodeRef(1);
-    const selectedOwner = { kind: "summary", definition: definitions.callee, bindings: parametric() };
+    supplied.signatureRequests.set(signatureRequestKey(calleeSummaryKey().execution.request), 1);
+    const selectedOwner = summaryOwner(calleeSummaryKey());
     const transports = [definitions.parameter, definitions.capture].map((parameter, index) => ({ authoredIndex: index, parameter, parameterIndex: index,
       repeated: false, passing: "by-value", actual: 0, formal: { owner: clone(selectedOwner), producer: index }, projection: null }));
     supplied.canonicalArenas.set(ownerKey(selectedOwner), { projections: [], producers: transports.map((value, index) => ({ id: index, path: null, kind: "parameter", index })), contexts: [], boundProducers: [], origins: [], boundaries: [] });
     input.arena.contexts[0].arguments = [0, 0];
     input.origins.invocations = [{ node: 1, kind: "call", alternatives: [{ resolution, context: 0, arguments: transports, result: 0, thrown: 0,
-      summary: { definition: definitions.callee, bindings: parametric() } }], boundaries: [] }];
+      summary: calleeSummaryKey() }], boundaries: [] }];
   };
   for (const [name, indices, missing, descending] of [
     ["ascending NaN", [0, NaN], [false, true], false], ["descending NaN", [NaN, 1], [true, false], true],
@@ -1398,7 +1523,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   ]) await suite.test(`authored argument complete numeric order ${name}`, () => {
     const input = bodyFacts(); const supplied = setup(input); invocationFixture(input, supplied);
     supplied.canonicalArenas.set(ownerKey(owner()), clone(input.arena));
-    supplyScopes(supplied, { kind: "body", instance: input.instance }, supplied.scopeRows.body);
+    supplyScopes(supplied, { kind: "body", instance: input.execution.instance }, supplied.scopeRows.body);
     equal(product.verifyFacts(input, supplied.mir, supplied.context), [], "whole actual invocation control");
     const arguments_ = input.origins.invocations[0].alternatives[0].arguments;
     for (const [index, value] of indices.entries()) arguments_[index].authoredIndex = value;
@@ -1539,7 +1664,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       "Every non-rest selected formal has its complete actual or explicit omitted transport."],
     ["argument-transports-authored-order", input => { input.origins.invocations[0].alternatives[0].arguments.reverse(); },
       "Transports retain authored actual evaluation order without inventing a flattened runtime slot."],
-    ["summary-reference-exact", input => { input.origins.invocations[0].alternatives[0].summary.bindings = { kind: "instantiated", bindings: emptyBindings() }; },
+    ["summary-reference-exact", input => { input.origins.invocations[0].alternatives[0].summary.execution.request.bindings = { kind: "instantiated", bindings: emptyBindings() }; },
       "An invocation names the actual selected declaration and exact instantiated summary environment."],
   ];
   for (const [rule, amend, message] of invocationCases) {
@@ -1588,7 +1713,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     supplied.types.signatures.push(signature(2, [parameter(definitions.parameter), parameter(definitions.capture)], null, definitions.other));
     alternative.resolution.decision.advertised = { declaration: definitions.other, role: "advertised", signature: 2, body: null };
     alternative.resolution.decision.implementationBindings = environment;
-    alternative.summary.bindings = { kind: "instantiated", bindings: clone(environment) };
+    alternative.summary.execution.request.bindings = { kind: "instantiated", bindings: clone(environment) };
     const selectedOwner = summaryOwner(alternative.summary);
     for (const transport of alternative.arguments) transport.formal.owner = clone(selectedOwner);
     supplied.canonicalArenas.set(ownerKey(selectedOwner), { projections: [], producers: [
@@ -1610,7 +1735,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const alternative = input.origins.invocations[0].alternatives[0];
     const calleeBody = ids.encodeBodyId({ owner: definitions.callee, role: "function", ordinal: 0 });
     const actual = tir(); actual.body = calleeBody; actual.owner = definitions.callee; actual.signature = 1;
-    actual.bindings = clone(alternative.summary.bindings); actual.lexicalBindings = clone(alternative.resolution.decision.implementationBindings);
+    actual.bindings = clone(alternative.summary.execution.request.bindings); actual.lexicalBindings = clone(alternative.resolution.decision.implementationBindings);
     actual.dependence = "binding-dependent";
     actual.params = supplied.types.signatures[1].parameters.map((formal, local) => ({ local, declaration: formal.declaration,
       role: formal.kind, passing: formal.passing, initializer: formal.initializer, storage: formal.type }));
@@ -1620,7 +1745,13 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     supplied.bodyOwners.set(calleeBody, definitions.callee);
     supplied.scopeRows.body.splice(4, 0, supplied.scopeRows.body[3]);
     alternative.resolution.decision.api.body = calleeBody;
-    alternative.resolution.activation = { body: calleeBody, bindings: clone(alternative.summary.bindings) };
+    alternative.resolution.activation = { body: calleeBody, bindings: clone(alternative.summary.execution.request.bindings) };
+    const declaredOwner = summaryOwner(alternative.summary);
+    const selectedArena = supplied.canonicalArenas.get(ownerKey(declaredOwner));
+    alternative.summary = { kind: "body", execution: { instance: alternative.resolution.activation, provided: alternative.summary.execution.provided } };
+    const bodyOwner = summaryOwner(alternative.summary);
+    supplied.canonicalArenas.set(ownerKey(bodyOwner), selectedArena);
+    for (const argument of alternative.arguments) argument.formal.owner = clone(bodyOwner);
   };
   await factOpposite("activation validates but never replaces the canonical API environment", actualDependentActivation,
     input => { input.origins.invocations[0].alternatives[0].resolution.activation = { body: ids.encodeBodyId({ owner: definitions.callee, role: "function", ordinal: 0 }), bindings: parametric() }; },
@@ -1662,7 +1793,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       if (kind === "receiver") input.parameters = [{ slot: { kind: "receiver" }, reads: completePaths(), writes: completePaths() }];
       if (kind === "capture") {
         input.captures = [{ index: 0, reads: completePaths(), writes: completePaths() }];
-        supplied.context.captureCount = selected => (assert.equal(selected.definition, definitions.f, "actual checked captured-location inventory"), supplied.tir.captures.length);
+        supplied.context.captureCount = selected => (assert.equal(selected.kind === "body" && selected.execution.instance.body === body, true, "actual checked captured-location inventory"), supplied.tir.captures.length);
       }
     }, input => { if (kind === "receiver") input.arena.producers[0] = { id: 0, path: null, kind: "parameter", index: 0 }; else input.arena.producers[0].index = 1; },
     [violation("summary-finite", summarySite(), "A summary producer retains its actual formal, receiver or captured-location slot.")]);
@@ -1703,9 +1834,9 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     ["a qualified captured local", input => { input.liveness.captures = [{ local: { body: otherBody, local: 0 }, reads: true, writes: false }]; },
       input => { input.liveness.captures[0].local.local = 99; }, "capture-locations-exact", { kind: "local", local: { body: otherBody, local: 99 } },
       "A capture retains its actual qualified outer local."],
-    ["an actual MIR block identity", input => { input.liveness.stores = [{ node: 1, point: { block: 0, statement: null }, observed: true }]; },
+    ["an actual MIR block identity", input => { input.liveness.stores = [{ node: 1, point: { block: 0, statement: null }, edge: null, observed: true }]; },
       (input, supplied) => { supplied.mir.blocks[0].id = 1; }, "mir-point-resolves", nodeSite(1), "A MIR point names an actual block and statement, or that block's terminator."],
-    ["an actual MIR statement boundary", (input, supplied) => { withMirEndpoints(supplied); input.liveness.stores = [{ node: 1, point: { block: 0, statement: 0 }, observed: true }]; },
+    ["an actual MIR statement boundary", (input, supplied) => { withMirEndpoints(supplied); input.liveness.stores = [{ node: 1, point: { block: 0, statement: 0 }, edge: null, observed: true }]; },
       input => { input.liveness.stores[0].point.statement = 2; }, "mir-point-resolves", nodeSite(1), "A MIR point names an actual block and statement, or that block's terminator."],
   ]) await factOpposite(`typed references retain ${name}`, prepare, amend, [violation(rule, site, message)]);
   for (const exit of ["onReturn", "onUnwind"]) {
@@ -1720,12 +1851,12 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   await suite.test("the liveness family verifier is the one verifyFacts calls", () => {
     const input = bodyFacts(); const supplied = setup(input);
     input.liveness.bindings = [{ local: 0, addressTaken: true, captured: false }];
-    supplied.canonicalArenas.set(ownerKey({ kind: "body", instance: input.instance }), clone(input.arena));
-    supplyScopes(supplied, { kind: "body", instance: input.instance }, supplied.scopeRows.body);
-    equal(product.verifyLiveness(input.liveness, input.instance, supplied.mir, supplied.context), [], "valid liveness family");
+    supplied.canonicalArenas.set(ownerKey({ kind: "body", execution: input.execution }), clone(input.arena));
+    supplyScopes(supplied, { kind: "body", instance: input.execution.instance }, supplied.scopeRows.body);
+    equal(product.verifyLiveness(input.liveness, input.execution.instance, supplied.mir, supplied.context), [], "valid liveness family");
     supplied.mir.locals[0].source = null;
     const expected = [violation("cross-owner-qualified", localSite(0), "A binding-storage row belongs to a source binding of this actual MIR local table.")];
-    equal(product.verifyLiveness(input.liveness, input.instance, supplied.mir, supplied.context), expected, "family verifier reports the binding law");
+    equal(product.verifyLiveness(input.liveness, input.execution.instance, supplied.mir, supplied.context), expected, "family verifier reports the binding law");
     equal(product.verifyFacts(input, supplied.mir, supplied.context), expected, "verifyFacts reports the same family violations");
   });
   for (const [name, diagnostic] of [
@@ -1750,7 +1881,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       supplied.tir.captures = [{ local: { body: otherBody, local: 0 }, capture: "captured-location" }];
       if (isSummary) {
         input.captures = [{ index: 0, reads: completePaths(), writes: completePaths() }];
-        supplied.context.captureCount = selected => (assert.equal(selected.definition, definitions.f, "actual retention captured-location inventory"), supplied.tir.captures.length);
+        supplied.context.captureCount = selected => (assert.equal(selected.kind === "body" && selected.execution.instance.body === body, true, "actual retention captured-location inventory"), supplied.tir.captures.length);
       }
     }
     if (kind === "receiver") {
@@ -1767,7 +1898,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       "producer-resolves", "A projected fact retains its actual projection-path identity.", "cross-owner-qualified", "A retention target retains its actual declaration, formal, capture, path or boundary owner."],
     ["capture", { kind: "capture", index: 0, path: 1 }, target => { target.index = 1; },
       "capture-locations-exact", "An escape retains its actual captured-location index.", "cross-owner-qualified", "A retention target retains its actual declaration, formal, capture, path or boundary owner."],
-    ["callback", { kind: "callback", at: { kind: "node", node: nodeRef(2) } }, target => { target.at.node.node = 99; },
+    ["callback", { kind: "callback", at: { kind: "node", node: { kind: "body", value: nodeRef(2) } } }, target => { target.at.node.value.node = 99; },
       "node-resolves", "Every fact retains an actual source occurrence in its declared body domain.", "relational-site-resolves", "A retention target retains its actual source occurrence."],
     ["suspension", { kind: "suspension", at: { kind: "declared", identity: libraryIdentity, site: 0 } }, target => { target.at.site = 1; },
       "declared-site-ordinal", "An escape's declared site retains its actual library export and logical allocation ordinal.", "declared-site-ordinal", "A retention target retains its actual declared allocation ordinal."],
@@ -1854,7 +1985,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const input = bodyFacts(); const supplied = setup(); invocationFixture(input, supplied);
     input.origins.activations = [{ node: 2, activation: { body: otherBody, bindings: parametric() }, context: 0, caller: 0, entry: clone(input.origins.invocations[0].alternatives[0].arguments[0]) }];
     supplied.canonicalArenas.set(ownerKey(owner()), clone(input.arena));
-    supplyScopes(supplied, { kind: "body", instance: input.instance }, supplied.scopeRows.body);
+    supplyScopes(supplied, { kind: "body", instance: input.execution.instance }, supplied.scopeRows.body);
     equal(product.verifyFacts(input, supplied.mir, supplied.context), [], "complete actual callback activation vector");
   });
 
@@ -1880,11 +2011,11 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     ["callback-input-resolves", oneCallback, input => { input.callbacks[0].inputs = [{ kind: "argument-element", parameterIndex: 99, sourceParameterIndex: 0 }]; }, summarySite(), "Callback input channels retain their actual callback formal and receiver or source parameter."],
     ["invocation-only-parameters-order", oneParameter, input => { input.invocationOnlyParameters = [0, 0]; }, summarySite(), "Invocation-only parameters are distinct and ordered by declaration index."],
     ["invocation-only-parameter-resolves", oneParameter, input => { input.invocationOnlyParameters = [99]; }, summarySite(), "An invocation-only index names an actual declaration parameter."],
-    ["relational-site-resolves", unchanged, input => { input.arena.producers[0].at.node.node = 99; }, nodeSite(99), "A relational site must retain an existing qualified source occurrence."],
+    ["relational-site-resolves", unchanged, input => { input.arena.producers[0].at.node.value.node = 99; }, nodeSite(99), "A relational site must retain an existing qualified source occurrence."],
     ["declared-site-ordinal", input => { input.arena.producers[0].at = { kind: "declared", identity: clone(libraryIdentity), site: 0 }; },
-      input => { input.arena.producers[0].at.site = 1; }, { kind: "declared-site", owner: { kind: "summary", definition: definitions.f, bindings: parametric() }, identity: libraryIdentity, site: 1 },
+      input => { input.arena.producers[0].at.site = 1; }, { kind: "declared-site", owner: summaryOwner(summaryKey()), identity: libraryIdentity, site: 1 },
       "A logical site ordinal must name an actual declared allocation site of that export."],
-    ["summary-finite", unchanged, input => { input.arena.projections[1].parent = 1; }, { kind: "projection", owner: { kind: "summary", definition: definitions.f, bindings: parametric() }, projection: 1 },
+    ["summary-finite", unchanged, input => { input.arena.projections[1].parent = 1; }, { kind: "projection", owner: summaryOwner(summaryKey()), projection: 1 },
       "A projection parent must reference an earlier row of the same arena."],
   ];
   for (const [rule, prepare, amend, site, message] of summaryCases) await summaryOpposite(rule, prepare, amend, [violation(rule, site, message)]);
@@ -2098,13 +2229,17 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   for (const actualOwner of [null, definitions.other]) {
     await summaryOpposite(`actual summary body ownership ${actualOwner} is not reconstructed from the opaque ID`, unchanged,
       (input, supplied) => { supplied.bodyOwners.set(body, actualOwner); },
-      [violation("cross-owner-qualified", nodeSite(1), "A relational occurrence must belong to the same actual body or summary owner."),
-        violation("cross-owner-qualified", nodeSite(1), "A relational occurrence must belong to the same actual body or summary owner.")]);
+      actualOwner === null ? [
+        violation("definition-resolves", summarySite(), "A summary must name an existing declaration in the supplied inventory."),
+        violation("cross-owner-qualified", summarySite(), "The summary signature must retain its actual declaration owner."),
+        violation("signature-resolves", summarySite(), "The summary retains the signature of its exact selected execution request."),
+        violation("summary-binding-dependence", summarySite(), "Summary dependence equals the supplied declaration's actual binding dependence."),
+      ] : [violation("cross-owner-qualified", summarySite(), "The summary signature must retain its actual declaration owner.")]);
   }
   for (const kind of ["callback", "suspension"]) {
     await summaryOpposite(`actual ${kind} retention owner is unresolved`, input => {
-      input.retention = [{ source: 0, into: { kind, at: { kind: "node", node: nodeRef(1) } } }];
-    }, input => { input.retention[0].into.at.node.body = otherBody; },
+      input.retention = [{ source: 0, into: { kind, at: { kind: "node", node: { kind: "body", value: nodeRef(1) } } } }];
+    }, input => { input.retention[0].into.at.node.value.body = otherBody; },
     [violation("cross-owner-qualified", summarySite(), "A retention target retains its actual summary declaration owner.")]);
   }
   for (const [field, prepare, amend] of [
@@ -2123,12 +2258,12 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   await summaryOpposite("bindings-complete", (input, supplied) => {
     Object.assign(input, emptySummary()); supplied.scopeRows.summary = [];
     supplied.context.bindingScopeOf = () => ({ ...emptyScope(), classParameters: [{ owner: definitions.f, index: 0 }] });
-  }, input => { input.key.bindings = { kind: "instantiated", bindings: emptyBindings() }; }, [
-    violation("cross-owner-qualified", { kind: "summary", summary: { definition: definitions.f, bindings: { kind: "instantiated", bindings: emptyBindings() } } },
+  }, input => { input.key.execution.instance.bindings = { kind: "instantiated", bindings: emptyBindings() }; }, [
+    violation("cross-owner-qualified", { kind: "summary", summary: { kind: "body", execution: { instance: { body, bindings: { kind: "instantiated", bindings: emptyBindings() } }, provided: 0 } } },
       "The actual relational owner must resolve to its canonical arena."), violation("bindings-complete",
-    { kind: "summary", summary: { definition: definitions.f, bindings: { kind: "instantiated", bindings: emptyBindings() } } },
+    { kind: "summary", summary: { kind: "body", execution: { instance: { body, bindings: { kind: "instantiated", bindings: emptyBindings() } }, provided: 0 } } },
     "The complete binding-scope occurrence inventory must resolve for this exact verification root."), violation("bindings-complete",
-    { kind: "summary", summary: { definition: definitions.f, bindings: { kind: "instantiated", bindings: emptyBindings() } } },
+    { kind: "summary", summary: { kind: "body", execution: { instance: { body, bindings: { kind: "instantiated", bindings: emptyBindings() } }, provided: 0 } } },
     "A binding vector retains every expected class, method, captured and self binding in canonical owner order.")]);
 
   const member = (primary = definitions.field) => ({ decision: { key: { kind: "text", value: "value" }, origins: [{ kind: "declared", declaration: primary }],
@@ -2326,13 +2461,13 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const { scope, selected } = scopedMember();
     input.closedArrays = [{ node: 1, kind: "closed", declarations: [], references: [], literals: [], elements: [selected, selected] }];
     supplied.scopeRows.body.push(scope, scope);
-  }, (input, supplied) => { supplyScopes(supplied, { kind: "body", instance: input.instance }, supplied.scopeRows.body.slice(0, -1)); },
+  }, (input, supplied) => { supplyScopes(supplied, { kind: "body", instance: input.execution.instance }, supplied.scopeRows.body.slice(0, -1)); },
   [violation("bindings-complete", nodeSite(1), missingScopeMessage)]);
   await factOpposite("distinct member scope occurrences retain their declared order", (input, supplied) => {
     const first = scopedMember(); const second = scopedMember(definitions.callee);
     input.closedArrays = [{ node: 1, kind: "closed", declarations: [], references: [], literals: [], elements: [first.selected, second.selected] }];
     supplied.scopeRows.body.push(first.scope, second.scope);
-  }, (input, supplied) => { supplyScopes(supplied, { kind: "body", instance: input.instance },
+  }, (input, supplied) => { supplyScopes(supplied, { kind: "body", instance: input.execution.instance },
     [emptyScope(), emptyScope(), supplied.scopeRows.body[3], supplied.scopeRows.body[2]]); },
   [violation("bindings-complete", nodeSite(1), bindingMessage), violation("bindings-complete", nodeSite(1), bindingMessage)]);
   for (const kind of ["null", "empty", "missing", "extra", "wrong-root"]) {
@@ -2342,7 +2477,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
         : kind === "missing" ? scopes.slice(0, -1) : [...scopes, emptyScope()]);
     };
     await factOpposite(`body ${kind} scope inventory is not a guessed empty environment`, unchanged,
-      (input, supplied) => change(supplied, { kind: "body", instance: input.instance }, supplied.scopeRows.body),
+      (input, supplied) => change(supplied, { kind: "body", instance: input.execution.instance }, supplied.scopeRows.body),
       kind === "empty" ? [violation("bindings-complete", arenaSite("bound-producer", "producer", 0), missingScopeMessage),
         violation("bindings-complete", arenaSite("boundary", "boundary", 0), missingScopeMessage)]
         : [violation("bindings-complete", kind === "missing" ? arenaSite("boundary", "boundary", 0) : bodySite(),
@@ -2362,18 +2497,18 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const identity = { owner: definitions.f, index: 0 };
     const scope = { ...emptyScope(), methodParameters: [identity] };
     const vector = { ...emptyBindings(), methodBindings: [{ kind: "bound", parameter: identity, type: 0 }] };
-    input.instance.bindings = { kind: "instantiated", bindings: clone(vector) };
+    input.execution.instance.bindings = { kind: "instantiated", bindings: clone(vector) };
     input.arena.boundProducers[0].bindings = clone(vector); input.arena.boundaries[0].bindings = clone(vector);
-    supplied.tir.bindings = clone(input.instance.bindings); supplied.mir.bindings = clone(input.instance.bindings);
+    supplied.tir.bindings = clone(input.execution.instance.bindings); supplied.mir.bindings = clone(input.execution.instance.bindings);
     supplied.tir.lexicalBindings = clone(vector); supplied.tir.dependence = "binding-dependent";
     supplied.types.signatures[0].typeParameters = [{ identity, declaration: definitions.parameter, constraint: null, default: null }];
     supplied.context.bindingScopeOf = selected => selected === definitions.f ? scope : emptyScope();
     supplied.scopeRows.body = [scope, scope, scope];
-  }, (input, supplied) => { supplyScopes(supplied, { kind: "body", instance: input.instance },
+  }, (input, supplied) => { supplyScopes(supplied, { kind: "body", instance: input.execution.instance },
     [emptyScope(), supplied.scopeRows.body[1], supplied.scopeRows.body[2]]); },
-  [violation("bindings-complete", { kind: "body", instance: { body, bindings: { kind: "instantiated", bindings: {
+  [violation("bindings-complete", { kind: "execution", execution: { instance: { body, bindings: { kind: "instantiated", bindings: {
     ...emptyBindings(), methodBindings: [{ kind: "bound", parameter: { owner: definitions.f, index: 0 }, type: 0 }],
-  } } } }, bindingMessage)]);
+  } } }, provided: 0 } }, bindingMessage)]);
   await factOpposite("a rigid binding is part of a bound producer's correlated alternative", (input, supplied) => {
     const identity = { owner: definitions.f, index: 0 };
     const scope = { ...emptyScope(), methodParameters: [identity] };
@@ -2389,19 +2524,18 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const record = metadata(); withField(record, supplied); record.key.bindings = { kind: "instantiated", bindings: emptyBindings() };
     supplied.metadataRows.set(definitions.layout, record);
     const layout = { metadata: record.key, layout: 1 }; const field = { metadata: record.key, field: 0 };
-    input.observations = [{ node: 1, operation: "size", operand: nodeRef(1), layout, field: null, result: 0, value: 16n, context: 0, bindings: emptyBindings() }];
     input.rawLocations = [{ node: 2, operation: "to-raw", pointee: 0, layout: { metadata: record.key, layout: 0 }, context: 0, bindings: emptyBindings() }];
     input.fieldBindings = [{ node: 3, result: 0, owner: 3, fieldExpression: nodeRef(1), field, pointer: nodeRef(2), pointee: 0, context: 0, bindings: emptyBindings() }];
     input.recordBindings = [{ node: 4, result: 0, layoutExpression: nodeRef(1), layout, context: 0, bindings: emptyBindings(), fields: [{ expression: nodeRef(2), binding: 3 }] }];
-    supplied.scopeRows.body = Array.from({ length: 10 }, () => emptyScope());
+    supplied.scopeRows.body = Array.from({ length: 8 }, () => emptyScope());
   };
   await factOpposite("every inline reference artifact counts without traversing its foreign metadata record", nestedMetadataReferences,
-    (input, supplied) => { supplyScopes(supplied, { kind: "body", instance: input.instance }, [...supplied.scopeRows.body, emptyScope()]); },
+    (input, supplied) => { supplyScopes(supplied, { kind: "body", instance: input.execution.instance }, [...supplied.scopeRows.body, emptyScope()]); },
     [violation("bindings-complete", bodySite(), extraScopeMessage)]);
   await factOpposite("a nested reference artifact keeps its own declared position", nestedMetadataReferences,
     (input, supplied) => { const scopes = clone(supplied.scopeRows.body); scopes[2] = scopedMember().scope;
-      supplyScopes(supplied, { kind: "body", instance: input.instance }, scopes); },
-    [violation("bindings-complete", nodeSite(1), bindingMessage)]);
+      supplyScopes(supplied, { kind: "body", instance: input.execution.instance }, scopes); },
+    [violation("bindings-complete", nodeSite(2), bindingMessage)]);
   await factOpposite("callback activation and construction artifacts retain every nested occurrence", (input, supplied) => {
     actualDependentActivation(input, supplied);
     const alternative = input.origins.invocations[0].alternatives[0]; const argument = alternative.arguments[0];
@@ -2410,7 +2544,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     input.origins.constructions = [{ node: 4, root: nodeRef(4), allocation: nodeRef(3), implementation: definitions.callee,
       body: clone(alternative.resolution.activation), regions: [] }];
     const scope = supplied.scopeRows.body[3]; supplied.scopeRows.body.push(scope, scope, scope, scope);
-  }, (input, supplied) => { supplyScopes(supplied, { kind: "body", instance: input.instance }, supplied.scopeRows.body.slice(0, -1)); },
+  }, (input, supplied) => { supplyScopes(supplied, { kind: "body", instance: input.execution.instance }, supplied.scopeRows.body.slice(0, -1)); },
   [violation("bindings-complete", nodeSite(4), missingScopeMessage)]);
   await metadataOpposite("the selected field root has its own complete scope inventory", (input, supplied) => {
     withField(input, supplied); input.kind = "memory-field"; input.root = 0;
@@ -2660,7 +2794,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     [{ kind: "shared", definition: definitions.f, path: 0 }, `shared(definition=def:"${definitions.f}", path=path:0)`],
     [{ kind: "parameter", index: 0, path: 0 }, "parameter(index=0, path=path:0)"], [{ kind: "receiver", path: 0 }, "receiver(path=path:0)"],
     [{ kind: "capture", index: 0, path: null }, "capture(index=0, path=null)"],
-    [{ kind: "callback", at: { kind: "node", node: nodeRef(2) } }, `callback(at=node(node=${nodeText(2)}))`],
+    [{ kind: "callback", at: { kind: "node", node: { kind: "body", value: nodeRef(2) } } }, `callback(at=node(node=body(value=${nodeText(2)})))`],
     [{ kind: "suspension", at: { kind: "declared", identity: libraryIdentity, site: 0 } }, `suspension(at=declared(identity=${libraryText}, site=0))`],
     [{ kind: "external", boundary: 0 }, "external(boundary=boundary:0)"],
   ];
@@ -2668,7 +2802,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     `EscapeFact(point=MirPoint(block=b:0, statement=null), node=n:1, producer=producer:0, target=${authored})`);
 
   const endpointText = role => `HirCallableEndpoint(declaration=def:"${definitions.callee}", role="${role}", signature=sig:1, body=null)`;
-  const argumentText = (index, parameter) => `ArgumentTransport(authoredIndex=${index}, parameter=def:"${parameter}", parameterIndex=${index}, repeated=false, passing="by-value", actual=origins:0, formal=ProducerRef(owner=summary(definition=def:"${definitions.callee}", bindings=parametric()), producer=producer:${index}), projection=null)`;
+  const argumentText = (index, parameter) => `ArgumentTransport(authoredIndex=${index}, parameter=def:"${parameter}", parameterIndex=${index}, repeated=false, passing="by-value", actual=origins:0, formal=ProducerRef(owner=summary(key=${calleeSummaryText}), producer=producer:${index}), projection=null)`;
   const applicationText = `ApplicationDecision(candidate=0, advertised=${endpointText("advertised")}, api=${endpointText("api-signature")}, bindings=${bindingsText}, implementationBindings=${bindingsText}, parameters=${arrayText([
     'argument(parameter=0, argument=0, component=null, passing="by-value")', 'argument(parameter=1, argument=1, component=null, passing="by-value")',
   ])}, completion=CompletionEndpoint(signature=sig:1, completion=t:1, yielded=null, sent=null), result=t:1, activation=null)`;
@@ -2681,7 +2815,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const callee = resolvedText.replaceAll('passing="by-value"', `passing="${passing}"`);
     const argumentsText = [argumentText(0, definitions.parameter), argumentText(1, definitions.capture)].map(text => text.replace('passing="by-value"', `passing="${passing}"`));
     await factTransport(`all declared passing-mode wire values ${passing}`, ["origins", "invocations"], "invocations=[]", row,
-      `call(node=n:1, alternatives=${arrayText([`InvocationAlternative(resolution=${callee}, context=context:0, arguments=${arrayText(argumentsText)}, result=origins:0, thrown=origins:0, summary=SummaryKey(definition=def:"${definitions.callee}", bindings=parametric()))`])}, boundaries=[])`);
+      `call(node=n:1, alternatives=${arrayText([`InvocationAlternative(resolution=${callee}, context=context:0, arguments=${arrayText(argumentsText)}, result=origins:0, thrown=origins:0, summary=${calleeSummaryText})`])}, boundaries=[])`);
   }
   for (const kind of ["default", "omitted"]) {
     const input = bodyFacts(); invocationFixture(input, setup());
@@ -2693,7 +2827,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     await factTransport(`nullable authored index retains ${kind} disposition in the actual mapping only`, ["origins", "invocations"], "invocations=[]", row,
       `call(node=n:1, alternatives=${arrayText([`InvocationAlternative(resolution=${callee}, context=context:0, arguments=${arrayText([
         argumentText(0, definitions.parameter), argumentText(1, definitions.capture).replace("authoredIndex=1", "authoredIndex=null"),
-      ])}, result=origins:0, thrown=origins:0, summary=SummaryKey(definition=def:"${definitions.callee}", bindings=parametric()))`])}, boundaries=[])`);
+      ])}, result=origins:0, thrown=origins:0, summary=${calleeSummaryText})`])}, boundaries=[])`);
   }
   {
     const input = bodyFacts(); const supplied = setup(); restFixture("dynamic", input, supplied);
@@ -2703,7 +2837,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     ])}`, `parameters=${arrayText([`rest(parameter=0, arguments=${arrayText(["0"])}, passing="by-value")`])}`);
     const authored = argumentText(0, definitions.parameter).replace("repeated=false", "repeated=true").replace("projection=null", "projection=path:2");
     await factTransport("symbolic repeated sequence remains one explicit transport", ["origins", "invocations"], "invocations=[]", row,
-      `call(node=n:1, alternatives=${arrayText([`InvocationAlternative(resolution=${callee}, context=context:0, arguments=${arrayText([authored])}, result=origins:0, thrown=origins:0, summary=SummaryKey(definition=def:"${definitions.callee}", bindings=parametric()))`])}, boundaries=[])`);
+      `call(node=n:1, alternatives=${arrayText([`InvocationAlternative(resolution=${callee}, context=context:0, arguments=${arrayText([authored])}, result=origins:0, thrown=origins:0, summary=${calleeSummaryText})`])}, boundaries=[])`);
   }
   await suite.test("superseded null API environment is rejected at its exact typed field", () => {
     const decision = `MemberSelection(decision=MemberDecision(key=text(value="value"), origins=${arrayText([`declared(declaration=def:"${definitions.field}")`])}, selectedDeclarations=${arrayText([`def:"${definitions.field}"`])}, primary=def:"${definitions.field}", read=t:0, write=t:0, getter=null, setter=null, bindings=${bindingsText}, location=data(check=none(), receiver="in-place")), getter=${resolvedText}, setter=null)`;
@@ -2754,7 +2888,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     await factTransport(`handle activation transport ${activation}`, ["origins", "invocations"], "invocations=[]", row,
       `call(node=n:1, alternatives=${arrayText([`InvocationAlternative(resolution=${resolvedText.replace("result=t:1, activation=null", `result=t:1, activation="${activation}"`)}, context=context:0, arguments=${arrayText([
         argumentText(0, definitions.parameter), argumentText(1, definitions.capture),
-      ])}, result=origins:0, thrown=origins:0, summary=SummaryKey(definition=def:"${definitions.callee}", bindings=parametric()))`])}, boundaries=[])`);
+      ])}, result=origins:0, thrown=origins:0, summary=${calleeSummaryText})`])}, boundaries=[])`);
   }
   for (const kind of ["call", "construct", "getter", "setter", "native-callback"]) {
     const input = bodyFacts(); const supplied = setup(); invocationFixture(input, supplied);
@@ -2762,7 +2896,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     await factTransport(`invocation transport ${kind}`, ["origins", "invocations"], "invocations=[]", row,
       `${kind}(node=n:1, alternatives=${arrayText([`InvocationAlternative(resolution=${resolvedText}, context=context:0, arguments=${arrayText([
         argumentText(0, definitions.parameter), argumentText(1, definitions.capture),
-      ])}, result=origins:0, thrown=origins:0, summary=SummaryKey(definition=def:"${definitions.callee}", bindings=parametric()))`])}, boundaries=[])`);
+      ])}, result=origins:0, thrown=origins:0, summary=${calleeSummaryText})`])}, boundaries=[])`);
   }
   for (const [mapping, authored] of [[{ kind: "default", parameter: 0, initializer: body }, `default(parameter=0, initializer=body:"${body}")`],
     [{ kind: "omitted", parameter: 0, type: 1 }, "omitted(parameter=0, type=t:1)"],
@@ -2861,9 +2995,6 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   const fieldReference = { metadata: { definition: definitions.layout, bindings: parametric() }, field: 0 };
   const layoutReferenceText = `MetadataLayoutRef(metadata=${keyText("layout")}, layout=layout:0)`;
   const fieldReferenceText = `MetadataFieldRef(metadata=${keyText("layout")}, field=field:0)`;
-  for (const operation of ["size", "alignment", "stride", "field-offset"]) await factTransport(`observation transport ${operation}`, ["observations"], "observations=[]",
-    { node: 1, operation, operand: nodeRef(2), layout: layoutReference, field: operation === "field-offset" ? fieldReference : null, result: 0, value: 9007199254740993n, context: 0, bindings: emptyBindings() },
-    `ObservationFact(node=n:1, operation="${operation}", operand=${nodeText(2)}, layout=${layoutReferenceText}, field=${operation === "field-offset" ? fieldReferenceText : "null"}, result=t:0, value=9007199254740993n, context=context:0, bindings=${bindingsText})`);
   for (const operation of ["to-raw", "reinterpret"]) await factTransport(`raw location transport ${operation}`, ["rawLocations"], "rawLocations=[]",
     { node: 1, operation, pointee: 0, layout: layoutReference, context: 0, bindings: emptyBindings() },
     `RawLocationFact(node=n:1, operation="${operation}", pointee=t:0, layout=${layoutReferenceText}, context=context:0, bindings=${bindingsText})`);
@@ -3006,7 +3137,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     supplied.tir.captures = [{ local: { body: otherBody, local: 0 }, capture: "captured-location" }]; supplied.context.captureCount = () => supplied.tir.captures.length;
     input.callbacks[0] = { parameterIndex: 0, timing, rejection: 2, inputs: [{ kind: "receiver-element", parameterIndex: 0 }, { kind: "receiver-rejection", parameterIndex: 1 },
       { kind: "argument-element", parameterIndex: 2, sourceParameterIndex: 0 }] };
-    input.retention = [{ source: 0, into: { kind: "callback", at: { kind: "node", node: nodeRef(1) } } }];
+    input.retention = [{ source: 0, into: { kind: "callback", at: { kind: "node", node: { kind: "body", value: nodeRef(1) } } } }];
     supplied.canonicalArenas.set(ownerKey(summaryOwner(input.key)), clone(input.arena));
     equal(product.verifySummary(input, supplied.context), [], "full known/open effects and actual callback channel vector");
   });
@@ -3078,17 +3209,17 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       violation("component-membership-exact", componentSite(componentId("f")), "Each graph definition must belong to exactly one component."),
     ]);
   const graphCases = [
-    ["definitions-order", directedGraph, input => { input.definitions.reverse(); }, [{ rule: "definitions-order", site: summarySite(), message: "Definitions must be distinct and ordered by identity." }]],
+    ["definitions-order", directedGraph, input => { input.definitions.reverse(); }, [{ rule: "definitions-order", site: { kind: "definition", definition: definitions.f }, message: "Definitions must be distinct and ordered by identity." }]],
     ["edges-order", directedGraph, input => { input.edges.push(clone(input.edges[0])); }, [{ rule: "edges-order", site: nodeSite(1), message: "Call edges must be distinct and ordered by caller, occurrence and callee." }]],
     ["components-order", directedGraph, input => { input.components.reverse(); }, [{ rule: "components-order", site: componentSite(componentId("f")), message: "Components must be distinct and ordered by identity." }]],
-    ["definition-resolves", graph, (input, supplied) => { supplied.context.definitionExists = () => false; }, [{ rule: "definition-resolves", site: summarySite(), message: "The graph definition must exist in the supplied definition inventory." }]],
+    ["definition-resolves", graph, (input, supplied) => { supplied.context.definitionExists = () => false; }, [{ rule: "definition-resolves", site: { kind: "definition", definition: definitions.f }, message: "The graph definition must exist in the supplied definition inventory." }]],
     ["call-site-resolves", directedGraph, input => { input.edges[0].at.node = 99; }, [{ rule: "call-site-resolves", site: nodeSite(99), message: "A call edge must retain an existing source occurrence." }]],
-    ["cross-owner-qualified", directedGraph, input => { input.edges[0].at.body = otherBody; }, [{ rule: "cross-owner-qualified", site: { kind: "node", at: { body: otherBody, node: 1 } }, message: "The call occurrence must belong to its actual caller definition." }]],
+    ["cross-owner-qualified", directedGraph, input => { input.edges[0].at.body = otherBody; }, [{ rule: "cross-owner-qualified", site: { kind: "node", at: { kind: "body", value: { body: otherBody, node: 1 } } }, message: "The call occurrence must belong to its actual caller definition." }]],
     ["component-identity", directedGraph, input => { input.components[0].id = componentId("parameter"); }, [
       { rule: "component-identity", site: componentSite(componentId("parameter")), message: "The component identity must encode exactly its canonical member vector." },
       { rule: "components-order", site: componentSite(componentId("other")), message: "Components must be distinct and ordered by identity." },
     ]],
-    ["component-membership-exact", directedGraph, input => { input.components.shift(); }, [{ rule: "component-membership-exact", site: summarySite(), message: "Each graph definition must belong to exactly one component." }]],
+    ["component-membership-exact", directedGraph, input => { input.components.shift(); }, [{ rule: "component-membership-exact", site: { kind: "definition", definition: definitions.f }, message: "Each graph definition must belong to exactly one component." }]],
     ["component-dependencies-exact", directedGraph, input => { input.components[0].dependencies = []; }, [{ rule: "component-dependencies-exact", site: componentSite(componentId("f")), message: "Dependencies must be exactly the other components named by closed call edges." }]],
     ["component-members-order", recursiveGraph, input => { input.components[0].definitions.reverse(); }, [
       { rule: "component-members-order", site: componentSite(ids.encodeComponentId([definitions.f, definitions.other])), message: "Component members must be distinct and ordered by definition identity." },
@@ -3117,7 +3248,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     input => { input.components[0].definitions = []; }, [
       violation("component-identity", componentSite(componentId("f")), "The component identity must encode exactly its canonical member vector."),
       violation("component-membership-exact", componentSite(componentId("f")), "Every component must contain at least one graph definition."),
-      violation("component-membership-exact", summarySite(), "Each graph definition must belong to exactly one component."),
+      violation("component-membership-exact", { kind: "definition", definition: definitions.f }, "Each graph definition must belong to exactly one component."),
     ]);
   await graphOpposite("a foreign first member has no fabricated adjacency row", graph, input => {
     input.definitions = [definitions.other]; input.components[0].definitions = [definitions.f, definitions.other];
@@ -3154,7 +3285,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     if (mode === "unresolved") supplied.context.arenaOf = () => null;
     if (mode === "out-of-range") input.edges[0].callee.boundary.boundary = 99;
     if (mode === "foreign-owner") {
-      const selected = { kind: "summary", definition: definitions.other, bindings: parametric() };
+      const selected = summaryOwner({ kind: "body", execution: { instance: { body: otherBody, bindings: parametric() }, provided: 0 } });
       input.edges[0].callee.boundary.owner = selected; supplied.canonicalArenas.set(ownerKey(selected), arena());
     }
   }, [violation("cross-owner-qualified", nodeSite(1), "An open call retains its actual caller-owned relational boundary and complete environment.")]);
@@ -3195,9 +3326,9 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     await textCase(`call edge transport ${kind}`, input, expected, product.printCallGraph, product.parseCallGraph);
     await suite.test(`call edge ${kind} actual same-component recursion`, () => equal(product.verifyCallGraph(input, setup().context), [], "complete same-component graph"));
   }
-  for (const selectedOwner of [owner(), { kind: "summary", definition: definitions.f, bindings: parametric() }]) {
+  for (const selectedOwner of [owner(), summaryOwner(summaryKey())]) {
     const input = graph(); input.edges = [{ caller: definitions.f, at: nodeRef(1), kind: "callback", callee: { kind: "open", boundary: { owner: selectedOwner, boundary: 0 } }, bindings: parametric() }];
-    const expectedOwner = selectedOwner.kind === "body" ? `body(instance=${instanceText})` : `summary(definition=def:"${definitions.f}", bindings=parametric())`;
+    const expectedOwner = selectedOwner.kind === "body" ? `body(execution=${executionText})` : `summary(key=${bodySummaryText})`;
     await textCase(`open call edge qualified ${selectedOwner.kind}`, input, graphText.replace("edges=[]",
       `edges=${arrayText([`callback(caller=def:"${definitions.f}", at=${nodeText(1)}, callee=open(boundary=OpenBoundaryRef(owner=${expectedOwner}, boundary=boundary:0)), bindings=parametric())`])}`),
     product.printCallGraph, product.parseCallGraph);
@@ -3216,7 +3347,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   }
   for (const kind of ["store", "origin", "segment"]) await factOpposite(`${kind} point cannot resolve to an in-range sparse statement`, (input, supplied) => {
     withMirEndpoints(supplied);
-    if (kind === "store") input.liveness.stores = [{ node: 1, point: { block: 0, statement: 0 }, observed: true }];
+    if (kind === "store") input.liveness.stores = [{ node: 1, point: { block: 0, statement: 0 }, edge: null, observed: true }];
     if (kind === "origin") input.origins.points = [{ point: { block: 0, statement: 0 }, place: 0, origins: 0 }];
     if (kind === "segment") input.liveness.locals = [{ local: 0, segments: [{ block: 0, first: 0, last: 2 }] }];
   }, (input, supplied) => { supplied.mir.blocks[0].statements = new Array(2); }, [violation(
@@ -3225,7 +3356,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       ? "A live interval contains ordered actual statement or terminator positions in its own block."
       : "A MIR point names an actual block and statement, or that block's terminator.")]);
   await factOpposite("a selected in-range sparse MIR block is absent without dereferencing unrelated peer rows", input => {
-    input.liveness.stores = [{ node: 1, point: { block: 0, statement: null }, observed: true }];
+    input.liveness.stores = [{ node: 1, point: { block: 0, statement: null }, edge: null, observed: true }];
   }, (input, supplied) => { supplied.mir.blocks = new Array(1); },
   [violation("mir-point-resolves", nodeSite(1), "A MIR point names an actual block and statement, or that block's terminator.")]);
   await factOpposite("a live segment's later endpoint requires its own actual statement", (input, supplied) => {
@@ -3449,7 +3580,14 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   }
   await factOpposite("a bodyless alternative captures nothing: its context states no captured location", (input, supplied) => {
     capturedActivation(input, supplied);
-    const resolution = input.origins.invocations[0].alternatives[0].resolution;
+    const alternative = input.origins.invocations[0].alternatives[0];
+    const before = summaryOwner(alternative.summary);
+    const resolution = alternative.resolution;
+    const bindings = clone(resolution.activation.bindings);
+    alternative.summary = { kind: "declared", execution: { request: { ...calleeSummaryKey().execution.request, bindings }, provided: 2 } };
+    const after = summaryOwner(alternative.summary);
+    supplied.canonicalArenas.set(ownerKey(after), supplied.canonicalArenas.get(ownerKey(before)));
+    for (const argument of alternative.arguments) argument.formal.owner = clone(after);
     resolution.activation = null; resolution.decision.api.body = null; supplied.scopeRows.body.splice(5, 1);
     input.arena.contexts[0].captures = [];
   }, (input, supplied) => {
@@ -3465,12 +3603,12 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     input.arena.contexts[0].captures = [{ index: 0, location: 0 }, { index: 1, location: 1 }];
     input.arena.contexts.push({ id: 1, receiver: null, arguments: [0, 0], captures: [{ index: 0, location: 1 }] });
     first.resolution.activation = { body: selectedBody, bindings: parametric() }; first.resolution.decision.api.body = selectedBody;
-    const second = clone(first); second.context = 1; second.summary.definition = definitions.other;
+    const second = clone(first); second.context = 1; second.summary.execution.request.definition = definitions.other;
     second.resolution.activation.body = otherBody; second.resolution.decision.advertised.declaration = definitions.other;
     second.resolution.decision.advertised.signature = 2; second.resolution.decision.api.declaration = definitions.other;
     second.resolution.decision.api.signature = 2; second.resolution.decision.api.body = otherBody;
     second.resolution.decision.completion.signature = 2;
-    for (const argument of second.arguments) argument.formal.owner.definition = definitions.other;
+    for (const argument of second.arguments) argument.formal.owner.key.execution.request.definition = definitions.other;
     input.origins.invocations[0].alternatives.push(second);
     for (const [bodyId, definitionId, signatureId, captured] of [[selectedBody, definitions.callee, 1, [locations[0], locations[1]]], [otherBody, definitions.other, 2, [locations[1]]]]) {
       const actual = tir(); actual.body = bodyId; actual.owner = definitionId; actual.signature = signatureId;
@@ -3530,10 +3668,10 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     ])}`);
     const paths = emptyFactsText.replace("projections=[]", `projections=${arrayText(["ProjectionPath(id=path:0, parent=null, projection=deref())"])}`);
     const boundary = emptyFactsText.replace("boundaries=[]", `boundaries=${arrayText([
-      `external-input(id=boundary:0, at=node(node=${nodeText(0)}), subject=producer:0, owner=null, bindings=${bindingsText}, context=context:0, detail="unknown")`,
+      `external-input(id=boundary:0, at=node(node=body(value=${nodeText(0)})), subject=producer:0, owner=null, bindings=${bindingsText}, context=context:0, detail="unknown")`,
     ])}`);
     const locals = emptyFactsText.replace("locals=[]", `locals=${arrayText(["LocalLiveRange(local=l:0, segments=[])"])}`);
-    const stores = emptyFactsText.replace("stores=[]", `stores=${arrayText(["StoreLiveness(node=n:0, point=MirPoint(block=b:0, statement=null), observed=false)"])}`);
+    const stores = emptyFactsText.replace("stores=[]", `stores=${arrayText(["StoreLiveness(node=n:0, point=MirPoint(block=b:0, statement=null), edge=null, observed=false)"])}`);
     const field = `memory-field(key=${keyText("layout")}, root=field:0, layouts=[], fields=[])`;
     const layout = `memory-layout(key=${keyText("layout")}, root=layout:0, layouts=[], fields=[])`;
     const raw = emptyFactsText.replace("rawLocations=[]", `rawLocations=${arrayText([
@@ -3547,12 +3685,12 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const transported = [
       value => { const input = emptyFacts(); input.initialization.reads = [{ node: ids.nodeId(value), place: 0, assigned: false }]; return input; },
       value => { const input = emptyFacts(); input.initialization.reads = [{ node: 0, place: ids.placeId(value), assigned: false }]; return input; },
-      value => { const input = emptyFacts(); input.liveness.stores = [{ node: 0, point: { block: ids.blockId(value), statement: null }, observed: false }]; return input; },
+      value => { const input = emptyFacts(); input.liveness.stores = [{ node: 0, point: { block: ids.blockId(value), statement: null }, edge: null, observed: false }]; return input; },
       ...[["id", ids.boundProducerId], ["producer", ids.producerId], ["context", ids.valueContextId]].map(([field, construct]) => value => {
         const input = emptyFacts(); input.arena.boundProducers = [{ id: 0, producer: 0, bindings: emptyBindings(), context: 0, [field]: construct(value) }]; return input;
       }),
       value => { const input = emptyFacts(); input.arena.projections = [{ id: ids.projectionPathId(value), parent: null, projection: { kind: "deref" } }]; return input; },
-      value => { const input = emptyFacts(); input.arena.boundaries = [{ ...arena().boundaries[0], id: ids.openBoundaryId(value), at: { kind: "node", node: nodeRef(0) } }]; return input; },
+      value => { const input = emptyFacts(); input.arena.boundaries = [{ ...arena().boundaries[0], id: ids.openBoundaryId(value), at: { kind: "node", node: { kind: "body", value: nodeRef(0) } } }]; return input; },
       value => { const input = emptyFacts(); input.liveness.locals = [{ local: ids.localId(value), segments: [] }]; return input; },
       value => { const input = emptySummary(); input.arena.origins[0].id = ids.originsId(value); return input; },
       value => { const input = emptySummary(); input.signature = ids.sigId(value); return input; },
@@ -3586,7 +3724,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   });
   await suite.test("original raw empty record requires its closing punctuation", () => {
     equal(product.parseSummary(emptySummaryText), { kind: "parsed", value: emptySummary() }, "complete zero-field parametric record control");
-    const text = `Summary(key=SummaryKey(definition=def:"${definitions.f}", bindings=parametric(0`;
+    const text = `Summary(key=body(execution=Execution(instance=BodyInstance(body=body:"${body}", bindings=parametric(0`;
     malformed(product.parseSummary, text, text.length - 1, [")"], "0", "zero-field record cannot accept a scalar");
   });
   await suite.test("original raw numeric literal membership preserves lexical and kind precedence", () => {
@@ -3621,7 +3759,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const input = bodyFacts(); invocationFixture(input, setup());
     const row = input.origins.invocations[0]; row.boundaries = [0];
     await factTransport("original raw invocation boundary nonempty whole transport", ["origins", "invocations"], "invocations=[]", row,
-      `call(node=n:1, alternatives=${arrayText([`InvocationAlternative(resolution=${resolvedText}, context=context:0, arguments=${arrayText([argumentText(0, definitions.parameter), argumentText(1, definitions.capture)])}, result=origins:0, thrown=origins:0, summary=SummaryKey(definition=def:"${definitions.callee}", bindings=parametric()))`])}, boundaries=${arrayText(["boundary:0"])})`);
+      `call(node=n:1, alternatives=${arrayText([`InvocationAlternative(resolution=${resolvedText}, context=context:0, arguments=${arrayText([argumentText(0, definitions.parameter), argumentText(1, definitions.capture)])}, result=origins:0, thrown=origins:0, summary=${calleeSummaryText})`])}, boundaries=${arrayText(["boundary:0"])})`);
   }
   await factTransport("original raw error retention nonempty whole transport", ["errorStorage", "errors"], "errors=[]",
     { node: 1, origins: 1, writes: [], retention: [{ source: 0, into: { kind: "return" } }], invalidations: [] },
@@ -3656,7 +3794,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   await suite.test("original raw body ordering preserves independently qualified ownership findings", () => {
     const supplied = setup(); const input = graph();
     input.edges = [edge("f", "f"), { ...edge("f", "f"), at: { body: otherBody, node: 1 } }];
-    const ownership = violation("cross-owner-qualified", { kind: "node", at: { body: otherBody, node: 1 } },
+    const ownership = violation("cross-owner-qualified", { kind: "node", at: { kind: "body", value: { body: otherBody, node: 1 } } },
       "The call occurrence must belong to its actual caller definition.");
     equal(product.verifyCallGraph(input, supplied.context), [ownership], "complete ascending-body ownership vector");
     input.edges.reverse();
@@ -3780,7 +3918,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     input => { input.closedArrays[0].declarations = invalid; }, expected);
 
   const callbackFixture = (input, supplied) => {
-    const foreign = { kind: "summary", definition: definitions.callee, bindings: parametric() };
+    const foreign = summaryOwner(calleeSummaryKey());
     const argument = { authoredIndex: 0, parameter: definitions.parameter, parameterIndex: 0, repeated: false, passing: "by-value", actual: 0,
       formal: { owner: foreign, producer: 0 }, projection: null };
     input.origins.callbacks = [{ node: 1, argument, timing: "synchronous", rejection: null, inputs: [] }];
@@ -3804,8 +3942,8 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     [violation("argument-transports-total", nodeSite(1), "A transport retains its actual parameter declaration.")]);
   await factOpposite("original raw instantiated body formal owner supplies its actual binding scope", (input, supplied) => {
     callbackFixture(input, supplied);
-    const selected = { kind: "body", instance: { body: otherBody, bindings: { kind: "instantiated", bindings: emptyBindings() } } };
-    const actual = tir(); actual.body = otherBody; actual.owner = definitions.other; actual.bindings = clone(selected.instance.bindings);
+    const selected = { kind: "body", execution: { instance: { body: otherBody, bindings: { kind: "instantiated", bindings: emptyBindings() } }, provided: 1 } };
+    const actual = tir(); actual.body = otherBody; actual.owner = definitions.other; actual.bindings = clone(selected.execution.instance.bindings);
     actual.signature = 1;
     actual.params = [{ local: 0, declaration: definitions.parameter, role: "required", passing: "by-value", initializer: null, storage: 0 }];
     actual.locals = [{ id: 0, declaration: itemRef(definitions.parameter), name: "argument", role: "parameter", capturedFrom: null, mutable: true, storage: 0 }];
@@ -3897,7 +4035,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     const first = input.origins.invocations[0].alternatives[0];
     const second = clone(first);
     second.resolution.decision.implementationBindings.methodBindings[0].type = 2;
-    second.summary.bindings.bindings.methodBindings[0].type = 2;
+    second.summary.execution.instance.bindings.bindings.methodBindings[0].type = 2;
     second.resolution.activation.bindings.bindings.methodBindings[0].type = 2;
     const secondOwner = summaryOwner(second.summary);
     for (const transport of second.arguments) transport.formal.owner = clone(secondOwner);
@@ -3977,7 +4115,8 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     input.arena.contexts[0].arguments = [];
     input.refinements.integers = [1, 2].map(node => ({ node, range: null, nonnegative: false }));
   }, input => { input.origins.invocations[0].alternatives[0].resolution.decision.api.signature = 99; },
-  [violation("signature-resolves", nodeSite(1), "A fact signature resolves in the actual supplied signature table.")]);
+  [violation("signature-resolves", nodeSite(1), "A fact signature resolves in the actual supplied signature table."),
+    violation("summary-reference-exact", nodeSite(1), "An invocation names the actual selected declaration and exact instantiated summary environment.")]);
   await factOpposite("original raw repeated authored tuple consumes two distinct actual components", (input, supplied) => {
     restFixture("finite", input, supplied);
     const alternative = input.origins.invocations[0].alternatives[0];
@@ -4025,17 +4164,17 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   await suite.test("original raw instantiated self binding keys use both actual self arms", () => {
     const scope = { ...emptyScope(), selfOwners: [definitions.f, definitions.other] };
     const input = emptyFacts();
-    input.instance.bindings = { kind: "instantiated", bindings: { ...emptyBindings(), selfBindings: [
+    input.execution.instance.bindings = { kind: "instantiated", bindings: { ...emptyBindings(), selfBindings: [
       { kind: "bound", owner: definitions.f, type: 0 }, { kind: "rigid", owner: definitions.other },
     ] } };
     const supplied = setup(input, [scope]);
-    supplied.tir.bindings = clone(input.instance.bindings); supplied.mir.bindings = clone(input.instance.bindings);
+    supplied.tir.bindings = clone(input.execution.instance.bindings); supplied.mir.bindings = clone(input.execution.instance.bindings);
     supplied.context.bindingScopeOf = selected => selected === definitions.f ? clone(scope) : emptyScope();
-    supplied.canonicalArenas.set(ownerKey({ kind: "body", instance: input.instance }), clone(input.arena));
-    supplyScopes(supplied, { kind: "body", instance: input.instance }, [scope]);
+    supplied.canonicalArenas.set(ownerKey({ kind: "body", execution: input.execution }), clone(input.arena));
+    supplyScopes(supplied, { kind: "body", instance: input.execution.instance }, [scope]);
     equal(product.verifyFacts(input, supplied.mir, supplied.context), [], "complete canonical instantiated self binding vector");
-    supplyScopes(supplied, { kind: "body", instance: input.instance }, [{ ...emptyScope(), selfOwners: [definitions.other, definitions.f] }]);
-    equal(product.verifyFacts(input, supplied.mir, supplied.context), [violation("bindings-complete", { kind: "body", instance: input.instance }, bindingMessage)],
+    supplyScopes(supplied, { kind: "body", instance: input.execution.instance }, [{ ...emptyScope(), selfOwners: [definitions.other, definitions.f] }]);
+    equal(product.verifyFacts(input, supplied.mir, supplied.context), [violation("bindings-complete", { kind: "execution", execution: input.execution }, bindingMessage)],
       "complete independently declared reversed self-owner scope refusal");
   });
   for (const kind of ["argument", "default", "rest"]) await metadataOpposite(`original raw canonical accessor ${kind} mapping`, (input, supplied) => {
@@ -4064,32 +4203,6 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     supplied.metadataRows.set(definitions.layout, clone(record));
     return record;
   };
-  const fieldObservation = (input, supplied, instantiated = false) => {
-    const record = physicalRecord(supplied);
-    if (instantiated) { record.key.bindings = { kind: "instantiated", bindings: emptyBindings() }; supplied.metadataRows.set(definitions.layout, clone(record)); }
-    const key = clone(record.key);
-    input.observations = [{ node: 1, operation: "field-offset", operand: nodeRef(2), layout: { metadata: key, layout: 1 },
-      field: { metadata: clone(key), field: 0 }, result: 0, value: 0n, context: 0, bindings: emptyBindings() }];
-    supplied.scopeRows.body = instantiated ? [emptyScope(), emptyScope(), emptyScope(), emptyScope(), emptyScope()]
-      : [emptyScope(), emptyScope(), emptyScope()];
-  };
-  for (const instantiated of [false, true]) await factOpposite(`original raw field offset selected row ${instantiated ? "instantiated" : "parametric"}`, (input, supplied) => {
-    fieldObservation(input, supplied, instantiated);
-  }, input => { input.observations[0].field.field = 99; }, [
-    violation("metadata-reference-resolves", nodeSite(1), "A field reference retains its actual metadata declaration, complete binding environment and local field ID."),
-    violation("observation-field-exact", nodeSite(1), "Only a field-offset observation names the actual selected field metadata."),
-  ]);
-  await factOpposite("original raw field offset null is distinct from unresolved nonnull field", fieldObservation,
-    input => { input.observations[0].field = null; },
-    [violation("observation-field-exact", nodeSite(1), "Only a field-offset observation names the actual selected field metadata.")]);
-  await factOpposite("original raw selected field and layout retain actual distinct owner types", fieldObservation,
-    input => { input.observations[0].layout.layout = 0; },
-    [violation("observation-field-exact", nodeSite(1), "A field-offset observation retains the selected field's actual owner layout.")]);
-  await factOpposite("original raw data-layout metadata is not an eligible physical field record", fieldObservation,
-    input => { input.observations[0].field.metadata.definition = definitions.abi64; }, [
-      violation("metadata-reference-resolves", nodeSite(1), "A field reference retains its actual metadata declaration, complete binding environment and local field ID."),
-      violation("observation-field-exact", nodeSite(1), "Only a field-offset observation names the actual selected field metadata."),
-    ]);
   await factOpposite("original raw raw-location pointee retains actual selected layout source", (input, supplied) => {
     input.rawLocations = [{ node: 1, operation: "to-raw", pointee: 0, layout: clone(layoutReference), context: 0, bindings: emptyBindings() }];
     supplied.scopeRows.body.push(emptyScope());
@@ -4221,6 +4334,97 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     equal(product.verifyCallGraph(input, supplied.context), [], "complete 100000-link condensation verifier");
   });
 
+  await suite.test("Facts selects an actual provided-count entry, including valid zero, without an ordinal default", () => {
+    for (const provided of [0, 1, 2]) {
+      const input = emptyFacts(); input.execution.provided = provided;
+      const supplied = setup(input, []);
+      const parameters = [definitions.parameter, definitions.capture].map(declaration => ({ declaration, kind: "optional", type: 0, passing: "by-value", initializer: null }));
+      supplied.types.signatures[0].parameters = parameters;
+      supplied.tir.params = parameters.map((parameter, local) => ({ local, declaration: parameter.declaration, role: parameter.kind,
+        passing: parameter.passing, initializer: null, storage: 0 }));
+      supplied.tir.locals = supplied.tir.params.map(parameter => ({ id: parameter.local, declaration: itemRef(parameter.declaration),
+        name: "parameter", role: "parameter", capturedFrom: null, mutable: true, storage: 0 }));
+      supplied.mir.locals = parameters.map((parameter, id) => ({ id, storage: parameter.type, role: { kind: "parameter", index: id },
+        source: { body, local: id }, origin: sourceOrigin(id) }));
+      supplied.mir.entries = [2, 1, 0].map(provided => ({ provided, block: 0 }));
+      equal(product.verifyFacts(input, supplied.mir, supplied.context), [], "the explicitly selected entry resolves in the complete authored entry table");
+      supplied.mir.entries = [];
+      assert.equal(product.verifyFacts(input, supplied.mir, supplied.context).some(row => row.rule === "execution-entry-exact"), true);
+    }
+    for (const provided of [-0, -1, 0.5, NaN, Infinity, 1]) {
+      const input = emptyFacts(); input.execution.provided = provided;
+      const supplied = setup(input, []);
+      assert.equal(product.verifyFacts(input, supplied.mir, supplied.context).some(row => row.rule === "execution-entry-exact"), true,
+        "invalid or absent provided counts never select entry zero");
+    }
+    const input = emptyFacts(); const supplied = setup(input, []);
+    supplied.mir.entries = [{ provided: 0, block: 0 }, { provided: 2, block: 0 }];
+    input.execution.provided = 1;
+    assert.equal(product.verifyFacts(input, supplied.mir, supplied.context).some(row => row.rule === "execution-entry-exact"), true);
+    supplied.mir.entries = [{ provided: 1, block: 0 }, { provided: 2, block: 0 }];
+    input.execution.provided = 0;
+    assert.equal(product.verifyFacts(input, supplied.mir, supplied.context).some(row => row.rule === "execution-entry-exact"), true);
+  });
+
+  await suite.test("declared Summary owners use their complete selected request and genuine item or body source witness", () => {
+    for (const source of [itemRef(definitions.callee), { kind: "body", value: nodeRef(1) }]) {
+      const supplied = setup(); const input = summary();
+      input.key = { kind: "declared", execution: { request: { definition: definitions.callee, endpoint: "api-signature", ordinal: 2, bindings: parametric() }, provided: 0 } };
+      input.signature = 1;
+      supplied.types.signatures.push({ ...signature(1, [], null, definitions.callee), owner: clone(source) });
+      supplied.signatureRequests.set(signatureRequestKey(input.key.execution.request), 1);
+      supplied.context.captureCount = () => 0;
+      supplied.context.declarationSourceOf = definition => definition === definitions.callee ? source : itemRef(definition);
+      input.arena.producers[0].at = { kind: "node", node: clone(source) };
+      input.arena.boundaries[0].at = { kind: "node", node: clone(source) };
+      input.retention = [{ source: 0, into: { kind: "callback", at: { kind: "node", node: clone(source) } } }];
+      supplied.canonicalArenas.set(ownerKey(summaryOwner(input.key)), clone(input.arena));
+      supplyScopes(supplied, { kind: "summary", summary: input.key }, [emptyScope(), emptyScope()]);
+      equal(product.verifySummary(input, supplied.context), [], "a real ready selected declaration occurrence supplies the bodyless source provenance");
+      for (const absent of [null, source.kind === "body" ? itemRef(definitions.callee) : { kind: "body", value: nodeRef(0) },
+        source.kind === "body" ? { ...source, value: { ...source.value, node: 2 } } : itemRef(definitions.other)]) {
+        supplied.context.declarationSourceOf = () => absent;
+        assert.equal(product.verifySummary(input, supplied.context).some(row => row.rule === "cross-owner-qualified"), true);
+      }
+      supplied.context.declarationSourceOf = () => source;
+      for (const provided of [-0, -1, 0.5, NaN, Infinity, 1]) {
+        const changed = clone(input); changed.key.execution.provided = provided;
+        assert.equal(product.verifySummary(changed, supplied.context).some(row => row.rule === "summary-entry-exact"), true);
+      }
+      supplied.types.signatures[1].parameters = [{ ...parameter(), kind: "rest" }];
+      input.parameters = [{ slot: { kind: "parameter", index: 0 }, reads: completePaths(), writes: completePaths() }];
+      equal(product.verifySummary(input, supplied.context), [], "rest is not counted as a supplied fixed argument");
+    }
+    const value = emptySummary();
+    value.key = { kind: "declared", execution: { request: { definition: definitions.callee, endpoint: "api-signature", ordinal: 2, bindings: parametric() }, provided: 0 } };
+    const authored = emptySummaryText.replace(bodySummaryText,
+      `declared(execution=DeclaredExecution(request=SignatureRequest(definition=def:"${definitions.callee}", endpoint="api-signature", ordinal=2, bindings=parametric()), provided=0))`);
+    equal(product.printSummary(value), authored, "complete independently authored declared execution wire");
+    equal(product.parseSummary(authored), { kind: "parsed", value }, "complete declared execution record round trip");
+  });
+
+  await suite.test("flow memory references keep their own exact metadata proof after static observations move out", () => {
+    for (const kind of ["layout", "field"]) for (const missing of ["absent", "wrong-family", "wrong-row"]) {
+      const input = bodyFacts(); const supplied = setup(input);
+      physicalRecord(supplied);
+      if (kind === "layout") input.rawLocations = [{ node: 1, operation: "to-raw", pointee: 0, layout: clone(layoutReference), context: 0, bindings: emptyBindings() }];
+      else input.fieldBindings = [boundField(1)];
+      supplied.canonicalArenas.set(ownerKey(owner()), clone(input.arena));
+      supplied.scopeRows.body.push(emptyScope());
+      supplyScopes(supplied, { kind: "body", instance: input.execution.instance }, supplied.scopeRows.body);
+      equal(product.verifyFacts(input, supplied.mir, supplied.context), [], "complete real flow-memory fixture before its independent metadata opposite");
+      if (missing === "absent") supplied.metadataRows.set(definitions.layout, null);
+      else if (missing === "wrong-family") supplied.metadataRows.set(definitions.layout, { ...abi(64), key: metadata().key });
+      else if (kind === "layout") input.rawLocations[0].layout.layout = 99;
+      else input.fieldBindings[0].field.field = 99;
+      assert.equal(product.verifyFacts(input, supplied.mir, supplied.context).some(row => row.rule === "metadata-reference-resolves"), true);
+    }
+    const input = bodyFacts(); const supplied = setup(input);
+    input.origins.escapes = [{ point: { block: 0, statement: null }, node: 1, producer: 0,
+      target: { kind: "callback", at: { kind: "node", node: itemRef(definitions.f) } } }];
+    assert.equal(product.verifyFacts(input, supplied.mir, supplied.context).some(row => row.rule === "cross-owner-qualified"), true);
+  });
+
   await suite.test("whole fresh strict declaration isolation and genuine readonly consumers", async () => {
     const module = hostCatalogue.find(row => row.name === "ir-facts");
     const tooling = process.env.TSONIC_TOOLING_ROOT === undefined ? repository : realpathSync(process.env.TSONIC_TOOLING_ROOT);
@@ -4263,7 +4467,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
         'import type { BodyFacts, Summary, MetadataRecord, CallGraph, FactsVerificationContext } from "./packages/host/src/ir-facts/contract.js";',
         'import type { MirBody } from "./packages/host/src/ir-mir/contract.js";',
         "declare const facts: BodyFacts; declare const summary: Summary; declare const metadata: MetadataRecord; declare const graph: CallGraph; declare const context: FactsVerificationContext; declare const mir: MirBody;",
-        'const values = [printFacts(facts), parseFacts(""), verifyFacts(facts, mir, context), printSummary(summary), parseSummary(""), verifySummary(summary, context), printMetadata(metadata), parseMetadata(""), verifyMetadata(metadata, context), printCallGraph(graph), parseCallGraph(""), verifyCallGraph(graph, context), verifyLiveness(facts.liveness, facts.instance, mir, context)]; void values;',
+        'const values = [printFacts(facts), parseFacts(""), verifyFacts(facts, mir, context), printSummary(summary), parseSummary(""), verifySummary(summary, context), printMetadata(metadata), parseMetadata(""), verifyMetadata(metadata, context), printCallGraph(graph), parseCallGraph(""), verifyCallGraph(graph, context), verifyLiveness(facts.liveness, facts.execution.instance, mir, context)]; void values;',
       ].join("\n");
       const cases = [["all-ports", "", []], ["sparse-diagnostics", [
         'import type { Diagnostic } from "./packages/host/src/diag/contract.js";',
@@ -4299,14 +4503,14 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
         "const peerTir: TirBody = { ...actualTir, params: new Array<TirParam>(1), captures: new Array<BodyCaptureRow>(2) };",
         "verifyFacts(facts, { ...mir, blocks: [peerBlock], locals }, { ...context, types: { ...context.types, terms, signatures }, tirBody: () => peerTir });",
         "verifyFacts(facts, { ...mir, blocks }, context);",
-      ].join("\n"), []], ["facts-readonly", "facts.instance.body = facts.instance.body;", [2540]],
+      ].join("\n"), []], ["facts-readonly", "facts.execution.instance.body = facts.execution.instance.body;", [2540]],
         ["summary-readonly", "summary.result = summary.result;", [2540]], ["metadata-readonly", "metadata.key.definition = metadata.key.definition;", [2540]],
         ["graph-readonly", "graph.edges = [];", [2540]], ["producer-vector-readonly", "facts.arena.producers.push(facts.arena.producers[0]);", [2339]],
         ...["parseFacts", "parseSummary", "parseMetadata", "parseCallGraph"].map(name => [name, `${name}(0);`, [2345]]),
         ["printFacts", "printFacts(summary);", [2740]], ["printSummary", "printSummary(facts);", [2740]],
         ["printMetadata", "printMetadata(graph);", [2345]], ["printCallGraph", "printCallGraph(metadata);", [2345]],
         ["verifyFacts", "verifyFacts(summary, mir, context);", [2740]], ["verifySummary", "verifySummary(facts, context);", [2740]],
-        ["verifyLiveness", "verifyLiveness(facts.liveness, facts.instance, mir, context, 0);", [2554]],
+        ["verifyLiveness", "verifyLiveness(facts.liveness, facts.execution.instance, mir, context, 0);", [2554]],
         ["verifyMetadata", "verifyMetadata(graph, context);", [2345]], ["verifyCallGraph", "verifyCallGraph(metadata, context);", [2345]],
       ];
       const results = [];
@@ -4328,7 +4532,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     } finally { if (stage !== undefined) deps.discard(stage); }
   });
 
-  await suite.test("all eight actual emitted product files have nonempty source-identified 100 percent coverage", async () => {
+  await suite.test("all ten actual emitted product files have nonempty source-identified 100 percent coverage", async () => {
     const productPaths = sourceNames.map(name => resolve(repository, `packages/host/dist/ir-facts/${name}.js`));
     const coverage = await post("Profiler.takePreciseCoverage");
     const result = coverage.result.filter(script => productPaths.some(path => pathToFileURL(path).href === script.url));

@@ -14,6 +14,8 @@ import type {
   ArtifactBindings,
   BindingVector,
   BodyInstance,
+  Execution,
+  DeclaredExecution,
   ComponentSelector,
   ConstValue,
   PointerEvidence,
@@ -382,4 +384,14 @@ export function rewriteCoreCapture(rewrite: TypeRewrite, core: HirCoreCapture, a
     argumentPassing: core.argumentPassing,
     flowState: core.flowState,
   };
+}
+
+export function rewriteExecution(rewrite: TypeRewrite, execution: Execution): Execution {
+  return { instance: rewriteInstance(rewrite, execution.instance), provided: execution.provided };
+}
+
+export function rewriteDeclaredExecution(rewrite: TypeRewrite, execution: DeclaredExecution): DeclaredExecution {
+  const request = execution.request;
+  return { request: { definition: request.definition, endpoint: request.endpoint, ordinal: request.ordinal,
+    bindings: rewriteArtifactBindings(rewrite, request.bindings) }, provided: execution.provided };
 }
