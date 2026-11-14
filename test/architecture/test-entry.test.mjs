@@ -29,6 +29,10 @@ test("the normal entry gives node --test the three configured patterns, quoted s
   const script = manifest.scripts.test;
   assert.equal(patterns.every(pattern => typeof pattern === "string" && pattern.endsWith("/**/*.test.mjs")), true, "three recursive entry patterns");
   for (const key of bankKeys) assert.equal(script.includes(` "$npm_package_config_${key}"`), true, `the entry passes ${key}`);
+  // The reverse: every config key the entry passes, and every config key stated, is one the bank check reads.
+  assert.deepEqual([...script.matchAll(/\$npm_package_config_(\w+)/gu)].map(match => match[1]).sort(), [...bankKeys].sort(),
+    "the entry passes exactly the keys the bank check reads");
+  assert.deepEqual(Object.keys(manifest.config).sort(), [...bankKeys].sort(), "package.json config states exactly those keys");
   assert.equal(script.split(" --test --test-concurrency=1 ").length, 2, "one node --test invocation");
 });
 
