@@ -1016,3 +1016,93 @@ test("K-3341 many parameters: refused at zero and one under the fact count, acce
     unit: { request: { query: "captureModule", key: module }, position: { kind: "result" } } })] }, `maximum ${value}`);
   assert.equal(under(60).kind, "ok");
 });
+
+// K-3340: lowering keeps each fact's availability and reason as captured. Constructed raw modules from add's real capture (node 13
+// is a + b, node 14 is the use of a, node 4 is parameter a). Expectations written before the run.
+test("K-3340: views, storage places, memory and layout observations keep present, proven-null and unavailable states with each reason; reasons HIR has no arm for are a named frontier", async () => {
+  const hir = await import("../../packages/host/dist/ir-hir/index.js");
+  const types = await import("../../packages/host/dist/ir-types/index.js");
+  const { deps, program, module } = openedModule(addSource);
+  const raw = front.captureModule(deps, program, module).value;
+  const definitions = front.lowerModuleDefinitions(raw).value;
+  const lower = changed => {
+    const interner = types.createTypeInterner();
+    const lowered = front.lowerModule(lowerDepsFor(definitions, interner, addSource), changed);
+    const nodes = new Map(hir.indexSyntaxTree(lowered.value.tree).map(node => [node.id, node]));
+    return { at: id => nodes.get(id).tsonic, float64: types.internType(interner, { kind: "primitive", primitive: "float64" }) };
+  };
+  const unavailable = reason => ({ kind: "unavailable", reason, diagnostics: [] });
+  const withView = declared => ({ ...raw, checkerViews: raw.checkerViews.map(view => view.node.node === 13 ? { ...view, declared } : view) });
+  const withCore = (node, field, fact) => ({ ...raw, core: raw.core.map(row => row.node.node === node ? { ...row, [field]: fact } : row) });
+  const absent = { kind: "available", value: null };
+  // The real capture: no storage row (not provided), memory and observation proven absent, declared view proven absent.
+  const plain = lower(raw);
+  assert.deepEqual([plain.at(14).value.place, plain.at(14).value.memory, plain.at(14).value.observation, plain.at(13).value.views.declared],
+    [{ kind: "unavailable", reason: "not-provided" }, absent, absent, absent]);
+  assert.deepEqual(plain.at(4).memory, absent);
+  // The declared view: present, and unavailable for each reason HIR has.
+  const binary = raw.checkerViews.find(view => view.node.node === 13);
+  const present = lower(withView({ kind: "available", value: binary.read.value }));
+  assert.deepEqual(present.at(13).value.views.declared, { kind: "available", value: present.float64 });
+  for (const reason of ["checker-error", "parameter-dependent", "not-provided"])
+    assert.deepEqual(lower(withView(unavailable(reason))).at(13).value.views.declared, { kind: "unavailable", reason });
+  for (const reason of ["missing-original-component", "incomplete-association", "unsupported-checked-structure"])
+    assert.throws(() => lower(withView(unavailable(reason))), { name: "TypeError",
+      message: `front: the lowering of a fact (declared view) unavailable for the reason ${reason} is not implemented (HIR's captured fact has no such reason)` });
+  // A storage row: proven absence and an unavailable place are kept; a present place is a named frontier.
+  const withStorage = fact => ({ ...raw, storage: [{ node: { module, node: 14 }, fact }] });
+  assert.deepEqual(lower(withStorage(absent)).at(14).value.place, absent);
+  assert.deepEqual(lower(withStorage(unavailable("checker-error"))).at(14).value.place, { kind: "unavailable", reason: "checker-error" });
+  assert.throws(() => lower(withStorage({ kind: "available", value: { expression: { module, node: 14 }, storageExpression: { module, node: 14 }, type: binary.read.value,
+    symbol: null, declaration: null, writable: false } })), { name: "TypeError", message: "front: the lowering of a present fact (storage place) is not implemented" });
+  // Core facts keep their reasons, markers included; memory comes from the node's metadata.
+  assert.deepEqual(lower(withCore(4, "metadata", unavailable("parameter-dependent"))).at(4).memory, { kind: "unavailable", reason: "parameter-dependent" });
+  assert.deepEqual(lower(withCore(4, "markers", unavailable("checker-error"))).at(4).core.markers, { kind: "unavailable", reason: "checker-error" });
+  assert.throws(() => lower(withCore(13, "layoutQuery", unavailable("incomplete-association"))), { name: "TypeError",
+    message: "front: the lowering of a fact (layout query) unavailable for the reason incomplete-association is not implemented (HIR's captured fact has no such reason)" });
+});
+
+// K-3361: the explicit this receiver and the declaration's type parameters are the checker's and the syntax's. Expectations
+// written before the run.
+test("K-3361: a receiver is captured apart from the ordinary parameters and lowering refuses it by name; add's receiver is the checker's known absence; an unused type parameter is kept", async () => {
+  const hir = await import("../../packages/host/dist/ir-hir/index.js");
+  const types = await import("../../packages/host/dist/ir-types/index.js");
+  const captured = sourceText => {
+    const { deps, program, module } = openedModule(sourceText);
+    const raw = front.captureModule(deps, program, module).value;
+    const association = raw.callableAssociations[0];
+    return { raw, signature: raw.types.signatures[association.advertised[0]], nodes: hir.indexSyntaxTree(raw.tree), module, sourceText };
+  };
+  const refusalOf = ({ raw, sourceText }) => () => front.lowerModule(lowerDepsFor(front.lowerModuleDefinitions(raw).value, types.createTypeInterner(), sourceText), raw);
+  const receiving = captured("export function f(this: number, x: number): number { return x; }\n");
+  const parameterNodes = receiving.nodes.filter(node => node.kind === "Parameter").map(node => node.id);
+  assert.equal(receiving.signature.receiver.kind, "available");
+  assert.ok(receiving.signature.receiver.value !== null, "the receiver is present");
+  assert.equal(receiving.signature.receiver.value.declaration.node, parameterNodes[0]);
+  assert.deepEqual(receiving.raw.types.types[receiving.signature.receiver.value.type].form, { kind: "available", value: { kind: "scalar", scalar: "number" } });
+  assert.deepEqual(receiving.signature.parameters.map(parameter => parameter.declaration.node), [parameterNodes[1]]);
+  assert.throws(refusalOf(receiving), { name: "TypeError", message: "front: a function with an explicit this receiver, or whose receiver is not captured, is not implemented" });
+  const plain = captured(addSource);
+  assert.deepEqual([plain.signature.receiver, plain.signature.typeParameters], [{ kind: "available", value: null }, { kind: "available", value: [] }]);
+  const generic = captured("export function f<T>(x: number): number { return x; }\n");
+  const typeParameter = generic.nodes.find(node => node.kind === "TypeParameter").id;
+  assert.deepEqual(generic.signature.typeParameters, { kind: "available", value: [{ module: generic.module, node: typeParameter }] });
+  assert.throws(refusalOf(generic), { name: "TypeError", message: "front: checked annotation not implemented: FunctionDeclaration with type parameters" });
+});
+
+// R2 M-2: the same five parameters with the last typed `string | number`. Its facts: the signature row (1), four parameters
+// (3 each, to 13), e's component and symbol (14, 15), e's type (16), whose read meets the checker-type frontier. Expectations
+// written before the run.
+test("K-3341 many parameters, last one unsupported: refused at zero and at the fact before its type with that type never read; one more admits the read", async () => {
+  const diag = await import("../../packages/host/dist/diag/index.js");
+  const sourceText = "export function many(a: number, b: number, c: number, d: number, e: string | number): number { return a; }\n";
+  const module = moduleOf(packageOf("/project"), "src/main.ts");
+  const under = value => {
+    const { deps, program } = openedModule(sourceText);
+    return front.captureModule({ ...deps, navigationCapture: { ...deps.navigationCapture, maximumCapturedFactsPerModule: value } }, program, module);
+  };
+  for (const value of [0, 15]) assert.deepEqual(under(value), { kind: "refused", diagnostics: [diag.resourceLimitDiagnostic({ owner: "front",
+    limit: "front.maximumCapturedFactsPerModule", maximum: value, site: { kind: "file", path: "/project/src/main.ts" },
+    unit: { request: { query: "captureModule", key: module }, position: { kind: "result" } } })] }, `maximum ${value}`);
+  assert.throws(() => under(16), { name: "TypeError", message: "front: the captured form of the checker type string | number is not implemented" });
+});

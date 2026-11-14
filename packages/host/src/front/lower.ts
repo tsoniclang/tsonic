@@ -7,7 +7,7 @@ import { childrenOfSyntax } from "../ir-hir/index.js";
 import type { TypeTerm } from "../ir-types/contract.js";
 import { internSignature, internType } from "../ir-types/index.js";
 import type { PassingMode } from "../ir-types/contract.js";
-import type { ConvertedCheckedType, LowerDeps, ModuleDefinitions, ModuleExports, RawCallableAssociation, RawCheckerViews, RawCoreCapture, RawFact, RawModule } from "./contract.js";
+import type { ConvertedCheckedType, LowerDeps, ModuleDefinitions, ModuleExports, RawCallableAssociation, RawCheckerViews, RawCoreCapture, RawFact, RawModule, RawStorageCapture } from "./contract.js";
 import { definitionRows } from "./identities.js";
 
 type Syntax = Hir.SyntaxPhase;
@@ -47,32 +47,56 @@ function refuseUnwritten(tree: Hir.SyntaxNode<Syntax>): void {
 }
 
 /**
- * A node's core facts as capture supplied them (K-3313.2): a proven absence stays a proven absence, a fact not
- * provided stays not provided. A present fact is a development frontier of this lowering, refused by name.
+ * One raw fact as HIR's captured fact (K-3340): availability and the reason are kept as captured. A reason HIR's
+ * captured fact has no arm for (missing original component, incomplete association, unsupported checked structure)
+ * is a named development frontier, never turned into another reason.
+ */
+function capturedFact<Raw, Value>(raw: RawFact<Raw>, name: string, convert: (value: Raw) => Value): Hir.CapturedFact<Value> {
+  if (raw.kind === "available") return { kind: "available", value: convert(raw.value) };
+  if (raw.reason === "checker-error" || raw.reason === "parameter-dependent" || raw.reason === "not-provided") return { kind: "unavailable", reason: raw.reason };
+  throw new TypeError(`front: the lowering of a fact (${name}) unavailable for the reason ${raw.reason} is not implemented (HIR's captured fact has no such reason)`);
+}
+
+/** A fact whose present value this lowering does not convert yet: a proven absence is kept, a present value is a named frontier. */
+function absenceOnly<Value>(name: string): (value: Value | null) => null {
+  return value => {
+    if (value !== null) throw new TypeError(`front: the lowering of a present fact (${name}) is not implemented`);
+    return null;
+  };
+}
+
+/**
+ * A node's core facts as capture supplied them (K-3313.2, K-3340): a proven absence stays a proven absence, an
+ * unavailable fact keeps its reason. A present fact is a development frontier of this lowering, refused by name.
  */
 function coreOf(lowering: Lowering, node: NodeId): Hir.HirCoreCapture {
   const raw = lowering.core.get(node);
   if (raw === undefined) return throwInvariant(invariant("A node of a lowered module has no captured core facts."));
-  const absent = <Value>(fact: RawFact<Value | null>, name: string): Hir.CapturedFact<null> => {
-    if (fact.kind === "unavailable") return { kind: "unavailable", reason: fact.reason === "checker-error" || fact.reason === "parameter-dependent" ? fact.reason : "not-provided" };
-    if (fact.value !== null) throw new TypeError(`front: the lowering of a present core fact (${name}) is not implemented`);
-    return { kind: "available", value: null };
-  };
-  const markers: Hir.CapturedFact<Hir.HirMarkersCapture> = raw.markers.kind === "unavailable" ? { kind: "unavailable", reason: "not-provided" }
-    : raw.markers.value.struct === null && raw.markers.value.field === null && raw.markers.value.defaultValue === null && !raw.markers.value.jsString
-      ? { kind: "available", value: { struct: null, field: null, defaultValue: null, jsString: false } }
-      : (() => { throw new TypeError("front: the lowering of present markers is not implemented"); })();
-  const passing = raw.argumentPassing;
-  const argumentPassing: Hir.CapturedFact<Hir.HirArgumentPassingCapture | null> = passing.kind === "unavailable" ? absent(passing, "argument passing")
-    : passing.value === null ? { kind: "available", value: null }
-    : passing.value.role === "declaration" ? { kind: "available", value: { role: "declaration", mode: passing.value.mode } }
-    : (() => { throw new TypeError("front: the lowering of an argument's passing capture is not implemented"); })();
+  const markers = capturedFact(raw.markers, "markers", (value): Hir.HirMarkersCapture => {
+    if (value.struct !== null || value.field !== null || value.defaultValue !== null || value.jsString) throw new TypeError("front: the lowering of a present fact (markers) is not implemented");
+    return { struct: null, field: null, defaultValue: null, jsString: false };
+  });
+  const argumentPassing = capturedFact(raw.argumentPassing, "argument passing", (value): Hir.HirArgumentPassingCapture | null => {
+    if (value === null) return null;
+    if (value.role !== "declaration") throw new TypeError("front: the lowering of a present fact (argument passing of an argument) is not implemented");
+    return { role: "declaration", mode: value.mode };
+  });
   return {
-    provider: absent(raw.provider, "provider"), markers, pointerType: absent(raw.pointerType, "pointer type"),
-    pointerOperation: absent(raw.pointerOperation, "pointer operation"), fieldBinding: absent(raw.fieldBinding, "field binding"),
-    recordBinding: absent(raw.recordBinding, "record binding"), attribute: absent(raw.attribute, "attribute"), safety: absent(raw.safety, "safety"),
-    argumentPassing, flowState: absent(raw.flowState, "flow state"),
+    provider: capturedFact(raw.provider, "provider", absenceOnly("provider")), markers,
+    pointerType: capturedFact(raw.pointerType, "pointer type", absenceOnly("pointer type")),
+    pointerOperation: capturedFact(raw.pointerOperation, "pointer operation", absenceOnly("pointer operation")),
+    fieldBinding: capturedFact(raw.fieldBinding, "field binding", absenceOnly("field binding")),
+    recordBinding: capturedFact(raw.recordBinding, "record binding", absenceOnly("record binding")),
+    attribute: capturedFact(raw.attribute, "attribute", absenceOnly("attribute")), safety: capturedFact(raw.safety, "safety", absenceOnly("safety")),
+    argumentPassing, flowState: capturedFact(raw.flowState, "flow state", absenceOnly("flow state")),
   };
+}
+
+/** A node's memory fact: its captured memory metadata (K-3340), joined once per node with the core facts. */
+function memoryOf(lowering: Lowering, node: NodeId): Hir.CapturedFact<Hir.HirMemoryLayoutCapture | Hir.HirMemoryFieldCapture | null> {
+  const raw = lowering.core.get(node);
+  if (raw === undefined) return throwInvariant(invariant("A node of a lowered module has no captured core facts."));
+  return capturedFact(raw.metadata, "memory metadata", absenceOnly("memory metadata"));
 }
 
 /**
@@ -141,6 +165,7 @@ interface Lowering {
   readonly bodyParent: ReadonlyMap<BodyId, BodyId>;
   readonly captures: Map<BodyId, LocalRef[]>;
   readonly core: ReadonlyMap<NodeId, RawCoreCapture>;
+  readonly storage: ReadonlyMap<NodeId, RawStorageCapture>;
 }
 
 interface NodeBodies {
@@ -216,14 +241,21 @@ function definitionOf(lowering: Lowering, node: NodeId): DefId {
   return definition ?? throwInvariant(invariant("A declaration node of a written kind has no definition identity."));
 }
 
+/**
+ * An expression's checked value (K-3340): each view as captured (availability and reason kept), its storage place from
+ * its storage row (no row: not provided, never a proven absence), its memory and layout observation from its core facts.
+ */
 function valueOf(lowering: Lowering, node: NodeId): Hir.CheckedValue {
   const views = lowering.views.get(node);
-  if (views === undefined || views.read.kind !== "available" || views.contextual.kind !== "available")
-    return throwInvariant(invariant("An expression of a written kind has no checker views."));
+  const core = lowering.core.get(node);
+  if (views === undefined || core === undefined) return throwInvariant(invariant("An expression of a written kind has no checker views or core facts."));
+  const optionalType = (type: RawTypeId | null): TyId | null => type === null ? null : typeOf(lowering, type);
+  const storage = lowering.storage.get(node);
   return {
-    views: { read: { kind: "available", value: typeOf(lowering, views.read.value) }, declared: { kind: "available", value: null },
-      contextual: { kind: "available", value: views.contextual.value === null ? null : typeOf(lowering, views.contextual.value) } },
-    place: { kind: "available", value: null }, memory: { kind: "available", value: null }, observation: { kind: "available", value: null },
+    views: { read: capturedFact(views.read, "read view", type => typeOf(lowering, type)), declared: capturedFact(views.declared, "declared view", optionalType),
+      contextual: capturedFact(views.contextual, "contextual view", optionalType) },
+    place: storage === undefined ? { kind: "unavailable", reason: "not-provided" } : capturedFact(storage.fact, "storage place", absenceOnly("storage place")),
+    memory: memoryOf(lowering, node), observation: capturedFact(core.layoutQuery, "layout query", absenceOnly("layout query")),
   };
 }
 
@@ -286,7 +318,12 @@ function functionDeclaration(lowering: Lowering, node: Hir.FunctionDeclaration<S
   const association = lowering.associations.get(node.id);
   const advertised = association?.advertised[0];
   const rawSignature = advertised === undefined ? undefined : lowering.raw.types.signatures[advertised];
-  if (association === undefined || association.advertised.length !== 1 || rawSignature === undefined || rawSignature.parameters.length !== node.parameters.nodes.length)
+  if (association === undefined || association.advertised.length !== 1 || rawSignature === undefined)
+    return throwInvariant(invariant("A function of a written form has no captured signature."));
+  // An explicit this receiver is not an ordinary parameter (K-3361): its lowering is outside the written slice.
+  if (rawSignature.receiver.kind !== "available" || rawSignature.receiver.value !== null)
+    throw new TypeError("front: a function with an explicit this receiver, or whose receiver is not captured, is not implemented");
+  if (rawSignature.parameters.length !== node.parameters.nodes.length)
     return throwInvariant(invariant("A function of a written form has no captured signature with one row per parameter."));
   if (rawSignature.result.kind !== "available") throw new TypeError("front: a function whose checked result type is not captured is not implemented");
   const resultType = typeOf(lowering, rawSignature.result.value);
@@ -307,7 +344,7 @@ function functionDeclaration(lowering: Lowering, node: Hir.FunctionDeclaration<S
     const lowered: Hir.ParameterDeclaration<Checked> = { ...headerOf(parameter), kind: "Parameter", modifiers: null, dotDotDotToken: null,
       name: { ...headerOf(parameter.name), kind: "Identifier", text: parameter.name.text, tsonic: { core: coreOf(lowering, parameter.name.id), role: "declaration-name", declaration: target } },
       questionToken: null, type: declared === null ? null : declared.node, initializer: null,
-      tsonic: { core: coreOf(lowering, parameter.id), parent: definition, attributes: [], memory: { kind: "available", value: null }, declaration: target,
+      tsonic: { core: coreOf(lowering, parameter.id), parent: definition, attributes: [], memory: memoryOf(lowering, parameter.id), declaration: target,
         declaredType: { kind: "available", value: declaredType }, initializer: null } };
     return { lowered, definition: parameterDefinition, checkedType, passing: passingOf(lowering, parameter.id) };
   });
@@ -332,7 +369,7 @@ function functionDeclaration(lowering: Lowering, node: Hir.FunctionDeclaration<S
     parameters: { loc: node.parameters.loc, nodes: parameters.map(parameter => parameter.lowered) }, type: returnType, fullSignature: null, asteriskToken: null,
     body: loweredBody,
     name: name === null ? null : { ...headerOf(name), kind: "Identifier", text: name.text, tsonic: { core: coreOf(lowering, name.id), role: "declaration-name", declaration: targetOf(lowering, node.id) } },
-    tsonic: { core: coreOf(lowering, node.id), parent: owner, attributes: [], memory: { kind: "available", value: null }, definition, parameters: [],
+    tsonic: { core: coreOf(lowering, node.id), parent: owner, attributes: [], memory: memoryOf(lowering, node.id), definition, parameters: [],
       // One API body endpoint with its real body: a written function is not overloaded (an overload family is refused
       // by the written-kinds check, as a FunctionDeclaration without a body), so it has no advertised row (K-3312.1).
       signatures: [{ declaration: definition, role: "api-body", signature, body }], body } };
@@ -352,6 +389,7 @@ export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<Hir.HirM
   const lowering: Lowering = {
     deps, raw, definitionAt, bodyOf: structure.bodyOf, bodyParent: structure.bodyParent, captures: new Map(),
     core: new Map(raw.core.filter(entry => entry.node.module === raw.module).map(entry => [entry.node.node, entry])),
+    storage: new Map(raw.storage.filter(entry => entry.node.module === raw.module).map(entry => [entry.node.node, entry])),
     views: new Map(raw.checkerViews.filter(view => view.node.module === raw.module).map(view => [view.node.node, view])),
     references: new Map(raw.references.filter(reference => reference.declaration.module === raw.module).map(reference => [reference.occurrence.node, reference.declaration.node])),
     locals: new Map(), bodies: [],
@@ -362,7 +400,7 @@ export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<Hir.HirM
     statements: { loc: raw.tree.statements.loc, nodes: raw.tree.statements.nodes.map(child => statement(lowering, child, moduleDefinition)) },
     endOfFileToken: token(raw.tree.endOfFileToken), languageVariant: raw.tree.languageVariant, scriptKind: raw.tree.scriptKind,
     commentDirectives: raw.tree.commentDirectives, pragmas: raw.tree.pragmas, checkJsDirective: raw.tree.checkJsDirective,
-    tsonic: { core: coreOf(lowering, raw.tree.id), parent: null, attributes: [], memory: { kind: "available", value: null }, definition: moduleDefinition, body: moduleBody } };
+    tsonic: { core: coreOf(lowering, raw.tree.id), parent: null, attributes: [], memory: memoryOf(lowering, raw.tree.id), definition: moduleDefinition, body: moduleBody } };
   // Each body's captures, and its nested bodies: the bodies it directly encloses, in preorder, as the body walk recorded them.
   const bodies: Hir.HirBody[] = [{ body: moduleBody, owner: moduleDefinition, params: [], locals: [], root: tree, captures: [], scopes: [],
     asynchronous: false, generator: false, candidateLists: [], nestedBodies: [] }, ...lowering.bodies]

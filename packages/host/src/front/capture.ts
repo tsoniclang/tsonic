@@ -210,7 +210,6 @@ function rawSymbol(scope: CaptureScope, program: CheckedProgram, symbol: Checker
   if (known !== undefined) return known;
   if (!admit(scope, "facts")) return null;
   const id = rawSymbolId(scope.tables.symbols.length);
-  scope.tables.symbolIds.set(symbol, id);
   const declarations: RawNodeRef[] = [];
   for (const declaration of scope.checker.getSymbolDeclarations(symbol)) {
     const reference = declaration === undefined ? null : referenceTo(scope, program, declaration);
@@ -218,6 +217,8 @@ function rawSymbol(scope: CaptureScope, program: CheckedProgram, symbol: Checker
     if (reference !== null) declarations.push(reference);
   }
   scope.tables.symbols.push({ id, name: scope.checker.getSymbolName(symbol), declarations, aliasTarget: available(null), exports: available([]) });
+  // The identity is known only once its row exists (R2 M-1): a refusal inside leaves no entry without a row.
+  scope.tables.symbolIds.set(symbol, id);
   return id;
 }
 
@@ -226,7 +227,6 @@ function rawSignature(scope: CaptureScope, program: CheckedProgram, signature: S
   if (known !== undefined) return known;
   if (!admit(scope, "facts")) return null;
   const id = rawSignatureId(scope.tables.signatures.length);
-  scope.tables.signatureIds.set(signature, id);
   const declarationNode = scope.checker.getSignatureDeclaration(signature);
   const declaration = declarationNode === undefined ? null : referenceTo(scope, program, declarationNode);
   if (scope.meter.refusal !== null) return null;
@@ -245,12 +245,38 @@ function rawSignature(scope: CaptureScope, program: CheckedProgram, signature: S
     parameters.push({ declaration: parameterReference, symbol: parameterSymbol, kind: "required", component: position, type, acceptsOmission: false,
       initializer: null, passing: notProvided() });
   }
+  // The explicit this receiver (K-3361), which the checker keeps apart from the ordinary parameters: the SDK's own
+  // query answers it, so its absence is the checker's, not assumed.
+  const thisSymbol = scope.checker.getSignatureThisParameter(signature);
+  let receiver: RawParameter | null = null;
+  if (thisSymbol !== undefined) {
+    const receiverNode = scope.checker.getSymbolDeclarations(thisSymbol)[0];
+    const receiverReference = receiverNode === undefined ? null : referenceTo(scope, program, receiverNode);
+    if (scope.meter.refusal !== null) return null;
+    const position = component(scope, owner, [{ kind: "receiver", signature: id }]);
+    if (position === null) return null;
+    const receiverSymbol = rawSymbol(scope, program, thisSymbol);
+    if (receiverSymbol === null) return null;
+    const type = rawType(scope, () => scope.checker.getTypeOfSymbol(thisSymbol), position, null);
+    if (type === null) return null;
+    receiver = { declaration: receiverReference, symbol: receiverSymbol, kind: "required", component: position, type, acceptsOmission: false, initializer: null,
+      passing: notProvided() };
+  }
+  // The type parameters of the declaration, used or not (K-3361): each declaration node, as the syntax holds it.
+  const typeParameters: RawNodeRef[] = [];
+  for (const parameter of declarationNode === undefined ? [] : scope.checked.ast.typeParameters(declarationNode)) {
+    const reference = parameter === undefined ? null : referenceTo(scope, program, parameter);
+    if (scope.meter.refusal !== null) return null;
+    if (reference === null) return throwInvariant(invariant("A type parameter of a captured signature's declaration has no node identity."));
+    typeParameters.push(reference);
+  }
   const result = rawType(scope, () => scope.checker.getReturnTypeOfSignature(signature), component(scope, owner, [{ kind: "result", signature: id }]), null);
   if (result === null) return null;
   scope.tables.signatures.push({
-    id, target: null, owner, declaration, kind: "call", typeParameters: available([]), receiver: available(null), parameters,
+    id, target: null, owner, declaration, kind: "call", typeParameters: available(typeParameters), receiver: available(receiver), parameters,
     result: available(result), composition: null,
   });
+  scope.tables.signatureIds.set(signature, id);
   return id;
 }
 
