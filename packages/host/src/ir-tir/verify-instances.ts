@@ -273,19 +273,41 @@ export const verifyBindingSlots = (
   // Where the storage of a captured local comes from in the body that declares it, or null when nothing here says. The
   // declaration facts are read from the checked body. A name bound under a parameter pattern has the parameter role and
   // no parameter record: its storage is the body's own. A local that is itself a capture of the creating body has its
-  // logical capture in the creating body's typed row for the local it was captured from: the creating body published with
-  // the bindings of the body verified here, or else its parametric template. A null row (a template whose creating closure
-  // saved the closure rule) states nothing yet.
-  const enclosingRow = (creating: BodyId, from: LocalRef): LogicalCapture | null => {
-    let template: TirBody | undefined;
-    for (const candidate of published) if (candidate !== undefined && candidate.body === creating) {
-      if (instanceKey({ body: creating, bindings: candidate.bindings }) === instanceKey({ body: creating, bindings: body.bindings })) {
-        return candidate.captures.find(row => sameLocalReference(row.local, from))?.capture ?? null;
-      }
-      if (candidate.bindings.kind === "parametric") template = candidate;
+  // logical capture in the creating artifact's typed row for the local it was captured from.
+  //
+  // The creating artifact is the one that creates this body: a published artifact of the creating body whose tree holds
+  // this body's root as a closure naming this body with this body's lexical bindings. Exactly one such artifact gives its
+  // rows; none or several is missing context, and nothing is read. A null row (a template whose creating closure saved the
+  // closure rule) states nothing yet. Publication order does not matter.
+  const creators = new Map<BodyId, TirBody | null>();
+  const contains = (root: TirNode): TirNode | null => {
+    const pending: TirNode[] = [root];
+    for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
+      if (node.id === body.root.id) return node;
+      pending.push(...childrenOfSyntax<TypedPhase>(node));
     }
-    return template?.captures.find(row => sameLocalReference(row.local, from))?.capture ?? null;
+    return null;
   };
+  const creatorOf = (creating: BodyId): TirBody | null => {
+    const known = creators.get(creating);
+    if (known !== undefined) return known;
+    const environment = bindingVectorKey(body.lexicalBindings);
+    let selected: TirBody | null = null;
+    let count = 0;
+    for (const candidate of published) if (candidate !== undefined && candidate.body === creating) {
+      const node = contains(candidate.root);
+      const template = node !== null && (node.kind === "ArrowFunction" || node.kind === "FunctionExpression") ? node.tsonic.callable.template : null;
+      if (template !== null && template.body === body.body && bindingVectorKey(template.lexicalBindings) === environment) {
+        selected = candidate;
+        count += 1;
+      }
+    }
+    const creator = count === 1 ? selected : null;
+    creators.set(creating, creator);
+    return creator;
+  };
+  const enclosingRow = (creating: BodyId, from: LocalRef): LogicalCapture | null =>
+    creatorOf(creating)?.captures.find(row => sameLocalReference(row.local, from))?.capture ?? null;
   const incomingOf = (reference: LocalRef): CaptureSource | null => {
     for (const source of sources) if (source !== undefined && source.body === reference.body) {
       const local = source.locals[reference.local];

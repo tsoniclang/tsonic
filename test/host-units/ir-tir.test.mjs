@@ -4413,21 +4413,27 @@ test("an enclosing capture's logical capture is read from the creating body's ow
   // body) captures v, a capture of the creating body; v's row in the creating body states whether it is a location.
   const fixture = genericFunctionScenario();
   const body = fixture.functionTemplate;
+  // Two enclosing captures from the same creating body, so the creating artifact is found once and read twice.
   const foreign = { body: "B[D[M[P[foreign];source];f];function;0]", local: 0 };
+  const foreignSecond = { ...foreign, local: 1 };
   const own = { body: bodyId, local: 0 };
+  const ownSecond = { body: bodyId, local: 1 };
   const input = fixture.inputFor(body);
   const source = input.source.bodies.find(candidate => candidate.body === bodyId);
   source.locals = [{ id: 0, declaration: { kind: "body", value: { body: bodyId, node: 0 } }, name: "v", role: "capture",
-    checkerSlot: available(0), capturedFrom: foreign, mutable: false }];
+    checkerSlot: available(0), capturedFrom: foreign, mutable: false },
+  { id: 1, declaration: { kind: "body", value: { body: bodyId, node: 0 } }, name: "w", role: "capture",
+    checkerSlot: available(0), capturedFrom: foreignSecond, mutable: false }];
   const localExists = input.localExists;
-  input.localExists = reference => reference.body === foreign.body ? reference.local === 0 : localExists(reference);
-  fixture.originalFunction.captures = [own];
-  fixture.checkedFunction.tsonic.captures = [own];
+  input.localExists = reference => reference.body === foreign.body ? reference.local <= 1 : localExists(reference);
+  fixture.originalFunction.captures = [ownSecond, own];
+  fixture.checkedFunction.tsonic.captures = [ownSecond, own];
   const binding = nodeViolation("closure-capture-binding", 2, "a binding whose storage another party can write is a captured location");
   const judged = (enclosing, inner) => {
-    fixture.outer.captures = enclosing === undefined ? [] : [{ local: foreign, capture: enclosing }];
-    body.captures = bodyRows([own], inner);
-    body.root.tsonic.closure = closureDecisionOf(4, [own], inner);
+    fixture.outer.captures = enclosing === undefined ? [] : [{ local: foreignSecond, capture: "captured-value" }, { local: foreign, capture: enclosing }];
+    body.captures = [{ local: ownSecond, capture: "captured-value" }, ...bodyRows([own], inner)];
+    body.root.tsonic.closure = { kind: "decided", decision: { carrier: 4, captures: [{ local: ownSecond, capture: "captured-value" }, { local: own, capture: inner }],
+      execution: { kind: "pure" } } };
     return product.verifyTir(input, body).filter(violation => violation.rule === "closure-capture-binding");
   };
   assertCompleteValue(judged("captured-location", "captured-value"), [binding], "an enclosing captured location is a captured location");
@@ -4436,20 +4442,54 @@ test("an enclosing capture's logical capture is read from the creating body's ow
   assertCompleteValue(judged("captured-value", "captured-location"), []);
   assertCompleteValue(judged(null, "captured-value"), [], "a null row of the creating body states nothing yet");
   assertCompleteValue(judged(undefined, "captured-value"), [], "no row for the local it was captured from: no evidence");
-  // An instance of the created body: the creating body has no instance with its bindings, so its template's row is read.
-  const instance = fixture.instances[0];
-  const instanceInput = fixture.inputFor(instance);
-  instanceInput.localExists = input.localExists;
-  fixture.outer.captures = [{ local: foreign, capture: "captured-location" }];
-  instance.captures = bodyRows([own], "captured-value");
-  instance.root.tsonic.closure = closureDecisionOf(4, [own], "captured-value");
-  assertCompleteValue(product.verifyTir(instanceInput, instance).filter(violation => violation.rule === "closure-capture-binding"), [binding],
-    "the creating body's template row is read for an instance");
-  fixture.outer.captures = [];
-  assertCompleteValue(product.verifyTir(instanceInput, instance).filter(violation => violation.rule === "closure-capture-binding"), [],
-    "the template has no row for that local: no evidence");
+  // An instance of the created body is created by an artifact of the creating body whose tree holds the instance's root as
+  // a closure with the instance's lexical bindings. With no such artifact the context is missing and nothing is read: the
+  // parametric creator is not substituted for it.
+  const [first, second] = fixture.instances;
+  for (const instance of [first, second]) {
+    instance.captures = [{ local: ownSecond, capture: "captured-value" }, { local: own, capture: "captured-value" }];
+    instance.root.tsonic.closure = { kind: "decided", decision: { carrier: 4,
+      captures: [{ local: ownSecond, capture: "captured-value" }, { local: own, capture: "captured-value" }], execution: { kind: "pure" } } };
+  }
+  fixture.outer.captures = [{ local: foreignSecond, capture: "captured-value" }, { local: foreign, capture: "captured-location" }];
+  const judgedInstance = instance => {
+    const instanceInput = fixture.inputFor(instance);
+    instanceInput.localExists = input.localExists;
+    return product.verifyTir(instanceInput, instance).filter(violation => violation.rule === "closure-capture-binding");
+  };
+  assertCompleteValue(judgedInstance(first), [], "no artifact of the creating body creates this instance: missing context, no template guess");
+  // Two artifacts of the same creating body, in different environments, each creating one instance, with different rows.
+  const creatorFor = (instance, capture) => {
+    const callable = instance.root.tsonic.callable;
+    const closureNode = { ...instance.root, tsonic: { ...instance.root.tsonic, callable: { ...callable,
+      template: { ...callable.template, lexicalBindings: instance.lexicalBindings } } } };
+    return { ...fixture.outer, bindings: { kind: "instantiated", bindings: instance.lexicalBindings },
+      captures: [{ local: foreignSecond, capture: "captured-value" }, { local: foreign, capture }],
+      root: { ...fixture.outer.root, statements: nodeList([{ ...fixture.outer.root.statements.nodes[0], expression: closureNode }]) } };
+  };
+  // Artifacts of the creating body that do not create the instance: no closure node for it, a closure with no template, a
+  // template of another body. None of them is read.
+  const withExpression = expression => ({ ...creatorFor(first, "captured-location"),
+    root: { ...fixture.outer.root, statements: nodeList([{ ...fixture.outer.root.statements.nodes[0], expression }]) } });
+  const noClosure = { ...creatorFor(first, "captured-location"), root: { ...fixture.outer.root, statements: nodeList([]) } };
+  const noTemplate = withExpression({ ...first.root, tsonic: { ...first.root.tsonic, callable: { ...first.root.tsonic.callable, template: null } } });
+  const otherBody = withExpression({ ...first.root, tsonic: { ...first.root.tsonic, callable: { ...first.root.tsonic.callable,
+    template: { ...first.root.tsonic.callable.template, body: bodyId, lexicalBindings: first.lexicalBindings } } } });
+  const bodies = fixture.inputFor(first).module.bodies;
+  const published = [...bodies];
+  bodies.push(noClosure, noTemplate, otherBody);
+  assertCompleteValue(judgedInstance(first), [], "artifacts that do not create the instance are not read");
+  bodies.push(creatorFor(first, "captured-location"), creatorFor(second, "captured-value"));
+  assertCompleteValue(judgedInstance(first), [binding], "the artifact that creates the first instance states a captured location");
+  assertCompleteValue(judgedInstance(second), [], "the artifact that creates the second instance states a captured value");
+  bodies.reverse();
+  assertCompleteValue(judgedInstance(first), [binding], "publication order: the same artifact is read");
+  assertCompleteValue(judgedInstance(second), [], "publication order: the same artifact is read for the second");
+  bodies.push(creatorFor(first, "captured-value"));
+  assertCompleteValue(judgedInstance(first), [], "two artifacts that both create the first instance: ambiguous, missing context");
+  bodies.splice(0, bodies.length, ...published);
   // A capture-role local that names no captured-from local (refused by the HIR verifier) gives no evidence here.
-  source.locals = [{ ...source.locals[0], capturedFrom: null }];
+  source.locals = [{ ...source.locals[0], capturedFrom: null }, source.locals[1]];
   assertCompleteValue(judged("captured-location", "captured-value"), [], "a capture without its captured-from local: no evidence");
 });
 

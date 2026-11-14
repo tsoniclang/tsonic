@@ -1,6 +1,6 @@
 import type { TyId, SigId, DefId, KeyData, SourceNodeRef, LocalRef } from "../ids/contract.js";
 import type { TextParseResult, Violation } from "../diag/contract.js";
-import type { ArtifactBindings, ComponentSelector, TypeTerm, Signature, SignatureInput, TypeTable, BindingVector, TypeParameterIdentity, TypeEvidence } from "./data.js";
+import type { ArtifactBindings, BodyInstance, ComponentSelector, Execution, TypeTerm, Signature, SignatureInput, TypeTable, BindingVector, TypeParameterIdentity, TypeEvidence } from "./data.js";
 import type { TypeArena } from "./arena.js";
 export type * from "./data.js";
 
@@ -25,6 +25,25 @@ export interface SignatureRequest {
   readonly ordinal: number;
   readonly bindings: ArtifactBindings;
 }
+
+/**
+ * One execution of a bodyless declaration (COMMON-DATA section 1 line 21; K-3367 D): the complete signature request and
+ * the number of arguments provided. Declared here beside SignatureRequest rather than in data.ts beside Execution,
+ * because data.ts does not import this file (this file re-exports data.ts; the module's import graph is acyclic).
+ */
+export interface DeclaredExecution {
+  readonly request: SignatureRequest;
+  readonly provided: number;
+}
+
+/** The canonical key text of a body instance: the body and its complete bindings, a binding-vector hole as null at its position. */
+export type InstanceKey = (instance: BodyInstance) => string;
+/** Whether two body instances are the same instance: equal instance keys. The one public instance comparison. */
+export type SameInstance = (left: BodyInstance, right: BodyInstance) => boolean;
+/** The canonical key text of an execution: its instance key and its provided count. */
+export type ExecutionKey = (execution: Execution) => string;
+/** The canonical key text of a declared execution: the complete signature request and the provided count. */
+export type DeclaredExecutionKey = (execution: DeclaredExecution) => string;
 
 export type TypeTransform<Value> =
   | { readonly kind: "complete"; readonly value: Value }
