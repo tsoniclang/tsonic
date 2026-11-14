@@ -1,7 +1,11 @@
-import type { Result } from "../diag/contract.js";
-import type { NodeRef, Origin } from "../ids/contract.js";
+import type { Diagnostic, UnitRequest, UnitResult } from "../diag/contract.js";
 import type { BodyInstance, ConstantContext, ConstValue, SignatureOf, TypeOf } from "../ir-types/contract.js";
 import type { MirBody } from "../ir-mir/contract.js";
+import type { Step } from "../step/contract.js";
+import type { EvaluationSuspension } from "./pause.js";
+import type { EvaluateAnswer, EvaluateRequest, EvaluationResult, EvaluationWitness } from "./data.js";
+
+export type { EvaluateRequest, EvaluateAnswer, EvaluationResult, EvaluationWitness, ObservationValue } from "./data.js";
 
 export interface EvaluatorLimits {
   readonly maximumSteps: number;
@@ -11,23 +15,25 @@ export interface EvaluatorLimits {
 }
 
 export interface EvaluateDeps {
-  readonly mirBody: (instance: BodyInstance) => MirBody;
-  readonly constValue: (initializer: BodyInstance, context: ConstantContext) => ConstValue;
-  readonly observationValue: (instance: BodyInstance, at: NodeRef) => bigint;
   readonly typeOf: TypeOf;
   readonly signatureOf: SignatureOf;
   readonly limits: EvaluatorLimits;
 }
 
-export type EvaluationResult =
-  | { readonly kind: "value"; readonly value: ConstValue }
-  | { readonly kind: "thrown"; readonly value: ConstValue; readonly origin: Origin }
-  | { readonly kind: "not-constant"; readonly at: NodeRef;
-      readonly reason: "external-operation" | "external-storage" | "suspension" };
+export type EvaluationContinuation = EvaluationSuspension<EvaluateDeps>;
+export interface EvaluationPaused {
+  readonly continuation: EvaluationContinuation;
+  readonly witness: EvaluationWitness;
+}
+export type EvaluationStep = Step<UnitResult<EvaluationResult>, EvaluateRequest, EvaluationPaused, Diagnostic>;
 
 export type Evaluate = (
   deps: EvaluateDeps,
   entry: BodyInstance,
+  body: MirBody,
   arguments_: readonly ConstValue[],
   context: ConstantContext,
-) => Result<EvaluationResult>;
+  unit: UnitRequest,
+) => EvaluationStep;
+
+export type ResumeEvaluate = (deps: EvaluateDeps, paused: EvaluationPaused, answers: readonly EvaluateAnswer[]) => EvaluationStep;

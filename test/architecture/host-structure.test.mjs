@@ -434,7 +434,7 @@ test("non-owning opaque declarations retain their owner-qualified type-only bran
   expect([[file("ir-types", "contract.ts"), 'export type TypeInterner = object & { readonly identityKind: "type-interner" };']], [at("contract-shape", file("ir-types", "contract.ts"))]);
 });
 
-for (const [owner, capability] of [["ir-types", "TypeInterner"], ["ir-program", "ProgramVerificationWork"]]) {
+for (const [owner, capability] of [["ir-types", "TypeInterner"], ["ir-program", "ProgramVerificationWork"], ["evaluate", "EvaluationContinuation"]]) {
   test(`native ${capability} has only private storage and a private constructor`, () => {
     const contract = file(owner, "contract.ts");
     const implementation = file(owner, "arena.ts");
@@ -454,7 +454,8 @@ for (const [owner, capability] of [["ir-types", "TypeInterner"], ["ir-program", 
     expect([[implementation, body]], [at("class", implementation)]);
     const foreign = file("ids", "arena.ts");
     expect([[contract, declaration.replace("./arena.js", "../ids/arena.js")], [foreign, body]],
-      [at("class", foreign), at("contract-shape", contract), at("forbidden-import", contract), at("contract-shape", contract, 2)]);
+      [at("class", foreign), at("contract-shape", contract), at("forbidden-import", contract), at("contract-shape", contract, 2)]
+        .sort((left, right) => left.path.localeCompare(right.path) || left.line - right.line || left.code.localeCompare(right.code)));
     expect([[contract, declaration], [implementation, body],
       [file(owner, "index.ts"), 'export { Arena } from "./arena.js";']], rejected);
     const declaredContract = file(owner, "contract.d.ts");

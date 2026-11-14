@@ -1,4 +1,4 @@
-import type { Result } from "../diag/contract.js";
+import type { Diagnostic, Result } from "../diag/contract.js";
 import type { DefId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { ArtifactBindings, BodyInstance, ConstantContext, ConstValue, MemberTable, TypeOf, TypeTable } from "../ir-types/contract.js";
 import type {
@@ -45,7 +45,7 @@ export type MetadataOf = (
   bindings: ArtifactBindings,
 ) => Result<MetadataRecord | null>;
 
-export type ObservationsOf = (input: ObservationsInput) => Step<Result<BodyObservations>, MetadataKey, ObservationsInput>;
+export type ObservationsOf = (input: ObservationsInput) => Step<Result<BodyObservations>, MetadataKey, ObservationsInput, Diagnostic>;
 
 export type ResumeObservations = (input: ObservationsInput,
   answers: readonly Result<MetadataRecord | null>[]) => Result<BodyObservations>;

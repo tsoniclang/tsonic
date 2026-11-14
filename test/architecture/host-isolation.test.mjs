@@ -360,7 +360,9 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
     ...["index.ts", "bind-declared.ts", "translate-native.ts", "unknown-declared.ts"].map(name => `${host}/summaries/${name}`),
     ...["index.ts", "verify-extensions.ts", "verify-packages.ts", "verify.ts"].map(name => `${host}/snapshot/${name}`),
     ...["index.ts"].map(name => `${host}/step/${name}`),
-    ...["database.ts", "index.ts", "memo.ts"].map(name => `${host}/query/${name}`)].sort();
+    ...["database.ts", "index.ts", "memo.ts"].map(name => `${host}/query/${name}`),
+    ...["index.ts", "lower.ts", "state.ts"].map(name => `${host}/lower-mir/${name}`),
+    ...["budget.ts", "data.ts", "index.ts", "machine.ts", "pause.ts"].map(name => `${host}/evaluate/${name}`)].sort();
   assert.equal(JSON.stringify(inventory), JSON.stringify(expectedInventory), "the complete actual current root equals the explicit reviewed inventory");
   const graph = deps.graph(files);
   for (const module of modules) await context.test(module.name, async () => {

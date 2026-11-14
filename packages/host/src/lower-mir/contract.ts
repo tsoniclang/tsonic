@@ -1,6 +1,7 @@
-import type { Computed } from "../diag/contract.js";
-import type { TyId } from "../ids/contract.js";
-import type { SignatureOf, TypeOf } from "../ir-types/contract.js";
+import type { Result, UnitRef } from "../diag/contract.js";
+import type { SigId, TyId } from "../ids/contract.js";
+import type { BodyCaptureRow } from "../ir-infer/contract.js";
+import type { BodyInstance, SignatureOf, TypeOf } from "../ir-types/contract.js";
 import type { MirBody } from "../ir-mir/contract.js";
 import type { TirBody } from "../ir-tir/contract.js";
 
@@ -9,10 +10,29 @@ export interface LowerMirDefs {
   readonly exceptionStorage: TyId;
 }
 
+// The size of one lowered body. One record is one local, one place, one constant, one statement or one block with
+// its terminator. Lowering charges a record before it allocates it and refuses when the count would pass the maximum.
+export interface LowerMirLimits {
+  readonly maximumRecords: number;
+}
+
 export interface LowerMirDeps {
   readonly defs: LowerMirDefs;
   readonly typeOf: TypeOf;
   readonly signatureOf: SignatureOf;
+  readonly limits: LowerMirLimits;
+  /** The query unit Pipeline runs this lowering for: the unit a refusal for the size limit is reported against. */
+  readonly unit: UnitRef;
 }
 
-export type LowerToMir = (deps: LowerMirDeps, body: TirBody) => Computed<MirBody>;
+export interface InternalBodyInput {
+  readonly instance: BodyInstance;
+  readonly captures: readonly BodyCaptureRow[];
+  readonly signature: SigId;
+}
+
+export type LowerToMir = (
+  deps: LowerMirDeps,
+  body: TirBody,
+  internal: readonly InternalBodyInput[],
+) => Result<MirBody>;

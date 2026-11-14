@@ -147,6 +147,8 @@ export function builders(name, role = "function") {
       b.binary(left, operator, right, { ...value(type), role: "arithmetic", operation: operation(decision) }),
     comparison: (left, operator, right, decision) =>
       b.binary(left, operator, right, { ...value(T.bool), role: "comparison", operation: operation(decision) }),
+    prefix: (operand, operator, type, decision) => ({ kind: "PrefixUnaryExpression", operand, operator,
+      tsonic: { ...value(type), role: "value", operation: operation(decision) } }),
     sequence: (left, right, type) => b.binary(left, "CommaToken", right, { ...value(type), role: "sequence" }),
     assign: (left, operator, right, type, storage, calculation = null, select = null) =>
       b.binary(left, operator, right, { ...value(type), role: "assignment", storage,
