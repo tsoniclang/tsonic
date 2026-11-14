@@ -761,6 +761,10 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
   const referenced = annotation => annotation !== undefined && ast.is.IsTypeReferenceNode(annotation)
     ? symbol(ast.as.AsTypeReferenceNode(annotation).TypeName) : undefined;
   const pipelineSources = [...sourceFiles].filter(([file]) => owner(file)?.kind === "pipeline");
+  // The composition barrier: Pipeline's composition is its source, so only an inspection that holds a Pipeline source file
+  // (not an emitted declaration) can prove or refute that a table is bound. A component's isolated inspection and every
+  // declaration-only inspection hold none; they still judge the table's member results.
+  const compositionBarrier = pipelineSources.some(([, node]) => !ast.isDeclarationFile(node));
   const wiringMembers = new Map();
   for (const [, node] of pipelineSources) {
     const gather = current => {
@@ -786,13 +790,14 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
   // An operation binds a table when Pipeline's composition calls it through the wiring and every such call's result
   // goes into a member of a component's own Deps record that is declared with the operation's result type, and
   // nowhere else. That the result type could be such a member is not enough: the construction has to be there.
-  const resultReference = selected => {
+  const resultTypeNode = selected => {
     for (const declaration of checker(sourceFiles.values().next().value).getSymbolDeclarations(selected)) {
       const type = ast.is.IsTypeAliasDeclaration(declaration) ? ast.typeNode(declaration) : undefined;
-      if (type !== undefined && ast.is.IsFunctionTypeNode(type)) return referenced(ast.as.AsFunctionTypeNode(type).Type);
+      if (type !== undefined && ast.is.IsFunctionTypeNode(type)) return ast.as.AsFunctionTypeNode(type).Type;
     }
     return undefined;
   };
+  const resultReference = selected => referenced(resultTypeNode(selected));
   const depsMemberOf = (property, table) => {
     const literal = ast.parent(property);
     const holder = literal === undefined ? undefined : ast.parent(literal);
@@ -805,7 +810,8 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
       const members = ast.is.IsInterfaceDeclaration(declaration) ? ast.members(declaration)
         : ast.is.IsTypeAliasDeclaration(declaration) && ast.typeNode(declaration) !== undefined && ast.is.IsTypeLiteralNode(ast.typeNode(declaration))
           ? ast.members(ast.typeNode(declaration)) : [];
-      return component?.kind === "component" && pathOf(declaration) === component.contract && ast.text(ast.name(declaration)).endsWith("Deps") &&
+      return component?.kind === "component" && [component.contract, component.contract.replace(/\.ts$/u, ".d.ts")].includes(pathOf(declaration)) &&
+        ast.text(ast.name(declaration)).endsWith("Deps") &&
         members.some(member => ast.is.IsPropertySignatureDeclaration(member) && memberName(ast.name(member)) === name && referenced(ast.typeNode(member)) === table);
     });
   };
@@ -909,6 +915,8 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
     };
     const roots = inspectedDeclarations(sourceFiles.values().next().value, resultReference(selected));
     if (roots.length === 0 || roots.some(declaration => recordMembers(declaration) === undefined)) return false;
+    // The result's own type arguments are part of the table: one that carries a callable makes the result no table of data.
+    if (ast.typeArguments(resultTypeNode(selected)).some(argument => carriesCallable(argument))) return false;
     for (const declaration of roots) judgeRecord(declaration, declaration);
     return true;
   };
@@ -1049,11 +1057,11 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
         const injected = parameters.filter(injectedDependency);
         if (injected.length > 1 || injected.length === 1 && (injected[0] !== parameters[0] || !ownDependencyRecord(module, parameters[0])))
           add("impure-component", file, current);
-        // Its result is data, or a step of data. A result whose declared type carries a callable is accepted only as
-        // the table of an operation that Pipeline's composition binds, and then each operation of that table is held
-        // to the same law.
+        // Its result is data, or a step of data. A result whose declared type carries a callable is accepted only as a
+        // table whose operations are held to the same law, at every level, wherever the stage is inspected; and, at the
+        // composition barrier, only as the table of an operation that Pipeline's composition binds.
         else if (carriesCallable(ast.as.AsFunctionTypeNode(ast.typeNode(current)).Type, current) &&
-          !(bindsTable(symbol(ast.name(current))) && tableOperationFindings(symbol(ast.name(current)))))
+          !(tableOperationFindings(symbol(ast.name(current))) && (!compositionBarrier || bindsTable(symbol(ast.name(current))))))
           add("impure-component", file, current);
       }
       if (["KindStringLiteral", "KindNoSubstitutionTemplateLiteral"].includes(kind) &&

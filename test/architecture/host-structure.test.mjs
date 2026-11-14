@@ -534,22 +534,24 @@ test("a public stage operation takes its inputs, and injected dependencies only 
     [file("ir-types", "contract.ts"), 'import type { TypeArena } from "./arena.js";\nexport type TypeInterner = TypeArena;'],
     [contract, 'import type { TypeInterner } from "../ir-types/contract.js";\nexport type Run = (types: TypeInterner) => TypeInterner;'],
     [entry, 'import type { Run } from "./contract.js";\nexport const run: Run = types => types;']], []);
-  // Negative: a callable in the result, direct and however it is wrapped; and a table of operations returned by an operation that
-  // no composition binds (no Pipeline source is inspected here).
+  // Negative: a callable in the result, direct and however it is wrapped.
   for (const [result, implementation, preamble] of [
     ["() => number", "input => () => input", ""],
-    ["Out", "input => ({ run: () => input })", "export interface Out { readonly run: () => number }"],
     ["readonly (() => number)[]", "input => [() => input]", ""],
     ["(() => number) | null", "input => null", ""],
     ["readonly [number, () => number]", "input => [input, () => input]", ""],
     ["Data & { readonly run: () => number }", "input => ({ value: input, run: () => input })", "export interface Data { readonly value: number; }"],
     ["Readonly<Carrier>", "input => ({ run: () => input })", "export interface Carrier { readonly run: () => number; }"],
-    ["Derived", "input => ({ value: input, run: () => input })", "export interface Base { run(): number } export interface Derived extends Base { readonly value: number }"],
     ["Box<() => number>", "input => ({ value: () => input })", "export interface Box<T> { readonly value: T }"]])
     expect(stage(`(input: number) => ${result}`, implementation, `${preamble}\n`), [at("impure-component", contract, 2)]);
+  // K-3355: a table of operations whose results are data, inspected without Pipeline source, is judged by its members only; that a
+  // composition binds it is judged at the composition barrier (the wiring case below: missing and misplaced composition reported).
+  for (const [result, implementation, preamble] of [
+    ["Out", "input => ({ run: () => input })", "export interface Out { readonly run: () => number }"],
+    ["Derived", "input => ({ value: input, run: () => input })", "export interface Base { run(): number } export interface Derived extends Base { readonly value: number }"]])
+    expect(stage(`(input: number) => ${result}`, implementation, `${preamble}\n`), []);
   expect(stage("(deps: InferDeps) => Table", "deps => ({ first: input => input + deps.bias, second: input => input })",
-    "export interface InferDeps { readonly bias: number; } export interface Table { readonly first: (input: number) => number; readonly second: (input: number) => number }\n"),
-    [at("impure-component", contract, 2)]);
+    "export interface InferDeps { readonly bias: number; } export interface Table { readonly first: (input: number) => number; readonly second: (input: number) => number }\n"), []);
   // Negative: the implementation leaves out or adds a parameter of its contract type, in place or through a named function.
   expect(stage("(deps: InferDeps, input: number) => number", "deps => deps.bias"), [at("contract-shape", entry, 2)]);
   expect(stage("(input: number) => number", "(input, extra) => input"), [at("contract-shape", entry, 2)]);
@@ -620,6 +622,17 @@ test("Pipeline's wiring names every public component operation once, and a table
   // An operation of a bound table is a semantic invocation: a callable hidden in what it returns is reported at the table's declaration.
   for (const hidden of ["readonly value: number; readonly later: () => number;", "readonly values: readonly (() => number)[];", "readonly value: (() => number) | null;"])
     expect([table(hidden), ...rules, ...infer, [pipeline, wiring() + bound]], [at("impure-component", tableFile, 2)]);
+  // K-3355: the composition law is judged at its barrier, an inspection that holds a Pipeline source file. Rules inspected without
+  // Pipeline (its isolation) and with Pipeline only as emitted declarations are accepted with data results; a callable hidden in a
+  // member result is reported in both; a callable result that is no table is reported in both. Expectations written before the run.
+  const pipelineDeclarations = [file("pipeline", "unit.d.ts"), `${imports}export interface Wiring {\n  readonly createRuleTable: CreateRuleTable;\n  readonly solve: Solve;\n}\nexport declare function compose(wiring: Wiring, setup: RulesDeps, input: number): number;`];
+  const notTable = [[rulesContract, 'export interface RulesDeps { readonly bias: number; }\nexport type CreateRuleTable = (deps: RulesDeps) => (input: number) => number;'],
+    [file("rules", "index.ts"), 'import type { CreateRuleTable } from "./contract.js";\nexport const createRuleTable: CreateRuleTable = deps => input => input + deps.bias;']];
+  for (const context of [[], [pipelineDeclarations]]) {
+    expect([table(data), ...rules, ...infer, ...context], []);
+    expect([table("readonly value: number; readonly later: () => number;"), ...rules, ...infer, ...context], [at("impure-component", tableFile, 2)]);
+    expect([table(data), ...notTable, ...infer, ...context], [at("impure-component", rulesContract, 2)]);
+  }
   // R3 T-1 (R2 J-3): a bound table is judged at every level. Each form holds operations whose results are data (accepted);
   // the same form with a callable hidden in one result is reported at the member that declares that operation.
   // Expectations written before the run; a finding's line is that of the top-level statement holding the member (the inline
