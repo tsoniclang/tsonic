@@ -1,11 +1,16 @@
 import type { CreateTypeInterner, SeedTypeInterner, InternType, InternSignature, ReadType, ReadSignature,
-  ExportTypes, Substitute, SubstituteSignature, PrintTypes, ParseTypes, VerifyTypes } from "./contract.js";
+  ExportTypes, Substitute, SubstituteSignature, PrintTypes, ParseTypes, VerifyTypes, InstanceKey, SameInstance, ExecutionKey,
+  DeclaredExecutionKey, BindingVectorKey, ArtifactBindingsKey, BindingVectorData, ArtifactBindingsData,
+  SignatureRequestData, SignatureRequestKey, SubstituteBindingValues, RigidBindings } from "./contract.js";
 import { createTypeInterner as create, seedTypeInterner as seed, internType as intern, internSignature as signature,
   readType as read, readSignature as readCallable, exportTypes as publish } from "./interner.js";
-import { substitute as transform, substituteSignature as transformSignature } from "./substitute.js";
+import { substitute as transform, substituteSignature as transformSignature, substituteBindingValues as transformBindingValues } from "./substitute.js";
 import { printTypes as print } from "./print.js";
 import { parseTypes as parse } from "./parse.js";
 import { verifyTypes as verify } from "./verify.js";
+import { artifactBindingsData as projectArtifactBindings, artifactBindingsKeyOf, bindingVectorData as projectBindingVector,
+  bindingVectorKeyOf, declaredExecutionKeyOf, executionKeyOf, instanceKeyOf, sameInstanceAs,
+  signatureRequestData as projectSignatureRequest, signatureRequestKeyOf, rigidBindings as rigid } from "./value.js";
 
 export const createTypeInterner: CreateTypeInterner = create;
 export const seedTypeInterner: SeedTypeInterner = seed;
@@ -16,6 +21,18 @@ export const readSignature: ReadSignature = readCallable;
 export const exportTypes: ExportTypes = publish;
 export const substitute: Substitute = transform;
 export const substituteSignature: SubstituteSignature = transformSignature;
+export const substituteBindingValues: SubstituteBindingValues = transformBindingValues;
 export const printTypes: PrintTypes = print;
 export const parseTypes: ParseTypes = parse;
 export const verifyTypes: VerifyTypes = verify;
+export const instanceKey: InstanceKey = instanceKeyOf;
+export const sameInstance: SameInstance = sameInstanceAs;
+export const executionKey: ExecutionKey = executionKeyOf;
+export const declaredExecutionKey: DeclaredExecutionKey = declaredExecutionKeyOf;
+export const bindingVectorKey: BindingVectorKey = bindingVectorKeyOf;
+export const artifactBindingsKey: ArtifactBindingsKey = artifactBindingsKeyOf;
+export const bindingVectorData: BindingVectorData = projectBindingVector;
+export const artifactBindingsData: ArtifactBindingsData = projectArtifactBindings;
+export const signatureRequestData: SignatureRequestData = projectSignatureRequest;
+export const signatureRequestKey: SignatureRequestKey = signatureRequestKeyOf;
+export const rigidBindings: RigidBindings = rigid;

@@ -45,6 +45,16 @@ export interface BodyInstance {
   readonly bindings: ArtifactBindings;
 }
 
+/**
+ * One execution of a body (COMMON-DATA section 1; Codex K-3367 D): the body instance and the number of arguments the
+ * caller provided, which selects the instance's entry. Never an entry ordinal, a first entry or a default of zero.
+ * `provided` is data here: whether the instance has an entry for it is checked by the consumer that reads the entry.
+ */
+export interface Execution {
+  readonly instance: BodyInstance;
+  readonly provided: number;
+}
+
 export interface ConstantReference {
   readonly initializer: BodyInstance;
 }
