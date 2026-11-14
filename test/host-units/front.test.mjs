@@ -966,3 +966,53 @@ test("the syntax capture is current: regenerating syntax-capture.ts from the HIR
   assert.deepEqual([generated.unordered, generated.missingCasts], [[], []]);
   assert.equal(generated.text === readFileSync(resolve(repository, frontSyntaxPath), "utf8"), true, "run node scripts/host/generate-front-syntax.mjs --write");
 });
+
+// K-3341: each body's direct children come from the one body walk. Expectations written before the run.
+test("K-3341 nested bodies: zero, one and many direct children in preorder, as the body walk records them", async () => {
+  const sourceText = "export function outer(a: number): number { function one(b: number): number { return b; } function two(c: number): number { function inner(d: number): number { return d; } return c; } return a; }\nexport function lone(x: number): number { return x; }\n";
+  const { module, checked, interner } = checkedModuleOf(sourceText);
+  const definition = segments => ids.encodeDefId({ module, segments: segments.map(name => ({ name, ordinal: 0 })) });
+  const body = segments => ids.encodeBodyId({ owner: definition(segments), role: "function", ordinal: 0 });
+  const moduleBody = ids.encodeBodyId({ owner: definition([]), role: "module", ordinal: 0 });
+  const nested = new Map(checked.bodies.map(entry => [entry.body, entry.nestedBodies]));
+  assert.deepEqual(nested.get(moduleBody), [body(["outer"]), body(["lone"])]);
+  assert.deepEqual(nested.get(body(["outer"])), [body(["outer", "one"]), body(["outer", "two"])]);
+  assert.deepEqual(nested.get(body(["outer", "two"])), [body(["outer", "two", "inner"])]);
+  for (const leaf of [["lone"], ["outer", "one"], ["outer", "two", "inner"]]) assert.deepEqual(nested.get(body(leaf)), []);
+  assert.equal(checked.bodies.length, 6);
+  assert.deepEqual(verifyChecked(checked, interner), []);
+});
+
+// K-3341: the first refusal stops capture before any further read. In `pick`, the facts are admitted in this order: the signature
+// row (1); a's component, symbol and type (2 to 4); b's component and symbol (5, 6); b's type (7), whose read meets the
+// checker-type frontier (`string | number`). Under every maximum below 7 the earned refusal is returned and b's type is never
+// read; at 7 the read happens and the frontier is met. Expectations written before the run.
+test("K-3341 first refusal: a limit met before a later unsupported read returns the refusal and never makes that read", async () => {
+  const diag = await import("../../packages/host/dist/diag/index.js");
+  const sourceText = "export function pick(a: number, b: string | number): number { return a; }\n";
+  const module = moduleOf(packageOf("/project"), "src/main.ts");
+  const under = value => {
+    const { deps, program } = openedModule(sourceText);
+    return front.captureModule({ ...deps, navigationCapture: { ...deps.navigationCapture, maximumCapturedFactsPerModule: value } }, program, module);
+  };
+  const refusal = maximum => ({ kind: "refused", diagnostics: [diag.resourceLimitDiagnostic({ owner: "front", limit: "front.maximumCapturedFactsPerModule", maximum,
+    site: { kind: "file", path: "/project/src/main.ts" }, unit: { request: { query: "captureModule", key: module }, position: { kind: "result" } } })] });
+  for (const value of [0, 1, 4, 6]) assert.deepEqual(under(value), refusal(value), `maximum ${value}`);
+  assert.throws(() => under(7), { name: "TypeError", message: "front: the captured form of the checker type string | number is not implemented" });
+});
+
+// K-3341: a five-parameter function. Facts: the signature row, five parameters (3 each), the result (2), the association, six
+// annotations (2 each), the view of `return a` (read 2, contextual 2, row 1) and 24 core rows: 1 + 15 + 2 + 1 + 12 + 5 + 24 = 60.
+test("K-3341 many parameters: refused at zero and one under the fact count, accepted at the exact count", async () => {
+  const diag = await import("../../packages/host/dist/diag/index.js");
+  const sourceText = "export function many(a: number, b: number, c: number, d: number, e: number): number { return a; }\n";
+  const module = moduleOf(packageOf("/project"), "src/main.ts");
+  const under = value => {
+    const { deps, program } = openedModule(sourceText);
+    return front.captureModule({ ...deps, navigationCapture: { ...deps.navigationCapture, maximumCapturedFactsPerModule: value } }, program, module);
+  };
+  for (const value of [0, 59]) assert.deepEqual(under(value), { kind: "refused", diagnostics: [diag.resourceLimitDiagnostic({ owner: "front",
+    limit: "front.maximumCapturedFactsPerModule", maximum: value, site: { kind: "file", path: "/project/src/main.ts" },
+    unit: { request: { query: "captureModule", key: module }, position: { kind: "result" } } })] }, `maximum ${value}`);
+  assert.equal(under(60).kind, "ok");
+});

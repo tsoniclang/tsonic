@@ -134,9 +134,14 @@ function referenceTo(scope: CaptureScope, program: CheckedProgram, declaration: 
   return node === undefined ? null : { module, node };
 }
 
-function component(scope: CaptureScope, root: RawNodeRef, path: readonly RawComponentStep[]): RawComponentId {
+/**
+ * Every growth below is admitted before anything is read for it, and returns null once the capture has met a limit:
+ * the first refusal stops all further checker reads and rows (K-3341); the callers stop at the null.
+ */
+function component(scope: CaptureScope, root: RawNodeRef, path: readonly RawComponentStep[]): RawComponentId | null {
+  if (!admit(scope, "facts")) return null;
   const id = rawComponentId(scope.tables.components.length);
-  if (admit(scope, "facts")) scope.tables.components.push({ id, root, path });
+  scope.tables.components.push({ id, root, path });
   return id;
 }
 
@@ -186,11 +191,13 @@ function coreFacts(node: RawNodeRef, empty: boolean): RawCoreCapture {
 }
 
 /** The type at one position (component); each position has its own row, so a row's component is where it was read. */
-function rawType(scope: CaptureScope, type: Type | undefined, position: RawComponentId, authoredTypeNode: RawNodeRef | null): RawTypeId {
+function rawType(scope: CaptureScope, read: () => Type | undefined, position: RawComponentId | null, authoredTypeNode: RawNodeRef | null): RawTypeId | null {
+  if (position === null || !admit(scope, "facts")) return null;
+  const type = read();
   if (type === undefined) return throwInvariant(invariant("The checker returned no type at a position that has one."));
   const id = rawTypeId(scope.tables.types.length);
   const form = typeForm(scope, type);
-  if (admit(scope, "facts")) scope.tables.types.push({
+  scope.tables.types.push({
     id, component: position, authoredTypeNode, declaration: null, definitionOwner: null, definitionFacet: null,
     definitionParameters: available([]), alias: available(null), instantiatedBases: available([]), literal: available(null),
     primitive: notProvided(), form: available(form),
@@ -198,41 +205,51 @@ function rawType(scope: CaptureScope, type: Type | undefined, position: RawCompo
   return id;
 }
 
-function rawSymbol(scope: CaptureScope, program: CheckedProgram, symbol: CheckerSymbol): RawSymbolId {
+function rawSymbol(scope: CaptureScope, program: CheckedProgram, symbol: CheckerSymbol): RawSymbolId | null {
   const known = scope.tables.symbolIds.get(symbol);
   if (known !== undefined) return known;
+  if (!admit(scope, "facts")) return null;
   const id = rawSymbolId(scope.tables.symbols.length);
   scope.tables.symbolIds.set(symbol, id);
-  const declarations = scope.checker.getSymbolDeclarations(symbol).flatMap(declaration => {
+  const declarations: RawNodeRef[] = [];
+  for (const declaration of scope.checker.getSymbolDeclarations(symbol)) {
     const reference = declaration === undefined ? null : referenceTo(scope, program, declaration);
-    return reference === null ? [] : [reference];
-  });
-  if (admit(scope, "facts")) scope.tables.symbols.push({ id, name: scope.checker.getSymbolName(symbol), declarations, aliasTarget: available(null), exports: available([]) });
+    if (scope.meter.refusal !== null) return null;
+    if (reference !== null) declarations.push(reference);
+  }
+  scope.tables.symbols.push({ id, name: scope.checker.getSymbolName(symbol), declarations, aliasTarget: available(null), exports: available([]) });
   return id;
 }
 
-function rawSignature(scope: CaptureScope, program: CheckedProgram, signature: Signature, owner: RawNodeRef): RawSignatureId {
+function rawSignature(scope: CaptureScope, program: CheckedProgram, signature: Signature, owner: RawNodeRef): RawSignatureId | null {
   const known = scope.tables.signatureIds.get(signature);
   if (known !== undefined) return known;
+  if (!admit(scope, "facts")) return null;
   const id = rawSignatureId(scope.tables.signatures.length);
   scope.tables.signatureIds.set(signature, id);
   const declarationNode = scope.checker.getSignatureDeclaration(signature);
   const declaration = declarationNode === undefined ? null : referenceTo(scope, program, declarationNode);
-  const parameters = scope.checker.getSignatureParameters(signature).map((symbol, index): RawParameter => {
+  if (scope.meter.refusal !== null) return null;
+  const parameters: RawParameter[] = [];
+  for (const [index, symbol] of scope.checker.getSignatureParameters(signature).entries()) {
     if (symbol === undefined) return throwInvariant(invariant("The checker returned an absent parameter symbol."));
-    const declarations = scope.checker.getSymbolDeclarations(symbol);
-    const parameterNode = declarations[0];
+    const parameterNode = scope.checker.getSymbolDeclarations(symbol)[0];
     const parameterReference = parameterNode === undefined ? null : referenceTo(scope, program, parameterNode);
+    if (scope.meter.refusal !== null) return null;
     const position = component(scope, owner, [{ kind: "parameter", signature: id, index }]);
-    return {
-      declaration: parameterReference, symbol: rawSymbol(scope, program, symbol), kind: "required", component: position,
-      type: rawType(scope, scope.checker.getTypeOfSymbol(symbol), position, null), acceptsOmission: false, initializer: null, passing: notProvided(),
-    };
-  });
-  if (admit(scope, "facts")) scope.tables.signatures.push({
+    if (position === null) return null;
+    const parameterSymbol = rawSymbol(scope, program, symbol);
+    if (parameterSymbol === null) return null;
+    const type = rawType(scope, () => scope.checker.getTypeOfSymbol(symbol), position, null);
+    if (type === null) return null;
+    parameters.push({ declaration: parameterReference, symbol: parameterSymbol, kind: "required", component: position, type, acceptsOmission: false,
+      initializer: null, passing: notProvided() });
+  }
+  const result = rawType(scope, () => scope.checker.getReturnTypeOfSignature(signature), component(scope, owner, [{ kind: "result", signature: id }]), null);
+  if (result === null) return null;
+  scope.tables.signatures.push({
     id, target: null, owner, declaration, kind: "call", typeParameters: available([]), receiver: available(null), parameters,
-    result: available(rawType(scope, scope.checker.getReturnTypeOfSignature(signature), component(scope, owner, [{ kind: "result", signature: id }]), null)),
-    composition: null,
+    result: available(result), composition: null,
   });
   return id;
 }
@@ -279,45 +296,49 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
   const views: RawCheckerViews[] = [];
   const references: RawReference[] = [];
   const associations: RawCallableAssociation[] = [];
-  for (const [index, node] of nodes.entries()) {
-    if (scope.meter.refusal !== null) break;
+  capture: for (const [index, node] of nodes.entries()) {
     const reference: RawNodeRef = { module, node: nodeId(index) };
     const kind = ast.kindName(node);
     const parent = ast.parent(node);
     const declarationName = parent !== undefined && ast.name(parent) === node;
     if (expressionKinds.includes(kind.replace(/^Kind/u, "")) && !declarationName) {
+      const read = rawType(scope, () => scope.checker.getTypeAtLocation(node), component(scope, reference, []), null);
+      if (read === null) break;
       const contextual = scope.checker.getContextualType(node);
+      const contextualType = contextual === undefined ? null : rawType(scope, () => contextual, component(scope, reference, []), null);
+      if (contextual !== undefined && contextualType === null) break;
       const symbol = scope.checker.getSymbolAtLocation(node);
-      const view: RawCheckerViews = {
-        node: reference,
-        read: available(rawType(scope, scope.checker.getTypeAtLocation(node), component(scope, reference, []), null)),
-        declared: available(null),
-        contextual: available(contextual === undefined ? null : rawType(scope, contextual, component(scope, reference, []), null)),
-        symbol: available(symbol === undefined ? null : rawSymbol(scope, program, symbol)),
-      };
-      if (admit(scope, "facts")) views.push(view);
+      const symbolId = symbol === undefined ? null : rawSymbol(scope, program, symbol);
+      if (symbol !== undefined && symbolId === null) break;
+      if (!admit(scope, "facts")) break;
+      views.push({ node: reference, read: available(read), declared: available(null), contextual: available(contextualType), symbol: available(symbolId) });
       if (kind === "KindIdentifier" && symbol !== undefined) {
-        scope.checker.getSymbolDeclarations(symbol).forEach(declaration => {
+        for (const declaration of scope.checker.getSymbolDeclarations(symbol)) {
           const target = declaration === undefined ? null : referenceTo(scope, program, declaration);
-          if (target !== null && admit(scope, "edges")) references.push({ occurrence: reference, meaning: "value", declaration: target, module: target.module,
+          if (scope.meter.refusal !== null) break capture;
+          if (target === null) continue;
+          if (!admit(scope, "edges")) break capture;
+          references.push({ occurrence: reference, meaning: "value", declaration: target, module: target.module,
             project: target.module === module || OpenedProgram.modules(program).has(ast.getFileName(ast.getSourceFile(declaration) ?? file)) });
-        });
+        }
       }
     }
     // An authored type annotation (the type child of its declaration): the type the checker gives that type node.
-    if (parent !== undefined && ast.typeNode(parent) === node)
-      rawType(scope, scope.checker.getTypeFromTypeNode(node), component(scope, reference, []), reference);
+    if (parent !== undefined && ast.typeNode(parent) === node &&
+      rawType(scope, () => scope.checker.getTypeFromTypeNode(node), component(scope, reference, []), reference) === null) break;
     if (callableKinds.includes(kind)) {
       const signature = scope.checker.getSignatureFromDeclaration(node);
       if (signature === undefined) return throwInvariant(invariant("The checker gave no signature for a callable declaration."));
       const advertised = rawSignature(scope, program, signature, reference);
+      if (advertised === null) break;
       const body = ast.body(node);
       const parameters = ast.parameters(node).flatMap(parameter => {
         const id = parameter === undefined ? undefined : ownNodes.get(parameter);
         return id === undefined ? [] : [{ module, node: id }];
       });
       const bodyReference = body === undefined ? undefined : ownNodes.get(body);
-      if (admit(scope, "facts")) associations.push({
+      if (!admit(scope, "facts")) break;
+      associations.push({
         declaration: reference, advertised: [advertised],
         body: bodyReference === undefined ? notProvided() : available({ module, node: bodyReference }),
         classParameters: available([]), advertisedParameters: [{ signature: advertised, parameters: available(parameters) }],
@@ -326,16 +347,23 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
     }
   }
   const empty = closedInventoryEmpty(program);
-  const core = [...ownNodes.values()].flatMap(id => admit(scope, "facts") ? [coreFacts({ module, node: id }, empty)] : []);
+  const core: RawCoreCapture[] = [];
+  for (const id of ownNodes.values()) {
+    if (!admit(scope, "facts")) break;
+    core.push(coreFacts({ module, node: id }, empty));
+  }
   const exports: RawModuleExport[] = [];
-  const moduleSymbol = scope.checker.getSymbolAtLocation(file);
-  if (moduleSymbol !== undefined) scope.checker.getExportsOfModule(moduleSymbol).forEach(exported => {
-    if (exported === undefined) return;
-    scope.checker.getSymbolDeclarations(exported).forEach(declaration => {
+  const moduleSymbol = scope.meter.refusal === null ? scope.checker.getSymbolAtLocation(file) : undefined;
+  exported: for (const exported of moduleSymbol === undefined ? [] : scope.checker.getExportsOfModule(moduleSymbol)) {
+    if (exported === undefined) continue;
+    for (const declaration of scope.checker.getSymbolDeclarations(exported)) {
       const target = declaration === undefined ? null : referenceTo(scope, program, declaration);
-      if (target !== null && admit(scope, "edges")) exports.push({ name: scope.checker.getSymbolName(exported), declaration: target, module: target.module });
-    });
-  });
+      if (scope.meter.refusal !== null) break exported;
+      if (target === null) continue;
+      if (!admit(scope, "edges")) break exported;
+      exports.push({ name: scope.checker.getSymbolName(exported), declaration: target, module: target.module });
+    }
+  }
   // A capture that met a limit returns its refusal and nothing of what it read.
   if (scope.meter.refusal !== null) return { kind: "refused", diagnostics: [scope.meter.refusal] };
   const raw: RawModule = {

@@ -147,15 +147,15 @@ interface NodeBodies {
   readonly bodyOf: ReadonlyMap<NodeId, BodyId>;
   /** The directly enclosing body of each function body. */
   readonly bodyParent: ReadonlyMap<BodyId, BodyId>;
-  /** Every body in preorder of its root. */
-  readonly order: readonly BodyId[];
+  /** The bodies each body directly encloses, in preorder of their roots. */
+  readonly children: ReadonlyMap<BodyId, readonly BodyId[]>;
 }
 
 /** The body each node lies in: a function's body for the nodes of its block, the module's body for the rest. */
 function nodeBodies(tree: Hir.SourceFile<Syntax>, moduleBody: BodyId, definitionAt: ReadonlyMap<NodeId, DefId>): NodeBodies {
   const bodies = new Map<NodeId, BodyId>();
   const bodyParent = new Map<BodyId, BodyId>();
-  const order: BodyId[] = [moduleBody];
+  const children = new Map<BodyId, BodyId[]>();
   const visit = (node: Hir.SyntaxNode<Syntax>, body: BodyId): void => {
     bodies.set(node.id, body);
     const definition = node.kind === "FunctionDeclaration" ? definitionAt.get(node.id) : undefined;
@@ -163,13 +163,15 @@ function nodeBodies(tree: Hir.SourceFile<Syntax>, moduleBody: BodyId, definition
       if (node.kind === "FunctionDeclaration" && definition !== undefined && child === node.body) {
         const inner = encodeBodyId({ owner: definition, role: "function", ordinal: 0 });
         bodyParent.set(inner, body);
-        order.push(inner);
+        const siblings = children.get(body) ?? [];
+        siblings.push(inner);
+        children.set(body, siblings);
         visit(child, inner);
       } else visit(child, body);
     });
   };
   visit(tree, moduleBody);
-  return { bodyOf: bodies, bodyParent, order };
+  return { bodyOf: bodies, bodyParent, children };
 }
 
 function headerOf<P extends Hir.Phase>(node: Hir.NodeHeader): Hir.NodeHeader & Record<never, P> {
@@ -361,11 +363,10 @@ export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<Hir.HirM
     endOfFileToken: token(raw.tree.endOfFileToken), languageVariant: raw.tree.languageVariant, scriptKind: raw.tree.scriptKind,
     commentDirectives: raw.tree.commentDirectives, pragmas: raw.tree.pragmas, checkJsDirective: raw.tree.checkJsDirective,
     tsonic: { core: coreOf(lowering, raw.tree.id), parent: null, attributes: [], memory: { kind: "available", value: null }, definition: moduleDefinition, body: moduleBody } };
-  // Each body's captures, and its nested bodies: the bodies it directly encloses, in preorder.
-  const nestedOf = (body: BodyId): readonly BodyId[] => structure.order.filter(inner => structure.bodyParent.get(inner) === body);
+  // Each body's captures, and its nested bodies: the bodies it directly encloses, in preorder, as the body walk recorded them.
   const bodies: Hir.HirBody[] = [{ body: moduleBody, owner: moduleDefinition, params: [], locals: [], root: tree, captures: [], scopes: [],
     asynchronous: false, generator: false, candidateLists: [], nestedBodies: [] }, ...lowering.bodies]
-    .map(body => ({ ...body, captures: lowering.captures.get(body.body) ?? [], nestedBodies: nestedOf(body.body) }))
+    .map(body => ({ ...body, captures: lowering.captures.get(body.body) ?? [], nestedBodies: structure.children.get(body.body) ?? [] }))
     .sort((left, right) => left.body < right.body ? -1 : left.body > right.body ? 1 : 0);
   const items = rows.filter(row => row.node !== raw.tree.id).map(row => ({ definition: definitionOf(lowering, row.node), node: row.node }))
     .sort((left, right) => left.definition < right.definition ? -1 : left.definition > right.definition ? 1 : 0);

@@ -633,6 +633,12 @@ test("Pipeline's wiring names every public component operation once, and a table
     expect([table("readonly value: number; readonly later: () => number;"), ...rules, ...infer, ...context], [at("impure-component", tableFile, 2)]);
     expect([table(data), ...notTable, ...infer, ...context], [at("impure-component", rulesContract, 2)]);
   }
+  // R2 G5-1: the result's own type arguments are part of the table. With no Pipeline source, `RuleTable<() => number>` is reported
+  // at the stage and `RuleTable<number>` is accepted. Expectations written before the run.
+  const genericTable = [tableFile, `export interface Outcome { ${data} }\nexport interface RuleTable<T> {\n  readonly decide: (input: number) => Outcome;\n  readonly value: T;\n}`];
+  const genericRules = argument => [[rulesContract, `import type { RuleTable } from "../ir-infer/contract.js";\nexport interface RulesDeps { readonly bias: number; }\nexport type CreateRuleTable = (deps: RulesDeps) => RuleTable<${argument}>;`], rules[1]];
+  expect([genericTable, ...genericRules("() => number")], [at("impure-component", rulesContract, 3)]);
+  expect([genericTable, ...genericRules("number")], []);
   // R3 T-1 (R2 J-3): a bound table is judged at every level. Each form holds operations whose results are data (accepted);
   // the same form with a callable hidden in one result is reported at the member that declares that operation.
   // Expectations written before the run; a finding's line is that of the top-level statement holding the member (the inline
