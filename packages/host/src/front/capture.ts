@@ -1,4 +1,5 @@
-import type { Node, Signature, SourceFile, Symbol as CheckerSymbol, Type, TypeCheckerQueries, TypeShapeQueries } from "@tsonic/tsts";
+import type { ArgumentPassingFact, Node, Signature, SourceFile, Symbol as CheckerSymbol, Type, TypeCheckerQueries, TypeShapeQueries } from "@tsonic/tsts";
+import { argumentPassingFactKey } from "@tsonic/tsts";
 import type { Diagnostic, InvariantFailure, Result } from "../diag/contract.js";
 import { resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
 import type { ModuleId, NodeId } from "../ids/contract.js";
@@ -6,13 +7,14 @@ import { nodeId, rawCandidateListId, rawComponentId, rawMemberTableId, rawSignat
 import type * as Hir from "../ir-hir/contract.js";
 import type { RawComponentId, RawSignatureId, RawSymbolId, RawTypeId } from "../ids/contract.js";
 import type {
-  CaptureDeps, CheckedProgram, RawArgumentBinding, RawAuthoredArgument, RawBinding, RawBindingTarget, RawCallSelection, RawCallableAssociation, RawCandidateList, RawCoreCapture, RawCheckedType, RawCheckerViews, RawComponent, RawComponentStep, RawFact, RawMemberTable, RawModule, RawModuleExport, RawModuleLink, RawNodeRef, RawParameter, RawReference, RawSignature, RawSymbol, RawTypeForm,
+  CaptureDeps, CheckedProgram, RawArgumentBinding, RawAuthoredArgument, RawBinding, RawBindingTarget, RawCallSelection, RawCallableAssociation, RawCandidateList, RawCoreCapture, RawCheckedType, RawCheckerViews, RawComponent, RawComponentStep, RawDiagnosticCoverage, RawFact, RawMemberTable, RawModule, RawModuleExport, RawModuleLink, RawNodeRef, RawParameter, RawReference, RawSignature, RawSymbol, RawTypeForm,
 } from "./contract.js";
 import { ExtensionTable, OpenedProgram } from "./handles.js";
 import type { FileNumbering, FileSyntaxEntry } from "./handles.js";
 import { captureNode, expressionKinds } from "./syntax-capture.js";
 import type { SyntaxCaptureContext } from "./syntax-support.js";
 import { isModuleBindingKind } from "../ir-hir/index.js";
+import { captureCheckerDiagnostic } from "./diagnostics.js";
 
 const invariant = (message: string): InvariantFailure => ({ owner: "front", query: null, origin: null, message });
 const available = <Value>(value: Value): RawFact<Value> => ({ kind: "available", value });
@@ -73,6 +75,7 @@ interface CaptureScope {
   readonly checker: TypeCheckerQueries;
   readonly shape: TypeShapeQueries;
   readonly ownNodes: ReadonlyMap<Node, NodeId>;
+  readonly emptyCoreInventory: boolean;
   readonly tables: CaptureTables;
 }
 
@@ -100,8 +103,10 @@ function fileNumberingOf(deps: CaptureDeps, program: CheckedProgram, path: strin
   const keep = (outcome: FileSyntaxEntry["outcome"]): FileSyntaxEntry["outcome"] => { cache.set(path, { limits, outcome }); return outcome; };
   const checked = OpenedProgram.checked(program);
   const ast = checked.ast;
-  const file = checked.getSourceFile(path);
-  if (file === undefined) return throwInvariant(invariant("A file of the opened program has no source file."));
+  const entry = OpenedProgram.file(program, module);
+  if (entry === undefined || ast.getFileName(entry.file) !== path)
+    return throwInvariant(invariant("A file of the opened program has no source file."));
+  const file = entry.file;
   const nodes: Node[] = [];
   const pending: { readonly node: Node; readonly depth: number }[] = [{ node: file, depth: 1 }];
   for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
@@ -134,7 +139,7 @@ function admit(scope: CaptureScope, dimension: "facts" | "edges"): boolean {
 }
 
 function moduleOfFile(program: CheckedProgram, file: SourceFile, ast: OpenedProgramView["ast"]): ModuleId | undefined {
-  return OpenedProgram.modules(program).get(ast.getFileName(file));
+  return OpenedProgram.moduleAt(program, ast.getFileName(file));
 }
 
 function moduleSpecifier(ast: OpenedProgramView["ast"], node: Node, parent: Node | undefined): boolean {
@@ -226,18 +231,18 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId): Ra
   throw new TypeError(`front: the captured form of the checker type ${scope.checker.typeToString(type)} is not implemented`);
 }
 
-/**
- * Whether the selected inventory that core facts come from is closed and empty: the snapshot's library roles, the
- * loaded semantics modules' exports, and the safety and declaration providers of its contributions. Every core fact
- * of a node (markers, pointers, layouts, bindings, attributes, safety, argument passing, flow state, provider) is
- * supplied by an entry of that inventory; with none, each one's absence is proven for every node. With any entry,
- * no fact is proven by this capture yet: each stays not provided, never defaulted (K-3313.2).
- */
 function closedInventoryEmpty(program: CheckedProgram): boolean {
-  const roles = OpenedProgram.libraryData(program).flatMap(entry => entry.roles);
-  const exports = ExtensionTable.semantics(OpenedProgram.table(program)).flatMap(module => module.exports);
   const contributions = OpenedProgram.contributions(program);
-  return roles.length === 0 && exports.length === 0 && contributions.safetyProviders.length === 0 && contributions.declarationProviders.length === 0;
+  return OpenedProgram.libraryData(program).every(entry => entry.roles.length === 0) &&
+    ExtensionTable.semantics(OpenedProgram.table(program)).every(module => module.exports.length === 0) && contributions.safetyProviders.length === 0 &&
+    contributions.declarationProviders.length === 0 && contributions.compilerExtensions.length === 0;
+}
+
+function declarationPassing(scope: CaptureScope, node: Node | undefined): Extract<ArgumentPassingFact, { readonly role: "declaration" }> | undefined {
+  const fact = scope.checked.sourceFacts.getFact(node, argumentPassingFactKey);
+  if (fact !== undefined && fact.role !== "declaration")
+    return throwInvariant(invariant("A signature parameter's passing fact must belong to its actual declaration."));
+  return fact;
 }
 
 function coreFacts(node: RawNodeRef, empty: boolean): RawCoreCapture {
@@ -266,12 +271,17 @@ function captureFacts(scope: CaptureScope): void {
     if (next.kind === "signature") captureSignature(scope, next.id, next.signature, next.owner, next.signatureKind);
     else if (next.kind === "signature-parameter") captureSignatureParameter(scope, next.draft, next.index);
     else {
-      const form = typeForm(scope, next.type, next.position);
-      if (form === null) return;
+      let form: RawFact<RawTypeForm>;
+      if (scope.shape.isError(next.type)) form = { kind: "unavailable", reason: "missing-original-component", diagnostics: [] };
+      else {
+        const captured = typeForm(scope, next.type, next.position);
+        if (captured === null) return;
+        form = available(captured);
+      }
       scope.tables.types[next.id] = {
         id: next.id, component: next.position, authoredTypeNode: next.authoredTypeNode, declaration: null, definitionOwner: null, definitionFacet: null,
         definitionParameters: available([]), alias: available(null), instantiatedBases: available([]), literal: available(null),
-        primitive: notProvided(), form: available(form),
+        primitive: notProvided(), form,
       };
     }
   }
@@ -379,8 +389,13 @@ function captureSignatureParameter(scope: CaptureScope, draft: SignatureDraft, i
     const initializerNode = parameterSyntax?.Initializer;
     const initializer = initializerNode === undefined ? null : referenceTo(scope, program, initializerNode);
     if (scope.meter.refusal !== null) return;
+    if (!admit(scope, "facts")) return;
+    const passingFact = declarationPassing(scope, parameterNode);
+    const passing: RawParameter["passing"] = passingFact === undefined
+      ? parameterNode !== undefined && scope.emptyCoreInventory ? available("by-value") : notProvided()
+      : available(passingFact.mode);
     parameters.push({ declaration: parameterReference, symbol: parameterSymbol, kind: parameter.parameterKind, component: position, type, acceptsOmission: parameter.acceptsOmission,
-      initializer, passing: notProvided() });
+      initializer, passing });
     return;
   }
   captureSignatureTail(scope, draft);
@@ -506,18 +521,15 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
   if (OpenedProgram.table(program) !== deps.extensions) throw new TypeError("front: the extension table is not the one the program was opened with");
   const checked = OpenedProgram.checked(program);
   const ast = checked.ast;
-  let path: string | undefined;
-  OpenedProgram.modules(program).forEach((candidate, filePath) => { if (candidate === module) path = filePath; });
-  const file = path === undefined ? undefined : checked.getSourceFile(path);
-  if (path === undefined || file === undefined) throw new TypeError("front: the module is not a module of the opened program's snapshot");
-  if (checked.diagnostics.some(diagnostic => diagnostic !== undefined && diagnostic.file === file))
-    throw new TypeError("front: the conversion of a module's checker diagnostics waits for the checker's message accessor");
+  const input = OpenedProgram.file(program, module);
+  if (input === undefined) throw new TypeError("front: the module is not a module of the opened program");
+  const file = input.file;
+  const path = ast.getFileName(file);
   const own = fileNumberingOf(deps, program, path, module);
   if (own.kind === "refused") return { kind: "refused", diagnostics: [own.diagnostic] };
   const { nodes, ids: ownNodes } = own.numbering;
-  const original = OpenedProgram.texts(program).get(path);
+  const original = input.text;
   const delivered = ast.getSourceText(file);
-  if (original === undefined) return throwInvariant(invariant("A module of the opened program has no captured text."));
   const displacement = original.length - delivered.length;
   if (displacement < 0 || original.slice(displacement) !== delivered) return throwInvariant(invariant("The checker's text of a module does not join its captured text."));
   // The syntax capture takes each node's identity from the numbering, and must reach the nodes in its order.
@@ -533,7 +545,21 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
   if (visited !== nodes.length) return throwInvariant(invariant("The syntax capture reaches fewer nodes than the module's numbering."));
   const queries = checked.getSourceFileQueries(file);
   const scope: CaptureScope = { deps, program, path, meter: { facts: 0, edges: 0, refusal: null }, module, file, checked, checker: queries.checker,
-    shape: queries.typeShape, ownNodes, tables: { types: [], components: [], signatures: [], members: [], candidates: [], symbols: [], symbolIds: new Map(), signatureIds: new Map(), nextType: 0, nextMember: 0, pending: [] } };
+    shape: queries.typeShape, ownNodes, emptyCoreInventory: closedInventoryEmpty(program),
+    tables: { types: [], components: [], signatures: [], members: [], candidates: [], symbols: [], symbolIds: new Map(), signatureIds: new Map(), nextType: 0, nextMember: 0, pending: [] } };
+  const checkerDiagnostics: Diagnostic[] = [];
+  const diagnosticCoverage: RawDiagnosticCoverage[] = [];
+  for (const diagnostic of checked.diagnostics) {
+    if (diagnostic === undefined) return throwInvariant(invariant("The checker returned an absent published diagnostic."));
+    if (diagnostic.file !== file) continue;
+    const captured = captureCheckerDiagnostic(program, diagnostic, () => admit(scope, "facts"));
+    if (captured === null) break;
+    const index = checkerDiagnostics.length;
+    checkerDiagnostics.push(captured);
+    if (!admit(scope, "facts")) break;
+    diagnosticCoverage.push({ kind: "unavailable", root: { module, index } });
+  }
+  if (scope.meter.refusal !== null) return { kind: "refused", diagnostics: captureRefusal(scope.meter.refusal, checkerDiagnostics) };
   const views: RawCheckerViews[] = [];
   const references: RawReference[] = [];
   const links: RawModuleLink[] = [];
@@ -618,11 +644,12 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
       calls.push(call);
     }
   }
-  const empty = closedInventoryEmpty(program);
   const core: RawCoreCapture[] = [];
-  for (const id of ownNodes.values()) {
+  for (const [node, id] of ownNodes) {
     if (!admit(scope, "facts")) break;
-    core.push(coreFacts({ module, node: id }, empty));
+    const row = coreFacts({ module, node: id }, scope.emptyCoreInventory);
+    const passing = ast.kindName(node) === "KindParameter" ? declarationPassing(scope, node) : undefined;
+    core.push(passing === undefined ? row : { ...row, argumentPassing: available(passing) });
   }
   const exports: RawModuleExport[] = [];
   const moduleSymbol = scope.meter.refusal === null ? scope.checker.getSymbolAtLocation(file) : undefined;
@@ -637,16 +664,27 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
     }
   }
   // A capture that met a limit returns its refusal and nothing of what it read.
-  if (scope.meter.refusal !== null) return { kind: "refused", diagnostics: [scope.meter.refusal] };
+  if (scope.meter.refusal !== null) return { kind: "refused", diagnostics: captureRefusal(scope.meter.refusal, checkerDiagnostics) };
   const raw: RawModule = {
     module, tree,
     types: { types: scope.tables.types, components: scope.tables.components, signatures: scope.tables.signatures, members: scope.tables.members,
       symbols: scope.tables.symbols, candidates: scope.tables.candidates, dataLayouts: [], memoryLayouts: [], memoryFields: [] },
     checkerViews: views, calls, callableAssociations: associations, providerDeclarations: [], references, links, exports, bindings,
     implementations: [], heritage: [], constructors: [], enums: [], propertyNames: [], memberUses: [], protocols: [], storage: [], core,
-    checkerDiagnostics: [], diagnosticCoverage: [],
+    checkerDiagnostics, diagnosticCoverage,
   };
-  return { kind: "ok", value: raw, diagnostics: [] };
+  return { kind: "ok", value: raw, diagnostics: checkerDiagnostics };
+}
+
+function captureRefusal(refusal: Diagnostic, earned: readonly Diagnostic[]): readonly [Diagnostic, ...Diagnostic[]] {
+  const first = earned[0];
+  if (first === undefined) return [refusal];
+  const diagnostics: [Diagnostic, ...Diagnostic[]] = [first];
+  for (let index = 1; index < earned.length; index += 1) {
+    diagnostics.push(earned[index] ?? throwInvariant(invariant("An earned checker diagnostic cannot disappear from its capture.")));
+  }
+  diagnostics.push(refusal);
+  return diagnostics;
 }
 
 /** The tree's kinds, for the one check of lowering (re-exported so lowering and capture name one source). */

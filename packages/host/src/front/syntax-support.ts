@@ -140,9 +140,10 @@ export function typeOperator(context: SyntaxCaptureContext, node: SyntaxNodeOf):
   }
 }
 
-/** The import phase modifier: the checker states it as a kind number; none is the only value read here. */
-export function phaseModifier(value: number): null {
-  return value === 0 ? null : defect("an import phase modifier cannot be named: the checker does not export kind names by number");
+export function phaseModifier(context: SyntaxCaptureContext, node: SyntaxNodeOf, value: number): Hir.ImportPhaseModifierSyntaxKind | null {
+  if (value === 0) return null;
+  if (context.ast.isTypeOnlyImportDeclaration(node)) return "TypeKeyword";
+  return defect("a deferred import phase modifier cannot be named: the checker does not export kind names by number");
 }
 
 /** A source file's language variant, read with the checker's own exported constants. */

@@ -37,7 +37,7 @@ function ready(source) {
   const declarations = { modules: [{ module: checked, nodes: domain.nodes }], types: interner, typeExpansion: EXPANSION };
   const inference = inferStep.inferDepsOf({ rules: { libraries: { sources: [], sourceRoles: [], declaredSummaries: [] },
     types: interner, typeExpansion: EXPANSION }, hirBody: body => domain.bodyOf.get(body) ?? assert.fail("actual checked body"),
-    itemOf: definition => items.get(definition) ?? assert.fail("actual checked declaration"), limits: LIMITS, graph: GRAPH });
+    itemOf: definition => items.get(definition) ?? assert.fail("actual checked declaration"), bindings: [checked.bindings], limits: LIMITS, graph: GRAPH });
   const grouped = wiring.infer.groupsOf(inference, checked.bodies.map(body => body.body));
   assert.equal(grouped.kind, "ok");
   const types = fixture.types.viewTypes(interner);

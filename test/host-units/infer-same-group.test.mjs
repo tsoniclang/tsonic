@@ -30,7 +30,7 @@ function ready(source) {
     .map(item => [item.definition, item]));
   const deps = pipeline.inferDepsOf({ rules: { libraries: { sources: [], sourceRoles: [], declaredSummaries: [] },
     types: interner, typeExpansion: EXPANSION }, hirBody: body => domain.bodyOf.get(body) ?? assert.fail("actual body required"),
-    itemOf: definition => items.get(definition) ?? assert.fail("actual declaration required"), limits: LIMITS, graph: GRAPH });
+    itemOf: definition => items.get(definition) ?? assert.fail("actual declaration required"), bindings: [checked.bindings], limits: LIMITS, graph: GRAPH });
   const inputs = { modules: [{ module: checked, nodes }], types: interner, typeExpansion: EXPANSION };
   const partition = wiring.infer.groupsOf(deps, checked.bodies.map(body => body.body));
   assert.equal(partition.kind, "ok");

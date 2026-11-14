@@ -1,7 +1,7 @@
 import type { Diagnostic, Result, UnitAnswerPosition, UnitRequest } from "../diag/contract.js";
 import type { BodyId, DefId } from "../ids/contract.js";
 import type { Signature, SignatureRequest, TypeEvidence, TypeExpansionLimits, TypeInterner, TypeProductionRequest } from "../ir-types/contract.js";
-import type { CheckedPhase, Declaration, HirBody } from "../ir-hir/contract.js";
+import type { CheckedPhase, Declaration, HirBody, HirModuleBinding } from "../ir-hir/contract.js";
 import type { DataflowLimits } from "../dataflow/contract.js";
 import type { AtomicContribution, ConstraintSet, FinalVariable, InferenceGroup, InferredPartRequest, InferredPartType, RecordedCheck, RuleTable, SignaturePlacement, Solution, SolvedConstraint } from "../ir-infer/contract.js";
 import type { Step } from "../step/contract.js";
@@ -14,17 +14,15 @@ export interface InferenceLimits {
 export interface GroupDeps {
   readonly hirBody: (body: BodyId) => HirBody;
   readonly itemOf: (definition: DefId) => Declaration<CheckedPhase>;
+  readonly bindings: readonly (readonly HirModuleBinding[])[];
   readonly graph: DataflowLimits;
 }
 
-export interface InferDeps {
-  readonly hirBody: (body: BodyId) => HirBody;
-  readonly itemOf: (definition: DefId) => Declaration<CheckedPhase>;
+export interface InferDeps extends GroupDeps {
   readonly rules: RuleTable;
   readonly types: TypeInterner;
   readonly typeExpansion: TypeExpansionLimits;
   readonly limits: InferenceLimits;
-  readonly graph: DataflowLimits;
 }
 
 export interface DeclaredSignatureRequest {

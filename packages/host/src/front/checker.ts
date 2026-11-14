@@ -1,13 +1,13 @@
 import { createCompilerSessionFromFiles, createSourceSemanticsExtension } from "@tsonic/tsts";
-import type { CompilerExtension, SourceDeclarationProvider, SourceSemanticsModule } from "@tsonic/tsts";
+import type { CheckedSourceProgram, CompilerExtension, SourceDeclarationProvider, SourceSemanticsModule } from "@tsonic/tsts";
 import type { InvariantFailure, Result } from "../diag/contract.js";
 import { requirePresent, throwInvariant } from "../diag/index.js";
 import type { ModuleId, PackageId } from "../ids/contract.js";
 import { encodeKey, encodeModuleId } from "../ids/index.js";
 import type { ExtensionReference, ExtensionReferenceEntry, ImportPreparation, ProjectSnapshot } from "../snapshot/contract.js";
-import type { CaptureDeps, CheckedProgram, CheckerExtensions, CheckerRegistration, ProgramModule, ProgramModuleSet, SessionDocument } from "./contract.js";
+import type { CaptureDeps, CheckedProgram, CheckerExtensions, CheckerRegistration, ProgramModuleSet, SessionDocument } from "./contract.js";
 import { ExtensionTable, OpenedProgram } from "./handles.js";
-import type { ProviderRegistration } from "./handles.js";
+import type { OpenedFile, ProviderRegistration } from "./handles.js";
 import { optionSet } from "./options.js";
 
 const invariant = (message: string): InvariantFailure => ({ owner: "front", query: null, origin: null, message });
@@ -162,33 +162,36 @@ export function openProgram(deps: CaptureDeps, snapshot: ProjectSnapshot, prepar
   if (sessionLevel.length !== 0) {
     throw new TypeError(`front: the session reported diagnostics that name no file (${[...new Set(sessionLevel)].join(", ")}); the refusal that carries them waits for the checker's message accessor`);
   }
-  return ({ kind: "ok", value: OpenedProgram.create(checked, deps.extensions, inputs.modules, inputs.packageNames, inputs.files,
+  return ({ kind: "ok", value: OpenedProgram.create(checked, deps.extensions, programFiles(checked, deps.extensions, inputs),
     snapshot.packages.libraryData, snapshot.contributions), diagnostics: [] });
 }
 
 export function programModules(deps: CaptureDeps, program: CheckedProgram): ProgramModuleSet {
   if (OpenedProgram.table(program) !== deps.extensions) throw new TypeError("front: the extension table is not the one the program was opened with");
-  const checked = OpenedProgram.checked(program);
-  const modules = OpenedProgram.modules(program);
-  const packageNames = OpenedProgram.packageNames(program);
-  const providers = ExtensionTable.providers(deps.extensions);
-  const found = new Map<ModuleId, ProgramModule>();
-  const add = (module: ModuleId, value: ProgramModule): void => {
+  return OpenedProgram.modules(program);
+}
+
+function programFiles(checked: CheckedSourceProgram, table: CheckerExtensions, inputs: SessionInputs): readonly OpenedFile[] {
+  const providers = ExtensionTable.providers(table);
+  const found = new Map<ModuleId, OpenedFile>();
+  const add = (module: ModuleId, value: OpenedFile): void => {
     if (found.has(module)) throwInvariant(invariant("Two files of the opened program have one module identity."));
     found.set(module, value);
   };
-  checked.getSourceFiles().forEach(file => {
+  checked.programSourceFiles.forEach(entry => {
+    const file = requirePresent(entry, invariant("The checker returned an absent source file in the opened program."));
     const name = checked.ast.getFileName(file);
-    const module = modules.get(name);
+    const module = inputs.modules.get(name);
     if (module !== undefined) {
-      add(module, { kind: "snapshot", module });
+      const text = requirePresent(inputs.files.get(name), invariant("A snapshot module of the opened program has no captured text."));
+      add(module, { file, origin: { kind: "snapshot", module }, text });
       return;
     }
     const document = checked.sourceFacts.getVirtualDeclarationDocument(name);
     if (document === undefined) return throwInvariant(invariant("A file of the opened program is neither a module of the snapshot nor a session document."));
     const origin = providers.get(providerKey(document.provider));
     if (origin === undefined) return throwInvariant(invariant("A session document names a provider that no loaded registration supplied."));
-    const packageName = packageNames.get(origin.reference.package);
+    const packageName = inputs.packageNames.get(origin.reference.package);
     if (packageName === undefined) return throwInvariant(invariant("The registering package of a session document is not a package of the snapshot."));
     const session: SessionDocument = {
       module: encodeModuleId({ package: origin.reference.package, path: document.uri }),
@@ -198,7 +201,7 @@ export function programModules(deps: CaptureDeps, program: CheckedProgram): Prog
       artifact: document.artifactKind,
       text: checked.ast.getSourceText(file),
     };
-    add(session.module, { kind: "session-document", document: session });
+    add(session.module, { file, origin: { kind: "session-document", document: session }, text: session.text });
   });
-  return ({ modules: [...found.entries()].sort((left, right) => left[0] < right[0] ? -1 : 1).map(entry => entry[1]) });
+  return [...found.entries()].sort((left, right) => left[0] < right[0] ? -1 : 1).map(entry => entry[1]);
 }

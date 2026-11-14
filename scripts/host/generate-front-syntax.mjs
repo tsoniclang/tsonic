@@ -89,7 +89,7 @@ const scalarByKind = {
   "ImportAttributes.token": "attributesToken(context, node)",
   "MetaProperty.keywordToken": "metaKeyword(context, node)",
   "ModuleDeclaration.keyword": "moduleKeyword(context, node)",
-  "ImportClause.phaseModifier": "phaseModifier(view.PhaseModifier)",
+  "ImportClause.phaseModifier": "phaseModifier(context, node, view.PhaseModifier)",
   "SourceFile.languageVariant": "languageVariant(view.LanguageVariant)",
   "SourceFile.scriptKind": "scriptKind(view.ScriptKind)",
   "SourceFile.commentDirectives": "commentDirectives(context, view.CommentDirectives)",

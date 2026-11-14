@@ -11,6 +11,7 @@ import type { ConvertedCheckedType, LowerDeps, ModuleDefinitions, ModuleExports,
 import { moduleIdentities } from "./identities.js";
 import { lowerBindingFact, lowerBindings } from "./bindings.js";
 import { lowerExportDeclaration } from "./lower-exports.js";
+import { lowerImportDeclaration } from "./lower-imports.js";
 
 type Syntax = Hir.SyntaxPhase;
 type Checked = Hir.CheckedPhase;
@@ -24,7 +25,8 @@ const invariant = (message: string): InvariantFailure => ({ owner: "front", quer
  */
 const writtenKinds: readonly string[] = ["SourceFile", "EndOfFile", "ExportKeyword", "FunctionDeclaration", "Parameter",
   "Identifier", "NumberKeyword", "StringKeyword", "BooleanKeyword", "Block", "ReturnStatement", "BinaryExpression", "PlusToken", "CallExpression", "ExpressionStatement", "ParenthesizedExpression",
-  "ExportDeclaration", "NamedExports", "ExportSpecifier", "NamespaceExport", "StringLiteral"];
+  "ExportDeclaration", "NamedExports", "ExportSpecifier", "NamespaceExport", "StringLiteral",
+  "ImportDeclaration", "ImportClause", "NamedImports", "ImportSpecifier", "NamespaceImport"];
 
 function unwrittenForm(node: Hir.SyntaxNode<Syntax>): string | null {
   if (!writtenKinds.includes(node.kind)) return node.kind;
@@ -38,6 +40,9 @@ function unwrittenForm(node: Hir.SyntaxNode<Syntax>): string | null {
       return node.typeArguments !== null ? "CallExpression with type arguments" : node.questionDotToken !== null ? "optional CallExpression" : null;
     case "ExportDeclaration": return node.attributes !== null ? "ExportDeclaration with attributes"
       : node.moduleSpecifier !== null && node.moduleSpecifier.kind !== "StringLiteral" ? "ExportDeclaration with nonliteral module specifier" : null;
+    case "ImportDeclaration": return node.attributes !== null ? "ImportDeclaration with attributes"
+      : node.modifiers !== null ? "ImportDeclaration with modifiers"
+      : node.moduleSpecifier.kind !== "StringLiteral" ? "ImportDeclaration with nonliteral module specifier" : null;
     default: return null;
   }
 }
@@ -146,7 +151,9 @@ function convertDependencies(lowering: Lowering, first: ConversionTask): void {
       if (activeTypes.has(next.id)) throw new TypeError("front: recursive callable type conversion is not implemented");
       activeTypes.add(next.id);
       const row = lowering.raw.types.types[next.id];
-      if (row === undefined || row.form.kind !== "available") return throwInvariant(invariant("A raw type has no captured form."));
+      if (row === undefined) return throwInvariant(invariant("A raw type has no captured form."));
+      if (row.form.kind !== "available")
+        throw new TypeError("front: checked type conversion requires its actual captured component/error association (" + row.form.reason + ")");
       pending.push({ ...next, ready: true });
       if (row.form.value.kind === "structure") {
         const inventory = lowering.raw.types.members[row.form.value.inventory];
@@ -222,15 +229,17 @@ function finishSignature(lowering: Lowering, id: RawSignatureId): void {
     ?? throwInvariant(invariant("A signature dependency has not been converted."));
   const parameters = signature.parameters.map((parameter): SignatureParameter => {
     const declared = parameter.declaration;
-    if (declared === null || declared.module !== lowering.raw.module)
-      throw new TypeError("front: external or declarationless callable parameter conversion is not implemented");
-    if (parameter.initializer !== null && parameter.initializer.module !== lowering.raw.module)
-      throw new TypeError("front: an external callable default initializer conversion is not implemented");
+    if (declared === null)
+      throw new TypeError("front: declarationless callable parameter conversion is not implemented");
+    if (parameter.initializer !== null && parameter.initializer.module !== declared.module)
+      return throwInvariant(invariant("A callable default initializer must retain its parameter's actual source module."));
     if (parameter.initializer === null && (parameter.kind !== "required" || parameter.acceptsOmission))
       throw new TypeError("front: non-required callable parameter conversion is not implemented");
     const parameterDefinition = lowering.deps.definitionOf(declared);
+    if (parameter.passing.kind !== "available")
+      throw new TypeError("front: a callable parameter whose captured passing mode is unavailable is not implemented (" + parameter.passing.reason + ")");
     return { declaration: parameterDefinition, kind: parameter.initializer === null ? "required" : "default",
-      type: convertedType(parameter.type), passing: passingOf(lowering, declared.node),
+      type: convertedType(parameter.type), passing: parameter.passing.value,
       initializer: parameter.initializer === null ? null : encodeBodyId({ owner: parameterDefinition, role: "default-argument", ordinal: 0 }) };
   });
   const converted = internSignature(lowering.deps.types, { declaration: definition,
@@ -451,17 +460,20 @@ function statement(lowering: Lowering, node: Hir.Statement<Syntax>, owner: DefId
       return { ...headerOf(node), kind: "ExpressionStatement", expression: expression(lowering, node.expression), tsonic: null };
     case "Block": return block(lowering, node, owner);
     case "FunctionDeclaration": return functionDeclaration(lowering, node, owner);
-    case "ExportDeclaration": return lowerExportDeclaration({
-      core: node => coreOf(lowering, node), memory: node => memoryOf(lowering, node), definition: node => definitionOf(lowering, node),
-      binding: node => lowering.deps.bindingOccurrenceOf({ module: lowering.raw.module, node })
+    case "ExportDeclaration": case "ImportDeclaration": {
+      const inputs = {
+      core: (node: NodeId) => coreOf(lowering, node), memory: (node: NodeId) => memoryOf(lowering, node), definition: (node: NodeId) => definitionOf(lowering, node),
+      binding: (node: NodeId) => lowering.deps.bindingOccurrenceOf({ module: lowering.raw.module, node })
         ?? throwInvariant(invariant("A checked binding syntax requires its actual B1 occurrence.")),
-      target: node => {
+      target: (node: NodeId): Hir.CapturedFact<Hir.ImportTarget> => {
         const link = lowering.links.get(node);
         if (link === undefined || link.resolution.kind === "unresolved") return { kind: "unavailable", reason: "incomplete-association" };
         return { kind: "available", value: link.resolution.kind === "project" ? { target: "project", module: link.resolution.module }
           : { target: "library", module: link.resolution.module } };
       },
-    }, node, owner);
+      };
+      return node.kind === "ExportDeclaration" ? lowerExportDeclaration(inputs, node, owner) : lowerImportDeclaration(inputs, node);
+    }
     default: return throwInvariant(invariant("A statement of an unwritten kind passed the written-kinds check."));
   }
 }
@@ -602,5 +614,5 @@ export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<Hir.HirM
     .sort((left, right) => left.body < right.body ? -1 : left.body > right.body ? 1 : 0);
   const items = rows.filter(row => row.node !== raw.tree.id).map(row => ({ definition: definitionOf(lowering, row.node), node: row.node }))
     .sort((left, right) => left.definition < right.definition ? -1 : left.definition > right.definition ? 1 : 0);
-  return { kind: "ok", diagnostics: [], value: { module: raw.module, tree, items, bodies, exports: exported.entries, bindings: exported.bindings, checkerDiagnostics: [], obligations: [] } };
+  return { kind: "ok", diagnostics: [], value: { module: raw.module, tree, items, bodies, exports: exported.entries, bindings: exported.bindings, checkerDiagnostics: raw.checkerDiagnostics, obligations: [] } };
 }

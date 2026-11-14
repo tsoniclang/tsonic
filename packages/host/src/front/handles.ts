@@ -1,7 +1,14 @@
-import type { CheckedSourceProgram, CompilerExtension, Node, SourceDeclarationProvider, SourceSemanticsModule } from "@tsonic/tsts";
+import type { CheckedSourceProgram, CompilerExtension, Node, SourceDeclarationProvider, SourceFile, SourceSemanticsModule } from "@tsonic/tsts";
 import type { Diagnostic } from "../diag/contract.js";
-import type { ModuleId, NodeId, PackageId } from "../ids/contract.js";
+import type { ModuleId, NodeId } from "../ids/contract.js";
 import type { ExtensionReference, ExtensionReferenceEntry, PackageLibraryData, SourceContributions } from "../snapshot/contract.js";
+import type { ProgramModule, ProgramModuleSet } from "./contract.js";
+
+export interface OpenedFile {
+  readonly file: SourceFile;
+  readonly origin: ProgramModule;
+  readonly text: string;
+}
 
 /** One file's numbering: its nodes in identity order (preorder) and each node's identity. */
 export interface FileNumbering {
@@ -53,29 +60,30 @@ export class ExtensionTable {
 export class OpenedProgram {
   private readonly checkedProgram: CheckedSourceProgram;
   private readonly extensionTable: ExtensionTable;
-  private readonly moduleByPath: ReadonlyMap<string, ModuleId>;
-  private readonly nameByPackage: ReadonlyMap<PackageId, string | null>;
-  private readonly textByPath: ReadonlyMap<string, string>;
+  private readonly fileByPath = new Map<string, OpenedFile>();
+  private readonly fileByModule = new Map<ModuleId, OpenedFile>();
+  private readonly moduleRows: ProgramModuleSet;
   private readonly roleRows: readonly PackageLibraryData[];
   private readonly contributionRows: SourceContributions;
   private readonly syntaxRows = new Map<string, FileSyntaxEntry>();
 
-  private constructor(checked: CheckedSourceProgram, table: ExtensionTable, modules: ReadonlyMap<string, ModuleId>,
-    packageNames: ReadonlyMap<PackageId, string | null>, texts: ReadonlyMap<string, string>, libraryData: readonly PackageLibraryData[],
+  private constructor(checked: CheckedSourceProgram, table: ExtensionTable, files: readonly OpenedFile[], libraryData: readonly PackageLibraryData[],
     contributions: SourceContributions) {
     this.checkedProgram = checked;
     this.extensionTable = table;
-    this.moduleByPath = modules;
-    this.nameByPackage = packageNames;
-    this.textByPath = texts;
+    for (const entry of files) {
+      const module = entry.origin.kind === "snapshot" ? entry.origin.module : entry.origin.document.module;
+      this.fileByPath.set(checked.ast.getFileName(entry.file), entry);
+      this.fileByModule.set(module, entry);
+    }
+    this.moduleRows = { modules: files.map(entry => entry.origin) };
     this.roleRows = libraryData;
     this.contributionRows = contributions;
   }
 
-  static create(checked: CheckedSourceProgram, table: ExtensionTable, modules: ReadonlyMap<string, ModuleId>,
-    packageNames: ReadonlyMap<PackageId, string | null>, texts: ReadonlyMap<string, string>, libraryData: readonly PackageLibraryData[],
+  static create(checked: CheckedSourceProgram, table: ExtensionTable, files: readonly OpenedFile[], libraryData: readonly PackageLibraryData[],
     contributions: SourceContributions): OpenedProgram {
-    return new OpenedProgram(checked, table, modules, packageNames, texts, libraryData, contributions);
+    return new OpenedProgram(checked, table, files, libraryData, contributions);
   }
   /** The snapshot's library data: the closed inventory of library roles of the packages it captured. */
   static libraryData(program: OpenedProgram): readonly PackageLibraryData[] { return program.roleRows; }
@@ -83,10 +91,13 @@ export class OpenedProgram {
   static contributions(program: OpenedProgram): SourceContributions { return program.contributionRows; }
   static checked(program: OpenedProgram): CheckedSourceProgram { return program.checkedProgram; }
   static table(program: OpenedProgram): ExtensionTable { return program.extensionTable; }
-  static modules(program: OpenedProgram): ReadonlyMap<string, ModuleId> { return program.moduleByPath; }
-  static packageNames(program: OpenedProgram): ReadonlyMap<PackageId, string | null> { return program.nameByPackage; }
-  /** The captured text of each file of the session, by path. */
-  static texts(program: OpenedProgram): ReadonlyMap<string, string> { return program.textByPath; }
+  static modules(program: OpenedProgram): ProgramModuleSet { return program.moduleRows; }
+  static file(program: OpenedProgram, module: ModuleId): OpenedFile | undefined { return program.fileByModule.get(module); }
+  static moduleAt(program: OpenedProgram, path: string): ModuleId | undefined {
+    const entry = program.fileByPath.get(path);
+    if (entry === undefined) return undefined;
+    return entry.origin.kind === "snapshot" ? entry.origin.module : entry.origin.document.module;
+  }
   /** The numbering of each file captured so far, by path: made once per file of this program and kept with it. */
   static syntax(program: OpenedProgram): Map<string, FileSyntaxEntry> { return program.syntaxRows; }
 }

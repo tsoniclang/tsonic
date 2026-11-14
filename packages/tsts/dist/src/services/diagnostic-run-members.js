@@ -5,12 +5,15 @@ export function getDiagnosticRunMembers(diagnostic) {
     const members = diagnostic.runMembers;
     if (members === undefined)
         return [diagnostic];
-    const present = [];
+    if (!completeMembers(members))
+        throw new Error("A published diagnostic's run members contain an undefined entry.");
+    return members;
+}
+function completeMembers(members) {
     for (const member of members) {
         if (member === undefined)
-            throw new Error("A published diagnostic's run members contain an undefined entry.");
-        present.push(member);
+            return false;
     }
-    return present;
+    return true;
 }
 //# sourceMappingURL=diagnostic-run-members.js.map

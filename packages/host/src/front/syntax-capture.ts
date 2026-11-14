@@ -2448,7 +2448,7 @@ export function captureNode(context: SyntaxCaptureContext, node: SyntaxNodeOf, p
       const header = headerOf(context, node, id, parent);
       const name_ = oneOrNull(context, view.name, id, isGroup2);
       const namedBindings_ = oneOrNull(context, view.NamedBindings, id, isGroup72);
-      const phaseModifier_ = phaseModifier(view.PhaseModifier);
+      const phaseModifier_ = phaseModifier(context, node, view.PhaseModifier);
       return { kind: "ImportClause", ...header, name: name_, namedBindings: namedBindings_, phaseModifier: phaseModifier_, tsonic: null };
     }
     case "KindImportSpecifier":

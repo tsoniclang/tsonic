@@ -51,6 +51,7 @@ test("real SDK source add passes HIR, genuine Decls/Rules/Infer, composed TIR an
     rules: { libraries: { sources: [], sourceRoles: [], declaredSummaries: [] }, types: interner, typeExpansion: EXPANSION },
     hirBody: body => domain.bodyOf.get(body) ?? assert.fail("the requested body is not in the ready module"),
     itemOf: definition => items.get(definition) ?? assert.fail("the requested declaration is not in the ready module"),
+    bindings: [checked.bindings],
     limits: { maximumVariablesPerGroup: 32, maximumAtomicContributionsPerGroup: 32 },
     graph: { maximumWork: 4096, maximumResultEntries: 4096 },
   });

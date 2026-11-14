@@ -46,6 +46,7 @@ export function createTypeShapeQueries(program, defaultOptions) {
             return typeof value === "boolean" ? value : undefined;
         }),
         isAny: (type) => hasFlags(type, TypeFlagsAny),
+        isError: (type) => type !== undefined && type.checker !== undefined && type === type.checker.errorType,
         isUnknown: (type) => hasFlags(type, TypeFlagsUnknown),
         isNever: (type) => hasFlags(type, TypeFlagsNever),
         isNonPrimitive: (type) => hasFlags(type, TypeFlagsNonPrimitive),

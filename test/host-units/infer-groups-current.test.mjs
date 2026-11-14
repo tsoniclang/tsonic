@@ -26,12 +26,13 @@ function input(source = PAIR) {
   const items = new Map(checked.items.map(item => [item.definition, nodes[item.node]]));
   items.set(checked.tree.tsonic.definition, checked.tree);
   const bodies = new Map(checked.bodies.map(body => [body.body, body]));
-  return { checked, nodes, items, bodies };
+  return { checked, modules: [checked], interner, nodes, items, bodies };
 }
 
 function deps(program, graph = AMPLE) {
   return { hirBody: body => program.bodies.get(body) ?? assert.fail("a genuine body must be in the ready inventory"),
-    itemOf: definition => program.items.get(definition) ?? assert.fail("a genuine owner must be in the ready inventory"), graph };
+    itemOf: definition => program.items.get(definition) ?? assert.fail("a genuine owner must be in the ready inventory"),
+    bindings: program.modules.map(module => module.bindings), graph };
 }
 
 function run(program, graph = AMPLE, order = [...program.bodies.keys()]) {
@@ -235,4 +236,179 @@ test("every graph preparation boundary refuses before publishing any partial par
     }
     assert.equal(complete, true);
   }
+});
+
+function aliasInput(count = 1, uses = 1, recursive = false) {
+  const aliases = Array.from({ length: count }, (unused, index) => "right as alias" + index).join(", ");
+  const program = input("export function left(x:number):number {" + "right(x);".repeat(uses - 1)
+    + "return right(x);}\nexport function right(x:number):number {return " + (recursive ? "left(x)" : "x") + ";}\nexport {" + aliases + "};\n");
+  const [reader, producer] = functions(program);
+  const occurrence = program.checked.exports.find(entry => entry.name === "alias0").target.occurrence;
+  for (const node of program.nodes) if (node.kind === "Identifier" && node.text === "right" && node.tsonic.role === "value")
+    node.tsonic = { ...node.tsonic, resolution: { kind: "binding", occurrence } };
+  assert.deepEqual(fixture.verifyChecked(program.checked, program.interner), []);
+  producer.type = null;
+  return { program, reader, producer, occurrence };
+}
+
+test("actual checked export-binding inventory orders its inferred producer before a qualified reader", () => {
+  const { program, reader, producer } = aliasInput();
+  const result = run(program);
+  assert.equal(result.kind, "ok");
+  const ownerGroup = definition => result.value.findIndex(group => group.bodies.some(body => program.bodies.get(body).owner === definition));
+  assert.equal(ownerGroup(producer.tsonic.definition) < ownerGroup(reader.tsonic.definition), true);
+  assert.deepEqual(run(program, AMPLE, [...program.bodies.keys()].reverse()), result);
+});
+
+test("scripted retained binding graph expands each shared nearest row once, not once per use", () => {
+  for (const count of [1, 16, 64, 256]) {
+    const { program } = aliasInput(count, count);
+    const rows = program.checked.bindings;
+    let reads = 0;
+    for (const [index, row] of rows.entries()) {
+      const target = index + 1 === rows.length ? row.target : { kind: "available",
+        value: { kind: "binding", occurrence: rows[index + 1].occurrence } };
+      Object.defineProperty(row, "target", { get() { reads += 1; return target; } });
+    }
+    assert.equal(run(program).kind, "ok");
+    assert.equal(reads, count, "one actual target read per retained nearest row at size " + count);
+  }
+});
+
+test("binding cycles and complete groups retain canonical partition identity without invented declarations", () => {
+  const { program, occurrence } = aliasInput(2, 1, true);
+  const rows = program.checked.bindings;
+  rows[0].target = { kind: "available", value: { kind: "binding", occurrence: rows[1].occurrence } };
+  rows[1].target = { kind: "available", value: { kind: "binding", occurrence } };
+  const cycle = run(program);
+  assert.equal(cycle.kind, "ok");
+  assert.equal(cycle.value.reduce((count, group) => count + group.bodies.length, 0), program.bodies.size);
+  assert.equal(cycle.value.every(group => group.bodies.length === 1), true);
+  for (const fn of functions(program)) fn.type = null;
+  rows[1].target = { kind: "available", value: { kind: "declarations", definitions: functions(program).map(fn => fn.tsonic.definition) } };
+  const complete = run(program);
+  assert.equal(complete.kind, "ok");
+  const joined = complete.value.find(group => group.bodies.length === 2);
+  assert.equal(joined !== undefined, true);
+  assert.equal(joined.signatures.length, 2);
+});
+
+test("the grouping graph keeps equal syntax ordinals qualified by actual item or execution owner", () => {
+  const { program, occurrence } = aliasInput(2);
+  const rows = program.checked.bindings;
+  const body = [...program.bodies.values()].find(body => body.root.kind === "SourceFile").body;
+  const intermediate = { kind: "body", value: { body, node: occurrence.value.node } };
+  const another = { kind: "item", value: { owner: functions(program)[0].tsonic.definition, node: occurrence.value.node } };
+  const target = rows[0].target;
+  program.checked.bindings = [
+    { occurrence, target: { kind: "available", value: { kind: "binding", occurrence: intermediate } } },
+    { occurrence: intermediate, target: { kind: "available", value: { kind: "binding", occurrence: another } } },
+    { occurrence: another, target },
+  ];
+  assert.equal(run(program).kind, "ok");
+  program.checked.bindings.push({ occurrence: { ...intermediate, value: { body, node: occurrence.value.node + 1 } }, target });
+  assert.equal(run(program).kind, "ok");
+  program.checked.bindings.push(structuredClone(program.checked.bindings[0]));
+  assert.throws(() => run(program), /duplicate nearest rows/);
+});
+
+test("binding semantic targets retain actual origins and absence without inventing dependency roots", () => {
+  for (const kind of ["member", "module", "unresolved"]) {
+    const { program, producer } = aliasInput();
+    const original = program.checked.bindings[0].target;
+    const diagnostics = [{ module: program.checked.module, index: 0 }];
+    const target = kind === "member" ? { kind, through: original.value, key: { kind: "available", value: { kind: "text", value: "field" } },
+      origins: { kind: "available", value: [{ kind: "declared", declaration: producer.tsonic.definition },
+        { kind: "class-prototype", owner: producer.tsonic.definition }] } }
+      : kind === "module" ? { kind, module: program.checked.module } : { kind, diagnostics };
+    program.checked.bindings[0].target = { kind: "available", value: target };
+    assert.equal(run(program).kind, "ok");
+    if (kind === "unresolved") assert.equal(target.diagnostics === diagnostics, true);
+    if (kind === "member") {
+      const name = program.nodes.find(node => node.kind === "Identifier" && node.tsonic.role === "value" && node.text === "right");
+      name.tsonic = { ...name.tsonic, resolution: target };
+      assert.equal(run(program).kind, "ok");
+      target.origins = { kind: "unavailable", reason: "parameter-dependent" };
+      assert.throws(() => run(program), /binding member whose actual declaration origins are unavailable/);
+    }
+  }
+});
+
+test("missing binding evidence stays an explicit producer frontier, and malformed graph inputs are defects", () => {
+  const { program } = aliasInput();
+  const row = program.checked.bindings[0];
+  const original = row.target;
+  row.target = { kind: "unavailable", reason: "missing-original-component" };
+  assert.throws(() => run(program), /nearest target is unavailable \(missing-original-component\)/);
+  const name = program.nodes.find(node => node.kind === "Identifier" && node.text === "right" && node.tsonic.role === "value");
+  const binding = name.tsonic.resolution;
+  name.tsonic = { ...name.tsonic, resolution: { kind: "unavailable", reason: "checker-error" } };
+  assert.throws(() => run(program), /dependency evidence is unavailable \(checker-error\)/);
+  name.tsonic = { ...name.tsonic, resolution: binding };
+  row.target = original;
+  program.checked.bindings = [];
+  assert.throws(() => run(program), /actual ready nearest row/);
+  for (const node of [-0, -1, NaN, Infinity, 0.5]) {
+    program.checked.bindings = [{ ...row, occurrence: { ...row.occurrence, value: { ...row.occurrence.value, node } } }];
+    assert.throws(() => run(program), /actual qualified syntax identity/);
+  }
+});
+
+test("an unused nearest row is indexed but no unavailable semantic target is forced", () => {
+  const { program } = aliasInput(2);
+  let reads = 0;
+  Object.defineProperty(program.checked.bindings[1], "target", {
+    get() { reads += 1; return { kind: "unavailable", reason: "not-provided" }; },
+  });
+  assert.equal(run(program).kind, "ok");
+  assert.equal(reads, 0);
+});
+
+test("genuine multi-module source imports retain all nearest alias edges before grouping inferred producers", () => {
+  const actual = fixture.checkedModulesOf({
+    "producer.ts": "export function right(x:number) {return x;}\n",
+    "barrel.ts": 'export {right as renamed} from "./producer.js";\n',
+    "reader.ts": 'import {renamed as local} from "./barrel.js"; export function left(x:number):number {return local(x);}\n',
+  });
+  const items = new Map();
+  const bodies = new Map();
+  for (const module of actual.modules) {
+    assert.deepEqual(fixture.verifyChecked(module, actual.interner, actual.modules), []);
+    const nodes = fixture.hir.indexSyntaxTree(module.tree);
+    items.set(module.tree.tsonic.definition, module.tree);
+    for (const item of module.items) items.set(item.definition, nodes[item.node]);
+    for (const body of module.bodies) bodies.set(body.body, body);
+  }
+  const result = infer.groupsOf({ bindings: actual.modules.map(module => module.bindings),
+    hirBody: body => bodies.get(body) ?? assert.fail("actual cross-module body required"),
+    itemOf: definition => items.get(definition) ?? assert.fail("actual cross-module item required"), graph: AMPLE }, [...bodies.keys()]);
+  assert.equal(result.kind, "ok");
+  const producer = actual.modules[0].tree.statements.nodes.find(node => node.kind === "FunctionDeclaration").tsonic.definition;
+  const readerModule = actual.modules[2];
+  const reader = readerModule.tree.statements.nodes.find(node => node.kind === "FunctionDeclaration").tsonic.definition;
+  const ownerGroup = definition => result.value.findIndex(group => group.bodies.some(body => bodies.get(body).owner === definition));
+  assert.equal(ownerGroup(producer) < ownerGroup(reader), true);
+  const name = fixture.hir.indexSyntaxTree(readerModule.tree).find(node => node.kind === "Identifier" && node.text === "local" && node.tsonic.role === "value");
+  assert.equal(name.tsonic.resolution.kind, "binding");
+  const projection = fixture.hir.resolveModuleBinding(fixture.hir.createModuleBindingViews(actual.modules.map(module => module.bindings)),
+    name.tsonic.resolution.occurrence);
+  assert.deepEqual(projection.target, { kind: "available", value: { kind: "declarations", definitions: [producer] } });
+  assert.equal(projection.aliases.length, 2);
+});
+
+test("all binding preparation and expansion growth is charged before work with no partial partition", () => {
+  const { program } = aliasInput(3, 3);
+  const rows = program.checked.bindings;
+  rows[0].target = { kind: "available", value: { kind: "binding", occurrence: rows[1].occurrence } };
+  rows[1].target = { kind: "available", value: { kind: "member", through: rows[2].target.value,
+    key: { kind: "available", value: { kind: "text", value: "field" } },
+    origins: { kind: "available", value: [{ kind: "declared", declaration: functions(program)[1].tsonic.definition }] } } };
+  let completed = false;
+  for (let maximumWork = 0; maximumWork < 4096; maximumWork += 1) {
+    const result = run(program, { ...AMPLE, maximumWork });
+    if (result.kind === "ok") { completed = true; break; }
+    assert.equal(result.kind, "refused");
+    assert.equal(result.diagnostics.length, 1);
+  }
+  assert.equal(completed, true);
 });

@@ -128,6 +128,42 @@ export async function loadFrontFixture() {
     return { module, raw: raw.value, definitions: definitions.value, interner, exports: exported.value, checked: checked.value };
   }
 
+  function checkedModulesOf(sourceFiles) {
+    const snapshot = projectSnapshot({ sourceFiles, libraries: bundled() });
+    const opened = openAndCapture(snapshot);
+    const interner = types.createTypeInterner();
+    const captured = Object.entries(sourceFiles).map(([name, text]) => {
+      const module = moduleOf(packageOf("/project"), "src/" + name);
+      const raw = front.captureModule(opened.deps, opened.program, module);
+      assert.equal(raw.kind, "ok");
+      const definitions = front.lowerModuleDefinitions(raw.value);
+      assert.equal(definitions.kind, "ok");
+      return { module, text, raw: raw.value, definitions: definitions.value };
+    });
+    const definitions = new Map(captured.map(entry => [entry.module, new Map(entry.definitions.rows.map(row => [row.node, row.definition]))]));
+    const bindings = new Map(captured.map(entry => [entry.module, new Map(entry.definitions.bindingSources.map(row => [row.node, row.occurrence]))]));
+    const text = new Map(captured.map(entry => [entry.module, entry.text]));
+    const first = captured[0];
+    assert.equal(first !== undefined, true, "a real source module inventory is nonempty");
+    const exported = new Map();
+    const deps = { ...lowerDepsFor(first.definitions, interner, first.text),
+      definitionOf: reference => definitions.get(reference.module)?.get(reference.node) ?? assert.fail("an actual cross-module F1 declaration is required"),
+      bindingOccurrenceOf: reference => bindings.get(reference.module)?.get(reference.node) ?? null,
+      sourceTextOf: module => text.get(module) ?? assert.fail("actual captured source text is required"),
+      exportsOf: module => exported.get(module) ?? null };
+    for (const entry of captured) {
+      const result = front.lowerModuleExports(deps, entry.raw);
+      assert.equal(result.kind, "ok");
+      exported.set(entry.module, result.value);
+    }
+    const modules = captured.map(entry => {
+      const result = front.lowerModule(deps, entry.raw);
+      assert.equal(result.kind, "ok");
+      return result.value;
+    });
+    return { modules, interner, snapshot, captured, deps };
+  }
+
   /**
    * The HIR verifier's violations of a checked module. The checked module holds the interner's own type and signature
    * identities, so the table it is verified against is the interner's rows in that numbering, read back one by one; the
@@ -151,5 +187,5 @@ export async function loadFrontFixture() {
     });
   }
 
-  return { front, ids, snapshots, types, hir, sdk, packageOf, moduleOf, bundled, projectSnapshot, openAndCapture, openedModule, lowerDepsFor, checkedModuleOf, verifyChecked };
+  return { front, ids, snapshots, types, hir, sdk, packageOf, moduleOf, bundled, projectSnapshot, openAndCapture, openedModule, lowerDepsFor, checkedModuleOf, checkedModulesOf, verifyChecked };
 }

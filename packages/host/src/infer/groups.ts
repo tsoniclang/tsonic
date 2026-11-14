@@ -1,6 +1,6 @@
 import type { Diagnostic, Result } from "../diag/contract.js";
-import type { BodyId, BodyRole, DefId, NodeId, Origin } from "../ids/contract.js";
-import type { Declaration, CheckedPhase, HirBody, HirNode } from "../ir-hir/contract.js";
+import type { BodyId, BodyRole, DefId, NodeId, Origin, SourceNodeRef } from "../ids/contract.js";
+import type { Declaration, CheckedPhase, HirBody, HirNode, HirModuleBinding, HirResolution } from "../ir-hir/contract.js";
 import type { DataflowResult, GraphComponents } from "../dataflow/contract.js";
 import type { InferenceGroup, InferredSignaturePart } from "../ir-infer/contract.js";
 import type { GroupDeps, GroupsOf } from "./contract.js";
@@ -99,16 +99,14 @@ export const partition: GroupsOf = (deps, bodies) => {
       if (!edge(declaration, target)) return stop();
     }
   }
+  const useResolution = bindingDependencies(deps.bindings, successors, definitions, take, edge);
+  if (useResolution === null) return stop();
   for (const [position, body] of ready.entries()) {
     const ownParts = definitions.get(body.owner);
     if (callable(present(items.get(body.owner), "the body's declaration")) && ownParts !== undefined && !edge(position, ownParts)) return stop();
     const excluded = new Set<NodeId>(body.nestedBodies.map(nested => present(ready[present(index.get(nested), "a nested body's index")], "a nested body").root.id));
     const seen = new Set<HirNode>();
     const pending: HirNode[] = [body.root];
-    const depend = (definition: DefId): boolean => {
-      const target = definitions.get(definition);
-      return target === undefined || edge(position, target);
-    };
     for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
       if (!take(1)) return stop();
       if (excluded.has(node.id) || seen.has(node)) continue;
@@ -116,17 +114,17 @@ export const partition: GroupsOf = (deps, bodies) => {
       if (node.kind === "Identifier") {
         const name = node.tsonic;
         if (name.role === "value" || name.role === "shorthand-value" || name.role === "type-name" || name.role === "assignment-target") {
-          const resolution = name.resolution;
-          if (resolution.kind === "declarations") {
-            for (const definition of resolution.definitions) if (!depend(definition)) return stop();
-          } else if (resolution.kind === "binding" || resolution.kind === "member" || resolution.kind === "unavailable")
-            return notInferredYet(PORT, "a qualified binding whose group dependency projection is not implemented", node.origin);
+          if (!useResolution(position, name.resolution, node.origin)) return stop();
         }
       } else if (node.kind === "PropertyAccessExpression" || node.kind === "ElementAccessExpression") {
         const member = node.tsonic;
         if (member.origins.kind === "unavailable") return notInferredYet(PORT,
           "a member whose actual declaration origins are unavailable (" + member.origins.reason + ")", node.origin);
-        for (const origin of member.origins.value) if (origin.kind === "declared" && !depend(origin.declaration)) return stop();
+        for (const origin of member.origins.value) {
+          if (!take(1)) return stop();
+          const target = origin.kind === "declared" ? definitions.get(origin.declaration) : undefined;
+          if (target !== undefined && !edge(position, target)) return stop();
+        }
       }
       const children = childrenOfSyntax(node);
       if (!take(children.length)) return stop();
@@ -139,6 +137,89 @@ export const partition: GroupsOf = (deps, bodies) => {
     { ...components, maximum: components.dimension === "work" ? deps.graph.maximumWork : components.maximum });
   return { kind: "ok", value: groupsOf(order, graph, components.value, parts), diagnostics: [] };
 };
+
+interface BindingVertex {
+  readonly row: HirModuleBinding;
+  readonly vertex: number;
+  expanded: boolean;
+}
+
+function bindingDependencies(tables: GroupDeps["bindings"], successors: Set<number>[], definitions: ReadonlyMap<DefId, number>,
+  take: (count: number) => boolean, edge: (from: number, to: number) => boolean):
+  ((from: number, target: HirResolution, origin: Origin) => boolean) | null {
+  const items = new Map<DefId, Map<NodeId, BindingVertex>>();
+  const bodies = new Map<BodyId, Map<NodeId, BindingVertex>>();
+  const ordinal = (reference: SourceNodeRef): NodeId => {
+    const node = reference.value.node;
+    if (!Number.isSafeInteger(node) || node < 0 || Object.is(node, -0))
+      return callerDefect(PORT, "a binding must retain its actual qualified syntax identity");
+    return node;
+  };
+  for (const rows of tables) {
+    if (!take(1)) return null;
+    for (const row of rows) {
+      if (!take(1)) return null;
+      const occurrence = row.occurrence;
+      const node = ordinal(occurrence);
+      const entries = occurrence.kind === "item" ? items.get(occurrence.value.owner) : bodies.get(occurrence.value.body);
+      const entry: BindingVertex = { row, vertex: successors.length, expanded: false };
+      if (entries === undefined) {
+        const nodes = new Map([[node, entry]]);
+        if (occurrence.kind === "item") items.set(occurrence.value.owner, nodes);
+        else bodies.set(occurrence.value.body, nodes);
+      } else {
+        if (entries.has(node)) return callerDefect(PORT, "a qualified binding occurrence has duplicate nearest rows");
+        entries.set(node, entry);
+      }
+      successors.push(new Set());
+    }
+  }
+  const bindingOf = (occurrence: SourceNodeRef): BindingVertex => {
+    const node = ordinal(occurrence);
+    const entry = occurrence.kind === "item" ? items.get(occurrence.value.owner)?.get(node) : bodies.get(occurrence.value.body)?.get(node);
+    return entry ?? callerDefect(PORT, "a binding demand must name an actual ready nearest row");
+  };
+  const declaration = (from: number, definition: DefId): boolean => {
+    if (!take(1)) return false;
+    const target = definitions.get(definition);
+    return target === undefined || edge(from, target);
+  };
+  return (from, target, origin) => {
+    const pending = [{ from, target }];
+    for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
+      const actual = next.target;
+      switch (actual.kind) {
+        case "binding": {
+          const binding = bindingOf(actual.occurrence);
+          if (!edge(next.from, binding.vertex)) return false;
+          if (binding.expanded) break;
+          if (!take(1)) return false;
+          binding.expanded = true;
+          const nearest = binding.row.target;
+          if (nearest.kind === "unavailable")
+            return notInferredYet(PORT, "a binding whose actual nearest target is unavailable (" + nearest.reason + ")", origin);
+          pending.push({ from: binding.vertex, target: nearest.value });
+          break;
+        }
+        case "declarations":
+          for (const definition of actual.definitions) if (!declaration(next.from, definition)) return false;
+          break;
+        case "member":
+          if (actual.origins.kind === "unavailable") return notInferredYet(PORT,
+            "a binding member whose actual declaration origins are unavailable (" + actual.origins.reason + ")", origin);
+          for (const member of actual.origins.value) {
+            if (!take(1)) return false;
+            if (member.kind === "declared" && !declaration(next.from, member.declaration)) return false;
+          }
+          break;
+        case "unavailable":
+          return notInferredYet(PORT, "a checked resolution whose actual dependency evidence is unavailable (" + actual.reason + ")", origin);
+        case "local": case "module": case "unresolved": break;
+      }
+    }
+    return true;
+  };
+}
 
 function groupsOf(order: readonly BodyId[], graph: readonly (readonly number[])[], components: GraphComponents,
   parts: readonly OwnedPart[]): InferenceGroup[] {
