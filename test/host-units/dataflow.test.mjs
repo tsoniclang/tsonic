@@ -26,7 +26,7 @@ const interfaceNames = ["ids", "diag", "ir-types", "ir-hir", "ir-infer", "ir-tir
 const interfaceSources = [...interfaceNames.map(name => `packages/host/src/${name}/contract.ts`),
   "packages/host/src/diag/index.ts"];
 const declarationSources = [...interfaceSources,
-  "packages/host/src/ir-types/arena.ts", "packages/host/src/ir-types/data.ts",
+  "packages/host/src/ir-types/arena.ts", "packages/host/src/ir-types/data.ts", "packages/host/src/ir-types/native-facts-data.ts",
   "packages/host/src/diag/invariant.ts", "packages/host/src/diag/order.ts",
   "packages/host/src/ids/index.ts", "packages/host/src/ids/identity.ts", "packages/host/src/ids/key.ts"];
 const quarantineRoots = JSON.parse(readFileSync(resolve(repository, "test/architecture/quarantine/areas.json"), "utf8"))
@@ -904,7 +904,7 @@ test("exact seven-port public inventory and complete eight-source owner compile 
   complete(report.sourceInventory.map(entry => relative(repository, entry.path)).sort(), [...sourceFiles, ...declarationSources].sort(),
     "eight owner files plus the exact native dependency-production closure");
   complete(report.provenance.map(entry => relative(repository, entry.source)).sort(), [...interfaceSources,
-    "packages/host/src/ir-types/arena.ts", "packages/host/src/ir-types/data.ts"].sort(),
+    "packages/host/src/ir-types/arena.ts", "packages/host/src/ir-types/data.ts", "packages/host/src/ir-types/native-facts-data.ts"].sort(),
     "public contracts retain their actual opaque and data declaration dependencies");
   assert.equal(report.loadedInventory.length > 21, true, "actual language declaration closure is nonempty");
   assert.equal(report.loadedInventory.every(path => report.expectedInventory.includes(path)), true);
@@ -917,7 +917,7 @@ test("actual emitted public declarations preserve generic ports, readonly result
   const stage = mkdtempSync(resolve(parent, "case-"));
   writeFileSync(resolve(stage, "package.json"), '{"type":"module","private":true}\n');
   const declarationFiles = [...sourceFiles, ...interfaceSources,
-    "packages/host/src/ir-types/arena.ts", "packages/host/src/ir-types/data.ts"].map(path => path.replace("/src/", "/dist/")
+    "packages/host/src/ir-types/arena.ts", "packages/host/src/ir-types/data.ts", "packages/host/src/ir-types/native-facts-data.ts"].map(path => path.replace("/src/", "/dist/")
     .replace(/\.ts$/u, ".d.ts"));
   const staged = [];
   for (const file of declarationFiles) {
