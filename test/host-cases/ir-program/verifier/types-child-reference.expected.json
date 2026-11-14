@@ -1,1 +1,1 @@
-{"kind":"accepted","value":[{"rule":"types-valid","site":{"kind":"index"},"detail":[{"kind":"text","value":"type-reference"},{"kind":"text","value":"reference"},{"kind":"number","value":2}]}],"diagnostics":[]}
+{"kind":"accepted","value":{"kind":"complete","violations":[{"rule":"types-valid","site":{"kind":"index"},"detail":[{"kind":"text","value":"type-reference"},{"kind":"text","value":"reference"},{"kind":"number","value":2}]}]},"diagnostics":[]}

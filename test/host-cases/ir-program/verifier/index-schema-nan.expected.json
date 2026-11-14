@@ -1,1 +1,1 @@
-{"kind":"accepted","value":[{"rule":"schema-supported","site":{"kind":"index"},"detail":[{"kind":"number","value":{"$number":"NaN"}}]}],"diagnostics":[]}
+{"kind":"accepted","value":{"kind":"complete","violations":[{"rule":"schema-supported","site":{"kind":"index"},"detail":[{"kind":"number","value":{"$number":"NaN"}}]}]},"diagnostics":[]}

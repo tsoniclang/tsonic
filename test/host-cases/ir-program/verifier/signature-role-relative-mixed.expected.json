@@ -1,5 +1,8 @@
 {
   "kind": "accepted",
-  "value": [],
+  "value": {
+    "kind": "complete",
+    "violations": []
+  },
   "diagnostics": []
 }

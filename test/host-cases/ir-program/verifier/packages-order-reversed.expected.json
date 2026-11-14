@@ -1,23 +1,26 @@
 {
   "kind": "accepted",
-  "value": [
-    {
-      "rule": "packages-order",
-      "site": {
-        "kind": "package",
-        "package": "P[%002Fa]"
-      },
-      "detail": [
-        {
-          "kind": "text",
-          "value": "P[%002Fb]"
+  "value": {
+    "kind": "complete",
+    "violations": [
+      {
+        "rule": "packages-order",
+        "site": {
+          "kind": "package",
+          "package": "P[%002Fa]"
         },
-        {
-          "kind": "text",
-          "value": "P[%002Fa]"
-        }
-      ]
-    }
-  ],
+        "detail": [
+          {
+            "kind": "text",
+            "value": "P[%002Fb]"
+          },
+          {
+            "kind": "text",
+            "value": "P[%002Fa]"
+          }
+        ]
+      }
+    ]
+  },
   "diagnostics": []
 }

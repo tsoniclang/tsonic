@@ -4,7 +4,7 @@ import type { DefId, ModuleId } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import { summaryKey, verifyMetadata, verifySummary } from "../ir-facts/index.js";
 import { indexSyntaxTree } from "../ir-hir/index.js";
-import { artifactBindingsData, artifactBindingsKey, constantReferenceKey, executionKey, floatingBitsFit, instanceKey, nativeFactsKey, printTypes, verifyNativeFacts, verifyTypes } from "../ir-types/index.js";
+import { artifactBindingsData, artifactBindingsKey, constantReferenceKey, executionKey, floatingBitsFit, instanceKey, nativeCarrierOf, nativeFactsKey, printTypes, verifyNativeFacts, verifyTypes } from "../ir-types/index.js";
 import type { TirVerifierInput } from "../ir-tir/contract.js";
 import type { HirCallableEndpoint } from "../ir-hir/contract.js";
 import type { BindingVerificationInput, Execution, TypeRule, TypeSite } from "../ir-types/contract.js";
@@ -13,13 +13,15 @@ import type {
   ProgramIndex,
   ProgramSite,
   ProgramVerificationContext,
+  ProgramVerificationResult,
   SignatureRecord,
   VerifyProgramIndex,
 } from "./contract.js";
 
 import type { ProgramLookup, ProgramViolation } from "./program-values.js";
 import { artifactEnvironmentKey, compareExecutions, compareText, numberDetail, programChildRule, programLookup, summaryBindingsOf, summaryReferenceOf, textDetail, uniqueRows } from "./program-values.js";
-import { requireInstantiationMaximum } from "./work.js";
+import { chargeInstantiationWork, requireInstantiationMaximum } from "./work.js";
+import { refuseVerification } from "./verification-work.js";
 import { verifyBindingBounds, verifyBodyInventory, verifyModules, verifyPackages } from "./verify-structure.js";
 
 function numericPosition(value: number, length: number): boolean {
@@ -182,7 +184,7 @@ function verifyBodyBindings(
   return violations;
 }
 
-function verifyPublishedRecords(index: ProgramIndex, context: ProgramVerificationContext): readonly ProgramViolation[] {
+function verifyPublishedRecords(index: ProgramIndex, context: ProgramVerificationContext): ProgramVerificationResult {
   const violations: ProgramViolation[] = [];
   let previousMetadata: { readonly definition: DefId; readonly environment: string } | null = null;
   const metadataKeys = new Set<string>();
@@ -226,11 +228,19 @@ function verifyPublishedRecords(index: ProgramIndex, context: ProgramVerificatio
     if (constantKeys.has(key)) violations.push({ rule: "constant-key-unique", site, detail: [textDetail(key)] });
     constantKeys.add(key);
     previousConstant = key;
-    const term = index.types.terms[constant.value.type];
-    if (!numericPosition(constant.value.type, index.types.terms.length) || term === undefined) {
+    if (!numericPosition(constant.value.type, index.types.terms.length)) {
       violations.push({ rule: "constant-type-resolves", site, detail: [numberDetail(constant.value.type)] });
     } else {
-      const carrier = term.kind === "primitive" ? term.primitive : null;
+      if (constant.value.kind !== "floating" && constant.value.kind !== "number") continue;
+      const selected = nativeCarrierOf(index.types, constant.value.type, type => {
+        if (chargeInstantiationWork(ProgramWork.state(context.resources)) !== null) return null;
+        return index.types.terms[type];
+      });
+      if (selected.kind === "resource-stop") {
+        return refuseVerification(index, context.resources, { kind: "resource-limit", site: { kind: "index" },
+          dimension: "work", maximum: ProgramWork.state(context.resources).limits.maximumWork });
+      }
+      const carrier = selected.kind === "primitive" ? selected.primitive : null;
       if (constant.value.kind === "floating") {
         if (carrier === null) throw new TypeError("Program floating constants require their actual selected native carrier");
         const format = context.selectedNativeFacts.floatingFormats.find(row => row.carrier === carrier);
@@ -249,7 +259,7 @@ function verifyPublishedRecords(index: ProgramIndex, context: ProgramVerificatio
   if (ordered.some((diagnostic, position) => diagnostic !== index.diagnostics[position])) {
     violations.push({ rule: "diagnostics-order", site: { kind: "index" }, detail: [] });
   }
-  return violations;
+  return { kind: "complete", violations };
 }
 
 function verifyExecutions(lookup: ProgramLookup, index: ProgramIndex): readonly ProgramViolation[] {
@@ -277,6 +287,13 @@ function verifyExecutions(lookup: ProgramLookup, index: ProgramIndex): readonly 
 }
 
 export const verifyProgramIndex: VerifyProgramIndex = (index, context) => {
+  const seed = ProgramWork.state(context.resources).seed;
+  if (seed.kind !== "unseeded" && seed.table !== index.types) {
+    throw new TypeError("Program verification refusal belongs to another published type table");
+  }
+  if (seed.kind === "refused") {
+    return seed.stop;
+  }
   if (typeof context.nativeFactsKey !== "string" || context.nativeFactsKey.length === 0) {
     throw new TypeError("Program verification requires the selected native facts identity");
   }
@@ -300,9 +317,13 @@ export const verifyProgramIndex: VerifyProgramIndex = (index, context) => {
   for (const record of index.modules) modules.set(record.module, context.tirOf(record.module));
   const bindings: BindingVerificationInput[] = [];
   const bindingSites: ProgramSite[] = [];
-  for (const group of [verifySourceInventory(index, modules), verifySignatures(lookup, index, context, modules, bindings, bindingSites), verifyBodyBindings(index, context, bindings, bindingSites), verifyPublishedRecords(index, context), verifyBindingBounds(index, context)]) {
+  for (const group of [verifySourceInventory(index, modules), verifySignatures(lookup, index, context, modules, bindings, bindingSites), verifyBodyBindings(index, context, bindings, bindingSites)]) {
     for (const violation of group) violations.push(violation);
   }
+  const records = verifyPublishedRecords(index, context);
+  if (records.kind === "resource-limit") return records;
+  for (const violation of records.violations) violations.push(violation);
+  for (const violation of verifyBindingBounds(index, context)) violations.push(violation);
   const bindingViolations = new Map<number, Violation<TypeRule, TypeSite>[]>();
   for (const child of verifyTypes({
     table: index.types, bindings, evidence: [], nominalOf: context.facts.nominalOf,
@@ -320,5 +341,5 @@ export const verifyProgramIndex: VerifyProgramIndex = (index, context) => {
       violations.push({ rule, site, detail: [textDetail(child.rule), ...child.detail] });
     }
   }
-  return violations;
+  return { kind: "complete", violations };
 };

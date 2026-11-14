@@ -7,7 +7,7 @@ import type { MetadataKey, MetadataRecord } from "../ir-facts/contract.js";
 import type { HirFieldBindingCapture } from "../ir-hir/contract.js";
 import type { TirVerifierInput } from "../ir-tir/contract.js";
 import type { MirOperand, MirRvalue, MirSite, MirTerminator } from "../ir-mir/contract.js";
-import type { ModuleBodiesVerification, ProgramVerificationContext, PublishedBody } from "./contract.js";
+import type { ProgramVerificationResult, ProgramVerificationContext, PublishedBody } from "./contract.js";
 import type { ProgramLookup, ProgramViolation } from "./program-values.js";
 import type { InstantiationAllocationStop } from "./work.js";
 import { artifactEnvironmentKey, numberDetail, textDetail, uniqueRows } from "./program-values.js";
@@ -15,7 +15,7 @@ import { chargeInstantiationWork, emitInstantiationRecord } from "./work.js";
 
 const sourceKey = (source: SourceNodeRef): string => encodeKey([source.kind,
   source.kind === "body" ? source.value.body : source.value.owner, source.value.node]);
-const stopped = (stop: InstantiationAllocationStop): ModuleBodiesVerification => {
+const stopped = (stop: InstantiationAllocationStop): ProgramVerificationResult => {
   return { kind: "resource-limit", site: { kind: "index" }, dimension: stop.dimension, maximum: stop.maximum };
 };
 const rootOccurrence = (metadata: MetadataRecord): SourceNodeRef | null => metadata.kind === "data-layout"
@@ -24,7 +24,7 @@ const rootOccurrence = (metadata: MetadataRecord): SourceNodeRef | null => metad
 
 function authorize(published: PublishedBody, input: TirVerifierInput, lookup: ProgramLookup,
   context: ProgramVerificationContext, types: TypeInterner,
-  requests: Iterable<{ readonly node: NodeId; readonly key: MetadataKey }>, allowed: Map<NodeId, Set<string>>): ModuleBodiesVerification {
+  requests: Iterable<{ readonly node: NodeId; readonly key: MetadataKey }>, allowed: Map<NodeId, Set<string>>): ProgramVerificationResult {
   const candidates: { readonly node: NodeId; readonly key: MetadataKey; readonly vector: number }[] = [];
   const vectors: BindingVector[] = [];
   function allow(node: NodeId, key: MetadataKey): InstantiationAllocationStop | null {
@@ -149,7 +149,7 @@ function authorize(published: PublishedBody, input: TirVerifierInput, lookup: Pr
 }
 
 export function verifyMetadataOperands(published: PublishedBody, input: TirVerifierInput, lookup: ProgramLookup,
-  context: ProgramVerificationContext, types: TypeInterner): ModuleBodiesVerification {
+  context: ProgramVerificationContext, types: TypeInterner): ProgramVerificationResult {
   const allowed = new Map<NodeId, Set<string>>();
   const requested = new Map<string, { readonly node: NodeId; readonly key: MetadataKey;
     readonly uses: { readonly constant: number; readonly path: string }[] }>();

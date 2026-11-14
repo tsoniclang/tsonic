@@ -1,6 +1,6 @@
 import type { TyId, SigId, DefId, KeyData, SourceNodeRef, LocalRef } from "../ids/contract.js";
 import type { TextParseResult, Violation } from "../diag/contract.js";
-import type { ArtifactBindings, BodyInstance, ConstantReference, Execution, MemberStorageSelection, ComponentSelector, TypeTerm, Signature, SignatureInput, TypeTable, BindingVector, TypeParameterIdentity, TypeEvidence } from "./data.js";
+import type { ArtifactBindings, BodyInstance, ConstantReference, Execution, MemberStorageSelection, NativePrimitive, ComponentSelector, TypeTerm, Signature, SignatureInput, TypeTable, BindingVector, TypeParameterIdentity, TypeEvidence } from "./data.js";
 import type { TypeArena } from "./arena.js";
 import type { NativeFactsRule, NativeFactsSite, NativeFloatingFormat, PlatformDeclaration, SelectedNativeFacts } from "./native-facts-data.js";
 export type * from "./data.js";
@@ -10,6 +10,12 @@ export type TypeInterner = TypeArena;
 export type NativeFactsKey = (facts: SelectedNativeFacts) => string;
 export type FloatingBitsFit = (bits: bigint, format: NativeFloatingFormat) => boolean;
 export type FloatingFormatWidth = (format: NativeFloatingFormat) => 16 | 32 | 64 | null;
+export type NativeCarrierResult =
+  | { readonly kind: "primitive"; readonly type: TyId; readonly primitive: NativePrimitive }
+  | { readonly kind: "needs-selected-association"; readonly type: TyId }
+  | { readonly kind: "resource-stop" };
+export type NativeCarrierOf = (table: TypeTable, type: TyId,
+  typeOf: (type: TyId) => TypeTerm | null | undefined) => NativeCarrierResult;
 export type PlatformDeclarationKey = (declaration: PlatformDeclaration) => string;
 export type MemberStorageData = (selection: MemberStorageSelection) => KeyData;
 export type VerifyNativeFacts = (facts: SelectedNativeFacts) => readonly Violation<NativeFactsRule, NativeFactsSite>[];

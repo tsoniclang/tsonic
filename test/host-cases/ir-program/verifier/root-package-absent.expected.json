@@ -1,18 +1,21 @@
 {
   "kind": "accepted",
-  "value": [
-    {
-      "rule": "root-package-resolves",
-      "site": {
-        "kind": "index"
-      },
-      "detail": [
-        {
-          "kind": "text",
-          "value": "P[%002Fmissing]"
-        }
-      ]
-    }
-  ],
+  "value": {
+    "kind": "complete",
+    "violations": [
+      {
+        "rule": "root-package-resolves",
+        "site": {
+          "kind": "index"
+        },
+        "detail": [
+          {
+            "kind": "text",
+            "value": "P[%002Fmissing]"
+          }
+        ]
+      }
+    ]
+  },
   "diagnostics": []
 }

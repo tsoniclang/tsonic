@@ -1,6 +1,7 @@
 import { encodeKey } from "../ids/index.js";
 import type { KeyData } from "../ids/contract.js";
 import type { Violation } from "../diag/contract.js";
+import type { NativeCarrierOf } from "./contract.js";
 import type { NativePrimitive } from "./data.js";
 import type { CheckFailure, NativeArithmeticCarrier, NativeConversionResult, NativeFactsRule, NativeFactsSite,
   NativeFloatingFormat, NativeRounding, PlatformDeclaration, SelectedNativeFacts } from "./native-facts-data.js";
@@ -58,6 +59,25 @@ function integerCarrier(value: NativePrimitive): boolean {
   }
 }
 function floatingCarrier(value: NativePrimitive | "bigint"): boolean { return value === "float16" || value === "float32" || value === "float64"; }
+
+export const nativeCarrierOf: NativeCarrierOf = (table, type, typeOf) => {
+  const count = table.terms.length;
+  let selected = type;
+  let remaining = count;
+  for (;;) {
+    if (!Number.isSafeInteger(selected) || selected < 0 || Object.is(selected, -0) || selected >= count) {
+      throw new TypeError("A native carrier requires its actual ready type domain");
+    }
+    if (remaining === 0) throw new TypeError("A native carrier literal-base relation must be acyclic");
+    const term = typeOf(selected);
+    if (term === null) return { kind: "resource-stop" };
+    if (term === undefined) throw new TypeError("A native carrier requires a complete ready type row");
+    remaining -= 1;
+    if (term.kind === "primitive") return { kind: "primitive", type: selected, primitive: term.primitive };
+    if (term.kind !== "literal") return { kind: "needs-selected-association", type: selected };
+    selected = term.base;
+  }
+};
 
 export function floatingFormatWidth(format: NativeFloatingFormat): 16 | 32 | 64 | null {
   switch (format.interchange) {

@@ -585,6 +585,17 @@ void actual;
   assert.equal(invalid.status, 1, invalid.stdout + invalid.stderr);
   assert.deepEqual([...invalid.stdout.matchAll(/error TS(\d+):/gu)].map(match => Number(match[1])),
     [2353, 2339, 2339, 2339, 2341], invalid.stdout.slice(-8000));
+  writeFileSync(input, `import type { ProgramVerificationResult } from "${resolve(repository, "packages/host/dist/ir-program/contract.js")}";
+export function current(result: ProgramVerificationResult): number {
+return result.kind === "complete" ? result.violations.length : result.maximum;
+}`);
+  const currentResult = compile();
+  assert.equal(currentResult.status, 0, currentResult.stdout + currentResult.stderr);
+  writeFileSync(input, `import type { ProgramVerificationResult } from "${resolve(repository, "packages/host/dist/ir-program/contract.js")}";
+export function removed(result: ProgramVerificationResult): readonly unknown[] { return result; }`);
+  const removedResult = compile();
+  assert.equal(removedResult.status, 1, removedResult.stdout + removedResult.stderr);
+  assert.deepEqual([...removedResult.stdout.matchAll(/error TS(\d+):/gu)].map(match => Number(match[1])), [2322], removedResult.stdout.slice(-8000));
 });
 
 test("constant publication receipts retain each selected producer context", async () => {
@@ -596,7 +607,7 @@ test("constant publication receipts retain each selected producer context", asyn
       const first = constantReferenceKey(left.reference), second = constantReferenceKey(right.reference);
       return first < second ? -1 : first > second ? 1 : 0;
     });
-  assert.deepEqual(product.verifyProgramIndex(fixture.index, fixture.context), []);
+  assert.deepEqual(product.verifyProgramIndex(fixture.index, fixture.context), { kind: "complete", violations: [] });
   const printed = product.printProgramIndex(fixture.index);
   completeProgramValue(product.parseProgramIndex(printed), { kind: "parsed", value: fixture.index }, "all actual contexts round-trip");
   const removed = printed.replace(/reference=ConstantReference\(initializer=(BodyInstance\(.*?bindings=parametric\(\)\)), context="[^"]+"\)/u, "initializer=$1");
@@ -614,15 +625,15 @@ test("ir-program negative-zero binding maximum is the inherited zero budget", ()
   const fixture = moduleFixture();
   const context = { ...fixture.context, resources: product.createProgramVerificationWork({
     ...ProgramWork.state(fixture.context.resources).limits, maximumBindingVectorsPerArtifact: -0 }) };
-  assert.deepEqual(product.verifyProgramIndex(fixture.index, context), []);
+  assert.deepEqual(product.verifyProgramIndex(fixture.index, context), { kind: "complete", violations: [] });
 });
 
 for (const ordinal of [-1, -0, NaN]) test(`ir-program signature ordinal ${Object.is(ordinal, -0) ? "-0" : String(ordinal)} retains its complete endpoint finding`, () => {
   const fixture = moduleFixture();
   fixture.index.signatures = [{ kind: "advertised", definition: fixture.definition, ordinal, signature: 0, bindings: { kind: "parametric" } }];
-  completeProgramValue(product.verifyProgramIndex(fixture.index, fixture.context), [{ rule: "signature-endpoints-exact",
+  completeProgramValue(product.verifyProgramIndex(fixture.index, fixture.context), { kind: "complete", violations: [{ rule: "signature-endpoints-exact",
     site: { kind: "signature", signature: 0 }, detail: [{ kind: "text", value: fixture.definition }, { kind: "text", value: "advertised" },
-      { kind: "number", value: ordinal }] }], "invalid ordinals do not invoke or fabricate an endpoint-reader result");
+      { kind: "number", value: ordinal }] }] }, "invalid ordinals do not invoke or fabricate an endpoint-reader result");
 });
 
 test("ir-program an unpublished declaration retains its complete endpoint failure without inventing an owner", () => {
@@ -631,9 +642,9 @@ test("ir-program an unpublished declaration retains its complete endpoint failur
   const bindings = { kind: "parametric" };
   fixture.index.signatures = [{ kind: "advertised", definition, ordinal: 0, signature: 0, bindings }];
   fixture.answers.set(encodeContextKey(["signatureIdOf", [definition, "advertised", 0, bindings]]), null);
-  completeProgramValue(product.verifyProgramIndex(fixture.index, fixture.context), [{ rule: "signature-endpoints-exact",
+  completeProgramValue(product.verifyProgramIndex(fixture.index, fixture.context), { kind: "complete", violations: [{ rule: "signature-endpoints-exact",
     site: { kind: "signature", signature: 0 }, detail: [{ kind: "text", value: definition }, { kind: "text", value: "advertised" },
-      { kind: "number", value: 0 }] }], "a genuine missing publication remains distinct from a made-up lower answer");
+      { kind: "number", value: 0 }] }] }, "a genuine missing publication remains distinct from a made-up lower answer");
 });
 
 test("ir-program missing checked module data retains all index and module-boundary findings", () => {
@@ -641,8 +652,8 @@ test("ir-program missing checked module data retains all index and module-bounda
   fixture.answers.set(encodeContextKey(["tirOf", fixture.module.module]), null);
   const missing = { rule: "tir-valid", site: { kind: "module", module: fixture.module.module },
     detail: [{ kind: "text", value: "missing-module-data" }] };
-  completeProgramValue(product.verifyProgramIndex(fixture.index, fixture.context), [missing, { rule: "body-root-resolves",
-    site: { kind: "body", instance: fixture.instance }, detail: [{ kind: "number", value: 0 }] }], "the complete source inventory does not drop a body finding");
+  completeProgramValue(product.verifyProgramIndex(fixture.index, fixture.context), { kind: "complete", violations: [missing, { rule: "body-root-resolves",
+    site: { kind: "body", instance: fixture.instance }, detail: [{ kind: "number", value: 0 }] }] }, "the complete source inventory does not drop a body finding");
   completeProgramValue(moduleViolations(fixture.index, fixture.module, fixture.context), [missing,
     { rule: "facts-valid", site: { kind: "body", instance: fixture.instance }, detail: [{ kind: "text", value: "missing-observation-source" }] }],
     "the complete chunk boundary reports the unavailable checked source once");
@@ -656,9 +667,9 @@ test("ir-program api-body endpoints retain the exact canonical body identity", (
   fixture.index.signatures = [{ kind: "api-body", definition: fixture.definition, ordinal: 0, signature: 0, body: other, bindings }];
   fixture.answers.set(encodeContextKey(["declarationOf", fixture.definition]), { scope: fixture.scope, parameterCount: 0, endpoints: [endpoint] });
   fixture.answers.set(encodeContextKey(["signatureIdOf", [fixture.definition, "api-body", 0, bindings]]), 0);
-  completeProgramValue(product.verifyProgramIndex(fixture.index, fixture.context), [{ rule: "signature-endpoints-exact",
+  completeProgramValue(product.verifyProgramIndex(fixture.index, fixture.context), { kind: "complete", violations: [{ rule: "signature-endpoints-exact",
     site: { kind: "signature", signature: 0 }, detail: [{ kind: "text", value: fixture.definition }, { kind: "text", value: "api-body" },
-      { kind: "number", value: 0 }] }], "a real endpoint cannot be relabelled with another complete body identity");
+      { kind: "number", value: 0 }] }] }, "a real endpoint cannot be relabelled with another complete body identity");
 });
 
 test("ir-program an external instantiated signature retains both absent declaration and scope findings", () => {
@@ -668,11 +679,11 @@ test("ir-program an external instantiated signature retains both absent declarat
   fixture.index.signatures = [{ kind: "advertised", definition, ordinal: 0, signature: 0, bindings }];
   fixture.answers.set(encodeContextKey(["signatureIdOf", [definition, "advertised", 0, bindings]]), null);
   fixture.answers.set(encodeContextKey(["bindingScopeOf", definition]), null);
-  completeProgramValue(product.verifyProgramIndex(fixture.index, fixture.context), [
+  completeProgramValue(product.verifyProgramIndex(fixture.index, fixture.context), { kind: "complete", violations: [
     { rule: "signature-endpoints-exact", site: { kind: "signature", signature: 0 }, detail: [{ kind: "text", value: definition },
       { kind: "text", value: "advertised" }, { kind: "number", value: 0 }] },
     { rule: "bindings-complete", site: { kind: "signature", signature: 0 }, detail: [{ kind: "text", value: definition }] },
-  ], "null denotes an actually unavailable external declaration scope, not a forged canonical answer");
+  ] }, "null denotes an actually unavailable external declaration scope, not a forged canonical answer");
 });
 
 for (const change of ["control", "missing-scope"]) test(`ir-program instantiated constant ${change} retains the complete binding domain`, () => {
@@ -689,7 +700,7 @@ for (const change of ["control", "missing-scope"]) test(`ir-program instantiated
     fixture.answers.set(encodeContextKey(["bindingScopeOf", external.definition]), null);
     expected = [{ rule: "bindings-complete", site: { kind: "body", instance: absent }, detail: [{ kind: "text", value: external.definition }] }];
   }
-  completeProgramValue(product.verifyProgramIndex(index, fixture.context), expected, "the complete initializer retains its own real external scope availability");
+  completeProgramValue(product.verifyProgramIndex(index, fixture.context), { kind: "complete", violations: expected }, "the complete initializer retains its own real external scope availability");
 });
 
 for (const change of ["control", "missing-parameter", "wrong-bound-type", "wrong-self-owner"]) test(`ir-program instantiated signature ${change} preserves every forwarded binding finding`, () => {
@@ -715,7 +726,7 @@ for (const change of ["control", "missing-parameter", "wrong-bound-type", "wrong
   }
   fixture.answers.set(encodeContextKey(["declarationOf", fixture.definition]), { scope: fixture.scope, parameterCount: 0, endpoints: [endpoint] });
   fixture.answers.set(encodeContextKey(["signatureIdOf", [fixture.definition, endpoint.role, 0, bindings]]), 0);
-  completeProgramValue(product.verifyProgramIndex(fixture.index, fixture.context), expected,
+  completeProgramValue(product.verifyProgramIndex(fixture.index, fixture.context), { kind: "complete", violations: expected },
     "the entire lower vector is independently specified, including multiple findings at one signature site");
 });
 
@@ -1827,11 +1838,11 @@ test("ir-program a copied module publication retains every genuine identity and 
 test("ir-program a canonical definition in the wrong publication retains its actual module owner", () => {
   const { first, second } = pairedModuleFixture();
   first.index.modules[0].items.push({ definition: second.definition, node: 0 });
-  completeProgramValue(product.verifyProgramIndex(first.index, first.context), [{ rule: "definition-node-owner-exact",
+  completeProgramValue(product.verifyProgramIndex(first.index, first.context), { kind: "complete", violations: [{ rule: "definition-node-owner-exact",
     site: { kind: "definition", definition: second.definition }, detail: [{ kind: "text", value: first.module.module }, { kind: "number", value: 0 }] },
     { rule: "body-owner-resolves", site: { kind: "body", instance: second.instance }, detail: [{ kind: "text", value: second.definition }] },
     { rule: "body-module-resolves", site: { kind: "body", instance: second.instance }, detail: [{ kind: "text", value: second.module.module }] },
-    { rule: "item-definition-resolves", site: { kind: "definition", definition: second.definition }, detail: [{ kind: "number", value: 0 }] }],
+    { rule: "item-definition-resolves", site: { kind: "definition", definition: second.definition }, detail: [{ kind: "number", value: 0 }] }] },
   "an exact canonical identity still cannot be published in a different module's definition inventory");
 });
 
@@ -2047,11 +2058,11 @@ test("ir-program an already exceeded binding bound still retains the duplicate-i
   const context = { ...fixture.context, resources: product.createProgramVerificationWork({
     ...ProgramWork.state(fixture.context.resources).limits, maximumBindingVectorsPerArtifact: 0 }) };
   const key = encodeKey([fixture.bodyId, ["instantiated", [[], [], [], []]]]);
-  completeProgramValue(product.verifyProgramIndex(fixture.index, context), [
+  completeProgramValue(product.verifyProgramIndex(fixture.index, context), { kind: "complete", violations: [
     { rule: "body-index-order", site: { kind: "body", instance: record.instance }, detail: [{ kind: "text", value: key }, { kind: "text", value: key }] },
     { rule: "execution-body-resolves", site: { kind: "body", instance: record.instance }, detail: [{ kind: "text", value: executionKey({ instance: record.instance, provided: 0 }) }] },
     { rule: "binding-vectors-bounded", site: { kind: "body", instance: record.instance }, detail: [{ kind: "number", value: 0 }, { kind: "number", value: 1 }] },
-  ], "the bound reports once without suppressing any independent inventory finding");
+  ] }, "the bound reports once without suppressing any independent inventory finding");
 });
 
 for (const kind of ["goto", "unreachable", "switch", "await", "yield", "yield-absent", "delegate", "throw", "return", "call", "indirect-call", "invoke"])

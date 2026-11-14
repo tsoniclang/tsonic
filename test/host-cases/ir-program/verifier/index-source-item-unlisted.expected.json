@@ -1,1 +1,1 @@
-{"kind":"accepted","value":[{"rule":"item-definition-resolves","site":{"kind":"definition","definition":"D[M[P[%002Fprogram];src%002Fmain.ts]]"},"detail":[{"kind":"number","value":0}]}],"diagnostics":[]}
+{"kind":"accepted","value":{"kind":"complete","violations":[{"rule":"item-definition-resolves","site":{"kind":"definition","definition":"D[M[P[%002Fprogram];src%002Fmain.ts]]"},"detail":[{"kind":"number","value":0}]}]},"diagnostics":[]}

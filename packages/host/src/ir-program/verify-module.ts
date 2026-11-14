@@ -1,5 +1,5 @@
 import { ProgramWork } from "./work.js";
-import type { ModuleBodiesVerification, ProgramSite, ModuleBodies, ProgramIndex, ProgramVerificationContext, PublishedBody, VerifyModuleBodies } from "./contract.js";
+import type { ProgramVerificationResult, ProgramSite, ModuleBodies, ProgramIndex, ProgramVerificationContext, PublishedBody, VerifyModuleBodies } from "./contract.js";
 import type { ArgumentTransport, MetadataKey, RelationalOwner, SummaryKey } from "../ir-facts/contract.js";
 import type { MemberSelection, ResolvedCallee, TirVerifierInput } from "../ir-tir/contract.js";
 import { verifyTir, verifyTirModule } from "../ir-tir/index.js";
@@ -210,7 +210,7 @@ export function verifyPublishedChildren(
   context: ProgramVerificationContext,
   types: TypeInterner,
   lookup: ProgramLookup,
-): ModuleBodiesVerification {
+): ProgramVerificationResult {
   const violations: ProgramViolation[] = [];
   if (input === null) {
     violations.push({ rule: "tir-valid", site: { kind: "module", module: module.module }, detail: [textDetail("missing-module-data")] });

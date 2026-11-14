@@ -4,6 +4,64 @@ import { nativeFactsFixture } from "./fixtures/native-facts.mjs";
 const issue = (rule, field, index) => ({ rule, site: { field, index }, detail: [{ kind: "text", value: field }] });
 
 export async function nativeFactsCases(suite, product) {
+  await suite.test("native carrier reads the actual primitive or literal-base relation through one charged ready reader", () => {
+    const literal = base => ({ kind: "literal", value: { kind: "number", value: { numerator: 1n, denominator: 1n, negativeZero: false } }, base });
+    const table = { terms: [{ kind: "primitive", primitive: "float32" }, literal(0), literal(1), { kind: "string" }, literal(3)], signatures: [] };
+    const run = (type, maximum) => {
+      const reads = [];
+      let charged = 0;
+      let attempts = 0;
+      const result = product.nativeCarrierOf(table, type, selected => {
+        attempts += 1;
+        if (charged === maximum) return null;
+        charged += 1;
+        reads.push(selected);
+        return table.terms[selected];
+      });
+      return { result, reads, charged, attempts };
+    };
+    assert.deepEqual(run(2, 3), { result: { kind: "primitive", type: 0, primitive: "float32" }, reads: [2, 1, 0], charged: 3, attempts: 3 });
+    assert.deepEqual(run(2, 2), { result: { kind: "resource-stop" }, reads: [2, 1], charged: 2, attempts: 3 });
+    assert.deepEqual(run(2, 0), { result: { kind: "resource-stop" }, reads: [], charged: 0, attempts: 1 });
+    assert.deepEqual(run(4, 2), { result: { kind: "needs-selected-association", type: 3 }, reads: [4, 3], charged: 2, attempts: 2 });
+    assert.deepEqual(run(3, 1), { result: { kind: "needs-selected-association", type: 3 }, reads: [3], charged: 1, attempts: 1 });
+    let sharedReads = 0;
+    let stopped = false;
+    const sharedReader = type => {
+      if (stopped) return null;
+      if (sharedReads === 1) { stopped = true; return null; }
+      sharedReads += 1;
+      return table.terms[type];
+    };
+    assert.deepEqual(product.nativeCarrierOf(table, 2, sharedReader), { kind: "resource-stop" });
+    assert.deepEqual(product.nativeCarrierOf(table, 0, sharedReader), { kind: "resource-stop" });
+    assert.equal(sharedReads, 1, "reusing the caller's refused account performs no later table lookup");
+    for (const primitive of ["bool", "char", "int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64",
+      "int128", "uint128", "native-int", "native-uint", "float16", "float32", "float64", "decimal"]) {
+      const selected = { terms: [{ kind: "primitive", primitive }], signatures: [] };
+      assert.deepEqual(product.nativeCarrierOf(selected, 0, type => selected.terms[type]), { kind: "primitive", type: 0, primitive });
+    }
+    const many = { terms: [{ kind: "primitive", primitive: "int128" }], signatures: [] };
+    for (let index = 1; index < 100_000; index += 1) many.terms.push(literal(index - 1));
+    let reads = 0;
+    assert.deepEqual(product.nativeCarrierOf(many, many.terms.length - 1, type => { reads += 1; return many.terms[type]; }),
+      { kind: "primitive", type: 0, primitive: "int128" });
+    assert.equal(reads, many.terms.length, "one charged read per actual row without native stack growth");
+    for (const selected of [{ terms: [literal(0)], signatures: [] }, { terms: [literal(1), literal(0)], signatures: [] }]) {
+      let count = 0;
+      assert.throws(() => product.nativeCarrierOf(selected, 0, type => { count += 1; return selected.terms[type]; }),
+        error => error instanceof TypeError && error.message === "A native carrier literal-base relation must be acyclic");
+      assert.equal(count, selected.terms.length, "the actual finite domain bounds successful reads");
+      assert.deepEqual(product.nativeCarrierOf(selected, 0, () => null), { kind: "resource-stop" }, "earned refusal precedes an unread cycle");
+    }
+    for (const type of [-1, -0, 0.5, NaN, Infinity, 5]) assert.throws(() => product.nativeCarrierOf(table, type, () => {
+      throw new Error("Invalid ready-domain input must not read a row");
+    }), error => error instanceof TypeError && error.message === "A native carrier requires its actual ready type domain");
+    assert.throws(() => product.nativeCarrierOf({ terms: [literal(7)], signatures: [] }, 0, () => literal(7)),
+      error => error instanceof TypeError && error.message === "A native carrier requires its actual ready type domain");
+    assert.throws(() => product.nativeCarrierOf(table, 0, () => undefined),
+      error => error instanceof TypeError && error.message === "A native carrier requires a complete ready type row");
+  });
   await suite.test("supplied contract facts retain independent laws and actual geometry without width inference", () => {
     const facts = nativeFactsFixture();
     facts.geometry.layouts.push({ declaration: { providerId: "provider", providerVersion: "1", providerModuleId: "native",

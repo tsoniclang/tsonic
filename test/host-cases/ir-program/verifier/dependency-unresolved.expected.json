@@ -1,19 +1,22 @@
 {
   "kind": "accepted",
-  "value": [
-    {
-      "rule": "package-dependency-resolves",
-      "site": {
-        "kind": "package",
-        "package": "P[%002Fprogram]"
-      },
-      "detail": [
-        {
-          "kind": "text",
-          "value": "P[%002Fmissing]"
-        }
-      ]
-    }
-  ],
+  "value": {
+    "kind": "complete",
+    "violations": [
+      {
+        "rule": "package-dependency-resolves",
+        "site": {
+          "kind": "package",
+          "package": "P[%002Fprogram]"
+        },
+        "detail": [
+          {
+            "kind": "text",
+            "value": "P[%002Fmissing]"
+          }
+        ]
+      }
+    ]
+  },
   "diagnostics": []
 }

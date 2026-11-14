@@ -1,1 +1,1 @@
-{"kind":"accepted","value":[{"rule":"shared-type-table","site":{"kind":"index"},"detail":[]}],"diagnostics":[]}
+{"kind":"accepted","value":{"kind":"complete","violations":[{"rule":"shared-type-table","site":{"kind":"index"},"detail":[]}]},"diagnostics":[]}

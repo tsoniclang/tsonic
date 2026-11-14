@@ -167,18 +167,15 @@ export interface ProgramVerificationContext {
 export type VerifyProgramIndex = (
   index: ProgramIndex,
   context: ProgramVerificationContext,
-) => readonly Violation<ProgramRule, ProgramSite>[];
-// The answer for the bodies of one module. `complete` carries every finding. `resource-limit` says that the MIR
-// verification of the named body passed its limit: the module is neither accepted nor found invalid, and no
-// finding is reported for it.
-export type ModuleBodiesVerification =
+) => ProgramVerificationResult;
+export type ProgramVerificationResult =
   | { readonly kind: "complete"; readonly violations: readonly Violation<ProgramRule, ProgramSite>[] }
   | ProgramVerificationStop;
 export type VerifyModuleBodies = (
   index: ProgramIndex,
   module: ModuleBodies,
   context: ProgramVerificationContext,
-) => ModuleBodiesVerification;
+) => ProgramVerificationResult;
 export type Instantiate = (
   index: ProgramIndex,
   module: ModuleBodies,

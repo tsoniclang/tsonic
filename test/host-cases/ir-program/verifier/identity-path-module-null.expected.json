@@ -1,1 +1,1 @@
-{"kind":"accepted","value":[{"rule":"module-package-resolves","site":{"kind":"module","module":"M[P[%002Fprogram];src%002Fmain.ts]"},"detail":[{"kind":"text","value":"P[%002Fprogram]"}]}],"diagnostics":[]}
+{"kind":"accepted","value":{"kind":"complete","violations":[{"rule":"module-package-resolves","site":{"kind":"module","module":"M[P[%002Fprogram];src%002Fmain.ts]"},"detail":[{"kind":"text","value":"P[%002Fprogram]"}]}]},"diagnostics":[]}

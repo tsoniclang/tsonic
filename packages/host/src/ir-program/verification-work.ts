@@ -1,4 +1,4 @@
-import type { CreateProgramVerificationWork, ModuleBodiesVerification, ProgramIndex, ProgramVerificationWork } from "./contract.js";
+import type { CreateProgramVerificationWork, ProgramVerificationResult, ProgramIndex, ProgramVerificationWork } from "./contract.js";
 import type { TypeInterner } from "../ir-types/contract.js";
 import { seedTypeInterner } from "../ir-types/index.js";
 import { ProgramWork, requireInstantiationMaximum } from "./work.js";
@@ -8,7 +8,7 @@ export const createProgramVerificationWork: CreateProgramVerificationWork = limi
 
 export function verificationTypes(index: ProgramIndex, work: ProgramVerificationWork):
   { readonly kind: "complete"; readonly types: TypeInterner }
-  | (ModuleBodiesVerification & { readonly kind: "resource-limit" }) {
+  | (ProgramVerificationResult & { readonly kind: "resource-limit" }) {
   const seed = ProgramWork.state(work).seed;
   if (seed.kind !== "unseeded") {
     if (seed.table !== index.types) throw new TypeError("Program verification seed belongs to another published type table");
@@ -34,7 +34,7 @@ export function verificationTypes(index: ProgramIndex, work: ProgramVerification
 }
 
 export function refuseVerification(index: ProgramIndex, work: ProgramVerificationWork,
-  stop: ModuleBodiesVerification & { readonly kind: "resource-limit" }): ModuleBodiesVerification & { readonly kind: "resource-limit" } {
+  stop: ProgramVerificationResult & { readonly kind: "resource-limit" }): ProgramVerificationResult & { readonly kind: "resource-limit" } {
   const seed = ProgramWork.state(work).seed;
   if (seed.kind === "refused") {
     if (seed.table !== index.types) throw new TypeError("Program verification refusal belongs to another published type table");
