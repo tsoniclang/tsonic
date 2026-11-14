@@ -1,8 +1,8 @@
 import type { LibraryRoleEntry } from "../snapshot/contract.js";
 import type { LibraryExportIdentity } from "../ids/contract.js";
-import { encodeKey } from "../ids/index.js";
+import { bindingVectorKey } from "../ir-types/index.js";
 import type { BoundLibraries, Libraries, LibraryRoleVerificationContext, LibraryVerificationContext } from "./contract.js";
-import { bindingData, catalogueIndex, checkLibraryCatalogue, compareExports, exportKey, orderedViolations, violation } from "./verify-catalogue.js";
+import { catalogueIndex, checkLibraryCatalogue, compareExports, exportKey, orderedViolations, violation } from "./verify-catalogue.js";
 import type { LibraryViolation } from "./verify-catalogue.js";
 
 export function checkBoundLibraries(libraries: BoundLibraries,
@@ -73,7 +73,7 @@ export function checkLibraries(libraries: Libraries, context: LibraryVerificatio
     }
     const summary = declared.summary;
     if (!context.definitionExists(summary.key.definition) || summary.key.definition !== binding.definition ||
-      summary.key.bindings.kind !== "instantiated" || encodeKey(bindingData(summary.key.bindings.bindings)) !== encodeKey(bindingData(binding.bindings))) {
+      summary.key.bindings.kind !== "instantiated" || bindingVectorKey(summary.key.bindings.bindings) !== bindingVectorKey(binding.bindings)) {
       output.push(violation("summary-binding-definition-exact", { kind: "export", identity: declared.identity }));
     }
     if (binding.signature === null || summary.signature !== binding.signature.id) {

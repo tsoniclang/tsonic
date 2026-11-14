@@ -5,6 +5,7 @@ import {
 import type { Diagnostic, Result } from "../diag/contract.js";
 import { hostDiagnosticCode } from "../diag/index.js";
 import type { BindingVector, MemberKey, Signature } from "../ir-types/contract.js";
+import { artifactBindingsData, bindingVectorData } from "../ir-types/index.js";
 import type { MemberSelection, ResolvedCallee } from "../ir-tir/contract.js";
 import type {
   BoundProducer, CaptureEffect, CaptureLocation, EscapeTarget, OpenBoundary, Origins, ParameterEffect, Producer,
@@ -18,7 +19,7 @@ import type { EffectPaths } from "../ir-facts/contract.js";
 import type { BoundLibraries, Libraries, LibraryDeclaredSummary, LibraryExportBinding, LibrarySignature } from "./contract.js";
 import { validateAuthoredSummary, ordinal } from "./verify-summaries.js";
 import type { CatalogueIndex, LibraryViolation } from "./verify-catalogue.js";
-import { bindingData, catalogueIndex, compareExports, compareText, exportKey, moduleIdentityData } from "./verify-catalogue.js";
+import { catalogueIndex, compareExports, compareText, exportKey, moduleIdentityData } from "./verify-catalogue.js";
 
 function boundaryIds(values: readonly [number, ...number[]]): readonly [OpenBoundaryId, ...OpenBoundaryId[]] {
   const [first, ...rest] = values;
@@ -52,7 +53,7 @@ function calleeData(callee: ResolvedCallee | null): KeyData {
   const api = decision.api;
   const activation = callee.activation;
   return [decision.candidate, [advertised.declaration, advertised.role, advertised.signature, advertised.body],
-    [api.declaration, api.role, api.signature, api.body], bindingData(decision.bindings), bindingData(decision.implementationBindings),
+    [api.declaration, api.role, api.signature, api.body], bindingVectorData(decision.bindings), bindingVectorData(decision.implementationBindings),
     decision.parameters.map((parameter): KeyData => {
       switch (parameter.kind) {
         case "argument": return [parameter.kind, parameter.parameter, parameter.argument, parameter.component, parameter.passing];
@@ -61,8 +62,7 @@ function calleeData(callee: ResolvedCallee | null): KeyData {
         case "rest": return [parameter.kind, parameter.parameter, parameter.arguments, parameter.passing];
       }
     }), [decision.completion.signature, decision.completion.completion, decision.completion.yielded, decision.completion.sent],
-    decision.result, activation === null ? null : [activation.body, activation.bindings.kind === "parametric"
-      ? [activation.bindings.kind] : [activation.bindings.kind, bindingData(activation.bindings.bindings)]],
+    decision.result, activation === null ? null : [activation.body, artifactBindingsData(activation.bindings)],
     callee.captures.map(capture => [capture.body, capture.local])];
 }
 
@@ -79,7 +79,7 @@ function memberData(member: MemberSelection): KeyData {
   }), decision.selectedDeclarations, decision.primary, decision.read, decision.write,
   decision.getter === null ? null : [decision.getter.declaration, decision.getter.role, decision.getter.signature, decision.getter.body],
   decision.setter === null ? null : [decision.setter.declaration, decision.setter.role, decision.setter.signature, decision.setter.body],
-  bindingData(decision.bindings), calleeData(member.getter), calleeData(member.setter)];
+  bindingVectorData(decision.bindings), calleeData(member.getter), calleeData(member.setter)];
 }
 
 function internValue(values: Map<string, number>, data: KeyData): number {
@@ -400,7 +400,7 @@ export function bindDeclaredSummaries(bound: BoundLibraries, declared: readonly 
     const binding = signatureOfExport(identity);
     const result = binding === null || (identity.memberId !== null) !== (binding.member !== null) ? null : {
       binding,
-      environment: { value: binding.bindings, token: internValue(environmentValues, bindingData(binding.bindings)) },
+      environment: { value: binding.bindings, token: internValue(environmentValues, bindingVectorData(binding.bindings)) },
       member: binding.member === null ? null : { value: binding.member, token: internValue(memberValues, memberData(binding.member)) },
     };
     cache.set(key, result);

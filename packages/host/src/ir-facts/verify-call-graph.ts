@@ -1,10 +1,11 @@
 import type { MessageArgument, Violation } from "../diag/contract.js";
 import type { ComponentId, DefId } from "../ids/contract.js";
-import { encodeComponentId, encodeKey } from "../ids/index.js";
+import { encodeComponentId } from "../ids/index.js";
 import type {
   CallComponent, CallEdge, CallGraphRule, FactsSite, VerifyCallGraph,
 } from "./contract.js";
-import { artifactData, compareNumbers, ownerKey, validIndex } from "./verify-relations.js";
+import { artifactBindingsKey } from "../ir-types/index.js";
+import { compareNumbers, ownerKey, validIndex } from "./verify-relations.js";
 
 const definitionSite = (definition: DefId): FactsSite => ({
   kind: "summary", summary: { definition, bindings: { kind: "parametric" } },
@@ -49,8 +50,8 @@ const compareEdges = (left: CallEdge, right: CallEdge): number => {
       }
       break;
   }
-  const leftBindings = encodeKey(artifactData(left.bindings));
-  const rightBindings = encodeKey(artifactData(right.bindings));
+  const leftBindings = artifactBindingsKey(left.bindings);
+  const rightBindings = artifactBindingsKey(right.bindings);
   return leftBindings === rightBindings ? 0 : leftBindings < rightBindings ? -1 : 1;
 };
 

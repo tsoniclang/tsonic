@@ -5,12 +5,13 @@ import type { DeclarationTarget } from "../ir-hir/contract.js";
 import { childrenOfSyntax } from "../ir-hir/index.js";
 import type { TirNode, TypedPhase } from "../ir-tir/contract.js";
 import type { ArtifactBindings, BodyInstance } from "../ir-types/contract.js";
+import { instanceKey } from "../ir-types/index.js";
 import type {
   ArgumentTransport, EscapeTarget, FactsRule, FactsSite, MemoryField, MemoryLayout, MetadataFieldRef, MetadataLayoutRef, MirPoint, RelationalOwner,
   RetentionFact, VerifyFacts,
 } from "./contract.js";
 import {
-  collectSelectionChecks, compareNumbers, escapeData, factBindingInputs, instanceKey, ownerKey, relationalUsage, sameBindings, sameCaptures, validIndex,
+  collectSelectionChecks, compareNumbers, escapeData, factBindingInputs, ownerKey, relationalUsage, sameBindings, sameCaptures, validIndex,
   verifyFactBindings, verifyRelationalArena,
 } from "./verify-relations.js";
 

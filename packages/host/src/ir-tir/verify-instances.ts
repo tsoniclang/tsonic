@@ -1,6 +1,6 @@
 import type { BodyId, LocalRef, NodeId } from "../ids/contract.js";
-import { encodeKey } from "../ids/index.js";
-import type { BindingScope, BindingVector, BodyInstance, TypeBinding } from "../ir-types/contract.js";
+import type { BindingScope } from "../ir-types/contract.js";
+import { instanceKey } from "../ir-types/index.js";
 import type { CheckedPhase, HirBody, HirNode } from "../ir-hir/contract.js";
 import { childrenOfSyntax } from "../ir-hir/index.js";
 import type { TirBody, TirModule, TirNode, TirSelection, TirVerifierInput, TypedBinding, TypedPhase } from "./contract.js";
@@ -307,39 +307,6 @@ export const verifyBindingSlots = (
   }
 };
 
-const bindingKeys = (bindings: readonly TypeBinding[]): readonly string[] | null => {
-  const keys: string[] = [];
-  for (let position = 0; position < bindings.length; position++) {
-    const binding = bindings[position];
-    if (binding === undefined) return null;
-    keys.push(binding.kind === "rigid"
-      ? encodeKey({ kind: "record", fields: [["kind", binding.kind], ["owner", binding.parameter.owner], ["index", binding.parameter.index]] })
-      : encodeKey({ kind: "record", fields: [["kind", binding.kind], ["owner", binding.parameter.owner], ["index", binding.parameter.index], ["type", binding.type]] }));
-  }
-  return keys;
-};
-
-export const bindingVectorKey = (vector: BindingVector): string | null => {
-  const classes = bindingKeys(vector.classBindings);
-  const methods = bindingKeys(vector.methodBindings);
-  const captured = bindingKeys(vector.capturedBindings);
-  if (classes === null || methods === null || captured === null) return null;
-  const self: string[] = [];
-  for (let position = 0; position < vector.selfBindings.length; position++) {
-    const binding = vector.selfBindings[position];
-    if (binding === undefined) return null;
-    self.push(binding.kind === "rigid" ? encodeKey({ kind: "record", fields: [["kind", binding.kind], ["owner", binding.owner]] })
-      : encodeKey({ kind: "record", fields: [["kind", binding.kind], ["owner", binding.owner], ["type", binding.type]] }));
-  }
-  return encodeKey({ kind: "record", fields: [["classBindings", classes], ["methodBindings", methods], ["capturedBindings", captured], ["selfBindings", self]] });
-};
-
-export const instanceKey = (instance: BodyInstance): string | null => {
-  if (instance.bindings.kind === "parametric") return encodeKey({ kind: "record", fields: [["body", instance.body], ["kind", instance.bindings.kind]] });
-  const bindings = bindingVectorKey(instance.bindings.bindings);
-  return bindings === null ? null : encodeKey({ kind: "record", fields: [["body", instance.body], ["kind", instance.bindings.kind], ["bindings", bindings]] });
-};
-
 export const verifyPublishedInstance = (
   published: TirBody | null, node: TirNode | null, emit: TirOccurrenceEmit,
 ): void => {
@@ -356,7 +323,6 @@ export const verifyPublicationInventory = (module: TirModule, selected: TirBody,
     if (body === undefined) { duplicate = true; continue; }
     if (body === selected) selectedCount++;
     const key = instanceKey({ body: body.body, bindings: body.bindings });
-    if (key === null) continue;
     if (keys.has(key)) duplicate = true;
     keys.add(key);
   }

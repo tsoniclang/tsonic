@@ -1,7 +1,7 @@
 import type { KeyData, LibraryExportIdentity, LibraryModuleIdentity, LibraryTypeId } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import type { Violation } from "../diag/contract.js";
-import type { BindingVector, ExactRational, TypeBinding } from "../ir-types/contract.js";
+import type { ExactRational } from "../ir-types/contract.js";
 import type {
   LibraryCatalogue, LibraryDeclaration, LibraryMember, LibraryModule, LibraryRule, LibrarySignature,
   LibrarySite, LibraryType, LibraryTypeParameter,
@@ -49,18 +49,6 @@ export function exportIdentityData(identity: LibraryExportIdentity): readonly Ke
 
 export function exportKey(identity: LibraryExportIdentity): string {
   return encodeKey(exportIdentityData(identity));
-}
-
-function typeBindingData(binding: TypeBinding): readonly KeyData[] {
-  return binding.kind === "bound"
-    ? [binding.kind, binding.parameter.owner, binding.parameter.index, binding.type]
-    : [binding.kind, binding.parameter.owner, binding.parameter.index];
-}
-
-export function bindingData(bindings: BindingVector): readonly KeyData[] {
-  return [bindings.classBindings.map(typeBindingData), bindings.methodBindings.map(typeBindingData),
-    bindings.capturedBindings.map(typeBindingData), bindings.selfBindings.map(binding => binding.kind === "bound"
-      ? [binding.kind, binding.owner, binding.type] : [binding.kind, binding.owner])];
 }
 
 export function compareModules(left: LibraryModuleIdentity, right: LibraryModuleIdentity): number {

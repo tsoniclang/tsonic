@@ -5,7 +5,7 @@ import type { MemberSelection, ResolvedCallee, TirVerifierInput } from "../ir-ti
 import { verifyTir, verifyTirModule } from "../ir-tir/index.js";
 import { verifyFacts } from "../ir-facts/index.js";
 import { verifyMir } from "../ir-mir/index.js";
-import { printTypes } from "../ir-types/index.js";
+import { instanceKey, printTypes } from "../ir-types/index.js";
 import type { NodeId } from "../ids/contract.js";
 import type { SyntaxNode } from "../ir-hir/contract.js";
 import type { TypedPhase } from "../ir-tir/contract.js";
@@ -16,7 +16,7 @@ import { inventorySyntax, moduleSyntaxRoots } from "./syntax-arena.js";
 import { syntaxEdges } from "./syntax-edges.js";
 import type { BodyInstance } from "../ir-types/contract.js";
 import type { ProgramLookup, ProgramViolation } from "./program-values.js";
-import { artifactEnvironmentKey, compareInstances, instanceKey, numberDetail, programChildRule, programLookup, textDetail, uniqueRows } from "./program-values.js";
+import { artifactEnvironmentKey, compareInstances, numberDetail, programChildRule, programLookup, textDetail, uniqueRows } from "./program-values.js";
 
 function metadataKeys(published: PublishedBody): ReadonlyMap<string, ReadonlySet<string>> {
   const positions = new Map<string, Set<string>>();

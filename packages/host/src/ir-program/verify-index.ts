@@ -3,7 +3,7 @@ import type { DefId, ModuleId } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import { verifyMetadata, verifySummary } from "../ir-facts/index.js";
 import { indexSyntaxTree } from "../ir-hir/index.js";
-import { printTypes, verifyTypes } from "../ir-types/index.js";
+import { artifactBindingsData, artifactBindingsKey, instanceKey, printTypes, verifyTypes } from "../ir-types/index.js";
 import type { TirVerifierInput } from "../ir-tir/contract.js";
 import type { HirCallableEndpoint } from "../ir-hir/contract.js";
 import type { BindingVerificationInput, BodyInstance, TypeRule, TypeSite } from "../ir-types/contract.js";
@@ -17,7 +17,7 @@ import type {
 } from "./contract.js";
 
 import type { ProgramLookup, ProgramViolation } from "./program-values.js";
-import { artifactBindingData, artifactEnvironmentKey, compareInstances, compareText, instanceKey, numberDetail, programChildRule, programLookup, requireInstantiationMaximum, textDetail, uniqueRows } from "./program-values.js";
+import { artifactEnvironmentKey, compareInstances, compareText, numberDetail, programChildRule, programLookup, requireInstantiationMaximum, textDetail, uniqueRows } from "./program-values.js";
 import { verifyBindingBounds, verifyBodyInventory, verifyModules, verifyPackages } from "./verify-structure.js";
 
 function numericPosition(value: number, length: number): boolean {
@@ -25,7 +25,7 @@ function numericPosition(value: number, length: number): boolean {
 }
 
 function signatureKey(record: SignatureRecord): string {
-  return encodeKey([artifactBindingData(record.bindings), record.kind, record.ordinal]);
+  return encodeKey([artifactBindingsData(record.bindings), record.kind, record.ordinal]);
 }
 
 function compareSignature(left: SignatureRecord, right: SignatureRecord): number {
@@ -185,7 +185,7 @@ function verifyPublishedRecords(index: ProgramIndex, context: ProgramVerificatio
   let previousMetadata: { readonly definition: DefId; readonly environment: string } | null = null;
   const metadataKeys = new Set<string>();
   for (const record of index.metadata) {
-    const environment = encodeKey(artifactBindingData(record.key.bindings));
+    const environment = artifactBindingsKey(record.key.bindings);
     const key = artifactEnvironmentKey(record.key.definition, record.key.bindings);
     const site: ProgramSite = { kind: "artifact", artifact: { kind: "metadata", definition: record.key.definition }, bindings: record.key.bindings };
     if (previousMetadata !== null && (compareText(previousMetadata.definition, record.key.definition) || compareText(previousMetadata.environment, environment)) > 0) {
@@ -201,7 +201,7 @@ function verifyPublishedRecords(index: ProgramIndex, context: ProgramVerificatio
   let previousSummary: { readonly definition: DefId; readonly environment: string } | null = null;
   const summaryKeys = new Set<string>();
   for (const summary of index.summaries) {
-    const environment = encodeKey(artifactBindingData(summary.key.bindings));
+    const environment = artifactBindingsKey(summary.key.bindings);
     const key = artifactEnvironmentKey(summary.key.definition, summary.key.bindings);
     const site: ProgramSite = { kind: "artifact", artifact: { kind: "summary", definition: summary.key.definition }, bindings: summary.key.bindings };
     if (previousSummary !== null && (compareText(previousSummary.definition, summary.key.definition) || compareText(previousSummary.environment, environment)) > 0) {

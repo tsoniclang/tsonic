@@ -1,10 +1,11 @@
 import type { DefId, ModuleId, PackageId } from "../ids/contract.js";
 import { encodeDefId, encodeModuleId } from "../ids/index.js";
 import type { ArtifactBindings, BodyInstance } from "../ir-types/contract.js";
+import { bindingVectorKey, instanceKey } from "../ir-types/index.js";
 import { encodeKey } from "../ids/index.js";
 import type { ProgramIndex, ProgramSite, ProgramVerificationContext } from "./contract.js";
 import type { ProgramLookup, ProgramViolation } from "./program-values.js";
-import { bindingData, compareInstances, compareText, instanceKey, numberDetail, textDetail } from "./program-values.js";
+import { compareInstances, compareText, numberDetail, textDetail } from "./program-values.js";
 
 export function verifyBindingBounds(index: ProgramIndex, context: ProgramVerificationContext): readonly ProgramViolation[] {
   const maximum = context.limits.maximumBindingVectorsPerArtifact;
@@ -18,7 +19,7 @@ export function verifyBindingBounds(index: ProgramIndex, context: ProgramVerific
       groups.set(artifact, group);
     }
     if (group.exceeded) return;
-    const key = encodeKey(bindingData(bindings.bindings));
+    const key = bindingVectorKey(bindings.bindings);
     if (group.bindings.has(key)) return;
     group.bindings.add(key);
     if (group.bindings.size > maximum) {
