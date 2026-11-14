@@ -16,7 +16,8 @@ import type {
 import type {
   CapturedFact, HirCapturedType, HirCoreCapture, HirFieldBindingCapture, HirFieldMarkerCapture, HirMarkersCapture, HirPointerTypeCapture, HirRecordBindingCapture,
 } from "../ir-hir/contract.js";
-import type { InstantiationStop, ProjectionInventory } from "./program-values.js";
+import type { ProjectionInventory } from "./program-values.js";
+import type { InstantiationStop } from "./work.js";
 import {
   inventoryBindings, inventoryComponent, inventoryEach, inventoryEndpoint, inventoryEvidence, inventoryFields,
   inventoryInstance, inventoryParameter, inventoryRecord, inventorySignature, inventoryType,

@@ -14,11 +14,13 @@ import { compileIsolated, isolationDeps } from "../architecture/host/isolation.m
 import { checkCoverage } from "../architecture/host/coverage.mjs";
 import { parseSources } from "../architecture/host/import-graph.mjs";
 
+import { nativeFactsCases } from "./ir-types-native-facts.cases.mjs";
+
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const tooling = process.env.TSONIC_HOST_TOOLING_ROOT ?? repository;
-const productNames = ["index", "work", "value", "selector-path", "arena", "interner", "canonical", "copy", "normalize", "publication-fields", "publication-read", "substitute", "print", "parse", "text-readers", "text-values", "text-components", "text-records", "verify"];
+const productNames = ["index", "work", "value", "selector-path", "arena", "interner", "canonical", "copy", "normalize", "publication-fields", "publication-read", "substitute", "print", "parse", "text-readers", "text-values", "text-components", "text-records", "verify", "native-facts"];
 const runtimeFiles = productNames.map(name => resolve(repository, `packages/host/dist/ir-types/${name}.js`));
-const sourceFiles = [...productNames, "contract", "data"].map(name => resolve(repository, `packages/host/src/ir-types/${name}.ts`));
+const sourceFiles = [...productNames, "contract", "data", "native-facts-data"].map(name => resolve(repository, `packages/host/src/ir-types/${name}.ts`));
 const session = new Session();
 const post = (method, parameters = {}) => new Promise((done, reject) => {
   session.post(method, parameters, (error, result) => error === null ? done(result) : reject(error));
@@ -26,7 +28,7 @@ const post = (method, parameters = {}) => new Promise((done, reject) => {
 let createTypeInterner, seedTypeInterner, internType, internSignature, readType, readSignature, exportTypes,
   substitute, substituteSignature, printTypes, parseTypes, runTypeVerifier, encodeSelectorPath, instanceKey, sameInstance, executionKey,
   declaredExecutionKey, bindingVectorData, bindingVectorKey, artifactBindingsData, artifactBindingsKey,
-  signatureRequestData, signatureRequestKey;
+  signatureRequestData, signatureRequestKey, rigidBindings, substituteBindingValues;
 
 before(async () => {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true, "the whole suite requires aggregate admission");
@@ -37,7 +39,7 @@ before(async () => {
   ({ createTypeInterner, seedTypeInterner, internType, internSignature, readType, readSignature, exportTypes,
     substitute, substituteSignature, printTypes, parseTypes, verifyTypes: runTypeVerifier, encodeSelectorPath, instanceKey, sameInstance,
     executionKey, declaredExecutionKey, bindingVectorData, bindingVectorKey, artifactBindingsData, artifactBindingsKey,
-    signatureRequestData, signatureRequestKey } = await import("../../packages/host/dist/ir-types/index.js"));
+    signatureRequestData, signatureRequestKey, rigidBindings, substituteBindingValues } = await import("../../packages/host/dist/ir-types/index.js"));
 });
 const moduleId = encodeModuleId({ package: encodePackageId("ir-types-tests"), path: "main.ts" });
 const definition = name => encodeDefId({ module: moduleId, segments: [{ name, ordinal: 0 }] });
@@ -81,6 +83,43 @@ const verificationInputs = {
 const verifyTypes = input => runTypeVerifier({ ...input, ...verificationInputs });
 const source = { kind: "body", value: { body, node: 0 } };
 const itemSource = { kind: "item", value: { owner, node: 0 } };
+test("the ready type domain is the same live canonical interner table without publication or copying", async () => {
+  const { viewTypes } = await import("../../packages/host/dist/ir-types/index.js");
+  const interner = createTypeInterner();
+  const view = viewTypes(interner);
+  assert.equal(viewTypes(interner), view);
+  const type = internType(interner, { kind: "primitive", primitive: "float32" });
+  assert.equal(view.terms[type], readType(interner, type));
+  const callable = internSignature(interner, signature({ result: type }));
+  assert.equal(view.signatures[callable], readSignature(interner, callable));
+});
+
+test("selected native fact contract data has one exact canonical owner", async suite => {
+  await nativeFactsCases(suite, await import("../../packages/host/dist/ir-types/index.js"));
+});
+
+test("physical member storage projects only the canonical qualified selection and complete binding families", async () => {
+  const { memberStorageData } = await import("../../packages/host/dist/ir-types/index.js");
+  const bindings = emptyBindings();
+  const selection = { key: { kind: "text", value: "field" }, origins: [{ kind: "declared", declaration: owner }],
+    selectedDeclarations: [owner], primary: owner, bindings };
+  assert.deepEqual(memberStorageData(selection), [["text", "field"], [["declared", owner]], [owner], owner, bindingVectorData(bindings)]);
+  const original = encodeKey(memberStorageData(selection));
+  for (const key of [{ kind: "number", value: { numerator: 1n, denominator: 3n, negativeZero: false } },
+    { kind: "symbol", declaration: other }]) assert.notEqual(encodeKey(memberStorageData({ ...selection, key })), original);
+  for (const origin of [{ kind: "class-prototype", owner }, { kind: "mapped", owner: source, key: selection.key },
+    { kind: "mapped", owner: itemSource, key: { kind: "symbol", declaration: other } }]) {
+    assert.notEqual(encodeKey(memberStorageData({ ...selection, origins: [origin] })), original);
+  }
+  for (const change of [{ primary: null }, { selectedDeclarations: [other] },
+    { bindings: { ...bindings, classBindings: [{ kind: "bound", parameter: { owner, index: 0 }, type: 1 }] } }]) {
+    assert.notEqual(encodeKey(memberStorageData({ ...selection, ...change })), original);
+  }
+  const late = { ...selection, read: 1, write: 2, getter: null, setter: null, location: { kind: "accessor" } };
+  assert.equal(encodeKey(memberStorageData(late)), original, "runtime access decisions never select a physical field identity");
+  assert.notEqual(encodeKey(memberStorageData({ ...selection, origins: new Array(1) })), original);
+  assert.notEqual(encodeKey(memberStorageData({ ...selection, selectedDeclarations: new Array(1) })), original);
+});
 const emptyBindings = () => ({ classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] });
 const emptyScope = () => ({ classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] });
 const limits = (changes = {}) => ({ maximumDepth: 128, maximumVisits: 131072,
@@ -115,7 +154,7 @@ test("batched substitution preserves empty results and validates the one supplie
     /contains each lexical self owner once/u);
 });
 
-test("one signature batch preserves root order, duplicate roots, exact rows and independent visit maxima", () => {
+test("one signature batch preserves root order, duplicate roots, exact rows and one cumulative visit allowance", () => {
   const parameter = { owner, index: 0 };
   const table = { terms: [primitive, { kind: "param", parameter }, { kind: "string" }], signatures: [0, 1, 2].map(id => ({
     id, ...signature({ declaration: definition(`batch-${id}`), result: 1 }),
@@ -125,13 +164,13 @@ test("one signature batch preserves root order, duplicate roots, exact rows and 
   const roots = [2, 0, 2, 1];
   assert.deepEqual(substituteSignature(interner, roots, bindings, limits({ maximumVisits: 3 })), { kind: "resource-limit", dimension: "visits", maximum: 3 });
   assert.throws(() => readSignature(interner, 3), /outside this arena/u);
-  assert.deepEqual(substituteSignature(interner, roots, bindings, limits({ maximumVisits: 4 })), { kind: "complete", value: [3, 4, 3, 5] });
+  assert.deepEqual(substituteSignature(interner, roots, bindings, limits({ maximumVisits: 17 })), { kind: "complete", value: [3, 4, 3, 5] });
   assert.deepEqual(roots, [2, 0, 2, 1]);
   assert.deepEqual([3, 4, 5].map(id => readSignature(interner, id)), [2, 0, 1].map((original, index) => ({
     ...table.signatures[original], id: index + 3, result: 2,
   })));
   assert.deepEqual(table.signatures.map((_value, id) => readSignature(interner, id)), table.signatures);
-  assert.deepEqual(substitute(interner, [1, 0, 1, 2], bindings, limits({ maximumVisits: 2 })), { kind: "complete", value: [2, 0, 2, 2] });
+  assert.deepEqual(substitute(interner, [1, 0, 1, 2], bindings, limits({ maximumVisits: 9 })), { kind: "complete", value: [2, 0, 2, 2] });
 });
 
 test("a later refused batch root returns no partial vector and never publishes that root's incomplete graph", () => {
@@ -140,8 +179,8 @@ test("a later refused batch root returns no partial vector and never publishes t
     { kind: "optional", value: 0 }, { kind: "array", element: 2, readonly: false }], signatures: [] };
   const interner = seedTypeInterner(table);
   const bindings = { ...emptyBindings(), classBindings: [{ kind: "bound", parameter, type: 1 }] };
-  const capacity = limits({ maximumVisits: 4 });
-  assert.deepEqual(substitute(interner, [2, 3], bindings, capacity), { kind: "resource-limit", dimension: "visits", maximum: 4 });
+  const capacity = limits({ maximumVisits: 6 });
+  assert.deepEqual(substitute(interner, [2, 3], bindings, capacity), { kind: "resource-limit", dimension: "visits", maximum: 6 });
   assert.deepEqual(readType(interner, 4), { kind: "optional", value: 1 });
   assert.throws(() => readType(interner, 5), /outside this arena/u);
   assert.deepEqual(substitute(interner, [2, 2], bindings, capacity), { kind: "complete", value: [4, 4] });
@@ -157,14 +196,131 @@ for (const [count, ownerBytes] of [[1, 0], [64, 4096], [4096, 4096]])
     const interner = seedTypeInterner(table);
     const bindings = { ...emptyBindings(), capturedBindings: [{ kind: "rigid", parameter: { owner: longOwner, index: 0 } }] };
     const roots = table.signatures.map(row => row.id).reverse();
-    assert.deepEqual(substituteSignature(interner, roots, bindings, limits({ maximumVisits: 2 })), { kind: "complete", value: roots });
-    assert.deepEqual(substituteSignature(interner, roots, bindings, limits({ maximumVisits: 2 })), { kind: "complete", value: roots });
+    assert.deepEqual(substituteSignature(seedTypeInterner(table), roots, bindings, limits({ maximumVisits: 3 * count })),
+      { kind: "resource-limit", dimension: "visits", maximum: 3 * count });
+    const capacity = limits({ maximumVisits: 3 * count + 1 });
+    assert.deepEqual(substituteSignature(interner, roots, bindings, capacity), { kind: "complete", value: roots });
+    assert.deepEqual(substituteSignature(interner, roots, bindings, capacity), { kind: "complete", value: roots });
     assert.deepEqual(table.signatures.map((_value, id) => readSignature(interner, id)), table.signatures);
     assert.deepEqual(readType(interner, 0), primitive);
     assert.throws(() => readSignature(interner, count), /outside this arena/u);
   });
 const evidence = (changes = {}) => ({ type: 0, component: source, category: { kind: "known", category: "number" },
   numeric: null, sum: null, nominal: null, pointer: null, ...changes });
+test("rigid bindings preserve the complete admitted qualified scope without changing its family or slot", () => {
+  const scope = { classParameters: [{ owner, index: 1 }, { owner, index: 0 }],
+    methodParameters: [{ owner: method, index: 0 }], capturedParameters: [{ owner: other, index: 0 }],
+    selfOwners: [other, owner] };
+  const vector = rigidBindings(scope);
+  assert.deepEqual(vector, { classBindings: scope.classParameters.map(parameter => ({ kind: "rigid", parameter })),
+    methodBindings: [{ kind: "rigid", parameter: { owner: method, index: 0 } }],
+    capturedBindings: [{ kind: "rigid", parameter: { owner: other, index: 0 } }],
+    selfBindings: [{ kind: "rigid", owner: other }, { kind: "rigid", owner }] });
+  assert.notEqual(bindingVectorKey(vector), bindingVectorKey(rigidBindings({ ...scope,
+    capturedParameters: [{ owner, index: 0 }] })));
+  assert.deepEqual(rigidBindings(emptyScope()), emptyBindings());
+  assert.deepEqual(scope.classParameters, [{ owner, index: 1 }, { owner, index: 0 }]);
+});
+
+test("constant reference keys retain producer context and the complete initializer instance", async () => {
+  const { constantReferenceKey } = await import("../../packages/host/dist/ir-types/index.js");
+  const initializer = { body, bindings: { kind: "parametric" } };
+  const keys = ["enum-member", "fixed-array-extent", "compile-time"].map(context => constantReferenceKey({ initializer, context }));
+  assert.equal(new Set(keys).size, 3, "the same initializer under distinct selected contexts is not the same receipt");
+  assert.equal(constantReferenceKey({ initializer: { ...initializer }, context: "compile-time" }), keys[2]);
+  assert.notEqual(constantReferenceKey({ initializer: { ...initializer, body: otherBody }, context: "compile-time" }), keys[2]);
+  const families = ["classBindings", "methodBindings", "capturedBindings", "selfBindings"];
+  for (const family of families) {
+    const binding = family === "selfBindings" ? { kind: "rigid", owner } : { kind: "rigid", parameter: { owner, index: 0 } };
+    const reference = vector => ({ initializer: { body, bindings: { kind: "instantiated", bindings: { ...emptyBindings(), [family]: vector } } },
+      context: "enum-member" });
+    assert.notEqual(constantReferenceKey(reference([binding, undefined])), constantReferenceKey(reference([undefined, binding])));
+    assert.notEqual(constantReferenceKey(reference([binding])), constantReferenceKey(reference([binding, undefined])));
+    assert.notEqual(constantReferenceKey(reference([])), constantReferenceKey({ initializer, context: "enum-member" }));
+  }
+});
+
+test("plain and binding-value root batches share exact cold, warm, duplicate and first-refusal visit units", () => {
+  const table = { terms: [primitive, { kind: "string" }, { kind: "intrinsic", intrinsic: "void" }], signatures: [] };
+  for (const bindingValues of [false, true]) {
+    const apply = (interner, roots, maximumVisits) => bindingValues
+      ? substituteBindingValues(interner, { types: roots, bindings: [] }, emptyBindings(), limits({ maximumVisits }))
+      : substitute(interner, roots, emptyBindings(), limits({ maximumVisits }));
+    for (const maximumVisits of [0, 5]) {
+      assert.deepEqual(apply(seedTypeInterner(table), [0, 1, 2], maximumVisits),
+        { kind: "resource-limit", dimension: "visits", maximum: maximumVisits });
+    }
+    const interner = seedTypeInterner(table);
+    const expected = bindingValues ? { types: [0, 1, 2], bindings: [] } : [0, 1, 2];
+    assert.deepEqual(apply(interner, [0, 1, 2], 6), { kind: "complete", value: expected });
+    assert.deepEqual(apply(interner, [2, 1, 0, 2, 1, 0], 6), { kind: "complete",
+      value: bindingValues ? { types: [2, 1, 0, 2, 1, 0], bindings: [] } : [2, 1, 0, 2, 1, 0] });
+    assert.deepEqual(apply(interner, [0, 0, 0, 0, 0, 0, 99], 6),
+      { kind: "resource-limit", dimension: "visits", maximum: 6 });
+    assert.deepEqual(table.terms.map((_value, id) => readType(interner, id)), table.terms);
+    assert.throws(() => readType(interner, 3), /outside this arena/u);
+  }
+});
+
+test("binding-value substitution preserves four qualified families, genuine rigid slots, self and composite native types", () => {
+  const parameter = { owner, index: 0 };
+  const methodParameter = { owner: method, index: 0 };
+  const capturedParameter = { owner: captured, index: 0 };
+  const table = { terms: [{ kind: "param", parameter }, { kind: "self", owner }, { kind: "string" },
+    { kind: "primitive", primitive: "bool" }, { kind: "array", element: 0, readonly: false }], signatures: [] };
+  const outer = { classBindings: [{ kind: "bound", parameter, type: 2 }],
+    methodBindings: [{ kind: "bound", parameter: methodParameter, type: 3 }], capturedBindings: [],
+    selfBindings: [{ kind: "bound", owner, type: 2 }] };
+  const vector = { classBindings: [{ kind: "rigid", parameter }],
+    methodBindings: [{ kind: "bound", parameter: methodParameter, type: 4 }],
+    capturedBindings: [{ kind: "rigid", parameter: capturedParameter }],
+    selfBindings: [{ kind: "rigid", owner }, { kind: "rigid", owner: other }] };
+  const input = { types: [0, 1, 4], bindings: [vector, emptyBindings()] };
+  const original = structuredClone(input);
+  const interner = seedTypeInterner(table);
+  assert.deepEqual(substituteBindingValues(interner, input, outer, limits()), { kind: "complete", value: {
+    types: [2, 2, 5], bindings: [{ classBindings: [{ kind: "bound", parameter, type: 2 }],
+      methodBindings: [{ kind: "bound", parameter: methodParameter, type: 5 }],
+      capturedBindings: [{ kind: "rigid", parameter: capturedParameter }],
+      selfBindings: [{ kind: "bound", owner, type: 2 }, { kind: "rigid", owner: other }] }, emptyBindings()],
+  } });
+  assert.deepEqual(readType(interner, 5), { kind: "array", element: 2, readonly: false });
+  assert.deepEqual(input, original);
+  for (const [maximumVisits, values] of [[0, input], [1, { types: [], bindings: [vector, { ...vector,
+    methodBindings: [{ kind: "bound", parameter: methodParameter, type: 99 }] }] }]]) {
+    assert.deepEqual(substituteBindingValues(seedTypeInterner(table), values, outer, limits({ maximumVisits })),
+      { kind: "resource-limit", dimension: "visits", maximum: maximumVisits });
+  }
+});
+
+test("substitution charges each binding traversal before reading later rows and rejects sparse caller inputs", () => {
+  const table = { terms: [primitive], signatures: [] };
+  const parameter = { owner, index: 0 };
+  const empty = emptyBindings();
+  const invoke = (values, bindings, maximumVisits) => substituteBindingValues(seedTypeInterner(table), values, bindings, limits({ maximumVisits }));
+  for (const family of ["classBindings", "methodBindings", "capturedBindings", "selfBindings"]) {
+    const sparse = { ...empty, [family]: new Array(1) };
+    assert.throws(() => invoke({ types: [], bindings: [] }, sparse, 1), /no .*holes/u);
+    assert.deepEqual(invoke({ types: [], bindings: [] }, sparse, 0), { kind: "resource-limit", dimension: "visits", maximum: 0 });
+    assert.throws(() => invoke({ types: [], bindings: [sparse] }, empty, 2), /no .*holes/u);
+    assert.deepEqual(invoke({ types: [], bindings: [sparse] }, empty, 1), { kind: "resource-limit", dimension: "visits", maximum: 1 });
+    const value = family === "selfBindings" ? { kind: "bound", owner, type: 0 } : { kind: "bound", parameter, type: 0 };
+    const vector = { ...empty, [family]: [value] };
+    assert.deepEqual(invoke({ types: [], bindings: [vector] }, empty, 2), { kind: "resource-limit", dimension: "visits", maximum: 2 });
+    assert.deepEqual(invoke({ types: [], bindings: [vector] }, empty, 3), { kind: "complete", value: { types: [], bindings: [vector] } });
+    const rigid = { ...empty, [family]: [family === "selfBindings" ? { kind: "rigid", owner } : { kind: "rigid", parameter }] };
+    assert.deepEqual(invoke({ types: [], bindings: [rigid] }, empty, 2), { kind: "complete", value: { types: [], bindings: [rigid] } });
+  }
+  for (const values of [{ types: new Array(1), bindings: [] }, { types: [], bindings: new Array(1) }]) {
+    assert.throws(() => invoke(values, empty, 1), /no holes/u);
+  }
+  assert.throws(() => substitute(seedTypeInterner(table), new Array(1), empty, limits()), /no holes/u);
+  assert.throws(() => substituteSignature(seedTypeInterner(table), new Array(1), empty, limits()), /no holes/u);
+  assert.deepEqual(invoke({ types: [0], bindings: [] }, empty, 1), { kind: "resource-limit", dimension: "visits", maximum: 1 });
+  assert.deepEqual(invoke({ types: [], bindings: [empty, { ...empty, classBindings: [99] }] }, empty, 1),
+    { kind: "resource-limit", dimension: "visits", maximum: 1 });
+});
+
 const verification = (terms = [primitive], changes = {}) => ({ table: { terms, signatures: [] }, bindings: [], evidence: [], ...changes });
 
 test("seed retains empty independent arenas and admits normal subsequent insertion", () => {
@@ -461,7 +617,7 @@ test("signature roots enforce every expansion limit exactly at and past the admi
     { id: 0, ...signature({ result: 2 }) }, { id: 1, ...signature({ result: 3 }) }, { id: 2, ...signature({ result: 4 }) },
     { id: 3, ...signature() },
   ] };
-  const boundaries = [[0, "maximumDepth", "depth", 2, 1], [0, "maximumVisits", "visits", 3, 2],
+  const boundaries = [[0, "maximumDepth", "depth", 2, 1], [0, "maximumVisits", "visits", 4, 3],
     [1, "maximumUnionMembers", "union-members", 2, 1], [2, "maximumIntersectionMembers", "intersection-members", 2, 1]];
   assert.deepEqual(verifyTypes({ table, bindings: [], evidence: [] }), []);
   const interner = seedTypeInterner(table);
@@ -483,15 +639,15 @@ test("signature roots enforce every expansion limit exactly at and past the admi
         { name: "TypeError", message: "ir-types: expansion maxima must be nonnegative safe integers." });
 });
 
-test("signature-root three-plan plus one-stage visits and newly flattened members stop before publishing rows", () => {
+test("signature-root environment, root, three plans and one stage charge before publishing rows", () => {
   const parameter = { owner, index: 0 };
   const simple = { terms: [{ kind: "param", parameter }, primitive], signatures: [{ id: 0, ...signature() }] };
   const bindings = { ...emptyBindings(), classBindings: [{ kind: "bound", parameter, type: 1 }] };
   const interner = seedTypeInterner(simple);
-  assert.deepEqual(substituteSignature(interner, [0], bindings, limits({ maximumVisits: 3 })),
-    { kind: "resource-limit", dimension: "visits", maximum: 3 });
+  assert.deepEqual(substituteSignature(interner, [0], bindings, limits({ maximumVisits: 5 })),
+    { kind: "resource-limit", dimension: "visits", maximum: 5 });
   assert.throws(() => readSignature(interner, 1), /outside this arena/u);
-  assert.deepEqual(substituteSignature(interner, [0], bindings, limits({ maximumVisits: 4 })), { kind: "complete", value: [1] });
+  assert.deepEqual(substituteSignature(interner, [0], bindings, limits({ maximumVisits: 6 })), { kind: "complete", value: [1] });
   assert.deepEqual(readSignature(interner, 1), { id: 1, ...signature({ result: 1 }) });
   assert.deepEqual(simple.terms.map((_, position) => readType(interner, position)), simple.terms);
   assert.deepEqual(readSignature(interner, 0), simple.signatures[0]);
@@ -1616,7 +1772,7 @@ test("substitution publishes new recursive rows once and leaves unchanged cycles
   assert.deepEqual(substitute(interner, [input], bindings, limits()), { kind: "complete", value: [3] });
   const cycle = createTypeInterner();
   const root = internType(cycle, { kind: "array", element: 0, readonly: false });
-  assert.deepEqual(substitute(cycle, [root], emptyBindings(), limits({ maximumDepth: 0, maximumVisits: 1 })),
+  assert.deepEqual(substitute(cycle, [root], emptyBindings(), limits({ maximumDepth: 0, maximumVisits: 2 })),
     { kind: "complete", value: [root] });
 });
 
@@ -1630,12 +1786,14 @@ test("each substitution limit accepts its boundary and refuses one-past with the
   const boundaries = [
     [integer, { maximumDepth: 0 }, { kind: "complete", value: integer }],
     [integer, { maximumDepth: -0 }, { kind: "complete", value: integer }],
-    [integer, { maximumVisits: 1 }, { kind: "complete", value: integer }],
+    [integer, { maximumVisits: 2 }, { kind: "complete", value: integer }],
+    [integer, { maximumVisits: 1 }, { kind: "resource-limit", dimension: "visits", maximum: 1 }],
     [integer, { maximumVisits: 0 }, { kind: "resource-limit", dimension: "visits", maximum: 0 }],
     [integer, { maximumVisits: -0 }, { kind: "resource-limit", dimension: "visits", maximum: -0 }],
     [array, { maximumDepth: 1 }, { kind: "complete", value: array }],
     [array, { maximumDepth: 0 }, { kind: "resource-limit", dimension: "depth", maximum: 0 }],
-    [array, { maximumVisits: 2 }, { kind: "complete", value: array }],
+    [array, { maximumVisits: 3 }, { kind: "complete", value: array }],
+    [array, { maximumVisits: 2 }, { kind: "resource-limit", dimension: "visits", maximum: 2 }],
     [array, { maximumVisits: 1 }, { kind: "resource-limit", dimension: "visits", maximum: 1 }],
     [union, { maximumUnionMembers: 2 }, { kind: "complete", value: union }],
     [union, { maximumUnionMembers: 1 }, { kind: "resource-limit", dimension: "union-members", maximum: 1 }],
@@ -1700,10 +1858,10 @@ test("changed staged chains repair parents by events with exact total-visit boun
   }
   const issued = Array.from({ length: 2 * count + 2 }, (_, type) => readType(interner, type));
   const bindings = { ...emptyBindings(), classBindings: [{ kind: "bound", parameter, type: integer }] };
-  assert.deepEqual(substitute(interner, [original], bindings, limits({ maximumDepth: count + 1, maximumVisits: 3 * count })),
-    { kind: "resource-limit", dimension: "visits", maximum: 3 * count });
+  assert.deepEqual(substitute(interner, [original], bindings, limits({ maximumDepth: count + 1, maximumVisits: 3 * count + 2 })),
+    { kind: "resource-limit", dimension: "visits", maximum: 3 * count + 2 });
   assert.equal(issued.every((row, type) => readType(interner, type) === row), true, "refusal preserves every original complete row");
-  assert.deepEqual(substitute(interner, [original], bindings, limits({ maximumDepth: count + 1, maximumVisits: 3 * count + 1 })),
+  assert.deepEqual(substitute(interner, [original], bindings, limits({ maximumDepth: count + 1, maximumVisits: 3 * count + 3 })),
     { kind: "complete", value: [expected] });
   assert.equal(issued.every((row, type) => readType(interner, type) === row), true, "repair reuses every independently interned expected row");
   assert.throws(() => readType(interner, 2 * count + 2), /outside this arena/u);
@@ -1767,9 +1925,9 @@ test("long qualified binder chains use persistent blocked scopes rather than cop
   const bindings = { ...emptyBindings(), classBindings: parameters.map((parameter, index) => ({
     kind: "bound", parameter, type: index + 1 })) };
   const issued = Array.from({ length: count + 1 }, (_, type) => readType(interner, type));
-  assert.deepEqual(substitute(interner, [0], bindings, limits({ maximumDepth: count, maximumVisits: count })),
-    { kind: "resource-limit", dimension: "visits", maximum: count });
-  assert.deepEqual(substitute(interner, [0], bindings, limits({ maximumDepth: count, maximumVisits: count + 1 })),
+  assert.deepEqual(substitute(interner, [0], bindings, limits({ maximumDepth: count, maximumVisits: 2 * count + 1 })),
+    { kind: "resource-limit", dimension: "visits", maximum: 2 * count + 1 });
+  assert.deepEqual(substitute(interner, [0], bindings, limits({ maximumDepth: count, maximumVisits: 2 * count + 2 })),
     { kind: "complete", value: [expected] });
   assert.equal(issued.every((row, type) => readType(interner, type) === row), true, "all qualified input identities and rows remain unchanged");
   assert.throws(() => readType(interner, count + 1), /outside this arena/u);
@@ -2994,7 +3152,7 @@ test("the complete real ir-types owner compiles against freshly emitted actual a
   const areas = JSON.parse(readFileSync(process.env.TSONIC_HOST_QUARANTINE_AREAS
     ?? resolve(repository, "test/architecture/quarantine/areas.json"), "utf8"));
   const module = hostCatalogue.find(module => module.name === "ir-types");
-  const own = ["contract", "data", ...productNames]
+  const own = ["contract", "data", "native-facts-data", ...productNames]
     .map(name => `packages/host/src/ir-types/${name}.ts`);
   const ids = readdirSync(resolve(repository, "packages/host/src/ids")).filter(path => path.endsWith(".ts"))
     .map(path => `packages/host/src/ids/${path}`);
@@ -3063,7 +3221,7 @@ test("fresh public declarations admit real strict readers and reject the entire 
   assert.equal(invalidBatch.status, 1, invalidBatch.diagnostics.slice(-8000));
   assert.deepEqual([...invalidBatch.diagnostics.matchAll(/error TS(\d+):/gu)].map(match => Number(match[1])),
     [2345, 2345, 2322, 2322, 2542, 2339], invalidBatch.diagnostics.slice(-8000));
-  write("seed-reader.ts", 'import { internType } from "./declarations/ir-types/index.js";\nimport type { TypeInterner } from "./declarations/ir-types/contract.js";\nconst fabricated = { identityKind: "type-interner", terms: [], signatures: [], typeKeys: new Map(), signatureKeys: new Map(), substitutions: new Map() };\nexport const forbidden: TypeInterner = fabricated;\nexport function inaccessible(interner: TypeInterner): void {\n  internType(fabricated, { kind: "string" });\n  interner.typeRows;\n  interner.terms;\n}\n');
+  write("seed-reader.ts", 'import { internType } from "./declarations/ir-types/index.js";\nimport type { TypeInterner } from "./declarations/ir-types/contract.js";\nconst fabricated = { identityKind: "type-interner", terms: [], signatures: [], typeKeys: new Map(), signatureKeys: new Map(), substitutions: new Map() };\nexport const forbidden: TypeInterner = fabricated;\nexport function inaccessible(interner: TypeInterner): void {\n  internType(fabricated, { kind: "string" });\n  interner.table;\n  interner.terms;\n}\n');
   const invalidOwner = run(resolve(stage, "consumer.json"));
   assert.equal(invalidOwner.status, 1, invalidOwner.diagnostics.slice(-8000));
   assert.deepEqual([...invalidOwner.diagnostics.matchAll(/error TS(\d+):/gu)].map(match => Number(match[1])),

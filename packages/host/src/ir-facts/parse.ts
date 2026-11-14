@@ -14,11 +14,11 @@ import type { AccessLocation, CheckRequirement, ApplicationDecision, CompletionE
 import type { MemberSelection, ResolvedCallee } from "../ir-tir/contract.js";
 import type {
   ArtifactBindings, BindingVector, BodyInstance, ExactRational, MemberKey, MemberOrigin, SelfBinding,
-  TypeBinding, TypeParameterIdentity,
+  TypeBinding, TypeParameterIdentity, MemberStorageSelection,
 } from "../ir-types/contract.js";
 import type { CallbackInput, SummaryCallback } from "../snapshot/contract.js";
 import type {
-  ArgumentTransport, BindingStorageFact, BodyFacts, BoundActivation, BoundProducer, BoundRecordField,
+  ArgumentTransport, BindingStorageFact, BodyFacts, BodyObservations, ParseObservations, BoundActivation, BoundProducer, BoundRecordField,
   CallbackEntry, CallComponent, CallEdge, CallGraph, CaptureEffect, CaptureFact, CaptureLocation,
   ClosedArrayFact, ClosedArrayReason, ConstructionAlternative, CountedLoopFact, EffectPaths,
   ErrorInvalidationFact, ErrorInvalidationReason, ErrorStorageFact, ErrorStorageFacts, EscapeFact, EscapeTarget,
@@ -715,20 +715,26 @@ const fieldRef: Decode<MetadataFieldRef> = (state, input) => then(fields(state, 
     then(readField(state, values, "metadata", metadataKey), metadataValue =>
     then(readField(state, values, "field", field), fieldValue =>
       finishRecord<MetadataFieldRef>(state, values, { metadata: metadataValue, field: fieldValue }))));
+const storageSelection: Decode<MemberStorageSelection> = (state, input) => then(fields(state, input, "MemberStorageSelection"), values =>
+    then(readField(state, values, "key", memberKey), keyValue =>
+    then(readField(state, values, "origins", (state, input) => sequence(state, input, memberOrigin)), originsValue =>
+    then(readField(state, values, "selectedDeclarations", (state, input) => sequence(state, input, definition)), declarationsValue =>
+    then(readField(state, values, "primary", (state, input) => nullable(state, input, definition)), primaryValue =>
+    then(readField(state, values, "bindings", bindings), bindingsValue =>
+      finishRecord<MemberStorageSelection>(state, values, { key: keyValue, origins: originsValue,
+        selectedDeclarations: declarationsValue, primary: primaryValue, bindings: bindingsValue })))))));
 const memoryField: Decode<MemoryField> = (state, input) => then(fields(state, input, "MemoryField"), values =>
     then(readField(state, values, "id", field), idValue =>
     then(readField(state, values, "occurrence", sourceRef), occurrenceValue =>
     then(readField(state, values, "owner", typeIdentity), ownerValue =>
     then(readField(state, values, "selector", sourceRef), selectorValue =>
     then(readField(state, values, "selection", sourceRef), selectionValue =>
-    then(readField(state, values, "member", memberSelection), memberValue =>
-    then(readField(state, values, "primary", (state, input) => nullable(state, input, definition)), primaryValue =>
-    then(readField(state, values, "selectedDeclarations", (state, input) => sequence(state, input, definition)), selectedDeclarationsValue =>
+    then(readField(state, values, "member", storageSelection), memberValue =>
     then(readField(state, values, "value", typeIdentity), valueValue =>
     then(readField(state, values, "layout", layout), layoutValue =>
     then(readField(state, values, "byteOffset", scalarBigint), byteOffsetValue =>
     then(readField(state, values, "byteAlignment", scalarBigint), byteAlignmentValue =>
-      finishRecord<MemoryField>(state, values, { id: idValue, occurrence: occurrenceValue, owner: ownerValue, selector: selectorValue, selection: selectionValue, member: memberValue, primary: primaryValue, selectedDeclarations: selectedDeclarationsValue, value: valueValue, layout: layoutValue, byteOffset: byteOffsetValue, byteAlignment: byteAlignmentValue }))))))))))))));
+      finishRecord<MemoryField>(state, values, { id: idValue, occurrence: occurrenceValue, owner: ownerValue, selector: selectorValue, selection: selectionValue, member: memberValue, value: valueValue, layout: layoutValue, byteOffset: byteOffsetValue, byteAlignment: byteAlignmentValue }))))))))))));
 const observation: Decode<ObservationFact> = (state, input) => then(fields(state, input, "ObservationFact"), values =>
     then(readField(state, values, "node", node), nodeValue =>
     then(readField(state, values, "operation", (state, input) => literal(state, input, ["size","alignment","stride","field-offset"])), operationValue =>
@@ -737,9 +743,12 @@ const observation: Decode<ObservationFact> = (state, input) => then(fields(state
     then(readField(state, values, "field", (state, input) => nullable(state, input, fieldRef)), fieldValue =>
     then(readField(state, values, "result", typeIdentity), resultValue =>
     then(readField(state, values, "value", scalarBigint), valueValue =>
-    then(readField(state, values, "context", contextIdentity), contextValue =>
     then(readField(state, values, "bindings", bindings), bindingsValue =>
-      finishRecord<ObservationFact>(state, values, { node: nodeValue, operation: operationValue, operand: operandValue, layout: layoutValue, field: fieldValue, result: resultValue, value: valueValue, context: contextValue, bindings: bindingsValue })))))))))));
+      finishRecord<ObservationFact>(state, values, { node: nodeValue, operation: operationValue, operand: operandValue, layout: layoutValue, field: fieldValue, result: resultValue, value: valueValue, bindings: bindingsValue }))))))))));
+const bodyObservations: Decode<BodyObservations> = (state, input) => then(fields(state, input, "BodyObservations"), values =>
+  then(readField(state, values, "instance", bodyInstance), instanceValue =>
+    then(readField(state, values, "rows", (state, input) => sequence(state, input, observation)), rowsValue =>
+      finishRecord<BodyObservations>(state, values, { instance: instanceValue, rows: rowsValue }))));
 const rawLocation: Decode<RawLocationFact> = (state, input) => then(fields(state, input, "RawLocationFact"), values =>
     then(readField(state, values, "node", node), nodeValue =>
     then(readField(state, values, "operation", (state, input) => literal(state, input, ["to-raw","reinterpret"])), operationValue =>
@@ -782,14 +791,13 @@ const bodyFacts: Decode<BodyFacts> = (state, input) => then(fields(state, input,
     then(readField(state, values, "suspension", suspension), suspensionValue =>
     then(readField(state, values, "errorStorage", errorStorage), errorStorageValue =>
     then(readField(state, values, "pointerBacking", pointerBacking), pointerBackingValue =>
-    then(readField(state, values, "observations", (state, input) => sequence(state, input, observation)), observationsValue =>
     then(readField(state, values, "rawLocations", (state, input) => sequence(state, input, rawLocation)), rawLocationsValue =>
     then(readField(state, values, "fieldBindings", (state, input) => sequence(state, input, fieldBinding)), fieldBindingsValue =>
     then(readField(state, values, "recordBindings", (state, input) => sequence(state, input, recordBinding)), recordBindingsValue =>
     then(readField(state, values, "memoryBindings", (state, input) => sequence(state, input, memoryInventory)), memoryBindingsValue =>
     then(readField(state, values, "selectedMemoryDeclarations", (state, input) => sequence(state, input, definition)), selectedMemoryDeclarationsValue =>
     then(readField(state, values, "closedArrays", (state, input) => sequence(state, input, closedArray)), closedArraysValue =>
-      finishRecord<BodyFacts>(state, values, { instance: instanceValue, arena: arenaValue, liveness: livenessValue, initialization: initializationValue, refinements: refinementsValue, origins: originsValue, suspension: suspensionValue, errorStorage: errorStorageValue, pointerBacking: pointerBackingValue, observations: observationsValue, rawLocations: rawLocationsValue, fieldBindings: fieldBindingsValue, recordBindings: recordBindingsValue, memoryBindings: memoryBindingsValue, selectedMemoryDeclarations: selectedMemoryDeclarationsValue, closedArrays: closedArraysValue }))))))))))))))))));
+      finishRecord<BodyFacts>(state, values, { instance: instanceValue, arena: arenaValue, liveness: livenessValue, initialization: initializationValue, refinements: refinementsValue, origins: originsValue, suspension: suspensionValue, errorStorage: errorStorageValue, pointerBacking: pointerBackingValue, rawLocations: rawLocationsValue, fieldBindings: fieldBindingsValue, recordBindings: recordBindingsValue, memoryBindings: memoryBindingsValue, selectedMemoryDeclarations: selectedMemoryDeclarationsValue, closedArrays: closedArraysValue })))))))))))))))));
 const parameterEffect: Decode<ParameterEffect> = (state, input) => then(fields(state, input, "ParameterEffect"), values =>
     then(readField(state, values, "slot", parameterSlot), slotValue =>
     then(readField(state, values, "reads", effectPaths), readsValue =>
@@ -1332,6 +1340,7 @@ const parse = <Value>(text: string, decode: Decode<Value>): TextParseResult<Valu
 };
 
 export const parseFacts: ParseFacts = text => parse(text, bodyFacts);
+export const parseObservations: ParseObservations = text => parse(text, bodyObservations);
 export const parseSummary: ParseSummary = text => parse(text, summary);
 export const parseMetadata: ParseMetadata = text => parse(text, metadata);
 export const parseCallGraph: ParseCallGraph = text => parse(text, callGraph);

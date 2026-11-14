@@ -11,7 +11,8 @@ import { throwInvariant } from "../../diag/index.js";
 import type { NodeId, Origin } from "../../ids/contract.js";
 import { encodeKey } from "../../ids/index.js";
 import type { MemberSelection } from "../../ir-tir/contract.js";
-import { memberSelectionKey, memberStorageKey } from "../../ir-tir/index.js";
+import { memberSelectionKey } from "../../ir-tir/index.js";
+import { memberStorageData } from "../../ir-types/index.js";
 import type { DataflowAccount, DataflowStop } from "../../dataflow/contract.js";
 import { accountFailure, chargeWork } from "../../dataflow/index.js";
 import type { BindingVector, MemberKey } from "../../ir-types/contract.js";
@@ -94,7 +95,7 @@ const rootKey = (root: RootSpec): string => {
 
 export const fieldSegment = (member: MemberSelection): SegmentSpec => {
   if (member.decision.location.kind !== "data") return frontier(null, "caller defect: a field projection does not select a data location");
-  return { kind: "field", key: encodeKey(memberStorageKey(member)), member };
+  return { kind: "field", key: encodeKey(memberStorageData(member.decision)), member };
 };
 
 export const segmentKey = (segment: SegmentSpec): string => {

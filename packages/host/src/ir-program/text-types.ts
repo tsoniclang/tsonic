@@ -23,16 +23,16 @@ export function textBodyInstance(value: BodyInstance): TextWork {
   });
 }
 
+export function textConstantReference(value: ConstantReference): TextWork {
+  return deferred(value, () => record("ConstantReference", [
+    field("initializer", textBodyInstance(value.initializer)), field("context", text(value.context)),
+  ]));
+}
+
 export function textExecution(value: Execution): TextWork {
   return deferred(value, () => record("Execution", [
     field("instance", textBodyInstance(value.instance)),
     field("provided", numeric(value.provided)),
-  ]));
-}
-
-export function textConstantReference(value: ConstantReference): TextWork {
-  return deferred(value, () => record("ConstantReference", [
-    field("initializer", textBodyInstance(value.initializer)), field("context", text(value.context)),
   ]));
 }
 
@@ -60,6 +60,11 @@ export function textConstValue(value: ConstValue): TextWork {
         return record(value.kind, [
       field("type", numericIdentity("t", value.type)),
       field("value", integer(value.value)),
+    ]);
+      case "floating":
+        return record(value.kind, [
+      field("type", numericIdentity("t", value.type)),
+      field("bits", integer(value.bits)),
     ]);
       case "string":
         return record(value.kind, [

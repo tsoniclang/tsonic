@@ -1,10 +1,24 @@
 import type { TyId, SigId, DefId, KeyData, SourceNodeRef, LocalRef } from "../ids/contract.js";
 import type { TextParseResult, Violation } from "../diag/contract.js";
-import type { ArtifactBindings, BodyInstance, ComponentSelector, ConstantReference, Execution, TypeTerm, Signature, SignatureInput, TypeTable, BindingVector, TypeParameterIdentity, TypeEvidence } from "./data.js";
+import type { ArtifactBindings, BodyInstance, ComponentSelector, ConstantReference, Execution, MemberStorageSelection, NativePrimitive, TypeTerm, Signature, SignatureInput, TypeTable, BindingVector, TypeParameterIdentity, TypeEvidence } from "./data.js";
 import type { TypeArena } from "./arena.js";
+import type { NativeFactsRule, NativeFactsSite, NativeFloatingFormat, PlatformDeclaration, SelectedNativeFacts } from "./native-facts-data.js";
 export type * from "./data.js";
+export type * from "./native-facts-data.js";
 
 export type TypeInterner = TypeArena;
+export type NativeFactsKey = (facts: SelectedNativeFacts) => string;
+export type NativeCarrierResult =
+  | { readonly kind: "primitive"; readonly type: TyId; readonly primitive: NativePrimitive }
+  | { readonly kind: "needs-selected-association"; readonly type: TyId }
+  | { readonly kind: "resource-stop" };
+export type NativeCarrierOf = (table: TypeTable, type: TyId,
+  typeOf: (type: TyId) => TypeTerm | null | undefined) => NativeCarrierResult;
+export type FloatingBitsFit = (bits: bigint, format: NativeFloatingFormat) => boolean;
+export type FloatingFormatWidth = (format: NativeFloatingFormat) => 16 | 32 | 64 | null;
+export type PlatformDeclarationKey = (declaration: PlatformDeclaration) => string;
+export type VerifyNativeFacts = (facts: SelectedNativeFacts) => readonly Violation<NativeFactsRule, NativeFactsSite>[];
+export type MemberStorageData = (selection: MemberStorageSelection) => KeyData;
 
 export interface TypeExpansionLimits {
   readonly maximumDepth: number;
@@ -64,6 +78,7 @@ export type InternType = (interner: TypeInterner, term: TypeTerm) => TyId;
 export type InternSignature = (interner: TypeInterner, signature: SignatureInput) => SigId;
 export type ReadType = (interner: TypeInterner, type: TyId) => TypeTerm;
 export type ReadSignature = (interner: TypeInterner, signature: SigId) => Signature;
+export type ViewTypes = (interner: TypeInterner) => TypeTable;
 export type TypeOf = (type: TyId) => TypeTerm;
 export type SignatureOf = (signature: SigId) => Signature;
 export interface TypePublication {

@@ -15,7 +15,7 @@ import { runCase } from "../host-cases/case.mjs";
 import { bindingTargetKey, declarationInstanceKey, relationalOwnerKey } from "./fixtures/verification-keys.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
-const sourceNames = ["index", "print", "parse", "verify-facts", "verify-relations", "verify-summary", "verify-metadata", "verify-call-graph"];
+const sourceNames = ["verify-observations", "index", "print", "parse", "verify-facts", "verify-relations", "verify-summary", "verify-metadata", "verify-call-graph"];
 const sourceFiles = ["contract", ...sourceNames].map(name => `packages/host/src/ir-facts/${name}.ts`);
 const hash = text => createHash("sha256").update(text).digest("hex");
 const sourceHashes = sourceFiles.map(path => [path, hash(readFileSync(resolve(repository, path)))]);
@@ -53,6 +53,8 @@ test("ir-facts: all thirteen actual emitted ports, full closed logic and fresh d
   await post("Profiler.startPreciseCoverage", { callCount: true, detailed: true });
   suite.after(async () => { await post("Profiler.stopPreciseCoverage"); inspector.disconnect(); });
   const product = await import("../../packages/host/dist/ir-facts/index.js");
+  const { observationCases } = await import("./fixtures/facts-observations.mjs");
+  await observationCases(suite);
   const ids = await import("../../packages/host/dist/ids/index.js");
   const packageId = ids.encodePackageId("facts");
   const moduleId = ids.encodeModuleId({ package: packageId, path: "main.ts" });
@@ -66,7 +68,7 @@ test("ir-facts: all thirteen actual emitted ports, full closed logic and fresh d
   const targetKey = value => ids.encodeKey(bindingTargetKey(value));
   const callbackKey = (value, parameter) => ids.encodeKey([declarationInstanceKey(value), parameter]);
   const summaryOwner = selected => ({ kind: "summary", definition: selected.definition, bindings: selected.bindings });
-  const nodeSite = node => ({ kind: "node", at: { body, node } });
+  const nodeSite = node => ({ kind: "node", at: { kind: "body", value: { body, node } } });
   const bodySite = () => ({ kind: "body", instance: instance() });
   const sourceOrigin = (start = 0) => ({ module: moduleId, start, length: 1, derived: [] });
   const header = (id, parent = 0) => ({ id, origin: sourceOrigin(id), parent: id === 0 ? null : parent,
@@ -89,7 +91,7 @@ test("ir-facts: all thirteen actual emitted ports, full closed logic and fresh d
     refinements: { refinements: [], integers: [], countedLoops: [] },
     origins: { points: [], reads: [], subjects: [], writes: [], escapes: [], invocations: [], callbacks: [], activations: [], frontiers: [], constructions: [], instanceRegions: [] },
     suspension: { suspensions: [] }, errorStorage: { errors: [] }, pointerBacking: { pointers: [] },
-    observations: [], rawLocations: [], fieldBindings: [], recordBindings: [], memoryBindings: [], selectedMemoryDeclarations: [], closedArrays: [] });
+    rawLocations: [], fieldBindings: [], recordBindings: [], memoryBindings: [], selectedMemoryDeclarations: [], closedArrays: [] });
   const emptyFacts = () => ({ ...bodyFacts(), arena: { projections: [], producers: [], contexts: [], boundProducers: [], origins: [], boundaries: [] } });
   const tir = () => ({ body, owner: definitions.f, bindings: parametric(), lexicalBindings: emptyBindings(), dependence: "parametric", signature: 0,
     completion: 1, yielded: null, sent: null, params: [], locals: [],
@@ -167,7 +169,7 @@ test("ir-facts: all thirteen actual emitted ports, full closed logic and fresh d
   const bindingsText = "BindingVector(classBindings=[], methodBindings=[], capturedBindings=[], selfBindings=[])";
   const nodeText = id => `NodeRef(body=body:"${body}", node=n:${id})`;
   const keyText = name => `MetadataKey(definition=def:"${definitions[name]}", bindings=parametric())`;
-  const emptyFactsText = `BodyFacts(instance=${instanceText}, arena=RelationalArena(projections=[], producers=[], contexts=[], boundProducers=[], origins=[], boundaries=[]), liveness=LivenessFacts(stores=[], locals=[], bindings=[], captures=[]), initialization=InitializationFacts(reads=[]), refinements=RefinementFacts(refinements=[], integers=[], countedLoops=[]), origins=OriginFacts(points=[], reads=[], subjects=[], writes=[], escapes=[], invocations=[], callbacks=[], activations=[], frontiers=[], constructions=[], instanceRegions=[]), suspension=SuspensionFacts(suspensions=[]), errorStorage=ErrorStorageFacts(errors=[]), pointerBacking=PointerBackingFacts(pointers=[]), observations=[], rawLocations=[], fieldBindings=[], recordBindings=[], memoryBindings=[], selectedMemoryDeclarations=[], closedArrays=[])\n`;
+  const emptyFactsText = `BodyFacts(instance=${instanceText}, arena=RelationalArena(projections=[], producers=[], contexts=[], boundProducers=[], origins=[], boundaries=[]), liveness=LivenessFacts(stores=[], locals=[], bindings=[], captures=[]), initialization=InitializationFacts(reads=[]), refinements=RefinementFacts(refinements=[], integers=[], countedLoops=[]), origins=OriginFacts(points=[], reads=[], subjects=[], writes=[], escapes=[], invocations=[], callbacks=[], activations=[], frontiers=[], constructions=[], instanceRegions=[]), suspension=SuspensionFacts(suspensions=[]), errorStorage=ErrorStorageFacts(errors=[]), pointerBacking=PointerBackingFacts(pointers=[]), rawLocations=[], fieldBindings=[], recordBindings=[], memoryBindings=[], selectedMemoryDeclarations=[], closedArrays=[])\n`;
   const emptySummary = () => ({ ...summary(), arena: { projections: [], producers: [], contexts: [], boundProducers: [],
     origins: [{ id: 0, producers: [], includesAbsence: false, kind: "complete" }], boundaries: [] }, result: 0 });
   const emptySummaryText = `Summary(key=SummaryKey(definition=def:"${definitions.f}", bindings=parametric()), signature=sig:0, arena=RelationalArena(projections=[], producers=[], contexts=[], boundProducers=[], origins=${arrayText(["complete(id=origins:0, producers=[], includesAbsence=false)"])}, boundaries=[]), parameters=[], captures=[], result=origins:0, thrown=origins:0, writes=[], retention=[], callbacks=[], invocationOnlyParameters=[], suspends=false, bindingDependent=false)\n`;
@@ -194,8 +196,8 @@ test("ir-facts: all thirteen actual emitted ports, full closed logic and fresh d
       abiText(64).replace(`item(value=ItemNodeRef(owner=def:"${definitions.abi64}", node=n:0))`, `body(value=${nodeText(1)})`), product.printMetadata, product.parseMetadata);
   }
   await textCase("one real call component", graph(), graphText, product.printCallGraph, product.parseCallGraph);
-  await suite.test("every exported value is exactly the thirteen approved own-contract ports", () => {
-    assert.deepEqual(Object.keys(product).sort(), ["parseCallGraph", "parseFacts", "parseMetadata", "parseSummary", "printCallGraph", "printFacts", "printMetadata", "printSummary", "verifyCallGraph", "verifyFacts", "verifyLiveness", "verifyMetadata", "verifySummary"]);
+  await suite.test("every exported value is exactly the sixteen current own-contract ports", () => {
+    assert.deepEqual(Object.keys(product).sort(), ["parseObservations", "printObservations", "verifyObservations", "parseCallGraph", "parseFacts", "parseMetadata", "parseSummary", "printCallGraph", "printFacts", "printMetadata", "printSummary", "verifyCallGraph", "verifyFacts", "verifyLiveness", "verifyMetadata", "verifySummary"].sort());
   });
   await suite.test("all four genuinely supplied valid domains return the complete empty violation vector", () => {
     const inputs = setup();
@@ -686,7 +688,7 @@ test("ir-facts: all thirteen actual emitted ports, full closed logic and fresh d
   const basicCases = [
     ["body-instance-exact", (value, supplied) => { supplied.mir.bindings = { kind: "instantiated", bindings: emptyBindings() }; }, bodySite(),
       "Facts, TIR and MIR retain one exact body and complete binding environment."],
-    ["cross-owner-qualified", value => { value.arena.producers[0].at.node.body = otherBody; }, { kind: "node", at: { body: otherBody, node: 1 } },
+    ["cross-owner-qualified", value => { value.arena.producers[0].at.node.body = otherBody; }, { kind: "node", at: { kind: "body", value: { body: otherBody, node: 1 } } },
       "A relational occurrence must belong to the same actual body or summary owner."],
     ["relational-site-resolves", value => { value.arena.producers[0].at.node.node = 99; }, nodeSite(99),
       "A relational site must retain an existing qualified source occurrence."],
@@ -812,8 +814,6 @@ test("ir-facts: all thirteen actual emitted ports, full closed logic and fresh d
     ["constructions-order", ["origins", "constructions"], node => ({ node, root: nodeRef(node), allocation: nodeRef(node), implementation: null, body: null, regions: [] })],
     ["errors-order", ["errorStorage", "errors"], node => ({ node, origins: 1, writes: [], retention: [], invalidations: [] })],
     ["pointers-order", ["pointerBacking", "pointers"], node => ({ node, returned: false, origins: 1, producers: [] })],
-    ["observations-order", ["observations"], node => ({ node, operation: "size", operand: nodeRef(node), layout: { metadata: { definition: definitions.layout, bindings: parametric() }, layout: 0 },
-      field: null, result: 0, value: 8n, context: 0, bindings: emptyBindings() })],
     ["raw-locations-order", ["rawLocations"], node => ({ node, operation: "to-raw", pointee: 0, layout: { metadata: { definition: definitions.layout, bindings: parametric() }, layout: 0 }, context: 0, bindings: emptyBindings() })],
     ["record-bindings-order", ["recordBindings"], node => ({ node, result: 0, layoutExpression: nodeRef(node), layout: { metadata: { definition: definitions.layout, bindings: parametric() }, layout: 0 }, context: 0, bindings: emptyBindings(), fields: [] })],
     ["memory-bindings-order", ["memoryBindings"], node => ({ node, kind: "bound", record: 3 })],
@@ -821,7 +821,7 @@ test("ir-facts: all thirteen actual emitted ports, full closed logic and fresh d
   ];
   for (const [rule, path, row] of simpleOrders) await factOpposite(rule, (input, supplied) => {
     put(input, path, [row(1), row(2)]);
-    if (["observations-order", "raw-locations-order", "record-bindings-order"].includes(rule)) supplied.scopeRows.body.push(emptyScope(), emptyScope());
+    if (["raw-locations-order", "record-bindings-order"].includes(rule)) supplied.scopeRows.body.push(emptyScope(), emptyScope());
     if (rule === "callbacks-order" || rule === "activations-order") supplied.canonicalArenas.set(ownerKey({ kind: "summary", definition: definitions.callee, bindings: parametric() }), { ...arena(), producers: [{ id: 0, path: null, kind: "parameter", index: 0 }] });
     if (rule === "memory-bindings-order") input.recordBindings = [{ node: 3, result: 0, layoutExpression: nodeRef(3),
       layout: { metadata: { definition: definitions.layout, bindings: parametric() }, layout: 0 }, context: 0, bindings: emptyBindings(), fields: [] }];
@@ -1016,14 +1016,6 @@ test("ir-facts: all thirteen actual emitted ports, full closed logic and fresh d
       input => { input.origins.instanceRegions.push(clone(input.origins.instanceRegions[0])); }, nodeSite(1), orderMessage],
     ["selected-declarations-order", input => { input.selectedMemoryDeclarations = [definitions.f, definitions.other]; },
       input => { input.selectedMemoryDeclarations.reverse(); }, bodySite(), orderMessage],
-    ["type-resolves", input => { input.observations = [{ node: 1, operation: "size", operand: nodeRef(1), layout: { metadata: { definition: definitions.layout, bindings: parametric() }, layout: 0 }, field: null, result: 0, value: 8n, context: 0, bindings: emptyBindings() }]; },
-      input => { input.observations[0].result = 99; }, nodeSite(1), "A fact type resolves in the actual supplied type table."],
-    ["metadata-reference-resolves", input => { input.observations = [{ node: 1, operation: "size", operand: nodeRef(1), layout: { metadata: { definition: definitions.layout, bindings: parametric() }, layout: 0 }, field: null, result: 0, value: 8n, context: 0, bindings: emptyBindings() }]; },
-      input => { input.observations[0].layout.layout = 99; }, nodeSite(1), "A layout reference retains its actual metadata declaration, complete binding environment and local layout ID."],
-    ["observation-exact-value", input => { input.observations = [{ node: 1, operation: "stride", operand: nodeRef(1), layout: { metadata: { definition: definitions.layout, bindings: parametric() }, layout: 0 }, field: null, result: 0, value: 8n, context: 0, bindings: emptyBindings() }]; },
-      input => { input.observations[0].value = 9n; }, nodeSite(1), "The observation retains the exact authored bigint size, alignment, stride or field offset."],
-    ["observation-field-exact", input => { input.observations = [{ node: 1, operation: "alignment", operand: nodeRef(1), layout: { metadata: { definition: definitions.layout, bindings: parametric() }, layout: 0 }, field: null, result: 0, value: 8n, context: 0, bindings: emptyBindings() }]; },
-      input => { input.observations[0].operation = "field-offset"; }, nodeSite(1), "Only a field-offset observation names the actual selected field metadata."],
     ["pointer-backing-family-exact", input => { input.pointerBacking.pointers = [{ node: 1, returned: false, origins: 1, producers: [{ producer: 0, operation: { family: "typed-location", operation: "allocate", at: nodeRef(1) } }] }]; },
       input => { input.pointerBacking.pointers[0].origins = 0; }, nodeSite(1), "Each pointer backing retains its own correlated producer and exact typed-location or raw-memory operation."],
     ["error-invalidations-order", input => { input.errorStorage.errors = [{ node: 1, origins: 1, writes: [], retention: [], invalidations: [{ at: nodeRef(2), owner: 1, kind: "preserved" }] }]; },
@@ -1035,7 +1027,6 @@ test("ir-facts: all thirteen actual emitted ports, full closed logic and fresh d
   ];
   for (const [rule, prepare, amend, site, message] of additionalFacts) await factOpposite(rule, (input, supplied) => {
     prepare(input, supplied);
-    if (["type-resolves", "metadata-reference-resolves", "observation-exact-value", "observation-field-exact"].includes(rule)) supplied.scopeRows.body.push(emptyScope());
   }, amend, [violation(rule, site, message)]);
   await factOpposite("instance regions retain their actual lexical declaration inventory", input => {
     input.origins.instanceRegions = [{ owner: definitions.f, node: nodeRef(1), context: 0 }];
@@ -2110,8 +2101,10 @@ test("ir-facts: all thirteen actual emitted ports, full closed logic and fresh d
 
   const member = (primary = definitions.field) => ({ decision: { key: { kind: "text", value: "value" }, origins: [{ kind: "declared", declaration: primary }],
     selectedDeclarations: [primary], primary, read: 0, write: 0, getter: null, setter: null, bindings: emptyBindings(), location: { kind: "data", check: { kind: "none" }, receiver: "in-place" } }, getter: null, setter: null });
+  const physicalMember = selected => ({ key: selected.key, origins: selected.origins, selectedDeclarations: selected.selectedDeclarations,
+    primary: selected.primary, bindings: selected.bindings });
   const memoryField = (id = 0, primary = definitions.field) => ({ id, occurrence: itemRef(primary), owner: 3,
-    selector: itemRef(primary), selection: itemRef(primary), member: member(primary), primary, selectedDeclarations: [primary],
+    selector: itemRef(primary), selection: itemRef(primary), member: physicalMember(member(primary).decision),
     value: 0, layout: 0, byteOffset: 0n, byteAlignment: 8n });
   const withField = (input, supplied) => {
     supplied.scopeRows.metadata = [emptyScope()];
@@ -2207,8 +2200,9 @@ test("ir-facts: all thirteen actual emitted ports, full closed logic and fresh d
       supplied.scopeRows.body.push(emptyScope());
     }, input => amend(input.closedArrays[0].elements[0]), [violation(rule, nodeSite(1), message)]);
     await metadataOpposite(`physical ${name} retains all selected-member findings`, (input, supplied) => {
-      withField(input, supplied); prepare(input.fields[0].member);
-    }, input => amend(input.fields[0].member), [
+      withField(input, supplied); const selected = { decision: input.fields[0].member }; prepare(selected);
+      input.fields[0].member = physicalMember(selected.decision);
+    }, input => amend({ decision: input.fields[0].member }), [
       violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence."),
       violation("member-correspondence-exact", metadataSite(), message),
     ]);
@@ -2286,9 +2280,9 @@ test("ir-facts: all thirteen actual emitted ports, full closed logic and fresh d
   [violation("bindings-complete", nodeSite(1), bindingMessage)]);
   await metadataOpposite("canonical physical member scope is not its enclosing layout", (input, supplied) => {
     withField(input, supplied); const { scope, selected } = scopedMember();
-    input.fields[0].primary = null; input.fields[0].selectedDeclarations = []; input.fields[0].member = selected;
+    input.fields[0].member = physicalMember(selected.decision);
     supplied.scopeRows.metadata = [scope];
-  }, input => { input.fields[0].member.decision.bindings.classBindings = []; }, [
+  }, input => { input.fields[0].member.bindings.classBindings = []; }, [
     violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence."),
     violation("bindings-complete", metadataSite(), bindingMessage),
   ]);
@@ -2366,11 +2360,10 @@ test("ir-facts: all thirteen actual emitted ports, full closed logic and fresh d
     const record = metadata(); withField(record, supplied); record.key.bindings = { kind: "instantiated", bindings: emptyBindings() };
     supplied.metadataRows.set(definitions.layout, record);
     const layout = { metadata: record.key, layout: 1 }; const field = { metadata: record.key, field: 0 };
-    input.observations = [{ node: 1, operation: "size", operand: nodeRef(1), layout, field: null, result: 0, value: 16n, context: 0, bindings: emptyBindings() }];
     input.rawLocations = [{ node: 2, operation: "to-raw", pointee: 0, layout: { metadata: record.key, layout: 0 }, context: 0, bindings: emptyBindings() }];
     input.fieldBindings = [{ node: 3, result: 0, owner: 3, fieldExpression: nodeRef(1), field, pointer: nodeRef(2), pointee: 0, context: 0, bindings: emptyBindings() }];
     input.recordBindings = [{ node: 4, result: 0, layoutExpression: nodeRef(1), layout, context: 0, bindings: emptyBindings(), fields: [{ expression: nodeRef(2), binding: 3 }] }];
-    supplied.scopeRows.body = Array.from({ length: 10 }, () => emptyScope());
+    supplied.scopeRows.body = Array.from({ length: 8 }, () => emptyScope());
   };
   await factOpposite("every inline reference artifact counts without traversing its foreign metadata record", nestedMetadataReferences,
     (input, supplied) => { supplyScopes(supplied, { kind: "body", instance: input.instance }, [...supplied.scopeRows.body, emptyScope()]); },
@@ -2378,7 +2371,27 @@ test("ir-facts: all thirteen actual emitted ports, full closed logic and fresh d
   await factOpposite("a nested reference artifact keeps its own declared position", nestedMetadataReferences,
     (input, supplied) => { const scopes = clone(supplied.scopeRows.body); scopes[2] = scopedMember().scope;
       supplyScopes(supplied, { kind: "body", instance: input.instance }, scopes); },
-    [violation("bindings-complete", nodeSite(1), bindingMessage)]);
+    [violation("bindings-complete", nodeSite(2), bindingMessage)]);
+  for (const [label, amend] of [
+    ["missing record", (input, supplied) => { supplied.metadataRows.set(definitions.layout, null); }],
+    ["ABI record", (input, supplied) => { supplied.metadataRows.set(definitions.layout, abi()); }],
+    ["wrong dense identity", (input, supplied) => {
+      const record = supplied.metadataRows.get(definitions.layout);
+      record.layouts[0].id = 99; record.layouts[1].id = 99; record.fields[0].id = 99;
+    }],
+    ["wrong definition", (input, supplied) => { supplied.metadataRows.get(definitions.layout).key.definition = definitions.other; }],
+    ["wrong bindings", (input, supplied) => { supplied.metadataRows.get(definitions.layout).key.bindings = parametric(); }],
+  ]) await factOpposite(`raw/field/record references reject ${label}`, nestedMetadataReferences, amend, [
+    violation("metadata-reference-resolves", nodeSite(2), "A layout reference retains its actual metadata declaration, complete binding environment and local layout ID."),
+    violation("metadata-reference-resolves", nodeSite(3), "A field reference retains its actual metadata declaration, complete binding environment and local field ID."),
+    violation("metadata-reference-resolves", nodeSite(4), "A layout reference retains its actual metadata declaration, complete binding environment and local layout ID."),
+  ]);
+  for (const [field, node, message] of [
+    ["rawLocations", 2, "A layout reference retains its actual metadata declaration, complete binding environment and local layout ID."],
+    ["fieldBindings", 3, "A field reference retains its actual metadata declaration, complete binding environment and local field ID."],
+  ]) await factOpposite(`${field} rejects an absent local metadata ID`, nestedMetadataReferences,
+    input => { if (field === "rawLocations") input.rawLocations[0].layout.layout = 99; else input.fieldBindings[0].field.field = 99; },
+    [violation("metadata-reference-resolves", nodeSite(node), message)]);
   await factOpposite("callback activation and construction artifacts retain every nested occurrence", (input, supplied) => {
     actualDependentActivation(input, supplied);
     const alternative = input.origins.invocations[0].alternatives[0]; const argument = alternative.arguments[0];
@@ -2408,10 +2421,10 @@ test("ir-facts: all thirteen actual emitted ports, full closed logic and fresh d
     ["layout-stride-exact", unchanged, input => { input.layouts[0].stride = 16n; }, "Layout stride must equal its finalized authored value."],
     ["field-offset-exact", withField, input => { input.fields[0].byteOffset = 8n; }, "A field offset must equal its finalized authored value."],
     ["field-alignment-valid", withField, input => { input.fields[0].byteAlignment = 4n; }, "A field alignment must equal its finalized authored value."],
-    ["selected-declarations-order", (input, supplied) => { withField(input, supplied); input.fields[0].selectedDeclarations.push(definitions.other);
-      input.fields[0].member.decision.selectedDeclarations.push(definitions.other); }, input => { input.fields[0].selectedDeclarations.reverse(); input.fields[0].member.decision.selectedDeclarations.reverse(); },
+    ["selected-declarations-order", (input, supplied) => { withField(input, supplied);
+      input.fields[0].member.selectedDeclarations.push(definitions.other); }, input => { input.fields[0].member.selectedDeclarations.reverse(); },
       "Selected field declarations must be distinct and ordered by identity."],
-    ["member-correspondence-exact", withField, input => { input.fields[0].primary = definitions.other; }, "A field retains its complete selected member group, primary and value correspondence."],
+    ["member-correspondence-exact", withField, input => { input.fields[0].member.primary = definitions.other; }, "A field retains its complete selected member group, primary and value correspondence."],
     ["data-layout-reference-resolves", unchanged, (input, supplied) => { supplied.metadataRows.set(definitions.abi64, null); }, "Every layout must name an actual finalized data-layout declaration."],
     ["array-extent-exact", withArray, input => { input.layouts[1].runtimeBase = "number"; }, "An array retains its exact fixed extent, runtime base and selected element type."],
     ["layout-geometry-consistent", (input, supplied) => { withField(input, supplied); input.fields.push(memoryField(1, definitions.other)); supplied.scopeRows.metadata.push(emptyScope()); },
@@ -2425,22 +2438,17 @@ test("ir-facts: all thirteen actual emitted ports, full closed logic and fresh d
         ? [violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence.")] : [])]);
   const mappedField = (input, supplied) => {
     withField(input, supplied);
-    const field = input.fields[0]; field.primary = null; field.selectedDeclarations = [];
-    field.member.decision.primary = null; field.member.decision.selectedDeclarations = [];
-    field.member.decision.origins = [{ kind: "mapped", owner: itemRef(definitions.layout), key: { kind: "text", value: "value" } }];
+    const field = input.fields[0];
+    field.member.primary = null; field.member.selectedDeclarations = [];
+    field.member.origins = [{ kind: "mapped", owner: itemRef(definitions.layout), key: { kind: "text", value: "value" } }];
   };
   await metadataOpposite("a genuine mapped field retains its known empty declaration group", mappedField,
-    input => { input.fields[0].member.decision.read = 1; },
-    [violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence.")]);
+    input => { input.fields[0].member.bindings.classBindings = [{ kind: "rigid", parameter: { owner: definitions.layout, index: 0 } }]; },
+    [violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence."),
+      violation("bindings-complete", metadataSite(), bindingMessage)]);
   await metadataOpposite("self-consistent field data cannot replace the finalized captured selection", withField,
-    input => { input.fields[0].member.decision.origins = [{ kind: "class-prototype", owner: definitions.other }]; },
+    input => { input.fields[0].member.origins = [{ kind: "class-prototype", owner: definitions.other }]; },
     [violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence.")]);
-  for (const location of [{ kind: "data", check: { kind: "required", failure: "unwind" }, receiver: "in-place" },
-    { kind: "data", check: { kind: "required", failure: "abort" }, receiver: "in-place" },
-    { kind: "data", check: { kind: "none" }, receiver: "by-reference" }])
-    await metadataOpposite(`a field's selected access location is part of the captured selection: ${location.check.kind} ${location.check.failure ?? ""} ${location.receiver}`, withField,
-      input => { input.fields[0].member.decision.location = location; },
-      [violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence.")]);
   await metadataOpposite("finalized physical fields cannot disappear", withField, input => { input.layouts[1].fields = []; },
     [violation("layout-fields-resolve", metadataSite(), "A value layout retains its complete finalized physical field vector in authored order.")]);
   await metadataOpposite("finalized array cannot be relabelled as an opaque value", withArray, input => {
@@ -2562,17 +2570,12 @@ test("ir-facts: all thirteen actual emitted ports, full closed logic and fresh d
       violation("field-alignment-valid", metadataSite(), "A field offset must preserve its selected positive power-of-two alignment."),
       violation("field-alignment-valid", metadataSite(), "A field alignment must equal its finalized authored value."),
     ]);
-  await metadataOpposite("selected member type failures retain the metadata result domain", withField,
-    input => { input.fields[0].member.decision.read = 99; }, [
+  await metadataOpposite("physical member bindings retain their canonical type authority", withField,
+    input => { input.fields[0].member.bindings.classBindings = [{ kind: "bound", parameter: { owner: definitions.field, index: 0 }, type: 99 }]; }, [
       violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence."),
-      violation("type-resolves", metadataSite(), "A selected member type resolves in the actual supplied type table."),
+      violation("type-resolves", metadataSite(), "Every bound type resolves in the actual supplied canonical type table."),
+      violation("bindings-complete", metadataSite(), bindingMessage),
     ]);
-  await metadataOpposite("selected member signature failures retain the metadata result domain", (input, supplied) => {
-    withField(input, supplied); input.fields[0].member.decision.getter = { declaration: definitions.f, role: "api-signature", signature: 0, body: null }; input.fields[0].member.decision.location = { kind: "accessor" };
-  }, input => { input.fields[0].member.decision.getter.signature = 99; }, [
-    violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence."),
-    violation("member-correspondence-exact", metadataSite(), "A selected member endpoint resolves in the actual supplied signature table."),
-  ]);
   await metadataOpposite("bindings-complete", (input, supplied) => {
     supplied.context.bindingScopeOf = () => ({ ...emptyScope(), classParameters: [{ owner: definitions.layout, index: 0 }] });
   }, input => { input.key.bindings = { kind: "instantiated", bindings: emptyBindings() }; }, [
@@ -2844,9 +2847,6 @@ test("ir-facts: all thirteen actual emitted ports, full closed logic and fresh d
   const fieldReference = { metadata: { definition: definitions.layout, bindings: parametric() }, field: 0 };
   const layoutReferenceText = `MetadataLayoutRef(metadata=${keyText("layout")}, layout=layout:0)`;
   const fieldReferenceText = `MetadataFieldRef(metadata=${keyText("layout")}, field=field:0)`;
-  for (const operation of ["size", "alignment", "stride", "field-offset"]) await factTransport(`observation transport ${operation}`, ["observations"], "observations=[]",
-    { node: 1, operation, operand: nodeRef(2), layout: layoutReference, field: operation === "field-offset" ? fieldReference : null, result: 0, value: 9007199254740993n, context: 0, bindings: emptyBindings() },
-    `ObservationFact(node=n:1, operation="${operation}", operand=${nodeText(2)}, layout=${layoutReferenceText}, field=${operation === "field-offset" ? fieldReferenceText : "null"}, result=t:0, value=9007199254740993n, context=context:0, bindings=${bindingsText})`);
   for (const operation of ["to-raw", "reinterpret"]) await factTransport(`raw location transport ${operation}`, ["rawLocations"], "rawLocations=[]",
     { node: 1, operation, pointee: 0, layout: layoutReference, context: 0, bindings: emptyBindings() },
     `RawLocationFact(node=n:1, operation="${operation}", pointee=t:0, layout=${layoutReferenceText}, context=context:0, bindings=${bindingsText})`);
@@ -2932,14 +2932,26 @@ test("ir-facts: all thirteen actual emitted ports, full closed logic and fresh d
   const metadataOccurrence = `item(value=ItemNodeRef(owner=def:"${definitions.layout}", node=n:0))`;
   const baseLayoutText = `value(id=layout:0, occurrence=${metadataOccurrence}, source=t:0, dataLayout=def:"${definitions.abi64}", byteSize=8n, byteAlignment=8n, stride=8n, fields=[])`;
   const physicalOccurrence = `item(value=ItemNodeRef(owner=def:"${definitions.field}", node=n:0))`;
-  const physicalMemberText = selectionText('text(value="value")', [`declared(declaration=def:"${definitions.field}")`]);
-  const physicalFieldText = `MemoryField(id=field:0, occurrence=${physicalOccurrence}, owner=t:3, selector=${physicalOccurrence}, selection=${physicalOccurrence}, member=${physicalMemberText}, primary=def:"${definitions.field}", selectedDeclarations=${arrayText([`def:"${definitions.field}"`])}, value=t:0, layout=layout:0, byteOffset=0n, byteAlignment=8n)`;
+  const physicalMemberText = `MemberStorageSelection(key=text(value="value"), origins=${arrayText([`declared(declaration=def:"${definitions.field}")`])}, selectedDeclarations=${arrayText([`def:"${definitions.field}"`])}, primary=def:"${definitions.field}", bindings=${bindingsText})`;
+  const physicalFieldText = `MemoryField(id=field:0, occurrence=${physicalOccurrence}, owner=t:3, selector=${physicalOccurrence}, selection=${physicalOccurrence}, member=${physicalMemberText}, value=t:0, layout=layout:0, byteOffset=0n, byteAlignment=8n)`;
   for (const kind of ["memory-layout", "memory-field"]) {
     const input = metadata(); withField(input, setup()); input.kind = kind; if (kind === "memory-field") input.root = 0;
     const expected = `${kind}(key=${keyText("layout")}, root=${kind === "memory-layout" ? "layout:1" : "field:0"}, layouts=${arrayText([baseLayoutText,
       `value(id=layout:1, occurrence=${metadataOccurrence}, source=t:3, dataLayout=def:"${definitions.abi64}", byteSize=16n, byteAlignment=8n, stride=16n, fields=${arrayText(["field:0"])})`,
     ])}, fields=${arrayText([physicalFieldText])})\n`;
     await textCase(`complete physical metadata transport ${kind}`, input, expected, product.printMetadata, product.parseMetadata);
+    await suite.test(`physical ${kind} rejects runtime member decisions and duplicated field authority`, () => {
+      const late = selectionText('text(value="value")', [`declared(declaration=def:"${definitions.field}")`]);
+      equal(product.parseMetadata(expected.replace(physicalMemberText, late)).kind, "invalid-text", "late runtime selection is not early geometry");
+      for (const extra of ["primary=null", "selectedDeclarations=[]"]) {
+        equal(product.parseMetadata(expected.replace("value=t:0, layout=layout:0", `${extra}, value=t:0, layout=layout:0`)).kind,
+          "invalid-text", `removed duplicated ${extra} is rejected`);
+      }
+      for (const extra of ["read=t:0", "write=t:0", "location=accessor()", "getter=null", "setter=null"]) {
+        const changed = expected.replace(physicalMemberText, physicalMemberText.slice(0, -1) + `, ${extra})`);
+        equal(product.parseMetadata(changed).kind, "invalid-text", `runtime ${extra} does not belong to physical storage`);
+      }
+    });
   }
   for (const width of [32, 64]) await suite.test(`actual selected ${width}-bit metadata and exact array extents`, () => {
     const input = metadata(); const supplied = setup();
@@ -2974,8 +2986,8 @@ test("ir-facts: all thirteen actual emitted ports, full closed logic and fresh d
     supplied.context.nominalOf = definition => ({ kind: "declared", facets: definition === definitions.other ? ["instance"] : ["instance", "value"] });
     input.layouts[0].source = 4; input.layouts[0].byteSize = 0n; input.layouts[0].stride = 0n;
     input.layouts[1].byteSize = 0n; input.layouts[1].stride = 0n;
-    input.fields[0].value = 4; input.fields[0].member.decision.read = 4; input.fields[0].member.decision.write = 4;
-    const second = memoryField(1, definitions.capture); second.value = 4; second.member.decision.read = 4; second.member.decision.write = 4;
+    input.fields[0].value = 4;
+    const second = memoryField(1, definitions.capture); second.value = 4;
     input.fields.push(second); input.layouts[1].fields.push(1); supplied.metadataRows.set(definitions.layout, clone(input));
     supplyScopes(supplied, { kind: "metadata", metadata: input.key }, [emptyScope(), emptyScope()]);
     equal(product.verifyMetadata(input, supplied.context), [], "full zero-sized geometry vector");
@@ -3066,7 +3078,7 @@ test("ir-facts: all thirteen actual emitted ports, full closed logic and fresh d
     ["components-order", directedGraph, input => { input.components.reverse(); }, [{ rule: "components-order", site: componentSite(componentId("f")), message: "Components must be distinct and ordered by identity." }]],
     ["definition-resolves", graph, (input, supplied) => { supplied.context.definitionExists = () => false; }, [{ rule: "definition-resolves", site: summarySite(), message: "The graph definition must exist in the supplied definition inventory." }]],
     ["call-site-resolves", directedGraph, input => { input.edges[0].at.node = 99; }, [{ rule: "call-site-resolves", site: nodeSite(99), message: "A call edge must retain an existing source occurrence." }]],
-    ["cross-owner-qualified", directedGraph, input => { input.edges[0].at.body = otherBody; }, [{ rule: "cross-owner-qualified", site: { kind: "node", at: { body: otherBody, node: 1 } }, message: "The call occurrence must belong to its actual caller definition." }]],
+    ["cross-owner-qualified", directedGraph, input => { input.edges[0].at.body = otherBody; }, [{ rule: "cross-owner-qualified", site: { kind: "node", at: { kind: "body", value: { body: otherBody, node: 1 } } }, message: "The call occurrence must belong to its actual caller definition." }]],
     ["component-identity", directedGraph, input => { input.components[0].id = componentId("parameter"); }, [
       { rule: "component-identity", site: componentSite(componentId("parameter")), message: "The component identity must encode exactly its canonical member vector." },
       { rule: "components-order", site: componentSite(componentId("other")), message: "Components must be distinct and ordered by identity." },
@@ -3285,10 +3297,6 @@ test("ir-facts: all thirteen actual emitted ports, full closed logic and fresh d
     (input, supplied) => { delete supplied.types.terms[field === "owner" ? 3 : 0]; }, [
       violation("type-resolves", metadataSite(), "A layout source type must exist in the supplied canonical type table."),
       violation("type-resolves", metadataSite(), "A field owner and value must resolve in the supplied canonical type table."),
-      ...(field === "value" ? [
-        violation("type-resolves", metadataSite(), "A selected member type resolves in the actual supplied type table."),
-        violation("type-resolves", metadataSite(), "A selected member type resolves in the actual supplied type table."),
-      ] : []),
     ]);
   for (const mode of ["missing", "wrong-id", "negative-zero"]) {
     await factOpposite(`a foreign formal requires its actual ${mode} producer row`, invocationFixture, (input, supplied) => {
@@ -3639,7 +3647,7 @@ test("ir-facts: all thirteen actual emitted ports, full closed logic and fresh d
   await suite.test("original raw body ordering preserves independently qualified ownership findings", () => {
     const supplied = setup(); const input = graph();
     input.edges = [edge("f", "f"), { ...edge("f", "f"), at: { body: otherBody, node: 1 } }];
-    const ownership = violation("cross-owner-qualified", { kind: "node", at: { body: otherBody, node: 1 } },
+    const ownership = violation("cross-owner-qualified", { kind: "node", at: { kind: "body", value: { body: otherBody, node: 1 } } },
       "The call occurrence must belong to its actual caller definition.");
     equal(product.verifyCallGraph(input, supplied.context), [ownership], "complete ascending-body ownership vector");
     input.edges.reverse();
@@ -4021,10 +4029,9 @@ test("ir-facts: all thirteen actual emitted ports, full closed logic and fresh d
     equal(product.verifyFacts(input, supplied.mir, supplied.context), [violation("bindings-complete", { kind: "body", instance: input.instance }, bindingMessage)],
       "complete independently declared reversed self-owner scope refusal");
   });
-  for (const kind of ["argument", "default", "rest"]) await metadataOpposite(`original raw canonical accessor ${kind} mapping`, (input, supplied) => {
-    withField(input, supplied);
-    const facts = bodyFacts(); accessorSelection(facts, supplied);
-    const selected = facts.arena.projections[2].projection.member;
+  for (const kind of ["argument", "default", "rest"]) await factOpposite(`canonical accessor ${kind} mapping remains a late Facts selection`, (input, supplied) => {
+    accessorSelection(input, supplied);
+    const selected = input.arena.projections[2].projection.member;
     const formal = supplied.types.signatures[1].parameters[0];
     if (kind === "default") {
       formal.kind = "default";
@@ -4038,41 +4045,13 @@ test("ir-facts: all thirteen actual emitted ports, full closed logic and fresh d
       formal.kind = "required";
       selected.getter.decision.parameters = [{ kind, parameter: 0, argument: 0, component: null, passing: "by-value" }];
     }
-    input.fields[0].member = selected;
-    supplied.scopeRows.metadata = [emptyScope(), emptyScope(), emptyScope()];
-  }, input => { input.fields[0].member.getter.decision.candidate = 1; },
-  [violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence.")]);
+  }, input => { input.arena.projections[2].projection.member.getter.decision.result = 99; },
+  [violation("type-resolves", arenaSite("projection", "projection", 2), "A selected member type resolves in the actual supplied type table.")]);
   const physicalRecord = supplied => {
     const record = metadata(); withField(record, supplied);
     supplied.metadataRows.set(definitions.layout, clone(record));
     return record;
   };
-  const fieldObservation = (input, supplied, instantiated = false) => {
-    const record = physicalRecord(supplied);
-    if (instantiated) { record.key.bindings = { kind: "instantiated", bindings: emptyBindings() }; supplied.metadataRows.set(definitions.layout, clone(record)); }
-    const key = clone(record.key);
-    input.observations = [{ node: 1, operation: "field-offset", operand: nodeRef(2), layout: { metadata: key, layout: 1 },
-      field: { metadata: clone(key), field: 0 }, result: 0, value: 0n, context: 0, bindings: emptyBindings() }];
-    supplied.scopeRows.body = instantiated ? [emptyScope(), emptyScope(), emptyScope(), emptyScope(), emptyScope()]
-      : [emptyScope(), emptyScope(), emptyScope()];
-  };
-  for (const instantiated of [false, true]) await factOpposite(`original raw field offset selected row ${instantiated ? "instantiated" : "parametric"}`, (input, supplied) => {
-    fieldObservation(input, supplied, instantiated);
-  }, input => { input.observations[0].field.field = 99; }, [
-    violation("metadata-reference-resolves", nodeSite(1), "A field reference retains its actual metadata declaration, complete binding environment and local field ID."),
-    violation("observation-field-exact", nodeSite(1), "Only a field-offset observation names the actual selected field metadata."),
-  ]);
-  await factOpposite("original raw field offset null is distinct from unresolved nonnull field", fieldObservation,
-    input => { input.observations[0].field = null; },
-    [violation("observation-field-exact", nodeSite(1), "Only a field-offset observation names the actual selected field metadata.")]);
-  await factOpposite("original raw selected field and layout retain actual distinct owner types", fieldObservation,
-    input => { input.observations[0].layout.layout = 0; },
-    [violation("observation-field-exact", nodeSite(1), "A field-offset observation retains the selected field's actual owner layout.")]);
-  await factOpposite("original raw data-layout metadata is not an eligible physical field record", fieldObservation,
-    input => { input.observations[0].field.metadata.definition = definitions.abi64; }, [
-      violation("metadata-reference-resolves", nodeSite(1), "A field reference retains its actual metadata declaration, complete binding environment and local field ID."),
-      violation("observation-field-exact", nodeSite(1), "Only a field-offset observation names the actual selected field metadata."),
-    ]);
   await factOpposite("original raw raw-location pointee retains actual selected layout source", (input, supplied) => {
     input.rawLocations = [{ node: 1, operation: "to-raw", pointee: 0, layout: clone(layoutReference), context: 0, bindings: emptyBindings() }];
     supplied.scopeRows.body.push(emptyScope());
@@ -4096,12 +4075,12 @@ test("ir-facts: all thirteen actual emitted ports, full closed logic and fresh d
     withField(input, supplied);
     const second = memoryField(1, definitions.other); second.byteOffset = 8n;
     input.fields.push(second); input.layouts[1].fields.push(1); supplied.scopeRows.metadata.push(emptyScope());
-  }, input => { input.fields[1].primary = definitions.field; }, [
+  }, input => { input.fields[1].member.primary = definitions.field; }, [
     violation("layout-geometry-consistent", metadataSite(), "A layout cannot repeat the same selected physical declaration."),
     violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence."),
   ]);
   await metadataOpposite("original raw missing selected physical declaration retains complete selected group", withField,
-    input => { input.fields[0].selectedDeclarations = [definitions.missing]; }, [
+    input => { input.fields[0].member.selectedDeclarations = [definitions.missing]; }, [
       violation("definition-resolves", metadataSite(), "A selected physical declaration must exist in the supplied definition inventory."),
       violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence."),
     ]);
@@ -4340,7 +4319,7 @@ test("ir-facts: all thirteen actual emitted ports, full closed logic and fresh d
         const family = { ...input.liveness, stores: [{ node: 0, point: { block: 0, statement: null }, edge, observed: false }] };
         const findings = product.verifyLiveness(family, input.instance, lowered, supplied.context);
         equal(findings, edge === null || allowed.includes(edge) ? [] : [
-          violation("mir-point-resolves", { kind: "node", at: nodeRef(0) },
+          violation("mir-point-resolves", { kind: "node", at: { kind: "body", value: nodeRef(0) } },
             "A store edge names a role of the terminator at its point: continue, resume, return or a handler unwind."),
         ], `${terminator.kind}/${edge} actual edge`);
       }
@@ -4349,12 +4328,27 @@ test("ir-facts: all thirteen actual emitted ports, full closed logic and fresh d
     const withStatement = { ...supplied.mir, blocks: [{ ...supplied.mir.blocks[0],
       statements: [{ origin, tir, kind: "storage-live", local: 0 }] }] };
     equal(product.verifyLiveness(family, input.instance, withStatement, supplied.context), [
-      violation("mir-point-resolves", { kind: "node", at: nodeRef(0) },
+      violation("mir-point-resolves", { kind: "node", at: { kind: "body", value: nodeRef(0) } },
         "A store edge names a role of the terminator at its point: continue, resume, return or a handler unwind."),
     ], "a statement cannot borrow a terminator edge");
   });
 
-  await suite.test("all eight actual emitted product files have nonempty source-identified 100 percent coverage", async () => {
+  await suite.test("early geometry verification requires only actual static source/type relations, never TIR or body-flow views", () => {
+    for (const fields of [false, true]) {
+      const input = metadata();
+      const supplied = setup();
+      if (fields) withField(input, supplied);
+      supplied.metadataRows.set(definitions.layout, clone(input));
+      supplyScopes(supplied, { kind: "metadata", metadata: input.key }, supplied.scopeRows.metadata);
+      const full = supplied.context;
+      const context = { types: full.types, bindingScopeOf: full.bindingScopeOf, bindingScopesOf: full.bindingScopesOf,
+        nominalOf: full.nominalOf, nodeExists: full.nodeExists, localExists: full.localExists,
+        definitionExists: full.definitionExists, metadataOf: full.metadataOf };
+      equal(product.verifyMetadata(input, context), [], "the actual standalone geometry verifies without any flow dependency or dummy callback");
+    }
+  });
+
+  await suite.test("all nine actual emitted product files have nonempty source-identified 100 percent coverage", async () => {
     const productPaths = sourceNames.map(name => resolve(repository, `packages/host/dist/ir-facts/${name}.js`));
     const coverage = await post("Profiler.takePreciseCoverage");
     const result = coverage.result.filter(script => productPaths.some(path => pathToFileURL(path).href === script.url));

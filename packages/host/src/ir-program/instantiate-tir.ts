@@ -2,7 +2,8 @@ import type {
   MirAggregate, MirBody, MirCallee, MirConstantValue, MirPlaceBase, MirRvalue, MirStatement, MirTerminator,
 } from "../ir-mir/contract.js";
 import type { TirBody } from "../ir-tir/contract.js";
-import type { InstantiationStop, ProjectionInventory } from "./program-values.js";
+import type { ProjectionInventory } from "./program-values.js";
+import type { InstantiationStop } from "./work.js";
 import {
   inventoryArtifactBindings, inventoryBindings, inventoryEach, inventoryEvidence, inventoryFields,
   inventoryInstance, inventoryRecord, inventorySignature, inventoryType,

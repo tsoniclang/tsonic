@@ -343,7 +343,9 @@ export function nullableSyntaxCases(node, definition, body) {
 export function relationalTransportFacts(fixture) {
   const facts = structuredClone(fixture.module.bodies[0].facts);
   const bindings = { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] };
-  const member = fixture.index.metadata[0].fields[0].member;
+  const physical = fixture.index.metadata[0].fields[0].member;
+  const member = { decision: { ...physical, read: 1, write: 1, getter: null, setter: null,
+    location: { kind: "data", check: { kind: "none" }, receiver: "in-place" } }, getter: null, setter: null };
   const at = { body: fixture.bodyId, node: 0 };
   const bodyOwner = { kind: "body", instance: fixture.instance };
   const summaryOwner = { kind: "summary", definition: fixture.definition, bindings: { kind: "parametric" } };
@@ -376,10 +378,6 @@ export function relationalTransportFacts(fixture) {
     { node: 0, root: at, allocation: at, implementation: fixture.definition, body: fixture.instance, regions: [] }];
   facts.rawLocations = [{ node: 0, operation: "to-raw", pointee: 1,
     layout: { metadata: fixture.index.metadata[0].key, layout: 1 }, context: 0, bindings }];
-  facts.observations = [null, { metadata: fixture.index.metadata[0].key, field: 0 }].map(field => ({
-    node: 0, operation: field === null ? "size" : "field-offset", operand: at,
-    layout: { metadata: fixture.index.metadata[0].key, layout: 0 }, field, result: 0, value: 0n, context: 0, bindings,
-  }));
   facts.closedArrays = [{ node: 0, kind: "unproven", reason: { kind: "no-local-allocation", at } },
     { node: 0, kind: "closed", declarations: [{ kind: "local", local: { body: fixture.instance.body, local: 0 } },
       { kind: "definition", definition: fixture.definition }], references: [at], literals: [at], elements: [member] }];

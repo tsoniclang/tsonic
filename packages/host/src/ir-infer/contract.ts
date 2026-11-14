@@ -1,6 +1,6 @@
 import type { BodyId, CandidateListId, DefId, GroupId, LocalRef, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { Diagnostic, Result, TextParseResult, Violation } from "../diag/contract.js";
-import type { BindingScope, BindingVector, LiteralValue, MemberKey, MemberOrigin, NativePrimitive, NominalDefinition, PassingMode, TypeComponent, TypeEvidence, TypeParameterIdentity, TypeTable } from "../ir-types/contract.js";
+import type { BindingScope, BindingVector, LiteralValue, MemberKey, MemberOrigin, MemberStorageSelection, NativePrimitive, NominalDefinition, PassingMode, TypeComponent, TypeEvidence, TypeParameterIdentity, TypeTable } from "../ir-types/contract.js";
 import type { HirBinaryOperator, HirCallableEndpoint, HirCandidateList, HirCoreCapture, HirUnaryOperator } from "../ir-hir/contract.js";
 
 export type InferredPart =
@@ -440,16 +440,11 @@ export type EmbeddingDecision =
   | { readonly kind: "conversion"; readonly conversion: ConversionKind; readonly proof: EmbeddingProof; readonly check: CheckRequirement }
   | { readonly kind: "refused"; readonly reason: "incompatible-domain" | "lossy-numeric" | "missing-correspondence" | "passing-mode" | "rigid-parameter" };
 
-export interface MemberDecision {
-  readonly key: MemberKey;
-  readonly origins: readonly MemberOrigin[];
-  readonly selectedDeclarations: readonly DefId[];
-  readonly primary: DefId | null;
+export interface MemberDecision extends MemberStorageSelection {
   readonly read: TyId | null;
   readonly write: TyId | null;
   readonly getter: HirCallableEndpoint | null;
   readonly setter: HirCallableEndpoint | null;
-  readonly bindings: BindingVector;
   readonly location: AccessLocation;
 }
 

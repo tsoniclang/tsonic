@@ -1,3 +1,4 @@
+import { ProgramWork } from "./work.js";
 import { orderDiagnostics } from "../diag/index.js";
 import type { DefId, ModuleId } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
@@ -17,7 +18,8 @@ import type {
 } from "./contract.js";
 
 import type { ProgramLookup, ProgramViolation } from "./program-values.js";
-import { artifactBindingData, artifactEnvironmentKey, compareText, numberDetail, programChildRule, programLookup, requireInstantiationMaximum, textDetail, uniqueRows } from "./program-values.js";
+import { artifactBindingData, artifactEnvironmentKey, compareText, numberDetail, programChildRule, programLookup, textDetail, uniqueRows } from "./program-values.js";
+import { requireInstantiationMaximum } from "./work.js";
 import { verifyBindingBounds, verifyBodyInventory, verifyModules, verifyPackages } from "./verify-structure.js";
 
 function numericPosition(value: number, length: number): boolean {
@@ -237,7 +239,7 @@ function verifyPublishedRecords(index: ProgramIndex, context: ProgramVerificatio
 }
 
 export const verifyProgramIndex: VerifyProgramIndex = (index, context) => {
-  requireInstantiationMaximum(context.limits.maximumBindingVectorsPerArtifact, "maximumBindingVectorsPerArtifact");
+  requireInstantiationMaximum(ProgramWork.state(context.resources).limits.maximumBindingVectorsPerArtifact, "maximumBindingVectorsPerArtifact");
   const lookup = programLookup(index);
   const violations: ProgramViolation[] = [];
   if (index.schema !== 1) violations.push({ rule: "schema-supported", site: { kind: "index" }, detail: [numberDetail(index.schema)] });

@@ -1,9 +1,9 @@
+import { ProgramWork } from "./work.js";
 import type { ModuleBodiesVerification, ProgramSite, ModuleBodies, ProgramIndex, ProgramVerificationContext, PublishedBody, VerifyModuleBodies } from "./contract.js";
 import type { ArgumentTransport, MetadataKey, RelationalOwner, SummaryKey } from "../ir-facts/contract.js";
-import type { MirOperand, MirRvalue, MirSite, MirTerminator } from "../ir-mir/contract.js";
 import type { MemberSelection, ResolvedCallee, TirVerifierInput } from "../ir-tir/contract.js";
 import { verifyTir, verifyTirModule } from "../ir-tir/index.js";
-import { verifyFacts } from "../ir-facts/index.js";
+import { verifyFacts, verifyObservations } from "../ir-facts/index.js";
 import { verifyMir } from "../ir-mir/index.js";
 import { constantReferenceKey, printTypes } from "../ir-types/index.js";
 import type { NodeId } from "../ids/contract.js";
@@ -13,122 +13,12 @@ import { childrenOfSyntax, indexSyntaxTree } from "../ir-hir/index.js";
 import { encodeKey } from "../ids/index.js";
 import type { SyntaxInventory } from "./syntax-arena.js";
 import { inventorySyntax, moduleSyntaxRoots } from "./syntax-arena.js";
+import { refuseVerification, verificationTypes } from "./verification-work.js";
+import { verifyMetadataOperands } from "./verify-metadata-operands.js";
 import { syntaxEdges } from "./syntax-edges.js";
-import type { BodyInstance } from "../ir-types/contract.js";
+import type { BodyInstance, TypeInterner } from "../ir-types/contract.js";
 import type { ProgramLookup, ProgramViolation } from "./program-values.js";
 import { artifactEnvironmentKey, compareInstances, instanceKey, numberDetail, programChildRule, programLookup, textDetail, uniqueRows } from "./program-values.js";
-
-function metadataKeys(published: PublishedBody): ReadonlyMap<string, ReadonlySet<string>> {
-  const positions = new Map<string, Set<string>>();
-  function allow(node: NodeId, metadata: MetadataKey): void {
-    const position = encodeKey([node]);
-    const key = artifactEnvironmentKey(metadata.definition, metadata.bindings);
-    const previous = positions.get(position);
-    if (previous === undefined) positions.set(position, new Set([key]));
-    else previous.add(key);
-  }
-  const facts = published.facts;
-  const fields = uniqueRows(facts.fieldBindings, field => encodeKey([field.node]));
-  for (const observation of facts.observations) {
-    allow(observation.node, observation.layout.metadata);
-    if (observation.operation === "field-offset" && observation.field !== null) allow(observation.node, observation.field.metadata);
-  }
-  for (const field of facts.fieldBindings) allow(field.node, field.field.metadata);
-  for (const record of facts.recordBindings) {
-    allow(record.node, record.layout.metadata);
-    for (const linked of record.fields) {
-      const field = fields.get(encodeKey([linked.binding]));
-      if (field !== undefined && field !== null) allow(record.node, field.field.metadata);
-    }
-  }
-  return positions;
-}
-
-function verifyMetadataOperands(published: PublishedBody): readonly ProgramViolation[] {
-  const allowed = metadataKeys(published);
-  const constants = uniqueRows(published.mir.constants, constant => encodeKey([constant.id]));
-  const constantKeys = new Map<string, string>();
-  const violations: ProgramViolation[] = [];
-  function operand(value: MirOperand, site: MirSite, path: string): void {
-    if (value.kind !== "constant") return;
-    const identity = encodeKey([value.constant]);
-    const constant = constants.get(identity);
-    if (constant === undefined || constant === null || constant.value.kind !== "metadata") return;
-    let key = constantKeys.get(identity);
-    if (key === undefined) {
-      key = artifactEnvironmentKey(constant.value.definition, constant.value.bindings);
-      constantKeys.set(identity, key);
-    }
-    const keys = site.tir.body === published.facts.instance.body ? allowed.get(encodeKey([site.tir.node])) : undefined;
-    if (keys === undefined || !keys.has(key)) violations.push({
-      rule: "metadata-constant-not-materialised", site: { kind: "body", instance: published.instance },
-      detail: [textDetail(path), numberDetail(value.constant), textDetail(key)],
-    });
-  }
-  function rvalue(value: MirRvalue, site: MirSite, path: string): void {
-    switch (value.kind) {
-      case "use":
-      case "unary":
-      case "convert": operand(value.operand, site, path + ".operand"); break;
-      case "binary":
-        operand(value.left, site, path + ".left");
-        operand(value.right, site, path + ".right");
-        break;
-      case "aggregate":
-        switch (value.aggregate.kind) {
-          case "array":
-          case "tuple":
-          case "fixed-array":
-            for (const [position, entry] of value.aggregate.elements.entries()) operand(entry, site, path + ".aggregate.elements[" + position + "]");
-            break;
-          case "object":
-          case "record":
-            for (const [position, field] of value.aggregate.fields.entries()) operand(field.value, site, path + ".aggregate.fields[" + position + "].value");
-            break;
-        }
-        break;
-      case "address-of":
-      case "closure": break;
-    }
-  }
-  function terminator(value: MirTerminator, path: string): void {
-    switch (value.kind) {
-      case "goto":
-      case "unreachable": break;
-      case "switch":
-        operand(value.operand, value, path + ".operand");
-        for (const [position, target] of value.targets.entries()) operand({ kind: "constant", constant: target.constant }, value, path + ".targets[" + position + "].constant");
-        break;
-      case "call":
-        if (value.callee.kind === "indirect") operand(value.callee.operand, value, path + ".callee.operand");
-        if (value.receiver !== null) operand(value.receiver, value, path + ".receiver");
-        for (const [position, argument] of value.arguments.entries()) {
-          if (argument.kind === "value") operand(argument.operand, value, path + ".arguments[" + position + "].operand");
-        }
-        break;
-      case "invoke":
-        for (const [position, entry] of value.operands.entries()) operand(entry, value, path + ".operands[" + position + "]");
-        break;
-      case "await":
-      case "throw": operand(value.operand, value, path + ".operand"); break;
-      case "yield": if (value.operand !== null) operand(value.operand, value, path + ".operand"); break;
-      case "delegate": operand(value.iterator, value, path + ".iterator"); break;
-      case "return": if (value.value !== null) operand(value.value, value, path + ".value"); break;
-    }
-  }
-  for (const [blockIndex, block] of published.mir.blocks.entries()) {
-    const path = "mir.blocks[" + blockIndex + "]";
-    for (const [position, statement] of block.statements.entries()) {
-      switch (statement.kind) {
-        case "storage-live":
-        case "storage-dead": break;
-        case "assign": rvalue(statement.value, statement, path + ".statements[" + position + "].value"); break;
-      }
-    }
-    terminator(block.terminator, path + ".terminator");
-  }
-  return violations;
-}
 
 function verifyReferenceRoots(
   lookup: ProgramLookup, published: PublishedBody, context: ProgramVerificationContext,
@@ -241,8 +131,8 @@ function verifyReferenceRoots(
   for (const [position, construction] of facts.origins.constructions.entries()) {
     if (construction.body !== null) instance(construction.body, "facts.origins.constructions[" + position + "].body");
   }
-  for (const [position, observation] of facts.observations.entries()) {
-    const path = "facts.observations[" + position + "]";
+  for (const [position, observation] of published.observations.rows.entries()) {
+    const path = "observations.rows[" + position + "]";
     metadata(observation.layout.metadata, path + ".layout.metadata");
     if (observation.field !== null) metadata(observation.field.metadata, path + ".field.metadata");
   }
@@ -315,6 +205,8 @@ export function verifyPublishedChildren(
   module: ModuleBodies,
   input: TirVerifierInput | null,
   context: ProgramVerificationContext,
+  types: TypeInterner,
+  lookup: ProgramLookup,
 ): ModuleBodiesVerification {
   const violations: ProgramViolation[] = [];
   if (input === null) {
@@ -327,8 +219,25 @@ export function verifyPublishedChildren(
       violations.push({ rule: programChildRule("tir-valid", child.rule), site, detail: [textDetail(child.rule), ...child.detail] });
     }
   }
+  const sourceBodies = uniqueRows(input === null ? [] : input.source.bodies, body => body.body);
   for (const published of module.bodies) {
     const site: ProgramSite = { kind: "body", instance: published.instance };
+    const source = sourceBodies.get(published.instance.body);
+    if (source === undefined || source === null || input === null) {
+      violations.push({ rule: "facts-valid", site, detail: [textDetail("missing-observation-source")] });
+    } else {
+      const observations = verifyObservations(published.observations, {
+        source, bodyOf: body => sourceBodies.get(body) ?? null, nodeOf: input.nodeOf, facts: context.facts,
+        types, typeExpansion: ProgramWork.state(context.resources).limits.typeExpansion,
+      });
+      if (observations.kind === "resource-limit") return { ...observations, site };
+      for (const child of observations.violations) {
+        violations.push({ rule: programChildRule("facts-valid", child.rule), site, detail: [textDetail(child.rule), ...child.detail] });
+      }
+      const metadata = verifyMetadataOperands(published, input, lookup, context, types);
+      if (metadata.kind === "resource-limit") return metadata;
+      for (const child of metadata.violations) violations.push(child);
+    }
     if (input !== null) {
       for (const child of verifyTir(input, published.tir)) {
         violations.push({ rule: programChildRule("tir-valid", child.rule), site, detail: [textDetail(child.rule), ...child.detail] });
@@ -351,6 +260,8 @@ export function verifyPublishedChildren(
 }
 
 export const verifyModuleBodies: VerifyModuleBodies = (index, module, context) => {
+  const seed = verificationTypes(index, context.resources);
+  if (seed.kind === "resource-limit") return seed;
   const syntax = inventorySyntax(moduleSyntaxRoots(module, "ModuleBodies"));
   const lookup = programLookup(index);
   const input = context.tirOf(module.module);
@@ -363,8 +274,8 @@ export const verifyModuleBodies: VerifyModuleBodies = (index, module, context) =
   if (expectedTypes !== printTypes(context.facts.types) || (input !== null && expectedTypes !== printTypes(input.types))) {
     violations.push({ rule: "shared-type-table", site: { kind: "module", module: module.module }, detail: [] });
   }
-  const children = verifyPublishedChildren(index, module, input, context);
-  if (children.kind === "resource-limit") return children;
+  const children = verifyPublishedChildren(index, module, input, context, seed.types, lookup);
+  if (children.kind === "resource-limit") return refuseVerification(index, context.resources, children);
   for (const child of children.violations) violations.push(child);
   return { kind: "complete", violations };
 };
@@ -403,10 +314,11 @@ export function verifyModuleInventory(
     const tirKey = instanceKey({ body: published.tir.body, bindings: published.tir.bindings });
     const mirKey = instanceKey({ body: published.mir.body, bindings: published.mir.bindings });
     const factsKey = instanceKey(published.facts.instance);
-    if (key !== tirKey || key !== mirKey || key !== factsKey) {
+    const observationsKey = instanceKey(published.observations.instance);
+    if (key !== tirKey || key !== mirKey || key !== factsKey || key !== observationsKey) {
       violations.push({
         rule: "body-instance-exact", site: bodySite,
-        detail: [textDetail(tirKey), textDetail(mirKey), textDetail(factsKey)],
+        detail: [textDetail(tirKey), textDetail(mirKey), textDetail(factsKey), textDetail(observationsKey)],
       });
     }
     if (expected !== undefined && expected !== null) {
@@ -425,7 +337,6 @@ export function verifyModuleInventory(
         });
       }
     }
-    for (const violation of verifyMetadataOperands(published)) violations.push(violation);
   }
   for (const body of index.bodies) {
     if (body.module === module.module && !instances.has(instanceKey(body.instance))) {

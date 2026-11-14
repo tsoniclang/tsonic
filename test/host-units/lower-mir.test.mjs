@@ -355,6 +355,33 @@ test("first producer: each exposed read is saved once, distinct reads of one loc
   assert.deepEqual(saves(mir), []);
 });
 
+test("growing pending read and statement lists preserve every individual read and exact record refusal", () => {
+  for (const count of [4, 16, 64]) {
+    const program = nested(`exposed.growth.${count}`, T.int32, ({ leaf, sum, group }) => {
+      let expression = sum("write", leaf("b"), leaf("b"), plus("int32", T.int32, EXECUTIONS.writes));
+      for (let index = 0; index < count; index += 1)
+        expression = sum(`pending${index}`, leaf("a"), group(expression), plus("int32", T.int32));
+      return expression;
+    }, { passing: ["byref-readwrite", "by-value"] });
+    const mir = lower(program);
+    const saves = mir.blocks.flatMap(block => block.statements).filter(record => record.kind === "assign" && record.value.kind === "use");
+    assert.equal(saves.length, count);
+    assert.equal(new Set(saves.map(record => record.place)).size, count);
+    for (const record of saves) assert.deepEqual(record.value.operand, { kind: "place", place: 0 });
+    const records = mir.locals.length + mir.places.length + mir.constants.length + mir.blocks.length
+      + mir.blocks.reduce((total, block) => total + block.statements.length, 0);
+    for (const maximumRecords of [0, records - 1]) {
+      const refused = produced({ ...deps, limits: { maximumRecords } }, program.tir, []);
+      assert.equal(refused.kind, "refused");
+      assert.equal("value" in refused, false);
+    }
+    assert.deepEqual(lower(program, [], { maximumRecords: records }), mir);
+    const statements = shaped(`statements.growth.${count}`, [], T.bool, b => b.block(
+      ...Array.from({ length: count }, () => ({ kind: "EmptyStatement", tsonic: null })), b.returns(b.keyword("TrueKeyword", T.bool))));
+    assert.equal(lower(statements).blocks[0].terminator.kind, "return");
+  }
+});
+
 test("first producer: a comparison is placed by its decision like any binary operation", () => {
   const less = native("<", "int32", [T.int32, T.int32], T.bool);
   const program = shaped("first.less", [["a", "required", T.int32], ["b", "required", T.int32]], T.bool,
@@ -927,13 +954,17 @@ test("conditional for frontiers and invalid selected continue owners remain expl
 
 test("first producer: a record limit that is not a count is the caller's defect, raised before any record is made (K-3338)", () => {
   const program = add("first.add.limit", T.float64, plus("float64", T.float64));
-  for (const maximumRecords of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, -1, 1.5, 8.999])
-    assert.throws(() => produced({ ...deps, limits: { maximumRecords } }, program.tir, []),
-      error => error instanceof TypeError && error.message === "lower-mir: maximumRecords must be a finite nonnegative integer", String(maximumRecords));
+  const unread = { get root() { assert.fail("malformed counts must be rejected before the body is read"); } };
+  for (const maximumRecords of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, -0, -1, 1.5, 8.999,
+    Number.MAX_SAFE_INTEGER + 1, undefined, "1", 1n])
+    assert.throws(() => produced({ ...deps, limits: { maximumRecords } }, unread, []),
+      error => error instanceof TypeError && error.message === "lower-mir: maximumRecords must be a safe nonnegative count", String(maximumRecords));
   // Zero is a count: the body is refused with the size-limit diagnostic, not raised. The exact need is admitted.
   const zero = produced({ ...deps, limits: { maximumRecords: 0 } }, program.tir, []);
   assert.deepEqual([zero.kind, zero.diagnostics.map(diagnostic => diagnostic.code.rendered)], ["refused", ["TSONIC_COMPILER_RESOURCE_LIMIT"]]);
   assert.equal(produced({ ...deps, limits: { maximumRecords: 9 } }, program.tir, []).kind, "ok");
+  assert.deepEqual(produced({ ...deps, limits: { maximumRecords: Number.MAX_SAFE_INTEGER } }, program.tir, []),
+    produced({ ...deps, limits: { maximumRecords: 9 } }, program.tir, []));
   // The check comes first: a body past the frontier with an invalid limit is still the limit's defect.
   const generator = shaped("first.limit.generator", [["a", "required", T.int32]], T.int32, b => b.block(b.returns(b.id("a", 0, T.int32))), { extra: { generator: true } });
   assert.throws(() => produced({ ...deps, limits: { maximumRecords: -1 } }, generator.tir, []), TypeError);

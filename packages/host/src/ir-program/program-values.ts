@@ -1,3 +1,5 @@
+import type { InstantiationMeter, InstantiationStop } from "./work.js";
+import { chargeInstantiationWork, emitInstantiationRecord } from "./work.js";
 import type { MessageArgument, Violation } from "../diag/contract.js";
 import type { BodyId, DefId, KeyData, ModuleId, PackageId, SigId, TyId } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
@@ -7,7 +9,7 @@ import type {
   TypeComponent, TypeEvidence, TypeParameter, TypeParameterIdentity,
 } from "../ir-types/contract.js";
 import type { HirCallableEndpoint } from "../ir-hir/contract.js";
-import type { BodyRecord, ConstantRecord, DefinitionNode, InstantiationLimits, ModuleRecord, PackageRecord, ProgramIndex, ProgramRule, ProgramSite } from "./contract.js";
+import type { BodyRecord, ConstantRecord, DefinitionNode, ModuleRecord, PackageRecord, ProgramIndex, ProgramRule, ProgramSite } from "./contract.js";
 import type { MetadataRecord, Summary } from "../ir-facts/contract.js";
 
 export interface DefinitionLocation {
@@ -34,42 +36,6 @@ export function programChildRule(
   return child === "cross-owner-qualified" ? "cross-owner-qualified" : group;
 }
 
-export interface InstantiationMeter {
-  readonly limits: InstantiationLimits;
-  work: number;
-  created: number;
-}
-
-export type InstantiationStop = {
-  readonly kind: "resource-limit";
-  readonly dimension: "work" | "created-records" | "binding-vectors";
-  readonly maximum: number;
-};
-
-export function createInstantiationMeter(limits: InstantiationLimits): InstantiationMeter {
-  requireInstantiationMaximum(limits.maximumWork, "maximumWork");
-  requireInstantiationMaximum(limits.maximumCreatedRecords, "maximumCreatedRecords");
-  requireInstantiationMaximum(limits.maximumBindingVectorsPerArtifact, "maximumBindingVectorsPerArtifact");
-  return { limits, work: 0, created: 0 };
-}
-
-export function chargeInstantiationWork(meter: InstantiationMeter): InstantiationStop | null {
-  if (meter.work >= meter.limits.maximumWork) {
-    return { kind: "resource-limit", dimension: "work", maximum: meter.limits.maximumWork };
-  }
-  meter.work += 1;
-  return null;
-}
-
-export function emitInstantiationRecord(meter: InstantiationMeter): InstantiationStop | null {
-  const work = chargeInstantiationWork(meter);
-  if (work !== null) return work;
-  if (meter.created >= meter.limits.maximumCreatedRecords) {
-    return { kind: "resource-limit", dimension: "created-records", maximum: meter.limits.maximumCreatedRecords };
-  }
-  meter.created += 1;
-  return null;
-}
 
 export function admitBindingVector(meter: InstantiationMeter, distinctCount: number): InstantiationStop | null {
   if (distinctCount >= meter.limits.maximumBindingVectorsPerArtifact) {
@@ -283,11 +249,6 @@ export function inventoryEvidence(scan: ProjectionInventory, value: TypeEvidence
   return inventoryRecord(scan, 7) ?? inventoryType(scan, value.type);
 }
 
-export function requireInstantiationMaximum(value: number, name: string): void {
-  if (!Number.isSafeInteger(value) || value < 0) {
-    throw new TypeError(`Invalid InstantiationLimits.${name}`);
-  }
-}
 
 function typeBindingData(binding: TypeBinding): KeyData {
   switch (binding.kind) {

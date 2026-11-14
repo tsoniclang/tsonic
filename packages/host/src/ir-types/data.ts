@@ -1,11 +1,10 @@
 import type { BodyId, DefId, GroupId, LocalRef, NodeRef, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 
-export type NativePrimitive =
-  | "bool" | "char"
-  | "int8" | "uint8" | "int16" | "uint16" | "int32" | "uint32"
-  | "int64" | "uint64" | "int128" | "uint128"
-  | "native-int" | "native-uint"
-  | "float16" | "float32" | "float64" | "decimal";
+export type NativeSignedIntegerPrimitive = "int8" | "int16" | "int32" | "int64" | "int128" | "native-int";
+export type NativeUnsignedIntegerPrimitive = "uint8" | "uint16" | "uint32" | "uint64" | "uint128" | "native-uint";
+export type NativeIntegerPrimitive = NativeSignedIntegerPrimitive | NativeUnsignedIntegerPrimitive;
+export type NativeBinaryFloatPrimitive = "float16" | "float32" | "float64";
+export type NativePrimitive = "bool" | "char" | NativeIntegerPrimitive | NativeBinaryFloatPrimitive | "decimal";
 
 export type Intrinsic = "any" | "unknown" | "object" | "void" | "never" | "absence" | "bigint" | "symbol";
 
@@ -70,6 +69,7 @@ export interface ExactRational {
 
 export type ConstValue = { readonly type: TyId } & (
   | { readonly kind: "number"; readonly value: ExactRational }
+  | { readonly kind: "floating"; readonly bits: bigint }
   | { readonly kind: "bigint"; readonly value: bigint }
   | { readonly kind: "string"; readonly value: string }
   | { readonly kind: "boolean"; readonly value: boolean }
@@ -103,6 +103,14 @@ export type MemberOrigin =
   | { readonly kind: "declared"; readonly declaration: DefId }
   | { readonly kind: "class-prototype"; readonly owner: DefId }
   | { readonly kind: "mapped"; readonly owner: SourceNodeRef; readonly key: MemberKey };
+
+export interface MemberStorageSelection {
+  readonly key: MemberKey;
+  readonly origins: readonly MemberOrigin[];
+  readonly selectedDeclarations: readonly DefId[];
+  readonly primary: DefId | null;
+  readonly bindings: BindingVector;
+}
 
 export interface Member {
   readonly key: MemberKey;

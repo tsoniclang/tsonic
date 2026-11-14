@@ -3,8 +3,8 @@ import type {
   BlockId, BodyId, BoundProducerId, ComponentId, DefId, LayoutId, LibraryExportIdentity, LocalId, LocalRef, MemoryFieldId, NodeId, NodeRef,
   OpenBoundaryId, OriginsId, PlaceId, ProducerId, ProjectionPathId, SigId, SourceNodeRef, TyId, ValueContextId,
 } from "../ids/contract.js";
-import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, NominalDefinition, PassingMode, TypeTable } from "../ir-types/contract.js";
-import type { DeclarationTarget } from "../ir-hir/contract.js";
+import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, MemberStorageSelection, NominalDefinition, PassingMode, TypeExpansionLimits, TypeInterner, TypeTable } from "../ir-types/contract.js";
+import type { DeclarationTarget, HirBody, HirNode } from "../ir-hir/contract.js";
 import type { MemberSelection, ResolvedCallee, TirBody } from "../ir-tir/contract.js";
 import type { MirBody } from "../ir-mir/contract.js";
 import type { CallbackInput, SummaryCallback } from "../snapshot/contract.js";
@@ -461,9 +461,7 @@ export interface MemoryField {
   readonly owner: TyId;
   readonly selector: SourceNodeRef;
   readonly selection: SourceNodeRef;
-  readonly member: MemberSelection;
-  readonly primary: DefId | null;
-  readonly selectedDeclarations: readonly DefId[];
+  readonly member: MemberStorageSelection;
   readonly value: TyId;
   readonly layout: LayoutId;
   readonly byteOffset: bigint;
@@ -487,8 +485,12 @@ export interface ObservationFact {
   readonly field: MetadataFieldRef | null;
   readonly result: TyId;
   readonly value: bigint;
-  readonly context: ValueContextId;
   readonly bindings: BindingVector;
+}
+
+export interface BodyObservations {
+  readonly instance: BodyInstance;
+  readonly rows: readonly ObservationFact[];
 }
 
 export interface RawLocationFact {
@@ -553,17 +555,6 @@ export type ClosedArrayFact = { readonly node: NodeId } & (
       readonly elements: readonly MemberSelection[] }
 );
 
-export interface BodyMetadataResult {
-  readonly instance: BodyInstance;
-  readonly observations: readonly ObservationFact[];
-  readonly rawLocations: readonly RawLocationFact[];
-  readonly fieldBindings: readonly MemoryFieldBindingFact[];
-  readonly recordBindings: readonly MemoryRecordBindingFact[];
-  readonly memoryBindings: readonly MemoryBindingInventoryEntry[];
-  readonly selectedMemoryDeclarations: readonly DefId[];
-  readonly closedArrays: readonly ClosedArrayFact[];
-}
-
 export interface BodyFacts {
   readonly instance: BodyInstance;
   readonly arena: RelationalArena;
@@ -574,7 +565,6 @@ export interface BodyFacts {
   readonly suspension: SuspensionFacts;
   readonly errorStorage: ErrorStorageFacts;
   readonly pointerBacking: PointerBackingFacts;
-  readonly observations: readonly ObservationFact[];
   readonly rawLocations: readonly RawLocationFact[];
   readonly fieldBindings: readonly MemoryFieldBindingFact[];
   readonly recordBindings: readonly MemoryRecordBindingFact[];
@@ -691,7 +681,7 @@ export type CallGraphRule =
 
 export type FactsSite =
   | { readonly kind: "body"; readonly instance: BodyInstance }
-  | { readonly kind: "node"; readonly at: NodeRef }
+  | { readonly kind: "node"; readonly at: SourceNodeRef }
   | { readonly kind: "declared-site"; readonly owner: RelationalOwner;
       readonly identity: LibraryExportIdentity; readonly site: number }
   | { readonly kind: "local"; readonly local: LocalRef }
@@ -706,32 +696,60 @@ export type FactsSite =
   | { readonly kind: "component"; readonly component: ComponentId };
 
 export type FactsBindingTarget =
+  | { readonly kind: "observations"; readonly instance: BodyInstance }
   | { readonly kind: "body"; readonly instance: BodyInstance }
   | { readonly kind: "summary"; readonly summary: SummaryKey }
   | { readonly kind: "metadata"; readonly metadata: MetadataKey };
 
-export interface FactsVerificationContext {
-  readonly limits: AnalysisLimits;
-  readonly tirBody: (instance: BodyInstance) => TirBody;
-  readonly bodyOwner: (body: BodyId) => DefId | null;
+export interface BindingVerificationContext {
   readonly types: TypeTable;
-  readonly diagnostics: readonly Diagnostic[];
   readonly bindingScopeOf: (definition: DefId) => BindingScope | null;
   readonly bindingScopesOf: (target: FactsBindingTarget) => readonly BindingScope[] | null;
   readonly nominalOf: (definition: DefId) => NominalDefinition | null;
+  readonly nodeExists: (node: SourceNodeRef) => boolean;
+  readonly localExists: (local: LocalRef) => boolean;
+}
+
+export interface MetadataVerificationContext extends BindingVerificationContext {
+  readonly definitionExists: (definition: DefId) => boolean;
+  readonly metadataOf: (key: MetadataKey) => MetadataRecord | null;
+}
+
+export interface ObservationVerificationContext extends BindingVerificationContext {
+  readonly bodyOwner: (body: BodyId) => DefId | null;
+  readonly metadataOf: (key: MetadataKey) => MetadataRecord | null;
+}
+
+export interface FactsVerificationContext extends MetadataVerificationContext, ObservationVerificationContext {
+  readonly limits: AnalysisLimits;
+  readonly tirBody: (instance: BodyInstance) => TirBody;
+  readonly diagnostics: readonly Diagnostic[];
   readonly bindingDependentOf: (definition: DefId) => boolean | null;
   readonly captureCount: (key: SummaryKey) => number | null;
   readonly callbackSignaturesOf: (key: SummaryKey, parameter: number) => readonly SigId[] | null;
   readonly arenaOf: (owner: RelationalOwner) => RelationalArena | null;
-  readonly definitionExists: (definition: DefId) => boolean;
   readonly libraryExportExists: (identity: LibraryExportIdentity) => boolean;
   readonly declaredSiteCount: (identity: LibraryExportIdentity) => number | null;
-  readonly nodeExists: (node: SourceNodeRef) => boolean;
-  readonly localExists: (local: LocalRef) => boolean;
-  readonly metadataOf: (key: MetadataKey) => MetadataRecord | null;
 }
 
 export type PrintFacts = (facts: BodyFacts) => string;
+export type PrintObservations = (observations: BodyObservations) => string;
+export type ParseObservations = (text: string) => TextParseResult<BodyObservations>;
+export interface ObservationsVerificationInput {
+  readonly source: HirBody;
+  readonly bodyOf: (body: BodyId) => HirBody | null;
+  readonly nodeOf: (node: SourceNodeRef) => HirNode | null;
+  readonly facts: ObservationVerificationContext;
+  readonly types: TypeInterner;
+  readonly typeExpansion: TypeExpansionLimits;
+}
+export type ObservationsVerification =
+  | { readonly kind: "complete"; readonly violations: readonly Violation<FactsRule, FactsSite>[] }
+  | { readonly kind: "resource-limit"; readonly dimension: "depth" | "visits" | "union-members" | "intersection-members";
+      readonly maximum: number };
+export type VerifyObservations = (observations: BodyObservations,
+  input: ObservationsVerificationInput) => ObservationsVerification;
+
 export type ParseFacts = (text: string) => TextParseResult<BodyFacts>;
 export type VerifyFacts = (facts: BodyFacts, mir: MirBody,
   context: FactsVerificationContext) => readonly Violation<FactsRule, FactsSite>[];
@@ -744,7 +762,7 @@ export type VerifySummary = (summary: Summary,
 export type PrintMetadata = (metadata: MetadataRecord) => string;
 export type ParseMetadata = (text: string) => TextParseResult<MetadataRecord>;
 export type VerifyMetadata = (metadata: MetadataRecord,
-  context: FactsVerificationContext) => readonly Violation<MetadataRule, FactsSite>[];
+  context: MetadataVerificationContext) => readonly Violation<MetadataRule, FactsSite>[];
 export type VerifyCallGraph = (graph: CallGraph,
   context: FactsVerificationContext) => readonly Violation<CallGraphRule, FactsSite>[];
 export type PrintCallGraph = (graph: CallGraph) => string;

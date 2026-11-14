@@ -123,7 +123,8 @@ function popOperand(lowering: Lowering, missing: InvariantFailure): Evaluated {
 export function lowerBody(deps: LowerMirDeps, body: TirBody, internal: readonly InternalBodyInput[]): Result<MirBody> {
   // The caller sets the limit; a value that is not a count is the caller's defect, as for the MIR verifier's limit.
   const maximumRecords = deps.limits.maximumRecords;
-  if (!Number.isInteger(maximumRecords) || maximumRecords < 0) throw new TypeError("lower-mir: maximumRecords must be a finite nonnegative integer");
+  if (!Number.isSafeInteger(maximumRecords) || maximumRecords < 0 || Object.is(maximumRecords, -0))
+    throw new TypeError("lower-mir: maximumRecords must be a safe nonnegative count");
   const root = body.root;
   // Pipeline supplies the data of each initializer execution the body places (§7 part 1). Supplied data says the body
   // places one; no construct this lowering admits does, so such a body is past the frontier.
@@ -230,8 +231,8 @@ function statement(lowering: Lowering, node: Statement<TypedPhase>): boolean {
       return true;
     case "Block":
       // A statement list has no hole; one is a defect of the tree, reported by name as the other unreachable states are.
-      for (const inner of [...node.statements.nodes].reverse())
-        lowering.work.push({ kind: "statement", node: requirePresent(inner, failure("a statement list has a hole", node.origin)) });
+      for (let index = node.statements.nodes.length - 1; index >= 0; index -= 1)
+        lowering.work.push({ kind: "statement", node: requirePresent(node.statements.nodes[index], failure("a statement list has a hole", node.origin)) });
       return true;
     case "ReturnStatement":
       if (node.expression === null) {
@@ -370,7 +371,7 @@ const held = (place: PlaceId, storage: TyId, site: MirSite): Evaluated => ({ ope
  * exposed again. Each evaluated read is saved by itself, also when two read the same local. False: refused.
  */
 function saveHandedOut(lowering: Lowering): boolean {
-  for (const position of lowering.exposed.splice(0)) {
+  for (const position of lowering.exposed) {
     const pending = requirePresent(lowering.operands[position], failure("an exposed operand is not on the stack", null));
     const saved = temporary(lowering, pending.storage, pending.site);
     if (saved === null) return false;
@@ -378,6 +379,7 @@ function saveHandedOut(lowering: Lowering): boolean {
       return false;
     lowering.operands[position] = held(saved, pending.storage, pending.site);
   }
+  lowering.exposed.length = 0;
   return true;
 }
 

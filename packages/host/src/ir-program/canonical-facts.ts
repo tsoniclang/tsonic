@@ -1,5 +1,5 @@
 import type {
-  ArgumentTransport, BodyFacts, ClosedArrayFact, MemoryField, MemoryLayout, MetadataFieldRef,
+  ArgumentTransport, BodyFacts, BodyObservations, ClosedArrayFact, MemoryField, MemoryLayout, MetadataFieldRef,
   MetadataKey, MetadataLayoutRef, MetadataRecord, OriginFacts, ProducerRef, RelationalArena,
   RelationalOwner, Summary, SummaryKey,
 } from "../ir-facts/contract.js";
@@ -110,12 +110,6 @@ export function rewriteBodyFacts(rewrite: TypeRewrite, facts: BodyFacts, instanc
     liveness: facts.liveness, initialization: facts.initialization, refinements: facts.refinements,
     origins: rewriteOrigins(rewrite, facts.origins), suspension: facts.suspension,
     errorStorage: facts.errorStorage, pointerBacking: facts.pointerBacking,
-    observations: facts.observations.map(observation => ({
-      node: observation.node, operation: observation.operation, operand: observation.operand,
-      layout: rewriteLayoutRef(rewrite, observation.layout), field: observation.field === null ? null : rewriteFieldRef(rewrite, observation.field),
-      result: rewrite.type(observation.result), value: observation.value, context: observation.context,
-      bindings: rewriteBindings(rewrite, observation.bindings),
-    })),
     rawLocations: facts.rawLocations.map(location => ({
       node: location.node, operation: location.operation, pointee: rewrite.type(location.pointee),
       layout: rewriteLayoutRef(rewrite, location.layout), context: location.context, bindings: rewriteBindings(rewrite, location.bindings),
@@ -134,6 +128,17 @@ export function rewriteBodyFacts(rewrite: TypeRewrite, facts: BodyFacts, instanc
   };
 }
 
+export function rewriteBodyObservations(rewrite: TypeRewrite, observations: BodyObservations): BodyObservations {
+  return { instance: rewriteInstance(rewrite, observations.instance),
+    rows: observations.rows.map(observation => ({
+      node: observation.node, operation: observation.operation, operand: observation.operand,
+      layout: rewriteLayoutRef(rewrite, observation.layout), field: observation.field === null ? null : rewriteFieldRef(rewrite, observation.field),
+      result: rewrite.type(observation.result), value: observation.value,
+      bindings: rewriteBindings(rewrite, observation.bindings),
+    })),
+  };
+}
+
 function rewriteLayout(rewrite: TypeRewrite, layout: MemoryLayout): MemoryLayout {
   const base = {
     id: layout.id, occurrence: layout.occurrence, source: rewrite.type(layout.source), dataLayout: layout.dataLayout,
@@ -148,8 +153,9 @@ function rewriteLayout(rewrite: TypeRewrite, layout: MemoryLayout): MemoryLayout
 function rewriteMemoryField(rewrite: TypeRewrite, field: MemoryField): MemoryField {
   return {
     id: field.id, occurrence: field.occurrence, owner: rewrite.type(field.owner), selector: field.selector,
-    selection: field.selection, member: rewriteSelection(rewrite, field.member), primary: field.primary,
-    selectedDeclarations: field.selectedDeclarations, value: rewrite.type(field.value), layout: field.layout,
+    selection: field.selection, member: { key: field.member.key, origins: field.member.origins,
+      primary: field.member.primary, selectedDeclarations: field.member.selectedDeclarations,
+      bindings: rewriteBindings(rewrite, field.member.bindings) }, value: rewrite.type(field.value), layout: field.layout,
     byteOffset: field.byteOffset, byteAlignment: field.byteAlignment,
   };
 }

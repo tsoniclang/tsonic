@@ -6,10 +6,13 @@ import type { MirBody, MirOperand, MirSite, MirTerminator, MirUnwind } from "../
 import { localOwnershipOfMir } from "../ir-mir/index.js";
 import type { BodyInstance, ConstValue } from "../ir-types/contract.js";
 import { sameInstance } from "../ir-types/index.js";
-import type { Evaluate, EvaluationStep, ResumeEvaluate } from "./contract.js";
-import type { Cell, EvaluationResult, Frame, Machine, ReadyCall, Task } from "./data.js";
+import type { Evaluate, EvaluateDeps, EvaluationStep, ResumeEvaluate } from "./contract.js";
+import type { EvaluationResult } from "./data.js";
+import type { Cell, Frame, Machine as EvaluationMachine, ReadyCall, Task } from "./pause.js";
 import { arithmetic, evaluationFault, limit, step, validateLimits, valueFits } from "./budget.js";
 import { EvaluationSuspension } from "./pause.js";
+
+type Machine = EvaluationMachine<EvaluateDeps>;
 
 const fail = (message: string, origin: Origin | null = null): never => throwInvariant({ owner: "evaluate", query: null, origin, message });
 const current = (machine: Machine): Frame => requirePresent(machine.frames.at(-1), { owner: "evaluate", query: null, origin: null,
@@ -163,8 +166,18 @@ function call(machine: Machine, terminator: Extract<MirTerminator, { readonly ki
   if (callee.kind === "direct" && callee.resolution.decision.activation !== null)
     return fail("Evaluate needs the selected native handle value and its activation.", terminator.origin);
   let position = 0;
-  const receiver = terminator.receiver === null ? null : { value: requirePresent(frame.values[position++], {
-    owner: "evaluate", query: null, origin: terminator.origin, message: "A call must retain its actual receiver." }) };
+  let receiver: ReadyCall["receiver"] = null;
+  if (terminator.receiver !== null) {
+    const value = requirePresent(frame.values[position++], {
+      owner: "evaluate", query: null, origin: terminator.origin, message: "A call must retain its actual receiver." });
+    let cell: Cell | null = null;
+    if (terminator.receiver.kind === "place") {
+      const local = localPlace(machine, terminator.receiver.place, terminator);
+      if (local === null) return;
+      cell = frame.cells.get(local) ?? null;
+    }
+    receiver = { value, cell };
+  }
   const arguments_: (Cell | null)[] = [];
   for (const argument of terminator.arguments) {
     if (argument.kind === "omitted") arguments_.push(null);
@@ -217,7 +230,11 @@ function enter(machine: Machine, instance: BodyInstance, body: MirBody, ready: R
   for (const local of body.locals) {
     let cell: Cell | null | undefined;
     if (local.role.kind === "parameter") cell = ready.arguments[local.role.index];
-    else if (local.role.kind === "receiver") cell = ready.receiver;
+    else if (local.role.kind === "receiver") {
+      const ownership = localOwnershipOfMir(local.mode);
+      if (ownership === "undecided") return fail("A selected receiver must have its complete storage mode.", local.origin);
+      cell = ready.receiver === null ? null : ownership === "body" ? { value: ready.receiver.value } : ready.receiver.cell;
+    }
     else if (local.role.kind === "capture" && local.source !== null) cell = ready.captures.get(local.source.body)?.get(local.source.local);
     else continue;
     if (cell === null && local.role.kind === "parameter") continue;
@@ -351,14 +368,15 @@ function apply(machine: Machine, selected: Extract<Task, { readonly kind: "apply
 }
 
 function run(machine: Machine): EvaluationStep {
-  while (machine.result === null && machine.pending === null) execute(machine);
-  if (machine.result !== null) return { kind: "done", value: machine.result };
-  const pending = requirePresent(machine.pending ?? undefined, { owner: "evaluate", query: null, origin: null,
-    message: "An unfinished evaluation must have one actual pending request." });
-  return { kind: "paused", requests: [pending.request], paused: { continuation: EvaluationSuspension.create(machine), witness: {
-    instance: current(machine).instance, site: pending.site, request: pending.request, type: pending.type,
-    ready: { values: current(machine).values, count: current(machine).values.length },
-  } }, earned: [] };
+  for (;;) {
+    if (machine.result !== null) return { kind: "done", value: machine.result };
+    const pending = machine.pending;
+    if (pending !== null) return { kind: "paused", requests: [pending.request], paused: { continuation: EvaluationSuspension.create(machine), witness: {
+      instance: current(machine).instance, site: pending.site, request: pending.request, type: pending.type,
+      ready: { values: current(machine).values, count: current(machine).values.length },
+    } }, earned: [] };
+    execute(machine);
+  }
 }
 
 export const evaluate: Evaluate = (deps, entry, body, arguments_, context, unit) => {

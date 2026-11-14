@@ -7,12 +7,10 @@ import type { TirBody } from "../ir-tir/contract.js";
 import type { MirBody } from "../ir-mir/contract.js";
 import type { BodyFacts, Summary } from "../ir-facts/contract.js";
 import { exportTypes, seedTypeInterner, substitute, substituteSignature } from "../ir-types/index.js";
-import type { InstantiationMeter, InstantiationStop } from "./program-values.js";
+import type { InstantiationMeter, InstantiationStop } from "./work.js";
 import type { TypeRewrite } from "./canonical-types.js";
-import {
-  admitBindingVector, bindingData, chargeInstantiationWork, createBindingLookup, createInstantiationMeter,
-  createProjectionInventory, drainProjectionInventory, inventoryRecord,
-} from "./program-values.js";
+import { admitBindingVector, bindingData, createBindingLookup, createProjectionInventory, drainProjectionInventory, inventoryRecord } from "./program-values.js";
+import { chargeInstantiationWork, createInstantiationMeter } from "./work.js";
 import type { ProjectionInventory } from "./program-values.js";
 import { admitTypeSeed, stabilizePublication } from "./instantiate-types.js";
 import { inventoryBodyFacts, inventorySummary } from "./instantiate-facts.js";

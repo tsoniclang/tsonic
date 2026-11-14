@@ -9,6 +9,7 @@ import { checkCoverage } from "../architecture/host/coverage.mjs";
 import { parseSources } from "../architecture/host/import-graph.mjs";
 import { T, TABLE, EMPTY_BINDINGS, selected, verificationContext, application, SIG } from "./fixtures/lower-mir/typed.mjs";
 import { shaped } from "./fixtures/lower-mir/programs/first.mjs";
+import { nativeFactsFixture } from "./fixtures/native-facts.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const runtimeFiles = ["index", "machine", "budget", "pause"].map(name => resolve(repository, `packages/host/dist/evaluate/${name}.js`));
@@ -51,7 +52,7 @@ function fixture(name, type = T.bool, makeRoot = b => b.block(b.returns(b.keywor
   const checked = mir.verifyMir(parsed.value, verificationContext(program));
   same(checked, { kind: "complete", violations: [] }, "the actual selected typed-body/MIR barrier completed");
   const body = parsed.value;
-  const deps = { ...views, limits };
+  const deps = { ...views, types: types.viewTypes(interner), selectedNativeFacts: nativeFactsFixture(), limits };
   const entry = { body: body.body, bindings: body.bindings };
   return { body, deps, entry, unit, start: (selected = limits) => product.evaluate({ ...deps, limits: selected }, entry, body, [], "compile-time", unit) };
 }
@@ -430,6 +431,446 @@ test("a thrown scalar is caught by its actual caller handler or yields exactly o
       assert.equal(result.value.emissions[0].diagnostic, result.value.diagnostics[0]);
     }
   }
+});
+
+test("every closed scalar transport obeys exact bit bounds without native carrier guesses", async () => {
+  const value = fixture("evaluate-closed-scalars");
+  const cases = [
+    [{ kind: "bigint", value: 0n, token: "0n" }, T.literalBigint, 0],
+    [{ kind: "bigint", value: -8n, token: "-8n" }, T.literalBigint, 4],
+    [{ kind: "string", value: "ab" }, T.string, 32],
+    [{ kind: "unique-symbol", declaration: "D[M[P[p];m];selected]" }, T.unknown, 336],
+    [{ kind: "number", value: { numerator: 0n, denominator: 1n, negativeZero: false }, token: "0" }, T.int32, 1],
+    [{ kind: "number", value: { numerator: -8n, denominator: 1n, negativeZero: false }, token: "-8" }, T.int32, 5],
+  ];
+  for (const [literal, type, required] of cases) {
+    const body = { ...value.body, result: type, constants: [{ ...value.body.constants[0], type, value: { kind: "literal", value: literal } }] };
+    for (const field of ["maximumIntermediateBits", "maximumResultBits"]) {
+      for (let maximum = 0; maximum <= required; maximum += 1) {
+        const result = product.evaluate({ ...value.deps, limits: { ...limits, maximumIntermediateBits: 512, maximumResultBits: 512, [field]: maximum } }, value.entry, body, [], "compile-time", value.unit);
+        assert.equal(result.kind, "done");
+        assert.equal(result.value.kind, maximum < required ? "refused" : "ok", `${literal.kind}/${field}:${maximum}`);
+      }
+    }
+  }
+  const { valueFits } = await import("../../packages/host/dist/evaluate/budget.js");
+  const machine = { deps: { limits: { ...limits, maximumIntermediateBits: Number.MAX_SAFE_INTEGER } }, result: null };
+  assert.equal(valueFits(machine, { kind: "bigint", type: T.literalBigint, value: 1n }, "maximumIntermediateBits", value.body.blocks[0].origin), true,
+    "the actual largest count boundary does not overflow a maximum+1 guard");
+  assert.equal(valueFits(machine, { kind: "error", type: T.bool }, "maximumIntermediateBits", value.body.blocks[0].origin), true,
+    "the internal size relation assigns no fabricated payload to an error carrier");
+});
+
+test("floating bit allowances use the actual supplied full encoding, including zero and all payload bits", async () => {
+  const value = fixture("evaluate-floating-budget");
+  const { valueFits } = await import("../../packages/host/dist/evaluate/budget.js");
+  const origin = value.body.blocks[0].origin;
+  const interner = types.seedTypeInterner(TABLE);
+  for (const [primitive, interchange, width] of [["float16", "ieee754-binary16", 16], ["float32", "ieee754-binary32", 32], ["float64", "ieee754-binary64", 64]]) {
+    const type = types.internType(interner, { kind: "primitive", primitive });
+    const format = { carrier: primitive, interchange, nanSignObservable: false, nanPayloadObservable: false, signalingNaNObservable: false };
+    const deps = { ...value.deps, types: types.viewTypes(interner), typeOf: id => types.readType(interner, id), selectedNativeFacts: { ...nativeFactsFixture(), floatingFormats: [format] } };
+    for (const bits of [0n, 1n << BigInt(width - 1), (1n << BigInt(width)) - 1n]) {
+      for (const field of ["maximumIntermediateBits", "maximumResultBits"]) {
+        for (let maximum = 0; maximum <= width; maximum += 1) {
+          const machine = { deps: { ...deps, limits: { ...limits, [field]: maximum } }, result: null, arithmetic: 0, unit: value.unit };
+          assert.equal(valueFits(machine, { kind: "floating", type, bits }, field, origin), maximum === width, `${primitive}/${field}/${bits}/${maximum}`);
+          assert.equal(machine.result === null, maximum === width);
+        }
+      }
+    }
+    const invoke = (selectedDeps, bits = 0n, selectedType = type) => valueFits({ deps: selectedDeps, result: null, arithmetic: 0, unit: value.unit },
+      { kind: "floating", type: selectedType, bits }, "maximumIntermediateBits", origin);
+    assert.throws(() => invoke({ ...deps, selectedNativeFacts: { ...deps.selectedNativeFacts, floatingFormats: [] } }), /selected carrier format/u);
+    assert.throws(() => invoke({ ...deps, selectedNativeFacts: { ...deps.selectedNativeFacts, floatingFormats: [{ ...format, interchange: "unknown" }] } }), /valid selected encoding/u);
+    for (const bits of [-1n, 1n << BigInt(width)]) assert.throws(() => invoke(deps, bits), /valid selected encoding/u);
+    for (const selectedType of [T.int32, T.string]) assert.throws(() => invoke(deps, 0n, selectedType), /actual selected native carrier/u);
+  }
+});
+
+test("floating literal-base consumption charges the original evaluation invocation before every actual type read", async () => {
+  const value = fixture("evaluate-floating-literal-chain");
+  const { valueFits } = await import("../../packages/host/dist/evaluate/budget.js");
+  const origin = value.body.blocks[0].origin;
+  const interner = types.seedTypeInterner(TABLE);
+  const primitive = types.internType(interner, { kind: "primitive", primitive: "float32" });
+  const first = types.internType(interner, { kind: "literal", base: primitive,
+    value: { kind: "number", value: { numerator: 1n, denominator: 1n, negativeZero: false } } });
+  const selected = types.internType(interner, { kind: "literal", base: first,
+    value: { kind: "number", value: { numerator: 2n, denominator: 1n, negativeZero: false } } });
+  const view = types.viewTypes(interner);
+  const format = { carrier: "float32", interchange: "ieee754-binary32",
+    nanSignObservable: false, nanPayloadObservable: false, signalingNaNObservable: false };
+  for (const field of ["maximumIntermediateBits", "maximumResultBits"]) {
+    for (let maximum = 0; maximum <= 3; maximum += 1) {
+      const reads = [];
+      const deps = { ...value.deps, types: view, typeOf: type => { reads.push(type); return types.readType(interner, type); },
+        selectedNativeFacts: { ...nativeFactsFixture(), floatingFormats: [format] },
+        limits: { ...limits, [field]: 32, maximumArithmeticWork: maximum } };
+      const machine = { deps, arithmetic: 0, result: null, unit: value.unit };
+      const floating = { kind: "floating", type: selected, bits: 0n };
+      assert.equal(valueFits(machine, floating, field, origin), maximum === 3);
+      same(reads, [selected, first, primitive].slice(0, maximum), "only actual charged rows are read, including the endpoint");
+      assert.equal(machine.arithmetic, maximum);
+      if (maximum < 3) {
+        const refusal = machine.result;
+        same(refusal.diagnostics[0].arguments,
+          [{ kind: "text", value: "evaluation.maximumArithmeticWork" }, { kind: "number", value: maximum }],
+          "the original arithmetic account owns the first refusal");
+        assert.equal(valueFits(machine, floating, field, origin), false);
+        assert.equal(machine.result, refusal);
+        assert.equal(reads.length, maximum, "an already-refused invocation performs no later row read");
+      } else {
+        assert.equal(valueFits(machine, floating, field, origin), false, "a second read borrows the exhausted original invocation");
+        assert.equal(machine.arithmetic, 3);
+        assert.equal(reads.length, 3);
+      }
+    }
+    const deps = { ...value.deps, types: view, typeOf: type => types.readType(interner, type),
+      selectedNativeFacts: { ...nativeFactsFixture(), floatingFormats: [format] },
+      limits: { ...limits, [field]: 31, maximumArithmeticWork: 3 } };
+    const machine = { deps, arithmetic: 0, result: null, unit: value.unit };
+    assert.equal(valueFits(machine, { kind: "floating", type: selected, bits: 0n }, field, origin), false);
+    assert.equal(machine.arithmetic, 3);
+    same(machine.result.diagnostics[0].arguments,
+      [{ kind: "text", value: `evaluation.${field}` }, { kind: "number", value: 31 }],
+      "after the charged relation completes, the full encoding owns its actual bit refusal");
+    const invoke = typeOf => valueFits({ deps: { ...deps, typeOf }, arithmetic: 0, result: null, unit: value.unit },
+      { kind: "floating", type: selected, bits: 0n }, field, origin);
+    assert.throws(() => invoke(() => undefined), /complete ready type row/u);
+    const invalidBase = { kind: "literal", base: selected,
+      value: { kind: "number", value: { numerator: 0n, denominator: 1n, negativeZero: false } } };
+    const malformed = { ...deps, types: { terms: [invalidBase], signatures: [] }, typeOf: () => invalidBase,
+      limits: { ...limits, maximumArithmeticWork: 4 } };
+    assert.throws(() => valueFits({ deps: malformed, arithmetic: 0, result: null, unit: value.unit },
+      { kind: "floating", type: 0, bits: 0n }, field, origin), /actual ready type domain/u);
+    let missingDomainReads = 0;
+    const missing = { ...deps, types: { terms: [], signatures: [] },
+      typeOf: type => { missingDomainReads += 1; return types.readType(interner, type); } };
+    const missingMachine = { deps: missing, arithmetic: 0, result: null, unit: value.unit };
+    assert.throws(() => valueFits(missingMachine, { kind: "floating", type: selected, bits: 0n }, field, origin),
+      /actual ready type domain/u);
+    assert.equal(missingDomainReads, 0, "a mismatched captured domain is not repaired by a valid unrelated reader");
+    assert.equal(missingMachine.arithmetic, 0);
+  }
+});
+
+test("actual root, storage and constant invariants reject malformed selected records without fake outcomes", () => {
+  const value = fixture("evaluate-boundaries");
+  const block = value.body.blocks[0];
+  const site = block.terminator;
+  const run = body => product.evaluate(value.deps, value.entry, body, [], "compile-time", value.unit);
+  const returned = operand => ({ ...value.body, blocks: [{ ...block, terminator: { ...site, value: operand } }] });
+  const place = base => ({ ...returned({ kind: "place", place: 0 }), places: [{ id: 0, storage: T.bool, origin: site.origin, base }] });
+  assert.throws(() => product.evaluate(value.deps, { ...value.entry, bindings: { kind: "parametric" } }, value.body, [], "compile-time", value.unit), /actual complete verified entry/u);
+  assert.throws(() => run({ ...value.body, entries: [] }), /actually provided entry/u);
+  assert.throws(() => run({ ...value.body, blocks: [] }), /actual block/u);
+  assert.throws(() => run({ ...returned({ kind: "place", place: 0 }), places: [] }), /verified place/u);
+  assert.throws(() => run(place({ kind: "local", local: 0 })), /actual local/u);
+  assert.throws(() => run(returned({ kind: "constant", constant: 5 })), /verified constant operand/u);
+  assert.throws(() => run(place({ kind: "projection" })), /selected storage projection/u);
+  assert.throws(() => run(place({ kind: "checked", place: 0, projection: { kind: "index" } })), /selected checked projection/u);
+  const external = run(place({ kind: "static" }));
+  assert.equal(external.value.value.reason, "external-storage");
+  const selected = value.body.constants[0];
+  for (const [constant, pattern] of [
+    [{ kind: "observation", at: { ...site.tir, body: "another-owner" } }, /actual executing frame/u],
+    [{ kind: "metadata" }, /metadata descriptor/u],
+    [{ kind: "definition" }, /initializer association/u],
+  ]) assert.throws(() => run({ ...value.body, constants: [{ ...selected, value: constant }] }), pattern);
+  const local = { id: 0, role: { kind: "user" }, mode: "local", storage: T.bool, source: null, origin: site.origin };
+  const refined = { ...place({ kind: "checked", place: 1, projection: { kind: "refined" } }), locals: [local],
+    places: [{ id: 0, base: { kind: "checked", place: 1, projection: { kind: "refined" } }, storage: T.bool, origin: site.origin },
+      { id: 1, base: { kind: "local", local: 0 }, storage: T.bool, origin: site.origin }] };
+  const unset = run(refined);
+  assert.equal(unset.value.value.value.kind, "error", "a refined view reads the SAME underlying unwritten cell");
+});
+
+test("remaining selected execution frontiers are invariants, never substituted not-constant values", () => {
+  const value = fixture("evaluate-frontiers");
+  const block = value.body.blocks[0];
+  const site = block.terminator;
+  const run = body => product.evaluate(value.deps, value.entry, body, [], "compile-time", value.unit);
+  for (const kind of ["aggregate", "address-of", "closure"]) {
+    const body = { ...value.body, locals: [{ id: 0, role: { kind: "temporary" }, mode: "local", source: null, storage: T.bool, origin: site.origin }],
+      places: [{ id: 0, base: { kind: "local", local: 0 }, storage: T.bool, origin: site.origin }],
+      blocks: [{ ...block, statements: [{ ...site, kind: "assign", place: 0, value: { kind } }] }] };
+    assert.throws(() => run(body), /selected rvalue/u, kind);
+  }
+  for (const kind of ["unreachable", "check"]) {
+    assert.throws(() => run({ ...value.body, blocks: [{ ...block, terminator: { ...site, kind } }] }),
+      kind === "unreachable" ? /unreachable/u : /selected check terminator/u);
+  }
+  for (const kind of ["await", "yield", "delegate"]) {
+    const result = run({ ...value.body, blocks: [{ ...block, terminator: { ...site, kind } }] });
+    same(result.value.value, { kind: "not-constant", at: site.tir, reason: "suspension" }, "real suspension is an actual constant-domain boundary");
+  }
+});
+
+test("callee entries distinguish full and omitted fixed arguments and refuse incomplete incoming associations", () => {
+  const caller = fixture("evaluate-entry-caller");
+  const child = fixture("evaluate-entry-child");
+  const bridge = internalCall(caller, child);
+  const site = child.body.blocks[0].terminator;
+  const parameter = { id: 0, role: { kind: "parameter", index: 0 }, mode: "by-value", storage: T.bool, source: null, origin: site.origin };
+  const place = { id: 0, base: { kind: "local", local: 0 }, storage: T.bool, origin: site.origin };
+  const target = { ...child.body, entries: [{ provided: 1, block: 0 }, { provided: 0, block: 1 }], locals: [parameter], places: [place],
+    blocks: [{ ...child.body.blocks[0], terminator: { ...site, value: { kind: "place", place: 0 } } },
+      { ...child.body.blocks[0], id: 1 }] };
+  const selected = { ...bridge.body, blocks: bridge.body.blocks.map(block => block.id === 0
+    ? { ...block, terminator: { ...block.terminator, arguments: [{ kind: "omitted" }] } } : block) };
+  const begin = () => product.evaluate(bridge.deps, bridge.entry, selected, [], "compile-time", bridge.unit);
+  const paused = begin();
+  const result = product.resumeEvaluate(bridge.deps, paused.paused, [{ kind: "mir-body", body: target }]);
+  same(result.value.value, { kind: "value", value: { kind: "boolean", value: true, type: T.bool } }, "actual provided0 selects block1, not full block0 or ordinal0");
+  for (const [body, pattern] of [
+    [{ ...target, entries: [] }, /full fixed-argument entry/u],
+    [{ ...target, entries: [{ provided: 2, block: 0 }] }, /every fixed argument/u],
+    [{ ...target, entries: [{ provided: 1, block: 0 }] }, /actually admissible provided entry/u],
+    [{ ...target, locals: [{ ...parameter, role: { kind: "receiver" } }] }, /incoming storage association/u],
+    [{ ...target, locals: [{ ...parameter, role: { kind: "capture", index: 0 }, source: { body: caller.entry.body, local: 9 } }] }, /incoming storage association/u],
+  ]) assert.throws(() => product.resumeEvaluate(bridge.deps, begin().paused, [{ kind: "mir-body", body }]), pattern);
+});
+
+test("selected receiver mode shares the actual caller cell or copies the evaluated receiver value", () => {
+  for (const mode of ["by-value", "byref-readwrite"]) {
+    const caller = fixture(`evaluate-receiver-${mode}-caller`);
+    const child = fixture(`evaluate-receiver-${mode}-child`, T.bool, b => b.block(b.returns(b.keyword("FalseKeyword", T.bool))));
+    const bridge = internalCall(caller, child);
+    const call = bridge.body.blocks[0].terminator;
+    const childSite = child.body.blocks[0].terminator;
+    const body = { ...bridge.body, blocks: [{ ...bridge.body.blocks[0], statements: [{ ...call, kind: "assign", place: 0,
+      value: { kind: "use", operand: { kind: "constant", constant: 0 } } }],
+      terminator: { ...call, receiver: { kind: "place", place: 0 }, destination: null } }, bridge.body.blocks[1]] };
+    const target = { ...child.body, locals: [{ id: 0, role: { kind: "receiver" }, mode, storage: T.bool, source: null, origin: childSite.origin }],
+      places: [{ id: 0, base: { kind: "local", local: 0 }, storage: T.bool, origin: childSite.origin }],
+      blocks: [{ ...child.body.blocks[0], statements: [{ ...childSite, kind: "assign", place: 0,
+        value: { kind: "use", operand: { kind: "constant", constant: 0 } } }] }] };
+    const paused = product.evaluate(bridge.deps, bridge.entry, body, [], "compile-time", bridge.unit);
+    const result = product.resumeEvaluate(bridge.deps, paused.paused, [{ kind: "mir-body", body: target }]);
+    same(result.value.value, { kind: "value", value: { kind: "boolean", type: T.bool, value: mode === "by-value" } }, "selected receiver storage is not unconditionally copied");
+  }
+});
+
+test("bodyless, deferred and indirect calls keep genuine distinct boundaries and evaluate actual operands", () => {
+  const caller = fixture("evaluate-call-frontiers");
+  const child = fixture("evaluate-call-frontiers-child");
+  const bridge = internalCall(caller, child);
+  const site = bridge.body.blocks[0].terminator;
+  const decision = application("evaluate-call-frontiers-child", SIG["evaluate-call-frontiers-child"], [], T.bool);
+  const run = call => product.evaluate(bridge.deps, bridge.entry,
+    { ...bridge.body, blocks: [{ ...bridge.body.blocks[0], terminator: { ...site, ...call } }, bridge.body.blocks[1]] }, [], "compile-time", bridge.unit);
+  const external = run({ callee: { kind: "direct", resolution: { decision, activation: null } }, receiver: { kind: "constant", constant: 0 } });
+  same(external.value.value, { kind: "not-constant", at: site.tir, reason: "external-operation" }, "a bodyless selected call is outside the interpreter");
+  assert.throws(() => run({ callee: { kind: "direct", resolution: { decision: { ...decision, activation: "when-first-driven" }, activation: child.entry } } }), /native handle value/u);
+  assert.throws(() => run({ callee: { kind: "indirect", operand: { kind: "constant", constant: 0 }, resolution: { decision, activation: child.entry } } }), /callable value/u);
+  const sparse = new Array(1);
+  assert.throws(() => run({ arguments: sparse }), /complete argument vector/u);
+  const externalPlace = { ...bridge.body.places[0], base: { kind: "static" } };
+  for (const part of ["argument", "capture", "destination"]) {
+    const call = part === "argument" ? { ...site, arguments: [{ kind: "place", passing: "byref-readwrite", place: 0 }] }
+      : part === "capture" ? { ...site, callee: { kind: "body", instance: child.entry, captures: [{ local: { body: caller.entry.body, local: 0 }, place: 0, capture: "captured-location" }] } } : site;
+    const body = { ...bridge.body, places: [externalPlace], blocks: [{ ...bridge.body.blocks[0], terminator: call }, bridge.body.blocks[1]] };
+    const result = product.evaluate(bridge.deps, bridge.entry, body, [], "compile-time", bridge.unit);
+    assert.equal(result.value.value.reason, "external-storage", `${part} cannot acquire storage outside this run`);
+  }
+});
+
+test("real root parameters, local lifetime and empty successor jumps retain exact step and value limits", () => {
+  const value = fixture("evaluate-root-parameter", T.bool, b => b.block(b.returns(b.id("arg", 0, T.bool))), [["arg", "required", T.bool]]);
+  const argument = { kind: "boolean", type: T.bool, value: false };
+  for (const maximum of [0, 1]) {
+    const result = product.evaluate({ ...value.deps, limits: { ...limits, maximumIntermediateBits: maximum } }, value.entry, value.body, [argument], "compile-time", value.unit);
+    assert.equal(result.value.kind, maximum === 0 ? "refused" : "ok");
+    if (maximum === 1) same(result.value.value.value, argument, "the actual provided argument initializes its own selected slot");
+  }
+  const root = fixture("evaluate-local-lifetime");
+  const site = root.body.blocks[0].terminator;
+  const body = { ...root.body, locals: [{ id: 0, role: { kind: "user" }, mode: "local", storage: T.bool, source: null, origin: site.origin }],
+    blocks: [{ ...root.body.blocks[0], statements: [{ ...site, kind: "storage-live", local: 0 }, { ...site, kind: "storage-dead", local: 0 }],
+      terminator: { ...site, kind: "goto", target: 1 } }, { ...root.body.blocks[0], id: 1 }] };
+  for (let maximum = 0; maximum <= 4; maximum += 1) {
+    const result = product.evaluate({ ...root.deps, limits: { ...limits, maximumSteps: maximum } }, root.entry, body, [], "compile-time", root.unit);
+    assert.equal(result.value.kind, maximum < 4 ? "refused" : "ok", `two lifetime statements, goto, return:${maximum}`);
+  }
+});
+
+test("invocations evaluate operands once, preserve their continuation and retain actual operation frontiers", () => {
+  const value = fixture("evaluate-invoke");
+  const block = value.body.blocks[0];
+  const site = block.terminator;
+  const boolean = operation => ({ decision: selected(operation, [T.bool], operation.kind === "discard" ? T.void : T.bool), permissionScope: null });
+  const make = (operation, operands = [{ kind: "constant", constant: 0 }], destination = 0) => ({ ...value.body,
+    result: operation.kind === "discard" && destination !== null ? T.void : T.bool,
+    locals: [{ id: 0, role: { kind: "temporary" }, mode: "local", storage: operation.kind === "discard" ? T.void : T.bool, source: null, origin: site.origin }],
+    places: [{ id: 0, base: { kind: "local", local: 0 }, storage: operation.kind === "discard" ? T.void : T.bool, origin: site.origin }],
+    blocks: [{ ...block, terminator: { ...site, kind: "invoke", operation: boolean(operation), operands, destination,
+      next: 1, unwind: { kind: "none" }, step: null } },
+    { ...block, id: 1, terminator: { ...site, value: destination === null ? site.value : { kind: "place", place: 0 } } }] });
+  const run = body => product.evaluate(value.deps, value.entry, body, [], "compile-time", value.unit);
+  const not = run(make({ kind: "boolean-operator", operator: "!" }));
+  same(not.value.value, { kind: "value", value: { kind: "boolean", type: T.bool, value: false } }, "actual invocation writes destination then follows successor");
+  const discarded = run(make({ kind: "discard" }));
+  same(discarded.value.value, { kind: "value", value: { kind: "absence", type: T.void } }, "the actual discard result is native absence of the selected void type");
+  assert.equal(run(make({ kind: "discard" }, [], null)).value.kind, "ok", "a resultless invocation still follows its actual successor");
+  for (const kind of ["library", "core"]) {
+    const result = run(make({ kind, declaration: "D[M[P[p];m];operation]", bindings: EMPTY_BINDINGS }));
+    same(result.value.value, { kind: "not-constant", at: site.tir, reason: "external-operation" }, "external selected operation has no invented value");
+  }
+  assert.throws(() => run(make({ kind: "native-operator", operator: "+", carrier: "int32" })), /actual selected native operation law/u);
+  assert.throws(() => run(make({ kind: "boolean-operator", operator: "!" }, [])), /actual operand/u);
+  assert.throws(() => run(make({ kind: "boolean-operator", operator: "&&" })), /two verified boolean values/u);
+  assert.throws(() => run(make({ kind: "discard" }, new Array(1))), /complete operand vector/u);
+  const external = make({ kind: "discard" });
+  external.places = [{ ...external.places[0], base: { kind: "static" } }];
+  assert.equal(run(external).value.value.reason, "external-storage");
+  const wrongType = make({ kind: "boolean-operator", operator: "!" });
+  wrongType.constants = [{ ...wrongType.constants[0], value: { kind: "literal", value: { kind: "absence" } } }];
+  assert.throws(() => run(wrongType), /verified boolean value/u);
+});
+
+test("absence switches and both sides of closed boolean operators keep their actual selected relations", () => {
+  const value = fixture("evaluate-branch-relations");
+  const block = value.body.blocks[0];
+  const site = block.terminator;
+  const body = { ...value.body, constants: [{ id: 0, type: T.absence, value: { kind: "literal", value: { kind: "absence" } } },
+    { id: 1, type: T.bool, value: { kind: "literal", value: { kind: "boolean", value: false } } }],
+    blocks: [{ ...block, terminator: { ...site, kind: "switch", operand: { kind: "constant", constant: 0 }, targets: [{ constant: 0, target: 1 }], otherwise: 2, step: null } },
+      { ...block, id: 1, terminator: { ...site, value: { kind: "constant", constant: 1 } } }, { ...block, id: 2 }] };
+  const run = body => product.evaluate(value.deps, value.entry, body, [], "compile-time", value.unit);
+  same(run(body).value.value.value, { kind: "boolean", type: T.bool, value: false }, "native absence matches itself without a JS null/undefined tag");
+  const badTarget = { ...body, blocks: [{ ...body.blocks[0], terminator: { ...body.blocks[0].terminator, targets: [{ constant: 8, target: 1 }] } }, ...body.blocks.slice(1)] };
+  assert.throws(() => run(badTarget), /literal constant/u);
+  const unimplemented = { ...body, constants: body.constants.map(record => record.id === 0
+    ? { ...record, value: { kind: "literal", value: { kind: "string", value: "s" } } } : record) };
+  assert.throws(() => run(unimplemented), /native discriminant relation/u);
+  for (const operator of ["&&", "||"]) {
+    const decision = selected({ kind: "boolean-operator", operator }, [T.bool, T.bool], T.bool);
+    const opposite = fixture(`evaluate-opposite-${operator}`, T.bool, b => b.block(b.returns(
+      b.comparison(b.keyword("FalseKeyword", T.bool), "EqualsEqualsEqualsToken", b.keyword("TrueKeyword", T.bool), decision))));
+    assert.equal(opposite.start().value.value.value.value, operator === "||");
+  }
+  for (const negated of [false, true]) {
+    const decision = selected({ kind: "absence-test", negated }, [T.bool], T.bool);
+    const opposite = fixture(`evaluate-present-${negated}`, T.bool, b => b.block(b.returns(
+      b.prefix(b.keyword("TrueKeyword", T.bool), "ExclamationToken", T.bool, decision))));
+    assert.equal(opposite.start().value.value.value.value, negated);
+  }
+});
+
+test("capture acquisition rejects undecided and unwritten values but can lend a real unwritten location", () => {
+  const caller = fixture("evaluate-capture-boundaries");
+  const child = fixture("evaluate-capture-boundaries-child");
+  const source = { body: caller.entry.body, local: 0 };
+  for (const capture of [null, "captured-value", "captured-location"]) {
+    const bridge = internalCall(caller, child, [{ local: source, place: 0, capture }]);
+    const begin = () => product.evaluate(bridge.deps, bridge.entry, bridge.body, [], "compile-time", bridge.unit);
+    if (capture === null) assert.throws(begin, /actual capture decision/u);
+    else if (capture === "captured-value") {
+      const result = begin();
+      assert.equal(result.kind, "done");
+      assert.equal(result.value.value.value.kind, "error", "snapshotting an unwritten value is a reached source fault");
+    } else {
+      const paused = begin();
+      assert.equal(paused.kind, "paused", "a selected location may be unwritten until its child writes it");
+      const result = product.resumeEvaluate(bridge.deps, paused.paused, [{ kind: "mir-body", body: child.body }]);
+      assert.equal(result.kind, "done");
+      assert.equal(result.value.kind, "ok");
+    }
+  }
+  const not = selected({ kind: "boolean-operator", operator: "!" }, [T.bool], T.bool);
+  const temporary = fixture("evaluate-callee-private-temporary", T.bool,
+    b => b.block(b.returns(b.prefix(b.keyword("TrueKeyword", T.bool), "ExclamationToken", T.bool, not))));
+  const bridge = internalCall(caller, temporary);
+  const paused = product.evaluate(bridge.deps, bridge.entry, bridge.body, [], "compile-time", bridge.unit);
+  const result = product.resumeEvaluate(bridge.deps, paused.paused, [{ kind: "mir-body", body: temporary.body }]);
+  assert.equal(result.value.value.value.value, false, "callee-created slots remain independent from all incoming association maps");
+});
+
+test("upstream error and private pause-state integrity never admit a fabricated successful dependency", async () => {
+  const reference = { initializer: fixture("evaluate-invalid-error-target").entry, context: "compile-time" };
+  const value = requestFixture("evaluate-invalid-error", { kind: "constant", reference });
+  const unit = answerUnit("constValue");
+  const answer = error => [{ kind: "const-value", unit,
+    value: { value: { kind: "value", value: { kind: "error", type: T.bool } }, positions: [{ position: unit.position, error }] } }];
+  assert.throws(() => product.resumeEvaluate(value.deps, value.begin().paused, answer({ kind: "error", causes: [] })), /original grounded cause/u);
+  assert.throws(() => product.resumeEvaluate(value.deps, value.begin().paused, answer(null)), /actual unit error position/u);
+  const { EvaluationSuspension } = await import("../../packages/host/dist/evaluate/pause.js");
+  const rebuild = (paused, mutate) => {
+    const machine = EvaluationSuspension.consume(paused.continuation);
+    mutate(machine);
+    return { ...paused, continuation: EvaluationSuspension.create(machine) };
+  };
+  const missing = rebuild(value.begin().paused, machine => { machine.pending = null; });
+  assert.throws(() => product.resumeEvaluate(value.deps, missing, answer(null)), /immutable pending witness/u);
+  const untyped = rebuild(value.begin().paused, machine => { machine.pending.type = null; });
+  untyped.witness = { ...untyped.witness, type: null };
+  assert.throws(() => product.resumeEvaluate(value.deps, untyped, answer(null)), /selected result type/u);
+  const child = fixture("evaluate-missing-call-state-child");
+  const bridge = internalCall(fixture("evaluate-missing-call-state"), child);
+  const paused = product.evaluate(bridge.deps, bridge.entry, bridge.body, [], "compile-time", bridge.unit);
+  const invalid = rebuild(paused.paused, machine => { machine.pending.call = null; });
+  assert.throws(() => product.resumeEvaluate(bridge.deps, invalid, [{ kind: "mir-body", body: child.body }]), /actual pending call/u);
+});
+
+test("selected receiver/cell boundary and external exception destination retain first refusal", async () => {
+  const caller = fixture("evaluate-exception-storage");
+  const child = fixture("evaluate-exception-storage-child");
+  const bridge = internalCall(caller, child);
+  const site = child.body.blocks[0].terminator;
+  const throwing = { ...child.body, blocks: [{ ...child.body.blocks[0], terminator: { ...site, kind: "throw", operand: site.value, unwind: { kind: "escape" } } }] };
+  const body = { ...bridge.body, places: [{ ...bridge.body.places[0], base: { kind: "static" } }],
+    blocks: [{ ...bridge.body.blocks[0], terminator: { ...bridge.body.blocks[0].terminator, destination: null,
+      unwind: { kind: "handler", exception: 0, target: 1 } } }, bridge.body.blocks[1]] };
+  const paused = product.evaluate(bridge.deps, bridge.entry, body, [], "compile-time", bridge.unit);
+  const result = product.resumeEvaluate(bridge.deps, paused.paused, [{ kind: "mir-body", body: throwing }]);
+  assert.equal(result.value.value.reason, "external-storage", "the real handler destination cannot be manufactured inside this run");
+  const ready = product.evaluate(bridge.deps, bridge.entry, bridge.body, [], "compile-time", bridge.unit);
+  const undecided = { ...child.body, locals: [{ id: 0, role: { kind: "receiver" }, mode: null, source: null, storage: T.bool, origin: site.origin }] };
+  assert.throws(() => product.resumeEvaluate(bridge.deps, ready.paused, [{ kind: "mir-body", body: undecided }]), /complete storage mode/u);
+  const { EvaluationSuspension } = await import("../../packages/host/dist/evaluate/pause.js");
+  for (const external of [false, true]) {
+    const target = requestFixture(`evaluate-internal-receiver-${external}`, { kind: "constant", reference: { initializer: child.entry, context: "compile-time" } });
+    const pending = target.begin();
+    const machine = EvaluationSuspension.consume(pending.paused.continuation);
+    const frame = machine.frames[0];
+    const call = { ...bridge.body.blocks[0].terminator, receiver: { kind: "place", place: 0 }, destination: null };
+    frame.body = { ...frame.body, locals: bridge.body.locals,
+      places: [{ ...bridge.body.places[0], base: external ? { kind: "static" } : { kind: "local", local: 0 } }] };
+    frame.work = [{ kind: "call", terminator: call }];
+    const rebound = { ...pending.paused, continuation: EvaluationSuspension.create(machine) };
+    const answer = [{ kind: "const-value", unit: answerUnit("constValue"), value: { value: { kind: "value", value: { kind: "boolean", type: T.bool, value: true } },
+      positions: [{ position: { kind: "result" }, error: null }] } }];
+    const response = product.resumeEvaluate(target.deps, rebound, answer);
+    assert.equal(response.kind, external ? "done" : "paused", "owning-state fixtures exercise receiver cell acquisition, not a Source composition claim");
+    if (external) assert.equal(response.value.value.reason, "external-storage");
+  }
+});
+
+test("an unwritten by-place formal and unavailable assignment stop before any later continuation", () => {
+  const caller = fixture("evaluate-writeonly-caller");
+  const childName = "evaluate-writeonly-child";
+  const child = fixture(childName, T.bool, b => b.block(b.returns(b.id("arg", 0, T.bool))), [["arg", "required", T.bool, "byref-readwrite"]]);
+  const bridge = internalCall(caller, child);
+  const site = bridge.body.blocks[0].terminator;
+  const decision = application(childName, SIG[childName], [{ kind: "argument", parameter: 0, argument: 0, component: null, passing: "byref-readwrite" }], T.bool);
+  const body = { ...bridge.body, blocks: [{ ...bridge.body.blocks[0], terminator: { ...site,
+    callee: { kind: "direct", resolution: { decision, activation: child.entry } }, arguments: [{ kind: "place", passing: "byref-readwrite", place: 0 }] } }, bridge.body.blocks[1]] };
+  const pending = product.evaluate(bridge.deps, bridge.entry, body, [], "compile-time", bridge.unit);
+  const result = product.resumeEvaluate(bridge.deps, pending.paused, [{ kind: "mir-body", body: child.body }]);
+  assert.equal(result.value.value.value.kind, "error", "lending a cell does not invent its contents");
+  const external = { ...bridge.body, places: [{ ...bridge.body.places[0], base: { kind: "static" } }],
+    blocks: [{ ...bridge.body.blocks[0], statements: [{ ...site, kind: "assign", place: 0, value: { kind: "use", operand: { kind: "constant", constant: 0 } } }] }, bridge.body.blocks[1]] };
+  assert.equal(product.evaluate(bridge.deps, bridge.entry, external, [], "compile-time", bridge.unit).value.value.reason, "external-storage");
+  const block = caller.body.blocks[0];
+  const malformed = { ...caller.body, constants: [{ ...caller.body.constants[0], value: { kind: "invalid-incoming-record" } }],
+    blocks: [{ ...block, terminator: { ...block.terminator, kind: "switch", operand: { kind: "constant", constant: 0 }, targets: [], otherwise: 0, step: null } }] };
+  assert.throws(() => product.evaluate(caller.deps, caller.entry, malformed, [], "compile-time", caller.unit), /actual discriminant/u);
+  const omittedRoot = { ...child.body, entries: [{ provided: 0, block: 0 }], blocks: [{ ...child.body.blocks[0], terminator: { ...child.body.blocks[0].terminator,
+    value: { kind: "constant", constant: 0 } } }], constants: caller.body.constants };
+  assert.equal(product.evaluate(child.deps, child.entry, omittedRoot, [], "compile-time", child.unit).value.kind, "ok");
+  const externalRoot = product.evaluate(child.deps, child.entry, child.body, [{ kind: "boolean", type: T.bool, value: true }], "compile-time", child.unit);
+  assert.equal(externalRoot.value.value.reason, "external-storage", "a root scalar argument does not invent a borrowed external environment");
 });
 
 after(async () => {

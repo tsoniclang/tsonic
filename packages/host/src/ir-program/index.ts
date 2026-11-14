@@ -14,6 +14,7 @@ import { parseModuleBodies as parseModule, parseProgramIndex as parseIndex } fro
 import { printModuleBodies as printModule, printProgramIndex as printIndex } from "./print.js";
 import { verifyProgramIndex as verifyIndex } from "./verify-index.js";
 import { verifyModuleBodies as verifyModule } from "./verify-module.js";
+export { createProgramVerificationWork } from "./verification-work.js";
 
 export const canonicalizeProgram: CanonicalizeProgram = canonicalize;
 export const printProgramIndex: PrintProgramIndex = printIndex;

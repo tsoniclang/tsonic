@@ -8,7 +8,7 @@ import type {
 } from "../ir-types/contract.js";
 import type { CallbackInput, SummaryCallback } from "../snapshot/contract.js";
 import type {
-  ArgumentTransport, BindingStorageFact, BodyFacts, BoundActivation, BoundProducer, BoundRecordField,
+  ArgumentTransport, BindingStorageFact, BodyFacts, BodyObservations, BoundActivation, BoundProducer, BoundRecordField,
   CallbackEntry, CallComponent, CallEdge, CallGraph, CaptureEffect, CaptureFact, CaptureLocation,
   ClosedArrayFact, ClosedArrayReason, ConstructionAlternative, CountedLoopFact, EffectPaths,
   ErrorInvalidationFact, ErrorInvalidationReason, ErrorStorageFact, ErrorStorageFacts, EscapeFact, EscapeTarget,
@@ -449,11 +449,16 @@ const layoutRef = (writer: Writer, value: MetadataLayoutRef): void => record(wri
 const fieldRef = (writer: Writer, value: MetadataFieldRef): void => record(writer, "MetadataFieldRef", [
   ["metadata", () => metadataKey(writer, value.metadata)], ["field", () => identity(writer, "field", value.field)],
 ]);
+const storageSelection = (writer: Writer, value: MemoryField["member"]): void => record(writer, "MemberStorageSelection", [
+  ["key", () => memberKey(writer, value.key)], ["origins", () => sequence(writer, value.origins, item => memberOrigin(writer, item))],
+  ["selectedDeclarations", () => sequence(writer, value.selectedDeclarations, item => identity(writer, "def", item))],
+  ["primary", () => nullable(writer, value.primary, item => identity(writer, "def", item))],
+  ["bindings", () => bindings(writer, value.bindings)],
+]);
 const memoryField = (writer: Writer, value: MemoryField): void => record(writer, "MemoryField", [
   ["id", () => identity(writer, "field", value.id)], ["occurrence", () => sourceRef(writer, value.occurrence)],
   ["owner", () => identity(writer, "t", value.owner)], ["selector", () => sourceRef(writer, value.selector)],
-  ["selection", () => sourceRef(writer, value.selection)], ["member", () => memberSelection(writer, value.member)],
-  ["primary", () => nullable(writer, value.primary, item => identity(writer, "def", item))], ["selectedDeclarations", () => sequence(writer, value.selectedDeclarations, item => identity(writer, "def", item))],
+  ["selection", () => sourceRef(writer, value.selection)], ["member", () => storageSelection(writer, value.member)],
   ["value", () => identity(writer, "t", value.value)], ["layout", () => identity(writer, "layout", value.layout)],
   ["byteOffset", () => scalar(writer, value.byteOffset)], ["byteAlignment", () => scalar(writer, value.byteAlignment)],
 ]);
@@ -461,7 +466,7 @@ const observation = (writer: Writer, value: ObservationFact): void => record(wri
   ["node", () => identity(writer, "n", value.node)], ["operation", () => scalar(writer, value.operation)],
   ["operand", () => nodeRef(writer, value.operand)], ["layout", () => layoutRef(writer, value.layout)],
   ["field", () => nullable(writer, value.field, item => fieldRef(writer, item))], ["result", () => identity(writer, "t", value.result)],
-  ["value", () => scalar(writer, value.value)], ["context", () => identity(writer, "context", value.context)],
+  ["value", () => scalar(writer, value.value)],
   ["bindings", () => bindings(writer, value.bindings)],
 ]);
 const rawLocation = (writer: Writer, value: RawLocationFact): void => record(writer, "RawLocationFact", [
@@ -490,7 +495,7 @@ const bodyFacts = (writer: Writer, value: BodyFacts): void => record(writer, "Bo
   ["liveness", () => liveness(writer, value.liveness)], ["initialization", () => initialization(writer, value.initialization)],
   ["refinements", () => refinements(writer, value.refinements)], ["origins", () => originFacts(writer, value.origins)],
   ["suspension", () => suspension(writer, value.suspension)], ["errorStorage", () => errorStorage(writer, value.errorStorage)],
-  ["pointerBacking", () => pointerBacking(writer, value.pointerBacking)], ["observations", () => sequence(writer, value.observations, item => observation(writer, item))],
+  ["pointerBacking", () => pointerBacking(writer, value.pointerBacking)],
   ["rawLocations", () => sequence(writer, value.rawLocations, item => rawLocation(writer, item))], ["fieldBindings", () => sequence(writer, value.fieldBindings, item => fieldBinding(writer, item))],
   ["recordBindings", () => sequence(writer, value.recordBindings, item => recordBinding(writer, item))], ["memoryBindings", () => sequence(writer, value.memoryBindings, item => memoryInventory(writer, item))],
   ["selectedMemoryDeclarations", () => sequence(writer, value.selectedMemoryDeclarations, item => identity(writer, "def", item))], ["closedArrays", () => sequence(writer, value.closedArrays, item => closedArray(writer, item))],
@@ -629,6 +634,9 @@ const callCallee = (writer: Writer, edge: CallEdge): void => {
 };
 
 export const printFacts: PrintFacts = facts => finish(facts, bodyFacts);
+export const printObservations = (value: BodyObservations): string => finish(value, (writer, value) => record(writer, "BodyObservations", [
+  ["instance", () => bodyInstance(writer, value.instance)], ["rows", () => sequence(writer, value.rows, item => observation(writer, item))],
+]));
 export const printSummary: PrintSummary = value => finish(value, summary);
 export const printMetadata: PrintMetadata = value => finish(value, metadata);
 export const printCallGraph: PrintCallGraph = value => finish(value, callGraph);

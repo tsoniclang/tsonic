@@ -2,7 +2,11 @@ import type { Diagnostic, DiagnosticIdentity, UnitRef } from "../diag/contract.j
 import { hostDiagnosticCode, resourceLimitDiagnostic } from "../diag/index.js";
 import type { Origin } from "../ids/contract.js";
 import type { ConstValue } from "../ir-types/contract.js";
-import type { EvaluatorLimits, Machine } from "./data.js";
+import { floatingBitsFit, floatingFormatWidth, nativeCarrierOf } from "../ir-types/index.js";
+import type { EvaluateDeps, EvaluatorLimits } from "./contract.js";
+import type { Machine as EvaluationMachine } from "./pause.js";
+
+type Machine = EvaluationMachine<EvaluateDeps>;
 
 export function validateLimits(limits: EvaluatorLimits): void {
   maximum(limits.maximumSteps, "maximumSteps");
@@ -42,6 +46,7 @@ function integerBits(value: bigint, maximum: number): number | null {
 }
 
 export function valueFits(machine: Machine, value: ConstValue, field: "maximumIntermediateBits" | "maximumResultBits", origin: Origin): boolean {
+  if (machine.result !== null) return false;
   const maximum = machine.deps.limits[field];
   let fits: boolean;
   switch (value.kind) {
@@ -50,6 +55,22 @@ export function valueFits(machine: Machine, value: ConstValue, field: "maximumIn
     case "string": fits = value.value.length <= Math.floor(maximum / 16); break;
     case "unique-symbol": fits = value.declaration.length <= Math.floor(maximum / 16); break;
     case "bigint": fits = integerBits(value.value, maximum) !== null; break;
+    case "floating": {
+      const selected = nativeCarrierOf(machine.deps.types, value.type, type => {
+        if (!arithmetic(machine, 1, origin)) return null;
+        return machine.deps.typeOf(type);
+      });
+      if (selected.kind === "resource-stop") return false;
+      if (selected.kind !== "primitive" || (selected.primitive !== "float16" && selected.primitive !== "float32" && selected.primitive !== "float64")) {
+        throw new TypeError("Evaluate floating values require their actual selected native carrier");
+      }
+      const format = machine.deps.selectedNativeFacts.floatingFormats.find(row => row.carrier === selected.primitive);
+      if (format === undefined) throw new TypeError("Evaluate floating values require the selected carrier format");
+      const width = floatingFormatWidth(format);
+      if (width === null || !floatingBitsFit(value.bits, format)) throw new TypeError("Evaluate floating values require a valid selected encoding");
+      fits = width <= maximum;
+      break;
+    }
     case "number": {
       const numerator = integerBits(value.value.numerator, maximum);
       const denominator = numerator === null ? null : integerBits(value.value.denominator, maximum - numerator);

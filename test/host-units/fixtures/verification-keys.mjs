@@ -17,7 +17,7 @@ export const relationalOwnerKey = value => value.kind === "body"
 
 export function bindingTargetKey(value) {
   switch (value.kind) {
-    case "body": return [value.kind, bodyInstanceKey(value.instance)];
+    case "observations": case "body": return [value.kind, bodyInstanceKey(value.instance)];
     case "summary": return [value.kind, declarationInstanceKey(value.summary)];
     case "metadata": return [value.kind, declarationInstanceKey(value.metadata)];
   }

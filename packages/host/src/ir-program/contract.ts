@@ -1,12 +1,18 @@
 import type { Diagnostic, TextParseResult, Violation } from "../diag/contract.js";
 import type { BodyId, DefId, DefinitionPath, ModuleId, ModulePath, NodeId, PackageId, SigId } from "../ids/contract.js";
 import type {
-  ArtifactBindings, BindingVector, BodyInstance, ConstantReference, ConstValue, TypeExpansionLimits, TypePublication, TypePublicationLimits, TypeTable,
+  ArtifactBindings, BindingVector, BodyInstance, ConstantReference, ConstValue, TypePublication, TypeTable,
 } from "../ir-types/contract.js";
 import type { SourceFile } from "../ir-hir/contract.js";
 import type { TirBody, TirVerifierInput, TypedPhase } from "../ir-tir/contract.js";
 import type { MirBody, MirVerificationLimits } from "../ir-mir/contract.js";
-import type { BodyFacts, FactsVerificationContext, MetadataRecord, Summary } from "../ir-facts/contract.js";
+import type { BodyFacts, BodyObservations, FactsVerificationContext, MetadataRecord, Summary } from "../ir-facts/contract.js";
+import type { ArtifactReference, InstantiationLimits, ProgramSite, ProgramVerificationStop } from "./work-data.js";
+import type { ProgramWork } from "./work.js";
+
+export type { ArtifactReference, InstantiationLimits, ProgramSite } from "./work-data.js";
+export type ProgramVerificationWork = ProgramWork;
+export type CreateProgramVerificationWork = (limits: InstantiationLimits) => ProgramVerificationWork;
 
 export interface PackageExport {
   readonly specifier: string;
@@ -87,6 +93,7 @@ export interface PublishedBody {
   readonly tir: TirBody;
   readonly mir: MirBody;
   readonly facts: BodyFacts;
+  readonly observations: BodyObservations;
 }
 
 export interface ModuleBodies {
@@ -99,15 +106,6 @@ export interface HostProgram {
   readonly index: ProgramIndex;
   readonly modules: readonly ModuleBodies[];
 }
-
-export interface InstantiationLimits extends TypePublicationLimits {
-  readonly maximumBindingVectorsPerArtifact: number;
-  readonly typeExpansion: TypeExpansionLimits;
-}
-
-export type ArtifactReference =
-  | { readonly kind: "tir" | "mir" | "facts"; readonly body: BodyId }
-  | { readonly kind: "summary" | "metadata"; readonly definition: DefId };
 
 export type InstantiatedArtifact =
   | { readonly kind: "tir"; readonly body: TirBody }
@@ -144,16 +142,6 @@ export type ProgramRule =
   | "metadata-constant-not-materialised"
   | "template-body-shared" | "nested-body-boundary" | "instance-node-ids-exact";
 
-export type ProgramSite =
-  | { readonly kind: "index" }
-  | { readonly kind: "package"; readonly package: PackageId }
-  | { readonly kind: "module"; readonly module: ModuleId }
-  | { readonly kind: "node"; readonly module: ModuleId; readonly node: NodeId }
-  | { readonly kind: "definition"; readonly definition: DefId }
-  | { readonly kind: "signature"; readonly signature: SigId }
-  | { readonly kind: "body"; readonly instance: BodyInstance }
-  | { readonly kind: "artifact"; readonly artifact: ArtifactReference; readonly bindings: ArtifactBindings };
-
 export type CanonicalizeProgram = (program: HostProgram, publication: TypePublication) => HostProgram;
 export type PrintProgramIndex = (index: ProgramIndex) => string;
 export type ParseProgramIndex = (text: string) => TextParseResult<ProgramIndex>;
@@ -161,7 +149,7 @@ export type PrintModuleBodies = (index: ProgramIndex, module: ModuleBodies) => s
 export type ParseModuleBodies = (index: ProgramIndex, text: string) => TextParseResult<ModuleBodies>;
 export interface ProgramVerificationContext {
   readonly facts: FactsVerificationContext;
-  readonly limits: InstantiationLimits;
+  readonly resources: ProgramVerificationWork;
   /** The limit of each body's MIR verification, as the limit setter gave it. Each body has its own account. */
   readonly mirVerification: MirVerificationLimits;
   readonly modulePathOf: (module: ModuleId) => ModulePath | null;
@@ -180,7 +168,7 @@ export type VerifyProgramIndex = (
 // finding is reported for it.
 export type ModuleBodiesVerification =
   | { readonly kind: "complete"; readonly violations: readonly Violation<ProgramRule, ProgramSite>[] }
-  | { readonly kind: "resource-limit"; readonly body: BodyInstance; readonly dimension: "work"; readonly maximum: number };
+  | ProgramVerificationStop;
 export type VerifyModuleBodies = (
   index: ProgramIndex,
   module: ModuleBodies,

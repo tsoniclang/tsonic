@@ -295,7 +295,7 @@ export function readSumFamilyText<Root>(cursor: Cursor, finish: (value: SumFamil
 }
 
 export function readConstValue(cursor: Cursor): TextParseResult<ConstValue> {
-  const kind = choice(cursor, ["number","bigint","string","boolean","absence","unique-symbol","error"]);
+  const kind = choice(cursor, ["number","floating","bigint","string","boolean","absence","unique-symbol","error"]);
   if (kind.kind === "invalid-text") return kind;
   const opened = delimiter(cursor, "(");
   if (opened.kind === "invalid-text") return opened;
@@ -309,6 +309,16 @@ export function readConstValue(cursor: Cursor): TextParseResult<ConstValue> {
       const closed = closeRecord(cursor, fields);
       return closed.kind === "invalid-text" ? closed : { kind: "parsed", value: { kind: kind.value,
         type: type.value, value: value.value
+      } };
+    }
+    case "floating": {
+      const type = readField(cursor, fields, "type", readTypeId);
+      if (type.kind === "invalid-text") return type;
+      const bits = readField(cursor, fields, "bits", readBigInt);
+      if (bits.kind === "invalid-text") return bits;
+      const closed = closeRecord(cursor, fields);
+      return closed.kind === "invalid-text" ? closed : { kind: "parsed", value: { kind: kind.value,
+        type: type.value, bits: bits.value
       } };
     }
     case "bigint": {

@@ -1,7 +1,7 @@
 import type { BodyRecord, ConstantRecord, ModuleRecord, PackageRecord, PrintModuleBodies, PrintProgramIndex, PublishedBody, SignatureRecord } from "./contract.js";
 import type { SyntaxTextContext, TextWork } from "./text-values.js";
 import type { TirBody } from "../ir-tir/contract.js";
-import { printFacts, printMetadata, printSummary } from "../ir-facts/index.js";
+import { printFacts, printObservations, printMetadata, printSummary } from "../ir-facts/index.js";
 import { printMir } from "../ir-mir/index.js";
 import { printTypes } from "../ir-types/index.js";
 import { textArtifactBindings, textBindingVector, textBodyInstance, textConstantReference, textConstValue, textTypeEvidence } from "./text-types.js";
@@ -109,6 +109,7 @@ function publishedBody(value: PublishedBody, context: SyntaxTextContext): TextWo
   return deferred(value, () => record("PublishedBody", [
     field("instance", textBodyInstance(value.instance)), field("tir", tirBodyRecord(value.tir, context)),
     field("mir", token(printMir(value.mir).trimEnd())), field("facts", token(printFacts(value.facts).trimEnd())),
+    field("observations", token(printObservations(value.observations).trimEnd())),
   ]));
 }
 

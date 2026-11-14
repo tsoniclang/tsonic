@@ -146,7 +146,7 @@ export const verifyCallGraph: VerifyCallGraph = (graph, context) => {
   }
   let previousEdge: CallEdge | undefined;
   for (const edge of graph.edges) {
-    const site: FactsSite = { kind: "node", at: edge.at };
+    const site: FactsSite = { kind: "node", at: { kind: "body", value: edge.at } };
     if (previousEdge !== undefined && compareEdges(previousEdge, edge) >= 0) {
       report("edges-order", site, "Call edges must be distinct and ordered by caller, occurrence and callee.");
     }

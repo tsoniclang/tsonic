@@ -1178,8 +1178,8 @@ for (const path of [...functionCases, ...verifierCases]) {
     assert.equal(result.status, "passed", JSON.stringify(result.status === "failed" ? result : { path }));
   });
 }
-test("exact six annotated runtime ports, no parallel printer or private metadata API", () => {
-  assertCompleteValue(Object.keys(product).sort(), ["memberSelectionKey", "memberStorageKey", "parseTir", "printTir", "verifyTir", "verifyTirModule"]);
+test("exact five annotated runtime ports, physical member identity belongs to Types", () => {
+  assertCompleteValue(Object.keys(product).sort(), ["memberSelectionKey", "parseTir", "printTir", "verifyTir", "verifyTirModule"]);
 });
 
 test("the member selection key separates two selections that differ in any one field, and is total over lists with holes", () => {
@@ -1244,13 +1244,14 @@ test("the member selection key separates two selections that differ in any one f
   holes.getter.decision.parameters = [undefined, { kind: "rest", parameter: 0, arguments: new Array(1), passing: "by-value" }];
   holes.getter.decision.bindings = vector({ classBindings: new Array(1) });
   const holed = product.memberSelectionKey(holes);
-  assertCompleteValue(holed[1], [null, null]);
-  assertCompleteValue(holed[2], [null]);
-  assertCompleteValue(holed[10][3], [[null], [], [], []]);
-  assertCompleteValue(holed[10][5], [null, ["rest", 0, [null], "by-value"]]);
+  assertCompleteValue(holed[0][1], [null, null]);
+  assertCompleteValue(holed[0][2], [null]);
+  assertCompleteValue(holed[6][3], [[null], [], [], []]);
+  assertCompleteValue(holed[6][5], [null, ["rest", 0, [null], "by-value"]]);
 });
 
-test("storage member identity retains actual origins, declarations and complete bindings but excludes access and value-result details", () => {
+test("storage member identity retains actual origins, declarations and complete bindings but excludes access and value-result details", async () => {
+  const { memberStorageData } = await import("../../packages/host/dist/ir-types/index.js");
   const owner = "D[M[P[p];m];owner]";
   const other = "D[M[P[p];m];other]";
   const body = "B[D[M[P[p];m];owner];function;0]";
@@ -1258,8 +1259,8 @@ test("storage member identity retains actual origins, declarations and complete 
   const base = { decision: { key: { kind: "text", value: "field" }, origins: [{ kind: "declared", declaration: owner }],
     selectedDeclarations: [owner], primary: owner, read: 0, write: 0, getter: null, setter: null, bindings,
     location: { kind: "data", check: { kind: "none" }, receiver: "in-place" } }, getter: null, setter: null };
-  const encode = member => JSON.stringify(product.memberStorageKey(member), (_name, value) => typeof value === "bigint" ? `${value}n` : value);
-  assertCompleteValue(product.memberStorageKey(base), [["text", "field"], [["declared", owner]], [owner], owner, [[], [], [], []]]);
+  const encode = member => JSON.stringify(memberStorageData(member.decision), (_name, value) => typeof value === "bigint" ? `${value}n` : value);
+  assertCompleteValue(memberStorageData(base.decision), [["text", "field"], [["declared", owner]], [owner], owner, [[], [], [], []]]);
   const endpoint = { declaration: owner, role: "advertised", signature: 0, body };
   for (const change of [{ read: null }, { read: 7 }, { write: null }, { write: 8 }, { getter: endpoint }, { setter: endpoint },
     { location: { kind: "data", check: { kind: "required", failure: "abort" }, receiver: "by-reference" } },
@@ -1285,7 +1286,7 @@ test("storage member identity retains actual origins, declarations and complete 
   const keys = [base, ...changes.map(change => ({ ...base, decision: { ...base.decision, ...change } }))].map(encode);
   assert.equal(new Set(keys).size, keys.length);
   const holes = { ...base, decision: { ...base.decision, origins: new Array(2), selectedDeclarations: new Array(1) } };
-  assertCompleteValue(product.memberStorageKey(holes), [["text", "field"], [null, null], [null], owner, [[], [], [], []]]);
+  assertCompleteValue(memberStorageData(holes.decision), [["text", "field"], [null, null], [null], owner, [[], [], [], []]]);
 });
 
 test("the binding vector key encodes each position of each family on its own, a hole included", () => {

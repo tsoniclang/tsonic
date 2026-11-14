@@ -1,3 +1,4 @@
+import { ProgramWork } from "./work.js";
 import type { DefId, ModuleId, PackageId } from "../ids/contract.js";
 import { encodeDefId, encodeModuleId } from "../ids/index.js";
 import type { ArtifactBindings, BodyInstance } from "../ir-types/contract.js";
@@ -7,7 +8,7 @@ import type { ProgramLookup, ProgramViolation } from "./program-values.js";
 import { bindingData, compareInstances, compareText, instanceKey, numberDetail, textDetail } from "./program-values.js";
 
 export function verifyBindingBounds(index: ProgramIndex, context: ProgramVerificationContext): readonly ProgramViolation[] {
-  const maximum = context.limits.maximumBindingVectorsPerArtifact;
+  const maximum = ProgramWork.state(context.resources).limits.maximumBindingVectorsPerArtifact;
   const groups = new Map<string, { readonly bindings: Set<string>; exceeded: boolean }>();
   const violations: ProgramViolation[] = [];
   function register(artifact: string, bindings: ArtifactBindings, site: ProgramSite): void {

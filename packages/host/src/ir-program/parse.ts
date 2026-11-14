@@ -4,12 +4,12 @@ import type { ModuleId } from "../ids/contract.js";
 import type { SourceFile } from "../ir-hir/contract.js";
 import type { TirBody, TypedPhase } from "../ir-tir/contract.js";
 import type { MirBody } from "../ir-mir/contract.js";
-import type { BodyFacts } from "../ir-facts/contract.js";
+import type { BodyFacts, BodyObservations } from "../ir-facts/contract.js";
 import type { BodyInstance } from "../ir-types/contract.js";
 import type { BodyRecord, ConstantRecord, DefinitionNode, ModuleExport, ModuleRecord, PackageExport, PackageRecord, ParseProgramIndex, ProgramIndex, SignatureRecord } from "./contract.js";
 import { hostDiagnosticCode } from "../diag/index.js";
 import { expansionId, localId, nodeId, sigId, tyId } from "../ids/index.js";
-import { parseFacts, parseMetadata, parseSummary } from "../ir-facts/index.js";
+import { parseFacts, parseObservations, parseMetadata, parseSummary } from "../ir-facts/index.js";
 import { parseMir } from "../ir-mir/index.js";
 import { parseTypes } from "../ir-types/index.js";
 import type { Cursor, RecordFields } from "./parse-values.js";
@@ -29,9 +29,10 @@ function readPublishedBodyText<Root>(cursor: Cursor, ports: SyntaxReadPorts, fin
       fieldText<SyntaxValue<TirBody>, Root>(cursor, fields, "tir", (next, done) => readTirBodyText(next, ports, done), tir =>
         fieldText<MirBody, Root>(cursor, fields, "mir", (next, done) => atomicText(next, cursor => readChild(cursor, parseMir), done), mir =>
           fieldText<BodyFacts, Root>(cursor, fields, "facts", (next, done) => atomicText(next, cursor => readChild(cursor, parseFacts), done), facts =>
+            fieldText<BodyObservations, Root>(cursor, fields, "observations", (next, done) => atomicText(next, cursor => readChild(cursor, parseObservations), done), observations =>
             finishSyntaxRecord<PublishedBody, Root>(cursor, fields, {
-              resolve: () => resolveSyntaxValue(tir, body => ({ instance, tir: body, mir, facts })),
-            }, finish))))));
+              resolve: () => resolveSyntaxValue(tir, body => ({ instance, tir: body, mir, facts, observations })),
+            }, finish)))))));
 }
 
 function readModuleBodiesText<Root>(cursor: Cursor, ports: SyntaxReadPorts, finish: (value: SyntaxValue<ModuleBodies>) => TextStep<Root>): TextStep<Root> {

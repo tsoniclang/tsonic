@@ -1,5 +1,5 @@
 import type { TypeInterner, TypeTerm, Signature, CreateTypeInterner, SeedTypeInterner, InternType, InternSignature,
-  ReadType, ReadSignature, ExportTypes } from "./contract.js";
+  ReadType, ReadSignature, ViewTypes, ExportTypes } from "./contract.js";
 import type { TyId, SigId } from "../ids/contract.js";
 import type { PublicationWork } from "./work.js";
 import { readTypeData, readSignatureRow } from "./publication-read.js";
@@ -81,6 +81,7 @@ export const internSignature: InternSignature = (interner, input) => {
 
 export const readType: ReadType = (interner, type) => storedType(interner, type);
 export const readSignature: ReadSignature = (interner, signature) => storedSignature(interner, signature);
+export const viewTypes: ViewTypes = interner => TypeArena.view(interner);
 
 export const exportTypes: ExportTypes = (interner, limits) => {
   if (![limits.maximumWork, limits.maximumCreatedRecords].every(value => Number.isSafeInteger(value) && value >= 0))

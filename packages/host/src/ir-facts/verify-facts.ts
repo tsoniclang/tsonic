@@ -74,7 +74,7 @@ function livenessViolations(liveness: LivenessFacts, instance: BodyInstance, mir
   context: FactsVerificationContext, nodes: ReadonlyMap<NodeId, TirNode>): readonly Violation<FactsRule, FactsSite>[] {
   const violations: Violation<FactsRule, FactsSite>[] = [];
   const report = (rule: FactsRule, site: FactsSite, text: string): void => { violations.push({ rule, site, detail: [{ kind: "text", value: text }] }); };
-  const at = (node: NodeId): FactsSite => ({ kind: "node", at: { body: instance.body, node } });
+  const at = (node: NodeId): FactsSite => ({ kind: "node", at: { kind: "body", value: { body: instance.body, node } } });
   const localSite = (local: LocalId): FactsSite => ({ kind: "local", local: { body: instance.body, local } });
   const ordered = <Value>(rows: readonly Value[], rule: FactsRule, comparator: (left: Value, right: Value) => number, site: (row: Value) => FactsSite): void => {
     let previous: Value | null = null;
@@ -135,7 +135,7 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
   const bodySite: FactsSite = { kind: "body", instance: facts.instance };
   const owner: RelationalOwner = { kind: "body", instance: facts.instance };
   const tir = context.tirBody(facts.instance);
-  const at = (node: NodeId): FactsSite => ({ kind: "node", at: { body: facts.instance.body, node } });
+  const at = (node: NodeId): FactsSite => ({ kind: "node", at: { kind: "body", value: { body: facts.instance.body, node } } });
   const report = (rule: FactsRule, site: FactsSite, text: string): void => {
     violations.push({ rule, site, detail: [{ kind: "text", value: text }] });
   };
@@ -530,9 +530,9 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
       if (!context.definitionExists(region.owner)) report("cross-owner-qualified", site, "Each constructor region retains its actual lexical declaration owner."); }
   }
   ordered(facts.origins.instanceRegions, "regions-order", (left, right) => compareText(left.owner, right.owner) || compareText(left.node.body, right.node.body) ||
-    compareNumbers(left.node.node, right.node.node) || compareNumbers(left.context, right.context), row => ({ kind: "node", at: row.node }));
+    compareNumbers(left.node.node, right.node.node) || compareNumbers(left.context, right.context), row => ({ kind: "node", at: { kind: "body", value: row.node } }));
   for (const region of facts.origins.instanceRegions) {
-    const site: FactsSite = { kind: "node", at: region.node };
+    const site: FactsSite = { kind: "node", at: { kind: "body", value: region.node } };
     nodeRef(region.node, site, false); valueContext(region.context, bodySite);
     if (!context.definitionExists(region.owner)) report("cross-owner-qualified", site, "An instance region retains its actual lexical declaration owner.");
   }
@@ -623,24 +623,6 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
       "A field reference retains its actual metadata declaration, complete binding environment and local field ID.");
     return selected;
   };
-  nodeOrder(facts.observations, "observations-order");
-  for (const observation of facts.observations) {
-    node(observation.node); const site = at(observation.node); nodeRef(observation.operand, site);
-    type(observation.result, site); valueContext(observation.context, site);
-    const layout = metadataLayout(observation.layout, site);
-    const field = observation.field === null ? undefined : metadataField(observation.field, site);
-    if (observation.operation === "field-offset" ? field === undefined : observation.field !== null) {
-      report("observation-field-exact", site, "Only a field-offset observation names the actual selected field metadata.");
-    }
-    if (layout !== undefined) {
-      const expected = observation.operation === "size" ? layout.byteSize : observation.operation === "alignment" ? layout.byteAlignment
-        : observation.operation === "stride" ? layout.stride : field?.byteOffset;
-      if (expected !== undefined && expected !== observation.value) report("observation-exact-value", site,
-        "The observation retains the exact authored bigint size, alignment, stride or field offset.");
-      if (field !== undefined && field.owner !== layout.source) report("observation-field-exact", site,
-        "A field-offset observation retains the selected field's actual owner layout.");
-    }
-  }
   nodeOrder(facts.rawLocations, "raw-locations-order");
   for (const raw of facts.rawLocations) {
     node(raw.node); const site = at(raw.node); type(raw.pointee, site); valueContext(raw.context, site);
