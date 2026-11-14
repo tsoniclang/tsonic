@@ -1,4 +1,4 @@
-import type { DefinitionSegment, ModuleId } from "../ids/contract.js";
+import type { DefinitionSegment, ModuleId, NodeId } from "../ids/contract.js";
 import type { ModuleDefinitionRow } from "./contract.js";
 import { encodeDefId } from "../ids/index.js";
 import type * as Hir from "../ir-hir/contract.js";
@@ -41,26 +41,34 @@ export function identityName(node: Hir.SyntaxNode<Hir.SyntaxPhase>): string | nu
   }
 }
 
+interface Owner {
+  readonly node: NodeId;
+  readonly segments: readonly DefinitionSegment[];
+}
+
 /**
  * The definition identities of one module, in the syntax tree's preorder: each declaration's owner is the nearest
  * enclosing declaration that has an identity, and its ordinal counts the declarations of that name in that owner
- * before it, whatever their kind.
+ * before it, whatever their kind. The counters belong to the owner itself (its node), never to a spelling of its
+ * path, so names holding `#`, `/` or `:` cannot make two owners share a counter (K-3343).
  */
 export function definitionRows(module: ModuleId, tree: Hir.SourceFile<Hir.SyntaxPhase>): readonly ModuleDefinitionRow[] {
   const rows: ModuleDefinitionRow[] = [];
-  const counts = new Map<string, number>();
-  const visit = (node: Hir.SyntaxNode<Hir.SyntaxPhase>, owner: readonly DefinitionSegment[] | null): void => {
+  const counts = new Map<NodeId, Map<string, number>>();
+  const visit = (node: Hir.SyntaxNode<Hir.SyntaxPhase>, owner: Owner | null): void => {
     const name = identityName(node);
     let inner = owner;
     if (name !== null) {
-      const segments = owner === null ? [] : [...owner, ((): DefinitionSegment => {
-        const key = `${owner.length}:${owner.map(segment => `${segment.name}#${segment.ordinal}`).join("/")}:${name}`;
-        const ordinal = counts.get(key) ?? 0;
-        counts.set(key, ordinal + 1);
-        return { name, ordinal };
-      })()];
+      let segments: readonly DefinitionSegment[] = [];
+      if (owner !== null) {
+        const names = counts.get(owner.node) ?? new Map<string, number>();
+        const ordinal = names.get(name) ?? 0;
+        names.set(name, ordinal + 1);
+        counts.set(owner.node, names);
+        segments = [...owner.segments, { name, ordinal }];
+      }
       rows.push({ node: node.id, kind: node.kind, segments, definition: encodeDefId({ module, segments }) });
-      inner = segments;
+      inner = { node: node.id, segments };
     }
     childrenOfSyntax(node).forEach(child => { visit(child, inner); });
   };

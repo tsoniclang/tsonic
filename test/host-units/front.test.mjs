@@ -1106,3 +1106,35 @@ test("K-3341 many parameters, last one unsupported: refused at zero and at the f
     unit: { request: { query: "captureModule", key: module }, position: { kind: "result" } } })] }, `maximum ${value}`);
   assert.throws(() => under(16), { name: "TypeError", message: "front: the captured form of the checker type string | number is not implemented" });
 });
+
+// K-3343: identity counters belong to the owner itself. The raw modules are constructed (K-3343 allows it): the syntax tree comes
+// from the checker through Front's own syntax capture, the rest of the raw module from add's capture, because the full capture of
+// these object and union types meets the checker-type frontier. Expectations written before the run.
+test("K-3343: names holding #, / and : never make two owners share a counter; overloads in one owner still count up; rows are deterministic and identities distinct", async () => {
+  const { captureNode } = await import("../../packages/host/dist/front/syntax-capture.js");
+  const base = checkedModuleOf(addSource).raw;
+  const rowsOf = sourceText => {
+    const session = sdk.createCompilerSessionFromFiles({ currentDirectory: "/project", files: new Map([["/project/src/main.ts", sourceText]]),
+      rootFiles: ["/project/src/main.ts"], compilerOptions: { noLib: true, noEmit: true }, useCaseSensitiveFileNames: true });
+    const checked = session.checkSource();
+    const file = checked.getSourceFile("/project/src/main.ts");
+    let counter = 0;
+    const tree = captureNode({ ast: checked.ast, file, module: base.module, displacement: 0, next: () => ids.nodeId(counter++) }, file, null);
+    const definitions = front.lowerModuleDefinitions({ ...base, tree });
+    assert.equal(definitions.kind, "ok");
+    return definitions.value.rows;
+  };
+  const paths = rows => rows.map(row => row.segments.map(segment => [segment.name, segment.ordinal]));
+  const collision = "export interface I {\n  a: { \"b#0/c\": { z: number } };\n  \"a#0/b\": { c: { z: number } };\n}\n";
+  const rows = rowsOf(collision);
+  assert.deepEqual(paths(rows), [[], [["I", 0]], [["I", 0], ["a", 0]], [["I", 0], ["a", 0], ["b#0/c", 0]], [["I", 0], ["a", 0], ["b#0/c", 0], ["z", 0]],
+    [["I", 0], ["a#0/b", 0]], [["I", 0], ["a#0/b", 0], ["c", 0]], [["I", 0], ["a#0/b", 0], ["c", 0], ["z", 0]]]);
+  assert.equal(new Set(rows.map(row => row.definition)).size, rows.length, "every identity is distinct");
+  assert.deepEqual(rowsOf(collision), rows, "the rows of one source are the same each time");
+  const names = "export interface J {\n  \"\": number;\n  \"#\": number;\n  \":\": number;\n  \"/\": number;\n  \"a:b#0/c\": number;\n  \"é\": number;\n  \"名\": number;\n}\n";
+  const nameRows = rowsOf(names);
+  assert.deepEqual(paths(nameRows).slice(2), ["", "#", ":", "/", "a:b#0/c", "é", "名"].map(name => [["J", 0], [name, 0]]));
+  assert.equal(new Set(nameRows.map(row => row.definition)).size, nameRows.length);
+  const overloads = "export function over(a: number): number;\nexport function over(a: string): string;\nexport function over(a: number | string): number | string { return a; }\n";
+  assert.deepEqual(paths(rowsOf(overloads)), [[], [["over", 0]], [["over", 0], ["a", 0]], [["over", 1]], [["over", 1], ["a", 0]], [["over", 2]], [["over", 2], ["a", 0]]]);
+});
