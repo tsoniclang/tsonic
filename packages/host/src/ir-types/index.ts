@@ -1,5 +1,5 @@
 import type { CreateTypeInterner, SeedTypeInterner, InternType, InternSignature, ReadType, ReadSignature,
-  ExportTypes, Substitute, SubstituteSignature, PrintTypes, ParseTypes, VerifyTypes, InstanceKey, SameInstance, ExecutionKey,
+  ExportTypes, Substitute, SubstituteSignature, PrintTypes, ParseTypes, VerifyTypes, EncodeSelectorPath, InstanceKey, SameInstance, ExecutionKey,
   DeclaredExecutionKey, BindingVectorKey, ArtifactBindingsKey, BindingVectorData, ArtifactBindingsData,
   SignatureRequestData, SignatureRequestKey, SubstituteBindingValues, RigidBindings } from "./contract.js";
 import { createTypeInterner as create, seedTypeInterner as seed, internType as intern, internSignature as signature,
@@ -8,6 +8,7 @@ import { substitute as transform, substituteSignature as transformSignature, sub
 import { printTypes as print } from "./print.js";
 import { parseTypes as parse } from "./parse.js";
 import { verifyTypes as verify } from "./verify.js";
+import { selectorPathKey } from "./selector-path.js";
 import { artifactBindingsData as projectArtifactBindings, artifactBindingsKeyOf, bindingVectorData as projectBindingVector,
   bindingVectorKeyOf, declaredExecutionKeyOf, executionKeyOf, instanceKeyOf, sameInstanceAs,
   signatureRequestData as projectSignatureRequest, signatureRequestKeyOf, rigidBindings as rigid } from "./value.js";
@@ -25,6 +26,7 @@ export const substituteBindingValues: SubstituteBindingValues = transformBinding
 export const printTypes: PrintTypes = print;
 export const parseTypes: ParseTypes = parse;
 export const verifyTypes: VerifyTypes = verify;
+export const encodeSelectorPath: EncodeSelectorPath = selectorPathKey;
 export const instanceKey: InstanceKey = instanceKeyOf;
 export const sameInstance: SameInstance = sameInstanceAs;
 export const executionKey: ExecutionKey = executionKeyOf;
