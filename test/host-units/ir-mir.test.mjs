@@ -1837,6 +1837,63 @@ test("MIR using protocols retain every actual step operation and optional select
   "a protocol with no such step cannot authenticate its physical call, and the step the call names does not exist (law 6)");
 });
 
+test("MIR constant-type: a literal is a value its declared native carrier holds exactly as stated (K-3348)", () => {
+  const base = parsedBody();
+  const context = sourceContext(base);
+  // The source context's terms are 0 void, 1 bool, 2 string, 3 int32, 4 unknown; these follow from 5.
+  const extra = [["int64", { kind: "primitive", primitive: "int64" }], ["uint8", { kind: "primitive", primitive: "uint8" }],
+    ["uint128", { kind: "primitive", primitive: "uint128" }], ["float64", { kind: "primitive", primitive: "float64" }],
+    ["float32", { kind: "primitive", primitive: "float32" }], ["float16", { kind: "primitive", primitive: "float16" }],
+    ["decimal", { kind: "primitive", primitive: "decimal" }], ["char", { kind: "primitive", primitive: "char" }],
+    ["native-int", { kind: "primitive", primitive: "native-int" }], ["native-uint", { kind: "primitive", primitive: "native-uint" }],
+    ["absence", { kind: "intrinsic", intrinsic: "absence" }], ["bigint", { kind: "intrinsic", intrinsic: "bigint" }],
+    ["optional-int32", { kind: "optional", value: identities.tyId(3) }], ["optional-optional", { kind: "optional", value: identities.tyId(17) }],
+    ["array", { kind: "array", element: identities.tyId(3), readonly: false }]];
+  const ty = { bool: 1, string: 2, int32: 3, unknown: 4, ...Object.fromEntries(extra.map(([name], position) => [name, 5 + position])) };
+  const input = { ...context, types: { ...context.types, terms: [...context.types.terms, ...extra.map(([, term]) => term)] } };
+  const number = (numerator, denominator = 1n, negativeZero = false) => ({ kind: "number", token: "n", value: { numerator, denominator, negativeZero } });
+  const held = (type, value) => {
+    const findings = verified({ ...base, constants: [{ id: identities.constId(0), type: identities.tyId(ty[type]), value: { kind: "literal", value } }] }, input);
+    const constantType = findings.filter(violation => violation.rule === "constant-type");
+    assert.equal(findings.length, constantType.length, `${type}: no other finding`);
+    return constantType.length === 0;
+  };
+  const cases = [
+    // bool: a boolean only (the integrity opposite: the type stays bool, only the value changes).
+    ["bool", { kind: "boolean", value: true }, true], ["bool", { kind: "string", value: "not a boolean" }, false], ["bool", number(1n), false],
+    ["string", { kind: "string", value: "x" }, true], ["string", { kind: "boolean", value: false }, false],
+    // Integer carriers: integral, in range, no negative zero; a number or a bigint.
+    ["int32", number(2n ** 31n - 1n), true], ["int32", number(-(2n ** 31n)), true], ["int32", number(2n ** 31n), false],
+    ["int32", number(-(2n ** 31n) - 1n), false], ["int32", number(3n, 2n), false], ["int32", number(0n, 1n, true), false],
+    ["int32", { kind: "bigint", token: "7n", value: 7n }, true], ["int32", { kind: "string", value: "1" }, false], ["int32", { kind: "absence" }, false],
+    ["int64", number(2n ** 63n - 1n), true], ["int64", number(2n ** 63n), false], ["int64", { kind: "bigint", token: "b", value: -(2n ** 63n) }, true],
+    ["uint8", number(255n), true], ["uint8", number(256n), false], ["uint8", number(-1n), false],
+    ["uint128", { kind: "bigint", token: "b", value: 2n ** 128n - 1n }, true], ["uint128", { kind: "bigint", token: "b", value: 2n ** 128n }, false],
+    ["native-int", number(2n ** 31n - 1n), true], ["native-int", number(2n ** 31n), false], ["native-uint", number(2n ** 32n - 1n), true], ["native-uint", number(-1n), false],
+    ["char", number(65535n), true], ["char", number(65536n), false], ["char", { kind: "string", value: "a" }, false],
+    // Binary floating carriers: any number that rounds to a finite value; negative zero and fractions are values.
+    ["float64", number(1n, 10n), true], ["float64", number(0n, 1n, true), true], ["float64", number(2n ** 1024n - 2n ** 971n), true],
+    ["float64", number(2n ** 1024n - 2n ** 970n - 1n), true], ["float64", number(2n ** 1024n - 2n ** 970n), false], ["float64", number(-(2n ** 1024n)), false], ["float64", { kind: "bigint", token: "b", value: 1n }, false],
+    ["float32", number(2n ** 128n - 2n ** 104n), true], ["float32", number(2n ** 128n - 2n ** 103n - 1n), true], ["float32", number(2n ** 128n - 2n ** 103n), false],
+    ["float16", number(65504n), true], ["float16", number(65519n), true], ["float16", number(65520n), false], ["float16", number(131039n, 2n), true], ["float16", number(131040n, 2n), false],
+    // decimal: a finite decimal expansion within 2^96 - 1.
+    ["decimal", number(1n, 10n), true], ["decimal", number(1n, 3n), false], ["decimal", number(2n ** 96n - 1n), true], ["decimal", number(2n ** 96n), false],
+    // Intrinsics and the optional type.
+    ["absence", { kind: "absence" }, true], ["absence", number(0n), false], ["bigint", { kind: "bigint", token: "b", value: 1n }, true], ["bigint", number(1n), false],
+    ["optional-int32", { kind: "absence" }, true], ["optional-int32", number(5n), true], ["optional-int32", number(1n, 2n), false],
+    // An optional nested in an optional is not compared; nor are declared types other than these.
+    ["optional-optional", number(5n), true], ["optional-optional", { kind: "string", value: "x" }, true],
+    ["unknown", { kind: "string", value: "anything" }, true], ["array", { kind: "string", value: "anything" }, true],
+  ];
+  assert.equal(ty["optional-int32"], 17);
+  // A type the table does not have: its reference is the type rule's finding, and the literal is not compared.
+  const unresolved = verified({ ...base, constants: [{ id: identities.constId(0), type: identities.tyId(99), value: { kind: "literal", value: { kind: "absence" } } }] }, input);
+  assert.equal(unresolved.some(violation => violation.rule === "constant-type"), false);
+  assert.equal(unresolved.length > 0, true);
+  for (const [type, value, expected] of cases)
+    assert.equal(held(type, value), expected, `${type} ${JSON.stringify(value, (key, item) => typeof item === "bigint" ? String(item) : item)}`);
+});
+
 test("MIR body receiver presence and exact storage are decided by its genuine source signature", () => {
   const body = parsedBody();
   const context = sourceContext(body);

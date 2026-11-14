@@ -667,13 +667,60 @@ export function verifyValues(
       if (selected !== null && !(selected.kind === "primitive" && selected.primitive === "int32")) report("completion-selector-total", site);
     }
   }
+  // A literal constant is a value of its declared type. Against a literal type it is that literal; against a native
+  // primitive it is a value the carrier holds exactly as the literal states it: bool a boolean; an integer carrier an
+  // integral number or bigint in its range, with no negative zero; a binary floating carrier a number that rounds to a
+  // finite value; decimal a number with a finite decimal expansion in decimal's range. Against `string` a string;
+  // against the intrinsics `bigint` and `absence` a bigint and the absence; against an optional type the absence or a
+  // value of its type. Other declared types are not compared here. All arithmetic is exact (bigint): nothing is coerced.
+  // Two carriers need a relation the published records do not state, and are held to the range every target admits:
+  // `native-int` and `native-uint` to 32 bits (the target's pointer width is not in the type table), and `char` to a
+  // number naming one UTF-16 code unit (no record says which literal a char constant carries).
+  const integerRanges = new Map<string, readonly [bigint, bigint]>([
+    ["int8", [-(2n ** 7n), 2n ** 7n - 1n]], ["uint8", [0n, 2n ** 8n - 1n]], ["int16", [-(2n ** 15n), 2n ** 15n - 1n]], ["uint16", [0n, 2n ** 16n - 1n]],
+    ["int32", [-(2n ** 31n), 2n ** 31n - 1n]], ["uint32", [0n, 2n ** 32n - 1n]], ["int64", [-(2n ** 63n), 2n ** 63n - 1n]], ["uint64", [0n, 2n ** 64n - 1n]],
+    ["int128", [-(2n ** 127n), 2n ** 127n - 1n]], ["uint128", [0n, 2n ** 128n - 1n]],
+    ["native-int", [-(2n ** 31n), 2n ** 31n - 1n]], ["native-uint", [0n, 2n ** 32n - 1n]], ["char", [0n, 2n ** 16n - 1n]]]);
+  // The smallest magnitude that rounds to infinity under round-to-nearest-even: the largest finite value
+  // 2^(emax+1) - 2^(emax-p) plus half its unit in the last place, 2^(emax+1) - 2^(emax-p-1), for p stored significand bits.
+  const floatOverflow = new Map<string, bigint>([["float16", 2n ** 16n - 2n ** 4n], ["float32", 2n ** 128n - 2n ** 103n], ["float64", 2n ** 1024n - 2n ** 970n]]);
+  const primitiveHolds = (value: LiteralValue, primitive: string): boolean => {
+    if (primitive === "bool") return value.kind === "boolean";
+    const range = integerRanges.get(primitive);
+    if (range !== undefined) {
+      if (primitive === "char" && value.kind !== "number") return false;
+      const integer = value.kind === "bigint" ? value.value
+        : value.kind === "number" && value.value.denominator === 1n && !value.value.negativeZero ? value.value.numerator : null;
+      return integer !== null && integer >= range[0] && integer <= range[1];
+    }
+    if (value.kind !== "number") return false;
+    const magnitude = value.value.numerator < 0n ? -value.value.numerator : value.value.numerator;
+    const overflow = floatOverflow.get(primitive);
+    if (overflow !== undefined) return magnitude < overflow * value.value.denominator;
+    // decimal: a finite decimal expansion (a denominator of twos and fives) within decimal's magnitude, 2^96 - 1.
+    let denominator = value.value.denominator;
+    while (denominator % 2n === 0n) denominator /= 2n;
+    while (denominator % 5n === 0n) denominator /= 5n;
+    return denominator === 1n && magnitude <= (2n ** 96n - 1n) * value.value.denominator;
+  };
+  // An optional type is looked through once: an optional nested in it is not compared.
+  const literalHeld = (value: LiteralValue, type: TyId, nested: boolean): boolean => {
+    const selected = term(type);
+    if (selected === null) return true;
+    switch (selected.kind) {
+      case "literal": return literalMatches(value, selected.value);
+      case "string": return value.kind === "string";
+      case "optional": return nested || value.kind === "absence" || literalHeld(value, selected.value, true);
+      case "intrinsic": return selected.intrinsic === "bigint" ? value.kind === "bigint" : selected.intrinsic === "absence" ? value.kind === "absence" : true;
+      case "primitive": return primitiveHolds(value, selected.primitive);
+      default: return true;
+    }
+  };
   for (const constant of body.constants) {
     if (constant === undefined) continue;
     const site: MirViolationSite = { kind: "constant", body: body.body, constant: constant.id };
     types.push({ type: constant.type, site });
-    const selected = term(constant.type);
-    if (constant.value.kind === "literal" && selected !== null && selected.kind === "literal"
-      && !literalMatches(constant.value.value, selected.value)) report("constant-type", site);
+    if (constant.value.kind === "literal" && !literalHeld(constant.value.value, constant.type, false)) report("constant-type", site);
   }
   for (const [position, place] of body.places.entries()) {
     if (place === undefined) continue;
