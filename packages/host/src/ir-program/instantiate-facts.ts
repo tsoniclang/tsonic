@@ -69,7 +69,7 @@ function origins(scan: ProjectionInventory, value: OriginFacts): InstantiationSt
     ?? (activation.entry === null ? null : transport(scan, activation.entry)));
   inventoryEach(scan, value.constructions, construction => inventoryRecord(scan, 6)
     ?? (construction.body === null ? null : inventoryInstance(scan, construction.body)));
-  return inventoryRecord(scan, 11);
+  return inventoryRecord(scan, 12);
 }
 
 export function inventoryBodyFacts(scan: ProjectionInventory, value: BodyFacts): InstantiationStop | null {

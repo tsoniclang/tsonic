@@ -58,7 +58,7 @@ function rewriteSummaryKey(rewrite: TypeRewrite, key: SummaryKey): SummaryKey {
 
 function rewriteOrigins(rewrite: TypeRewrite, origins: OriginFacts): OriginFacts {
   return {
-    points: origins.points, reads: origins.reads, subjects: origins.subjects, writes: origins.writes, escapes: origins.escapes,
+    points: origins.points, reads: origins.reads, subjects: origins.subjects, writes: origins.writes, escapes: origins.escapes, exitContents: origins.exitContents,
     invocations: origins.invocations.map(invocation => ({
       node: invocation.node, kind: invocation.kind,
       alternatives: invocation.alternatives.map(alternative => ({

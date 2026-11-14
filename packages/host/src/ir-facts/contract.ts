@@ -116,6 +116,8 @@ export interface MirPoint {
   readonly statement: number | null;
 }
 
+// A store is an executed operation: identified and ordered by its position in the lowered body; its node is the source
+// occurrence (S2-23, K-14).
 export interface StoreLiveness {
   readonly node: NodeId;
   readonly point: MirPoint;
@@ -133,9 +135,11 @@ export interface LocalLiveRange {
   readonly segments: readonly LiveSegment[];
 }
 
+// Per source binding of the body (a MIR local with a source): whether the body itself takes its address or captures it.
+// No alias or identity fact: that is Origins' alone (COMPONENTS §10.2.1 Liveness).
 export interface BindingStorageFact {
   readonly local: LocalId;
-  readonly scope: "body" | "shared";
+  readonly addressTaken: boolean;
   readonly captured: boolean;
 }
 
@@ -237,7 +241,10 @@ export interface WrittenOriginsReason {
   readonly detail: string;
 }
 
+// A write and an escape are executed operations: identified and ordered by position, with the node as the source
+// occurrence (S2-23).
 export interface WriteFact {
+  readonly point: MirPoint;
   readonly node: NodeId;
   readonly operation: "initialization" | "mutation";
   readonly destination: "binding" | "member" | "element" | "pointer";
@@ -257,6 +264,7 @@ export type EscapeTarget =
   | { readonly kind: "external"; readonly boundary: OpenBoundaryId };
 
 export interface EscapeFact {
+  readonly point: MirPoint;
   readonly node: NodeId;
   readonly producer: ProducerId;
   readonly target: EscapeTarget;
@@ -332,6 +340,13 @@ export interface ConstructionAlternative {
   readonly regions: readonly InstanceRegion[];
 }
 
+// What each storage cell holds at each finite exit, in terms of what it held at entry; the normal and the unwinding exit
+// are distinct (COMPONENTS §10.2 Origins; COMMON-DATA §8).
+export interface ExitContents {
+  readonly onReturn: readonly SummaryWrite[];
+  readonly onUnwind: readonly SummaryWrite[];
+}
+
 export interface OriginFacts {
   readonly points: readonly PointPlaceOrigins[];
   readonly reads: readonly ReadOriginsFact[];
@@ -344,6 +359,7 @@ export interface OriginFacts {
   readonly frontiers: readonly ValueFrontier[];
   readonly constructions: readonly ConstructionAlternative[];
   readonly instanceRegions: readonly InstanceRegion[];
+  readonly exitContents: ExitContents;
 }
 
 export interface OriginsResult {
@@ -731,6 +747,9 @@ export interface FactsVerificationContext {
 export type PrintFacts = (facts: BodyFacts) => string;
 export type ParseFacts = (text: string) => TextParseResult<BodyFacts>;
 export type VerifyFacts = (facts: BodyFacts, mir: MirBody,
+  context: FactsVerificationContext) => readonly Violation<FactsRule, FactsSite>[];
+// The liveness family of one execution on its own, by the same rules verifyFacts applies to it (verifyFacts calls this).
+export type VerifyLiveness = (liveness: LivenessFacts, instance: BodyInstance, mir: MirBody,
   context: FactsVerificationContext) => readonly Violation<FactsRule, FactsSite>[];
 export type PrintSummary = (summary: Summary) => string;
 export type ParseSummary = (text: string) => TextParseResult<Summary>;

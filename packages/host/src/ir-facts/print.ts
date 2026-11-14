@@ -11,7 +11,7 @@ import type {
   ArgumentTransport, BindingStorageFact, BodyFacts, BoundActivation, BoundProducer, BoundRecordField,
   CallbackEntry, CallComponent, CallEdge, CallGraph, CaptureEffect, CaptureFact, CaptureLocation,
   ClosedArrayFact, ClosedArrayReason, ConstructionAlternative, CountedLoopFact, EffectPaths,
-  ErrorInvalidationFact, ErrorInvalidationReason, ErrorStorageFact, ErrorStorageFacts, EscapeFact, EscapeTarget,
+  ErrorInvalidationFact, ErrorInvalidationReason, ErrorStorageFact, ErrorStorageFacts, EscapeFact, EscapeTarget, ExitContents,
   InitializationFact, InitializationFacts, InstanceRegion, IntegerFact, IntegerRange, InvocationAlternative, InvocationFact,
   LiveSegment, LivenessFacts, LocalLiveRange, MemoryBindingInventoryEntry, MemoryField, MemoryFieldBindingFact,
   MemoryLayout, MemoryRecordBindingFact, MetadataFieldRef, MetadataKey, MetadataLayoutRef, MetadataRecord,
@@ -292,7 +292,7 @@ const localLiveRange = (writer: Writer, value: LocalLiveRange): void => record(w
   ["local", () => identity(writer, "l", value.local)], ["segments", () => sequence(writer, value.segments, item => liveSegment(writer, item))],
 ]);
 const bindingStorage = (writer: Writer, value: BindingStorageFact): void => record(writer, "BindingStorageFact", [
-  ["local", () => identity(writer, "l", value.local)], ["scope", () => scalar(writer, value.scope)],
+  ["local", () => identity(writer, "l", value.local)], ["addressTaken", () => scalar(writer, value.addressTaken)],
   ["captured", () => scalar(writer, value.captured)],
 ]);
 const captureFact = (writer: Writer, value: CaptureFact): void => record(writer, "CaptureFact", [
@@ -350,13 +350,13 @@ const writtenOrigins = (writer: Writer, value: WrittenOrigins): void => record(w
   ["reason", () => nullable(writer, value.reason, item => writtenReason(writer, item))],
 ]);
 const writeFact = (writer: Writer, value: WriteFact): void => record(writer, "WriteFact", [
-  ["node", () => identity(writer, "n", value.node)], ["operation", () => scalar(writer, value.operation)],
+  ["point", () => mirPoint(writer, value.point)], ["node", () => identity(writer, "n", value.node)], ["operation", () => scalar(writer, value.operation)],
   ["destination", () => scalar(writer, value.destination)], ["targets", () => sequence(writer, value.targets, item => identity(writer, "bound", item))],
   ["owner", () => nullable(writer, value.owner, item => identity(writer, "bound", item))], ["values", () => sequence(writer, value.values, item => writtenOrigins(writer, item))],
   ["boundaries", () => sequence(writer, value.boundaries, item => identity(writer, "boundary", item))],
 ]);
 const escapeFact = (writer: Writer, value: EscapeFact): void => record(writer, "EscapeFact", [
-  ["node", () => identity(writer, "n", value.node)], ["producer", () => identity(writer, "producer", value.producer)],
+  ["point", () => mirPoint(writer, value.point)], ["node", () => identity(writer, "n", value.node)], ["producer", () => identity(writer, "producer", value.producer)],
   ["target", () => escapeTarget(writer, value.target)],
 ]);
 const argumentTransport = (writer: Writer, value: ArgumentTransport): void => record(writer, "ArgumentTransport", [
@@ -408,6 +408,11 @@ const originFacts = (writer: Writer, value: OriginFacts): void => record(writer,
   ["callbacks", () => sequence(writer, value.callbacks, item => callbackEntry(writer, item))], ["activations", () => sequence(writer, value.activations, item => activation(writer, item))],
   ["frontiers", () => sequence(writer, value.frontiers, item => frontier(writer, item))], ["constructions", () => sequence(writer, value.constructions, item => construction(writer, item))],
   ["instanceRegions", () => sequence(writer, value.instanceRegions, item => instanceRegion(writer, item))],
+  ["exitContents", () => exitContents(writer, value.exitContents)],
+]);
+const exitContents = (writer: Writer, value: ExitContents): void => record(writer, "ExitContents", [
+  ["onReturn", () => sequence(writer, value.onReturn, item => summaryWrite(writer, item))],
+  ["onUnwind", () => sequence(writer, value.onUnwind, item => summaryWrite(writer, item))],
 ]);
 const retention = (writer: Writer, value: RetentionFact): void => record(writer, "RetentionFact", [
   ["source", () => identity(writer, "producer", value.source)], ["into", () => escapeTarget(writer, value.into)],

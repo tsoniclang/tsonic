@@ -87,7 +87,8 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   const bodyFacts = () => ({ instance: instance(), arena: arena(),
     liveness: { stores: [], locals: [], bindings: [], captures: [] }, initialization: { reads: [] },
     refinements: { refinements: [], integers: [], countedLoops: [] },
-    origins: { points: [], reads: [], subjects: [], writes: [], escapes: [], invocations: [], callbacks: [], activations: [], frontiers: [], constructions: [], instanceRegions: [] },
+    origins: { points: [], reads: [], subjects: [], writes: [], escapes: [], invocations: [], callbacks: [], activations: [], frontiers: [], constructions: [], instanceRegions: [],
+      exitContents: { onReturn: [], onUnwind: [] } },
     suspension: { suspensions: [] }, errorStorage: { errors: [] }, pointerBacking: { pointers: [] },
     observations: [], rawLocations: [], fieldBindings: [], recordBindings: [], memoryBindings: [], selectedMemoryDeclarations: [], closedArrays: [] });
   const emptyFacts = () => ({ ...bodyFacts(), arena: { projections: [], producers: [], contexts: [], boundProducers: [], origins: [], boundaries: [] } });
@@ -167,7 +168,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   const bindingsText = "BindingVector(classBindings=[], methodBindings=[], capturedBindings=[], selfBindings=[])";
   const nodeText = id => `NodeRef(body=body:"${body}", node=n:${id})`;
   const keyText = name => `MetadataKey(definition=def:"${definitions[name]}", bindings=parametric())`;
-  const emptyFactsText = `BodyFacts(instance=${instanceText}, arena=RelationalArena(projections=[], producers=[], contexts=[], boundProducers=[], origins=[], boundaries=[]), liveness=LivenessFacts(stores=[], locals=[], bindings=[], captures=[]), initialization=InitializationFacts(reads=[]), refinements=RefinementFacts(refinements=[], integers=[], countedLoops=[]), origins=OriginFacts(points=[], reads=[], subjects=[], writes=[], escapes=[], invocations=[], callbacks=[], activations=[], frontiers=[], constructions=[], instanceRegions=[]), suspension=SuspensionFacts(suspensions=[]), errorStorage=ErrorStorageFacts(errors=[]), pointerBacking=PointerBackingFacts(pointers=[]), observations=[], rawLocations=[], fieldBindings=[], recordBindings=[], memoryBindings=[], selectedMemoryDeclarations=[], closedArrays=[])\n`;
+  const emptyFactsText = `BodyFacts(instance=${instanceText}, arena=RelationalArena(projections=[], producers=[], contexts=[], boundProducers=[], origins=[], boundaries=[]), liveness=LivenessFacts(stores=[], locals=[], bindings=[], captures=[]), initialization=InitializationFacts(reads=[]), refinements=RefinementFacts(refinements=[], integers=[], countedLoops=[]), origins=OriginFacts(points=[], reads=[], subjects=[], writes=[], escapes=[], invocations=[], callbacks=[], activations=[], frontiers=[], constructions=[], instanceRegions=[], exitContents=ExitContents(onReturn=[], onUnwind=[])), suspension=SuspensionFacts(suspensions=[]), errorStorage=ErrorStorageFacts(errors=[]), pointerBacking=PointerBackingFacts(pointers=[]), observations=[], rawLocations=[], fieldBindings=[], recordBindings=[], memoryBindings=[], selectedMemoryDeclarations=[], closedArrays=[])\n`;
   const emptySummary = () => ({ ...summary(), arena: { projections: [], producers: [], contexts: [], boundProducers: [],
     origins: [{ id: 0, producers: [], includesAbsence: false, kind: "complete" }], boundaries: [] }, result: 0 });
   const emptySummaryText = `Summary(key=SummaryKey(definition=def:"${definitions.f}", bindings=parametric()), signature=sig:0, arena=RelationalArena(projections=[], producers=[], contexts=[], boundProducers=[], origins=${arrayText(["complete(id=origins:0, producers=[], includesAbsence=false)"])}, boundaries=[]), parameters=[], captures=[], result=origins:0, thrown=origins:0, writes=[], retention=[], callbacks=[], invocationOnlyParameters=[], suspends=false, bindingDependent=false)\n`;
@@ -195,7 +196,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   }
   await textCase("one real call component", graph(), graphText, product.printCallGraph, product.parseCallGraph);
   await suite.test("every exported value is exactly the twelve approved own-contract ports", () => {
-    assert.deepEqual(Object.keys(product).sort(), ["parseCallGraph", "parseFacts", "parseMetadata", "parseSummary", "printCallGraph", "printFacts", "printMetadata", "printSummary", "verifyCallGraph", "verifyFacts", "verifyMetadata", "verifySummary"]);
+    assert.deepEqual(Object.keys(product).sort(), ["parseCallGraph", "parseFacts", "parseMetadata", "parseSummary", "printCallGraph", "printFacts", "printMetadata", "printSummary", "verifyCallGraph", "verifyFacts", "verifyLiveness", "verifyMetadata", "verifySummary"]);
   });
   await suite.test("all four genuinely supplied valid domains return the complete empty violation vector", () => {
     const inputs = setup();
@@ -714,7 +715,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     ["mir-point-resolves", value => { value.liveness.stores = [{ node: 1, point: { block: 99, statement: null }, observed: false }]; }, nodeSite(1), "A MIR point names an actual block and statement, or that block's terminator."],
     ["point-refs-resolve", value => { value.origins.points = [{ point: { block: 99, statement: null }, place: 0, origins: 0 }]; }, bodySite(), "A MIR point names an actual block and statement, or that block's terminator."],
     ["origins-resolves", value => { value.origins.reads = [{ node: 1, place: 0, origins: 99 }]; }, nodeSite(1), "Origins resolve in this exact relational arena."],
-    ["boundary-resolves", value => { value.origins.writes = [{ node: 1, operation: "mutation", destination: "binding", targets: [], owner: null, values: [], boundaries: [99] }]; }, nodeSite(1), "A boundary resolves in this exact arena."],
+    ["boundary-resolves", value => { value.origins.writes = [{ point: { block: 0, statement: null }, node: 1, operation: "mutation", destination: "binding", targets: [], owner: null, values: [], boundaries: [99] }]; }, nodeSite(1), "A boundary resolves in this exact arena."],
     ["live-segments-bounds", value => { value.liveness.locals = [{ local: 0, segments: [{ block: 0, first: 1, last: 0 }] }]; }, { kind: "local", local: { body, local: 0 } },
       "A live interval contains ordered actual statement or terminator positions in its own block."],
   ];
@@ -801,8 +802,8 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     ["refinements-order", ["refinements", "refinements"], node => ({ node, guards: [], kind: "proven" })],
     ["reads-order", ["origins", "reads"], node => ({ node, place: 0, origins: 0 })],
     ["subjects-order", ["origins", "subjects"], node => ({ node, role: "value", path: null, origins: 0 })],
-    ["writes-order", ["origins", "writes"], node => ({ node, operation: "initialization", destination: "binding", targets: [], owner: null, values: [], boundaries: [] })],
-    ["escapes-order", ["origins", "escapes"], node => ({ node, producer: 0, target: { kind: "return" } })],
+    ["writes-order", ["origins", "writes"], node => ({ node, point: { block: 0, statement: null }, operation: "initialization", destination: "binding", targets: [], owner: null, values: [], boundaries: [] })],
+    ["escapes-order", ["origins", "escapes"], node => ({ node, point: { block: 0, statement: null }, producer: 0, target: { kind: "return" } })],
     ["invocations-order", ["origins", "invocations"], node => ({ node, kind: "call", alternatives: [], boundaries: [] })],
     ["callbacks-order", ["origins", "callbacks"], node => ({ node, argument: { authoredIndex: 0, parameter: definitions.parameter, parameterIndex: 0,
       repeated: false, passing: "by-value", actual: 0, formal: { owner: { kind: "summary", definition: definitions.callee, bindings: parametric() }, producer: 0 }, projection: null }, timing: "synchronous", rejection: null, inputs: [] })],
@@ -850,8 +851,8 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       [violation("mir-point-resolves", nodeSite(1), pointMessage)], 0],
     ["live local", "locals-order", ["liveness", "locals"], value => ({ local: value, segments: [] }), value => localSite(value),
       [violation("cross-owner-qualified", localSite(NaN), "A live local belongs to this actual MIR local table.")], 0],
-    ["storage local", "locals-order", ["liveness", "bindings"], value => ({ local: value, scope: "shared", captured: false }), value => localSite(value),
-      [violation("cross-owner-qualified", localSite(NaN), "A binding-storage row belongs to this actual MIR local table.")], 0],
+    ["storage local", "locals-order", ["liveness", "bindings"], value => ({ local: value, addressTaken: true, captured: false }), value => localSite(value),
+      [violation("cross-owner-qualified", localSite(NaN), "A binding-storage row belongs to a source binding of this actual MIR local table.")], 0],
     ["captured local", "captures-order", ["liveness", "captures"], value => ({ local: { body: otherBody, local: value }, reads: false, writes: false }), value => ({ kind: "local", local: { body: otherBody, local: value } }),
       [violation("capture-locations-exact", { kind: "local", local: { body: otherBody, local: NaN } }, "A capture retains its actual qualified outer local.")], 0],
     ...["block", "first", "last"].map(field => [
@@ -874,9 +875,9 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       [violation("node-resolves", nodeSite(NaN), nodeMessage)], 1],
     ["subject path", "subjects-order", ["origins", "subjects"], value => ({ node: 1, role: "value", path: value, origins: 0 }), () => nodeSite(1),
       [violation("producer-resolves", nodeSite(1), "A projected fact retains its actual projection-path identity.")], 0],
-    ["escape node", "escapes-order", ["origins", "escapes"], value => ({ node: value, producer: 0, target: { kind: "return" } }), value => nodeSite(value),
+    ["escape node", "escapes-order", ["origins", "escapes"], value => ({ node: value, point: { block: 0, statement: null }, producer: 0, target: { kind: "return" } }), value => nodeSite(value),
       [violation("node-resolves", nodeSite(NaN), nodeMessage)], 1],
-    ["escape producer", "escapes-order", ["origins", "escapes"], value => ({ node: 1, producer: value, target: { kind: "return" } }), () => nodeSite(1),
+    ["escape producer", "escapes-order", ["origins", "escapes"], value => ({ node: 1, point: { block: 0, statement: null }, producer: value, target: { kind: "return" } }), () => nodeSite(1),
       [violation("producer-resolves", nodeSite(1), "A producer reference resolves in its exact declared arena.")], 0],
     ...["node", "subject", "context"].map(field => [
       `frontier ${field}`, "frontiers-order", ["origins", "frontiers"], value => ({ node: 1, kind: "origin", subject: 0, context: 0, [field]: value }), value => nodeSite(field === "node" ? value : 1),
@@ -1004,7 +1005,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     }, input => { input.liveness.locals[0].segments.reverse(); }, [violation("live-segments-order", localSite(0), orderMessage)]);
   }
   const additionalFacts = [
-    ["locals-order", input => { input.liveness.bindings = [{ local: 0, scope: "body", captured: false }]; },
+    ["locals-order", input => { input.liveness.bindings = [{ local: 0, addressTaken: false, captured: false }]; },
       input => { input.liveness.bindings.push(clone(input.liveness.bindings[0])); }, localSite(0), orderMessage],
     ["captures-order", input => { input.liveness.captures = [{ local: { body: otherBody, local: 0 }, reads: true, writes: false }]; },
       input => { input.liveness.captures.push(clone(input.liveness.captures[0])); }, { kind: "local", local: { body: otherBody, local: 0 } }, orderMessage],
@@ -1695,8 +1696,10 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   for (const [name, prepare, amend, rule, site, message] of [
     ["a live local", input => { input.liveness.locals = [{ local: 0, segments: [] }]; }, input => { input.liveness.locals[0].local = 99; },
       "cross-owner-qualified", localSite(99), "A live local belongs to this actual MIR local table."],
-    ["a storage local", input => { input.liveness.bindings = [{ local: 0, scope: "shared", captured: true }]; }, input => { input.liveness.bindings[0].local = 99; },
-      "cross-owner-qualified", localSite(99), "A binding-storage row belongs to this actual MIR local table."],
+    ["a storage local", input => { input.liveness.bindings = [{ local: 0, addressTaken: true, captured: true }]; }, input => { input.liveness.bindings[0].local = 99; },
+      "cross-owner-qualified", localSite(99), "A binding-storage row belongs to a source binding of this actual MIR local table."],
+    ["a source binding", input => { input.liveness.bindings = [{ local: 0, addressTaken: false, captured: false }]; }, (input, supplied) => { supplied.mir.locals[0].source = null; },
+      "cross-owner-qualified", localSite(0), "A binding-storage row belongs to a source binding of this actual MIR local table."],
     ["a qualified captured local", input => { input.liveness.captures = [{ local: { body: otherBody, local: 0 }, reads: true, writes: false }]; },
       input => { input.liveness.captures[0].local.local = 99; }, "capture-locations-exact", { kind: "local", local: { body: otherBody, local: 99 } },
       "A capture retains its actual qualified outer local."],
@@ -1705,6 +1708,26 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     ["an actual MIR statement boundary", (input, supplied) => { withMirEndpoints(supplied); input.liveness.stores = [{ node: 1, point: { block: 0, statement: 0 }, observed: true }]; },
       input => { input.liveness.stores[0].point.statement = 2; }, "mir-point-resolves", nodeSite(1), "A MIR point names an actual block and statement, or that block's terminator."],
   ]) await factOpposite(`typed references retain ${name}`, prepare, amend, [violation(rule, site, message)]);
+  for (const exit of ["onReturn", "onUnwind"]) {
+    const prepare = input => { input.origins.exitContents[exit] = [{ target: 0, value: 0 }, { target: 0, value: 1 }]; };
+    await factOpposite(`exit contents ${exit} retain distinct write order`, prepare, input => { input.origins.exitContents[exit].reverse(); },
+      [violation("writes-order", bodySite(), orderMessage)]);
+    await factOpposite(`exit contents ${exit} retain an actual producer`, prepare, input => { input.origins.exitContents[exit][1].target = 9; },
+      [violation("producer-resolves", bodySite(), "A producer reference resolves in its exact declared arena.")]);
+    await factOpposite(`exit contents ${exit} retain actual origins`, prepare, input => { input.origins.exitContents[exit][1].value = 9; },
+      [violation("origins-resolves", bodySite(), "Origins resolve in this exact relational arena.")]);
+  }
+  await suite.test("the liveness family verifier is the one verifyFacts calls", () => {
+    const input = bodyFacts(); const supplied = setup(input);
+    input.liveness.bindings = [{ local: 0, addressTaken: true, captured: false }];
+    supplied.canonicalArenas.set(ownerKey({ kind: "body", instance: input.instance }), clone(input.arena));
+    supplyScopes(supplied, { kind: "body", instance: input.instance }, supplied.scopeRows.body);
+    equal(product.verifyLiveness(input.liveness, input.instance, supplied.mir, supplied.context), [], "valid liveness family");
+    supplied.mir.locals[0].source = null;
+    const expected = [violation("cross-owner-qualified", localSite(0), "A binding-storage row belongs to a source binding of this actual MIR local table.")];
+    equal(product.verifyLiveness(input.liveness, input.instance, supplied.mir, supplied.context), expected, "family verifier reports the binding law");
+    equal(product.verifyFacts(input, supplied.mir, supplied.context), expected, "verifyFacts reports the same family violations");
+  });
   for (const [name, diagnostic] of [
     ["a source warning", { severity: "warning", site: { kind: "source", origin: sourceOrigin(1) } }],
     ["a source suggestion", { severity: "suggestion", site: { kind: "source", origin: sourceOrigin(1) } }],
@@ -1754,7 +1777,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   for (const [kind, target, amend, factsRule, factsMessage, summaryRule, summaryMessage] of retentionTargets) {
     await factOpposite(`actual complete escape target ${kind}`, (input, supplied) => {
       targetInventory(kind, input, supplied, false);
-      input.origins.escapes = [{ node: 1, producer: 0, target: clone(target) }];
+      input.origins.escapes = [{ point: { block: 0, statement: null }, node: 1, producer: 0, target: clone(target) }];
     }, input => amend(input.origins.escapes[0].target), [violation(factsRule, nodeSite(1), factsMessage)]);
     await summaryOpposite(`actual complete retention target ${kind}`, (input, supplied) => {
       targetInventory(kind, input, supplied, true);
@@ -1762,7 +1785,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     }, input => amend(input.retention[0].into), [violation(summaryRule, summarySite(), summaryMessage)]);
   }
   for (const kind of ["return", "throw"]) {
-    await factOpposite(`actual complete escape ${kind}`, input => { input.origins.escapes = [{ node: 1, producer: 0, target: { kind } }]; },
+    await factOpposite(`actual complete escape ${kind}`, input => { input.origins.escapes = [{ point: { block: 0, statement: null }, node: 1, producer: 0, target: { kind } }]; },
       input => { input.origins.escapes[0].producer = 99; }, [violation("producer-resolves", nodeSite(1), "A producer reference resolves in its exact declared arena.")]);
     await summaryOpposite(`actual complete retention ${kind}`, input => { input.retention = [{ source: 0, into: { kind } }]; },
       input => { input.retention[0].source = 99; }, [violation("retention-source-resolves", summarySite(), "Every retained source is a producer in this exact summary arena.")]);
@@ -2590,8 +2613,13 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   };
   await factTransport("live segment transport", ["liveness", "locals"], "locals=[]", { local: 0, segments: [{ block: 0, first: 0, last: 1 }] },
     `LocalLiveRange(local=l:0, segments=${arrayText(["LiveSegment(block=b:0, first=0, last=1)"])})`);
-  for (const scope of ["body", "shared"]) await factTransport(`binding storage ${scope}`, ["liveness", "bindings"], "bindings=[]", { local: 0, scope, captured: true },
-    `BindingStorageFact(local=l:0, scope="${scope}", captured=true)`);
+  for (const addressTaken of [false, true]) await factTransport(`binding storage addressTaken ${addressTaken}`, ["liveness", "bindings"], "bindings=[]", { local: 0, addressTaken, captured: true },
+    `BindingStorageFact(local=l:0, addressTaken=${addressTaken}, captured=true)`);
+  for (const exit of ["onReturn", "onUnwind"]) {
+    const input = emptyFacts(); input.origins.exitContents[exit] = [{ target: 0, value: 1 }];
+    const field = `${exit}=[]`;
+    await textCase(`exit contents ${exit} transport`, input, emptyFactsText.replace(field, `${exit}=${arrayText(["SummaryWrite(target=producer:0, value=origins:1)"])}`), product.printFacts, product.parseFacts);
+  }
   await factTransport("qualified live capture transport", ["liveness", "captures"], "captures=[]", { local: { body: otherBody, local: 0 }, reads: true, writes: true },
     `CaptureFact(local=LocalRef(body=body:"${otherBody}", local=l:0), reads=true, writes=true)`);
   const refinementRows = [
@@ -2620,9 +2648,9 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   for (const role of ["input", "value", "member", "return", "receiver"]) await factTransport(`subject origins ${role}`, ["origins", "subjects"], "subjects=[]", { node: 1, role, path: 0, origins: 1 },
     `SubjectOriginsFact(node=n:1, role="${role}", path=path:0, origins=origins:1)`);
   for (const operation of ["initialization", "mutation"]) for (const destination of ["binding", "member", "element", "pointer"]) {
-    const row = { node: 1, operation, destination, targets: [0], owner: 0, values: [{ source: nodeRef(2), origins: 1, reason: { kind: "value-source-unproven", detail: "unknown" } },
+    const row = { point: { block: 0, statement: null }, node: 1, operation, destination, targets: [0], owner: 0, values: [{ source: nodeRef(2), origins: 1, reason: { kind: "value-source-unproven", detail: "unknown" } },
       { source: null, origins: 0, reason: null }], boundaries: [0] };
-    const authored = `WriteFact(node=n:1, operation="${operation}", destination="${destination}", targets=${arrayText(["bound:0"])}, owner=bound:0, values=${arrayText([
+    const authored = `WriteFact(point=MirPoint(block=b:0, statement=null), node=n:1, operation="${operation}", destination="${destination}", targets=${arrayText(["bound:0"])}, owner=bound:0, values=${arrayText([
       `WrittenOrigins(source=${nodeText(2)}, origins=origins:1, reason=value-source-unproven(detail="unknown"))`, "WrittenOrigins(source=null, origins=origins:0, reason=null)",
     ])}, boundaries=${arrayText(["boundary:0"])})`;
     await factTransport(`complete write transport ${operation}/${destination}`, ["origins", "writes"], "writes=[]", row, authored);
@@ -2636,8 +2664,8 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     [{ kind: "suspension", at: { kind: "declared", identity: libraryIdentity, site: 0 } }, `suspension(at=declared(identity=${libraryText}, site=0))`],
     [{ kind: "external", boundary: 0 }, "external(boundary=boundary:0)"],
   ];
-  for (const [target, authored] of escapeRows) await factTransport(`escape transport ${target.kind}`, ["origins", "escapes"], "escapes=[]", { node: 1, producer: 0, target },
-    `EscapeFact(node=n:1, producer=producer:0, target=${authored})`);
+  for (const [target, authored] of escapeRows) await factTransport(`escape transport ${target.kind}`, ["origins", "escapes"], "escapes=[]", { point: { block: 0, statement: null }, node: 1, producer: 0, target },
+    `EscapeFact(point=MirPoint(block=b:0, statement=null), node=n:1, producer=producer:0, target=${authored})`);
 
   const endpointText = role => `HirCallableEndpoint(declaration=def:"${definitions.callee}", role="${role}", signature=sig:1, body=null)`;
   const argumentText = (index, parameter) => `ArgumentTransport(authoredIndex=${index}, parameter=def:"${parameter}", parameterIndex=${index}, repeated=false, passing="by-value", actual=origins:0, formal=ProducerRef(owner=summary(definition=def:"${definitions.callee}", bindings=parametric()), producer=producer:${index}), projection=null)`;
@@ -3179,12 +3207,12 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   for (const kind of ["live", "storage"]) for (const mode of ["missing", "wrong-id", "negative-zero"]) {
     await factOpposite(`${kind} local requires an actual ${mode} row rather than its in-range position`, input => {
       if (kind === "live") input.liveness.locals = [{ local: 0, segments: [] }];
-      else input.liveness.bindings = [{ local: 0, scope: "shared", captured: true }];
+      else input.liveness.bindings = [{ local: 0, addressTaken: true, captured: true }];
     }, (input, supplied) => {
       if (mode === "missing") supplied.mir.locals = new Array(1);
       else supplied.mir.locals[0].id = mode === "negative-zero" ? -0 : 1;
     }, [violation("cross-owner-qualified", localSite(0), kind === "live"
-      ? "A live local belongs to this actual MIR local table." : "A binding-storage row belongs to this actual MIR local table.")]);
+      ? "A live local belongs to this actual MIR local table." : "A binding-storage row belongs to a source binding of this actual MIR local table.")]);
   }
   for (const kind of ["store", "origin", "segment"]) await factOpposite(`${kind} point cannot resolve to an in-range sparse statement`, (input, supplied) => {
     withMirEndpoints(supplied);
@@ -3213,7 +3241,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
     for (const mode of kind === "receiver" ? ["missing", "wrong-id", "negative-zero"] : ["missing"]) {
       await factOpposite(`actual ${kind} producer and escape reject the ${mode} selected slot`, (input, supplied) => {
         formalInventory(kind, input, supplied);
-        input.origins.escapes = [{ node: 1, producer: 0, target: kind === "receiver" ? { kind, path: null } : { kind, index: 0, path: null } }];
+        input.origins.escapes = [{ point: { block: 0, statement: null }, node: 1, producer: 0, target: kind === "receiver" ? { kind, path: null } : { kind, index: 0, path: null } }];
       }, (input, supplied) => {
         if (kind === "parameter") supplied.tir.params = new Array(1);
         if (kind === "capture") supplied.tir.captures = new Array(1);
@@ -3698,7 +3726,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
       input.refinements.integers = input.refinements.integers.filter(row => row.node !== 11);
     }, [violation("counted-loop-conditions-exact", nodeSite(1), loopMessage)]);
   const writtenFixture = input => {
-    input.origins.writes = [{ node: 1, operation: "mutation", destination: "binding", targets: [0], owner: 0,
+    input.origins.writes = [{ point: { block: 0, statement: null }, node: 1, operation: "mutation", destination: "binding", targets: [0], owner: 0,
       values: [{ source: null, origins: 0, reason: null }, { source: nodeRef(2), origins: 1, reason: null }], boundaries: [0] }];
   };
   for (const target of ["targets", "owner"]) await factOpposite(`original raw written bound producer ${target}`, writtenFixture,
@@ -3929,7 +3957,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
   ]) {
     const prepare = (input, supplied) => {
       const target = { kind: "callback", at: { kind: "declared", identity: clone(libraryIdentity), site: 0 } };
-      if (root === "facts") input.origins.escapes = [{ node: 1, producer: 0, target }];
+      if (root === "facts") input.origins.escapes = [{ point: { block: 0, statement: null }, node: 1, producer: 0, target }];
       else input.retention = [{ source: 0, into: target }];
     };
     const opposite = (input, supplied) => { supplied.context.libraryExportExists = selected => {
@@ -4231,11 +4259,11 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
         mkdirSync(dirname(path), { recursive: true }); copyFileSync(entry.declaration, path);
       }
       const prefix = [
-        'import { printFacts, parseFacts, verifyFacts, printSummary, parseSummary, verifySummary, printMetadata, parseMetadata, verifyMetadata, printCallGraph, parseCallGraph, verifyCallGraph } from "./packages/host/src/ir-facts/index.js";',
+        'import { printFacts, parseFacts, verifyFacts, verifyLiveness, printSummary, parseSummary, verifySummary, printMetadata, parseMetadata, verifyMetadata, printCallGraph, parseCallGraph, verifyCallGraph } from "./packages/host/src/ir-facts/index.js";',
         'import type { BodyFacts, Summary, MetadataRecord, CallGraph, FactsVerificationContext } from "./packages/host/src/ir-facts/contract.js";',
         'import type { MirBody } from "./packages/host/src/ir-mir/contract.js";',
         "declare const facts: BodyFacts; declare const summary: Summary; declare const metadata: MetadataRecord; declare const graph: CallGraph; declare const context: FactsVerificationContext; declare const mir: MirBody;",
-        'const values = [printFacts(facts), parseFacts(""), verifyFacts(facts, mir, context), printSummary(summary), parseSummary(""), verifySummary(summary, context), printMetadata(metadata), parseMetadata(""), verifyMetadata(metadata, context), printCallGraph(graph), parseCallGraph(""), verifyCallGraph(graph, context)]; void values;',
+        'const values = [printFacts(facts), parseFacts(""), verifyFacts(facts, mir, context), printSummary(summary), parseSummary(""), verifySummary(summary, context), printMetadata(metadata), parseMetadata(""), verifyMetadata(metadata, context), printCallGraph(graph), parseCallGraph(""), verifyCallGraph(graph, context), verifyLiveness(facts.liveness, facts.instance, mir, context)]; void values;',
       ].join("\n");
       const cases = [["all-ports", "", []], ["sparse-diagnostics", [
         'import type { Diagnostic } from "./packages/host/src/diag/contract.js";',
@@ -4278,6 +4306,7 @@ test("ir-facts: all twelve actual emitted ports, full closed logic and fresh dec
         ["printFacts", "printFacts(summary);", [2740]], ["printSummary", "printSummary(facts);", [2740]],
         ["printMetadata", "printMetadata(graph);", [2345]], ["printCallGraph", "printCallGraph(metadata);", [2345]],
         ["verifyFacts", "verifyFacts(summary, mir, context);", [2740]], ["verifySummary", "verifySummary(facts, context);", [2740]],
+        ["verifyLiveness", "verifyLiveness(facts.liveness, facts.instance, mir, context, 0);", [2554]],
         ["verifyMetadata", "verifyMetadata(graph, context);", [2345]], ["verifyCallGraph", "verifyCallGraph(metadata, context);", [2345]],
       ];
       const results = [];

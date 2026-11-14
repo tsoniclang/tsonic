@@ -107,7 +107,7 @@ export function moduleFixture(path = "src/main.ts", root = "/program") {
     instance, arena, liveness: { stores: [], locals: [], bindings: [], captures: [] }, initialization: { reads: [] },
     refinements: { refinements: [], integers: [], countedLoops: [] },
     origins: { points: [], reads: [], subjects: [], writes: [], escapes: [], invocations: [], callbacks: [],
-      activations: [], frontiers: [], constructions: [], instanceRegions: [] },
+      activations: [], frontiers: [], constructions: [], instanceRegions: [], exitContents: { onReturn: [], onUnwind: [] } },
     suspension: { suspensions: [] }, errorStorage: { errors: [] }, pointerBacking: { pointers: [] },
     observations: [], rawLocations: [], fieldBindings: [], recordBindings: [], memoryBindings: [],
     selectedMemoryDeclarations: [], closedArrays: [],
