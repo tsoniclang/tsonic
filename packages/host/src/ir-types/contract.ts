@@ -1,6 +1,6 @@
-import type { TyId, SigId, DefId, SourceNodeRef, LocalRef } from "../ids/contract.js";
+import type { TyId, SigId, DefId, KeyData, SourceNodeRef, LocalRef } from "../ids/contract.js";
 import type { TextParseResult, Violation } from "../diag/contract.js";
-import type { ArtifactBindings, TypeTerm, Signature, SignatureInput, TypeTable, BindingVector, TypeParameterIdentity, TypeEvidence } from "./data.js";
+import type { ArtifactBindings, BodyInstance, Execution, TypeTerm, Signature, SignatureInput, TypeTable, BindingVector, TypeParameterIdentity, TypeEvidence } from "./data.js";
 import type { TypeArena } from "./arena.js";
 export type * from "./data.js";
 
@@ -8,6 +8,7 @@ export type TypeInterner = TypeArena;
 
 export interface TypeExpansionLimits {
   readonly maximumDepth: number;
+  /** One shared allowance for environment/binding-value slots, root positions, binding-value records, new graph plans and normalization stages. */
   readonly maximumVisits: number;
   readonly maximumUnionMembers: number;
   readonly maximumIntersectionMembers: number;
@@ -25,6 +26,32 @@ export interface SignatureRequest {
   readonly ordinal: number;
   readonly bindings: ArtifactBindings;
 }
+
+/**
+ * One execution of a bodyless declaration (COMMON-DATA section 1 line 21; K-3367 D): the complete signature request and
+ * the number of arguments provided. Declared here beside SignatureRequest rather than in data.ts beside Execution,
+ * because data.ts does not import this file (this file re-exports data.ts; the module's import graph is acyclic).
+ */
+export interface DeclaredExecution {
+  readonly request: SignatureRequest;
+  readonly provided: number;
+}
+
+export type BindingVectorData = (vector: BindingVector) => KeyData;
+export type ArtifactBindingsData = (bindings: ArtifactBindings) => KeyData;
+export type SignatureRequestData = (request: SignatureRequest) => KeyData;
+export type SignatureRequestKey = (request: SignatureRequest) => string;
+export type BindingVectorKey = (vector: BindingVector) => string;
+/** The canonical key text of artifact bindings: parametric, or instantiated with its binding vector's projection. */
+export type ArtifactBindingsKey = (bindings: ArtifactBindings) => string;
+/** The canonical key text of a body instance: the body and its complete bindings, a binding-vector hole as null at its position. */
+export type InstanceKey = (instance: BodyInstance) => string;
+/** Whether two body instances are the same instance: equal instance keys. The one public instance comparison. */
+export type SameInstance = (left: BodyInstance, right: BodyInstance) => boolean;
+/** The canonical key text of an execution: its instance key and its provided count. */
+export type ExecutionKey = (execution: Execution) => string;
+/** The canonical key text of a declared execution: the complete signature request and the provided count. */
+export type DeclaredExecutionKey = (execution: DeclaredExecution) => string;
 
 export type TypeTransform<Value> =
   | { readonly kind: "complete"; readonly value: Value }
@@ -53,6 +80,12 @@ export type TypePublicationResult =
   | { readonly kind: "resource-limit"; readonly dimension: "work" | "created-records"; readonly maximum: number };
 export type ExportTypes = (interner: TypeInterner, limits: TypePublicationLimits) => TypePublicationResult;
 export type Substitute = (interner: TypeInterner, types: readonly TyId[], bindings: BindingVector, limits: TypeExpansionLimits) => TypeTransform<readonly TyId[]>;
+export interface BindingValues {
+  readonly types: readonly TyId[];
+  readonly bindings: readonly BindingVector[];
+}
+export type SubstituteBindingValues = (interner: TypeInterner, values: BindingValues,
+  bindings: BindingVector, limits: TypeExpansionLimits) => TypeTransform<BindingValues>;
 export type SubstituteSignature = (
   interner: TypeInterner,
   signatures: readonly SigId[],
@@ -83,6 +116,8 @@ export interface BindingScope {
   readonly capturedParameters: readonly TypeParameterIdentity[];
   readonly selfOwners: readonly DefId[];
 }
+
+export type RigidBindings = (scope: BindingScope) => BindingVector;
 
 export interface BindingVerificationInput {
   readonly vector: BindingVector;
