@@ -80,6 +80,8 @@ test("selected property transport rejects foreign, missing and competing receive
     { arms: [{ ...use.arms[0], receiver: use.read }] },
   ]) assert.throws(() => lower({ ...raw, memberUses: [{ ...use, ...changed }] }), /front:/u);
   assert.throws(() => lower({ ...raw, memberUses: [use, use] }), /unique syntax order/u);
+  assert.throws(() => lower({ ...raw, memberUses: [{ ...use, occurrence: { module: raw.module, node: raw.tree.id } }, use] }),
+    /member use.*actual selected syntax/u);
   const missing = lower({ ...raw, memberUses: [] }).checked.tree.statements.nodes[1].body.statements.nodes[0].expression;
   assert.deepEqual(missing.tsonic.origins, { kind: "unavailable", reason: "not-provided", causes: [] });
   assert.equal(missing.name.tsonic.key.kind, "unavailable");
@@ -97,4 +99,33 @@ test("a declaration-only computed name never gains an executing property selecti
   assert.equal(key.selected.kind, "available");
   assert.equal(key.selected.value.kind, "symbol");
   assert.equal(definitions.rows.some(row => row.node === member.id && row.kind === "PropertySignature"), true);
+});
+
+test("equal property spellings retain distinct actual selected declarations and reject crossed member arms", async () => {
+  const { fixture, raw, definitions, lower } = await captured(
+    "export type Left={flag:boolean};export type Right={flag:boolean};"
+    + "export function readLeft(input:Left):boolean{return input.flag;}"
+    + "export function readRight(input:Right):boolean{return input.flag;}\n");
+  assert.equal(raw.memberUses.length, 2);
+  const [left, right] = raw.memberUses;
+  assert.notDeepEqual(left.occurrence, right.occurrence);
+  assert.notDeepEqual(left.receiver, right.receiver);
+  assert.notDeepEqual(left.selectedDeclaration, right.selectedDeclaration);
+  const properties = raw.tree.statements.nodes.slice(0, 2).map(node => node.type.members.nodes[0]);
+  const selectedDefinitions = properties.map(property => definitions.rows.find(row => row.node === property.id).definition);
+  const { checked, interner } = lower();
+  assert.equal(fixture.verifyChecked(checked, interner).length, 0);
+  for (const [index, use] of raw.memberUses.entries()) {
+    assert.deepEqual(use.selectedDeclaration, { module: raw.module, node: properties[index].id });
+    const actual = checked.tree.statements.nodes[index + 2].body.statements.nodes[0].expression;
+    assert.equal(actual.name.text, "flag");
+    assert.deepEqual(actual.name.tsonic.key, { kind: "available", value: { kind: "text", value: "flag" } });
+    assert.deepEqual(actual.tsonic.origins, { kind: "available", value: [{ kind: "declared", declaration: selectedDefinitions[index] }] });
+  }
+  assert.throws(() => lower({ ...raw, memberUses: [{ ...left, selectedDeclaration: right.selectedDeclaration }, right] }),
+    /exact original declaration inventory/u);
+  assert.throws(() => lower({ ...raw, memberUses: [{ ...left, arms: right.arms }, right] }),
+    /actual selected member arm/u);
+  assert.throws(() => lower({ ...raw, memberUses: [{ ...left, readDeclarations: right.readDeclarations }, right] }),
+    /exact selected receiver declarations/u);
 });

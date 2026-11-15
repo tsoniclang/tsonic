@@ -346,7 +346,7 @@ interface Lowering {
   readonly views: ReadonlyMap<NodeId, RawCheckerViews>;
   readonly references: ReadonlyMap<NodeId, RawFact<RawBindingTarget>>;
   readonly propertyNames: ReadonlyMap<NodeId, RawPropertyName>;
-  readonly memberUses: ReadonlyMap<NodeId, RawMemberUse>;
+  readonly memberUses: Map<NodeId, RawMemberUse>;
   readonly links: ReadonlyMap<NodeId, RawModuleLink>;
   readonly locals: Map<NodeId, LocalRef>;
   readonly variableLocals: ReadonlyMap<BodyId, readonly Hir.HirLocal[]>;
@@ -591,6 +591,7 @@ function memberUse(lowering: Lowering, node: Hir.PropertyAccessExpression<Syntax
       throw new TypeError("front: member read origins must retain the exact selected receiver declarations");
     return { kind: "declared", declaration: lowering.deps.definitionOf(declaration) };
   });
+  lowering.memberUses.delete(node.id);
   return { key: { kind: "available", value: lowerMemberKey(lowering.deps, member.key) },
     origins: { kind: "available", value: origins }, accessor: member.readKind === "accessor"
       ? { kind: "unavailable", reason: "incomplete-association", causes: [] } : { kind: "available", value: null } };
@@ -884,7 +885,7 @@ function referenceTargets(raw: RawModule): ReadonlyMap<NodeId, RawFact<RawBindin
   return references;
 }
 
-function memberUsesOf(raw: RawModule): ReadonlyMap<NodeId, RawMemberUse> {
+function memberUsesOf(raw: RawModule): Map<NodeId, RawMemberUse> {
   const uses = new Map<NodeId, RawMemberUse>();
   let previous = -1;
   for (const use of raw.memberUses) {
@@ -940,6 +941,8 @@ export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<Hir.HirM
     variableLocals.set(local.body, rows);
   }
   lowerStatements(lowering, moduleDefinition);
+  if (lowering.memberUses.size !== 0)
+    return throwInvariant(invariant("Every captured member use must project to its actual selected syntax."));
   const tree: Hir.SourceFile<Checked> = { ...headerOf(raw.tree), kind: "SourceFile",
     statements: { loc: raw.tree.statements.loc, nodes: raw.tree.statements.nodes.map(child => statement(lowering, child)) },
     endOfFileToken: token(raw.tree.endOfFileToken), languageVariant: raw.tree.languageVariant, scriptKind: raw.tree.scriptKind,
