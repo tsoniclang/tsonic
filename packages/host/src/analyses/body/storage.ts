@@ -8,6 +8,7 @@ import { localOwnershipOfMir } from "../../ir-mir/index.js";
 import type { BodyRoundDeps, BodyRoundInput } from "./contract.js";
 import type { CallError } from "./calls.js";
 import { callSummary, isCallError } from "./calls.js";
+import { callReturnAssigned } from "./initialization.js";
 import { bodyFrontier } from "./places.js";
 
 export type Assigned = ReadonlySet<LocalId> | CallError | null;
@@ -232,13 +233,16 @@ export function solveAssigned(deps: BodyRoundDeps, input: Pick<BodyRoundInput, "
           if (isCallError(selected.value)) next = selected.value;
           else {
             if (!selected.value.returns) return [];
+            const initialized = callReturnAssigned(deps, body, terminator, selected.value, state);
+            if (initialized.kind !== "complete") return [];
+            next = initialized.value;
             if (terminator.destination !== null) {
-              const growth = chargeWork(borrowed, 1 + state.size) ?? chargeResultEntries(borrowed, state.size + 1);
+              const growth = chargeWork(borrowed, 1 + initialized.value.size) ?? chargeResultEntries(borrowed, initialized.value.size + 1);
               if (growth !== null) return [];
               const place = body.places[terminator.destination];
               if (place?.base.kind !== "local")
                 return bodyFrontier("A call destination requires its actual selected logical-cell binding.");
-              const written = new Set(state);
+              const written = new Set(initialized.value);
               written.add(place.base.local);
               next = written;
             }

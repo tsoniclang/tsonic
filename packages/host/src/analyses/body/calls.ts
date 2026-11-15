@@ -12,6 +12,7 @@ import type { BodyRoundDeps, BodyRoundInput } from "./contract.js";
 import { appliedOrigins, valueKind } from "./values.js";
 import type { AdmitOrigins, ValueOrigins } from "./values.js";
 import { readLocal } from "./places.js";
+import { primitiveWrites } from "./writes.js";
 
 export interface CallError {
   readonly kind: "error";
@@ -109,6 +110,7 @@ function hasReferences(value: AppliedOriginsValue): boolean {
   return value.caller.length + value.callee.length + value.boundaries.length !== 0;
 }
 
+
 export function applyScalarCall(deps: BodyRoundDeps, input: BodyRoundInput,
   operation: Extract<MirTerminator, { readonly kind: "call" }>, point: MirPoint,
   summary: Summary, arena: RelationalArena, context: ValueContextId,
@@ -133,11 +135,13 @@ export function applyScalarCall(deps: BodyRoundDeps, input: BodyRoundInput,
   if (inspection !== null) return inspection;
   if (value.result.callee.length !== 0 || value.result.boundaries.length !== 0 || hasReferences(value.thrown) || value.thrown.includesAbsence)
     return frontier(operation, "BodyAnalysis requires the actual Origins result and thrown-value binding of this call.");
-  const effects = value.events.length + value.writes.length + value.concurrentWrites.length
-    + value.contentsOnReturn.length + value.contentsOnUnwind.length
+  const effects = value.events.length + value.concurrentWrites.length + value.contentsOnUnwind.length
     + value.callbacks.length + value.resultCells.length + value.backing.length;
   if (effects !== 0)
     return frontier(operation, "BodyAnalysis requires the actual caller cell, event, callback or backing producer for these applied effects.");
+  const written = primitiveWrites(deps, input, operation, summary, summary.writes, value.writes)
+    ?? primitiveWrites(deps, input, operation, summary, summary.contentsOnReturn, value.contentsOnReturn);
+  if (written !== null) return written;
   for (let index = 0; index < value.subjects.length; index += 1) {
     const work = chargeWork(deps.account, 1);
     if (work !== null) return work;
@@ -171,7 +175,8 @@ export function applyScalarCall(deps: BodyRoundDeps, input: BodyRoundInput,
   for (const row of value.initialization) {
     const read = chargeWork(deps.account, 1);
     if (read !== null) return read;
-    if (row.point.kind === "need" ? row.cell?.kind !== "cell" : row.point.kind !== "return" || row.cell !== null)
+    if (row.point.kind === "need" ? row.cell?.kind !== "cell"
+      : row.point.kind !== "return" || row.cell !== null && row.cell.kind !== "cell")
       return frontier(operation, "BodyAnalysis requires the actual supplied cell and completion-event bindings of these initialization obligations.");
   }
   return applied;

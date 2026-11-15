@@ -23,7 +23,7 @@ const analysisLimits = { maximumProjectionDepth: 64, maximumOriginAlternatives: 
   maximumRelationalRecordsPerBody: 100000, maximumRelationalReferencesPerBody: 100000 };
 const scope = { classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] };
 const repository = fileURLToPath(new URL("../../", import.meta.url));
-const runtimeFiles = ["index", "round", "storage", "source", "proof", "calls", "values", "value-flow", "places", "captures"].map(name => resolve(repository, `packages/host/dist/analyses/body/${name}.js`));
+const runtimeFiles = ["index", "round", "storage", "source", "proof", "calls", "values", "value-flow", "places", "captures", "initialization", "writes"].map(name => resolve(repository, `packages/host/dist/analyses/body/${name}.js`));
 const session = new Session();
 const post = (method, parameters = {}) => new Promise((done, reject) =>
   session.post(method, parameters, (error, value) => error === null ? done(value) : reject(error)));
@@ -51,6 +51,12 @@ let valueProblem;
 let transferValue;
 let referenceCallResult;
 let prepareCallCaptures;
+let captureMustAtExit;
+let callReturnAssigned;
+let sourceNeedAssigned;
+let captureLocalAtCall;
+let primitiveWrites;
+let collectCellWrites;
 
 before(async () => {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true, "the aggregate owner guard admitted this process");
@@ -69,6 +75,9 @@ before(async () => {
   ({ joinOrigins, appliedOrigins, valueOrigins } = await import("../../packages/host/dist/analyses/body/values.js"));
   ({ valueProblem, transferValue } = await import("../../packages/host/dist/analyses/body/value-flow.js"));
   ({ prepareCallCaptures } = await import("../../packages/host/dist/analyses/body/captures.js"));
+  ({ captureMustAtExit, callReturnAssigned, sourceNeedAssigned, captureLocalAtCall } =
+    await import("../../packages/host/dist/analyses/body/initialization.js"));
+  ({ primitiveWrites, collectCellWrites } = await import("../../packages/host/dist/analyses/body/writes.js"));
 });
 
 after(async () => {
@@ -249,7 +258,7 @@ function defaultRound() {
   return { current, initializer, childPair, unit, operation: block.terminator, point: { block: block.id, statement: null } };
 }
 
-function locationDefaultProgram(name, { incoming = false, count = 1, receiver = false, withReceiver = false, repeatedRead = false, selfRead = false, type = T.bool } = {}) {
+function locationDefaultProgram(name, { incoming = false, count = 1, receiver = false, withReceiver = false, repeatedRead = false, selfRead = false, type = T.bool, write = false, returnSource = false } = {}) {
   const defaults = Array.from({ length: count }, (_, index) => ({ name: count === 1 ? "b" : `b${index}`,
     body: bodyId(`${name}.${count === 1 ? "b" : `b${index}`}`, "default-argument") }));
   const owner = incoming ? shaped(`${name}.outer`, [["a", "required", type]], type,
@@ -261,19 +270,20 @@ function locationDefaultProgram(name, { incoming = false, count = 1, receiver = 
     type, receiver || withReceiver ? type : null), completion: type,
     params: [...(withReceiver ? [[count + 1, "this", type]] : []), ...(incoming ? [] : [[0, receiver ? "this" : "required", type]]),
       ...defaults.map((row, index) => [index + 1, "default", type, row.body])],
-    locals: [["a", incoming ? "capture" : "parameter", type, false, incoming ? source : null],
+    locals: [["a", incoming ? "capture" : "parameter", type, write, incoming ? source : null],
       ...defaults.map(row => [row.name, "parameter", type]), ...(withReceiver ? [["this", "parameter", type]] : [])],
     captures: incoming ? [{ local: source, capture: "captured-location" }] : [],
-    root: builder.block(builder.returns(builder.id(defaults[count - 1].name, count, type))) });
+    root: builder.block(builder.returns(returnSource ? builder.id("a", 0, type) : builder.id(defaults[count - 1].name, count, type))) });
   let next = program.nodeCount;
   const children = defaults.map((row, index) => {
     const childName = `${name}.${row.name}`;
     const childBuilder = builders(childName, "default-argument");
     const capturedName = selfRead ? "b" : "a";
-    const root = () => repeatedRead ? childBuilder.comparison(childBuilder.id(capturedName, 0, type), "EqualsEqualsEqualsToken",
+    const root = () => write ? childBuilder.assign(childBuilder.target(capturedName, 0, type), "EqualsToken",
+      childBuilder.keyword("TrueKeyword", type), type, type) : repeatedRead ? childBuilder.comparison(childBuilder.id(capturedName, 0, type), "EqualsEqualsEqualsToken",
       childBuilder.id(capturedName, 0, type), native("===", "bool", [type, type], type)) : childBuilder.id(capturedName, 0, type);
     const child = typedBody(childName, { role: "default-argument", signature: signature(childName, [], type), completion: type,
-      locals: [[capturedName, "capture", type, false, source]], captures: [{ local: source, capture: "captured-location" }], root: root() });
+      locals: [[capturedName, "capture", type, write, source]], captures: [{ local: source, capture: "captured-location" }], root: root() });
     const sealed = seal(childName, root(), "default-argument", next);
     child.tir.root = sealed.root;
     next = sealed.count;
@@ -529,7 +539,10 @@ test("actual captured call bindings refuse growth and retain every unsupported n
     assert.throws(() => run({ ...pair.summary, arena: { ...pair.summary.arena, cells: [{ ...cell, role }] } }), /actual capture or created-cell binding/);
   assert.throws(() => run({ ...pair.summary, arena: { ...pair.summary.arena, producers: [{ id: 0, path: 0, kind: "capture", index: 0 }] } }),
     /actual root argument or capture transport/);
-  assert.throws(() => run({ ...pair.summary, writes: [{ target: 0, value: 0 }] }), /actual caller cell, event, callback or backing producer/);
+  assert.equal(run({ ...pair.summary, writes: [{ target: 0, value: 0 }] }).kind, "complete",
+    "a known primitive cell history is not an unsupported event or reference effect");
+  assert.throws(() => run({ ...pair.summary, concurrentWrites: [{ target: 0, value: 0 }] }),
+    /actual caller cell, event, callback or backing producer/);
   for (const [field, effect] of [["reads", { kind: "open", paths: [], boundaries: [0] }], ["reads", { kind: "complete", paths: [0] }],
     ["writes", { kind: "open", paths: [], boundaries: [0] }], ["writes", { kind: "complete", paths: [0] }]])
     assert.throws(() => run({ ...pair.summary, captures: [{ ...pair.summary.captures[0], [field]: effect }] }), /captured subobject read\/write transport/);
@@ -1670,7 +1683,7 @@ test("actual selected capture entries distinguish a copied scalar value from an 
   }
 });
 
-test("captured-location writes retain a content frontier instead of silently publishing an empty footprint", () => {
+test("captured primitive writes retain their actual root mutation, history, exit content and must state", () => {
   const owner = shaped("body-round.capture-write.owner", [["value", "required", T.bool]], T.bool,
     builder => builder.block(builder.returns(builder.id("value", 0, T.bool))));
   const name = "body-round.capture-write";
@@ -1681,10 +1694,96 @@ test("captured-location writes retain a content frontier instead of silently pub
     root: builder.assign(builder.target("value", 0, T.bool), "EqualsToken", builder.keyword("TrueKeyword", T.bool), T.bool, T.bool) });
   program.bodyOf = instance => sameInstance(instance, { body: owner.tir.body, bindings: owner.tir.bindings }) ? owner.tir : null;
   const current = fixture(program);
-  assert.throws(() => analyzeBodyRound(current.deps, current.input), /captured-cell content and exit-write transport/);
+  current.related = [fixture(owner)];
+  const pair = checkedPair(current, analyzeBodyRound(current.deps, current.input));
+  assert.equal(pair.facts.origins.writes[0].operation, "mutation", "an incoming cell's prior initialized state is not guessed");
+  assert.deepEqual(pair.facts.origins.writes[0].targets, [pair.facts.arena.contexts[0].captures[0].location]);
+  assert.deepEqual(pair.summary.writes, [{ target: 0, value: 0 }]);
+  assert.deepEqual(pair.summary.contentsOnReturn, pair.summary.writes);
+  assert.deepEqual(pair.facts.origins.exitContents.onReturn, pair.summary.contentsOnReturn);
+  const exit = pair.summary.initialization.points.findIndex(point => point.kind === "return");
+  assert.deepEqual(pair.summary.initialization.rows.filter(row => row.point === exit),
+    [{ point: exit, cell: null, condition: 0 }, { point: exit, cell: 0, condition: 1 }]);
+  for (const dimension of ["maximumWork", "maximumResultEntries"]) {
+    let complete = false;
+    for (let maximum = 0; maximum < 10000; maximum += 1) {
+      const account = createAccount({ ...limits, [dimension]: maximum });
+      const result = analyzeBodyRound({ ...current.deps, account }, current.input);
+      if (result.kind === "complete") { complete = true; break; }
+      assert.equal(result, accountFailure(account));
+      assert.equal(analyzeBodyRound({ ...current.deps, account }, new Proxy({}, {
+        get() { assert.fail("No captured write input after the original stop."); },
+      })), result);
+    }
+    assert.equal(complete, true);
+  }
 });
 
-test("an actual scalar call cannot silently write a captured-location destination", () => {
+test("a captured write retains sibling-cell state at the actual later required read", () => {
+  const owner = shaped("body-round.capture-siblings.owner", [["left", "required", T.bool], ["right", "required", T.bool]], T.bool,
+    builder => builder.block(builder.returns(builder.id("right", 1, T.bool))));
+  const name = "body-round.capture-siblings";
+  const builder = builders(name, "default-argument");
+  const captures = [0, 1].map(local => ({ local: { body: owner.tir.body, local }, capture: "captured-location" }));
+  const program = typedBody(name, { role: "default-argument", signature: signature(name, [], T.bool), completion: T.bool,
+    locals: [["left", "capture", T.bool, true, captures[0].local], ["right", "capture", T.bool, true, captures[1].local]], captures,
+    root: builder.sequence(builder.assign(builder.target("left", 0, T.bool), "EqualsToken", builder.keyword("TrueKeyword", T.bool), T.bool, T.bool),
+      builder.id("right", 1, T.bool), T.bool) });
+  program.bodyOf = instance => sameInstance(instance, { body: owner.tir.body, bindings: owner.tir.bindings }) ? owner.tir : null;
+  const current = fixture(program);
+  current.related = [fixture(owner)];
+  const pair = checkedPair(current, analyzeBodyRound(current.deps, current.input));
+  const read = pair.summary.initialization.points.findIndex(point => point.kind === "need" && point.cell === 1);
+  assert.equal(read >= 0, true);
+  assert.deepEqual(pair.summary.initialization.rows.filter(row => row.point === read),
+    [{ point: read, cell: null, condition: 0 }, { point: read, cell: 0, condition: 1 }],
+    "required right remains false while the actual preceding left write survives for later canonical alias application");
+});
+
+test("captured primitive may-write history is separate from the intersection of actual return must states", () => {
+  const owner = shaped("body-round.capture-returns.owner", [["value", "required", T.bool]], T.bool,
+    builder => builder.block(builder.returns(builder.id("value", 0, T.bool))));
+  for (const [thenWrites, elseWrites] of [[true, false], [false, true], [true, true]]) {
+    const name = `body-round.capture-returns.${thenWrites}.${elseWrites}`;
+    const builder = builders(name);
+    const local = { body: owner.tir.body, local: 0 };
+    const write = () => builder.expressionStatement(builder.assign(builder.target("value", 1, T.bool), "EqualsToken",
+      builder.keyword("TrueKeyword", T.bool), T.bool, T.bool));
+    const arm = writes => builder.block(...(writes ? [write(), write()] : []), builder.returns(builder.keyword("FalseKeyword", T.bool)));
+    const program = typedBody(name, { signature: signature(name, [["flag", T.bool]], T.bool), completion: T.bool,
+      params: [[0, "required", T.bool]], locals: [["flag", "parameter", T.bool], ["value", "capture", T.bool, true, local]],
+      captures: [{ local, capture: "captured-location" }], root: builder.block(builder.ifElse(builder.id("flag", 0, T.bool),
+        arm(thenWrites), arm(elseWrites))) });
+    program.bodyOf = instance => sameInstance(instance, { body: owner.tir.body, bindings: owner.tir.bindings }) ? owner.tir : null;
+    const current = fixture(program);
+    current.related = [fixture(owner)];
+    const pair = checkedPair(current, analyzeBodyRound(current.deps, current.input));
+    assert.deepEqual(pair.summary.writes, [{ target: 0, value: 0 }], "repeated stores retain one canonical may-history row");
+    const exit = pair.summary.initialization.points.findIndex(point => point.kind === "return");
+    assert.deepEqual(pair.summary.initialization.rows.filter(row => row.point === exit && row.cell === 0),
+      thenWrites && elseWrites ? [{ point: exit, cell: 0, condition: 1 }] : [], "only a write on every actual return establishes the external cell");
+  }
+  const account = createAccount(limits);
+  const refusal = refuseAccount(account, { kind: "refused", diagnostics: [] });
+  assert.equal(captureMustAtExit({ account }, new Proxy([], { get() { assert.fail("No return-state input after original stop."); } }),
+    new Set(), null), refusal);
+});
+
+test("captured reference writes remain an explicit value and exit-content producer frontier", () => {
+  const owner = shaped("body-round.capture-reference-write.owner", [["left", "required", T.string], ["right", "required", T.string]], T.string,
+    builder => builder.block(builder.returns(builder.id("right", 1, T.string))));
+  const name = "body-round.capture-reference-write";
+  const builder = builders(name, "default-argument");
+  const captures = [0, 1].map(local => ({ local: { body: owner.tir.body, local }, capture: "captured-location" }));
+  const program = typedBody(name, { role: "default-argument", signature: signature(name, [], T.string), completion: T.string,
+    locals: [["left", "capture", T.string, true, captures[0].local], ["right", "capture", T.string, false, captures[1].local]], captures,
+    root: builder.assign(builder.target("left", 0, T.string), "EqualsToken", builder.id("right", 1, T.string), T.string, T.string) });
+  program.bodyOf = instance => sameInstance(instance, { body: owner.tir.body, bindings: owner.tir.bindings }) ? owner.tir : null;
+  const current = fixture(program);
+  assert.throws(() => analyzeBodyRound(current.deps, current.input), /actual captured reference content and exit-write transport/);
+});
+
+test("an actual scalar call destination establishes its captured primitive cell", () => {
   const owner = shaped("body-round.capture-call.owner", [["value", "required", T.bool]], T.bool,
     builder => builder.block(builder.returns(builder.id("value", 0, T.bool))));
   const thunkName = "body-round.capture-call.thunk";
@@ -1701,12 +1800,210 @@ test("an actual scalar call cannot silently write a captured-location destinatio
   const current = fixture(program);
   const captured = current.input.mir.locals.find(row => row.role.kind === "capture");
   const place = current.input.mir.places.find(row => row.base.kind === "local" && row.base.local === captured.id);
-  const mir = { ...current.input.mir, blocks: current.input.mir.blocks.map(block => block.terminator.kind !== "call" ? block
-    : { ...block, terminator: { ...block.terminator, destination: place.id } }) };
+  const mir = { ...current.input.mir, blocks: current.input.mir.blocks.map(block => block.terminator.kind === "call"
+    ? { ...block, terminator: { ...block.terminator, destination: place.id } } : block.terminator.kind === "return"
+      ? { ...block, terminator: { ...block.terminator, value: { kind: "place", place: place.id } } } : block) };
   assert.deepEqual(verifyMir(mir, verificationContext(program)), { kind: "complete", violations: [] },
     "the actual selected call may name an available external storage destination in verified MIR");
-  assert.throws(() => analyzeBodyRound({ ...current.deps, summaryOf: () => ({ value: thunkPair.summary,
-    unit: { request: thunk.deps.unit, position: { kind: "result" } } }) }, { ...current.input, mir }), /captured-cell content and exit-write transport for this call destination/);
+  current.related = [fixture(owner), thunk];
+  current.deps.summaryOf = () => ({ value: thunkPair.summary, unit: { request: thunk.deps.unit, position: { kind: "result" } } });
+  const liveness = analyzeStorageUse({ account: createAccount(limits) }, { execution: current.execution, body: mir });
+  assert.equal(liveness.kind, "ok");
+  current.input = { ...current.input, mir, liveness: liveness.value };
+  const pair = checkedPair(current, analyzeBodyRound(current.deps, current.input));
+  assert.deepEqual(pair.summary.writes, [{ target: 0, value: 0 }]);
+  assert.deepEqual(pair.summary.initialization.points, [{ kind: "return" }], "the actual MIR reads the captured call destination only after it is written");
+  const exit = pair.summary.initialization.points.findIndex(point => point.kind === "return");
+  assert.equal(pair.summary.initialization.rows.some(row => row.point === exit && row.cell === 0 && row.condition === 1), true);
+  for (const dimension of ["maximumWork", "maximumResultEntries"]) {
+    let complete = false;
+    for (let maximum = 0; maximum < 10000; maximum += 1) {
+      const account = createAccount({ ...limits, [dimension]: maximum });
+      const result = analyzeBodyRound({ ...current.deps, account }, current.input);
+      if (result.kind === "complete") { complete = true; break; }
+      assert.equal(result, accountFailure(account));
+    }
+    assert.equal(complete, true);
+  }
+});
+
+test("actual placed primitive writes update caller histories without inventing a second caller assignment", () => {
+  for (const incoming of [false, true]) {
+    const data = locationDefaultProgram(`body-round.applied-write.${incoming}`, { incoming, write: true, returnSource: true });
+    const caller = fixture(data.program, data.internal, incoming ? 0 : 1);
+    const child = fixture(data.child);
+    child.related = [caller, ...(data.owner === null ? [] : [fixture(data.owner)])];
+    const summary = checkedPair(child, analyzeBodyRound(child.deps, child.input)).summary;
+    caller.related = [child, ...(data.owner === null ? [] : [fixture(data.owner)])];
+    caller.deps.summaryOf = () => ({ value: summary, unit: { request: child.deps.unit, position: { kind: "result" } } });
+    const pair = checkedPair(caller, analyzeBodyRound(caller.deps, caller.input));
+    assert.deepEqual(pair.facts.origins.exitContents.onReturn, [{ target: 0, value: 0 }]);
+    assert.deepEqual(pair.summary.writes, incoming ? [{ target: 0, value: 0 }] : []);
+    assert.deepEqual(pair.summary.contentsOnReturn, pair.summary.writes);
+    assert.deepEqual(pair.summary.initialization.points, [{ kind: "return" }]);
+    assert.deepEqual(pair.summary.initialization.rows, incoming
+      ? [{ point: 0, cell: null, condition: 0 }, { point: 0, cell: 0, condition: 1 }]
+      : [{ point: 0, cell: null, condition: 0 }]);
+    const call = caller.input.mir.blocks.find(row => row.terminator.kind === "call").terminator;
+    const destinations = pair.facts.origins.writes.filter(row => row.node === call.tir.node);
+    assert.equal(destinations.length, 1, "only the actual caller call-result destination is a caller WriteFact");
+    assert.deepEqual(destinations[0].targets, [], "the actual callee mutation remains in callee Facts and caller cell history");
+    assert.equal(child.pair.facts.origins.writes.some(row => row.operation === "mutation"), true);
+    const supplied = fixture(data.program, data.internal, incoming ? 1 : 2);
+    supplied.related = caller.related;
+    supplied.deps.summaryOf = () => assert.fail("A supplied default does not execute its separate initializer.");
+    const bypassed = checkedPair(supplied, analyzeBodyRound(supplied.deps, supplied.input));
+    assert.deepEqual(bypassed.summary.writes, []);
+    assert.equal(bypassed.summary.initialization.points.some(point => point.kind === "need"), incoming);
+  }
+  const data = locationDefaultProgram("body-round.applied-write.self", { selfRead: true, write: true });
+  const caller = fixture(data.program, data.internal, 1);
+  const child = fixture(data.child);
+  child.related = [caller];
+  const summary = checkedPair(child, analyzeBodyRound(child.deps, child.input)).summary;
+  caller.related = [child];
+  caller.deps.summaryOf = () => ({ value: summary, unit: { request: child.deps.unit, position: { kind: "result" } } });
+  checkedPair(caller, analyzeBodyRound(caller.deps, caller.input));
+  const twice = locationDefaultProgram("body-round.applied-write.twice", { count: 2, write: true });
+  const repeated = fixture(twice.program, twice.internal, 1);
+  const children = twice.children.map(child => fixture(child));
+  const summaries = children.map(child => {
+    child.related = [repeated];
+    return checkedPair(child, analyzeBodyRound(child.deps, child.input)).summary;
+  });
+  repeated.related = children;
+  repeated.deps.summaryOf = key => {
+    const index = children.findIndex(child => executionKey(child.execution) === executionKey(key.execution));
+    return { value: summaries[index], unit: { request: children[index].deps.unit, position: { kind: "result" } } };
+  };
+  const repeatedPair = checkedPair(repeated, analyzeBodyRound(repeated.deps, repeated.input));
+  assert.deepEqual(repeatedPair.facts.origins.exitContents.onReturn, [{ target: 0, value: 0 }],
+    "two actual calls mutating the same current slot retain one canonical cell history");
+});
+
+test("primitive applied-write admission retains precise value, location and original-account frontiers", () => {
+  const data = locationDefaultProgram("body-round.primitive-write-frontiers", { write: true });
+  const caller = fixture(data.program, data.internal, 1);
+  const child = fixture(data.child);
+  child.related = [caller];
+  const summary = checkedPair(child, analyzeBodyRound(child.deps, child.input)).summary;
+  const call = caller.input.mir.blocks.find(row => row.terminator.kind === "call").terminator;
+  const owner = { kind: "body", execution: caller.execution };
+  const cell = { owner, cell: 0 };
+  const empty = { caller: [], callee: [], boundaries: [], includesAbsence: false };
+  const target = { kind: "located", targets: [cell], same: cell };
+  const write = { target, value: empty };
+  const run = (rows = [write], input = caller.input, overrides = {}) => primitiveWrites({ ...caller.deps,
+    account: createAccount(limits), ...overrides }, input, call, summary, summary.writes, rows);
+  assert.equal(run(), null);
+  for (const changed of [{ ...write, target: { ...target, same: null } }, { ...write, target: { ...target, targets: [cell, cell] } },
+    ...["caller", "callee", "boundaries"].map(key => ({ ...write, value: { ...empty, [key]: [0] } })),
+    { ...write, value: { ...empty, includesAbsence: true } }])
+    assert.throws(() => run([changed]), /actual non-primitive or unresolved caller-cell write transport/);
+  const local = caller.input.mir.places[call.callee.captures[0].place].base.local;
+  assert.throws(() => run([write], { ...caller.input, mir: { ...caller.input.mir, locals: caller.input.mir.locals.map(row =>
+    row.id === local ? { ...row, storage: T.string } : row) } }), /actual non-primitive caller-cell write transport/);
+  for (const dimension of ["maximumWork", "maximumResultEntries"]) {
+    let complete = false;
+    for (let maximum = 0; maximum < 100; maximum += 1) {
+      const account = createAccount({ ...limits, [dimension]: maximum });
+      const result = run([write], caller.input, { account });
+      if (result === null) { complete = true; break; }
+      assert.equal(result, accountFailure(account));
+      const unread = new Proxy([], { get() { assert.fail("No write-vector read after original stop."); } });
+      assert.equal(primitiveWrites({ ...caller.deps, account }, unread, call, summary, unread, unread), result);
+    }
+    assert.equal(complete, true);
+  }
+});
+
+test("constant call-point state uses original bindings and rejects unprovided event or nonconstant substitution", () => {
+  const data = locationDefaultProgram("body-round.constant-call-state", { write: true });
+  const caller = fixture(data.program, data.internal, 1);
+  const child = fixture(data.child);
+  child.related = [caller];
+  const summary = checkedPair(child, analyzeBodyRound(child.deps, child.input)).summary;
+  const call = caller.input.mir.blocks.find(row => row.terminator.kind === "call").terminator;
+  const local = caller.input.mir.places[call.callee.captures[0].place].base.local;
+  const run = (changed = summary, assigned = new Set()) => callReturnAssigned({ ...caller.deps, account: createAccount(limits) },
+    caller.input.mir, call, changed, assigned);
+  assert.deepEqual(run(), { kind: "complete", value: new Set([local]) });
+  for (const table of [{ ...summary.initialization, events: [{}] },
+    ...[0, 1].map(index => ({ ...summary.initialization, rows: summary.initialization.rows.map((row, at) =>
+      at === index ? { ...row, condition: 2 } : row) })),
+    { ...summary.initialization, rows: [{ ...summary.initialization.rows[0], cell: 0 }, ...summary.initialization.rows.slice(1)] }])
+    assert.throws(() => sourceNeedAssigned({ ...caller.deps, account: createAccount(limits) }, { ...summary, initialization: table },
+      0, [{ kind: "cell", index: 0 }], [local], new Set()), /actual (completion-event substitution|constant point-state condition and default)/);
+  assert.throws(() => run({ ...summary, initialization: { ...summary.initialization, points: [], rows: [] } }), /actual finite-return point state/);
+  for (const changed of [{ ...summary, arena: { ...summary.arena, cells: [] } },
+    { ...summary, arena: { ...summary.arena, cells: [{ ...summary.arena.cells[0], role: { kind: "local", local } }] } }])
+    assert.throws(() => run(changed), /actual immediate captured-slot binding/);
+  assert.throws(() => captureLocalAtCall({ ...caller.deps, account: createAccount(limits) }, caller.input.mir,
+    { ...call, callee: { kind: "direct" } }, summary, 0), /actual immediate captured-slot binding/);
+  const failed = createAccount(limits);
+  const original = refuseAccount(failed, { kind: "refused", diagnostics: [] });
+  const unread = new Proxy({}, { get() { assert.fail("No point-state input after original refusal."); } });
+  assert.equal(callReturnAssigned({ ...caller.deps, account: failed }, unread, unread, unread, unread), original);
+  assert.equal(sourceNeedAssigned({ ...caller.deps, account: failed }, unread, 0, unread, unread, unread), original);
+});
+
+test("an applied child read retains the whole genuine sibling point state in the enclosing capture obligation", () => {
+  const name = "body-round.applied-siblings";
+  const owner = shaped(`${name}.owner`, [["left", "required", T.bool], ["right", "required", T.bool]], T.bool,
+    builder => builder.block(builder.returns(builder.id("right", 1, T.bool))));
+  const childName = `${name}.value`;
+  const childBody = bodyId(childName, "default-argument");
+  const builder = builders(name);
+  const captures = [0, 1].map(local => ({ local: { body: owner.tir.body, local }, capture: "captured-location" }));
+  const program = typedBody(name, { signature: signature(name, [["value", T.bool, "default", childBody]], T.bool), completion: T.bool,
+    params: [[2, "default", T.bool, childBody]], locals: [["left", "capture", T.bool, true, captures[0].local],
+      ["right", "capture", T.bool, false, captures[1].local], ["value", "parameter", T.bool]], captures,
+    root: builder.block(builder.returns(builder.id("value", 2, T.bool))) });
+  const childBuilder = builders(childName, "default-argument");
+  const childCaptures = captures;
+  const childRoot = () => childBuilder.sequence(childBuilder.assign(childBuilder.target("left", 0, T.bool), "EqualsToken",
+    childBuilder.keyword("TrueKeyword", T.bool), T.bool, T.bool), childBuilder.id("right", 1, T.bool), T.bool);
+  const childProgram = typedBody(childName, { role: "default-argument", signature: signature(childName, [], T.bool), completion: T.bool,
+    locals: [["left", "capture", T.bool, true, childCaptures[0].local], ["right", "capture", T.bool, false, childCaptures[1].local]],
+    captures: childCaptures, root: childRoot() });
+  childProgram.tir.root = seal(childName, childRoot(), "default-argument", program.nodeCount).root;
+  childProgram.tir.root.parent = program.tir.params[0].id;
+  program.tir.params[0].initializer = childProgram.tir.root;
+  const bodyOf = instance => [owner.tir, program.tir, childProgram.tir].find(tir =>
+    sameInstance(instance, { body: tir.body, bindings: tir.bindings })) ?? null;
+  program.bodyOf = bodyOf;
+  childProgram.bodyOf = bodyOf;
+  const caller = fixture(program, [{ instance: { body: childBody, bindings: childProgram.tir.bindings },
+    signature: childProgram.tir.signature, captures: childCaptures }], 0);
+  const child = fixture(childProgram);
+  child.related = [caller, fixture(owner)];
+  const summary = checkedPair(child, analyzeBodyRound(child.deps, child.input)).summary;
+  caller.related = [child, fixture(owner)];
+  caller.deps.summaryOf = () => ({ value: summary, unit: { request: child.deps.unit, position: { kind: "result" } } });
+  const pair = checkedPair(caller, analyzeBodyRound(caller.deps, caller.input));
+  assert.equal(pair.summary.initialization.points[0].cell, 1);
+  assert.deepEqual(pair.summary.initialization.rows.filter(row => row.point === 0),
+    [{ point: 0, cell: null, condition: 0 }, { point: 0, cell: 0, condition: 1 }],
+    "the right need keeps the actual preceding left write, not just the required cell's false condition");
+  assert.deepEqual(pair.summary.writes, [{ target: 0, value: 0 }]);
+  assert.equal(pair.summary.initialization.points[0].witness.via.length, 1);
+  const call = caller.input.mir.blocks.find(block => block.terminator.kind === "call").terminator;
+  const locals = call.callee.captures.map(capture => caller.input.mir.places[capture.place].base.local);
+  const alreadyWritten = new Set([locals[0]]);
+  assert.equal(sourceNeedAssigned({ ...caller.deps, account: createAccount(limits) }, summary, 0,
+    locals.map((_, index) => ({ kind: "cell", index })), locals, alreadyWritten).value, alreadyWritten,
+    "an actual earlier caller write is retained without redundant copied state");
+  for (const dimension of ["maximumWork", "maximumResultEntries"]) {
+    let completed = false;
+    for (let maximum = 0; maximum < 10000; maximum += 1) {
+      const account = createAccount({ ...limits, [dimension]: maximum });
+      const result = analyzeBodyRound({ ...caller.deps, account }, caller.input);
+      if (result.kind === "complete") { checkedPair(caller, result); completed = true; break; }
+      assert.equal(result.kind, "resource-limit");
+      assert.equal(accountFailure(account), result);
+    }
+    assert.equal(completed, true, "the actual two-cell source graph reaches its first sufficient shared allowance");
+  }
 });
 
 test("a real unwritten local produces one original initialization error and no fabricated Summary", () => {
