@@ -3,7 +3,7 @@ import type { Diagnostic } from "../diag/contract.js";
 import { throwInvariant } from "../diag/index.js";
 import type { ModuleId, NodeId } from "../ids/contract.js";
 import type { ExtensionReference, ExtensionReferenceEntry, PackageLibraryData, SourceContributions } from "../snapshot/contract.js";
-import type { ProgramModule, ProgramModuleSet } from "./contract.js";
+import type { ProgramModule, ProgramModuleSet } from "./program-data.js";
 
 export interface OpenedFile {
   readonly file: SourceFile;

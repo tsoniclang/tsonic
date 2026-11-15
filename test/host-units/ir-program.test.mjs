@@ -1130,7 +1130,7 @@ for (const kind of ["advertised", "api-signature", "api-body"]) for (const body 
   const exports = [{ name: "direct", target: { kind: "declarations", definitions: [definition] } },
     { name: "alias", target: { kind: "binding", occurrence: occurrence(0) } }];
   const moduleRecord = `ModuleRecord(module=${moduleText}, package=pkg:${JSON.stringify(emptyWireIndex.rootPackage)}, items=[DefinitionNode(definition=${owner}, node=n:0)], exports=[HirModuleExport(name="direct", target=declarations(definitions=[${owner}])), HirModuleExport(name="alias", target=binding(occurrence=${item(0)}))], bindings=[${values.map(([, target], node) => `HirModuleBinding(occurrence=${node === 1 ? body(node) : item(node)}, target=${target})`).join(", ")}], checkerDiagnostics=[])`;
-  const text = `ProgramIndex(schema=1, rootPackage=pkg:${JSON.stringify(emptyWireIndex.rootPackage)}, packages=[], modules=[${moduleRecord}], types=TypeTable(terms=[], signatures=[]), signatures=[], bodies=[], metadata=[], summaries=[], constants=[], diagnostics=[], nativeFactsKey=${JSON.stringify(emptyWireIndex.nativeFactsKey)})`;
+  const text = `ProgramIndex(schema=1, rootPackage=pkg:${JSON.stringify(emptyWireIndex.rootPackage)}, packages=[], modules=[${moduleRecord}], types=TypeTable(terms=[], signatures=[]), signatures=[], bodies=[], executions=[], metadata=[], summaries=[], constants=[], diagnostics=[], nativeFactsKey=${JSON.stringify(emptyWireIndex.nativeFactsKey)})`;
   const index = { ...emptyWireIndex, modules: [{ module, package: emptyWireIndex.rootPackage, items: [{ definition, node: 0 }], exports, bindings, checkerDiagnostics: [] }] };
   authoredDocuments.push({ text, index });
   test("ir-program independently authored binding grammar retains every closed target without claiming semantic verification", () => {
@@ -1965,23 +1965,27 @@ function branching(published) {
 }
 const underMirLimit = (fixture, maximumWork) => product.verifyModuleBodies(fixture.index, fixture.module, { ...fixture.context,
   resources: product.createProgramVerificationWork(ProgramWork.state(fixture.context.resources).limits), mirVerification: { maximumWork } });
+const MIR_EMPTY_WORK = 4 + 2 + 1 + 11;
+const MIR_BRANCH_WORK = 14 + 5 + 1 + 1 + 16;
 
 test("ir-program a body past its MIR verification limit refuses the module and names the body", () => {
   const fixture = moduleFixture();
-  completeProgramValue(underMirLimit(fixture, 1), { kind: "complete", violations: [] }, "the smallest body is verified under its need of one");
-  completeProgramValue(underMirLimit(fixture, 0), { kind: "resource-limit", body: fixture.instance, dimension: "work", maximum: 0 },
-    "zero is a limit like any other: below the need the body is refused");
+  completeProgramValue(underMirLimit(fixture, MIR_EMPTY_WORK), { kind: "complete", violations: [] }, "value, decision, storage and reachable-type work share one invocation");
+  for (let maximum = 0; maximum < MIR_EMPTY_WORK; maximum += 1)
+    completeProgramValue(underMirLimit(fixture, maximum), { kind: "resource-limit", body: fixture.instance, dimension: "work", maximum },
+      "every count below the exact shared need refuses the body");
   branching(fixture.module.bodies[0]);
-  completeProgramValue(underMirLimit(fixture, 1), { kind: "resource-limit", body: fixture.instance, dimension: "work", maximum: 1 },
-    "over the limit: the refusal names the body instance and the limit, and carries no finding");
-  assert.equal(underMirLimit(fixture, 2).kind, "complete", "at the exact limit the body is verified to the end");
+  for (let maximum = 0; maximum < MIR_BRANCH_WORK; maximum += 1)
+    completeProgramValue(underMirLimit(fixture, maximum), { kind: "resource-limit", body: fixture.instance, dimension: "work", maximum },
+      "the two-block literal graph retains the same original refusal at every insufficient count");
+  assert.equal(underMirLimit(fixture, MIR_BRANCH_WORK).kind, "complete", "at the exact limit the body is verified to the end");
 });
 
 test("ir-program a structurally invalid body under its MIR limit is found invalid, not refused", () => {
   const fixture = moduleFixture();
   const block = fixture.module.bodies[0].mir.blocks[0];
   block.terminator = { origin: block.origin, tir: block.tir, kind: "goto", target: 99 };
-  const outcome = underMirLimit(fixture, 1);
+  const outcome = underMirLimit(fixture, MIR_EMPTY_WORK);
   assert.equal(outcome.kind, "complete", "a defect is a finding of a verification that ran to its end");
   completeProgramValue(outcome.violations.filter(violation => violation.rule === "mir-valid"), [{ rule: "mir-valid", site: { kind: "body", instance: fixture.instance },
     detail: [{ kind: "text", value: "edge-target-resolves" }, { kind: "text", value: "normal" }, { kind: "number", value: 99 }] }],
@@ -1991,12 +1995,14 @@ test("ir-program a structurally invalid body under its MIR limit is found invali
 test("ir-program two bodies of one module are metered separately", () => {
   const both = dualInstanceFixture();
   for (const published of both.module.bodies) branching(published);
-  assert.equal(underMirLimit(both, 2).kind, "complete", "each body is charged from zero");
-  completeProgramValue(underMirLimit(both, 1), { kind: "resource-limit", body: both.module.bodies[0].instance, dimension: "work", maximum: 1 },
+  assert.equal(underMirLimit(both, MIR_BRANCH_WORK + 1).kind, "complete", "each body is charged from zero; the instantiated body also pays its selected owner lookup");
+  completeProgramValue(underMirLimit(both, MIR_BRANCH_WORK), { kind: "resource-limit", body: both.module.bodies[1].instance, dimension: "work", maximum: MIR_BRANCH_WORK },
+    "the second body's actual selected binding lookup is not free");
+  completeProgramValue(underMirLimit(both, MIR_BRANCH_WORK - 1), { kind: "resource-limit", body: both.module.bodies[0].instance, dimension: "work", maximum: MIR_BRANCH_WORK - 1 },
     "with both over the limit the first body verified is the one named");
   const second = dualInstanceFixture();
   branching(second.module.bodies[1]);
-  completeProgramValue(underMirLimit(second, 1), { kind: "resource-limit", body: second.module.bodies[1].instance, dimension: "work", maximum: 1 },
+  completeProgramValue(underMirLimit(second, MIR_EMPTY_WORK), { kind: "resource-limit", body: second.module.bodies[1].instance, dimension: "work", maximum: MIR_EMPTY_WORK },
     "the refusal names the body that passed its limit, not the first body of the module");
 });
 

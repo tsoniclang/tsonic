@@ -1234,7 +1234,7 @@ test("law 8 and law 3 read the capture row: a captured location is the creator's
   assert.deepEqual(rules(ended, withRow(null), "capture-location-exact").map(site => site.local), [10]);
   assert.deepEqual(rules(ended, withRow(null), "storage-marker-exact"), []);
   // A null row in the parametric template whose creator saved the closure rule: admitted.
-  assert.deepEqual(rules(ended, withRow(null, { dependence: "binding-dependent" }), "capture-location-exact"), []);
+  assert.deepEqual(rules({ ...ended, bindings: PARAMETRIC }, withRow(null, { dependence: "binding-dependent", bindings: PARAMETRIC }), "capture-location-exact"), []);
   // Law 3: the narrowed view of a captured location is never stable, and survives no call; of a captured value it is
   // stable (its cell is written by nobody: present on entry, never written).
   const viewed = changed(body => {
@@ -1278,7 +1278,7 @@ test("check-place-single compares the views of one node kind by kind", () => {
 
 test("a call of an internal body stands at the node that names the body, or is the default of a parameter", () => {
   const DEFAULT = bodyId("laws.o", "default");
-  const callee = { kind: "body", instance: { body: DEFAULT, bindings: PARAMETRIC }, captures: [] };
+  const callee = { kind: "body", instance: { body: DEFAULT, bindings: source.tir.bindings }, captures: [] };
   // The omission prologue (block 8) runs the default of `o` into `o`; with a receiver in the second graph.
   const prologue = receiver => changed(body => {
     body.blocks[8] = { ...site("for"), id: 8, statements: [], terminator: { ...site("for"), kind: "call", callee, receiver, arguments: [],
@@ -1305,7 +1305,7 @@ test("a call of an internal body stands at the node that names the body, or is t
     assert.equal(rules(opposite, input).includes("local-storage-exact"), true, "outgoing body-call mode cannot be guessed from the source local");
     assert.equal(rules(graph, { ...input, bodyOf: () => null }).includes("capture-location-exact"), true, "missing ready input is not fabricated");
     assert.equal(rules(graph, { ...input, bodyOf: () => ({ ...target, body: BODY }) }).includes("capture-location-exact"), true, "a different body's capture rows are not selected");
-    assert.equal(rules(graph, { ...input, bodyOf: () => ({ ...target, bindings: { kind: "instantiated", bindings: EMPTY_BINDINGS } }) })
+    assert.equal(rules(graph, { ...input, bodyOf: () => ({ ...target, bindings: PARAMETRIC }) })
       .includes("capture-location-exact"), true, "another artifact binding does not authorize these rows");
     const missingPlace = structuredClone(graph);
     missingPlace.blocks[8].terminator.callee.captures[0].place = 99;

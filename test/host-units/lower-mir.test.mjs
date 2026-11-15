@@ -10,7 +10,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { after, before, test as declare } from "node:test";
 import { checkCoverage } from "../architecture/host/coverage.mjs";
 import { parseSources } from "../architecture/host/import-graph.mjs";
-import { ARRAY_STEP, EMPTY_BINDINGS, MODULE, PARAMETRIC, SIG, T, TABLE, bodyId, builders, callee, declareType, def, defaultMapping, mapped, native, omittedMapping, selected, signature, typedBody, typedOperation, value, verificationContext } from "./fixtures/lower-mir/typed.mjs";
+import { ARRAY_STEP, EMPTY_BINDINGS, MODULE, PARAMETRIC, SELECTED_BINDINGS, SIG, T, TABLE, bodyId, builders, callee, declareType, def, defaultMapping, mapped, native, omittedMapping, selected, signature, typedBody, typedOperation, value, verificationContext } from "./fixtures/lower-mir/typed.mjs";
 import {
   argumentConstantOf, argumentKindsOf, at, blocksWithStatementAt, calleeNameOf, capturedLocalsOf, capturedRootsOf, checkedPlace, checks,
   controlPoints, createsClosure, destinationBaseOf, destinationChainOf, destinationFieldOf, destinationRootOf, edgesOf, effects,
@@ -433,7 +433,13 @@ test("selected scalar literals use one constant and no temporary or check, with 
   }
   for (const [name, type, build, expected] of cases) {
     const program = shaped(`literal.${name}`, [], type, b => b.block(b.returns(build(b))));
-    const mir = lower(program);
+    const outcome = produced(deps, program.tir, []);
+    assert.equal(outcome.kind, "ok");
+    assert.deepEqual(outcome.diagnostics, []);
+    const mir = outcome.value;
+    if (name === "fraction") assert.throws(() => verified(mir, program), error => error instanceof TypeError
+      && error.message === `ir-mir: missing selected literal literal-conversion evidence for type ${type} (float64)`);
+    else assert.deepEqual(verified(mir, program), []);
     assert.deepEqual(mir.constants, [{ id: 0, type, value: { kind: "literal", value: expected } }]);
     assert.deepEqual([mir.locals, mir.places, mir.blocks.length, mir.blocks[0].statements], [[], [], 1, []]);
     assert.deepEqual(mir.blocks[0].terminator.value, { kind: "constant", constant: 0 });
@@ -837,7 +843,7 @@ test("omitted fixed arguments stay omitted while a supplied native absence remai
       at => ({ callee: callee(target, sig, [0, 1].map(index => index < count ? mapped(index, index)
         : defaults ? defaultMapping(index, `${target}.p${index}`) : omittedMapping(index, T.absence)), T.int32), receiver: null,
       arguments: [0, 1].map(parameter => parameter < count ? { kind: "provided", parameter, expression: at(`argument${parameter}`) }
-        : { kind: "omitted", parameter, value: defaults ? { kind: "initializer", instance: { body: initializers[parameter], bindings: PARAMETRIC } } : { kind: "absence" } }) })) }));
+        : { kind: "omitted", parameter, value: defaults ? { kind: "initializer", instance: { body: initializers[parameter], bindings: SELECTED_BINDINGS } } : { kind: "absence" } }) })) }));
     const mir = lower(program);
     const call = mir.blocks[0].terminator;
     assert.equal(call.kind, "call");
@@ -1237,7 +1243,7 @@ function initializedBinding(name, keyword = "let", mode = "captured-value", oute
     params: outer ? [] : [[0, "required", T.int32]], captures: outer ? [capture] : [], nestedBodies: [initializer],
     root: rootOf === null ? b.block(...statements, b.returns(b.id("slot", 1, T.int32))) : rootOf(b, statements) });
   program.tir.locals[1].declaration = { kind: "body", value: program.nodeRef("declaration") };
-  const input = { instance: { body: initializer, bindings: PARAMETRIC }, captures: [capture], signature: child.tir.signature };
+  const input = { instance: { body: initializer, bindings: child.tir.bindings }, captures: [capture], signature: child.tir.signature };
   program.bodyOf = instance => instanceKey(instance) === instanceKey(input.instance) ? child.tir : null;
   return { program, input, child };
 }
@@ -1387,7 +1393,7 @@ test("an actual selected expression body returns its value at that occurrence wi
   assert.deepEqual(lower(identity).blocks[0].terminator.value, { kind: "place", place: 0 });
 });
 
-test("incoming capture slots retain actual value, location and unresolved template modes before writing operations", () => {
+test("incoming capture slots retain actual value and location modes and reject an unresolved selected capture", () => {
   for (const mode of ["captured-value", "captured-location", null]) {
     const outer = { body: bodyId(`capture.outer.${mode}`), local: 0 };
     const program = shaped(`capture.incoming.${mode}`, [["x", "required", T.int32]], T.int32, b => b.block(b.returns(
@@ -1396,7 +1402,12 @@ test("incoming capture slots retain actual value, location and unresolved templa
     program.tir.locals.push({ id: 1, declaration: { kind: "body", value: program.nodeRef("capture-read") }, name: "saved", role: "capture",
       capturedFrom: outer, mutable: true, storage: T.int32 });
     program.tir.captures = [{ local: outer, capture: mode }];
-    if (mode === null) program.tir.dependence = "binding-dependent";
+    if (mode === null) {
+      program.tir.dependence = "binding-dependent";
+      assert.throws(() => produced(deps, program.tir, []), error => defectOfLowerMir(error)
+        && error.message === `${CALLER_DEFECT}an undecided capture in a selected body`);
+      continue;
+    }
     const mir = lower(program);
     assert.deepEqual(mir.locals[1], { id: 1, storage: T.int32, role: { kind: "capture", index: 0 }, mode,
       source: outer, origin: program.tir.root.origin });
@@ -1452,7 +1463,7 @@ test("capture index setup refuses a known impossible local count before reading 
 test("a malformed incoming capture relation is a caller defect, never a guessed mode or storage slot", () => {
   const cases = [
     ["self", program => { program.tir.captures[0].local = { body: program.tir.body, local: 0 }; }, "a capture names its own body"],
-    ["undecided", program => { program.tir.captures[0].capture = null; }, "an undecided capture outside a binding-dependent template"],
+    ["undecided", program => { program.tir.captures[0].capture = null; }, "an undecided capture in a selected body"],
     ["duplicate", program => { program.tir.captures.push(program.tir.captures[0]); }, "a duplicate qualified capture"],
     ["no-source", program => { program.tir.locals[0].capturedFrom = null; }, "a captured local without its qualified source"],
     ["no-row", program => { program.tir.locals[0].capturedFrom = { body: bodyId("capture.unlisted"), local: 0 }; }, "a captured local absent from the capture rows"],
@@ -1460,7 +1471,7 @@ test("a malformed incoming capture relation is a caller defect, never a guessed 
     ["duplicate-slot", program => { program.tir.locals.push({ ...program.tir.locals[0], id: 1 }); }, "two local slots for one capture"],
     ["missing-slot", program => { program.tir.locals = []; }, "a capture without its actual local slot"],
     ["concrete-undecided", program => { program.tir.captures[0].capture = null; program.tir.dependence = "binding-dependent";
-      program.tir.bindings = { kind: "instantiated", bindings: EMPTY_BINDINGS }; }, "an undecided capture outside a binding-dependent template"],
+      program.tir.bindings = { kind: "instantiated", bindings: EMPTY_BINDINGS }; }, "an undecided capture in a selected body"],
   ];
   for (const [name, change, message] of cases) {
     const source = { body: bodyId(`capture.malformed.outer.${name}`), local: 0 };

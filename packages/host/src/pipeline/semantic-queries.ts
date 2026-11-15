@@ -1,4 +1,4 @@
-import type { DeclaredSignaturePause, DeclsInputs } from "../decls/contract.js";
+import type { DeclaredSignatureErrorData, DeclaredSignaturePause, DeclsDeps } from "../decls/contract.js";
 import type { Diagnostic, UnitRequest } from "../diag/contract.js";
 import { throwInvariant } from "../diag/index.js";
 import type { GroupId, SourceNodeRef } from "../ids/contract.js";
@@ -9,7 +9,6 @@ import { inferredPartKey } from "../ir-infer/index.js";
 import type { Signature, SignatureRequest } from "../ir-types/contract.js";
 import { signatureRequestData } from "../ir-types/index.js";
 import type { Query } from "../query/contract.js";
-import type { SemanticCycleErrorData } from "./contract.js";
 import type { CheckedSourceViews } from "./checked-inputs.js";
 import type { Pause, Route } from "./driver.js";
 import { defineQuery, factRoute, nestedRoute, projectionRoute } from "./driver.js";
@@ -18,7 +17,7 @@ import { completeInference, projectInferredPart } from "./inference-step.js";
 import { pipelineWiring } from "./wiring.js";
 
 export interface SourceSemanticInputs {
-  readonly declarations: DeclsInputs;
+  readonly declarations: DeclsDeps;
   readonly inference: InferDeps;
   readonly groups: readonly InferenceGroup[];
   readonly sources: CheckedSourceViews;
@@ -42,8 +41,8 @@ export type SourceSemanticWitness = { readonly target: SemanticTarget; readonly 
 );
 
 export interface SourceSemanticQueries {
-  readonly declaredSignatureOf: Query<SourceSemanticInputs, SignatureRequest, Signature, SourceSemanticWitness, SemanticCycleErrorData>;
-  readonly solutionOf: Query<SourceSemanticInputs, GroupId, InferencePublication, SourceSemanticWitness, SemanticCycleErrorData>;
+  readonly declaredSignatureOf: Query<SourceSemanticInputs, SignatureRequest, Signature, SourceSemanticWitness, DeclaredSignatureErrorData>;
+  readonly solutionOf: Query<SourceSemanticInputs, GroupId, InferencePublication, SourceSemanticWitness, DeclaredSignatureErrorData>;
 }
 
 type SolutionStep = Pause<InferencePublication, InferenceRequest, InferencePause>;
@@ -130,14 +129,14 @@ export function createSourceSemanticQueries(inputs: SourceSemanticInputs): Sourc
       pipelineWiring.infer.resumeSolveGroup(inputs.inference, paused.state, actual));
   }
 
-  const partRoute = (request: InferredPartRequest): Route<SourceSemanticInputs, InferredPartType, SourceSemanticWitness, SemanticCycleErrorData> => {
+  const partRoute = (request: InferredPartRequest): Route<SourceSemanticInputs, InferredPartType, SourceSemanticWitness, DeclaredSignatureErrorData> => {
     const group = ownerOf(request);
     return projectionRoute(solutionOf, group.id,
       (publication, errorOf) => projectInferredPart(unitOf(group), publication, request, errorOf));
   };
 
   const declaredSignatureOf: SourceSemanticQueries["declaredSignatureOf"] = defineQuery<SourceSemanticInputs, SignatureRequest, Signature,
-    InferredPartRequest, InferredPartType, DeclaredSignaturePause, SourceSemanticWitness, SemanticCycleErrorData>({
+    InferredPartRequest, InferredPartType, DeclaredSignaturePause, SourceSemanticWitness, DeclaredSignatureErrorData>({
     name: "declaredSignatureOf", keyData: signatureRequestData,
     producer: {
       start: (actual, request) => { sameInputs(actual); return pipelineWiring.decls.declaredSignatureOf(inputs.declarations, request); },
@@ -150,7 +149,7 @@ export function createSourceSemanticQueries(inputs: SourceSemanticInputs): Sourc
   });
 
   const solutionOf: SourceSemanticQueries["solutionOf"] = defineQuery<SourceSemanticInputs, GroupId, InferencePublication,
-    InferenceRequest, InferenceAnswer, InferencePause, SourceSemanticWitness, SemanticCycleErrorData>({
+    InferenceRequest, InferenceAnswer, InferencePause, SourceSemanticWitness, DeclaredSignatureErrorData>({
     name: "solutionOf", keyData: key => key,
     producer: {
       start: (actual, key) => {
@@ -174,7 +173,7 @@ export function createSourceSemanticQueries(inputs: SourceSemanticInputs): Sourc
       if (owningGroup === undefined) return fail("An unmemoised signature placement needs its actual producing inference group.");
       const unit = unitOf(owningGroup);
       return nestedRoute<SourceSemanticInputs, Signature, InferredPartRequest, InferredPartType, never, InferenceAnswer,
-        SourceSemanticWitness, SemanticCycleErrorData>({
+        SourceSemanticWitness, DeclaredSignatureErrorData>({
         start: actual => { sameInputs(actual); return pipelineWiring.decls.placeSignature(inputs.declarations, placement, unit); },
         resume: () => fail("A ready local signature placement must not request a completed signature dependency."),
         route: () => fail("A ready local signature placement has no pending fact route."),

@@ -6,7 +6,7 @@ import type { CheckedPhase, HirBody, HirNode, ParameterDeclaration } from "../ir
 import type { InferredPartType } from "../ir-infer/contract.js";
 import type { Signature, SignatureParameter, SignatureRequest } from "../ir-types/contract.js";
 import { internSignature, readSignature, readType } from "../ir-types/index.js";
-import type { DeclsInputs, DeclsModule, DeclsStep, PlaceSignature } from "./contract.js";
+import type { DeclsDeps, DeclsModule, DeclsStep, PlaceSignature } from "./contract.js";
 import { assembleSignature, bindSignature, endpointOf, findAscending, inferredParts, moduleOf, resolvePart, signatureValue } from "./signatures.js";
 
 function fail(unit: UnitRequest, message: string): never {
@@ -21,7 +21,7 @@ function nodeOf(checked: DeclsModule, definition: DefId, unit: UnitRequest): Hir
   return node;
 }
 
-function endpointPlacement(inputs: DeclsInputs, request: SignatureRequest, ready: readonly InferredPartType[], unit: UnitRequest): DeclsStep<Signature, never> {
+function endpointPlacement(inputs: DeclsDeps, request: SignatureRequest, ready: readonly InferredPartType[], unit: UnitRequest): DeclsStep<Signature, never> {
   const selected = endpointOf(inputs, request);
   const bound = bindSignature(inputs, request.bindings, readSignature(inputs.types, selected.endpoint.signature), selected.origin, unit);
   if (bound.kind === "refused") return { kind: "done", value: bound };
@@ -47,7 +47,7 @@ function parameterNode(checked: DeclsModule, body: HirBody, local: number, unit:
   return node;
 }
 
-function omissionInventory(inputs: DeclsInputs, checked: DeclsModule, owner: DefId, unit: UnitRequest): ReadonlyMap<DefId, {
+function omissionInventory(inputs: DeclsDeps, checked: DeclsModule, owner: DefId, unit: UnitRequest): ReadonlyMap<DefId, {
   readonly node: ParameterDeclaration<CheckedPhase>;
   readonly formal: SignatureParameter;
 }> {

@@ -245,7 +245,8 @@ function leave(walk: Walk, node: HirNode): void {
     const right = typeAt(walk, node.right);
     walk.draft.constraints.push({ kind: "op", occurrence: refOf(walk, node), operator: "+",
       operands: [left, right], result, permissionScope: null });
-    for (const [type, source] of [[left, node.left], [right, node.right], [result, node]] as const)
+    const operands: readonly (readonly [Slot, HirNode])[] = [[left, node.left], [right, node.right], [result, node]];
+    for (const [type, source] of operands)
       walk.draft.evidence.push({ type, node: source, component: { kind: "body", value: refOf(walk, source) } });
     walk.typeOf.set(node.id, result);
   } else if (node.kind === "ReturnStatement") {

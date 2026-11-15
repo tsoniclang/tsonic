@@ -11,16 +11,18 @@ export function callerDefect(port: string, message: string): never {
   return throwInvariant({ owner: "infer", query: null, origin: null, message: `${port}: caller defect: ${message}` });
 }
 
+function validateMaximum(port: string, name: string, maximum: number): void {
+  if (!Number.isSafeInteger(maximum) || maximum < 0 || Object.is(maximum, -0))
+    callerDefect(port, `${name} must be a nonnegative safe integer`);
+}
+
 export function validateGraphLimits(port: string, limits: DataflowLimits): void {
-  for (const [name, maximum] of [["maximumWork", limits.maximumWork], ["maximumResultEntries", limits.maximumResultEntries]] as const)
-    if (!Number.isSafeInteger(maximum) || maximum < 0 || Object.is(maximum, -0))
-      callerDefect(port, `${name} must be a nonnegative safe integer`);
+  validateMaximum(port, "maximumWork", limits.maximumWork);
+  validateMaximum(port, "maximumResultEntries", limits.maximumResultEntries);
 }
 
 export function validateInferenceLimits(port: string, limits: InferenceLimits, graph: DataflowLimits): void {
-  for (const [name, maximum] of [["maximumVariablesPerGroup", limits.maximumVariablesPerGroup],
-    ["maximumAtomicContributionsPerGroup", limits.maximumAtomicContributionsPerGroup]] as const)
-    if (!Number.isSafeInteger(maximum) || maximum < 0 || Object.is(maximum, -0))
-      callerDefect(port, `${name} must be a nonnegative safe integer`);
+  validateMaximum(port, "maximumVariablesPerGroup", limits.maximumVariablesPerGroup);
+  validateMaximum(port, "maximumAtomicContributionsPerGroup", limits.maximumAtomicContributionsPerGroup);
   validateGraphLimits(port, graph);
 }

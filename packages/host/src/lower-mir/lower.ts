@@ -115,8 +115,8 @@ function captureIndex(body: TirBody, root: NodeHeader): ReadonlyMap<number, TirL
   const locals = new Map<number, TirLocal>();
   for (const [index, capture] of body.captures.entries()) {
     if (capture.local.body === body.body) return callerDefect("a capture names its own body", root.origin);
-    if (capture.capture === null && (body.bindings.kind !== "parametric" || body.dependence !== "binding-dependent"))
-      return callerDefect("an undecided capture outside a binding-dependent template", root.origin);
+    if (capture.capture === null)
+      return callerDefect("an undecided capture in a selected body", root.origin);
     let selected = rows.get(capture.local.body);
     if (selected === undefined) { selected = new Map(); rows.set(capture.local.body, selected); }
     if (selected.has(capture.local.local)) return callerDefect("a duplicate qualified capture", root.origin);

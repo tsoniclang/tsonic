@@ -1,5 +1,6 @@
 import type { Cause, Diagnostic, ErrorValue, Result, UnitAnswerPosition, UnitRequest } from "../diag/contract.js";
 import type { TyId } from "../ids/contract.js";
+import type { BodyInstance } from "../ir-types/contract.js";
 import type {
   AtomicContribution, Constraint, ConstraintDecision, ConstraintSet, ContributionOutcome, FinalVariable, InferenceGroup,
   InferenceValue, InferredPartType, RecordedCheck, SolvedConstraint, VariableBound,
@@ -241,7 +242,7 @@ function solve(deps: InferDeps, group: InferenceGroup, generated: GroupConstrain
     const body = deps.hirBody(reference);
     const owner = deps.itemOf(body.owner);
     if (body.asynchronous || body.generator) return notInferredYet(PORT, "the solved execution channels of an async or generator body", body.root.origin);
-    const instance = { body: reference, bindings: { kind: "parametric" as const } };
+    const instance: BodyInstance = { body: reference, bindings: { kind: "parametric" } };
     if (owner.kind === "SourceFile") return { kind: "placeSignature", placement: { kind: "execution-body", instance,
       completion: internType(deps.types, { kind: "intrinsic", intrinsic: "void" }), error: null } };
     if (owner.kind === "Parameter") {

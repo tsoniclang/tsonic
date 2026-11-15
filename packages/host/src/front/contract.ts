@@ -1,5 +1,5 @@
 import type { Cause, Diagnostic, Result } from "../diag/contract.js";
-import type { DefId, DefinitionSegment, LibraryExportIdentity, LibraryModuleIdentity, ModuleId, NodeId, Origin, PackageId, SourceNodeRef, RawCandidateListId, RawComponentId,
+import type { DefId, DefinitionSegment, LibraryExportIdentity, LibraryModuleIdentity, ModuleId, NodeId, Origin, SourceNodeRef, RawCandidateListId, RawComponentId,
   RawDataLayoutId, RawMemberTableId, RawMemoryFieldId, RawMemoryLayoutId, RawSignatureId, RawSymbolId, RawTypeId, TyId } from "../ids/contract.js";
 import type { LiteralValue, NativePrimitive, PassingMode, TypeEvidence, TypeExpansionLimits, TypeInterner } from "../ir-types/contract.js";
 import type { HirModule, HirModuleBinding, HirModuleExport, SourceFile, SyntaxPhase } from "../ir-hir/contract.js";
@@ -8,6 +8,8 @@ import type { ExtensionReferenceEntry, ImportPreparation, LibraryRoleEntry, Pack
 import type { ExtensionTable, OpenedProgram } from "./handles.js";
 import type { ExtensionReference } from "../snapshot/contract.js";
 import type { CompilerExtension, SourceDeclarationProvider, SourceSemanticsModule } from "@tsonic/tsts";
+import type { ProgramModuleSet } from "./program-data.js";
+export type { ProgramModule, ProgramModuleSet, SessionDocument } from "./program-data.js";
 
 export type CheckerExtensions = ExtensionTable;
 export type CheckedProgram = OpenedProgram;
@@ -814,29 +816,6 @@ export type CaptureModule = (
   program: CheckedProgram,
   module: ModuleId,
 ) => Result<RawModule>;
-
-/**
- * A provider declaration document that the session created. `package` is the package of the one loaded registration
- * whose declaration provider produced it; `provider` is the logical provider module, with the package name read
- * from that package's entry in the snapshot. Nothing here is taken from a file name or a specifier.
- */
-export interface SessionDocument {
-  readonly module: ModuleId;
-  readonly package: PackageId;
-  readonly provider: LibraryModuleIdentity;
-  readonly artifact: "public" | "canonical-export-owner";
-  readonly text: string;
-}
-
-/** A module of the opened program: a module of the snapshot (its text is its captured file's), or a session document. */
-export type ProgramModule =
-  | { readonly kind: "snapshot"; readonly module: ModuleId }
-  | { readonly kind: "session-document"; readonly document: SessionDocument };
-
-/** Every module of the opened program, once, in ascending order of module identity. */
-export interface ProgramModuleSet {
-  readonly modules: readonly ProgramModule[];
-}
 
 export type CaptureProgramModules = (deps: CaptureDeps, program: CheckedProgram) => ProgramModuleSet;
 

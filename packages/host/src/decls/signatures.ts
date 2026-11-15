@@ -1,4 +1,4 @@
-import type { Cause, Diagnostic, ErrorValue, InvariantFailure, Result, UnitAnswerPosition, UnitRequest, UnitValue } from "../diag/contract.js";
+import type { Cause, Diagnostic, ErrorValue, InvariantFailure, Result, UnitAnswerPosition, UnitPosition, UnitRequest, UnitValue } from "../diag/contract.js";
 import { requirePresent, resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
 import type { DefId, Origin, TyId } from "../ids/contract.js";
 import { decodeDefId, encodeKey } from "../ids/index.js";
@@ -7,7 +7,7 @@ import { inferredPartKey, inferredPartsOf } from "../ir-infer/index.js";
 import type { InferredPartRequest, InferredPartType } from "../ir-infer/contract.js";
 import type { ArtifactBindings, Signature, SignatureRequest } from "../ir-types/contract.js";
 import { encodeSelectorPath, internSignature, internType, readSignature, readType, signatureRequestData, signatureRequestKey, substituteSignature } from "../ir-types/index.js";
-import type { DeclaredSignatureErrorData, DeclaredSignaturePause, DeclsInputs, DeclsModule, DeclsStep } from "./contract.js";
+import type { DeclaredSignatureErrorData, DeclaredSignaturePause, DeclsDeps, DeclsModule, DeclsStep } from "./contract.js";
 
 type SignatureStep = DeclsStep<Signature, DeclaredSignaturePause>;
 
@@ -36,7 +36,7 @@ interface Endpoint {
   readonly origin: Origin;
 }
 
-export function moduleOf(inputs: DeclsInputs, definition: DefId, unit: UnitRequest): DeclsModule {
+export function moduleOf(inputs: DeclsDeps, definition: DefId, unit: UnitRequest): DeclsModule {
   const failure = (message: string): never => throwInvariant({ owner: "decls",
     query: { name: unit.query, encodedKey: encodeKey(unit.key) }, origin: null, message });
   const path = decodeDefId(definition);
@@ -47,7 +47,7 @@ export function moduleOf(inputs: DeclsInputs, definition: DefId, unit: UnitReque
   return checked;
 }
 
-export function endpointOf(inputs: DeclsInputs, request: SignatureRequest): Endpoint {
+export function endpointOf(inputs: DeclsDeps, request: SignatureRequest): Endpoint {
   const checked = moduleOf(inputs, request.definition, { query: "declaredSignatureOf", key: signatureRequestData(request) });
   const item = findAscending(checked.module.items, request.definition, entry => entry.definition);
   if (item === undefined) return throwInvariant(defect(request, null, "the definition is not a declaration entry of its module"));
@@ -71,7 +71,7 @@ export function inferredParts(request: SignatureRequest, endpoint: Endpoint, sig
   });
 }
 
-export function signatureValue(inputs: DeclsInputs, unit: UnitRequest, signature: Signature,
+export function signatureValue(inputs: DeclsDeps, unit: UnitRequest, signature: Signature,
   errors: ReadonlyMap<number | "receiver" | "result", ErrorValue>): UnitValue<Signature> {
   const positions: UnitAnswerPosition[] = [];
   const causes: Cause[] = [];
@@ -80,7 +80,7 @@ export function signatureValue(inputs: DeclsInputs, unit: UnitRequest, signature
     if ((readType(inputs.types, type).kind === "error") !== (error !== null))
       return throwInvariant({ owner: "decls", query: { name: unit.query, encodedKey: encodeKey(unit.key) }, origin: null,
         message: "A signature type position requires its actual error provenance, not an inferred absence." });
-    const position = { kind: "component" as const, path: encodeSelectorPath([typeof selector === "number"
+    const position: UnitPosition = { kind: "component", path: encodeSelectorPath([typeof selector === "number"
       ? { kind: "parameter", signature: signature.id, index: selector } : { kind: selector, signature: signature.id }]) };
     positions.push({ position, error });
     if (error !== null) causes.push({ kind: "unit", unit: {
@@ -107,7 +107,7 @@ export function resolvePart(answer: InferredPartType, unit: UnitRequest): Signat
     ? null : { kind: "error", causes: [{ kind: "unit", unit: origin }] } };
 }
 
-export function errorSignature(inputs: DeclsInputs, request: SignatureRequest, cause: Cause, data: DeclaredSignatureErrorData): UnitValue<Signature> {
+export function errorSignature(inputs: DeclsDeps, request: SignatureRequest, cause: Cause, data: DeclaredSignatureErrorData): UnitValue<Signature> {
   const selected = endpointOf(inputs, request);
   if (data.kind !== "declared-signature" || signatureRequestKey(data.state.request) !== signatureRequestKey(request))
     return throwInvariant(defect(request, selected.origin, "The classified error data belongs to another semantic request."));
@@ -139,7 +139,7 @@ export function errorSignature(inputs: DeclsInputs, request: SignatureRequest, c
     unit);
 }
 
-export function bindSignature(inputs: DeclsInputs, bindings: ArtifactBindings, signature: Signature, origin: Origin, unit: UnitRequest): Result<Signature> {
+export function bindSignature(inputs: DeclsDeps, bindings: ArtifactBindings, signature: Signature, origin: Origin, unit: UnitRequest): Result<Signature> {
   if (bindings.kind === "parametric") return { kind: "ok", value: signature, diagnostics: [] };
   const transformed = substituteSignature(inputs.types, [signature.id], bindings.bindings, inputs.typeExpansion);
   if (transformed.kind === "resource-limit") {
@@ -153,7 +153,7 @@ export function bindSignature(inputs: DeclsInputs, bindings: ArtifactBindings, s
   return { kind: "ok", value: readSignature(inputs.types, substituted), diagnostics: [] };
 }
 
-export function declaredSignatureOf(inputs: DeclsInputs, request: SignatureRequest): SignatureStep {
+export function declaredSignatureOf(inputs: DeclsDeps, request: SignatureRequest): SignatureStep {
   const selected = endpointOf(inputs, request);
   const { endpoint, origin } = selected;
   const bound = bindSignature(inputs, request.bindings, readSignature(inputs.types, endpoint.signature), origin,
@@ -172,7 +172,7 @@ function callableChannels(node: HirNode): boolean {
     && (node.asteriskToken !== null || node.modifiers?.nodes.some(modifier => modifier.kind === "AsyncKeyword") === true);
 }
 
-export function assembleSignature(inputs: DeclsInputs, paused: DeclaredSignaturePause, answers: readonly SignaturePartValue[], selected: Endpoint, unit: UnitRequest): UnitValue<Signature> {
+export function assembleSignature(inputs: DeclsDeps, paused: DeclaredSignaturePause, answers: readonly SignaturePartValue[], selected: Endpoint, unit: UnitRequest): UnitValue<Signature> {
   const { request, signature, parts } = paused;
   const { origin, node } = selected;
   const hasChannels = callableChannels(node);
@@ -209,7 +209,7 @@ export function assembleSignature(inputs: DeclsInputs, paused: DeclaredSignature
   return signatureValue(inputs, unit, readSignature(inputs.types, placed), errors);
 }
 
-export function resumeDeclaredSignatureOf(inputs: DeclsInputs, paused: DeclaredSignaturePause, answers: readonly InferredPartType[]): SignatureStep {
+export function resumeDeclaredSignatureOf(inputs: DeclsDeps, paused: DeclaredSignaturePause, answers: readonly InferredPartType[]): SignatureStep {
   const unit = { query: "declaredSignatureOf", key: signatureRequestData(paused.request) };
   return { kind: "done", value: { kind: "ok", ...assembleSignature(inputs, paused, answers.map(answer => resolvePart(answer, unit)),
     endpointOf(inputs, paused.request), unit), diagnostics: [], emissions: [] } };

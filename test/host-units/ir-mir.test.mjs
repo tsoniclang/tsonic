@@ -673,6 +673,14 @@ test("MIR entries use the selected required omission capability without changing
   same(verified(body, context), [], "the nonomissible selected formal admits only the supplied entry");
   parameter.acceptsOmission = undefined;
   same(verified(body, context), [expectedViolation("entries-exact", { kind: "body" })], "missing selected capability is not known nonomissibility");
+  context.types.signatures[0].parameters = [undefined];
+  same(verified(body, context), [expectedViolation("entries-exact", { kind: "body" })], "a sparse formal is not an omissible entry");
+  parameter.kind = "rest";
+  parameter.acceptsOmission = true;
+  context.types.signatures[0].parameters = [parameter];
+  body.entries = [{ provided: 0, block: identities.blockId(0) }];
+  same(verified(body, context), [], "rest does not contribute a fixed supplied count even when omission is admitted");
+  body.entries = [{ provided: 1, block: identities.blockId(0) }];
   context.types.signatures[0].parameters = [];
   same(verified(body, context), [expectedViolation("entries-exact", { kind: "body" })], "a missing selected formal never supplies an entry default");
 });

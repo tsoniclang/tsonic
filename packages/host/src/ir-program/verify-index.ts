@@ -11,6 +11,7 @@ import type { BindingVerificationInput, Execution, TypeRule, TypeSite } from "..
 import type { Violation } from "../diag/contract.js";
 import type {
   ProgramIndex,
+  ProgramRule,
   ProgramSite,
   ProgramVerificationContext,
   ProgramVerificationResult,
@@ -113,11 +114,12 @@ function verifySourceInventory(
       violations.push({ rule: "tir-valid", site: { kind: "module", module: record.module }, detail: [textDetail("missing-module-data")] });
       continue;
     }
-    for (const [actual, expected, rule] of [
+    const inventories: readonly (readonly [string, string, ProgramRule])[] = [
       [emitText(sequence(record.exports, textModuleExport), "exports"), emitText(sequence(input.source.exports, textModuleExport), "exports"), "export-target-resolves"],
       [emitText(sequence(record.bindings, textModuleBinding), "bindings"), emitText(sequence(input.source.bindings, textModuleBinding), "bindings"), "binding-target-resolves"],
       [emitText(sequence(record.checkerDiagnostics, textDiagnostic), "checkerDiagnostics"), emitText(sequence(input.source.checkerDiagnostics, textDiagnostic), "checkerDiagnostics"), "binding-diagnostic-resolves"],
-    ] as const) if (actual !== expected)
+    ];
+    for (const [actual, expected, rule] of inventories) if (actual !== expected)
       violations.push({ rule, site: { kind: "module", module: record.module }, detail: [textDetail("checked-module-inventory-exact")] });
     const nodes = indexSyntaxTree(input.module.tree);
     nodeCounts.set(record.module, nodes.length);

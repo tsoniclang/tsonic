@@ -69,7 +69,7 @@ export interface DeclsModule {
 }
 
 /** What Decls reads: data, and the type interner. */
-export interface DeclsInputs {
+export interface DeclsDeps {
   /**
    * One per module, in strictly ascending order of module identity. The order is the caller's to keep: whoever
    * assembles this list checks it once there (Pipeline, at the barrier); a list out of order is a caller defect, and
@@ -105,20 +105,20 @@ export interface DeclaredSignatureErrorData {
   readonly unavailable: readonly [number, ...number[]];
 }
 
-export type ErrorSignature = (inputs: DeclsInputs, request: SignatureRequest, cause: Cause,
+export type ErrorSignature = (deps: DeclsDeps, request: SignatureRequest, cause: Cause,
   data: DeclaredSignatureErrorData) => UnitValue<Signature>;
 
-export type PlaceSignature = (inputs: DeclsInputs, placement: SignaturePlacement, unit: UnitRequest) => DeclsStep<Signature, never>;
+export type PlaceSignature = (deps: DeclsDeps, placement: SignaturePlacement, unit: UnitRequest) => DeclsStep<Signature, never>;
 
 /**
  * Part 1, `declaredSignatureOf`: the declared signature of the endpoint the request names, under its bindings.
  * A signature whose parts are all declared is answered at once; an inferred part pauses with a request for it.
  */
-export type DeclaredSignatureOf = (inputs: DeclsInputs, request: SignatureRequest) => DeclsStep<Signature, DeclaredSignaturePause>;
+export type DeclaredSignatureOf = (deps: DeclsDeps, request: SignatureRequest) => DeclsStep<Signature, DeclaredSignaturePause>;
 
 /** Resumes a paused `declaredSignatureOf` once, with one answer per request of the pause, in their order. */
 export type ResumeDeclaredSignatureOf = (
-  inputs: DeclsInputs,
+  deps: DeclsDeps,
   paused: DeclaredSignaturePause,
   answers: readonly InferredPartType[],
 ) => DeclsStep<Signature, DeclaredSignaturePause>;
