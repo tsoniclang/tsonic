@@ -1,5 +1,5 @@
 import type { DataflowStop } from "../dataflow/contract.js";
-import { chargeResultEntries, chargeWork } from "../dataflow/index.js";
+import { accountFailure, chargeResultEntries, chargeWork } from "../dataflow/index.js";
 import type { BodyId, DefId, NodeRef } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import { iterateChildrenOfSyntax } from "../ir-hir/index.js";
@@ -59,6 +59,8 @@ export const dependenciesOf: DependenciesOf = (deps, input) => {
     return null;
   };
   const entries = (at: NodeRef, reason: ExecutionDependency["reason"], values: readonly SummaryKey[] | null): DataflowStop | null => {
+    const stopped = accountFailure(account);
+    if (stopped !== null) return stopped;
     if (values === null) throw new TypeError("The actual selected dependency requires its complete ready operation/entry association.");
     for (let position = 0; position < values.length; position += 1) {
       const row = chargeWork(account, 1);
@@ -78,6 +80,8 @@ export const dependenciesOf: DependenciesOf = (deps, input) => {
     const lookup = chargeWork(account, 1);
     if (lookup !== null) return lookup;
     const target = deps.calleeAt(at, value);
+    const stopped = accountFailure(account);
+    if (stopped !== null) return stopped;
     if (target === null) throw new TypeError("A selected callee requires its actual complete request and provided entry.");
     if (value.activation !== null && (target.kind !== "body" || !sameInstance(target.execution.instance, value.activation)))
       throw new TypeError("The selected callee entry belongs to its actual activation body.");
@@ -89,6 +93,8 @@ export const dependenciesOf: DependenciesOf = (deps, input) => {
     const lookup = chargeWork(account, 1);
     if (lookup !== null) return lookup;
     const target = deps.initializerAt(at, body);
+    const stopped = accountFailure(account);
+    if (stopped !== null) return stopped;
     if (target === null || target.kind !== "body" || target.execution.instance.body !== body)
       throw new TypeError("An executed initializer requires its actual selected body and offered entry.");
     return add(at, "initializer", target);
@@ -105,6 +111,8 @@ export const dependenciesOf: DependenciesOf = (deps, input) => {
       const lookup = chargeWork(account, 1);
       if (lookup !== null) return lookup;
       const target = deps.initializerAt(at, argument.value.instance);
+      const stopped = accountFailure(account);
+      if (stopped !== null) return stopped;
       if (target === null || target.kind !== "body" || !sameInstance(target.execution.instance, argument.value.instance))
         throw new TypeError("An omitted default retains its actual selected initializer instance and entry.");
       const added = add(at, "initializer", target);

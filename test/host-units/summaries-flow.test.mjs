@@ -64,6 +64,39 @@ test("constructed naming unit distinguishes actual noncallable evidence from a m
     { kind: "complete", value: { operations: [key], dependencies: [] } });
 });
 
+test("constructed dependency ready readers preserve their original refusal before absence or returned row reads", () => {
+  const resolved = { decision: { api: { declaration: definition } }, activation: execution.instance };
+  const application = arguments_ => ({ callee: resolved, arguments: arguments_ });
+  const selected = decision => ({ kind: "decided", decision });
+  const callable = node("FunctionDeclaration", 2, { body: node("Block", 3, {}), tsonic: { definition } });
+  const name = node("Identifier", 2, { tsonic: { role: "value", resolution: { kind: "definition", definition } } });
+  const call = arguments_ => node("CallExpression", 2, { tsonic: { application: selected(application(arguments_)) } });
+  const operation = node("PrefixUnaryExpression", 2, { tsonic: { role: "value", operation: selected({ decision: { operation: { kind: "core" } } }) } });
+  const cases = [
+    ["callableEntriesAt", callable], ["callableEntriesAt", name], ["calleeAt", call([])],
+    ["initializerAt", node("VariableDeclaration", 2, { tsonic: { initializer: execution.instance.body } })],
+    ["initializerAt", call([{ kind: "omitted", value: { kind: "initializer", instance: execution.instance } }])],
+    ["operationEntriesAt", operation],
+    ["dispatchEntriesAt", node("NewExpression", 2, { tsonic: { application: selected(application([])) } })],
+  ];
+  for (const [reader, syntax] of cases) for (const absent of [false, true]) {
+    const current = account();
+    let reads = 0;
+    let stopped;
+    const unread = new Proxy([], { get() { assert.fail("No returned ready row is read after its reader refuses."); } });
+    const deps = { ...dependencyDeps(current), calleeAt: () => key, [reader]: () => {
+      reads += 1;
+      stopped = refuseAccount(current, refusal);
+      return absent ? null : unread;
+    } };
+    const statements = [syntax];
+    Object.defineProperty(statements, 1, { get() { assert.fail("No later syntax is read after ready-input refusal."); } });
+    assert.equal(dependenciesOf(deps, { execution, tir: tir(root(statements)) }), stopped);
+    assert.equal(reads, 1, reader);
+    assert.equal(accountFailure(current), stopped);
+  }
+});
+
 test("constructed convergence unit borrows terminal original error result and runs Liveness and round exactly once", () => {
   const current = account();
   const inventory = componentsOf({ account: current, maximumComponentSize: 1, componentRefusal: refusal }, { operations: [key], dependencies: [] }).value;
