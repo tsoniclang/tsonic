@@ -9112,7 +9112,11 @@ export function Checker_getExternalModuleMember(receiver, node, specifier, dontR
                 Checker_error(receiver, name, Named_imports_from_a_JSON_file_into_an_ECMAScript_module_are_not_allowed_when_module_is_set_to_0, ModuleKind_String(receiver.moduleKind));
             }
             else if (symbol_ === undefined && moduleSymbol !== undefined) {
-                Checker_errorNoModuleMemberSymbol(receiver, moduleSymbol, targetSymbol, node, name);
+                const diagnostic = Checker_errorNoModuleMemberSymbol(receiver, moduleSymbol, targetSymbol, node, name);
+                const alias = Checker_getSymbolOfDeclaration(receiver, specifier);
+                if (diagnostic !== undefined && alias !== undefined && (alias.Flags & SymbolFlagsAlias) !== 0) {
+                    LinkStore_Get(receiver.aliasSymbolLinks, alias).immediateFailure = diagnostic;
+                }
             }
             return symbol_;
         }
@@ -9255,6 +9259,7 @@ export function Checker_isOnlyImportableAsDefault(receiver, usage, resolvedModul
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.errorNoModuleMemberSymbol","kind":"method","status":"implemented","sigHash":"866dc9a79f60e29e4f2ce018974eba5c1c802c1a607f8f2a77a8f94e9acfa3de","bodyHash":"35e72ca56f62792f8c9371a74ee7acc8596a93c42011d2a01a23a4a8f2f6692a"}
+ * @tsgo-override {"category":"extension-host","allow":["signature"],"reason":"Return the original Diagnostic from the actual failed alias-member producer instead of erasing it before the alias answer is retained.","goSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/symbol.ts::Symbol>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/symbol.ts::Symbol>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>)=>void","tsSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/symbol.ts::Symbol>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/symbol.ts::Symbol>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/diagnostic.ts::Diagnostic>"}
  *
  * Go source:
  * func (c *Checker) errorNoModuleMemberSymbol(moduleSymbol *ast.Symbol, targetSymbol *ast.Symbol, node *ast.Node, name *ast.Node) {
@@ -9298,18 +9303,20 @@ export function Checker_errorNoModuleMemberSymbol(receiver, moduleSymbol, target
         if (suggestion.ValueDeclaration !== undefined) {
             Diagnostic_AddRelatedInfo(diagnostic, createDiagnosticForNode(suggestion.ValueDeclaration, X_0_is_declared_here, suggestionName));
         }
+        return diagnostic;
     }
     else {
         if (moduleSymbol.Exports?.get(InternalSymbolNameDefault) !== undefined) {
-            Checker_error(receiver, name, Module_0_has_no_exported_member_1_Did_you_mean_to_use_import_1_from_0_instead, moduleName, declarationName);
+            return Checker_error(receiver, name, Module_0_has_no_exported_member_1_Did_you_mean_to_use_import_1_from_0_instead, moduleName, declarationName);
         }
         else {
-            Checker_reportNonExportedMember(receiver, name, declarationName, moduleSymbol, moduleName);
+            return Checker_reportNonExportedMember(receiver, name, declarationName, moduleSymbol, moduleName);
         }
     }
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.reportNonExportedMember","kind":"method","status":"implemented","sigHash":"aef89fbc532c7c456a9b5965659e699be8eabf2983f1ba66feda0b576be3aafb","bodyHash":"50f54d6f30aaa60bae0ca2af8c4be2e2069204def3bd6a2c344e3eca9062ca15"}
+ * @tsgo-override {"category":"extension-host","allow":["signature"],"reason":"Return the original Diagnostic from the actual failed alias-member producer instead of erasing it before the alias answer is retained.","goSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,string,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/symbol.ts::Symbol>,string)=>void","tsSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,string,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/symbol.ts::Symbol>,string)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/diagnostic.ts::Diagnostic>"}
  *
  * Go source:
  * func (c *Checker) reportNonExportedMember(name *ast.Node, declarationName string, moduleSymbol *ast.Symbol, moduleName string) {
@@ -9356,10 +9363,10 @@ export function Checker_reportNonExportedMember(receiver, name, declarationName,
         const exportedEqualsSymbol = exports?.get(InternalSymbolNameExportEquals);
         if (exportedEqualsSymbol !== undefined) {
             if (Checker_getSymbolIfSameReference(receiver, exportedEqualsSymbol, localSymbol) !== undefined) {
-                Checker_reportInvalidImportEqualsExportMember(receiver, name, declarationName, moduleName);
+                return Checker_reportInvalidImportEqualsExportMember(receiver, name, declarationName, moduleName);
             }
             else {
-                Checker_error(receiver, name, Module_0_has_no_exported_member_1, moduleName, declarationName);
+                return Checker_error(receiver, name, Module_0_has_no_exported_member_1, moduleName, declarationName);
             }
         }
         else {
@@ -9374,14 +9381,16 @@ export function Checker_reportNonExportedMember(receiver, name, declarationName,
             (localSymbol.Declarations ?? []).forEach((decl, i) => {
                 Diagnostic_AddRelatedInfo(diagnostic, createDiagnosticForNode(decl, IfElse(i === 0, X_0_is_declared_here, X_and_here), declarationName));
             });
+            return diagnostic;
         }
     }
     else {
-        Checker_error(receiver, name, Module_0_has_no_exported_member_1, moduleName, declarationName);
+        return Checker_error(receiver, name, Module_0_has_no_exported_member_1, moduleName, declarationName);
     }
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.reportInvalidImportEqualsExportMember","kind":"method","status":"implemented","sigHash":"6f50a8d118bbbd1fcb50050ab69ee22b08ca88b9f62a570aff00f58aae26e0e7","bodyHash":"57664677160a641fded1a90580e5f2776212b8dff998c3e3b8f1b41dfb2c6bee"}
+ * @tsgo-override {"category":"extension-host","allow":["signature"],"reason":"Return the original Diagnostic from the actual failed alias-member producer instead of erasing it before the alias answer is retained.","goSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,string,string)=>void","tsSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,string,string)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/diagnostic.ts::Diagnostic>"}
  *
  * Go source:
  * func (c *Checker) reportInvalidImportEqualsExportMember(name *ast.Node, declarationName string, moduleName string) {
@@ -9396,13 +9405,13 @@ export function Checker_reportNonExportedMember(receiver, name, declarationName,
  */
 export function Checker_reportInvalidImportEqualsExportMember(receiver, name, declarationName, moduleName) {
     if (receiver.moduleKind >= ModuleKindES2015) {
-        Checker_error(receiver, name, X_0_can_only_be_imported_by_using_a_default_import, declarationName);
+        return Checker_error(receiver, name, X_0_can_only_be_imported_by_using_a_default_import, declarationName);
     }
     else if (IsInJSFile(name)) {
-        Checker_error(receiver, name, X_0_can_only_be_imported_by_using_a_require_call_or_by_using_a_default_import, declarationName);
+        return Checker_error(receiver, name, X_0_can_only_be_imported_by_using_a_require_call_or_by_using_a_default_import, declarationName);
     }
     else {
-        Checker_error(receiver, name, X_0_can_only_be_imported_by_using_import_1_require_2_or_a_default_import, declarationName, declarationName, moduleName);
+        return Checker_error(receiver, name, X_0_can_only_be_imported_by_using_import_1_require_2_or_a_default_import, declarationName, declarationName, moduleName);
     }
 }
 /**
@@ -10068,6 +10077,10 @@ export function Checker_getTargetOfAliasDeclaration(receiver, node) {
     if (node === undefined) {
         return undefined;
     }
+    const alias = Node_Symbol(node);
+    const links = alias === undefined ? undefined : LinkStore_TryGet(receiver.aliasSymbolLinks, alias);
+    if (links !== undefined)
+        delete links.immediateFailure;
     switch (node.Kind) {
         case KindImportEqualsDeclaration:
         case KindVariableDeclaration:
@@ -10987,6 +11000,7 @@ export function Checker_resolveAlias(receiver, symbol_) {
             throw new globalThis.Error("Unexpected nil in resolveAlias for symbol: " + Checker_symbolToString(receiver, symbol_));
         }
         let target = Checker_getTargetOfAliasDeclaration(receiver, node);
+        links.immediateTarget = target;
         if (IsNonLocalAlias(target, (SymbolFlagsValue | SymbolFlagsType | SymbolFlagsNamespace))) {
             // When the target is a pure alias, we transitively resolve and propagate any typeOnlyDeclaration
             target = Checker_resolveIndirectionAlias(receiver, symbol_, target);

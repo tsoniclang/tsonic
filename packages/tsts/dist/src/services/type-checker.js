@@ -139,28 +139,37 @@ export function createTypeCheckerQueries(program, defaultOptions) {
             const target = Checker_GetAliasedSymbol(checker, symbol);
             return target === checker?.unknownSymbol ? undefined : target;
         }),
-        getAliasStep: (symbol) => withCheckerForSymbol(program, symbol, defaultOptions, (checker) => {
+        getAliasStep: (symbol) => {
             if (symbol === undefined || (symbol.Flags & SymbolFlagsAlias) === 0)
                 return undefined;
-            const declaration = Checker_getDeclarationOfAliasSymbol(checker, symbol);
+            const declaration = Checker_getDeclarationOfAliasSymbol(undefined, symbol);
             if (declaration === undefined)
                 return undefined;
-            // The two binding forms whose target the checker computes through a module's `export =` assignment.
-            const namespaceForm = IsNamespaceImport(declaration) || IsNamespaceExport(declaration);
-            const memberForm = (IsImportSpecifier(declaration) || IsExportSpecifier(declaration))
-                && !ModuleExportNameIsDefault(Node_PropertyNameOrName(declaration));
-            const referenced = namespaceForm || memberForm ? referencedModule(checker, declaration) : undefined;
-            // A namespace form names the module itself: its `export =` assignment when it has one, the module otherwise.
-            // The checker's own target for it is the final value behind the assignment or a symbol it makes for the import.
-            if (referenced !== undefined && namespaceForm)
-                return { kind: "symbol", symbol: referenced.exportAssignment ?? referenced.module };
-            const immediate = Checker_getImmediateAliasedSymbol(checker, symbol);
-            const target = immediate === checker?.unknownSymbol ? undefined : immediate;
-            if (referenced?.exportAssignment !== undefined) {
-                return { kind: "exported-value-member", exportAssignment: referenced.exportAssignment, member: target };
-            }
-            return target === undefined ? undefined : { kind: "symbol", symbol: target };
-        }),
+            return withCheckedFile(program, GetSourceFileOfNode(declaration), defaultOptions, (checker) => {
+                if (checker === undefined)
+                    return undefined;
+                const retained = LinkStore_TryGet(checker.aliasSymbolLinks, symbol);
+                // The two binding forms whose target the checker computes through a module's `export =` assignment.
+                const namespaceForm = IsNamespaceImport(declaration) || IsNamespaceExport(declaration);
+                const memberForm = (IsImportSpecifier(declaration) || IsExportSpecifier(declaration))
+                    && !ModuleExportNameIsDefault(Node_PropertyNameOrName(declaration));
+                const referenced = namespaceForm || memberForm ? referencedModule(checker, declaration) : undefined;
+                // A namespace form names the module itself: its `export =` assignment when it has one, the module otherwise.
+                // The checker's own target for it is the final value behind the assignment or a symbol it makes for the import.
+                if (referenced !== undefined && namespaceForm)
+                    return { kind: "symbol", symbol: referenced.exportAssignment ?? referenced.module };
+                const immediate = retained?.immediateFailure === undefined
+                    ? Checker_getImmediateAliasedSymbol(checker, symbol) : retained.immediateTarget;
+                const target = immediate === checker?.unknownSymbol ? undefined : immediate;
+                const cause = LinkStore_TryGet(checker.aliasSymbolLinks, symbol)?.immediateFailure;
+                const answer = target !== undefined ? { kind: "symbol", symbol: target }
+                    : cause === undefined ? undefined : { kind: "unresolved", cause };
+                if (referenced?.exportAssignment !== undefined) {
+                    return { kind: "exported-value-member", exportAssignment: referenced.exportAssignment, member: answer };
+                }
+                return answer;
+            });
+        },
         getTypeOfSymbol: (symbol) => withCheckerForSymbol(program, symbol, defaultOptions, (checker) => Checker_getTypeOfSymbol(checker, symbol)),
         getWriteTypeOfSymbol: (symbol) => withCheckerForSymbol(program, symbol, defaultOptions, (checker) => Checker_getWriteTypeOfSymbol(checker, symbol)),
         getDeclaredTypeOfSymbol: (symbol) => withCheckerForSymbol(program, symbol, defaultOptions, (checker) => Checker_getDeclaredTypeOfSymbol(checker, symbol)),

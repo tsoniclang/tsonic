@@ -375,7 +375,7 @@ export interface RawAdvertisedParameters {
 export interface RawProviderDeclaration {
   readonly node: RawNodeRef;
   readonly identity: LibraryExportIdentity;
-  readonly wellKnownDeclaration: RawNodeRef | null;
+  readonly wellKnownDeclaration: RawFact<RawNodeRef | null>;
 }
 
 export interface RawReference {

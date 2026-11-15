@@ -3,6 +3,7 @@ import type { GoPtr } from "../go/compat.js";
 import type { Context } from "../go/context.js";
 import type { Node, SourceFile } from "../internal/ast/ast.js";
 import type { Symbol } from "../internal/ast/symbol.js";
+import type { Diagnostic } from "../internal/ast/diagnostic.js";
 import type { TypeIndexInfo } from "./type-shape.js";
 import type { Program } from "../internal/compiler/program.js";
 import type { ResolvedSourceElementAccessInfo as CheckerResolvedSourceElementAccessInfo, ResolvedSourcePropertyAccessInfo as CheckerResolvedSourcePropertyAccessInfo } from "../internal/checker/checker/symbols.js";
@@ -96,13 +97,17 @@ export interface ResolvedSourceObjectLiteralElementInfo {
  * is a binding element. It is answered as a "symbol" step with the checker's own target, which lies
  * behind the module's `export =`.
  */
-export type ResolvedAliasStep = {
+export type ResolvedAliasTarget = {
     readonly kind: "symbol";
     readonly symbol: Symbol;
 } | {
+    readonly kind: "unresolved";
+    readonly cause: Diagnostic;
+};
+export type ResolvedAliasStep = ResolvedAliasTarget | {
     readonly kind: "exported-value-member";
     readonly exportAssignment: Symbol;
-    readonly member: Symbol | undefined;
+    readonly member: ResolvedAliasTarget | undefined;
 };
 export interface ResolvedSourceStorageInfo {
     readonly expression: Node;
@@ -128,8 +133,8 @@ export interface TypeCheckerQueries {
     readonly getAliasedSymbol: (symbol: GoPtr<Symbol>) => GoPtr<Symbol>;
     /**
      * One step of an alias chain (see ResolvedAliasStep). Nothing, and no throw, for a symbol that is not
-     * an alias and for an alias whose own step did not resolve (a missing module, or a missing export of a
-     * module without `export =`). A member of a circular alias chain has a step: following the steps from it
+     * an alias and for an unavailable step with no retained producing evidence. A failed module-member
+     * answer with its actual original diagnostic is unresolved. A member of a circular alias chain has a step: following the steps from it
      * returns to a symbol already visited, which is how a caller finds the cycle's members.
      *
      * Compare what the two alias queries return by declaration, never by symbol identity. getAliasedSymbol
@@ -138,8 +143,8 @@ export interface TypeCheckerQueries {
      * target's declarations and is a different object for each import declaration. Steps are symbols of
      * modules and declarations, but one export reached by two bindings is not promised to be one object.
      *
-     * Cost: a step that did not resolve is not remembered. Each further call for that alias runs the step
-     * again and creates its diagnostic again. Ask once per binding and keep the answer; never once per use.
+     * A retained failed answer borrows its original diagnostic without re-emission. A genuine native
+     * re-evaluation replaces that answer; an unavailable step without such evidence is not a cached failure.
      */
     readonly getAliasStep: (symbol: GoPtr<Symbol>) => GoPtr<ResolvedAliasStep>;
     readonly getTypeOfSymbol: (symbol: GoPtr<Symbol>) => GoPtr<Type>;

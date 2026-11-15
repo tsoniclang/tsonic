@@ -1,13 +1,13 @@
-import type { ArgumentPassingFact, Node, Signature, SourceFile, Symbol as CheckerSymbol, Type, TypeCheckerQueries, TypeShapeQueries } from "@tsonic/tsts";
-import { argumentPassingFactKey } from "@tsonic/tsts";
-import type { Diagnostic, InvariantFailure, Result } from "../diag/contract.js";
+import type { ArgumentPassingFact, Diagnostic as CheckerDiagnostic, Node, ResolvedAliasTarget, Signature, SourceFile, Symbol as CheckerSymbol, Type, TypeCheckerQueries, TypeShapeQueries } from "@tsonic/tsts";
+import { argumentPassingFactKey, getDiagnosticRunMembers, providerVirtualDeclarationFactKey } from "@tsonic/tsts";
+import type { CheckerDiagnosticRef, Diagnostic, InvariantFailure, Result } from "../diag/contract.js";
 import { resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
 import type { ModuleId, NodeId } from "../ids/contract.js";
 import { nodeId, rawCandidateListId, rawComponentId, rawMemberTableId, rawSignatureId, rawSymbolId, rawTypeId } from "../ids/index.js";
 import type * as Hir from "../ir-hir/contract.js";
 import type { RawComponentId, RawSignatureId, RawSymbolId, RawTypeId } from "../ids/contract.js";
 import type {
-  CaptureDeps, CheckedProgram, RawArgumentBinding, RawAuthoredArgument, RawBinding, RawBindingTarget, RawCallSelection, RawCallableAssociation, RawCandidateList, RawCoreCapture, RawCheckedType, RawCheckerViews, RawComponent, RawComponentStep, RawDiagnosticCoverage, RawFact, RawLiteral, RawMemberTable, RawModule, RawModuleExport, RawModuleLink, RawNodeRef, RawParameter, RawReference, RawSignature, RawSymbol, RawTypeForm,
+  CaptureDeps, CheckedProgram, RawArgumentBinding, RawAuthoredArgument, RawBinding, RawBindingTarget, RawCallSelection, RawCallableAssociation, RawCandidateList, RawCoreCapture, RawCheckedType, RawCheckerViews, RawComponent, RawComponentStep, RawDiagnosticCoverage, RawFact, RawLiteral, RawMemberTable, RawModule, RawModuleExport, RawModuleLink, RawNodeRef, RawParameter, RawProviderDeclaration, RawReference, RawSignature, RawSymbol, RawTypeForm,
 } from "./contract.js";
 import { ExtensionTable, OpenedProgram } from "./handles.js";
 import type { FileNumbering, FileSyntaxEntry } from "./handles.js";
@@ -76,6 +76,7 @@ interface CaptureScope {
   readonly shape: TypeShapeQueries;
   readonly ownNodes: ReadonlyMap<Node, NodeId>;
   readonly emptyCoreInventory: boolean;
+  readonly diagnosticRoots: Map<CheckerDiagnostic, CheckerDiagnosticRef>;
   readonly tables: CaptureTables;
 }
 
@@ -286,6 +287,27 @@ function coreFacts(node: RawNodeRef, empty: boolean): RawCoreCapture {
   };
 }
 
+function providerDeclaration(scope: CaptureScope, node: Node, reference: RawNodeRef): RawProviderDeclaration | null | undefined {
+  const facts = scope.checked.sourceFacts;
+  let fact = facts.getFact(node, providerVirtualDeclarationFactKey);
+  if (fact === undefined) {
+    const name = scope.checked.ast.name(node);
+    if (name !== undefined) fact = facts.getFact(scope.checker.getSymbolAtLocation(name), providerVirtualDeclarationFactKey);
+  }
+  if (fact === undefined || fact.exportId === undefined) return undefined;
+  const module = OpenedProgram.moduleAt(scope.program, fact.artifactFileName);
+  const input = module === undefined ? undefined : OpenedProgram.file(scope.program, module);
+  if (input === undefined || input.origin.kind !== "session-document")
+    return throwInvariant(invariant("A provider declaration must retain its actual admitted session document."));
+  const provider = input.origin.document.provider;
+  if (provider.providerId !== fact.providerId || provider.providerVersion !== fact.providerVersion
+    || provider.providerModuleId !== fact.providerModuleId || provider.moduleSpecifier !== fact.moduleSpecifier)
+    return throwInvariant(invariant("A provider declaration fact must agree with its actual admitted provider identity."));
+  if (!admit(scope, "facts")) return null;
+  return { node: reference, identity: { module: provider, exportId: fact.exportId,
+    memberId: fact.memberId ?? null, signatureId: fact.signatureId ?? null }, wellKnownDeclaration: notProvided() };
+}
+
 /** The type at one position (component); each position has its own row, so a row's component is where it was read. */
 function rawType(scope: CaptureScope, read: () => Type | undefined, position: RawComponentId | null, authoredTypeNode: RawNodeRef | null): RawTypeId | null {
   if (position === null || !admit(scope, "facts")) return null;
@@ -343,11 +365,19 @@ function bindingTarget(scope: CaptureScope, symbol: CheckerSymbol | undefined): 
   if (symbol === undefined) return { kind: "unavailable", reason: "incomplete-association", causes: [] };
   const step = scope.checker.getAliasStep(symbol);
   if (step === undefined) return { kind: "unavailable", reason: "incomplete-association", causes: [] };
+  if (step.kind === "unresolved") return aliasFailure(scope, step.cause);
   const targetSymbol = step.kind === "symbol" ? step.symbol : step.exportAssignment;
   return symbolTarget(scope, targetSymbol, step.kind === "exported-value-member" ? step.member : null);
 }
 
-function symbolTarget(scope: CaptureScope, targetSymbol: CheckerSymbol, memberSymbol: CheckerSymbol | undefined | null): RawFact<RawBindingTarget> | null {
+function aliasFailure(scope: CaptureScope, diagnostic: CheckerDiagnostic): Extract<RawFact<never>, { readonly kind: "unavailable" }> | null {
+  if (!admit(scope, "facts")) return null;
+  const root = scope.diagnosticRoots.get(diagnostic);
+  if (root === undefined) return throwInvariant(invariant("An actual alias failure must retain membership in its original published checker diagnostic run."));
+  return { kind: "unavailable", reason: "checker-error", causes: [{ kind: "diagnostic", diagnostic: { kind: "checker", diagnostic: root } }] };
+}
+
+function symbolTarget(scope: CaptureScope, targetSymbol: CheckerSymbol, memberTarget: ResolvedAliasTarget | undefined | null): RawFact<RawBindingTarget> | null {
   const declarations: RawNodeRef[] = [];
   let targetBinding = false;
   let targetModule: ModuleId | null = null;
@@ -358,7 +388,7 @@ function symbolTarget(scope: CaptureScope, targetSymbol: CheckerSymbol, memberSy
     if (scope.meter.refusal !== null) return null;
     if (reference === null) return { kind: "unavailable", reason: "incomplete-association", causes: [] };
     const kind = scope.checked.ast.kindName(declaration);
-    if (memberSymbol === null && kind === "KindSourceFile") {
+    if (memberTarget === null && kind === "KindSourceFile") {
       if (targetModule !== null && targetModule !== reference.module)
         return throwInvariant(invariant("A module alias cannot name two different source-file modules."));
       targetModule = reference.module;
@@ -370,13 +400,14 @@ function symbolTarget(scope: CaptureScope, targetSymbol: CheckerSymbol, memberSy
   declarations.sort((left, right) => left.module < right.module ? -1 : left.module > right.module ? 1 : left.node - right.node);
   const first = declarations[0];
   if (first === undefined) return { kind: "unavailable", reason: "incomplete-association", causes: [] };
-  if (memberSymbol !== null) {
-    const member = memberSymbol === undefined ? null : rawSymbol(scope, memberSymbol);
+  if (memberTarget !== null) {
+    const failed = memberTarget?.kind === "unresolved" ? aliasFailure(scope, memberTarget.cause) : null;
+    const member = memberTarget?.kind === "symbol" ? rawSymbol(scope, memberTarget.symbol) : null;
     if (scope.meter.refusal !== null) return null;
     return available({ kind: "member", through: [first, ...declarations.slice(1)],
-      member: member === null ? { kind: "unavailable", reason: "incomplete-association", causes: [] } : available(member),
-      key: { kind: "unavailable", reason: "incomplete-association", causes: [] },
-      origins: { kind: "unavailable", reason: "incomplete-association", causes: [] } });
+      member: failed ?? (member === null ? { kind: "unavailable", reason: "incomplete-association", causes: [] } : available(member)),
+      key: failed ?? { kind: "unavailable", reason: "incomplete-association", causes: [] },
+      origins: failed ?? { kind: "unavailable", reason: "incomplete-association", causes: [] } });
   }
   if (targetBinding) {
     if (declarations.length !== 1) return throwInvariant(invariant("A nearest alias binding must identify its actual single syntax occurrence."));
@@ -574,7 +605,7 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
   if (tree.kind !== "SourceFile") return throwInvariant(invariant("A module's captured tree is not a source file."));
   const queries = checked.getSourceFileQueries(file);
   const scope: CaptureScope = { deps, program, path, meter: { facts: 0, edges: 0, refusal: null }, module, file, checked, checker: queries.checker,
-    shape: queries.typeShape, ownNodes, emptyCoreInventory: closedInventoryEmpty(program),
+    shape: queries.typeShape, ownNodes, emptyCoreInventory: closedInventoryEmpty(program), diagnosticRoots: new Map(),
     tables: { types: [], components: [], signatures: [], members: [], candidates: [], symbols: [], symbolIds: new Map(), signatureIds: new Map(), nextType: 0, nextMember: 0, pending: [] } };
   const checkerDiagnostics: Diagnostic[] = [];
   const diagnosticCoverage: RawDiagnosticCoverage[] = [];
@@ -585,6 +616,14 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
     if (captured === null) break;
     const index = checkerDiagnostics.length;
     checkerDiagnostics.push(captured);
+    const members = getDiagnosticRunMembers(diagnostic);
+    for (let memberIndex = 0; memberIndex < members.length; memberIndex += 1) {
+      if (!admit(scope, "facts")) break;
+      const member = members[memberIndex];
+      if (member === undefined) return throwInvariant(invariant("A published checker diagnostic run cannot contain an absent original member."));
+      if (scope.diagnosticRoots.has(member)) return throwInvariant(invariant("An original checker diagnostic cannot belong to two published roots."));
+      scope.diagnosticRoots.set(member, { module, index });
+    }
     if (!admit(scope, "facts")) break;
     diagnosticCoverage.push({ kind: "unavailable", root: { module, index } });
   }
@@ -684,9 +723,17 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
     }
   }
   const core: RawCoreCapture[] = [];
+  const providerDeclarations: RawProviderDeclaration[] = [];
   for (const [node, id] of ownNodes) {
     if (!admit(scope, "facts")) break;
-    const row = coreFacts({ module, node: id }, scope.emptyCoreInventory);
+    const reference = { module, node: id };
+    const provider = providerDeclaration(scope, node, reference);
+    if (provider === null) break;
+    if (provider !== undefined) {
+      providerDeclarations.push(provider);
+    }
+    const base = coreFacts(reference, scope.emptyCoreInventory);
+    const row = provider === undefined ? base : { ...base, provider: available(provider.identity) };
     const passing = ast.kindName(node) === "KindParameter" ? declarationPassing(scope, node) : undefined;
     core.push(passing === undefined ? row : { ...row, argumentPassing: available(passing) });
   }
@@ -708,7 +755,7 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
     module, tree,
     types: { types: scope.tables.types, components: scope.tables.components, signatures: scope.tables.signatures, members: scope.tables.members,
       symbols: scope.tables.symbols, candidates: scope.tables.candidates, dataLayouts: [], memoryLayouts: [], memoryFields: [] },
-    checkerViews: views, calls, callableAssociations: associations, providerDeclarations: [], references, links, exports, bindings,
+    checkerViews: views, calls, callableAssociations: associations, providerDeclarations, references, links, exports, bindings,
     implementations: [], heritage: [], constructors: [], enums: [], propertyNames: [], memberUses: [], protocols: [], storage: [], core,
     checkerDiagnostics, diagnosticCoverage,
   };

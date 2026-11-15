@@ -86,6 +86,67 @@ const identityKinds = new Set(["SourceFile", "FunctionDeclaration", "ClassDeclar
   "GetAccessor", "SetAccessor", "Constructor", "ClassStaticBlockDeclaration", "PropertySignature", "MethodSignature", "CallSignature",
   "ConstructSignature", "IndexSignature", "FunctionExpression", "ArrowFunction", "ClassExpression", "ExportAssignment", "NamespaceExport"]);
 
+test("actual missing alias targets retain original published causes and an exported-value member keeps its assignment boundary", async () => {
+  const { OpenedProgram } = await import("../../packages/host/dist/front/handles.js");
+  const sourceFiles = {
+    "library.mts": "export function known(): boolean { return true; }\n",
+    "first.mts": 'import { missing } from "./library.mjs"; export { missing };\n',
+    "second.mts": 'import { missing } from "./library.mjs"; export { missing };\n',
+    "value.cts": "function selected(): boolean { return true; } export = selected;\n",
+    "member.mts": 'import { missing } from "./value.cjs"; export { missing };\n',
+  };
+  const opened = openAndCapture(projectSnapshot({ sourceFiles, libraries: bundled() }));
+  const checked = OpenedProgram.checked(opened.program);
+  const roots = checked.diagnostics;
+  const originalMembers = roots.map(root => sdk.getDiagnosticRunMembers(root));
+  const failures = [];
+  for (const name of ["first.mts", "second.mts", "member.mts"]) {
+    const module = moduleOf(packageOf("/project"), "src/" + name);
+    const captured = front.captureModule(opened.deps, opened.program, module);
+    assert.equal(captured.kind, "ok");
+    const file = checked.getSourceFile("/project/src/" + name);
+    const numbering = OpenedProgram.syntax(opened.program).get("/project/src/" + name).outcome.numbering;
+    const binding = captured.value.bindings.find(row => checked.ast.kindName(numbering.nodes[row.binding.node]) === "KindImportSpecifier");
+    assert.equal(binding !== undefined, true);
+    const queries = checked.getSourceFileQueries(file);
+    const symbol = queries.checker.getSymbolAtLocation(checked.ast.name(numbering.nodes[binding.binding.node]));
+    const step = queries.checker.getAliasStep(symbol);
+    const target = step.kind === "exported-value-member" ? step.member : step;
+    assert.equal(target.kind, "unresolved");
+    const unavailable = binding.target.kind === "available" ? binding.target.value.member : binding.target;
+    assert.equal(unavailable.kind, "unavailable");
+    assert.equal(unavailable.reason, "checker-error");
+    assert.equal(unavailable.causes.length, 1);
+    const identity = unavailable.causes[0].diagnostic;
+    assert.equal(identity.kind, "checker");
+    assert.equal(identity.diagnostic.module, module);
+    const published = roots.filter(root => root.file === file)[identity.diagnostic.index];
+    assert.equal(sdk.getDiagnosticRunMembers(published).includes(target.cause), true, "actual original object membership, not code/span matching");
+    assert.equal(captured.value.checkerDiagnostics[identity.diagnostic.index].message, sdk.flattenDiagnosticMessageText(published));
+    if (step.kind === "exported-value-member") {
+      assert.equal(binding.target.kind, "available");
+      assert.equal(binding.target.value.kind, "member");
+      const declarations = queries.checker.getSymbolDeclarations(step.exportAssignment);
+      const reference = binding.target.value.through[0];
+      const source = OpenedProgram.file(opened.program, reference.module);
+      const actual = OpenedProgram.syntax(opened.program).get(checked.ast.getFileName(source.file)).outcome.numbering.nodes[reference.node];
+      assert.equal(declarations.includes(actual), true, "the member failure cannot erase its actual export assignment");
+      assert.equal(binding.target.value.key, unavailable);
+      assert.equal(binding.target.value.origins, unavailable);
+    } else assert.equal(binding.target.kind, "unavailable");
+    const repeated = front.captureModule(opened.deps, opened.program, module);
+    assert.equal(repeated.kind, "ok");
+    assert.deepEqual(repeated.value.bindings, captured.value.bindings);
+    failures.push({ cause: target.cause, identity });
+  }
+  assert.equal(failures[0].cause !== failures[1].cause, true, "same-name failures retain distinct actual producers");
+  assert.equal(failures[0].identity.diagnostic.module !== failures[1].identity.diagnostic.module, true);
+  assert.equal(checked.diagnostics === roots && roots.every((root, index) => {
+    const members = sdk.getDiagnosticRunMembers(root);
+    return members.length === originalMembers[index].length && members.every((member, position) => member === originalMembers[index][position]);
+  }), true, "Source consumes without emitting or replacing a checker root");
+});
+
 test("actual imports retain their qualified B1 bindings without inventing declaration identities", async () => {
   const { indexSyntaxTree } = await import("../../packages/host/dist/ir-hir/index.js");
   const declarations = 'function original(x:number):number {return x;} export {original,original as default};\n';
@@ -403,10 +464,51 @@ test("provider session files share the actual opened source domain and retain re
   const row = rawOwner.value.core[declaration.node];
   assert.deepEqual(row.node, declaration);
   assert.deepEqual(row.argumentPassing, { kind: "available", value: { role: "declaration", mode: "byref-readwrite" } });
+  const nativeSignatures = rawOwner.value.providerDeclarations.filter(entry => entry.identity.signatureId === "Take.call");
+  assert.equal(nativeSignatures.length > 0, true, "actual selected SDK signature receipts are captured without semantic SigId guessing");
+  for (const entry of rawOwner.value.providerDeclarations) {
+    assert.equal(entry.node.module, owner.document.module);
+    assert.equal(entry.identity.module === owner.document.provider, true, "the admitted session/provider/package relation is retained unchanged");
+    assert.equal(entry.identity.exportId, "Take", "the original provider declaration id is not its source spelling take");
+    assert.equal(entry.identity.memberId, null);
+    assert.deepEqual(entry.wellKnownDeclaration, { kind: "unavailable", reason: "not-provided", causes: [] });
+    const core = rawOwner.value.core.find(candidate => candidate.node.node === entry.node.node);
+    assert.equal(core.provider.kind, "available");
+    assert.equal(core.provider.value === entry.identity, true, "core transport projects the same actual captured association");
+  }
   assert.equal(rawOwner.value.tree.origin.module, owner.document.module);
   assert.equal(OpenedProgram.file(opened.program, owner.document.module).text, owner.document.text);
   assert.deepEqual(front.captureModule(opened.deps, opened.program, owner.document.module), rawOwner);
   assert.equal(caller.value.bindings[0].target.kind, "available");
+  const facts = checked.sourceFacts;
+  const originalFact = facts.getFact.bind(facts);
+  const files = opened.set.modules.map(entry => OpenedProgram.file(opened.program,
+    entry.kind === "snapshot" ? entry.module : entry.document.module));
+  const withFacts = getFact => OpenedProgram.create({ ...checked, sourceFacts: { getFact,
+    getFacts: subject => facts.getFacts(subject),
+    getVirtualDeclarationDocument: path => facts.getVirtualDeclarationDocument(path) } }, opened.deps.extensions,
+  files, OpenedProgram.libraryData(opened.program), OpenedProgram.contributions(opened.program));
+  for (const [change, message] of [
+    [fact => ({ ...fact, artifactFileName: "/not-admitted.ts" }), "A provider declaration must retain its actual admitted session document."],
+    [fact => ({ ...fact, providerVersion: "foreign" }), "A provider declaration fact must agree with its actual admitted provider identity."],
+  ]) {
+    const altered = withFacts((subject, key) => {
+      const actual = originalFact(subject, key);
+      if (key !== sdk.providerVirtualDeclarationFactKey) return actual;
+      return actual === undefined || actual.exportId === undefined ? actual : change(actual);
+    });
+    assert.throws(() => front.captureModule(opened.deps, altered, owner.document.module),
+      error => { assert.deepEqual(error.cause, failure(message)); return true; });
+  }
+  let providerReads = 0;
+  const counted = withFacts((subject, key) => {
+    if (key === sdk.providerVirtualDeclarationFactKey) providerReads += 1;
+    return originalFact(subject, key);
+  });
+  const refused = front.captureModule({ ...opened.deps,
+    navigationCapture: { ...navigationCapture, maximumCapturedFactsPerModule: 0 } }, counted, owner.document.module);
+  assert.equal(refused.kind, "refused");
+  assert.equal(providerReads, 0, "no provider fact is read after the original capture refusal");
 });
 
 /**
@@ -991,7 +1093,7 @@ test("original checker roots render through the public SDK and survive raw and c
     assert.equal(limited.kind, "refused");
     assert.equal(limited.diagnostics.at(-1).code.rendered, "TSONIC_COMPILER_RESOURCE_LIMIT");
     assert.deepEqual(limited.diagnostics.slice(0, -1).map(diagnostic => diagnostic.message),
-      Array(Math.min(2, Math.ceil(maximum / 2))).fill(first.message));
+      Array(Math.min(2, Math.ceil(maximum / 3))).fill(first.message));
   }
 });
 
