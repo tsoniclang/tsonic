@@ -8,7 +8,8 @@ export const relationalOwnerKey = value => value.kind === "body"
 
 export function bindingTargetKey(value) {
   switch (value.kind) {
-    case "body": case "observations": return [value.kind, instanceKey(value.instance)];
+    case "body": return [value.kind, executionKey(value.execution)];
+    case "observations": return [value.kind, instanceKey(value.instance)];
     case "summary": return [value.kind, summaryKey(value.summary)];
     case "metadata": return [value.kind, declarationInstanceKey(value.metadata)];
   }

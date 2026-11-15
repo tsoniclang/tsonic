@@ -1,0 +1,7 @@
+{
+  "name": "dependency-inventory-missing-component",
+  "level": "verifier",
+  "rule": "component-membership-exact",
+  "input": "test/host-cases/ir-facts/verifier/dependency-inventory-missing-component.input.facts",
+  "expected": "test/host-cases/ir-facts/verifier/dependency-inventory-missing-component.expected.json"
+}

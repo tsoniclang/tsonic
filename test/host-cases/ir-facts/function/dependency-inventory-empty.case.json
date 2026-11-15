@@ -1,0 +1,7 @@
+{
+  "name": "dependency-inventory-empty",
+  "level": "function",
+  "rule": "text-roundtrip",
+  "input": "test/host-cases/ir-facts/function/dependency-inventory-empty.input.facts",
+  "expected": "test/host-cases/ir-facts/function/dependency-inventory-empty.expected.json"
+}

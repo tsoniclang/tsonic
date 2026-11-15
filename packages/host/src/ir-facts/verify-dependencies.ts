@@ -3,23 +3,35 @@ import { chargeResultEntries, chargeWork, stronglyConnectedComponents } from "..
 import type { Violation } from "../diag/contract.js";
 import { encodeKey } from "../ids/index.js";
 import { verifyBindings } from "../ir-types/index.js";
-import type { DependencyRule, FactsSite, SummaryKey, VerifyDependencyInventory } from "./contract.js";
+import type { DependencyComponent, DependencyRule, FactsSite, SummaryKey, VerifyDependencyInventory } from "./contract.js";
 import { acceptsProvided } from "./execution-entry.js";
 import { admitSummaryIdentity, summaryBindings, summaryDefinition, summaryKey } from "./summary-key.js";
 import { recordFinding, selectedMirBody } from "./verification.js";
 import { validIndex } from "./verify-relations.js";
 
+interface OperationCheck {
+  readonly position: number;
+  readonly successors: number[];
+}
+
+interface ComponentCheck {
+  readonly position: number;
+  readonly component: DependencyComponent;
+  readonly rows: number[];
+  readonly expected: Set<number>;
+}
+
 export const verifyDependencyInventory: VerifyDependencyInventory = (inventory, context, account) => {
-  const initial = chargeWork(account, 1) ?? chargeResultEntries(account, 9);
+  const initial = chargeWork(account, 1) ?? chargeResultEntries(account, 8);
   if (initial !== null) return initial;
   const violations: Violation<DependencyRule, FactsSite>[] = [];
-  const positions = new Map<string, number>();
+  const positions = new Map<string, OperationCheck>();
   const successors: number[][] = [];
   const sources: (number | undefined)[] = [];
   const report = (rule: DependencyRule, site: FactsSite, detail: string): DataflowStop | null =>
     recordFinding(account, violations, "last", rule, site, detail);
   for (let position = 0; position < inventory.operations.length; position += 1) {
-    const row = chargeWork(account, 1) ?? chargeResultEntries(account, 2);
+    const row = chargeWork(account, 1) ?? chargeResultEntries(account, 3);
     if (row !== null) return row;
     const operation = inventory.operations[position];
     if (operation === undefined) throw new TypeError("A ready dependency inventory has a dense operation vector");
@@ -27,11 +39,12 @@ export const verifyDependencyInventory: VerifyDependencyInventory = (inventory, 
     const identity = admitSummaryIdentity(operation, account);
     if (identity !== null) return identity;
     const key = summaryKey(operation);
+    const outgoing: number[] = [];
     if (positions.has(key)) {
       const stop = report("operation-unique", site, "Every complete required operation occurs exactly once.");
       if (stop !== null) return stop;
-    } else positions.set(key, position);
-    successors.push([]);
+    } else positions.set(key, { position, successors: outgoing });
+    successors.push(outgoing);
     const lookup = chargeWork(account, 1);
     if (lookup !== null) return lookup;
     const definition = summaryDefinition(operation, context);
@@ -93,16 +106,14 @@ export const verifyDependencyInventory: VerifyDependencyInventory = (inventory, 
       ?? chargeWork(account, dependency.at.body.length + 1);
     if (identities !== null) return identities;
     const source = positions.get(summaryKey(dependent)), target = positions.get(summaryKey(dependency.target));
-    sources.push(source);
+    sources.push(source?.position);
     if (source === undefined || target === undefined) {
       const stop = report("dependency-resolves", site, "Both ends of every dependency occur in the same complete required-operation inventory.");
       if (stop !== null) return stop;
     } else {
       const entry = chargeResultEntries(account, 1);
       if (entry !== null) return entry;
-      const outgoing = successors[source];
-      if (outgoing === undefined) throw new TypeError("The actual operation domain has an adjacency row");
-      outgoing.push(target);
+      source.successors.push(target.position);
     }
     if (dependency.at.body !== dependency.dependent.instance.body) {
       const stop = report("cross-owner-qualified", site, "A typed dependency occurrence belongs to its complete dependent execution.");
@@ -124,18 +135,17 @@ export const verifyDependencyInventory: VerifyDependencyInventory = (inventory, 
   }
   const connected = stronglyConnectedComponents({ successors }, account);
   if (connected.kind !== "complete") return connected;
-  const membership = new Map<number, number>();
-  const members: number[][] = [];
-  const rows: number[][] = [];
+  const membership = new Map<number, ComponentCheck>();
+  const components: ComponentCheck[] = [];
   for (let position = 0; position < inventory.components.length; position += 1) {
-    const row = chargeWork(account, 1) ?? chargeResultEntries(account, 2);
+    const row = chargeWork(account, 1) ?? chargeResultEntries(account, 3);
     if (row !== null) return row;
     const component = inventory.components[position];
     if (component === undefined) throw new TypeError("A ready dependency inventory has a dense component vector");
     const site: FactsSite = { kind: "component", component: position };
-    const selected: number[] = [];
-    members.push(selected);
-    rows.push([]);
+    const selected: ComponentCheck = { position, component, rows: [], expected: new Set() };
+    components.push(selected);
+    let selectedCount = 0;
     const input = component.kind === "declared" ? [component.operation] : component.members;
     let expected: number | undefined;
     let exact = input.length !== 0;
@@ -146,15 +156,15 @@ export const verifyDependencyInventory: VerifyDependencyInventory = (inventory, 
       const member = input[ordinal];
       const operation = member !== undefined && validIndex(member, inventory.operations.length) ? inventory.operations[member] : undefined;
       if (member === undefined || operation === undefined || membership.has(member)) { exact = false; continue; }
-      membership.set(member, position);
-      selected.push(member);
+      membership.set(member, selected);
+      selectedCount += 1;
       kind = kind && operation.kind === component.kind;
       const actual = connected.value.componentOf[member];
       if (expected === undefined) expected = actual;
       if (actual !== expected) exact = false;
     }
     const actual = expected === undefined ? undefined : connected.value.components[expected];
-    if (!exact || actual === undefined || actual.length !== selected.length) {
+    if (!exact || actual === undefined || actual.length !== selectedCount) {
       const stop = report("component-membership-exact", site, "Each component contains exactly one actual full strongly connected member set.");
       if (stop !== null) return stop;
     }
@@ -178,20 +188,32 @@ export const verifyDependencyInventory: VerifyDependencyInventory = (inventory, 
     const source = sources[position];
     const component = source === undefined ? undefined : membership.get(source);
     if (component === undefined) continue;
-    const selected = rows[component];
-    if (selected === undefined) throw new TypeError("The selected component retains its dependency rows");
     const entry = chargeResultEntries(account, 1);
     if (entry !== null) return entry;
-    selected.push(position);
+    component.rows.push(position);
   }
-  for (let position = 0; position < inventory.components.length; position += 1) {
-    const row = chargeWork(account, 1) ?? chargeResultEntries(account, 2);
+  let member = 0;
+  for (const targets of successors) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+    const source = membership.get(member);
+    member += 1;
+    if (source === undefined) continue;
+    for (const target of targets) {
+      const edge = chargeWork(account, 1);
+      if (edge !== null) return edge;
+      const dependency = membership.get(target);
+      if (dependency === undefined || dependency === source || source.expected.has(dependency.position)) continue;
+      const entry = chargeResultEntries(account, 1);
+      if (entry !== null) return entry;
+      source.expected.add(dependency.position);
+    }
+  }
+  for (const selected of components) {
+    const row = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
     if (row !== null) return row;
-    const component = inventory.components[position], selected = members[position];
-    if (component === undefined || selected === undefined) throw new TypeError("Component verification retains the actual dense input domain");
+    const { component, position, rows: expectedRows, expected } = selected;
     const site: FactsSite = { kind: "component", component: position };
-    const expectedRows = rows[position];
-    if (expectedRows === undefined) throw new TypeError("The component row domain is dense");
     const suppliedRows = component.kind === "body" ? component.rows : [];
     let exactRows = suppliedRows.length === expectedRows.length;
     for (let ordinal = 0; ordinal < suppliedRows.length; ordinal += 1) {
@@ -202,23 +224,6 @@ export const verifyDependencyInventory: VerifyDependencyInventory = (inventory, 
     if (!exactRows) {
       const stop = report("component-rows-exact", site, "Each body component retains exactly its dependent occurrence rows in original inventory order.");
       if (stop !== null) return stop;
-    }
-    const expected = new Set<number>();
-    for (const member of selected) {
-      const step = chargeWork(account, 1);
-      if (step !== null) return step;
-      const targets = successors[member];
-      if (targets === undefined) throw new TypeError("The actual member has an adjacency row");
-      for (let ordinal = 0; ordinal < targets.length; ordinal += 1) {
-        const edge = chargeWork(account, 1);
-        if (edge !== null) return edge;
-        const target = targets[ordinal];
-        const dependency = target === undefined ? undefined : membership.get(target);
-        if (dependency === undefined || dependency === position || expected.has(dependency)) continue;
-        const entry = chargeResultEntries(account, 1);
-        if (entry !== null) return entry;
-        expected.add(dependency);
-      }
     }
     const supplied = new Set<number>();
     const dependencies = component.kind === "declared" ? [] : component.dependencies;

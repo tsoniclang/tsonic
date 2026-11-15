@@ -1,0 +1,7 @@
+{
+  "name": "dependency-inventory-invalid",
+  "level": "function",
+  "rule": "invalid-text",
+  "input": "test/host-cases/ir-facts/function/dependency-inventory-invalid.input.facts",
+  "expected": "test/host-cases/ir-facts/function/dependency-inventory-invalid.expected.json"
+}

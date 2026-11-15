@@ -1,7 +1,0 @@
-{
-  "name": "callgraph-empty",
-  "level": "function",
-  "rule": "text-roundtrip",
-  "input": "test/host-cases/ir-facts/function/callgraph-empty.input.facts",
-  "expected": "test/host-cases/ir-facts/function/callgraph-empty.expected.json"
-}

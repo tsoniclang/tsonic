@@ -2062,7 +2062,7 @@ test("ir-program complete relational member references retain field, method and 
   facts.arena.projections = [{ id: 0, parent: null, projection: { kind: "field", member } },
     { id: 1, parent: null, projection: { kind: "method-value", member } }];
   facts.closedArrays = [{ node: 0, kind: "closed", declarations: [], references: [], literals: [], elements: [member] }];
-  fixture.answers.set(encodeContextKey(["bindingScopesOf", { kind: "body", instance: fixture.instance }]), new Array(9).fill(fixture.scope));
+  fixture.answers.set(encodeContextKey(["sourceBindingScopesOf", { kind: "body", execution: { instance: fixture.instance, provided: 0 } }]), new Array(9).fill(fixture.scope));
   completeProgramValue(moduleViolations(fixture.index, fixture.module, fixture.context), [],
     "every complete selected record is checked without replaying semantic analysis or losing the exact activation identity");
 });
@@ -2081,7 +2081,7 @@ for (const change of ["absent", "present", "duplicate", "argument"]) test(`ir-pr
     api: { ...advertised, role: "api-signature" }, bindings, implementationBindings: bindings, parameters: [],
     completion: { signature: 0, completion: 0, yielded: null, sent: null }, result: 0, activation: null }, activation: null },
   context: 0, arguments: [], result: 0, thrown: 0, summary: key }] }];
-  fixture.answers.set(encodeContextKey(["bindingScopesOf", { kind: "body", instance: fixture.instance }]), [fixture.scope, fixture.scope]);
+  fixture.answers.set(encodeContextKey(["sourceBindingScopesOf", { kind: "body", execution: { instance: fixture.instance, provided: 0 } }]), [fixture.scope, fixture.scope]);
   if (change !== "absent") {
     const input = decodeFixtureJson(readFileSync(resolve(repository, "test/host-cases/ir-program/function/instantiate-bound-summary-created-zero.input.json"), "utf8"));
     fixture.index.summaries = [{ ...input.index.summaries[0], key }];
@@ -2146,7 +2146,7 @@ test("ir-program a construction retains its complete actual body instance", () =
   const actual = fixture.module.bodies[1].instance;
   published.facts[0].origins.constructions = [{ node: 0, root: { body: fixture.bodyId, node: 0 },
     allocation: { body: fixture.bodyId, node: 0 }, implementation: fixture.definition, body: actual, regions: [] }];
-  fixture.answers.set(encodeContextKey(["bindingScopesOf", { kind: "body", instance: fixture.instance }]), [fixture.scope]);
+  fixture.answers.set(encodeContextKey(["sourceBindingScopesOf", { kind: "body", execution: { instance: fixture.instance, provided: 0 } }]), [fixture.scope]);
   completeProgramValue(moduleViolations(fixture.index, fixture.module, fixture.context), [], "a real instantiated construction resolves its exact complete record");
   fixture.index.bodies.push({ ...fixture.index.bodies[1] });
   completeProgramValue(moduleViolations(fixture.index, fixture.module, fixture.context), [
@@ -2160,7 +2160,7 @@ test("ir-program a raw location retains its actual selected metadata reference",
   const { first, metadata } = metadataOperationFixture("size", "present", "layout");
   first.module.bodies[0].facts[0].rawLocations = [{ node: 0, operation: "to-raw", pointee: 1, layout: { metadata: metadata.key, layout: 0 }, context: 0,
     bindings: { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] } }];
-  first.answers.set(encodeContextKey(["bindingScopesOf", { kind: "body", instance: first.instance }]), new Array(2).fill(first.scope));
+  first.answers.set(encodeContextKey(["sourceBindingScopesOf", { kind: "body", execution: { instance: first.instance, provided: 0 } }]), new Array(2).fill(first.scope));
   completeProgramValue(moduleViolations(first.index, first.module, first.context), [], "the complete raw-location record preserves its real pointee, layout and environment");
 });
 

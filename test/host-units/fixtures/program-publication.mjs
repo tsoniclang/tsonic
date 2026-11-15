@@ -22,8 +22,8 @@ export function publicationFixture(fixture = moduleFixture()) {
   for (const [reader, key, value] of [
     ["bodyOf", instance, tir], ["tirBody", instance, tir], ["mirBody", instance, mir],
     ["tirBindingScopesOf", { kind: "body", instance }, [fixture.scope, fixture.scope, fixture.scope]],
-    ["bindingScopesOf", { kind: "body", instance }, [fixture.scope]],
-    ["bindingScopesOf", { kind: "observations", instance }, [fixture.scope]],
+    ["sourceBindingScopesOf", { kind: "body", execution: { instance, provided: 0 } }, [fixture.scope]],
+    ["sourceBindingScopesOf", { kind: "observations", instance }, [fixture.scope]],
     ["arenaOf", { kind: "body", execution: facts.execution }, facts.arena],
   ]) fixture.answers.set(encodeContextKey([reader, key]), value);
   return { ...fixture, instance, template, selected };

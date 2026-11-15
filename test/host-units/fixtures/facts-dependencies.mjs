@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
+import { isDeepStrictEqual } from "node:util";
 import { encodeBodyId, encodeDefId, encodeModuleId, encodePackageId } from "../../../packages/host/dist/ids/index.js";
 import { accountFailure, chargeResultEntries, chargeWork, createAccount, refuseAccount } from "../../../packages/host/dist/dataflow/index.js";
 import { InvocationAccount } from "../../../packages/host/dist/dataflow/account.js";
 import { componentsOf } from "../../../packages/host/dist/summaries/index.js";
 import { parseDependencyInventory, printDependencyInventory, verifyDependencyInventory, summaryKey } from "../../../packages/host/dist/ir-facts/index.js";
 import { instanceKey, signatureRequestKey } from "../../../packages/host/dist/ir-types/index.js";
+import { verificationStops } from "./facts-verification.mjs";
 
 export async function dependencyInventoryCases(suite) {
 
@@ -54,6 +56,7 @@ function readyContext(operations) {
 }
 
 function verified(inventory, context = readyContext(inventory.operations), current = account()) {
+  verificationStops(account => verifyDependencyInventory(inventory, context, account));
   const result = verifyDependencyInventory(inventory, context, current);
   assert.equal(result.kind, "complete");
   return result.violations;
@@ -82,6 +85,41 @@ await suite.test("componentsOf retains complete bindings and provided counts ins
   const failed = account();
   assert.equal(componentsOf(resources(failed, 1), input), refusal);
   assert.equal(accountFailure(failed), refusal);
+});
+
+await suite.test("100000-level required-operation chain retains qualified executions, occurrence rows and canonical codecs", () => {
+  const size = 100000;
+  const operations = Array.from({ length: size }, (_, index) => body(`g${String(index).padStart(6, "0")}`));
+  const dependencies = operations.slice(0, -1).map((operation, index) => edge(operation, operations[index + 1], 1));
+  const components = Array.from({ length: size }, (_, index) => {
+    const member = size - index - 1;
+    return { kind: "body", members: [member], rows: member === size - 1 ? [] : [member], dependencies: index === 0 ? [] : [index - 1] };
+  });
+  const inventory = { operations, dependencies, components };
+  const array = rows => rows.length === 0 ? "[]" : `[\n  ${rows.join(",\n  ")}\n]`;
+  const executions = operations.map(operation => `Execution(instance=BodyInstance(body=body:"${operation.execution.instance.body}", bindings=parametric()), provided=0)`);
+  const expected = `DependencyInventory(operations=${array(executions.map(execution => `body(execution=${execution})`))}, dependencies=${array(dependencies.map((dependency, index) =>
+    `ExecutionDependency(dependent=${executions[index]}, at=NodeRef(body=body:"${dependency.at.body}", node=n:1), reason="call", target=body(execution=${executions[index + 1]}))`))}, components=${array(components.map(component =>
+    `body(members=${array(component.members)}, rows=${array(component.rows)}, dependencies=${array(component.dependencies)})`))})\n`;
+  assert.equal(printDependencyInventory(inventory) === expected, true, "complete independently authored 100000-operation wire value");
+  assert.equal(isDeepStrictEqual(parseDependencyInventory(expected), { kind: "parsed", value: inventory }), true,
+    "complete 100000-operation codec preserves every qualified execution, occurrence row and component");
+  const meter = account(1000000000, 1000000000);
+  const actual = completed(componentsOf(resources(meter, 1), { operations, dependencies }));
+  assert.equal(isDeepStrictEqual(actual, inventory), true, "actual condensation matches the independent deepest-first partition and row law");
+  const before = { ...InvocationAccount.stateOf(meter) };
+  const context = readyContext(operations);
+  const owners = new Map(operations.map((operation, index) => [operation.execution.instance.body, definition(`g${String(index).padStart(6, "0")}`)]));
+  const definitions = new Set(owners.values());
+  context.bodyOwner = selected => owners.get(selected) ?? null;
+  context.definitionExists = selected => definitions.has(selected);
+  context.nodeExists = selected => selected.kind === "body" && owners.has(selected.value.body) && selected.value.node === 1;
+  const checked = verifyDependencyInventory(actual, context, meter);
+  assert.equal(checked.kind, "complete");
+  assert.equal(checked.violations.length, 0, "complete 100000-operation occurrence/component verifier");
+  const after = InvocationAccount.stateOf(meter);
+  assert.equal(after.work > before.work && after.entries > before.entries, true, "component production and verification charge the same cumulative finite account");
+  assert.equal(accountFailure(meter), null);
 });
 
 await suite.test("componentsOf admits self recursion and deduplicates only condensation dependencies", () => {
@@ -165,17 +203,22 @@ await suite.test("dependency inventory verification retains all qualified closur
     ["operation-unique", value => value.operations.push(first)],
     ["dependency-unique", value => value.dependencies.push(value.dependencies[0])],
     ["dependency-resolves", value => { value.dependencies[0].target = body("unlisted"); }],
+    ["dependency-resolves", value => { value.dependencies[0].dependent = body("unlisted").execution; }],
     ["cross-owner-qualified", value => { value.dependencies[0].at.body = second.execution.instance.body; }],
     ["call-site-resolves", value => { value.dependencies[0].at.node = 2; }],
     ["execution-resolves", value => { value.operations[2].execution.request.ordinal = 9; }],
     ["execution-resolves", value => { value.operations[0].execution.provided = 1; }],
     ["component-membership-exact", value => { value.components[1].members = []; }],
     ["component-membership-exact", value => { value.components[2].members.push(1); }],
+    ["component-membership-exact", value => { value.components[1].members = [0, 1]; }],
+    ["component-membership-exact", value => { value.components[1].members = [undefined, 99, -0, 1]; }],
     ["component-kind-exact", value => { value.components[0] = { kind: "body", members: [2], rows: [], dependencies: [] }; }],
     ["component-rows-exact", value => { value.components[1].rows = []; }],
     ["component-rows-exact", value => { value.components[1].rows = [0]; }],
     ["component-rows-exact", value => { value.components[1].rows = [1, 1]; }],
     ["component-dependencies-exact", value => { value.components[1].dependencies = []; }],
+    ["component-dependencies-exact", value => { value.components[1].dependencies = [0, 0]; }],
+    ["component-dependencies-exact", value => { value.components[1].dependencies = [undefined, 99]; }],
     ["component-acyclic", value => { value.components.reverse(); value.components[0].dependencies = [1]; value.components[1].dependencies = [2]; }],
   ];
   for (const [rule, amend] of cases) {
@@ -192,6 +235,24 @@ await suite.test("dependency inventory verification retains all qualified closur
   const inventory = completed(componentsOf(resources(), { operations: [instantiated], dependencies: [] }));
   assert.equal(verified(inventory).some(finding => finding.rule === "bindings-complete"), true);
   assert.notEqual(summaryKey(first), summaryKey({ ...first, execution: { ...first.execution, provided: 1 } }));
+});
+
+await suite.test("dependency inventory caller domains are dense before any derived component indexing", () => {
+  const first = body("dense");
+  const inventory = completed(componentsOf(resources(), { operations: [first], dependencies: [] }));
+  const context = readyContext(inventory.operations);
+  for (const field of ["operations", "dependencies", "components"]) {
+    const input = { ...inventory, [field]: Array(1) };
+    assert.throws(() => verifyDependencyInventory(input, context, account()), TypeError, field);
+  }
+});
+
+await suite.test("dependency inventory rejects an actually malformed qualified declaration identity", () => {
+  const inventory = completed(componentsOf(resources(), { operations: [declared()], dependencies: [] }));
+  const text = printDependencyInventory(inventory);
+  const invalid = text.replace(`definition=def:"${definition("native")}"`, 'definition=def:"invalid"');
+  assert.equal(invalid !== text, true);
+  assert.equal(parseDependencyInventory(invalid).kind, "invalid-text");
 });
 
 await suite.test("dependency inventory verification shares both actual dimensions and never reads after its original refusal", () => {

@@ -43,7 +43,7 @@ function observationFixture(selected = null) {
   const facts = { ...fixture.context.facts,
     bodyOwner: body => body === fixture.bodyId ? fixture.definition : null,
     bindingScopeOf: definition => definition === fixture.definition ? scope : null,
-    bindingScopesOf: target => target.kind === "observations" && same(target.instance, instance) ? (generic ? [scope, scope, scope] : [scope]) : null,
+    sourceBindingScopesOf: target => target.kind === "observations" && same(target.instance, instance) ? [scope] : null,
     nodeExists: ref => same(ref, at) || same(ref, descriptor),
     metadataOf: key => same(key, metadata.key) ? metadata : null,
   };
@@ -96,14 +96,9 @@ function fieldObservationFixture(selected = null) {
   row.result = 1;
   const previousNodeOf = value.input.nodeOf;
   const previousNodeExists = value.input.facts.nodeExists;
-  const previousScope = value.input.facts.bindingScopesOf;
   value.input.nodeOf = source => isDeepStrictEqual(source, field) ? fieldNode : previousNodeOf(source);
   value.input.facts.nodeExists = source => isDeepStrictEqual(source, field) || previousNodeExists(source);
   value.input.facts.nominalOf = definition => definition === value.fixture.definition ? { kind: "declared", facets: ["instance", "value"] } : null;
-  value.input.facts.bindingScopesOf = target => {
-    const scopes = previousScope(target);
-    return selected === null || scopes === null ? scopes : [...scopes, scopes[0]];
-  };
   value.input.types = seedTypeInterner(value.fixture.index.types);
   return { ...value, fieldNode };
 }
@@ -195,7 +190,7 @@ await suite.test("parametric descriptors preserve exact rigid owner and slot ide
   value.metadata.key.bindings = { kind: "parametric" };
   value.observations.rows[0].result = 3;
   value.observations.rows[0].bindings = value.capture.bindings.value;
-  value.input.facts.bindingScopesOf = () => [{ ...value.fixture.scope, classParameters: [value.parameter] }];
+  value.input.facts.sourceBindingScopesOf = () => [{ ...value.fixture.scope, classParameters: [value.parameter] }];
   assert.deepEqual(rules(value), []);
   const scope = { ...value.fixture.scope, classParameters: [value.parameter], selfOwners: [value.fixture.definition] };
   const rigid = { ...value.capture.bindings.value, selfBindings: [{ kind: "rigid", owner: value.fixture.definition }] };
@@ -203,7 +198,7 @@ await suite.test("parametric descriptors preserve exact rigid owner and slot ide
   value.descriptorNode.tsonic.value.memory.value.bindings = available(rigid);
   value.observations.rows[0].bindings = rigid;
   value.input.facts.bindingScopeOf = () => scope;
-  value.input.facts.bindingScopesOf = () => [scope];
+  value.input.facts.sourceBindingScopesOf = () => [scope];
   assert.deepEqual(rules(value), []);
   value.input.facts.bindingScopeOf = () => null;
   assert.equal(rules(value).includes("observation-field-exact"), true);
@@ -271,7 +266,7 @@ await suite.test("checked-root and nested-body ownership are independent from st
   value.source.nestedBodies = [];
   value.source.root.statements.nodes = [];
   value.observations.rows = [];
-  value.input.facts.bindingScopesOf = () => [];
+  value.input.facts.sourceBindingScopesOf = () => [];
   assert.deepEqual(rules(value), [], "the supplied checked body genuinely has no observation");
 });
 
@@ -303,7 +298,7 @@ await suite.test("unavailable or mismatched captured results and descriptors nev
   assert.deepEqual(rules(value), []);
   value.source.root = value.descriptorNode;
   value.observations.rows = [];
-  value.input.facts.bindingScopesOf = () => [];
+  value.input.facts.sourceBindingScopesOf = () => [];
   assert.deepEqual(rules(value), [], "checked declarations carry memory but do not manufacture observation captures");
 });
 
