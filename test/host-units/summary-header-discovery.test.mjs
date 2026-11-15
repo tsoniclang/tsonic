@@ -109,6 +109,26 @@ test("default discovery retains the real selected signature, header position and
   }
 });
 
+test("default discovery preserves the selected-signature reader's original refusal before answer or header reads", () => {
+  for (const unreadAnswer of [false, true]) {
+    const current = fixture();
+    const original = { kind: "refused", diagnostics: [] };
+    const unread = new Proxy({}, { get() { assert.fail("No signature answer read after its reader refuses."); } });
+    let reads = 0;
+    current.deps.signatureOf = selected => {
+      assert.equal(selected, current.input.tir.signature);
+      reads += 1;
+      refuseAccount(current.deps.account, original);
+      return unreadAnswer ? unread : current.signature;
+    };
+    Object.defineProperty(current.input.tir.params, 0, { get() { assert.fail("No parameter read after the signature reader refuses."); } });
+    Object.defineProperty(current.input.tir, "root", { get() { assert.fail("No body syntax read after the signature reader refuses."); } });
+    assert.equal(dependenciesOf(current.deps, current.input), original);
+    assert.equal(accountFailure(current.deps.account), original);
+    assert.equal(reads, 1);
+  }
+});
+
 test("header discovery uses the same cumulative account with exact bounds and no reads after refusal", () => {
   const reference = fixture();
   assert.equal(dependenciesOf(reference.deps, reference.input).kind, "complete");

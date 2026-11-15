@@ -200,6 +200,8 @@ export const dependenciesOf: DependenciesOf = (deps, input) => {
     const lookup = chargeWork(account, 1);
     if (lookup !== null) return lookup;
     const signature = deps.signatureOf(input.tir.signature);
+    const stopped = accountFailure(account);
+    if (stopped !== null) return stopped;
     if (signature.id !== input.tir.signature)
       throw new TypeError("Default discovery retains the actual selected signature.");
     let parameterIndex = 0;
