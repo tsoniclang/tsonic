@@ -73,6 +73,50 @@ test("real public AnalyzeHostProgram closes the exported float64 add and every a
   "the selected native addition survives as the canonical MIR binary assignment");
 });
 
+for (const [form, value, unaryCount] of [["single", "!flag", 1], ["nested", "!(!flag)", 2]])
+test(`real public Host analysis retains ${form} boolean negation as its selected native unary operations`, async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `export function negate(flag: boolean): boolean { return ${value}; }\n`);
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok");
+  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  const main = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
+  const module = result.value.modules.find(module => module.module === main);
+  const callable = module.bodies.find(body => body.kind === "selected" && body.tir.params.length === 1);
+  assert.notEqual(callable, undefined);
+  const expression = callable.tir.root.statements.nodes[0].expression;
+  assert.equal(expression.kind, "PrefixUnaryExpression");
+  assert.equal(expression.operator, "ExclamationToken");
+  assert.equal(callable.mir.blocks.flatMap(block => block.statements).filter(statement => statement.kind === "assign"
+    && statement.value.kind === "unary" && statement.value.operation.decision.operation.kind === "native-operator"
+    && statement.value.operation.decision.operation.operator === "!"
+    && statement.value.operation.decision.operation.carrier === "bool").length, unaryCount);
+  assert.deepEqual(callable.facts.map(facts => facts.execution.provided), [1]);
+});
+
+test("real public Host analysis uses a selected native boolean negation as its branch condition", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal",
+    "export function choose(flag: boolean, a: number, b: number): number { if (!flag) return a; else return b; }\n");
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok");
+  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  const main = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
+  const module = result.value.modules.find(module => module.module === main);
+  const callable = module.bodies.find(body => body.kind === "selected" && body.tir.params.length === 3);
+  assert.notEqual(callable, undefined);
+  assert.equal(callable.tir.root.statements.nodes[0].expression.kind, "PrefixUnaryExpression");
+  assert.equal(callable.mir.blocks.filter(block => block.terminator.kind === "switch").length, 1);
+  assert.equal(callable.mir.blocks.filter(block => block.terminator.kind === "return").length, 2);
+  assert.equal(callable.mir.blocks.flatMap(block => block.statements).filter(statement => statement.kind === "assign"
+    && statement.value.kind === "unary" && statement.value.operation.decision.operation.kind === "native-operator"
+    && statement.value.operation.decision.operation.operator === "!"
+    && statement.value.operation.decision.operation.carrier === "bool").length, 1);
+  assert.deepEqual(callable.facts.map(facts => facts.execution.provided), [3]);
+});
+
 test("real public AnalyzeHostProgram closes supplied and omitted boolean-default entries with their genuine initializer execution", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

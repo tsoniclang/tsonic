@@ -22,7 +22,14 @@ export function decideOperator(deps: RulesDeps, operator: HirUnaryOperator | Hir
   const named = terms.map(termName).join(" and ");
   if (terms.some(term => term.kind === "open")) return callerDefect(`the operator ${operator} over ${named} at ${at(occurrence)}: an operand is an unsolved variable`, origin);
   const form = forms(operator);
-  if (terms.length === 1 && form.unary) return notDecidedYet(`the unary operator ${operator} over ${named} at ${at(occurrence)}`, origin);
+  if (terms.length === 1 && form.unary) {
+    const operand = operands[0];
+    const carrier = terms[0];
+    if (operator !== "!" || carrier?.kind !== "primitive" || carrier.primitive !== "bool" || operand === undefined)
+      return notDecidedYet(`the unary operator ${operator} over ${named} at ${at(occurrence)}`, origin);
+    return { kind: "selected", operation: { kind: "native-operator", operator: "!", carrier: "bool" },
+      operands: [operand.type], result: operand.type, execution: { kind: "pure" } };
+  }
   const left = operands[0];
   const right = operands[1];
   const carrier = terms[0];

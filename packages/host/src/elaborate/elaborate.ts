@@ -361,6 +361,17 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
           visit(node.left);
         }
         return;
+      case "PrefixUnaryExpression":
+        if (node.operator !== "ExclamationToken" || node.tsonic.role !== "value")
+          return notElaboratedYet(`the unary operator ${node.operator} of role ${node.tsonic.role}`, node.origin);
+        if (building) {
+          const operation = operations[position] ?? compilerDefect("open position: no operator decision at the unary expression", node.origin);
+          read.operations.add(position);
+          expressions[position] = { ...header(node), kind: "PrefixUnaryExpression", operator: node.operator,
+            operand: expressionOf(node.operand), tsonic: { role: "value", operation: { kind: "decided", decision: operation },
+              ...valueOf(position, operation.decision.result, node.origin) } };
+        } else visit(node.operand);
+        return;
       case "CallExpression":
         if (building) {
           const application = applications[position] ?? compilerDefect("a call has no solved selected application", node.origin);

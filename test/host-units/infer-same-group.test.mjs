@@ -110,6 +110,87 @@ function drive(program) {
   return completed;
 }
 
+test("real boolean negation retains one unary operator constraint with its actual operand evidence", () => {
+  const program = ready("export function negate(flag: boolean): boolean { return !flag; }\n");
+  const record = [...drive(program).values()].find(record => record.constraints.some(set =>
+    set.constraints.some(constraint => constraint.kind === "op")));
+  const system = record.constraints.find(set => set.constraints.some(constraint => constraint.kind === "op"));
+  const position = system.constraints.findIndex(constraint => constraint.kind === "op");
+  const constraint = system.constraints[position];
+  assert.equal(constraint.operator, "!");
+  assert.equal(constraint.operands.length, 1);
+  const node = program.domain.nodeOf({ kind: "body", value: constraint.occurrence });
+  assert.equal(node.kind, "PrefixUnaryExpression");
+  assert.deepEqual(system.evidence.slice(0, 2).map(value => value.value.component), [
+    { kind: "body", value: { body: constraint.occurrence.body, node: node.operand.id } },
+    { kind: "body", value: constraint.occurrence },
+  ]);
+  const decision = record.solution.constraints.find(solved => solved.constraint.body === system.body
+    && solved.constraint.index === position).decision;
+  assert.equal(decision.kind, "op");
+  assert.deepEqual(decision.operation.operation, { kind: "native-operator", operator: "!", carrier: "bool" });
+  assert.deepEqual(decision.operation.operands, constraint.operands);
+  assert.deepEqual(decision.operation.execution, { kind: "pure" });
+  assert.equal(isDeepStrictEqual(irInfer.parseConstraints(irInfer.printConstraints(system)), { kind: "parsed", value: system }), true);
+});
+
+test("unary elaboration retains the actual Rules decision and rejects a missing or foreign unary realization", () => {
+  const program = ready("export function negate(flag: boolean): boolean { return !flag; }\n");
+  const record = [...drive(program).values()].find(record => record.constraints.some(set =>
+    set.constraints.some(constraint => constraint.kind === "op")));
+  const constraints = record.constraints.find(set => set.constraints.some(constraint => constraint.kind === "op"));
+  const body = program.domain.bodyOf.get(constraints.body);
+  const deps = { types: program.interner, rules: program.deps.rules, nodeOf: program.domain.nodeOf,
+    typeOf: type => fixture.types.readType(program.interner, type),
+    signatureOf: signature => fixture.types.readSignature(program.interner, signature),
+    checkerDiagnosticsOf: module => {
+      assert.equal(module, program.checked.module);
+      return program.checked.checkerDiagnostics;
+    } };
+  const input = { instance: { body: body.body, bindings: { kind: "parametric" } },
+    scope: program.descriptions.get(body.owner).generics, body, constraints, solution: record.solution,
+    template: null, nestedBodies: [], initializers: [] };
+  const result = wiring.elaborate.elaborate(deps, input);
+  assert.equal(result.kind, "ok");
+  const expression = result.value.root.statements.nodes[0].expression;
+  const retained = record.solution.constraints.find(solved => solved.decision.kind === "op").decision.operation;
+  assert.equal(expression.tsonic.operation.kind, "decided");
+  assert.equal(expression.tsonic.operation.decision.decision, retained);
+  assert.equal(expression.id, body.root.statements.nodes[0].expression.id);
+  assert.equal(expression.operand.id, body.root.statements.nodes[0].expression.operand.id);
+  const incomplete = { ...record.solution, constraints: record.solution.constraints.filter(solved => solved.decision.kind !== "op") };
+  assert.throws(() => wiring.elaborate.elaborate(deps, { ...input, solution: incomplete }),
+    error => error.cause?.owner === "elaborate" && error.message.includes("no operator decision at the unary expression"));
+  for (const [field, value] of [["operator", "TildeToken"], ["role", "update"]]) {
+    const changed = structuredClone(body);
+    const unary = changed.root.statements.nodes[0].expression;
+    if (field === "operator") unary.operator = value;
+    else unary.tsonic.role = value;
+    assert.throws(() => wiring.elaborate.elaborate(deps, { ...input, body: changed }),
+      error => error.cause?.owner === "elaborate" && error.message.includes("the unary operator"));
+  }
+});
+
+test("boolean negation never substitutes truthiness for a different native operand carrier", () => {
+  const program = ready("export function negate(flag: boolean): boolean { return !flag; }\n");
+  const body = program.checked.bodies.find(body => body.params.length === 1);
+  const occurrence = { body: body.body, node: body.root.statements.nodes[0].expression.id };
+  const input = type => ({ context: { occurrence, origin: body.root.origin,
+    bindings: { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] } }, operator: "!", operands: [{ type,
+    component: { kind: "body", value: occurrence }, category: { kind: "dynamic" },
+    numeric: null, sum: null, nominal: null, pointer: null }] });
+  const boolean = fixture.types.internType(program.interner, { kind: "primitive", primitive: "bool" });
+  const selected = program.deps.rules.operator(input(boolean));
+  assert.equal(selected.kind, "ok");
+  assert.equal(selected.value.kind, "decided");
+  assert.equal(selected.value.decision.result, boolean);
+  for (const primitive of ["float64", "int32", "char"]) {
+    const type = fixture.types.internType(program.interner, { kind: "primitive", primitive });
+    assert.throws(() => program.deps.rules.operator(input(type)),
+      error => error.cause?.owner === "rules" && error.message.includes(`the unary operator ! over ${primitive}`));
+  }
+});
+
 test("real direct scalar call retains one authoritative candidate endpoint relation and its exact completion", () => {
   const program = ready("export function value(): boolean { return true; } export function read(): boolean { return value(); }\n");
   const records = [...drive(program).values()];

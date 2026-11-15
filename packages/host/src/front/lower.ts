@@ -28,7 +28,7 @@ const invariant = (message: string): InvariantFailure => ({ owner: "front", quer
  */
 const writtenKinds: readonly string[] = ["SourceFile", "EndOfFile", "ExportKeyword", "FunctionDeclaration", "Parameter",
   "Identifier", "NumberKeyword", "StringKeyword", "BooleanKeyword", "BigIntKeyword", "AnyKeyword", "UnknownKeyword", "NeverKeyword", "ObjectKeyword", "UndefinedKeyword", "VoidKeyword",
-  "Block", "ReturnStatement", "IfStatement", "BinaryExpression", "PlusToken", "CallExpression", "ExpressionStatement", "ParenthesizedExpression",
+  "Block", "ReturnStatement", "IfStatement", "BinaryExpression", "PrefixUnaryExpression", "PlusToken", "CallExpression", "ExpressionStatement", "ParenthesizedExpression",
   "ExportDeclaration", "NamedExports", "ExportSpecifier", "NamespaceExport", "StringLiteral", "TrueKeyword", "FalseKeyword", "NullKeyword",
   "ImportDeclaration", "ImportClause", "NamedImports", "ImportSpecifier", "NamespaceImport",
   "VariableStatement", "VariableDeclarationList", "VariableDeclaration", "InterfaceDeclaration", "TypeParameter", "PropertySignature",
@@ -41,6 +41,7 @@ function unwrittenForm(node: Hir.SyntaxNode<Syntax>): string | null {
     case "FunctionDeclaration":
       return node.body === null ? "FunctionDeclaration without a body" : node.typeParameters !== null ? "FunctionDeclaration with type parameters" : null;
     case "Parameter": return node.dotDotDotToken !== null ? "rest Parameter" : null;
+    case "PrefixUnaryExpression": return node.operator === "ExclamationToken" ? null : `PrefixUnaryExpression ${node.operator}`;
     case "VariableDeclaration": return node.name.kind !== "Identifier" ? "pattern VariableDeclaration"
       : node.exclamationToken !== null ? "definite-assignment VariableDeclaration" : null;
     case "CallExpression":
@@ -550,6 +551,9 @@ function buildExpression(lowering: Lowering, node: Hir.Expression<Syntax>): Hir.
     case "ParenthesizedExpression":
       return { ...headerOf(node), kind: "ParenthesizedExpression", expression: expression(lowering, node.expression),
         tsonic: { core: coreOf(lowering, node.id), ...valueOf(lowering, node.id) } };
+    case "PrefixUnaryExpression":
+      return { ...headerOf(node), kind: "PrefixUnaryExpression", operator: node.operator, operand: expression(lowering, node.operand),
+        tsonic: { core: coreOf(lowering, node.id), role: "value", value: valueOf(lowering, node.id) } };
     case "Identifier": {
       const resolution = resolutionOf(lowering, node.id, lowering.references.get(node.id));
       return { ...headerOf(node), kind: "Identifier", text: node.text, tsonic: { core: coreOf(lowering, node.id), role: "value", value: valueOf(lowering, node.id), resolution } };

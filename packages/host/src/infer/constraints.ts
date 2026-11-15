@@ -194,7 +194,7 @@ function generate(deps: InferDeps, group: InferenceGroup, signatures: ReadonlyMa
       const pending: Frame[] = [{ kind: "enter", node: body.root }];
       for (let frame = pending.pop(); frame !== undefined; frame = pending.pop()) {
         if (frame.kind === "enter") {
-          if (frame.node.kind === "BinaryExpression" || frame.node.kind === "CallExpression") {
+          if (frame.node.kind === "BinaryExpression" || frame.node.kind === "PrefixUnaryExpression" || frame.node.kind === "CallExpression") {
             const diagnostic = allocate(walk, { kind: "local", local: null, occurrence: refOf(walk, frame.node) });
             if (diagnostic !== null) return refused(diagnostic);
             walk.operators.set(frame.node.id, internType(deps.types,
@@ -266,6 +266,7 @@ function childrenOf(node: HirNode): readonly HirNode[] {
       : [node.expression, node.thenStatement, node.elseStatement];
     case "VariableStatement": return [];
     case "ParenthesizedExpression": return [node.expression];
+    case "PrefixUnaryExpression": return [node.operand];
     case "BinaryExpression": return [node.left, node.right];
     case "CallExpression": return [node.expression, ...node.arguments.nodes];
     case "Identifier": case "TrueKeyword": case "FalseKeyword": case "StringLiteral": case "NullKeyword": return [];
@@ -281,6 +282,17 @@ function leave(walk: Walk, node: HirNode): void {
     walk.typeOf.set(node.id, node.tsonic.value.views.read.value);
   }
   else if (node.kind === "ParenthesizedExpression") walk.typeOf.set(node.id, typeAt(walk, node.expression));
+  else if (node.kind === "PrefixUnaryExpression") {
+    if (node.operator !== "ExclamationToken" || node.tsonic.role !== "value")
+      return notInferredYet(PORT, `the unary operator ${node.operator} of role ${node.tsonic.role}`, node.origin);
+    const result = present(walk.operators.get(node.id), "the actual unary operator result position");
+    const operand = typeAt(walk, node.operand);
+    walk.draft.constraints.push({ kind: "op", occurrence: refOf(walk, node), operator: "!",
+      operands: [operand], result, permissionScope: null });
+    walk.draft.evidence.push({ type: operand, node: node.operand, component: { kind: "body", value: refOf(walk, node.operand) } },
+      { type: result, node, component: { kind: "body", value: refOf(walk, node) } });
+    walk.typeOf.set(node.id, result);
+  }
   else if (node.kind === "BinaryExpression") {
     if (node.operatorToken.kind !== "PlusToken" || node.tsonic.role !== "arithmetic")
       return notInferredYet(PORT, `the binary operator ${node.operatorToken.kind}`, node.origin);
