@@ -1,9 +1,9 @@
 import type { DeclsModule, DefinitionDescription, DefinitionExports } from "../decls/contract.js";
 import type { Result } from "../diag/contract.js";
 import { throwInvariant } from "../diag/index.js";
-import type { DefId, DefinitionPath, ModuleId, NodeId, SourceNodeRef } from "../ids/contract.js";
+import type { DefId, DefinitionPath, ModuleId, NodeId } from "../ids/contract.js";
 import { decodeBodyId } from "../ids/index.js";
-import type { LowerDeps, ModuleDefinitions, ModuleExports, RawModule, RawNodeRef } from "../front/contract.js";
+import type { LowerDeps, ModuleDefinitions, ModuleExports, ModuleSourceOccurrence, RawModule, RawNodeRef } from "../front/contract.js";
 import type { HirModule } from "../ir-hir/contract.js";
 import { createModuleBindingViews, indexSyntaxTree, projectExportDeclarations, verifyHir } from "../ir-hir/index.js";
 import type { Libraries, LibraryCatalogue } from "../libraries/contract.js";
@@ -55,10 +55,10 @@ export function captureSourceBarrier(inputs: HostAnalysisInputs): Result<SourceB
     names.set(module, text);
   }
   const defined = new Map<ModuleId, ReadonlyMap<NodeId, DefId>>();
-  const bindings = new Map<ModuleId, ReadonlyMap<NodeId, SourceNodeRef>>();
+  const occurrences = new Map<ModuleId, ReadonlyMap<NodeId, ModuleSourceOccurrence>>();
   for (const [module, rows] of definitions) {
     defined.set(module, new Map(rows.rows.map(row => [row.node, row.definition])));
-    bindings.set(module, new Map(rows.bindingSources.map(row => [row.node, row.occurrence])));
+    occurrences.set(module, new Map(rows.sourceOccurrences.map(row => [row.node, row])));
   }
   const definitionOf = (reference: RawNodeRef): DefId => defined.get(reference.module)?.get(reference.node)
     ?? fail("A declaration projection must name its genuine complete F1 row.");
@@ -84,7 +84,7 @@ export function captureSourceBarrier(inputs: HostAnalysisInputs): Result<SourceB
   const types = createTypeInterner();
   const lowering: LowerDeps = {
     types, libraries: catalogue,
-    definitionOf, bindingOccurrenceOf: reference => bindings.get(reference.module)?.get(reference.node) ?? null,
+    definitionOf, sourceOccurrenceOf: reference => occurrences.get(reference.module)?.get(reference.node) ?? null,
     definitionOfExport: identity => native.get(libraryExportKey(identity))
       ?? fail("A native declaration projection must name its actually captured selected provider receipt."),
     exportsOf: module => exported.get(module) ?? null,

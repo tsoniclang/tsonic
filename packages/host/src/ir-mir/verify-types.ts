@@ -68,10 +68,15 @@ export function componentReferences(component: TypeComponent, at: TextPath, mete
             if (meter.exhausted) return [];
             references.push({ kind: "signature", value: selector.signature });
             break;
+          case "index-key": case "index-value":
+            chargeWork(meter, 1);
+            if (meter.exhausted) return [];
+            references.push({ kind: "type", value: selector.key });
+            break;
           case "class-value": case "construction-argument": case "optional-value": case "array-element":
           case "tuple-element": case "union-member": case "argument-place": case "parameter-place":
           case "intersection-member": case "intersection-result": case "argument-tail": case "parameter-tail":
-          case "member": case "index-key": case "index-value": case "projection-source": case "tuple-slice":
+          case "member": case "projection-source": case "tuple-slice":
           case "type-argument": case "awaited": break;
         }
       }

@@ -80,12 +80,14 @@ export function createTypeComponentReaders(values: TypeTextValues) {
       return { fields: [field_origin], value: () => ({ kind: "member", origin: field_origin.value() }) };
     });
     case "index-key": return recordReader<ComponentSelector>("index-key", read => {
-      const field_declaration = read("declaration", lazyReader(() => values["definition-id"]));
-      return { fields: [field_declaration], value: () => ({ kind: "index-key", declaration: field_declaration.value() }) };
+      const field_origin = read("origin", lazyReader(() => values["source"]));
+      const field_key = read("key", lazyReader(() => values["type-id"]));
+      return { fields: [field_origin, field_key], value: () => ({ kind: "index-key", origin: field_origin.value(), key: field_key.value() }) };
     });
     case "index-value": return recordReader<ComponentSelector>("index-value", read => {
-      const field_declaration = read("declaration", lazyReader(() => values["definition-id"]));
-      return { fields: [field_declaration], value: () => ({ kind: "index-value", declaration: field_declaration.value() }) };
+      const field_origin = read("origin", lazyReader(() => values["source"]));
+      const field_key = read("key", lazyReader(() => values["type-id"]));
+      return { fields: [field_origin, field_key], value: () => ({ kind: "index-value", origin: field_origin.value(), key: field_key.value() }) };
     });
     case "parameter": return recordReader<ComponentSelector>("parameter", read => {
       const field_signature = read("signature", lazyReader(() => values["signature-id"]));

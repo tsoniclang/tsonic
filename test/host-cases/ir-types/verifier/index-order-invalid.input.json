@@ -6,14 +6,14 @@
         "members": [],
         "indexes": [
           {
-            "declaration": "D[M[P[case];main.ts];z]",
+            "origin": { "kind": "item", "value": { "owner": "D[M[P[case];main.ts];z]", "node": 0 } },
             "key": 0,
             "read": 0,
             "write": null,
             "readonly": true
           },
           {
-            "declaration": "D[M[P[case];main.ts];a]",
+            "origin": { "kind": "item", "value": { "owner": "D[M[P[case];main.ts];a]", "node": 0 } },
             "key": 0,
             "read": 0,
             "write": null,

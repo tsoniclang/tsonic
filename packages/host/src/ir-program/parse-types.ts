@@ -151,9 +151,10 @@ export function readComponentSelectorText<Root>(cursor: Cursor, finish: (value: 
         acceptText({ kind: label, origin: originValue }, finish)));
         case "index-key":
         case "index-value":
-          return fieldText<DefId, Root>(cursor, fields, "declaration", (next, done) => atomicText(next, readDefinitionId, done), declarationValue =>
+          return fieldText<SourceNodeRef, Root>(cursor, fields, "origin", (next, done) => atomicText(next, readSourceNodeRef, done), originValue =>
+    fieldText<TyId, Root>(cursor, fields, "key", (next, done) => atomicText(next, readTypeId, done), keyValue =>
     atomicText(cursor, next => closeRecord(next, fields), () =>
-        acceptText({ kind: label, declaration: declarationValue }, finish)));
+        acceptText({ kind: label, origin: originValue, key: keyValue }, finish))));
         case "parameter":
           return fieldText<SigId, Root>(cursor, fields, "signature", (next, done) => atomicText(next, readSignatureId, done), signatureValue =>
     fieldText<number, Root>(cursor, fields, "index", (next, done) => atomicText(next, readNumber, done), indexValue =>

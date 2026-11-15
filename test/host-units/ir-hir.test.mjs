@@ -3270,7 +3270,8 @@ function selectorInputs() {
     ...["union-member", "argument-place", "parameter-place", "intersection-member"].map(kind => ({ kind, index: 0 })),
     { kind: "intersection-result" }, ...["argument-tail", "parameter-tail"].map(kind => ({ kind, start: 0 })),
     ...memberOrigins().map(origin => ({ kind: "member", origin })),
-    ...["index-key", "index-value"].map(kind => ({ kind, declaration: definitionIdentity })), { kind: "projection-source" },
+    ...["index-key", "index-value"].flatMap(kind => [bodySource(6), { kind: "item", value: { owner: definitionIdentity, node: 0 } }]
+      .map(origin => ({ kind, origin, key: 0 }))), { kind: "projection-source" },
     { kind: "parameter", signature: 0, index: 0 }, { kind: "receiver", signature: 0 },
     { kind: "signature-tail", signature: 0, start: 0, readonly: true }, { kind: "tuple-slice", start: 0, endCount: 1, readonly: false },
     { kind: "result", signature: 0 }, { kind: "type-argument", declaration: definitionIdentity, index: 0 }, { kind: "awaited" },

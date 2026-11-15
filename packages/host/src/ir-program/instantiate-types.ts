@@ -8,8 +8,10 @@ import type {
 } from "../ir-types/contract.js";
 import type { TypeReferenceRewrite } from "./canonical-types.js";
 import { publicationRewrite, rewriteComponent, rewriteParameter } from "./canonical-types.js";
+import { compareIndexSignatures } from "../ir-types/index.js";
 import type { InstantiationMeter, InstantiationAllocationStop } from "./work.js";
 import { chargeInstantiationWork, emitInstantiationRecord } from "./work.js";
+import { accountFailure } from "../dataflow/index.js";
 
 type SeedTask = () => InstantiationAllocationStop | null;
 
@@ -114,7 +116,7 @@ function member(scan: SeedScan, value: Member): InstantiationAllocationStop | nu
 }
 
 function indexSignature(scan: SeedScan, value: IndexSignature): InstantiationAllocationStop | null {
-  return projected(scan, 1) ?? fields(scan, 5) ?? reference(scan, value.key) ?? reference(scan, value.read)
+  return projected(scan, 1) ?? fields(scan, scan.mode === "seed" ? 9 : 5) ?? reference(scan, value.key) ?? reference(scan, value.read)
     ?? optionalReference(scan, value.write);
 }
 
@@ -130,6 +132,8 @@ function selector(scan: SeedScan, value: ComponentSelector): InstantiationAlloca
   if (step !== null) return step;
   if (scan.mode === "transport") {
     switch (value.kind) {
+      case "index-key":
+      case "index-value":
       case "parameter":
       case "receiver":
       case "result":
@@ -152,8 +156,6 @@ function selector(scan: SeedScan, value: ComponentSelector): InstantiationAlloca
       case "argument-tail":
       case "parameter-tail":
       case "member":
-      case "index-key":
-      case "index-value":
       case "projection-source":
       case "tuple-slice":
       case "type-argument":
@@ -173,9 +175,9 @@ function selector(scan: SeedScan, value: ComponentSelector): InstantiationAlloca
     case "parameter-place":
     case "intersection-member":
     case "argument-tail":
-    case "parameter-tail":
+    case "parameter-tail": return fields(scan, 2);
     case "index-key":
-    case "index-value": return fields(scan, 2);
+    case "index-value": return fields(scan, scan.mode === "seed" ? 7 : 3) ?? reference(scan, value.key);
     case "type-argument": return fields(scan, 3);
     case "tuple-slice": return fields(scan, 4);
     case "construction-argument": return fields(scan, 3) ?? construction(scan, value.definition);
@@ -282,7 +284,52 @@ function rewriteOrdered<Identity extends number>(values: readonly Identity[], re
   return values.map(rewrite).sort((left, right) => left - right);
 }
 
-function rewriteTerm(rewrite: TypeReferenceRewrite, value: TypeTerm): TypeTerm {
+const missingIndexValue: InvariantFailure = { owner: "ir-program", query: null, origin: null,
+  message: "An admitted dense Program index inventory must retain every projected merge entry." };
+
+function orderIndexes(meter: InstantiationMeter, values: IndexSignature[]):
+  { readonly kind: "complete"; readonly value: readonly IndexSignature[] } | InstantiationAllocationStop {
+  if (values.length < 2) return { kind: "complete", value: values };
+  const buffer: IndexSignature[] = [];
+  for (let index = 0; index < values.length; index += 1) {
+    const stop = emitInstantiationRecord(meter);
+    if (stop !== null) return stop;
+    const value = requirePresent(values[index], missingIndexValue);
+    buffer.push(value);
+  }
+  let source = values;
+  let target = buffer;
+  for (let width = 1; width < values.length; width *= 2) {
+    for (let start = 0; start < values.length; start += 2 * width) {
+      const middle = Math.min(start + width, values.length);
+      const end = Math.min(start + 2 * width, values.length);
+      let left = start;
+      let right = middle;
+      for (let position = start; position < end; position += 1) {
+        let takeLeft = right >= end;
+        if (left < middle && right < end) {
+          const stop = chargeInstantiationWork(meter);
+          if (stop !== null) return stop;
+          const first = requirePresent(source[left], missingIndexValue);
+          const second = requirePresent(source[right], missingIndexValue);
+          takeLeft = compareIndexSignatures(first, second) <= 0;
+        }
+        const stop = chargeInstantiationWork(meter);
+        if (stop !== null) return stop;
+        const value = requirePresent(source[takeLeft ? left : right], missingIndexValue);
+        target[position] = value;
+        if (takeLeft) left += 1;
+        else right += 1;
+      }
+    }
+    const previous = source;
+    source = target;
+    target = previous;
+  }
+  return { kind: "complete", value: source };
+}
+
+function rewriteTerm(meter: InstantiationMeter, rewrite: TypeReferenceRewrite, value: TypeTerm): TypeTerm | InstantiationAllocationStop {
   switch (value.kind) {
     case "literal": return { ...value, base: rewrite.type(value.base) };
     case "union":
@@ -291,18 +338,22 @@ function rewriteTerm(rewrite: TypeReferenceRewrite, value: TypeTerm): TypeTerm {
     case "array":
     case "fixed-array": return { ...value, element: rewrite.type(value.element) };
     case "tuple": return { ...value, elements: value.elements.map(item => ({ ...item, type: rewrite.type(item.type) })) };
-    case "shape": return {
-      ...value,
-      members: value.members.map(item => ({
-        ...item, read: item.read === null ? null : rewrite.type(item.read),
-        write: item.write === null ? null : rewrite.type(item.write),
-      })),
-      indexes: value.indexes.map(item => ({
+    case "shape": {
+      const indexes = orderIndexes(meter, value.indexes.map(item => ({
         ...item, key: rewrite.type(item.key), read: rewrite.type(item.read),
         write: item.write === null ? null : rewrite.type(item.write),
-      })),
-      calls: rewriteOrdered(value.calls, rewrite.signature), constructs: rewriteOrdered(value.constructs, rewrite.signature),
-    };
+      })));
+      if (indexes.kind !== "complete") return indexes;
+      return {
+        ...value,
+        members: value.members.map(item => ({
+          ...item, read: item.read === null ? null : rewrite.type(item.read),
+          write: item.write === null ? null : rewrite.type(item.write),
+        })),
+        indexes: indexes.value,
+        calls: rewriteOrdered(value.calls, rewrite.signature), constructs: rewriteOrdered(value.constructs, rewrite.signature),
+      };
+    }
     case "callable": return {
       ...value, calls: rewriteOrdered(value.calls, rewrite.signature), constructs: rewriteOrdered(value.constructs, rewrite.signature),
     };
@@ -382,6 +433,8 @@ export type StablePublication = {
 export function stabilizePublication(
   meter: InstantiationMeter, original: TypeTable, publication: TypePublication,
 ): StablePublication | InstantiationAllocationStop {
+  const prior = meter.failure ?? accountFailure(meter.account);
+  if (prior !== null) return prior;
   const types = anchorImages(meter, original.terms.length, publication.types, publication.table.terms, tyId);
   if ("kind" in types) return types;
   const signatures = anchorImages(meter, original.signatures.length, publication.signatures, publication.table.signatures, sigId);
@@ -397,10 +450,16 @@ export function stabilizePublication(
     signature: value => stableIdentity(signatures.stable, value),
   };
   const issued = publicationRewrite(publication);
+  const appended: TypeTerm[] = [];
+  for (const value of newRows.terms) {
+    const rewritten = rewriteTerm(meter, rewrite, value);
+    if (rewritten.kind === "resource-limit" || rewritten.kind === "refused") return rewritten;
+    appended.push(rewritten);
+  }
   return {
     kind: "complete",
     types: {
-      terms: [...original.terms, ...newRows.terms.map(value => rewriteTerm(rewrite, value))],
+      terms: [...original.terms, ...appended],
       signatures: [...original.signatures, ...newRows.signatures.map(value => rewriteSignature(
         rewrite, value, stableIdentity(signatures.stable, value.id),
       ))],

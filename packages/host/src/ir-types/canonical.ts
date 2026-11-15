@@ -3,7 +3,7 @@ import type { TypeTerm, Signature, SignatureInput, TypeTable, TypePublication, M
 import type { TyId, SigId } from "../ids/contract.js";
 import type { LimitStop, PublicationWork, PublicationResult } from "./work.js";
 import { chargeWork, workLimit } from "./work.js";
-import { typeIdentifier, signatureIdentifier, required, compareText } from "./value.js";
+import { typeIdentifier, signatureIdentifier, required, compareText, compareIndexSignatures } from "./value.js";
 import { typeText, signatureText, memberKeyText } from "./print.js";
 import { readTypeData, readSignatureData } from "./publication-read.js";
 import { copyType, copySignature } from "./copy.js";
@@ -61,7 +61,7 @@ export function normalizeType<Stop extends LimitStop>(term: TypeTerm, read: (typ
     }
     case "shape": return emit({ ...term,
       members: [...term.members].sort((left, right) => compareText(memberKeyText(left.key), memberKeyText(right.key))),
-      indexes: [...term.indexes].sort((left, right) => compareText(left.declaration, right.declaration)),
+      indexes: [...term.indexes].sort(compareIndexSignatures),
       calls: orderedIds(term.calls), constructs: orderedIds(term.constructs) });
     case "callable": return emit(orderedTerm(term));
     case "primitive": case "string": case "intrinsic": case "enum": case "param": case "self": case "open": case "error":
@@ -85,6 +85,7 @@ function remapComponent(root: TypeComponent, typeOf: (value: TyId) => TyId, sign
     if (!selected.done) {
       const value: ComponentSelector = selected.value;
       switch (value.kind) {
+        case "index-key": case "index-value": frame.path.push({ ...value, key: typeOf(value.key) }); break;
         case "parameter": case "receiver": case "result": case "signature-tail":
           frame.path.push({ ...value, signature: signatureOf(value.signature) }); break;
         case "sum-arm":
@@ -93,7 +94,7 @@ function remapComponent(root: TypeComponent, typeOf: (value: TyId) => TyId, sign
         case "class-value": case "optional-value": case "array-element": case "intersection-result": case "projection-source":
         case "awaited": case "construction-argument": case "tuple-element": case "union-member": case "argument-place":
         case "parameter-place": case "intersection-member": case "argument-tail": case "parameter-tail": case "member":
-        case "index-key": case "index-value": case "tuple-slice": case "type-argument": frame.path.push(value);
+        case "tuple-slice": case "type-argument": frame.path.push(value);
       }
       continue;
     }
@@ -136,7 +137,7 @@ export function remapTerm(value: TypeTerm, typeOf: (value: TyId) => TyId, signat
     case "optional": return { ...value, value: typeOf(value.value) };
     case "array": case "fixed-array": return { ...value, element: typeOf(value.element) };
     case "tuple": return { ...value, elements: value.elements.map(element => ({ ...element, type: typeOf(element.type) })) };
-    case "shape": return { ...value, members: value.members.map(member), indexes: value.indexes.map(index),
+    case "shape": return { ...value, members: value.members.map(member), indexes: value.indexes.map(index).sort(compareIndexSignatures),
       calls: value.calls.map(signatureOf), constructs: value.constructs.map(signatureOf) };
     case "callable": return { ...value, calls: value.calls.map(signatureOf), constructs: value.constructs.map(signatureOf) };
     case "declared": case "construction-reference": return { ...value, arguments: value.arguments.map(typeOf) };

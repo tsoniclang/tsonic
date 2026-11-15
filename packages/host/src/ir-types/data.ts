@@ -125,7 +125,7 @@ export interface Member {
 }
 
 export interface IndexSignature {
-  readonly declaration: DefId;
+  readonly origin: SourceNodeRef;
   readonly key: TyId;
   readonly read: TyId;
   readonly write: TyId | null;
@@ -199,7 +199,7 @@ export type ComponentSelector =
   | { readonly kind: "intersection-result" }
   | { readonly kind: "argument-tail" | "parameter-tail"; readonly start: number }
   | { readonly kind: "member"; readonly origin: MemberOrigin }
-  | { readonly kind: "index-key" | "index-value"; readonly declaration: DefId }
+  | { readonly kind: "index-key" | "index-value"; readonly origin: SourceNodeRef; readonly key: TyId }
   | { readonly kind: "projection-source" }
   | { readonly kind: "parameter"; readonly signature: SigId; readonly index: number }
   | { readonly kind: "receiver"; readonly signature: SigId }

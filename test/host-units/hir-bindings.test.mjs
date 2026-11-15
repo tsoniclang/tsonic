@@ -166,8 +166,8 @@ test("real B1 capture retains local aliases as binding occurrences without fabri
   assert.equal(captured.kind, "ok");
   const definitions = fixture.front.lowerModuleDefinitions(captured.value);
   assert.equal(definitions.kind, "ok");
-  assert.equal(definitions.value.bindingSources.length, 2);
-  const bindingNodes = new Set(definitions.value.bindingSources.map(row => row.node));
+  assert.equal(definitions.value.sourceOccurrences.length, 2);
+  const bindingNodes = new Set(definitions.value.sourceOccurrences.map(row => row.node));
   assert.equal(definitions.value.rows.some(row => bindingNodes.has(row.node)), false);
   const deps = fixture.lowerDepsFor(definitions.value, fixture.types.createTypeInterner(), source);
   const lowered = fixture.front.lowerModuleExports(deps, captured.value);
@@ -259,7 +259,7 @@ test("real B1 cross-module aliases retain every nearest binding hop and star/mod
     const inventory = fixture.front.lowerModuleDefinitions(raw.value);
     assert.equal(inventory.kind, "ok");
     definitions.set(identity, new Map(inventory.value.rows.map(row => [row.node, row.definition])));
-    bindings.set(identity, new Map(inventory.value.bindingSources.map(row => [row.node, row.occurrence])));
+    bindings.set(identity, new Map(inventory.value.sourceOccurrences.map(row => [row.node, row])));
     captured.push({ raw: raw.value, inventory: inventory.value, text });
   }
   const first = captured[0];
@@ -269,7 +269,7 @@ test("real B1 cross-module aliases retain every nearest binding hop and star/mod
       assert.notEqual(value, undefined, "a B1 group uses only an actual declaration identity");
       return value;
     },
-    bindingOccurrenceOf: reference => bindings.get(reference.module)?.get(reference.node) ?? null,
+    sourceOccurrenceOf: reference => bindings.get(reference.module)?.get(reference.node) ?? null,
   };
   const lowered = captured.map(entry => {
     const result = fixture.front.lowerModuleExports(deps, entry.raw);

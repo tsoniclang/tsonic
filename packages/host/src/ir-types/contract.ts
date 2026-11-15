@@ -1,12 +1,13 @@
 import type { TyId, SigId, DefId, KeyData, SourceNodeRef, LocalRef } from "../ids/contract.js";
 import type { TextParseResult, Violation } from "../diag/contract.js";
-import type { ArtifactBindings, BodyInstance, ConstantReference, Execution, LiteralTypeValue, MemberStorageSelection, NativePrimitive, ComponentSelector, TypeTerm, Signature, SignatureInput, TypeTable, BindingVector, TypeParameterIdentity, TypeEvidence } from "./data.js";
+import type { ArtifactBindings, BodyInstance, ConstantReference, Execution, IndexSignature, LiteralTypeValue, MemberStorageSelection, NativePrimitive, ComponentSelector, TypeTerm, Signature, SignatureInput, TypeTable, BindingVector, TypeParameterIdentity, TypeEvidence } from "./data.js";
 import type { TypeArena } from "./arena.js";
 import type { NativeFactsRule, NativeFactsSite, NativeFloatingFormat, PlatformDeclaration, SelectedNativeFacts } from "./native-facts-data.js";
 export type * from "./data.js";
 export type * from "./native-facts-data.js";
 
 export type TypeInterner = TypeArena;
+export type CompareIndexSignatures = (left: IndexSignature, right: IndexSignature) => number;
 export type NativeFactsKey = (facts: SelectedNativeFacts) => string;
 export type FloatingBitsFit = (bits: bigint, format: NativeFloatingFormat) => boolean;
 export type FloatingFormatWidth = (format: NativeFloatingFormat) => 16 | 32 | 64 | null;

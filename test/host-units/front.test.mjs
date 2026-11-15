@@ -214,7 +214,7 @@ test("import lowering preserves an unavailable captured link and rejects unwritt
   const nodes = indexSyntaxTree(actual.modules[1].tree);
   const inputs = {
     core: node => nodes[node].tsonic.core,
-    binding: node => actual.deps.bindingOccurrenceOf({ module: raw.module, node }) ?? assert.fail("the actual binding is required"),
+    binding: node => actual.deps.sourceOccurrenceOf({ module: raw.module, node })?.occurrence ?? assert.fail("the actual binding is required"),
     target: () => checked.tsonic.target,
   };
   for (const changed of [{ ...source, attributes: {} }, { ...source, modifiers: {} },

@@ -69,7 +69,7 @@ interface Owner {
  */
 export function moduleIdentities(module: ModuleId, tree: Hir.SourceFile<Hir.SyntaxPhase>, propertyNames: readonly RawPropertyName[]): ModuleDefinitions {
   const rows: ModuleDefinitionRow[] = [];
-  const bindingSources: ModuleDefinitions["bindingSources"][number][] = [];
+  const sourceOccurrences: ModuleDefinitions["sourceOccurrences"][number][] = [];
   const counts = new Map<NodeId, Map<string, number>>();
   const properties = new Map<NodeId, RawPropertyName>();
   const definitions = new Map<NodeId, DefId>();
@@ -96,9 +96,10 @@ export function moduleIdentities(module: ModuleId, tree: Hir.SourceFile<Hir.Synt
       definitions.set(node.id, encodeDefId({ module, segments }));
       inner = { node: node.id, segments };
     }
-    if (isModuleBindingKind(node.kind, node.kind !== "ImportClause" || node.name !== null)) {
+    if (isModuleBindingKind(node.kind, node.kind !== "ImportClause" || node.name !== null)
+      || node.kind === "IndexSignature" || node.kind === "MappedType") {
       if (inner === null) throw new TypeError("front: a binding has no genuine enclosing declaration identity");
-      bindingSources.push({ node: node.id, occurrence: { kind: "item", value: {
+      sourceOccurrences.push({ node: node.id, kind: node.kind, occurrence: { kind: "item", value: {
         owner: encodeDefId({ module, segments: inner.segments }), node: node.id } } });
     }
     const children = childrenOfSyntax(node);
@@ -107,5 +108,5 @@ export function moduleIdentities(module: ModuleId, tree: Hir.SourceFile<Hir.Synt
       if (child !== undefined) pending.push({ node: child, owner: inner });
     }
   }
-  return { module, rows, bindingSources };
+  return { module, rows, sourceOccurrences };
 }

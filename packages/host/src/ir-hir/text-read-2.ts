@@ -23,13 +23,15 @@ export function createReadGroup2(readers: () => HirTextReaders): HirReadGroup2 {
       const field_declaration = read("declaration", readers().identity_def);
       return { fields: [field_declaration], value: () => ({ kind: "symbol", declaration: field_declaration.value() }) };
     });
-  const record_64 = recordReader<{ readonly kind: "index-key" | "index-value"; readonly declaration: Ids.DefId; }>("index-key", read => {
-      const field_declaration = read("declaration", readers().identity_def);
-      return { fields: [field_declaration], value: () => ({ kind: "index-key", declaration: field_declaration.value() }) };
+  const record_64 = recordReader<{ readonly kind: "index-key" | "index-value"; readonly origin: Ids.SourceNodeRef; readonly key: Ids.TyId; }>("index-key", read => {
+      const field_origin = read("origin", unionReader<Ids.SourceNodeRef>(() => [readers().record_5, readers().record_7]));
+      const field_key = read("key", readers().identity_t);
+      return { fields: [field_origin, field_key], value: () => ({ kind: "index-key", origin: field_origin.value(), key: field_key.value() }) };
     });
-  const record_65 = recordReader<{ readonly kind: "index-key" | "index-value"; readonly declaration: Ids.DefId; }>("index-value", read => {
-      const field_declaration = read("declaration", readers().identity_def);
-      return { fields: [field_declaration], value: () => ({ kind: "index-value", declaration: field_declaration.value() }) };
+  const record_65 = recordReader<{ readonly kind: "index-key" | "index-value"; readonly origin: Ids.SourceNodeRef; readonly key: Ids.TyId; }>("index-value", read => {
+      const field_origin = read("origin", unionReader<Ids.SourceNodeRef>(() => [readers().record_5, readers().record_7]));
+      const field_key = read("key", readers().identity_t);
+      return { fields: [field_origin, field_key], value: () => ({ kind: "index-value", origin: field_origin.value(), key: field_key.value() }) };
     });
   const record_66 = recordReader<{ readonly kind: "projection-source"; }>("projection-source", () => {
 

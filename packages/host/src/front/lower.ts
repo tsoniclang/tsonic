@@ -5,11 +5,11 @@ import { candidateListId, encodeBodyId, localId } from "../ids/index.js";
 import type * as Hir from "../ir-hir/contract.js";
 import { iterateChildrenOfSyntax } from "../ir-hir/index.js";
 import type { LiteralTypeValue, SignatureParameter, TypeTerm } from "../ir-types/contract.js";
-import { internSignature, internType } from "../ir-types/index.js";
+import { compareIndexSignatures, internSignature, internType } from "../ir-types/index.js";
 import type { PassingMode } from "../ir-types/contract.js";
 import type { ConvertedCheckedType, LowerDeps, ModuleDefinitions, ModuleExports, RawBindingTarget, RawCallSelection, RawCallableAssociation, RawCheckerViews, RawCoreCapture, RawFact, RawModule, RawModuleLink, RawPropertyName, RawStorageCapture } from "./contract.js";
 import { moduleIdentities } from "./identities.js";
-import { lowerBindingFact, lowerBindings } from "./bindings.js";
+import { bindingOccurrence, lowerBindingFact, lowerBindings } from "./bindings.js";
 import { lowerExportDeclaration } from "./lower-exports.js";
 import { lowerImportDeclaration } from "./lower-imports.js";
 import { expressionKinds } from "./syntax-capture.js";
@@ -174,6 +174,12 @@ function convertDependencies(lowering: Lowering, first: ConversionTask): void {
         const inventory = lowering.raw.types.members[row.form.value.inventory];
         if (inventory === undefined) return throwInvariant(invariant("A callable type has no captured member inventory."));
         for (const id of [...inventory.calls, ...inventory.constructs].reverse()) pending.push({ kind: "signature", id, ready: false });
+        for (let position = inventory.indexes.length - 1; position >= 0; position -= 1) {
+          const index = inventory.indexes[position];
+          if (index === undefined) return throwInvariant(invariant("A captured index inventory must retain every actual row."));
+          pending.push({ kind: "type", id: index.value, ready: false });
+          pending.push({ kind: "type", id: index.key, ready: false });
+        }
       } else if (row.form.value.kind === "declared") {
         for (let index = row.form.value.arguments.length - 1; index >= 0; index -= 1) {
           const argument = row.form.value.arguments[index]?.argument;
@@ -237,11 +243,24 @@ function finishType(lowering: Lowering, type: RawTypeId): void {
   } else if (form.kind === "structure") {
     const inventory = raw.types.members[form.inventory];
     if (inventory === undefined) return throwInvariant(invariant("A callable type has no captured member inventory."));
-    if (inventory.members.length !== 0 || inventory.indexes.length !== 0)
+    if (inventory.members.length !== 0)
       throw new TypeError("front: the conversion of callable members is not implemented");
     const signatureOf = (signature: RawSignatureId): SigId => lowering.convertedSignatures.get(signature)
       ?? throwInvariant(invariant("A callable dependency has not been converted."));
-    term = { kind: "callable", calls: inventory.calls.map(signatureOf), constructs: inventory.constructs.map(signatureOf) };
+    const calls = inventory.calls.map(signatureOf);
+    const constructs = inventory.constructs.map(signatureOf);
+    term = inventory.indexes.length === 0 ? { kind: "callable", calls, constructs } : { kind: "shape", members: [], calls, constructs,
+      indexes: inventory.indexes.map(index => {
+        const source = deps.sourceOccurrenceOf(index.origin);
+        if (source === null || source.node !== index.origin.node || source.occurrence.value.node !== index.origin.node
+          || source.kind !== "IndexSignature" && source.kind !== "MappedType")
+          throw new TypeError("front: an index requires its genuine declared or mapped source occurrence");
+        const key = lowering.convertedTypes.get(index.key)?.type;
+        const read = lowering.convertedTypes.get(index.value)?.type;
+        if (key === undefined || read === undefined)
+          return throwInvariant(invariant("An index requires its actual completed key and value types."));
+        return { origin: source.occurrence, key, read, write: index.readonly ? null : read, readonly: index.readonly };
+      }).sort(compareIndexSignatures) };
   } else if (scalar === "number") term = { kind: "primitive", primitive: "float64" };
   else if (scalar === "string") term = { kind: "string" };
   else if (scalar === "boolean") term = { kind: "primitive", primitive: "bool" };
@@ -618,7 +637,7 @@ function buildStatement(lowering: Lowering, node: Hir.Statement<Syntax>, owner: 
     case "ExportDeclaration": case "ImportDeclaration": {
       const inputs = {
       core: (node: NodeId) => coreOf(lowering, node), memory: (node: NodeId) => memoryOf(lowering, node), definition: (node: NodeId) => definitionOf(lowering, node),
-      binding: (node: NodeId) => lowering.deps.bindingOccurrenceOf({ module: lowering.raw.module, node })
+      binding: (node: NodeId) => bindingOccurrence(lowering.deps, { module: lowering.raw.module, node })
         ?? throwInvariant(invariant("A checked binding syntax requires its actual B1 occurrence.")),
       target: (node: NodeId): Hir.CapturedFact<Hir.ImportTarget> => {
         const link = lowering.links.get(node);

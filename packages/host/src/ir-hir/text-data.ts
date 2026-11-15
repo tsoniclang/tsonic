@@ -114,7 +114,7 @@ function selectorData(value: Types.ComponentSelector): HirDataWork {
       return recordData(value.kind, value, () => [fieldData("index", scalarData(value.index))]);
     case "argument-tail": case "parameter-tail": return recordData(value.kind, value, () => [fieldData("start", scalarData(value.start))]);
     case "member": return recordData(value.kind, value, () => [fieldData("origin", memberOriginData(value.origin))]);
-    case "index-key": case "index-value": return recordData(value.kind, value, () => [fieldData("declaration", definitionData(value.declaration))]);
+    case "index-key": case "index-value": return recordData(value.kind, value, () => [fieldData("origin", sourceRefData(value.origin)), fieldData("key", typeData(value.key))]);
     case "parameter": return recordData(value.kind, value, () => [fieldData("signature", signatureData(value.signature)), fieldData("index", scalarData(value.index))]);
     case "receiver": case "result": return recordData(value.kind, value, () => [fieldData("signature", signatureData(value.signature))]);
     case "signature-tail": return recordData(value.kind, value, () => [fieldData("signature", signatureData(value.signature)),

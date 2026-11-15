@@ -2,7 +2,7 @@ import type { KeyData } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import type { ArtifactBindings, BindingVector, BodyInstance, ConstantReference, Execution, SelfBinding, TypeBinding } from "./data.js";
 import type { DeclaredExecution, RigidBindings, SignatureRequest } from "./contract.js";
-import type { MemberKey, MemberOrigin, MemberStorageSelection } from "./data.js";
+import type { IndexSignature, MemberKey, MemberOrigin, MemberStorageSelection } from "./data.js";
 export { tyId as typeIdentifier, sigId as signatureIdentifier } from "../ids/index.js";
 
 const typeBindingData = (binding: TypeBinding | undefined): KeyData => binding === undefined ? null : binding.kind === "rigid"
@@ -79,4 +79,13 @@ export function required<Key, Value>(values: ReadonlyMap<Key, Value>, key: Key):
 
 export function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
+}
+
+export function compareIndexSignatures(left: IndexSignature, right: IndexSignature): number {
+  const first = left.origin;
+  const second = right.origin;
+  return compareText(first.kind, second.kind)
+    || compareText(first.kind === "body" ? first.value.body : first.value.owner,
+      second.kind === "body" ? second.value.body : second.value.owner)
+    || first.value.node - second.value.node || left.key - right.key;
 }

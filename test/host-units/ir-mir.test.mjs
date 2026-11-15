@@ -1587,6 +1587,22 @@ test("MIR ordinary constants retain unresolved and sparse supplied type-table re
   }
 });
 
+test("MIR index selector keys are real reachable type references, not opaque source labels", async () => {
+  const { verifyTypeReferences } = await import("../../packages/host/dist/ir-mir/verify.js");
+  const body = parsedBody();
+  const origin = { kind: "body", value: { body: body.body, node: identities.nodeId(0) } };
+  const at = { kind: "body", body: body.body };
+  for (const kind of ["index-key", "index-value"]) for (const key of [0, 2, 99]) {
+    const projection = { kind: "projection", source: 0,
+      projection: { kind: "component", component: { root: origin, path: [{ kind, origin, key }] } } };
+    const table = { terms: [{ kind: "string" }, projection,
+      { kind: "open", group: identities.encodeGroupId([body.body]), variable: 0 }], signatures: [] };
+    const rule = key === 99 ? "type-resolves" : "type-closed";
+    same(verifyTypeReferences(table, [{ type: identities.tyId(1), site: at }], []), key === 0 ? []
+      : [{ rule, site: at, detail: [{ kind: "number", value: 1 }] }], `actual ${kind} key ${key}`);
+  }
+});
+
 test("MIR storage lifetime checks all predecessor paths, dead transitions and repeated exact queries", () => {
   const base = parsedBody();
   const context = sourceContext(base);
@@ -3336,8 +3352,8 @@ const selectorVectors = [
   [{ kind: "argument-tail", start: 1 }, "argument-tail(start=1)"],
   [{ kind: "parameter-tail", start: 2 }, "parameter-tail(start=2)"],
   [{ kind: "member", origin: { kind: "declared", declaration: endpoint.declaration } }, 'member(origin=declared(declaration=def:"D[M[P[p];m];run]"))'],
-  [{ kind: "index-key", declaration: endpoint.declaration }, 'index-key(declaration=def:"D[M[P[p];m];run]")'],
-  [{ kind: "index-value", declaration: endpoint.declaration }, 'index-value(declaration=def:"D[M[P[p];m];run]")'],
+  [{ kind: "index-key", origin: { kind: "item", value: { owner: endpoint.declaration, node: 0 } }, key: 0 }, 'index-key(origin=item(value=ItemNodeRef(owner=def:"D[M[P[p];m];run]", node=n:0)), key=t:0)'],
+  [{ kind: "index-value", origin: { kind: "item", value: { owner: endpoint.declaration, node: 0 } }, key: 0 }, 'index-value(origin=item(value=ItemNodeRef(owner=def:"D[M[P[p];m];run]", node=n:0)), key=t:0)'],
   [{ kind: "projection-source" }, "projection-source()"],
   [{ kind: "parameter", signature: 1, index: 2 }, "parameter(signature=sig:1, index=2)"],
   [{ kind: "receiver", signature: 3 }, "receiver(signature=sig:3)"],

@@ -37,7 +37,7 @@ function selectorKey(selected: ComponentSelector, work: SelectorPathWork[]): rea
     case "intersection-member": return [selected.kind, selected.index];
     case "argument-tail": case "parameter-tail": return [selected.kind, selected.start];
     case "member": return [selected.kind, originKey(selected.origin)];
-    case "index-key": case "index-value": return [selected.kind, selected.declaration];
+    case "index-key": case "index-value": return [selected.kind, sourceKey(selected.origin), selected.key];
     case "parameter": return [selected.kind, selected.signature, selected.index];
     case "receiver": case "result": return [selected.kind, selected.signature];
     case "signature-tail": return [selected.kind, selected.signature, selected.start, selected.readonly];

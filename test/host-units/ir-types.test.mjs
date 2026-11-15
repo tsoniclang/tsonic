@@ -76,7 +76,8 @@ const declaredFacts = [
   { definition: caseEnum, nominal: { kind: "enum", facets: [] } },
 ];
 const bodyFacts = new Map([[body, { nodes: 2, locals: 2 }], [otherBody, { nodes: 1, locals: 1 }], [caseBody, { nodes: 2, locals: 2 }]]);
-const itemFacts = new Map([[owner, { nodes: 2 }], [other, { nodes: 1 }], [caseDefinition, { nodes: 2 }]]);
+const itemFacts = new Map([[method, { nodes: 1 }], [owner, { nodes: 2 }], [other, { nodes: 1 }], [caseDefinition, { nodes: 2 }],
+  ["D[M[P[case];main.ts];a]", { nodes: 1 }], ["D[M[P[case];main.ts];z]", { nodes: 1 }]]);
 const within = (index, count) => Number.isSafeInteger(index) && index >= 0 && !Object.is(index, -0) && index < count;
 const verificationInputs = {
   nominalOf: id => {
@@ -96,6 +97,116 @@ const verificationInputs = {
 const verifyTypes = input => runTypeVerifier({ ...input, ...verificationInputs });
 const source = { kind: "body", value: { body, node: 0 } };
 const itemSource = { kind: "item", value: { owner, node: 0 } };
+test("mapped index origins retain three actual key domains and reject duplicate origin-key identities", () => {
+  const origin = { kind: "item", value: { owner, node: 1 } };
+  const terms = [{ kind: "string" }, { kind: "primitive", primitive: "float64" },
+    { kind: "intrinsic", intrinsic: "symbol" }, { kind: "intrinsic", intrinsic: "unknown" }];
+  const indexes = [0, 1, 2].map(key => ({ origin, key, read: 3, write: 3, readonly: false }));
+  const shape = { kind: "shape", members: [], indexes, calls: [], constructs: [] };
+  const table = { terms: [...terms, shape], signatures: [] };
+  assert.deepEqual(verifyTypes({ table, bindings: [], evidence: [] }), []);
+  const array = rows => `[${rows.join(", ")}]`;
+  const originText = `item(value=ItemNodeRef(owner=def:"${owner}", node=n:1))`;
+  const expected = `TypeTable(terms=${array(['string()', 'primitive(primitive="float64")', 'intrinsic(intrinsic="symbol")',
+    'intrinsic(intrinsic="unknown")', `shape(members=[], indexes=${array([0, 1, 2].map(key =>
+      `IndexSignature(origin=${originText}, key=t:${key}, read=t:3, write=t:3, readonly=false)`))}, calls=[], constructs=[])`])}, signatures=[])\n`;
+  assert.equal(printTypes(table), expected);
+  assert.deepEqual(parseTypes(expected), { kind: "parsed", value: table });
+  for (const invalid of [[indexes[1], indexes[0], indexes[2]], [indexes[0], { ...indexes[0], read: 0 }, indexes[2]]]) {
+    const result = verifyTypes({ table: { terms: [...terms, { ...shape, indexes: invalid }], signatures: [] }, bindings: [], evidence: [] });
+    assert.equal(result.some(row => row.rule === "index-order"), true);
+  }
+  const selectors = ["index-key", "index-value"].flatMap(kind => indexes.map(index => ({ kind, origin: index.origin, key: index.key })));
+  assert.equal(new Set(selectors.map(selector => encodeKey(encodeSelectorPath([selector])))).size, 6);
+  const old = expected.replace(`origin=${originText}`, `declaration=def:"${owner}"`);
+  assert.equal(parseTypes(old).kind, "invalid-text", "the declaration-only index record is removed");
+  const declared = { ...shape, indexes: [{ ...indexes[0], origin: itemSource }] };
+  assert.deepEqual(parseTypes(printTypes({ terms: [...terms, declared], signatures: [] })).value.terms[4].indexes[0].origin, itemSource);
+});
+
+test("index keys and selectors remap together under publication permutations and every resource cut", () => {
+  const origin = { kind: "item", value: { owner, node: 1 } };
+  const terms = [{ kind: "string" }, { kind: "primitive", primitive: "float64" },
+    { kind: "intrinsic", intrinsic: "symbol" }, { kind: "intrinsic", intrinsic: "unknown" }];
+  const build = order => {
+    const interner = createTypeInterner();
+    const issued = [];
+    for (const index of order) issued[index] = internType(interner, terms[index]);
+    const shape = internType(interner, { kind: "shape", members: [], calls: [], constructs: [], indexes: [2, 0, 1].map(index =>
+      ({ origin, key: issued[index], read: issued[3], write: null, readonly: true })) });
+    const roots = ["index-key", "index-value"].flatMap(kind => [0, 1, 2].map(index => internType(interner,
+      { kind: "projection", source: shape, projection: { kind: "component", component: { root: origin,
+        path: [{ kind, origin, key: issued[index] }] } } })));
+    return { interner, issued, shape, roots };
+  };
+  const first = build([0, 1, 2, 3]);
+  const reference = exportTypes(first.interner, publicationLimits);
+  const published = completePublication(reference);
+  for (const index of [0, 1, 2]) {
+    const row = published.table.terms[published.types[first.shape]].indexes.find(row => row.key === published.types[first.issued[index]]);
+    assert.equal(row !== undefined, true);
+    assert.deepEqual(row.origin, origin);
+    for (const position of [index, index + 3]) {
+      const projection = published.table.terms[published.types[first.roots[position]]];
+      assert.equal(projection.source, published.types[first.shape]);
+      assert.equal(projection.projection.component.path[0].key, row.key);
+      assert.deepEqual(projection.projection.component.path[0].origin, row.origin);
+    }
+  }
+  assert.deepEqual(verifyTypes({ table: published.table, bindings: [], evidence: [] }), []);
+  const second = build([2, 0, 3, 1]);
+  assert.deepEqual(completePublication(exportTypes(second.interner, publicationLimits)).table, published.table);
+  for (const [field, dimension, needed] of [["maximumWork", "work", reference.work],
+    ["maximumCreatedRecords", "created-records", reference.createdRecords]]) {
+    for (let maximum = 0; maximum <= needed; maximum += 1) {
+      const result = exportTypes(first.interner, { maximumWork: reference.work, maximumCreatedRecords: reference.createdRecords, [field]: maximum });
+      if (maximum === needed) assert.deepEqual(result, reference);
+      else assert.deepEqual(result, { kind: "resource-limit", dimension, maximum });
+    }
+  }
+});
+
+test("index origin and selected key references retain their actual qualified source and type domains", () => {
+  for (const origin of [source, itemSource]) {
+    const projection = key => ({ kind: "projection", source: 0,
+      projection: { kind: "component", component: { root: itemSource, path: [{ kind: "index-value", origin, key }] } } });
+    assert.deepEqual(verifyTypes({ table: { terms: [{ kind: "string" }, projection(0)], signatures: [] }, bindings: [], evidence: [] }), []);
+    assert.equal(verifyTypes({ table: { terms: [{ kind: "string" }, projection(99)], signatures: [] }, bindings: [], evidence: [] })
+      .some(row => row.rule === "type-reference"), true);
+    const invalid = projection(0);
+    invalid.projection.component.path[0].origin = { ...origin, value: { ...origin.value, node: 99 } };
+    assert.equal(verifyTypes({ table: { terms: [{ kind: "string" }, invalid], signatures: [] }, bindings: [], evidence: [] })
+      .some(row => row.rule === "projection-owner"), true);
+  }
+});
+
+test("interned and seeded index rows and selectors own both levels of every caller source reference", () => {
+  for (const original of [source, itemSource]) for (const seeded of [false, true]) {
+    const origin = structuredClone(original);
+    const row = { origin, key: 0, read: 0, write: null, readonly: true };
+    const shape = { kind: "shape", members: [], indexes: [row, { ...row, key: 1 }], calls: [], constructs: [] };
+    const projections = ["index-key", "index-value"].map(kind => ({ kind: "projection", source: 2,
+      projection: { kind: "component", component: { root: origin, path: [{ kind, origin, key: 0 }] } } }));
+    const table = { terms: [{ kind: "string" }, { kind: "intrinsic", intrinsic: "symbol" }, shape, ...projections], signatures: [] };
+    const expected = structuredClone(table);
+    assert.deepEqual(verifyTypes({ table, bindings: [], evidence: [] }), []);
+    const interner = seeded ? seedTypeInterner(table) : createTypeInterner();
+    if (!seeded) table.terms.forEach((term, index) => assert.equal(internType(interner, term), index));
+    origin.value.node = 99;
+    if (origin.kind === "body") origin.value.body = otherBody;
+    else origin.value.owner = other;
+    row.origin = structuredClone(itemSource);
+    row.key = 1;
+    for (const projection of projections) {
+      projection.projection.component.path[0].origin = structuredClone(itemSource);
+      projection.projection.component.path[0].key = 1;
+    }
+    assert.deepEqual(expected.terms.map((_, index) => readType(interner, index)), expected.terms);
+    expected.terms.forEach((term, index) => assert.equal(internType(interner, term), index));
+    assert.equal(origin.value.node, 99, "the caller remains mutable rather than frozen");
+  }
+});
+
 test("physical member storage projects only the canonical qualified selection and complete binding families", async () => {
   const { memberStorageData } = await import("../../packages/host/dist/ir-types/index.js");
   const bindings = emptyBindings();
@@ -831,8 +942,8 @@ test("union, intersection, optional and member normalization is complete and doe
   const call = internSignature(interner, signature({ result: integer }));
   const construct = internSignature(interner, signature({ kind: "construct", result: integer }));
   const shape = { kind: "shape", members: [member("z"), member("a")], indexes: [
-    { declaration: owner, key: string, read: integer, write: null, readonly: true },
-    { declaration: other, key: string, read: integer, write: integer, readonly: false },
+    { origin: { kind: "item", value: { owner: owner, node: 0 } }, key: string, read: integer, write: null, readonly: true },
+    { origin: { kind: "item", value: { owner: other, node: 0 } }, key: string, read: integer, write: integer, readonly: false },
   ], calls: [call, call], constructs: [construct, construct] };
   const expected = { ...shape, members: [member("a"), member("z")], indexes: [...shape.indexes].reverse(), calls: [call], constructs: [construct] };
   assert.deepEqual(readType(interner, internType(interner, shape)), expected);
@@ -1405,7 +1516,7 @@ test("all TypeTerm, literal, selector, origin, signature and passing arms round-
     { kind: "array-element" }, { kind: "tuple-element", index: 0 }, { kind: "union-member", index: 1 },
     { kind: "argument-place", index: 0 }, { kind: "parameter-place", index: 1 }, { kind: "intersection-member", index: 0 },
     { kind: "intersection-result" }, { kind: "argument-tail", start: 1 }, { kind: "parameter-tail", start: 0 },
-    { kind: "member", origin: origins[2] }, { kind: "index-key", declaration: owner }, { kind: "index-value", declaration: other },
+    { kind: "member", origin: origins[2] }, { kind: "index-key", origin: itemSource, key: 0 }, { kind: "index-value", origin: { kind: "item", value: { owner: other, node: 0 } }, key: 1 },
     { kind: "projection-source" }, { kind: "parameter", signature: 0, index: 0 }, { kind: "receiver", signature: 0 },
     { kind: "signature-tail", signature: 0, start: 1, readonly: true }, { kind: "tuple-slice", start: 0, endCount: 2, readonly: false },
     { kind: "result", signature: 0 }, { kind: "type-argument", declaration: owner, index: 0 },
@@ -1429,8 +1540,8 @@ test("all TypeTerm, literal, selector, origin, signature and passing arms round-
         kind: "method", read: null, write: null, optional: false, readonly: true },
       { key: { kind: "symbol", declaration: other }, origins: [origins[2]], readOrigins: [origins[2]], writeOrigins: [],
         kind: "accessor", read: 0, write: null, optional: false, readonly: true },
-    ], indexes: [{ declaration: owner, key: 1, read: 0, write: 0, readonly: false },
-      { declaration: other, key: 0, read: 1, write: null, readonly: true }], calls: [0], constructs: [1] },
+    ], indexes: [{ origin: { kind: "item", value: { owner: owner, node: 0 } }, key: 1, read: 0, write: 0, readonly: false },
+      { origin: { kind: "item", value: { owner: other, node: 0 } }, key: 0, read: 1, write: null, readonly: true }], calls: [0], constructs: [1] },
     { kind: "callable", calls: [0], constructs: [1] },
     { kind: "declared", definition: owner, arguments: [0, 1], facet: "instance", extent: null },
     { kind: "declared", definition: owner, arguments: [], facet: "value", extent: { length: 0n, runtimeBase: "number" } },
@@ -1784,7 +1895,7 @@ test("substitution distinguishes every complete term constructor and nested type
   const construction = { occurrence: source.value, captures: [{ body, local: 0 }] };
   const shape = type => ({ kind: "shape", members: [{ key: { kind: "text", value: "value" }, origins: [origin],
     readOrigins: [origin], writeOrigins: [origin], kind: "property", read: type, write: type, optional: true, readonly: false }],
-    indexes: [{ declaration: owner, key: type, read: type, write: type, readonly: false }],
+    indexes: [{ origin: { kind: "item", value: { owner: owner, node: 0 } }, key: type, read: type, write: type, readonly: false }],
     calls: [type === 0 ? originalSignature : expectedSignature], constructs: [] });
   const rows = [
     [primitive, primitive], [{ kind: "string" }, { kind: "string" }],
@@ -2501,7 +2612,7 @@ test("publication repairs a shape's complete ordered payload after a compound ch
   const origin = { kind: "declared", declaration: owner };
   const member = (name, type) => ({ key: { kind: "text", value: name }, origins: [origin], readOrigins: [origin], writeOrigins: [origin],
     kind: "property", read: type, write: type, optional: false, readonly: false });
-  const index = (declaration, type) => ({ declaration, key: type, read: type, write: type, readonly: false });
+  const index = (declaration, type) => ({ origin: { kind: "item", value: { owner: declaration, node: 0 } }, key: type, read: type, write: type, readonly: false });
   const shape = type => ({ kind: "shape", members: [member("a", type), member("b", type)],
     indexes: [index(owner, type), index(method, type)], calls: [0], constructs: [1] });
   assert.equal(internType(interner, shape(2)), 3);
@@ -2534,7 +2645,7 @@ test("verifier reads complete signatures, writable indexes and optional/rest ord
     assert.deepEqual(verifyTypes({ table: { terms: [primitive, callable], signatures: [{ id: 0, ...signature({ kind }) }] }, bindings: [], evidence: [] }),
       [violation("signature-order", typeSite(1), kind === "call" ? "constructs" : "calls")]);
   }
-  const writable = { kind: "shape", members: [], indexes: [{ declaration: owner, key: 0, read: 0, write: 0, readonly: false }], calls: [], constructs: [] };
+  const writable = { kind: "shape", members: [], indexes: [{ origin: { kind: "item", value: { owner: owner, node: 0 } }, key: 0, read: 0, write: 0, readonly: false }], calls: [], constructs: [] };
   assert.deepEqual(verifyTypes(verification([writable])), []);
   assert.deepEqual(verifyTypes(verification([{ ...writable, indexes: [{ ...writable.indexes[0], write: 2 }] }])),
     [violation("type-reference", typeSite(0), "reference", 2)]);
@@ -2896,8 +3007,8 @@ test("a changed callable compacts an unchanged existing signature alongside a ge
     ["multiline escaped prior field", 'TypeTable(\n terms=[],\n "', "\\u0074erms", '"=[]', ["unique record field"]],
   ];
   const member = 'TypeTable(terms=[shape(members=[Member(key=text(value="x"), origins=[], readOrigins=[], writeOrigins=[], kind="property", read=null, ';
-  const index = "TypeTable(terms=[shape(members=[], indexes=[IndexSignature(declaration=def:" + JSON.stringify(owner)
-    + ", key=t:0, read=t:0, write=null, ";
+  const index = "TypeTable(terms=[shape(members=[], indexes=[IndexSignature(origin=item(value=ItemNodeRef(owner=def:" + JSON.stringify(owner)
+    + ", node=n:0)), key=t:0, read=t:0, write=null, ";
   fields.push(
     ["nested quoted duplicate with a shared required prefix", member + '"write', "Origins", '"=[]', ["unique record field"]],
     ["nested escaped duplicate with a shared required prefix", member + '"write', "\\u004Frigins", '"=[]', ["unique record field"]],
@@ -3102,7 +3213,11 @@ test("the one selector-path encoding: each selector is one array beginning with 
     { kind: "member", origin: { kind: "mapped", owner: node(body, 7), key: { kind: "number", value: { numerator: 0n, denominator: 1n, negativeZero: false } } } },
     { kind: "member", origin: { kind: "mapped", owner: node(body, 7), key: { kind: "number", value: { numerator: 1n, denominator: 2n, negativeZero: false } } } },
     { kind: "member", origin: { kind: "mapped", owner: node(body, 7), key: { kind: "symbol", declaration: definition("A") } } },
-    ...["index-key", "index-value"].flatMap(kind => [{ kind, declaration: definition("A") }, { kind, declaration: definition("B") }]),
+    ...["index-key", "index-value"].flatMap(kind => [
+      { kind, origin: item("A", 0), key: 0 }, { kind, origin: item("B", 0), key: 0 },
+      { kind, origin: item("A", 1), key: 0 }, { kind, origin: node(body, 0), key: 0 },
+      { kind, origin: node(otherBody, 0), key: 0 }, { kind, origin: item("A", 0), key: 1 },
+    ]),
     { kind: "parameter", signature: 0, index: 0 }, { kind: "parameter", signature: 1, index: 0 }, { kind: "parameter", signature: 0, index: 1 },
     ...["receiver", "result"].flatMap(kind => [{ kind, signature: 0 }, { kind, signature: 1 }]),
     { kind: "signature-tail", signature: 0, start: 0, readonly: false }, { kind: "signature-tail", signature: 1, start: 0, readonly: false },
@@ -3320,6 +3435,17 @@ test("fresh public declarations admit real strict readers and reject the entire 
     types: [], rootDir: resolve(repository, "packages/host/src"), outDir: resolve(stage, "declarations") },
     files: [resolve(repository, "packages/host/src/ir-types/index.ts")], include: [] });
   assert.deepEqual(run(resolve(stage, "producer.json")), { status: 0, diagnostics: "" });
+  write("index-reader.ts", 'import { compareIndexSignatures, encodeSelectorPath } from "./declarations/ir-types/index.js";\nimport type { CompareIndexSignatures, ComponentSelector, EncodeSelectorPath, IndexSignature } from "./declarations/ir-types/contract.js";\nexport const compare: CompareIndexSignatures = compareIndexSignatures;\nexport const encode: EncodeSelectorPath = encodeSelectorPath;\nexport function selector(index: IndexSignature): ComponentSelector { return { kind: "index-value", origin: index.origin, key: index.key }; }\n');
+  write("index-consumer.json", { extends: resolve(repository, "tsconfig.base.json"), compilerOptions: {
+    noEmit: true, types: [], skipLibCheck: false, strict: true, noUncheckedIndexedAccess: true, exactOptionalPropertyTypes: true },
+    files: [resolve(stage, "index-reader.ts")], include: [] });
+  assert.deepEqual(run(resolve(stage, "index-consumer.json")), { status: 0, diagnostics: "" });
+  write("index-reader.ts", 'import type { ComponentSelector, IndexSignature } from "./declarations/ir-types/contract.js";\nexport function removed(index: IndexSignature): void { index.declaration; index.origin = index.origin; }\nexport const removedSelector: ComponentSelector = { kind: "index-key", declaration: "retired" };\n');
+  const invalidIndex = run(resolve(stage, "index-consumer.json"));
+  assert.equal(invalidIndex.status, 1, invalidIndex.diagnostics.slice(-8000));
+  assert.deepEqual([...invalidIndex.diagnostics.matchAll(/error TS(\d+):/gu)].map(match => Number(match[1])),
+    [2339, 2540, 2353], invalidIndex.diagnostics.slice(-8000));
+  write("index-reader.ts", "export {};\n");
   const imports = 'import type { TypeTable, TypePublication, TypePublicationLimits, TypePublicationResult, TypeInterner, ExportTypes, TypeExpansionLimits, BindingScope, BindingVector, Signature, TypeEvidence, TypeParameterIdentity, TypeVerificationInput, NominalDefinition } from "./declarations/ir-types/contract.js";\nimport type { DefId, TyId } from "./declarations/ids/contract.js";\n';
   write("reader.ts", imports + 'export function read(table: TypeTable, publication: TypePublication, limits: TypeExpansionLimits, scope: BindingScope, bindings: BindingVector, signature: Signature, evidence: TypeEvidence, parameter: TypeParameterIdentity, definition: DefId, type: TyId, input: TypeVerificationInput, nominal: NominalDefinition): number { return table.terms.length + publication.table.terms.length + publication.types.length + publication.signatures.length + limits.maximumDepth + scope.selfOwners.length + bindings.classBindings.length + signature.parameters.length + evidence.type + parameter.index + definition.length + type + nominal.facets.length + (input.nominalOf(definition) === null ? 0 : 1); }\nexport function publish(operation: ExportTypes, interner: TypeInterner, limits: TypePublicationLimits): TypePublicationResult { return operation(interner, limits); }');
   write("inline-reader.ts", "import type { CategoryEvidence, TypeComponent, ComponentSelector, TypeInterner, TypeTerm, Signature, TypeTable, ReadType, ReadSignature } from \"./declarations/ir-types/contract.js\";\nimport type { SourceNodeRef, TyId, SigId } from \"./declarations/ids/contract.js\";\nexport function checkedBoundary(readType: ReadType, readSignature: ReadSignature, interner: TypeInterner, type: TyId, signature: SigId): void { readType(interner, type); readSignature(interner, signature); }\nexport function sparseTable(): TypeTable {\n  return { terms: new Array<TypeTerm>(1), signatures: new Array<Signature>(1) };\n}\nexport function sparseComponent(root: SourceNodeRef): TypeComponent {\n  return { root, path: new Array<ComponentSelector>(1) };\n}\nexport function categoryCycle(): CategoryEvidence { const alternatives: CategoryEvidence[] = []; const value: CategoryEvidence = { kind: \"choice\", alternatives }; alternatives.push(value); return value; }\nexport function componentCycle(root: SourceNodeRef): TypeComponent { const path: ComponentSelector[] = []; const component: TypeComponent = { root, path }; path.push({ kind: \"sum-arm\", family: { origin: \"authored\", component, parameters: [], roles: [] }, index: 0 }); return component; }\n");

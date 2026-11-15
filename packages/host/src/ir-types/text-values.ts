@@ -152,12 +152,12 @@ export function createTypeTextValues(): TypeTextValues {
       return { fields: [field_key, field_origins, field_readOrigins, field_writeOrigins, field_kind, field_read, field_write, field_optional, field_readonly], value: () => ({ key: field_key.value(), origins: field_origins.value(), readOrigins: field_readOrigins.value(), writeOrigins: field_writeOrigins.value(), kind: field_kind.value(), read: field_read.value(), write: field_write.value(), optional: field_optional.value(), readonly: field_readonly.value() }) };
     });
   const reader_index_signature = recordReader<IndexSignature>("IndexSignature", read => {
-      const field_declaration = read("declaration", lazyReader(() => reader_definition_id));
+      const field_origin = read("origin", lazyReader(() => reader_source));
       const field_key = read("key", lazyReader(() => reader_type_id));
       const field_read = read("read", lazyReader(() => reader_type_id));
       const field_write = read("write", nullableReader(() => reader_type_id));
       const field_readonly = read("readonly", lazyReader(() => reader_boolean));
-      return { fields: [field_declaration, field_key, field_read, field_write, field_readonly], value: () => ({ declaration: field_declaration.value(), key: field_key.value(), read: field_read.value(), write: field_write.value(), readonly: field_readonly.value() }) };
+      return { fields: [field_origin, field_key, field_read, field_write, field_readonly], value: () => ({ origin: field_origin.value(), key: field_key.value(), read: field_read.value(), write: field_write.value(), readonly: field_readonly.value() }) };
     });
   const reader_signature = recordReader<Signature>("Signature", read => {
       const field_id = read("id", lazyReader(() => reader_own_signature_id));

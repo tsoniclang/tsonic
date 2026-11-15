@@ -90,7 +90,7 @@ export async function loadFrontFixture() {
   /** The dependencies of lowerModuleExports and lowerModule for a program whose declarations are all in one module. */
   function lowerDepsFor(definitions, interner, sourceText) {
     const byNode = new Map(definitions.rows.map(row => [row.node, row.definition]));
-    const bindings = new Map(definitions.bindingSources.map(row => [row.node, row.occurrence]));
+    const occurrences = new Map(definitions.sourceOccurrences.map(row => [row.node, row]));
     return {
       exportsOf: () => null,
       definitionOf: reference => {
@@ -99,9 +99,9 @@ export async function loadFrontFixture() {
         assert.notEqual(definition, undefined, `node ${reference.node} has a definition identity`);
         return definition;
       },
-      bindingOccurrenceOf: reference => {
+      sourceOccurrenceOf: reference => {
         assert.equal(reference.module, definitions.module, "every binding of this fixture is in its actual module");
-        return bindings.get(reference.node) ?? null;
+        return occurrences.get(reference.node) ?? null;
       },
       definitionOfExport: () => assert.fail("no library export is named by this program"),
       sourceTextOf: () => sourceText, libraries: { sources: [] }, types: interner,
@@ -142,14 +142,14 @@ export async function loadFrontFixture() {
       return { module, text, raw: raw.value, definitions: definitions.value };
     });
     const definitions = new Map(captured.map(entry => [entry.module, new Map(entry.definitions.rows.map(row => [row.node, row.definition]))]));
-    const bindings = new Map(captured.map(entry => [entry.module, new Map(entry.definitions.bindingSources.map(row => [row.node, row.occurrence]))]));
+    const occurrences = new Map(captured.map(entry => [entry.module, new Map(entry.definitions.sourceOccurrences.map(row => [row.node, row]))]));
     const text = new Map(captured.map(entry => [entry.module, entry.text]));
     const first = captured[0];
     assert.equal(first !== undefined, true, "a real source module inventory is nonempty");
     const exported = new Map();
     const deps = { ...lowerDepsFor(first.definitions, interner, first.text),
       definitionOf: reference => definitions.get(reference.module)?.get(reference.node) ?? assert.fail("an actual cross-module F1 declaration is required"),
-      bindingOccurrenceOf: reference => bindings.get(reference.module)?.get(reference.node) ?? null,
+      sourceOccurrenceOf: reference => occurrences.get(reference.module)?.get(reference.node) ?? null,
       sourceTextOf: module => text.get(module) ?? assert.fail("actual captured source text is required"),
       exportsOf: module => exported.get(module) ?? null };
     for (const entry of captured) {

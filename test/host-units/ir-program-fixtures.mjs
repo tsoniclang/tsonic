@@ -130,13 +130,13 @@ export function moduleFixture(path = "src/main.ts", root = "/program") {
     rawLocations: [], fieldBindings: [], recordBindings: [], memoryBindings: [],
     selectedMemoryDeclarations: [], closedArrays: [],
   };
-  const published = { instance, tir, mir, observations: { instance, rows: [] }, facts: [facts] };
+  const published = { kind: "selected", instance, tir, mir, observations: { instance, rows: [] }, facts: [facts] };
   const module = { module: moduleId, tree, bodies: [published] };
   const index = {
     schema: 1, nativeFactsKey: selectedNativeFactsKey, rootPackage: packageId,
     packages: [{ id: packageId, name: null, packageRoot: root, sourceRoot: root + "/src", dependencies: [], exports: [] }],
     modules: [{ module: moduleId, package: packageId, items: [{ definition, node: 0 }], exports: [], bindings: [], checkerDiagnostics: [] }],
-    types, signatures: [], bodies: [{ instance, module: moduleId, owner: definition, root: 0,
+    types, signatures: [], bodies: [{ kind: "selected", instance, module: moduleId, owner: definition, root: 0,
       mirLocalCount: 0, mirConstantCount: 0, mirPlaceCount: 0, mirBlockCount: 1 }],
     dependencyInventory: { operations: [{ kind: "body", execution: { instance, provided: 0 } }], dependencies: [],
       components: [{ kind: "body", members: [0], rows: [], dependencies: [] }] },

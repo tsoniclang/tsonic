@@ -159,12 +159,14 @@ export interface MemberSelectorRecord {
 
 export interface IndexKeyRecord {
   readonly kind: "index-key" | "index-value";
-  readonly declaration: DefId;
+  readonly origin: SourceNodeRef;
+  readonly key: TyId;
 }
 
 export interface IndexValueRecord {
   readonly kind: "index-key" | "index-value";
-  readonly declaration: DefId;
+  readonly origin: SourceNodeRef;
+  readonly key: TyId;
 }
 
 export interface ProjectionSourceRecord {
@@ -518,13 +520,15 @@ export function createEvidenceSchemas(data: DataSchemas): EvidenceSchemas {
   });
 
   const indexKeySchema = recordSchema<IndexKeyRecord>("IndexKey", "index-key", read => {
-    const declaration = read("declaration", () => defSchema, value => value.declaration);
-    return { fields: [declaration], value: () => ({ kind: "index-key", declaration: declaration.value() }) };
+    const origin = read("origin", () => sourceNodeRefSchema, value => value.origin);
+    const key = read("key", () => tSchema, value => value.key);
+    return { fields: [origin, key], value: () => ({ kind: "index-key", origin: origin.value(), key: key.value() }) };
   });
 
   const indexValueSchema = recordSchema<IndexValueRecord>("IndexValue", "index-value", read => {
-    const declaration = read("declaration", () => defSchema, value => value.declaration);
-    return { fields: [declaration], value: () => ({ kind: "index-value", declaration: declaration.value() }) };
+    const origin = read("origin", () => sourceNodeRefSchema, value => value.origin);
+    const key = read("key", () => tSchema, value => value.key);
+    return { fields: [origin, key], value: () => ({ kind: "index-value", origin: origin.value(), key: key.value() }) };
   });
 
   const projectionSourceSchema = recordSchema<ProjectionSourceRecord>("ProjectionSource", "projection-source", () => {

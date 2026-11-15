@@ -286,8 +286,9 @@ export function createDecisionWires(scalars: ScalarWires): DecisionWires {
     field("origin", () => memberOriginWire, value => value.origin, origin => finish(() => ({ kind: "member", origin }))));
 
   function indexSelector<Kind extends "index-key" | "index-value">(kind: Kind) {
-    return record<{ readonly kind: Kind; readonly declaration: DefId }>(kind, () =>
-      field("declaration", () => definitionWire, value => value.declaration, declaration => finish(() => ({ kind, declaration }))));
+    return record<{ readonly kind: Kind; readonly origin: SourceNodeRef; readonly key: TyId }>(kind, () =>
+      field("origin", () => sourceWire, value => value.origin, origin =>
+        field("key", () => typeWire, value => value.key, key => finish(() => ({ kind, origin, key })))));
   }
 
   const parameterSelector = record<ComponentSelector & { readonly kind: "parameter" }>("parameter", () =>

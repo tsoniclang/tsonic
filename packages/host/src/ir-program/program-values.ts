@@ -186,6 +186,7 @@ function inventorySelector(scan: ProjectionInventory, value: ComponentSelector):
   const step = chargeInstantiationWork(scan.meter);
   if (step !== null) return step;
   switch (value.kind) {
+    case "index-key": case "index-value": return inventoryRecord(scan, 3) ?? inventoryType(scan, value.key);
     case "parameter": return inventoryRecord(scan, 3) ?? inventorySignature(scan, value.signature);
     case "receiver":
     case "result": return inventoryRecord(scan, 2) ?? inventorySignature(scan, value.signature);
@@ -208,8 +209,6 @@ function inventorySelector(scan: ProjectionInventory, value: ComponentSelector):
     case "argument-tail":
     case "parameter-tail":
     case "member":
-    case "index-key":
-    case "index-value":
     case "projection-source":
     case "tuple-slice":
     case "type-argument":

@@ -1,5 +1,5 @@
 import type { NativeFactsKey, FloatingBitsFit, FloatingFormatWidth, NativeCarrierOf, LiteralCompatibilityOf, NativeIntegerGeometryOf, PlatformDeclarationKey, VerifyNativeFacts, MemberStorageData, CreateTypeInterner, SeedTypeInterner, InternType, InternSignature, ReadType, ReadSignature, ViewTypes,
-  ExportTypes, Substitute, SubstituteSignature, PrintTypes, ParseTypes, VerifyTypes, EncodeSelectorPath, InstanceKey, SameInstance, ExecutionKey,
+  ExportTypes, Substitute, SubstituteSignature, PrintTypes, ParseTypes, VerifyTypes, EncodeSelectorPath, CompareIndexSignatures, InstanceKey, SameInstance, ExecutionKey,
   DeclaredExecutionKey, BindingVectorKey, ArtifactBindingsKey, BindingVectorData, ArtifactBindingsData,
   SignatureRequestData, SignatureRequestKey, ConstantReferenceKey, SubstituteBindingValues, RigidBindings } from "./contract.js";
 import { createTypeInterner as create, seedTypeInterner as seed, internType as intern, internSignature as signature,
@@ -14,7 +14,7 @@ import { nativeFactsKey as nativeKey, nativeIntegerGeometryOf as integerGeometry
 import { nativeCarrierOf as carrier } from "./native-carrier.js";
 import { literalCompatibilityOf as literalCompatibility } from "./literal-compatibility.js";
 import { selectorPathKey } from "./selector-path.js";
-import { artifactBindingsData as projectArtifactBindings, artifactBindingsKeyOf, bindingVectorData as projectBindingVector,
+import { compareIndexSignatures as compareIndexes, artifactBindingsData as projectArtifactBindings, artifactBindingsKeyOf, bindingVectorData as projectBindingVector,
   bindingVectorKeyOf, declaredExecutionKeyOf, executionKeyOf, instanceKeyOf, sameInstanceAs,
   signatureRequestData as projectSignatureRequest, signatureRequestKeyOf, constantReferenceKeyOf, rigidBindings as rigid, memberStorageData as projectMemberStorage } from "./value.js";
 
@@ -42,6 +42,7 @@ export const substituteBindingValues: SubstituteBindingValues = transformBinding
 export const printTypes: PrintTypes = print;
 export const parseTypes: ParseTypes = parse;
 export const verifyTypes: VerifyTypes = verify;
+export const compareIndexSignatures: CompareIndexSignatures = compareIndexes;
 export const verifyBindings: VerifyBindings = verifyBindingVectors;
 export const encodeSelectorPath: EncodeSelectorPath = selectorPathKey;
 export const instanceKey: InstanceKey = instanceKeyOf;

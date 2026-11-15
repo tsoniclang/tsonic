@@ -592,7 +592,7 @@ test("type and signature closure follows every actual arena edge without travers
     { kind: "tuple", elements: [{ kind: "required", type: 0, declaration: parameterDeclaration },
       { kind: "optional", type: 1, declaration: null }, { kind: "rest", type: 0, declaration: null }], readonly: false },
     { kind: "fixed-array", element: 0, extent: { length: 9007199254740993n, runtimeBase: "bigint" } },
-    { kind: "shape", members: [member], indexes: [{ declaration: `D[${moduleIdentity};Model/index]`, key: 1, read: 0, write: 0, readonly: false }],
+    { kind: "shape", members: [member], indexes: [{ origin: { kind: "item", value: { owner: `D[${moduleIdentity};Model/index]`, node: 0 } }, key: 1, read: 0, write: 0, readonly: false }],
       calls: [0], constructs: [1] },
     { kind: "callable", calls: [0], constructs: [1] },
     { kind: "declared", definition: nominal, arguments: [0], facet: "instance", extent: null },
@@ -611,7 +611,8 @@ test("type and signature closure follows every actual arena edge without travers
   const contributions = constraints.map((constraint, index) => ({ key: { node: constraint.occurrence, candidate: null,
     role: { kind: "equality", direction: "left-to-right" } }, reads: [], bounds: [0], constraint: { body, index } }));
   const input = { constraints: [constraintSet(constraints, [localVariable(0)])], contributions,
-    types: { terms, signatures: [signature, extra] }, nodes: [{ owner: source, ids: terms.map((term, index) => index) }],
+    types: { terms, signatures: [signature, extra] }, nodes: [{ owner: source, ids: terms.map((term, index) => index) },
+      { owner: terms[10].indexes[0].origin, ids: [0] }],
     nominals: [[nominal, { kind: "declared", facets: ["instance", "value"] }], [enumeration, { kind: "enum", facets: ["value"] }]] };
   fullEqual(product.verifyInference(verificationInput(input)), [], "all type and signature records are actual data, not a TypeOf shadow table");
   const bad = { ...input, contributions: contributions.map((contribution, index) => index === 10 ? { ...contribution, bounds: [] } : contribution) };
@@ -2334,7 +2335,9 @@ test("binding families, sum components, nominal identity and pointer evidence re
     ...["tuple-element", "union-member", "argument-place", "parameter-place", "intersection-member"].map(kind => recordGolden(kind, { index: scalarGolden(0) }, kind)),
     ...["argument-tail", "parameter-tail"].map(kind => recordGolden(kind, { start: scalarGolden(0) }, kind)),
     recordGolden("member", { origin: recordGolden("declared", { declaration: definitionGolden }, "declared") }, "member"),
-    ...["index-key", "index-value"].map(kind => recordGolden(kind, { declaration: definitionGolden }, kind)),
+    ...["index-key", "index-value"].flatMap(kind => [sourceGolden, recordGolden("item", {
+      value: recordGolden("ItemNodeRef", { owner: definitionGolden, node: scalarGolden(0, "n") }) }, "item")]
+      .map(origin => recordGolden(kind, { origin, key: typeGolden }, kind))),
     recordGolden("parameter", { signature: signatureGolden, index: scalarGolden(0) }, "parameter"),
     recordGolden("receiver", { signature: signatureGolden }, "receiver"),
     recordGolden("signature-tail", { signature: signatureGolden, start: scalarGolden(0), readonly: scalarGolden(true) }, "signature-tail"),

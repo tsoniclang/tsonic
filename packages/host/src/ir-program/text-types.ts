@@ -290,7 +290,7 @@ export function textComponentSelector(value: ComponentSelector): TextWork {
       case "index-key":
       case "index-value":
         return record(value.kind, [
-      field("declaration", identity("def", value.declaration)),
+      field("origin", textSourceNodeRef(value.origin)), field("key", numericIdentity("t", value.key)),
     ]);
       case "projection-source":
         return record(value.kind, []);

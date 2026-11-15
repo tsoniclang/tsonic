@@ -231,6 +231,8 @@ function rewriteSelector(
         index: selector.index,
       };
     }
+    case "index-key":
+    case "index-value": return { ...selector, key: rewrite.type(selector.key) };
     case "class-value":
     case "construction-argument":
     case "optional-value":
@@ -244,8 +246,6 @@ function rewriteSelector(
     case "argument-tail":
     case "parameter-tail":
     case "member":
-    case "index-key":
-    case "index-value":
     case "projection-source":
     case "tuple-slice":
     case "type-argument":

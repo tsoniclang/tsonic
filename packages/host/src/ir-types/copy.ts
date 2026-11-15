@@ -37,6 +37,8 @@ function copyComponent(value: TypeComponent): TypeComponent {
         parent: { frame, family: selector.family, index: selector.index } };
     } else if (selector.kind === "construction-argument") {
       frame.path.push({ ...selector, definition: copyConstruction(selector.definition) });
+    } else if (selector.kind === "index-key" || selector.kind === "index-value") {
+      frame.path.push({ ...selector, origin: copySource(selector.origin) });
     } else if (selector.kind === "member") {
       frame.path.push({ ...selector, origin: copyOrigin(selector.origin) });
     } else frame.path.push({ ...selector });
@@ -54,7 +56,7 @@ export function copyType(value: TypeTerm): TypeTerm {
     case "fixed-array": return { ...value, extent: { ...value.extent } };
     case "shape": return { ...value, members: value.members.map(member => ({ ...member, key: copyKey(member.key),
       origins: member.origins.map(copyOrigin), readOrigins: member.readOrigins.map(copyOrigin),
-      writeOrigins: member.writeOrigins.map(copyOrigin) })), indexes: value.indexes.map(index => ({ ...index })),
+      writeOrigins: member.writeOrigins.map(copyOrigin) })), indexes: value.indexes.map(index => ({ ...index, origin: copySource(index.origin) })),
       calls: [...value.calls], constructs: [...value.constructs] };
     case "callable": return { ...value, calls: [...value.calls], constructs: [...value.constructs] };
     case "declared": return { ...value, arguments: [...value.arguments], extent: value.extent === null ? null : { ...value.extent } };

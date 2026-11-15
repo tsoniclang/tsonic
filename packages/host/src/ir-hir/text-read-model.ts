@@ -85,8 +85,8 @@ export interface HirReadGroup2 {
   readonly record_61: HirReader<{ readonly kind: "number"; readonly value: Types.ExactRational; }>;
   readonly record_62: HirReader<Types.ExactRational>;
   readonly record_63: HirReader<{ readonly kind: "symbol"; readonly declaration: Ids.DefId; }>;
-  readonly record_64: HirReader<{ readonly kind: "index-key" | "index-value"; readonly declaration: Ids.DefId; }>;
-  readonly record_65: HirReader<{ readonly kind: "index-key" | "index-value"; readonly declaration: Ids.DefId; }>;
+  readonly record_64: HirReader<{ readonly kind: "index-key" | "index-value"; readonly origin: Ids.SourceNodeRef; readonly key: Ids.TyId; }>;
+  readonly record_65: HirReader<{ readonly kind: "index-key" | "index-value"; readonly origin: Ids.SourceNodeRef; readonly key: Ids.TyId; }>;
   readonly record_66: HirReader<{ readonly kind: "projection-source"; }>;
   readonly record_67: HirReader<{ readonly kind: "parameter"; readonly signature: Ids.SigId; readonly index: number; }>;
   readonly record_68: HirReader<{ readonly kind: "receiver"; readonly signature: Ids.SigId; }>;

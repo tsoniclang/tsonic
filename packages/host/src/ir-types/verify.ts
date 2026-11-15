@@ -5,7 +5,7 @@ import type { VerifyTypes, TypeRule, TypeSite, ExactRational, TypeTerm, TypePara
   MemberOrigin, TypeEvidence, TypeVerificationInput, TypeComponent, ConstructionDefinition, Signature,
   ComponentSelector, SumFamily, CategoryEvidence } from "./contract.js";
 import { bindingChecks } from "./verify-bindings.js";
-import { typeIdentifier, signatureIdentifier, compareText } from "./value.js";
+import { typeIdentifier, signatureIdentifier, compareText, compareIndexSignatures } from "./value.js";
 import { memberKeyText, originText, typeText } from "./print.js";
 
 type Add = (rule: TypeRule, site: TypeSite, field: string, value?: number) => void;
@@ -99,6 +99,9 @@ function component(root: TypeComponent, site: TypeSite, checks: Checks, path: In
         case "parameter": case "receiver": case "signature-tail": case "result": checks.signature(selector.signature, site); break;
         case "construction-argument": construction(selector.definition, site, checks); break;
         case "member": memberOrigin(selector.origin, site, checks); break;
+        case "index-key": case "index-value":
+          qualified(selector.origin, "projection-owner", site, "component.path.origin", checks);
+          checks.type(selector.key, site); break;
         case "sum-arm": work.push({ kind: "enter", data: { kind: "family", value: selector.family },
           path: { parent: path, part: ".family" } }); break;
       }
@@ -161,6 +164,7 @@ function termReferences(value: TypeTerm, site: TypeSite, checks: Checks, path: I
           vector(origins, "member-origins", site, "members.origins", checks, origin => memberOrigin(origin, site, checks));
       }
       for (const index of value.indexes) if (index !== undefined) {
+        qualified(index.origin, "projection-owner", site, "indexes.origin", checks);
         checks.type(index.key, site); checks.type(index.read, site);
         if (index.write !== null) checks.type(index.write, site);
       }
@@ -312,11 +316,11 @@ export const verifyTypes: VerifyTypes = input => {
         if (!originsValid(member.origins, member.readOrigins, member.writeOrigins)) add("member-origins", site, "members.origins", index);
         if (member.key.kind === "number" && !rationalNormalized(member.key.value)) add("rational-normalized", site, "members.key", index);
       }
-      let previousDeclaration: string | null = null;
+      let previousIndex: typeof value.indexes[number] | null = null;
       for (const [index, entry] of value.indexes.entries()) {
         if (entry === undefined) { add("index-order", site, "indexes", index); continue; }
-        if (previousDeclaration !== null && compareText(previousDeclaration, entry.declaration) >= 0) add("index-order", site, "indexes", index);
-        previousDeclaration = entry.declaration;
+        if (previousIndex !== null && compareIndexSignatures(previousIndex, entry) >= 0) add("index-order", site, "indexes", index);
+        previousIndex = entry;
       }
     }
     if (value.kind === "fixed-array" || value.kind === "declared" && value.extent !== null) {

@@ -116,7 +116,7 @@ export function createHirSchema(): HirSchema {
       ["union-member", [["index", "number"]]], ["argument-place", [["index", "number"]]], ["parameter-place", [["index", "number"]]],
       ["intersection-member", [["index", "number"]]], ["intersection-result", []],
       ["argument-tail", [["start", "number"]]], ["parameter-tail", [["start", "number"]]],
-      ["member", [["origin", "MemberOrigin"]]], ["index-key", [["declaration", "DefId"]]], ["index-value", [["declaration", "DefId"]]],
+      ["member", [["origin", "MemberOrigin"]]], ["index-key", [["origin", sourceReference], ["key", "TyId"]]], ["index-value", [["origin", sourceReference], ["key", "TyId"]]],
       ["projection-source", []], ["parameter", [["signature", "SigId"], ["index", "number"]]], ["receiver", [["signature", "SigId"]]],
       ["signature-tail", [["signature", "SigId"], ["start", "number"], ["readonly", "boolean"]]],
       ["tuple-slice", [["start", "number"], ["endCount", "number"], ["readonly", "boolean"]]],

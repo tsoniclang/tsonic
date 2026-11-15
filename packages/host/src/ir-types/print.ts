@@ -88,7 +88,7 @@ function selector(value: ComponentSelector): TextRecord {
     case "intersection-member": return record(value.kind, value, ["index", value.index]);
     case "argument-tail": case "parameter-tail": return record(value.kind, value, ["start", value.start]);
     case "member": return record(value.kind, value, ["origin", origin(value.origin)]);
-    case "index-key": case "index-value": return record(value.kind, value, ["declaration", reference("def", value.declaration)]);
+    case "index-key": case "index-value": return record(value.kind, value, ["origin", source(value.origin)], ["key", reference("t", value.key)]);
     case "parameter": return record(value.kind, value, ["signature", reference("sig", value.signature)], ["index", value.index]);
     case "receiver": case "result": return record(value.kind, value, ["signature", reference("sig", value.signature)]);
     case "signature-tail": return record(value.kind, value, ["signature", reference("sig", value.signature)],
@@ -111,7 +111,7 @@ function member(value: Member): TextRecord {
 }
 
 function index(value: IndexSignature): TextRecord {
-  return record("IndexSignature", value, ["declaration", reference("def", value.declaration)], ["key", reference("t", value.key)],
+  return record("IndexSignature", value, ["origin", source(value.origin)], ["key", reference("t", value.key)],
     ["read", reference("t", value.read)], ["write", value.write === null ? null : reference("t", value.write)], ["readonly", value.readonly]);
 }
 

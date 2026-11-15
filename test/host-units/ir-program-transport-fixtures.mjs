@@ -464,10 +464,10 @@ export function genericCarrierCase(fixture, kind) {
     case "optional-absence": generic = { kind: "optional", value: 2 }; concrete = { kind: "intrinsic", intrinsic: "absence" }; break;
     case "tuple": generic = { kind, readonly: false, elements: [{ kind: "required", type: 2, declaration: fixture.definition },
       { kind: "optional", type: 3, declaration: null }] }; concrete = { ...generic, elements: generic.elements.map(value => ({ ...value, type: 1 })) }; break;
-    case "shape": generic = { kind, members: [member], indexes: [{ declaration: fixture.definition, key: 1, read: 2, write: 3, readonly: false }], calls: [0], constructs: [] };
+    case "shape": generic = { kind, members: [member], indexes: [{ origin: reference, key: 1, read: 2, write: 3, readonly: false }], calls: [0], constructs: [] };
       concrete = { ...generic, members: [{ ...member, read: 1 }], indexes: [{ ...generic.indexes[0], read: 1, write: 1 }] }; break;
     case "write-only-shape": generic = { kind: "shape", members: [{ ...member, read: null, write: 2, readonly: false }],
-      indexes: [{ declaration: fixture.definition, key: 1, read: 3, write: null, readonly: true }], calls: [], constructs: [] };
+      indexes: [{ origin: reference, key: 1, read: 3, write: null, readonly: true }], calls: [], constructs: [] };
       concrete = { ...generic, members: [{ ...generic.members[0], write: 1 }], indexes: [{ ...generic.indexes[0], read: 1 }] }; break;
     case "declared": generic = { kind, definition: fixture.definition, arguments: [2, 3], facet: "instance", extent: null };
       concrete = { ...generic, arguments: [1, 1] }; break;
@@ -524,8 +524,8 @@ export function transportTypeTable(fixture) {
     { kind: "optional-value" }, { kind: "array-element" }, { kind: "tuple-element", index: 0 },
     { kind: "union-member", index: 0 }, { kind: "argument-place", index: 0 }, { kind: "parameter-place", index: 0 },
     { kind: "intersection-member", index: 0 }, { kind: "intersection-result" }, { kind: "argument-tail", start: 0 },
-    { kind: "parameter-tail", start: 0 }, { kind: "member", origin: origins[2] }, { kind: "index-key", declaration: definition },
-    { kind: "index-value", declaration: definition }, { kind: "projection-source" },
+    { kind: "parameter-tail", start: 0 }, { kind: "member", origin: origins[2] }, { kind: "index-key", origin: item, key: 2 },
+    { kind: "index-value", origin: item, key: 1 }, { kind: "projection-source" },
     { kind: "parameter", signature: 0, index: 0 }, { kind: "receiver", signature: 0 },
     { kind: "signature-tail", signature: 0, start: 0, readonly: true }, { kind: "tuple-slice", start: 0, endCount: 1, readonly: false },
     { kind: "result", signature: 0 }, { kind: "type-argument", declaration: definition, index: 0 },
@@ -548,8 +548,8 @@ export function transportTypeTable(fixture) {
         kind: "method", read: null, write: null, optional: true, readonly: true },
       { key: { kind: "symbol", declaration: definition }, origins: [origins[2]], readOrigins: [origins[2]], writeOrigins: [],
         kind: "accessor", read: 1, write: null, optional: false, readonly: true },
-    ], indexes: [{ declaration: definition, key: 2, read: 1, write: 2, readonly: false },
-      { declaration: definition, key: 1, read: 2, write: null, readonly: true }], calls: [0], constructs: [1] },
+    ], indexes: [{ origin: item, key: 1, read: 2, write: null, readonly: true },
+      { origin: item, key: 2, read: 1, write: 2, readonly: false }], calls: [0], constructs: [1] },
     { kind: "callable", calls: [0], constructs: [1] },
     { kind: "declared", definition, arguments: [1, 2], facet: "instance", extent: null },
     { kind: "declared", definition, arguments: [], facet: "value", extent: { length: 0n, runtimeBase: "number" } },

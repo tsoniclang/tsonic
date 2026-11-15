@@ -148,8 +148,8 @@ export function publicationShape(selected: PublicationRecord): PublicationShape 
         case "argument-tail": return { work: 2, references: 0, children: [] };
         case "parameter-tail": return { work: 2, references: 0, children: [] };
         case "member": return { work: 2, references: 0, children: [{ kind: "origin", value: value.origin }] };
-        case "index-key": return { work: 2, references: 0, children: [] };
-        case "index-value": return { work: 2, references: 0, children: [] };
+        case "index-key": return { work: 3, references: 1, children: [{ kind: "source", value: value.origin }] };
+        case "index-value": return { work: 3, references: 1, children: [{ kind: "source", value: value.origin }] };
         case "parameter": return { work: 3, references: 1, children: [] };
         case "receiver": return { work: 2, references: 1, children: [] };
         case "result": return { work: 2, references: 1, children: [] };
@@ -213,7 +213,7 @@ export function publicationShape(selected: PublicationRecord): PublicationShape 
     }
     case "index-signature": {
       const value = selected.value;
-      return { work: 5, references: 2 + Number(value.write !== null), children: [] };
+      return { work: 5, references: 2 + Number(value.write !== null), children: [{ kind: "source", value: value.origin }] };
     }
   }
 }

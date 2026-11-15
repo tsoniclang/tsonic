@@ -317,11 +317,13 @@ export const createTypeValuesText = (kernel: TirTextKernel): TypeValuesTextModel
     .field("origin", "MemberOrigin", value => work_MemberOrigin.write(value.origin), lazyReader(() => work_MemberOrigin.reader))
     .finish((field_origin) => ({ kind: "member", origin: field_origin })));
   const work_ComponentSelector_index_key: TirRecordCodec<ComponentSelector & { readonly kind: "index-key" | "index-value" }> = defineRecord<ComponentSelector & { readonly kind: "index-key" | "index-value" }>("ComponentSelector#index-key", "ComponentSelector", { field: "kind", value: "index-key" }, "index-key", null, null, fields => fields
-    .field("declaration", "def", value => referenceWork("def", value.declaration), definitionReader)
-    .finish((field_declaration) => ({ kind: "index-key", declaration: field_declaration })));
+    .field("origin", "SourceNodeRef", value => work_SourceNodeRef.write(value.origin), lazyReader(() => work_SourceNodeRef.reader))
+    .field("key", "t", value => referenceWork("t", value.key), typeReader)
+    .finish((field_origin, field_key) => ({ kind: "index-key", origin: field_origin, key: field_key })));
   const work_ComponentSelector_index_value: TirRecordCodec<ComponentSelector & { readonly kind: "index-key" | "index-value" }> = defineRecord<ComponentSelector & { readonly kind: "index-key" | "index-value" }>("ComponentSelector#index-value", "ComponentSelector", { field: "kind", value: "index-value" }, "index-value", null, null, fields => fields
-    .field("declaration", "def", value => referenceWork("def", value.declaration), definitionReader)
-    .finish((field_declaration) => ({ kind: "index-value", declaration: field_declaration })));
+    .field("origin", "SourceNodeRef", value => work_SourceNodeRef.write(value.origin), lazyReader(() => work_SourceNodeRef.reader))
+    .field("key", "t", value => referenceWork("t", value.key), typeReader)
+    .finish((field_origin, field_key) => ({ kind: "index-value", origin: field_origin, key: field_key })));
   const work_ComponentSelector_projection_source: TirRecordCodec<ComponentSelector & { readonly kind: "projection-source" }> = defineRecord<ComponentSelector & { readonly kind: "projection-source" }>("ComponentSelector#projection-source", "ComponentSelector", { field: "kind", value: "projection-source" }, "projection-source", null, null, fields => fields
     .finish(() => ({ kind: "projection-source" })));
   const work_ComponentSelector_parameter: TirRecordCodec<ComponentSelector & { readonly kind: "parameter" }> = defineRecord<ComponentSelector & { readonly kind: "parameter" }>("ComponentSelector#parameter", "ComponentSelector", { field: "kind", value: "parameter" }, "parameter", null, null, fields => fields

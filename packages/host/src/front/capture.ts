@@ -7,7 +7,7 @@ import { nodeId, rawCandidateListId, rawComponentId, rawMemberTableId, rawSignat
 import type * as Hir from "../ir-hir/contract.js";
 import type { RawComponentId, RawSignatureId, RawSymbolId, RawTypeId } from "../ids/contract.js";
 import type {
-  CaptureDeps, CheckedProgram, RawArgumentBinding, RawAuthoredArgument, RawBinding, RawBindingTarget, RawCallSelection, RawCallableAssociation, RawCandidateList, RawCoreCapture, RawCheckedType, RawCheckerViews, RawComponent, RawComponentStep, RawDiagnosticCoverage, RawFact, RawLiteral, RawMemberKey, RawMemberTable, RawModule, RawModuleExport, RawModuleLink, RawNodeRef, RawParameter, RawPropertyName, RawProviderDeclaration, RawReference, RawSignature, RawSymbol, RawTypeArgument, RawTypeForm,
+  CaptureDeps, CheckedProgram, RawArgumentBinding, RawAuthoredArgument, RawBinding, RawBindingTarget, RawCallSelection, RawCallableAssociation, RawCandidateList, RawCoreCapture, RawCheckedType, RawCheckerViews, RawComponent, RawComponentStep, RawDiagnosticCoverage, RawFact, RawIndexSignature, RawLiteral, RawMemberKey, RawMemberTable, RawModule, RawModuleExport, RawModuleLink, RawNodeRef, RawParameter, RawPropertyName, RawProviderDeclaration, RawReference, RawSignature, RawSymbol, RawTypeArgument, RawTypeForm,
 } from "./contract.js";
 import { ExtensionTable, OpenedProgram } from "./handles.js";
 import type { FileNumbering, FileSyntaxEntry } from "./handles.js";
@@ -348,8 +348,9 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId): Ra
   }
   const calls = shape.getCallSignatures(type);
   const constructs = shape.getConstructSignatures(type);
-  if (calls.length !== 0 || constructs.length !== 0) {
-    if (shape.getPropertyInfos(type).length !== 0 || shape.getIndexInfos(type).length !== 0)
+  const selectedIndexes = shape.getIndexInfos(type);
+  if (calls.length !== 0 || constructs.length !== 0 || selectedIndexes.length !== 0) {
+    if (shape.getPropertyInfos(type).length !== 0)
       throw new TypeError("front: the captured members of a callable checker type are not implemented");
     if (!admit(scope, "facts")) return null;
     const inventory = rawMemberTableId(scope.tables.nextMember++);
@@ -370,7 +371,33 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId): Ra
     if (callSignatures === null) return null;
     const constructSignatures = captureSignatures(constructs, "construct");
     if (constructSignatures === null) return null;
-    scope.tables.members[inventory] = { id: inventory, component: position, members: [], indexes: [], elementBinders: available([]),
+    const indexes: RawIndexSignature[] = [];
+    const parent = scope.tables.components[position];
+    if (parent === undefined) return throwInvariant(invariant("An index inventory requires its actual captured type component."));
+    for (let index = 0; index < selectedIndexes.length; index += 1) {
+      if (!admit(scope, "facts") || !admit(scope, "edges")) return null;
+      const selected = selectedIndexes[index];
+      if (selected === undefined || selected.keyType === undefined || selected.valueType === undefined)
+        return throwInvariant(invariant("A checked index inventory must retain its actual key and value types."));
+      const mapped = declarations.length === 1 ? declarations[0] : undefined;
+      const declaration = selected.declaration ?? (mapped !== undefined && scope.checked.ast.kindName(mapped) === "KindMappedType" ? mapped : undefined);
+      if (declaration === undefined) throw new TypeError("front: a selected index without its actual declared or mapped source origin is not implemented");
+      const origin = referenceTo(scope, scope.program, declaration);
+      if (scope.meter.refusal !== null) return null;
+      if (origin === null) return throwInvariant(invariant("A selected index origin must belong to the actual captured source domain."));
+      for (let part = 0; part < parent.path.length; part += 1) if (!admit(scope, "edges")) return null;
+      const key = rawTypeId(scope.tables.nextType);
+      const capturedKey = rawType(scope, () => selected.keyType,
+        component(scope, parent.root, [...parent.path, { kind: "index-key", origin, key }]), null);
+      if (capturedKey === null) return null;
+      if (capturedKey !== key) return throwInvariant(invariant("An index selector must retain its actual captured row key."));
+      for (let part = 0; part < parent.path.length; part += 1) if (!admit(scope, "edges")) return null;
+      const value = rawType(scope, () => selected.valueType,
+        component(scope, parent.root, [...parent.path, { kind: "index-value", origin, key }]), null);
+      if (value === null) return null;
+      indexes.push({ origin, key, value, readonly: selected.readonly });
+    }
+    scope.tables.members[inventory] = { id: inventory, component: position, members: [], indexes, elementBinders: available([]),
       calls: callSignatures, constructs: constructSignatures };
     return { kind: "structure", inventory };
   }
