@@ -2,7 +2,7 @@ import type { Diagnostic } from "../diag/contract.js";
 import type { BodyId, DefId, LocalId, LocalRef, NodeId, NodeRef, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { BindingVector, CategoryEvidence, Signature } from "../ir-types/contract.js";
 import type { Expression, HirBody, HirNode, HirParam, CheckedPhase } from "../ir-hir/contract.js";
-import type { CallConstraint, FlowConstraint, InferenceCandidateList, InferenceGroup, InferenceValue, InferenceVariable, InferredPartType, InferredSignaturePart, OperatorConstraint } from "../ir-infer/contract.js";
+import type { CallConstraint, FlowConstraint, InferenceCandidateList, InferenceGroup, InferenceValue, InferenceVariable, InferredPartType, InferredSignaturePart, MemberConstraint, OperatorConstraint } from "../ir-infer/contract.js";
 import type { ConstraintsOf, ConstraintsPaused, ConstraintsRequest, GroupConstraints, InferDeps, InferStep, ResumeConstraintsOf } from "./contract.js";
 import { requirePresent, resourceLimitDiagnostic } from "../diag/index.js";
 import { internType, readType, signatureRequestKey } from "../ir-types/index.js";
@@ -26,6 +26,7 @@ type ParameterIndex = Map<BodyId, ReadonlyMap<LocalId, ParameterPosition>>;
 type DraftConstraint =
   | Omit<FlowConstraint, "from" | "to"> & { readonly from: Slot; readonly to: Slot }
   | Omit<OperatorConstraint, "operands" | "result"> & { readonly operands: readonly Slot[]; readonly result: Slot }
+  | Omit<MemberConstraint, "receiver" | "result"> & { readonly receiver: Slot; readonly result: Slot }
   | CallConstraint;
 
 interface Draft {
@@ -218,7 +219,8 @@ function generate(deps: InferDeps, group: InferenceGroup, signatures: ReadonlyMa
       const pending: Frame[] = [{ kind: "enter", node: body.root }];
       for (let frame = pending.pop(); frame !== undefined; frame = pending.pop()) {
         if (frame.kind === "enter") {
-          if (frame.node.kind === "BinaryExpression" || frame.node.kind === "PrefixUnaryExpression" || frame.node.kind === "CallExpression") {
+          if (frame.node.kind === "BinaryExpression" || frame.node.kind === "PrefixUnaryExpression" || frame.node.kind === "CallExpression"
+            || frame.node.kind === "PropertyAccessExpression") {
             const diagnostic = allocate(walk, { kind: "local", local: null, occurrence: refOf(walk, frame.node) });
             if (diagnostic !== null) return refused(diagnostic);
             walk.operators.set(frame.node.id, internType(deps.types,
@@ -255,6 +257,7 @@ function generate(deps: InferDeps, group: InferenceGroup, signatures: ReadonlyMa
     constraints: draft.constraints.map(constraint => constraint.kind === "flow"
       ? { ...constraint, from: typeOf(constraint.from), to: typeOf(constraint.to) }
       : constraint.kind === "op" ? { ...constraint, operands: constraint.operands.map(typeOf), result: typeOf(constraint.result) }
+      : constraint.kind === "member" ? { ...constraint, receiver: typeOf(constraint.receiver), result: typeOf(constraint.result) }
       : constraint),
     evidence: draft.evidence.map(entry => {
       const part = typeof entry.type === "number" ? undefined : generation.outsideParts.get(inferredPartKey(entry.type.part));
@@ -293,6 +296,7 @@ function childrenOf(node: HirNode): readonly HirNode[] {
     case "PrefixUnaryExpression": return [node.operand];
     case "BinaryExpression": return [node.left, node.right];
     case "CallExpression": return [node.expression, ...node.arguments.nodes];
+    case "PropertyAccessExpression": return [node.expression];
     case "Identifier": case "TrueKeyword": case "FalseKeyword": case "StringLiteral": case "NullKeyword": return [];
     default: return notInferredYet(PORT, `a ${node.kind}`, node.origin);
   }
@@ -306,6 +310,18 @@ function leave(walk: Walk, node: HirNode): void {
     walk.typeOf.set(node.id, node.tsonic.value.views.read.value);
   }
   else if (node.kind === "ParenthesizedExpression") walk.typeOf.set(node.id, typeAt(walk, node.expression));
+  else if (node.kind === "PropertyAccessExpression") {
+    if (node.questionDotToken !== null || node.tsonic.role !== "value" || node.tsonic.origins.kind !== "available"
+      || node.name.kind !== "Identifier" || node.name.tsonic.role !== "property-name" || node.name.tsonic.key.kind !== "available")
+      return notInferredYet(PORT, "the actual checked member key and declaration origins", node.origin);
+    const result = present(walk.operators.get(node.id), "the actual member result position");
+    const receiver = typeAt(walk, node.expression);
+    walk.draft.constraints.push({ kind: "member", occurrence: refOf(walk, node), receiver,
+      key: node.name.tsonic.key.value, access: "read", result, origins: node.tsonic.origins.value, bindings: TEMPLATE });
+    walk.draft.evidence.push({ type: receiver, node: node.expression, component: { kind: "body", value: refOf(walk, node.expression) } },
+      { type: result, node, component: { kind: "body", value: refOf(walk, node) } });
+    walk.typeOf.set(node.id, result);
+  }
   else if (node.kind === "PrefixUnaryExpression") {
     if (node.operator !== "ExclamationToken" || node.tsonic.role !== "value")
       return notInferredYet(PORT, `the unary operator ${node.operator} of role ${node.tsonic.role}`, node.origin);
@@ -481,7 +497,7 @@ function evidenceOf(deps: InferDeps, group: InferenceGroup, type: TyId, node: Hi
   const term = readType(deps.types, type);
   if ((term.kind === "error") !== (error !== null))
     return notInferredYet(PORT, "the actual checked error association of a constraint type position", node.origin);
-  if (term.kind === "open" || term.kind === "error")
+  if (term.kind === "open" || term.kind === "error" || term.kind === "shape")
     return { value: { type, component, category: { kind: "dynamic" }, numeric: null, sum: null, nominal: null, pointer: null }, error };
   if (term.kind === "callable") return { value: { type, component, category: { kind: "known", category: "callable" },
     numeric: null, sum: null, nominal: null, pointer: null }, error: null };

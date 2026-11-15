@@ -12,7 +12,7 @@ import { shaped } from "./fixtures/lower-mir/programs/first.mjs";
 import { nativeFactsFixture } from "./fixtures/native-facts.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
-const runtimeFiles = ["index", "machine", "budget", "pause"].map(name => resolve(repository, `packages/host/dist/evaluate/${name}.js`));
+const runtimeFiles = ["index", "machine", "integer", "budget", "pause"].map(name => resolve(repository, `packages/host/dist/evaluate/${name}.js`));
 const limits = { maximumSteps: 100, maximumIntermediateBits: 256, maximumResultBits: 256, maximumArithmeticWork: 256 };
 const comparisonTypes = ["int8", "int64", "uint64", "native-int", "native-uint"].map(carrier =>
   [carrier, declareType(`evaluationComparison.${carrier}`, { kind: "primitive", primitive: carrier })]);
@@ -127,6 +127,79 @@ test("selected boolean work refuses at every under-limit allowance and completes
   }
 });
 
+test("selected exact string equality preserves payloads and charges both operands before comparison", () => {
+  for (const [index, [left, right]] of [["", ""], ["λ", "λ"], ["\u0000\n", "\u0000\n"], ["e\u0301", "é"], ["a", "b"]].entries()) {
+    for (const operator of ["==", "===", "!=", "!=="]) {
+      const decision = selected({ kind: "string-operator", operator }, [T.string, T.string], T.bool);
+      const value = fixture(`evaluate-string-${index}-${operator}`, T.bool, builder => {
+        const text = value => ({ kind: "StringLiteral", text: value, tokenFlags: [],
+          tsonic: { type: T.string, convertedType: T.string, conversion: { kind: "identity" }, narrowing: null,
+            evidenceIndex: null, demand: { kind: "always" }, role: "value", value } });
+        return builder.block(builder.returns(builder.comparison(text(left), "EqualsEqualsEqualsToken", text(right), decision)));
+      });
+      const required = left.length + right.length + 1;
+      for (let maximum = 0; maximum <= required; maximum += 1) {
+        const result = value.start({ ...limits, maximumArithmeticWork: maximum });
+        assert.equal(result.value.kind, maximum < required ? "refused" : "ok");
+        if (maximum === required) same(result.value.value, { kind: "value", value: { kind: "boolean", type: T.bool,
+          value: operator === "==" || operator === "===" ? left === right : left !== right } }, "no normalization or host numeric conversion");
+      }
+      const assign = value.body.blocks.flatMap(block => block.statements).find(statement => statement.kind === "assign" && statement.value.kind === "binary");
+      const original = assign.value.operation.decision.operation;
+      if (left.length === 0 && right.length === 0) {
+        const refused = value.start({ ...limits, maximumIntermediateBits: 0 });
+        assert.equal(refused.value.kind, "refused");
+        same(refused.value.diagnostics[0].arguments,
+          [{ kind: "text", value: "evaluation.maximumIntermediateBits" }, { kind: "number", value: 0 }], "the boolean output is admitted before comparison");
+      }
+      assign.value.operation.decision.operation = { ...original, operator: "<" };
+      assert.throws(() => value.start(), /actual selected native string operation law/u);
+      assign.value.operation.decision.operation = original;
+    }
+  }
+  const decision = selected({ kind: "string-operator", operator: "===" }, [T.bool, T.bool], T.bool);
+  const malformed = fixture("evaluate-string-malformed", T.bool, builder => builder.block(builder.returns(
+    builder.comparison(builder.keyword("TrueKeyword", T.bool), "EqualsEqualsEqualsToken", builder.keyword("FalseKeyword", T.bool), decision))));
+  assert.throws(() => malformed.start(), /two actual string operands/u);
+  const wrongRight = fixture("evaluate-string-wrong-right", T.bool, builder => builder.block(builder.returns(builder.comparison(
+    { kind: "StringLiteral", text: "x", tokenFlags: [], tsonic: { type: T.string, convertedType: T.string,
+      conversion: { kind: "identity" }, narrowing: null, evidenceIndex: null, demand: { kind: "always" }, role: "value", value: "x" } },
+    "EqualsEqualsEqualsToken", builder.keyword("FalseKeyword", T.bool),
+    selected({ kind: "string-operator", operator: "===" }, [T.string, T.bool], T.bool)))));
+  assert.throws(() => wrongRight.start(), /two actual string operands/u);
+  const missingRight = fixture("evaluate-string-missing-right", T.bool, builder => builder.block(builder.returns(
+    builder.prefix(builder.keyword("TrueKeyword", T.bool), "ExclamationToken", T.bool,
+      selected({ kind: "string-operator", operator: "===" }, [T.bool], T.bool)))));
+  assert.throws(() => missingRight.start(), /two actual string operands/u);
+});
+
+test("selected string concatenation admits represented output and actual operand work before creating the value", () => {
+  for (const [index, [left, right, expected]] of [["", "", ""], ["λ", "\u0000\n", "λ\u0000\n"],
+    ["e", "\u0301", "e\u0301"]].entries()) {
+    const decision = selected({ kind: "string-operator", operator: "+" }, [T.string, T.string], T.string);
+    const value = fixture(`evaluate-string-concat-${index}`, T.string, builder => {
+      const text = value => ({ kind: "StringLiteral", text: value, tokenFlags: [],
+        tsonic: { type: T.string, convertedType: T.string, conversion: { kind: "identity" }, narrowing: null,
+          evidenceIndex: null, demand: { kind: "always" }, role: "value", value } });
+      return builder.block(builder.returns(builder.arithmetic(text(left), "PlusToken", text(right), T.string, decision)));
+    });
+    for (const field of ["maximumIntermediateBits", "maximumResultBits"]) {
+      const required = expected.length * 16;
+      for (let maximum = 0; maximum <= required; maximum += 1) {
+        const result = value.start({ ...limits, [field]: maximum });
+        assert.equal(result.value.kind, maximum < required ? "refused" : "ok", `${field}:${maximum}`);
+        if (maximum === required) same(result.value.value, { kind: "value", value: { kind: "string", type: T.string, value: expected } },
+          "exact content is retained without implicit normalization");
+      }
+    }
+    const requiredWork = left.length + right.length + 1;
+    for (let maximum = 0; maximum <= requiredWork; maximum += 1) {
+      const result = value.start({ ...limits, maximumArithmeticWork: maximum });
+      assert.equal(result.value.kind, maximum < requiredWork ? "refused" : "ok", `work:${maximum}`);
+    }
+  }
+});
+
 test("selected integer comparisons retain exact native values beyond double precision and every equality/order arm", () => {
   const high = 9007199254740993n;
   const exactLimits = { ...limits, maximumArithmeticWork: 10000 };
@@ -167,6 +240,308 @@ test("integer comparison geometry, row reads and comparisons share one exact pre
     const result = value.start({ ...limits, maximumIntermediateBits: maximum });
     assert.equal(result.value.kind, maximum < 8 ? "refused" : "ok", `admit range bits before growth ${maximum}`);
   }
+});
+
+function additionFixture(name, carrier, type, left, right, law = "wrap", result = type, resultCarrier = carrier) {
+  const execution = law === "wrap" ? { kind: "pure" } : { kind: "invocation", writesStorage: false, failure: law };
+  const decision = selected({ kind: "native-operator", operator: "+", carrier }, [type, type], result, execution);
+  const value = fixture(name, result, builder => builder.block(builder.returns(builder.arithmetic(
+    builder.num(String(left), type), "PlusToken", builder.num(String(right), type), result, decision))));
+  const facts = { ...value.deps.selectedNativeFacts, integerOverflow: [{ carrier, operation: "add", result: resultCarrier, law }] };
+  const deps = { ...value.deps, selectedNativeFacts: facts, limits: { ...limits, maximumArithmeticWork: 10000 } };
+  return { ...value, deps, run: (given = deps, body = value.body) => product.evaluate(given, value.entry, body, [], "compile-time", value.unit) };
+}
+
+function negationFixture(name, carrier, type, operand, law = "wrap", result = type, resultCarrier = carrier) {
+  const execution = law === "wrap" ? { kind: "pure" } : { kind: "invocation", writesStorage: false, failure: law };
+  const decision = selected({ kind: "native-operator", operator: "-", carrier }, [type], result, execution);
+  const value = fixture(name, result, builder => builder.block(builder.returns(
+    builder.prefix(builder.num(String(operand), type), "MinusToken", result, decision))));
+  const facts = { ...value.deps.selectedNativeFacts, integerOverflow: [{ carrier, operation: "negate", result: resultCarrier, law }] };
+  const deps = { ...value.deps, selectedNativeFacts: facts, limits: { ...limits, maximumArithmeticWork: 10000 } };
+  return { ...value, deps, run: (given = deps, body = value.body) => product.evaluate(given, value.entry, body, [], "compile-time", value.unit) };
+}
+
+test("selected integer negation executes its actual supplied native wrapping law", () => {
+  const [carrier, type] = comparisonTypes[0];
+  for (const [operand, expected] of [[0n, 0n], [1n, -1n], [-1n, 1n], [-128n, -128n]]) {
+    const value = negationFixture(`evaluate-negation.${operand}`, carrier, type, operand);
+    same(value.run().value.value, { kind: "value", value: { kind: "number", type,
+      value: { numerator: expected, denominator: 1n, negativeZero: false } } }, "actual selected integer negation, not JS double arithmetic");
+  }
+  for (const [carrier, type] of comparisonTypes.slice(1)) {
+    const unsigned = carrier === "uint64" || carrier === "native-uint";
+    const operand = unsigned ? 1n : -9007199254740993n;
+    const expected = unsigned ? 18446744073709551615n : 9007199254740993n;
+    const value = negationFixture(`evaluate-negation.exact.${carrier}`, carrier, type, operand);
+    same(value.run().value.value, { kind: "value", value: { kind: "number", type,
+      value: { numerator: expected, denominator: 1n, negativeZero: false } } }, "the actual supplied native carrier never rounds through double");
+    if (carrier === "native-int" || carrier === "native-uint") {
+      const narrow = negationFixture(`evaluate-negation.supplied.${carrier}`, carrier, type, unsigned ? 1n : -256n);
+      const result = narrow.run({ ...narrow.deps, selectedNativeFacts: { ...narrow.deps.selectedNativeFacts,
+        nativeIntegerWidths: [{ carrier, bits: 9 }] } });
+      assert.equal(result.value.value.value.value.numerator, unsigned ? 511n : -256n);
+    }
+  }
+});
+
+test("integer negation retains supplied result geometry and real failure arms without a fabricated fault value", () => {
+  const [carrier, type] = comparisonTypes[0];
+  const wider = negationFixture("evaluate-negation.widen", carrier, type, -128n, "unwind", T.int32, "int32");
+  assert.equal(wider.run().value.value.value.value.numerator, 128n);
+  const [, wide] = comparisonTypes[1];
+  const narrower = negationFixture("evaluate-negation.narrow", "int64", wide, -128n, "wrap", type, carrier);
+  assert.equal(narrower.run().value.value.value.value.numerator, -128n);
+  for (const law of ["unwind", "abort"]) {
+    const normal = negationFixture(`evaluate-negation.inrange.${law}`, carrier, type, 1n, law);
+    assert.equal(normal.run().value.kind, "ok");
+    assert.equal(normal.run().value.value.value.value.numerator, -1n);
+    const overflow = negationFixture(`evaluate-negation.overflow.${law}`, carrier, type, -128n, law);
+    const result = overflow.run();
+    assert.equal(result.value.kind, "ok");
+    assert.equal(result.value.value.value.kind, "error");
+    assert.equal(result.value.diagnostics.length, 1);
+    assert.equal(result.value.diagnostics[0].code.name, "TSONIC_CONSTANT_EVALUATION_FAILED");
+    if (law === "unwind") {
+      const body = structuredClone(overflow.body);
+      body.blocks.find(block => block.terminator.kind === "invoke").terminator.unwind = { kind: "handler", target: 0, exception: 0 };
+      assert.throws(() => overflow.run(overflow.deps, body), /actual selected overflow fault value/u);
+    }
+  }
+});
+
+test("integer negation pays exact row, geometry, comparison and wrapping work before every original allowance cut", () => {
+  const [carrier, type] = comparisonTypes[0];
+  for (const [operand, needed] of [[1n, 69], [-128n, 77]]) {
+    const value = negationFixture(`evaluate-negation.work.${operand}`, carrier, type, operand);
+    for (let maximum = 0; maximum <= needed; maximum += 1) {
+      const result = value.run({ ...value.deps, limits: { ...value.deps.limits, maximumArithmeticWork: maximum } });
+      assert.equal(result.value.kind, maximum < needed ? "refused" : "ok", `actual negation work ${maximum}`);
+      if (maximum < needed) same(result.value.diagnostics[0].arguments,
+        [{ kind: "text", value: "evaluation.maximumArithmeticWork" }, { kind: "number", value: maximum }], "same original arithmetic refusal");
+    }
+  }
+  const value = negationFixture("evaluate-negation.bits", carrier, type, 1n);
+  for (const [dimension, needed] of [["maximumIntermediateBits", 8], ["maximumResultBits", 2]])
+    for (let maximum = 0; maximum <= needed; maximum += 1) {
+      const result = value.run({ ...value.deps, limits: { ...value.deps.limits, [dimension]: maximum } });
+      assert.equal(result.value.kind, maximum < needed ? "refused" : "ok");
+    }
+  const rows = [];
+  rows.length = 10000;
+  Object.defineProperty(rows, 0, { get() { assert.fail("No unadmitted negation law row."); } });
+  assert.equal(value.run({ ...value.deps, selectedNativeFacts: { ...value.deps.selectedNativeFacts, integerOverflow: rows },
+    limits: { ...value.deps.limits, maximumArithmeticWork: 1 } }).value.kind, "refused");
+});
+
+test("integer negation keeps absent or malformed selected inputs distinct from a real resource refusal", () => {
+  const [carrier, type] = comparisonTypes[0];
+  const value = negationFixture("evaluate-negation.ready-inputs", carrier, type, 1n);
+  for (const rows of [[], [{ carrier, operation: "subtract", result: carrier, law: "wrap" }]])
+    assert.throws(() => value.run({ ...value.deps, selectedNativeFacts: { ...value.deps.selectedNativeFacts, integerOverflow: rows } }),
+      /actual selected native operation law for integer negation/u);
+  assert.throws(() => value.run({ ...value.deps, selectedNativeFacts: { ...value.deps.selectedNativeFacts, integerOverflow: [undefined] } }),
+    /complete selected integer overflow relation/u);
+  assert.throws(() => value.run({ ...value.deps, typeOf: () => ({ kind: "shape", members: [], indexes: [], calls: [], constructs: [] }) }),
+    /actual selected integer result carrier association/u);
+  const changed = (carrier, result = type) => {
+    const body = structuredClone(value.body);
+    const operation = body.blocks.flatMap(block => block.statements).find(row => row.kind === "assign" && row.value.kind === "unary").value.operation.decision;
+    operation.operation.carrier = carrier;
+    operation.result = result;
+    return body;
+  };
+  assert.throws(() => value.run({ ...value.deps, selectedNativeFacts: { ...value.deps.selectedNativeFacts,
+    integerOverflow: [{ carrier: "bool", operation: "negate", result: carrier, law: "wrap" }] } }, changed("bool")),
+    /actual selected integer negation geometry/u);
+  assert.throws(() => value.run({ ...value.deps, selectedNativeFacts: { ...value.deps.selectedNativeFacts,
+    integerOverflow: [{ carrier, operation: "negate", result: "bool", law: "wrap" }] } }, changed(carrier, T.bool)),
+    /actual selected integer result geometry/u);
+  const wider = negationFixture("evaluate-negation.output-allowance", carrier, type, 1n, "wrap", T.int32, "int32");
+  assert.equal(wider.run({ ...wider.deps, limits: { ...wider.deps.limits, maximumIntermediateBits: 16 } }).value.kind, "refused");
+  const native = comparisonTypes.find(row => row[0] === "native-int");
+  const missing = negationFixture("evaluate-negation.native-width", native[0], native[1], 1n);
+  assert.throws(() => missing.run({ ...missing.deps, selectedNativeFacts: { ...missing.deps.selectedNativeFacts, nativeIntegerWidths: [] } }),
+    /actual selected integer negation geometry/u);
+  const subtract = selected({ kind: "native-operator", operator: "-", carrier }, [type, type], type);
+  const pending = fixture("evaluate-negation.binary-subtraction-frontier", type, builder => builder.block(builder.returns(
+    builder.arithmetic(builder.num("2", type), "MinusToken", builder.num("1", type), type, subtract))));
+  assert.throws(() => pending.start(), /actual selected native operation law/u);
+});
+
+test("selected integer addition applies supplied wrapping laws exactly beyond double precision without oversized sums", () => {
+  for (const [carrier, type] of comparisonTypes) {
+    const bits = carrier === "int8" ? 8n : carrier === "native-int" ? 128n : 64n;
+    const signed = carrier === "int8" || carrier === "int64" || carrier === "native-int";
+    const minimum = signed ? -(1n << (bits - 1n)) : 0n;
+    const maximum = signed ? (1n << (bits - 1n)) - 1n : (1n << bits) - 1n;
+    const rows = [[0n, 0n, 0n], [maximum, 1n, minimum], [maximum, maximum, signed ? -2n : maximum - 1n]];
+    if (signed) rows.push([minimum, -1n, maximum], [minimum, minimum, 0n], [-1n, 1n, 0n]);
+    if (carrier !== "int8") rows.push([9007199254740993n, 2n, 9007199254740995n]);
+    for (const [index, [left, right, expected]] of rows.entries()) {
+      const value = additionFixture(`evaluate-addition.${carrier}.${index}`, carrier, type, left, right);
+      same(value.run().value.value, { kind: "value", value: { kind: "number", type,
+        value: { numerator: expected, denominator: 1n, negativeZero: false } } }, "the actual supplied native wrapping result");
+    }
+  }
+});
+
+test("integer addition admits each original operation before its exact work and stops before later row reads", () => {
+  const [carrier, type] = comparisonTypes[0];
+  for (const [index, left, right, required] of [[0, 1n, 2n, 94], [1, 127n, 1n, 110], [2, -128n, -1n, 110]]) {
+    const value = additionFixture(`evaluate-addition.account.${index}`, carrier, type, left, right);
+    for (let maximumArithmeticWork = 0; maximumArithmeticWork <= required; maximumArithmeticWork += 1) {
+      const result = value.run({ ...value.deps, limits: { ...value.deps.limits, maximumArithmeticWork } });
+      assert.equal(result.value.kind, maximumArithmeticWork < required ? "refused" : "ok", `actual addition work ${index}/${maximumArithmeticWork}`);
+      if (maximumArithmeticWork < required) same(result.value.diagnostics[0].arguments,
+        [{ kind: "text", value: "evaluation.maximumArithmeticWork" }, { kind: "number", value: maximumArithmeticWork }], "original same-account refusal");
+    }
+  }
+  const value = additionFixture("evaluate-addition.no-later-read", carrier, type, 1n, 2n);
+  const rows = [];
+  rows.length = 10000;
+  Object.defineProperty(rows, 0, { get() { throw new Error("unadmitted native law read"); } });
+  const result = value.run({ ...value.deps, selectedNativeFacts: { ...value.deps.selectedNativeFacts, integerOverflow: rows },
+    limits: { ...value.deps.limits, maximumArithmeticWork: 1 } });
+  assert.equal(result.value.kind, "refused");
+});
+
+test("integer addition retains selected widening and original escaping failure rather than a fabricated successful value", () => {
+  const [carrier, type] = comparisonTypes[0];
+  const wider = additionFixture("evaluate-addition.widen", carrier, type, 127n, 127n, "wrap", T.int32, "int32");
+  assert.equal(wider.run().value.value.value.value.numerator, 254n);
+  for (const law of ["unwind", "abort"]) {
+    const good = additionFixture(`evaluate-addition.inrange.${law}`, carrier, type, 1n, 2n, law);
+    assert.equal(good.run().value.kind, "ok");
+    const overflowing = additionFixture(`evaluate-addition.failure.${law}`, carrier, type, 127n, 1n, law);
+    const result = overflowing.run();
+    assert.equal(result.value.kind, "ok");
+    assert.equal(result.value.value.value.kind, "error");
+    assert.equal(result.value.diagnostics.length, 1);
+    assert.equal(result.value.diagnostics[0].code.name, "TSONIC_CONSTANT_EVALUATION_FAILED");
+    const body = structuredClone(overflowing.body);
+    const invoke = body.blocks.find(block => block.terminator.kind === "invoke").terminator;
+    invoke.unwind = { kind: "none" };
+    assert.throws(() => overflowing.run(overflowing.deps, body), /marked unable to fail/u);
+    invoke.unwind = { kind: law === "abort" ? "escape" : "abort" };
+    assert.throws(() => overflowing.run(overflowing.deps, body), /failure arm disagree/u);
+    invoke.unwind = { kind: "handler", target: 0, exception: 0 };
+    if (law === "unwind") assert.throws(() => overflowing.run(overflowing.deps, body), /actual selected overflow fault value/u);
+  }
+});
+
+test("integer addition keeps malformed and unavailable actual ready inputs distinct from resource exhaustion", () => {
+  const [carrier, type] = comparisonTypes[0];
+  const value = additionFixture("evaluate-addition.boundaries", carrier, type, 1n, 2n);
+  const changeResult = result => {
+    const body = structuredClone(value.body);
+    body.blocks.flatMap(block => block.statements).find(statement => statement.value?.kind === "binary").value.operation.decision.result = result;
+    return body;
+  };
+  assert.throws(() => value.run(value.deps, changeResult(T.unknown)), /actual selected integer result carrier association/u);
+  const sparse = Array(1);
+  assert.throws(() => value.run({ ...value.deps, selectedNativeFacts: { ...value.deps.selectedNativeFacts, integerOverflow: sparse } }), /complete selected integer overflow relation/u);
+  const body = structuredClone(value.body);
+  const statement = body.blocks.flatMap(block => block.statements).find(statement => statement.value?.kind === "binary");
+  statement.value = { kind: "unary", operation: statement.value.operation, operand: statement.value.left };
+  assert.throws(() => value.run(value.deps, body), /two actual operands/u);
+  for (const row of [
+    { carrier, operation: "subtract", result: carrier, law: "wrap" },
+    { carrier, operation: "add", result: "int32", law: "wrap" },
+  ]) assert.throws(() => value.run({ ...value.deps, selectedNativeFacts: { ...value.deps.selectedNativeFacts, integerOverflow: [row] } }), /actual selected native operation law/u);
+  const malformedCarrier = structuredClone(value.body);
+  malformedCarrier.blocks.flatMap(block => block.statements).find(statement => statement.value?.kind === "binary").value.operation.decision.operation.carrier = "bool";
+  assert.throws(() => value.run({ ...value.deps, selectedNativeFacts: { ...value.deps.selectedNativeFacts,
+    integerOverflow: [{ carrier: "bool", operation: "add", result: carrier, law: "wrap" }] } }, malformedCarrier), /actual selected integer addition geometry/u);
+  assert.throws(() => value.run({ ...value.deps, selectedNativeFacts: { ...value.deps.selectedNativeFacts,
+    integerOverflow: [{ carrier, operation: "add", result: "bool", law: "wrap" }] } }, changeResult(T.bool)), /actual selected integer result geometry/u);
+  const wider = additionFixture("evaluate-addition.widened-bounds", carrier, type, 1n, 2n, "wrap", T.int32, "int32");
+  const work = 1 + 1 + (2 + 3 * 8) + 2 * (1 + 2 * 8) + (2 + 3 * 32) + 2 * 32 + 4 * 32;
+  for (let maximumArithmeticWork = 0; maximumArithmeticWork <= work; maximumArithmeticWork += 1)
+    assert.equal(wider.run({ ...wider.deps, limits: { ...wider.deps.limits, maximumArithmeticWork } }).value.kind,
+      maximumArithmeticWork < work ? "refused" : "ok", `widened addition original work ${maximumArithmeticWork}`);
+  for (let maximumIntermediateBits = 0; maximumIntermediateBits <= 32; maximumIntermediateBits += 1)
+    assert.equal(wider.run({ ...wider.deps, limits: { ...wider.deps.limits, maximumIntermediateBits } }).value.kind,
+      maximumIntermediateBits < 32 ? "refused" : "ok", `widened addition represented geometry ${maximumIntermediateBits}`);
+  const narrowed = additionFixture("evaluate-addition.narrowed-frontier", "int32", T.int32, 1n, 2n, "wrap", type, carrier);
+  assert.equal(narrowed.run().value.value.value.value.numerator, 3n);
+});
+
+test("an escaping native overflow respects its actual caller handlers and the same original stop", () => {
+  const [carrier, type] = comparisonTypes[0];
+  const child = additionFixture("evaluate-addition.child-overflow", carrier, type, 127n, 1n, "unwind");
+  const caller = fixture("evaluate-addition.caller", type, builder => builder.block(builder.returns(builder.num("0", type))));
+  const bridge = internalCall(caller, child);
+  const deps = { ...bridge.deps, selectedNativeFacts: child.deps.selectedNativeFacts, limits: child.deps.limits };
+  for (const arm of ["escape", "handler", "none", "abort"]) {
+    const body = structuredClone(bridge.body);
+    body.blocks[0].terminator.unwind = arm === "handler" ? { kind: "handler", target: 1, exception: 0 } : { kind: arm };
+    const paused = product.evaluate(deps, bridge.entry, body, [], "compile-time", bridge.unit);
+    const resume = () => product.resumeEvaluate(deps, paused.paused, [{ kind: "mir-body", body: child.body }]);
+    if (arm === "handler") assert.throws(resume, /actual selected overflow fault value/u);
+    else if (arm === "none" || arm === "abort") assert.throws(resume, /actual unwinding arm/u);
+    else {
+      const result = resume();
+      assert.equal(result.value.value.value.kind, "error");
+      assert.equal(result.value.diagnostics.length, 1);
+      assert.equal(result.value.diagnostics[0].site.origin.start, child.body.blocks.find(block => block.terminator.kind === "invoke").terminator.origin.start);
+    }
+  }
+  for (const [law, work] of [["unwind", 87], ["abort", 86]]) {
+    const value = additionFixture(`evaluate-addition.failure-account.${law}`, carrier, type, 127n, 1n, law);
+    for (let maximumArithmeticWork = 0; maximumArithmeticWork <= work; maximumArithmeticWork += 1) {
+      const result = value.run({ ...value.deps, limits: { ...value.deps.limits, maximumArithmeticWork } });
+      assert.equal(result.value.kind, maximumArithmeticWork < work ? "refused" : "ok");
+      if (maximumArithmeticWork === work) assert.equal(result.value.value.value.kind, "error");
+    }
+  }
+});
+
+test("actual narrow integer addition supports supplied wrapping and trapping laws without a wider temporary", () => {
+  const [carrier, type] = comparisonTypes[0];
+  const unsigned = comparisonTypes.find(([name]) => name === "uint64")[1];
+  const cases = [
+    [257n, 2n, 3n], [-257n, -2n, -3n], [2147483647n, 2147483647n, -2n], [-2147483648n, -2147483648n, 0n],
+  ];
+  for (const [index, [left, right, expected]] of cases.entries()) {
+    const value = additionFixture(`evaluate-addition.narrowed.${index}`, "int32", T.int32, left, right, "wrap", type, carrier);
+    assert.equal(value.run().value.value.value.value.numerator, expected);
+  }
+  const changedSign = additionFixture("evaluate-addition.changed-sign", "int64", comparisonTypes[1][1], -1n, 0n, "wrap", unsigned, "uint64");
+  assert.equal(changedSign.run().value.value.value.value.numerator, 18446744073709551615n);
+  for (const law of ["unwind", "abort"]) for (const [index, left, right, expected] of [
+    [0, 1000n, -1000n, 0n], [1, -1000n, 1001n, 1n], [2, 1n, 2n, 3n], [3, -1n, -2n, -3n],
+    [4, 128n, 1n, null], [5, 1n, 128n, null], [6, -129n, -1n, null], [7, -1n, -129n, null],
+    [8, 1000n, -1n, null], [9, -1000n, 1n, null], [10, 127n, 1n, null],
+  ]) {
+    const value = additionFixture(`evaluate-addition.narrowed.${law}.${index}`, "int32", T.int32, left, right, law, type, carrier);
+    const result = value.run();
+    if (expected === null) assert.equal(result.value.value.value.kind, "error");
+    else assert.equal(result.value.value.value.value.numerator, expected);
+  }
+});
+
+test("narrow selected arithmetic charges original row, geometry, conversion and branch work before every operation", () => {
+  const [carrier, type] = comparisonTypes[0];
+  const rows = [
+    [257n, 2n, "wrap", 400, false], [127n, 1n, "wrap", 416, false],
+    [1n, 2n, "unwind", 448, false], [1000n, -1000n, "unwind", 448, false],
+    [-1000n, 1n, "unwind", 417, true], [1000n, -1n, "unwind", 449, true],
+    [128n, 1n, "unwind", 385, true], [1n, 128n, "unwind", 417, true], [127n, 1n, "unwind", 441, true],
+  ];
+  for (const [index, [left, right, law, required, failed]] of rows.entries()) {
+    const value = additionFixture(`evaluate-addition.narrow-budget.${index}`, "int32", T.int32, left, right, law, type, carrier);
+    for (let maximumArithmeticWork = 0; maximumArithmeticWork <= required; maximumArithmeticWork += 1) {
+      const result = value.run({ ...value.deps, limits: { ...value.deps.limits, maximumArithmeticWork } });
+      assert.equal(result.value.kind, maximumArithmeticWork < required ? "refused" : "ok", `narrow original work ${index}/${maximumArithmeticWork}`);
+      if (maximumArithmeticWork === required) assert.equal(result.value.value.value.kind, failed ? "error" : "number");
+    }
+  }
+  const signed = comparisonTypes.find(([name]) => name === "int64")[1];
+  const unsigned = comparisonTypes.find(([name]) => name === "uint64")[1];
+  const narrowed = additionFixture("evaluate-addition.unsigned-to-signed", "uint64", unsigned,
+    18446744073709551615n, 0n, "wrap", signed, "int64");
+  assert.equal(narrowed.run().value.value.value.value.numerator, -1n);
 });
 
 test("integer comparisons preserve ready-domain defects, literal-base provenance and original row refusal", () => {
@@ -810,6 +1185,7 @@ test("invocations evaluate operands once, preserve their continuation and retain
     same(result.value.value, { kind: "not-constant", at: site.tir, reason: "external-operation" }, "external selected operation has no invented value");
   }
   assert.throws(() => run(make({ kind: "native-operator", operator: "+", carrier: "int32" })), /actual selected native operation law/u);
+  assert.throws(() => run(make({ kind: "native-operator", operator: "-", carrier: "int32" })), /actual selected native operation law/u);
   assert.throws(() => run(make({ kind: "native-operator", operator: "<", carrier: "int32" }, [])), /two actual operands/u);
   assert.throws(() => run(make({ kind: "bigint-operator", operator: "+" })), /actual selected native operation law/u);
   assert.throws(() => run(make({ kind: "boolean-operator", operator: "!" }, [])), /actual operand/u);

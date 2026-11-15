@@ -14,7 +14,7 @@ export type Task =
   | { readonly kind: "jump"; readonly block: BlockId }
   | { readonly kind: "switch"; readonly terminator: Extract<MirTerminator, { readonly kind: "switch" }> }
   | { readonly kind: "call"; readonly terminator: Extract<MirTerminator, { readonly kind: "call" }> }
-  | { readonly kind: "apply"; readonly operation: TypedOperation; readonly site: MirSite };
+  | { readonly kind: "apply"; readonly operation: TypedOperation; readonly site: MirSite; readonly unwind: MirUnwind | null };
 
 export interface Cell {
   value: ConstValue | null;

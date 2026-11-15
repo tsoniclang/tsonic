@@ -5,13 +5,14 @@ import { encodeKey } from "../ids/index.js";
 import type { MirBody, MirOperand, MirSite, MirTerminator, MirUnwind } from "../ir-mir/contract.js";
 import { localOwnershipOfMir } from "../ir-mir/index.js";
 import type { OperationIdentity } from "../ir-infer/contract.js";
-import type { BodyInstance, ConstValue, NativeIntegerGeometryResult, NativePrimitive } from "../ir-types/contract.js";
-import { nativeCarrierOf, nativeIntegerGeometryOf, sameInstance } from "../ir-types/index.js";
+import type { BodyInstance, ConstValue } from "../ir-types/contract.js";
+import { sameInstance } from "../ir-types/index.js";
 import type { Evaluate, EvaluateDeps, EvaluationStep, ResumeEvaluate } from "./contract.js";
 import type { EvaluationResult } from "./data.js";
 import type { Cell, Frame, Machine as EvaluationMachine, ReadyCall, Task } from "./pause.js";
 import { arithmetic, evaluationFault, limit, step, validateLimits, valueFits } from "./budget.js";
 import { EvaluationSuspension } from "./pause.js";
+import { integerOperation } from "./integer.js";
 
 type Machine = EvaluationMachine<EvaluateDeps>;
 
@@ -250,7 +251,7 @@ function execute(machine: Machine): void {
   if (task !== undefined) {
     if (task.kind === "read") read(machine, task.operand, task.site);
     else if (task.kind === "jump") { current(machine).block = task.block; current(machine).statement = 0; }
-    else if (task.kind === "apply") apply(machine, task.operation, task.site);
+    else if (task.kind === "apply") apply(machine, task.operation, task.site, task.unwind);
     else if (task.kind === "switch") selectBranch(machine, task.terminator);
     else if (task.kind === "call") call(machine, task.terminator);
     else if (task.kind === "throw") {
@@ -283,10 +284,10 @@ function execute(machine: Machine): void {
       switch (statement.value.kind) {
         case "use": frame.work.push({ kind: "read", operand: statement.value.operand, site: statement }); break;
         case "unary": case "convert":
-          frame.work.push({ kind: "apply", operation: statement.value.operation, site: statement }, { kind: "read", operand: statement.value.operand, site: statement });
+          frame.work.push({ kind: "apply", operation: statement.value.operation, site: statement, unwind: null }, { kind: "read", operand: statement.value.operand, site: statement });
           break;
         case "binary":
-          frame.work.push({ kind: "apply", operation: statement.value.operation, site: statement },
+          frame.work.push({ kind: "apply", operation: statement.value.operation, site: statement, unwind: null },
             { kind: "read", operand: statement.value.right, site: statement }, { kind: "read", operand: statement.value.left, site: statement });
           break;
         default: return fail("Evaluate has not implemented this selected rvalue.", statement.origin);
@@ -326,7 +327,7 @@ function execute(machine: Machine): void {
         if (local === null) return;
         frame.work.push({ kind: "store", local, site: terminator });
       }
-      frame.work.push({ kind: "apply", operation: terminator.operation, site: terminator });
+      frame.work.push({ kind: "apply", operation: terminator.operation, site: terminator, unwind: terminator.unwind });
       for (let position = terminator.operands.length - 1; position >= 0; position -= 1) {
         const operand = terminator.operands[position];
         if (operand === undefined) return fail("A verified invocation must have its complete operand vector.", terminator.origin);
@@ -338,56 +339,35 @@ function execute(machine: Machine): void {
   }
 }
 
-function integerValue(
-  machine: Machine, value: ConstValue, carrier: NativePrimitive,
-  geometry: Extract<NativeIntegerGeometryResult, { readonly kind: "integer" }>, site: MirSite,
-): bigint | null {
-  const selected = nativeCarrierOf(machine.deps.types, value.type, type => {
-    if (!arithmetic(machine, 1, site.origin)) return null;
-    return machine.deps.typeOf(type);
-  });
-  if (selected.kind === "resource-stop") return null;
-  if (selected.kind !== "primitive" || selected.primitive !== carrier)
-    return fail("A selected integer comparison requires its actual operand carrier association.", site.origin);
-  const integer = value.kind === "bigint" ? value.value
-    : value.kind === "number" && value.value.denominator === 1n && !value.value.negativeZero ? value.value.numerator : null;
-  if (integer === null) return fail("A selected integer comparison requires its actual integral operand.", site.origin);
-  if (!arithmetic(machine, geometry.bits, site.origin) || !arithmetic(machine, geometry.bits, site.origin)) return null;
-  if (integer < geometry.minimum || integer > geometry.maximum)
-    return fail("A selected integer comparison operand must fit its supplied native carrier.", site.origin);
-  return integer;
-}
 
-function compareIntegers(
-  machine: Machine, operation: Extract<OperationIdentity, { readonly kind: "native-operator" }>,
+function stringOperation(
+  machine: Machine, operation: Extract<OperationIdentity, { readonly kind: "string-operator" }>,
   result: ConstValue["type"], site: MirSite,
 ): void {
-  if (operation.operator !== "==" && operation.operator !== "!=" && operation.operator !== "===" && operation.operator !== "!=="
-    && operation.operator !== "<" && operation.operator !== "<=" && operation.operator !== ">" && operation.operator !== ">=")
-    return fail("Evaluate needs the actual selected native operation law.", site.origin);
+  if (operation.operator !== "+" && operation.operator !== "==" && operation.operator !== "!=" && operation.operator !== "===" && operation.operator !== "!==")
+    return fail("Evaluate needs the actual selected native string operation law.", site.origin);
   const values = current(machine).values;
-  if (values.length !== 2)
-    return fail("A selected integer comparison requires its two actual operands.", site.origin);
-  const left = requirePresent(values[0], { owner: "evaluate", query: null, origin: site.origin, message: "The comparison has its actual left operand." });
-  const right = requirePresent(values[1], { owner: "evaluate", query: null, origin: site.origin, message: "The comparison has its actual right operand." });
-  const geometry = nativeIntegerGeometryOf(operation.carrier, machine.deps.selectedNativeFacts, (work, bits) => {
-    if (!arithmetic(machine, work, site.origin)) return false;
-    return bits <= machine.deps.limits.maximumIntermediateBits || limit(machine, "maximumIntermediateBits", site.origin);
-  });
-  if (geometry.kind === "resource-stop") return;
-  if (geometry.kind !== "integer") return fail("Evaluate requires the actual selected integer comparison geometry.", site.origin);
-  const first = integerValue(machine, left, operation.carrier, geometry, site);
-  if (first === null) return;
-  const second = integerValue(machine, right, operation.carrier, geometry, site);
-  if (second === null || !arithmetic(machine, geometry.bits, site.origin)) return;
-  const value = operation.operator === "==" || operation.operator === "===" ? first === second
-    : operation.operator === "!=" || operation.operator === "!==" ? first !== second
-      : operation.operator === "<" ? first < second : operation.operator === "<=" ? first <= second
-        : operation.operator === ">" ? first > second : first >= second;
-  put(machine, { kind: "boolean", type: result, value }, site);
+  const left = values[0];
+  const right = values[1];
+  if (values.length !== 2 || left?.kind !== "string" || right?.kind !== "string")
+    return fail("A selected string comparison requires its two actual string operands.", site.origin);
+  if (operation.operator === "+") {
+    const maximum = Math.floor(machine.deps.limits.maximumIntermediateBits / 16);
+    if (left.value.length > maximum - right.value.length) { limit(machine, "maximumIntermediateBits", site.origin); return; }
+  } else if (machine.deps.limits.maximumIntermediateBits < 1) { limit(machine, "maximumIntermediateBits", site.origin); return; }
+  if (!arithmetic(machine, left.value.length, site.origin) || !arithmetic(machine, right.value.length, site.origin)
+    || !arithmetic(machine, 1, site.origin)) return;
+  if (operation.operator === "+") {
+    put(machine, { kind: "string", type: result, value: left.value + right.value }, site);
+    return;
+  }
+  const equal = left.value === right.value;
+  put(machine, { kind: "boolean", type: result,
+    value: operation.operator === "==" || operation.operator === "===" ? equal : !equal }, site);
 }
 
-function apply(machine: Machine, selected: Extract<Task, { readonly kind: "apply" }>["operation"], site: MirSite): void {
+
+function apply(machine: Machine, selected: Extract<Task, { readonly kind: "apply" }>["operation"], site: MirSite, unwind: MirUnwind | null): void {
   const operation = selected.decision.operation;
   if (operation.kind === "library" || operation.kind === "core") {
     notConstant(machine, site, "external-operation");
@@ -398,7 +378,12 @@ function apply(machine: Machine, selected: Extract<Task, { readonly kind: "apply
     return;
   }
   if (operation.kind === "native-operator") {
-    compareIntegers(machine, operation, selected.decision.result, site);
+    const value = integerOperation(machine, operation, selected.decision.result, site, unwind, current(machine).values);
+    if (value !== null) put(machine, value, site);
+    return;
+  }
+  if (operation.kind === "string-operator") {
+    stringOperation(machine, operation, selected.decision.result, site);
     return;
   }
   if (operation.kind !== "boolean-operator" && operation.kind !== "absence-test") return fail("Evaluate needs the actual selected native operation law.", site.origin);

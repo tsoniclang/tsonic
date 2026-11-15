@@ -3,7 +3,7 @@ import { requirePresent, throwInvariant } from "../diag/index.js";
 import type { BodyId, LocalId, NodeId, NodeRef, Origin, TyId } from "../ids/contract.js";
 import type { BinaryExpression, Block, CheckedPhase, Expression, HirBody, HirNode, Identifier, NodeHeader, ParameterDeclaration, Statement, VariableDeclaration } from "../ir-hir/contract.js";
 import { resolveModuleBinding, walkSyntaxTree } from "../ir-hir/index.js";
-import type { ApplicationDecision, BodyTyping, EmbeddingDecision, FlowRole, InferredSignaturePart } from "../ir-infer/contract.js";
+import type { ApplicationDecision, BodyTyping, EmbeddingDecision, FlowRole, InferredSignaturePart, MemberDecision } from "../ir-infer/contract.js";
 import type { TirArgument, TirBody, TirLocal, TirResolution, TypedOperation, TypedPhase, TypedValue } from "../ir-tir/contract.js";
 import { artifactBindingsKey } from "../ir-types/index.js";
 import type { ElaborateDeps, ElaborateInput } from "./contract.js";
@@ -124,8 +124,9 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
   const flows: (Flow | undefined)[] = [];
   const variables: (TyId | undefined)[] = [];
   const applications: (ApplicationDecision | undefined)[] = [];
+  const members: (MemberDecision | undefined)[] = [];
   const calleeTypes = new Map<NodeId, TyId>();
-  const read = { operations: new Set<number>(), flows: new Set<number>(), variables: new Set<number>(), applications: new Set<number>() };
+  const read = { operations: new Set<number>(), flows: new Set<number>(), variables: new Set<number>(), applications: new Set<number>(), members: new Set<number>() };
   const finals: (TyId | undefined)[] = [];
   for (const final of solution.variables) finals[final.variable] = final.value.type;
   const finalType = (type: TyId, origin: Origin): TyId => {
@@ -153,6 +154,12 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
       if (decision.kind === "deferred") notElaboratedYet("a deferred conversion", origin);
       if (decision.kind !== "flow") return callerDefect(`a flow constraint solved by a decision of kind ${decision.kind}`, origin);
       flows[position] = { embedding: decision.embedding, destination: finalType(constraint.to, origin), role: constraint.role };
+    } else if (constraint.kind === "member") {
+      if (constraint.access !== "read" || decision.kind !== "member" || members[position] !== undefined)
+        return callerDefect("a member read retains its one actual selected member decision", origin);
+      if (decision.member.read === null || decision.member.read !== finalType(constraint.result, origin))
+        return callerDefect("a selected member read retains its actual finalized result type", origin);
+      members[position] = decision.member;
     } else if (constraint.kind === "call") {
       if (decision.kind !== "call" || decision.operation !== null || applications[position] !== undefined)
         return callerDefect("a call must retain its one selected application decision", origin);
@@ -411,6 +418,21 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
               ...valueOf(position, operation.decision.result, node.origin) } };
         } else visit(node.operand);
         return;
+      case "PropertyAccessExpression":
+        if (building) {
+          const member = members[position] ?? compilerDefect("a property read has no actual selected member decision", node.origin);
+          if (node.questionDotToken !== null || node.tsonic.role !== "value" || node.name.kind !== "Identifier"
+            || node.name.tsonic.role !== "property-name" || member.read === null)
+            return callerDefect("a property read retains its actual checked nonoptional name and selected read type", node.origin);
+          if (member.getter !== null || member.setter !== null)
+            return notElaboratedYet("the actual selected accessor application transport", node.origin);
+          read.members.add(position);
+          expressions[position] = { ...header(node), kind: "PropertyAccessExpression", expression: expressionOf(node.expression),
+            questionDotToken: null, name: { ...header(node.name), kind: "Identifier", text: node.name.text,
+              tsonic: { role: "property-name", key: member.key } }, tsonic: { role: "value",
+              ...valueOf(position, member.read, node.origin), selection: { kind: "decided", decision: { decision: member, getter: null, setter: null } } } };
+        } else visit(node.expression);
+        return;
       case "CallExpression":
         if (building) {
           const application = applications[position] ?? compilerDefect("a call has no solved selected application", node.origin);
@@ -485,6 +507,7 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
   refuseUnread(flows, read.flows, "flow decision");
   refuseUnread(variables, read.variables, "variable");
   refuseUnread(applications, read.applications, "application decision");
+  refuseUnread(members, read.members, "member decision");
 
   return { kind: "ok", diagnostics: [], value: {
     body: body.body, owner: body.owner, bindings: instance.bindings,

@@ -907,6 +907,76 @@ test("actual demand witnesses retain checked source and borrow the real pause pr
   assert.equal(inference[0].count, 0);
 });
 
+test("actual selected member constraints retain their checked origins and distinct receiver and open result evidence", async () => {
+  const program = ready("export function read(box:Box):boolean{return box.flag;}export type Box={flag:boolean};\n");
+  const source = program.checked.bodies.find(body => body.root.kind === "Block");
+  const access = source.root.statements.nodes[0].expression;
+  const group = program.inputs.groups.find(group => group.bodies.includes(source.body));
+  const pending = wiring.infer.constraintsOf(program.inputs.inference, group);
+  assert.equal(pending.kind, "paused");
+  const answers = pending.requests.map(request => {
+    assert.equal(request.kind, "declaredSignatureOf");
+    const answer = program.database.run(program.queries.declaredSignatureOf, request.request);
+    assert.equal(answer.kind, "completed");
+    assert.deepEqual(answer.diagnostics, []);
+    return { kind: request.kind, value: answer.value };
+  });
+  const generated = wiring.infer.resumeConstraintsOf(program.inputs.inference, pending.paused, answers);
+  assert.equal(generated.kind, "done");
+  assert.equal(generated.value.kind, "ok");
+  const set = generated.value.value.constraints.find(set => set.body === source.body);
+  const member = set.constraints.find(constraint => constraint.kind === "member");
+  assert.equal(member !== undefined, true);
+  assert.deepEqual(member.occurrence, { body: source.body, node: access.id });
+  assert.equal(member.key, access.name.tsonic.key.value);
+  assert.equal(member.origins, access.tsonic.origins.value);
+  assert.equal(member.access, "read");
+  assert.equal(fixture.types.readType(program.interner, member.receiver).kind, "shape");
+  const result = fixture.types.readType(program.interner, member.result);
+  assert.equal(result.kind, "open");
+  assert.equal(result.group, group.id);
+  assert.deepEqual(set.variables.find(variable => variable.id === result.variable), {
+    kind: "local", local: null, id: result.variable, occurrence: member.occurrence,
+  });
+  assert.deepEqual(set.evidence.slice(0, 2).map(evidence => ({ type: evidence.value.type, component: evidence.value.component,
+    category: evidence.value.category, error: evidence.error })), [
+    { type: member.receiver, component: { kind: "body", value: { body: source.body, node: access.expression.id } },
+      category: { kind: "dynamic" }, error: null },
+    { type: member.result, component: { kind: "body", value: member.occurrence }, category: { kind: "dynamic" }, error: null },
+  ]);
+  assert.equal(set.constraints.find(constraint => constraint.kind === "flow").from, member.result);
+  const inferIr = await import("../../packages/host/dist/ir-infer/index.js");
+  assert.deepEqual(inferIr.parseConstraints(inferIr.printConstraints(set)), { kind: "parsed", value: set });
+  const verification = program.verification(group, generated.value.value);
+  assert.deepEqual(inferIr.verifyInference({ ...verification, group, constraints: generated.value.value.constraints,
+    contributions: [], solution: null, bindingScopes: set.constraints.filter(constraint => constraint.kind === "flow" || constraint.kind === "member")
+      .map(() => program.descriptions.get(source.owner).generics) }), []);
+  const checkedOrigins = access.tsonic.origins;
+  const checkedKey = access.name.tsonic.key;
+  for (const change of ["origins", "key"]) {
+    if (change === "origins") access.tsonic.origins = { kind: "unavailable", reason: "not-provided", causes: [] };
+    else access.name.tsonic.key = { kind: "unavailable", reason: "incomplete-association", causes: [] };
+    assert.throws(() => wiring.infer.resumeConstraintsOf(program.inputs.inference, pending.paused, answers),
+      /the actual checked member key and declaration origins/u);
+    access.tsonic.origins = checkedOrigins;
+    access.name.tsonic.key = checkedKey;
+  }
+  const expression = Object.getOwnPropertyDescriptor(access, "expression");
+  Object.defineProperty(access, "expression", { configurable: true, get: () => assert.fail("a refused member allocation cannot enter its receiver") });
+  const refused = wiring.infer.resumeConstraintsOf({ ...program.inputs.inference,
+    limits: { ...program.inputs.inference.limits, maximumVariablesPerGroup: 0 } }, pending.paused, answers);
+  assert.equal(refused.kind, "done");
+  assert.equal(refused.value.kind, "refused");
+  assert.equal(refused.value.diagnostics.length, 1);
+  assert.equal(refused.value.diagnostics[0].code.name, "TSONIC_COMPILER_RESOURCE_LIMIT");
+  Object.defineProperty(access, "expression", expression);
+  const exact = wiring.infer.resumeConstraintsOf({ ...program.inputs.inference,
+    limits: { ...program.inputs.inference.limits, maximumVariablesPerGroup: 1 } }, pending.paused, answers);
+  assert.equal(exact.kind, "done");
+  assert.equal(exact.value.kind, "ok");
+  assert.deepEqual(exact.value.value.constraints, generated.value.value.constraints);
+});
+
 test("constraint pauses retain every actual request body and reject removed or foreign ownership metadata", () => {
   const program = ready("export function add(a: number, b: number): number { return a + b; }\n");
   const group = program.inputs.groups.find(group => program.domain.bodyOf.get(group.bodies[0]).root.kind === "Block");

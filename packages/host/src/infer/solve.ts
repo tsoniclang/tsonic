@@ -50,6 +50,7 @@ export const resumeSolveGroup: ResumeSolveGroup = (deps, paused, answers) => {
 };
 
 type Reached =
+  | { readonly kind: "member"; readonly constraint: Extract<Constraint, { readonly kind: "member" }>; readonly evidence: readonly InferenceValue[] }
   | { readonly kind: "op"; readonly constraint: Extract<Constraint, { readonly kind: "op" }>; readonly evidence: readonly InferenceValue[] }
   | { readonly kind: "call"; readonly constraint: Extract<Constraint, { readonly kind: "call" }>; readonly evidence: readonly InferenceValue[] }
   | { readonly kind: "flow"; readonly constraint: Extract<Constraint, { readonly kind: "flow" }>; readonly evidence: readonly InferenceValue[] };
@@ -311,6 +312,7 @@ function solve(deps: InferDeps, group: InferenceGroup, generated: GroupConstrain
 }
 
 function reach(constraint: Constraint, evidence: readonly InferenceValue[], offset: number): Reached {
+  if (constraint.kind === "member") return { kind: "member", constraint, evidence: evidence.slice(offset, offset + 2) };
   if (constraint.kind === "op") return { kind: "op", constraint, evidence: evidence.slice(offset, offset + constraint.operands.length + 1) };
   if (constraint.kind === "flow") return { kind: "flow", constraint, evidence: evidence.slice(offset, offset + 2) };
   if (constraint.kind === "call") return { kind: "call", constraint, evidence: evidence.slice(offset,
@@ -328,6 +330,7 @@ function enumerate(deps: InferDeps, group: InferenceGroup, set: ConstraintSet, r
   const common = { group: group.id, remainingContributions, reference: { body: set.body, index }, variables: set.variables,
     candidates: set.candidates, evidence: reached.evidence };
   switch (reached.kind) {
+    case "member": return deps.rules.constraints.member.enumerate({ ...common, constraint: reached.constraint });
     case "op": return deps.rules.constraints.op.enumerate({ ...common, constraint: reached.constraint });
     case "flow": return deps.rules.constraints.flow.enumerate({ ...common, constraint: reached.constraint });
     case "call": return deps.rules.constraints.call.enumerate({ ...common, constraint: reached.constraint });
@@ -337,6 +340,7 @@ function enumerate(deps: InferDeps, group: InferenceGroup, set: ConstraintSet, r
 function evaluate(deps: InferDeps, set: ConstraintSet, item: Enumerated, reads: readonly FinalVariable[]): Result<ContributionOutcome> {
   const common = { contribution: item.contribution, candidates: set.candidates, evidence: item.reached.evidence, reads };
   switch (item.reached.kind) {
+    case "member": return deps.rules.constraints.member.evaluate({ ...common, constraint: item.reached.constraint });
     case "op": return deps.rules.constraints.op.evaluate({ ...common, constraint: item.reached.constraint });
     case "flow": return deps.rules.constraints.flow.evaluate({ ...common, constraint: item.reached.constraint });
     case "call": return deps.rules.constraints.call.evaluate({ ...common, constraint: item.reached.constraint });
