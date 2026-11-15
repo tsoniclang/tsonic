@@ -1771,7 +1771,18 @@ test("module callable and binding declarations do not execute nested bodies or i
   const target = { target: "project", module: MODULE };
   const specifier = () => ({ kind: "StringLiteral", text: "module", singleQuote: false, hasExtendedUnicodeEscape: false,
     tsonic: { role: "module-specifier", target } });
+  const aliasDefinition = def("module.declarations.alias");
+  const interfaceDefinition = def("module.declarations.interface");
+  const name = (text, definition) => ({ kind: "Identifier", text,
+    tsonic: { role: "declaration-name", declaration: definition, storage: null } });
+  const interfaceType = declareType({ kind: "declared", definition: interfaceDefinition, facet: "instance", extent: null, arguments: [] });
   const statements = [statement,
+    { kind: "TypeAliasDeclaration", modifiers: null, typeParameters: null, name: name("Alias", aliasDefinition),
+      type: { kind: "BooleanKeyword", tsonic: { type: T.bool, declarations: [] } },
+      tsonic: { definition: aliasDefinition, parameters: [], type: T.bool } },
+    { kind: "InterfaceDeclaration", modifiers: null, typeParameters: null, name: name("Fields", interfaceDefinition),
+      heritageClauses: null, members: { $list: true, nodes: [] },
+      tsonic: { definition: interfaceDefinition, parameters: [], type: interfaceType, members: [] } },
     { kind: "ImportDeclaration", modifiers: null, importClause: null, moduleSpecifier: specifier(), attributes: null,
       tsonic: { definition: def("module.declarations.import"), target } },
     { kind: "ExportDeclaration", modifiers: null, isTypeOnly: false, exportClause: null, moduleSpecifier: specifier(), attributes: null,

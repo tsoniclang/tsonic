@@ -15,7 +15,7 @@ function defect(message: string): never {
 
 const templateOf = (body: TirBody): TypedBodyTemplate => ({ body: body.body, lexicalBindings: body.lexicalBindings, dependence: body.dependence });
 
-export function elaborateParameter(node: ParameterDeclaration<CheckedPhase>, body: BodyId, selected: TypedParameter,
+export function elaborateParameter(deps: ElaborateDeps, node: ParameterDeclaration<CheckedPhase>, body: BodyId, selected: TypedParameter,
   initializer: Expression<TypedPhase> | null): ParameterDeclaration<TypedPhase> {
   if (node.name.kind !== "Identifier" || node.name.tsonic.role !== "declaration-name"
     || node.name.tsonic.declaration.kind !== "local") return defect("not elaborated yet: a nonlocal parameter declaration.");
@@ -28,7 +28,7 @@ export function elaborateParameter(node: ParameterDeclaration<CheckedPhase>, bod
   return { ...node, modifiers: modifiers(node.modifiers),
     dotDotDotToken: node.dotDotDotToken === null ? null : { ...node.dotDotDotToken, tsonic: null },
     questionToken: node.questionToken === null ? null : { ...node.questionToken, tsonic: null },
-    name: name(node.name, selected.storage), type: annotation(node.type), initializer, tsonic: selected };
+    name: name(node.name, selected.storage), type: annotation(deps, node.type), initializer, tsonic: selected };
 }
 
 function callable(deps: ElaborateDeps, node: FunctionDeclaration<CheckedPhase>, bodies: ReadonlyMap<BodyId, TirBody>): FunctionDeclaration<TypedPhase> {
@@ -54,7 +54,7 @@ function callable(deps: ElaborateDeps, node: FunctionDeclaration<CheckedPhase>, 
         return defect("The selected callable must reuse its actual typed parameter occurrences.");
       return selected;
     }) },
-    type: annotation(node.type), fullSignature: annotation(node.fullSignature),
+    type: annotation(deps, node.type), fullSignature: annotation(deps, node.fullSignature),
     asteriskToken: node.asteriskToken === null ? null : { ...node.asteriskToken, tsonic: null }, body: body.root,
     tsonic: { definition: checked.definition, parameters: checked.parameters, signatures: checked.signatures,
       template: templateOf(body), attributes: checked.attributes } };
@@ -82,7 +82,7 @@ export function elaborateVariable(deps: ElaborateDeps, node: VariableDeclaration
     ?? defect("A variable without an annotation or initializer requires its actual inferred storage producer.");
   if (body !== null && body.completion !== storage)
     return defect("The completed initializer and actual variable storage disagree.");
-  return { ...node, name: name(node.name, storage), type: annotation(node.type), initializer,
+  return { ...node, name: name(node.name, storage), type: annotation(deps, node.type), initializer,
     exclamationToken: node.exclamationToken === null ? null : { ...node.exclamationToken, tsonic: null },
     tsonic: { declaration: checked.declaration, storage, initializer: checked.initializer } };
 }
@@ -105,7 +105,7 @@ export function elaborateModuleBody(deps: ElaborateDeps, input: ElaborateInput, 
     if (statement.kind === "ExportDeclaration") return elaborateExport(statement);
     if (statement.kind === "FunctionDeclaration") return callable(deps, statement, children);
     if (statement.kind === "InterfaceDeclaration") return declarationInterface(deps, statement);
-    if (statement.kind === "TypeAliasDeclaration") return declarationAlias(statement);
+    if (statement.kind === "TypeAliasDeclaration") return declarationAlias(deps, statement);
     if (statement.kind === "VariableStatement") return { ...statement, modifiers: modifiers(statement.modifiers),
       declarationList: { ...statement.declarationList,
         declarations: { ...statement.declarationList.declarations,

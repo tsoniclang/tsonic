@@ -101,3 +101,51 @@ test("member lowering rejects missing type, kind and origin associations instead
   assert.throws(() => lower(replace({ origins: [] })), /actual captured origins/u);
   assert.throws(() => lower(replace({ readKind: "unavailable" })), /actual selected member kind/u);
 });
+
+test("actual declared accessors retain separate checked endpoints, read/write types and genuine declaration origins", async () => {
+  const { fixture, raw, definitions, lower } = await captured(
+    "export type Fields = { get accessor(): boolean; set accessor(value: boolean | string); };\n");
+  const { checked, interner } = lower();
+  assert.equal(fixture.verifyChecked(checked, interner).length, 0);
+  const table = fixture.types.viewTypes(interner);
+  assert.equal(verifyTable(fixture, checked, table).length, 0);
+  const alias = checked.tree.statements.nodes[0];
+  const [getter, setter] = alias.type.members.nodes;
+  assert.equal(getter.kind, "GetAccessor");
+  assert.equal(setter.kind, "SetAccessor");
+  assert.equal(getter.tsonic.body, null);
+  assert.equal(setter.tsonic.body, null);
+  assert.equal(getter.tsonic.signatures.length, 1);
+  assert.equal(setter.tsonic.signatures.length, 1);
+  assert.equal(getter.parameters.nodes.length, 0);
+  assert.equal(setter.parameters.nodes.length, 1);
+  const shape = table.terms[alias.tsonic.type.value];
+  assert.equal(shape.kind, "shape");
+  const member = shape.members[0];
+  assert.equal(member.kind, "accessor");
+  assert.deepEqual(table.terms[member.read], { kind: "primitive", primitive: "bool" });
+  assert.equal(table.terms[member.write].kind, "union");
+  assert.deepEqual(member.readOrigins, [{ kind: "declared", declaration: getter.tsonic.definition }]);
+  assert.deepEqual(member.writeOrigins, [{ kind: "declared", declaration: setter.tsonic.definition }]);
+  assert.equal(definitions.rows.some(row => row.kind === "GetAccessor" && row.definition === getter.tsonic.definition), true);
+  assert.equal(definitions.rows.some(row => row.kind === "SetAccessor" && row.definition === setter.tsonic.definition), true);
+  for (const accessor of [getter, setter]) {
+    const signature = table.signatures[accessor.tsonic.signatures[0].signature];
+    assert.equal(signature.declaration, accessor.tsonic.definition);
+    assert.equal(signature.owner.kind, "item");
+    assert.equal(signature.owner.value.owner, accessor.tsonic.definition);
+    assert.equal(signature.owner.value.node, accessor.id);
+  }
+  const parsed = fixture.hir.parseHir(fixture.hir.printHir(checked));
+  assert.equal(parsed.kind, "parsed");
+  assert.equal(isDeepStrictEqual(parsed.value, checked), true, "actual getter/setter syntax and endpoint records survive the HIR codec");
+  const aliasSyntax = raw.tree.statements.nodes[0];
+  const unread = new Proxy({}, { get() { assert.fail("an executing accessor payload is never read as a bodyless declaration"); } });
+  for (const changed of [{ body: unread }, { asteriskToken: unread }]) {
+    const altered = { ...raw, tree: { ...raw.tree, statements: { ...raw.tree.statements, nodes: [
+      { ...aliasSyntax, type: { ...aliasSyntax.type, members: { ...aliasSyntax.type.members,
+        nodes: [{ ...aliasSyntax.type.members.nodes[0], ...changed }, ...aliasSyntax.type.members.nodes.slice(1)] } } },
+    ] } } };
+    assert.throws(() => lower(altered), /GetAccessor with an execution body or generator marker/u);
+  }
+});

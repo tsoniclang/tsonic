@@ -38,7 +38,9 @@ let terminatorOperands;
 let readLocal;
 let assignedLattice;
 let assignedEntry;
-let localSlotEvidence;
+let localSlotLifetimes;
+let solveStorageLive;
+let storageLiveLattice;
 let bodyNodes;
 let callSummary;
 let applyScalarCall;
@@ -50,7 +52,8 @@ before(async () => {
   await post("Profiler.enable");
   await post("Profiler.startPreciseCoverage", { callCount: true, detailed: true });
   ({ analyzeBodyRound, proveInitialization } = await import("../../packages/host/dist/analyses/body/index.js"));
-  ({ solveAssigned, transferAssigned, statementOperands, terminatorOperands, readLocal, assignedLattice, assignedEntry, localSlotEvidence } =
+  ({ solveAssigned, transferAssigned, statementOperands, terminatorOperands, readLocal, assignedLattice, assignedEntry,
+    localSlotLifetimes, solveStorageLive, storageLiveLattice } =
     await import("../../packages/host/dist/analyses/body/storage.js"));
   ({ sourceOccurrences, orderedRows } = await import("../../packages/host/dist/analyses/body/source.js"));
   ({ bodyNodes } = await import("../../packages/host/dist/ir-facts/verify-body-nodes.js"));
@@ -531,42 +534,86 @@ test("actual captured call bindings refuse growth and retain every unsupported n
   }
 });
 
-function localCaptureProgram(name, initialized, lexical = false) {
-  const childName = `${name}.b`;
-  const body = bodyId(childName, "initializer");
+function localCaptureProgram(name, initialized, lexical = false, count = 1) {
+  const names = ["b", "c"].slice(0, count);
   const builder = builders(name);
   const first = { $: "a", ...builder.variable(builder.declName("a", 0), 0, T.bool) };
-  const second = { $: "b", ...builder.variable(builder.declName("b", 1), 1, T.bool, null, body) };
   const statements = [builder.declare([first]), ...(initialized ? [builder.expressionStatement(builder.assign(builder.target("a", 0, T.bool),
-    "EqualsToken", builder.keyword("TrueKeyword", T.bool), T.bool, T.bool))] : []), builder.declare([second])];
+    "EqualsToken", builder.keyword("TrueKeyword", T.bool), T.bool, T.bool))] : []), ...names.map((binding, index) => builder.declare([
+      { $: binding, ...builder.variable(builder.declName(binding, index + 1), index + 1, T.bool, null, bodyId(`${name}.${binding}`, "initializer")) }]))];
   const program = typedBody(name, { signature: signature(name, [], T.bool), completion: T.bool,
-    locals: [["a", "binding", T.bool, true], ["b", "binding", T.bool]],
-    root: builder.block(...(lexical ? [builder.block(...statements)] : statements), builder.returns(builder.id("b", 1, T.bool))) });
+    locals: [["a", "binding", T.bool, true], ...names.map(binding => [binding, "binding", T.bool])],
+    root: builder.block(...(lexical ? [builder.block(...statements)] : statements), builder.returns(builder.id(names.at(-1), count, T.bool))) });
   const scope = lexical ? program.tir.root.statements.nodes[0] : program.tir.root;
   if (lexical) scope.statements.nodes[0].declarationList.flags = ["Let"];
-  program.tir.locals[0].declaration = { kind: "body", value: program.nodeRef("a") };
-  program.tir.locals[1].declaration = { kind: "body", value: program.nodeRef("b") };
+  program.tir.locals[0].declaration = { kind: "item", value: { owner: def(`${name}.a`), node: program.nodeRef("a").node } };
+  for (const [index, binding] of names.entries()) program.tir.locals[index + 1].declaration = { kind: "body", value: program.nodeRef(binding) };
   const source = { body: program.tir.body, local: 0 };
-  const childBuilder = builders(childName, "initializer");
-  const child = typedBody(childName, { role: "initializer", signature: signature(childName, [], T.bool), completion: T.bool,
-    locals: [["a", "capture", T.bool, false, source]], captures: [{ local: source, capture: "captured-location" }],
-    root: childBuilder.id("a", 0, T.bool) });
-  child.tir.root = seal(childName, childBuilder.id("a", 0, T.bool), "initializer", program.nodeCount).root;
-  const declaration = scope.statements.nodes[initialized ? 2 : 1].declarationList.declarations.nodes[0];
-  child.tir.root.parent = declaration.id;
-  declaration.initializer = child.tir.root;
-  const bodies = [program.tir, child.tir];
+  let next = program.nodeCount;
+  const children = names.map((binding, index) => {
+    const childName = `${name}.${binding}`;
+    const childBuilder = builders(childName, "initializer");
+    const child = typedBody(childName, { role: "initializer", signature: signature(childName, [], T.bool), completion: T.bool,
+      locals: [["a", "capture", T.bool, false, source]], captures: [{ local: source, capture: "captured-location" }],
+      root: childBuilder.id("a", 0, T.bool) });
+    const selected = seal(childName, childBuilder.id("a", 0, T.bool), "initializer", next);
+    next = selected.count;
+    child.tir.root = selected.root;
+    const declaration = scope.statements.nodes[(initialized ? 2 : 1) + index].declarationList.declarations.nodes[0];
+    child.tir.root.parent = declaration.id;
+    declaration.initializer = child.tir.root;
+    return child;
+  });
+  const bodies = [program.tir, ...children.map(child => child.tir)];
   const bodyOf = instance => bodies.find(tir => sameInstance(instance, { body: tir.body, bindings: tir.bindings })) ?? null;
   program.bodyOf = bodyOf;
-  child.bodyOf = bodyOf;
-  const caller = fixture(program, [{ instance: { body, bindings: child.tir.bindings }, signature: child.tir.signature, captures: child.tir.captures }]);
-  const initializer = fixture(child);
-  initializer.related = [caller];
-  const childPair = checkedPair(initializer, analyzeBodyRound(initializer.deps, initializer.input));
-  caller.related = [initializer];
-  caller.deps.summaryOf = () => ({ value: childPair.summary, unit: { request: initializer.deps.unit, position: { kind: "result" } } });
-  return { caller, initializer, childPair };
+  for (const child of children) child.bodyOf = bodyOf;
+  const caller = fixture(program, children.map(child => ({ instance: { body: child.tir.body, bindings: child.tir.bindings },
+    signature: child.tir.signature, captures: child.tir.captures })));
+  const initializers = children.map(child => fixture(child));
+  for (const initializer of initializers) {
+    initializer.related = [caller];
+    checkedPair(initializer, analyzeBodyRound(initializer.deps, initializer.input));
+  }
+  caller.related = initializers;
+  caller.deps.summaryOf = key => {
+    const initializer = initializers.find(row => executionKey(row.execution) === executionKey(key.execution));
+    assert.equal(initializer !== undefined, true);
+    return { value: initializer.pair.summary, unit: { request: initializer.deps.unit, position: { kind: "result" } } };
+  };
+  return { caller };
 }
+
+test("actual ITEM declarations project only their genuine executing occurrence and local association", () => {
+  const { caller } = localCaptureProgram("body-round.local-item-source", true);
+  const tir = caller.program.tir;
+  const source = tir.locals[0];
+  assert.equal(source.declaration.kind, "item");
+  const run = reference => analyzeBodyRound({ ...caller.deps, account: createAccount(limits) }, { ...caller.input,
+    tir: { ...tir, locals: tir.locals.map(row => row === source ? { ...row, declaration: reference } : row) } });
+  const body = { kind: "body", value: caller.program.nodeRef("a") };
+  const pair = checkedPair(caller, run(source.declaration));
+  assert.deepEqual(pair.facts.arena.cells[0].occurrence, { kind: "declared", at: { kind: "node", node: body } });
+  assert.equal(pair.facts.arena.cells[0].occurrence.at.node.value.node, source.declaration.value.node);
+  checkedPair(caller, run(body));
+  for (const reference of [
+    { kind: "body", value: { ...body.value, body: caller.related[0].program.tir.body } },
+    { kind: "item", value: { ...source.declaration.value, node: caller.related[0].program.tir.root.id } },
+    { kind: "item", value: { ...source.declaration.value, node: tir.root.id } },
+    { kind: "item", value: { ...source.declaration.value, node: tir.root.statements.nodes.at(-1).expression.id } },
+    tir.locals[1].declaration,
+  ]) assert.throws(() => run(reference), /actual executing occurrence and qualified local association/);
+  const variable = tir.root.statements.nodes[0].declarationList.declarations.nodes[0];
+  const original = variable.tsonic;
+  try {
+    for (const target of [def("another-variable"), {}, { kind: "definition", definition: def("another-variable") },
+      { kind: "local", local: { body: caller.related[0].program.tir.body, local: 0 } },
+      { kind: "local", local: { body: tir.body, local: -0 } }]) {
+      variable.tsonic = { ...original, declaration: target };
+      assert.throws(() => run(source.declaration), /actual executing occurrence and qualified local association/);
+    }
+  } finally { variable.tsonic = original; }
+});
 
 test("body-local capture cells retain actual storage markers and discharge only initialized read-time content", () => {
   for (const lexical of [false, true]) for (const initialized of [false, true]) {
@@ -576,11 +623,8 @@ test("body-local capture cells retain actual storage markers and discharge only 
     if (initialized) {
       const pair = checkedPair(caller, result);
       const cell = pair.facts.arena.cells[0];
-      assert.equal(cell.occurrence.kind, "statement");
-      assert.equal(cell.occurrence.execution, caller.execution);
-      const start = caller.input.mir.blocks[cell.occurrence.point.block].statements[cell.occurrence.point.statement];
-      assert.equal(start.kind, "storage-live");
-      assert.equal(start.local, cell.role.local);
+      assert.equal(caller.program.tir.locals[0].declaration.kind, "item");
+      assert.deepEqual(cell.occurrence, { kind: "declared", at: { kind: "node", node: { kind: "body", value: caller.program.nodeRef("a") } } });
       assert.deepEqual(cell.lifetimes.map(marker => marker.kind), lexical ? ["live", "dead"] : ["live"]);
       for (const marker of cell.lifetimes) {
         const actual = caller.input.mir.blocks[marker.point.block].statements[marker.point.statement];
@@ -591,6 +635,20 @@ test("body-local capture cells retain actual storage markers and discharge only 
       assert.deepEqual(pair.summary.arena.cells, []);
       assert.deepEqual(pair.summary.arena.producers, []);
       assert.deepEqual(pair.summary.initialization.points, [{ kind: "return" }]);
+      for (const [dimension, needed] of [["maximumRelationalRecordsPerBody", lexical ? 8 : 7],
+        ["maximumRelationalReferencesPerBody", lexical ? 11 : 9]]) {
+        for (let maximum = 0; maximum <= needed; maximum += 1) {
+          const account = createAccount(limits);
+          const deps = { ...caller.deps, account, limits: { ...analysisLimits, [dimension]: maximum } };
+          const bounded = analyzeBodyRound(deps, caller.input);
+          if (maximum === needed) checkedPair({ ...caller, deps }, bounded);
+          else {
+            assert.equal(bounded.kind, "refused");
+            assert.equal(bounded, accountFailure(account));
+            assert.deepEqual(bounded.diagnostics[0].arguments[0], { kind: "text", value: `analysis.${dimension}` });
+          }
+        }
+      }
     } else {
       assert.equal(result.value.value.kind, "error");
       assert.equal(result.value.diagnostics[0].code.rendered, "TSONIC_READ_BEFORE_INITIALIZATION");
@@ -616,14 +674,14 @@ test("actual storage-marker evidence has hand-counted bounds and skips genuine u
   const { caller } = localCaptureProgram("body-round.local-marker-budget", false);
   assert.deepEqual(caller.input.mir.blocks.map(block => block.statements.map(statement => statement.kind)),
     [["storage-live", "storage-live"], []]);
-  for (const [dimension, needed] of [["maximumWork", 9], ["maximumResultEntries", 13]]) {
+  for (const [dimension, needed] of [["maximumWork", 9], ["maximumResultEntries", 11]]) {
     for (let maximum = 0; maximum <= needed; maximum += 1) {
       const account = createAccount({ ...limits, [dimension]: maximum });
-      const result = localSlotEvidence(caller.input, [true, true], account);
+      const result = localSlotLifetimes(caller.input, [new Set(), new Set()], account);
       if (maximum === needed) assert.equal(result.kind, "complete");
       else {
         assert.equal(result, accountFailure(account));
-        assert.equal(localSlotEvidence(new Proxy({}, { get() { assert.fail("No marker input after stop."); } }), [], account), result);
+        assert.equal(localSlotLifetimes(new Proxy({}, { get() { assert.fail("No marker input after stop."); } }), [], account), result);
       }
     }
   }
@@ -633,12 +691,12 @@ test("actual storage-marker evidence has hand-counted bounds and skips genuine u
       return Reflect.get(target, key, receiver);
     },
   }) } };
-  const unused = localSlotEvidence(hidden, [false, false], createAccount(limits));
+  const unused = localSlotLifetimes(hidden, [null, null], createAccount(limits));
   assert.equal(unused.kind, "complete");
   assert.equal(unused.value.size, 0);
 });
 
-test("captured local slots need the actual unique storage-start and source-slot role", () => {
+test("an immediate body capture selects its current live local even when repeated markers share one object", () => {
   const { caller } = localCaptureProgram("body-round.local-marker-boundary", true);
   const mir = caller.input.mir;
   const slot = mir.locals.find(local => local.source?.local === 0);
@@ -646,8 +704,11 @@ test("captured local slots need the actual unique storage-start and source-slot 
   const marker = first.statements.find(statement => statement.kind === "storage-live" && statement.local === slot.id);
   const repeat = { ...mir, blocks: [{ ...first, statements: [marker, ...first.statements] }, ...mir.blocks.slice(1)] };
   assert.deepEqual(verifyMir(repeat, verificationContext(caller.program)), { kind: "complete", violations: [] });
-  assert.throws(() => analyzeBodyRound({ ...caller.deps, account: createAccount(limits) }, { ...caller.input, mir: repeat }),
-    /actual reaching storage-start relation/);
+  assert.equal(repeat.blocks[0].statements[0], repeat.blocks[0].statements[1]);
+  const selected = { ...caller, input: { ...caller.input, mir: repeat } };
+  const pair = checkedPair(selected, analyzeBodyRound({ ...caller.deps, account: createAccount(limits) }, selected.input));
+  assert.deepEqual(pair.facts.arena.cells[0].occurrence, { kind: "declared", at: { kind: "node", node: { kind: "body", value: caller.program.nodeRef("a") } } });
+  assert.deepEqual(pair.facts.arena.cells[0].lifetimes.map(row => row.point), [{ block: 0, statement: 0 }, { block: 0, statement: 1 }]);
   const temporary = { ...mir, locals: mir.locals.map(local => local === slot ? { ...local, role: { kind: "temporary" } } : local) };
   assert.deepEqual(verifyMir(temporary, verificationContext(caller.program)), { kind: "complete", violations: [] });
   assert.throws(() => analyzeBodyRound({ ...caller.deps, account: createAccount(limits) }, { ...caller.input, mir: temporary }),
@@ -657,7 +718,201 @@ test("captured local slots need the actual unique storage-start and source-slot 
   assert.equal(malformed.kind, "complete");
   assert.equal(malformed.violations.some(finding => finding.rule === "storage-live-before-use"), true);
   assert.throws(() => analyzeBodyRound({ ...caller.deps, account: createAccount(limits) }, { ...caller.input, mir: missing }),
-    /actual reaching storage-start relation/);
+    /actual must-live-at-call relation/);
+});
+
+test("current live-slot must joins intersect actual locals and pay before each retained row", () => {
+  const lattice = storageLiveLattice(3);
+  const first = new Set([0]);
+  const same = new Set([0]);
+  const alternatives = [new Set(), new Set([1])];
+  assert.equal(lattice.isOverflow(first, createAccount(limits)), false);
+  assert.equal(lattice.equals(first, first, createAccount(limits)), true);
+  assert.equal(lattice.equals(first, null, createAccount(limits)), false);
+  assert.equal(lattice.equals(null, first, createAccount(limits)), false);
+  assert.equal(lattice.equals(first, same, createAccount(limits)), true);
+  assert.equal(lattice.join(null, first, createAccount(limits)), first);
+  assert.equal(lattice.join(first, null, createAccount(limits)), first);
+  assert.equal(lattice.join(first, first, createAccount(limits)), first);
+  for (const other of alternatives) {
+    assert.equal(lattice.equals(first, other, createAccount(limits)), false);
+    assert.deepEqual([...lattice.join(first, other, createAccount(limits))], []);
+  }
+  for (const [dimension, needed] of [["maximumWork", 2], ["maximumResultEntries", 2]])
+    for (let maximum = 0; maximum <= needed; maximum += 1) {
+      const account = createAccount({ ...limits, [dimension]: maximum });
+      const result = lattice.join(first, same, account);
+      if (maximum === needed) assert.deepEqual([...result], [...first]);
+      else assert.notEqual(accountFailure(account), null);
+    }
+  const stopped = createAccount({ ...limits, maximumWork: 0 });
+  assert.equal(lattice.equals(first, same, stopped), true);
+  assert.notEqual(accountFailure(stopped), null);
+});
+
+test("immediate body captures reuse the symbolic current slot without carrying assignment credit across resets", () => {
+  for (const restart of [false, true]) {
+    const { caller } = localCaptureProgram(`body-round.reaching-storage-cache.${restart}`, true, false, 2);
+    const original = caller.input.mir;
+    const first = original.blocks[0];
+    const local = original.locals.find(row => row.source?.local === 0).id;
+    const live = first.statements.find(row => row.kind === "storage-live" && row.local === local);
+    const assigned = first.statements.find(row => row.kind === "assign");
+    const second = original.blocks[1];
+    const mir = { ...original, blocks: [first, { ...second, statements: restart
+      ? [{ ...live, kind: "storage-dead" }, live, assigned, ...second.statements] : second.statements }, original.blocks[2]] };
+    assert.deepEqual(verifyMir(mir, verificationContext(caller.program)), { kind: "complete", violations: [] });
+    const selected = { ...caller, input: { ...caller.input, mir } };
+    const pair = checkedPair(selected, analyzeBodyRound({ ...caller.deps, account: createAccount(limits) }, selected.input));
+    assert.equal(pair.facts.arena.cells.length, 1);
+    assert.deepEqual(pair.facts.arena.cells[0].occurrence, { kind: "declared", at: { kind: "node", node: { kind: "body", value: caller.program.nodeRef("a") } } });
+    assert.deepEqual(pair.facts.arena.contexts.slice(1).map(row => row.captures[0].cell), [0, 0]);
+    assert.deepEqual(pair.facts.arena.cells[0].lifetimes.map(row => row.kind), restart ? ["live", "dead", "live"] : ["live"]);
+    assert.equal(pair.facts.arena.producers.filter(producer => producer.kind === "local").length, 1);
+    assert.equal(pair.facts.arena.boundProducers.length, 1);
+    assert.deepEqual(pair.facts.arena.contexts.slice(1).map(row => row.captures[0].location), [0, 0]);
+    assert.deepEqual(pair.summary.arena.cells, []);
+    if (restart) {
+      const reset = { ...mir, blocks: [first, { ...mir.blocks[1], statements: mir.blocks[1].statements.filter(row => row !== assigned) }, mir.blocks[2]] };
+      const result = analyzeBodyRound({ ...caller.deps, account: createAccount(limits) }, { ...caller.input, mir: reset });
+      assert.equal(result.kind, "complete");
+      assert.equal(result.value.value.kind, "error");
+      assert.equal(result.value.diagnostics[0].code.rendered, "TSONIC_READ_BEFORE_INITIALIZATION");
+    }
+  }
+});
+
+test("different branch starts select one current live slot only when every path retains live initialized storage", () => {
+  const { caller } = localCaptureProgram("body-round.current-slot-branch", true);
+  const original = caller.input.mir;
+  const first = original.blocks[0];
+  const local = original.locals.find(row => row.source?.local === 0).id;
+  const marker = first.statements.find(row => row.kind === "storage-live" && row.local === local);
+  const assigned = first.statements.find(row => row.kind === "assign");
+  const branch = { ...first.terminator, kind: "switch", operand: assigned.value.operand,
+    targets: [{ constant: assigned.value.operand.constant, target: 1 }], otherwise: 2, step: null };
+  const jump = { ...first.terminator, kind: "goto", target: 3 };
+  const selected = right => ({ ...original, blocks: [
+    { ...first, statements: first.statements.filter(row => row !== marker && row !== assigned), terminator: branch },
+    { ...first, id: 1, statements: [marker], terminator: jump },
+    { ...first, id: 2, statements: right, terminator: jump },
+    { ...first, id: 3, statements: [assigned], terminator: { ...first.terminator, next: 4 } },
+    { ...original.blocks[1], id: 4 },
+  ] });
+  const mir = selected([marker]);
+  assert.deepEqual(verifyMir(mir, verificationContext(caller.program)), { kind: "complete", violations: [] });
+  const account = createAccount(limits);
+  const storage = analyzeStorageUse({ account }, { execution: caller.execution, body: mir });
+  assert.equal(storage.kind, "ok");
+  const current = { ...caller, deps: { ...caller.deps, account }, input: { ...caller.input, mir, liveness: storage.value } };
+  const pair = checkedPair(current, analyzeBodyRound(current.deps, current.input));
+  assert.equal(pair.facts.arena.cells.length, 1);
+  assert.deepEqual(pair.facts.arena.cells[0].lifetimes.map(row => row.point), [{ block: 1, statement: 0 }, { block: 2, statement: 0 }]);
+  assert.deepEqual(pair.facts.arena.contexts[1].captures.map(row => row.cell), [0]);
+  for (const right of [[], [marker, { ...marker, kind: "storage-dead" }]]) {
+    const invalid = selected(right);
+    const checked = verifyMir(invalid, verificationContext(caller.program));
+    assert.equal(checked.kind, "complete");
+    assert.equal(checked.violations.some(row => row.rule === "storage-live-before-use"), true);
+    assert.throws(() => analyzeBodyRound({ ...caller.deps, account: createAccount(limits) }, { ...caller.input, mir: invalid }),
+      /actual must-live-at-call relation/);
+  }
+  const unwritten = { ...mir, blocks: mir.blocks.map(block => block.id === 3 ? { ...block, statements: [] } : block) };
+  assert.deepEqual(verifyMir(unwritten, verificationContext(caller.program)), { kind: "complete", violations: [] });
+  const result = analyzeBodyRound({ ...caller.deps, account: createAccount(limits) }, { ...caller.input, mir: unwritten });
+  assert.equal(result.kind, "complete");
+  assert.equal(result.value.value.kind, "error");
+  assert.equal(result.value.diagnostics[0].code.rendered, "TSONIC_READ_BEFORE_INITIALIZATION");
+});
+
+test("different executing locals with the same source declaration retain different symbolic cells", () => {
+  const { caller } = localCaptureProgram("body-round.current-slot-qualified-symbol", true, false, 2);
+  const original = caller.input.mir;
+  const first = original.blocks[0];
+  const source = original.locals.find(row => row.source?.local === 0);
+  const marker = first.statements.find(row => row.kind === "storage-live" && row.local === source.id);
+  const assigned = first.statements.find(row => row.kind === "assign");
+  const local = { ...source, id: original.locals.length };
+  const place = { ...original.places[assigned.place], id: original.places.length, base: { kind: "local", local: local.id } };
+  const second = original.blocks[1];
+  const mir = { ...original, locals: [...original.locals, local], places: [...original.places, place], blocks: [first,
+    { ...second, statements: [{ ...marker, local: local.id }, { ...assigned, place: place.id }, ...second.statements],
+      terminator: { ...second.terminator, callee: { ...second.terminator.callee,
+        captures: second.terminator.callee.captures.map(row => ({ ...row, place: place.id })) } } }, original.blocks[2]] };
+  assert.deepEqual(verifyMir(mir, verificationContext(caller.program)), { kind: "complete", violations: [] });
+  const account = createAccount(limits);
+  const storage = analyzeStorageUse({ account }, { execution: caller.execution, body: mir });
+  assert.equal(storage.kind, "ok");
+  const current = { ...caller, input: { ...caller.input, mir, liveness: storage.value } };
+  const run = account => analyzeBodyRound({ ...caller.deps, account }, current.input);
+  const pair = checkedPair(current, run(createAccount(limits)));
+  assert.deepEqual(pair.facts.arena.cells.map(row => row.role.local), [source.id, local.id]);
+  assert.deepEqual(pair.facts.arena.contexts.slice(1).map(row => row.captures[0].cell), [0, 1]);
+  assert.deepEqual(pair.facts.arena.cells[0].occurrence.at.node, pair.facts.arena.cells[1].occurrence.at.node);
+  assert.equal(pair.facts.arena.boundProducers.length, 1, "a common symbolic source subject is not common storage identity");
+  for (const dimension of ["maximumWork", "maximumResultEntries"]) {
+    let complete = false;
+    for (let maximum = 0; maximum < 10000; maximum += 1) {
+      const account = createAccount({ ...limits, [dimension]: maximum });
+      const result = run(account);
+      if (result.kind === "complete") { complete = true; break; }
+      assert.equal(result, accountFailure(account));
+    }
+    assert.equal(complete, true);
+  }
+});
+
+test("the actual must-live solve retains original stops at every work and row allowance", () => {
+  const { caller } = localCaptureProgram("body-round.reaching-storage-budget", true, true);
+  const assigned = solveAssigned({ ...caller.deps, account: createAccount(limits) }, caller.input);
+  assert.equal(assigned.kind, "complete");
+  const full = solveStorageLive(caller.input, assigned.value.entry, createAccount(limits));
+  assert.equal(full.kind, "complete");
+  assert.equal(full.value[1].has(caller.input.mir.locals.find(local => local.source?.local === 0).id), false,
+    "a real lexical storage-dead removes its current start before return");
+  for (const dimension of ["maximumWork", "maximumResultEntries"]) {
+    let complete = false;
+    for (let maximum = 0; maximum < 1000; maximum += 1) {
+      const account = createAccount({ ...limits, [dimension]: maximum });
+      const result = solveStorageLive(caller.input, assigned.value.entry, account);
+      if (result.kind === "complete") { complete = true; break; }
+      assert.equal(result, accountFailure(account));
+      assert.equal(solveStorageLive(new Proxy({}, { get() { assert.fail("No current-slot input after the original stop."); } }), [], account), result);
+    }
+    assert.equal(complete, true);
+  }
+});
+
+test("real branch joins and a loop retain the current live local without using source-node identity", () => {
+  const name = "body-round.reaching-storage-control";
+  const builder = builders(name);
+  const program = typedBody(name, { signature: signature(name, [["flag", T.bool]], T.bool), completion: T.bool,
+    params: [[0, "required", T.bool]], locals: [["flag", "parameter", T.bool], ["a", "binding", T.bool, true]],
+    root: builder.block(builder.declare([builder.variable(builder.declName("a", 1), 1, T.bool)]),
+      builder.ifElse(builder.id("flag", 0, T.bool),
+        builder.expressionStatement(builder.assign(builder.target("a", 1, T.bool), "EqualsToken", builder.keyword("TrueKeyword", T.bool), T.bool, T.bool)),
+        builder.expressionStatement(builder.assign(builder.target("a", 1, T.bool), "EqualsToken", builder.keyword("FalseKeyword", T.bool), T.bool, T.bool))),
+      builder.whileLoop(builder.id("flag", 0, T.bool), builder.block(builder.expressionStatement(builder.id("flag", 0, T.bool)))),
+      builder.returns(builder.id("flag", 0, T.bool))) });
+  const current = fixture(program);
+  const assigned = solveAssigned({ ...current.deps, account: createAccount(limits) }, current.input);
+  assert.equal(assigned.kind, "complete");
+  const starts = solveStorageLive(current.input, assigned.value.entry, createAccount(limits));
+  assert.equal(starts.kind, "complete");
+  const local = current.input.mir.locals.find(row => row.source?.local === 1).id;
+  assert.equal(current.input.mir.blocks.some(block => block.terminator.kind === "switch"), true);
+  assert.equal(current.input.mir.blocks.some(block => block.terminator.kind === "goto"), true);
+  for (const state of starts.value) if (state !== null) assert.equal(state.has(local), true);
+  for (const dimension of ["maximumWork", "maximumResultEntries"]) {
+    let complete = false;
+    for (let maximum = 0; maximum < 10000; maximum += 1) {
+      const account = createAccount({ ...limits, [dimension]: maximum });
+      const result = solveStorageLive(current.input, assigned.value.entry, account);
+      if (result.kind === "complete") { complete = true; break; }
+      assert.equal(result, accountFailure(account));
+    }
+    assert.equal(complete, true);
+  }
 });
 
 test("an omitted actual boolean default calls its separately analyzed scalar initializer at the exact MIR occurrence", () => {
@@ -1196,6 +1451,11 @@ test("actual call continuations honor no-return, existing local writes and relat
   assert.equal(result.kind, "complete");
   assert.equal(result.value.value.summary.returns, false, "a structurally reachable continuation is not reached after a non-returning selected callee");
   assert.equal(result.value.value.facts.origins.subjects.length, 0);
+  const noReturnAssigned = solveAssigned({ ...noReturn, account: createAccount(limits) }, current.input);
+  assert.equal(noReturnAssigned.kind, "complete");
+  const noReturnStarts = solveStorageLive(current.input, noReturnAssigned.value.entry, createAccount(limits));
+  assert.equal(noReturnStarts.kind, "complete");
+  assert.equal(noReturnStarts.value[operation.next], null, "the actual non-returning summary never revives its continuation");
   const next = current.input.mir.blocks[operation.next];
   const blocks = current.input.mir.blocks.map(block => block === next ? { ...block, statements: [], terminator: operation } : block);
   const stopped = solveAssigned({ ...noReturn, account: createAccount(limits) }, { ...current.input, mir: { ...current.input.mir, blocks } });

@@ -218,7 +218,7 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
         return callerDefect("the completed formal initializer must retain its checked owner, expression and selected result", header.origin);
       initializerRoot = root;
     }
-    params.push(elaborateParameter(header, body.body, { local: { body: body.body, local: row.local }, declaration: row.declaration,
+    params.push(elaborateParameter(deps, header, body.body, { local: { body: body.body, local: row.local }, declaration: row.declaration,
       role: row.role, passing: row.passing, initializer: row.initializer, storage: parameter.type }, initializerRoot));
   }
   const variablesByNode = new Map<NodeId, VariableDeclaration<TypedPhase>>();

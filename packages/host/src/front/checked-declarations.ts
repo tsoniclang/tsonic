@@ -156,8 +156,11 @@ function typeElements(context: DeclarationLowering, source: readonly Hir.TypeEle
         tsonic: { ...facts(context, node, owner), declaration: { kind: "definition", definition: declaration },
           declaredType: type === null ? { kind: "available", value: null } : type.tsonic.type, initializer: null } };
     }
-    if (node.kind !== "CallSignature" && node.kind !== "ConstructSignature" && node.kind !== "MethodSignature" && node.kind !== "IndexSignature")
+    if (node.kind !== "CallSignature" && node.kind !== "ConstructSignature" && node.kind !== "MethodSignature" && node.kind !== "IndexSignature"
+      && node.kind !== "GetAccessor" && node.kind !== "SetAccessor")
       return fail(node.kind);
+    if ((node.kind === "GetAccessor" || node.kind === "SetAccessor") && (node.body !== null || node.asteriskToken !== null))
+      return fail("an accessor with an execution body or generator marker");
     if (node.fullSignature !== null) return fail("full signature annotation");
     const own = typeParameters(context, node.typeParameters, declaration, typeOf);
     const tsonic: Hir.CheckedCallable = { ...facts(context, node, owner), definition: declaration,
@@ -170,6 +173,9 @@ function typeElements(context: DeclarationLowering, source: readonly Hir.TypeEle
       case "IndexSignature": return { ...common, kind: node.kind, modifiers: lowerCheckedModifiers(node.modifiers) };
       case "MethodSignature": return { ...common, kind: node.kind, modifiers: lowerCheckedModifiers(node.modifiers),
         name: propertyName(context, node.name, declaration), postfixToken: node.postfixToken === null ? null : token(node.postfixToken) };
+      case "GetAccessor": case "SetAccessor": return { ...common, kind: node.kind, modifiers: lowerCheckedModifiers(node.modifiers),
+        name: propertyName(context, node.name, declaration), postfixToken: node.postfixToken === null ? null : token(node.postfixToken),
+        body: null, asteriskToken: null };
     }
   });
 }

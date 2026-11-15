@@ -33,7 +33,7 @@ const writtenKinds: readonly string[] = ["SourceFile", "EndOfFile", "ExportKeywo
   "ExportDeclaration", "NamedExports", "ExportSpecifier", "NamespaceExport", "StringLiteral", "TrueKeyword", "FalseKeyword", "NullKeyword",
   "ImportDeclaration", "ImportClause", "NamedImports", "ImportSpecifier", "NamespaceImport",
   "VariableStatement", "VariableDeclarationList", "VariableDeclaration", "InterfaceDeclaration", "TypeAliasDeclaration", "TypeLiteral", "TypeParameter", "PropertySignature",
-  "CallSignature", "ConstructSignature", "MethodSignature", "IndexSignature", "TypeReference", "UnionType", "IntersectionType",
+  "CallSignature", "ConstructSignature", "MethodSignature", "IndexSignature", "GetAccessor", "SetAccessor", "TypeReference", "UnionType", "IntersectionType",
   "SymbolKeyword", "ReadonlyKeyword", "DeclareKeyword", "ComputedPropertyName", "PropertyAccessExpression", "QuestionToken"];
 
 function unwrittenForm(node: Hir.SyntaxNode<Syntax>): string | null {
@@ -42,6 +42,7 @@ function unwrittenForm(node: Hir.SyntaxNode<Syntax>): string | null {
     case "FunctionDeclaration":
       return node.body === null ? "FunctionDeclaration without a body" : node.typeParameters !== null ? "FunctionDeclaration with type parameters" : null;
     case "Parameter": return node.dotDotDotToken !== null ? "rest Parameter" : null;
+    case "GetAccessor": case "SetAccessor": return node.body !== null || node.asteriskToken !== null ? `${node.kind} with an execution body or generator marker` : null;
     case "PrefixUnaryExpression": return node.operator === "ExclamationToken" ? null : `PrefixUnaryExpression ${node.operator}`;
     case "VariableDeclaration": return node.name.kind !== "Identifier" ? "pattern VariableDeclaration"
       : node.exclamationToken !== null ? "definite-assignment VariableDeclaration" : null;

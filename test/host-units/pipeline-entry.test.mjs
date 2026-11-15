@@ -73,6 +73,95 @@ test("real public AnalyzeHostProgram closes the exported float64 add and every a
   "the selected native addition survives as the canonical MIR binary assignment");
 });
 
+test("real public Host analysis preserves a declared structural alias without inventing an execution body", async () => {
+  assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true);
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const source = "export type Fields = { value: boolean; }; export function identity(input: boolean): boolean { return input; }\n";
+  const input = analysisInput(fixture, "sdk-minimal", source);
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok");
+  assert.equal(result.diagnostics.some(diagnostic => diagnostic.severity === "error"), false);
+  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  const main = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
+  const module = result.value.modules.find(module => module.module === main);
+  assert.equal(module !== undefined, true);
+  const root = module.bodies.find(body => body.kind === "selected" && body.tir.root.kind === "SourceFile");
+  assert.equal(root !== undefined, true);
+  const alias = root.tir.root.statements.nodes.find(node => node.kind === "TypeAliasDeclaration");
+  assert.equal(alias !== undefined, true);
+  assert.equal(alias.type.kind, "TypeLiteral");
+  assert.equal(alias.type.tsonic.type, alias.tsonic.type);
+  const shape = result.value.index.types.terms[alias.tsonic.type];
+  assert.equal(shape.kind, "shape");
+  assert.deepEqual(shape.members.map(member => member.key), [{ kind: "text", value: "value" }]);
+  assert.deepEqual(result.value.index.types.terms[shape.members[0].read], { kind: "primitive", primitive: "bool" });
+  const published = result.value.index.modules.find(module => module.module === main);
+  assert.equal(published.items.some(item => item.definition === alias.tsonic.definition && item.node === alias.id), true);
+  assert.equal(module.bodies.filter(body => body.kind === "template").length, 2);
+  assert.equal(module.bodies.filter(body => body.kind === "selected").length, 2);
+});
+
+test("real public Host analysis preserves generic nested structural members and bodyless accessors without creating executions", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const source = "export type Fields<T> = { value: T; readonly nested: { flag: boolean; }; method(input: boolean): boolean; get enabled(): boolean; set enabled(input: boolean | string); }; "
+    + "export function identity(input: boolean): boolean { return input; }\n";
+  const input = analysisInput(fixture, "sdk-minimal", source);
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok");
+  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  const main = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
+  const module = result.value.modules.find(module => module.module === main);
+  const selected = module.bodies.filter(body => body.kind === "selected");
+  assert.equal(selected.length, 2);
+  assert.equal(module.bodies.filter(body => body.kind === "template").length, 2);
+  const root = selected.find(body => body.tir.root.kind === "SourceFile");
+  assert.equal(root !== undefined, true);
+  const alias = root.tir.root.statements.nodes.find(node => node.kind === "TypeAliasDeclaration");
+  assert.equal(alias !== undefined && alias.type.kind === "TypeLiteral", true);
+  const parameter = alias.typeParameters.nodes[0].tsonic.parameter.declaration;
+  const shape = result.value.index.types.terms[alias.tsonic.type];
+  assert.equal(shape.kind, "shape");
+  const members = new Map(shape.members.map(member => [member.key.value, member]));
+  assert.deepEqual(result.value.index.types.terms[members.get("value").read], { kind: "param", parameter });
+  assert.equal(members.get("nested").write, null);
+  const nested = result.value.index.types.terms[members.get("nested").read];
+  assert.equal(nested.kind, "shape");
+  assert.deepEqual(nested.members.map(member => member.key), [{ kind: "text", value: "flag" }]);
+  const callable = alias.type.members.nodes.find(node => node.kind === "MethodSignature");
+  const getter = alias.type.members.nodes.find(node => node.kind === "GetAccessor");
+  const setter = alias.type.members.nodes.find(node => node.kind === "SetAccessor");
+  assert.equal(callable !== undefined && getter !== undefined && setter !== undefined, true);
+  for (const declaration of [callable, getter, setter]) {
+    assert.equal(declaration.tsonic.template, null);
+    for (const formal of declaration.parameters.nodes) assert.equal(formal.tsonic.local, null);
+    assert.equal(declaration.tsonic.signatures.every(endpoint => endpoint.body === null), true);
+  }
+  assert.deepEqual(members.get("enabled").readOrigins, [{ kind: "declared", declaration: getter.tsonic.definition }]);
+  assert.deepEqual(members.get("enabled").writeOrigins, [{ kind: "declared", declaration: setter.tsonic.definition }]);
+});
+
+test("real public Host analysis reads a declared structural field through its actual selected native place", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal",
+    "export type Box = { flag: boolean; }; export function read(box: Box): boolean { return box.flag; }\n");
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok");
+  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  const main = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
+  const module = result.value.modules.find(module => module.module === main);
+  const caller = module.bodies.find(body => body.kind === "selected" && body.tir.params.length === 1);
+  assert.equal(caller !== undefined, true);
+  const read = caller.tir.root.statements.nodes[0].expression;
+  assert.equal(read.kind, "PropertyAccessExpression");
+  assert.deepEqual(result.value.index.types.terms[read.tsonic.convertedType], { kind: "primitive", primitive: "bool" });
+  assert.equal(caller.mir.places.some(place => (place.base.kind === "place" || place.base.kind === "checked")
+    && place.base.projection.kind === "field" && place.base.tir.node === read.id
+    && place.storage === read.tsonic.convertedType), true);
+});
+
 for (const [form, value, unaryCount] of [["single", "!flag", 1], ["nested", "!(!flag)", 2]])
 test(`real public Host analysis retains ${form} boolean negation as its selected native unary operations`, async () => {
   const fixture = await loadFrontFixture();
@@ -365,11 +454,9 @@ test("real public Host analysis discharges a body-local captured initializer thr
   assert.notEqual(local, undefined);
   const facts = caller.facts[0];
   const cell = facts.arena.cells.find(cell => cell.role.kind === "local" && cell.role.local === local.id);
-  assert.equal(cell !== undefined && cell.occurrence.kind === "statement", true);
-  const point = cell.occurrence.point;
-  const start = caller.mir.blocks[point.block].statements[point.statement];
-  assert.equal(start.kind, "storage-live");
-  assert.equal(start.local, local.id);
+  assert.equal(cell !== undefined && cell.occurrence.kind === "declared", true);
+  assert.equal(caller.tir.locals[source.local].declaration.value.node, declarations[0].id);
+  assert.deepEqual(cell.occurrence.at, { kind: "node", node: { kind: "body", value: { body: caller.instance.body, node: declarations[0].id } } });
   assert.equal(cell.lifetimes.some(marker => marker.kind === "live"), true);
   for (const marker of cell.lifetimes) {
     const operation = caller.mir.blocks[marker.point.block].statements[marker.point.statement];
@@ -379,6 +466,49 @@ test("real public Host analysis discharges a body-local captured initializer thr
   const summary = result.value.index.summaries.find(summary => summary.key.kind === "body"
     && summary.key.execution.instance.body === caller.instance.body);
   assert.notEqual(summary, undefined);
+  assert.equal(summary.initialization.points.every(point => point.kind !== "need"), true);
+});
+
+test("real public Host analysis retains one current local cell across two distinct captured initializer calls", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal",
+    "export function local(input: boolean): boolean { let a: boolean = input; const b: boolean = a; const c: boolean = a; return c; }\n");
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok");
+  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  const main = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
+  const module = result.value.modules.find(module => module.module === main);
+  const caller = module.bodies.find(body => body.kind === "selected" && body.tir.params.length === 1);
+  assert.equal(caller !== undefined, true);
+  const declarations = caller.tir.root.statements.nodes.slice(0, 3)
+    .map(statement => statement.declarationList.declarations.nodes[0]);
+  const source = declarations[0].name.tsonic.declaration.local;
+  const local = caller.mir.locals.find(local => local.source?.body === source.body && local.source.local === source.local);
+  assert.equal(local !== undefined, true);
+  const facts = caller.facts[0];
+  const cells = facts.arena.cells.filter(cell => cell.role.kind === "local" && cell.role.local === local.id);
+  assert.equal(cells.length, 1);
+  const cell = cells[0];
+  assert.equal(caller.tir.locals[source.local].declaration.value.node, declarations[0].id);
+  assert.deepEqual(cell.occurrence, { kind: "declared", at: { kind: "node", node: { kind: "body", value: { body: caller.instance.body, node: declarations[0].id } } } });
+  const children = declarations.slice(1).map(declaration => declaration.tsonic.initializer);
+  const calls = caller.mir.blocks.filter(block => block.terminator.kind === "call"
+    && block.terminator.callee.kind === "body" && children.includes(block.terminator.callee.instance.body));
+  assert.equal(calls.length, 2);
+  for (const block of calls) {
+    const activation = facts.origins.activations.find(row => row.point.block === block.id && row.point.statement === null);
+    assert.equal(activation !== undefined, true);
+    const capture = facts.arena.contexts[activation.context].captures[0];
+    assert.equal(capture.cell, cell.id);
+    const bound = facts.arena.boundProducers[capture.location];
+    const producer = facts.arena.producers[bound.producer];
+    assert.equal(producer.kind, "local");
+    assert.deepEqual(producer.local, source);
+  }
+  const summary = result.value.index.summaries.find(summary => summary.key.kind === "body"
+    && summary.key.execution.instance.body === caller.instance.body);
+  assert.equal(summary !== undefined, true);
   assert.equal(summary.initialization.points.every(point => point.kind !== "need"), true);
 });
 

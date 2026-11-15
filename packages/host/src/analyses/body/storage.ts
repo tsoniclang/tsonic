@@ -3,7 +3,7 @@ import { accountFailure, chargeResultEntries, chargeWork, solve } from "../../da
 import { requirePresent, throwInvariant } from "../../diag/index.js";
 import type { BlockId, LocalId } from "../../ids/contract.js";
 import type { MirBody, MirOperand, MirStatement, MirTerminator } from "../../ir-mir/contract.js";
-import type { LogicalCellLifetime, MirPoint } from "../../ir-facts/contract.js";
+import type { LogicalCellLifetime } from "../../ir-facts/contract.js";
 import { localOwnershipOfMir } from "../../ir-mir/index.js";
 import type { BodyRoundDeps, BodyRoundInput } from "./contract.js";
 import type { CallError } from "./calls.js";
@@ -15,20 +15,15 @@ export function bodyFrontier(message: string): never {
   return throwInvariant({ owner: "analyses/initialization", query: null, origin: null, message });
 }
 
-export interface LocalSlotEvidence {
-  readonly starts: readonly MirPoint[];
-  readonly lifetimes: readonly LogicalCellLifetime[];
-}
-
-export function localSlotEvidence(input: BodyRoundInput, reachable: readonly boolean[],
-  account: DataflowAccount): DataflowResult<ReadonlyMap<LocalId, LocalSlotEvidence>> {
+export function localSlotLifetimes(input: BodyRoundInput, entries: readonly Assigned[],
+  account: DataflowAccount): DataflowResult<ReadonlyMap<LocalId, readonly LogicalCellLifetime[]>> {
   const admitted = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
   if (admitted !== null) return admitted;
-  const slots = new Map<LocalId, { readonly starts: MirPoint[]; readonly lifetimes: LogicalCellLifetime[] }>();
+  const slots = new Map<LocalId, LogicalCellLifetime[]>();
   for (let blockIndex = 0; blockIndex < input.mir.blocks.length; blockIndex += 1) {
     const blockWork = chargeWork(account, 2);
     if (blockWork !== null) return blockWork;
-    if (reachable[blockIndex] !== true) continue;
+    if (entries[blockIndex] === null || entries[blockIndex] === undefined) continue;
     const block = requirePresent(input.mir.blocks[blockIndex], { owner: "analyses/body", query: null, origin: null,
       message: "A reached storage-marker block remains in the verified MIR." });
     for (let position = 0; position < block.statements.length; position += 1) {
@@ -41,18 +36,93 @@ export function localSlotEvidence(input: BodyRoundInput, reachable: readonly boo
       if (growth !== null) return growth;
       let slot = slots.get(statement.local);
       if (slot === undefined) {
-        const entry = chargeResultEntries(account, 3);
+        const entry = chargeResultEntries(account, 2);
         if (entry !== null) return entry;
-        slot = { starts: [], lifetimes: [] };
+        slot = [];
         slots.set(statement.local, slot);
       }
       const point = { block: block.id, statement: position };
-      slot.lifetimes.push({ kind: statement.kind === "storage-live" ? "live" : "dead", execution: input.execution,
+      slot.push({ kind: statement.kind === "storage-live" ? "live" : "dead", execution: input.execution,
         point, local: statement.local });
-      if (statement.kind === "storage-live") slot.starts.push(point);
     }
   }
   return { kind: "complete", value: slots };
+}
+
+export type StorageLive = ReadonlySet<LocalId> | null;
+
+export function storageLiveLattice(stateBound: number): Lattice<StorageLive> {
+  return {
+    bottom: null, overflow: null, stateBound, isOverflow: () => false,
+    equals: (left, right, account) => {
+      if (left === right) return true;
+      if (left === null || right === null || left.size !== right.size) return false;
+      for (const local of left) {
+        if (chargeWork(account, 1) !== null) return true;
+        if (!right.has(local)) return false;
+      }
+      return true;
+    },
+    join: (left, right, account) => {
+      if (left === null) return right;
+      if (right === null || left === right) return left;
+      const admitted = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
+      if (admitted !== null) return left;
+      const common = new Set<LocalId>();
+      for (const local of left) {
+        if (chargeWork(account, 1) !== null) return left;
+        if (!right.has(local)) continue;
+        if (chargeResultEntries(account, 1) !== null) return left;
+        common.add(local);
+      }
+      return common;
+    },
+  };
+}
+
+export function solveStorageLive(input: Pick<BodyRoundInput, "execution" | "mir">, entries: readonly Assigned[],
+  account: DataflowAccount): DataflowResult<readonly StorageLive[]> {
+  const admitted = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
+  if (admitted !== null) return admitted;
+  const problem: ForwardProblem<StorageLive> = {
+    direction: "forward", boundary: new Set(), lattice: storageLiveLattice(input.mir.locals.length + 1),
+    statement: (statement, state, borrowed) => {
+      if (state === null || statement.kind !== "storage-live" && statement.kind !== "storage-dead") return state;
+      const growth = chargeWork(borrowed, state.size + 1)
+        ?? chargeResultEntries(borrowed, state.size + (statement.kind === "storage-live" ? 2 : 1));
+      if (growth !== null) return state;
+      const next = new Set(state);
+      if (statement.kind === "storage-live") next.add(statement.local);
+      else next.delete(statement.local);
+      return next;
+    },
+    terminator: (terminator, state, borrowed) => {
+      if (state === null) return [];
+      if (chargeWork(borrowed, 1) !== null || chargeResultEntries(borrowed, 1) !== null) return [];
+      const outgoing: { readonly target: BlockId; readonly state: StorageLive }[] = [];
+      const edge = (target: BlockId): boolean => {
+        if (chargeWork(borrowed, 1) !== null) return false;
+        if (entries[target] === null || entries[target] === undefined) return true;
+        if (chargeResultEntries(borrowed, 1) !== null) return false;
+        outgoing.push({ target, state });
+        return true;
+      };
+      if (terminator.kind === "goto") edge(terminator.target);
+      else if (terminator.kind === "call") edge(terminator.next);
+      else if (terminator.kind === "switch") {
+        for (let position = 0; position < terminator.targets.length; position += 1) {
+          if (chargeWork(borrowed, 1) !== null) return outgoing;
+          const target = requirePresent(terminator.targets[position], { owner: "analyses/body", query: null, origin: terminator.origin,
+            message: "A verified storage-live switch retains every actual target." });
+          if (!edge(target.target)) return outgoing;
+        }
+        edge(terminator.otherwise);
+      } else terminatorOperands(terminator);
+      return outgoing;
+    },
+  };
+  const solution = solve(input.mir, input.execution.provided, problem, account);
+  return solution.kind === "complete" ? { kind: "complete", value: solution.value.exit } : solution;
 }
 
 export function assignedEntry(entries: readonly Assigned[], block: BlockId): ReadonlySet<LocalId> {

@@ -2,9 +2,9 @@ import type { DataflowStop } from "../../dataflow/contract.js";
 import { accountFailure, chargeResultEntries, chargeWork, refuseAccount } from "../../dataflow/index.js";
 import type { Diagnostic, DiagnosticIdentity, ErrorValue, UnitResult } from "../../diag/contract.js";
 import { hostDiagnosticCode, requirePresent, resourceLimitDiagnostic } from "../../diag/index.js";
-import type { LocalId, NodeId, OriginsId, PlaceId, ProducerId, TyId } from "../../ids/contract.js";
+import type { BoundProducerId, LocalId, NodeId, OriginsId, PlaceId, ProducerId, SourceNodeRef, TyId } from "../../ids/contract.js";
 import { boundProducerId, originsId, producerId, valueContextId } from "../../ids/index.js";
-import type { ArgumentTransport, BoundActivation, BoundProducer, CaptureLocation, InitializationFact, InitializationPoint, InitializationRow, IntegerFact, InvocationFact, LogicalCellRow, MirPoint, Producer, ReadOriginsFact, SubjectOriginsFact, Summary, SummaryApplicationInput, ValueContext, ValueEntryBinding, WriteFact } from "../../ir-facts/contract.js";
+import type { ArgumentTransport, BoundActivation, BoundProducer, CaptureLocation, InitializationFact, InitializationPoint, InitializationRow, IntegerFact, InvocationFact, LogicalCellLifetime, LogicalCellRow, MirPoint, Producer, ReadOriginsFact, SubjectOriginsFact, Summary, SummaryApplicationInput, ValueContext, ValueEntryBinding, WriteFact } from "../../ir-facts/contract.js";
 import { admitSummaryIdentity } from "../../ir-facts/index.js";
 import type { MirOperand, MirSite } from "../../ir-mir/contract.js";
 import { localOwnershipOfMir } from "../../ir-mir/index.js";
@@ -14,8 +14,8 @@ import type { BodyRoundDeps, BodyRoundInput, BodyRoundResult, BodyRoundValue } f
 import type { CallError } from "./calls.js";
 import { applyScalarCall, callInstance, callSummary, isCallError, scalarArgument } from "./calls.js";
 import { orderedRows, sourceOccurrences } from "./source.js";
-import type { LocalSlotEvidence } from "./storage.js";
-import { assignedEntry, bodyFrontier, localSlotEvidence, readLocal, solveAssigned, statementOperands, terminatorOperands, transferAssigned } from "./storage.js";
+import type { StorageLive } from "./storage.js";
+import { assignedEntry, bodyFrontier, localSlotLifetimes, readLocal, solveAssigned, solveStorageLive, statementOperands, terminatorOperands, transferAssigned } from "./storage.js";
 
 function scalarKind(deps: BodyRoundDeps, type: TyId): "primitive" | "absence" | null {
   const selected = nativeCarrierOf(deps.types, type, current =>
@@ -139,6 +139,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
         site: { kind: "source", origin: tir.root.origin }, unit: { request: deps.unit, position: { kind: "result" } } })] });
   const formalCount = signature.parameters.length + (signature.receiver === null ? 0 : 1);
   let contextReferences = formalCount + tir.captures.length * 5;
+  let lifetimeRecords = 0;
   const bound = bounded("maximumRelationalRecordsPerBody", 2 + formalCount + tir.captures.length * 3 + (hasAbsence ? 1 : 0))
     ?? bounded("maximumRelationalReferencesPerBody", contextReferences)
     ?? bounded("maximumConditionAlternatives", 1);
@@ -182,7 +183,9 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
   const solved = solveAssigned(deps, input);
   if (solved.kind !== "complete") return solved;
   if (solved.value.error !== null) return failedCall(deps, solved.value.error);
-  let localSlots: ReadonlyMap<LocalId, LocalSlotEvidence> | null = null;
+  let localSlots: { readonly lifetimes: ReadonlyMap<LocalId, readonly LogicalCellLifetime[]>;
+    readonly live: readonly StorageLive[] } | null = null;
+  let callerLocalSubjects: Map<LocalId, BoundProducerId> | null = null;
   const initialized = new Map<NodeId, Map<PlaceId, InitializationFact>>();
   let initializedCount = 0;
   const reads: ReadOriginsFact[] = [];
@@ -280,7 +283,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       if (selected.kind !== "complete") return selected;
       if (isCallError(selected.value)) return failedCall(deps, selected.value);
       const bound = bounded("maximumRelationalRecordsPerBody", arena.cells.length + arena.boundProducers.length
-        + arena.producers.length + arena.contexts.length + arena.origins.length + 1)
+        + arena.producers.length + arena.contexts.length + arena.origins.length + lifetimeRecords + 1)
         ?? bounded("maximumRelationalReferencesPerBody", terminator.arguments.length, contextReferences);
       if (bound !== null) return bound;
       contextReferences += terminator.arguments.length;
@@ -299,46 +302,89 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
             message: "A selected body call retains every actual capture transport." });
           const local = readLocal(mir, { kind: "place", place: capture.place });
           const incoming = capturedLocals.get(local);
-          let binding = incoming === undefined ? callerCaptures.get(local) : captureLocations[incoming];
+          const sourceWork = chargeWork(account, 2);
+          if (sourceWork !== null) return sourceWork;
+          const actual = requirePresent(mir.locals[local], { owner: "analyses/body", query: null, origin: terminator.origin,
+            message: "A verified capture retains its actual executing local." });
+          let lifetimes: readonly LogicalCellLifetime[] | undefined;
+          if (incoming === undefined && actual.role.kind === "user") {
+            if (localSlots === null) {
+              const evidence = localSlotLifetimes(input, solved.value.entry, account);
+              if (evidence.kind !== "complete") return evidence;
+              const live = solveStorageLive(input, solved.value.entry, account);
+              if (live.kind !== "complete") return live;
+              const retained = chargeResultEntries(account, 1);
+              if (retained !== null) return retained;
+              localSlots = { lifetimes: evidence.value, live: live.value };
+            }
+            const lookup = chargeWork(account, 2);
+            if (lookup !== null) return lookup;
+            const live = localSlots.live[block.id]?.has(local) === true;
+            lifetimes = localSlots.lifetimes.get(local);
+            if (!live || lifetimes === undefined)
+              return bodyFrontier("BodyAnalysis requires the actual must-live-at-call relation for this captured local slot.");
+          }
+          let binding = incoming !== undefined ? captureLocations[incoming] : callerCaptures.get(local);
           if (binding === undefined) {
-            const bound = bounded("maximumRelationalRecordsPerBody", arena.cells.length + arena.boundProducers.length
-              + arena.producers.length + arena.contexts.length + arena.origins.length + 4)
-              ?? bounded("maximumRelationalReferencesPerBody", 5, contextReferences);
-            if (bound !== null) return bound;
             const growth = chargeWork(account, 2) ?? chargeResultEntries(account, 12);
             if (growth !== null) return growth;
-            const source = requirePresent(mir.locals[local], { owner: "analyses/body", query: null, origin: terminator.origin,
-              message: "A verified capture retains its actual executing local." });
-            if (source.role.kind !== "parameter" && source.role.kind !== "receiver" && source.role.kind !== "user")
+            const callerLocal = actual;
+            if (callerLocal.role.kind !== "parameter" && callerLocal.role.kind !== "receiver" && callerLocal.role.kind !== "user")
               return bodyFrontier("BodyAnalysis requires the actual local lifetime and value-subject binding for this captured slot.");
-            if (source.source === null || source.source.body !== tir.body || tir.locals[source.source.local]?.id !== source.source.local)
+            const declaration = callerLocal.source === null ? undefined : tir.locals[callerLocal.source.local];
+            if (callerLocal.source === null || callerLocal.source.body !== tir.body || declaration?.id !== callerLocal.source.local)
               return bodyFrontier("A captured caller slot retains its actual qualified source local, not its formal value identity.");
-            const cell = cells.length;
-            const location = boundProducerId(boundProducers.length);
-            const producer = producerId(producers.length);
-            let slot: LocalSlotEvidence | undefined;
-            if (source.role.kind === "user") {
-              if (localSlots === null) {
-                const evidence = localSlotEvidence(input, solved.value.reachable, account);
-                if (evidence.kind !== "complete") return evidence;
-                localSlots = evidence.value;
-              }
-              const lookup = chargeWork(account, 1);
-              if (lookup !== null) return lookup;
-              slot = localSlots.get(local);
-              if (slot === undefined || slot.starts.length !== 1)
-                return bodyFrontier("BodyAnalysis requires the actual reaching storage-start relation for this captured local slot.");
+            let at: SourceNodeRef | null = null;
+            if (callerLocal.role.kind === "user") {
+              const projection = chargeWork(account, 3) ?? chargeResultEntries(account, 2);
+              if (projection !== null) return projection;
+              const reference = declaration.declaration;
+              const node = source.value.get(reference.value.node);
+              const annotation = node?.tsonic;
+              const target = annotation !== undefined && annotation !== null && "declaration" in annotation ? annotation.declaration : null;
+              if (node === undefined || reference.kind === "body" && reference.value.body !== tir.body
+                || typeof target !== "object" || target === null || !("kind" in target) || target.kind !== "local"
+                || target.local.body !== tir.body || !Object.is(target.local.local, declaration.id))
+                return bodyFrontier("A captured local declaration retains its actual executing occurrence and qualified local association.");
+              at = { kind: "body", value: { body: tir.body, node: node.id } };
             }
-            cells.push({ id: cell, role: { kind: "local", local }, occurrence: slot === undefined
-              ? { kind: "entry", execution, local } : { kind: "statement", execution,
-                point: requirePresent(slot.starts[0], { owner: "analyses/body", query: null, origin: terminator.origin,
-                  message: "A captured local slot retains its actual verified storage-start occurrence." }) }, lifetimes: slot?.lifetimes ?? [] });
+            const subject = callerLocalSubjects?.get(callerLocal.source.local);
+            const subjectRows = subject === undefined ? 2 : 0;
+            const subjectReferences = subject === undefined ? 5 : 3;
+            const bound = bounded("maximumRelationalRecordsPerBody", arena.cells.length + arena.boundProducers.length
+              + arena.producers.length + arena.contexts.length + arena.origins.length + lifetimeRecords + 2 + subjectRows)
+              ?? bounded("maximumRelationalReferencesPerBody", subjectReferences, contextReferences);
+            if (bound !== null) return bound;
+            const cell = cells.length;
+            const location = subject ?? boundProducerId(boundProducers.length);
+            const producer = producerId(producers.length);
+            if (lifetimes !== undefined) {
+              const markers = lifetimes.length;
+              const retained = arena.cells.length + arena.boundProducers.length + arena.producers.length
+                + arena.contexts.length + arena.origins.length + lifetimeRecords + 2 + subjectRows;
+              const markerBound = bounded("maximumRelationalRecordsPerBody", markers, retained)
+                ?? bounded("maximumRelationalReferencesPerBody", markers * 2, contextReferences + subjectReferences);
+              if (markerBound !== null) return markerBound;
+              lifetimeRecords += markers;
+              contextReferences += markers * 2;
+            }
+            cells.push({ id: cell, role: { kind: "local", local }, occurrence: at !== null
+              ? { kind: "declared", at: { kind: "node", node: at } }
+              : { kind: "entry", execution, local }, lifetimes: lifetimes ?? [] });
             cellLocals.push(local);
-            producers.push({ id: producer, path: null, kind: "local", local: source.source });
-            boundProducers.push({ id: location, producer, bindings: tir.lexicalBindings, context: valueContextId(0) });
+            if (subject === undefined) {
+              if (callerLocalSubjects === null) {
+                const retained = chargeResultEntries(account, 1);
+                if (retained !== null) return retained;
+                callerLocalSubjects = new Map();
+              }
+              producers.push({ id: producer, path: null, kind: "local", local: callerLocal.source });
+              boundProducers.push({ id: location, producer, bindings: tir.lexicalBindings, context: valueContextId(0) });
+              callerLocalSubjects.set(callerLocal.source.local, location);
+            }
             binding = { index, location, cell };
             callerCaptures.set(local, binding);
-            contextReferences += 5;
+            contextReferences += subjectReferences;
           }
           const references = bounded("maximumRelationalReferencesPerBody", 2, contextReferences);
           if (references !== null) return references;

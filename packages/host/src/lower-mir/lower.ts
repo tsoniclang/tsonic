@@ -269,7 +269,7 @@ function statement(lowering: Lowering, node: Statement<TypedPhase>): boolean {
       lowering.work.push({ kind: "if", node }, { kind: "expression", node: node.expression });
       return true;
     case "WhileStatement": return enterWhile(lowering, node);
-    case "EmptyStatement": return true;
+    case "EmptyStatement": case "TypeAliasDeclaration": case "InterfaceDeclaration": return true;
     case "ExpressionStatement":
       lowering.work.push({ kind: "discard", node }, { kind: "expression", node: node.expression });
       return true;

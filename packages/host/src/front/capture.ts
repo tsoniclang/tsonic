@@ -21,7 +21,7 @@ const available = <Value>(value: Value): RawFact<Value> => ({ kind: "available",
 const notProvided = <Value>(): RawFact<Value> => ({ kind: "unavailable", reason: "not-provided", causes: [] });
 
 /** The declaration kinds whose node is the declaration of a callable with a signature and possibly a body. */
-const callableKinds: readonly string[] = ["KindFunctionDeclaration", "KindCallSignature", "KindConstructSignature", "KindMethodSignature"];
+const callableKinds: readonly string[] = ["KindFunctionDeclaration", "KindCallSignature", "KindConstructSignature", "KindMethodSignature", "KindGetAccessor", "KindSetAccessor"];
 function wellKnownSymbol(kind: NonNullable<ReturnType<TypeCheckerQueries["getResolvedWellKnownSymbolInfo"]>>["kind"]):
   NonNullable<Extract<RawMemberKey, { readonly kind: "symbol" }>["wellKnown"]> {
   switch (kind) {

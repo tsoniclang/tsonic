@@ -67,3 +67,29 @@ test("one iterative type/member assembly preserves twenty thousand nested ready 
   assert.equal(completed.kind, "BooleanKeyword");
   assert.equal(completed.tsonic.type.value, depth);
 });
+
+test("a missing prepared type retains the original failure and never pulls a later member", async () => {
+  assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true);
+  const fixture = await loadFrontFixture();
+  const actual = fixture.checkedModuleOf("export function identity(input: boolean): boolean { return input; }\n");
+  const { lowerCheckedType } = await import("../../packages/host/dist/front/checked-declarations.js");
+  const origin = actual.checked.tree.origin;
+  const loc = actual.checked.tree.loc;
+  const owner = actual.checked.tree.tsonic.definition;
+  const header = (id, parent) => ({ id, parent, origin, loc, flags: [] });
+  let laterReads = 0;
+  const later = new Proxy({}, { get() { laterReads += 1; assert.fail("the later member is never read"); } });
+  const root = { ...header(0, 0), kind: "TypeLiteral", tsonic: null,
+    members: { loc, nodes: [{ ...header(1, 0), kind: "PropertySignature", modifiers: null,
+      name: { ...header(2, 1), kind: "Identifier", text: "first", tsonic: null }, postfixToken: null,
+      type: { ...header(3, 1), kind: "BooleanKeyword", tsonic: null }, initializer: null, tsonic: null }, later] } };
+  const original = new TypeError("the actual prepared annotation is missing");
+  let reads = 0;
+  const unused = () => assert.fail("no dependent construction follows the original missing annotation");
+  assert.throws(() => lowerCheckedType({ definitions: new Map([[1, owner]]),
+    checkedType: node => { reads += 1; assert.equal(node, 3); throw original; },
+    core: unused, resolution: unused, signature: unused, memory: unused, expression: unused, property: unused }, root, owner),
+  error => error === original);
+  assert.equal(reads, 1);
+  assert.equal(laterReads, 0);
+});
