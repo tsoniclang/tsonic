@@ -60,7 +60,10 @@ export function inspectHost(deps, inputs) {
     }
   }
   const compositionPort = (edge, from, to) => {
-    if (![from.contract, from.contract.replace(/\.ts$/u, ".d.ts")].includes(edge.source) ||
+    const readyTypes = from.name !== "summaries" ? [] : to.name === "analyses/body"
+      ? ["AnalyzeBodyRound", "BodyRoundDeps", "BodyRoundEnvironment", "BodyRoundInput", "BodyRoundResult", "BodyRoundValue"]
+      : to.name === "analyses/liveness" ? ["AnalyzeStorageUse", "StorageUseDeps", "StorageUseInput"] : [];
+    if (readyTypes.length === 0 && ![from.contract, from.contract.replace(/\.ts$/u, ".d.ts")].includes(edge.source) ||
       ![to.contract, to.contract.replace(/\.ts$/u, ".d.ts")].includes(edge.target)) return false;
     const { ast } = source;
     const file = source.sourceFiles.find(node => node !== undefined && ast.getFileName(node) === `/host-gate/${edge.source}`);
@@ -86,6 +89,10 @@ export function inspectHost(deps, inputs) {
       const name = ast.text(selected.PropertyName ?? ast.name(binding));
       const identity = sourceSymbol(source, ast.name(binding));
       const declarations = identity === undefined ? [] : queries.getSymbolDeclarations(identity);
+      if (readyTypes.length > 0) return imported && readyTypes.includes(name) && declarations.length > 0 &&
+        declarations.every(declaration => ast.getFileName(ast.getSourceFile(declaration)) === `/host-gate/${edge.target}` &&
+          ast.text(ast.name(declaration)) === name &&
+          (ast.is.IsTypeAliasDeclaration(declaration) || ast.is.IsInterfaceDeclaration(declaration)));
       const brand = name === "CheckerExtensions" && declarations.length === 1 && declarations.every(declaration =>
         sourceOwner(catalogue, ast.getFileName(ast.getSourceFile(declaration)).slice("/host-gate/".length))?.name === "front" &&
         ast.is.IsTypeAliasDeclaration(declaration) && ast.text(ast.name(declaration)) === "CheckerExtensions");
@@ -122,7 +129,7 @@ export function inspectHost(deps, inputs) {
       } else if (to !== undefined && from.name === to.name) allowed = true;
       else if (to !== undefined && from.imports.includes(to.name)) {
         allowed = to.kind === "library" ? publicEntry(to, edge.target)
-          : from.kind === "pipeline" && to.kind === "component" ||
+          : compositionPort(edge, from, to) || from.kind === "pipeline" && to.kind === "component" ||
             from.kind === "orchestration" && ["pipeline", "driver"].includes(to.kind) || from.kind === "cli" && to.kind === "orchestration";
       }
       if ([from.contract, from.contract.replace(/\.ts$/u, ".d.ts")].includes(edge.source) &&

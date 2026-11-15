@@ -191,6 +191,60 @@ test("pipeline imports real component implementations; components do not import 
   expect([[otherTest, `import { infer } from "../../../../${host}/infer/unit.js";`], [component, implementation]], [at("forbidden-import", otherTest)]);
 });
 
+test("Summaries borrows only named owning BodyAnalysis operation types, never peer implementations", () => {
+  const body = { ...hostCatalogue.find(module => module.name === "analyses/liveness"), name: "analyses/body",
+    directory: `${host}/analyses/body`, contract: file("analyses/body", "contract.ts"), entry: file("analyses/body", "index.ts"),
+    implementationOwners: ["analyses/body", "pipeline"] };
+  const authority = [...hostCatalogue.map(module => module.name === "summaries"
+    ? { ...module, imports: [...module.imports, "analyses/body", "analyses/liveness"] } : module), body];
+  for (const [owner, operation, environment, input, value] of [
+    ["body", "AnalyzeBodyRound", "BodyRoundDeps", "BodyRoundInput", "BodyRoundValue"],
+    ["liveness", "AnalyzeStorageUse", "StorageUseDeps", "StorageUseInput", "StorageUseValue"],
+  ]) {
+    const contract = file(`analyses/${owner}`, "contract.ts");
+    const extraTypes = owner === "body" ? "export interface BodyRoundEnvironment { readonly limit: number; }\nexport type BodyRoundResult = BodyRoundValue;" : "";
+    const target = [contract, `export interface ${environment} { readonly limit: number; }
+export interface ${input} { readonly value: number; }
+export interface ${value} { readonly value: number; }
+export interface Unrelated { readonly value: number; }
+export type ${operation} = (deps: ${environment}, input: ${input}) => ${value};\n${extraTypes}`];
+    const relative = `../analyses/${owner}/contract.js`;
+    for (const name of ["contract.ts", "converge.ts"]) {
+      const path = file("summaries", name);
+      for (const imported of [`import type { ${operation} as Run, ${environment}, ${input} } from "${relative}";`,
+        `import { type ${operation} as Run, type ${environment}, type ${input} } from "${relative}";`])
+        expect([target, [path, `${imported}\nexport interface Ready { readonly run: Run; readonly environment: ${environment}; readonly input: ${input}; }`]], [], authority);
+      if (owner === "body") expect([target, [path,
+        `import type { BodyRoundEnvironment, BodyRoundResult, BodyRoundValue } from "${relative}";\nexport interface Ready { readonly environment: BodyRoundEnvironment; readonly result: BodyRoundResult; readonly value: BodyRoundValue; }`]], [], authority);
+      for (const text of [
+        `import { ${operation} } from "${relative}";`,
+        `import type * as Native from "${relative}";`,
+        `export type { ${operation} } from "${relative}";`,
+        `import type { Unrelated } from "${relative}";`,
+        `type Run = import("${relative}").${operation};`,
+        `import type { ${operation} } from "../analyses/${owner}/index.js";`,
+        `import type { ${operation} } from "../analyses/${owner}/private.js";`,
+      ]) {
+        const extra = text.includes("/index.js") ? [[file(`analyses/${owner}`, "index.ts"), target[1]]]
+          : text.includes("/private.js") ? [[file(`analyses/${owner}`, "private.ts"), target[1]]] : [];
+        const findings = inspect([target, ...extra, [path, text]], {}, authority);
+        assert.equal(findings.some(finding => finding.code === "forbidden-import" && finding.path === path), true, text);
+      }
+    }
+    const peer = file("infer");
+    expect([target, [peer, `import type { ${operation} } from "${relative}";`]], [at("forbidden-import", peer)], authority);
+    for (const source of ["export interface Unrelated { readonly value: number; }",
+      `export declare function ${operation}(deps: { readonly limit: number }, input: number): number;`]) {
+      const findings = inspect([[contract, source], [file("summaries"), `import type { ${operation} } from "${relative}";`]], {}, authority);
+      assert.equal(findings.some(finding => finding.code === "forbidden-import" && finding.path === file("summaries")), true, source);
+    }
+    const foreign = file("ir-types", "contract.ts");
+    expect([[foreign, `export interface ${input} { readonly value: number; }`],
+      [contract, `export type { ${input} } from "../../ir-types/contract.js";`],
+      [file("summaries"), `import type { ${input} } from "${relative}";`]], [at("forbidden-import", file("summaries"))], authority);
+  }
+});
+
 test("front's sole SDK-value port is the complete tagged ExtensionOf return union", () => {
   const imports = 'import type { CompilerExtension as Compiler, SourceDeclarationProvider, SourceSemanticsModule } from "@tsonic/tsts"; import type { LibraryRoleEntry as Role } from "../snapshot/contract.js";';
   const union = '{ readonly kind: "compiler-extension"; readonly value: Compiler } | { readonly kind: "declaration-provider"; readonly value: SourceDeclarationProvider; readonly roles: readonly Role[] } | { readonly kind: "semantics-module"; readonly value: SourceSemanticsModule }';
