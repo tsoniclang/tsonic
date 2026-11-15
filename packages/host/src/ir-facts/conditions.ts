@@ -1,5 +1,5 @@
 import type { DataflowResult } from "../dataflow/contract.js";
-import { chargeWork, refuseAccount } from "../dataflow/index.js";
+import { chargeResultEntries, chargeWork, refuseAccount } from "../dataflow/index.js";
 import type { Condition, ConditionAnd, ConditionEquals, ConditionLimits, ConditionOr, ConditionSubstitute } from "./contract.js";
 
 function count(value: number, name: string): void {
@@ -105,7 +105,7 @@ function insert(rows: (readonly number[])[], candidate: readonly number[], limit
     if (order.value > 0) break;
     position += 1;
   }
-  const moveStop = chargeWork(limits.account, retained - position);
+  const moveStop = chargeWork(limits.account, retained - position) ?? chargeResultEntries(limits.account, 1);
   if (moveStop !== null) return moveStop;
   rows.splice(position, 0, candidate);
   return { kind: "complete", value: null };
@@ -129,7 +129,7 @@ export function andConditions(left: Condition, right: Condition, limits: Conditi
   if (stop !== null) return stop;
   const rows: (readonly number[])[] = [];
   for (const first of left.alternatives) for (const second of right.alternatives) {
-    const pairStop = chargeWork(limits.account, 1);
+    const pairStop = chargeWork(limits.account, 1) ?? chargeResultEntries(limits.account, 1);
     if (pairStop !== null) return pairStop;
     const row: number[] = [];
     const leftEvents = first.values();
@@ -139,6 +139,8 @@ export function andConditions(left: Condition, right: Condition, limits: Conditi
     while (!leftEvent.done || !rightEvent.done) {
       const memberStop = chargeWork(limits.account, 1);
       if (memberStop !== null) return memberStop;
+      const growth = chargeResultEntries(limits.account, 1);
+      if (growth !== null) return growth;
       if (!leftEvent.done && (rightEvent.done || leftEvent.value < rightEvent.value)) {
         row.push(leftEvent.value); leftEvent = leftEvents.next();
       } else if (!rightEvent.done && (leftEvent.done || rightEvent.value < leftEvent.value)) {
@@ -156,7 +158,7 @@ export function andConditions(left: Condition, right: Condition, limits: Conditi
 export function substituteCondition(condition: Condition, events: readonly Condition[], limits: ConditionLimits): DataflowResult<Condition> {
   let result: Condition = { alternatives: [] };
   for (const alternative of condition.alternatives) {
-    const rowStop = chargeWork(limits.account, 1);
+    const rowStop = chargeWork(limits.account, 1) ?? chargeResultEntries(limits.account, 2);
     if (rowStop !== null) return rowStop;
     let current: Condition = { alternatives: [[]] };
     for (const index of alternative) {

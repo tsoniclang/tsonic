@@ -6,8 +6,8 @@ export async function conditionCases(suite) {
   const refusal = { kind: "refused", diagnostics: [{ code: { kind: "checker", number: 1, rendered: "condition bound" },
     severity: "error", site: { kind: "none" }, source: null, evidence: [], message: "condition bound", arguments: [], related: [], fix: null }] };
   const condition = alternatives => ({ alternatives });
-  const limits = (maximumWork = 1_000_000, maximumConditionAlternatives = 256, eventCount = 3) => ({
-    eventCount, maximumConditionAlternatives, account: flow.createAccount({ maximumWork, maximumResultEntries: 1_000_000 }), refusal });
+  const limits = (maximumWork = 1_000_000, maximumConditionAlternatives = 256, eventCount = 3, maximumResultEntries = 1_000_000) => ({
+    eventCount, maximumConditionAlternatives, account: flow.createAccount({ maximumWork, maximumResultEntries }), refusal });
   const value = result => { assert.equal(result.kind, "complete"); return result.value; };
   const truth = condition => Array.from({ length: 8 }, (_, assignment) => condition.alternatives.some(row =>
     row.every(event => (assignment & (1 << event)) !== 0)));
@@ -128,6 +128,41 @@ export async function conditionCases(suite) {
     }
   });
 
+  await suite.test("conditions: exact result rows and merged events share the original allocation account", () => {
+    const empty = condition([]);
+    const always = condition([[]]);
+    const first = condition([[0]]);
+    const second = condition([[1]]);
+    const cases = [
+      [0, environment => facts.conditionOr(empty, empty, environment), empty],
+      [0, environment => facts.conditionAnd(empty, always, environment), empty],
+      [0, environment => facts.conditionSubstitute(empty, [], environment), empty],
+      [0, environment => facts.conditionEquals(first, second, environment), false],
+      [1, environment => facts.conditionOr(first, empty, environment), first],
+      [2, environment => facts.conditionAnd(always, always, environment), always],
+      [4, environment => facts.conditionAnd(first, second, environment), condition([[0, 1]])],
+      [3, environment => facts.conditionSubstitute(always, [], environment), always],
+      [6, environment => facts.conditionSubstitute(first, [second], environment), second],
+    ];
+    for (const [needed, operation, expected] of cases) {
+      assert.deepEqual(value(operation(limits(10000, 256, 3, needed))), expected);
+      for (let maximum = 0; maximum < needed; maximum += 1) {
+        const environment = limits(10000, 256, 3, maximum);
+        const stop = operation(environment);
+        assert.deepEqual(stop, { kind: "resource-limit", dimension: "result-entries", maximum });
+        assert.equal(flow.accountFailure(environment.account), stop);
+        assert.equal(facts.conditionOr(null, null, environment), stop);
+        assert.equal(facts.conditionSubstitute(null, null, environment), stop);
+      }
+    }
+    const shared = limits(10000, 256, 3, 5);
+    assert.deepEqual(value(facts.conditionOr(first, empty, shared)), first);
+    assert.deepEqual(value(facts.conditionAnd(first, second, shared)), condition([[0, 1]]));
+    const stop = facts.conditionOr(second, empty, shared);
+    assert.deepEqual(stop, { kind: "resource-limit", dimension: "result-entries", maximum: 5 });
+    assert.equal(facts.conditionAnd(null, null, shared), stop);
+  });
+
   await suite.test("conditions: every charged child can refuse without later input work or a partial public condition", () => {
     const first = condition([[0, 2], [1, 2]]);
     const second = condition([[0, 1], [2]]);
@@ -141,22 +176,25 @@ export async function conditionCases(suite) {
     ];
     for (const operation of operations) {
       const expected = value(operation(limits()));
-      let completed = false;
-      for (let maximum = 0; maximum <= 500; maximum += 1) {
-        const environment = limits(maximum);
-        const result = operation(environment);
-        if (result.kind === "complete") {
-          completed = true;
-          assert.deepEqual(result.value, expected);
-        } else {
-          assert.equal(completed, false, "a larger allowance cannot create an earlier refusal");
-          assert.deepEqual(result, { kind: "resource-limit", dimension: "work", maximum });
-          assert.equal(flow.accountFailure(environment.account), result);
-          assert.equal(facts.conditionOr(null, null, environment), result);
-          assert.equal(facts.conditionSubstitute(null, null, environment), result);
+      for (const dimension of ["work", "result-entries"]) {
+        let completed = false;
+        for (let maximum = 0; maximum <= 500; maximum += 1) {
+          const environment = limits(dimension === "work" ? maximum : 10000, 256, 3,
+            dimension === "result-entries" ? maximum : 10000);
+          const result = operation(environment);
+          if (result.kind === "complete") {
+            completed = true;
+            assert.deepEqual(result.value, expected);
+          } else {
+            assert.equal(completed, false, "a larger allowance cannot create an earlier refusal");
+            assert.deepEqual(result, { kind: "resource-limit", dimension, maximum });
+            assert.equal(flow.accountFailure(environment.account), result);
+            assert.equal(facts.conditionOr(null, null, environment), result);
+            assert.equal(facts.conditionSubstitute(null, null, environment), result);
+          }
         }
+        assert.equal(completed, true, "the bounded owning case is complete with its hand-bounded allowance");
       }
-      assert.equal(completed, true, "the bounded owning case is complete with its hand-bounded allowance");
     }
   });
 }
