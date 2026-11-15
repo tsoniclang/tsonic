@@ -469,7 +469,7 @@ export const createSyntaxStatementsText = (kernel: TirTextKernel, read: SyntaxSt
     .field("modifiers", "?ModifierList", value => nullableWork(value.modifiers, actual => read.work_ModifierList.write(actual)), nullableReader(lazyReader(() => read.work_ModifierList.reader)))
     .field("asteriskToken", "?$AsteriskToken", value => nullableWork(value.asteriskToken, actual => syntaxReference("$AsteriskToken", actual)), nullableReader(syntaxReads.AsteriskToken))
     .field("body", "?$NodeBody", value => nullableWork(value.body, actual => syntaxReference("$NodeBody", actual)), nullableReader(syntaxReads.NodeBody))
-    .field("keyword", "ModuleKeyword", value => scalarWork("ModuleKeyword", value.keyword), literalReader<(ModuleDeclaration<TypedPhase>)["keyword"]>("ModuleKeyword", ["ModuleKeyword","NamespaceKeyword"]))
+    .field("keyword", "ModuleKeyword", value => scalarWork("ModuleKeyword", value.keyword), literalReader<(ModuleDeclaration<TypedPhase>)["keyword"]>("ModuleKeyword", ["ModuleKeyword","NamespaceKeyword","GlobalKeyword"]))
     .field("name", "$ModuleName", value => syntaxReference("$ModuleName", value.name), syntaxReads.ModuleName)
     .field("tsonic", "TypedNamespace", value => read.work_TypedNamespace.write(value.tsonic), lazyReader(() => read.work_TypedNamespace.reader))
     .finishSyntax((syntaxKind, field_id, field_origin, field_parent, field_flags, field_loc, field_modifiers, field_asteriskToken, field_body, field_keyword, field_name, field_tsonic) => ({

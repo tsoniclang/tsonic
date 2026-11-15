@@ -147,7 +147,7 @@ export interface HirScalarReaders {
   readonly literal_123: HirReader<"DeferKeyword">;
   readonly literal_124: HirReader<"TypeKeyword">;
   readonly literal_125: HirReader<"ImportKeyword" | "NewKeyword">;
-  readonly literal_126: HirReader<"ModuleKeyword" | "NamespaceKeyword">;
+  readonly literal_126: HirReader<"ModuleKeyword" | "NamespaceKeyword" | "GlobalKeyword">;
   readonly literal_127: HirReader<"MinusMinusToken" | "PlusPlusToken">;
   readonly literal_128: HirReader<"update">;
   readonly literal_129: HirReader<"ExclamationToken" | "MinusMinusToken" | "MinusToken" | "PlusPlusToken" | "PlusToken" | "TildeToken">;
@@ -298,7 +298,7 @@ export function createHirScalarReaders(): HirScalarReaders {
     literal_123: literalReader<"DeferKeyword">(["DeferKeyword"]),
     literal_124: literalReader<"TypeKeyword">(["TypeKeyword"]),
     literal_125: literalReader<"ImportKeyword" | "NewKeyword">(["ImportKeyword","NewKeyword"]),
-    literal_126: literalReader<"ModuleKeyword" | "NamespaceKeyword">(["ModuleKeyword","NamespaceKeyword"]),
+    literal_126: literalReader<"ModuleKeyword" | "NamespaceKeyword" | "GlobalKeyword">(["ModuleKeyword","NamespaceKeyword","GlobalKeyword"]),
     literal_127: literalReader<"MinusMinusToken" | "PlusPlusToken">(["PlusPlusToken","MinusMinusToken"]),
     literal_128: literalReader<"update">(["update"]),
     literal_129: literalReader<"ExclamationToken" | "MinusMinusToken" | "MinusToken" | "PlusPlusToken" | "PlusToken" | "TildeToken">(["PlusToken","MinusToken","TildeToken","ExclamationToken","PlusPlusToken","MinusMinusToken"]),

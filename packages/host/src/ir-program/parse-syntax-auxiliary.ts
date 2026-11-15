@@ -253,7 +253,7 @@ export function readModuleDeclarationSyntax<Root>(cursor: Cursor, ports: SyntaxR
     fieldText<SyntaxValue<ModifierList<TypedPhase> | null>, Root>(cursor, fields, "modifiers", (next, done) => readNullableSyntax(next, (next, done) => readSyntaxList(next, (next, done) => readSyntaxReference(next, ports.ModifierLike, done), "ModifierList", done), done), modifiersValue =>
     fieldText<SyntaxValue<AsteriskToken<TypedPhase> | null>, Root>(cursor, fields, "asteriskToken", (next, done) => readNullableSyntax(next, (next, done) => readSyntaxReference(next, ports.AsteriskToken, done), done), asteriskTokenValue =>
     fieldText<SyntaxValue<NodeBody<TypedPhase> | null>, Root>(cursor, fields, "body", (next, done) => readNullableSyntax(next, (next, done) => readSyntaxReference(next, ports.NodeBody, done), done), bodyValue =>
-    fieldText<"ModuleKeyword" | "NamespaceKeyword", Root>(cursor, fields, "keyword", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["ModuleKeyword","NamespaceKeyword"]), done), keywordValue =>
+    fieldText<"ModuleKeyword" | "NamespaceKeyword" | "GlobalKeyword", Root>(cursor, fields, "keyword", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["ModuleKeyword","NamespaceKeyword","GlobalKeyword"]), done), keywordValue =>
     fieldText<SyntaxValue<ModuleName<TypedPhase>>, Root>(cursor, fields, "name", (next, done) => readSyntaxReference(next, ports.ModuleName, done), nameValue =>
     fieldText<TypedNamespace, Root>(cursor, fields, "tsonic", readTypedNamespaceText, tsonicValue =>
     finishSyntaxRecord<ModuleDeclaration<TypedPhase>, Root>(cursor, fields, {

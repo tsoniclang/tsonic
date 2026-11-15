@@ -39,13 +39,13 @@ function declarations(deps: LowerDeps, references: readonly RawNodeRef[]): HirEx
   return { kind: "declarations", definitions };
 }
 
-function keyOf(deps: LowerDeps, key: RawMemberKey): MemberKey {
+export function lowerMemberKey(deps: LowerDeps, key: RawMemberKey): MemberKey {
   if (key.kind === "text") return key;
   if (key.kind === "symbol") return { kind: "symbol", declaration: deps.definitionOf(key.declaration) };
   throw new TypeError("front: exact numeric binding-member key conversion is not implemented");
 }
 
-function originOf(deps: LowerDeps, origin: RawMemberOrigin): MemberOrigin {
+export function lowerMemberOrigin(deps: LowerDeps, origin: RawMemberOrigin): MemberOrigin {
   if (origin.kind === "declaration") return { kind: "declared", declaration: deps.definitionOf(origin.declaration) };
   if (origin.kind === "class-prototype") return { kind: "class-prototype", owner: deps.definitionOf(origin.declaration) };
   throw new TypeError("front: mapped binding-member origin conversion is not implemented");
@@ -58,7 +58,7 @@ export function lowerBindingTarget(deps: LowerDeps, target: RawBindingTarget): H
       ?? fail("A nearest binding hop must have its actual ready qualified occurrence.") };
     case "module": return target;
     case "member": return { kind: "member", through: declarations(deps, target.through),
-      key: fact(target.key, key => keyOf(deps, key)), origins: fact(target.origins, origins => origins.map(origin => originOf(deps, origin))) };
+      key: fact(target.key, key => lowerMemberKey(deps, key)), origins: fact(target.origins, origins => origins.map(origin => lowerMemberOrigin(deps, origin))) };
   }
 }
 

@@ -40,6 +40,10 @@ export function createAstReader() {
         properties: (node) => Node_Properties(node) ?? [],
         questionToken: (node) => node === undefined ? undefined : Node_QuestionToken(node),
         operatorKindName,
+        moduleKeywordKindName: node => {
+            const keyword = node !== undefined && predicates.IsModuleDeclaration(node) ? casts.AsModuleDeclaration(node)?.Keyword : undefined;
+            return keyword === undefined ? undefined : KindString(keyword);
+        },
         modifiers: (node) => Node_ModifierNodes(node) ?? [],
         modifierFlags: (node) => node === undefined ? 0 : Node_ModifierFlags(node),
         hasModifier: (node, flags) => node !== undefined && HasModifier(node, flags) === true,

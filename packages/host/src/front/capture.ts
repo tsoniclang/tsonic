@@ -7,7 +7,7 @@ import { nodeId, rawCandidateListId, rawComponentId, rawMemberTableId, rawSignat
 import type * as Hir from "../ir-hir/contract.js";
 import type { RawComponentId, RawSignatureId, RawSymbolId, RawTypeId } from "../ids/contract.js";
 import type {
-  CaptureDeps, CheckedProgram, RawArgumentBinding, RawAuthoredArgument, RawBinding, RawBindingTarget, RawCallSelection, RawCallableAssociation, RawCandidateList, RawCoreCapture, RawCheckedType, RawCheckerViews, RawComponent, RawComponentStep, RawDiagnosticCoverage, RawFact, RawIndexSignature, RawLiteral, RawMemberKey, RawMemberTable, RawModule, RawModuleExport, RawModuleLink, RawNodeRef, RawParameter, RawPropertyName, RawProviderDeclaration, RawReference, RawSignature, RawSymbol, RawTypeArgument, RawTypeForm,
+  CaptureDeps, CheckedProgram, RawArgumentBinding, RawAuthoredArgument, RawBinding, RawBindingTarget, RawCallSelection, RawCallableAssociation, RawCandidateList, RawCoreCapture, RawCheckedType, RawCheckerViews, RawComponent, RawComponentStep, RawDiagnosticCoverage, RawFact, RawIndexSignature, RawLiteral, RawMember, RawMemberOrigin, RawMemberKey, RawMemberTable, RawModule, RawModuleExport, RawModuleLink, RawNodeRef, RawParameter, RawPropertyName, RawProviderDeclaration, RawReference, RawSignature, RawSymbol, RawTypeArgument, RawTypeForm,
 } from "./contract.js";
 import { ExtensionTable, OpenedProgram } from "./handles.js";
 import type { FileNumbering, FileSyntaxEntry } from "./handles.js";
@@ -232,6 +232,120 @@ function component(scope: CaptureScope, root: RawNodeRef, path: readonly RawComp
  * this capture's development frontier (a compiler defect, never a user diagnostic), named with the checker's own
  * text of the type.
  */
+function capturedPropertyKey(scope: CaptureScope, node: Node | undefined): RawMemberKey | null {
+  const selected = node === undefined ? undefined : scope.checker.getEffectivePropertyName(node);
+  if (selected?.kind === "string") return { kind: "text", value: selected.name };
+  if (selected?.kind === "numeric") {
+    const value = scope.shape.getNumericLiteralTypeValue(selected.type);
+    if (typeof value !== "number") return throwInvariant(invariant("A selected numeric property key requires its actual checker number evidence."));
+    return { kind: "numeric", value: { kind: "checker-value", value } };
+  }
+  if (selected?.kind !== "unique-symbol") return null;
+  const symbol = scope.checker.getTypeSymbol(selected.type);
+  const declarations = symbol === undefined ? [] : scope.checker.getSymbolDeclarations(symbol);
+  if (!admit(scope, "edges")) return null;
+  const declaration = declarations[0];
+  if (declarations.length !== 1 || declaration === undefined)
+    return throwInvariant(invariant("A selected unique-symbol property key requires its actual unique declaration."));
+  const source = referenceTo(scope, scope.program, declaration);
+  if (scope.meter.refusal !== null) return null;
+  if (source === null) return throwInvariant(invariant("A selected unique-symbol key requires its admitted original source declaration."));
+  const wellKnown = scope.checker.getResolvedWellKnownSymbolInfo(node);
+  return { kind: "symbol", declaration: source, wellKnown: wellKnown === undefined ? null : wellKnownSymbol(wellKnown.kind) };
+}
+
+function capturedMembers(scope: CaptureScope, properties: ReturnType<TypeShapeQueries["getPropertyInfos"]>, position: RawComponentId): readonly RawMember[] | null {
+  const parent = scope.tables.components[position];
+  if (parent === undefined) return throwInvariant(invariant("A member inventory requires its actual captured source component."));
+  const members: RawMember[] = [];
+  for (let index = 0; index < properties.length; index += 1) {
+    if (!admit(scope, "facts") || !admit(scope, "edges")) return null;
+    const property = properties[index];
+    if (property === undefined) return throwInvariant(invariant("A selected property inventory must retain every actual row."));
+    if (property.mapped !== undefined) throw new TypeError("front: mapped property origin transport requires its actual selected mapped component");
+    const primary = scope.checker.getSymbolValueDeclaration(property.symbol);
+    if (primary === undefined) throw new TypeError("front: a property without an actual source value declaration requires its original synthetic member association");
+    const name = scope.checked.ast.name(primary);
+    const key = capturedPropertyKey(scope, name);
+    if (scope.meter.refusal !== null) return null;
+    if (key === null) throw new TypeError("front: a member requires its actual selected source property-key evidence");
+    const origin = referenceTo(scope, scope.program, primary);
+    if (scope.meter.refusal !== null) return null;
+    if (origin === null) return throwInvariant(invariant("A property value declaration must retain its actual admitted source identity."));
+    const declarations: RawNodeRef[] = [];
+    const getters: RawNodeRef[] = [];
+    const setters: RawNodeRef[] = [];
+    const setterNodes: Node[] = [];
+    const origins: RawMemberOrigin[] = [];
+    const seen = new Set<Node>();
+    let method = false;
+    for (let rootIndex = 0; rootIndex < property.rootSymbols.length; rootIndex += 1) {
+      if (!admit(scope, "edges")) return null;
+      const root = property.rootSymbols[rootIndex];
+      if (root === undefined) return throwInvariant(invariant("A selected property retains each actual checker root symbol."));
+      const sources = scope.checker.getSymbolDeclarations(root);
+      for (let sourceIndex = 0; sourceIndex < sources.length; sourceIndex += 1) {
+        if (!admit(scope, "edges") || !admit(scope, "facts")) return null;
+        const source = sources[sourceIndex];
+        if (source === undefined) return throwInvariant(invariant("A property root declaration inventory must be dense."));
+        if (seen.has(source)) continue;
+        seen.add(source);
+        const kind = scope.checked.ast.kindName(source);
+        if (kind === "KindInterfaceDeclaration" || kind === "KindTypeAliasDeclaration") continue;
+        if (kind !== "KindVariableDeclaration" && kind !== "KindFunctionDeclaration" && kind !== "KindModuleDeclaration" && kind !== "KindPropertyDeclaration"
+          && kind !== "KindPropertySignature" && kind !== "KindMethodDeclaration" && kind !== "KindMethodSignature"
+          && kind !== "KindGetAccessor" && kind !== "KindSetAccessor")
+          throw new TypeError(`front: property origin transport for the actual ${kind} declaration is not implemented`);
+        const reference = referenceTo(scope, scope.program, source);
+        if (scope.meter.refusal !== null) return null;
+        if (reference === null) return throwInvariant(invariant("A property origin requires its actual admitted source declaration."));
+        declarations.push(reference);
+        if (kind === "KindGetAccessor") getters.push(reference);
+        if (kind === "KindSetAccessor") { setters.push(reference); setterNodes.push(source); }
+        method ||= kind === "KindMethodDeclaration" || kind === "KindMethodSignature";
+        if (kind !== "KindSetAccessor") {
+          if (!admit(scope, "facts")) return null;
+          origins.push({ kind: "declaration", declaration: reference, access: "read" });
+        }
+        if (!property.readonly && kind !== "KindGetAccessor") {
+          if (!admit(scope, "facts")) return null;
+          origins.push({ kind: "declaration", declaration: reference, access: "write" });
+        }
+      }
+    }
+    if (declarations.length === 0 || !seen.has(primary))
+      throw new TypeError("front: a member requires its actual declared or synthetic origin association");
+    const readType = (type: Type, access: "read" | "write", declaration: RawNodeRef): RawTypeId | null => {
+      for (let part = 0; part < parent.path.length; part += 1) if (!admit(scope, "edges")) return null;
+      return rawType(scope, () => type, component(scope, parent.root,
+        [...parent.path, { kind: "member", declaration, access }]), null);
+    };
+    const read = readType(property.type, "read", origin);
+    if (read === null) return null;
+    let write: RawTypeId | null = null;
+    if (!property.readonly) {
+      let type = property.type;
+      let declaration = origin;
+      const setter = setterNodes[0];
+      if (setter !== undefined) {
+        if (!admit(scope, "edges")) return null;
+        const signature = scope.shape.getDeclarationSignatureInfo(setter);
+        const parameter = signature?.parameters[0];
+        if (signature === undefined || signature.parameters.length !== 1 || parameter === undefined)
+          throw new TypeError("front: an accessor write requires its actual selected setter parameter type");
+        type = parameter.type;
+        declaration = setters[0] ?? throwInvariant(invariant("A selected setter retains its actual captured source declaration."));
+      } else if (getters.length !== 0) throw new TypeError("front: a writable accessor requires its actual setter association");
+      write = readType(type, "write", declaration);
+      if (write === null) return null;
+    }
+    members.push({ key, name: property.name, origins, declarations, getters, setters,
+      optional: property.optional, readonly: property.readonly, read: available(read), write: available(write),
+      readKind: getters.length !== 0 || setters.length !== 0 ? "accessor" : method ? "method" : "property" });
+  }
+  return members;
+}
+
 function typeForm(scope: CaptureScope, type: Type, position: RawComponentId): RawTypeForm | null {
   const shape = scope.shape;
   const symbol = scope.checker.getTypeSymbol(type);
@@ -336,9 +450,9 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId): Ra
   const calls = shape.getCallSignatures(type);
   const constructs = shape.getConstructSignatures(type);
   const selectedIndexes = shape.getIndexInfos(type);
-  if (calls.length !== 0 || constructs.length !== 0 || selectedIndexes.length !== 0) {
-    if (shape.getPropertyInfos(type).length !== 0)
-      throw new TypeError("front: the captured members of a callable checker type are not implemented");
+  if (!admit(scope, "edges")) return null;
+  const properties = shape.getPropertyInfos(type);
+  if (calls.length !== 0 || constructs.length !== 0 || selectedIndexes.length !== 0 || properties.length !== 0) {
     if (!admit(scope, "facts")) return null;
     const inventory = rawMemberTableId(scope.tables.nextMember++);
     const root = scope.tables.components[position]?.root;
@@ -384,7 +498,9 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId): Ra
       if (value === null) return null;
       indexes.push({ origin, key, value, readonly: selected.readonly });
     }
-    scope.tables.members[inventory] = { id: inventory, component: position, members: [], indexes, elementBinders: available([]),
+    const members = capturedMembers(scope, properties, position);
+    if (members === null) return null;
+    scope.tables.members[inventory] = { id: inventory, component: position, members, indexes, elementBinders: available([]),
       calls: callSignatures, constructs: constructSignatures };
     return { kind: "structure", inventory };
   }
@@ -785,27 +901,10 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
     const declarationName = parent !== undefined && ast.name(parent) === node;
     if (kind === "KindComputedPropertyName") {
       if (!admit(scope, "facts")) break;
-      const selected = scope.checker.getEffectivePropertyName(node);
+      const selected = capturedPropertyKey(scope, node);
       let key: RawFact<RawMemberKey | null> = { kind: "unavailable", reason: "missing-original-component", causes: [] };
-      if (selected?.kind === "string") key = available({ kind: "text", value: selected.name });
-      else if (selected?.kind === "numeric") {
-        const value = scope.shape.getNumericLiteralTypeValue(selected.type);
-        if (typeof value !== "number") return throwInvariant(invariant("A selected numeric property key requires its actual checker number evidence."));
-        key = available({ kind: "numeric", value: { kind: "checker-value", value } });
-      } else if (selected?.kind === "unique-symbol") {
-        const symbol = scope.checker.getTypeSymbol(selected.type);
-        const declarations = symbol === undefined ? [] : scope.checker.getSymbolDeclarations(symbol);
-        if (!admit(scope, "edges")) break;
-        const declaration = declarations[0];
-        if (declarations.length !== 1 || declaration === undefined)
-          return throwInvariant(invariant("A selected unique-symbol property key requires its actual unique declaration."));
-        const source = referenceTo(scope, program, declaration);
-        if (scope.meter.refusal !== null) break;
-        if (source === null) return throwInvariant(invariant("A selected unique-symbol key requires its admitted original source declaration."));
-        const wellKnown = scope.checker.getResolvedWellKnownSymbolInfo(node);
-        key = available({ kind: "symbol", declaration: source,
-          wellKnown: wellKnown === undefined ? null : wellKnownSymbol(wellKnown.kind) });
-      }
+      if (scope.meter.refusal !== null) break;
+      if (selected !== null) key = available(selected);
       propertyNames.push({ node: reference, selected: key, numericIndex: selected?.kind === "numeric" });
     }
     const bindingSyntax = isModuleBindingKind(kind.replace(/^Kind/u, ""), kind !== "KindImportClause" || ast.name(node) !== undefined);

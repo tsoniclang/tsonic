@@ -1,4 +1,5 @@
 import type { InvariantFailure } from "../diag/contract.js";
+import type { BlockId } from "../ids/contract.js";
 import { requirePresent } from "../diag/index.js";
 import type { MirBlock, MirBody, MirStatement } from "../ir-mir/contract.js";
 import type {
@@ -146,10 +147,11 @@ function joined<State>(lattice: Lattice<State>, left: State, right: State, meter
   return { kind: "complete", value };
 }
 
-function transferred<State>(problem: Problem<State>, statement: MirStatement, state: State, meter: DataflowAccount): DataflowResult<State> {
+function transferred<State>(problem: Problem<State>, statement: MirStatement, state: State, meter: DataflowAccount,
+  block: BlockId, position: number): DataflowResult<State> {
   const workStop = takeWork(meter);
   if (workStop !== null) return workStop;
-  const value = problem.statement(statement, state, meter);
+  const value = problem.statement(statement, state, meter, block, position);
   const stateStop = failureOf(meter) ?? checkState(problem.lattice, value, meter);
   if (stateStop !== null) return stateStop;
   return { kind: "complete", value };
@@ -247,14 +249,14 @@ function forwardStep<State>(
   cell.entry = state;
   for (let position = 0; position < cell.block.statements.length; position += 1) {
     const statement = requireCallerValue(cell.block.statements[position], `statement ${position}`);
-    const result = transferred(problem, statement, state, context.meter);
+    const result = transferred(problem, statement, state, context.meter, cell.block.id, position);
     if (result.kind !== "complete") return result;
     state = result.value;
   }
   cell.exit = state;
   const terminatorWork = takeWork(context.meter);
   if (terminatorWork !== null) return terminatorWork;
-  const outputs = problem.terminator(cell.block.terminator, state, context.meter);
+  const outputs = problem.terminator(cell.block.terminator, state, context.meter, cell.block.id);
   const callbackStop = failureOf(context.meter);
   if (callbackStop !== null) return callbackStop;
   const next = new Map<number, StateBox<State>>();
@@ -321,12 +323,12 @@ function backwardStep<State>(context: Context<State>, problem: BackwardProblem<S
   const terminatorWork = takeWork(context.meter);
   if (terminatorWork !== null) return terminatorWork;
   let state = problem.terminator(cell.block.terminator, successors,
-    successors.length === 0 ? problem.boundary : null, context.meter);
+    successors.length === 0 ? problem.boundary : null, context.meter, cell.block.id);
   const terminatorStop = failureOf(context.meter) ?? checkState(problem.lattice, state, context.meter);
   if (terminatorStop !== null) return terminatorStop;
   for (let position = cell.block.statements.length - 1; position >= 0; position -= 1) {
     const statement = requireCallerValue(cell.block.statements[position], `statement ${position}`);
-    const result = transferred(problem, statement, state, context.meter);
+    const result = transferred(problem, statement, state, context.meter, cell.block.id, position);
     if (result.kind !== "complete") return result;
     state = result.value;
   }

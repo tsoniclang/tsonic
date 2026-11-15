@@ -291,7 +291,7 @@ function constructorMetadata(node) {
     case "ForInStatement": case "ForOfStatement": return { core: absentCore(), protocol: unavailable() };
     case "SourceFile": return { ...declaration(), body: bodyIdentity };
     case "TypeParameter": return { ...declaration(), parameter: {
-      identity: { owner: definitionIdentity, index: 0 }, declaration: definitionIdentity, constraint: null, default: null,
+      declaration: definitionIdentity, constraint: null, default: null,
     } };
     case "AnyKeyword": case "BigIntKeyword": case "BooleanKeyword": case "IntrinsicKeyword": case "NeverKeyword":
     case "NumberKeyword": case "ObjectKeyword": case "StringKeyword": case "SymbolKeyword": case "UndefinedKeyword":
@@ -1133,10 +1133,11 @@ test("HIR candidate arena ids, applied signatures and independent scope contribu
   ]);
   const contribution = moduleWith();
   contribution.bodies[0].candidateLists = [{ id: 0, candidates: [candidate(0, { contributions: [
-    { parameter: { owner: definitionIdentity, index: 1 }, role: "result", source: bodySource(0),
+    { parameter: parameterDef(definitionIdentity, 1), role: "result", source: bodySource(0),
       component: { root: bodySource(0), path: [] }, type: available(0) },
   ] })] }];
   assert.deepStrictEqual(product.verifyHir((contribution), contextFor(contribution)), [
+    violation("definition-reference", { kind: "body", body: bodyIdentity }, "definition must exist in the canonical declaration inventory"),
     violation("contribution-parameter", { kind: "body", body: bodyIdentity }, "contribution must name an actual candidate type parameter"),
   ]);
 });
@@ -1157,7 +1158,7 @@ function genericCandidateFixture(parameterCount, declarationCount = 1) {
         declaration: { kind: "definition", definition: declaration } } });
       return syntax("TypeParameter", 0, { modifiers: null, name, constraint: null, expression: null, defaultType: null,
         tsonic: { ...declarationFacts(definition), definition: declaration,
-          parameter: { identity: { owner: definition, index }, declaration, constraint: null, default: null } } });
+          parameter: { declaration, constraint: null, default: null } } });
     });
     const name = syntax("Identifier", 0, { text: `Generic${ordinal}`, tsonic: { core: absentCore(), role: "declaration-name",
       declaration: { kind: "definition", definition } } });
@@ -1167,7 +1168,7 @@ function genericCandidateFixture(parameterCount, declarationCount = 1) {
     for (const source of [node, name, ...parameters.flatMap(parameter => [parameter, parameter.name])]) source.origin.module = foreign.module;
     foreign.tree.statements.nodes.push(node);
     declared.push({ definition, node }, ...parameters.map(parameter => ({ definition: parameter.tsonic.definition, node: parameter })));
-    scopes.set(definition, { classParameters: parameters.map(parameter => parameter.tsonic.parameter.identity),
+    scopes.set(definition, { classParameters: parameters.map(parameter => parameter.tsonic.parameter.declaration),
       methodParameters: [], capturedParameters: [], selfOwners: [definition] });
     for (const parameter of parameters) scopes.set(parameter.tsonic.definition, emptyScope());
   }
@@ -1185,7 +1186,7 @@ for (const count of [0, 1, 128]) for (const contributions of [false, true])
     const definition = definitions[0];
     const value = moduleWith();
     value.bodies[0].candidateLists = [{ id: 0, candidates: Array.from({ length: count }, (_, ordinal) => candidate(ordinal * 2 + 2, {
-      declaration: definition, contributions: contributions ? [{ parameter: { owner: definition, index: ordinal % 128 }, role: "argument",
+      declaration: definition, contributions: contributions ? [{ parameter: scopes.get(definition).classParameters[ordinal % 128], role: "argument",
         source: bodySource(0), component: { root: bodySource(0), path: [] }, type: available(0) }] : [],
     })) }];
 
@@ -1193,7 +1194,8 @@ for (const count of [0, 1, 128]) for (const contributions of [false, true])
     const context = contextFor(value, { bindingScopeOf: owner => { reads.push(owner); return scopes.get(owner) ?? null; } }, [foreign]);
     assert.deepStrictEqual(product.verifyHir(foreign, contextFor(foreign, { bindingScopeOf: owner => scopes.get(owner) ?? null })), [],
       "the declaration and all 128 real type parameters themselves have a complete valid HIR model");
-    const expectedReads = count === 0 ? [] : contributions ? [definition, definition] : [definition];
+    const expectedReads = count === 0 ? [] : contributions
+      ? [definition, ...scopes.get(definition).classParameters.slice(0, count), definition] : [definition];
     assert.deepStrictEqual(product.verifyHir(value, context), []);
     assert.deepStrictEqual(reads, expectedReads, "one foreign existence read, then membership only once when contributions exist");
     reads.length = 0;
@@ -1208,7 +1210,7 @@ for (const invalid of [false, true])
     value.bodies[0].candidateLists = [{ id: 0, candidates: Array.from({ length: 4 }, (_, ordinal) => {
       const declaration = definitions[ordinal % 2];
       const owner = invalid && ordinal === 3 ? definitions[0] : declaration;
-      return candidate(ordinal * 3, { declaration, contributions: [{ parameter: { owner, index: ordinal }, role: "result",
+      return candidate(ordinal * 3, { declaration, contributions: [{ parameter: scopes.get(owner).classParameters[ordinal], role: "result",
         source: bodySource(0), component: { root: bodySource(0), path: [] }, type: unavailable() }] });
     }) }];
     const reads = [];
@@ -1216,7 +1218,9 @@ for (const invalid of [false, true])
     assert.deepStrictEqual(product.verifyHir((value), context), invalid ? [
       violation("contribution-parameter", { kind: "body", body: bodyIdentity }, "contribution must name an actual candidate type parameter"),
     ] : []);
-    assert.deepStrictEqual(reads, [definitions[0], definitions[1], definitions[0], definitions[1]],
+    assert.deepStrictEqual(reads, [definitions[0], scopes.get(definitions[0]).classParameters[0],
+      definitions[1], scopes.get(definitions[1]).classParameters[1], scopes.get(definitions[0]).classParameters[2],
+      scopes.get(invalid ? definitions[0] : definitions[1]).classParameters[3], definitions[0], definitions[1]],
       "canonical existence and the two independent declaration memberships retain first-use order");
   });
 
@@ -1225,7 +1229,7 @@ test("HIR a repeated null declaration scope is not manufactured empty or silentl
   const definition = definitions[0];
   const value = moduleWith();
   value.bodies[0].candidateLists = [{ id: 0, candidates: [2, 8, 11].map(ordinal => candidate(ordinal, { declaration: definition,
-    contributions: [{ parameter: { owner: definition, index: 0 }, role: "receiver", source: bodySource(0),
+    contributions: [{ parameter: parameterDef(definition, 0), role: "receiver", source: bodySource(0),
       component: { root: bodySource(0), path: [] }, type: available(0) }] })) }];
   const reads = [];
   const context = contextFor(value, { bindingScopeOf: owner => { reads.push(owner); return null; } });
@@ -1235,7 +1239,7 @@ test("HIR a repeated null declaration scope is not manufactured empty or silentl
     ...Array.from({ length: 3 }, () => violation("contribution-parameter", { kind: "body", body: bodyIdentity },
       "contribution must name an actual candidate type parameter")),
   ]);
-  assert.deepStrictEqual(reads, [definition, definition], "the null result is retained once in each distinct owning relation, not re-invented per candidate");
+  assert.deepStrictEqual(reads, [definition, parameterDef(definition, 0), definition], "the null result is retained once in each distinct owning relation, not re-invented per candidate");
 });
 
 for (const arena of ["locals", "candidateLists"]) for (const later of ["absent", "valid", "wrong-index", "invalid-row"])
@@ -2038,7 +2042,7 @@ for (const field of ["fieldBinding", "recordBinding"]) test(`HIR ${field} bindin
 // HB15b (SCHEMA-MIGRATION.md 5.7): the vector of a binding capture is verified against the generic scope of its occurrence.
 for (const field of ["fieldBinding", "recordBinding"]) test(`HIR ${field} bindings vector must fit the generic scope of its occurrence`, () => {
   const owners = ["Class", "method", "captured"].map(name => `D[${moduleIdentity};${name}]`);
-  const identities = owners.map(owner => ({ owner, index: 0 }));
+  const identities = owners.map(owner => (parameterDef(owner, 0)));
   const scope = { classParameters: [identities[0]], methodParameters: [identities[1]], capturedParameters: [identities[2]], selfOwners: [owners[0]] };
   const fitting = () => ({ classBindings: [{ kind: "bound", parameter: identities[0], type: 0 }],
     methodBindings: [{ kind: "rigid", parameter: identities[1] }], capturedBindings: [{ kind: "bound", parameter: identities[2], type: 0 }],
@@ -2047,7 +2051,7 @@ for (const field of ["fieldBinding", "recordBinding"]) test(`HIR ${field} bindin
   const missing = fitting();
   missing.methodBindings = [];
   const renumbered = fitting();
-  renumbered.methodBindings[0].parameter = { owner: owners[1], index: 1 };
+  renumbered.methodBindings[0].parameter = parameterDef(owners[1], 1);
   for (const [name, vector, expected] of [
     ["fitting", fitting(), []],
     ["method family missing", missing, forwarded([{ kind: "text", value: "methodBindings" }, { kind: "text", value: "complete" },
@@ -2060,7 +2064,8 @@ for (const field of ["fieldBinding", "recordBinding"]) test(`HIR ${field} bindin
     const capture = field === "fieldBinding" ? fieldBindingCapture(2, 3, unavailable()) : recordBindingCapture(2, 3, unavailable(), []);
     capture.bindings = available(vector);
     expression.tsonic.core[field] = available(capture);
-    const declarations = new Map([[definitionIdentity, emptyScope()], ...owners.map(owner => [owner, emptyScope()])]);
+    const declarations = new Map([[definitionIdentity, emptyScope()], ...owners.map(owner => [owner, emptyScope()]),
+      ...identities.map(declaration => [declaration, emptyScope()]), [parameterDef(owners[1], 1), emptyScope()]]);
     const context = contextFor(value, {
       bindingScopeOf: definition => declarations.get(definition) ?? null,
       bindingScopeAt: reference => {
@@ -2684,13 +2689,14 @@ test("HIR genuine binding producer outcomes preserve every family, position, det
   const outer = `D[${foreign};Outer]`;
   const inner = `D[${foreign};Outer/Inner]`;
   const method = `D[${foreign};Outer/Inner/method]`;
-  const outerParameter = { owner: outer, index: 0 };
-  const innerParameter = { owner: inner, index: 0 };
-  const methodParameter = { owner: method, index: 0 };
+  const outerParameter = parameterDef(outer, 0);
+  const innerParameter = parameterDef(inner, 0);
+  const methodParameter = parameterDef(method, 0);
   const scopes = new Map([
     [outer, { classParameters: [outerParameter], methodParameters: [], capturedParameters: [], selfOwners: [outer] }],
     [inner, { classParameters: [innerParameter], methodParameters: [], capturedParameters: [outerParameter], selfOwners: [outer, inner] }],
     [method, { classParameters: [innerParameter], methodParameters: [methodParameter], capturedParameters: [outerParameter], selfOwners: [outer, inner] }],
+    ...[outerParameter, innerParameter, methodParameter, parameterDef(method, 1)].map(declaration => [declaration, emptyScope()]),
   ]);
   const original = { classBindings: [{ kind: "rigid", parameter: innerParameter }],
     methodBindings: [{ kind: "rigid", parameter: methodParameter }], capturedBindings: [{ kind: "rigid", parameter: outerParameter }],
@@ -2711,7 +2717,7 @@ test("HIR genuine binding producer outcomes preserve every family, position, det
   }
   for (const family of ["classBindings", "methodBindings", "capturedBindings"]) {
     const vector = structuredClone(original);
-    vector[family][0].parameter.index = 1;
+    vector[family][0].parameter = parameterDef(method, 1);
     cases.push([vector, [forwarded("binding-vector-complete", family, 0, [{ kind: "text", value: "parameter" }])], `${family}/parameter`]);
   }
   for (const type of [-1, -0, 0.5, NaN, Infinity, -Infinity, 999]) {
@@ -2756,14 +2762,15 @@ for (const kind of ["data-layout", "value", "array", "field", "observation"]) te
   const value = expressionModule(expression);
   const capture = kind === "observation" ? observationCapture() : layoutCapture(kind);
   const owners = ["Class", "method", "captured"].map(name => `D[${moduleIdentity};${name}]`);
-  const identities = owners.map(owner => ({ owner, index: 0 }));
+  const identities = owners.map(owner => (parameterDef(owner, 0)));
   const scope = { classParameters: [identities[0]], methodParameters: [identities[1]], capturedParameters: [identities[2]], selfOwners: [owners[0]] };
   const vector = { classBindings: [{ kind: "bound", parameter: identities[0], type: 0 }],
     methodBindings: [{ kind: "rigid", parameter: identities[1] }], capturedBindings: [{ kind: "bound", parameter: identities[2], type: 0 }],
     selfBindings: [{ kind: "rigid", owner: owners[0] }] };
   capture.bindings = available(vector);
   expression.tsonic[kind === "observation" ? "observation" : "memory"] = available(capture);
-  const declarations = new Map([[definitionIdentity, emptyScope()], ...owners.map(owner => [owner, emptyScope()])]);
+  const declarations = new Map([[definitionIdentity, emptyScope()], ...owners.map(owner => [owner, emptyScope()]),
+    ...identities.map(declaration => [declaration, emptyScope()])]);
   const context = contextFor(value, {
     bindingScopeOf: definition => declarations.get(definition) ?? null,
     bindingScopeAt: reference => {
@@ -3277,7 +3284,7 @@ function selectorInputs() {
     { kind: "result", signature: 0 }, { kind: "type-argument", declaration: definitionIdentity, index: 0 }, { kind: "awaited" },
   ];
   for (const origin of ["authored", "inferred"]) selectors.push({ kind: "sum-arm", family: { origin,
-    component: { root: bodySource(6), path: [] }, parameters: [{ owner: definitionIdentity, index: 0 }],
+    component: { root: bodySource(6), path: [] }, parameters: [parameterDef(definitionIdentity, 0)],
     roles: [{ authoredIndex: 0, component: bodySource(6), member: 0 }] }, index: 0 });
   return selectors;
 }
@@ -3290,9 +3297,9 @@ test("HIR Core type components retain every closed selector arm, qualified const
     module.bodies[0].locals = [{ id: 0, declaration: bodySource(6), name: "captured", role: "binding", checkerSlot: available(0), capturedFrom: null, mutable: false }];
     call.tsonic.core.pointerType = available({ kind: "typed-location", pointee: { type: available(0), component: { root: bodySource(6), path } }, mutability: "readonly" });
     const decoded = roundtrip((module), `component path/${path.map(selector => selector.kind).join("/")}`);
-    assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(module, {
-      types: { terms: [{ kind: "primitive", primitive: "int32" }], signatures: [signature()] },
-    })), []);
+    const context = contextFor(module, { types: { terms: [{ kind: "primitive", primitive: "int32" }], signatures: [signature()] } });
+    assert.deepStrictEqual(product.verifyHir(decoded.value, { ...context, bindingScopeOf: definition =>
+      definition === parameterDef(definitionIdentity, 0) ? emptyScope() : context.bindingScopeOf(definition) }), []);
   }
 });
 
@@ -3470,6 +3477,16 @@ function declarationModule(kind) {
   return { value, node, definition };
 }
 
+test("HIR module declarations preserve actual module, namespace and global keyword fields through the canonical codec", () => {
+  for (const keyword of ["ModuleKeyword", "NamespaceKeyword", "GlobalKeyword"]) {
+    const { value, node } = declarationModule("ModuleDeclaration");
+    node.keyword = keyword;
+    const decoded = roundtrip(value, `module-keyword/${keyword}`);
+    assert.equal(decoded.value.tree.statements.nodes[0].keyword, keyword);
+    assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(value)), []);
+  }
+});
+
 for (const kind of ["ClassDeclaration", "ClassExpression", "InterfaceDeclaration", "TypeAliasDeclaration", "JSTypeAliasDeclaration", "EnumDeclaration", "ModuleDeclaration",
   "ImportDeclaration", "JSImportDeclaration", "ExportDeclaration", "ExportAssignment"]) test(`HIR factual ${kind} data retains its owning definition and all declared fields`, () => {
   const { value } = declarationModule(kind);
@@ -3483,8 +3500,7 @@ test("HIR declared type parameters and class heritage retain complete ordered re
       const { value, node, definition } = declarationModule(kind);
       const parameters = Array.from({ length: count }, (_, ordinal) => {
         const declaration = `D[${moduleIdentity};item/T${ordinal}]`;
-        const identity = { owner: definition, index: ordinal };
-        const parameter = { identity, declaration, constraint: ordinal % 2 === 0 ? null : 0, default: ordinal % 2 === 0 ? 0 : null };
+        const parameter = { declaration, constraint: ordinal % 2 === 0 ? null : 0, default: ordinal % 2 === 0 ? 0 : null };
         return syntax("TypeParameter", 0, { modifiers: null, name: syntax("Identifier", 0, { text: `T${ordinal}`,
           tsonic: { core: absentCore(), role: "declaration-name", declaration: { kind: "definition", definition: declaration } } }),
         constraint: parameter.constraint === null ? null : syntax("AnyKeyword", 0, { tsonic: typeMetadata() }), expression: null,
@@ -3546,10 +3562,10 @@ test("HIR candidate inference contributions preserve all five complete roles and
       ["type-argument", "result", "context", "receiver", "argument"]]) {
       const { value, node, definition } = declarationModule("ClassDeclaration");
       const declaration = `D[${moduleIdentity};item/T]`;
-      const identity = { owner: definition, index: 0 };
+      const identity = declaration;
       const parameter = syntax("TypeParameter", 0, { modifiers: null, name: syntax("Identifier", 0, { text: "T", tsonic: { core: absentCore(),
         role: "declaration-name", declaration: { kind: "definition", definition: declaration } } }), constraint: null, expression: null, defaultType: null,
-      tsonic: { ...declarationFacts(definition), definition: declaration, parameter: { identity, declaration, constraint: null, default: null } } });
+      tsonic: { ...declarationFacts(definition), definition: declaration, parameter: { declaration, constraint: null, default: null } } });
       node.typeParameters = nodeList([parameter]);
       node.tsonic.parameters = [parameter.tsonic.parameter];
       numberSyntaxFixture(value.tree);
@@ -4510,7 +4526,7 @@ test("HIR a real lower signature owner invokes both canonical node readers while
     const { foreign, definitions, scopes } = genericCandidateFixture(1);
     const definition = definitions[0];
     const value = moduleWith();
-    const bindings = { classBindings: missing ? [] : [{ kind: "rigid", parameter: { owner: definition, index: 0 } }],
+    const bindings = { classBindings: missing ? [] : [{ kind: "rigid", parameter: scopes.get(definition).classParameters[0] }],
       methodBindings: [], capturedBindings: [], selfBindings: [{ kind: "rigid", owner: definition }] };
     value.bodies[0].candidateLists = [{ id: ids.candidateListId(0), candidates: [candidate(0,
       { declaration: definition, bindings: available(bindings) })] }];
@@ -4578,6 +4594,7 @@ for (const qualifier of ["body", "item"])
       ] : []);
     }
   });
+import { typeParameterDeclaration as parameterDef } from "./fixtures/type-parameter-declarations.mjs";
 
 for (const invalid of [false, true])
   test(`HIR parameter collector ${invalid ? "other actual declaration" : "actual Parameter declaration"} keeps genuine public inputs`, () => {

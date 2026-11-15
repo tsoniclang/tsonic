@@ -108,8 +108,12 @@ export function metaKeyword(context: SyntaxCaptureContext, node: SyntaxNodeOf): 
   return keywordNotReadable(context, node);
 }
 
-export function moduleKeyword(context: SyntaxCaptureContext, node: SyntaxNodeOf): "ModuleKeyword" | "NamespaceKeyword" {
-  return keywordNotReadable(context, node);
+export function moduleKeyword(context: SyntaxCaptureContext, node: SyntaxNodeOf): Hir.ModuleDeclaration<Hir.SyntaxPhase>["keyword"] {
+  const keyword = context.ast.moduleKeywordKindName(node);
+  if (keyword === "KindModuleKeyword") return "ModuleKeyword";
+  if (keyword === "KindNamespaceKeyword") return "NamespaceKeyword";
+  if (keyword === "KindGlobalKeyword") return "GlobalKeyword";
+  return defect(`the checker names no admitted module keyword of a ${context.ast.kindName(node)} node`);
 }
 
 function operatorName(context: SyntaxCaptureContext, node: SyntaxNodeOf): string {

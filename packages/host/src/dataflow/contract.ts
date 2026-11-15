@@ -30,17 +30,17 @@ export interface BlockState<State> {
 export interface ProblemBase<State> {
   readonly lattice: Lattice<State>;
   readonly boundary: State;
-  readonly statement: (statement: MirStatement, state: State, account: DataflowAccount) => State;
+  readonly statement: (statement: MirStatement, state: State, account: DataflowAccount, block: BlockId, position: number) => State;
 }
 
 export interface ForwardProblem<State> extends ProblemBase<State> {
   readonly direction: "forward";
-  readonly terminator: (terminator: MirTerminator, state: State, account: DataflowAccount) => readonly BlockState<State>[];
+  readonly terminator: (terminator: MirTerminator, state: State, account: DataflowAccount, block: BlockId) => readonly BlockState<State>[];
 }
 
 export interface BackwardProblem<State> extends ProblemBase<State> {
   readonly direction: "backward";
-  readonly terminator: (terminator: MirTerminator, successors: readonly BlockState<State>[], boundaryState: State | null, account: DataflowAccount) => State;
+  readonly terminator: (terminator: MirTerminator, successors: readonly BlockState<State>[], boundaryState: State | null, account: DataflowAccount, block: BlockId) => State;
 }
 
 export type Problem<State> = ForwardProblem<State> | BackwardProblem<State>;

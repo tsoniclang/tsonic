@@ -1046,7 +1046,7 @@ test("checkpoint 1, the development frontier: a module holding a kind whose chec
   assert.equal(raw.kind, "ok", "capture covers every syntax kind");
   const definitions = front.lowerModuleDefinitions(raw.value);
   assert.throws(() => lowerWithReadyExports(lowerDepsFor(definitions.value, types.createTypeInterner(), sourceText), raw.value),
-    { name: "TypeError", message: "front: checked annotation not implemented: PrefixUnaryExpression" });
+    { name: "TypeError", message: "front: checked annotation not implemented: PrefixUnaryExpression MinusToken" });
 });
 
 
@@ -1072,10 +1072,17 @@ test("K-3313.3: parameter, local and result types are the checker's own, slot by
     [["BooleanKeyword", available(bool)], ["StringKeyword", available(string)], ["NumberKeyword", available(float64)], ["NumberKeyword", available(float64)]]);
 });
 
-test("K-3313.3: a parameter without an annotation is not given another slot's type: its independent literal frontier remains named", () => {
-  const { deps, program, module } = openedModule("export function f(x) { return 1; }\n");
-  assert.throws(() => front.captureModule(deps, program, module),
-    { name: "TypeError", message: "front: the captured form of the checker type 1 is not implemented" });
+test("K-3313.3: an unannotated parameter retains its actual any type instead of borrowing its boolean result type", () => {
+  const { deps, program, module } = openedModule("export function f(x) { return true; }\n");
+  const captured = front.captureModule(deps, program, module);
+  assert.equal(captured.kind, "ok");
+  const signature = captured.value.types.signatures[0];
+  assert.deepEqual(captured.value.types.types[signature.parameters[0].type].form,
+    { kind: "available", value: { kind: "scalar", scalar: "any" } });
+  assert.equal(signature.result.kind, "available");
+  assert.deepEqual(captured.value.types.types[signature.result.value].form,
+    { kind: "available", value: { kind: "scalar", scalar: "boolean" } });
+  assert.equal(captured.value.checkerDiagnostics.some(diagnostic => diagnostic.code.kind === "checker" && diagnostic.code.number === 7006), true);
 });
 
 test("original checker roots render through the public SDK and survive raw and checked capture with original UTF-16 ranges", async () => {
@@ -1443,7 +1450,8 @@ test("K-3313.1: parameters target their body-local slot and keep their qualified
   assert.deepEqual(checked.bodies.map(entry => [entry.body, entry.captures, entry.nestedBodies, entry.locals.map(local => [local.name, local.declaration])]).sort(), [
     [moduleBody, [], [outerBody], []],
     [outerBody, [], [innerBody], [["a", { kind: "item", value: { owner: aDefinition, node: definitions.rows[2].node } }]]],
-    [innerBody, [{ body: outerBody, local: 0 }], [], [["b", { kind: "item", value: { owner: bDefinition, node: definitions.rows[4].node } }]]]].sort());
+    [innerBody, [{ body: outerBody, local: 0 }], [], [["b", { kind: "item", value: { owner: bDefinition, node: definitions.rows[4].node } }],
+      ["a", { kind: "item", value: { owner: aDefinition, node: definitions.rows[2].node } }]]]].sort());
   assert.deepEqual(verifyChecked(checked, interner), []);
 });
 
@@ -1744,14 +1752,18 @@ test("a real source analyzer's own facts cannot turn unavailable declaration mod
 test("the identity inputs through the real producer: captureModule and lowerModuleDefinitions give exactly the authored rows, or a named frontier refusal, in a stated split", () => {
   const { cases } = JSON.parse(readFileSync(resolve(repository, "test/host-units/fixtures/front/identity-cases.json"), "utf8"));
   const libraries = bundled();
-  const keyword = "front: the keyword of a KindModuleDeclaration node needs a public name of the checker's kind numbers, which the SDK does not export";
-  const keywordFiles = ["function-with-namespace /project/src/a.ts", "augmentation-and-reexport /project/src/aug.ts", "augmentation-before-original /project/src/0aug.ts",
-    "same-kind-merges /project/src/a.ts", "module-declaration-forms /project/src/g.ts", "module-declaration-forms /project/src/ambient.d.ts"];
   const agreeingFiles = ["augmentation-and-reexport /project/src/a.ts", "augmentation-and-reexport /project/src/b.ts", "default-expression /project/src/u.ts",
     "augmentation-before-original /project/src/a.ts", "default-expression-order /project/src/main.ts", "renamed-reexports /project/src/s.ts",
-    "overloads /project/src/a.ts", "unnamed-signatures /project/src/a.ts"];
+    "overloads /project/src/a.ts", "unnamed-signatures /project/src/a.ts", "augmentation-and-reexport /project/src/aug.ts",
+    "external-export-equals /library/eq.d.cts", "augmentation-before-original /project/src/0aug.ts",
+    "module-declaration-forms /project/src/g.ts", "module-declaration-forms /project/src/ambient.d.ts"];
   const typeFrontier = /^front: the captured form of the checker type .+ is not implemented$/u;
-  const outcomes = { agreed: [], keyword: [], type: [] };
+  const originFrontiers = new Set([
+    "front: a property without an actual source value declaration requires its original synthetic member association",
+    "front: property origin transport for the actual KindPropertyAssignment declaration is not implemented",
+    "front: mapped property origin transport requires its actual selected mapped component",
+  ]);
+  const outcomes = { agreed: [], type: [] };
   for (const entry of cases) {
     const sourceFiles = {};
     const library = { root: "/library", name: "library", modules: {} };
@@ -1770,8 +1782,7 @@ test("the identity inputs through the real producer: captureModule and lowerModu
       let raw;
       try { raw = front.captureModule(deps, program, module); } catch (error) {
         assert.equal(error instanceof TypeError, true, label);
-        if (error.message === keyword) outcomes.keyword.push(label);
-        else if (typeFrontier.test(error.message) || error.message === "front: the captured members of a callable checker type are not implemented") outcomes.type.push(label);
+        if (typeFrontier.test(error.message) || originFrontiers.has(error.message)) outcomes.type.push(label);
         else assert.fail(`${label}: refused outside the named frontiers: ${error.message}`);
         continue;
       }
@@ -1783,8 +1794,7 @@ test("the identity inputs through the real producer: captureModule and lowerModu
     }
   }
   assert.deepEqual(outcomes.agreed.sort(), [...agreeingFiles].sort());
-  assert.deepEqual(outcomes.keyword.sort(), [...keywordFiles].sort());
-  assert.equal(outcomes.type.length, 28, "every other file of the 42 is refused at the checker-type frontier");
+  assert.equal(outcomes.type.length, 29, "the remaining actual files stop only at their named missing type or origin producer");
 });
 
 // K-3297 item 3 and R2's V-1/V-2: capture limits before growth, one numbering of every file, cached on the opened program.
@@ -1878,18 +1888,37 @@ test("K-3341 nested bodies: zero, one and many direct children in preorder, as t
 // row (1); a's component, symbol, type and passing (2 to 5); b's component, symbol, type and passing (6 to 9), before its
 // checker-type frontier (`typeof globalThis`). Under every maximum below 9 the earned refusal is returned and b's type is never
 // read; at 9 the read happens and the frontier is met.
-test("K-3341 first refusal: a limit met before a later unsupported read returns the refusal and never makes that read", async () => {
+function captureBeforeMemberRead(OpenedProgram, sourceText, maximum, read) {
+  const opened = openedModule(sourceText);
+  const checked = OpenedProgram.checked(opened.program);
+  const borrowed = { ...checked, getSourceFileQueries: file => {
+    const queries = checked.getSourceFileQueries(file);
+    return { ...queries, typeShape: { ...queries.typeShape, getPropertyInfos: read } };
+  } };
+  const files = OpenedProgram.modules(opened.program).modules.map(entry => OpenedProgram.file(opened.program,
+    entry.kind === "snapshot" ? entry.module : entry.document.module));
+  const program = OpenedProgram.create(borrowed, OpenedProgram.table(opened.program), files,
+    OpenedProgram.libraryData(opened.program), OpenedProgram.contributions(opened.program));
+  return front.captureModule({ ...opened.deps, navigationCapture: { ...opened.deps.navigationCapture,
+    maximumCapturedFactsPerModule: maximum } }, program, opened.module);
+}
+
+test("K-3341 first refusal precedes the actual structural member read and retains its original resource diagnostic", async () => {
   const diag = await import("../../packages/host/dist/diag/index.js");
+  const { OpenedProgram } = await import("../../packages/host/dist/front/handles.js");
   const sourceText = "export function pick(a: number, b: typeof globalThis): number { return a; }\n";
   const module = moduleOf(packageOf("/project"), "src/main.ts");
-  const under = value => {
-    const { deps, program } = openedModule(sourceText);
-    return front.captureModule({ ...deps, navigationCapture: { ...deps.navigationCapture, maximumCapturedFactsPerModule: value } }, program, module);
-  };
+  let reads = 0;
+  const boundary = new TypeError("the actual selected structural member reader was reached");
+  const under = value => captureBeforeMemberRead(OpenedProgram, sourceText, value, () => { reads += 1; throw boundary; });
   const refusal = maximum => ({ kind: "refused", diagnostics: [diag.resourceLimitDiagnostic({ owner: "front", limit: "front.maximumCapturedFactsPerModule", maximum,
     site: { kind: "file", path: "/project/src/main.ts" }, unit: { request: { query: "captureModule", key: module }, position: { kind: "result" } } })] });
-  for (const value of [0, 1, 4, 5, 8]) assert.deepEqual(under(value), refusal(value), `maximum ${value}`);
-  assert.throws(() => under(9), { name: "TypeError", message: "front: the captured form of the checker type typeof globalThis is not implemented" });
+  for (const value of [0, 1, 4, 5, 8]) {
+    assert.deepEqual(under(value), refusal(value), `maximum ${value}`);
+    assert.equal(reads, 0, "a refused capture never makes the later actual structural type lookup");
+  }
+  assert.throws(() => under(9), error => error === boundary);
+  assert.equal(reads, 1);
 });
 
 // K-3341: a five-parameter function. Facts: the signature row, five parameters (4 each), the result (2), the association, six
@@ -1989,18 +2018,20 @@ test("K-3361: a receiver is captured apart from the ordinary parameters and lowe
 // R2 M-2: the same five parameters with the last typed `typeof globalThis`. Its facts: the signature row (1), four parameters
 // (4 each, to 17), e's component and symbol (18, 19), passing (20) and type (21), whose read meets the checker-type frontier. Expectations
 // written before the run.
-test("K-3341 many parameters, last one unsupported: refused at zero and at the fact before its type with that type never read; one more admits the read", async () => {
+test("K-3341 many parameters preserve the exact fact boundary before their last actual structural member read", async () => {
   const diag = await import("../../packages/host/dist/diag/index.js");
+  const { OpenedProgram } = await import("../../packages/host/dist/front/handles.js");
   const sourceText = "export function many(a: number, b: number, c: number, d: number, e: typeof globalThis): number { return a; }\n";
   const module = moduleOf(packageOf("/project"), "src/main.ts");
-  const under = value => {
-    const { deps, program } = openedModule(sourceText);
-    return front.captureModule({ ...deps, navigationCapture: { ...deps.navigationCapture, maximumCapturedFactsPerModule: value } }, program, module);
-  };
+  let reads = 0;
+  const boundary = new TypeError("the actual last structural member reader was reached");
+  const under = value => captureBeforeMemberRead(OpenedProgram, sourceText, value, () => { reads += 1; throw boundary; });
   for (const value of [0, 20]) assert.deepEqual(under(value), { kind: "refused", diagnostics: [diag.resourceLimitDiagnostic({ owner: "front",
     limit: "front.maximumCapturedFactsPerModule", maximum: value, site: { kind: "file", path: "/project/src/main.ts" },
     unit: { request: { query: "captureModule", key: module }, position: { kind: "result" } } })] }, `maximum ${value}`);
-  assert.throws(() => under(21), { name: "TypeError", message: "front: the captured form of the checker type typeof globalThis is not implemented" });
+  assert.equal(reads, 0, "both refused captures stop before their actual structural lookup");
+  assert.throws(() => under(21), error => error === boundary);
+  assert.equal(reads, 1);
 });
 
 // K-3343: identity counters belong to the owner itself. The raw modules are constructed (K-3343 allows it): the syntax tree comes

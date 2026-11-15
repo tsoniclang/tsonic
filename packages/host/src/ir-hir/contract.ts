@@ -2246,7 +2246,7 @@ export interface ModuleDeclaration<P extends Phase> extends NodeHeader {
   readonly modifiers: ModifierList<P> | null;
   readonly asteriskToken: AsteriskToken<P> | null;
   readonly body: NodeBody<P> | null;
-  readonly keyword: "ModuleKeyword" | "NamespaceKeyword";
+  readonly keyword: "ModuleKeyword" | "NamespaceKeyword" | "GlobalKeyword";
   readonly name: ModuleName<P>;
   readonly tsonic: P["ModuleDeclaration"];
 }

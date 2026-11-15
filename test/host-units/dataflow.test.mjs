@@ -562,6 +562,56 @@ test("backward preserves original duplicate successor slots and seeds each reach
   } }, "both reachable exits receive the boundary; source block does not receive a fabricated seed");
 });
 
+test("solve retains actual block and statement positions when the same native object occurs more than once", () => {
+  const marker = { kind: "storage-live", local: identities.localId(0) };
+  const body = parsedBody([{ kind: "goto", target: identities.blockId(1) },
+    { kind: "goto", target: identities.blockId(2) }, { kind: "return", value: null }], [[marker, marker], [marker], [marker]]);
+  const shared = body.blocks[0].statements[0];
+  body.blocks[0].statements[1] = shared;
+  body.blocks[1].statements[0] = shared;
+  body.blocks[2].statements[0] = shared;
+  for (const direction of ["forward", "backward"]) {
+    const work = direction === "forward" ? 75 : 70;
+    const entries = 9;
+    const statements = [];
+    const terminators = [];
+    const account = product.createAccount({ maximumWork: work, maximumResultEntries: entries });
+    const original = scalarProblem(direction);
+    const problem = { ...original,
+      statement: (statement, state, borrowed, block, position) => {
+        assert.equal(borrowed === account && statement === shared, true);
+        assert.equal(statement === body.blocks[block].statements[position], true);
+        statements.push([block, position]);
+        return state;
+      },
+      terminator: direction === "forward"
+        ? (terminator, state, borrowed, block) => {
+          assert.equal(borrowed === account && terminator === body.blocks[block].terminator, true);
+          terminators.push(block);
+          return original.terminator(terminator, state, borrowed, block);
+        }
+        : (terminator, successors, boundary, borrowed, block) => {
+          assert.equal(borrowed === account && terminator === body.blocks[block].terminator, true);
+          terminators.push(block);
+          return original.terminator(terminator, successors, boundary, borrowed, block);
+        },
+    };
+    const expected = { kind: "complete", value: { entry: [1, 1, 1], exit: [1, 1, 1], reachable: [true, true, true] } };
+    complete(product.solve(body, 0, problem, account), expected, `${direction}: original work/result units are unchanged`);
+    complete(statements, direction === "forward" ? [[0, 0], [0, 1], [1, 0], [2, 0]]
+      : [[2, 0], [1, 0], [0, 1], [0, 0]], `${direction}: occurrence is not inferred from object or source identity`);
+    complete(terminators, direction === "forward" ? [0, 1, 2] : [2, 1, 0], `${direction}: actual terminator blocks`);
+    for (const dimension of ["maximumWork", "maximumResultEntries"]) for (let maximum = 0; maximum < (dimension === "maximumWork" ? work : entries); maximum += 1) {
+      const bounded = product.createAccount({ maximumWork: work, maximumResultEntries: entries, [dimension]: maximum });
+      const result = product.solve(body, 0, original, bounded);
+      complete(result, { kind: "resource-limit", dimension: dimension === "maximumWork" ? "work" : "result-entries", maximum },
+        `${direction}/${dimension}/${maximum}: every lower allowance refuses before later transfer`);
+      assert.equal(product.accountFailure(bounded), result);
+      assert.equal(product.solve(null, 0, null, bounded), result);
+    }
+  }
+});
+
 test("content equality stabilizes cycles, duplicate returned edges join, and missing contributions are bottom", () => {
   const self = parsedBody([{ kind: "goto", target: identities.blockId(0) }], [[]]);
   const lattice = finiteLattice();
@@ -989,7 +1039,8 @@ test("the actual same account propagates original callback diagnostics before ev
     let reached = false;
     const wrap = (name, operation) => (...args) => {
       assert.equal(product.accountFailure(account), null, `${direction}/${phase}: no callback after stop`);
-      assert.equal(args.at(-1), account, `${name} receives the original account`);
+      const accountPosition = name === "isOverflow" ? 1 : name === "terminator" && direction === "backward" ? 3 : 2;
+      assert.equal(args[accountPosition], account, `${name} receives the original account`);
       if (name !== phase) return operation(...args);
       reached = true;
       assert.equal(product.refuseAccount(account, refusal), refusal);
@@ -1096,6 +1147,7 @@ test("actual emitted public declarations preserve generic ports, readonly result
   const positive = `import * as Dataflow from "./dataflow/index.js";
 import type * as Port from "./dataflow/contract.js";
 import type { MirBody } from "./ir-mir/contract.js";
+import type { BlockId } from "./ids/contract.js";
 const ports: readonly [Port.Solve, Port.GraphOfMir, Port.Predecessors, Port.OrderGraph, Port.Dominators,
   Port.NaturalLoops, Port.StronglyConnectedComponents] = [Dataflow.solve, Dataflow.graphOfMir, Dataflow.predecessors,
   Dataflow.orderGraph, Dataflow.dominators, Dataflow.naturalLoops, Dataflow.stronglyConnectedComponents];
@@ -1111,12 +1163,26 @@ export function consume(body: MirBody, graph: Port.DirectedGraph, budget: Port.D
     join: (left, right) => left === -1 || right === -1 ? -1 : Math.max(left, right),
     equals: Object.is, isOverflow: state => state === -1 };
   const forward: Port.ForwardProblem<number> = { direction: "forward", lattice, boundary: 1,
-    statement: (statement, state) => statement.kind === "storage-live" ? 1 : state,
-    terminator: (terminator, state) => terminator.kind === "goto" ? [{ target: terminator.target, state }] : [] };
+    statement: (statement, state, borrowed, block, position) => {
+      const actual: BlockId = block; const ordinal: number = position;
+      void actual; void ordinal; void borrowed;
+      return statement.kind === "storage-live" ? 1 : state;
+    },
+    terminator: (terminator, state, borrowed, block) => {
+      const actual: BlockId = block; void actual; void borrowed;
+      return terminator.kind === "goto" ? [{ target: terminator.target, state }] : [];
+    } };
   const backward: Port.BackwardProblem<number> = { direction: "backward", lattice, boundary: 1,
-    statement: (statement, state) => statement.kind === "storage-dead" ? 0 : state,
-    terminator: (terminator, successors, boundaryState) => terminator.kind === "return" && boundaryState !== null
-      ? boundaryState : successors.reduce((state, successor) => lattice.join(state, successor.state, account), 0) };
+    statement: (statement, state, borrowed, block, position) => {
+      const actual: BlockId = block; const ordinal: number = position;
+      void actual; void ordinal; void borrowed;
+      return statement.kind === "storage-dead" ? 0 : state;
+    },
+    terminator: (terminator, successors, boundaryState, borrowed, block) => {
+      const actual: BlockId = block; void actual; void borrowed;
+      return terminator.kind === "return" && boundaryState !== null ? boundaryState
+        : successors.reduce((state, successor) => lattice.join(state, successor.state, account), 0);
+    } };
   const directions: readonly Port.Problem<number>[] = [forward, backward];
   for (const problem of directions) {
     const result: Port.DataflowResult<Port.FlowSolution<number>> = Dataflow.solve(body, 0, problem, account);
@@ -1152,14 +1218,22 @@ export function consume(body: MirBody, graph: Port.DirectedGraph, budget: Port.D
   programs.push({ file: "removed-generic-graph.mts", text:
     `import type { DirectedGraph } from "./dataflow/contract.js";\n${removedGeneric}\n` });
   programs.push({ file: "backward-boundary.mts", text:
-    'import type { BackwardProblem, DataflowAccount } from "./dataflow/contract.js";\nimport type { MirTerminator } from "./ir-mir/contract.js";\nexport function reject(problem: BackwardProblem<number>, terminator: MirTerminator, account: DataflowAccount): number {\n  return problem.terminator(terminator, [], "seed", account);\n}\n' });
+    'import type { BackwardProblem, DataflowAccount } from "./dataflow/contract.js";\nimport type { MirTerminator } from "./ir-mir/contract.js";\nimport type { BlockId } from "./ids/contract.js";\nexport function reject(problem: BackwardProblem<number>, terminator: MirTerminator, account: DataflowAccount, block: BlockId): number {\n  return problem.terminator(terminator, [], "seed", account, block);\n}\n' });
+  const removedPositions = [
+    { file: "removed-statement-position.mts", type: "ForwardProblem", operation: "statement", input: "MirStatement", arguments: "statement, 0, account" },
+    { file: "removed-forward-position.mts", type: "ForwardProblem", operation: "terminator", input: "MirTerminator", arguments: "statement, 0, account" },
+    { file: "removed-backward-position.mts", type: "BackwardProblem", operation: "terminator", input: "MirTerminator", arguments: "statement, [], null, account" },
+  ];
+  for (const entry of removedPositions) programs.push({ file: entry.file, text:
+    `import type { ${entry.type}, DataflowAccount } from "./dataflow/contract.js";\nimport type { ${entry.input} } from "./ir-mir/contract.js";\nexport function reject(problem: ${entry.type}<number>, statement: ${entry.input}, account: DataflowAccount) {\n  return problem.${entry.operation}(${entry.arguments});\n}\n` });
   const oldLimits = "export function reject(graph: DirectedGraph, limits: DataflowLimits) { return predecessors(graph, limits); }";
   programs.push({ file: "removed-limits-path.mts", text:
     'import type { DirectedGraph, DataflowLimits } from "./dataflow/contract.js";\nimport { predecessors } from "./dataflow/index.js";\n' + oldLimits + "\n" });
   const expected = [...negatives.map(entry => ({ file: entry.file, line: 3, column: entry.column, code: entry.code })),
     { file: "removed-generic-graph.mts", line: 2, column: removedGeneric.indexOf("DirectedGraph") + 1, code: 2315 },
     { file: "edge-brand.mts", line: 2, column: 44, code: 2322 },
-    { file: "backward-boundary.mts", line: 4, column: 45, code: 2345 },
+    { file: "backward-boundary.mts", line: 5, column: 45, code: 2345 },
+    ...removedPositions.map(entry => ({ file: entry.file, line: 4, column: 18, code: 2554 })),
     { file: "removed-limits-path.mts", line: 3, column: oldLimits.lastIndexOf("limits") + 1, code: 2741 }];
   const files = programs.map(program => { const file = resolve(stage, program.file); writeFileSync(file, program.text); return file; });
   const config = resolve(stage, "tsconfig.json");

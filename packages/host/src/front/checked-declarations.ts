@@ -9,7 +9,7 @@ type Checked = Hir.CheckedPhase;
 
 export interface DeclarationLowering {
   readonly core: (node: NodeId) => Hir.HirCoreCapture;
-  readonly definition: (node: NodeId) => DefId;
+  readonly definitions: ReadonlyMap<NodeId, DefId>;
   readonly resolution: (node: NodeId) => Hir.HirResolution;
   readonly memory: (node: NodeId) => Hir.CapturedFact<Hir.HirMemoryLayoutCapture | Hir.HirMemoryFieldCapture | null>;
   readonly checkedType: (node: NodeId) => TyId;
@@ -42,25 +42,32 @@ function declarationName(context: DeclarationLowering, node: Hir.Identifier<Synt
     tsonic: { core: context.core(node.id), role: "declaration-name", declaration: { kind: "definition", definition: declaration } } };
 }
 
-export function lowerCheckedType(context: DeclarationLowering, root: Hir.TypeNode<Syntax>): Hir.TypeNode<Checked> {
+function definitionOf(context: DeclarationLowering, node: NodeId): DefId {
+  return context.definitions.get(node) ?? fail("a declaration must retain its actual F1 identity");
+}
+
+type TypeReader = (node: Hir.TypeNode<Syntax>, owner: DefId) => Hir.TypeNode<Checked>;
+
+function presentType(node: Hir.TypeNode<Checked>): TyId {
+  const fact = node.tsonic.type;
+  return fact.kind === "available" ? fact.value : fail("a type parameter requires its actual available checked annotation");
+}
+
+export function lowerCheckedType(context: DeclarationLowering, root: Hir.TypeNode<Syntax>, owner: DefId): Hir.TypeNode<Checked> {
   const completed = new Map<NodeId, Hir.TypeNode<Checked>>();
-  const pending: { readonly node: Hir.TypeNode<Syntax>; readonly ready: boolean }[] = [{ node: root, ready: false }];
-  const child = (node: Hir.TypeNode<Syntax>): Hir.TypeNode<Checked> => completed.get(node.id)
+  const child: TypeReader = node => completed.get(node.id)
     ?? fail("a type child must complete before its containing annotation");
-  for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
-    const node = next.node;
-    if (!next.ready) {
-      pending.push({ node, ready: true });
-      const children: Hir.TypeNode<Syntax>[] = [];
-      for (const value of iterateChildrenOfSyntax(node))
-        if (isTypeNode(value)) children.push(value);
-      for (let index = children.length - 1; index >= 0; index -= 1) {
-        const value = children[index];
-        if (value === undefined) return fail("a captured type child inventory is dense");
-        pending.push({ node: value, ready: false });
-      }
+  const enter = (node: Hir.SyntaxNode<Syntax>, parent: DefId) => ({ node,
+    owner: context.definitions.get(node.id) ?? parent, children: iterateChildrenOfSyntax(node) });
+  const pending = [enter(root, owner)];
+  for (let frame = pending.pop(); frame !== undefined; frame = pending.pop()) {
+    const next = frame.children.next();
+    if (!next.done) {
+      pending.push(frame, enter(next.value, frame.owner));
       continue;
     }
+    const node = frame.node;
+    if (!isTypeNode(node)) continue;
     const type = context.checkedType(node.id);
     const tsonic: Hir.CheckedType = { core: context.core(node.id), type: { kind: "available", value: type }, referencedDefinitions: [] };
     let result: Hir.TypeNode<Checked>;
@@ -69,16 +76,18 @@ export function lowerCheckedType(context: DeclarationLowering, root: Hir.TypeNod
       case "AnyKeyword": case "UnknownKeyword": case "NeverKeyword": case "ObjectKeyword": case "UndefinedKeyword": case "VoidKeyword":
         result = { ...header(node), kind: node.kind, tsonic }; break;
       case "UnionType": case "IntersectionType":
-        result = { ...header(node), kind: node.kind, types: { loc: node.types.loc, nodes: node.types.nodes.map(child) }, tsonic }; break;
-      case "ParenthesizedType": result = { ...header(node), kind: node.kind, type: child(node.type), tsonic }; break;
-      case "ArrayType": result = { ...header(node), kind: node.kind, elementType: child(node.elementType), tsonic }; break;
+        result = { ...header(node), kind: node.kind, types: { loc: node.types.loc, nodes: node.types.nodes.map(type => child(type, frame.owner)) }, tsonic }; break;
+      case "ParenthesizedType": result = { ...header(node), kind: node.kind, type: child(node.type, frame.owner), tsonic }; break;
+      case "ArrayType": result = { ...header(node), kind: node.kind, elementType: child(node.elementType, frame.owner), tsonic }; break;
+      case "TypeLiteral": result = { ...header(node), kind: node.kind,
+        members: { loc: node.members.loc, nodes: typeElements(context, node.members.nodes, frame.owner, child) }, tsonic }; break;
       case "TypeReference": {
         const name = node.typeName;
         if (name.kind !== "Identifier") return fail("qualified type reference");
         const resolution = context.resolution(name.id);
         result = { ...header(node), kind: node.kind,
           typeName: { ...header(name), kind: "Identifier", text: name.text, tsonic: { core: context.core(name.id), role: "type-name", resolution } },
-          typeArguments: node.typeArguments === null ? null : { loc: node.typeArguments.loc, nodes: node.typeArguments.nodes.map(child) },
+          typeArguments: node.typeArguments === null ? null : { loc: node.typeArguments.loc, nodes: node.typeArguments.nodes.map(type => child(type, frame.owner)) },
           tsonic: { ...tsonic, referencedDefinitions: resolution.kind === "declarations" ? resolution.definitions : [] } };
         break;
       }
@@ -86,7 +95,7 @@ export function lowerCheckedType(context: DeclarationLowering, root: Hir.TypeNod
     }
     completed.set(node.id, result);
   }
-  return child(root);
+  return child(root, owner);
 }
 
 function propertyName(context: DeclarationLowering, node: Hir.PropertyName<Syntax>, declaration: DefId): Hir.PropertyName<Checked> {
@@ -103,58 +112,59 @@ function facts(context: DeclarationLowering, node: Hir.NodeHeader, owner: DefId)
   return { core: context.core(node.id), parent: owner, attributes: [], memory: context.memory(node.id) };
 }
 
-function parameters(context: DeclarationLowering, source: Hir.ParameterList<Syntax>, owner: DefId): Hir.ParameterList<Checked> {
+function parameters(context: DeclarationLowering, source: Hir.ParameterList<Syntax>, owner: DefId, typeOf: TypeReader): Hir.ParameterList<Checked> {
   return { loc: source.loc, nodes: source.nodes.map(node => {
     if (node.name.kind !== "Identifier" || node.initializer !== null) return fail("bodyless parameter pattern or initializer");
-    const declaration = context.definition(node.id);
+    const declaration = definitionOf(context, node.id);
+    const type = node.type === null ? null : typeOf(node.type, declaration);
     return { ...header(node), kind: "Parameter", modifiers: lowerCheckedModifiers(node.modifiers),
       dotDotDotToken: node.dotDotDotToken === null ? null : token(node.dotDotDotToken),
       name: declarationName(context, node.name, declaration), questionToken: node.questionToken === null ? null : token(node.questionToken),
-      type: node.type === null ? null : lowerCheckedType(context, node.type), initializer: null,
+      type, initializer: null,
       tsonic: { ...facts(context, node, owner), declaration: { kind: "definition", definition: declaration },
-        declaredType: { kind: "available", value: node.type === null ? null : context.checkedType(node.type.id) }, initializer: null } };
+        declaredType: type === null ? { kind: "available", value: null } : type.tsonic.type, initializer: null } };
   }) };
 }
 
 function typeParameters(context: DeclarationLowering, source: Hir.TypeParameterList<Syntax> | null,
-  owner: DefId): Hir.TypeParameterList<Checked> | null {
+  owner: DefId, typeOf: TypeReader): Hir.TypeParameterList<Checked> | null {
   return source === null ? null : { loc: source.loc, nodes: source.nodes.map(node => {
     if (node.expression !== null) return fail("a type parameter with an expression");
-    const declaration = context.definition(node.id);
+    const declaration = definitionOf(context, node.id);
+    const constraint = node.constraint === null ? null : typeOf(node.constraint, declaration);
+    const defaultType = node.defaultType === null ? null : typeOf(node.defaultType, declaration);
     const parameter: TypeParameter = { declaration,
-      constraint: node.constraint === null ? null : context.checkedType(node.constraint.id),
-      default: node.defaultType === null ? null : context.checkedType(node.defaultType.id) };
+      constraint: constraint === null ? null : presentType(constraint),
+      default: defaultType === null ? null : presentType(defaultType) };
     return { ...header(node), kind: "TypeParameter", modifiers: lowerCheckedModifiers(node.modifiers),
       name: declarationName(context, node.name, declaration), expression: null,
-      constraint: node.constraint === null ? null : lowerCheckedType(context, node.constraint),
-      defaultType: node.defaultType === null ? null : lowerCheckedType(context, node.defaultType),
+      constraint, defaultType,
       tsonic: { ...facts(context, node, owner), definition: declaration, parameter } };
   }) };
 }
 
-export function lowerCheckedInterface(context: DeclarationLowering, source: Hir.InterfaceDeclaration<Syntax>, owner: DefId): Hir.InterfaceDeclaration<Checked> {
-  if (source.heritageClauses !== null) return fail("interface heritage");
-  const definition = context.definition(source.id);
-  const formals = typeParameters(context, source.typeParameters, definition);
-  const members: Hir.TypeElement<Checked>[] = source.members.nodes.map(node => {
-    const declaration = context.definition(node.id);
+function typeElements(context: DeclarationLowering, source: readonly Hir.TypeElement<Syntax>[], owner: DefId,
+  typeOf: TypeReader): readonly Hir.TypeElement<Checked>[] {
+  return source.map(node => {
+    const declaration = definitionOf(context, node.id);
     if (node.kind === "PropertySignature") {
       if (node.initializer !== null) return fail("property signature initializer");
+      const type = node.type === null ? null : typeOf(node.type, declaration);
       return { ...header(node), kind: node.kind, modifiers: lowerCheckedModifiers(node.modifiers),
         name: propertyName(context, node.name, declaration), postfixToken: node.postfixToken === null ? null : token(node.postfixToken),
-        type: node.type === null ? null : lowerCheckedType(context, node.type), initializer: null,
-        tsonic: { ...facts(context, node, definition), declaration: { kind: "definition", definition: declaration },
-          declaredType: { kind: "available", value: node.type === null ? null : context.checkedType(node.type.id) }, initializer: null } };
+        type, initializer: null,
+        tsonic: { ...facts(context, node, owner), declaration: { kind: "definition", definition: declaration },
+          declaredType: type === null ? { kind: "available", value: null } : type.tsonic.type, initializer: null } };
     }
     if (node.kind !== "CallSignature" && node.kind !== "ConstructSignature" && node.kind !== "MethodSignature" && node.kind !== "IndexSignature")
       return fail(node.kind);
     if (node.fullSignature !== null) return fail("full signature annotation");
-    const own = typeParameters(context, node.typeParameters, declaration);
-    const tsonic: Hir.CheckedCallable = { ...facts(context, node, definition), definition: declaration,
+    const own = typeParameters(context, node.typeParameters, declaration, typeOf);
+    const tsonic: Hir.CheckedCallable = { ...facts(context, node, owner), definition: declaration,
       parameters: own?.nodes.map(parameter => parameter.tsonic.parameter) ?? [], body: null,
       signatures: node.kind === "IndexSignature" ? [] : [{ declaration, role: "api-signature", signature: context.signature(node.id), body: null }] };
-    const common = { ...header(node), typeParameters: own, parameters: parameters(context, node.parameters, declaration),
-      type: node.type === null ? null : lowerCheckedType(context, node.type), fullSignature: null, tsonic };
+    const common = { ...header(node), typeParameters: own, parameters: parameters(context, node.parameters, declaration, typeOf),
+      type: node.type === null ? null : typeOf(node.type, declaration), fullSignature: null, tsonic };
     switch (node.kind) {
       case "CallSignature": case "ConstructSignature": return { ...common, kind: node.kind };
       case "IndexSignature": return { ...common, kind: node.kind, modifiers: lowerCheckedModifiers(node.modifiers) };
@@ -162,8 +172,30 @@ export function lowerCheckedInterface(context: DeclarationLowering, source: Hir.
         name: propertyName(context, node.name, declaration), postfixToken: node.postfixToken === null ? null : token(node.postfixToken) };
     }
   });
+}
+
+export function lowerCheckedInterface(context: DeclarationLowering, source: Hir.InterfaceDeclaration<Syntax>, owner: DefId): Hir.InterfaceDeclaration<Checked> {
+  if (source.heritageClauses !== null) return fail("interface heritage");
+  const definition = definitionOf(context, source.id);
+  const typeOf: TypeReader = (node, owner) => lowerCheckedType(context, node, owner);
+  const formals = typeParameters(context, source.typeParameters, definition, typeOf);
   return { ...header(source), kind: "InterfaceDeclaration", name: declarationName(context, source.name, definition),
-    modifiers: lowerCheckedModifiers(source.modifiers), typeParameters: formals, heritageClauses: null, members: { loc: source.members.loc, nodes: members },
+    modifiers: lowerCheckedModifiers(source.modifiers), typeParameters: formals, heritageClauses: null,
+    members: { loc: source.members.loc, nodes: typeElements(context, source.members.nodes, definition, typeOf) },
     tsonic: { ...facts(context, source, owner), definition, parameters: formals?.nodes.map(parameter => parameter.tsonic.parameter) ?? [],
-      heritage: [], members: source.members.nodes.map(node => context.definition(node.id)) } };
+      heritage: [], members: source.members.nodes.map(node => definitionOf(context, node.id)) } };
+}
+
+export function lowerCheckedAlias(context: DeclarationLowering, source: Hir.TypeAliasDeclaration<Syntax>,
+  owner: DefId): Hir.TypeAliasDeclaration<Checked> {
+  const definition = definitionOf(context, source.id);
+  const typeOf: TypeReader = (node, owner) => lowerCheckedType(context, node, owner);
+  const formals = typeParameters(context, source.typeParameters, definition, typeOf);
+  const type = lowerCheckedType(context, source.type, definition);
+  return { ...header(source), kind: source.kind, modifiers: lowerCheckedModifiers(source.modifiers),
+    name: declarationName(context, source.name, definition), typeParameters: formals,
+    type,
+    tsonic: { ...facts(context, source, owner), definition,
+      parameters: formals?.nodes.map(parameter => parameter.tsonic.parameter) ?? [],
+      type: type.tsonic.type } };
 }

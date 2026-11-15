@@ -12,8 +12,9 @@ import { moduleIdentities } from "./identities.js";
 import { bindingOccurrence, lowerBindingFact, lowerBindings } from "./bindings.js";
 import { lowerExportDeclaration } from "./lower-exports.js";
 import { lowerImportDeclaration } from "./lower-imports.js";
+import { lowerMembers } from "./lower-members.js";
 import { expressionKinds } from "./syntax-capture.js";
-import { lowerCheckedInterface, lowerCheckedModifiers, lowerCheckedType } from "./checked-declarations.js";
+import { lowerCheckedAlias, lowerCheckedInterface, lowerCheckedModifiers, lowerCheckedType } from "./checked-declarations.js";
 import type { DeclarationLowering } from "./checked-declarations.js";
 
 type Syntax = Hir.SyntaxPhase;
@@ -31,7 +32,7 @@ const writtenKinds: readonly string[] = ["SourceFile", "EndOfFile", "ExportKeywo
   "Block", "ReturnStatement", "IfStatement", "BinaryExpression", "PrefixUnaryExpression", "PlusToken", "CallExpression", "ExpressionStatement", "ParenthesizedExpression",
   "ExportDeclaration", "NamedExports", "ExportSpecifier", "NamespaceExport", "StringLiteral", "TrueKeyword", "FalseKeyword", "NullKeyword",
   "ImportDeclaration", "ImportClause", "NamedImports", "ImportSpecifier", "NamespaceImport",
-  "VariableStatement", "VariableDeclarationList", "VariableDeclaration", "InterfaceDeclaration", "TypeParameter", "PropertySignature",
+  "VariableStatement", "VariableDeclarationList", "VariableDeclaration", "InterfaceDeclaration", "TypeAliasDeclaration", "TypeLiteral", "TypeParameter", "PropertySignature",
   "CallSignature", "ConstructSignature", "MethodSignature", "IndexSignature", "TypeReference", "UnionType", "IntersectionType",
   "SymbolKeyword", "ReadonlyKeyword", "DeclareKeyword", "ComputedPropertyName", "PropertyAccessExpression", "QuestionToken"];
 
@@ -175,6 +176,14 @@ function convertDependencies(lowering: Lowering, first: ConversionTask): void {
         const inventory = lowering.raw.types.members[row.form.value.inventory];
         if (inventory === undefined) return throwInvariant(invariant("A callable type has no captured member inventory."));
         for (const id of [...inventory.calls, ...inventory.constructs].reverse()) pending.push({ kind: "signature", id, ready: false });
+        for (let position = inventory.members.length - 1; position >= 0; position -= 1) {
+          const member = inventory.members[position];
+          if (member === undefined) return throwInvariant(invariant("A captured member inventory must retain every actual row."));
+          for (const fact of [member.write, member.read]) {
+            if (fact.kind !== "available") throw new TypeError("front: checked member conversion requires its actual captured type association (" + fact.reason + ")");
+            if (fact.value !== null) pending.push({ kind: "type", id: fact.value, ready: false });
+          }
+        }
         for (let position = inventory.indexes.length - 1; position >= 0; position -= 1) {
           const index = inventory.indexes[position];
           if (index === undefined) return throwInvariant(invariant("A captured index inventory must retain every actual row."));
@@ -244,13 +253,12 @@ function finishType(lowering: Lowering, type: RawTypeId): void {
   } else if (form.kind === "structure") {
     const inventory = raw.types.members[form.inventory];
     if (inventory === undefined) return throwInvariant(invariant("A callable type has no captured member inventory."));
-    if (inventory.members.length !== 0)
-      throw new TypeError("front: the conversion of callable members is not implemented");
     const signatureOf = (signature: RawSignatureId): SigId => lowering.convertedSignatures.get(signature)
       ?? throwInvariant(invariant("A callable dependency has not been converted."));
     const calls = inventory.calls.map(signatureOf);
     const constructs = inventory.constructs.map(signatureOf);
-    term = inventory.indexes.length === 0 ? { kind: "callable", calls, constructs } : { kind: "shape", members: [], calls, constructs,
+    term = inventory.indexes.length === 0 && inventory.members.length === 0 ? { kind: "callable", calls, constructs }
+      : { kind: "shape", members: lowerMembers(deps, inventory.members, lowering.convertedTypes), calls, constructs,
       indexes: inventory.indexes.map(index => {
         const source = deps.sourceOccurrenceOf(index.origin);
         if (source === null || source.node !== index.origin.node || source.occurrence.value.node !== index.origin.node
@@ -498,16 +506,16 @@ function token<K extends Hir.TokenSyntaxKind>(node: Hir.Token<Syntax, K>): Hir.T
 }
 
 /** An authored annotation: its type is the one capture read from the checker for that type node. */
-function typeNode(lowering: Lowering, node: Hir.TypeNode<Syntax>): { readonly node: Hir.TypeNode<Checked>; readonly type: TyId } {
+function typeNode(lowering: Lowering, node: Hir.TypeNode<Syntax>, owner: DefId): { readonly node: Hir.TypeNode<Checked>; readonly type: TyId } {
   const raw = lowering.authoredTypes.get(node.id);
   if (raw === undefined) return throwInvariant(invariant("An authored type annotation has no captured checker type."));
   const type = typeOf(lowering, raw);
-  return { node: lowerCheckedType(declarationLowering(lowering), node), type };
+  return { node: lowerCheckedType(declarationLowering(lowering), node, owner), type };
 }
 
 function declarationLowering(lowering: Lowering): DeclarationLowering {
   return {
-    core: node => coreOf(lowering, node), definition: node => definitionOf(lowering, node), memory: node => memoryOf(lowering, node),
+    core: node => coreOf(lowering, node), definitions: lowering.definitionAt, memory: node => memoryOf(lowering, node),
     resolution: node => resolutionOf(lowering, node, lowering.references.get(node)),
     checkedType: node => {
       const captured = lowering.authoredTypes.get(node);
@@ -638,6 +646,7 @@ function buildStatement(lowering: Lowering, node: Hir.Statement<Syntax>, owner: 
       nodes: node.statements.nodes.map(child => statement(lowering, child)) }, multiLine: node.multiLine, tsonic: null };
     case "FunctionDeclaration": return functionDeclaration(lowering, node, owner);
     case "InterfaceDeclaration": return lowerCheckedInterface(declarationLowering(lowering), node, owner);
+    case "TypeAliasDeclaration": return lowerCheckedAlias(declarationLowering(lowering), node, owner);
     case "ExportDeclaration": case "ImportDeclaration": {
       const inputs = {
       core: (node: NodeId) => coreOf(lowering, node), memory: (node: NodeId) => memoryOf(lowering, node), definition: (node: NodeId) => definitionOf(lowering, node),
@@ -660,7 +669,7 @@ function variableDeclaration(lowering: Lowering, node: Hir.VariableDeclaration<S
   if (node.name.kind !== "Identifier") return throwInvariant(invariant("A variable of a written form has no identifier name."));
   const definition = definitionOf(lowering, node.id);
   const declaration = targetOf(lowering, node.id);
-  const declared = node.type === null ? null : typeNode(lowering, node.type);
+  const declared = node.type === null ? null : typeNode(lowering, node.type, definition);
   const initializer = node.initializer === null ? null : expression(lowering, node.initializer);
   const body = initializer === null ? null : encodeBodyId({ owner: definition, role: "initializer", ordinal: 0 });
   if (body !== null && initializer !== null) lowering.bodies.push({ body, owner: definition, params: [], locals: [],
@@ -766,7 +775,7 @@ function functionDeclaration(lowering: Lowering, node: Hir.FunctionDeclaration<S
   const signatureParameters = node.parameters.nodes;
   const parameters = signatureParameters.map((parameter, index) => {
     const parameterDefinition = definitionOf(lowering, parameter.id);
-    const declared = parameter.type === null ? null : typeNode(lowering, parameter.type);
+    const declared = parameter.type === null ? null : typeNode(lowering, parameter.type, parameterDefinition);
     const declaredType = declared === null ? null : declared.type;
     const checkedParameter = rawSignature.parameters[index];
     if (checkedParameter === undefined) return throwInvariant(invariant("A parameter has no row of its captured signature."));
@@ -786,7 +795,7 @@ function functionDeclaration(lowering: Lowering, node: Hir.FunctionDeclaration<S
         declaredType: { kind: "available", value: declaredType }, initializer: initializerBody } };
     return { lowered, definition: parameterDefinition, checkedType, passing: passingOf(lowering, parameter.id), initializer: initializerBody };
   });
-  const returnType = node.type === null ? null : typeNode(lowering, node.type).node;
+  const returnType = node.type === null ? null : typeNode(lowering, node.type, definition).node;
   const item = (target: NodeId, itemOwner: DefId): SourceNodeRef => ({ kind: "item", value: { owner: itemOwner, node: target } });
   const signature = signatureOf(lowering, rawSignature.id);
   const loweredBody = block(lowering, bodyNode);

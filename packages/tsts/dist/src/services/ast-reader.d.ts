@@ -47,6 +47,7 @@ export interface AstReader {
     readonly questionToken: (node: GoPtr<Node>) => GoPtr<Node>;
     /** Returns the exact operator kind name for binary, update, and type-operator syntax. */
     readonly operatorKindName: (node: GoPtr<Node>) => string | undefined;
+    readonly moduleKeywordKindName: (node: GoPtr<Node>) => string | undefined;
     readonly modifiers: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
     readonly modifierFlags: (node: GoPtr<Node>) => number;
     readonly hasModifier: (node: GoPtr<Node>, flags: number) => boolean;
