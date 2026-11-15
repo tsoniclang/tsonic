@@ -4,12 +4,12 @@ import type { BodyId, DefId, LocalRef, NodeId, RawSignatureId, RawTypeId, SigId,
 import { candidateListId, encodeBodyId, localId } from "../ids/index.js";
 import type * as Hir from "../ir-hir/contract.js";
 import { iterateChildrenOfSyntax } from "../ir-hir/index.js";
-import type { LiteralTypeValue, SignatureParameter, TypeTerm } from "../ir-types/contract.js";
+import type { LiteralTypeValue, MemberKey, MemberOrigin, SignatureParameter, TypeTerm } from "../ir-types/contract.js";
 import { compareIndexSignatures, internSignature, internType } from "../ir-types/index.js";
 import type { PassingMode } from "../ir-types/contract.js";
-import type { ConvertedCheckedType, LowerDeps, ModuleDefinitions, ModuleExports, RawBindingTarget, RawCallSelection, RawCallableAssociation, RawCheckerViews, RawCoreCapture, RawFact, RawModule, RawModuleLink, RawPropertyName, RawStorageCapture } from "./contract.js";
+import type { ConvertedCheckedType, LowerDeps, ModuleDefinitions, ModuleExports, RawBindingTarget, RawCallSelection, RawCallableAssociation, RawCheckerViews, RawCoreCapture, RawFact, RawMemberUse, RawModule, RawModuleLink, RawPropertyName, RawStorageCapture } from "./contract.js";
 import { moduleIdentities } from "./identities.js";
-import { bindingOccurrence, lowerBindingFact, lowerBindings } from "./bindings.js";
+import { bindingOccurrence, lowerBindingFact, lowerBindings, lowerMemberKey } from "./bindings.js";
 import { lowerExportDeclaration } from "./lower-exports.js";
 import { lowerImportDeclaration } from "./lower-imports.js";
 import { lowerMembers } from "./lower-members.js";
@@ -346,6 +346,7 @@ interface Lowering {
   readonly views: ReadonlyMap<NodeId, RawCheckerViews>;
   readonly references: ReadonlyMap<NodeId, RawFact<RawBindingTarget>>;
   readonly propertyNames: ReadonlyMap<NodeId, RawPropertyName>;
+  readonly memberUses: ReadonlyMap<NodeId, RawMemberUse>;
   readonly links: ReadonlyMap<NodeId, RawModuleLink>;
   readonly locals: Map<NodeId, LocalRef>;
   readonly variableLocals: ReadonlyMap<BodyId, readonly Hir.HirLocal[]>;
@@ -548,6 +549,53 @@ function expression(lowering: Lowering, node: Hir.Expression<Syntax>): Hir.Expre
   return lowering.expressions.get(node.id) ?? throwInvariant(invariant("An expression is not completed before its containing node."));
 }
 
+function memberUse(lowering: Lowering, node: Hir.PropertyAccessExpression<Syntax>): {
+  readonly key: Hir.CapturedFact<MemberKey>;
+  readonly origins: Hir.CapturedFact<readonly MemberOrigin[]>;
+  readonly accessor: Hir.CapturedFact<Hir.HirApplication | null>;
+} {
+  const selected = lowering.memberUses.get(node.id);
+  const missing: Hir.CapturedFact<never> = { kind: "unavailable", reason: "not-provided", causes: [] };
+  if (selected === undefined) return { key: missing, origins: missing, accessor: missing };
+  if (selected.receiver.module !== lowering.raw.module || selected.receiver.node !== node.expression.id
+    || selected.access !== "read" || selected.optionalChain || selected.chainContinuation || selected.arms.length !== 1)
+    throw new TypeError("front: a member use requires its actual receiver, access and selected arm");
+  const arm = selected.arms[0];
+  if (arm?.kind !== "member" || arm.receiver !== selected.receiverComponent)
+    throw new TypeError("front: a property use requires its actual selected member arm");
+  const inventory = lowering.raw.types.members[arm.member.table];
+  const member = inventory?.members[arm.member.index];
+  if (inventory?.component !== arm.receiver || member === undefined)
+    throw new TypeError("front: a selected member use must name its genuine receiver inventory row");
+  const component = lowering.raw.types.components[selected.receiverComponent];
+  const read = selected.read === null ? undefined : lowering.raw.types.components[selected.read];
+  if (component?.root.module !== selected.receiver.module || component.root.node !== selected.receiver.node || component.path.length !== 0
+    || read?.root.module !== selected.occurrence.module || read.root.node !== selected.occurrence.node || read.path.length !== 0
+    || selected.write !== null || selected.writeDeclarations.length !== 0 || arm.writeDeclarations.length !== 0)
+    throw new TypeError("front: a selected read must retain its actual receiver and read components without a write occurrence");
+  const primary = selected.selectedDeclaration;
+  if (primary === null || !member.declarations.some(declaration => declaration.module === primary.module && declaration.node === primary.node)
+    || selected.selectedDeclarations.length !== member.declarations.length || selected.selectedDeclarations.some((declaration, index) => {
+      const actual = member.declarations[index];
+      return actual?.module !== declaration.module || actual.node !== declaration.node;
+    }))
+    throw new TypeError("front: a selected read must retain its exact original declaration inventory");
+  const declarations = selected.readDeclarations;
+  if (declarations.length === 0 || declarations.length !== arm.readDeclarations.length)
+    throw new TypeError("front: a member read requires its actual selected read declarations");
+  const origins = declarations.map((declaration, index): MemberOrigin => {
+    const original = arm.readDeclarations[index];
+    if (original?.module !== declaration.module || original.node !== declaration.node
+      || !member.origins.some(origin => origin.kind === "declaration" && origin.access === "read"
+        && origin.declaration.module === declaration.module && origin.declaration.node === declaration.node))
+      throw new TypeError("front: member read origins must retain the exact selected receiver declarations");
+    return { kind: "declared", declaration: lowering.deps.definitionOf(declaration) };
+  });
+  return { key: { kind: "available", value: lowerMemberKey(lowering.deps, member.key) },
+    origins: { kind: "available", value: origins }, accessor: member.readKind === "accessor"
+      ? { kind: "unavailable", reason: "incomplete-association", causes: [] } : { kind: "available", value: null } };
+}
+
 function buildExpression(lowering: Lowering, node: Hir.Expression<Syntax>): Hir.Expression<Checked> {
   switch (node.kind) {
     case "TrueKeyword": case "FalseKeyword": case "NullKeyword":
@@ -576,14 +624,15 @@ function buildExpression(lowering: Lowering, node: Hir.Expression<Syntax>): Hir.
       return { ...headerOf(node), kind: "CallExpression", expression: expression(lowering, node.expression), questionDotToken: null, typeArguments: null,
         arguments: { loc: node.arguments.loc, nodes: node.arguments.nodes.map(argument => expression(lowering, argument)) },
         tsonic: { core: coreOf(lowering, node.id), ...valueOf(lowering, node.id), application: { kind: "available", value: applicationOf(lowering, node) } } };
-    case "PropertyAccessExpression":
+    case "PropertyAccessExpression": {
       if (node.name.kind !== "Identifier" || node.questionDotToken !== null) throw new TypeError("front: checked optional or private property access is not implemented");
+      const selected = memberUse(lowering, node);
       return { ...headerOf(node), kind: node.kind, expression: expression(lowering, node.expression), questionDotToken: null,
         name: { ...headerOf(node.name), kind: "Identifier", text: node.name.text,
-          tsonic: { core: coreOf(lowering, node.name.id), role: "property-name", key: { kind: "available", value: { kind: "text", value: node.name.text } },
-            origins: { kind: "unavailable", reason: "not-provided", causes: [] } } },
+          tsonic: { core: coreOf(lowering, node.name.id), role: "property-name", key: selected.key, origins: selected.origins } },
         tsonic: { core: coreOf(lowering, node.id), role: "value", value: valueOf(lowering, node.id),
-          origins: { kind: "unavailable", reason: "not-provided", causes: [] }, accessor: { kind: "unavailable", reason: "not-provided", causes: [] } } };
+          origins: selected.origins, accessor: selected.accessor } };
+    }
     default: return throwInvariant(invariant("An expression of an unwritten kind passed the written-kinds check."));
   }
 }
@@ -835,6 +884,18 @@ function referenceTargets(raw: RawModule): ReadonlyMap<NodeId, RawFact<RawBindin
   return references;
 }
 
+function memberUsesOf(raw: RawModule): ReadonlyMap<NodeId, RawMemberUse> {
+  const uses = new Map<NodeId, RawMemberUse>();
+  let previous = -1;
+  for (const use of raw.memberUses) {
+    if (use.occurrence.module !== raw.module || use.occurrence.node <= previous)
+      return throwInvariant(invariant("Member uses retain their actual module and unique syntax order."));
+    previous = use.occurrence.node;
+    uses.set(use.occurrence.node, use);
+  }
+  return uses;
+}
+
 function moduleLinks(raw: RawModule): ReadonlyMap<NodeId, RawModuleLink> {
   const links = new Map<NodeId, RawModuleLink>();
   for (const link of raw.links) {
@@ -861,7 +922,7 @@ export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<Hir.HirM
     core: new Map(raw.core.filter(entry => entry.node.module === raw.module).map(entry => [entry.node.node, entry])),
     storage: new Map(raw.storage.filter(entry => entry.node.module === raw.module).map(entry => [entry.node.node, entry])),
     views: new Map(raw.checkerViews.filter(view => view.node.module === raw.module).map(view => [view.node.node, view])),
-    references: referenceTargets(raw), links: moduleLinks(raw),
+    references: referenceTargets(raw), links: moduleLinks(raw), memberUses: memberUsesOf(raw),
     propertyNames: new Map(raw.propertyNames.filter(row => row.node.module === raw.module).map(row => [row.node.node, row])),
     locals: new Map(structure.locals), variableLocals, bodies: [], convertedTypes: new Map(), convertedSignatures: new Map(), expressions: new Map(), statements: new Map(),
     calls: new Map(raw.calls.filter(call => call.invocation.module === raw.module).map(call => [call.invocation.node, call])), candidateLists: new Map(),

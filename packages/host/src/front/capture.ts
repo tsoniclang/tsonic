@@ -7,7 +7,7 @@ import { nodeId, rawCandidateListId, rawComponentId, rawMemberTableId, rawSignat
 import type * as Hir from "../ir-hir/contract.js";
 import type { RawComponentId, RawSignatureId, RawSymbolId, RawTypeId } from "../ids/contract.js";
 import type {
-  CaptureDeps, CheckedProgram, RawArgumentBinding, RawAuthoredArgument, RawBinding, RawBindingTarget, RawCallSelection, RawCallableAssociation, RawCandidateList, RawCoreCapture, RawCheckedType, RawCheckerViews, RawComponent, RawComponentStep, RawDiagnosticCoverage, RawFact, RawIndexSignature, RawLiteral, RawMember, RawMemberOrigin, RawMemberKey, RawMemberTable, RawModule, RawModuleExport, RawModuleLink, RawNodeRef, RawParameter, RawPropertyName, RawProviderDeclaration, RawReference, RawSignature, RawSymbol, RawTypeArgument, RawTypeForm,
+  CaptureDeps, CheckedProgram, RawArgumentBinding, RawAuthoredArgument, RawBinding, RawBindingTarget, RawCallSelection, RawCallableAssociation, RawCandidateList, RawCoreCapture, RawCheckedType, RawCheckerViews, RawComponent, RawComponentStep, RawDiagnosticCoverage, RawFact, RawIndexSignature, RawLiteral, RawMember, RawMemberOrigin, RawMemberKey, RawMemberTable, RawMemberUse, RawModule, RawModuleExport, RawModuleLink, RawNodeRef, RawParameter, RawPropertyName, RawProviderDeclaration, RawReference, RawSignature, RawSymbol, RawTypeArgument, RawTypeForm,
 } from "./contract.js";
 import { ExtensionTable, OpenedProgram } from "./handles.js";
 import type { FileNumbering, FileSyntaxEntry } from "./handles.js";
@@ -507,6 +507,72 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId): Ra
   throw new TypeError(`front: the captured form of the checker type ${scope.checker.typeToString(type)} is not implemented`);
 }
 
+function capturedMemberUse(scope: CaptureScope, node: Node, occurrence: RawNodeRef): RawMemberUse | null {
+  if (!admit(scope, "facts")) return null;
+  const info = scope.checker.getResolvedPropertyAccessInfo(node);
+  if (info === undefined || info.kind !== "member" || info.expression !== node)
+    throw new TypeError("front: a property access requires its actual selected member answer");
+  if (info.optionalChain || info.selectedIndex !== undefined)
+    throw new TypeError("front: selected optional or index-backed property transport is not implemented");
+  const receiver = referenceTo(scope, scope.program, info.receiver.expression);
+  if (scope.meter.refusal !== null) return null;
+  if (receiver === null) return throwInvariant(invariant("A selected member receiver requires its actual source occurrence."));
+  const receiverComponent = component(scope, receiver, []);
+  const receiverType = rawType(scope, () => info.receiver.type, receiverComponent, null);
+  if (receiverType === null || receiverComponent === null) return null;
+  captureFacts(scope);
+  if (scope.meter.refusal !== null) return null;
+  const form = scope.tables.types[receiverType]?.form;
+  if (form?.kind !== "available" || form.value.kind !== "structure")
+    throw new TypeError("front: selected member transport requires its actual receiver member inventory");
+  const inventory = scope.tables.members[form.value.inventory];
+  if (inventory === undefined) return throwInvariant(invariant("A selected member retains its actual receiver inventory."));
+  const source = (declaration: Node | undefined): RawNodeRef | null => {
+    if (declaration === undefined) return null;
+    if (!admit(scope, "edges")) return null;
+    const reference = referenceTo(scope, scope.program, declaration);
+    if (scope.meter.refusal !== null) return null;
+    return reference ?? throwInvariant(invariant("A selected member declaration belongs to the actual captured source domain."));
+  };
+  const selected = source(info.selectedDeclaration);
+  if (scope.meter.refusal !== null) return null;
+  if (selected === null) throw new TypeError("front: selected property transport requires its actual source declaration");
+  let memberIndex: number | null = null;
+  for (let index = 0; index < inventory.members.length; index += 1) {
+    if (!admit(scope, "edges")) return null;
+    const member = inventory.members[index];
+    if (member === undefined) return throwInvariant(invariant("A selected member inventory must be dense."));
+    for (const declaration of member.declarations) {
+      if (!admit(scope, "edges")) return null;
+      if (declaration.module !== selected.module || declaration.node !== selected.node) continue;
+      if (memberIndex !== null && memberIndex !== index)
+        return throwInvariant(invariant("The selected declaration cannot identify competing receiver members."));
+      memberIndex = index;
+    }
+  }
+  if (memberIndex === null) throw new TypeError("front: the selected declaration is missing from its actual receiver member inventory");
+  const readDeclaration = source(info.selectedReadDeclaration);
+  if (scope.meter.refusal !== null) return null;
+  const writeDeclaration = source(info.selectedWriteDeclaration);
+  if (scope.meter.refusal !== null) return null;
+  const read = info.sourceReadType === undefined ? null : component(scope, occurrence, []);
+  if (scope.meter.refusal !== null) return null;
+  if (info.sourceReadType !== undefined && rawType(scope, () => info.sourceReadType, read, null) === null) return null;
+  const write = info.sourceWriteType === undefined ? null : component(scope, occurrence, []);
+  if (scope.meter.refusal !== null) return null;
+  if (info.sourceWriteType !== undefined && rawType(scope, () => info.sourceWriteType, write, null) === null) return null;
+  if (!admit(scope, "facts") || !admit(scope, "edges")) return null;
+  const member = inventory.members[memberIndex];
+  if (member === undefined) return throwInvariant(invariant("The selected member row must remain in its actual inventory."));
+  const readDeclarations = readDeclaration === null ? [] : [readDeclaration];
+  const writeDeclarations = writeDeclaration === null ? [] : [writeDeclaration];
+  return { occurrence, receiver, receiverComponent, key: null, access: info.accessMode, callCallee: info.callCallee,
+    optionalChain: info.optionalChain, chainContinuation: false, selectedDeclaration: selected,
+    selectedDeclarations: member.declarations, readDeclarations, writeDeclarations, read, write,
+    arms: [{ kind: "member", receiver: receiverComponent, member: { table: inventory.id, index: memberIndex },
+      readDeclarations, writeDeclarations }] };
+}
+
 function closedInventoryEmpty(program: CheckedProgram): boolean {
   const contributions = OpenedProgram.contributions(program);
   return OpenedProgram.libraryData(program).every(entry => entry.roles.length === 0) &&
@@ -894,12 +960,18 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
   const calls: RawCallSelection[] = [];
   const bindings: RawBinding[] = [];
   const propertyNames: RawPropertyName[] = [];
+  const memberUses: RawMemberUse[] = [];
+  let declarationNameRoot: NodeId | null = null;
   capture: for (const [index, node] of nodes.entries()) {
     const reference: RawNodeRef = { module, node: nodeId(index) };
     const kind = ast.kindName(node);
     const parent = ast.parent(node);
+    const parentId = own.numbering.parents.get(node);
+    if (declarationNameRoot !== null && (parentId === null || parentId === undefined || parentId < declarationNameRoot)) declarationNameRoot = null;
     const declarationName = parent !== undefined && ast.name(parent) === node;
     if (kind === "KindComputedPropertyName") {
+      if (parent !== undefined && (ast.kindName(parent) === "KindPropertySignature" || ast.kindName(parent) === "KindMethodSignature"))
+        declarationNameRoot = reference.node;
       if (!admit(scope, "facts")) break;
       const selected = capturedPropertyKey(scope, node);
       let key: RawFact<RawMemberKey | null> = { kind: "unavailable", reason: "missing-original-component", causes: [] };
@@ -984,6 +1056,11 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
     }
     captureFacts(scope);
     if (scope.meter.refusal !== null) break;
+    if (kind === "KindPropertyAccessExpression" && declarationNameRoot === null) {
+      const use = capturedMemberUse(scope, node, reference);
+      if (use === null) break;
+      memberUses.push(use);
+    }
     if (kind === "KindCallExpression") {
       const call = captureCall(scope, node, reference);
       if (call === null) break;
@@ -1024,7 +1101,7 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
     types: { types: scope.tables.types, components: scope.tables.components, signatures: scope.tables.signatures, members: scope.tables.members,
       symbols: scope.tables.symbols, candidates: scope.tables.candidates, dataLayouts: [], memoryLayouts: [], memoryFields: [] },
     checkerViews: views, calls, callableAssociations: associations, providerDeclarations, references, links, exports, bindings,
-    implementations: [], heritage: [], constructors: [], enums: [], propertyNames, memberUses: [], protocols: [], storage: [], core,
+    implementations: [], heritage: [], constructors: [], enums: [], propertyNames, memberUses, protocols: [], storage: [], core,
     checkerDiagnostics, diagnosticCoverage,
   };
   return { kind: "ok", value: raw, diagnostics: checkerDiagnostics };
