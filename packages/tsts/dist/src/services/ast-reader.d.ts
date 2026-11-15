@@ -32,6 +32,7 @@ export interface AstReader {
     readonly parent: (node: GoPtr<Node>) => GoPtr<Node>;
     readonly children: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
     readonly forEachChild: (node: GoPtr<Node>, callback: (child: GoPtr<Node>) => void) => void;
+    readonly forEachChildUntil: (node: GoPtr<Node>, stop: (child: GoPtr<Node>) => boolean) => boolean;
     readonly statements: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
     readonly members: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
     readonly parameters: (node: GoPtr<Node>) => readonly GoPtr<Node>[];

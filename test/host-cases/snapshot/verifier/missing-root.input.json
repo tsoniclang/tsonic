@@ -67,7 +67,7 @@
       "surfaceIds": []
     },
     "contributions": {
-      "declarationFiles": [],
+      "declarationModules": [],
       "declarationPolicy": {
         "bundledLibraries": [],
         "installedDeclarations": "none"

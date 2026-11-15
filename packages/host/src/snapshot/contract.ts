@@ -233,8 +233,13 @@ export interface ExtensionReferenceEntry {
   readonly reference: ExtensionReference;
 }
 
+export interface SourceLibraryBinding {
+  readonly name: string;
+  readonly module: ModuleId;
+}
+
 export interface SourceDeclarationPolicy {
-  readonly bundledLibraries: readonly string[];
+  readonly bundledLibraries: readonly SourceLibraryBinding[];
   readonly installedDeclarations: "none" | "package-contract";
 }
 
@@ -260,7 +265,7 @@ export interface SourceSafetyProvider {
 }
 
 export interface SourceContributions {
-  readonly declarationFiles: readonly string[];
+  readonly declarationModules: readonly ModuleId[];
   readonly declarationPolicy: SourceDeclarationPolicy;
   readonly requiredProviderModules: readonly RequiredProviderModule[];
   readonly compilerExtensions: readonly ExtensionReference[];
@@ -324,7 +329,13 @@ export type SnapshotRule =
   | "extension-package-resolves"
   | "extension-reference-kinds-exact"
   | "extension-table-equality"
-  | "contribution-files-resolve"
+  | "contributed-declaration-module"
+  | "contributed-declaration-unique"
+  | "contributed-declarations-order"
+  | "bundled-library-declaration"
+  | "bundled-library-binding"
+  | "bundled-library-unique"
+  | "bundled-libraries-order"
   | "virtual-file-owner-resolves"
   | "contribution-layouts-exact"
   | "provider-module-prefixes-disjoint"

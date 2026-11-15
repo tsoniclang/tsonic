@@ -116,7 +116,7 @@ function snapshot() {
     },
     entryPoint: entry, roots: [entry],
     selection: { target: { id: "native", surfaces: [], options: { kind: "record", fields: [] } }, providerId: "native-provider", capabilityIds: [], surfaceIds: [] },
-    contributions: { declarationFiles: [], declarationPolicy: { bundledLibraries: [], installedDeclarations: "none" },
+    contributions: { declarationModules: [], declarationPolicy: { bundledLibraries: [], installedDeclarations: "none" },
       requiredProviderModules: [], compilerExtensions: [], declarationProviders: [], semanticModules: [], safetyProviders: [], dataLayouts: [] },
     nativeFacts: nativeFactsFixture(),
   };
@@ -188,7 +188,7 @@ test("named packages, both module roles and both captured file arms preserve exp
   const value = snapshot();
   const additional = peer(value);
   value.packages.files.push({ kind: "virtual", path: "/virtual/prelude.d.ts", owner: additional.id, text: "declare const value: number;" });
-  value.contributions.declarationFiles.push("/virtual/prelude.d.ts");
+  value.contributions.declarationModules.push(additional.module);
   value.packages.packages.find(entry => entry.id === packageId()).dependencies = [
     { name: "library", range: "workspace:*", kind: "dependency", resolved: additional.id },
   ];
@@ -530,13 +530,92 @@ test("extension-table-equality handles missing, extra, three-kind shared exports
     verify(value, [], reverse ? [...entries].reverse() : entries);
   }
 });
-test("contribution-files-resolve and virtual-file-owner-resolves retain their actual source paths", () => {
+test("contributed-declaration-module: a contributed declaration is a declaration-role module of the snapshot, named by its identity; virtual-file-owner-resolves retains its path", () => {
   const absent = snapshot();
-  absent.contributions.declarationFiles = ["/virtual/missing.d.ts"];
-  verify(absent, [issue("contribution-files-resolve", fileSite("/virtual/missing.d.ts"), "/virtual/missing.d.ts")]);
+  const missing = moduleId(packageId(), "src/missing.d.ts");
+  absent.contributions.declarationModules = [missing];
+  verify(absent, [issue("contributed-declaration-module", moduleSite(missing), missing)]);
+  const sourceRole = snapshot();
+  sourceRole.contributions.declarationModules = [sourceRole.entryPoint];
+  verify(sourceRole, [issue("contributed-declaration-module", moduleSite(sourceRole.entryPoint), sourceRole.entryPoint)]);
+  const fileOnly = snapshot();
+  fileOnly.packages.files.push({ kind: "physical", path: "/project/src/zz-file-without-module.d.ts", realPath: "/real/project/src/zz-file-without-module.d.ts", text: "" });
+  const stray = moduleId(packageId(), "src/zz-file-without-module.d.ts");
+  fileOnly.contributions.declarationModules = [stray];
+  verify(fileOnly, [issue("contributed-declaration-module", moduleSite(stray), stray)]);
+  const two = snapshot();
+  const library = peer(two);
+  two.packages.packages.find(entry => entry.id === packageId()).dependencies = [{ name: "library", range: "workspace:*", kind: "dependency", resolved: library.id }];
+  two.packages.components.find(entry => entry.representative === packageId()).dependencies = [library.id];
+  const second = moduleId(library.id, "more.d.ts");
+  two.packages.modules.push({ id: second, package: library.id, path: "/library/more.d.ts", role: "declaration" });
+  two.packages.modules.sort((left, right) => left.id < right.id ? -1 : 1);
+  two.packages.files.push({ kind: "physical", path: "/library/more.d.ts", realPath: "/library/more.d.ts", text: "export {};" });
+  two.packages.files.sort((left, right) => left.path < right.path ? -1 : 1);
+  const ascending = [library.module, second].sort();
+  two.contributions.declarationModules = ascending;
+  verify(two, []);
+  const repeated = structuredClone(two);
+  repeated.contributions.declarationModules = [ascending[0], ascending[0]];
+  verify(repeated, [issue("contributed-declaration-unique", moduleSite(ascending[0]), ascending[0])]);
+  const descending = structuredClone(two);
+  descending.contributions.declarationModules = [...ascending].reverse();
+  verify(descending, [issue("contributed-declarations-order", { kind: "snapshot" }, "declarationModules")]);
   const virtual = snapshot();
   virtual.packages.files.push({ kind: "virtual", path: "/virtual/prelude.d.ts", text: "", owner: packageId("/missing") });
   verify(virtual, [issue("virtual-file-owner-resolves", fileSite("/virtual/prelude.d.ts"), packageId("/missing"))]);
+});
+test("S2-5: logical library names select captured declaration modules without a file-name constraint", () => {
+  const carried = snapshot();
+  const { id } = peer(carried, "/checker");
+  const add = (name, text, role = "declaration") => {
+    const module = moduleId(id, name);
+    carried.packages.modules.push({ id: module, package: id, path: `/checker/${name}`, role });
+    carried.packages.modules.sort((left, right) => left.id < right.id ? -1 : 1);
+    carried.packages.files.push({ kind: "virtual", path: `/checker/${name}`, text, owner: id });
+    carried.packages.files.sort((left, right) => left.path < right.path ? -1 : 1);
+    return module;
+  };
+  const first = add("captured-first.d.ts", "// the text the session reads\n");
+  const second = add("captured-second.d.ts", "");
+  const ordered = [{ name: "lib.es2021.d.ts", module: first }, { name: "lib.es2022.d.ts", module: second }];
+  carried.contributions.declarationPolicy.bundledLibraries = ordered;
+  verify(carried, []);
+  assert.equal(carried.packages.files.find(file => file.path === "/checker/captured-first.d.ts").text, "// the text the session reads\n",
+    "the text is the module's captured file text; the policy holds no second copy");
+  const absent = moduleId(id, "lib.absent.d.ts");
+  const missing = structuredClone(carried);
+  missing.contributions.declarationPolicy.bundledLibraries = [{ name: "lib.absent.d.ts", module: absent }];
+  verify(missing, [issue("bundled-library-declaration", { kind: "module", module: absent }, absent)]);
+  const sourceRole = structuredClone(carried);
+  sourceRole.contributions.declarationPolicy.bundledLibraries = [{ name: "lib.es2021.d.ts", module: sourceRole.entryPoint }];
+  verify(sourceRole, [issue("bundled-library-declaration", { kind: "module", module: sourceRole.entryPoint }, sourceRole.entryPoint)]);
+  const repeated = structuredClone(carried);
+  repeated.contributions.declarationPolicy.bundledLibraries = [ordered[0], { name: ordered[0].name, module: second }];
+  verify(repeated, [issue("bundled-library-unique", { kind: "snapshot" }, ordered[0].name)]);
+  const sameModule = structuredClone(carried);
+  sameModule.contributions.declarationPolicy.bundledLibraries = ordered.map(binding => ({ ...binding, module: first }));
+  verify(sameModule, []);
+  const unordered = structuredClone(carried);
+  unordered.contributions.declarationPolicy.bundledLibraries = [...ordered].reverse();
+  verify(unordered, [issue("bundled-libraries-order", { kind: "snapshot" }, "bundledLibraries")]);
+  const fileOnly = structuredClone(carried);
+  fileOnly.packages.files.push({ kind: "virtual", path: "/checker/zz-file-without-module.d.ts", text: "", owner: id });
+  fileOnly.packages.files.sort((left, right) => left.path < right.path ? -1 : 1);
+  const stray = moduleId(id, "zz-file-without-module.d.ts");
+  fileOnly.contributions.declarationPolicy.bundledLibraries = [...ordered, { name: "lib.stray.d.ts", module: stray }];
+  verify(fileOnly, [issue("bundled-library-declaration", { kind: "module", module: stray }, stray)]);
+  const sparse = snapshot();
+  sparse.contributions.declarationPolicy.bundledLibraries = new Array(1);
+  verify(sparse, [sparseIssue({ kind: "snapshot" }, "bundledLibraries")]);
+  for (const binding of [first, { module: first }, { name: 1, module: first }, { name: "", module: first }, { name: "lib.es2021.d.ts" }]) {
+    const malformed = structuredClone(carried);
+    malformed.contributions.declarationPolicy.bundledLibraries = [binding];
+    verify(malformed, [issue("bundled-library-binding", { kind: "snapshot" }, "bundledLibraries")]);
+  }
+  const portable = structuredClone(carried);
+  portable.contributions.declarationPolicy.bundledLibraries = [{ name: "vocabulary-owned-by-front", module: first }];
+  verify(portable, []);
 });
 for (const byteOrder of ["little", "big"]) for (const addressWidth of [32, 64]) {
   test(`platform inputs preserve the explicit ${byteOrder}/${addressWidth} native ABI without a host guess`, () => {
@@ -555,15 +634,25 @@ test("platform-layout-unique distinguishes a repeated exact ABI identity from a 
   contributed.contributions.dataLayouts.push(declaration());
   verify(contributed, [issue("platform-layout-unique", { kind: "platform", declaration: declaration() }, "contribution")]);
 });
-test("the selected session native receipt is mandatory and never inferred from geometry or target identity", () => {
+test("the selected native receipt is mandatory and not inferred from geometry, target spelling or a retired platform field", () => {
   for (const nativeFacts of [null, undefined]) {
     const value = snapshot();
     value.nativeFacts = nativeFacts;
+    value.platform = { layouts: [] };
     verify(value, [nativeIssue("native-fact-value", "nativeFacts", null)]);
   }
-  const value = snapshot();
-  value.nativeFacts.divisionByZero[0].law = "unknown";
-  verify(value, [nativeIssue("native-fact-value", "divisionByZero", 0)]);
+  const invalid = snapshot();
+  invalid.nativeFacts.divisionByZero[0].law = "unknown";
+  verify(invalid, [nativeIssue("native-fact-value", "divisionByZero", 0)]);
+  const missingGeometry = snapshot();
+  missingGeometry.nativeFacts.geometry = undefined;
+  verify(missingGeometry, [nativeIssue("native-fact-value", "geometry", null)]);
+  const selected = snapshot();
+  const original = selected.nativeFacts;
+  const before = structuredClone(original);
+  verify(selected, []);
+  assert.equal(selected.nativeFacts === original, true);
+  assert.deepEqual(original, before);
 });
 for (const field of ["providerId", "providerVersion", "providerModuleId", "moduleSpecifier", "exportId", "fingerprint"]) {
   test(`platform-layout-valid rejects an absent authored identity scalar ${field}`, () => {
@@ -752,7 +841,7 @@ for (const field of ["packages", "dependencies"]) {
     verify(value, [sparseIssue(packageSite(), `component.${field}`)]);
   });
 }
-for (const field of ["declarationFiles", "compilerExtensions", "declarationProviders", "semanticModules", "dataLayouts", "requiredProviderModules"]) {
+for (const field of ["declarationModules", "compilerExtensions", "declarationProviders", "semanticModules", "dataLayouts", "requiredProviderModules"]) {
   test(`stable-order checks sparse contributed ${field} through the same owner traversal`, () => {
     const value = snapshot();
     value.contributions[field] = new Array(1);
@@ -871,10 +960,11 @@ test("fresh real public declarations admit a cast-free consumer and reject exact
     + 'import type { Violation } from "./diag/contract.js";\n'
     + 'import type { SelectedNativeFacts } from "./ir-types/contract.js"; export declare const selectedNativeFacts: SelectedNativeFacts;\n'
     + 'export const root = encodePackageId("/project"); export const entry = encodeModuleId({ package: root, path: "src/main.ts" });\n'
-    + 'export const value: ProjectSnapshot = { packages: {fingerprint:"bytes",rootPackage:root,packages:[],components:[],modules:[],files:[],libraryData:[]},entryPoint:entry,roots:[],selection:{target:{id:"target",surfaces:[],options:{kind:"record",fields:[]}},providerId:"provider",capabilityIds:[],surfaceIds:[]},contributions:{declarationFiles:[],declarationPolicy:{bundledLibraries:[],installedDeclarations:"none"},requiredProviderModules:[],compilerExtensions:[],declarationProviders:[],semanticModules:[],safetyProviders:[],dataLayouts:[]},nativeFacts:selectedNativeFacts};\n'
+    + 'export const value: ProjectSnapshot = { packages: {fingerprint:"bytes",rootPackage:root,packages:[],components:[],modules:[],files:[],libraryData:[]},entryPoint:entry,roots:[],selection:{target:{id:"target",surfaces:[],options:{kind:"record",fields:[]}},providerId:"provider",capabilityIds:[],surfaceIds:[]},contributions:{declarationModules:[],declarationPolicy:{bundledLibraries:[],installedDeclarations:"none"},requiredProviderModules:[],compilerExtensions:[],declarationProviders:[],semanticModules:[],safetyProviders:[],dataLayouts:[]},nativeFacts:selectedNativeFacts};\n'
     + 'export function consume(snapshot: ProjectSnapshot, references: readonly ExtensionReferenceEntry[]): readonly Violation<SnapshotRule,SnapshotSite>[] { const verify: VerifySnapshot = verifySnapshot; return verify(snapshot,references); }\n'
     + 'export function sparse(snapshot: ProjectSnapshot): readonly Violation<SnapshotRule,SnapshotSite>[] { return verifySnapshot({...snapshot,roots:new Array<ModuleId>(1)},[]); }\n';
   writeFileSync(resolve(stage, "consumer.ts"), source
+    + 'export const capturedLibraries: import("./snapshot/contract.js").SourceDeclarationPolicy = {bundledLibraries:[{name:"lib.es2024.d.ts",module:entry}],installedDeclarations:"none"};\n'
     + 'export const nativeOptions: import("./snapshot/contract.js").TargetOptions = {kind:"record",fields:[["metadata",{kind:"record",fields:[["enabled",true],["values",[null,0,"text"]]]}]]};\n');
   const compiler = resolve(tooling, "node_modules/@typescript/native-preview/bin/tsgo.js");
   const configuration = files => ({ compilerOptions: {
@@ -902,6 +992,9 @@ test("fresh real public declarations admit a cast-free consumer and reject exact
   const negative = [
     ["removed-platform-receipt.ts", 2353, 'import type { ProjectSnapshot } from "./snapshot/contract.js"; export function old(value:ProjectSnapshot):void { const {nativeFacts,...rest}=value; const old:ProjectSnapshot={...rest,platform:{layouts:[]}}; void old; }'],
     ["missing-native-receipt.ts", 2741, 'import type { ProjectSnapshot } from "./snapshot/contract.js"; export function old(value:ProjectSnapshot):ProjectSnapshot { const {nativeFacts,...rest}=value; return rest; }'],
+    ["removed-library-vector.ts", 2322, 'import type { SourceDeclarationPolicy } from "./snapshot/contract.js"; import { entry } from "./consumer.js"; export const old: SourceDeclarationPolicy = {bundledLibraries:[entry],installedDeclarations:"none"};'],
+    ["removed-contributed-file-vector.ts", 2561, 'import type { ProjectSnapshot } from "./snapshot/contract.js"; export function old(value:ProjectSnapshot):ProjectSnapshot { return {...value,contributions:{...value.contributions,declarationFiles:[]}}; }'],
+    ["missing-contributed-module-vector.ts", 2741, 'import type { ProjectSnapshot } from "./snapshot/contract.js"; export function old(value:ProjectSnapshot):ProjectSnapshot { const {declarationModules,...contributions}=value.contributions; return {...value,contributions}; }'],
     ["removed-object-options.ts", 2739, 'import type { TargetOptions } from "./snapshot/contract.js"; export const old: TargetOptions = {};'],
     ["readonly-option-fields.ts", 2339, 'import type { TargetOptions } from "./snapshot/contract.js"; export function mutate(value: TargetOptions): void { value.fields.push(["enabled",true]); }'],
     ["json-excludes-bigint.ts", 2322, 'import type { TargetOptions } from "./snapshot/contract.js"; export const wrong: TargetOptions = {kind:"record",fields:[["bits",1n]]};'],

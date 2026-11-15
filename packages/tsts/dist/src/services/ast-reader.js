@@ -28,6 +28,7 @@ export function createAstReader() {
                 return false;
             });
         },
+        forEachChildUntil: (node, stop) => node !== undefined && Node_ForEachChild(node, stop),
         statements: (node) => Node_Statements(node) ?? [],
         members: (node) => Node_Members(node) ?? [],
         parameters: (node) => Node_Parameters(node) ?? [],
