@@ -1,6 +1,6 @@
 import type { Result } from "../diag/contract.js";
 import { throwInvariant } from "../diag/index.js";
-import type { BodyId } from "../ids/contract.js";
+import type { BodyId, DefId } from "../ids/contract.js";
 import type { CheckedPhase, Expression, FunctionDeclaration, ParameterDeclaration, SourceFile, Statement, VariableDeclaration } from "../ir-hir/contract.js";
 import type { BodyTyping } from "../ir-infer/contract.js";
 import type { TirBody, TypedBodyTemplate, TypedParameter, TypedPhase } from "../ir-tir/contract.js";
@@ -59,17 +59,18 @@ function callable(deps: ElaborateDeps, node: FunctionDeclaration<CheckedPhase>, 
       template: templateOf(body), attributes: checked.attributes } };
 }
 
-function variable(deps: ElaborateDeps, node: VariableDeclaration<CheckedPhase>, bodies: ReadonlyMap<BodyId, TirBody>): VariableDeclaration<TypedPhase> {
+export function elaborateVariable(deps: ElaborateDeps, node: VariableDeclaration<CheckedPhase>,
+  bodies: ReadonlyMap<BodyId, TirBody>, definition: DefId): VariableDeclaration<TypedPhase> {
   const checked = node.tsonic;
-  if (node.name.kind !== "Identifier" || checked.declaration.kind !== "definition")
-    return defect("A module variable requires its actual checked definition and identifier.");
+  if (node.name.kind !== "Identifier" || checked.declaration.kind === "definition" && checked.declaration.definition !== definition)
+    return defect("A variable requires its actual checked declaration and identifier.");
   if (checked.declaredType.kind !== "available") return defect("A module variable requires its actual checked annotation availability.");
   const body = checked.initializer === null ? null : bodies.get(checked.initializer)
     ?? defect("A module variable requires its actual completed initializer execution.");
   let initializer: Expression<TypedPhase> | null = null;
   if (body !== null) {
     const root = body.root;
-    if (body.owner !== checked.declaration.definition || root.kind === "Block" || root.kind === "SourceFile"
+    if (body.owner !== definition || root.kind === "Block" || root.kind === "SourceFile"
       || root.id !== node.initializer?.id || root.parent !== node.id || deps.signatureOf(body.signature).result !== body.completion)
       return defect("The completed variable initializer must retain its actual declaration, expression and execution result.");
     initializer = root;
@@ -105,7 +106,10 @@ export function elaborateModuleBody(deps: ElaborateDeps, input: ElaborateInput, 
     if (statement.kind === "VariableStatement") return { ...statement, modifiers: modifiers(statement.modifiers),
       declarationList: { ...statement.declarationList,
         declarations: { ...statement.declarationList.declarations,
-          nodes: statement.declarationList.declarations.nodes.map(declaration => variable(deps, declaration, children)) },
+          nodes: statement.declarationList.declarations.nodes.map(declaration => {
+            if (declaration.tsonic.declaration.kind !== "definition") return defect("A module variable retains its actual definition target.");
+            return elaborateVariable(deps, declaration, children, declaration.tsonic.declaration.definition);
+          }) },
         tsonic: { role: "ordinary" } }, tsonic: null };
     return defect(`not elaborated yet: module statement ${statement.kind}.`);
   });

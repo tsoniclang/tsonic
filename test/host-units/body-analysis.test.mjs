@@ -124,6 +124,7 @@ function checkedPair(current, result) {
     captureCount: key => key.kind === "body" ? readyBody(key.execution.instance)?.program.tir.captures.length ?? null : null,
     callbackSignaturesOf: () => null, metadataOf: () => null, libraryExportExists: () => false, declaredSiteCount: () => null,
     arenaOf: () => pair.facts.arena, summaryOf: () => pair.summary };
+  current.factsContext = context;
   const account = createAccount(limits);
   assert.deepEqual(verifyFacts(pair.facts, current.input.mir, context, account), { kind: "complete", violations: [] }, "the real Facts barrier accepts producer output");
   const conditionRefusal = { kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "analyses/initialization",
@@ -224,6 +225,67 @@ test("an actual placed header initializer outside the physical nested-callable i
   assert.equal(result.value.has(program.tir.root.statements.nodes[0].expression.id), true);
 });
 
+test("the sole native absence survives a genuine separately executing null default and a supplied absence", () => {
+  const name = "body-round.absence-default";
+  const childName = `${name}.argument`;
+  const childBody = bodyId(childName, "default-argument");
+  const selected = signature(name, [["argument", T.absence, "default", childBody]], T.absence);
+  const builder = builders(name);
+  const program = typedBody(name, { signature: selected, completion: T.absence,
+    locals: [["argument", "parameter", T.absence]], params: [[0, "default", T.absence, childBody]],
+    root: builder.block(builder.returns(builder.id("argument", 0, T.absence))) });
+  const childBuilder = builders(childName, "default-argument");
+  const literal = childBuilder.keyword("NullKeyword", T.absence);
+  const child = typedBody(childName, { role: "default-argument", signature: signature(childName, [], T.absence),
+    completion: T.absence, root: literal });
+  child.tir.root = seal(childName, literal, "default-argument", program.nodeCount).root;
+  child.tir.root.parent = program.tir.params[0].id;
+  program.tir.params[0].initializer = child.tir.root;
+  const internal = [{ instance: { body: child.tir.body, bindings: child.tir.bindings }, signature: child.tir.signature, captures: [] }];
+  program.bodyOf = instance => sameInstance(instance, internal[0].instance) ? child.tir : null;
+  const initializer = fixture(child);
+  const childPair = checkedPair(initializer, analyzeBodyRound(initializer.deps, initializer.input));
+  assert.equal(childPair.summary.arena.origins[childPair.summary.result].includesAbsence, true);
+  assert.equal(childPair.summary.arena.origins[childPair.summary.thrown].includesAbsence, false);
+  for (const provided of [0, 1]) {
+    const current = fixture(program, internal, provided);
+    current.related = [initializer];
+    let demands = 0;
+    current.deps.summaryOf = key => {
+      assert.equal(provided, 0, "supplied absence stays supplied and never runs its default");
+      assert.equal(executionKey(key.execution), executionKey(initializer.execution));
+      demands += 1;
+      return { value: childPair.summary, unit: { request: initializer.deps.unit, position: { kind: "result" } } };
+    };
+    const pair = checkedPair(current, analyzeBodyRound(current.deps, current.input));
+    assert.equal(demands > 0, provided === 0);
+    assert.equal(pair.facts.origins.activations.length, provided === 0 ? 1 : 0);
+    assert.equal(pair.summary.arena.origins[pair.summary.result].includesAbsence, true);
+    assert.equal(pair.summary.arena.origins[pair.summary.arena.contexts[0].arguments[0]].includesAbsence, true);
+    assert.equal(pair.facts.origins.reads.every(row => pair.facts.arena.origins[row.origins].includesAbsence), true);
+    assert.equal(pair.facts.origins.writes.every(row => row.values.every(value => pair.facts.arena.origins[value.origins].includesAbsence)), true);
+    assert.equal(pair.facts.origins.subjects.every(row => pair.facts.arena.origins[row.origins].includesAbsence), true);
+    assert.equal(pair.facts.arena.origins.every(row => row.producers.length === 0), true,
+      "native absence contributes no reference/cell/singleton proof");
+    for (const dimension of ["maximumWork", "maximumResultEntries"]) {
+      let complete = false;
+      for (let maximum = 0; maximum < 10000; maximum += 1) {
+        const account = createAccount({ ...limits, [dimension]: maximum });
+        const result = analyzeBodyRound({ ...current.deps, account }, current.input);
+        if (result.kind === "complete") { complete = true; break; }
+        assert.equal(result, accountFailure(account));
+        assert.equal(analyzeBodyRound({ ...current.deps, account }, new Proxy({}, { get() { assert.fail("No input after the original absence-round stop."); } })), result);
+      }
+      assert.equal(complete, true);
+    }
+    const proof = proveInitialization({ account: createAccount(limits), unit: current.deps.unit,
+      summaryOf: () => ({ value: pair.summary, unit: { request: current.deps.unit, position: { kind: "result" } } }) },
+    { modules: [], entries: [current.execution], storage: [] });
+    assert.equal(proof.kind, "complete");
+    assert.equal(proof.value.value.entries[0], current.execution);
+  }
+});
+
 test("every call-round allowance prefix preserves the original stop, and exact admission initializes only its actual destination", () => {
   const { current } = defaultRound();
   for (const dimension of ["maximumWork", "maximumResultEntries"]) {
@@ -240,6 +302,70 @@ test("every call-round allowance prefix preserves the original stop, and exact a
       assert.equal(analyzeBodyRound({ ...current.deps, account }, new Proxy({}, { get() { throw new Error("no input read after stop"); } })), result);
     }
     assert.equal(required !== null && required > 0, true, "the complete same traversal has a finite exact allowance");
+  }
+});
+
+test("a literal-typed initialized local and its pure return conversion retain both real places at one source occurrence", () => {
+  const name = "body-round.inferred-local";
+  const childName = `${name}.value`;
+  const childBody = bodyId(childName, "initializer");
+  const builder = builders(name);
+  const declaration = { $: "value-declaration", ...builder.variable(builder.declName("value", 0), 0, TRUE_LITERAL, null, childBody) };
+  const statement = builder.declare([declaration]);
+  statement.declarationList.flags = ["Const"];
+  const program = typedBody(name, { signature: signature(name, [], T.bool), completion: T.bool,
+    locals: [["value", "binding", TRUE_LITERAL]], root: builder.block(statement,
+      builder.returns({ $: "value-read", ...builder.id("value", 0, TRUE_LITERAL) })) });
+  program.tir.locals[0].declaration = { kind: "body", value: program.nodeRef("value-declaration") };
+  const childBuilder = builders(childName, "initializer");
+  const literal = childBuilder.keyword("TrueKeyword", TRUE_LITERAL);
+  const child = typedBody(childName, { role: "initializer", signature: signature(childName, [], TRUE_LITERAL),
+    completion: TRUE_LITERAL, root: literal });
+  child.tir.root = seal(childName, literal, "initializer", program.nodeCount).root;
+  const selectedDeclaration = program.tir.root.statements.nodes[0].declarationList.declarations.nodes[0];
+  child.tir.root.parent = selectedDeclaration.id;
+  selectedDeclaration.initializer = child.tir.root;
+  const expression = program.tir.root.statements.nodes[1].expression;
+  const occurrence = { kind: "body", value: program.nodeRef("value-read") };
+  const embedding = { kind: "conversion", conversion: "literal-fit", check: { kind: "none" }, proof: {
+    steps: [{ from: { root: occurrence, path: [] }, to: { root: occurrence, path: [] }, rule: "literal-fit", premises: [] }], conclusion: 0 } };
+  expression.tsonic.convertedType = T.bool;
+  expression.tsonic.conversion = { kind: "convert", role: "return", operation: { permissionScope: null, decision: {
+    kind: "selected", operation: { kind: "conversion", from: TRUE_LITERAL, to: T.bool, embedding },
+    operands: [TRUE_LITERAL], result: T.bool, execution: { kind: "pure" } } } };
+  const internal = [{ instance: { body: child.tir.body, bindings: child.tir.bindings }, signature: child.tir.signature, captures: [] }];
+  program.bodyOf = instance => sameInstance(instance, internal[0].instance) ? child.tir : null;
+  const initializer = fixture(child);
+  const childPair = checkedPair(initializer, analyzeBodyRound(initializer.deps, initializer.input));
+  const current = fixture(program, internal);
+  current.related = [initializer];
+  current.deps.summaryOf = key => {
+    assert.equal(executionKey(key.execution), executionKey(initializer.execution));
+    return { value: childPair.summary, unit: { request: initializer.deps.unit, position: { kind: "result" } } };
+  };
+  const pair = checkedPair(current, analyzeBodyRound(current.deps, current.input));
+  const rows = pair.facts.initialization.reads.filter(row => row.node === expression.id);
+  assert.equal(rows.length, 2, "the local storage and converted temporary are actual distinct MIR reads");
+  assert.notEqual(rows[0].place, rows[1].place);
+  assert.equal(rows.every(row => row.assigned), true);
+  assert.deepEqual(rows.map(row => current.input.mir.places[row.place].storage), [TRUE_LITERAL, T.bool]);
+  assert.equal(pair.facts.origins.reads.filter(row => row.node === expression.id).length, 2);
+  for (const reads of [[...pair.facts.initialization.reads].reverse(), [...pair.facts.initialization.reads, rows[1]]]) {
+    const checked = verifyFacts({ ...pair.facts, initialization: { reads } }, current.input.mir, current.factsContext, createAccount(limits));
+    assert.equal(checked.kind, "complete");
+    assert.equal(checked.violations.some(row => row.rule === "initialization-order"), true,
+      "reversed or repeated exact (node,place) pairs remain invalid canonical facts");
+  }
+  for (const dimension of ["maximumWork", "maximumResultEntries"]) {
+    let complete = false;
+    for (let maximum = 0; maximum < 10000; maximum += 1) {
+      const account = createAccount({ ...limits, [dimension]: maximum });
+      const result = analyzeBodyRound({ ...current.deps, account }, current.input);
+      if (result.kind === "complete") { complete = true; break; }
+      assert.equal(result, accountFailure(account));
+      assert.equal(analyzeBodyRound({ ...current.deps, account }, new Proxy({}, { get() { assert.fail("No initialized-place input after stop."); } })), result);
+    }
+    assert.equal(complete, true);
   }
 });
 
@@ -299,8 +425,7 @@ test("call identity, selected storage and missing effect relations are checked b
   assert.throws(() => apply({ ...summary, arena: { ...summary.arena, cells: [{}] } }), /actual caller-cell bindings/);
   const absent = { ...summary.arena.origins[0], id: 1, includesAbsence: true };
   const absentArena = { ...summary.arena, origins: [...summary.arena.origins, absent] };
-  for (const field of ["result", "thrown"])
-    assert.throws(() => apply({ ...summary, arena: absentArena, [field]: 1 }), /actual Origins result and thrown-value binding/);
+  assert.throws(() => apply({ ...summary, arena: absentArena, thrown: 1 }), /actual Origins result and thrown-value binding/);
   assert.throws(() => apply({ ...summary, parameters: [{ slot: { kind: "parameter", index: 0 },
     reads: { kind: "complete", paths: [] }, writes: { kind: "complete", paths: [] } }] }), /actual caller cell, event, callback or backing producer/);
   const pending = { ...summary, initialization: { ...summary.initialization,
@@ -630,6 +755,22 @@ test("actual conditional MIR intersects initialized locals at its real join", ()
   }
 });
 
+test("actual boolean selection preserves both float64 return paths and exact scalar formal inventory", () => {
+  const current = fixture(shaped("body-round.choose", [["flag", "required", T.bool], ["left", "required", T.float64],
+    ["right", "required", T.float64]], T.float64, builder => builder.block(builder.ifElse(builder.id("flag", 0, T.bool),
+      builder.returns(builder.id("left", 1, T.float64)), builder.returns(builder.id("right", 2, T.float64))))));
+  const pair = checkedPair(current, analyzeBodyRound(current.deps, current.input));
+  assert.equal(current.input.mir.blocks.some(block => block.terminator.kind === "switch"), true);
+  assert.equal(pair.facts.initialization.reads.every(row => row.assigned), true);
+  assert.equal(pair.facts.origins.subjects.filter(row => row.role === "return").length, 2);
+  assert.equal(pair.summary.returns, true);
+  assert.equal(pair.summary.unwinds, false);
+  assert.deepEqual(pair.summary.parameters.map(row => row.slot), [0, 1, 2].map(index => ({ kind: "parameter", index })));
+  assert.deepEqual(pair.facts.origins.activations, []);
+  assert.deepEqual(pair.summary.callbacks, []);
+  assert.deepEqual(pair.summary.backing, []);
+});
+
 test("real branch joins and loop backedges retain only definite initialization", () => {
   for (const loop of [false, true]) {
     const name = `body-round.join.${loop}`;
@@ -638,7 +779,7 @@ test("real branch joins and loop backedges retain only definite initialization",
     const write = expression => builder.expressionStatement(builder.assign(builder.target("slot", 2, T.int32),
       "EqualsToken", expression, T.int32, T.int32));
     const root = builder.block(builder.declare([declaration]),
-      builder.ifElse(builder.id("choose", 0, T.bool), builder.block(write(builder.id("input", 1, T.int32))),
+      builder.ifElse(builder.id("choose", 0, T.bool), builder.block(write({ $: "assigned-input", ...builder.id("input", 1, T.int32) })),
         builder.block(write(builder.num("0", T.int32)))),
       ...(loop ? [builder.whileLoop(builder.id("choose", 0, T.bool), builder.block(write(builder.id("input", 1, T.int32))))] : []),
       builder.returns(builder.id("slot", 2, T.int32)));
@@ -649,6 +790,8 @@ test("real branch joins and loop backedges retain only definite initialization",
     const current = fixture(program);
     const pair = checkedPair(current, analyzeBodyRound(current.deps, current.input));
     assert.equal(pair.facts.initialization.reads.every(row => row.assigned), true);
+    assert.equal(pair.facts.initialization.reads.some(row => row.node === program.nodeRef("assigned-input").node), true,
+      "the assignment reads its actual RHS source occurrence, not its write-only destination");
     assert.equal(pair.facts.origins.writes.some(row => row.operation === "mutation"), loop);
     for (let maximumWork = 0; maximumWork <= 1024; maximumWork += 1) {
       const account = createAccount({ ...limits, maximumWork });
@@ -883,18 +1026,16 @@ test("explicit MIR reachability and finite exits, not all syntax, decide the sca
   assert.deepEqual(result.value.value.summary.initialization.points, []);
 });
 
-test("separate source occurrence identity is required before merging different actual places", () => {
+test("repeated reads of the same actual source and place retain one canonical initialization row", () => {
   const current = fixture(add("body-round.source-identity", T.float64, plus("float64", T.float64)));
-  const blocks = current.input.mir.blocks.map(block => ({ ...block, statements: block.statements.map(statement =>
-    statement.kind !== "assign" ? statement : { ...statement, tir: { ...statement.tir, node: current.input.tir.root.id } }) }));
-  assert.throws(() => analyzeBodyRound({ ...current.deps, account: createAccount(limits) },
-    { ...current.input, mir: { ...current.input.mir, blocks } }), /separate occurrence relation/);
   const repeated = current.input.mir.blocks.map(block => ({ ...block, statements: block.statements.flatMap(statement =>
     statement.kind === "assign" ? [statement, statement] : [statement]) }));
   const result = analyzeBodyRound({ ...current.deps, account: createAccount(limits) },
     { ...current.input, mir: { ...current.input.mir, blocks: repeated } });
   assert.equal(result.kind, "complete");
   assert.equal(result.value.value.facts.initialization.reads.every(row => row.assigned), true);
+  const rows = result.value.value.facts.initialization.reads;
+  assert.equal(rows.every((row, index) => index === 0 || row.node !== rows[index - 1].node || row.place !== rows[index - 1].place), true);
 });
 
 test("actual nested callable source roots never traverse a separately owned body", async () => {

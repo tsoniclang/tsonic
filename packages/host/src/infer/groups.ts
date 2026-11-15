@@ -111,7 +111,7 @@ export const partition: GroupsOf = (deps, bodies) => {
       if (!edge(declaration, target)) return stop();
     }
   }
-  const useResolution = bindingDependencies(deps.bindings, successors, definitions, take, edge);
+  const useResolution = bindingDependencies(deps, successors, definitions, take, edge);
   if (useResolution === null) return stop();
   for (const [position, body] of ready.entries()) {
     if (!take(1)) return stop();
@@ -175,7 +175,7 @@ interface BindingVertex {
   expanded: boolean;
 }
 
-function bindingDependencies(tables: GroupDeps["bindings"], successors: Set<number>[], definitions: ReadonlyMap<DefId, number>,
+function bindingDependencies(deps: GroupDeps, successors: Set<number>[], definitions: ReadonlyMap<DefId, number>,
   take: (count: number) => boolean, edge: (from: number, to: number) => boolean):
   ((from: number, target: HirResolution, origin: Origin) => boolean) | null {
   const items = new Map<DefId, Map<NodeId, BindingVertex>>();
@@ -186,7 +186,7 @@ function bindingDependencies(tables: GroupDeps["bindings"], successors: Set<numb
       return callerDefect(PORT, "a binding must retain its actual qualified syntax identity");
     return node;
   };
-  for (const rows of tables) {
+  for (const rows of deps.bindings) {
     if (!take(1)) return null;
     for (const row of rows) {
       if (!take(1)) return null;
@@ -245,7 +245,18 @@ function bindingDependencies(tables: GroupDeps["bindings"], successors: Set<numb
           break;
         case "unavailable":
           return notInferredYet(PORT, "a checked resolution whose actual dependency evidence is unavailable (" + actual.reason + ")", origin);
-        case "local": case "module": case "unresolved": break;
+        case "local": {
+          if (!take(1)) return false;
+          const local = deps.hirBody(actual.local.body).locals[actual.local.local];
+          if (local === undefined || !Object.is(local.id, actual.local.local))
+            return callerDefect(PORT, "a local dependency retains its actual checked body and dense slot");
+          if (local.role === "binding") {
+            if (local.declaration.kind !== "item") return notInferredYet(PORT, "a local inferred-part declaration without its actual item association", origin);
+            if (!declaration(next.from, local.declaration.value.owner)) return false;
+          }
+          break;
+        }
+        case "module": case "unresolved": break;
       }
     }
     return true;

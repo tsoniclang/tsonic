@@ -262,7 +262,8 @@ for (const violation of rows) {
     if (output !== null) return output;
     violations.push(violation);
   }
-  { const stop = nodeOrder(facts.initialization.reads, "initialization-order"); if (stop !== null) return stop; }
+  { const stop = ordered(facts.initialization.reads, "initialization-order", (left, right) => compareNumbers(left.node, right.node)
+    || compareNumbers(left.place, right.place), row => at(row.node)); if (stop !== null) return stop; }
   for (const read of facts.initialization.reads) {
     const step = chargeWork(account, 1);
     if (step !== null) return step;

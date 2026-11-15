@@ -146,6 +146,48 @@ test(`real public Host analysis closes a scalar boolean ${form} branch with both
   assert.deepEqual(callable.facts.map(facts => facts.execution.provided), [3]);
 });
 
+test("real public Host analysis closes an inferred null default with the single native absence type", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", "export function value(argument = null) { return argument; }\n");
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok");
+  const main = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
+  const module = result.value.modules.find(module => module.module === main);
+  const callable = module.bodies.find(body => body.kind === "selected" && body.tir.params.length === 1);
+  assert.notEqual(callable, undefined);
+  const parameter = result.value.index.types.signatures[callable.tir.signature].parameters[0];
+  assert.deepEqual(result.value.index.types.terms[parameter.type], { kind: "intrinsic", intrinsic: "absence" });
+  assert.deepEqual(callable.mir.entries.map(entry => entry.provided), [1, 0]);
+  assert.deepEqual(callable.facts.map(facts => facts.execution.provided), [0, 1]);
+});
+
+for (const annotation of [": boolean", ""])
+test(`real public Host analysis executes an ${annotation === "" ? "inferred" : "annotated"} local boolean initializer as its own selected body`, async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `export function local(): boolean { const value${annotation} = true; return value; }\n`);
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok");
+  const main = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
+  const module = result.value.modules.find(module => module.module === main);
+  const selected = module.bodies.filter(body => body.kind === "selected");
+  const callable = selected.find(body => body.tir.root.kind === "Block");
+  assert.notEqual(callable, undefined);
+  const declaration = callable.tir.root.statements.nodes[0].declarationList.declarations.nodes[0];
+  const initializer = selected.find(body => body.instance.body === declaration.tsonic.initializer);
+  assert.notEqual(initializer, undefined);
+  assert.equal(initializer.tir.root === declaration.initializer, true);
+  assert.equal(selected.length, 3);
+  assert.equal(callable.facts.length, 1);
+  assert.equal(callable.mir.blocks.some(block => block.terminator.kind === "call" && block.terminator.callee.kind === "body"
+    && block.terminator.callee.instance.body === initializer.instance.body
+    && block.terminator.tir.node === declaration.id), true);
+  assert.equal(result.value.index.dependencyInventory.dependencies.some(edge => edge.reason === "initializer"
+    && edge.dependent.instance.body === callable.instance.body && edge.target.kind === "body"
+    && edge.target.execution.instance.body === initializer.instance.body), true);
+});
+
 for (const limit of ["work", "result-entries", "query.maximumRecords"])
 test(`real public AnalyzeHostProgram refuses ${limit} exhaustion without publishing a partial program`, async () => {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true);

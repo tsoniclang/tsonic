@@ -1,5 +1,5 @@
 import type { Diagnostic } from "../diag/contract.js";
-import type { BodyId, LocalId, NodeId, NodeRef, SourceNodeRef, TyId } from "../ids/contract.js";
+import type { BodyId, DefId, LocalId, LocalRef, NodeId, NodeRef, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { BindingVector, CategoryEvidence, Signature } from "../ir-types/contract.js";
 import type { Expression, HirBody, HirNode, CheckedPhase } from "../ir-hir/contract.js";
 import type { FlowConstraint, InferenceGroup, InferenceValue, InferenceVariable, InferredPartType, InferredSignaturePart, OperatorConstraint } from "../ir-infer/contract.js";
@@ -63,6 +63,20 @@ export const constraintsOf: ConstraintsOf = (deps, group) => {
     const request = ownSignatureRequest(deps, body, PORT, ownDefinitions);
     if (request !== null) { requestBodies.push(reference); requests.push(request); }
     else if (ownDefinitions.has(body.owner)) for (const part of inferredPartsOf(body.owner, deps.itemOf(body.owner))) {
+      const key = inferredPartKey(part);
+      if (!ownParts.has(key) && !requestedParts.has(key)) {
+        requestedParts.add(key);
+        requests.push({ kind: "inferred-part", part });
+        requestBodies.push(reference);
+      }
+    }
+    for (const local of body.locals) {
+      if (local.role !== "binding") continue;
+      const binding = localBinding(deps, { body: reference, local: local.id });
+      const declared = binding.declaration.tsonic.declaredType;
+      if (declared.kind !== "available") return notInferredYet(PORT, "the actual declaration type availability of a local", binding.declaration.origin);
+      if (declared.value !== null) continue;
+      const part: InferredSignaturePart = { definition: binding.definition, part: { kind: "variable" } };
       const key = inferredPartKey(part);
       if (!ownParts.has(key) && !requestedParts.has(key)) {
         requestedParts.add(key);
@@ -227,6 +241,7 @@ function childrenOf(node: HirNode): readonly HirNode[] {
     case "ReturnStatement": return node.expression === null ? [] : [node.expression];
     case "IfStatement": return node.elseStatement === null ? [node.expression, node.thenStatement]
       : [node.expression, node.thenStatement, node.elseStatement];
+    case "VariableStatement": return [];
     case "ParenthesizedExpression": return [node.expression];
     case "BinaryExpression": return [node.left, node.right];
     case "Identifier": case "TrueKeyword": case "FalseKeyword": case "StringLiteral": case "NullKeyword": return [];
@@ -235,7 +250,7 @@ function childrenOf(node: HirNode): readonly HirNode[] {
 }
 
 function leave(walk: Walk, node: HirNode): void {
-  if (node.kind === "Identifier") walk.typeOf.set(node.id, parameterType(walk, node));
+  if (node.kind === "Identifier") walk.typeOf.set(node.id, localType(walk, node));
   else if (node.kind === "TrueKeyword" || node.kind === "FalseKeyword" || node.kind === "StringLiteral" || node.kind === "NullKeyword") {
     if (node.tsonic.role !== "value" || node.tsonic.value.views.read.kind !== "available")
       return notInferredYet(PORT, "the actual checked literal value type", node.origin);
@@ -263,13 +278,36 @@ function leave(walk: Walk, node: HirNode): void {
   }
 }
 
-function parameterType(walk: Walk, node: Extract<HirNode, { readonly kind: "Identifier" }>): Slot {
+function localType(walk: Walk, node: Extract<HirNode, { readonly kind: "Identifier" }>): Slot {
   const name = node.tsonic;
   if (name.role !== "value" || name.resolution.kind !== "local")
-    return notInferredYet(PORT, "a value read that is not an actual local parameter", node.origin);
+    return notInferredYet(PORT, "a value read that is not an actual local", node.origin);
   const reference = name.resolution.local;
   const parameters = parametersOf(walk.generation, reference.body);
-  return parameters.get(reference.local) ?? notInferredYet(PORT, "a read of a non-parameter local", node.origin);
+  const parameter = parameters.get(reference.local);
+  if (parameter !== undefined) return parameter;
+  const { definition, declaration } = localBinding(walk.generation.deps, reference);
+  const declared = declaration.tsonic.declaredType;
+  if (declared.kind !== "available") return notInferredYet(PORT, "the actual declaration type availability of a local", node.origin);
+  if (declared.value !== null) return declared.value;
+  const part: InferredSignaturePart = { definition, part: { kind: "variable" } };
+  const key = inferredPartKey(part);
+  return walk.generation.ownParts.has(key) || walk.generation.outsideParts.has(key) ? { part }
+    : notInferredYet(PORT, "the actual finalized initializer type of an unannotated local", node.origin);
+}
+
+function localBinding(deps: InferDeps, reference: LocalRef): {
+  readonly definition: DefId; readonly declaration: Extract<HirNode, { readonly kind: "VariableDeclaration" }>;
+} {
+  const local = deps.hirBody(reference.body).locals[reference.local];
+  if (local === undefined || !Object.is(local.id, reference.local) || local.role !== "binding" || local.declaration.kind !== "item")
+    return callerDefect(PORT, "a local binding read requires its actual qualified declaration inventory");
+  const declaration = deps.itemOf(local.declaration.value.owner);
+  if (declaration.kind !== "VariableDeclaration" || declaration.id !== local.declaration.value.node
+    || declaration.tsonic.declaration.kind !== "local" || declaration.tsonic.declaration.local.body !== reference.body
+    || !Object.is(declaration.tsonic.declaration.local.local, reference.local))
+    return callerDefect(PORT, "a local binding read retains its actual checked variable and selected local");
+  return { definition: local.declaration.value.owner, declaration };
 }
 
 function parametersOf(state: Generation, body: BodyId): ReadonlyMap<LocalId, Slot> {

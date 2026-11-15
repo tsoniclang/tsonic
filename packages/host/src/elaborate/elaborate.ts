@@ -1,13 +1,14 @@
 import type { InvariantFailure, Result } from "../diag/contract.js";
 import { requirePresent, throwInvariant } from "../diag/index.js";
-import type { BodyId, LocalRef, NodeRef, Origin, TyId } from "../ids/contract.js";
-import type { BinaryExpression, Block, CheckedPhase, Expression, HirBody, HirNode, Identifier, NodeHeader, ParameterDeclaration, Statement } from "../ir-hir/contract.js";
+import type { BodyId, LocalRef, NodeId, NodeRef, Origin, TyId } from "../ids/contract.js";
+import type { BinaryExpression, Block, CheckedPhase, Expression, HirBody, HirNode, Identifier, NodeHeader, ParameterDeclaration, Statement, VariableDeclaration } from "../ir-hir/contract.js";
 import { walkSyntaxTree } from "../ir-hir/index.js";
 import type { BodyTyping, EmbeddingDecision, FlowRole, InferredSignaturePart } from "../ir-infer/contract.js";
 import type { TirBody, TirLocal, TypedOperation, TypedPhase, TypedValue } from "../ir-tir/contract.js";
 import { artifactBindingsKey } from "../ir-types/index.js";
 import type { ElaborateDeps, ElaborateInput } from "./contract.js";
-import { elaborateModuleBody, elaborateParameter } from "./module.js";
+import { elaborateModuleBody, elaborateParameter, elaborateVariable } from "./module.js";
+import { declarationModifiers } from "./declarations.js";
 
 const failure = (kind: string, what: string, origin: Origin | null): InvariantFailure =>
   ({ owner: "elaborate", query: null, origin, message: `${kind}: ${what}` });
@@ -95,8 +96,14 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
     if (input.initializers.length !== 0) return callerDefect("a module has no formal initializer inputs", rootOrigin);
     return elaborateModuleBody(deps, input, root, typing);
   }
-  if (input.nestedBodies.length !== 0 || body.nestedBodies.length !== 0)
-    return notElaboratedYet("nested execution inside a callable body", rootOrigin);
+  const children = new Map<BodyId, TirBody>();
+  for (const child of input.nestedBodies) {
+    if (children.has(child.body) || artifactBindingsKey(child.bindings) !== artifactBindingsKey(instance.bindings))
+      return callerDefect("a nested initializer must be its unique completed body under the same actual bindings", rootOrigin);
+    children.set(child.body, child);
+  }
+  if (children.size !== body.nestedBodies.length || body.nestedBodies.some(nested => !children.has(nested)))
+    return callerDefect("the nested execution inputs must retain the actual direct body inventory", rootOrigin);
 
   const nodes = walkSyntaxTree(root, []);
   const first = root.id;
@@ -201,6 +208,18 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
     }
     params.push(elaborateParameter(header, body.body, { local: { body: body.body, local: row.local }, declaration: row.declaration,
       role: row.role, passing: row.passing, initializer: row.initializer, storage: parameter.type }, initializerRoot));
+  }
+  const variablesByNode = new Map<NodeId, VariableDeclaration<TypedPhase>>();
+  for (const local of body.locals) {
+    if (local.role === "parameter") continue;
+    const declaration = deps.nodeOf(local.declaration);
+    if (local.role !== "binding" || local.declaration.kind !== "item" || declaration?.kind !== "VariableDeclaration"
+      || declaration.id !== local.declaration.value.node || declaration.tsonic.declaration.kind !== "local"
+      || declaration.tsonic.declaration.local.body !== body.body || !Object.is(declaration.tsonic.declaration.local.local, local.id))
+      return notElaboratedYet("the actual checked declaration of a non-parameter local", rootOrigin);
+    const selected = elaborateVariable(deps, declaration, children, local.declaration.value.owner);
+    storageOf[local.id] = selected.tsonic.storage;
+    variablesByNode.set(declaration.id, selected);
   }
   const locals: TirLocal[] = body.locals.map(local => ({ id: local.id, declaration: local.declaration, name: local.name, role: local.role,
     capturedFrom: local.capturedFrom, mutable: local.mutable,
@@ -308,6 +327,13 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
           visit(node.thenStatement);
           visit(node.expression);
         }
+        return;
+      case "VariableStatement":
+        if (building) statements[position] = { ...header(node), kind: "VariableStatement", modifiers: declarationModifiers(node.modifiers),
+          declarationList: { ...header(node.declarationList), kind: "VariableDeclarationList", tsonic: { role: "ordinary" },
+            declarations: { loc: node.declarationList.declarations.loc, nodes: node.declarationList.declarations.nodes.map(declaration =>
+              requirePresent(variablesByNode.get(declaration.id), failure("compiler defect", "a variable has no actual selected local binding", declaration.origin))) } },
+          tsonic: null };
         return;
       case "BinaryExpression":
         if (building) {

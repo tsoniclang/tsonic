@@ -65,7 +65,7 @@ export function callSummary(deps: BodyRoundDeps, body: MirBody,
 }
 
 function hasReferences(value: AppliedOriginsValue): boolean {
-  return value.caller.length + value.callee.length + value.boundaries.length !== 0 || value.includesAbsence;
+  return value.caller.length + value.callee.length + value.boundaries.length !== 0;
 }
 
 export function applyScalarCall(deps: BodyRoundDeps, input: BodyRoundInput,
@@ -89,7 +89,7 @@ export function applyScalarCall(deps: BodyRoundDeps, input: BodyRoundInput,
   const value = applied.value;
   const inspection = chargeWork(deps.account, 16);
   if (inspection !== null) return inspection;
-  if (hasReferences(value.result) || hasReferences(value.thrown))
+  if (hasReferences(value.result) || hasReferences(value.thrown) || value.thrown.includesAbsence)
     return frontier(operation, "BodyAnalysis requires the actual Origins result and thrown-value binding of this call.");
   const effects = value.cells.length + value.subjects.length + value.events.length + value.writes.length + value.concurrentWrites.length
     + value.contentsOnReturn.length + value.contentsOnUnwind.length + value.parameters.length + value.captures.length
