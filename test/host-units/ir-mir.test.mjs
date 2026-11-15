@@ -14,6 +14,7 @@ import { parseSources } from "../architecture/host/import-graph.mjs";
 import { readImportGraph } from "../architecture/host/import-graph.mjs";
 import { hostCatalogue } from "../architecture/host/catalogue.mjs";
 import { compileIsolated, isolationDeps } from "../architecture/host/isolation.mjs";
+import { nativeFactsFixture } from "./fixtures/native-facts.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const tooling = process.env.TSONIC_HOST_TOOLING_ROOT ?? repository;
@@ -393,8 +394,8 @@ test("MIR call of an internal body, an omitted argument and two entries are comp
 test("MIR verification refuses a limit that is not a count as its caller's defect", () => {
   const body = parsedBody();
   const context = sourceContext(body);
-  for (const maximumWork of [NaN, Infinity, -1, 0.5, -0.5]) assert.throws(() => product.verifyMir(body, { ...context, limits: { maximumWork } }),
-    { name: "TypeError", message: "ir-mir: maximumWork must be a finite nonnegative integer" });
+  for (const maximumWork of [NaN, Infinity, -Infinity, -0, -1, 0.5, -0.5, Number.MAX_SAFE_INTEGER + 1]) assert.throws(() => product.verifyMir(body, { ...context, limits: { maximumWork } }),
+    { name: "TypeError", message: "ir-mir: maximumWork must be a safe nonnegative count" });
   same([product.verifyMir(body, { ...context, limits: { maximumWork: 0 } }), product.verifyMir(body, { ...context, limits: { maximumWork: 1 } })], [{ kind: "resource-limit", body: body.body, dimension: "work", maximum: 0 }, { kind: "complete", violations: [] }], "zero is a count: the body's empty set costs one unit, so it is refused at 0 and complete at 1");
 });
 
@@ -602,7 +603,8 @@ function sourceContext(body = parsedBody()) {
     assert.equal(bodyOwners.has(identity), true, `no undeclared MIR body-owner lookup: ${identity}`);
     return bodyOwners.get(identity);
   };
-  return { limits: verificationLimits, source, bodyOf: () => null, types, declarationOf, declarations, bodyOwner, bodyOwners };
+  return { selectedNativeFacts: nativeFactsFixture(), limits: verificationLimits, source, bodyOf: () => null,
+    types, declarationOf, declarations, bodyOwner, bodyOwners };
 }
 
 /** The findings of a verification that ran to its end. A refusal for resources is not a list of findings and fails the case. */
@@ -1978,10 +1980,9 @@ test("MIR constant-type: a literal is a value its declared native carrier holds 
     ["int64", number(2n ** 63n - 1n), true], ["int64", number(2n ** 63n), false], ["int64", { kind: "bigint", token: "b", value: -(2n ** 63n) }, true],
     ["uint8", number(255n), true], ["uint8", number(256n), false], ["uint8", number(-1n), false],
     ["uint128", { kind: "bigint", token: "b", value: 2n ** 128n - 1n }, true], ["uint128", { kind: "bigint", token: "b", value: 2n ** 128n }, false],
-    // Integrality-only checks: these rows do not establish that the values fit any selected native integer width.
     ["native-int", number(2n ** 63n), true], ["native-int", number(-(2n ** 63n)), true], ["native-int", number(1n, 2n), false],
-    ["native-uint", number(2n ** 64n), true], ["native-uint", number(-1n), false], ["native-uint", { kind: "bigint", token: "b", value: 5n }, true],
-    ["char", number(65535n), true], ["char", number(65536n), false], ["char", { kind: "string", value: "a" }, false],
+    ["native-uint", number(2n ** 64n), false], ["native-uint", number(-1n), false], ["native-uint", { kind: "bigint", token: "b", value: 5n }, true],
+    ["char", number(65535n), true], ["char", number(65536n), false], ["char", number(1n, 2n), false], ["char", { kind: "string", value: "a" }, false],
     // Binary floating carriers: any number that rounds to a finite value; negative zero and fractions are values.
     ["float64", number(1n, 10n), true], ["float64", number(0n, 1n, true), true], ["float64", number(2n ** 1024n - 2n ** 971n), true],
     ["float64", number(2n ** 1024n - 2n ** 970n - 1n), true], ["float64", number(2n ** 1024n - 2n ** 970n), false], ["float64", number(-(2n ** 1024n)), false], ["float64", { kind: "bigint", token: "b", value: 1n }, false],
@@ -2012,6 +2013,47 @@ test("MIR constant-type: a literal is a value its declared native carrier holds 
     assert.equal(held(type, value), expected, `${type} ${JSON.stringify(value, (key, item) => typeof item === "bigint" ? String(item) : item)}`);
 });
 
+test("MIR work admission preserves exact safe counts and first refusal without post-stop arithmetic", async () => {
+  const { chargeWork } = await import("../../packages/host/dist/ir-mir/verify-control.js");
+  for (const maximum of [0, 1, 3, Number.MAX_SAFE_INTEGER]) {
+    const meter = { spent: 0, maximum, exhausted: false };
+    chargeWork(meter, 0);
+    assert.deepEqual(meter, { spent: 0, maximum, exhausted: false });
+    chargeWork(meter, maximum);
+    assert.deepEqual(meter, { spent: maximum, maximum, exhausted: false });
+    chargeWork(meter, 1);
+    assert.deepEqual(meter, { spent: maximum, maximum, exhausted: true });
+    Object.defineProperty(meter, "spent", { get() { throw new Error("post-refusal counter read"); },
+      set() { throw new Error("post-refusal counter write"); } });
+    Object.defineProperty(meter, "maximum", { get() { throw new Error("post-refusal allowance read"); } });
+    for (const units of [0, 1, Number.MAX_SAFE_INTEGER]) assert.doesNotThrow(() => chargeWork(meter, units));
+    assert.equal(meter.exhausted, true);
+  }
+  const near = { spent: Number.MAX_SAFE_INTEGER - 1, maximum: Number.MAX_SAFE_INTEGER, exhausted: false };
+  chargeWork(near, 1);
+  assert.equal(near.spent, Number.MAX_SAFE_INTEGER);
+  assert.equal(near.exhausted, false);
+  chargeWork(near, 1);
+  assert.deepEqual(near, { spent: Number.MAX_SAFE_INTEGER, maximum: Number.MAX_SAFE_INTEGER, exhausted: true });
+  const oversized = { spent: 3, maximum: Number.MAX_SAFE_INTEGER, exhausted: false };
+  chargeWork(oversized, Number.MAX_SAFE_INTEGER);
+  assert.deepEqual(oversized, { spent: 3, maximum: Number.MAX_SAFE_INTEGER, exhausted: true });
+  const units = [2, 0, 3, 1];
+  for (let maximum = 0; maximum <= 6; maximum += 1) {
+    const meter = { spent: 0, maximum, exhausted: false };
+    let admitted = 0;
+    let stopped = false;
+    for (const count of units) {
+      if (!stopped && count <= maximum - admitted) admitted += count;
+      else stopped = true;
+      chargeWork(meter, count);
+      assert.deepEqual(meter, { spent: admitted, maximum, exhausted: stopped }, `maximum ${maximum}, next ${count}`);
+      assert.equal(Number.isSafeInteger(meter.spent), true);
+    }
+    assert.equal(meter.exhausted, maximum < 6);
+  }
+});
+
 test("MIR literal validation shares one invocation work account with the remaining verifier", () => {
   const base = parsedBody();
   const context = sourceContext(base);
@@ -2031,11 +2073,11 @@ test("MIR literal validation shares one invocation work account with the remaini
     same(product.verifyMir(body, { ...input, limits: { maximumWork: required } }),
       { kind: "complete", violations }, `literal validation completes at its exact shared cost ${required}`);
   };
-  boundary([constant(0, float, 7n, 1n)], 1);
-  boundary([constant(0, float, 1n, 2n)], 3);
-  boundary([constant(0, float, -1n, 2n)], 3);
-  boundary([constant(0, float, 1n, 2n), constant(1, float, 1n, 3n)], 5);
-  boundary([constant(0, decimal, 1n, 10n)], 6);
+  boundary([constant(0, float, 7n, 1n)], 2);
+  boundary([constant(0, float, 1n, 2n)], 4);
+  boundary([constant(0, float, -1n, 2n)], 4);
+  boundary([constant(0, float, 1n, 2n), constant(1, float, 1n, 3n)], 7);
+  boundary([constant(0, decimal, 1n, 10n)], 7);
   boundary([constant(0, decimal, 1n, 0n)], 1,
     [expectedViolation("constant-type", { kind: "constant", constant: 0 })]);
   boundary([constant(0, float, 2n, 4n)], 3,
@@ -2069,6 +2111,47 @@ test("MIR fixed-width integer constant families retain their exact native bounds
       }
     }
   }
+});
+
+test("MIR native integer constant fitting uses actual selected widths and one invocation account", () => {
+  const base = parsedBody();
+  const context = sourceContext(base);
+  const selected = identities.tyId(context.types.terms.length);
+  const constant = value => ({ id: identities.constId(0), type: selected,
+    value: { kind: "literal", value: { kind: "bigint", token: "n", value } } });
+  for (const bits of [1, 9, 41, 97, 137]) for (const primitive of ["native-int", "native-uint"]) {
+    const signed = primitive === "native-int";
+    const maximum = (1n << BigInt(signed ? bits - 1 : bits)) - 1n;
+    const minimum = signed ? -(1n << BigInt(bits - 1)) : 0n;
+    const input = { ...context, selectedNativeFacts: { ...context.selectedNativeFacts,
+      nativeIntegerWidths: [{ carrier: primitive, bits }] },
+      types: { ...context.types, terms: [...context.types.terms, { kind: "primitive", primitive }] } };
+    for (const [value, fits] of [[minimum, true], [maximum, true], [minimum - 1n, false], [maximum + 1n, false]]) {
+      const body = { ...base, constants: [constant(value)] };
+      const violations = fits ? [] : [expectedViolation("constant-type", { kind: "constant", constant: 0 })];
+      const required = 3 * bits + 4;
+      for (let maximumWork = 0; maximumWork < required; maximumWork += 1)
+        same(product.verifyMir(body, { ...input, limits: { maximumWork } }),
+          { kind: "resource-limit", body: body.body, dimension: "work", maximum: maximumWork },
+          `${primitive}/${bits} refuses before any partial integer-fit result at ${maximumWork}`);
+      same(product.verifyMir(body, { ...input, limits: { maximumWork: required } }), { kind: "complete", violations },
+        `${primitive}/${bits} uses dispatch, row, three width operations, output and the existing body unit`);
+    }
+  }
+  const input = { ...context, types: { ...context.types, terms: [...context.types.terms,
+    { kind: "primitive", primitive: "native-int" }] } };
+  const body = { ...base, constants: [constant(0n)] };
+  assert.throws(() => product.verifyMir(body, { ...input,
+    selectedNativeFacts: { ...input.selectedNativeFacts, nativeIntegerWidths: [] } }),
+    { name: "TypeError", message: "MIR integer constants require their actual selected native width" });
+  let laterReads = 0;
+  const widths = [{ carrier: "native-int", bits: Number.MAX_SAFE_INTEGER }];
+  Object.defineProperty(widths, 1, { get() { laterReads += 1; throw new Error("read after the actual selected row"); } });
+  const huge = { ...input, selectedNativeFacts: { ...input.selectedNativeFacts, nativeIntegerWidths: widths } };
+  for (const maximumWork of [0, 1, 2, 20]) same(product.verifyMir(body, { ...huge, limits: { maximumWork } }),
+    { kind: "resource-limit", body: body.body, dimension: "work", maximum: maximumWork },
+    "actual supplied huge width refuses before any range allocation");
+  assert.equal(laterReads, 0, "no later selected-width lookup after refusal");
 });
 
 test("MIR body receiver presence and exact storage are decided by its genuine source signature", () => {
@@ -3217,7 +3300,8 @@ export const body: MirBody = { body: identity, bindings: { kind: "parametric" },
   locals: [], constants: [], places: [], result: tyId(0),
   blocks: [{ origin, tir: { body: identity, node: nodeId(0) }, id: blockId(0), statements: [],
     terminator: { origin, tir: { body: identity, node: nodeId(1) }, kind: "return", value: null } }] };
-export const context: MirVerificationContext = { limits: { maximumWork: 0 }, source, bodyOf: () => null, types, bodyOwner: selected => selected === identity ? definition : null,
+declare const selectedNativeFacts: MirVerificationContext["selectedNativeFacts"];
+export const context: MirVerificationContext = { selectedNativeFacts, limits: { maximumWork: 0 }, source, bodyOf: () => null, types, bodyOwner: selected => selected === identity ? definition : null,
   declarationOf: selected => selected === definition ? {
   scope: { classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] }, parameterCount: 0, endpoints: [] } : null };
 const ports: readonly [PrintMir, ParseMir, VerifyMir] = [Mir.printMir, Mir.parseMir, Mir.verifyMir];

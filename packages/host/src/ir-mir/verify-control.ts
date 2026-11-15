@@ -153,8 +153,12 @@ export interface WorkMeter {
 }
 
 export function chargeWork(meter: WorkMeter, units: number): void {
+  if (meter.exhausted) return;
+  if (units > meter.maximum - meter.spent) {
+    meter.exhausted = true;
+    return;
+  }
   meter.spent += units;
-  if (meter.spent > meter.maximum) meter.exhausted = true;
 }
 
 export interface SourceStep {

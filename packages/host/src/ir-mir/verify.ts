@@ -497,7 +497,7 @@ function decisionReferences(
 export function verifyBody(body: MirBody, context: MirVerificationContext): MirVerification {
   // The caller sets the limit; a value that is not a count is the caller's defect, as in the query kernel.
   const maximumWork = context.limits.maximumWork;
-  if (!Number.isInteger(maximumWork) || maximumWork < 0) throw new TypeError("ir-mir: maximumWork must be a finite nonnegative integer");
+  if (!Number.isSafeInteger(maximumWork) || maximumWork < 0 || Object.is(maximumWork, -0)) throw new TypeError("ir-mir: maximumWork must be a safe nonnegative count");
   // One account for this body: every pass charges it, and it is not reset between passes.
   const meter: WorkMeter = { spent: 0, maximum: maximumWork, exhausted: false };
   const refusal: MirVerification = { kind: "resource-limit", body: body.body, dimension: "work", maximum: meter.maximum };
@@ -517,7 +517,8 @@ export function verifyBody(body: MirBody, context: MirVerificationContext): MirV
     owners.set(body, selected);
     return selected;
   };
-  const input: MirVerificationContext = { limits: context.limits, source: context.source, bodyOf: context.bodyOf, types: context.types, declarationOf, bodyOwner };
+  const input: MirVerificationContext = { selectedNativeFacts: context.selectedNativeFacts, limits: context.limits,
+    source: context.source, bodyOf: context.bodyOf, types: context.types, declarationOf, bodyOwner };
   const wires = createDecisionWires(createScalarWires());
   const texts = createWireTexts(wires);
   const nodes = sourceNodes(input.source, texts);

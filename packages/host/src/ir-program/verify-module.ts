@@ -246,6 +246,7 @@ export function verifyPublishedChildren(
         violations.push({ rule: programChildRule("tir-valid", child.rule), site, detail: [textDetail(child.rule), ...child.detail] });
       }
       const mir = verifyMir(published.mir, {
+        selectedNativeFacts: context.selectedNativeFacts,
         limits: context.mirVerification, source: published.tir, bodyOf: input.bodyOf, types: index.types,
         declarationOf: input.declarationOf, bodyOwner: context.facts.bodyOwner,
       });

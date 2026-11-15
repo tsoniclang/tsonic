@@ -1,7 +1,8 @@
 import type { Violation } from "../diag/contract.js";
 import type { LocalId, NodeId, PlaceId, SigId, TyId } from "../ids/contract.js";
 import { localId, placeId } from "../ids/index.js";
-import type { ExactRational, LiteralTypeValue, LiteralValue, NativePrimitive, TypeTerm } from "../ir-types/contract.js";
+import type { ExactRational, LiteralTypeValue, LiteralValue, NativePrimitive, SelectedNativeFacts, TypeTerm } from "../ir-types/contract.js";
+import { nativeIntegerGeometryOf } from "../ir-types/index.js";
 import type { MirBlock, MirBody, MirLocal, MirOperand, MirRule, MirRvalue, MirTerminator, MirVerificationContext, MirViolationSite } from "./contract.js";
 import { chargeWork, controlEdges, densePosition, findSourceNode, read, reversePostorder } from "./verify-control.js";
 import type { ControlEdge, SourceNode, WorkMeter } from "./verify-control.js";
@@ -537,8 +538,6 @@ export interface ValueVerification {
 // carrier vocabulary's owner (NEEDS-W2, NEEDS-W5, W4's entries of 2026-11-14). Exact arithmetic only (bigint).
 //   bool        a boolean.
 //   int8 … uint128   an integral number or bigint in the carrier's range; no negative zero.
-//   native-int, native-uint   an integral number or bigint (non-negative for the unsigned one). Snapshot carries
-//                     address width, but its selected-geometry relation to these carriers is not joined here (open).
 //   char        a number naming one UTF-16 code unit. Which literal a char constant carries is not stated by any
 //               record yet (open); this is what every target admits.
 //   float16, float32, float64   a number that rounds to a finite value under round-to-nearest-even: its magnitude
@@ -549,17 +548,6 @@ export interface ValueVerification {
 // numerator, negative zero only for zero (as the HIR verifier requires of checked literals). The constants loop checks
 // it once, whatever the declared type; no loop above runs on a denominator that is not positive.
 const DECIMAL_MAXIMUM_SCALE = 28n;
-
-function fixedIntegerWidth(primitive: NativePrimitive): bigint | null {
-  switch (primitive) {
-    case "int8": case "uint8": return 8n;
-    case "int16": case "uint16": case "char": return 16n;
-    case "int32": case "uint32": return 32n;
-    case "int64": case "uint64": return 64n;
-    case "int128": case "uint128": return 128n;
-    default: return null;
-  }
-}
 
 function floatingOverflow(primitive: NativePrimitive): bigint | null {
   switch (primitive) {
@@ -615,20 +603,23 @@ function decimalScale(denominator: bigint, meter: WorkMeter): bigint | null {
 }
 
 /** Whether a literal is a value the primitive carrier holds as stated (the table above). */
-function primitiveHolds(value: LiteralValue, primitive: NativePrimitive, meter: WorkMeter): boolean {
+function primitiveHolds(value: LiteralValue, primitive: NativePrimitive, facts: SelectedNativeFacts, meter: WorkMeter): boolean {
   if (primitive === "bool") return value.kind === "boolean";
-  if (primitive === "native-int" || primitive === "native-uint") {
+  const geometry = nativeIntegerGeometryOf(primitive, facts, work => {
+    chargeWork(meter, work);
+    return !meter.exhausted;
+  });
+  if (geometry.kind === "resource-stop") return false;
+  if (geometry.kind === "missing-native-width") throw new TypeError("MIR integer constants require their actual selected native width");
+  if (geometry.kind === "integer") {
     const integer = integerOf(value);
-    return integer !== null && (primitive === "native-int" || integer >= 0n);
+    return integer !== null && integer >= geometry.minimum && integer <= geometry.maximum;
   }
-  const width = fixedIntegerWidth(primitive);
-  if (width !== null) {
-    if (primitive === "char" && value.kind !== "number") return false;
+  if (primitive === "char") {
+    if (value.kind !== "number") return false;
     const integer = integerOf(value);
     if (integer === null) return false;
-    const signed = primitive === "int8" || primitive === "int16" || primitive === "int32" || primitive === "int64" || primitive === "int128";
-    const boundary = 2n ** (signed ? width - 1n : width);
-    return integer >= (signed ? -boundary : 0n) && integer < boundary;
+    return integer >= 0n && integer < 2n ** 16n;
   }
   if (value.kind !== "number") return false;
   const magnitude = value.value.numerator < 0n ? -value.value.numerator : value.value.numerator;
@@ -789,7 +780,7 @@ export function verifyValues(
       case "string": return value.kind === "string";
       case "optional": return nested || value.kind === "absence" || literalHeld(value, selected.value, true);
       case "intrinsic": return selected.intrinsic === "bigint" ? value.kind === "bigint" : selected.intrinsic === "absence" ? value.kind === "absence" : true;
-      case "primitive": return primitiveHolds(value, selected.primitive, meter);
+      case "primitive": return primitiveHolds(value, selected.primitive, context.selectedNativeFacts, meter);
       default: return true;
     }
   };

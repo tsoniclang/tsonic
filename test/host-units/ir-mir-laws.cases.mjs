@@ -7,6 +7,7 @@
 // where `bump` takes its parameter by reference for reading and writing.
 import assert from "node:assert/strict";
 import { before, test } from "node:test";
+import { nativeFactsFixture } from "./fixtures/native-facts.mjs";
 import { EMPTY_BINDINGS, PARAMETRIC, T, TABLE, bodyId, builders, def, narrowed, signature, typedBody, value } from "./fixtures/lower-mir/typed.mjs";
 
 const SIG_LAWS = signature("laws", [["a", T.int32Array], ["i", T.int32], ["o", T.optInt32, "optional"]], T.int32);
@@ -165,7 +166,7 @@ before(async () => {
     endpoints: [endpoint(name, "advertised", sig), endpoint(name, "api-body", sig)] });
   const declared = new Map([["laws", SIG_USE], ["laws.use", SIG_USE], ["laws.bump", SIG_BUMP], ["laws.two", SIG_TWO], ["laws.acquire", SIG_USE],
     ["laws.next", SIG_USE], ["laws.done", SIG_USE], ["laws.value", SIG_USE], ["laws.await", SIG_USE], ["laws.pure", SIG_USE]].map(([name, sig]) => [def(name), declaration(name, sig)]));
-  context = { limits: { maximumWork: 100000 }, source: source.tir, bodyOf: () => null, types: TABLE, declarationOf: definition => declared.get(definition) ?? null,
+  context = { selectedNativeFacts: nativeFactsFixture(), limits: { maximumWork: 100000 }, source: source.tir, bodyOf: () => null, types: TABLE, declarationOf: definition => declared.get(definition) ?? null,
     bodyOwner: body => body === BODY ? def("laws") : body === bodyId("laws.use") ? def("laws.use") : body === bodyId("laws.bump") ? def("laws.bump") : body === bodyId("laws.two") ? def("laws.two") : null };
   fixedContext = { ...context, source: fixedSource.tir };
 });

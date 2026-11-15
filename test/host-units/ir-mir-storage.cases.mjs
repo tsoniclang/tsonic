@@ -16,6 +16,7 @@
 // one unit.
 import assert from "node:assert/strict";
 import { before, test } from "node:test";
+import { nativeFactsFixture } from "./fixtures/native-facts.mjs";
 import { PARAMETRIC, T, TABLE, bodyId, builders, def, signature, typedBody } from "./fixtures/lower-mir/typed.mjs";
 
 const SIG = signature("storage", [["p", T.int32], ["o", T.optInt32, "optional"]], T.void);
@@ -28,7 +29,7 @@ const BODY = bodyId("storage");
 const endpoint = role => ({ declaration: def("storage"), role, signature: SIG, body: BODY });
 const declaration = { scope: { classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] }, parameterCount: 0,
   endpoints: [endpoint("advertised"), endpoint("api-body")] };
-const contextOf = maximumWork => ({ limits: { maximumWork }, source: source.tir, bodyOf: () => null, types: TABLE,
+const contextOf = maximumWork => ({ selectedNativeFacts: nativeFactsFixture(), limits: { maximumWork }, source: source.tir, bodyOf: () => null, types: TABLE,
   declarationOf: definition => definition === def("storage") ? declaration : null, bodyOwner: body => body === BODY ? def("storage") : null });
 const site = label => ({ origin: { module: "M[P[p];m]", start: source.at(label), length: 1, derived: [] }, tir: { body: BODY, node: source.at(label) } });
 const AT = site("root");
@@ -370,7 +371,7 @@ test("storage sets: a change that runs out answers null and has made no node; wi
     for (const maximum of [0, 1, 2]) {
       const { sets, empty } = setsUnder(maximum);
       assert.equal(withLocal(sets, empty, 128, local, true), null, `local ${local} under ${maximum}`);
-      assert.deepEqual([sets.meter.spent, sets.meter.exhausted, sets.count, held(sets), sets.leaves.size, sets.pairs.size], [maximum + 1, true, 3, 3, 1, 2],
+      assert.deepEqual([sets.meter.spent, sets.meter.exhausted, sets.count, held(sets), sets.leaves.size, sets.pairs.size], [maximum, true, 3, 3, 1, 2],
         `local ${local} under ${maximum}: stopped at the charge that exhausted the account, nothing made`);
     }
     const { sets, empty } = setsUnder(3);
@@ -390,7 +391,7 @@ test("storage sets: a lookup that runs out answers null; within its need it answ
     const { sets, empty } = setsUnder(maximum);
     const set = built(sets, empty, [70], maximum);
     assert.equal(liveIn(sets, set, 128, 70), null);
-    assert.deepEqual([sets.meter.spent, sets.meter.exhausted], [maximum + 1, true]);
+    assert.deepEqual([sets.meter.spent, sets.meter.exhausted], [maximum, true]);
   }
   const { sets, empty } = setsUnder(0);
   const set = built(sets, empty, [70, 5], 12);
@@ -411,7 +412,7 @@ test("storage sets: a meet that runs out answers null, keeps what it had paid fo
     const right = built(sets, empty, [7, 5, 42, 40, 75, 73, 100], maximum);
     const before = [sets.count, held(sets)];
     assert.equal(meetLive(sets, left, right), null, `under ${maximum}`);
-    assert.deepEqual([sets.meter.spent, sets.meter.exhausted, sets.count - before[0], held(sets) - before[1]], [maximum + 1, true, made, made],
+    assert.deepEqual([sets.meter.spent, sets.meter.exhausted, sets.count - before[0], held(sets) - before[1]], [maximum, true, made, made],
       `under ${maximum}: ${made} node(s) made before the charge that exhausted the account, none after`);
   }
   const { sets, empty } = setsUnder(0);

@@ -12,7 +12,7 @@ import type {
   TyId,
 } from "../ids/contract.js";
 import type {
-  ArtifactBindings, BodyInstance, ConstantReference, LiteralValue, PassingMode, PlacePassingMode, TypeTable,
+  ArtifactBindings, BodyInstance, ConstantReference, LiteralValue, PassingMode, PlacePassingMode, SelectedNativeFacts, TypeTable,
 } from "../ir-types/contract.js";
 import type { InferenceDeclaration, LogicalCapture } from "../ir-infer/contract.js";
 import type { MemberSelection, ResolvedCallee, TirBody, TypedOperation } from "../ir-tir/contract.js";
@@ -381,6 +381,7 @@ export type MirVerification =
   | { readonly kind: "resource-limit"; readonly body: BodyId; readonly dimension: "work"; readonly maximum: number };
 
 export interface MirVerificationContext {
+  readonly selectedNativeFacts: SelectedNativeFacts;
   readonly limits: MirVerificationLimits;
   readonly source: TirBody;
   readonly bodyOf: (instance: BodyInstance) => TirBody | null;
