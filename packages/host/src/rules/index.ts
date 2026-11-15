@@ -7,6 +7,9 @@ import { decideOperator } from "./operators.js";
 import { flowScheme, operatorScheme } from "./schemes.js";
 import { localVariableRule, signatureVariableRule } from "./variables.js";
 import { callScheme, decideCandidate } from "./candidates.js";
+import { decideCaptureModes } from "./captures.js";
+
+export { decideCaptureModes };
 
 const decided = <Decision>(decision: Decision): Result<RuleOutcome<Decision>> =>
   ({ kind: "ok", value: { kind: "decided", decision }, diagnostics: [] });
@@ -25,6 +28,7 @@ const atVariable = (kind: string): VariableRule => ({
 });
 
 export const createRuleTable: CreateRuleTable = (deps): RuleTable => ({
+  decideCaptureModes: input => decideCaptureModes(deps, input),
   embed: input => decided(decideEmbedding(deps, input.from, input.to, input.role, input.context.occurrence, input.context.origin)),
   domainFit: atContext("domain-fit"),
   memoryEquivalent: atContext("memory-equivalent"),

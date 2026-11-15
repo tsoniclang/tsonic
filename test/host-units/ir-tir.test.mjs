@@ -5464,6 +5464,48 @@ test("same-body capture invention retains both qualification and original-order 
   ]);
 });
 
+test("placed initializer modes use the actual authored creator and qualified incoming storage without a closure value", async () => {
+  const { verifyBindingSlots } = await import("../../packages/host/dist/ir-tir/verify-instances.js");
+  const fixture = genericFunctionScenario();
+  const outer = fixture.originalFunction;
+  const initializer = `B[${fixture.valueDefinition};default-argument;0]`;
+  const creator = fixture.checkedFunction.parameters.nodes[0];
+  const checked = { ...header(7, creator.id), kind: "TrueKeyword",
+    tsonic: { core: emptyCore(), role: "value", value: checkedValue(0) } };
+  creator.initializer = checked;
+  creator.tsonic.initializer = initializer;
+  const root = { ...header(7, creator.id), kind: "TrueKeyword", tsonic: { ...typedValue(0), role: "value" } };
+  const captured = { body: outer.body, local: outer.locals[0].id };
+  const body = { ...fixture.functionTemplate, body: initializer, owner: fixture.valueDefinition, root, params: [], locals: [],
+    captures: [{ local: captured, capture: "captured-location" }] };
+  const input = fixture.inputFor(fixture.functionTemplate);
+  input.nodeOf = () => creator;
+  const originals = new Map([[root.id, checked], [creator.id, creator]]);
+  const sources = new Map([[outer.body, outer]]);
+  const verify = () => {
+    const findings = [];
+    verifyBindingSlots(input, body, [root], originals, sources, (rule, node) => findings.push({ rule, node: node?.id ?? null }));
+    return findings;
+  };
+  assert.deepEqual(verify(), []);
+  body.captures[0].capture = "captured-value";
+  assert.equal(verify().some(row => row.rule === "closure-capture-binding"), true);
+  outer.locals[0].mutable = false;
+  assert.deepEqual(verify(), []);
+  outer.params[0].passing = "byref-readwrite";
+  assert.equal(verify().some(row => row.rule === "closure-capture-binding"), true);
+  body.captures[0].capture = "captured-location";
+  assert.deepEqual(verify(), []);
+  input.nodeOf = () => null;
+  assert.equal(verify().some(row => row.rule === "capture-qualified"), true);
+  input.nodeOf = () => creator;
+  creator.tsonic.initializer = null;
+  assert.equal(verify().some(row => row.rule === "capture-qualified"), true);
+  creator.tsonic.initializer = initializer;
+  creator.initializer = null;
+  assert.equal(verify().some(row => row.rule === "capture-qualified"), true);
+});
+
 for (const form of ["whole", "empty", "unknown", "values", "empty-rest", "optional", "default"]) {
   test(`actual argument/formal transport retains the complete ${form} disposition`, () => {
     const fixture = argumentScenario(form);

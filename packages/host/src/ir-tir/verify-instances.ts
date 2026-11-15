@@ -382,7 +382,7 @@ export const verifyControlledContexts = (
 
 export const verifyBindingSlots = (
   body: TirBody, nodes: readonly TirNode[], originals: ReadonlyMap<NodeId, HirNode>, sources: ReadonlyMap<BodyId, HirBody>,
-  published: readonly (TirBody | undefined)[], bodyOf: TirVerifierInput["bodyOf"], emit: TirOccurrenceEmit,
+  published: readonly (TirBody | undefined)[], bodyOf: TirVerifierInput["bodyOf"], nodeOf: TirVerifierInput["nodeOf"], emit: TirOccurrenceEmit,
 ): void => {
   const checkedParameters = new Map<BodyId, { readonly declarations: ReadonlyMap<DefId, HirParam>;
     readonly locals: ReadonlyMap<LocalId, HirParam> }>();
@@ -458,6 +458,20 @@ export const verifyBindingSlots = (
     }
     return null;
   };
+  if (body.captures.length !== 0 && body.root.parent !== null) {
+    const authored = originals.get(body.root.parent);
+    if (authored?.kind === "Parameter" || authored?.kind === "VariableDeclaration" || authored?.kind === "PropertyDeclaration") {
+      const creator = nodeOf({ kind: "item", value: { owner: body.owner, node: body.root.parent } });
+      if (creator !== authored || authored.tsonic.initializer !== body.body || authored.initializer !== originals.get(body.root.id))
+        emit("capture-qualified", body.root, "a placed capture must retain its actual creator's separately owned initializer root");
+      for (const row of body.captures) {
+        const mutable = reassignable(row.local);
+        const incoming = incomingOf(row.local);
+        if (row.capture === "captured-value" && (mutable === true || incoming !== null && captureRequiresLocation(false, incoming)))
+          emit("closure-capture-binding", body.root, "a placed body must capture writable outer storage as a location");
+      }
+    }
+  }
   const parameterOwners = new Map<TirNode, TirBody>();
   const registerParameter = (parameter: ParameterDeclaration<TypedPhase>, owner: TirBody): void => {
     parameterOwners.set(parameter, owner);

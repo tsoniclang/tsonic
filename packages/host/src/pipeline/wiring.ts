@@ -4,8 +4,8 @@ import { captureModule, captureProgramModules, createCheckerExtensions, extensio
   lowerModuleExports, openCheckedProgram } from "../front/index.js";
 import type { ClassifyCycle, DeclaredSignatureOf, DescribeDefinitions, ErrorSignature, PlaceSignature, ResumeDeclaredSignatureOf } from "../decls/contract.js";
 import { classifyCycle, declaredSignatureOf, describeDefinitions, errorSignature, placeSignature, resumeDeclaredSignatureOf } from "../decls/index.js";
-import type { CreateRuleTable } from "../rules/contract.js";
-import { createRuleTable } from "../rules/index.js";
+import type { CreateRuleTable, DecideCaptureModes } from "../rules/contract.js";
+import { createRuleTable, decideCaptureModes } from "../rules/index.js";
 import type { ConstraintsOf, GroupsOf, ResumeConstraintsOf, ResumeSolveGroup, SolveGroup } from "../infer/contract.js";
 import { constraintsOf, groupsOf, resumeConstraintsOf, resumeSolveGroup, solveGroup } from "../infer/index.js";
 import type { Elaborate } from "../elaborate/contract.js";
@@ -32,7 +32,7 @@ import { formDiagnostics, safetyDiagnostics } from "../validate/index.js";
 export interface PipelineWiring {
   readonly front: FrontWiring;
   readonly decls: DeclsWiring;
-  readonly rules: { readonly createRuleTable: CreateRuleTable };
+  readonly rules: { readonly createRuleTable: CreateRuleTable; readonly decideCaptureModes: DecideCaptureModes };
   readonly infer: { readonly constraintsOf: ConstraintsOf; readonly groupsOf: GroupsOf; readonly resumeConstraintsOf: ResumeConstraintsOf;
     readonly resumeSolveGroup: ResumeSolveGroup; readonly solveGroup: SolveGroup };
   readonly elaborate: { readonly elaborate: Elaborate };
@@ -69,7 +69,7 @@ export const pipelineWiring: PipelineWiring = {
   front: { createCheckerExtensions, extensionReferencesOf, openCheckedProgram, captureProgramModules, captureModule, lowerModuleDefinitions,
     lowerModuleExports, lowerModule },
   decls: { classifyCycle, describeDefinitions, declaredSignatureOf, resumeDeclaredSignatureOf, errorSignature, placeSignature },
-  rules: { createRuleTable },
+  rules: { createRuleTable, decideCaptureModes },
   infer: { constraintsOf, groupsOf, resumeConstraintsOf, resumeSolveGroup, solveGroup },
   elaborate: { elaborate },
   lowerMir: { lowerToMir },

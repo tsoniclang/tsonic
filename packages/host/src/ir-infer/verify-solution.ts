@@ -416,6 +416,14 @@ export function verifySolution(input: InferVerificationInput, inventory: Invento
     if (bodyIds.has(body.body) || previousBody !== null && compareText(previousBody, body.body) >= 0)
       emit(output, "solution-order", site, "bodies");
     if (!inventory.sets.has(body.body)) emit(output, "body-completion-endpoints", site, "body");
+    const captures = new Map<BodyId, Set<number>>();
+    for (const row of body.captures) {
+      let locals = captures.get(row.local.body);
+      if (locals === undefined) { locals = new Set(); captures.set(row.local.body, locals); }
+      if (!ordinal(row.local.local) || row.local.body === body.body || locals.has(row.local.local) || !input.localExists(row.local))
+        emit(output, "closure-capture-total", site, "captures");
+      locals.add(row.local.local);
+    }
     const signature = ordinal(body.signature) ? input.types.signatures[body.signature] : undefined;
     if (signature === undefined) emit(output, "body-completion-endpoints", site, "signature");
     else if (signature.declaration !== null) {

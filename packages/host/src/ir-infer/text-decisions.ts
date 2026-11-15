@@ -192,7 +192,7 @@ export function createDecisionsSchemas(captureValues: CaptureValuesSchemas, cons
   const { applicationDecisionSchema, dischargeProofSchema, embeddingDecisionSchema, memberDecisionSchema, refinementDecisionSchema } = decisionValues;
   const { typeComponentSchema, typeEvidenceSchema } = evidence;
   const { deferredDecisionSchema } = invocations;
-  const { closureDecisionSchema, operationDecisionSchema, operationOutcomeSchema } = operations;
+  const { captureRowSchema, closureDecisionSchema, operationDecisionSchema, operationOutcomeSchema } = operations;
   const errorValueSchema = errors.errorSchema;
   const errorDecisionSchema = recordSchema<{ readonly kind: "error"; readonly error: ErrorValue }>("ErrorDecision", "error", read => {
     const error = read("error", () => errorValueSchema, value => value.error);
@@ -275,11 +275,12 @@ export function createDecisionsSchemas(captureValues: CaptureValuesSchemas, cons
 
   const bodyTypingSchema = recordSchema<BodyTyping>("BodyTyping", "BodyTyping", read => {
     const body = read("body", () => bodySchema, value => value.body);
+    const captures = read("captures", () => arraySchema(captureRowSchema), value => value.captures);
     const signature = read("signature", () => sigSchema, value => value.signature);
     const completion = read("completion", () => tSchema, value => value.completion);
     const yielded = read("yielded", () => nullableSchema(tSchema), value => value.yielded);
     const sent = read("sent", () => nullableSchema(tSchema), value => value.sent);
-    return { fields: [body, signature, completion, yielded, sent], value: () => ({ body: body.value(), signature: signature.value(), completion: completion.value(), yielded: yielded.value(), sent: sent.value() }) };
+    return { fields: [body, captures, signature, completion, yielded, sent], value: () => ({ body: body.value(), captures: captures.value(), signature: signature.value(), completion: completion.value(), yielded: yielded.value(), sent: sent.value() }) };
   });
 
   const constraintDecisionSchema: RecordSchema<ConstraintDecision> = unionSchema<ConstraintDecision>("ConstraintDecision",

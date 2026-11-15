@@ -1,6 +1,6 @@
 import type { InvariantFailure, Result } from "../diag/contract.js";
 import { requirePresent, throwInvariant } from "../diag/index.js";
-import type { BodyId, NodeId, NodeRef, Origin, TyId } from "../ids/contract.js";
+import type { BodyId, LocalId, NodeId, NodeRef, Origin, TyId } from "../ids/contract.js";
 import type { BinaryExpression, Block, CheckedPhase, Expression, HirBody, HirNode, Identifier, NodeHeader, ParameterDeclaration, Statement, VariableDeclaration } from "../ir-hir/contract.js";
 import { resolveModuleBinding, walkSyntaxTree } from "../ir-hir/index.js";
 import type { ApplicationDecision, BodyTyping, EmbeddingDecision, FlowRole, InferredSignaturePart } from "../ir-infer/contract.js";
@@ -71,7 +71,6 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
   const { instance, body, constraints, solution, template } = input;
   const root = body.root;
   const rootOrigin = root.origin;
-  if (body.captures.length !== 0) notElaboratedYet("the creator's actual capture decisions", rootOrigin);
   if (instance.body !== body.body) callerDefect("the instance names another body than the checked body", rootOrigin);
   const scope = input.scope;
   if (scope.classParameters.length !== 0 || scope.methodParameters.length !== 0 || scope.capturedParameters.length !== 0 || scope.selfOwners.length !== 0)
@@ -89,6 +88,10 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
   if (solution.group !== constraints.group) callerDefect("a solution of another group", rootOrigin);
   const typing = solution.bodies.find(candidate => candidate.body === body.body)
     ?? callerDefect("the solution has no body typing for the body", rootOrigin);
+  if (typing.captures.length !== body.captures.length || typing.captures.some((row, index) => {
+    const captured = body.captures[index];
+    return captured === undefined || row.local.body !== captured.body || !Object.is(row.local.local, captured.local);
+  })) return callerDefect("the solved capture modes must retain the actual ordered qualified body captures", rootOrigin);
   if (template !== null && (template.signature !== typing.signature || template.completion !== typing.completion ||
     template.yielded !== typing.yielded || template.sent !== typing.sent))
     callerDefect("the selected closed-scope replay does not retain the solved template body channels", rootOrigin);
@@ -219,8 +222,40 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
       role: row.role, passing: row.passing, initializer: row.initializer, storage: parameter.type }, initializerRoot));
   }
   const variablesByNode = new Map<NodeId, VariableDeclaration<TypedPhase>>();
+  const captureLocals = new Map<BodyId, Map<LocalId, LocalId | null>>();
+  for (const row of typing.captures) {
+    let rows = captureLocals.get(row.local.body);
+    if (rows === undefined) { rows = new Map(); captureLocals.set(row.local.body, rows); }
+    if (rows.has(row.local.local)) return callerDefect("a body cannot repeat a qualified capture", rootOrigin);
+    rows.set(row.local.local, null);
+  }
+  for (const local of body.locals) if (local.role === "capture") {
+    const captured = local.capturedFrom;
+    const rows = captured === null ? undefined : captureLocals.get(captured.body);
+    if (captured === null || rows === undefined || !rows.has(captured.local))
+      return callerDefect("an actual capture slot must name a retained qualified capture", rootOrigin);
+    if (rows.get(captured.local) !== null) return callerDefect("a body cannot duplicate its actual captured local slot", rootOrigin);
+    rows.set(captured.local, local.id);
+  }
+  for (const rows of captureLocals.values()) for (const slot of rows.values())
+    if (slot === null) return callerDefect("a retained capture requires its actual local slot", rootOrigin);
+  const readEvidence = new Set<NodeId>();
+  for (const evidence of constraints.evidence) {
+    const component = evidence.value.component;
+    if (component.kind !== "body" || component.value.body !== body.body || readEvidence.has(component.value.node)) continue;
+    readEvidence.add(component.value.node);
+    const node = nodes[positionOf(component.value)];
+    if (node?.kind !== "Identifier" || node.tsonic.role !== "value" || node.tsonic.resolution.kind !== "local") continue;
+    const reference = node.tsonic.resolution.local;
+    const slot = captureLocals.get(reference.body)?.get(reference.local);
+    if (slot === undefined || slot === null) continue;
+    const storage = finalType(evidence.value.type, node.origin);
+    if (storageOf[slot] !== undefined && storageOf[slot] !== storage)
+      return callerDefect("the actual captured local reads disagree on their finalized storage type", node.origin);
+    storageOf[slot] = storage;
+  }
   for (const local of body.locals) {
-    if (local.role === "parameter") continue;
+    if (local.role === "parameter" || local.role === "capture") continue;
     const declaration = deps.nodeOf(local.declaration);
     if (local.role !== "binding" || local.declaration.kind !== "item" || declaration?.kind !== "VariableDeclaration"
       || declaration.id !== local.declaration.value.node || declaration.tsonic.declaration.kind !== "local"
@@ -288,8 +323,10 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
       return;
     }
     if (resolution.kind !== "local") return notElaboratedYet(`a name resolving to a ${resolution.kind}`, node.origin);
-    if (resolution.local.body !== body.body) notElaboratedYet("a name resolving to a local of another body", node.origin);
-    const storage = storageOf[resolution.local.local] ?? callerDefect("a name resolving to a local the body does not have", node.origin);
+    const slot = resolution.local.body === body.body ? resolution.local.local
+      : captureLocals.get(resolution.local.body)?.get(resolution.local.local);
+    const storage = slot === undefined || slot === null ? undefined : storageOf[slot];
+    if (storage === undefined) return callerDefect("a name resolving to no actual owned or captured local storage", node.origin);
     names[position] = { resolution: { kind: "local", local: resolution.local }, storage };
   };
   const admitBinary = (node: BinaryExpression<CheckedPhase>, position: number): void => {
@@ -454,6 +491,6 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
     lexicalBindings: instance.bindings.kind === "instantiated" ? instance.bindings.bindings
       : { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] },
     dependence: "parametric", signature: typing.signature, completion: typing.completion, yielded: typing.yielded, sent: typing.sent,
-    params, locals, root: typedRoot, nestedBodies: body.nestedBodies, captures: [], scopes: body.scopes, evidence: [],
+    params, locals, root: typedRoot, nestedBodies: body.nestedBodies, captures: typing.captures, scopes: body.scopes, evidence: [],
     asynchronous: body.asynchronous, generator: body.generator } };
 }

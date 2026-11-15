@@ -413,6 +413,136 @@ test("actual independent default initializer completes before the omitted return
     assert.deepEqual(record.solution.variables.map(variable => variable.variable), [0]);
     assert.equal(record.solution.bodies.every(body => fixture.types.readType(program.interner, body.completion).kind === "primitive"), true);
   }
+  const initializerBody = program.domain.bodyOf.get(initializer.solution.bodies[0].body);
+  assert.deepEqual(initializer.solution.bodies[0].captures, initializerBody.captures.map(local => ({ local, capture: "captured-location" })));
+  const captureLocal = initializerBody.locals.find(local => local.role === "capture");
+  assert.equal(captureLocal !== undefined, true);
+  assert.deepEqual(captureLocal.capturedFrom, initializerBody.captures[0]);
+  assert.equal(captureLocal.mutable, program.domain.bodyOf.get(captureLocal.capturedFrom.body).locals[captureLocal.capturedFrom.local].mutable);
+});
+
+test("ONE Rules capture-mode operation retains ordered qualified locals without a carrier or creation execution", () => {
+  const program = ready("export function select(a: boolean, b = a): boolean { return b; }\n");
+  const child = program.checked.bodies.find(body => body.captures.length === 1);
+  const local = child.captures[0];
+  const other = { body: child.body, local: child.locals[0].id };
+  const cases = [
+    [false, { kind: "binding" }, "captured-value"],
+    [true, { kind: "binding" }, "captured-location"],
+    [false, { kind: "parameter", passing: "by-value" }, "captured-value"],
+    [false, { kind: "parameter", passing: "move" }, "captured-value"],
+    [false, { kind: "parameter", passing: "byref-readonly" }, "captured-location"],
+    [false, { kind: "parameter", passing: "byref-readwrite" }, "captured-location"],
+    [false, { kind: "capture", capture: "captured-location" }, "captured-location"],
+    [false, { kind: "capture", capture: "captured-value" }, "captured-value"],
+  ];
+  for (const [reassignable, incoming, capture] of cases) {
+    const input = [{ local, reassignable, incoming }];
+    const selected = program.deps.rules.decideCaptureModes(input);
+    assert.equal(selected.kind, "ok");
+    assert.deepEqual(selected.value, [{ local, capture }]);
+    assert.equal(selected.value[0].local === local, true);
+  }
+  const selected = program.deps.rules.decideCaptureModes([
+    { local: other, reassignable: false, incoming: { kind: "binding" } },
+    { local, reassignable: true, incoming: { kind: "binding" } },
+  ]);
+  assert.deepEqual(selected.value.map(row => row.local), [other, local]);
+  assert.deepEqual(program.deps.rules.decideCaptureModes([]).value, []);
+  for (const references of [[local, { ...local }], [{ ...local, local: -0 }], [{ ...local, local: -1 }]])
+    assert.throws(() => program.deps.rules.decideCaptureModes(references.map(local =>
+      ({ local, reassignable: false, incoming: { kind: "binding" } }))), /capture mode/iu);
+});
+
+test("actual demanded capture qualifiers pre-admit their input, one formal index and decided output", async () => {
+  const { bodyCaptureModes } = await import("../../packages/host/dist/infer/captures.js");
+  const program = ready("export function select(a: boolean, b = a): boolean { return b; }\n");
+  const child = program.checked.bodies.find(body => body.captures.length === 1);
+  const owner = program.domain.bodyOf.get(child.captures[0].body);
+  const exact = 6 * child.captures.length + 2 * owner.params.length;
+  assert.equal(exact, 10);
+  for (let maximum = 0; maximum <= exact; maximum += 1) {
+    let used = 0;
+    let stopped = false;
+    let reads = 0;
+    const deps = { ...program.deps, hirBody: reference => {
+      assert.equal(stopped, false, "no ready owner read after refusal"); reads += 1;
+      return program.deps.hirBody(reference);
+    } };
+    const selected = bodyCaptureModes(deps, child, work => {
+      assert.equal(stopped, false, "no admission after refusal");
+      if (work > maximum - used) { stopped = true; return false; }
+      used += work; return true;
+    });
+    assert.equal(selected === null, maximum < exact);
+    assert.equal(reads, maximum < 6 ? 0 : 1);
+  }
+  const malformed = { ...child, captures: [{ ...child.captures[0], local: -0 }] };
+  assert.throws(() => bodyCaptureModes(program.deps, malformed, () => true), /actual qualified outer local/u);
+  const inheritedOwner = { ...owner, locals: owner.locals.map(local => local.id === child.captures[0].local
+    ? { ...local, role: "capture" } : local) };
+  assert.throws(() => bodyCaptureModes({ ...program.deps, hirBody: () => inheritedOwner }, child, () => true),
+    /actual incoming logical capture mode/u);
+  assert.throws(() => bodyCaptureModes({ ...program.deps, hirBody: () => ({ ...owner, params: [] }) }, child, () => true),
+    /actual formal row or checked pattern-bound declaration/u, "an absent formal is not silently reclassified as a binding");
+  const first = owner.params.find(row => row.local === child.captures[0].local);
+  assert.throws(() => bodyCaptureModes({ ...program.deps, hirBody: () => ({ ...owner,
+    params: owner.params.map(row => row === first ? { ...row, declaration: owner.owner } : row) }) }, child, () => true),
+    /exact checked local and declaration association/u);
+  assert.throws(() => bodyCaptureModes({ ...program.deps, hirBody: () => ({ ...owner, params: [first, first] }) }, child, () => true),
+    /repeats its actual local/u);
+  assert.throws(() => bodyCaptureModes({ ...program.deps, hirBody: () => ({ ...owner, body: child.body }) }, child, () => true),
+    /actual qualified outer local/u);
+});
+
+test("many real captured formals read their SAME demanded owner parameter vector once", async () => {
+  const { bodyCaptureModes } = await import("../../packages/host/dist/infer/captures.js");
+  const count = 64;
+  const names = Array.from({ length: count }, (_, index) => `value${index}`);
+  const program = ready(`export function select(${names.map(name => `${name}: number`).join(", ")}, result = ${names.join(" + ")}): number { return result; }\n`);
+  const child = program.checked.bodies.find(body => body.captures.length === count);
+  assert.equal(child !== undefined, true);
+  const owner = program.domain.bodyOf.get(child.captures[0].body);
+  let reads = 0;
+  const params = new Proxy(owner.params, { get(target, key) {
+    if (typeof key === "string" && /^(0|[1-9][0-9]*)$/u.test(key)) reads += 1;
+    return Reflect.get(target, key);
+  } });
+  const selected = bodyCaptureModes({ ...program.deps, hirBody: () => ({ ...owner, params }) }, child, () => true);
+  assert.equal(selected.kind, "ok");
+  assert.equal(selected.value.length, count);
+  assert.equal(reads, owner.params.length, "no capture-times-formals search");
+});
+
+test("Elaborate replays the actual solved placed-body rows without selecting modes or guessing capture storage", () => {
+  const program = ready("export function select(a: boolean, b = a): boolean { return b; }\n");
+  const records = [...drive(program).values()];
+  const body = program.checked.bodies.find(body => body.captures.length === 1);
+  const record = records.find(record => record.solution.bodies.some(typing => typing.body === body.body));
+  const constraints = record.constraints.find(set => set.body === body.body);
+  const typing = record.solution.bodies.find(typing => typing.body === body.body);
+  const deps = { types: program.interner, rules: { ...program.deps.rules,
+    decideCaptureModes: () => assert.fail("Elaborate retains Rules authority; it does not select capture modes.") },
+    ...fixture.hir.createModuleBindingViews([program.checked.bindings]),
+    typeOf: type => fixture.types.readType(program.interner, type),
+    signatureOf: signature => fixture.types.readSignature(program.interner, signature), nodeOf: program.domain.nodeOf,
+    checkerDiagnosticsOf: () => [] };
+  const input = { instance: { body: body.body, bindings: { kind: "parametric" } }, scope: program.descriptions.get(body.owner).generics,
+    body, constraints, solution: record.solution, template: null, nestedBodies: [], initializers: [] };
+  const result = wiring.elaborate.elaborate(deps, input);
+  assert.equal(result.kind, "ok");
+  assert.equal(result.value.captures === typing.captures, true);
+  assert.deepEqual(result.value.root.tsonic.resolution.local, body.captures[0]);
+  const captured = result.value.locals.find(local => local.role === "capture");
+  assert.equal(captured !== undefined, true);
+  assert.deepEqual(captured.capturedFrom, body.captures[0]);
+  assert.equal(captured.storage, constraints.evidence[0].value.type);
+  for (const captures of [[], [{ ...typing.captures[0], local: { body: body.body, local: 0 } }]])
+    assert.throws(() => wiring.elaborate.elaborate(deps, { ...input,
+      solution: { ...record.solution, bodies: record.solution.bodies.map(row => row.body === body.body ? { ...row, captures } : row) } }),
+    /actual ordered qualified body captures/u);
+  assert.throws(() => wiring.elaborate.elaborate(deps, { ...input, constraints: { ...constraints, evidence: [] } }),
+    /which no parameter names/u, "no initializer completion or checked slot is substituted for absent actual read evidence");
 });
 
 test("nested real arithmetic allocates source-order variables but evaluates only genuinely final operand evidence", () => {

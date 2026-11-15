@@ -1,7 +1,7 @@
 import type { Result } from "../diag/contract.js";
 import type { TypeExpansionLimits, TypeInterner } from "../ir-types/contract.js";
 import type {
-  ApplicationDecision, CandidateInput, ClosureDecision, ClosureInput, CoreInput, DomainFitInput, EmbedInput,
+  ApplicationDecision, CandidateInput, CaptureModeEvidence, CaptureRow, ClosureDecision, ClosureInput, CoreInput, DomainFitInput, EmbedInput,
   EmbeddingDecision, IndexInput, LibraryInput, LiteralConstructionInput, LiteralFitInput,
   MemberDecision, MemberInput, MemoryEquivalentInput, OperationDecision, OperatorInput,
   ProtocolInput, RefinementDecision, RefinementInput, RuleOutcome, RuleTable,
@@ -85,5 +85,10 @@ export type DecideClosure = (
   deps: RulesDeps,
   input: ClosureInput,
 ) => Result<RuleOutcome<ClosureDecision>>;
+
+export type DecideCaptureModes = (
+  deps: RulesDeps,
+  input: readonly CaptureModeEvidence[],
+) => Result<readonly CaptureRow[]>;
 
 export type CreateRuleTable = (deps: RulesDeps) => RuleTable;

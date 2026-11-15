@@ -101,7 +101,7 @@ function constraintSet(constraints = [], variables = []) {
 const emptyScope = { classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] };
 const signature = { id: 0, declaration: definition, owner: source, composition: null, kind: "call",
   typeParameters: [], receiver: null, parameters: [], result: 0 };
-const bodyTyping = { body, signature: 0, completion: 0, yielded: null, sent: null };
+const bodyTyping = { body, captures: [], signature: 0, completion: 0, yielded: null, sent: null };
 const declarationFacts = { scope: emptyScope, parameterCount: 0, endpoints: [
   { declaration: definition, role: "advertised", signature: 0, body: null },
   { declaration: definition, role: "api-body", signature: 0, body },
@@ -1825,11 +1825,39 @@ test("final values, both bound directions, all check outcomes and body channels 
       outcome,
     }));
   const bodies = [nullGolden, typeGolden].map(channel => recordGolden("BodyTyping", {
-    body: bodyGolden, signature: signatureGolden, completion: typeGolden, yielded: channel, sent: channel,
+    body: bodyGolden, captures: emptyGolden, signature: signatureGolden, completion: typeGolden, yielded: channel, sent: channel,
   }));
   const golden = solutionGolden([], [recordGolden("FinalVariable", { variable: scalarGolden(0), value: evidenceGolden, error: nullGolden })],
     checks, bodies);
   assertRoundTrip("Solution", golden.value, golden.text, "complete final variable/check/body records");
+});
+
+test("body capture modes are one required solution field with exact qualified references and closed rows", () => {
+  const captures = ["captured-value", "captured-location"].map((mode, local) => recordGolden("CaptureRow", {
+    local: recordGolden("LocalRef", { body: bodyGolden, local: scalarGolden(local, "l") }), capture: scalarGolden(mode),
+  }));
+  const typing = recordGolden("BodyTyping", { body: bodyGolden, captures: arrayGolden(captures),
+    signature: signatureGolden, completion: typeGolden, yielded: nullGolden, sent: nullGolden });
+  const document = solutionGolden([], [], [], [typing]);
+  assertRoundTrip("Solution", document.value, document.text, "logical rows without a closure-value construction");
+  const empty = product.printSolution(completeSolution());
+  assert.equal(product.parseSolution(empty.replace(", captures=[]", "")).kind, "invalid-text", "retired BodyTyping without rows is rejected");
+  assert.equal(product.parseSolution(document.text.replace('capture="captured-value"', 'capture="copied"')).kind,
+    "invalid-text", "no alternate capture representation");
+  assert.equal(product.parseSolution(document.text.replace('capture="captured-value"', 'capture=null')).kind,
+    "invalid-text", "solved body capture modes cannot defer a type result");
+});
+
+test("solved body captures reject duplicates, own-body and missing qualified locals without inventing a closure", () => {
+  const outer = `B[${definition};default-argument;1]`;
+  const rows = [{ local: { body: outer, local: 0 }, capture: "captured-location" },
+    { local: { body: outer, local: 1 }, capture: "captured-value" }];
+  const input = captures => verificationInput({ locals: [{ body: outer, ids: [0, 1] }],
+    solution: { ...completeSolution(), bodies: [{ ...bodyTyping, captures }] } });
+  fullEqual(product.verifyInference(input(rows)), [], "actual qualified rows retain order and need no closure carrier");
+  for (const captures of [[rows[0], { ...rows[0] }], [{ ...rows[0], local: { body, local: 0 } }],
+    [{ ...rows[0], local: { body: outer, local: 99 } }], [{ ...rows[0], local: { body: outer, local: -0 } }]])
+    assert.equal(product.verifyInference(input(captures)).some(row => row.rule === "closure-capture-total"), true);
 });
 
 test("every original signature part retains its complete group codec value", () => {

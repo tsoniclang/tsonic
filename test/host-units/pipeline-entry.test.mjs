@@ -146,6 +146,117 @@ test("real public AnalyzeHostProgram closes supplied and omitted boolean-default
     && edge.dependent.provided === 1 && edge.target.kind === "body" && edge.target.execution.instance.body === initializer.instance.body), false);
 });
 
+test("real public Host analysis retains the qualified outer parameter of a capture-bearing default initializer", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", "export function select(a: boolean, b = a): boolean { return b; }\n");
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok");
+  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  const main = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
+  const module = result.value.modules.find(module => module.module === main);
+  const selected = module.bodies.filter(body => body.kind === "selected");
+  const callable = selected.find(body => body.tir.params.length === 2);
+  assert.notEqual(callable, undefined);
+  const header = callable.tir.params[1];
+  const initializer = selected.find(body => body.instance.body === header.tsonic.initializer);
+  assert.notEqual(initializer, undefined);
+  assert.equal(initializer.tir.root === header.initializer, true);
+  assert.deepEqual(initializer.tir.captures, [{ local: callable.tir.params[0].tsonic.local, capture: "captured-location" }]);
+  assert.deepEqual(callable.facts.map(facts => facts.execution.provided), [1, 2]);
+  const calls = callable.mir.blocks.filter(block => block.terminator.kind === "call" && block.terminator.callee.kind === "body");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].terminator.callee.instance.body, initializer.instance.body);
+  assert.equal(calls[0].terminator.tir.node, header.id);
+  assert.equal(calls[0].terminator.callee.captures.length, 1);
+  assert.equal(calls[0].terminator.callee.captures[0].capture, "captured-location");
+  const mirCapture = initializer.mir.locals.find(local => local.role.kind === "capture");
+  assert.equal(mirCapture !== undefined, true);
+  assert.deepEqual(mirCapture.source, callable.tir.params[0].tsonic.local);
+  assert.equal(mirCapture.mode, "captured-location");
+  assert.equal(initializer.facts[0].initialization.reads.some(row => row.node === initializer.tir.root.id && !row.assigned), true);
+  const childSummary = result.value.index.summaries.find(summary => summary.key.kind === "body"
+    && summary.key.execution.instance.body === initializer.instance.body);
+  assert.equal(childSummary !== undefined, true);
+  const need = childSummary.initialization.points.find(point => point.kind === "need");
+  assert.equal(need !== undefined, true);
+  assert.deepEqual(need.witness.read, { kind: "body", value: { body: initializer.instance.body, node: initializer.tir.root.id } });
+  const callerSummaries = result.value.index.summaries.filter(summary => summary.key.kind === "body"
+    && summary.key.execution.instance.body === callable.instance.body);
+  assert.deepEqual(callerSummaries.map(summary => summary.key.execution.provided), [1, 2]);
+  assert.equal(callerSummaries.every(summary => summary.initialization.points.every(point => point.kind !== "need")), true,
+    "the actual provided a discharges the child's original read only at the omitted b entry");
+  assert.equal(callerSummaries.every(summary => summary.arena.producers.every(row => row.kind !== "local")), true);
+});
+
+test("real public Host analysis discharges chained captured defaults against their actual preceding initializer results", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal",
+    "export function chain(a: boolean, b = a, c = b): boolean { return c; }\n");
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok");
+  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  const main = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
+  const module = result.value.modules.find(module => module.module === main);
+  const caller = module.bodies.find(body => body.kind === "selected" && body.tir.params.length === 3);
+  assert.equal(caller !== undefined, true);
+  assert.deepEqual(caller.mir.entries.map(entry => entry.provided), [3, 2, 1]);
+  assert.deepEqual(caller.facts.map(facts => facts.execution.provided), [1, 2, 3]);
+  for (const index of [1, 2]) {
+    const header = caller.tir.params[index];
+    const child = module.bodies.find(body => body.kind === "selected" && body.instance.body === header.tsonic.initializer);
+    assert.equal(child !== undefined && child.tir.root === header.initializer, true);
+    const source = caller.tir.params[index - 1].tsonic.local;
+    assert.deepEqual(child.tir.captures, [{ local: source, capture: "captured-location" }]);
+    const capture = child.mir.locals.find(local => local.role.kind === "capture");
+    assert.equal(capture !== undefined, true);
+    assert.deepEqual(capture.source, source);
+    const summary = result.value.index.summaries.find(summary => summary.key.kind === "body"
+      && summary.key.execution.instance.body === child.instance.body);
+    assert.equal(summary !== undefined, true);
+    const need = summary.initialization.points.find(point => point.kind === "need");
+    assert.equal(need !== undefined, true);
+    assert.deepEqual(need.witness.read, { kind: "body", value: { body: child.instance.body, node: child.tir.root.id } });
+  }
+  const summaries = result.value.index.summaries.filter(summary => summary.key.kind === "body"
+    && summary.key.execution.instance.body === caller.instance.body);
+  assert.deepEqual(summaries.map(summary => summary.key.execution.provided), [1, 2, 3]);
+  assert.equal(summaries.every(summary => summary.initialization.points.every(point => point.kind !== "need")), true);
+  for (const provided of [1, 2, 3]) {
+    const dependencies = result.value.index.dependencyInventory.dependencies.filter(edge => edge.reason === "initializer"
+      && edge.dependent.instance.body === caller.instance.body && edge.dependent.provided === provided);
+    assert.equal(dependencies.length, 3 - provided);
+  }
+});
+
+test("actual placed-body capture verification rejects wrong modes, qualified locals and creator associations", async () => {
+  const fixture = await loadFrontFixture();
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { verifyTir } = await import("../../packages/host/dist/ir-tir/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", "export function select(a: boolean, b = a): boolean { return b; }\n");
+  const source = captureSourceBarrier(input);
+  assert.equal(source.kind, "ok");
+  const typed = typeSourceBarrier(input, source.value);
+  assert.equal(typed.kind, "ok");
+  const child = [...typed.value.bodies.values()].find(body => body.bindings.kind === "instantiated" && body.captures.length === 1);
+  assert.equal(child !== undefined, true);
+  const verifier = typed.value.verifierOf(child.root.origin.module);
+  assert.deepEqual(verifyTir(verifier, child), []);
+  assert.equal(verifyTir(verifier, { ...child, captures: [{ ...child.captures[0], capture: "captured-value" }] })
+    .some(finding => finding.rule === "closure-capture-binding"), true);
+  assert.equal(verifyTir(verifier, { ...child, captures: [{ ...child.captures[0], local: { body: child.body, local: 0 } }] })
+    .some(finding => finding.rule === "capture-qualified"), true);
+  const nodeOf = reference => {
+    const node = verifier.nodeOf(reference);
+    return node?.kind === "Parameter" && node.tsonic.initializer === child.body
+      ? { ...node, tsonic: { ...node.tsonic, initializer: null } } : node;
+  };
+  assert.equal(verifyTir({ ...verifier, nodeOf }, child).some(finding => finding.rule === "capture-qualified"), true,
+    "a capture cannot substitute an arrow-value decision for its actual placed creator association");
+});
+
 for (const count of [2, 12])
 test(`real public Host publication orders all ${count + 1} default entries numerically without changing their MIR prologues`, async () => {
   const fixture = await loadFrontFixture();

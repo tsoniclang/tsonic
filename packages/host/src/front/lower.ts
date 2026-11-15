@@ -875,10 +875,16 @@ export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<Hir.HirM
     commentDirectives: raw.tree.commentDirectives, pragmas: raw.tree.pragmas, checkJsDirective: raw.tree.checkJsDirective,
     tsonic: { core: coreOf(lowering, raw.tree.id), parent: null, attributes: [], memory: memoryOf(lowering, raw.tree.id), definition: moduleDefinition, body: moduleBody } };
   // Each body's captures, and its nested bodies: the bodies it directly encloses, in preorder, as the body walk recorded them.
-  const bodies: Hir.HirBody[] = [{ body: moduleBody, owner: moduleDefinition, params: [], locals: [], root: tree, captures: [], scopes: [],
+  const actualBodies: Hir.HirBody[] = [{ body: moduleBody, owner: moduleDefinition, params: [], locals: [], root: tree, captures: [], scopes: [],
     asynchronous: false, generator: false, candidateLists: lowering.candidateLists.get(moduleBody) ?? [], nestedBodies: [] }, ...lowering.bodies]
-    .map(body => ({ ...body, captures: lowering.captures.get(body.body)?.ordered ?? [], nestedBodies: structure.children.get(body.body) ?? [] }))
-    .sort((left, right) => left.body < right.body ? -1 : left.body > right.body ? 1 : 0);
+    .map(body => ({ ...body, captures: lowering.captures.get(body.body)?.ordered ?? [], nestedBodies: structure.children.get(body.body) ?? [] }));
+  const bodyRows = new Map(actualBodies.map(body => [body.body, body]));
+  const bodies = actualBodies.map(body => ({ ...body, locals: [...body.locals, ...body.captures.map((reference, index): Hir.HirLocal => {
+    const source = bodyRows.get(reference.body)?.locals[reference.local];
+    if (source === undefined || !Object.is(source.id, reference.local))
+      return throwInvariant(invariant("A captured local requires its actual qualified source storage row."));
+    return { ...source, id: localId(body.locals.length + index), role: "capture", capturedFrom: reference };
+  })] })).sort((left, right) => left.body < right.body ? -1 : left.body > right.body ? 1 : 0);
   const items = rows.filter(row => row.node !== raw.tree.id).map(row => ({ definition: definitionOf(lowering, row.node), node: row.node }))
     .sort((left, right) => left.definition < right.definition ? -1 : left.definition > right.definition ? 1 : 0);
   return { kind: "ok", diagnostics: [], value: { module: raw.module, tree, items, bodies, exports: exported.entries, bindings: exported.bindings, checkerDiagnostics: raw.checkerDiagnostics, obligations: [] } };

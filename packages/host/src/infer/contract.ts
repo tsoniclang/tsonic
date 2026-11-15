@@ -3,7 +3,7 @@ import type { BodyId, DefId } from "../ids/contract.js";
 import type { Signature, SignatureRequest, TypeEvidence, TypeExpansionLimits, TypeInterner, TypeProductionRequest } from "../ir-types/contract.js";
 import type { CheckedPhase, Declaration, HirBindingViews, HirBody, HirModuleBinding } from "../ir-hir/contract.js";
 import type { DataflowLimits } from "../dataflow/contract.js";
-import type { AtomicContribution, ConstraintSet, FinalVariable, InferenceGroup, InferredPartRequest, InferredPartType, RecordedCheck, RuleTable, SignaturePlacement, Solution, SolvedConstraint } from "../ir-infer/contract.js";
+import type { AtomicContribution, CaptureRow, ConstraintSet, FinalVariable, InferenceGroup, InferredPartRequest, InferredPartType, RecordedCheck, RuleTable, SignaturePlacement, Solution, SolvedConstraint } from "../ir-infer/contract.js";
 import type { Step } from "../step/contract.js";
 
 export interface InferenceLimits {
@@ -63,6 +63,7 @@ export interface InferPaused {
   readonly variables: readonly FinalVariable[];
   readonly solved: readonly SolvedConstraint[];
   readonly checks: readonly RecordedCheck[];
+  readonly captures: readonly (readonly CaptureRow[])[];
   readonly requests: readonly [SolveRequest, ...SolveRequest[]];
 }
 

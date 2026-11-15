@@ -172,11 +172,14 @@ export type CaptureSource =
   | { readonly kind: "parameter"; readonly passing: PassingMode }
   | { readonly kind: "capture"; readonly capture: LogicalCapture };
 
-export interface ClosureCapture {
+export interface CaptureModeEvidence {
   readonly local: LocalRef;
-  readonly type: TyId;
   readonly reassignable: boolean;
   readonly incoming: CaptureSource;
+}
+
+export interface ClosureCapture extends CaptureModeEvidence {
+  readonly type: TyId;
 }
 
 export interface ClosureConstraint {
@@ -438,11 +441,8 @@ export interface ClosureDecision {
 // The ready evidence of one captured local, in the order of the closure's captured locals: its identity, its type, and
 // whether its binding can be reassigned by its declaration. The fact is about the binding, not about the object it holds,
 // and not about whether a reassignment occurs.
-export interface ClosureCaptureEvidence {
-  readonly local: LocalRef;
+export interface ClosureCaptureEvidence extends CaptureModeEvidence {
   readonly value: TypeEvidence;
-  readonly reassignable: boolean;
-  readonly incoming: CaptureSource;
 }
 
 export interface ClosureInput {
@@ -693,6 +693,7 @@ export interface VariableRules {
 }
 
 export interface RuleTable {
+  readonly decideCaptureModes: (input: readonly CaptureModeEvidence[]) => Result<readonly CaptureRow[]>;
   readonly embed: (input: EmbedInput) => Result<RuleOutcome<EmbeddingDecision>>;
   readonly domainFit: (input: DomainFitInput) => Result<RuleOutcome<boolean>>;
   readonly memoryEquivalent: (input: MemoryEquivalentInput) => Result<RuleOutcome<boolean>>;
@@ -725,6 +726,7 @@ export interface RecordedCheck {
 
 export interface BodyTyping {
   readonly body: BodyId;
+  readonly captures: readonly CaptureRow[];
   readonly signature: SigId;
   readonly completion: TyId;
   readonly yielded: TyId | null;

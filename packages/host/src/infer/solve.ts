@@ -2,7 +2,7 @@ import type { Cause, Diagnostic, ErrorValue, Result, UnitAnswerPosition, UnitReq
 import type { TyId } from "../ids/contract.js";
 import type {
   AtomicContribution, Constraint, ConstraintDecision, ConstraintSet, ContributionOutcome, FinalVariable, InferenceGroup,
-  InferenceValue, InferredPartType, RecordedCheck, SolvedConstraint, VariableBound,
+  BodyTyping, CaptureRow, InferenceValue, InferredPartType, RecordedCheck, SolvedConstraint, VariableBound,
 } from "../ir-infer/contract.js";
 import type { GroupConstraints, GroupSolution, InferDeps, InferPaused, InferStep, ResumeSolveGroup, SolveGroup, SolveRequest } from "./contract.js";
 import { requirePresent, resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
@@ -12,6 +12,7 @@ import type { BodyInstance } from "../ir-types/contract.js";
 import { encodeKey } from "../ids/index.js";
 import { callerDefect, notInferredYet, validateInferenceLimits } from "./frontier.js";
 import { ownSignatureRequest } from "./own-signature.js";
+import { bodyCaptureModes } from "./captures.js";
 
 const PORT = "SolveGroup";
 const RESUME = "ResumeSolveGroup";
@@ -32,12 +33,17 @@ export const solveGroup: SolveGroup = (deps, group, constraints, unit) => {
 export const resumeSolveGroup: ResumeSolveGroup = (deps, paused, answers) => {
   validateInferenceLimits(RESUME, deps.limits, deps.graph);
   if (answers.length !== paused.requests.length) return callerDefect(RESUME, `${answers.length} answers for ${paused.requests.length} requests`);
-  const bodies = answers.map((answer, index) => {
+  if (paused.captures.length !== paused.group.bodies.length)
+    return callerDefect(RESUME, "the retained capture rows must belong to every actual group body");
+  const bodies: BodyTyping[] = [];
+  for (const [index, answer] of answers.entries()) {
     const request = present(paused.requests[index], "the actual signature request");
     if (request.kind !== answer.kind) return callerDefect(RESUME, "the signature answer must retain its actual request arm");
-    return { body: present(paused.group.bodies[index], "the actual signature's body"), signature: answer.value.id,
-    completion: answer.value.result, yielded: null, sent: null };
-  });
+    const body = present(paused.group.bodies[index], "the actual signature's body");
+    const captures = present(paused.captures[index], "the actual retained Rules capture rows");
+    bodies.push({ body, captures, signature: answer.value.id,
+      completion: answer.value.result, yielded: null, sent: null });
+  }
   return { kind: "done", value: { kind: "ok", value: { solution: { group: paused.group.id, variables: paused.variables,
     constraints: paused.solved, checks: paused.checks, bodies }, contributions: paused.contributions,
     positions: paused.positions }, diagnostics: [] } };
@@ -245,6 +251,14 @@ function solve(deps: InferDeps, group: InferenceGroup, generated: GroupConstrain
       || variable.signature.part.kind === "field") completions.set(variable.occurrence.body,
       { type: part.type, error: part.error === null ? null : { kind: "error", causes: [{ kind: "unit", unit: part.origin }] } });
   }
+  const captures: (readonly CaptureRow[])[] = [];
+  for (const reference of group.bodies) {
+    const selected = bodyCaptureModes(deps, deps.hirBody(reference), take);
+    if (selected === null) return exhausted();
+    if (selected.kind === "refused") return { kind: "done", value: selected };
+    diagnostics.push(...selected.diagnostics);
+    captures.push(selected.value);
+  }
   const requests: SolveRequest[] = group.bodies.map((reference, position) => {
     const body = deps.hirBody(reference);
     const owner = deps.itemOf(body.owner);
@@ -292,7 +306,7 @@ function solve(deps: InferDeps, group: InferenceGroup, generated: GroupConstrain
   const [firstCause, ...restCauses] = causes;
   positions.push({ position: { kind: "result" }, error: firstCause === undefined ? null : { kind: "error", causes: [firstCause, ...restCauses] } });
   const paused: InferPaused = { unit, positions, group, constraints: generated, contributions: enumerated.map(item => item.contribution), variables: finalized,
-    solved, checks, requests: pending };
+    solved, checks, captures, requests: pending };
   return { kind: "paused", requests: pending, paused, earned: diagnostics };
 }
 
