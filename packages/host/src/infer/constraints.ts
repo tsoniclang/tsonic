@@ -219,7 +219,8 @@ function generate(deps: InferDeps, group: InferenceGroup, signatures: ReadonlyMa
       const pending: Frame[] = [{ kind: "enter", node: body.root }];
       for (let frame = pending.pop(); frame !== undefined; frame = pending.pop()) {
         if (frame.kind === "enter") {
-          if (frame.node.kind === "BinaryExpression" || frame.node.kind === "PrefixUnaryExpression" || frame.node.kind === "CallExpression"
+          if (frame.node.kind === "BinaryExpression" && frame.node.tsonic.role !== "assignment"
+            || frame.node.kind === "PrefixUnaryExpression" || frame.node.kind === "CallExpression"
             || frame.node.kind === "PropertyAccessExpression") {
             const diagnostic = allocate(walk, { kind: "local", local: null, occurrence: refOf(walk, frame.node) });
             if (diagnostic !== null) return refused(diagnostic);
@@ -289,6 +290,7 @@ function childrenOf(node: HirNode): readonly HirNode[] {
   switch (node.kind) {
     case "Block": return node.statements.nodes;
     case "ReturnStatement": return node.expression === null ? [] : [node.expression];
+    case "ExpressionStatement": return [node.expression];
     case "IfStatement": return node.elseStatement === null ? [node.expression, node.thenStatement]
       : [node.expression, node.thenStatement, node.elseStatement];
     case "VariableStatement": return [];
@@ -334,6 +336,16 @@ function leave(walk: Walk, node: HirNode): void {
     walk.typeOf.set(node.id, result);
   }
   else if (node.kind === "BinaryExpression") {
+    if (node.operatorToken.kind === "EqualsToken" && node.tsonic.role === "assignment") {
+      if (node.left.kind !== "Identifier" || node.left.tsonic.role !== "assignment-target" || node.left.tsonic.access !== "write"
+        || node.tsonic.target.kind !== "available" || node.tsonic.target.value.write.kind !== "available"
+        || node.tsonic.target.value.write.value === null)
+        return notInferredYet(PORT, "the actual writable local assignment target", node.origin);
+      const storage = typeAt(walk, node.left);
+      flow(walk, node.right, typeAt(walk, node.right), storage, "assignment", { kind: "body", value: refOf(walk, node.left) });
+      walk.typeOf.set(node.id, storage);
+      return;
+    }
     if (node.operatorToken.kind !== "PlusToken" || node.tsonic.role !== "arithmetic")
       return notInferredYet(PORT, `the binary operator ${node.operatorToken.kind}`, node.origin);
     const result = present(walk.operators.get(node.id), "the actual operator result position");
@@ -388,7 +400,16 @@ function leave(walk: Walk, node: HirNode): void {
 
 function localType(walk: Walk, node: Extract<HirNode, { readonly kind: "Identifier" }>): Slot {
   const name = node.tsonic;
-  if (name.role !== "value") return notInferredYet(PORT, "a value read without its checked value role", node.origin);
+  if (name.role !== "value" && name.role !== "assignment-target") return notInferredYet(PORT, "a local occurrence without its checked value or target role", node.origin);
+  if (name.role === "assignment-target") {
+    const place = name.place;
+    if (name.access !== "write" || name.resolution.kind !== "local" || place.kind !== "available"
+      || place.value.step !== null || place.value.base.kind !== "root" || place.value.base.resolution.kind !== "local"
+      || place.value.base.resolution.local.body !== name.resolution.local.body
+      || place.value.base.resolution.local.local !== name.resolution.local.local
+      || place.value.write.kind !== "available" || place.value.write.value === null)
+      return notInferredYet(PORT, "the actual qualified writable local storage", node.origin);
+  }
   const binding = name.resolution.kind === "binding" ? resolveModuleBinding(walk.generation.deps, name.resolution.occurrence) : null;
   const resolution = binding === null ? name.resolution : binding.target.kind === "available" ? binding.target.value
     : notInferredYet(PORT, "a binding whose actual nearest target is unavailable (" + binding.target.reason + ")", node.origin);

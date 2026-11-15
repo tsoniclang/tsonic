@@ -355,6 +355,27 @@ function negateInteger(machine: Machine, operation: IntegerOperation, result: Co
   return boundedInteger(machine, -operand, Math.max(input.bits, output.bits), output, result, law, site, unwind);
 }
 
+function identityInteger(machine: Machine, operation: IntegerOperation, result: ConstValue["type"],
+  site: MirSite, value: ConstValue): ConstValue | null {
+  const selected = nativeCarrierOf(machine.deps.types, result, type => {
+    if (!arithmetic(machine, 1, site.origin)) return null;
+    return machine.deps.typeOf(type);
+  });
+  if (selected.kind === "resource-stop") return null;
+  if (selected.kind !== "primitive") return fail("Evaluate needs the actual selected integer result carrier association.", site.origin);
+  if (selected.primitive !== operation.carrier)
+    return fail("Evaluate needs the actual Rules-selected unary integer result conversion association.", site.origin);
+  const geometry = nativeIntegerGeometryOf(operation.carrier, machine.deps.selectedNativeFacts, (work, bits) => {
+    if (!arithmetic(machine, work, site.origin)) return false;
+    return bits <= machine.deps.limits.maximumIntermediateBits || limit(machine, "maximumIntermediateBits", site.origin);
+  });
+  if (geometry.kind === "resource-stop") return null;
+  if (geometry.kind !== "integer") return fail("Evaluate needs the actual selected unary integer geometry.", site.origin);
+  const integer = integerValue(machine, value, operation.carrier, geometry, site);
+  return integer === null ? null : { kind: "number", type: result,
+    value: { numerator: integer, denominator: 1n, negativeZero: false } };
+}
+
 function binaryIntegers(
   machine: Machine, operation: Extract<OperationIdentity, { readonly kind: "native-operator" }>,
   result: ConstValue["type"], site: MirSite, unwind: MirUnwind | null, values: readonly ConstValue[],
@@ -462,7 +483,10 @@ function binaryIntegers(
 
 export function integerOperation(machine: Machine, operation: IntegerOperation, result: ConstValue["type"],
   site: MirSite, unwind: MirUnwind | null, values: readonly ConstValue[]): ConstValue | null {
-  return operation.operator === "-" && values.length === 1
+  return operation.operator === "+" && values.length === 1
+    ? identityInteger(machine, operation, result, site, requirePresent(values[0], {
+      owner: "evaluate", query: null, origin: site.origin, message: "The unary identity has its actual operand." }))
+    : operation.operator === "-" && values.length === 1
     ? negateInteger(machine, operation, result, site, unwind, requirePresent(values[0], {
       owner: "evaluate", query: null, origin: site.origin, message: "The negation has its actual operand." }))
     : operation.operator === "+" || operation.operator === "-" || operation.operator === "*"

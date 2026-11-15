@@ -7,7 +7,7 @@ import { nodeId, rawCandidateListId, rawComponentId, rawMemberTableId, rawSignat
 import type * as Hir from "../ir-hir/contract.js";
 import type { RawComponentId, RawSignatureId, RawSymbolId, RawTypeId } from "../ids/contract.js";
 import type {
-  CaptureDeps, CheckedProgram, RawArgumentBinding, RawAuthoredArgument, RawBinding, RawBindingTarget, RawCallSelection, RawCallableAssociation, RawCandidateList, RawCoreCapture, RawCheckedType, RawCheckerViews, RawComponent, RawComponentStep, RawDiagnosticCoverage, RawFact, RawIndexSignature, RawLiteral, RawMember, RawMemberOrigin, RawMemberKey, RawMemberTable, RawMemberUse, RawModule, RawModuleExport, RawModuleLink, RawNodeRef, RawParameter, RawPropertyName, RawProviderDeclaration, RawReference, RawSignature, RawSymbol, RawTypeArgument, RawTypeForm,
+  CaptureDeps, CheckedProgram, RawArgumentBinding, RawAuthoredArgument, RawBinding, RawBindingTarget, RawCallSelection, RawCallableAssociation, RawCandidateList, RawCoreCapture, RawCheckedType, RawCheckerViews, RawComponent, RawComponentStep, RawDiagnosticCoverage, RawFact, RawIndexSignature, RawLiteral, RawMember, RawMemberOrigin, RawMemberKey, RawMemberTable, RawMemberUse, RawModule, RawModuleExport, RawModuleLink, RawNodeRef, RawParameter, RawPropertyName, RawProviderDeclaration, RawReference, RawSignature, RawStorageCapture, RawSymbol, RawTypeArgument, RawTypeForm,
 } from "./contract.js";
 import { ExtensionTable, OpenedProgram } from "./handles.js";
 import type { FileNumbering, FileSyntaxEntry } from "./handles.js";
@@ -844,6 +844,25 @@ function captureSignatureTail(scope: CaptureScope, draft: SignatureDraft): void 
   };
 }
 
+function capturedStorage(scope: CaptureScope, node: Node, occurrence: RawNodeRef): RawStorageCapture | null {
+  if (!admit(scope, "facts")) return null;
+  const selected = scope.checker.getResolvedStorageInfo(node);
+  if (selected === undefined) return { node: occurrence, fact: notProvided() };
+  const expression = referenceTo(scope, scope.program, selected.expression);
+  if (scope.meter.refusal !== null) return null;
+  const storageExpression = referenceTo(scope, scope.program, selected.storageExpression);
+  if (scope.meter.refusal !== null) return null;
+  const declaration = selected.declaration === undefined ? null : referenceTo(scope, scope.program, selected.declaration);
+  if (scope.meter.refusal !== null) return null;
+  if (expression === null || expression.module !== occurrence.module || expression.node !== occurrence.node || storageExpression === null)
+    return throwInvariant(invariant("A captured storage answer must retain its actual expression and storage syntax."));
+  const symbol = selected.symbol === undefined ? null : rawSymbol(scope, selected.symbol);
+  if (selected.symbol !== undefined && symbol === null) return null;
+  const type = rawType(scope, () => selected.type, component(scope, occurrence, []), null);
+  if (type === null) return null;
+  return { node: occurrence, fact: available({ expression, storageExpression, declaration, symbol, type, writable: selected.writable }) };
+}
+
 function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef): RawCallSelection | null {
   const info = scope.checker.getResolvedCallInfo(node);
   if (info === undefined) return throwInvariant(invariant("The checker gave no call evidence for a captured call."));
@@ -973,6 +992,7 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
   const bindings: RawBinding[] = [];
   const propertyNames: RawPropertyName[] = [];
   const memberUses: RawMemberUse[] = [];
+  const storage: RawStorageCapture[] = [];
   let declarationNameRoot: NodeId | null = null;
   capture: for (const [index, node] of nodes.entries()) {
     const reference: RawNodeRef = { module, node: nodeId(index) };
@@ -981,6 +1001,12 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
     const parentId = own.numbering.parents.get(node);
     if (declarationNameRoot !== null && (parentId === null || parentId === undefined || parentId < declarationNameRoot)) declarationNameRoot = null;
     const declarationName = parent !== undefined && ast.name(parent) === node;
+    if (declarationNameRoot === null && kind === "KindIdentifier" && parent !== undefined && ast.kindName(parent) === "KindBinaryExpression"
+      && ast.operatorKindName(parent) === "KindEqualsToken" && ast.children(parent)[0] === node) {
+      const selected = capturedStorage(scope, node, reference);
+      if (selected === null) break;
+      storage.push(selected);
+    }
     if (kind === "KindComputedPropertyName") {
       if (parent !== undefined && (ast.kindName(parent) === "KindPropertySignature" || ast.kindName(parent) === "KindMethodSignature"))
         declarationNameRoot = reference.node;
@@ -1113,7 +1139,7 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
     types: { types: scope.tables.types, components: scope.tables.components, signatures: scope.tables.signatures, members: scope.tables.members,
       symbols: scope.tables.symbols, candidates: scope.tables.candidates, dataLayouts: [], memoryLayouts: [], memoryFields: [] },
     checkerViews: views, calls, callableAssociations: associations, providerDeclarations, references, links, exports, bindings,
-    implementations: [], heritage: [], constructors: [], enums: [], propertyNames, memberUses, protocols: [], storage: [], core,
+    implementations: [], heritage: [], constructors: [], enums: [], propertyNames, memberUses, protocols: [], storage, core,
     checkerDiagnostics, diagnosticCoverage,
   };
   return { kind: "ok", value: raw, diagnostics: checkerDiagnostics };

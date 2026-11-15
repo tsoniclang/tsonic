@@ -31,7 +31,7 @@ const invariant = (message: string): InvariantFailure => ({ owner: "front", quer
  */
 const writtenKinds: readonly string[] = ["SourceFile", "EndOfFile", "ExportKeyword", "FunctionDeclaration", "Parameter",
   "Identifier", "NumberKeyword", "StringKeyword", "BooleanKeyword", "BigIntKeyword", "AnyKeyword", "UnknownKeyword", "NeverKeyword", "ObjectKeyword", "UndefinedKeyword", "VoidKeyword",
-  "Block", "ReturnStatement", "IfStatement", "BinaryExpression", "PrefixUnaryExpression", "PlusToken", "CallExpression", "ExpressionStatement", "ParenthesizedExpression",
+  "Block", "ReturnStatement", "IfStatement", "BinaryExpression", "PrefixUnaryExpression", "PlusToken", "EqualsToken", "CallExpression", "ExpressionStatement", "ParenthesizedExpression",
   "ExportDeclaration", "NamedExports", "ExportSpecifier", "NamespaceExport", "StringLiteral", "TrueKeyword", "FalseKeyword", "NullKeyword",
   "ImportDeclaration", "ImportClause", "NamedImports", "ImportSpecifier", "NamespaceImport",
   "VariableStatement", "VariableDeclarationList", "VariableDeclaration", "InterfaceDeclaration", "TypeAliasDeclaration", "TypeLiteral", "TypeParameter", "PropertySignature",
@@ -165,11 +165,12 @@ interface Lowering extends TypeConversion {
   readonly captureParent: ReadonlyMap<BodyId, BodyId>;
   readonly captures: Map<BodyId, { readonly ordered: LocalRef[]; readonly members: Map<BodyId, Set<LocalRef["local"]>> }>;
   readonly core: ReadonlyMap<NodeId, RawCoreCapture>;
-  readonly storage: ReadonlyMap<NodeId, RawStorageCapture>;
+  readonly storage: Map<NodeId, RawStorageCapture>;
   readonly calls: ReadonlyMap<NodeId, RawCallSelection>;
   readonly candidateLists: Map<BodyId, Hir.HirCandidateList[]>;
   readonly expressions: Map<NodeId, Hir.Expression<Checked>>;
   readonly statements: Map<NodeId, Hir.Statement<Checked>>;
+  readonly assignmentTargets: ReadonlySet<NodeId>;
 }
 
 interface NodeBodies {
@@ -180,6 +181,7 @@ interface NodeBodies {
   readonly children: ReadonlyMap<BodyId, readonly BodyId[]>;
   readonly locals: ReadonlyMap<NodeId, LocalRef>;
   readonly variables: readonly { readonly node: Hir.VariableDeclaration<Syntax>; readonly mutable: boolean; readonly local: LocalRef }[];
+  readonly assignmentTargets: ReadonlySet<NodeId>;
 }
 
 function nodeBodies(raw: RawModule, moduleBody: BodyId, moduleDefinition: DefId, deps: LowerDeps,
@@ -191,12 +193,14 @@ function nodeBodies(raw: RawModule, moduleBody: BodyId, moduleDefinition: DefId,
   const locals = new Map<NodeId, LocalRef>();
   const localCounts = new Map<BodyId, number>();
   const variables: NodeBodies["variables"][number][] = [];
+  const assignmentTargets = new Set<NodeId>();
   type Frame = { readonly node: Hir.SyntaxNode<Syntax>; readonly context: SourceBodyTransition;
     readonly children: Generator<Hir.SyntaxNode<Syntax>, void, undefined>; readonly mutable: boolean };
   const enter = (node: Hir.SyntaxNode<Syntax>, scope: SourceBodyScope, mutable: boolean): Frame => {
     if (!definitionAt.has(node.id) && sourceIdentityName(node, raw.module, properties, definitionAt) !== null)
       definitionAt.set(node.id, deps.definitionOf({ module: raw.module, node: node.id }));
     const body = scope.body;
+    if (node.kind === "BinaryExpression" && node.operatorToken.kind === "EqualsToken") assignmentTargets.add(node.left.id);
     bodies.set(node.id, body);
     const context = enterSourceBody(node, scope, definitionAt);
     const boundary = context.boundary;
@@ -234,7 +238,7 @@ function nodeBodies(raw: RawModule, moduleBody: BodyId, moduleDefinition: DefId,
     }
     pending.push(enter(child, scope, frame.mutable));
   }
-  return { definitions: definitionAt, bodyOf: bodies, captureParent, children, locals, variables };
+  return { definitions: definitionAt, bodyOf: bodies, captureParent, children, locals, variables, assignmentTargets };
 }
 
 function headerOf<P extends Hir.Phase>(node: Hir.NodeHeader): Hir.NodeHeader & Record<never, P> {
@@ -301,15 +305,39 @@ function valueOf(lowering: Lowering, node: NodeId): ConversionResult<Hir.Checked
   if (declared !== null && declared.kind !== "complete") return declared;
   const contextual = views.contextual.kind === "available" && views.contextual.value !== null ? typeOf(lowering, views.contextual.value) : null;
   if (contextual !== null && contextual.kind !== "complete") return contextual;
-  const storage = lowering.storage.get(node);
+  const place = storageOf(lowering, node);
+  if (place.kind !== "complete") return place;
   return { kind: "complete", value: {
     views: { read: views.read.kind === "unavailable" ? views.read
       : { kind: "available", value: read?.value ?? throwInvariant(invariant("An available read requires its completed checked type.")) },
       declared: views.declared.kind === "unavailable" ? views.declared : { kind: "available", value: declared?.value ?? null },
       contextual: views.contextual.kind === "unavailable" ? views.contextual : { kind: "available", value: contextual?.value ?? null } },
-    place: storage === undefined ? { kind: "unavailable", reason: "not-provided", causes: [] } : capturedFact(storage.fact, absenceOnly("storage place")),
+    place: place.value,
     memory: memoryOf(lowering, node), observation: capturedFact(core.layoutQuery, absenceOnly("layout query")),
   } };
+}
+
+function storageOf(lowering: Lowering, node: NodeId): ConversionResult<Hir.CapturedFact<Hir.HirStoragePlace | null>> {
+  const captured = lowering.storage.get(node);
+  if (captured === undefined) return { kind: "complete", value: { kind: "unavailable", reason: "not-provided", causes: [] } };
+  const fact = captured.fact;
+  if (fact.kind === "unavailable") { lowering.storage.delete(node); return { kind: "complete", value: fact }; }
+  if (fact.value === null) { lowering.storage.delete(node); return { kind: "complete", value: { kind: "available", value: null } }; }
+  const selected = fact.value;
+  const local = selected.declaration?.module === lowering.raw.module ? lowering.locals.get(selected.declaration.node) : undefined;
+  const resolution = resolutionOf(lowering, node, lowering.references.get(node));
+  const symbol = lowering.views.get(node)?.symbol;
+  if (captured.node.module !== lowering.raw.module || captured.node.node !== node
+    || selected.expression.module !== lowering.raw.module || selected.expression.node !== node
+    || selected.storageExpression.module !== lowering.raw.module || selected.storageExpression.node !== node
+    || symbol?.kind === "available" && symbol.value !== selected.symbol
+    || local === undefined || resolution.kind !== "local" || resolution.local.body !== local.body || resolution.local.local !== local.local)
+    throw new TypeError("front: a local storage capture must retain its actual expression, declaration and qualified local");
+  const type = typeOf(lowering, selected.type);
+  if (type.kind !== "complete") return type;
+  lowering.storage.delete(node);
+  return { kind: "complete", value: { kind: "available", value: { base: { kind: "root", resolution }, step: null,
+    read: { kind: "available", value: type.value }, write: { kind: "available", value: selected.writable ? type.value : null } } } };
 }
 
 function token<K extends Hir.TokenSyntaxKind>(node: Hir.Token<Syntax, K>): Hir.Token<Checked, K> {
@@ -428,13 +456,34 @@ function buildExpression(lowering: Lowering, node: Hir.Expression<Syntax>): Conv
         tsonic: { core: coreOf(lowering, node.id), role: "value", value: value.value } } };
     case "Identifier": {
       const resolution = resolutionOf(lowering, node.id, lowering.references.get(node.id));
+      if (lowering.assignmentTargets.has(node.id)) {
+        const place = value.value.place;
+        let target: Hir.CapturedFact<Hir.HirStoragePlace>;
+        if (place.kind === "unavailable") target = place;
+        else {
+          const selected = place.value;
+          if (selected === null) throw new TypeError("front: an assignment target requires its actual captured storage place");
+          target = { kind: "available", value: selected };
+        }
+        return { kind: "complete", value: { ...headerOf(node), kind: "Identifier", text: node.text,
+          tsonic: { core: coreOf(lowering, node.id), role: "assignment-target", resolution, views: value.value.views, place: target, access: "write" } } };
+      }
       return { kind: "complete", value: { ...headerOf(node), kind: "Identifier", text: node.text, tsonic: { core: coreOf(lowering, node.id), role: "value", value: value.value, resolution } } };
     }
-    case "BinaryExpression":
+    case "BinaryExpression": {
+      if (node.operatorToken.kind === "EqualsToken") {
+        const left = expression(lowering, node.left);
+        if (left.kind !== "Identifier" || left.tsonic.role !== "assignment-target")
+          throw new TypeError("front: a plain assignment requires its actual selected storage target");
+        return { kind: "complete", value: { ...headerOf(node), kind: "BinaryExpression", modifiers: null, left, type: null,
+          operatorToken: token(node.operatorToken), right: expression(lowering, node.right),
+          tsonic: { core: coreOf(lowering, node.id), role: "assignment", value: value.value, target: left.tsonic.place } } };
+      }
       if (node.operatorToken.kind !== "PlusToken") return throwInvariant(invariant("A binary operator of an unwritten kind passed the written-kinds check."));
       return { kind: "complete", value: { ...headerOf(node), kind: "BinaryExpression", modifiers: null, left: expression(lowering, node.left), type: null,
         operatorToken: token(node.operatorToken), right: expression(lowering, node.right),
         tsonic: { core: coreOf(lowering, node.id), role: "arithmetic", value: value.value } } };
+    }
     case "CallExpression": {
       const application = applicationOf(lowering, node);
       if (application.kind !== "complete") return application;
@@ -740,6 +789,18 @@ function memberUsesOf(raw: RawModule): Map<NodeId, RawMemberUse> {
   return uses;
 }
 
+function storageCaptures(raw: RawModule): Map<NodeId, RawStorageCapture> {
+  const rows = new Map<NodeId, RawStorageCapture>();
+  let previous = -1;
+  for (const row of raw.storage) {
+    if (row.node.module !== raw.module || row.node.node <= previous)
+      throw new TypeError("front: storage captures retain their actual module and unique syntax order");
+    previous = row.node.node;
+    rows.set(row.node.node, row);
+  }
+  return rows;
+}
+
 function moduleLinks(raw: RawModule): ReadonlyMap<NodeId, RawModuleLink> {
   const links = new Map<NodeId, RawModuleLink>();
   for (const link of raw.links) {
@@ -763,8 +824,9 @@ export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<Hir.HirM
   const variableLocals = new Map<BodyId, Hir.HirLocal[]>();
   const lowering: Lowering = {
     ...createTypeConversion(deps, raw), bodyOf: structure.bodyOf, definitionAt, captureParent: structure.captureParent, captures: new Map(),
+    assignmentTargets: structure.assignmentTargets,
     core: new Map(raw.core.filter(entry => entry.node.module === raw.module).map(entry => [entry.node.node, entry])),
-    storage: new Map(raw.storage.filter(entry => entry.node.module === raw.module).map(entry => [entry.node.node, entry])),
+    storage: storageCaptures(raw),
     views: new Map(raw.checkerViews.filter(view => view.node.module === raw.module).map(view => [view.node.node, view])),
     references: referenceTargets(raw), links: moduleLinks(raw), memberUses: memberUsesOf(raw),
     propertyNames,
@@ -790,6 +852,8 @@ export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<Hir.HirM
   if (statements.kind !== "complete") return publicationRefusal(raw, statements);
   if (lowering.memberUses.size !== 0)
     return throwInvariant(invariant("Every captured member use must project to its actual selected syntax."));
+  if (lowering.storage.size !== 0)
+    throw new TypeError("front: every captured storage row must project to its actual executing expression");
   const tree: Hir.SourceFile<Checked> = { ...headerOf(raw.tree), kind: "SourceFile",
     statements: { loc: raw.tree.statements.loc, nodes: raw.tree.statements.nodes.map(child => statement(lowering, child)) },
     endOfFileToken: token(raw.tree.endOfFileToken), languageVariant: raw.tree.languageVariant, scriptKind: raw.tree.scriptKind,

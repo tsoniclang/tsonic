@@ -262,6 +262,14 @@ function negationFixture(name, carrier, type, operand, law = "wrap", result = ty
   return { ...value, deps, run: (given = deps, body = value.body) => product.evaluate(given, value.entry, body, [], "compile-time", value.unit) };
 }
 
+function identityFixture(name, carrier, type, operand, facts = nativeFactsFixture()) {
+  const decision = selected({ kind: "native-operator", operator: "+", carrier }, [type], type);
+  const value = fixture(name, type, builder => builder.block(builder.returns(
+    builder.prefix(builder.num(String(operand), type), "PlusToken", type, decision))), [], facts);
+  const deps = { ...value.deps, limits: { ...limits, maximumArithmeticWork: 10000 } };
+  return { ...value, deps, run: (given = deps, body = value.body) => product.evaluate(given, value.entry, body, [], "compile-time", value.unit) };
+}
+
 function subtractionFixture(name, carrier, type, left, right, law = "wrap", result = type, resultCarrier = carrier) {
   const execution = law === "wrap" ? { kind: "pure" } : { kind: "invocation", writesStorage: false, failure: law };
   const decision = selected({ kind: "native-operator", operator: "-", carrier }, [type, type], result, execution);
@@ -874,6 +882,67 @@ test("selected integer negation executes its actual supplied native wrapping law
   }
 });
 
+test("native unary integer identity retains exact supplied carriers without reading an overflow law", () => {
+  for (const [carrier, type] of comparisonTypes) {
+    const unsigned = carrier === "uint64" || carrier === "native-uint";
+    const operand = carrier === "int8" ? -128n : unsigned ? 9007199254740993n : -9007199254740993n;
+    const value = identityFixture(`evaluate-unary-identity.${carrier}`, carrier, type, operand);
+    const unread = new Proxy([], { get() { assert.fail("Unary identity has no overflow operation to select."); } });
+    const result = value.run({ ...value.deps, selectedNativeFacts: { ...value.deps.selectedNativeFacts, integerOverflow: unread } });
+    same(result.value.value, { kind: "value", value: { kind: "number", type,
+      value: { numerator: operand, denominator: 1n, negativeZero: false } } }, "native identity never coerces through double or performs binary addition");
+  }
+  for (const [carrier, type] of comparisonTypes.filter(([carrier]) => carrier === "native-int" || carrier === "native-uint")) {
+    const operand = 1n << 120n;
+    const value = identityFixture(`evaluate-unary-identity.supplied.${carrier}`, carrier, type, operand,
+      { ...nativeFactsFixture(), nativeIntegerWidths: [{ carrier, bits: 137 }] });
+    assert.equal(value.run().value.value.value.value.numerator, operand, "the same supplied137-bit geometry reaches MIR and evaluation");
+  }
+});
+
+test("unary integer identity admits exact geometry and operand validation before every allowance cut", () => {
+  const [carrier, type] = comparisonTypes[0];
+  const value = identityFixture("evaluate-unary-identity.work", carrier, type, 1n);
+  const required = 1 + 1 + 3 * 8 + 1 + 1 + 2 * 8;
+  for (let maximum = 0; maximum <= required; maximum += 1) {
+    const result = value.run({ ...value.deps, limits: { ...value.deps.limits, maximumArithmeticWork: maximum } });
+    assert.equal(result.value.kind, maximum < required ? "refused" : "ok", `identity work:${maximum}`);
+    if (maximum < required) same(result.value.diagnostics[0].arguments,
+      [{ kind: "text", value: "evaluation.maximumArithmeticWork" }, { kind: "number", value: maximum }], "same original arithmetic refusal");
+  }
+  for (const [dimension, required] of [["maximumIntermediateBits", 8], ["maximumResultBits", 2]])
+    for (let maximum = 0; maximum <= required; maximum += 1)
+      assert.equal(value.run({ ...value.deps, limits: { ...value.deps.limits, [dimension]: maximum } }).value.kind,
+        maximum < required ? "refused" : "ok", `${dimension}:${maximum}`);
+  let reads = 0;
+  const result = value.run({ ...value.deps, limits: { ...limits, maximumArithmeticWork: 0 },
+    typeOf: () => { reads += 1; assert.fail("A refused identity does not read its result type."); } });
+  assert.equal(result.value.kind, "refused");
+  assert.equal(reads, 0);
+});
+
+test("unary integer identity retains missing native geometry and actual result conversion frontiers", () => {
+  const [carrier, type] = comparisonTypes[0];
+  const value = identityFixture("evaluate-unary-identity.missing", carrier, type, 1n);
+  const changed = (carrier, result = type) => {
+    const body = structuredClone(value.body);
+    const decision = body.blocks.flatMap(block => block.statements).find(row => row.value?.kind === "unary").value.operation.decision;
+    decision.operation.carrier = carrier;
+    decision.result = result;
+    return body;
+  };
+  assert.throws(() => value.run({ ...value.deps, typeOf: () => ({ kind: "shape", members: [], indexes: [], calls: [], constructs: [] }) }),
+    /actual selected integer result carrier association/u);
+  assert.throws(() => value.run(value.deps, changed(carrier, T.int32)), /actual Rules-selected unary integer result conversion association/u);
+  assert.throws(() => value.run(value.deps, changed("bool", T.bool)), /actual selected unary integer geometry/u);
+  const native = comparisonTypes.find(row => row[0] === "native-int");
+  const supplied = identityFixture("evaluate-unary-identity.native", native[0], native[1], 256n);
+  assert.throws(() => supplied.run({ ...supplied.deps, selectedNativeFacts: { ...supplied.deps.selectedNativeFacts, nativeIntegerWidths: [] } }),
+    /actual selected unary integer geometry/u);
+  assert.throws(() => supplied.run({ ...supplied.deps, selectedNativeFacts: { ...supplied.deps.selectedNativeFacts,
+    nativeIntegerWidths: [{ carrier: native[0], bits: 9 }] } }), /operand must fit its supplied native carrier/u);
+});
+
 test("integer negation retains supplied result geometry and real failure arms without a fabricated fault value", () => {
   const [carrier, type] = comparisonTypes[0];
   const wider = negationFixture("evaluate-negation.widen", carrier, type, -128n, "unwind", T.int32, "int32");
@@ -1033,7 +1102,9 @@ test("integer addition keeps malformed and unavailable actual ready inputs disti
   const body = structuredClone(value.body);
   const statement = body.blocks.flatMap(block => block.statements).find(statement => statement.value?.kind === "binary");
   statement.value = { kind: "unary", operation: statement.value.operation, operand: statement.value.left };
-  assert.throws(() => value.run(value.deps, body), /two actual operands/u);
+  statement.value.operation.decision.operation.operator = "*";
+  assert.throws(() => value.run({ ...value.deps, selectedNativeFacts: { ...value.deps.selectedNativeFacts,
+    integerOverflow: [{ carrier, operation: "multiply", result: carrier, law: "wrap" }] } }, body), /two actual operands/u);
   for (const row of [
     { carrier, operation: "subtract", result: carrier, law: "wrap" },
     { carrier, operation: "add", result: "int32", law: "wrap" },
@@ -1773,7 +1844,7 @@ test("invocations evaluate operands once, preserve their continuation and retain
     const result = run(make({ kind, declaration: "D[M[P[p];m];operation]", bindings: EMPTY_BINDINGS }));
     same(result.value.value, { kind: "not-constant", at: site.tir, reason: "external-operation" }, "external selected operation has no invented value");
   }
-  assert.throws(() => run(make({ kind: "native-operator", operator: "+", carrier: "int32" })), /actual selected native operation law/u);
+  assert.throws(() => run(make({ kind: "native-operator", operator: "+", carrier: "int32" })), /actual Rules-selected unary integer result conversion association/u);
   assert.throws(() => run(make({ kind: "native-operator", operator: "-", carrier: "int32" })), /actual selected native operation law/u);
   assert.throws(() => run(make({ kind: "native-operator", operator: "<", carrier: "int32" }, [])), /two actual operands/u);
   assert.throws(() => run(make({ kind: "bigint-operator", operator: "+" })), /actual selected native operation law/u);

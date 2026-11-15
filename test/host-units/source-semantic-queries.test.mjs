@@ -400,6 +400,43 @@ for (const annotation of ["boolean", null]) test(`real ${annotation ?? "inferred
   assert.equal(program.database.trace().some(event => event.kind === "dependency" && event.state === "active"), false);
 });
 
+test("actual plain local assignment retains the RHS embedding and writable target without a fabricated operator decision", () => {
+  const program = ready("export function store(a:boolean):boolean{a=true;return a;}");
+  const body = program.checked.bodies.find(candidate => candidate.root.kind === "Block");
+  const group = program.inputs.groups.find(candidate => candidate.bodies.includes(body.body));
+  const completed = program.database.run(program.queries.solutionOf, group.id);
+  assert.equal(completed.kind, "completed");
+  assert.equal(completed.diagnostics.length, 0);
+  const constraints = completed.value.constraints.constraints.find(candidate => candidate.body === body.body);
+  const checked = body.root.statements.nodes[0].expression;
+  const flow = constraints.constraints.find(candidate => candidate.kind === "flow" && candidate.role === "assignment");
+  assert.equal(flow.occurrence.node, checked.right.id);
+  assert.equal(constraints.constraints.some(candidate => candidate.kind === "op" && candidate.occurrence.node === checked.id), false);
+  const deps = { types: program.interner, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf,
+    bindingOf: program.inputs.inference.bindingOf, typeOf: type => fixture.types.readType(program.interner, type),
+    signatureOf: signature => fixture.types.readSignature(program.interner, signature), checkerDiagnosticsOf: () => program.checked.checkerDiagnostics };
+  const input = { instance: { body: body.body, bindings: { kind: "parametric" } }, scope: program.descriptions.get(body.owner).generics,
+    body, constraints, solution: completed.value.solution, template: null, nestedBodies: [], initializers: [] };
+  const result = wiring.elaborate.elaborate(deps, input);
+  assert.equal(result.kind, "ok");
+  const actual = result.value.root.statements.nodes[0].expression;
+  assert.equal(actual.tsonic.role, "assignment");
+  assert.equal(actual.tsonic.calculation, null);
+  assert.equal(actual.tsonic.selection, null);
+  assert.equal(actual.tsonic.storage, result.value.locals[0].storage);
+  assert.equal(actual.left.tsonic.role, "assignment-target");
+  assert.equal("type" in actual.left.tsonic, false);
+  assert.deepEqual(actual.left.tsonic.access, { kind: "write", storage: actual.tsonic.storage });
+  assert.equal(actual.right.tsonic.convertedType, actual.tsonic.storage);
+  assert.equal(actual.right.tsonic.conversion.kind, "convert");
+  assert.equal(actual.right.tsonic.conversion.role, "assignment");
+  const original = checked.left.tsonic;
+  checked.left.tsonic = { ...original, access: "read-write" };
+  assert.throws(() => wiring.elaborate.elaborate(deps, input), /actual qualified writable storage type/u);
+  checked.left.tsonic = original;
+  assert.equal(wiring.elaborate.elaborate(deps, input).kind, "ok");
+});
+
 for (const [authored, annotation, kind, expected] of [
   ["true", "boolean", "boolean", true], ["false", "boolean", "boolean", false],
   ['""', "string", "string", ""], ['"a\\nΩ"', "string", "string", "a\nΩ"],

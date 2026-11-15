@@ -252,7 +252,8 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
     if (component.kind !== "body" || component.value.body !== body.body || readEvidence.has(component.value.node)) continue;
     readEvidence.add(component.value.node);
     const node = nodes[positionOf(component.value)];
-    if (node?.kind !== "Identifier" || node.tsonic.role !== "value" || node.tsonic.resolution.kind !== "local") continue;
+    if (node?.kind !== "Identifier" || node.tsonic.role !== "value" && node.tsonic.role !== "assignment-target"
+      || node.tsonic.resolution.kind !== "local") continue;
     const reference = node.tsonic.resolution.local;
     const slot = captureLocals.get(reference.body)?.get(reference.local);
     if (slot === undefined || slot === null) continue;
@@ -311,13 +312,13 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
   const block = (node: Block<CheckedPhase>): Block<TypedPhase> => ({ ...header(node), kind: "Block", multiLine: node.multiLine, tsonic: null,
     statements: { loc: node.statements.loc, nodes: node.statements.nodes.map(statementOf) } });
 
-  const binaryRoles: ("arithmetic" | "comparison" | undefined)[] = [];
-  const names: ({ readonly resolution: TirResolution; readonly storage: TyId } | undefined)[] = [];
+  const binaryRoles: ("arithmetic" | "comparison" | "assignment" | undefined)[] = [];
+  const names: ({ readonly resolution: TirResolution; readonly storage: TyId; readonly role: "value" | "assignment-target" } | undefined)[] = [];
   const visited = (node: HirNode): InvariantFailure => failure("compiler defect", `a ${node.kind} built without its visit`, node.origin);
 
   const admitName = (node: Identifier<CheckedPhase>, position: number): void => {
     const checked = node.tsonic;
-    if (checked.role !== "value") return notElaboratedYet(`a name of role ${checked.role}`, node.origin);
+    if (checked.role !== "value" && checked.role !== "assignment-target") return notElaboratedYet(`a name of role ${checked.role}`, node.origin);
     const binding = checked.resolution.kind === "binding" ? resolveModuleBinding(deps, checked.resolution.occurrence) : null;
     const resolution = binding === null ? checked.resolution : binding.target.kind === "available" ? binding.target.value
       : notElaboratedYet("a binding whose actual nearest target is unavailable (" + binding.target.reason + ")", node.origin);
@@ -326,7 +327,8 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
       const storage = calleeTypes.get(node.id);
       if (resolution.definitions.length !== 1 || definition === undefined || storage === undefined)
         return notElaboratedYet("the selected declaration-value type and alias relation", node.origin);
-      names[position] = { resolution: { kind: "definition", definition, aliases: binding?.aliases ?? [] }, storage };
+      if (checked.role !== "value") return notElaboratedYet("an assignment to a declaration value", node.origin);
+      names[position] = { resolution: { kind: "definition", definition, aliases: binding?.aliases ?? [] }, storage, role: checked.role };
       return;
     }
     if (resolution.kind !== "local") return notElaboratedYet(`a name resolving to a ${resolution.kind}`, node.origin);
@@ -334,23 +336,46 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
       : captureLocals.get(resolution.local.body)?.get(resolution.local.local);
     const storage = slot === undefined || slot === null ? undefined : storageOf[slot];
     if (storage === undefined) return callerDefect("a name resolving to no actual owned or captured local storage", node.origin);
-    names[position] = { resolution: { kind: "local", local: resolution.local }, storage };
+    if (checked.role === "assignment-target") {
+      const place = checked.place;
+      if (checked.access !== "write" || place.kind !== "available" || place.value.step !== null
+        || place.value.base.kind !== "root" || place.value.base.resolution.kind !== "local"
+        || place.value.base.resolution.local.body !== resolution.local.body || place.value.base.resolution.local.local !== resolution.local.local
+        || place.value.write.kind !== "available" || place.value.write.value !== storage)
+        return callerDefect("a plain assignment target retains its actual qualified writable storage type", node.origin);
+    }
+    names[position] = { resolution: { kind: "local", local: resolution.local }, storage, role: checked.role };
   };
   const admitBinary = (node: BinaryExpression<CheckedPhase>, position: number): void => {
     if (node.modifiers !== null || node.type !== null) notElaboratedYet("a binary expression with modifiers or a type", node.origin);
     const role = node.tsonic.role;
-    if (role !== "arithmetic" && role !== "comparison") return notElaboratedYet(`a binary expression of role ${role}`, node.origin);
+    if (role !== "arithmetic" && role !== "comparison" && role !== "assignment") return notElaboratedYet(`a binary expression of role ${role}`, node.origin);
+    if (role === "assignment" && (node.operatorToken.kind !== "EqualsToken" || node.left.kind !== "Identifier"
+      || node.left.tsonic.role !== "assignment-target" || node.tsonic.target.kind !== "available"))
+      return notElaboratedYet("a plain assignment without its checked local target", node.origin);
     binaryRoles[position] = role;
   };
 
   const identifier = (node: Identifier<CheckedPhase>, position: number): Identifier<TypedPhase> => {
     const name = requirePresent(names[position], visited(node));
+    if (name.role === "assignment-target") return { ...header(node), kind: "Identifier", text: node.text,
+      tsonic: { role: "assignment-target", resolution: name.resolution, access: { kind: "write", storage: name.storage } } };
     return { ...header(node), kind: "Identifier", text: node.text,
       tsonic: { role: "value", resolution: name.resolution, ...valueOf(position, name.storage, node.origin) } };
   };
 
   const binary = (node: BinaryExpression<CheckedPhase>, position: number): BinaryExpression<TypedPhase> => {
     const role = requirePresent(binaryRoles[position], visited(node));
+    if (role === "assignment") {
+      const left = expressionOf(node.left);
+      const right = expressionOf(node.right);
+      if (left.kind !== "Identifier" || left.tsonic.role !== "assignment-target" || left.tsonic.access.kind !== "write")
+        return callerDefect("a plain assignment retains its actual typed writable local", node.origin);
+      const storage = left.tsonic.access.storage;
+      return { ...header(node), kind: "BinaryExpression", modifiers: null, type: null, left,
+        operatorToken: { ...header(node.operatorToken), kind: node.operatorToken.kind, tsonic: null }, right,
+        tsonic: { role, storage, calculation: null, selection: null, ...valueOf(position, storage, node.origin) } };
+    }
     const operation = operations[position] ?? compilerDefect("open position: no operator decision at the binary expression", node.origin);
     read.operations.add(position);
     const token = node.operatorToken;
@@ -382,6 +407,10 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
         else visit(value);
         return;
       }
+      case "ExpressionStatement":
+        if (building) statements[position] = { ...header(node), kind: "ExpressionStatement", expression: expressionOf(node.expression), tsonic: null };
+        else visit(node.expression);
+        return;
       case "IfStatement":
         if (building) statements[position] = { ...header(node), kind: "IfStatement", expression: expressionOf(node.expression),
           thenStatement: statementOf(node.thenStatement), elseStatement: node.elseStatement === null ? null : statementOf(node.elseStatement), tsonic: null };

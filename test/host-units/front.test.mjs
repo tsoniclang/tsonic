@@ -1965,7 +1965,7 @@ test("K-3340: views, storage places, memory and layout observations keep present
   const binary = raw.checkerViews.find(view => view.node.node === 13);
   const present = lower(withView({ kind: "available", value: binary.read.value }));
   assert.deepEqual(present.at(13).value.views.declared, { kind: "available", value: present.float64 });
-  // A storage row: proven absence and an unavailable place are kept; a present place is a named frontier.
+  // A storage row keeps absence and unavailability; a present local place requires its genuine declaration association.
   const withStorage = fact => ({ ...raw, storage: [{ node: { module, node: 14 }, fact }] });
   for (const reason of ["checker-error", "parameter-dependent", "not-provided", "missing-original-component", "incomplete-association", "unsupported-checked-structure"]) {
     const fact = unavailable(reason);
@@ -1981,7 +1981,7 @@ test("K-3340: views, storage places, memory and layout observations keep present
   assert.deepEqual(lower(withStorage(absent)).at(14).value.place, absent);
   assert.deepEqual(lower(withStorage(unavailable("checker-error"))).at(14).value.place, { kind: "unavailable", reason: "checker-error", causes: [] });
   assert.throws(() => lower(withStorage({ kind: "available", value: { expression: { module, node: 14 }, storageExpression: { module, node: 14 }, type: binary.read.value,
-    symbol: null, declaration: null, writable: false } })), { name: "TypeError", message: "front: the lowering of a present fact (storage place) is not implemented" });
+    symbol: null, declaration: null, writable: false } })), { name: "TypeError", message: "front: a local storage capture must retain its actual expression, declaration and qualified local" });
   // Core facts keep their reasons, markers included; memory comes from the node's metadata.
   assert.deepEqual(lower(withCore(4, "metadata", unavailable("parameter-dependent"))).at(4).memory, { kind: "unavailable", reason: "parameter-dependent", causes: [] });
   assert.deepEqual(lower(withCore(4, "markers", unavailable("checker-error"))).at(4).core.markers, { kind: "unavailable", reason: "checker-error", causes: [] });

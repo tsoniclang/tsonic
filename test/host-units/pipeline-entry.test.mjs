@@ -59,7 +59,19 @@ test("real public Host analysis retains an omitted initializer's actual captured
   assert.notEqual(summary, undefined);
   assert.equal(summary.writes.length, 1);
   assert.deepEqual(summary.contentsOnReturn, summary.writes);
+  assert.equal(summary.initialization.points.some(point => point.kind === "need"), false);
+  const returned = summary.initialization.points.findIndex(point => point.kind === "return");
+  assert.equal(returned >= 0, true);
+  assert.deepEqual(summary.initialization.rows.filter(row => row.point === returned),
+    [{ point: returned, cell: null, condition: 0 }, { point: returned, cell: 0, condition: 1 }]);
+  const mutations = child.facts[0].origins.writes.filter(row => row.targets.length !== 0);
+  assert.equal(mutations.length, 1);
+  assert.equal(mutations[0].operation, "mutation");
+  assert.deepEqual(mutations[0].targets, [child.facts[0].arena.contexts[0].captures[0].location]);
   assert.deepEqual(caller.facts.map(facts => facts.execution.provided), [1, 2]);
+  assert.deepEqual(caller.facts.map(facts => facts.origins.activations.length), [1, 0]);
+  assert.equal(caller.facts[0].origins.exitContents.onReturn.length, 1);
+  assert.equal(caller.facts[1].origins.exitContents.onReturn.length, 0);
 });
 
 test("real public Host analysis preserves an imported generic declaration's actual constraint and default", async () => {
