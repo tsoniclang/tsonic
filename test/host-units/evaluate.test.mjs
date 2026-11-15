@@ -262,6 +262,111 @@ function negationFixture(name, carrier, type, operand, law = "wrap", result = ty
   return { ...value, deps, run: (given = deps, body = value.body) => product.evaluate(given, value.entry, body, [], "compile-time", value.unit) };
 }
 
+function subtractionFixture(name, carrier, type, left, right, law = "wrap", result = type, resultCarrier = carrier) {
+  const execution = law === "wrap" ? { kind: "pure" } : { kind: "invocation", writesStorage: false, failure: law };
+  const decision = selected({ kind: "native-operator", operator: "-", carrier }, [type, type], result, execution);
+  const value = fixture(name, result, builder => builder.block(builder.returns(builder.arithmetic(
+    builder.num(String(left), type), "MinusToken", builder.num(String(right), type), result, decision))));
+  const facts = { ...value.deps.selectedNativeFacts, integerOverflow: [{ carrier, operation: "subtract", result: resultCarrier, law }] };
+  const deps = { ...value.deps, selectedNativeFacts: facts, limits: { ...limits, maximumArithmeticWork: 10000 } };
+  return { ...value, deps, run: (given = deps, body = value.body) => product.evaluate(given, value.entry, body, [], "compile-time", value.unit) };
+}
+
+test("selected integer subtraction applies the actual supplied native law without negating its right operand", () => {
+  const [carrier, type] = comparisonTypes[0];
+  for (const [left, right, expected] of [[3n, 2n, 1n], [1n, -128n, -127n], [-128n, 1n, 127n], [127n, -1n, -128n], [-128n, -128n, 0n]]) {
+    const value = subtractionFixture(`evaluate-subtraction.${left}.${right}`, carrier, type, left, right);
+    same(value.run().value.value, { kind: "value", value: { kind: "number", type,
+      value: { numerator: expected, denominator: 1n, negativeZero: false } } }, "exact subtraction, including an unnegatable signed minimum");
+  }
+  for (const [carrier, type] of comparisonTypes.slice(1)) {
+    const unsigned = carrier === "uint64" || carrier === "native-uint";
+    const left = unsigned ? 0n : -9223372036854775808n;
+    const right = unsigned ? 18446744073709551615n : 9223372036854775807n;
+    const value = subtractionFixture(`evaluate-subtraction.exact.${carrier}`, carrier, type, left, right);
+    if (carrier === "native-int") assert.equal(value.deps.selectedNativeFacts.nativeIntegerWidths.find(row => row.carrier === carrier).bits, 128);
+    assert.equal(value.run().value.value.value.value.numerator, carrier === "native-int" ? -18446744073709551615n : 1n);
+    if (carrier === "native-int" || carrier === "native-uint") {
+      const narrow = subtractionFixture(`evaluate-subtraction.supplied.${carrier}`, carrier, type, unsigned ? 0n : -256n,
+        unsigned ? 511n : 255n);
+      const result = narrow.run({ ...narrow.deps, selectedNativeFacts: { ...narrow.deps.selectedNativeFacts,
+        nativeIntegerWidths: [{ carrier, bits: 9 }] } });
+      assert.equal(result.value.value.value.value.numerator, 1n);
+    }
+  }
+});
+
+test("integer subtraction bounds complete results under supplied widening, narrowing and failure laws", () => {
+  const [carrier, type] = comparisonTypes[0];
+  const wide = subtractionFixture("evaluate-subtraction.wide", carrier, type, 127n, -128n, "unwind", T.int32, "int32");
+  assert.equal(wide.run().value.value.value.value.numerator, 255n);
+  for (const law of ["wrap", "unwind", "abort"]) {
+    const exact = subtractionFixture(`evaluate-subtraction.cancellation.${law}`, "int32", T.int32, 1000n, 999n, law, type, carrier);
+    assert.equal(exact.run().value.value.value.value.numerator, 1n);
+    const unsigned = comparisonTypes.find(row => row[0] === "uint64");
+    const changedSign = subtractionFixture(`evaluate-subtraction.changed-sign.${law}`, carrier, type, 0n, -1n, law, unsigned[1], unsigned[0]);
+    assert.equal(changedSign.run().value.value.value.value.numerator, 1n);
+    const signed = subtractionFixture(`evaluate-subtraction.unsigned-input.${law}`, unsigned[0], unsigned[1], 0n, 1n, law, type, carrier);
+    assert.equal(signed.run().value.value.value.value.numerator, -1n);
+    for (const [left, right, expected] of [[4n, 2n, 2n], [-4n, -2n, -2n], [127n, -1n, -128n], [-128n, 1n, 127n], [-128n, -128n, 0n]]) {
+      const value = subtractionFixture(`evaluate-subtraction.failure.${law}.${left}.${right}`, carrier, type, left, right, law);
+      const result = value.run();
+      if (law !== "wrap" && (left === 127n || left === -128n && right === 1n)) {
+        assert.equal(result.value.value.value.kind, "error");
+        assert.equal(result.value.diagnostics.length, 1);
+        assert.equal(result.value.diagnostics[0].code.name, "TSONIC_CONSTANT_EVALUATION_FAILED");
+      } else assert.equal(result.value.value.value.value.numerator, expected);
+    }
+  }
+  const wrapped = subtractionFixture("evaluate-subtraction.narrow-wrap", "int32", T.int32, 128n, -128n, "wrap", type, carrier);
+  assert.equal(wrapped.run().value.value.value.value.numerator, 0n);
+  const trapped = subtractionFixture("evaluate-subtraction.caught-fault", carrier, type, -128n, 1n, "unwind");
+  const body = structuredClone(trapped.body);
+  body.blocks.find(block => block.terminator.kind === "invoke").terminator.unwind = { kind: "handler", target: 0, exception: 0 };
+  assert.throws(() => trapped.run(trapped.deps, body), /actual selected overflow fault value/u);
+});
+
+test("integer subtraction admits each represented operation on the original arithmetic and bit allowances", () => {
+  const [carrier, type] = comparisonTypes[0];
+  for (const [left, right, needed] of [[3n, 2n, 86], [-128n, 1n, 86], [127n, -1n, 94]]) {
+    const value = subtractionFixture(`evaluate-subtraction.work.${left}.${right}`, carrier, type, left, right);
+    for (let maximum = 0; maximum <= needed; maximum += 1) {
+      const result = value.run({ ...value.deps, limits: { ...value.deps.limits, maximumArithmeticWork: maximum } });
+      assert.equal(result.value.kind, maximum < needed ? "refused" : "ok", `actual subtraction work ${maximum}`);
+      if (maximum < needed) same(result.value.diagnostics[0].arguments,
+        [{ kind: "text", value: "evaluation.maximumArithmeticWork" }, { kind: "number", value: maximum }], "original subtraction refusal");
+    }
+  }
+  const value = subtractionFixture("evaluate-subtraction.bits", carrier, type, 3n, 2n);
+  for (const [dimension, needed] of [["maximumIntermediateBits", 8], ["maximumResultBits", 2]])
+    for (let maximum = 0; maximum <= needed; maximum += 1)
+      assert.equal(value.run({ ...value.deps, limits: { ...value.deps.limits, [dimension]: maximum } }).value.kind,
+        maximum < needed ? "refused" : "ok");
+  const narrowed = subtractionFixture("evaluate-subtraction.output-work", "int32", T.int32, 1000n, 999n, "unwind", type, carrier);
+  for (let maximum = 0; maximum <= 352; maximum += 1)
+    assert.equal(narrowed.run({ ...narrowed.deps, limits: { ...narrowed.deps.limits, maximumArithmeticWork: maximum } }).value.kind,
+      maximum < 352 ? "refused" : "ok");
+  const rows = [];
+  rows.length = 10000;
+  Object.defineProperty(rows, 0, { get() { assert.fail("No subtraction row payload after refusal."); } });
+  assert.equal(value.run({ ...value.deps, selectedNativeFacts: { ...value.deps.selectedNativeFacts, integerOverflow: rows },
+    limits: { ...value.deps.limits, maximumArithmeticWork: 1 } }).value.kind, "refused");
+});
+
+test("integer subtraction requires its own supplied operation law and actual carrier geometry", () => {
+  const [carrier, type] = comparisonTypes[0];
+  const value = subtractionFixture("evaluate-subtraction.ready-inputs", carrier, type, 3n, 2n);
+  for (const rows of [[], [{ carrier, operation: "add", result: carrier, law: "wrap" }],
+    [{ carrier, operation: "negate", result: carrier, law: "wrap" }]])
+    assert.throws(() => value.run({ ...value.deps, selectedNativeFacts: { ...value.deps.selectedNativeFacts, integerOverflow: rows } }),
+      /actual selected native operation law for integer subtraction/u);
+  const malformed = structuredClone(value.body);
+  malformed.blocks.flatMap(block => block.statements).find(statement => statement.value?.kind === "binary").value.operation.decision.operation.carrier = "bool";
+  assert.throws(() => value.run({ ...value.deps, selectedNativeFacts: { ...value.deps.selectedNativeFacts,
+    integerOverflow: [{ carrier: "bool", operation: "subtract", result: carrier, law: "wrap" }] } }, malformed),
+    /actual selected integer subtraction geometry/u);
+});
+
 test("selected integer negation executes its actual supplied native wrapping law", () => {
   const [carrier, type] = comparisonTypes[0];
   for (const [operand, expected] of [[0n, 0n], [1n, -1n], [-1n, 1n], [-128n, -128n]]) {
@@ -363,9 +468,9 @@ test("integer negation keeps absent or malformed selected inputs distinct from a
   const missing = negationFixture("evaluate-negation.native-width", native[0], native[1], 1n);
   assert.throws(() => missing.run({ ...missing.deps, selectedNativeFacts: { ...missing.deps.selectedNativeFacts, nativeIntegerWidths: [] } }),
     /actual selected integer negation geometry/u);
-  const subtract = selected({ kind: "native-operator", operator: "-", carrier }, [type, type], type);
-  const pending = fixture("evaluate-negation.binary-subtraction-frontier", type, builder => builder.block(builder.returns(
-    builder.arithmetic(builder.num("2", type), "MinusToken", builder.num("1", type), type, subtract))));
+  const multiply = selected({ kind: "native-operator", operator: "*", carrier }, [type, type], type);
+  const pending = fixture("evaluate-negation.binary-multiplication-frontier", type, builder => builder.block(builder.returns(
+    builder.arithmetic(builder.num("2", type), "AsteriskToken", builder.num("1", type), type, multiply))));
   assert.throws(() => pending.start(), /actual selected native operation law/u);
 });
 
