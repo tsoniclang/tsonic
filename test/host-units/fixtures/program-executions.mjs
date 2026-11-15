@@ -1,3 +1,5 @@
+import { createAccount, remainingWork, accountFailure, refuseAccount, chargeWork } from "../../../packages/host/dist/dataflow/index.js";
+import { verificationTypes } from "../../../packages/host/dist/ir-program/verification-work.js";
 import { ProgramWork } from "../../../packages/host/dist/ir-program/work.js";
 import assert from "node:assert/strict";
 import { isDeepStrictEqual } from "node:util";
@@ -14,6 +16,23 @@ const complete = result => {
 const rules = result => complete(result).map(row => row.rule);
 
 export async function executionCases(suite) {
+await suite.test("Program borrows the enclosing account and preserves its original refusal across all verification entries", () => {
+  const fixture = moduleFixture();
+  const account = createAccount({ maximumWork: 7, maximumResultEntries: 10 });
+  fixture.context.resources = program.createProgramVerificationWork(ProgramWork.state(fixture.context.resources).limits, account);
+  assert.equal(chargeWork(account, 7), null);
+  const original = chargeWork(account, 1);
+  assert.equal(accountFailure(account), original);
+  assert.equal(program.verifyProgramIndex(fixture.index, fixture.context), original);
+  assert.equal(program.verifyModuleBodies(fixture.index, null, fixture.context), original);
+  assert.throws(() => program.verifyProgramIndex({ ...fixture.index, types: structuredClone(fixture.index.types) }, fixture.context), /another published type table/u);
+  const next = moduleFixture();
+  const second = ProgramWork.state(next.context.resources).account;
+  const refusal = { kind: "refused", diagnostics: [] };
+  refuseAccount(second, refusal);
+  assert.equal(program.verifyModuleBodies(next.index, null, next.context), refusal);
+  assert.equal(program.verifyProgramIndex(next.index, next.context), refusal);
+});
 await suite.test("the Program retains the exact selected native record identity once without owning a second record", () => {
   const fixture = moduleFixture();
   assert.deepEqual(program.verifyProgramIndex(fixture.index, fixture.context), { kind: "complete", violations: [] });
@@ -122,7 +141,7 @@ await suite.test("index and module verification share original carrier-read refu
       const selectedNativeFacts = { ...fixture.context.selectedNativeFacts, floatingFormats: [{ carrier: primitive, interchange,
         nanSignObservable: true, nanPayloadObservable: true, signalingNaNObservable: true }] };
       fixture.context = { ...fixture.context, selectedNativeFacts, nativeFactsKey: nativeFactsKey(selectedNativeFacts),
-        resources: program.createProgramVerificationWork({ ...ProgramWork.state(fixture.context.resources).limits, maximumWork }) };
+        resources: program.createProgramVerificationWork({ ...ProgramWork.state(fixture.context.resources).limits, maximumWork }, createAccount({ maximumWork: maximumWork, maximumResultEntries: 1000000000 })) };
       fixture.index.nativeFactsKey = fixture.context.nativeFactsKey;
       fixture.index.constants = [{ reference: { initializer: fixture.instance, context: "compile-time" },
         value: { kind: "floating", type: 3, bits } }];
@@ -130,10 +149,10 @@ await suite.test("index and module verification share original carrier-read refu
       assert.equal(Array.isArray(result), false, "the removed index array result is never returned");
       if (maximumWork >= 3) {
         assert.deepEqual(result, { kind: "complete", violations: [] });
-        assert.equal(ProgramWork.state(fixture.context.resources).work, 3, "two literal-base rows and one primitive row");
+        assert.equal((maximumWork - remainingWork(ProgramWork.state(fixture.context.resources).account)), 3, "two literal-base rows and one primitive row");
       } else {
-        assert.deepEqual(result, { kind: "resource-limit", site: { kind: "index" }, dimension: "work", maximum: maximumWork });
-        assert.equal(ProgramWork.state(fixture.context.resources).work, maximumWork);
+        assert.deepEqual(result, { kind: "resource-limit", dimension: "work", maximum: maximumWork });
+        assert.equal((maximumWork - remainingWork(ProgramWork.state(fixture.context.resources).account)), maximumWork);
         assert.equal("violations" in result, false, "refusal publishes no partial earlier findings");
         const repeated = program.verifyProgramIndex(fixture.index, { ...fixture.context, selectedNativeFacts: undefined,
           tirOf: () => { throw new Error("No dependent reader after the original refusal"); } });
@@ -180,11 +199,11 @@ await suite.test("Facts artifact selection refuses duplicate executions and neve
   const bindings = { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] };
   const selected = { kind: "facts", body: fixture.bodyId, provided: 0 };
   fixture.module.bodies[0].facts.push(structuredClone(fixture.module.bodies[0].facts[0]));
-  assert.throws(() => program.instantiate(fixture.index, fixture.module, selected, bindings, ProgramWork.state(fixture.context.resources).limits),
+  assert.throws(() => program.instantiate(fixture.index, fixture.module, selected, bindings, { ...ProgramWork.state(fixture.context.resources).limits, maximumWork: 10000 }),
     error => error instanceof TypeError && error.message === "Duplicate execution facts artifact");
   const other = moduleFixture("other.ts");
   assert.equal(program.instantiate(fixture.index, fixture.module, { ...selected, body: other.bodyId }, bindings,
-    ProgramWork.state(fixture.context.resources).limits).kind, "missing-binding-artifact");
+    { ...ProgramWork.state(fixture.context.resources).limits, maximumWork: 10000 }).kind, "missing-binding-artifact");
 });
 
 await suite.test("declared summary publication rewrites complete binding values without changing endpoint or entry", () => {
@@ -194,9 +213,9 @@ await suite.test("declared summary publication rewrites complete binding values 
   const bindings = { kind: "instantiated", bindings: { classBindings: [{ kind: "bound", parameter, type: 1 }],
     methodBindings: [], capturedBindings: [], selfBindings: [] } };
   const key = { kind: "declared", execution: { request: { definition: fixture.definition, endpoint: "api-signature", ordinal: 2, bindings }, provided: 1 } };
-  const summary = { key, signature: 0, arena: { projections: [], producers: [], contexts: [], boundProducers: [],
+  const summary = { key, signature: 0, arena: { cells: [], projections: [], producers: [], contexts: [], boundProducers: [],
     origins: [{ id: 0, kind: "complete", producers: [], includesAbsence: false }], boundaries: [] },
-    parameters: [], captures: [], result: 0, thrown: 0, writes: [], retention: [], callbacks: [], invocationOnlyParameters: [],
+    parameters: [], captures: [], result: 0, thrown: 0, writes: [], retention: [], callbacks: [], concurrentWrites: [], contentsOnReturn: [], contentsOnUnwind: [], returns: true, unwinds: false, initialization: { cells: [], events: [], conditions: [{ alternatives: [] }, { alternatives: [[]] }], points: [{ kind: "return" }], rows: [{ point: 0, cell: null, condition: 0 }] }, resultCells: [], backing: [],
     suspends: false, bindingDependent: false };
   fixture.index.summaries = [summary];
   const publication = { table: { terms: [{ kind: "string" }, { kind: "intrinsic", intrinsic: "void" }],
@@ -284,14 +303,14 @@ await suite.test("static observations have one separate instance document withou
 await suite.test("type seed work refusal is sticky and rooted at the actual index without constructing an interner", () => {
   for (const [field, dimension] of [["maximumWork", "work"], ["maximumCreatedRecords", "created-records"]]) {
     const fixture = moduleFixture();
-    Object.assign(ProgramWork.state(fixture.context.resources).limits, { ...ProgramWork.state(fixture.context.resources).limits, [field]: 0 });
+    fixture.context.resources = program.createProgramVerificationWork({ ...ProgramWork.state(fixture.context.resources).limits, ...(field === "maximumCreatedRecords" ? { maximumCreatedRecords: 0 } : {}) }, createAccount({ maximumWork: field === "maximumWork" ? 0 : 10000, maximumResultEntries: 10000 }));
     const first = program.verifyModuleBodies(fixture.index, fixture.module, fixture.context);
-    assert.deepEqual(first, { kind: "resource-limit", site: { kind: "index" }, dimension, maximum: 0 });
+    assert.deepEqual(first, dimension === "work" ? { kind: "resource-limit", dimension, maximum: 0 } : { kind: "resource-limit", site: { kind: "index" }, dimension, maximum: 0 });
     assert.equal(ProgramWork.state(fixture.context.resources).seed.kind, "refused");
-    const counters = [ProgramWork.state(fixture.context.resources).work, ProgramWork.state(fixture.context.resources).created];
+    const counters = [(10000 - remainingWork(ProgramWork.state(fixture.context.resources).account)), ProgramWork.state(fixture.context.resources).created];
     const second = program.verifyModuleBodies(fixture.index, { ...fixture.module, bodies: [] }, fixture.context);
     assert.equal(first === second, true, "same invocation retains its actual first refusal");
-    assert.deepEqual([ProgramWork.state(fixture.context.resources).work, ProgramWork.state(fixture.context.resources).created], counters);
+    assert.deepEqual([(10000 - remainingWork(ProgramWork.state(fixture.context.resources).account)), ProgramWork.state(fixture.context.resources).created], counters);
   }
 });
 
@@ -299,11 +318,11 @@ await suite.test("successful same-invocation verification reuses its exact seed;
   const fixture = moduleFixture();
   assert.deepEqual(complete(program.verifyModuleBodies(fixture.index, fixture.module, fixture.context)), []);
   const original = ProgramWork.state(fixture.context.resources).seed;
-  const work = ProgramWork.state(fixture.context.resources).work;
+  const work = (10000 - remainingWork(ProgramWork.state(fixture.context.resources).account));
   const created = ProgramWork.state(fixture.context.resources).created;
   assert.deepEqual(complete(program.verifyModuleBodies(fixture.index, fixture.module, fixture.context)), []);
   assert.equal(ProgramWork.state(fixture.context.resources).seed === original, true);
-  assert.equal(ProgramWork.state(fixture.context.resources).work, work, "empty observations and no metadata do not reseed");
+  assert.equal((10000 - remainingWork(ProgramWork.state(fixture.context.resources).account)) > work, true, "reverification charges its actual traversal while reusing the seed");
   assert.equal(ProgramWork.state(fixture.context.resources).created, created);
   const other = moduleFixture();
   assert.deepEqual(complete(program.verifyModuleBodies(other.index, other.module, other.context)), []);
@@ -314,16 +333,16 @@ await suite.test("seed admission has exact shared work/record boundaries before 
   const work = 3 + 1 + 9 + 1;
   const created = 1 + 1 + 1;
   const exact = moduleFixture();
-  Object.assign(ProgramWork.state(exact.context.resources).limits, { ...ProgramWork.state(exact.context.resources).limits, maximumWork: work, maximumCreatedRecords: created });
-  assert.deepEqual(complete(program.verifyModuleBodies(exact.index, exact.module, exact.context)), []);
-  assert.deepEqual([ProgramWork.state(exact.context.resources).work, ProgramWork.state(exact.context.resources).created], [work, created], "one intrinsic row+two fields, one signature row+nine fields, one result-reference record");
+  exact.context.resources = program.createProgramVerificationWork({ ...ProgramWork.state(exact.context.resources).limits, maximumCreatedRecords: created }, createAccount({ maximumWork: work, maximumResultEntries: 10000 }));
+  assert.equal(verificationTypes(exact.index, exact.context.resources).kind, "complete");
+  assert.deepEqual([work - remainingWork(ProgramWork.state(exact.context.resources).account), ProgramWork.state(exact.context.resources).created], [work, created], "one intrinsic row+two fields, one signature row+nine fields, one result-reference record");
   assert.equal(ProgramWork.state(exact.context.resources).seed.kind, "seeded");
   for (const [field, value, dimension] of [["maximumWork", work - 1, "work"], ["maximumCreatedRecords", created - 1, "created-records"]]) {
     const fixture = moduleFixture();
-    Object.assign(ProgramWork.state(fixture.context.resources).limits, { ...ProgramWork.state(fixture.context.resources).limits, [field]: value });
-    assert.deepEqual(program.verifyModuleBodies(fixture.index, fixture.module, fixture.context), {
-      kind: "resource-limit", site: { kind: "index" }, dimension, maximum: value,
-    });
+    fixture.context.resources = program.createProgramVerificationWork({ ...ProgramWork.state(fixture.context.resources).limits, ...(field === "maximumCreatedRecords" ? { maximumCreatedRecords: value } : {}) }, createAccount({ maximumWork: field === "maximumWork" ? value : 10000, maximumResultEntries: 10000 }));
+    assert.deepEqual(verificationTypes(fixture.index, fixture.context.resources), dimension === "work"
+      ? { kind: "resource-limit", dimension, maximum: value }
+      : { kind: "resource-limit", site: { kind: "index" }, dimension, maximum: value });
     assert.equal(ProgramWork.state(fixture.context.resources).seed.kind, "refused");
     assert.equal("types" in ProgramWork.state(fixture.context.resources).seed, false, "a refused admission cannot contain even a partial seeded interner");
   }
@@ -345,7 +364,7 @@ await suite.test("signature omission capability admits the sixth parameter field
       const meter = createInstantiationMeter({ ...limits, maximumWork, maximumCreatedRecords: seedRecords });
       assert.deepEqual(admitTypeSeed(meter, table), maximumWork < seedWork
         ? { kind: "resource-limit", dimension: "work", maximum: maximumWork } : null);
-      assert.equal(meter.work, Math.min(maximumWork, seedWork));
+      assert.equal((maximumWork - remainingWork(meter.account)), Math.min(maximumWork, seedWork));
       if (maximumWork >= seedWork) assert.equal(meter.created, seedRecords);
     }
     const records = createInstantiationMeter({ ...limits, maximumWork: seedWork, maximumCreatedRecords: seedRecords - 1 });
@@ -353,7 +372,7 @@ await suite.test("signature omission capability admits the sixth parameter field
     const shared = createInstantiationMeter({ ...limits, maximumWork: seedWork * 2, maximumCreatedRecords: seedRecords * 2 });
     assert.equal(admitTypeSeed(shared, table), null);
     assert.equal(admitTypeSeed(shared, table), null);
-    assert.deepEqual([shared.work, shared.created], [seedWork * 2, seedRecords * 2]);
+    assert.deepEqual([(seedWork * 2 - remainingWork(shared.account)), shared.created], [seedWork * 2, seedRecords * 2]);
     const publication = { table, types: [0], signatures: [0] };
     const transportWork = 1 + 1 + 3 + 1 + 9 + 1 + 1 + 6 + 1;
     const transportRecords = 1 + 1 + 1;
@@ -367,7 +386,7 @@ await suite.test("signature omission capability admits the sixth parameter field
         assert.equal(result.types.signatures[0].parameters[0].acceptsOmission, acceptsOmission);
         assert.equal(meter.created, transportRecords);
       }
-      assert.equal(meter.work, Math.min(maximumWork, transportWork));
+      assert.equal((maximumWork - remainingWork(meter.account)), Math.min(maximumWork, transportWork));
     }
     const parameter = { ...table.signatures[0].parameters[0], get type() { throw new Error("no parameter reference read after field refusal"); } };
     const unread = { ...table, signatures: [{ ...table.signatures[0], parameters: [parameter] }] };
@@ -389,7 +408,7 @@ await suite.test("a seed cannot be reused for another published table even when 
 await suite.test("the same invocation preserves its original refused stop at the owning handoff", async () => {
   const { refuseVerification } = await import("../../../packages/host/dist/ir-program/verification-work.js");
   const fixture = moduleFixture();
-  ProgramWork.state(fixture.context.resources).limits.maximumWork = 0;
+  fixture.context.resources = program.createProgramVerificationWork(ProgramWork.state(fixture.context.resources).limits, createAccount({ maximumWork: 0, maximumResultEntries: 10000 }));
   const original = program.verifyModuleBodies(fixture.index, fixture.module, fixture.context);
   assert.equal(original.kind, "resource-limit");
   assert.equal(refuseVerification(fixture.index, fixture.context.resources, {
@@ -407,7 +426,7 @@ await suite.test("a required execution never invents the first MIR entry when th
 
 await suite.test("the opaque verification account starts at zero and validates expansion bounds before any seed", () => {
   const fresh = moduleFixture();
-  assert.deepEqual([ProgramWork.state(fresh.context.resources).work, ProgramWork.state(fresh.context.resources).created], [0, 0]);
+  assert.deepEqual([(10000 - remainingWork(ProgramWork.state(fresh.context.resources).account)), ProgramWork.state(fresh.context.resources).created], [0, 0]);
   assert.equal(ProgramWork.state(fresh.context.resources).seed.kind, "unseeded");
   assert.throws(() => program.verifyModuleBodies(fresh.index, fresh.module, {
     ...fresh.context, resources: { limits: ProgramWork.state(fresh.context.resources).limits, work: 0, created: 0, seed: { kind: "unseeded" } },
@@ -428,41 +447,41 @@ await suite.test("Facts artifact selection keeps actual provided count independe
   published.facts = [two, zero];
   const bindings = { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] };
   for (const provided of [0, 2]) {
-    const result = program.instantiate(fixture.index, fixture.module, { kind: "facts", body: fixture.bodyId, provided }, bindings, ProgramWork.state(fixture.context.resources).limits);
+    const result = program.instantiate(fixture.index, fixture.module, { kind: "facts", body: fixture.bodyId, provided }, bindings, { ...ProgramWork.state(fixture.context.resources).limits, maximumWork: 10000 });
     assert.equal(result.kind, "instantiated", "constructed artifact selector found its exact execution");
     assert.equal(result.artifact.kind, "facts");
     assert.equal(result.artifact.facts.execution.provided, provided);
     assert.equal(artifactBindingsKey(result.artifact.facts.execution.instance.bindings), artifactBindingsKey({ kind: "instantiated", bindings }));
   }
   assert.equal(program.instantiate(fixture.index, fixture.module, { kind: "facts", body: fixture.bodyId, provided: 1 }, bindings,
-    ProgramWork.state(fixture.context.resources).limits).kind, "missing-binding-artifact", "no first-vector or default-zero selection");
+    { ...ProgramWork.state(fixture.context.resources).limits, maximumWork: 10000 }).kind, "missing-binding-artifact", "no first-vector or default-zero selection");
 });
 
 await suite.test("Summary artifact selectors retain target, endpoint, ordinal and provided count with only one binding authority", () => {
   const fixture = moduleFixture();
   const bindings = { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] };
-  const arena = { projections: [], producers: [], contexts: [], boundProducers: [], origins: [{ id: 0, kind: "complete", producers: [], includesAbsence: false }], boundaries: [] };
+  const arena = { cells: [], projections: [], producers: [], contexts: [], boundProducers: [], origins: [{ id: 0, kind: "complete", producers: [], includesAbsence: false }], boundaries: [] };
   const common = { signature: 0, arena, parameters: [], captures: [], result: 0, thrown: 0, writes: [], retention: [], callbacks: [],
-    invocationOnlyParameters: [], suspends: false, bindingDependent: false };
+    concurrentWrites: [], contentsOnReturn: [], contentsOnUnwind: [], returns: true, unwinds: false, initialization: { cells: [], events: [], conditions: [{ alternatives: [] }, { alternatives: [[]] }], points: [{ kind: "return" }], rows: [{ point: 0, cell: null, condition: 0 }] }, resultCells: [], backing: [], suspends: false, bindingDependent: false };
   const selected = { kind: "declared", execution: { request: { definition: fixture.definition, endpoint: "api-signature", ordinal: 2,
     bindings: { kind: "parametric" } }, provided: 1 } };
   fixture.index.summaries = [{ ...common, key: { kind: "body", execution: { instance: fixture.instance, provided: 0 } } }, { ...common, key: selected }];
   const reference = { kind: "summary", target: "declared", definition: fixture.definition, endpoint: "api-signature", ordinal: 2, provided: 1 };
-  const result = program.instantiate(fixture.index, fixture.module, reference, bindings, ProgramWork.state(fixture.context.resources).limits);
+  const result = program.instantiate(fixture.index, fixture.module, reference, bindings, { ...ProgramWork.state(fixture.context.resources).limits, maximumWork: 10000 });
   assert.equal(result.kind, "instantiated");
   assert.equal(isDeepStrictEqual(result.artifact.summary.key, { kind: "declared", execution: { request: { ...selected.execution.request,
     bindings: { kind: "instantiated", bindings } }, provided: 1 } }), true, "one complete selected endpoint plus the one supplied environment");
   for (const opposite of [{ ...reference, endpoint: "advertised" }, { ...reference, ordinal: 0 }, { ...reference, provided: 0 }]) {
-    assert.equal(program.instantiate(fixture.index, fixture.module, opposite, bindings, ProgramWork.state(fixture.context.resources).limits).kind, "missing-binding-artifact");
+    assert.equal(program.instantiate(fixture.index, fixture.module, opposite, bindings, { ...ProgramWork.state(fixture.context.resources).limits, maximumWork: 10000 }).kind, "missing-binding-artifact");
   }
-  const body = program.instantiate(fixture.index, fixture.module, { kind: "summary", target: "body", body: fixture.bodyId, provided: 0 }, bindings, ProgramWork.state(fixture.context.resources).limits);
+  const body = program.instantiate(fixture.index, fixture.module, { kind: "summary", target: "body", body: fixture.bodyId, provided: 0 }, bindings, { ...ProgramWork.state(fixture.context.resources).limits, maximumWork: 10000 });
   assert.equal(body.kind, "instantiated");
   assert.equal(body.artifact.summary.key.kind, "body");
   assert.equal(body.artifact.summary.key.execution.provided, 0);
   assert.equal(facts.parseSummary(facts.printSummary(result.artifact.summary)).kind, "parsed");
   assert.equal(facts.parseSummary('Summary(key=SummaryKey(definition=def:"removed", bindings=parametric()))').kind, "invalid-text", "obsolete declaration-only keys are rejected");
   fixture.index.summaries[1].bindingDependent = true;
-  assert.equal(program.instantiate(fixture.index, fixture.module, reference, bindings, ProgramWork.state(fixture.context.resources).limits).kind,
+  assert.equal(program.instantiate(fixture.index, fixture.module, reference, bindings, { ...ProgramWork.state(fixture.context.resources).limits, maximumWork: 10000 }).kind,
     "missing-binding-artifact", "a binding-dependent template cannot substitute for the actual required computed summary");
 });
 

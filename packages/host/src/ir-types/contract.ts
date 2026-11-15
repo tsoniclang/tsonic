@@ -161,6 +161,10 @@ export interface BindingVerificationInput {
   readonly scope: BindingScope;
 }
 
+export type VerifyBindings = <Stop extends object>(bindings: readonly BindingVerificationInput[], typeCount: number,
+  admit: (work: number, entries: number) => Stop | null) =>
+  | { readonly kind: "complete"; readonly violations: readonly Violation<TypeRule, TypeSite>[] }
+  | { readonly kind: "resource-stop"; readonly stop: Stop };
 export interface NominalDefinition {
   readonly kind: "declared" | "enum";
   readonly facets: readonly ("instance" | "value")[];

@@ -1,3 +1,4 @@
+import { verificationAccount, verificationStops } from "./facts-verification.mjs";
 import assert from "node:assert/strict";
 import { isDeepStrictEqual } from "node:util";
 import { parseObservations, printObservations, verifyObservations } from "../../../packages/host/dist/ir-facts/index.js";
@@ -48,10 +49,11 @@ function observationFixture(selected = null) {
   };
   const nodes = ref => same(ref, at) ? node : same(ref, descriptor) ? descriptorNode : null;
   return { fixture, source, node, descriptorNode, descriptor, capture, metadata, observations, bindings, parameter,
-    input: { source, bodyOf: () => null, nodeOf: nodes, facts, types: seedTypeInterner(fixture.index.types), typeExpansion: expansion() } };
+    input: { account: verificationAccount(), source, bodyOf: () => null, nodeOf: nodes, facts, types: seedTypeInterner(fixture.index.types), typeExpansion: expansion() } };
 }
 
 function rules(value) {
+  verificationStops(account => verifyObservations(value.observations, { ...value.input, account, types: seedTypeInterner(value.fixture.index.types) }));
   const result = verifyObservations(value.observations, value.input);
   assert.equal(result.kind, "complete", "constructed static observation verification completed");
   return result.violations.map(row => row.rule);
@@ -73,8 +75,7 @@ function fieldObservationFixture(selected = null) {
   value.metadata.layouts.push({ id: 1, occurrence: value.descriptor, source: owner, dataLayout: value.fixture.definition,
     byteSize: 16n, byteAlignment: 8n, stride: 16n, kind: "value", fields: [0] });
   value.metadata.root = 1;
-  value.metadata.fields = [{ id: 0, occurrence: field, owner, selector: field, selection: field, member, primary: fieldDefinition,
-    selectedDeclarations: [fieldDefinition], value: 1, layout: 0, byteOffset: 8n, byteAlignment: 8n }];
+  value.metadata.fields = [{ id: 0, occurrence: field, owner, selector: field, selection: field, member: { key: member.decision.key, origins: member.decision.origins, selectedDeclarations: member.decision.selectedDeclarations, primary: member.decision.primary, bindings: member.decision.bindings }, value: 1, layout: 0, byteOffset: 8n, byteAlignment: 8n }];
   value.descriptorNode.tsonic.value.memory.value.geometry.source = available(owner);
   value.descriptorNode.tsonic.value.memory.value.fields = available([field]);
   const fieldNode = { ...value.descriptorNode, id: 0, tsonic: { ...value.descriptorNode.tsonic, value: {
@@ -196,6 +197,17 @@ await suite.test("parametric descriptors preserve exact rigid owner and slot ide
   value.observations.rows[0].bindings = value.capture.bindings.value;
   value.input.facts.bindingScopesOf = () => [{ ...value.fixture.scope, classParameters: [value.parameter] }];
   assert.deepEqual(rules(value), []);
+  const scope = { ...value.fixture.scope, classParameters: [value.parameter], selfOwners: [value.fixture.definition] };
+  const rigid = { ...value.capture.bindings.value, selfBindings: [{ kind: "rigid", owner: value.fixture.definition }] };
+  value.capture.bindings = available(rigid);
+  value.descriptorNode.tsonic.value.memory.value.bindings = available(rigid);
+  value.observations.rows[0].bindings = rigid;
+  value.input.facts.bindingScopeOf = () => scope;
+  value.input.facts.bindingScopesOf = () => [scope];
+  assert.deepEqual(rules(value), []);
+  value.input.facts.bindingScopeOf = () => null;
+  assert.equal(rules(value).includes("observation-field-exact"), true);
+  value.input.facts.bindingScopeOf = () => scope;
   value.descriptorNode.tsonic.value.memory.value.bindings = available({ ...empty(), classBindings: [
     { kind: "rigid", parameter: { owner: value.parameter.owner, index: 1 } },
   ] });

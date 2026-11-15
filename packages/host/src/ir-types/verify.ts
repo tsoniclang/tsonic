@@ -1,9 +1,10 @@
 import { encodeKey } from "../ids/index.js";
 import type { TyId, SigId, SourceNodeRef } from "../ids/contract.js";
 import type { MessageArgument, Violation } from "../diag/contract.js";
-import type { VerifyTypes, TypeRule, TypeSite, ExactRational, TypeTerm, TypeBinding, TypeParameterIdentity,
+import type { VerifyTypes, TypeRule, TypeSite, ExactRational, TypeTerm, TypeParameterIdentity,
   MemberOrigin, TypeEvidence, TypeVerificationInput, TypeComponent, ConstructionDefinition, Signature,
-  ComponentSelector, SumFamily, CategoryEvidence, BindingVerificationInput } from "./contract.js";
+  ComponentSelector, SumFamily, CategoryEvidence } from "./contract.js";
+import { bindingChecks } from "./verify-bindings.js";
 import { typeIdentifier, signatureIdentifier, compareText } from "./value.js";
 import { memberKeyText, originText, typeText } from "./print.js";
 
@@ -206,43 +207,6 @@ function originsValid(origins: readonly MemberOrigin[], read: readonly MemberOri
     && readKeys.every(origin => keys.has(origin)) && writeKeys.every(origin => keys.has(origin));
 }
 
-function verifyBindings(bindings: readonly BindingVerificationInput[], typeCount: number, add: Add): void {
-  for (const [vectorIndex, entry] of bindings.entries()) {
-    if (entry === undefined) {
-      add("binding-vector-complete", { kind: "binding", vector: vectorIndex, family: null, position: null }, "bindings", vectorIndex);
-      continue;
-    }
-    const { vector, scope } = entry;
-    const families: readonly (readonly ["classBindings" | "methodBindings" | "capturedBindings", readonly TypeBinding[], readonly TypeParameterIdentity[]])[] = [
-      ["classBindings", vector.classBindings, scope.classParameters], ["methodBindings", vector.methodBindings, scope.methodParameters],
-      ["capturedBindings", vector.capturedBindings, scope.capturedParameters],
-    ];
-    for (const [family, actual, expected] of families) {
-      if (actual.length !== expected.length) add("binding-vector-complete", { kind: "binding", vector: vectorIndex, family, position: null }, "length", actual.length);
-      for (const [position, binding] of actual.entries()) {
-        const site: TypeSite = { kind: "binding", vector: vectorIndex, family, position };
-        const selected = expected[position];
-        if (binding === undefined) { add("binding-vector-complete", site, "entry"); continue; }
-        if (position < expected.length && (selected === undefined || parameterKey(binding.parameter) !== parameterKey(selected)))
-          add("binding-vector-complete", site, "parameter");
-        if (binding.kind === "bound" && !validReference(binding.type, typeCount)) add("type-reference", site, "type", binding.type);
-      }
-    }
-    const family = "selfBindings";
-    if (vector.selfBindings.length !== scope.selfOwners.length)
-      add("binding-vector-complete", { kind: "binding", vector: vectorIndex, family, position: null }, "length", vector.selfBindings.length);
-    const owners = new Set(scope.selfOwners);
-    const seen = new Set<string>();
-    for (const [position, binding] of vector.selfBindings.entries()) {
-      const site: TypeSite = { kind: "binding", vector: vectorIndex, family, position };
-      if (binding === undefined) { add("binding-vector-complete", site, "entry"); continue; }
-      if (!owners.has(binding.owner) || seen.has(binding.owner)) add("self-owner", site, "owner");
-      if (scope.selfOwners[position] !== undefined && binding.owner !== scope.selfOwners[position]) add("self-binding-order", site, "owner");
-      if (binding.kind === "bound" && !validReference(binding.type, typeCount)) add("type-reference", site, "type", binding.type);
-      seen.add(binding.owner);
-    }
-  }
-}
 
 function verifyEvidence(evidence: readonly TypeEvidence[], terms: readonly TypeTerm[], checks: Checks): void {
   const { add } = checks;
@@ -391,7 +355,9 @@ export const verifyTypes: VerifyTypes = input => {
       if (parameter.kind === "optional") optional = true;
     }
   }
-  verifyBindings(input.bindings, table.terms.length, add);
+  for (const step of bindingChecks(input.bindings, table.terms.length)) {
+    if (step.kind === "violation") violations.push(step.violation);
+  }
   verifyEvidence(input.evidence, table.terms, checks);
   return (violations);
 };

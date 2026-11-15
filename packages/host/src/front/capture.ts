@@ -610,6 +610,16 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
       bindings.push({ binding: reference, target });
     }
     const bindingName = parent !== undefined && isModuleBindingKind(ast.kindName(parent).replace(/^Kind/u, ""), ast.name(parent) !== undefined);
+    if (kind === "KindVariableDeclaration") {
+      const read = rawType(scope, () => scope.checker.getTypeAtLocation(node), component(scope, reference, []), null);
+      if (read === null) break;
+      const name = ast.name(node);
+      const symbol = name === undefined ? undefined : scope.checker.getSymbolAtLocation(name);
+      const symbolId = symbol === undefined ? null : rawSymbol(scope, symbol);
+      if (symbol !== undefined && symbolId === null) break;
+      if (!admit(scope, "facts")) break;
+      views.push({ node: reference, read: available(read), declared: available(null), contextual: available(null), symbol: available(symbolId) });
+    }
     const moduleExpression = moduleSpecifier(ast, node, parent);
     if (moduleExpression && parent !== undefined) {
       const symbol = scope.checker.getSymbolAtLocation(node);

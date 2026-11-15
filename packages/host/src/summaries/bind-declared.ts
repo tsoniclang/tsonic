@@ -2,7 +2,7 @@ import type { Diagnostic, Result } from "../diag/contract.js";
 import { hostDiagnosticCode } from "../diag/index.js";
 import { encodeKey } from "../ids/index.js";
 import type { BindingVector } from "../ir-types/contract.js";
-import { bindingVectorKey, rigidBindings, signatureRequestKey } from "../ir-types/index.js";
+import { bindingVectorKey, declaredExecutionKey, rigidBindings, signatureRequestKey } from "../ir-types/index.js";
 import type { Summary } from "../ir-facts/contract.js";
 import { memberSelectionKey } from "../ir-tir/index.js";
 import { libraryExportKey } from "../libraries/index.js";
@@ -127,6 +127,9 @@ export const bindDeclaredSummary: BindDeclaredSummary = (deps, input) => {
     || selected.association.signature.id !== deps.signature.id
     || selected.association.signature.declaration !== null
       && selected.association.signature.declaration !== input.execution.request.definition) return failure(input);
-  const summary = translateNativeSummary(input.guarantee.statement, selected, deps.signature, input.execution, lookup);
+  if (declaredExecutionKey(input.cells.execution) !== declaredExecutionKey(input.execution)
+    || libraryExportKey(input.cells.origin) !== libraryExportKey(input.guarantee.statement.identity))
+    throw new TypeError("Native cells retain the same complete selected execution and admitted guarantee origin");
+  const summary = translateNativeSummary(input.guarantee.statement, selected, deps.signature, input.execution, deps.source, input.cells, input.relations, lookup);
   return summary === null ? failure(input) : { kind: "ok", value: summary, diagnostics: [] };
 };

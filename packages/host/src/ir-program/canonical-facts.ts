@@ -1,10 +1,11 @@
 import type {
   ArgumentTransport, BodyFacts, BodyObservations, ClosedArrayFact, MemoryField, MemoryLayout, MetadataFieldRef,
-  MetadataKey, MetadataLayoutRef, MetadataRecord, OriginFacts, ProducerRef, RelationalArena,
-  RelationalOwner, Summary, SummaryKey,
+  MetadataKey, MetadataLayoutRef, MetadataRecord, OriginFacts, ProducerRef, RelationalArena, LogicalCell, StableReference,
+  CallbackExchange, RelationalOwner, Summary, SummaryKey,
 } from "../ir-facts/contract.js";
 import type { TypeRewrite } from "./canonical-types.js";
 import type { Execution } from "../ir-types/contract.js";
+import type { InitializationTable, SummaryPosition } from "../ir-facts/contract.js";
 import { rewriteArtifactBindings, rewriteBindings, rewriteDeclaredExecution, rewriteExecution, rewriteInstance } from "./canonical-types.js";
 import { rewriteCallee, rewriteSelection } from "./canonical-tir.js";
 
@@ -28,7 +29,29 @@ function rewriteTransport(rewrite: TypeRewrite, transport: ArgumentTransport): A
 }
 
 function rewriteArena(rewrite: TypeRewrite, arena: RelationalArena): RelationalArena {
+  const stable = (value: StableReference): StableReference => value.kind === "static" ? {
+    kind: "static", declaration: { definition: value.declaration.definition,
+      bindings: rewriteArtifactBindings(rewrite, value.declaration.bindings) },
+  } : value;
+  const role = (value: LogicalCell): LogicalCell => {
+    if (value.kind === "detached") return value;
+    if (value.kind !== "created") return value.kind === "static" ? {
+      kind: "static", declaration: { definition: value.declaration.definition,
+        bindings: rewriteArtifactBindings(rewrite, value.declaration.bindings) },
+    } : value;
+    return { kind: "created", anchor: value.anchor.kind === "result" ? value.anchor : stable(value.anchor),
+      slot: value.slot.kind === "field" ? { kind: "field", member: {
+        ...value.slot.member, bindings: rewriteBindings(rewrite, value.slot.member.bindings),
+      } } : value.slot };
+  };
   return {
+    cells: arena.cells.map(cell => ({ id: cell.id, role: role(cell.role),
+      occurrence: cell.occurrence.kind === "declared" ? cell.occurrence : cell.occurrence.kind === "entry"
+        ? { kind: "entry", execution: rewriteExecution(rewrite, cell.occurrence.execution), local: cell.occurrence.local }
+        : { kind: "statement", execution: rewriteExecution(rewrite, cell.occurrence.execution), point: cell.occurrence.point },
+      lifetimes: cell.lifetimes.map(marker => ({ kind: marker.kind, execution: rewriteExecution(rewrite, marker.execution),
+        point: marker.point, local: marker.local })),
+    })),
     projections: arena.projections.map(path => {
       switch (path.projection.kind) {
         case "field":
@@ -175,11 +198,60 @@ export function rewriteMetadata(rewrite: TypeRewrite, metadata: MetadataRecord):
   }
 }
 
+function rewriteSummaryPosition(rewrite: TypeRewrite, at: SummaryPosition): SummaryPosition {
+  return at.kind === "body"
+    ? { kind: "body", execution: rewriteExecution(rewrite, at.execution), point: at.point, edge: at.edge }
+    : { kind: "declared", execution: rewriteDeclaredExecution(rewrite, at.execution), source: at.source };
+}
+
+function rewriteInitialization(rewrite: TypeRewrite, table: InitializationTable): InitializationTable {
+  return { cells: table.cells, conditions: table.conditions, rows: table.rows,
+    events: table.events.map(event => ({ kind: event.kind, exit: event.exit,
+      subject: { owner: rewriteRelationalOwner(rewrite, event.subject.owner), producer: event.subject.producer } })),
+    points: table.points.map(point => {
+      switch (point.kind) {
+        case "return": case "unwind": return point;
+        case "before": return { kind: "before", at: rewriteSummaryPosition(rewrite, point.at),
+          subject: { owner: rewriteRelationalOwner(rewrite, point.subject.owner), producer: point.subject.producer } };
+        case "completed": return { kind: "completed", exit: point.exit,
+          handle: { owner: rewriteRelationalOwner(rewrite, point.handle.owner), producer: point.handle.producer } };
+        case "need": return { kind: "need", at: rewriteSummaryPosition(rewrite, point.at), cell: point.cell, witness: {
+          read: point.witness.read, via: point.witness.via.map(row => ({ key: rewriteSummaryKey(rewrite, row.key), row: row.row })),
+        } };
+      }
+    }),
+  };
+}
+
 export function rewriteSummary(rewrite: TypeRewrite, summary: Summary, key: SummaryKey): Summary {
   return {
     key, signature: rewrite.signature(summary.signature), arena: rewriteArena(rewrite, summary.arena),
     parameters: summary.parameters, captures: summary.captures, result: summary.result, thrown: summary.thrown,
-    writes: summary.writes, retention: summary.retention, callbacks: summary.callbacks,
-    invocationOnlyParameters: summary.invocationOnlyParameters, suspends: summary.suspends, bindingDependent: summary.bindingDependent,
+    writes: summary.writes, retention: summary.retention.map(row => ({
+      source: row.source, at: rewriteSummaryPosition(rewrite, row.at), into: row.into,
+    })),
+    callbacks: summary.callbacks.map<CallbackExchange>(callback => {
+      const subject = { owner: rewriteRelationalOwner(rewrite, callback.subject.owner), producer: callback.subject.producer };
+      if (callback.kind === "unknown") {
+        const [first, ...rest] = callback.signatures;
+        return { kind: "unknown", subject,
+          boundary: { owner: rewriteRelationalOwner(rewrite, callback.boundary.owner), boundary: callback.boundary.boundary },
+          signatures: [rewrite.signature(first), ...rest.map(signature => rewrite.signature(signature))],
+          constraint: callback.constraint, invocationOnly: callback.invocationOnly };
+      }
+      return { kind: "known", subject, at: rewriteSummaryPosition(rewrite, callback.at), signature: rewrite.signature(callback.signature),
+        provided: callback.provided, context: callback.context, result: callback.result, thrown: callback.thrown,
+        handle: callback.handle === null ? null : {
+          owner: rewriteRelationalOwner(rewrite, callback.handle.owner), producer: callback.handle.producer,
+        }, timing: callback.timing, shared: callback.shared };
+    }),
+    resultCells: summary.resultCells, backing: summary.backing.map(backing => ({
+      at: rewriteSummaryPosition(rewrite, backing.at), operation: backing.operation, pointer: backing.pointer, cell: backing.cell,
+      use: backing.use.kind === "return" ? backing.use : { kind: "argument", callee: rewriteSummaryKey(rewrite, backing.use.callee),
+        slot: backing.use.slot, passing: backing.use.passing },
+    })),
+    suspends: summary.suspends, bindingDependent: summary.bindingDependent,
+    concurrentWrites: summary.concurrentWrites, contentsOnReturn: summary.contentsOnReturn, contentsOnUnwind: summary.contentsOnUnwind,
+    returns: summary.returns, unwinds: summary.unwinds, initialization: rewriteInitialization(rewrite, summary.initialization),
   };
 }

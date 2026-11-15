@@ -1268,6 +1268,37 @@ test("the frontier check names the first unwritten form in preorder (R3 L-2)", a
 });
 
 // K-3313.1: one declaration-target law. Expectations written before the run.
+test("real checked variables retain separate initializer executions, actual local slots and declaration placement", async () => {
+  const hir = await import("../../packages/host/dist/ir-hir/index.js");
+  const source = 'export const ready: boolean = true, text: string = "ok"; export function select(a: boolean): boolean { const b: boolean = a; let c: boolean; let d: boolean = b; function nested(): boolean { return d; } return b; }';
+  const { checked, interner, definitions } = checkedModuleOf(source);
+  const nodes = hir.indexSyntaxTree(checked.tree);
+  const variables = nodes.filter(node => node.kind === "VariableDeclaration");
+  assert.deepEqual(variables.map(node => node.name.text), ["ready", "text", "b", "c", "d"]);
+  const functionBody = checked.bodies.find(body => body.root.kind === "Block" && body.params.length === 1);
+  assert.deepEqual(functionBody.locals.map(local => [local.id, local.name, local.role, local.mutable]),
+    [[0, "a", "parameter", true], [1, "b", "binding", false], [2, "c", "binding", true], [3, "d", "binding", true]]);
+  const moduleBody = checked.bodies.find(body => body.root === checked.tree);
+  assert.equal(moduleBody.locals.length, 0);
+  for (const variable of variables) {
+    assert.deepEqual(variable.name.tsonic.declaration, variable.tsonic.declaration);
+    if (variable.initializer === null) { assert.equal(variable.tsonic.initializer, null); continue; }
+    const body = checked.bodies.find(body => body.body === variable.tsonic.initializer);
+    assert.equal(body.root === variable.initializer, true, `same initializer syntax for ${variable.name.text}`);
+    assert.equal(body.owner, definitions.rows.find(row => row.node === variable.id).definition);
+    assert.equal(ids.decodeBodyId(body.body).value.role, "initializer");
+    const containing = variable.name.text === "ready" || variable.name.text === "text" ? moduleBody : functionBody;
+    assert.equal(containing.nestedBodies.includes(body.body), true);
+  }
+  const b = variables.find(variable => variable.name.text === "b");
+  const bBody = checked.bodies.find(body => body.body === b.tsonic.initializer);
+  assert.deepEqual(bBody.captures, [{ body: functionBody.body, local: 0 }]);
+  assert.deepEqual(b.initializer.tsonic.resolution, { kind: "local", local: { body: functionBody.body, local: 0 } });
+  const nested = checked.bodies.find(body => body.root.kind === "Block" && body.params.length === 0);
+  assert.deepEqual(nested.captures, [{ body: functionBody.body, local: 3 }]);
+  assert.deepEqual(verifyChecked(checked, interner), []);
+});
+
 test("K-3313.1: parameters target their body-local slot and keep their qualified item identity; functions, nested ones too, target their definition; a captured outer parameter resolves to its owner's local and is recorded as a capture", async () => {
   const hir = await import("../../packages/host/dist/ir-hir/index.js");
   const sourceText = "export function outer(a: number): number { function inner(b: number): number { return a + b; } return a; }\n";

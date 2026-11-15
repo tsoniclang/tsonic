@@ -1,17 +1,20 @@
-import { summaryBindings, summaryDefinition, summaryKey } from "./summary-key.js";
-import type { MessageArgument, Violation } from "../diag/contract.js";
-import type { DefId, KeyData, NodeId, SourceNodeRef } from "../ids/contract.js";
+import { summaryKey } from "./summary-key.js";
+import type { Violation } from "../diag/contract.js";
+import type { DataflowAccount, DataflowResult, DataflowStop } from "../dataflow/contract.js";
+import { chargeResultEntries, chargeWork } from "../dataflow/index.js";
+import { admitBindingIdentity, admitOwnerIdentity, admitSelectionIdentity, recordFinding } from "./verification.js";
+import type { KeyData, SourceNodeRef } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import type { HirCallableEndpoint } from "../ir-hir/contract.js";
-import type { MemberSelection, ResolvedCallee } from "../ir-tir/contract.js";
+import type { MemberSelection } from "../ir-tir/contract.js";
 import { memberSelectionKey } from "../ir-tir/index.js";
 import type {
-  ArtifactBindings, BindingVector, BindingVerificationInput, MemberKey, MemberStorageSelection,
+  ArtifactBindings, MemberKey, MemberStorageSelection,
 } from "../ir-types/contract.js";
-import { artifactBindingsKey, bindingVectorData, executionKey, verifyTypes } from "../ir-types/index.js";
+import { artifactBindingsKey, bindingVectorData, executionKey } from "../ir-types/index.js";
 import type {
-  BindingVerificationContext, BodyFacts, BodyObservations, EscapeTarget, FactsBindingTarget, FactsRule, FactsSite, FactsVerificationContext, MetadataRecord, MetadataVerificationContext, ObservationVerificationContext,
-  RelationalArena, RelationalOwner, RelationalSite, Summary,
+  EscapeTarget, FactsRule, FactsSite, FactsVerification, FactsVerificationContext, MetadataVerificationContext,
+  RelationalArena, RelationalOwner, RelationalSite,
 } from "./contract.js";
 
 export const validIndex = (index: number, length: number): boolean =>
@@ -25,28 +28,54 @@ export const compareNumbers = (left: number, right: number): number => {
   return left < right ? -1 : 1;
 };
 
-export const relationalUsage = (arena: RelationalArena): {
+export const relationalUsage = (arena: RelationalArena, account: DataflowAccount): DataflowResult<{
   readonly records: number; readonly references: number; readonly depth: number; readonly alternatives: number;
-} => {
+}> => {
+  const initial = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
+  if (initial !== null) return initial;
   const depths: number[] = [];
   let references = 0; let depth = 0; let alternatives = 0;
+  let cells = arena.cells.length;
+  for (const cell of arena.cells) {
+    const work = chargeWork(account, 1);
+    if (work !== null) return work;
+    if (cell === undefined) continue;
+    cells += cell.lifetimes.length;
+    references += 1 + cell.lifetimes.length * 2;
+  }
   for (const path of arena.projections) {
+    const work = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
+    if (work !== null) return work;
     const parent = path.parent === null ? 0 : depths[path.parent];
     const current = parent === undefined ? 0 : parent + 1;
     depths.push(current);
     if (current > depth) depth = current;
     if (path.parent !== null) references += 1;
   }
-  for (const producer of arena.producers) if (producer.path !== null) references += 1;
-  for (const value of arena.contexts) references += (value.receiver === null ? 0 : 1) + value.arguments.length + value.captures.length;
+  for (const producer of arena.producers) {
+    const work = chargeWork(account, 1);
+    if (work !== null) return work;
+    if (producer.path !== null) references += 1;
+  }
+  for (const value of arena.contexts) {
+    const work = chargeWork(account, 1);
+    if (work !== null) return work;
+    references += (value.receiver === null ? 0 : 1) + value.arguments.length + value.captures.length * 2;
+  }
   for (const origins of arena.origins) {
+    const work = chargeWork(account, 1);
+    if (work !== null) return work;
     if (origins.producers.length > alternatives) alternatives = origins.producers.length;
     references += origins.producers.length + (origins.kind === "open" ? origins.boundaries.length : 0);
   }
-  for (const boundary of arena.boundaries) references += 2 + (boundary.owner === null ? 0 : 1);
+  for (const boundary of arena.boundaries) {
+    const work = chargeWork(account, 1);
+    if (work !== null) return work;
+    references += 2 + (boundary.owner === null ? 0 : 1);
+  }
   references += arena.boundProducers.length * 2;
-  return { records: arena.projections.length + arena.producers.length + arena.contexts.length +
-    arena.boundProducers.length + arena.origins.length + arena.boundaries.length, references, depth, alternatives };
+  return { kind: "complete", value: { records: cells + arena.projections.length + arena.producers.length + arena.contexts.length +
+    arena.boundProducers.length + arena.origins.length + arena.boundaries.length, references, depth, alternatives } };
 };
 
 export const sameBindings = (left: ArtifactBindings, right: ArtifactBindings): boolean =>
@@ -87,452 +116,378 @@ export const nodeOwnedBy = (owner: RelationalOwner, node: SourceNodeRef, context
     : node.kind === "item" && source.value.owner === node.value.owner;
 };
 
-export interface FactBindingInput {
-  readonly vector: BindingVector;
-  readonly definition: DefId | null;
-  readonly site: FactsSite;
-}
-
-const appendArtifactBindings = (
-  artifact: ArtifactBindings, definition: DefId, site: FactsSite, entries: FactBindingInput[],
-): void => {
-  if (artifact.kind === "instantiated") entries.push({ vector: artifact.bindings, definition, site });
-};
-
-const appendOwnerBindings = (
-  owner: RelationalOwner, site: FactsSite, context: FactsVerificationContext, entries: FactBindingInput[],
-): void => {
-  if (owner.kind === "summary") {
-    const definition = summaryDefinition(owner.key, context);
-    if (definition !== null) appendArtifactBindings(summaryBindings(owner.key), definition, site, entries);
-  } else appendArtifactBindings(owner.execution.instance.bindings, context.tirBody(owner.execution.instance).owner, site, entries);
-};
-
-const appendCalleeBindings = (
-  callee: ResolvedCallee, site: FactsSite, context: FactsVerificationContext, entries: FactBindingInput[],
-): void => {
-  entries.push({ vector: callee.decision.bindings, definition: callee.decision.advertised.declaration, site });
-  entries.push({ vector: callee.decision.implementationBindings, definition: callee.decision.api.declaration, site });
-  if (callee.activation !== null && callee.activation.bindings.kind === "instantiated") {
-    appendArtifactBindings(callee.activation.bindings, context.tirBody(callee.activation).owner, site, entries);
-  }
-};
-
-const appendMemberBindings = (
-  member: MemberSelection, site: FactsSite, context: FactsVerificationContext, entries: FactBindingInput[],
-): void => {
-  entries.push({ vector: member.decision.bindings, definition: member.decision.primary, site });
-  if (member.getter !== null) appendCalleeBindings(member.getter, site, context, entries);
-  if (member.setter !== null) appendCalleeBindings(member.setter, site, context, entries);
-};
-
-const appendArenaBindings = (
-  arena: RelationalArena, owner: RelationalOwner, context: FactsVerificationContext, entries: FactBindingInput[],
-): void => {
-  const definition = owner.kind === "summary" ? summaryDefinition(owner.key, context) : context.bodyOwner(owner.execution.instance.body);
-  for (const path of arena.projections) if (path.projection.kind === "field" || path.projection.kind === "method-value") {
-    appendMemberBindings(path.projection.member, { kind: "projection", owner, projection: path.id }, context, entries);
-  }
-  for (const bound of arena.boundProducers) {
-    const producer = arena.producers[bound.producer];
-    const actual = producer === undefined ? null : producer.kind === "shared" ? producer.definition
-      : producer.kind === "call-result" ? producer.callee.kind === "direct" ? producer.callee.definition : null
-        : producer.kind === "allocation" && producer.at.kind === "declared" ? null : definition;
-    entries.push({ vector: bound.bindings, definition: actual, site: { kind: "bound-producer", owner, producer: bound.id } });
-  }
-  for (const boundary of arena.boundaries) {
-    entries.push({ vector: boundary.bindings, definition, site: { kind: "boundary", owner, boundary: boundary.id } });
-  }
-};
-
-export const factBindingInputs = (facts: BodyFacts, context: FactsVerificationContext): readonly FactBindingInput[] => {
-  const entries: FactBindingInput[] = [];
-  const owner: RelationalOwner = { kind: "body", execution: facts.execution };
-  appendArtifactBindings(facts.execution.instance.bindings, context.tirBody(facts.execution.instance).owner, ownerSite(owner), entries);
-  appendArenaBindings(facts.arena, owner, context, entries);
-  const site = (node: NodeId): FactsSite => ({ kind: "node", at: { kind: "body", value: { body: facts.execution.instance.body, node } } });
-  for (const invocation of facts.origins.invocations) for (const alternative of invocation.alternatives) {
-    const at = site(invocation.node);
-    appendCalleeBindings(alternative.resolution, at, context, entries);
-    for (const argument of alternative.arguments) appendOwnerBindings(argument.formal.owner, at, context, entries);
-    appendOwnerBindings({ kind: "summary", key: alternative.summary }, at, context, entries);
-  }
-  for (const callback of facts.origins.callbacks) appendOwnerBindings(callback.argument.formal.owner, site(callback.node), context, entries);
-  for (const activation of facts.origins.activations) {
-    if (activation.activation.bindings.kind === "instantiated") entries.push({ vector: activation.activation.bindings.bindings,
-      definition: context.bodyOwner(activation.activation.body), site: site(activation.node) });
-    if (activation.entry !== null) appendOwnerBindings(activation.entry.formal.owner, site(activation.node), context, entries);
-  }
-  for (const construction of facts.origins.constructions) if (construction.body !== null && construction.body.bindings.kind === "instantiated") {
-    appendArtifactBindings(construction.body.bindings, context.tirBody(construction.body).owner, site(construction.node), entries);
-  }
-  for (const raw of facts.rawLocations) {
-    const at = site(raw.node); appendArtifactBindings(raw.layout.metadata.bindings, raw.layout.metadata.definition, at, entries);
-    entries.push({ vector: raw.bindings, definition: raw.layout.metadata.definition, site: at });
-  }
-  for (const field of facts.fieldBindings) {
-    const at = site(field.node); appendArtifactBindings(field.field.metadata.bindings, field.field.metadata.definition, at, entries);
-    entries.push({ vector: field.bindings, definition: field.field.metadata.definition, site: at });
-  }
-  for (const record of facts.recordBindings) {
-    const at = site(record.node); appendArtifactBindings(record.layout.metadata.bindings, record.layout.metadata.definition, at, entries);
-    entries.push({ vector: record.bindings, definition: record.layout.metadata.definition, site: at });
-  }
-  for (const array of facts.closedArrays) if (array.kind === "closed") {
-    for (const member of array.elements) appendMemberBindings(member, site(array.node), context, entries);
-  }
-  return entries;
-};
-
-export const summaryBindingInputs = (summary: Summary, context: FactsVerificationContext): readonly FactBindingInput[] => {
-  const entries: FactBindingInput[] = [];
-  const owner: RelationalOwner = { kind: "summary", key: summary.key };
-  appendOwnerBindings(owner, ownerSite(owner), context, entries);
-  appendArenaBindings(summary.arena, owner, context, entries);
-  return entries;
-};
-
-export const observationBindingInputs = (value: BodyObservations, context: ObservationVerificationContext): readonly FactBindingInput[] => {
-  const entries: FactBindingInput[] = [];
-  const root: FactsSite = { kind: "body", instance: value.instance };
-  const definition = context.bodyOwner(value.instance.body);
-  if (definition !== null) appendArtifactBindings(value.instance.bindings, definition, root, entries);
-  for (const row of value.rows) {
-    const site: FactsSite = { kind: "node", at: { kind: "body", value: { body: value.instance.body, node: row.node } } };
-    appendArtifactBindings(row.layout.metadata.bindings, row.layout.metadata.definition, site, entries);
-    if (row.field !== null) appendArtifactBindings(row.field.metadata.bindings, row.field.metadata.definition, site, entries);
-    entries.push({ vector: row.bindings, definition: null, site });
-  }
-  return entries;
-};
-
-export const metadataBindingInputs = (metadata: MetadataRecord): readonly FactBindingInput[] => {
-  const entries: FactBindingInput[] = [];
-  const site: FactsSite = { kind: "metadata", metadata: metadata.key };
-  appendArtifactBindings(metadata.key.bindings, metadata.key.definition, site, entries);
-  if (metadata.kind !== "data-layout") for (const field of metadata.fields) {
-    entries.push({ vector: field.member.bindings, definition: field.member.primary, site });
-  }
-  return entries;
-};
 
 const collectStorageOrigins = (
-  member: MemberStorageSelection, site: FactsSite, context: MetadataVerificationContext, violations: Violation<FactsRule, FactsSite>[],
-): void => {
-  const report = (rule: FactsRule, text: string): void => { violations.push({ rule, site, detail: [{ kind: "text", value: text }] }); };
-  const key = (value: MemberKey): void => {
-    if (value.kind === "symbol" && !context.definitionExists(value.declaration)) {
-      report("producer-resolves", "A selected member symbol key retains its actual declaration.");
-    }
+  member: MemberStorageSelection, site: FactsSite, context: MetadataVerificationContext,
+  violations: Violation<FactsRule, FactsSite>[], account: DataflowAccount,
+): DataflowStop | null => {
+  const key = (value: MemberKey): DataflowStop | null => {
+    const work = chargeWork(account, 1);
+    if (work !== null) return work;
+    return value.kind === "symbol" && !context.definitionExists(value.declaration)
+      ? recordFinding(account, violations, "last", "producer-resolves", site, "A selected member symbol key retains its actual declaration.") : null;
   };
-  key(member.key);
+  const first = key(member.key);
+  if (first !== null) return first;
   for (const origin of member.origins) {
+    const work = chargeWork(account, 1);
+    if (work !== null) return work;
     switch (origin.kind) {
       case "declared":
-        if (!context.definitionExists(origin.declaration)) report("producer-resolves", "A selected member origin retains its actual declaration.");
+        if (!context.definitionExists(origin.declaration)) {
+          const stop = recordFinding(account, violations, "last", "producer-resolves", site, "A selected member origin retains its actual declaration.");
+          if (stop !== null) return stop;
+        }
         break;
       case "class-prototype":
-        if (!context.definitionExists(origin.owner)) report("producer-resolves", "A selected member origin retains its actual declaration.");
+        if (!context.definitionExists(origin.owner)) {
+          const stop = recordFinding(account, violations, "last", "producer-resolves", site, "A selected member origin retains its actual declaration.");
+          if (stop !== null) return stop;
+        }
         break;
-      case "mapped":
-        if (!context.nodeExists(origin.owner)) report("node-resolves", "A selected member origin retains its actual qualified source occurrence.");
-        key(origin.key);
+      case "mapped": {
+        if (!context.nodeExists(origin.owner)) {
+          const stop = recordFinding(account, violations, "last", "node-resolves", site, "A selected member origin retains its actual qualified source occurrence.");
+          if (stop !== null) return stop;
+        }
+        const stop = key(origin.key);
+        if (stop !== null) return stop;
         break;
-    }
-  }
-};
-
-const collectStorageDeclarations = (
-  member: MemberStorageSelection, site: FactsSite, context: MetadataVerificationContext, violations: Violation<FactsRule, FactsSite>[],
-): void => {
-  const report = (rule: FactsRule, text: string): void => { violations.push({ rule, site, detail: [{ kind: "text", value: text }] }); };
-  for (const selected of member.selectedDeclarations) if (!context.definitionExists(selected)) {
-    report("producer-resolves", "A selected member retains its actual selected declaration group.");
-  }
-};
-
-export const collectStorageChecks = (
-  member: MemberStorageSelection, site: FactsSite, context: MetadataVerificationContext, violations: Violation<FactsRule, FactsSite>[],
-): void => {
-  collectStorageOrigins(member, site, context, violations);
-  collectStorageDeclarations(member, site, context, violations);
-};
-
-export const collectSelectionChecks = (
-  selection: MemberSelection, site: FactsSite, context: FactsVerificationContext, violations: Violation<FactsRule, FactsSite>[],
-): void => {
-  const report = (rule: FactsRule, text: string): void => { violations.push({ rule, site, detail: [{ kind: "text", value: text }] }); };
-  const type = (id: number | null): void => {
-    if (id !== null && (!validIndex(id, context.types.terms.length) || context.types.terms[id] === undefined)) {
-      report("type-resolves", "A selected member type resolves in the actual supplied type table.");
-    }
-  };
-  const endpoint = (value: HirCallableEndpoint | null): void => {
-    if (value === null) return;
-    if (!context.definitionExists(value.declaration)) report("producer-resolves", "A selected member endpoint retains its actual declaration.");
-    if (!validIndex(value.signature, context.types.signatures.length) || !Object.is(context.types.signatures[value.signature]?.id, value.signature)) {
-      report("signature-resolves", "A selected member endpoint resolves in the actual supplied signature table.");
-    }
-  };
-  const member = selection.decision;
-  collectStorageOrigins(member, site, context, violations);
-  type(member.read); type(member.write); endpoint(member.getter); endpoint(member.setter);
-  collectStorageDeclarations(member, site, context, violations);
-  for (const callee of [selection.getter, selection.setter]) {
-    if (callee === null) continue;
-    const decision = callee.decision;
-    endpoint(decision.advertised); endpoint(decision.api);
-    if (!validIndex(decision.completion.signature, context.types.signatures.length) ||
-      !Object.is(context.types.signatures[decision.completion.signature]?.id, decision.completion.signature)) {
-      report("signature-resolves", "A selected member completion retains its actual signature.");
-    }
-    type(decision.result); type(decision.completion.completion); type(decision.completion.yielded); type(decision.completion.sent);
-    if (callee.activation !== null) for (const row of context.tirBody(callee.activation).captures) if (row === undefined || !context.localExists(row.local)) {
-      report("capture-locations-exact", "A selected accessor retains its actual captured storage locations.");
-    }
-    for (const parameter of decision.parameters) if (parameter.kind === "omitted") type(parameter.type);
-  }
-};
-
-export const verifyFactBindings = (
-  entries: readonly FactBindingInput[],
-  target: FactsBindingTarget,
-  root: FactsSite,
-  context: BindingVerificationContext,
-): readonly Violation<FactsRule, FactsSite>[] => {
-  const inputs: BindingVerificationInput[] = [];
-  const checks: { readonly site: FactsSite; readonly first: number; readonly end: number }[] = [];
-  const violations: Violation<FactsRule, FactsSite>[] = [];
-  const scopes = context.bindingScopesOf(target);
-  if (scopes === null) violations.push({ rule: "bindings-complete", site: root,
-    detail: [{ kind: "text", value: "The complete binding-scope occurrence inventory must resolve for this exact verification root." }] });
-  else if (scopes.length > entries.length) violations.push({ rule: "bindings-complete", site: root,
-    detail: [{ kind: "text", value: "The canonical binding-scope inventory has no extra inline vector occurrence." }] });
-  for (const [index, entry] of entries.entries()) {
-    const first = inputs.length;
-    const bindings = [...entry.vector.classBindings, ...entry.vector.methodBindings, ...entry.vector.capturedBindings, ...entry.vector.selfBindings];
-    if (bindings.some(binding => binding.kind === "bound" &&
-      (!validIndex(binding.type, context.types.terms.length) || context.types.terms[binding.type] === undefined))) {
-      violations.push({ rule: "type-resolves", site: entry.site,
-        detail: [{ kind: "text", value: "Every bound type resolves in the actual supplied canonical type table." }] });
-    }
-    if (scopes !== null) {
-      const scope = scopes[index];
-      if (scope === undefined) violations.push({ rule: "bindings-complete", site: entry.site,
-        detail: [{ kind: "text", value: "Every inline binding-vector occurrence retains its actual canonical scope in declared field order." }] });
-      else inputs.push({ vector: entry.vector, scope });
-    }
-    if (entry.definition !== null) {
-      const scope = context.bindingScopeOf(entry.definition);
-      if (scope === null) violations.push({ rule: "bindings-complete", site: entry.site,
-        detail: [{ kind: "text", value: "The complete lexical binding scope must resolve in the supplied declaration inventory." }] });
-      else inputs.push({ vector: entry.vector, scope });
-    }
-    checks.push({ site: entry.site, first, end: inputs.length });
-  }
-  if (inputs.length !== 0) {
-    const checked = verifyTypes({ table: context.types, bindings: inputs, evidence: [],
-      nominalOf: context.nominalOf, nodeExists: context.nodeExists, localExists: context.localExists });
-    const invalid = new Set<number>();
-    for (const violation of checked) {
-      if (violation.site.kind === "binding" && violation.rule !== "type-reference") invalid.add(violation.site.vector);
-    }
-    for (const check of checks) {
-      let failed = false;
-      for (let index = check.first; index < check.end; index += 1) if (invalid.has(index)) failed = true;
-      if (failed) {
-        violations.push({ rule: "bindings-complete", site: check.site, detail: [{ kind: "text",
-          value: "A binding vector retains every expected class, method, captured and self binding in canonical owner order." }] });
       }
     }
   }
-  return (violations);
+  return null;
 };
+
+const collectStorageDeclarations = (
+  member: MemberStorageSelection, site: FactsSite, context: MetadataVerificationContext,
+  violations: Violation<FactsRule, FactsSite>[], account: DataflowAccount,
+): DataflowStop | null => {
+  for (const selected of member.selectedDeclarations) {
+    const work = chargeWork(account, 1);
+    if (work !== null) return work;
+    if (!context.definitionExists(selected)) {
+      const stop = recordFinding(account, violations, "last", "producer-resolves", site, "A selected member retains its actual selected declaration group.");
+      if (stop !== null) return stop;
+    }
+  }
+  return null;
+};
+
+export const collectStorageChecks = (
+  member: MemberStorageSelection, site: FactsSite, context: MetadataVerificationContext,
+  violations: Violation<FactsRule, FactsSite>[], account: DataflowAccount,
+): DataflowStop | null =>
+  collectStorageOrigins(member, site, context, violations, account)
+    ?? collectStorageDeclarations(member, site, context, violations, account);
+
+export const collectSelectionChecks = (
+  selection: MemberSelection, site: FactsSite, context: FactsVerificationContext,
+  violations: Violation<FactsRule, FactsSite>[], account: DataflowAccount,
+): DataflowStop | null => {
+  const type = (id: number | null): DataflowStop | null => {
+    const work = chargeWork(account, 1);
+    if (work !== null) return work;
+    return id !== null && (!validIndex(id, context.types.terms.length) || context.types.terms[id] === undefined)
+      ? recordFinding(account, violations, "last", "type-resolves", site, "A selected member type resolves in the actual supplied type table.") : null;
+  };
+  const endpoint = (value: HirCallableEndpoint | null): DataflowStop | null => {
+    const work = chargeWork(account, 1);
+    if (work !== null) return work;
+    if (value === null) return null;
+    if (!context.definitionExists(value.declaration)) {
+      const stop = recordFinding(account, violations, "last", "producer-resolves", site, "A selected member endpoint retains its actual declaration.");
+      if (stop !== null) return stop;
+    }
+    return !validIndex(value.signature, context.types.signatures.length) || !Object.is(context.types.signatures[value.signature]?.id, value.signature)
+      ? recordFinding(account, violations, "last", "signature-resolves", site, "A selected member endpoint resolves in the actual supplied signature table.") : null;
+  };
+  const initial = chargeWork(account, 1);
+  if (initial !== null) return initial;
+  const member = selection.decision;
+  const selected = collectStorageOrigins(member, site, context, violations, account)
+    ?? type(member.read) ?? type(member.write) ?? endpoint(member.getter) ?? endpoint(member.setter)
+    ?? collectStorageDeclarations(member, site, context, violations, account);
+  if (selected !== null) return selected;
+  for (const callee of [selection.getter, selection.setter]) {
+    const work = chargeWork(account, 1);
+    if (work !== null) return work;
+    if (callee === null) continue;
+    const decision = callee.decision;
+    const endpoints = endpoint(decision.advertised) ?? endpoint(decision.api);
+    if (endpoints !== null) return endpoints;
+    if (!validIndex(decision.completion.signature, context.types.signatures.length)
+      || !Object.is(context.types.signatures[decision.completion.signature]?.id, decision.completion.signature)) {
+      const stop = recordFinding(account, violations, "last", "signature-resolves", site, "A selected member completion retains its actual signature.");
+      if (stop !== null) return stop;
+    }
+    const completion = type(decision.result) ?? type(decision.completion.completion) ?? type(decision.completion.yielded) ?? type(decision.completion.sent);
+    if (completion !== null) return completion;
+    if (callee.activation !== null) for (const row of context.tirBody(callee.activation).captures) {
+      const work = chargeWork(account, 1);
+      if (work !== null) return work;
+      if (row === undefined || !context.localExists(row.local)) {
+        const stop = recordFinding(account, violations, "last", "capture-locations-exact", site, "A selected accessor retains its actual captured storage locations.");
+        if (stop !== null) return stop;
+      }
+    }
+    for (const parameter of decision.parameters) {
+      const work = chargeWork(account, 1);
+      if (work !== null) return work;
+      if (parameter.kind === "omitted") {
+        const stop = type(parameter.type);
+        if (stop !== null) return stop;
+      }
+    }
+  }
+  return null;
+};
+
 
 export const verifyRelationalArena = (
   arena: RelationalArena,
   owner: RelationalOwner,
   context: FactsVerificationContext,
-): readonly Violation<FactsRule, FactsSite>[] => {
+  account: DataflowAccount,
+): FactsVerification<FactsRule> => {
+  const initial = chargeWork(account, 1) ?? chargeResultEntries(account, 5);
+  if (initial !== null) return initial;
+  const admittedOwner = admitOwnerIdentity(owner, account);
+  if (admittedOwner !== null) return admittedOwner;
   const violations: Violation<FactsRule, FactsSite>[] = [];
-  const report = (rule: FactsRule, site: FactsSite, text: string): void => {
-    const detail: MessageArgument = ({ kind: "text", value: text });
-    violations.push(({ rule, site, detail: ([detail]) }));
-  };
-  const checkSite = (at: RelationalSite): void => {
+  const report = (rule: FactsRule, site: FactsSite, text: string): DataflowStop | null =>
+    recordFinding(account, violations, "last", rule, site, text);
+  const checkSite = (at: RelationalSite): DataflowStop | null => {
+    const work = chargeWork(account, 1);
+    if (work !== null) return work;
     const site = relationalSite(owner, at);
     if (at.kind === "declared") {
       if (!context.libraryExportExists(at.identity)) {
-        report("relational-site-resolves", site, "A declared relational site must name an existing library export.");
+        { const stop = report("relational-site-resolves", site, "A declared relational site must name an existing library export."); if (stop !== null) return stop; }
       }
       const count = context.declaredSiteCount(at.identity);
       if (count === null || !validIndex(at.site, count)) {
-        report("declared-site-ordinal", site, "A logical site ordinal must name an actual declared allocation site of that export.");
+        { const stop = report("declared-site-ordinal", site, "A logical site ordinal must name an actual declared allocation site of that export."); if (stop !== null) return stop; }
       }
     } else {
       if (!context.nodeExists(at.node)) {
-        report("relational-site-resolves", site, "A relational site must retain an existing qualified source occurrence.");
+        { const stop = report("relational-site-resolves", site, "A relational site must retain an existing qualified source occurrence."); if (stop !== null) return stop; }
       }
       if (!nodeOwnedBy(owner, at.node, context)) {
-        report("cross-owner-qualified", site, "A relational occurrence must belong to the same actual body or summary owner.");
+        { const stop = report("cross-owner-qualified", site, "A relational occurrence must belong to the same actual body or summary owner."); if (stop !== null) return stop; }
       }
     }
+    return null;
   };
   const projections = new Set<string>();
   for (const [index, path] of arena.projections.entries()) {
+    const step = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
+    if (step !== null) return step;
     const site: FactsSite = { kind: "projection", owner, projection: path.id };
-    if (path.id !== index || !validIndex(path.id, arena.projections.length)) report("projection-id-dense", site, "Projection IDs must equal their dense arena positions.");
+    if (path.id !== index || !validIndex(path.id, arena.projections.length)) { const stop = report("projection-id-dense", site, "Projection IDs must equal their dense arena positions."); if (stop !== null) return stop; }
     if (path.parent !== null && (!validIndex(path.parent, index) || !Object.is(arena.projections[path.parent]?.id, path.parent))) {
-      report("projection-parent-precedes", site, "A projection parent must reference an earlier row of the same arena.");
+      { const stop = report("projection-parent-precedes", site, "A projection parent must reference an earlier row of the same arena."); if (stop !== null) return stop; }
     }
     const projection = path.projection;
     if (projection.kind === "field" || projection.kind === "method-value") {
-      collectSelectionChecks(projection.member, site, context, violations);
+      { const stop = collectSelectionChecks(projection.member, site, context, violations, account); if (stop !== null) return stop; }
+    }
+    if (projection.kind === "field" || projection.kind === "method-value") {
+      const stop = admitSelectionIdentity(projection.member, account);
+      if (stop !== null) return stop;
     }
     const data: KeyData = projection.kind === "field" || projection.kind === "method-value"
       ? [projection.kind, memberSelectionKey(projection.member)]
       : projection.kind === "index" ? [projection.kind, projection.constant] : [projection.kind];
     const key = encodeKey([path.parent, data]);
-    if (projections.has(key)) report("projection-unique", site, "A parent and selected projection must identify exactly one arena row.");
+    if (projections.has(key)) { const stop = report("projection-unique", site, "A parent and selected projection must identify exactly one arena row."); if (stop !== null) return stop; }
     projections.add(key);
   }
   const producers = new Set<string>();
   for (const [index, producer] of arena.producers.entries()) {
+    const step = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
+    if (step !== null) return step;
     const site: FactsSite = { kind: "producer", owner, producer: producer.id };
-    if (producer.id !== index || !validIndex(producer.id, arena.producers.length)) report("producer-id-dense", site, "Producer IDs must equal their dense arena positions.");
+    if (producer.id !== index || !validIndex(producer.id, arena.producers.length)) { const stop = report("producer-id-dense", site, "Producer IDs must equal their dense arena positions."); if (stop !== null) return stop; }
     if (producer.path !== null && (!validIndex(producer.path, arena.projections.length) || !Object.is(arena.projections[producer.path]?.id, producer.path))) {
-      report("producer-resolves", site, "A producer projection must resolve in its own relational arena.");
+      { const stop = report("producer-resolves", site, "A producer projection must resolve in its own relational arena."); if (stop !== null) return stop; }
     }
     let identity: KeyData;
     switch (producer.kind) {
-      case "allocation": checkSite(producer.at); identity = relationalSiteData(producer.at); break;
+      case "allocation": { const stop = checkSite(producer.at); if (stop !== null) return stop; } identity = relationalSiteData(producer.at); break;
       case "parameter":
       case "capture":
         identity = producer.index;
         if (!Number.isSafeInteger(producer.index) || producer.index < 0 || Object.is(producer.index, -0)) {
-          report("producer-resolves", site, "A formal or captured producer retains its actual nonnegative index.");
+          { const stop = report("producer-resolves", site, "A formal or captured producer retains its actual nonnegative index."); if (stop !== null) return stop; }
         }
         break;
       case "receiver": identity = null; break;
+      case "cell-content":
+        identity = [producer.cell, producer.phase];
+        if (!validIndex(producer.cell, arena.cells.length) || !Object.is(arena.cells[producer.cell]?.id, producer.cell))
+          { const stop = report("producer-resolves", site, "Shared content symbols retain an actual cell and their distinct entry or uncontrolled-time boundary."); if (stop !== null) return stop; }
+        break;
       case "shared":
         identity = producer.definition;
         if (!context.definitionExists(producer.definition)) {
-          report("producer-resolves", site, "A shared producer must name an existing declaration.");
+          { const stop = report("producer-resolves", site, "A shared producer must name an existing declaration."); if (stop !== null) return stop; }
         }
         break;
       case "suspension-input":
-        checkSite({ kind: "node", node: { kind: "body", value: producer.at } });
+        { const stop = checkSite({ kind: "node", node: { kind: "body", value: producer.at } }); if (stop !== null) return stop; }
         identity = [producer.at.body, producer.at.node, producer.channel];
         break;
       case "call-result":
-        checkSite({ kind: "node", node: { kind: "body", value: producer.at } });
+        { const stop = checkSite({ kind: "node", node: { kind: "body", value: producer.at } }); if (stop !== null) return stop; }
         identity = [producer.at.body, producer.at.node, producer.callee.kind,
           producer.callee.kind === "direct" ? producer.callee.definition : null];
         if (producer.callee.kind === "direct" && !context.definitionExists(producer.callee.definition)) {
-          report("producer-resolves", site, "A direct call-result producer must retain its actual callee declaration.");
+          { const stop = report("producer-resolves", site, "A direct call-result producer must retain its actual callee declaration."); if (stop !== null) return stop; }
         }
         break;
     }
     const key = encodeKey([producer.kind, producer.path, identity]);
-    if (producers.has(key)) report("producer-unique", site, "A producer identity and projection must identify exactly one arena row.");
+    if (producers.has(key)) { const stop = report("producer-unique", site, "A producer identity and projection must identify exactly one arena row."); if (stop !== null) return stop; }
     producers.add(key);
   }
+  const lookup = chargeWork(account, 1);
+  if (lookup !== null) return lookup;
   const canonical = context.arenaOf(owner);
   if (canonical === null) {
-    report("cross-owner-qualified", ownerSite(owner), "The actual relational owner must resolve to its canonical arena.");
+    { const stop = report("cross-owner-qualified", ownerSite(owner), "The actual relational owner must resolve to its canonical arena."); if (stop !== null) return stop; }
   }
   for (const [index, value] of arena.contexts.entries()) {
+    const step = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
+    if (step !== null) return step;
     const site: FactsSite = { kind: "context", owner, context: value.id };
-    if (value.id !== index || !validIndex(value.id, arena.contexts.length)) report("context-id-dense", site, "Value-context IDs must equal their dense arena positions.");
+    if (value.id !== index || !validIndex(value.id, arena.contexts.length)) { const stop = report("context-id-dense", site, "Value-context IDs must equal their dense arena positions."); if (stop !== null) return stop; }
     if (value.receiver !== null && (!validIndex(value.receiver, arena.origins.length) || !Object.is(arena.origins[value.receiver]?.id, value.receiver))) {
-      report("origins-resolves", site, "A receiver origin must resolve in its own relational arena.");
+      { const stop = report("origins-resolves", site, "A receiver origin must resolve in its own relational arena."); if (stop !== null) return stop; }
     }
     for (const argument of value.arguments) {
+    const step = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
+    if (step !== null) return step;
       if (!validIndex(argument, arena.origins.length) || !Object.is(arena.origins[argument]?.id, argument)) {
-        report("origins-resolves", site, "Every parameter-ordered argument must reference origins in its own arena.");
+        { const stop = report("origins-resolves", site, "Every parameter-ordered argument must reference origins in its own arena."); if (stop !== null) return stop; }
       }
     }
     const expected = canonical?.contexts[index];
     if (canonical !== null && (expected === undefined || !Object.is(expected.id, value.id))) {
-      report("context-resolves", site, "A value context retains its actual canonical owner and local identity.");
+      { const stop = report("context-resolves", site, "A value context retains its actual canonical owner and local identity."); if (stop !== null) return stop; }
     }
     if (expected !== undefined && Object.is(expected.id, value.id) &&
       (expected.arguments.length !== value.arguments.length ||
         (expected.receiver === null) !== (value.receiver === null))) {
-      report("context-arguments-total", site, "A value context retains every actual parameter and the actual receiver slot.");
+      { const stop = report("context-arguments-total", site, "A value context retains every actual parameter and the actual receiver slot."); if (stop !== null) return stop; }
     }
+    let argumentMismatch = false;
     if (expected !== undefined && Object.is(expected.id, value.id) && expected.arguments.length === value.arguments.length &&
-      (expected.receiver === null) === (value.receiver === null) &&
-      (expected.receiver !== value.receiver || expected.arguments.some((argument, position) => argument !== value.arguments[position]))) {
-      report("origin-alternatives-correlated", site, "A value context retains its actual receiver and parameter origins without mixing alternatives.");
+      (expected.receiver === null) === (value.receiver === null)) {
+      argumentMismatch = expected.receiver !== value.receiver;
+      if (!argumentMismatch) for (let position = 0; position < expected.arguments.length; position += 1) {
+        const work = chargeWork(account, 1);
+        if (work !== null) return work;
+        if (expected.arguments[position] !== value.arguments[position]) { argumentMismatch = true; break; }
+      }
+    }
+    if (argumentMismatch) {
+      { const stop = report("origin-alternatives-correlated", site, "A value context retains its actual receiver and parameter origins without mixing alternatives."); if (stop !== null) return stop; }
     }
     let previousCapture: number | null = null;
     for (const capture of value.captures) {
+    const step = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
+    if (step !== null) return step;
       if (!Number.isSafeInteger(capture.index) || capture.index < 0 || Object.is(capture.index, -0) ||
         previousCapture !== null && compareNumbers(previousCapture, capture.index) >= 0 ||
-        !validIndex(capture.location, arena.boundProducers.length) || !Object.is(arena.boundProducers[capture.location]?.id, capture.location)) {
-        report("capture-locations-exact", site, "Captured locations must retain distinct ordered indices and actual bound storage locations.");
+        !validIndex(capture.location, arena.boundProducers.length) || !Object.is(arena.boundProducers[capture.location]?.id, capture.location)
+        || !validIndex(capture.cell, arena.cells.length) || !Object.is(arena.cells[capture.cell]?.id, capture.cell)) {
+        { const stop = report("capture-locations-exact", site, "Captures retain distinct ordered indices, bound value subjects and their actual separately supplied logical cells."); if (stop !== null) return stop; }
       }
       previousCapture = capture.index;
     }
-    if (expected !== undefined && Object.is(expected.id, value.id) &&
-      (expected.captures.length !== value.captures.length || expected.captures.some((capture, position) => {
+    let captureMismatch = false;
+    if (expected !== undefined && Object.is(expected.id, value.id)) {
+      captureMismatch = expected.captures.length !== value.captures.length;
+      if (!captureMismatch) for (let position = 0; position < expected.captures.length; position += 1) {
+        const work = chargeWork(account, 1);
+        if (work !== null) return work;
+        const capture = expected.captures[position];
         const selected = value.captures[position];
-        return selected === undefined || capture.index !== selected.index || capture.location !== selected.location;
-      }))) {
-      report("capture-locations-exact", site, "A capture vector retains actual storage locations rather than creation-time values.");
+        if (capture === undefined || selected === undefined || capture.index !== selected.index
+          || capture.location !== selected.location || capture.cell !== selected.cell) { captureMismatch = true; break; }
+      }
+    }
+    if (captureMismatch) {
+      { const stop = report("capture-locations-exact", site, "A capture vector retains actual storage locations rather than creation-time values."); if (stop !== null) return stop; }
     }
   }
   const alternatives = new Set<string>();
   for (const [index, bound] of arena.boundProducers.entries()) {
+    const step = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
+    if (step !== null) return step;
     const site: FactsSite = { kind: "bound-producer", owner, producer: bound.id };
-    if (bound.id !== index || !validIndex(bound.id, arena.boundProducers.length)) report("bound-producer-id-dense", site, "Bound-producer IDs must equal their dense arena positions.");
+    if (bound.id !== index || !validIndex(bound.id, arena.boundProducers.length)) { const stop = report("bound-producer-id-dense", site, "Bound-producer IDs must equal their dense arena positions."); if (stop !== null) return stop; }
     if (!validIndex(bound.producer, arena.producers.length) || !Object.is(arena.producers[bound.producer]?.id, bound.producer)) {
-      report("producer-resolves", site, "A bound alternative must reference an actual producer in its own arena.");
+      { const stop = report("producer-resolves", site, "A bound alternative must reference an actual producer in its own arena."); if (stop !== null) return stop; }
     }
     if (!validIndex(bound.context, arena.contexts.length) || !Object.is(arena.contexts[bound.context]?.id, bound.context)) {
-      report("context-resolves", site, "A bound alternative must retain its actual value context in the same arena.");
+      { const stop = report("context-resolves", site, "A bound alternative must retain its actual value context in the same arena."); if (stop !== null) return stop; }
     }
+    const identityStop = admitBindingIdentity(bound.bindings, account);
+    if (identityStop !== null) return identityStop;
     const key = encodeKey([bound.producer, bindingVectorData(bound.bindings), bound.context]);
     const expected = canonical?.boundProducers[index];
+    if (expected !== undefined) {
+      const stop = admitBindingIdentity(expected.bindings, account);
+      if (stop !== null) return stop;
+    }
     if (alternatives.has(key) || canonical !== null && (expected === undefined || !Object.is(expected.id, bound.id) ||
       encodeKey([expected.producer, bindingVectorData(expected.bindings), expected.context]) !== key)) {
-      report("origin-alternatives-correlated", site, "Producer, complete type bindings and value context remain one canonical correlated alternative.");
+      { const stop = report("origin-alternatives-correlated", site, "Producer, complete type bindings and value context remain one canonical correlated alternative."); if (stop !== null) return stop; }
     }
     alternatives.add(key);
   }
   for (const [index, origins] of arena.origins.entries()) {
+    const step = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
+    if (step !== null) return step;
     const site: FactsSite = { kind: "origins", owner, origins: origins.id };
-    if (origins.id !== index || !validIndex(origins.id, arena.origins.length)) report("origins-id-dense", site, "Origins IDs must equal their dense arena positions.");
+    if (origins.id !== index || !validIndex(origins.id, arena.origins.length)) { const stop = report("origins-id-dense", site, "Origins IDs must equal their dense arena positions."); if (stop !== null) return stop; }
     let previous: number | null = null;
     for (const bound of origins.producers) {
+    const step = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
+    if (step !== null) return step;
       if (!validIndex(bound, arena.boundProducers.length) || !Object.is(arena.boundProducers[bound]?.id, bound)) {
-        report("bound-producer-resolves", site, "An origin alternative must reference an actual bound producer in its own arena.");
+        { const stop = report("bound-producer-resolves", site, "An origin alternative must reference an actual bound producer in its own arena."); if (stop !== null) return stop; }
       }
       if (previous !== null && compareNumbers(previous, bound) >= 0) {
-        report("origin-alternatives-order", site, "Origin alternatives must be distinct and ordered by canonical bound-producer identity.");
+        { const stop = report("origin-alternatives-order", site, "Origin alternatives must be distinct and ordered by canonical bound-producer identity."); if (stop !== null) return stop; }
       }
       previous = bound;
     }
     if (origins.kind === "open") {
       for (const boundary of origins.boundaries) {
+    const step = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
+    if (step !== null) return step;
         if (!validIndex(boundary, arena.boundaries.length) || !Object.is(arena.boundaries[boundary]?.id, boundary)) {
-          report("boundary-resolves", site, "Every open-origin boundary must resolve in its own arena.");
+          { const stop = report("boundary-resolves", site, "Every open-origin boundary must resolve in its own arena."); if (stop !== null) return stop; }
         }
       }
     }
   }
   for (const [index, boundary] of arena.boundaries.entries()) {
+    const step = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
+    if (step !== null) return step;
     const site: FactsSite = { kind: "boundary", owner, boundary: boundary.id };
-    if (boundary.id !== index || !validIndex(boundary.id, arena.boundaries.length)) report("boundary-id-dense", site, "Boundary IDs must equal their dense arena positions.");
-    checkSite(boundary.at);
+    if (boundary.id !== index || !validIndex(boundary.id, arena.boundaries.length)) { const stop = report("boundary-id-dense", site, "Boundary IDs must equal their dense arena positions."); if (stop !== null) return stop; }
+    { const stop = checkSite(boundary.at); if (stop !== null) return stop; }
     if (!validIndex(boundary.subject, arena.producers.length) || !Object.is(arena.producers[boundary.subject]?.id, boundary.subject) ||
       boundary.owner !== null && (!validIndex(boundary.owner, arena.producers.length) || !Object.is(arena.producers[boundary.owner]?.id, boundary.owner))) {
-      report("producer-resolves", site, "A boundary retains its actual subject and optional mutation-owner producer.");
+      { const stop = report("producer-resolves", site, "A boundary retains its actual subject and optional mutation-owner producer."); if (stop !== null) return stop; }
     }
     if (!validIndex(boundary.context, arena.contexts.length) || !Object.is(arena.contexts[boundary.context]?.id, boundary.context)) {
-      report("context-resolves", site, "A boundary retains its actual value context in the same arena.");
+      { const stop = report("context-resolves", site, "A boundary retains its actual value context in the same arena."); if (stop !== null) return stop; }
     }
   }
-  return (violations);
+  return { kind: "complete", violations };
 };

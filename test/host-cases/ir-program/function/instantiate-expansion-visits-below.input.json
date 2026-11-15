@@ -309,6 +309,7 @@
               "provided": 0
             },
             "arena": {
+              "cells": [],
               "projections": [],
               "producers": [],
               "contexts": [],

@@ -1,9 +1,9 @@
-import type { BoundProducerId, KeyData, LibraryExportIdentity, OpenBoundaryId, OriginsId, ProducerId, ProjectionPathId } from "../ids/contract.js";
+import type { BoundProducerId, KeyData, LibraryExportIdentity, OpenBoundaryId, OriginsId, ProducerId, ProjectionPathId, SourceNodeRef } from "../ids/contract.js";
 import { boundProducerId, encodeKey, openBoundaryId, originsId, producerId, projectionPathId, valueContextId } from "../ids/index.js";
 import type { BindingVector, DeclaredExecution, Signature } from "../ir-types/contract.js";
 import type { MemberSelection } from "../ir-tir/contract.js";
 import type { BoundProducer, CaptureEffect, CaptureLocation, EffectPaths, EscapeTarget, OpenBoundary, Origins, ParameterEffect,
-  Producer, Projection, ProjectionPath, RetentionFact, Summary, SummaryWrite } from "../ir-facts/contract.js";
+  DeclaredCellInventory, Producer, Projection, ProjectionPath, SummaryRetention, Summary, SummaryRelations, SummaryWrite } from "../ir-facts/contract.js";
 import type { AdmittedNativeGuarantee, NativeExportAssociation } from "../libraries/contract.js";
 
 type NativeStatement = AdmittedNativeGuarantee["statement"];
@@ -31,6 +31,7 @@ function effectPaths(paths: NativeEffectPaths, remapped: ReadonlyMap<number, Pro
   return paths.kind === "complete" ? { kind: "complete", paths: projected }
     : { kind: "open", paths: projected, boundaries: boundaryIds(paths.boundaries) };
 }
+
 function declaredSiteData(identity: LibraryExportIdentity, site: number): readonly KeyData[] {
   return ["declared", identity.module.providerId, identity.module.providerVersion, identity.module.packageName, identity.module.moduleSpecifier, identity.module.providerModuleId, identity.exportId, identity.memberId, identity.signatureId, site];
 }
@@ -71,7 +72,8 @@ export interface ExportValue {
 }
 
 export function translateNativeSummary(raw: NativeStatement, selected: ExportValue, signature: Signature,
-  execution: DeclaredExecution, lookup: (identity: LibraryExportIdentity) => ExportValue | null): Summary | null {
+  execution: DeclaredExecution, declarationSource: SourceNodeRef, cells: DeclaredCellInventory, relations: SummaryRelations,
+  lookup: (identity: LibraryExportIdentity) => ExportValue | null): Summary | null {
   const environment = selected.environment;
   const bindings = environment.value;
   const context = valueContextId(0);
@@ -212,6 +214,13 @@ export function translateNativeSummary(raw: NativeStatement, selected: ExportVal
   const parameters: ParameterEffect[] = [];
   const argumentsOrigins: OriginsId[] = [];
   const captures: CaptureLocation[] = [];
+  const capturedCells = new Map<number, number>();
+  for (const capture of cells.captures) {
+    if (!ordinal(capture.index, raw.captures.length) || !ordinal(capture.cell, cells.cells.length)
+      || capturedCells.has(capture.index)) return null;
+    capturedCells.set(capture.index, capture.cell);
+  }
+  if (capturedCells.size !== raw.captures.length) return null;
   const captureRows: CaptureEffect[] = [];
   let receiver: OriginsId | null = null;
   for (const [key, formal] of formals) {
@@ -222,7 +231,9 @@ export function translateNativeSummary(raw: NativeStatement, selected: ExportVal
       const writes = effectPaths(effect.writes, projectionIds);
       if (reads === null || writes === null) return null;
       captureRows.push({ index: formal.index, reads, writes });
-      captures.push({ index: formal.index, location: formal.bound });
+      const cell = capturedCells.get(formal.index);
+      if (cell === undefined) return null;
+      captures.push({ index: formal.index, location: formal.bound, cell });
     } else {
       const formalOrigins = originsId(origins.length);
       origins.push({ id: formalOrigins, kind: "complete", producers: [formal.bound], includesAbsence: false });
@@ -240,10 +251,19 @@ export function translateNativeSummary(raw: NativeStatement, selected: ExportVal
     }
   }
   const writes: SummaryWrite[] = [];
+  const locations = new Map<number, number>();
+  for (const [index, cell] of cells.cells.entries()) {
+    if (cell === undefined || !Object.is(cell.id, index)) return null;
+  }
+  for (const association of cells.producers) {
+    if (!ordinal(association.producer, raw.producers.length) || raw.producers[association.producer]?.id !== association.producer
+      || !ordinal(association.cell, cells.cells.length) || locations.has(association.producer)) return null;
+    locations.set(association.producer, association.cell);
+  }
   for (const write of raw.writes) {
-    const target = remapped.get(write.target);
+    const target = locations.get(write.target);
     if (target === undefined) return null;
-    writes.push({ target: target.id, value: originsId(write.value) });
+    writes.push({ target, value: originsId(write.value) });
   }
   const targetOf = (target: NativeEscapeTarget): BoundEscape | null => {
     const path = target.kind === "shared" || target.kind === "parameter" || target.kind === "capture" || target.kind === "receiver"
@@ -276,16 +296,16 @@ export function translateNativeSummary(raw: NativeStatement, selected: ExportVal
         key: encodeKey([target.kind, target.boundary]) };
     }
   };
-  const retainedRows: { readonly value: RetentionFact; readonly key: string }[] = [];
+  const retainedRows: { readonly value: SummaryRetention; readonly key: string }[] = [];
   const retainedKeys = new Set<string>();
   for (const retained of raw.retention) {
     const source = remapped.get(retained.source);
     const into = targetOf(retained.into);
     if (source === undefined || into === null) return null;
-    const key = encodeKey([source.id, into.key]);
+    const key = encodeKey([source.bound, into.key]);
     if (!retainedKeys.has(key)) {
       retainedKeys.add(key);
-      retainedRows.push({ value: { source: source.id, into: into.value }, key: into.key });
+      retainedRows.push({ value: { source: source.bound, at: { kind: "declared", execution, source: declarationSource }, into: into.value }, key: into.key });
     }
   }
   const retention = retainedRows.sort((left, right) => left.value.source - right.value.source || compareText(left.key, right.key))
@@ -304,9 +324,12 @@ export function translateNativeSummary(raw: NativeStatement, selected: ExportVal
     return previous === undefined || previous.target !== write.target || previous.value !== write.value;
   });
   return { key: { kind: "declared", execution }, signature: signature.id,
-    arena: { producers, projections, boundProducers, origins, boundaries,
+    arena: { cells: cells.cells, producers, projections, boundProducers, origins, boundaries,
       contexts: [{ id: context, receiver, arguments: argumentsOrigins, captures }] },
     parameters, captures: captureRows, result: originsId(raw.result), thrown: originsId(raw.thrown), writes: distinctWrites, retention,
-    callbacks: raw.callbacks, invocationOnlyParameters: raw.invocationOnlyParameters,
-    suspends: raw.suspends, bindingDependent: raw.bindingDependent };
+    callbacks: relations.callbacks, resultCells: relations.resultCells, backing: relations.backing,
+    suspends: raw.suspends, bindingDependent: raw.bindingDependent,
+    concurrentWrites: relations.concurrentWrites, contentsOnReturn: relations.contentsOnReturn,
+    contentsOnUnwind: relations.contentsOnUnwind, returns: relations.returns, unwinds: relations.unwinds,
+    initialization: relations.initialization };
 }

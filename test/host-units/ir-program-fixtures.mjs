@@ -1,3 +1,5 @@
+import { createAccount } from "../../packages/host/dist/dataflow/index.js";
+import { conditionRefusal } from "./fixtures/facts-verification.mjs";
 import { createProgramVerificationWork } from "../../packages/host/dist/ir-program/index.js";
 import assert from "node:assert/strict";
 import { encodeBodyId, encodeDefId, encodeKey, encodeModuleId, encodePackageId } from "../../packages/host/dist/ids/index.js";
@@ -13,7 +15,7 @@ import { summaryKey } from "../../packages/host/dist/ir-facts/index.js";
 export function encodeContextKey([name, key]) {
   let data;
   switch (name) {
-    case "bodyOf": case "tirBody": data = instanceKey(key); break;
+    case "bodyOf": case "tirBody": case "mirBody": data = instanceKey(key); break;
     case "bindingScopesOf": data = bindingTargetKey(key); break;
     case "tirBindingScopesOf": data = key.kind === "module" ? [key.kind, key.module]
       : [key.kind, instanceKey(key.instance)]; break;
@@ -45,7 +47,8 @@ function contextFor(input, lookup) {
   return {
     nativeFactsKey: input.context.nativeFactsKey,
     selectedNativeFacts: input.context.selectedNativeFacts,
-    resources: createProgramVerificationWork(input.context.limits),
+    resources: createProgramVerificationWork({ maximumCreatedRecords: input.context.limits.maximumCreatedRecords, maximumBindingVectorsPerArtifact: input.context.limits.maximumBindingVectorsPerArtifact, typeExpansion: input.context.limits.typeExpansion }, createAccount({ maximumWork: input.context.limits.maximumWork, maximumResultEntries: 1000000000 })),
+    conditionRefusal,
     mirVerification: input.context.mirVerification,
     modulePathOf: module => lookup("modulePathOf", module),
     definitionPathOf: definition => lookup("definitionPathOf", definition),
@@ -54,6 +57,7 @@ function contextFor(input, lookup) {
     facts: {
       limits: input.context.analysisLimits, types: input.index.types, diagnostics: input.index.diagnostics,
       tirBody: instance => lookup("tirBody", instance),
+      mirBody: instance => lookup("mirBody", instance),
       bodyOwner: body => lookup("bodyOwner", body),
       signatureIdOf: request => lookup("signatureIdOf", [request.definition, request.endpoint, request.ordinal, request.bindings]),
       declarationSourceOf: definition => lookup("declarationSourceOf", definition),
@@ -63,6 +67,7 @@ function contextFor(input, lookup) {
       bindingDependentOf: definition => lookup("bindingDependentOf", definition),
       captureCount: key => lookup("captureCount", key),
       callbackSignaturesOf: (key, parameter) => lookup("callbackSignaturesOf", [key, parameter]),
+      summaryOf: key => input.index.summaries.find(row => summaryKey(row.key) === summaryKey(key)) ?? null,
       arenaOf: owner => lookup("arenaOf", owner),
       definitionExists: definition => lookup("definitionExists", definition),
       libraryExportExists: identity => lookup("libraryExportExists", identity),
@@ -115,7 +120,7 @@ export function moduleFixture(path = "src/main.ts", root = "/program") {
     body: bodyId, bindings: instance.bindings, entries: [{ provided: 0, block: 0 }], locals: [], constants: [], places: [],
     blocks: [{ ...site, id: 0, statements: [], terminator: { ...site, kind: "return", value: null } }], result: 0,
   };
-  const arena = { projections: [], producers: [], contexts: [], boundProducers: [], origins: [], boundaries: [] };
+  const arena = { cells: [], projections: [], producers: [], contexts: [], boundProducers: [], origins: [], boundaries: [] };
   const facts = {
     execution: { instance, provided: 0 }, arena, liveness: { stores: [], locals: [], bindings: [], captures: [] }, initialization: { reads: [] },
     refinements: { refinements: [], integers: [], countedLoops: [] },
@@ -150,7 +155,7 @@ export function moduleFixture(path = "src/main.ts", root = "/program") {
   const rows = [
     ["modulePathOf", moduleId, modulePath], ["definitionPathOf", definition, definitionPath],
     ["bodyOwner", bodyId, definition], ["bindingScopeOf", definition, scope],
-    ["bindingScopesOf", { kind: "body", instance }, []], ["tirBody", instance, tir],
+    ["bindingScopesOf", { kind: "body", instance }, []], ["tirBody", instance, tir], ["mirBody", instance, mir],
     ["tirBindingScopesOf", { kind: "body", instance }, [scope, scope]],
     ["tirBindingScopesOf", { kind: "module", module: moduleId }, []],
     ["declarationSourceOf", definition, { kind: "item", value: { owner: definition, node: 0 } }],
@@ -179,7 +184,7 @@ export function moduleFixture(path = "src/main.ts", root = "/program") {
   const limits = { maximumWork: 10000, maximumCreatedRecords: 10000, maximumBindingVectorsPerArtifact: 8,
     typeExpansion: { maximumDepth: 128, maximumVisits: 10000, maximumUnionMembers: 128, maximumIntersectionMembers: 128 } };
   const analysisLimits = { maximumProjectionDepth: 128,
-    maximumOriginAlternatives: 128, maximumRelationalRecordsPerBody: 10000, maximumRelationalReferencesPerBody: 10000 };
+    maximumOriginAlternatives: 128, maximumConditionAlternatives: 128, maximumRelationalRecordsPerBody: 10000, maximumRelationalReferencesPerBody: 10000 };
   return { index, module, context: contextFor({ index, context: { limits, analysisLimits, nativeFactsKey: index.nativeFactsKey, selectedNativeFacts, mirVerification: { maximumWork: 100000 } } }, lookup), tirInput, instance, definition, bodyId, answers: supplied, scope };
 }
 
@@ -383,10 +388,10 @@ export function publishedArtifactFixture(change) {
   const { first, second } = fixture;
   for (const [signature, module] of [first, second].entries()) {
     const key = { kind: "body", execution: { instance: module.instance, provided: 0 } };
-    const arena = { projections: [], producers: [], contexts: [], boundProducers: [],
+    const arena = { cells: [], projections: [], producers: [], contexts: [], boundProducers: [],
       origins: [{ id: 0, producers: [], includesAbsence: false, kind: "complete" }], boundaries: [] };
     first.index.summaries.push({ key, signature, arena, parameters: [], captures: [], result: 0, thrown: 0,
-      writes: [], retention: [], callbacks: [], invocationOnlyParameters: [], suspends: false, bindingDependent: false });
+      writes: [], retention: [], callbacks: [], suspends: false, bindingDependent: false, concurrentWrites: [], contentsOnReturn: [], contentsOnUnwind: [], returns: true, unwinds: false, initialization: { cells: [], events: [], conditions: [{ alternatives: [] }, { alternatives: [[]] }], points: [{ kind: "return" }], rows: [{ point: 0, cell: null, condition: 0 }] }, resultCells: [], backing: [] });
     first.answers.set(encodeContextKey(["arenaOf", { kind: "summary", key }]), arena);
     first.answers.set(encodeContextKey(["bindingScopesOf", { kind: "summary", summary: key }]), []);
     first.answers.set(encodeContextKey(["captureCount", key]), module.module.bodies[0].tir.captures.length);

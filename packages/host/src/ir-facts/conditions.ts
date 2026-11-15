@@ -11,7 +11,7 @@ export function checkConditionLimits(limits: ConditionLimits): void {
   count(limits.maximumConditionAlternatives, "maximumConditionAlternatives");
 }
 
-function compare(left: readonly number[], right: readonly number[], limits: ConditionLimits): DataflowResult<number> {
+export function compareAlternatives(left: readonly number[], right: readonly number[], limits: ConditionLimits): DataflowResult<number> {
   const second = right.values();
   for (const first of left) {
     const stop = chargeWork(limits.account, 1);
@@ -39,7 +39,7 @@ function subset(left: readonly number[], right: readonly number[], limits: Condi
   return { kind: "complete", value: false };
 }
 
-export function validateCondition(condition: Condition, eventCount: number, limits: ConditionLimits): DataflowResult<null> {
+export function validateCondition(condition: Condition, eventCount: number, limits: ConditionLimits): DataflowResult<boolean> {
   const start = chargeWork(limits.account, 1);
   if (start !== null) return start;
   let previous: readonly number[] | null = null;
@@ -47,20 +47,20 @@ export function validateCondition(condition: Condition, eventCount: number, limi
     const rowStop = chargeWork(limits.account, 1);
     if (rowStop !== null) return rowStop;
     const row = condition.alternatives[index];
-    if (row === undefined) throw new TypeError("A condition has a missing alternative");
+    if (row === undefined) return { kind: "complete", value: false };
     let last = -1;
     for (let member = 0; member < row.length; member += 1) {
       const stop = chargeWork(limits.account, 1);
       if (stop !== null) return stop;
       const event = row[member];
       if (event === undefined || !Number.isSafeInteger(event) || event <= last || event >= eventCount || Object.is(event, -0))
-        throw new TypeError("Condition events must be distinct ordered members of their owning event table");
+        return { kind: "complete", value: false };
       last = event;
     }
     if (previous !== null) {
-      const order = compare(previous, row, limits);
+      const order = compareAlternatives(previous, row, limits);
       if (order.kind !== "complete") return order;
-      if (order.value >= 0) throw new TypeError("Condition alternatives must be in canonical order");
+      if (order.value >= 0) return { kind: "complete", value: false };
     }
     for (const [earlier, other] of condition.alternatives.entries()) {
       if (earlier === index) break;
@@ -68,14 +68,14 @@ export function validateCondition(condition: Condition, eventCount: number, limi
       if (pairStop !== null) return pairStop;
       const forward = subset(other, row, limits);
       if (forward.kind !== "complete") return forward;
-      if (forward.value) throw new TypeError("Condition alternatives must form an absorption antichain");
+      if (forward.value) return { kind: "complete", value: false };
       const reverse = subset(row, other, limits);
       if (reverse.kind !== "complete") return reverse;
-      if (reverse.value) throw new TypeError("Condition alternatives must form an absorption antichain");
+      if (reverse.value) return { kind: "complete", value: false };
     }
     previous = row;
   }
-  return { kind: "complete", value: null };
+  return { kind: "complete", value: true };
 }
 
 function insert(rows: (readonly number[])[], candidate: readonly number[], limits: ConditionLimits): DataflowResult<null> {
@@ -100,7 +100,7 @@ function insert(rows: (readonly number[])[], candidate: readonly number[], limit
   if (candidateStop !== null) return candidateStop;
   let position = 0;
   for (const row of rows) {
-    const order = compare(row, candidate, limits);
+    const order = compareAlternatives(row, candidate, limits);
     if (order.kind !== "complete") return order;
     if (order.value > 0) break;
     position += 1;
@@ -180,7 +180,12 @@ function inputs(left: Condition, right: Condition, limits: ConditionLimits): Dat
   if (stop !== null) return stop;
   checkConditionLimits(limits);
   const first = validateCondition(left, limits.eventCount, limits);
-  return first.kind !== "complete" ? first : validateCondition(right, limits.eventCount, limits);
+  if (first.kind !== "complete") return first;
+  if (!first.value) throw new TypeError("A condition retains its actual canonical event antichain");
+  const second = validateCondition(right, limits.eventCount, limits);
+  if (second.kind !== "complete") return second;
+  if (!second.value) throw new TypeError("A condition retains its actual canonical event antichain");
+  return { kind: "complete", value: null };
 }
 
 export const conditionOr: ConditionOr = (left, right, limits) => {
@@ -202,7 +207,7 @@ export const conditionEquals: ConditionEquals = (left, right, limits) => {
     if (stop !== null) return stop;
     const second = rightRows.next();
     if (second.done) return { kind: "complete", value: false };
-    const order = compare(first, second.value, limits);
+    const order = compareAlternatives(first, second.value, limits);
     if (order.kind !== "complete") return order;
     if (order.value !== 0) return { kind: "complete", value: false };
   }
@@ -216,6 +221,7 @@ export const conditionSubstitute: ConditionSubstitute = (condition, events, limi
   checkConditionLimits(limits);
   const checked = validateCondition(condition, events.length, limits);
   if (checked.kind !== "complete") return checked;
+  if (!checked.value) throw new TypeError("A condition retains its actual canonical event antichain");
   for (let index = 0; index < events.length; index += 1) {
     const stop = chargeWork(limits.account, 1);
     if (stop !== null) return stop;
@@ -223,6 +229,7 @@ export const conditionSubstitute: ConditionSubstitute = (condition, events, limi
     if (event === undefined) throw new TypeError("A condition binding has a missing event");
     const checkedEvent = validateCondition(event, limits.eventCount, limits);
     if (checkedEvent.kind !== "complete") return checkedEvent;
+    if (!checkedEvent.value) throw new TypeError("A condition retains its actual canonical event antichain");
   }
   return substituteCondition(condition, events, limits);
 };

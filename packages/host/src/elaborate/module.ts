@@ -1,10 +1,11 @@
 import type { Result } from "../diag/contract.js";
 import { throwInvariant } from "../diag/index.js";
 import type { BodyId, TyId } from "../ids/contract.js";
-import type { CheckedPhase, Expression, FunctionDeclaration, Identifier, ModifierList, ParameterDeclaration, SourceFile, Statement, TypeNode } from "../ir-hir/contract.js";
+import type { CheckedPhase, Expression, FunctionDeclaration, Identifier, ModifierList, ParameterDeclaration, SourceFile, Statement, TypeNode, VariableDeclaration } from "../ir-hir/contract.js";
 import type { BodyTyping } from "../ir-infer/contract.js";
 import type { TirBody, TypedBodyTemplate, TypedParameter, TypedPhase } from "../ir-tir/contract.js";
 import type { ElaborateDeps, ElaborateInput } from "./contract.js";
+import { artifactBindingsKey } from "../ir-types/index.js";
 
 function defect(message: string): never {
   return throwInvariant({ owner: "elaborate", query: null, origin: null, message });
@@ -80,12 +81,38 @@ function callable(deps: ElaborateDeps, node: FunctionDeclaration<CheckedPhase>, 
       template: templateOf(body), attributes: checked.attributes } };
 }
 
+function variable(deps: ElaborateDeps, node: VariableDeclaration<CheckedPhase>, bodies: ReadonlyMap<BodyId, TirBody>): VariableDeclaration<TypedPhase> {
+  const checked = node.tsonic;
+  if (node.name.kind !== "Identifier" || checked.declaration.kind !== "definition")
+    return defect("A module variable requires its actual checked definition and identifier.");
+  if (checked.declaredType.kind !== "available") return defect("A module variable requires its actual checked annotation availability.");
+  const body = checked.initializer === null ? null : bodies.get(checked.initializer)
+    ?? defect("A module variable requires its actual completed initializer execution.");
+  let initializer: Expression<TypedPhase> | null = null;
+  if (body !== null) {
+    const root = body.root;
+    if (body.owner !== checked.declaration.definition || root.kind === "Block" || root.kind === "SourceFile"
+      || root.id !== node.initializer?.id || root.parent !== node.id || deps.signatureOf(body.signature).result !== body.completion)
+      return defect("The completed variable initializer must retain its actual declaration, expression and execution result.");
+    initializer = root;
+  }
+  if ((node.initializer === null) !== (initializer === null))
+    return defect("A module variable retains exactly its separately completed initializer syntax.");
+  const storage = checked.declaredType.value ?? body?.completion
+    ?? defect("A variable without an annotation or initializer requires its actual inferred storage producer.");
+  if (body !== null && body.completion !== storage)
+    return defect("The completed initializer and actual variable storage disagree.");
+  return { ...node, name: name(node.name, storage), type: annotation(node.type), initializer,
+    exclamationToken: node.exclamationToken === null ? null : { ...node.exclamationToken, tsonic: null },
+    tsonic: { declaration: checked.declaration, storage, initializer: checked.initializer } };
+}
+
 export function elaborateModuleBody(deps: ElaborateDeps, input: ElaborateInput, root: SourceFile<CheckedPhase>, typing: BodyTyping): Result<TirBody> {
   const { body, instance, solution, constraints } = input;
   const children = new Map<BodyId, TirBody>();
   for (const child of input.nestedBodies) {
-    if (children.has(child.body) || child.bindings.kind !== "parametric")
-      return defect("The module requires one canonical parametric subtree per direct nested body.");
+    if (children.has(child.body) || artifactBindingsKey(child.bindings) !== artifactBindingsKey(instance.bindings))
+      return defect("The module requires one canonical subtree per direct nested body under the same actual bindings.");
     children.set(child.body, child);
   }
   if (children.size !== body.nestedBodies.length || body.nestedBodies.some(nested => !children.has(nested)))
@@ -94,8 +121,13 @@ export function elaborateModuleBody(deps: ElaborateDeps, input: ElaborateInput, 
     || constraints.constraints.length !== 0 || solution.constraints.length !== 0 || solution.variables.length !== 0)
     return defect("not elaborated yet: executable module values or storage.");
   const statements: Statement<TypedPhase>[] = root.statements.nodes.map(statement => {
-    if (statement.kind !== "FunctionDeclaration") return defect(`not elaborated yet: module statement ${statement.kind}.`);
-    return callable(deps, statement, children);
+    if (statement.kind === "FunctionDeclaration") return callable(deps, statement, children);
+    if (statement.kind === "VariableStatement") return { ...statement, modifiers: modifiers(statement.modifiers),
+      declarationList: { ...statement.declarationList,
+        declarations: { ...statement.declarationList.declarations,
+          nodes: statement.declarationList.declarations.nodes.map(declaration => variable(deps, declaration, children)) },
+        tsonic: { role: "ordinary" } }, tsonic: null };
+    return defect(`not elaborated yet: module statement ${statement.kind}.`);
   });
   const lexicalBindings = { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] };
   const typed: SourceFile<TypedPhase> = { ...root, statements: { ...root.statements, nodes: statements },

@@ -1,21 +1,26 @@
+import type { DataflowResult, DataflowStop } from "../dataflow/contract.js";
+import { chargeResultEntries, chargeWork } from "../dataflow/index.js";
+import type { ParameterMapping } from "../ir-infer/contract.js";
+import type { TirArgument } from "../ir-tir/contract.js";
+import { admitArtifactIdentity, admitEscapeIdentity, admitOwnerIdentity, recordFinding } from "./verification.js";
 import { summaryBindings, summaryDefinition, summaryKey } from "./summary-key.js";
 import type { Violation } from "../diag/contract.js";
-import type { LocalId, NodeId, NodeRef } from "../ids/contract.js";
+import type { NodeId, NodeRef } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import type { DeclarationTarget } from "../ir-hir/contract.js";
-import { childrenOfSyntax } from "../ir-hir/index.js";
-import type { MirTerminator } from "../ir-mir/contract.js";
-import type { TirBody, TirNode, TypedPhase } from "../ir-tir/contract.js";
+import type { TirNode } from "../ir-tir/contract.js";
 import type { ArtifactBindings, BodyInstance } from "../ir-types/contract.js";
 import { instanceKey } from "../ir-types/index.js";
+import { verifyCells } from "./verify-cells.js";
 import type {
-  ArgumentTransport, EscapeTarget, FactsRule, FactsSite, MemoryField, MemoryLayout, MetadataFieldRef, MetadataLayoutRef, MirPoint, RelationalOwner,
-  RetentionFact, StoreEdge, VerifyFacts, VerifyLiveness,
+  ArgumentTransport, BoundActivation, ConstructionAlternative, EscapeFact, EscapeTarget, FactsRule, FactsSite, MemoryField, MemoryLayout, MetadataFieldRef, MetadataLayoutRef, MirPoint, RelationalOwner,
+  RetentionFact, VerifyFacts,
 } from "./contract.js";
-import {
-  collectSelectionChecks, compareNumbers, escapeData, factBindingInputs, ownerKey, relationalUsage, sameBindings, validIndex,
-  verifyFactBindings, verifyRelationalArena,
-} from "./verify-relations.js";
+import { collectSelectionChecks, compareNumbers, escapeData, ownerKey, relationalUsage, sameBindings, validIndex, verifyRelationalArena } from "./verify-relations.js";
+import { factBindingInputs } from "./binding-inputs.js";
+import { verifyFactBindings } from "./verify-bindings.js";
+import { bodyNodes } from "./verify-body-nodes.js";
+import { verifyLiveness } from "./verify-liveness.js";
 
 const compareText = (left: string, right: string): number => left === right ? 0 : left < right ? -1 : 1;
 const compareNullableNumber = (left: number | null, right: number | null, nullOrder: -1 | 1): number => {
@@ -37,256 +42,270 @@ interface TransportShape {
   readonly component: number | null;
 }
 
-// The body's own syntax nodes (nested bodies' subtrees excluded) and those that carry a typed value.
-function bodyNodes(tir: TirBody): { readonly nodes: ReadonlyMap<NodeId, TirNode>; readonly valueNodes: ReadonlySet<NodeId> } {
-  const nodes = new Map<NodeId, TirNode>();
-  const valueNodes = new Set<NodeId>();
-  const nestedBodies = new Set(tir.nestedBodies);
-  const pending: TirNode[] = [tir.root];
-  for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
-    if (nodes.has(node.id)) continue;
-    nodes.set(node.id, node);
-    const annotation = node.tsonic;
-    if (annotation !== null && "convertedType" in annotation) valueNodes.add(node.id);
-    const template = annotation !== null && "callable" in annotation ? annotation.callable.template
-      : annotation !== null && "template" in annotation ? annotation.template : null;
-    const bodyRoot = template !== null && nestedBodies.has(template.body) && "body" in node && node.body !== null ? node.body.id : null;
-    const initializerRoot = annotation !== null && "initializer" in annotation && annotation.initializer !== null &&
-      nestedBodies.has(annotation.initializer) && "initializer" in node && node.initializer !== null ? node.initializer.id : null;
-    for (const child of childrenOfSyntax<TypedPhase>(node)) if (child.id !== bodyRoot && child.id !== initializerRoot) pending.push(child);
-  }
-  return { nodes, valueNodes };
-}
-
-// MIR points: a store, a write and an escape are ordered by position first, then by their source occurrence.
 const comparePoints = (left: MirPoint, right: MirPoint): number =>
   compareNumbers(left.block, right.block) || compareNullableNumber(left.statement, right.statement, 1);
 
-// The liveness family of one execution: the laws verifyFacts applies to it, available on their own to the family's producer.
-// The edge roles a terminator has: at most one edge per role (K-3370). `unwind` only when the terminator unwinds to a handler.
-const hasStoreEdge = (terminator: MirTerminator, edge: StoreEdge): boolean => {
-  switch (terminator.kind) {
-    case "check": case "call": case "invoke": return edge === "continue" || edge === "unwind" && terminator.unwind.kind === "handler";
-    case "await": return edge === "resume" || edge === "unwind" && terminator.unwind.kind === "handler";
-    case "yield": case "delegate": return edge === "resume" || edge === "return" || edge === "unwind" && terminator.unwind.kind === "handler";
-    case "throw": return edge === "unwind" && terminator.unwind.kind === "handler";
-    case "goto": case "switch": case "return": case "unreachable": return false;
-  }
-};
-const storeEdgeOrder: readonly (StoreEdge | null)[] = [null, "continue", "resume", "return", "unwind"];
-const compareEdges = (left: StoreEdge | null, right: StoreEdge | null): number => storeEdgeOrder.indexOf(left) - storeEdgeOrder.indexOf(right);
-
-export const verifyLiveness: VerifyLiveness = (liveness, instance, mir, context) => {
-  const violations: Violation<FactsRule, FactsSite>[] = [];
-  const report = (rule: FactsRule, site: FactsSite, text: string): void => { violations.push({ rule, site, detail: [{ kind: "text", value: text }] }); };
-  const { nodes } = bodyNodes(context.tirBody(instance));
-  const at = (node: NodeId): FactsSite => ({ kind: "node", at: { kind: "body", value: { body: instance.body, node } } });
-  const localSite = (local: LocalId): FactsSite => ({ kind: "local", local: { body: instance.body, local } });
-  const ordered = <Value>(rows: readonly Value[], rule: FactsRule, comparator: (left: Value, right: Value) => number, site: (row: Value) => FactsSite): void => {
-    let previous: Value | null = null;
-    for (const row of rows) {
-      if (previous !== null && comparator(previous, row) >= 0) report(rule, site(row), "Fact rows retain distinct canonical endpoint order.");
-      previous = row;
-    }
-  };
-  ordered(liveness.stores, "stores-order", (left, right) => comparePoints(left.point, right.point) || compareEdges(left.edge, right.edge) ||
-    compareNumbers(left.node, right.node), row => at(row.node));
-  for (const store of liveness.stores) {
-    if (!context.nodeExists({ kind: "body", value: { body: instance.body, node: store.node } }) || !nodes.has(store.node)) {
-      report("node-resolves", at(store.node), "Every fact retains an actual source occurrence in its declared body domain.");
-    }
-    const block = validIndex(store.point.block, mir.blocks.length) ? mir.blocks[store.point.block] : undefined;
-    if (block === undefined || !Object.is(block.id, store.point.block) || store.point.statement !== null &&
-      (!validIndex(store.point.statement, block.statements.length) || block.statements[store.point.statement] === undefined)) {
-      report("mir-point-resolves", at(store.node), "A MIR point names an actual block and statement, or that block's terminator.");
-    } else if (store.edge !== null && (store.point.statement !== null || !hasStoreEdge(block.terminator, store.edge))) {
-      report("mir-point-resolves", at(store.node), "A store edge names a role of the terminator at its point: continue, resume, return or a handler unwind.");
-    }
-  }
-  ordered(liveness.locals, "locals-order", (left, right) => compareNumbers(left.local, right.local), row => localSite(row.local));
-  ordered(liveness.bindings, "locals-order", (left, right) => compareNumbers(left.local, right.local), row => localSite(row.local));
-  for (const local of liveness.locals) {
-    const site = localSite(local.local);
-    if (!validIndex(local.local, mir.locals.length) || !Object.is(mir.locals[local.local]?.id, local.local)) {
-      report("cross-owner-qualified", site, "A live local belongs to this actual MIR local table.");
-    }
-    ordered(local.segments, "live-segments-order", (left, right) => compareNumbers(left.block, right.block) || compareNumbers(left.first, right.first) || compareNumbers(left.last, right.last), () => site);
-    for (const segment of local.segments) {
-      const block = validIndex(segment.block, mir.blocks.length) ? mir.blocks[segment.block] : undefined;
-      if (block === undefined || !Object.is(block.id, segment.block) || !validIndex(segment.first, block.statements.length + 1) ||
-        !validIndex(segment.last, block.statements.length + 1) || segment.last < segment.first ||
-        segment.first < block.statements.length && block.statements[segment.first] === undefined ||
-        segment.last < block.statements.length && block.statements[segment.last] === undefined) report("live-segments-bounds", site,
-        "A live interval contains ordered actual statement or terminator positions in its own block.");
-    }
-  }
-  // A binding row is one per source binding: a MIR local of this table that has a source.
-  for (const storage of liveness.bindings) {
-    const local = validIndex(storage.local, mir.locals.length) ? mir.locals[storage.local] : undefined;
-    if (local === undefined || !Object.is(local.id, storage.local) || local.source === null) {
-      report("cross-owner-qualified", localSite(storage.local), "A binding-storage row belongs to a source binding of this actual MIR local table.");
-    }
-  }
-  ordered(liveness.captures, "captures-order", (left, right) => compareText(left.local.body, right.local.body) || compareNumbers(left.local.local, right.local.local), row => ({ kind: "local", local: row.local }));
-  for (const capture of liveness.captures) if (!context.localExists(capture.local)) {
-    report("capture-locations-exact", { kind: "local", local: capture.local }, "A capture retains its actual qualified outer local.");
-  }
-  return violations;
-};
-
-export const verifyFacts: VerifyFacts = (facts, mir, context) => {
+export const verifyFacts: VerifyFacts = (facts, mir, context, account) => {
+  const initial = chargeWork(account, 1) ?? chargeResultEntries(account, 6);
+  if (initial !== null) return initial;
   const violations: Violation<FactsRule, FactsSite>[] = [];
   const bodySite: FactsSite = { kind: "execution", execution: facts.execution };
   const owner: RelationalOwner = { kind: "body", execution: facts.execution };
   const tir = context.tirBody(facts.execution.instance);
   const at = (node: NodeId): FactsSite => ({ kind: "node", at: { kind: "body", value: { body: facts.execution.instance.body, node } } });
-  const report = (rule: FactsRule, site: FactsSite, text: string): void => {
-    violations.push({ rule, site, detail: [{ kind: "text", value: text }] });
-  };
+  const report = (rule: FactsRule, site: FactsSite, text: string): DataflowStop | null =>
+    recordFinding(account, violations, "last", rule, site, text);
+  const identity = admitArtifactIdentity(facts.execution.instance.bindings, account)
+    ?? admitArtifactIdentity(mir.bindings, account) ?? admitArtifactIdentity(tir.bindings, account);
+  if (identity !== null) return identity;
   if (facts.execution.instance.body !== mir.body || facts.execution.instance.body !== tir.body ||
     !sameBindings(facts.execution.instance.bindings, mir.bindings) || !sameBindings(facts.execution.instance.bindings, tir.bindings)) {
-    report("body-instance-exact", bodySite, "Facts, TIR and MIR retain one exact body and complete binding environment.");
+    { const stop = report("body-instance-exact", bodySite, "Facts, TIR and MIR retain one exact body and complete binding environment."); if (stop !== null) return stop; }
   }
   const provided = facts.execution.provided;
-  const firstEntry = mir.entries[0];
-  const entryPosition = firstEntry === undefined ? -1 : firstEntry.provided - provided;
-  const entry = validIndex(entryPosition, mir.entries.length) ? mir.entries[entryPosition] : undefined;
-  if (!Number.isSafeInteger(provided) || provided < 0 || Object.is(provided, -0) || entry === undefined || !Object.is(entry.provided, provided)) {
-    report("execution-entry-exact", bodySite, "Facts name an actual supplied-count entry of their exact MIR body instance.");
+  let entry = false;
+  for (const candidate of mir.entries) {
+    const work = chargeWork(account, 1);
+    if (work !== null) return work;
+    if (candidate !== undefined && Object.is(candidate.provided, provided)) { entry = true; break; }
+  }
+  if (!Number.isSafeInteger(provided) || provided < 0 || Object.is(provided, -0) || !entry) {
+    { const stop = report("execution-entry-exact", bodySite, "Facts name an actual supplied-count entry of their exact MIR body instance."); if (stop !== null) return stop; }
   }
   const definition = tir.owner;
   if (!context.definitionExists(definition)) {
-    report("cross-owner-qualified", bodySite, "The actual checked body retains an existing declaration owner.");
+    { const stop = report("cross-owner-qualified", bodySite, "The actual checked body retains an existing declaration owner."); if (stop !== null) return stop; }
   }
   const diagnosticSites = new Set<string>();
-  for (const diagnostic of context.diagnostics) if (diagnostic !== undefined && diagnostic.severity === "error" && diagnostic.site.kind === "source") {
+  for (const diagnostic of context.diagnostics) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+if (diagnostic !== undefined && diagnostic.severity === "error" && diagnostic.site.kind === "source") {
     const origin = diagnostic.site.origin; diagnosticSites.add(encodeKey([origin.module, origin.start, origin.length]));
   }
-  for (const violation of verifyRelationalArena(facts.arena, owner, context)) violations.push(violation);
-  const { nodes, valueNodes } = bodyNodes(tir);
-  const nodeRef = (reference: NodeRef, site: FactsSite, local = true): void => {
+  }
+  const arena = verifyRelationalArena(facts.arena, owner, context, account);
+  if (arena.kind !== "complete") return arena;
+  const cells = verifyCells(facts.arena, owner, context, account);
+  if (cells.kind !== "complete") return cells;
+  for (const rows of [arena.violations, cells.violations]) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+for (const violation of rows) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+
+    const output = chargeResultEntries(account, 1);
+    if (output !== null) return output;
+    violations.push(violation);
+  }
+  }
+  const syntax = bodyNodes(tir, account);
+  if (syntax.kind !== "complete") return syntax;
+  const { nodes, valueNodes } = syntax.value;
+  const nodeRef = (reference: NodeRef, site: FactsSite, local = true): DataflowStop | null => {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
     if (!context.nodeExists({ kind: "body", value: reference }) || local && !nodes.has(reference.node)) {
-      report("node-resolves", site, "Every fact retains an actual source occurrence in its declared body domain.");
+      { const stop = report("node-resolves", site, "Every fact retains an actual source occurrence in its declared body domain."); if (stop !== null) return stop; }
     }
     if (local && reference.body !== facts.execution.instance.body) {
-      report("cross-owner-qualified", site, "A local fact cannot borrow the same numeric node index from another body.");
+      { const stop = report("cross-owner-qualified", site, "A local fact cannot borrow the same numeric node index from another body."); if (stop !== null) return stop; }
     }
+      return null;
   };
-  const node = (id: NodeId): void => nodeRef({ body: facts.execution.instance.body, node: id }, at(id));
-  const point = (value: MirPoint, site: FactsSite, rule: "mir-point-resolves" | "point-refs-resolve" = "mir-point-resolves"): void => {
+  const node = (id: NodeId): DataflowStop | null => nodeRef({ body: facts.execution.instance.body, node: id }, at(id));
+  const point = (value: MirPoint, site: FactsSite, rule: "mir-point-resolves" | "point-refs-resolve" = "mir-point-resolves"): DataflowStop | null => {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
     const block = validIndex(value.block, mir.blocks.length) ? mir.blocks[value.block] : undefined;
     if (block === undefined || !Object.is(block.id, value.block) || value.statement !== null &&
       (!validIndex(value.statement, block.statements.length) || block.statements[value.statement] === undefined)) {
-      report(rule, site, "A MIR point names an actual block and statement, or that block's terminator.");
+      { const stop = report(rule, site, "A MIR point names an actual block and statement, or that block's terminator."); if (stop !== null) return stop; }
     }
+      return null;
   };
-  const place = (id: number, site: FactsSite): void => {
-    if (!validIndex(id, mir.places.length) || !Object.is(mir.places[id]?.id, id)) report("place-resolves", site, "A place reference resolves in this exact MIR body.");
+  const place = (id: number, site: FactsSite): DataflowStop | null => {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+    if (!validIndex(id, mir.places.length) || !Object.is(mir.places[id]?.id, id)) { const stop = report("place-resolves", site, "A place reference resolves in this exact MIR body."); if (stop !== null) return stop; }
+      return null;
   };
-  const origins = (id: number, site: FactsSite): void => {
-    if (!validIndex(id, facts.arena.origins.length) || !Object.is(facts.arena.origins[id]?.id, id)) report("origins-resolves", site, "Origins resolve in this exact relational arena.");
+  const origins = (id: number, site: FactsSite): DataflowStop | null => {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+    if (!validIndex(id, facts.arena.origins.length) || !Object.is(facts.arena.origins[id]?.id, id)) { const stop = report("origins-resolves", site, "Origins resolve in this exact relational arena."); if (stop !== null) return stop; }
+      return null;
   };
-  const producer = (id: number, site: FactsSite, bound = false): void => {
+  const producer = (id: number, site: FactsSite, bound = false): DataflowStop | null => {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
     const rows = bound ? facts.arena.boundProducers : facts.arena.producers;
-    if (!validIndex(id, rows.length) || !Object.is(rows[id]?.id, id)) report(bound ? "bound-producer-resolves" : "producer-resolves", site,
-      "A producer reference resolves in its exact declared arena.");
+    if (!validIndex(id, rows.length) || !Object.is(rows[id]?.id, id)) { const stop = report(bound ? "bound-producer-resolves" : "producer-resolves", site,
+      "A producer reference resolves in its exact declared arena."); if (stop !== null) return stop; }
+      return null;
   };
-  const valueContext = (id: number, site: FactsSite): void => {
-    if (!validIndex(id, facts.arena.contexts.length) || !Object.is(facts.arena.contexts[id]?.id, id)) report("context-resolves", site, "A value context resolves in this exact arena.");
+  const valueContext = (id: number, site: FactsSite): DataflowStop | null => {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+    if (!validIndex(id, facts.arena.contexts.length) || !Object.is(facts.arena.contexts[id]?.id, id)) { const stop = report("context-resolves", site, "A value context resolves in this exact arena."); if (stop !== null) return stop; }
+      return null;
   };
-  const boundary = (id: number, site: FactsSite): void => {
-    if (!validIndex(id, facts.arena.boundaries.length) || !Object.is(facts.arena.boundaries[id]?.id, id)) report("boundary-resolves", site, "A boundary resolves in this exact arena.");
+  const boundary = (id: number, site: FactsSite): DataflowStop | null => {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+    if (!validIndex(id, facts.arena.boundaries.length) || !Object.is(facts.arena.boundaries[id]?.id, id)) { const stop = report("boundary-resolves", site, "A boundary resolves in this exact arena."); if (stop !== null) return stop; }
+      return null;
   };
-  const path = (id: number | null, site: FactsSite): void => {
+  const path = (id: number | null, site: FactsSite): DataflowStop | null => {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
     if (id !== null && (!validIndex(id, facts.arena.projections.length) || !Object.is(facts.arena.projections[id]?.id, id))) {
-      report("producer-resolves", site, "A projected fact retains its actual projection-path identity.");
+      { const stop = report("producer-resolves", site, "A projected fact retains its actual projection-path identity."); if (stop !== null) return stop; }
     }
+      return null;
   };
-  const type = (id: number, site: FactsSite): void => {
+  const type = (id: number, site: FactsSite): DataflowStop | null => {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
     if (!validIndex(id, context.types.terms.length) || context.types.terms[id] === undefined) {
-      report("type-resolves", site, "A fact type resolves in the actual supplied type table.");
+      { const stop = report("type-resolves", site, "A fact type resolves in the actual supplied type table."); if (stop !== null) return stop; }
     }
+      return null;
   };
-  const signature = (id: number, site: FactsSite): void => {
+  const signature = (id: number, site: FactsSite): DataflowStop | null => {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
     if (!validIndex(id, context.types.signatures.length) || !Object.is(context.types.signatures[id]?.id, id)) {
-      report("signature-resolves", site, "A fact signature resolves in the actual supplied signature table.");
+      { const stop = report("signature-resolves", site, "A fact signature resolves in the actual supplied signature table."); if (stop !== null) return stop; }
     }
+      return null;
   };
-  const ordered = <Value>(rows: readonly Value[], rule: FactsRule, comparator: (left: Value, right: Value) => number, site: (row: Value) => FactsSite): void => {
+  const ordered = <Value>(rows: readonly Value[], rule: FactsRule, comparator: (left: Value, right: Value) => number, site: (row: Value) => FactsSite): DataflowStop | null => {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
     let previous: Value | null = null;
     for (const row of rows) {
-      if (previous !== null && comparator(previous, row) >= 0) report(rule, site(row), "Fact rows retain distinct canonical endpoint order.");
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+
+      if (previous !== null && comparator(previous, row) >= 0) { const stop = report(rule, site(row), "Fact rows retain distinct canonical endpoint order."); if (stop !== null) return stop; }
       previous = row;
     }
+      return null;
   };
-  const nodeOrder = <Value extends { readonly node: NodeId }>(rows: readonly Value[], rule: FactsRule): void =>
+  const nodeOrder = <Value extends { readonly node: NodeId }>(rows: readonly Value[], rule: FactsRule): DataflowStop | null =>
     ordered(rows, rule, (left, right) => compareNumbers(left.node, right.node), row => at(row.node));
-  const target = (value: EscapeTarget, site: FactsSite): void => {
+  const target = (value: EscapeTarget, site: FactsSite): DataflowStop | null => {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
     switch (value.kind) {
       case "return": case "throw": break;
       case "shared":
-        if (!context.definitionExists(value.definition)) report("producer-resolves", site, "A shared target retains its actual declaration.");
-        path(value.path, site); break;
+        if (!context.definitionExists(value.definition)) { const stop = report("producer-resolves", site, "A shared target retains its actual declaration."); if (stop !== null) return stop; }
+        { const stop = path(value.path, site); if (stop !== null) return stop; } break;
       case "parameter":
-        if (!validIndex(value.index, tir.params.length) || tir.params[value.index] === undefined) report("producer-resolves", site, "An escape retains its actual declaration parameter index.");
-        path(value.path, site); break;
+        if (!validIndex(value.index, tir.params.length) || tir.params[value.index] === undefined) { const stop = report("producer-resolves", site, "An escape retains its actual declaration parameter index."); if (stop !== null) return stop; }
+        { const stop = path(value.path, site); if (stop !== null) return stop; } break;
       case "capture":
-        if (!validIndex(value.index, tir.captures.length) || tir.captures[value.index] === undefined) report("capture-locations-exact", site, "An escape retains its actual captured-location index.");
-        path(value.path, site); break;
+        if (!validIndex(value.index, tir.captures.length) || tir.captures[value.index] === undefined) { const stop = report("capture-locations-exact", site, "An escape retains its actual captured-location index."); if (stop !== null) return stop; }
+        { const stop = path(value.path, site); if (stop !== null) return stop; } break;
       case "receiver":
         if (!validIndex(tir.signature, context.types.signatures.length) || !Object.is(context.types.signatures[tir.signature]?.id, tir.signature) ||
-          context.types.signatures[tir.signature]?.receiver === null) report("producer-resolves", site, "A receiver escape retains an actual receiver slot.");
-        path(value.path, site); break;
+          context.types.signatures[tir.signature]?.receiver === null) { const stop = report("producer-resolves", site, "A receiver escape retains an actual receiver slot."); if (stop !== null) return stop; }
+        { const stop = path(value.path, site); if (stop !== null) return stop; } break;
       case "callback": case "suspension":
         if (value.at.kind === "node") {
-          if (value.at.node.kind === "body") nodeRef(value.at.node.value, site);
-          else report("cross-owner-qualified", site, "A body retention occurrence belongs to this exact source body.");
+          if (value.at.node.kind === "body") { const stop = nodeRef(value.at.node.value, site); if (stop !== null) return stop; }
+          else { const stop = report("cross-owner-qualified", site, "A body retention occurrence belongs to this exact source body."); if (stop !== null) return stop; }
         }
         else {
-          if (!context.libraryExportExists(value.at.identity)) report("relational-site-resolves", site, "An escape retains an existing declared library export.");
+          if (!context.libraryExportExists(value.at.identity)) { const stop = report("relational-site-resolves", site, "An escape retains an existing declared library export."); if (stop !== null) return stop; }
           const count = context.declaredSiteCount(value.at.identity);
-          if (count === null || !validIndex(value.at.site, count)) report("declared-site-ordinal", site,
-            "An escape's declared site retains its actual library export and logical allocation ordinal.");
+          if (count === null || !validIndex(value.at.site, count)) { const stop = report("declared-site-ordinal", site,
+            "An escape's declared site retains its actual library export and logical allocation ordinal."); if (stop !== null) return stop; }
         }
         break;
-      case "external": boundary(value.boundary, site); break;
+      case "external": { const stop = boundary(value.boundary, site); if (stop !== null) return stop; } break;
     }
+      return null;
   };
-  const retention = (rows: readonly RetentionFact[], site: FactsSite): void => {
-    for (const row of rows) { producer(row.source, site); target(row.into, site); }
+  const retention = (rows: readonly RetentionFact[], site: FactsSite): DataflowStop | null => {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+    for (const row of rows) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+ { const stop = producer(row.source, site); if (stop !== null) return stop; } { const stop = target(row.into, site); if (stop !== null) return stop; } }
+      return null;
   };
   for (const row of facts.arena.producers) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+
     const site: FactsSite = { kind: "producer", owner, producer: row.id };
     if (row.kind === "parameter" && (!validIndex(row.index, tir.params.length) || tir.params[row.index] === undefined) ||
       row.kind === "capture" && (!validIndex(row.index, tir.captures.length) || tir.captures[row.index] === undefined) ||
       row.kind === "receiver" && (!validIndex(tir.signature, context.types.signatures.length) ||
         !Object.is(context.types.signatures[tir.signature]?.id, tir.signature) || context.types.signatures[tir.signature]?.receiver === null)) {
-      report("producer-resolves", site, "A producer retains its actual body parameter, receiver or captured-location slot.");
+      { const stop = report("producer-resolves", site, "A producer retains its actual body parameter, receiver or captured-location slot."); if (stop !== null) return stop; }
     }
   }
 
-  for (const violation of verifyLiveness(facts.liveness, facts.execution.instance, mir, context)) violations.push(violation);
-  nodeOrder(facts.initialization.reads, "initialization-order");
-  for (const read of facts.initialization.reads) { node(read.node); place(read.place, at(read.node)); }
-  nodeOrder(facts.refinements.refinements, "refinements-order");
-  for (const refinement of facts.refinements.refinements) {
-    node(refinement.node); for (const guard of refinement.guards) node(guard);
-    if (refinement.kind === "unproven" && refinement.reason.kind === "invalidated") for (const invalidation of refinement.reason.sites) nodeRef(invalidation.at, at(refinement.node));
+  const liveness = verifyLiveness(facts.liveness, facts.execution.instance, mir, context, account);
+  if (liveness.kind !== "complete") return liveness;
+  for (const violation of liveness.violations) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+
+    const output = chargeResultEntries(account, 1);
+    if (output !== null) return output;
+    violations.push(violation);
   }
-  nodeOrder(facts.refinements.integers, "integer-facts-order");
+  { const stop = nodeOrder(facts.initialization.reads, "initialization-order"); if (stop !== null) return stop; }
+  for (const read of facts.initialization.reads) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+ { const stop = node(read.node); if (stop !== null) return stop; } { const stop = place(read.place, at(read.node)); if (stop !== null) return stop; } }
+  { const stop = nodeOrder(facts.refinements.refinements, "refinements-order"); if (stop !== null) return stop; }
+  for (const refinement of facts.refinements.refinements) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+
+    { const stop = node(refinement.node); if (stop !== null) return stop; } for (const guard of refinement.guards) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+ const stop = node(guard); if (stop !== null) return stop; }
+    if (refinement.kind === "unproven" && refinement.reason.kind === "invalidated") for (const invalidation of refinement.reason.sites) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+ const stop = nodeRef(invalidation.at, at(refinement.node)); if (stop !== null) return stop; }
+  }
+  { const stop = nodeOrder(facts.refinements.integers, "integer-facts-order"); if (stop !== null) return stop; }
   const integerNodes = new Set<NodeId>();
   for (const integer of facts.refinements.integers) {
-    integerNodes.add(integer.node); node(integer.node);
-    if (integer.range !== null && integer.range.minimum > integer.range.maximum) report("integer-range-valid", at(integer.node), "An exact integer interval has ordered bigint endpoints.");
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+
+    const output = chargeResultEntries(account, 1);
+    if (output !== null) return output;
+    integerNodes.add(integer.node); { const stop = node(integer.node); if (stop !== null) return stop; }
+    if (integer.range !== null && integer.range.minimum > integer.range.maximum) { const stop = report("integer-range-valid", at(integer.node), "An exact integer interval has ordered bigint endpoints."); if (stop !== null) return stop; }
     if (integer.range !== null && integer.nonnegative && integer.range.maximum < 0n) {
-      report("integer-proofs-consistent", at(integer.node), "A published interval and nonnegative proof cannot contradict one another.");
+      { const stop = report("integer-proofs-consistent", at(integer.node), "A published interval and nonnegative proof cannot contradict one another."); if (stop !== null) return stop; }
     }
   }
-  if (integerNodes.size !== valueNodes.size || [...valueNodes].some(id => !integerNodes.has(id))) {
-    report("integer-facts-domain-exact", bodySite, "Integer proofs retain every actual checked value occurrence, including explicit absent proofs.");
+  let sameIntegerDomain = integerNodes.size === valueNodes.size;
+  for (const id of valueNodes) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+if (!integerNodes.has(id)) sameIntegerDomain = false;
   }
-  ordered(facts.refinements.countedLoops, "counted-loops-order",
-    (left, right) => compareNumbers(left.statement, right.statement), row => at(row.statement));
+  if (!sameIntegerDomain) {
+    { const stop = report("integer-facts-domain-exact", bodySite, "Integer proofs retain every actual checked value occurrence, including explicit absent proofs."); if (stop !== null) return stop; }
+  }
+  { const stop = ordered(facts.refinements.countedLoops, "counted-loops-order",
+    (left, right) => compareNumbers(left.statement, right.statement), row => at(row.statement)); if (stop !== null) return stop; }
   const resolvesCounter = (reference: TirNode, declaration: DeclarationTarget): boolean => {
     if (reference.kind !== "Identifier") return false;
     const annotation = reference.tsonic;
@@ -297,9 +316,15 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
       : resolution.kind === "definition" && declaration.kind === "definition" && resolution.definition === declaration.definition;
   };
   for (const loop of facts.refinements.countedLoops) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+
     const site = at(loop.statement);
     for (const endpoint of [loop.statement, loop.counterDeclaration, loop.start, loop.bound, loop.body]) {
-      if (!nodes.has(endpoint)) report("counted-loop-endpoints-resolve", site, "All five counted-loop endpoints retain actual occurrences in this body.");
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+
+      if (!nodes.has(endpoint)) { const stop = report("counted-loop-endpoints-resolve", site, "All five counted-loop endpoints retain actual occurrences in this body."); if (stop !== null) return stop; }
     }
     const statement = nodes.get(loop.statement);
     const counter = nodes.get(loop.counterDeclaration);
@@ -310,121 +335,244 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
       statement.initializer.declarations.nodes[0]?.id !== counter.id || statement.incrementor === null ||
       (statement.incrementor.kind !== "PostfixUnaryExpression" && statement.incrementor.kind !== "PrefixUnaryExpression") ||
       statement.incrementor.operator !== "PlusPlusToken" || !resolvesCounter(statement.incrementor.operand, counter.tsonic.declaration)) {
-      report("counted-loop-conditions-exact", site, "A counted loop retains its actual initialized counter, exclusive upper comparison and unit increment.");
+      { const stop = report("counted-loop-conditions-exact", site, "A counted loop retains its actual initialized counter, exclusive upper comparison and unit increment."); if (stop !== null) return stop; }
     }
   }
 
-  ordered(facts.origins.points, "points-order", (left, right) => compareNumbers(left.point.block, right.point.block) ||
-    compareNullableNumber(left.point.statement, right.point.statement, 1) || compareNumbers(left.place, right.place), () => bodySite);
-  for (const entry of facts.origins.points) { point(entry.point, bodySite, "point-refs-resolve"); place(entry.place, bodySite); origins(entry.origins, bodySite); }
-  ordered(facts.origins.reads, "reads-order", (left, right) => compareNumbers(left.node, right.node) || compareNumbers(left.place, right.place), row => at(row.node));
-  for (const read of facts.origins.reads) { node(read.node); place(read.place, at(read.node)); origins(read.origins, at(read.node)); }
-  ordered(facts.origins.subjects, "subjects-order", (left, right) => compareNumbers(left.node, right.node) || compareText(left.role, right.role) ||
-    compareNullableNumber(left.path, right.path, -1), row => at(row.node));
-  for (const subject of facts.origins.subjects) { node(subject.node); path(subject.path, at(subject.node)); origins(subject.origins, at(subject.node)); }
-  ordered(facts.origins.writes, "writes-order", (left, right) => comparePoints(left.point, right.point) || compareNumbers(left.node, right.node), row => at(row.node));
+  { const stop = ordered(facts.origins.points, "points-order", (left, right) => compareNumbers(left.point.block, right.point.block) ||
+    compareNullableNumber(left.point.statement, right.point.statement, 1) || compareNumbers(left.place, right.place), () => bodySite); if (stop !== null) return stop; }
+  for (const entry of facts.origins.points) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+ { const stop = point(entry.point, bodySite, "point-refs-resolve"); if (stop !== null) return stop; } { const stop = place(entry.place, bodySite); if (stop !== null) return stop; } { const stop = origins(entry.origins, bodySite); if (stop !== null) return stop; } }
+  { const stop = ordered(facts.origins.reads, "reads-order", (left, right) => compareNumbers(left.node, right.node) || compareNumbers(left.place, right.place), row => at(row.node)); if (stop !== null) return stop; }
+  for (const read of facts.origins.reads) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+ { const stop = node(read.node); if (stop !== null) return stop; } { const stop = place(read.place, at(read.node)); if (stop !== null) return stop; } { const stop = origins(read.origins, at(read.node)); if (stop !== null) return stop; } }
+  { const stop = ordered(facts.origins.subjects, "subjects-order", (left, right) => compareNumbers(left.node, right.node) || compareText(left.role, right.role) ||
+    compareNullableNumber(left.path, right.path, -1), row => at(row.node)); if (stop !== null) return stop; }
+  for (const subject of facts.origins.subjects) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+ { const stop = node(subject.node); if (stop !== null) return stop; } { const stop = path(subject.path, at(subject.node)); if (stop !== null) return stop; } { const stop = origins(subject.origins, at(subject.node)); if (stop !== null) return stop; } }
+  { const stop = ordered(facts.origins.writes, "writes-order", (left, right) => comparePoints(left.point, right.point) || compareNumbers(left.node, right.node), row => at(row.node)); if (stop !== null) return stop; }
   for (const write of facts.origins.writes) {
-    node(write.node); const site = at(write.node); point(write.point, site);
-    for (const id of write.targets) producer(id, site, true);
-    if (write.owner !== null) producer(write.owner, site, true);
-    for (const value of write.values) { if (value.source !== null) nodeRef(value.source, site); origins(value.origins, site); }
-    for (const id of write.boundaries) boundary(id, site);
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+
+    { const stop = node(write.node); if (stop !== null) return stop; } const site = at(write.node); { const stop = point(write.point, site); if (stop !== null) return stop; }
+    for (const id of write.targets) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+ const stop = producer(id, site, true); if (stop !== null) return stop; }
+    if (write.owner !== null) { const stop = producer(write.owner, site, true); if (stop !== null) return stop; }
+    for (const value of write.values) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+ if (value.source !== null) { const stop = nodeRef(value.source, site); if (stop !== null) return stop; } { const stop = origins(value.origins, site); if (stop !== null) return stop; } }
+    for (const id of write.boundaries) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+ const stop = boundary(id, site); if (stop !== null) return stop; }
   }
-  ordered(facts.origins.escapes, "escapes-order", (left, right) => comparePoints(left.point, right.point) || compareNumbers(left.node, right.node) ||
-    compareNumbers(left.producer, right.producer) || compareText(encodeKey(escapeData(left.target)), encodeKey(escapeData(right.target))), row => at(row.node));
+  let previousEscape: EscapeFact | null = null;
+  let previousEscapeKey = "";
   for (const escape of facts.origins.escapes) {
-    node(escape.node); point(escape.point, at(escape.node)); producer(escape.producer, at(escape.node)); target(escape.target, at(escape.node));
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+    const identity = admitEscapeIdentity(escape.target, account);
+    if (identity !== null) return identity;
+    const key = encodeKey(escapeData(escape.target));
+    const comparison = chargeWork(account, previousEscapeKey.length + key.length);
+    if (comparison !== null) return comparison;
+    if (previousEscape !== null && (comparePoints(previousEscape.point, escape.point)
+      || compareNumbers(previousEscape.node, escape.node) || compareNumbers(previousEscape.producer, escape.producer)
+      || compareText(previousEscapeKey, key)) >= 0) {
+      const stop = report("escapes-order", at(escape.node), "Fact rows retain distinct canonical endpoint order.");
+      if (stop !== null) return stop;
+    }
+    previousEscape = escape;
+    previousEscapeKey = key;
   }
-  // Exit contents: per exit, the writes are distinct, ordered by target producer and value origins, and resolve in this arena.
+  for (const escape of facts.origins.escapes) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+    { const stop = node(escape.node); if (stop !== null) return stop; } { const stop = point(escape.point, at(escape.node)); if (stop !== null) return stop; } { const stop = producer(escape.producer, at(escape.node)); if (stop !== null) return stop; } { const stop = target(escape.target, at(escape.node)); if (stop !== null) return stop; }
+  }
   for (const exit of [facts.origins.exitContents.onReturn, facts.origins.exitContents.onUnwind]) {
-    ordered(exit, "writes-order", (left, right) => compareNumbers(left.target, right.target) || compareNumbers(left.value, right.value), () => bodySite);
-    for (const write of exit) { producer(write.target, bodySite); origins(write.value, bodySite); }
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+
+    { const stop = ordered(exit, "writes-order", (left, right) => compareNumbers(left.target, right.target) || compareNumbers(left.value, right.value), () => bodySite); if (stop !== null) return stop; }
+    for (const write of exit) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+
+      if (!validIndex(write.target, facts.arena.cells.length) || !Object.is(facts.arena.cells[write.target]?.id, write.target))
+        { const stop = report("cell-role-resolves", bodySite, "An exit-content write resolves in its actual logical-cell arena."); if (stop !== null) return stop; }
+      { const stop = origins(write.value, bodySite); if (stop !== null) return stop; }
+    }
   }
-  const checkArgument = (argument: ArgumentTransport, site: FactsSite): void => {
-    origins(argument.actual, site); path(argument.projection, site);
+  const checkArgument = (argument: ArgumentTransport, site: FactsSite): DataflowStop | null => {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+    { const stop = origins(argument.actual, site); if (stop !== null) return stop; } { const stop = path(argument.projection, site); if (stop !== null) return stop; }
     if (!Number.isSafeInteger(argument.parameterIndex) || argument.parameterIndex < 0 || Object.is(argument.parameterIndex, -0) ||
       argument.authoredIndex !== null && (!Number.isSafeInteger(argument.authoredIndex) || argument.authoredIndex < 0 || Object.is(argument.authoredIndex, -0))) {
-      report("argument-transports-total", site, "A transport retains actual nonnegative authored and formal indices.");
+      { const stop = report("argument-transports-total", site, "A transport retains actual nonnegative authored and formal indices."); if (stop !== null) return stop; }
     }
+    const identity = admitOwnerIdentity(argument.formal.owner, account);
+    if (identity !== null) return identity;
     const foreign = context.arenaOf(argument.formal.owner);
     const formal = foreign === null ? undefined : foreign.producers[argument.formal.producer];
-    if (foreign === null) report("cross-owner-qualified", site, "A formal producer retains a resolving qualified relational owner.");
+    if (foreign === null) { const stop = report("cross-owner-qualified", site, "A formal producer retains a resolving qualified relational owner."); if (stop !== null) return stop; }
     else if (!validIndex(argument.formal.producer, foreign.producers.length) || formal === undefined || !Object.is(formal.id, argument.formal.producer)) {
-      report("producer-resolves", site, "The actual formal producer resolves in its declared foreign arena.");
-    } else if (formal.kind !== "parameter" || formal.index !== argument.parameterIndex) report("argument-transports-total", site,
-        "A transport's formal producer retains its actual declaration parameter position.");
-    if (!context.definitionExists(argument.parameter)) report("argument-transports-total", site, "A transport retains its actual parameter declaration.");
+      { const stop = report("producer-resolves", site, "The actual formal producer resolves in its declared foreign arena."); if (stop !== null) return stop; }
+    } else if (formal.kind !== "parameter" || formal.index !== argument.parameterIndex) { const stop = report("argument-transports-total", site,
+        "A transport's formal producer retains its actual declaration parameter position."); if (stop !== null) return stop; }
+    if (!context.definitionExists(argument.parameter)) { const stop = report("argument-transports-total", site, "A transport retains its actual parameter declaration."); if (stop !== null) return stop; }
+      return null;
   };
-  nodeOrder(facts.origins.invocations, "invocations-order");
+  { const stop = nodeOrder(facts.origins.invocations, "invocations-order"); if (stop !== null) return stop; }
   for (const invocation of facts.origins.invocations) {
-    node(invocation.node); const site = at(invocation.node);
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+
+    { const stop = node(invocation.node); if (stop !== null) return stop; } const site = at(invocation.node);
     const syntax = nodes.get(invocation.node);
     const application = (syntax?.kind === "CallExpression" || syntax?.kind === "NewExpression" || syntax?.kind === "TaggedTemplateExpression") && syntax.tsonic.application.kind === "decided"
       ? syntax.tsonic.application.decision : null;
     const authored = new Map<NodeId, number>();
     if (syntax?.kind === "CallExpression" || syntax?.kind === "NewExpression") {
       for (const [index, argument] of (syntax.arguments?.nodes ?? []).entries()) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+
+        const output = chargeResultEntries(account, 1);
+        if (output !== null) return output;
         authored.set(argument.kind === "SpreadElement" ? argument.expression.id : argument.id, index);
       }
     }
-    for (const id of invocation.boundaries) boundary(id, site);
+    for (const id of invocation.boundaries) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+ const stop = boundary(id, site); if (stop !== null) return stop; }
     for (const alternative of invocation.alternatives) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+
       const decision = alternative.resolution.decision;
-      valueContext(alternative.context, site); origins(alternative.result, site); origins(alternative.thrown, site);
-      signature(decision.advertised.signature, site); signature(decision.api.signature, site); signature(decision.completion.signature, site);
-      type(decision.result, site); type(decision.completion.completion, site);
-      if (decision.completion.yielded !== null) type(decision.completion.yielded, site);
-      if (decision.completion.sent !== null) type(decision.completion.sent, site);
+      const identity = admitOwnerIdentity({ kind: "summary", key: alternative.summary }, account);
+      if (identity !== null) return identity;
+      { const stop = valueContext(alternative.context, site); if (stop !== null) return stop; } { const stop = origins(alternative.result, site); if (stop !== null) return stop; } { const stop = origins(alternative.thrown, site); if (stop !== null) return stop; }
+      { const stop = signature(decision.advertised.signature, site); if (stop !== null) return stop; } { const stop = signature(decision.api.signature, site); if (stop !== null) return stop; } { const stop = signature(decision.completion.signature, site); if (stop !== null) return stop; }
+      { const stop = type(decision.result, site); if (stop !== null) return stop; } { const stop = type(decision.completion.completion, site); if (stop !== null) return stop; }
+      if (decision.completion.yielded !== null) { const stop = type(decision.completion.yielded, site); if (stop !== null) return stop; }
+      if (decision.completion.sent !== null) { const stop = type(decision.completion.sent, site); if (stop !== null) return stop; }
       const selected = context.types.signatures[decision.api.signature];
       const receiver = facts.arena.contexts[alternative.context];
-      const mappings = new Map(decision.parameters.map(mapping => [mapping.parameter, mapping]));
-      const restAuthored = new Map(decision.parameters.filter(mapping => mapping.kind === "rest").map(mapping => [mapping.parameter, new Set(mapping.arguments)]));
+      const mappings = new Map<number, ParameterMapping>();
+      const restAuthored = new Map<number, Set<number>>();
+      for (const mapping of decision.parameters) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+
+        const growth = chargeResultEntries(account, 1);
+        if (growth !== null) return growth;
+        mappings.set(mapping.parameter, mapping);
+        if (mapping.kind === "rest") {
+          const first = chargeResultEntries(account, 2);
+          if (first !== null) return first;
+          const authored = new Set<number>();
+          for (const argument of mapping.arguments) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+
+            const output = chargeResultEntries(account, 1);
+            if (output !== null) return output;
+            authored.add(argument);
+          }
+          restAuthored.set(mapping.parameter, authored);
+        }
+      }
       const consumed = new Map<number, Set<number>>();
-      for (const mapping of decision.parameters) if (mapping.kind === "argument" && mapping.component !== null) {
+      for (const mapping of decision.parameters) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+if (mapping.kind === "argument" && mapping.component !== null) {
         const components = consumed.get(mapping.argument);
+        const output = chargeResultEntries(account, components === undefined ? 3 : 1);
+        if (output !== null) return output;
         if (components === undefined) consumed.set(mapping.argument, new Set([mapping.component]));
         else components.add(mapping.component);
       }
-      const restParts = new Map(application === null ? [] : application.arguments.filter(argument => argument.kind === "rest").map(argument => [argument.parameter, argument]));
+  }
+      const restParts = new Map<number, TirArgument>();
+      if (application !== null) for (const argument of application.arguments) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+if (argument.kind === "rest") {
+        const output = chargeResultEntries(account, 1);
+        if (output !== null) return output;
+        restParts.set(argument.parameter, argument);
+      }
+  }
       const expectedRests = new Map<number, readonly TransportShape[]>();
-      for (const mapping of decision.parameters) if (mapping.kind === "rest") {
+      for (const mapping of decision.parameters) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+if (mapping.kind === "rest") {
+        const output = chargeResultEntries(account, 2);
+        if (output !== null) return output;
         const shapes: TransportShape[] = [];
         if (mapping.arguments.length === 0) expectedRests.set(mapping.parameter, shapes);
         else {
           const rest = restParts.get(mapping.parameter);
-          if (rest !== undefined) {
+          if (rest !== undefined && rest.kind === "rest") {
             for (const part of rest.parts) {
+    const step = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
+    if (step !== null) return step;
+
               const index = authored.get(part.expression);
               if (index === undefined || !restAuthored.get(mapping.parameter)?.has(index)) {
-                report("argument-transports-total", site, "Rest transports retain their actual selected authored spread and value occurrences.");
+                { const stop = report("argument-transports-total", site, "Rest transports retain their actual selected authored spread and value occurrences."); if (stop !== null) return stop; }
               } else if (part.kind === "value") shapes.push({ authoredIndex: index, repeated: false, component: null });
               else if (part.tuple === null) shapes.push({ authoredIndex: index, repeated: true, component: null });
-              else for (const [component] of part.tuple.entries()) if (!consumed.get(index)?.has(component)) {
+              else for (const [component] of part.tuple.entries()) {
+    const step = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
+    if (step !== null) return step;
+if (!consumed.get(index)?.has(component)) {
                 shapes.push({ authoredIndex: index, repeated: false, component });
               }
+  }
             }
             expectedRests.set(mapping.parameter, shapes);
           }
         }
       }
+  }
       if (selected !== undefined && receiver !== undefined && (receiver.arguments.length !== selected.parameters.length ||
-        (receiver.receiver === null) !== (selected.receiver === null))) report("context-arguments-total", site,
-        "Each invocation context retains every actual selected parameter and receiver slot.");
+        (receiver.receiver === null) !== (selected.receiver === null))) { const stop = report("context-arguments-total", site,
+        "Each invocation context retains every actual selected parameter and receiver slot."); if (stop !== null) return stop; }
       let previousAuthored: number | null = null;
       const supplied = new Map<number, number>();
       const rests = new Map<number, ArgumentTransport[]>();
       for (const argument of alternative.arguments) {
-        checkArgument(argument, site);
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+
+        { const stop = checkArgument(argument, site); if (stop !== null) return stop; }
         if (argument.authoredIndex !== null) {
-          if (previousAuthored !== null && compareNumbers(previousAuthored, argument.authoredIndex) > 0) report("argument-transports-authored-order", site,
-            "Transports retain authored actual evaluation order without inventing a flattened runtime slot.");
+          if (previousAuthored !== null && compareNumbers(previousAuthored, argument.authoredIndex) > 0) { const stop = report("argument-transports-authored-order", site,
+            "Transports retain authored actual evaluation order without inventing a flattened runtime slot."); if (stop !== null) return stop; }
           previousAuthored = argument.authoredIndex;
         }
         const parameter = selected?.parameters[argument.parameterIndex];
         const mapping = mappings.get(argument.parameterIndex);
         if (parameter === undefined || parameter.declaration !== argument.parameter || parameter.passing !== argument.passing ||
-          mapping === undefined || mapping.kind !== "rest" && argument.repeated) report("argument-transports-total", site,
-          "Transports retain complete selected formals, passing modes and effective actual components exactly once.");
+          mapping === undefined || mapping.kind !== "rest" && argument.repeated) { const stop = report("argument-transports-total", site,
+          "Transports retain complete selected formals, passing modes and effective actual components exactly once."); if (stop !== null) return stop; }
         if (mapping !== undefined && (argument.authoredIndex === null || Number.isSafeInteger(argument.authoredIndex) && argument.authoredIndex >= 0 && !Object.is(argument.authoredIndex, -0))) {
           const valid = mapping.kind === "argument" ? argument.authoredIndex === mapping.argument
             : mapping.kind === "rest" ? argument.authoredIndex !== null && restAuthored.get(mapping.parameter)?.has(argument.authoredIndex) === true
@@ -434,32 +582,48 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
             mapping.kind === "argument" && (mapping.component === null ? argument.projection !== null
               : !Number.isSafeInteger(mapping.component) || mapping.component < 0 || Object.is(mapping.component, -0) ||
                 projection?.kind !== "index" || projection.constant !== BigInt(mapping.component))) {
-            report("argument-transports-total", site, "A transport retains its actual selected argument, default, omission or rest mapping and correlated origins.");
+            { const stop = report("argument-transports-total", site, "A transport retains its actual selected argument, default, omission or rest mapping and correlated origins."); if (stop !== null) return stop; }
           }
         }
         if (mapping?.kind === "rest") {
           const rows = rests.get(argument.parameterIndex);
+          const output = chargeResultEntries(account, rows === undefined ? 2 : 1);
+          if (output !== null) return output;
           if (rows === undefined) rests.set(argument.parameterIndex, [argument]); else rows.push(argument);
         }
+        const output = chargeResultEntries(account, 1);
+        if (output !== null) return output;
         supplied.set(argument.parameterIndex, (supplied.get(argument.parameterIndex) ?? 0) + 1);
-        if (argument.formal.owner.kind !== "summary" || summaryKey(argument.formal.owner.key) !== summaryKey(alternative.summary)) report("cross-owner-qualified", site,
-          "An argument's formal producer belongs to this exact callee summary and complete binding environment.");
+        if (argument.formal.owner.kind !== "summary" || summaryKey(argument.formal.owner.key) !== summaryKey(alternative.summary)) { const stop = report("cross-owner-qualified", site,
+          "An argument's formal producer belongs to this exact callee summary and complete binding environment."); if (stop !== null) return stop; }
       }
       for (const [index, parameter] of selected?.parameters.entries() ?? []) {
-        if (parameter !== undefined && parameter.kind !== "rest" && supplied.get(index) !== 1) report("argument-transports-total", site,
-          "Every non-rest selected formal has its complete actual or explicit omitted transport.");
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+
+        if (parameter !== undefined && parameter.kind !== "rest" && supplied.get(index) !== 1) { const stop = report("argument-transports-total", site,
+          "Every non-rest selected formal has its complete actual or explicit omitted transport."); if (stop !== null) return stop; }
       }
       for (const [parameter, shapes] of expectedRests) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+
         const rows = rests.get(parameter) ?? [];
-        const expected = encodeKey(shapes.map(shape => [shape.authoredIndex, shape.repeated,
-          shape.component === null ? shape.repeated ? "element" : null : BigInt(shape.component)]));
-        const actual = encodeKey(rows.map(row => {
+        let exact = rows.length === shapes.length;
+        for (let position = 0; position < shapes.length; position += 1) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+
+          const shape = shapes[position];
+          const row = rows[position];
+          if (shape === undefined || row === undefined) { exact = false; continue; }
           const projection = row.projection === null ? null : facts.arena.projections[row.projection]?.projection;
-          return [row.authoredIndex, row.repeated, projection === null ? null : projection === undefined ? "missing"
-            : projection.kind === "index" ? projection.constant : projection.kind];
-        }));
-        if (actual !== expected) report("argument-transports-total", site,
-          "Rest transports retain every actual unconsumed tuple component or one symbolic repeated sequence, including known empty spreads.");
+          if (shape.authoredIndex !== row.authoredIndex || shape.repeated !== row.repeated
+            || (shape.component === null ? shape.repeated ? projection?.kind !== "element" : projection !== null
+              : projection?.kind !== "index" || projection.constant !== BigInt(shape.component))) exact = false;
+        }
+        if (!exact) { const stop = report("argument-transports-total", site,
+          "Rest transports retain every actual unconsumed tuple component or one symbolic repeated sequence, including known empty spreads."); if (stop !== null) return stop; }
       }
       const activation = alternative.resolution.activation;
       const dependent = context.bindingDependentOf(decision.api.declaration);
@@ -470,35 +634,52 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
       const captured = actual === null ? 0 : actual.captures.length;
       const activationValid = actual === null || activation === null || actual.body === activation.body && actual.owner === decision.api.declaration &&
         sameBindings(actual.bindings, activation.bindings) && environment !== null && sameBindings(activation.bindings, environment);
-      const provided = decision.parameters.reduce((count, parameter) => count + (parameter.kind === "argument" ? 1 : 0), 0);
+      let provided = 0;
+      for (const parameter of decision.parameters) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+if (parameter.kind === "argument") provided += 1;
+  }
       const summary = alternative.summary;
       const selectedExecution = activation === null
         ? summary.kind === "declared" && summary.execution.request.definition === decision.api.declaration &&
           summary.execution.request.endpoint === decision.api.role && context.signatureIdOf(summary.execution.request) === decision.api.signature
         : summary.kind === "body" && instanceKey(summary.execution.instance) === instanceKey(activation);
       if (summaryDefinition(summary, context) !== decision.api.declaration || environment === null || !sameBindings(summaryBindings(summary), environment) ||
-        !selectedExecution || !Object.is(summary.execution.provided, provided) || !activationValid) report("summary-reference-exact", site,
-        "An invocation names the actual selected declaration and exact instantiated summary environment.");
+        !selectedExecution || !Object.is(summary.execution.provided, provided) || !activationValid) { const stop = report("summary-reference-exact", site,
+        "An invocation names the actual selected declaration and exact instantiated summary environment."); if (stop !== null) return stop; }
       const captureSet = new Set<string>();
       if (actual !== null) for (const row of actual.captures) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+
         if (row === undefined || !context.localExists(row.local)) {
-          report("capture-locations-exact", site, "An invocation capture retains its actual qualified local location.");
+          { const stop = report("capture-locations-exact", site, "An invocation capture retains its actual qualified local location."); if (stop !== null) return stop; }
           continue;
         }
+        const output = chargeWork(account, row.local.body.length) ?? chargeResultEntries(account, 2);
+        if (output !== null) return output;
         captureSet.add(encodeKey([row.local.body, row.local.local]));
       }
       if (captureSet.size !== captured || receiver !== undefined && receiver.captures.length !== captured) {
-        report("invocation-contexts-correlated", site, "Each invocation alternative retains its own complete actual captured-location vector.");
+        { const stop = report("invocation-contexts-correlated", site, "Each invocation alternative retains its own complete actual captured-location vector."); if (stop !== null) return stop; }
       }
     }
   }
-  nodeOrder(facts.origins.callbacks, "callbacks-order");
+  { const stop = nodeOrder(facts.origins.callbacks, "callbacks-order"); if (stop !== null) return stop; }
   for (const callback of facts.origins.callbacks) {
-    node(callback.node); checkArgument(callback.argument, at(callback.node));
-    for (const input of callback.inputs) if (!Number.isSafeInteger(input.parameterIndex) || input.parameterIndex < 0 || Object.is(input.parameterIndex, -0) ||
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+
+    { const stop = node(callback.node); if (stop !== null) return stop; } { const stop = checkArgument(callback.argument, at(callback.node)); if (stop !== null) return stop; }
+    for (const input of callback.inputs) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+if (!Number.isSafeInteger(input.parameterIndex) || input.parameterIndex < 0 || Object.is(input.parameterIndex, -0) ||
       input.kind === "argument-element" && (!Number.isSafeInteger(input.sourceParameterIndex) || input.sourceParameterIndex < 0 || Object.is(input.sourceParameterIndex, -0))) {
-      report("argument-transports-total", at(callback.node), "A callback input retains actual nonnegative formal channel indices.");
+      { const stop = report("argument-transports-total", at(callback.node), "A callback input retains actual nonnegative formal channel indices."); if (stop !== null) return stop; }
     }
+  }
   }
   // The selected complete instances of direct activations, built once: for the first invocation row of each node,
   // every alternative that has a body, keyed by node, value context and complete instance. `instanceKey` equality is
@@ -509,208 +690,383 @@ export const verifyFacts: VerifyFacts = (facts, mir, context) => {
   const invocationNodes = new Set<string>();
   const selectedActivations = new Set<string>();
   for (const invocation of facts.origins.invocations) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+
     if (invocationNodes.has(numberKey(invocation.node))) continue;
+    const output = chargeResultEntries(account, 1);
+    if (output !== null) return output;
     invocationNodes.add(numberKey(invocation.node));
     for (const alternative of invocation.alternatives) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+
       const key = alternative.resolution.activation === null ? null
         : selectedActivationKey(invocation.node, alternative.context, alternative.resolution.activation);
-      if (key !== null) selectedActivations.add(key);
+      if (key !== null) {
+        const output = chargeResultEntries(account, 1);
+        if (output !== null) return output;
+        selectedActivations.add(key);
+      }
     }
   }
-  ordered(facts.origins.activations, "activations-order", (left, right) => compareNumbers(left.node, right.node) ||
-    compareText(instanceKey(left.activation), instanceKey(right.activation)) || compareNumbers(left.context, right.context) ||
-    compareNullableNumber(left.caller, right.caller, -1) || compareText(transportKey(left.entry), transportKey(right.entry)), row => at(row.node));
+  let previousActivation: BoundActivation | null = null;
+  let previousInstance = "";
+  let previousTransport = "";
   for (const activation of facts.origins.activations) {
-    node(activation.node); const site = at(activation.node); valueContext(activation.context, site);
-    if (activation.caller !== null) valueContext(activation.caller, site);
+    const work = chargeWork(account, 1 + activation.activation.body.length)
+      ?? admitArtifactIdentity(activation.activation.bindings, account)
+      ?? (activation.entry === null ? null : admitOwnerIdentity(activation.entry.formal.owner, account));
+    if (work !== null) return work;
+    const instance = instanceKey(activation.activation);
+    const transport = transportKey(activation.entry);
+    const comparison = chargeWork(account, instance.length + transport.length + previousInstance.length + previousTransport.length);
+    if (comparison !== null) return comparison;
+    if (previousActivation !== null && (compareNumbers(previousActivation.node, activation.node)
+      || compareText(previousInstance, instance) || compareNumbers(previousActivation.context, activation.context)
+      || compareNullableNumber(previousActivation.caller, activation.caller, -1) || compareText(previousTransport, transport)) >= 0) {
+      const stop = report("activations-order", at(activation.node), "Fact rows retain distinct canonical endpoint order.");
+      if (stop !== null) return stop;
+    }
+    previousActivation = activation;
+    previousInstance = instance;
+    previousTransport = transport;
+  }
+  for (const activation of facts.origins.activations) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+
+    { const stop = node(activation.node); if (stop !== null) return stop; } const site = at(activation.node); { const stop = valueContext(activation.context, site); if (stop !== null) return stop; }
+    if (activation.caller !== null) { const stop = valueContext(activation.caller, site); if (stop !== null) return stop; }
     const activated = activation.activation;
     const activatedOwner = context.bodyOwner(activated.body);
-    if (activatedOwner === null || !context.definitionExists(activatedOwner)) report("producer-resolves", site,
-      "An activation retains its actual executed body and its existing owner declaration.");
-    if (activation.entry !== null) checkArgument(activation.entry, site);
+    if (activatedOwner === null || !context.definitionExists(activatedOwner)) { const stop = report("producer-resolves", site,
+      "An activation retains its actual executed body and its existing owner declaration."); if (stop !== null) return stop; }
+    if (activation.entry !== null) { const stop = checkArgument(activation.entry, site); if (stop !== null) return stop; }
     else {
       const key = selectedActivationKey(activation.node, activation.context, activated);
-      if (key === null || !selectedActivations.has(key)) report("cross-owner-qualified", site,
-        "A direct activation is the complete selected instance of an invocation alternative at its node and value context.");
+      if (key === null || !selectedActivations.has(key)) { const stop = report("cross-owner-qualified", site,
+        "A direct activation is the complete selected instance of an invocation alternative at its node and value context."); if (stop !== null) return stop; }
     }
   }
-  ordered(facts.origins.frontiers, "frontiers-order", (left, right) => compareNumbers(left.node, right.node) || compareText(left.kind, right.kind) ||
-    compareNumbers(left.subject, right.subject) || compareNumbers(left.context, right.context), row => at(row.node));
-  for (const frontier of facts.origins.frontiers) { node(frontier.node); producer(frontier.subject, at(frontier.node)); valueContext(frontier.context, at(frontier.node)); }
-  ordered(facts.origins.constructions, "constructions-order", (left, right) => compareNumbers(left.node, right.node) || compareText(left.root.body, right.root.body) ||
-    compareNumbers(left.root.node, right.root.node) || compareText(left.allocation.body, right.allocation.body) || compareNumbers(left.allocation.node, right.allocation.node) ||
-    compareText(left.implementation === null ? "" : left.implementation, right.implementation === null ? "" : right.implementation) ||
-    compareText(left.body === null ? "" : instanceKey(left.body), right.body === null ? "" : instanceKey(right.body)), row => at(row.node));
+  { const stop = ordered(facts.origins.frontiers, "frontiers-order", (left, right) => compareNumbers(left.node, right.node) || compareText(left.kind, right.kind) ||
+    compareNumbers(left.subject, right.subject) || compareNumbers(left.context, right.context), row => at(row.node)); if (stop !== null) return stop; }
+  for (const frontier of facts.origins.frontiers) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+ { const stop = node(frontier.node); if (stop !== null) return stop; } { const stop = producer(frontier.subject, at(frontier.node)); if (stop !== null) return stop; } { const stop = valueContext(frontier.context, at(frontier.node)); if (stop !== null) return stop; } }
+  let previousConstruction: ConstructionAlternative | null = null;
+  let previousConstructionBody = "";
   for (const construction of facts.origins.constructions) {
-    node(construction.node); const site = at(construction.node); nodeRef(construction.root, site, false); nodeRef(construction.allocation, site, false);
-    if (construction.implementation !== null && !context.definitionExists(construction.implementation)) report("producer-resolves", site,
-      "A construction retains its actual selected implementation declaration.");
+    const work = chargeWork(account, 1 + construction.root.body.length + construction.allocation.body.length
+      + (construction.implementation?.length ?? 0) + (construction.body?.body.length ?? 0))
+      ?? (construction.body === null ? null : admitArtifactIdentity(construction.body.bindings, account));
+    if (work !== null) return work;
+    const body = construction.body === null ? "" : instanceKey(construction.body);
+    const comparison = chargeWork(account, body.length + previousConstructionBody.length);
+    if (comparison !== null) return comparison;
+    if (previousConstruction !== null && (compareNumbers(previousConstruction.node, construction.node)
+      || compareText(previousConstruction.root.body, construction.root.body) || compareNumbers(previousConstruction.root.node, construction.root.node)
+      || compareText(previousConstruction.allocation.body, construction.allocation.body) || compareNumbers(previousConstruction.allocation.node, construction.allocation.node)
+      || compareText(previousConstruction.implementation ?? "", construction.implementation ?? "") || compareText(previousConstructionBody, body)) >= 0) {
+      const stop = report("constructions-order", at(construction.node), "Fact rows retain distinct canonical endpoint order.");
+      if (stop !== null) return stop;
+    }
+    previousConstruction = construction;
+    previousConstructionBody = body;
+  }
+  for (const construction of facts.origins.constructions) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+
+    { const stop = node(construction.node); if (stop !== null) return stop; } const site = at(construction.node); { const stop = nodeRef(construction.root, site, false); if (stop !== null) return stop; } { const stop = nodeRef(construction.allocation, site, false); if (stop !== null) return stop; }
+    if (construction.implementation !== null && !context.definitionExists(construction.implementation)) { const stop = report("producer-resolves", site,
+      "A construction retains its actual selected implementation declaration."); if (stop !== null) return stop; }
     if (construction.body !== null) {
       const actual = context.tirBody(construction.body);
+      const identity = admitArtifactIdentity(actual.bindings, account);
+      if (identity !== null) return identity;
       if (actual.body !== construction.body.body || !sameBindings(actual.bindings, construction.body.bindings) ||
         construction.implementation !== null && construction.implementation !== actual.owner) {
-        report("cross-owner-qualified", site, "A construction retains its actual selected body, implementation owner and complete artifact environment.");
+        { const stop = report("cross-owner-qualified", site, "A construction retains its actual selected body, implementation owner and complete artifact environment."); if (stop !== null) return stop; }
       }
     }
-    for (const region of construction.regions) { nodeRef(region.node, site, false); valueContext(region.context, site);
-      if (!context.definitionExists(region.owner)) report("cross-owner-qualified", site, "Each constructor region retains its actual lexical declaration owner."); }
+    for (const region of construction.regions) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+ { const stop = nodeRef(region.node, site, false); if (stop !== null) return stop; } { const stop = valueContext(region.context, site); if (stop !== null) return stop; }
+      if (!context.definitionExists(region.owner)) { const stop = report("cross-owner-qualified", site, "Each constructor region retains its actual lexical declaration owner."); if (stop !== null) return stop; } }
   }
-  ordered(facts.origins.instanceRegions, "regions-order", (left, right) => compareText(left.owner, right.owner) || compareText(left.node.body, right.node.body) ||
-    compareNumbers(left.node.node, right.node.node) || compareNumbers(left.context, right.context), row => ({ kind: "node", at: { kind: "body", value: row.node } }));
+  { const stop = ordered(facts.origins.instanceRegions, "regions-order", (left, right) => compareText(left.owner, right.owner) || compareText(left.node.body, right.node.body) ||
+    compareNumbers(left.node.node, right.node.node) || compareNumbers(left.context, right.context), row => ({ kind: "node", at: { kind: "body", value: row.node } })); if (stop !== null) return stop; }
   for (const region of facts.origins.instanceRegions) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+
     const site: FactsSite = { kind: "node", at: { kind: "body", value: region.node } };
-    nodeRef(region.node, site, false); valueContext(region.context, bodySite);
-    if (!context.definitionExists(region.owner)) report("cross-owner-qualified", site, "An instance region retains its actual lexical declaration owner.");
+    { const stop = nodeRef(region.node, site, false); if (stop !== null) return stop; } { const stop = valueContext(region.context, bodySite); if (stop !== null) return stop; }
+    if (!context.definitionExists(region.owner)) { const stop = report("cross-owner-qualified", site, "An instance region retains its actual lexical declaration owner."); if (stop !== null) return stop; }
   }
 
-  nodeOrder(facts.suspension.suspensions, "suspensions-order");
+  { const stop = nodeOrder(facts.suspension.suspensions, "suspensions-order"); if (stop !== null) return stop; }
   const suspensionKinds = new Map<NodeId, "await" | "yield" | "delegate">();
-  for (const block of mir.blocks) if (block !== undefined &&
+  for (const block of mir.blocks) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+if (block !== undefined &&
     (block.terminator.kind === "await" || block.terminator.kind === "yield" || block.terminator.kind === "delegate")) {
+    const output = chargeResultEntries(account, 1);
+    if (output !== null) return output;
     suspensionKinds.set(block.terminator.tir.node, block.terminator.kind);
   }
+  }
   for (const suspension of facts.suspension.suspensions) {
-    node(suspension.node); const site = at(suspension.node);
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+
+    { const stop = node(suspension.node); if (stop !== null) return stop; } const site = at(suspension.node);
     const selected = suspensionKinds.get(suspension.node);
-    if (selected !== suspension.kind) report("suspension-input-site", site, "A suspension retains its actual MIR await, yield or delegated-yield occurrence.");
+    if (selected !== suspension.kind) { const stop = report("suspension-input-site", site, "A suspension retains its actual MIR await, yield or delegated-yield occurrence."); if (stop !== null) return stop; }
     const expected = suspension.kind === "await" ? ["resume", "unwind"] : ["resume", "return", "unwind"];
     for (const value of suspension.values) {
-      place(value.place, site); origins(value.origins, site); retention(value.retention, site);
-      if (value.continuations.length !== expected.length || value.continuations.some((entry, index) => entry !== expected[index])) {
-        report("suspension-continuations-exact", site, "Suspension continuations retain exact resume, generator-return and unwind obligations.");
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+
+      { const stop = place(value.place, site); if (stop !== null) return stop; } { const stop = origins(value.origins, site); if (stop !== null) return stop; } { const stop = retention(value.retention, site); if (stop !== null) return stop; }
+      let sameContinuations = value.continuations.length === expected.length;
+      for (let index = 0; index < value.continuations.length; index += 1)
+        {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+if (value.continuations[index] !== expected[index]) sameContinuations = false;
+  }
+      if (!sameContinuations) {
+        { const stop = report("suspension-continuations-exact", site, "Suspension continuations retain exact resume, generator-return and unwind obligations."); if (stop !== null) return stop; }
       }
     }
   }
-  for (const source of facts.arena.producers) if (source.kind === "suspension-input") {
+  for (const source of facts.arena.producers) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+if (source.kind === "suspension-input") {
     const selected = suspensionKinds.get(source.at.node);
     if (source.at.body !== facts.execution.instance.body || selected === undefined || source.channel === "sent" && selected === "await") {
-      report("suspension-input-site", { kind: "producer", owner, producer: source.id }, "A suspension input retains the actual supported suspension channel and occurrence.");
+      { const stop = report("suspension-input-site", { kind: "producer", owner, producer: source.id }, "A suspension input retains the actual supported suspension channel and occurrence."); if (stop !== null) return stop; }
     }
   }
-  nodeOrder(facts.errorStorage.errors, "errors-order");
+  }
+  { const stop = nodeOrder(facts.errorStorage.errors, "errors-order"); if (stop !== null) return stop; }
   for (const error of facts.errorStorage.errors) {
-    node(error.node); const site = at(error.node); origins(error.origins, site); retention(error.retention, site);
-    for (const write of error.writes) node(write);
-    ordered(error.invalidations, "error-invalidations-order", (left, right) => compareText(left.at.body, right.at.body) || compareNumbers(left.at.node, right.at.node) || compareText(left.kind, right.kind), () => site);
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+
+    { const stop = node(error.node); if (stop !== null) return stop; } const site = at(error.node); { const stop = origins(error.origins, site); if (stop !== null) return stop; } { const stop = retention(error.retention, site); if (stop !== null) return stop; }
+    for (const write of error.writes) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+ const stop = node(write); if (stop !== null) return stop; }
+    { const stop = ordered(error.invalidations, "error-invalidations-order", (left, right) => compareText(left.at.body, right.at.body) || compareNumbers(left.at.node, right.at.node) || compareText(left.kind, right.kind), () => site); if (stop !== null) return stop; }
     for (const invalidation of error.invalidations) {
-      nodeRef(invalidation.at, site);
-      if (!validIndex(invalidation.owner, facts.arena.origins.length) || !Object.is(facts.arena.origins[invalidation.owner]?.id, invalidation.owner)) report("error-invalidation-origins-resolve", site,
-        "An error invalidation retains its actual owner origins in this arena.");
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+
+      { const stop = nodeRef(invalidation.at, site); if (stop !== null) return stop; }
+      if (!validIndex(invalidation.owner, facts.arena.origins.length) || !Object.is(facts.arena.origins[invalidation.owner]?.id, invalidation.owner)) { const stop = report("error-invalidation-origins-resolve", site,
+        "An error invalidation retains its actual owner origins in this arena."); if (stop !== null) return stop; }
       const owned = facts.arena.origins[invalidation.owner];
       if (invalidation.kind === "invalidated" && invalidation.cause === "overlapping-write") {
-        if (!validIndex(invalidation.affected, facts.arena.origins.length) || !Object.is(facts.arena.origins[invalidation.affected]?.id, invalidation.affected)) report("error-invalidation-origins-resolve", site,
-          "An overlapping error write retains its actual affected origins.");
+        if (!validIndex(invalidation.affected, facts.arena.origins.length) || !Object.is(facts.arena.origins[invalidation.affected]?.id, invalidation.affected)) { const stop = report("error-invalidation-origins-resolve", site,
+          "An overlapping error write retains its actual affected origins."); if (stop !== null) return stop; }
         const affected = facts.arena.origins[invalidation.affected];
-        if (affected !== undefined && affected.producers.length === 0 && affected.kind === "complete") report("error-invalidation-outcome-exact", site,
-          "A known empty affected origin cannot be claimed as an overlapping write.");
+        if (affected !== undefined && affected.producers.length === 0 && affected.kind === "complete") { const stop = report("error-invalidation-outcome-exact", site,
+          "A known empty affected origin cannot be claimed as an overlapping write."); if (stop !== null) return stop; }
       } else if (invalidation.kind === "invalidated" && !suspensionKinds.has(invalidation.at.node)) {
-        report("error-invalidation-outcome-exact", site, "A suspension invalidation retains an actual suspension occurrence.");
+        { const stop = report("error-invalidation-outcome-exact", site, "A suspension invalidation retains an actual suspension occurrence."); if (stop !== null) return stop; }
       } else if (invalidation.kind === "preserved" && owned?.kind === "open") {
-        report("error-invalidation-outcome-exact", site, "Unknown error-owner origins cannot be relabelled as a proven preserved owner.");
+        { const stop = report("error-invalidation-outcome-exact", site, "Unknown error-owner origins cannot be relabelled as a proven preserved owner."); if (stop !== null) return stop; }
       } else if (invalidation.kind === "unproven") {
         const reason = invalidation.reason;
         const id = reason.kind === "incomplete-origins" || reason.kind === "opaque-invocation-footprint" ? reason.affected
           : reason.kind === "open-constructor-domain" ? reason.constructor : null;
-        if (id !== null && (!validIndex(id, facts.arena.origins.length) || !Object.is(facts.arena.origins[id]?.id, id))) report("error-invalidation-origins-resolve", site,
-          "An unproven error reason retains its actual affected or constructor origins.");
+        if (id !== null && (!validIndex(id, facts.arena.origins.length) || !Object.is(facts.arena.origins[id]?.id, id))) { const stop = report("error-invalidation-origins-resolve", site,
+          "An unproven error reason retains its actual affected or constructor origins."); if (stop !== null) return stop; }
         if ((reason.kind === "incomplete-origins" || reason.kind === "open-constructor-domain") && id !== null && facts.arena.origins[id]?.kind === "complete") {
-          report("error-invalidation-outcome-exact", site, "An incomplete-domain reason must retain an actually open origin domain.");
+          { const stop = report("error-invalidation-outcome-exact", site, "An incomplete-domain reason must retain an actually open origin domain."); if (stop !== null) return stop; }
         }
       }
     }
   }
-  nodeOrder(facts.pointerBacking.pointers, "pointers-order");
+  { const stop = nodeOrder(facts.pointerBacking.pointers, "pointers-order"); if (stop !== null) return stop; }
   const pointerAlternatives = new Map<number, ReadonlySet<number>>();
   for (const pointer of facts.pointerBacking.pointers) {
-    node(pointer.node); const site = at(pointer.node); origins(pointer.origins, site);
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+
+    { const stop = node(pointer.node); if (stop !== null) return stop; } const site = at(pointer.node); { const stop = origins(pointer.origins, site); if (stop !== null) return stop; }
     const actual = facts.arena.origins[pointer.origins];
-    if (actual !== undefined && !pointerAlternatives.has(pointer.origins)) pointerAlternatives.set(pointer.origins, new Set(actual.producers));
+    if (actual !== undefined && !pointerAlternatives.has(pointer.origins)) {
+      const growth = chargeWork(account, actual.producers.length) ?? chargeResultEntries(account, 1 + actual.producers.length);
+      if (growth !== null) return growth;
+      const copy = chargeWork(account, actual.producers.length) ?? chargeResultEntries(account, actual.producers.length + 2);
+      if (copy !== null) return copy;
+      pointerAlternatives.set(pointer.origins, new Set(actual.producers));
+    }
     const alternatives = pointerAlternatives.get(pointer.origins);
     for (const backing of pointer.producers) {
-      producer(backing.producer, site, true); nodeRef(backing.operation.at, site);
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+
+      { const stop = producer(backing.producer, site, true); if (stop !== null) return stop; } { const stop = nodeRef(backing.operation.at, site); if (stop !== null) return stop; }
       if (alternatives !== undefined && !alternatives.has(backing.producer)) {
-        report("pointer-backing-family-exact", site, "Each pointer backing retains its own correlated producer and exact typed-location or raw-memory operation.");
+        { const stop = report("pointer-backing-family-exact", site, "Each pointer backing retains its own correlated producer and exact typed-location or raw-memory operation."); if (stop !== null) return stop; }
       }
     }
   }
-  const metadataLayout = (reference: MetadataLayoutRef, site: FactsSite): MemoryLayout | undefined => {
+  const metadataLayout = (reference: MetadataLayoutRef, site: FactsSite): DataflowResult<MemoryLayout | undefined> => {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+    const admitted = admitArtifactIdentity(reference.metadata.bindings, account);
+    if (admitted !== null) return admitted;
     const record = context.metadataOf(reference.metadata);
+    const recordIdentity = record === null ? null : admitArtifactIdentity(record.key.bindings, account);
+    if (recordIdentity !== null) return recordIdentity;
     const selected = record !== null && record.kind !== "data-layout" && validIndex(reference.layout, record.layouts.length) ? record.layouts[reference.layout] : undefined;
     if (record === null || selected === undefined || !Object.is(selected.id, reference.layout) || record.key.definition !== reference.metadata.definition ||
-      !sameBindings(record.key.bindings, reference.metadata.bindings)) report("metadata-reference-resolves", site,
-      "A layout reference retains its actual metadata declaration, complete binding environment and local layout ID.");
-    return selected;
+      !sameBindings(record.key.bindings, reference.metadata.bindings)) { const stop = report("metadata-reference-resolves", site,
+      "A layout reference retains its actual metadata declaration, complete binding environment and local layout ID."); if (stop !== null) return stop; }
+    return { kind: "complete", value: selected };
   };
-  const metadataField = (reference: MetadataFieldRef, site: FactsSite): MemoryField | undefined => {
+  const metadataField = (reference: MetadataFieldRef, site: FactsSite): DataflowResult<MemoryField | undefined> => {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
     const record = context.metadataOf(reference.metadata);
     const selected = record !== null && record.kind !== "data-layout" && validIndex(reference.field, record.fields.length) ? record.fields[reference.field] : undefined;
     if (record === null || selected === undefined || !Object.is(selected.id, reference.field) || record.key.definition !== reference.metadata.definition ||
-      !sameBindings(record.key.bindings, reference.metadata.bindings)) report("metadata-reference-resolves", site,
-      "A field reference retains its actual metadata declaration, complete binding environment and local field ID.");
-    return selected;
+      !sameBindings(record.key.bindings, reference.metadata.bindings)) { const stop = report("metadata-reference-resolves", site,
+      "A field reference retains its actual metadata declaration, complete binding environment and local field ID."); if (stop !== null) return stop; }
+    return { kind: "complete", value: selected };
   };
-  nodeOrder(facts.rawLocations, "raw-locations-order");
+  { const stop = nodeOrder(facts.rawLocations, "raw-locations-order"); if (stop !== null) return stop; }
   for (const raw of facts.rawLocations) {
-    node(raw.node); const site = at(raw.node); type(raw.pointee, site); valueContext(raw.context, site);
-    const selected = metadataLayout(raw.layout, site);
-    if (selected !== undefined && selected.source !== raw.pointee) report("cross-owner-qualified", site, "A raw location retains its actual selected pointee layout.");
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+
+    { const stop = node(raw.node); if (stop !== null) return stop; } const site = at(raw.node); { const stop = type(raw.pointee, site); if (stop !== null) return stop; } { const stop = valueContext(raw.context, site); if (stop !== null) return stop; }
+    const selectedLayout = metadataLayout(raw.layout, site);
+    if (selectedLayout.kind !== "complete") return selectedLayout;
+    const selected = selectedLayout.value;
+    if (selected !== undefined && selected.source !== raw.pointee) { const stop = report("cross-owner-qualified", site, "A raw location retains its actual selected pointee layout."); if (stop !== null) return stop; }
   }
-  nodeOrder(facts.fieldBindings, "field-bindings-order");
+  { const stop = nodeOrder(facts.fieldBindings, "field-bindings-order"); if (stop !== null) return stop; }
   for (const field of facts.fieldBindings) {
-    node(field.node); const site = at(field.node); type(field.result, site); type(field.owner, site); type(field.pointee, site);
-    nodeRef(field.fieldExpression, site); nodeRef(field.pointer, site); valueContext(field.context, site);
-    const selected = metadataField(field.field, site);
-    if (selected !== undefined && (selected.owner !== field.owner || selected.value !== field.pointee)) report("cross-owner-qualified", site,
-      "A bound field retains its exact authored owner and pointee correspondence.");
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+
+    { const stop = node(field.node); if (stop !== null) return stop; } const site = at(field.node); { const stop = type(field.result, site); if (stop !== null) return stop; } { const stop = type(field.owner, site); if (stop !== null) return stop; } { const stop = type(field.pointee, site); if (stop !== null) return stop; }
+    { const stop = nodeRef(field.fieldExpression, site); if (stop !== null) return stop; } { const stop = nodeRef(field.pointer, site); if (stop !== null) return stop; } { const stop = valueContext(field.context, site); if (stop !== null) return stop; }
+    const selectedField = metadataField(field.field, site);
+    if (selectedField.kind !== "complete") return selectedField;
+    const selected = selectedField.value;
+    if (selected !== undefined && (selected.owner !== field.owner || selected.value !== field.pointee)) { const stop = report("cross-owner-qualified", site,
+      "A bound field retains its exact authored owner and pointee correspondence."); if (stop !== null) return stop; }
   }
-  nodeOrder(facts.recordBindings, "record-bindings-order");
+  { const stop = nodeOrder(facts.recordBindings, "record-bindings-order"); if (stop !== null) return stop; }
   for (const record of facts.recordBindings) {
-    node(record.node); const site = at(record.node); type(record.result, site); nodeRef(record.layoutExpression, site);
-    valueContext(record.context, site); metadataLayout(record.layout, site);
-    for (const field of record.fields) { nodeRef(field.expression, site); node(field.binding); }
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+
+    { const stop = node(record.node); if (stop !== null) return stop; } const site = at(record.node); { const stop = type(record.result, site); if (stop !== null) return stop; } { const stop = nodeRef(record.layoutExpression, site); if (stop !== null) return stop; }
+    { const stop = valueContext(record.context, site); if (stop !== null) return stop; }
+    const selectedLayout = metadataLayout(record.layout, site);
+    if (selectedLayout.kind !== "complete") return selectedLayout;
+    for (const field of record.fields) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+ { const stop = nodeRef(field.expression, site); if (stop !== null) return stop; } { const stop = node(field.binding); if (stop !== null) return stop; } }
   }
-  nodeOrder(facts.memoryBindings, "memory-bindings-order");
-  const recordBindings = new Set(facts.recordBindings.map(record => record.node));
+  { const stop = nodeOrder(facts.memoryBindings, "memory-bindings-order"); if (stop !== null) return stop; }
+  const recordBindings = new Set<NodeId>();
+  for (const record of facts.recordBindings) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+
+    const growth = chargeResultEntries(account, 1);
+    if (growth !== null) return growth;
+    recordBindings.add(record.node);
+  }
   for (const binding of facts.memoryBindings) {
-    node(binding.node); const site = at(binding.node);
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+
+    { const stop = node(binding.node); if (stop !== null) return stop; } const site = at(binding.node);
     if (binding.kind === "bound") {
-      if (!recordBindings.has(binding.record)) report("metadata-reference-resolves", site, "A bound memory occurrence retains its actual complete record-binding row.");
+      if (!recordBindings.has(binding.record)) { const stop = report("metadata-reference-resolves", site, "A bound memory occurrence retains its actual complete record-binding row."); if (stop !== null) return stop; }
     } else {
       const origin = nodes.get(binding.node)?.origin;
       if (origin === undefined || !diagnosticSites.has(encodeKey([origin.module, origin.start, origin.length]))) {
-        report("memory-binding-error-diagnostic", site, "An error binding retains an actual error diagnostic from the same complete checked diagnostic vector.");
+        { const stop = report("memory-binding-error-diagnostic", site, "An error binding retains an actual error diagnostic from the same complete checked diagnostic vector."); if (stop !== null) return stop; }
       }
     }
   }
-  ordered(facts.selectedMemoryDeclarations, "selected-declarations-order", compareText, () => bodySite);
-  for (const selected of facts.selectedMemoryDeclarations) if (!context.definitionExists(selected)) report("cross-owner-qualified", bodySite,
-    "Every selected memory declaration retains its actual declaration identity.");
-  nodeOrder(facts.closedArrays, "closed-arrays-order");
+  { const stop = ordered(facts.selectedMemoryDeclarations, "selected-declarations-order", compareText, () => bodySite); if (stop !== null) return stop; }
+  for (const selected of facts.selectedMemoryDeclarations) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+if (!context.definitionExists(selected)) { const stop = report("cross-owner-qualified", bodySite,
+    "Every selected memory declaration retains its actual declaration identity."); if (stop !== null) return stop; }
+  }
+  { const stop = nodeOrder(facts.closedArrays, "closed-arrays-order"); if (stop !== null) return stop; }
   for (const array of facts.closedArrays) {
-    node(array.node); const site = at(array.node);
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+
+    { const stop = node(array.node); if (stop !== null) return stop; } const site = at(array.node);
     if (array.kind === "unproven") {
-      if (array.reason.kind === "open-origin-domain") origins(array.reason.origins, site); else nodeRef(array.reason.at, site);
+      if (array.reason.kind === "open-origin-domain") { const stop = origins(array.reason.origins, site); if (stop !== null) return stop; } else { const stop = nodeRef(array.reason.at, site); if (stop !== null) return stop; }
     } else {
-      ordered(array.declarations, "closed-array-declarations-order", compareDeclarations, () => site);
+      { const stop = ordered(array.declarations, "closed-array-declarations-order", compareDeclarations, () => site); if (stop !== null) return stop; }
       for (const declaration of array.declarations) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+
         if (declaration.kind === "local") {
           if (declaration.local.body !== facts.execution.instance.body || !validIndex(declaration.local.local, tir.locals.length) ||
-            !Object.is(tir.locals[declaration.local.local]?.id, declaration.local.local)) report("cross-owner-qualified", site,
-            "A closed array's local declaration is a local of this actual checked body.");
-        } else if (!context.definitionExists(declaration.definition)) report("cross-owner-qualified", site,
-          "A closed array retains actual checked declaration identities.");
+            !Object.is(tir.locals[declaration.local.local]?.id, declaration.local.local)) { const stop = report("cross-owner-qualified", site,
+            "A closed array's local declaration is a local of this actual checked body."); if (stop !== null) return stop; }
+        } else if (!context.definitionExists(declaration.definition)) { const stop = report("cross-owner-qualified", site,
+          "A closed array retains actual checked declaration identities."); if (stop !== null) return stop; }
       }
-      for (const reference of array.references) nodeRef(reference, site);
-      for (const literal of array.literals) nodeRef(literal, site);
-      for (const element of array.elements) collectSelectionChecks(element, site, context, violations);
+      for (const reference of array.references) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+ const stop = nodeRef(reference, site); if (stop !== null) return stop; }
+      for (const literal of array.literals) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+ const stop = nodeRef(literal, site); if (stop !== null) return stop; }
+      for (const element of array.elements) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+ const stop = collectSelectionChecks(element, site, context, violations, account); if (stop !== null) return stop; }
     }
   }
-  for (const violation of verifyFactBindings(factBindingInputs(facts, context), { kind: "body", instance: facts.execution.instance }, bodySite, context)) violations.push(violation);
+  const checkedBindings = verifyFactBindings(factBindingInputs(facts, context), { kind: "body", instance: facts.execution.instance }, bodySite, context, account);
+  if (checkedBindings.kind !== "complete") return checkedBindings;
+  for (const violation of checkedBindings.violations) {
+    const step = chargeWork(account, 1);
+    if (step !== null) return step;
+
+    const output = chargeResultEntries(account, 1);
+    if (output !== null) return output;
+    violations.push(violation);
+  }
   const limits = context.limits;
-  const usage = relationalUsage(facts.arena);
+  const measured = relationalUsage(facts.arena, account);
+  if (measured.kind !== "complete") return measured;
+  const usage = measured.value;
   if (usage.depth > limits.maximumProjectionDepth || usage.alternatives > limits.maximumOriginAlternatives ||
     usage.records > limits.maximumRelationalRecordsPerBody || usage.references > limits.maximumRelationalReferencesPerBody) {
-    report("analysis-limits-respected", bodySite, "Published projection depth, alternatives, relational rows and references respect the actual four producer limits.");
+    { const stop = report("analysis-limits-respected", bodySite, "Published projection depth, alternatives, relational rows and references respect the actual four producer limits."); if (stop !== null) return stop; }
   }
-  return (violations);
+  return { kind: "complete", violations };
 };

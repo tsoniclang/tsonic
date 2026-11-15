@@ -1,13 +1,13 @@
 import type { Result } from "../diag/contract.js";
 import type { DataflowLimits } from "../dataflow/contract.js";
-import type { DefId, SourceNodeRef } from "../ids/contract.js";
+import type { DefId, SigId, SourceNodeRef } from "../ids/contract.js";
 import type { BindingScope, BodyInstance, DeclaredExecution, Signature, SignatureOf, TypeOf } from "../ir-types/contract.js";
 import type { AdmittedNativeGuarantee, NativeExportAssociation } from "../libraries/contract.js";
 import type { ParameterMapping } from "../ir-infer/contract.js";
 import type { CheckedPhase, Declaration } from "../ir-hir/contract.js";
 import type { TirBody } from "../ir-tir/contract.js";
 import type {
-  AnalysisLimits, BodyFacts, CallComponent, CallGraph, Summary, SummaryKey,
+  AnalysisLimits, BodyFacts, CallComponent, CallGraph, DeclaredCellInventory, ParameterSlot, Summary, SummaryRelations, SummaryKey,
 } from "../ir-facts/contract.js";
 
 export interface SummaryLimits {
@@ -20,10 +20,13 @@ export interface DeclaredSummaryDeps {
   readonly signature: Signature;
   readonly parameters: readonly ParameterMapping[];
   readonly source: SourceNodeRef;
+  readonly callables: readonly { readonly slot: ParameterSlot; readonly signatures: readonly [SigId, ...SigId[]] }[];
 }
 
 export type DeclaredSummaryInput = { readonly execution: DeclaredExecution } & (
-  | { readonly kind: "native"; readonly guarantee: AdmittedNativeGuarantee; readonly associations: readonly NativeExportAssociation[] }
+  | { readonly kind: "native"; readonly guarantee: AdmittedNativeGuarantee;
+      readonly associations: readonly NativeExportAssociation[]; readonly cells: DeclaredCellInventory;
+      readonly relations: SummaryRelations }
   | { readonly kind: "unknown"; readonly scope: BindingScope; readonly bindingDependent: boolean; readonly suspends: boolean }
 );
 

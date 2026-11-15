@@ -5,6 +5,7 @@ import { encodeBodyId, encodeDefId, encodeModuleId, encodePackageId } from "../.
 import { admitGuarantees } from "../../packages/host/dist/libraries/index.js";
 import { bindDeclaredSummary } from "../../packages/host/dist/summaries/index.js";
 import { rigidBindings, signatureRequestKey } from "../../packages/host/dist/ir-types/index.js";
+import { constructedNativeCells, constructedNativeRelations } from "./fixtures/native-cells.mjs";
 
 const definition = name => encodeDefId({ module: encodeModuleId({ package: encodePackageId("summary-kernel"), path: "api.ts" }), segments: [{ name, ordinal: 0 }] });
 const empty = () => ({ classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] });
@@ -30,8 +31,10 @@ function fixture(parameters = []) {
   const mappings = parameters.map((parameter, position) => parameter.kind === "rest"
     ? { kind: "rest", parameter: position, arguments: [], passing: parameter.passing }
     : { kind: "argument", parameter: position, argument: position, component: null, passing: parameter.passing });
-  const deps = { signature, parameters: mappings, source: signature.owner };
-  const input = { kind: "native", execution: { request, provided }, guarantee: { statement, declaration }, associations: [association] };
+  const deps = { signature, parameters: mappings, source: signature.owner, callables: [] };
+  const execution = { request, provided };
+  const input = { kind: "native", execution, guarantee: { statement, declaration }, associations: [association],
+    cells: constructedNativeCells(execution, statement, deps.source), relations: constructedNativeRelations(execution, deps.source) };
   return { declaration, identity, statement, signature, request, association, bound, deps, input };
 }
 
@@ -63,6 +66,53 @@ test("late binding retains the complete endpoint request, provided count and sel
   assert.deepEqual(result.parameters, []);
   assert.equal(result.arena.origins[result.result].kind, "complete");
   assert.equal(result.key.execution.request.ordinal, 2, "native signature strings are not semantic signature IDs or endpoint ordinals");
+});
+
+test("constructed native storage evidence selects actual arena cells independently of value producers and equal roles", () => {
+  const value = fixture([{ declaration: definition("parameter"), kind: "required", type: 0, passing: "by-value",
+    initializer: null, acceptsOmission: false }]);
+  value.statement.producers = [{ id: 0, kind: "parameter", index: 0, path: null }];
+  value.statement.writes = [{ target: 0, value: 0 }];
+  const cells = constructedNativeCells(value.input.execution, value.statement, value.deps.source);
+  const row = cells.cells[0];
+  cells.cells = [0, 1, 2].map(id => ({ ...structuredClone(row), id }));
+  cells.producers = [{ producer: 0, cell: 2 }];
+  value.input.cells = cells;
+  const bound = summary(value.deps, value.input);
+  assert.deepEqual(bound.writes, [{ target: 2, value: 0 }]);
+  assert.equal(bound.arena.cells === cells.cells, true, "one actual supplied cell inventory, not a copied or inferred producer domain");
+  assert.equal(bound.arena.cells.length, 3, "equal detached roles remain independently addressable");
+  for (const producers of [[], [{ producer: 0, cell: 3 }], [{ producer: 1, cell: 0 }],
+    [{ producer: 0, cell: 0 }, { producer: 0, cell: 2 }]]) {
+    const result = bindDeclaredSummary(value.deps, { ...value.input, cells: { ...cells, producers } });
+    assert.equal(result.kind, "refused", "missing or contradictory known-write evidence never becomes an ordinary unknown invocation");
+  }
+  const malformed = [...cells.cells]; malformed[1] = { ...row, id: 0 };
+  assert.equal(bindDeclaredSummary(value.deps, { ...value.input, cells: { ...cells, cells: malformed } }).kind, "refused");
+  for (const changed of [
+    { ...cells, execution: { ...value.input.execution, provided: 0 } },
+    { ...cells, origin: { ...value.identity, exportId: "another-origin" } },
+  ]) assert.throws(() => bindDeclaredSummary(value.deps, { ...value.input, cells: changed }), /same complete selected execution/u);
+  const aliases = { ...cells, producers: [{ producer: 0, cell: 1 }] };
+  assert.deepEqual(summary(value.deps, { ...value.input, cells: aliases }).writes, [{ target: 1, value: 0 }],
+    "only actual supplied storage association changes the target, never equal roles or a bound producer index");
+});
+
+test("native write histories coalesce only when the supplied storage relation selects the same actual cell", () => {
+  const parameter = index => ({ declaration: definition("p" + index), kind: "required", type: 0,
+    passing: "byref-readwrite", initializer: null, acceptsOmission: false });
+  const value = fixture([parameter(0), parameter(1)]);
+  value.statement.producers = [0, 1].map(id => ({ id, kind: "parameter", index: id, path: null }));
+  value.statement.writes = [0, 1].map(target => ({ target, value: 0 }));
+  const supplied = constructedNativeCells(value.input.execution, value.statement, value.deps.source);
+  const distinct = summary(value.deps, { ...value.input, cells: supplied });
+  assert.deepEqual(distinct.writes, [{ target: 0, value: 0 }, { target: 1, value: 0 }]);
+  const shared = { ...supplied, cells: [supplied.cells[0]],
+    producers: [{ producer: 0, cell: 0 }, { producer: 1, cell: 0 }] };
+  const selected = summary(value.deps, { ...value.input, cells: shared });
+  assert.deepEqual(selected.writes, [{ target: 0, value: 0 }]);
+  assert.equal(selected.arena.cells === shared.cells, true);
+  assert.equal(selected.arena.boundProducers.length, 2, "distinct input values remain distinct even when actual storage aliases");
 });
 
 test("supplied native guarantees never become unknown when exact selected association evidence is missing", () => {

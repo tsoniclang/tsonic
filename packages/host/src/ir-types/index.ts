@@ -8,6 +8,8 @@ import { substitute as transform, substituteSignature as transformSignature, sub
 import { printTypes as print } from "./print.js";
 import { parseTypes as parse } from "./parse.js";
 import { verifyTypes as verify } from "./verify.js";
+import { verifyBindings as verifyBindingVectors } from "./verify-bindings.js";
+import type { VerifyBindings } from "./contract.js";
 import { nativeFactsKey as nativeKey, nativeIntegerGeometryOf as integerGeometry, floatingBitsFit as floatingFit, floatingFormatWidth as floatingWidth, platformDeclarationKey as platformKey, verifyNativeFacts as verifyNative } from "./native-facts.js";
 import { nativeCarrierOf as carrier } from "./native-carrier.js";
 import { literalCompatibilityOf as literalCompatibility } from "./literal-compatibility.js";
@@ -40,6 +42,7 @@ export const substituteBindingValues: SubstituteBindingValues = transformBinding
 export const printTypes: PrintTypes = print;
 export const parseTypes: ParseTypes = parse;
 export const verifyTypes: VerifyTypes = verify;
+export const verifyBindings: VerifyBindings = verifyBindingVectors;
 export const encodeSelectorPath: EncodeSelectorPath = selectorPathKey;
 export const instanceKey: InstanceKey = instanceKeyOf;
 export const sameInstance: SameInstance = sameInstanceAs;

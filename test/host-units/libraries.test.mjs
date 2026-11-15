@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { constructedNativeCells, constructedNativeRelations } from "./fixtures/native-cells.mjs";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
@@ -184,7 +185,7 @@ const readyAssociation = (identity, selected, guarantee = identity) => selected.
 const summaryExecutionKey = selected => ({ kind: "declared", execution: { request: selected.request,
   provided: selected.signature.parameters.filter(parameter => parameter.kind !== "rest").length } });
 
-async function bindNativeBatch(bound, declared, associations) {
+async function bindNativeBatch(bound, declared, associations, suppliedRelations = null) {
   const admitted = product.admitGuarantees(bound, declared, associations);
   if (admitted.kind === "refused") return admitted;
   const { bindDeclaredSummary } = await import("../../packages/host/dist/summaries/index.js");
@@ -197,9 +198,12 @@ async function bindNativeBatch(bound, declared, associations) {
     const parameters = selected.signature.parameters.map((parameter, index) => parameter.kind === "rest"
       ? { kind: "rest", parameter: index, arguments: [], passing: parameter.passing }
       : { kind: "argument", parameter: index, argument: index, component: null, passing: parameter.passing });
-    const result = bindDeclaredSummary({ signature: selected.signature, parameters,
-      source: { kind: "item", value: { owner: selected.request.definition, node: nodeId(0) } } },
-      { kind: "native", guarantee, associations, execution });
+    const source = { kind: "item", value: { owner: selected.request.definition, node: nodeId(0) } };
+    assert.equal(guarantee.statement.callbacks.length === 0 || suppliedRelations !== null, true, "a callback-bearing constructed guarantee supplies actual complete exchange evidence");
+    const relations = suppliedRelations ?? constructedNativeRelations(execution, source);
+    const result = bindDeclaredSummary({ signature: selected.signature, parameters, source, callables: [] },
+      { kind: "native", guarantee, associations, execution, relations,
+        cells: constructedNativeCells(execution, guarantee.statement, source) });
     if (result.kind === "refused") diagnostics.push(...result.diagnostics);
     else summaries.push(result.value);
   }
@@ -213,12 +217,25 @@ function selectedMember(changes = {}) {
 }
 
 function emptySummary(binding, changes = {}) {
-  return { key: summaryExecutionKey(binding),
-    signature: binding.signature.id, arena: { projections: [], producers: [],
-      contexts: [{ id: 0, receiver: null, arguments: [], captures: [] }], boundProducers: [],
-      origins: [{ id: 0, kind: "complete", producers: [], includesAbsence: false }], boundaries: [] },
-    parameters: [], captures: [], result: 0, thrown: 0, writes: [], retention: [], callbacks: [],
-    invocationOnlyParameters: [], suspends: false, bindingDependent: false, ...changes };
+  const key = summaryExecutionKey(binding);
+  const source = { kind: "item", value: { owner: binding.request.definition, node: nodeId(0) } };
+  const value = { key, signature: binding.signature.id, arena: { cells: [], projections: [], producers: [],
+    contexts: [{ id: 0, receiver: null, arguments: [], captures: [] }], boundProducers: [],
+    origins: [{ id: 0, kind: "complete", producers: [], includesAbsence: false }], boundaries: [] },
+    parameters: [], captures: [], result: 0, thrown: 0, writes: [], retention: [],
+    suspends: false, bindingDependent: false, ...constructedNativeRelations(key.execution, source), ...changes };
+  value.retention = value.retention.map(row => ({ ...row, at: { kind: "declared", execution: key.execution, source } }));
+  for (const context of value.arena.contexts) for (const capture of context.captures) {
+    capture.cell = value.arena.cells.length;
+    value.arena.cells.push(...detachedCells(binding, 1).map(row => ({ ...row, id: capture.cell })));
+  }
+  return value;
+}
+
+function detachedCells(binding, count) {
+  return Array.from({ length: count }, (_, id) => ({ id, role: { kind: "detached" },
+    occurrence: { kind: "declared", at: { kind: "node",
+      node: { kind: "item", value: { owner: binding.request.definition, node: nodeId(0) } } } }, lifetimes: [] }));
 }
 
 function authoredSummary(identity, changes = {}) {
@@ -1232,7 +1249,7 @@ test("all unused required/optional/default/rest formals retain dense identities,
   const bound = ({ sources: input.sources, sourceRoles: [] });
   const complete = { kind: "complete", paths: [] };
   const expected = emptySummary(binding, {
-    arena: { projections: [], producers: [0, 1, 2, 3].map(index => ({ id: index, kind: "parameter", index, path: null })),
+    arena: { cells: [], projections: [], producers: [0, 1, 2, 3].map(index => ({ id: index, kind: "parameter", index, path: null })),
       contexts: [{ id: 0, receiver: null, arguments: [1, 2, 3, 4], captures: [] }],
       boundProducers: [0, 1, 2, 3].map(id => ({ id, producer: id, bindings: binding.request.bindings.bindings, context: 0 })),
       origins: [{ id: 0, kind: "complete", producers: [], includesAbsence: false },
@@ -1252,7 +1269,7 @@ test("an unused actual receiver has its own formal identity/context and no-flow 
   const binding = exportBinding(definition, { signature: declaredSignature(definition, { receiver: tyId(0) }) });
   const bound = ({ sources: input.sources, sourceRoles: [] });
   const complete = { kind: "complete", paths: [] };
-  const expected = emptySummary(binding, { arena: { projections: [], producers: [{ id: 0, kind: "receiver", path: null }],
+  const expected = emptySummary(binding, { arena: { cells: [], projections: [], producers: [{ id: 0, kind: "receiver", path: null }],
     contexts: [{ id: 0, receiver: 1, arguments: [], captures: [] }], boundProducers: [{ id: 0, producer: 0, bindings: binding.request.bindings.bindings, context: 0 }],
     origins: [{ id: 0, kind: "complete", producers: [], includesAbsence: false },
       { id: 1, kind: "complete", producers: [0], includesAbsence: false }], boundaries: [] },
@@ -1275,7 +1292,7 @@ test("binding canonical write and escape keys include the complete secondary tar
       { source: 0, into: { kind: "parameter", index: 0, path: null } },
     ] };
   const complete = { kind: "complete", paths: [] };
-  const expected = emptySummary(binding, { arena: { projections: [], producers: [{ id: 0, kind: "parameter", index: 0, path: null }],
+  const expected = emptySummary(binding, { arena: { cells: detachedCells(binding, 1), projections: [], producers: [{ id: 0, kind: "parameter", index: 0, path: null }],
     contexts: [{ id: 0, receiver: null, arguments: [2], captures: [] }], boundProducers: [{ id: 0, producer: 0, bindings: binding.request.bindings.bindings, context: 0 }],
     origins: [{ id: 0, kind: "complete", producers: [], includesAbsence: false },
       { id: 1, kind: "complete", producers: [], includesAbsence: true }, { id: 2, kind: "complete", producers: [0], includesAbsence: false }], boundaries: [] },
@@ -1301,7 +1318,7 @@ test("capture and shared escapes preserve both nullable path forms and the canon
     retention: [{ source: 0, into: { kind: "shared", identity: shared, path: null } },
       { source: 0, into: { kind: "capture", index: 0, path: 0 } }],
   };
-  const expected = emptySummary(binding, { arena: { projections: [{ id: 0, parent: null, projection: { kind: "element" } }],
+  const expected = emptySummary(binding, { arena: { cells: [], projections: [{ id: 0, parent: null, projection: { kind: "element" } }],
     producers: [{ id: 0, kind: "capture", index: 0, path: null }], contexts: [{ id: 0, receiver: null, arguments: [], captures: [{ index: 0, location: 0 }] }],
     boundProducers: [{ id: 0, producer: 0, bindings: binding.request.bindings.bindings, context: 0 }],
     origins: [{ id: 0, kind: "complete", producers: [], includesAbsence: false }], boundaries: [] },
@@ -1353,7 +1370,7 @@ test("legal aliases use one admitted native guarantee origin independent of enco
   });
   const at = site => ({ kind: "declared", identity: first, site });
   const expected = emptySummary(binding, {
-    arena: { projections: [], producers: [{ id: 0, kind: "allocation", at: at(0), path: null }],
+    arena: { cells: [], projections: [], producers: [{ id: 0, kind: "allocation", at: at(0), path: null }],
       contexts: [{ id: 0, receiver: null, arguments: [], captures: [] }],
       boundProducers: [{ id: 0, producer: 0, bindings: binding.request.bindings.bindings, context: 0 }],
       origins: [{ id: 0, kind: "complete", producers: [0], includesAbsence: false }], boundaries: [] },
@@ -1539,7 +1556,7 @@ for (const scenario of ["path-parent", "producer-path", "parameter-read", "param
     const complete = { kind: "complete", paths: [] };
     const paths = { kind: "complete", paths: [0] };
     const valid = { ...summary, projections: [{ id: 0, parent: null, projection: { kind: "element" } }] };
-    const expected = emptySummary(binding, { arena: { projections: valid.projections,
+    const expected = emptySummary(binding, { arena: { cells: [], projections: valid.projections,
       producers: [{ id: 0, kind: "parameter", index: 0, path: null }],
       boundProducers: [{ id: 0, producer: 0, bindings: binding.request.bindings.bindings, context: 0 }],
       origins: [{ id: 0, kind: "complete", producers: [], includesAbsence: false },
@@ -1563,14 +1580,15 @@ for (const scenario of ["path-parent", "producer-path", "parameter-read", "param
       expected.captures = [effect];
       expected.arena.producers.push({ id: 1, kind: "capture", index: 0, path: null });
       expected.arena.boundProducers.push({ id: 1, producer: 1, bindings: binding.request.bindings.bindings, context: 0 });
-      expected.arena.contexts[0].captures = [{ index: 0, location: 1 }];
+      expected.arena.contexts[0].captures = [{ index: 0, location: 1, cell: 0 }];
+      expected.arena.cells = detachedCells(binding, 1);
     } else if (scenario === "retention-path") {
       valid.producers = [{ id: 0, kind: "allocation", site: 0, path: null }];
       valid.retention = [{ source: 0, into: { kind: "parameter", index: 0, path: 0 } }];
       expected.arena.producers.push({ id: 1, kind: "allocation", path: null,
         at: { kind: "declared", identity: summary.identity, site: 0 } });
       expected.arena.boundProducers.push({ id: 1, producer: 1, bindings: binding.request.bindings.bindings, context: 0 });
-      expected.retention = [{ source: 1, into: { kind: "parameter", index: 0, path: 0 } }];
+      expected.retention = [{ at: { kind: "declared", execution: { request: binding.request, provided: binding.signature.parameters.length }, source: { kind: "item", value: { owner: binding.request.definition, node: 0 } } }, source: 1, into: { kind: "parameter", index: 0, path: 0 } }];
     }
     const invalid = structuredClone(valid);
     if (scenario === "path-parent") invalid.projections[0].parent = 9;
@@ -1646,7 +1664,7 @@ test("repeated projected parameter producers carry one complete root environment
       parameters: [{ slot: { kind: "parameter", index: 0 },
         reads: { kind: "complete", paths: Array.from({ length: count }, (_, id) => id) }, writes: { kind: "complete", paths: [] } }],
     });
-    const expected = emptySummary(binding, { arena: {
+    const expected = emptySummary(binding, { arena: { cells: [],
       projections: [{ id: 0, parent: null, projection: { kind: "element" } }],
       producers: [{ id: 0, kind: "parameter", index: 0, path: null }, { id: 1, kind: "parameter", index: 0, path: 0 }],
       boundProducers: [{ id: 0, producer: 0, bindings, context: 0 }, { id: 1, producer: 1, bindings, context: 0 }],
@@ -1676,7 +1694,7 @@ test("legal duplicate authored projections publish one canonical bound projectio
     { kind: "ok", value: [expected], diagnostics: [] });
 });
 
-test("canonical duplicate paths and export aliases remap every bound Summary holder in both alias orders", async () => {
+test("canonical duplicate paths and export aliases remap bound values without merging distinct supplied cells in either alias order", async () => {
   const module = identity();
   const root = exportIdentity(module, "a", null, "signature");
   const first = exportIdentity(module, "b");
@@ -1698,7 +1716,7 @@ test("canonical duplicate paths and export aliases remap every bound Summary hol
   const paths = { kind: "complete", paths: [0, 1, 2, 3, 4, 5] };
   const open = { kind: "open", paths: [0, 1, 2, 3, 4, 5], boundaries: [0, 1] };
   const at = site => ({ kind: "declared", identity: root, site });
-  const expected = emptySummary(binding, { arena: {
+  const expected = emptySummary(binding, { arena: { cells: detachedCells(binding, 5),
     projections: [{ id: 0, parent: null, projection: { kind: "element" } },
       { id: 1, parent: 0, projection: { kind: "index", constant: 7n } },
       { id: 2, parent: 1, projection: { kind: "deref" } }],
@@ -1723,7 +1741,8 @@ test("canonical duplicate paths and export aliases remap every bound Summary hol
       writes: { kind: "open", paths: [0, 1, 2], boundaries: [0, 1] } }],
   captures: [{ index: 0, reads: { kind: "open", paths: [0, 1, 2], boundaries: [0, 1] },
     writes: { kind: "complete", paths: [0, 1, 2] } }],
-  result: 0, thrown: 1, writes: [{ target: 0, value: 1 }, { target: 3, value: 0 }, { target: 7, value: 1 }],
+  result: 0, thrown: 1, writes: [{ target: 0, value: 0 }, { target: 1, value: 1 }, { target: 2, value: 0 },
+    { target: 3, value: 1 }, { target: 4, value: 1 }],
   retention: [{ source: 3, into: { kind: "shared", definition: sharedDefinition, path: 2 } },
     { source: 4, into: { kind: "receiver", path: 0 } },
     { source: 5, into: { kind: "parameter", index: 0, path: 1 } },
@@ -1798,15 +1817,15 @@ test("canonical shared producers retain distinct full binding alternatives witho
     [identityKey(shared[0]), exportBinding(sharedDefinition, { signature: null, bindings: first })],
     [identityKey(shared[1]), exportBinding(sharedDefinition, { signature: null, bindings: second })],
     [identityKey(shared[2]), exportBinding(distinctDefinition, { signature: null, bindings: first })]]);
-  const expected = emptySummary(binding, { arena: { projections: [],
+  const expected = emptySummary(binding, { arena: { cells: detachedCells(binding, 3), projections: [],
     producers: [{ id: 0, kind: "shared", definition: sharedDefinition, path: null },
       { id: 1, kind: "shared", definition: distinctDefinition, path: null }],
     contexts: [{ id: 0, receiver: null, arguments: [], captures: [] }],
     boundProducers: [{ id: 0, producer: 0, bindings: first, context: 0 },
       { id: 1, producer: 0, bindings: second, context: 0 }, { id: 2, producer: 1, bindings: first, context: 0 }],
     origins: [{ id: 0, kind: "complete", producers: [0, 1, 2], includesAbsence: false }], boundaries: [] },
-  writes: [{ target: 0, value: 0 }, { target: 1, value: 0 }],
-  retention: [{ source: 0, into: { kind: "return" } }, { source: 1, into: { kind: "return" } }] });
+  writes: [{ target: 0, value: 0 }, { target: 1, value: 0 }, { target: 2, value: 0 }],
+  retention: [0, 1, 2].map(source => ({ at: { kind: "declared", execution: { request: binding.request, provided: binding.signature.parameters.length }, source: { kind: "item", value: { owner: binding.request.definition, node: 0 } } }, source, into: { kind: "return" } })) });
   assert.deepEqual(product.verifyAuthoredSummaries({ sources: bound.sources }, [raw]), []);
   assert.deepEqual(await bindNativeBatch(bound, [raw], [root, ...shared].map(identity => readyAssociation(identity, entries.get(identityKey(identity))))), { kind: "ok", value: [expected], diagnostics: [] });
 });
@@ -1908,7 +1927,7 @@ test("bound retention orders all nine complete canonical targets for the same so
       { source: 0, into: { kind: "parameter", index: 0, path: 0 } }],
   });
   const at = site => ({ kind: "declared", identity: summary.identity, site });
-  const expected = emptySummary(binding, { arena: { projections: raw.projections,
+  const expected = emptySummary(binding, { arena: { cells: [], projections: raw.projections,
     producers: [{ id: 0, kind: "receiver", path: null }, { id: 1, kind: "parameter", index: 0, path: null },
       { id: 2, kind: "capture", index: 0, path: null }, { id: 3, kind: "allocation", at: at(0), path: null }],
     boundProducers: [0, 1, 2, 3].map(id => ({ id, producer: id, bindings: binding.request.bindings.bindings, context: 0 })),
@@ -1995,8 +2014,15 @@ test("binding remaps the complete relational graph into signature-order formals 
     ] }, { parameterIndex: 1, timing: "deferred", rejection: null, inputs: [{ kind: "receiver-rejection", parameterIndex: 0 }] }],
     invocationOnlyParameters: [0, 1], suspends: true, bindingDependent: true,
   });
+  raw.boundaries.push(...[4, 1].map((subject, index) => ({ id: 7 + index, kind: "opaque-invocation", site: 9 + index, subject, owner: null, detail: "constructed callback exchange" })));
   const at = site => ({ kind: "declared", identity: root, site });
-  const expected = { key: summaryExecutionKey(binding), signature: sigId(0), arena: {
+  const execution = summaryExecutionKey(binding).execution;
+  const source = { kind: "item", value: { owner: binding.request.definition, node: nodeId(0) } };
+  const owner = { kind: "summary", key: summaryExecutionKey(binding) };
+  const exchanges = raw.callbacks.map((constraint, index) => ({ kind: "unknown", subject: { owner, producer: index + 1 },
+    boundary: { owner, boundary: index + 7 }, signatures: [sigId(index + 1)], constraint, invocationOnly: true }));
+  const relations = constructedNativeRelations(execution, source, exchanges);
+  const expected = { key: summaryExecutionKey(binding), signature: sigId(0), arena: { cells: detachedCells(binding, 4),
     projections: [{ id: 0, parent: null, projection: { kind: "element" } },
       { id: 1, parent: 0, projection: { kind: "index", constant: -9007199254740993n } },
       { id: 2, parent: 1, projection: { kind: "deref" } }, { id: 3, parent: 2, projection: { kind: "field", member: fieldMember } },
@@ -2006,7 +2032,7 @@ test("binding remaps the complete relational graph into signature-order formals 
       { id: 4, kind: "allocation", at: at(0), path: null }, { id: 5, kind: "shared", definition: sharedDefinition, path: null },
       { id: 6, kind: "parameter", index: 1, path: 0 }, { id: 7, kind: "receiver", path: 1 },
       { id: 8, kind: "capture", index: 0, path: 2 }, { id: 9, kind: "allocation", at: at(1), path: 3 }],
-    contexts: [{ id: 0, receiver: 2, arguments: [3, 4], captures: [{ index: 0, location: 3 }] }],
+    contexts: [{ id: 0, receiver: 2, arguments: [3, 4], captures: [{ index: 0, location: 3, cell: 3 }] }],
     boundProducers: Array.from({ length: 10 }, (_, id) => ({ id, producer: id,
       bindings: id === 5 ? sharedBindings : binding.request.bindings.bindings, context: 0 })),
     origins: [{ id: 0, kind: "complete", producers: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], includesAbsence: true },
@@ -2014,13 +2040,15 @@ test("binding remaps the complete relational graph into signature-order formals 
       { id: 2, kind: "complete", producers: [0], includesAbsence: false },
       { id: 3, kind: "complete", producers: [1], includesAbsence: false },
       { id: 4, kind: "complete", producers: [2], includesAbsence: false }],
-    boundaries: kinds.map((kind, id) => ({ id, kind, at: at(id + 2), subject: 4, owner: id === 0 ? null : 0,
+    boundaries: [...kinds.map((kind, id) => ({ id, kind, at: at(id + 2), subject: 4, owner: id === 0 ? null : 0,
       bindings: binding.request.bindings.bindings, context: 0, detail: `reason${id}` })),
+      ...[1, 2].map((subject, index) => ({ id: 7 + index, kind: "opaque-invocation", at: at(9 + index), subject, owner: null,
+        bindings: binding.request.bindings.bindings, context: 0, detail: "constructed callback exchange" }))],
   }, parameters: [{ slot: { kind: "receiver" }, reads: { kind: "complete", paths: [0, 1] }, writes: { kind: "open", paths: [], boundaries: [0] } },
     { slot: { kind: "parameter", index: 0 }, reads: { kind: "complete", paths: [2, 3] }, writes: { kind: "complete", paths: [4] } },
     { slot: { kind: "parameter", index: 1 }, reads: complete, writes: complete }],
   captures: [{ index: 0, reads: { kind: "open", paths: [2], boundaries: [1] }, writes: complete }],
-  result: 0, thrown: 1, writes: [{ target: 0, value: 0 }, { target: 2, value: 1 }, { target: 4, value: 0 }],
+  result: 0, thrown: 1, writes: [{ target: 0, value: 0 }, { target: 1, value: 1 }, { target: 2, value: 0 }],
   retention: [{ source: 0, into: { kind: "shared", definition: sharedDefinition, path: 0 } },
     { source: 1, into: { kind: "receiver", path: 2 } }, { source: 1, into: { kind: "receiver", path: null } },
     { source: 2, into: { kind: "throw" } },
@@ -2028,12 +2056,10 @@ test("binding remaps the complete relational graph into signature-order formals 
     { source: 5, into: { kind: "capture", index: 0, path: null } },
     { source: 6, into: { kind: "callback", at: at(5) } }, { source: 7, into: { kind: "suspension", at: at(6) } },
     { source: 8, into: { kind: "external", boundary: 1 } }],
-  callbacks: [{ parameterIndex: 0, timing: "synchronous", rejection: 1, inputs: [
-    { kind: "receiver-element", parameterIndex: 0 }, { kind: "argument-element", parameterIndex: 1, sourceParameterIndex: 1 },
-  ] }, { parameterIndex: 1, timing: "deferred", rejection: null, inputs: [{ kind: "receiver-rejection", parameterIndex: 0 }] }],
-  invocationOnlyParameters: [0, 1], suspends: true, bindingDependent: true };
+  ...relations, suspends: true, bindingDependent: true };
+  expected.retention = expected.retention.map(row => ({ ...row, at: { kind: "declared", execution, source } }));
   const bound = ({ sources, sourceRoles: [] });
-  const result = await bindNativeBatch(bound, ([raw]), [root, field, method, shared].map(identity => readyAssociation(identity, entries.get(identityKey(identity)))));
+  const result = await bindNativeBatch(bound, ([raw]), [root, field, method, shared].map(identity => readyAssociation(identity, entries.get(identityKey(identity)))), relations);
   assert.deepEqual(result, { kind: "ok", value: [expected], diagnostics: [] });
   assert.equal(result.value[0].arena.projections[3].projection.member === fieldMember, true);
   assert.equal(result.value[0].arena.projections[4].projection.member === methodMember, true);
@@ -2046,6 +2072,9 @@ test("native guarantee admission preserves source/role vectors without construct
   const selected = readyAssociation(summary.identity, exportBinding(definitionId("api")));
   const staged = { sources: input.sources, sourceRoles: [] };
   const actual = product.admitGuarantees(staged, [summary], [selected]);
+  const role = { identity: summary.identity, definition: selected.request.definition };
+  assert.deepEqual(product.admitGuarantees({ ...staged, sourceRoles: [role, role] }, [summary], [selected]),
+    { kind: "refused", diagnostics: [summaryError(summary.identity)] });
   assert.deepEqual(actual, { kind: "ok", value: { ...staged, guarantees: [{ statement: summary, declaration: selected.request.definition }] }, diagnostics: [] });
   assert.equal(actual.value.sources === staged.sources && actual.value.sourceRoles === staged.sourceRoles, true);
   assert.equal("declaredSummaries" in actual.value, false, "Libraries never publishes a premature Facts.Summary");
@@ -2139,9 +2168,10 @@ test("late native specialization retains every bound and rigid family and refuse
   }));
   const admitted = product.admitGuarantees({ sources: input.sources, sourceRoles: [] }, [summary], [selected]);
   assert.equal(admitted.kind, "ok");
-  const deps = { signature: selected.signature, parameters: [], source: { kind: "item", value: { owner, node: nodeId(0) } } };
-  const request = { kind: "native", guarantee: admitted.value.guarantees[0], associations: [selected],
-    execution: summaryExecutionKey(selected).execution };
+  const deps = { signature: selected.signature, parameters: [], callables: [], source: { kind: "item", value: { owner, node: nodeId(0) } } };
+  const execution = summaryExecutionKey(selected).execution;
+  const request = { kind: "native", guarantee: admitted.value.guarantees[0], associations: [selected], execution,
+    cells: constructedNativeCells(execution, summary, deps.source), relations: constructedNativeRelations(execution, deps.source) };
   const result = bindDeclaredSummary(deps, request);
   assert.deepEqual(result, { kind: "ok", value: emptySummary(selected), diagnostics: [] });
   for (const family of ["classBindings", "methodBindings", "capturedBindings", "selfBindings"]) {

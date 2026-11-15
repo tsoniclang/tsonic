@@ -7,7 +7,8 @@ export function ownSignatureRequest(deps: InferDeps, body: HirBody, port: string
   ownDefinitions: ReadonlySet<DefId>): DeclaredSignatureRequest | null {
   const owner = deps.itemOf(body.owner);
   if (owner.kind === "SourceFile") return null;
-  if (owner.kind === "Parameter" && owner.tsonic.initializer === body.body) return null;
+  if ((owner.kind === "Parameter" || owner.kind === "VariableDeclaration" || owner.kind === "PropertyDeclaration")
+    && owner.tsonic.initializer === body.body) return null;
   if (owner.kind !== "FunctionDeclaration") return notInferredYet(port, `a body owned by a ${owner.kind}`, owner.origin);
   if (ownDefinitions.has(body.owner))
     return null;

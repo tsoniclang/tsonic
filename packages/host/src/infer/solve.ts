@@ -235,7 +235,8 @@ function solve(deps: InferDeps, group: InferenceGroup, generated: GroupConstrain
     const part: InferredPartType = { part: variable.signature, type, error: present(variables[variable.id], "the finalized part").error,
       origin: { request: unit, position: { kind: "inference-variable", group: group.id, variable: variable.id } } };
     parts.set(key, part);
-    if (variable.signature.part.kind === "parameter-initializer") completions.set(variable.occurrence.body,
+    if (variable.signature.part.kind === "parameter-initializer" || variable.signature.part.kind === "variable"
+      || variable.signature.part.kind === "field") completions.set(variable.occurrence.body,
       { type: part.type, error: part.error === null ? null : { kind: "error", causes: [{ kind: "unit", unit: part.origin }] } });
   }
   const requests: SolveRequest[] = group.bodies.map((reference, position) => {
@@ -245,11 +246,11 @@ function solve(deps: InferDeps, group: InferenceGroup, generated: GroupConstrain
     const instance: BodyInstance = { body: reference, bindings: { kind: "parametric" } };
     if (owner.kind === "SourceFile") return { kind: "placeSignature", placement: { kind: "execution-body", instance,
       completion: internType(deps.types, { kind: "intrinsic", intrinsic: "void" }), error: null } };
-    if (owner.kind === "Parameter") {
+    if (owner.kind === "Parameter" || owner.kind === "VariableDeclaration" || owner.kind === "PropertyDeclaration") {
       let completion = completions.get(reference);
       if (completion === undefined) {
         if (owner.tsonic.initializer !== reference || owner.tsonic.declaredType.kind !== "available" || owner.tsonic.declaredType.value === null)
-          return callerDefect(PORT, "an annotated initializer completion requires its actual checked parameter type");
+          return callerDefect(PORT, "an annotated initializer completion requires its actual checked declaration type");
         const set = present(sets[position], "the actual initializer constraint system");
         const index = set.constraints.findIndex(constraint => constraint.kind === "flow" && constraint.role === "initialization"
           && constraint.occurrence.body === reference && constraint.occurrence.node === body.root.id);

@@ -3,9 +3,15 @@ import type { ArtifactBindings } from "../ir-types/contract.js";
 import { declaredExecutionKey, executionKey } from "../ir-types/index.js";
 import type { FactsVerificationContext, SummaryIdentity, SummaryKey } from "./contract.js";
 import type { DefId } from "../ids/contract.js";
+import type { SummaryPosition } from "./initialization-data.js";
 
 export const summaryKey: SummaryIdentity = key => encodeKey([key.kind, key.kind === "body"
   ? executionKey(key.execution) : declaredExecutionKey(key.execution)]);
+
+export const summaryPositionKey = (at: SummaryPosition): string => at.kind === "body"
+  ? encodeKey([at.kind, executionKey(at.execution), at.point.block, at.point.statement, at.edge])
+  : encodeKey([at.kind, declaredExecutionKey(at.execution), at.source.kind,
+    at.source.kind === "body" ? at.source.value.body : at.source.value.owner, at.source.value.node]);
 
 export const summaryBindings = (key: SummaryKey): ArtifactBindings => key.kind === "body"
   ? key.execution.instance.bindings : key.execution.request.bindings;

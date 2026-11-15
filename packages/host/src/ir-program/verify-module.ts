@@ -1,6 +1,6 @@
 import { ProgramWork } from "./work.js";
 import type { ProgramVerificationResult, ProgramSite, ModuleBodies, ProgramIndex, ProgramVerificationContext, PublishedBody, VerifyModuleBodies } from "./contract.js";
-import type { ArgumentTransport, MetadataKey, RelationalOwner, SummaryKey } from "../ir-facts/contract.js";
+import type { ArgumentTransport, MetadataKey, ObservationsVerification, RelationalOwner, SummaryKey } from "../ir-facts/contract.js";
 import type { MemberSelection, ResolvedCallee, TirVerifierInput } from "../ir-tir/contract.js";
 import { verifyTir, verifyTirModule } from "../ir-tir/index.js";
 import { summaryKey, verifyFacts, verifyObservations } from "../ir-facts/index.js";
@@ -20,6 +20,11 @@ import { artifactEnvironmentKey, compareExecutions, compareInstances, numberDeta
 import { refuseVerification, verificationTypes } from "./verification-work.js";
 import { verifyMetadataOperands } from "./verify-metadata-operands.js";
 
+function isObservationExpansion(result: ObservationsVerification): result is Extract<ObservationsVerification,
+  { readonly dimension: "depth" | "visits" | "union-members" | "intersection-members" }> {
+  return result.kind === "resource-limit" && (result.dimension === "depth" || result.dimension === "visits"
+    || result.dimension === "union-members" || result.dimension === "intersection-members");
+}
 
 function verifyReferenceRoots(
   lookup: ProgramLookup, published: PublishedBody, context: ProgramVerificationContext,
@@ -231,14 +236,17 @@ export function verifyPublishedChildren(
     } else {
       const observations = verifyObservations(published.observations, {
         source, bodyOf: body => sourceBodies.get(body) ?? null, nodeOf: input.nodeOf, facts: context.facts,
+        account: ProgramWork.state(context.resources).account,
         types, typeExpansion: ProgramWork.state(context.resources).limits.typeExpansion,
       });
-      if (observations.kind === "resource-limit") return { ...observations, site };
+      if (isObservationExpansion(observations))
+        return refuseVerification(index, context.resources, { ...observations, site });
+      if (observations.kind !== "complete") return refuseVerification(index, context.resources, observations);
       for (const child of observations.violations) {
         violations.push({ rule: programChildRule("facts-valid", child.rule), site, detail: [textDetail(child.rule), ...child.detail] });
       }
       const metadata = verifyMetadataOperands(published, input, lookup, context, types);
-      if (metadata.kind === "resource-limit") return metadata;
+      if (metadata.kind !== "complete") return metadata;
       for (const child of metadata.violations) violations.push(child);
     }
     if (input !== null) {
@@ -258,7 +266,9 @@ export function verifyPublishedChildren(
     }
     for (const facts of published.facts) {
       if (instanceKey(facts.execution.instance) !== instanceKey(published.instance)) continue;
-      for (const child of verifyFacts(facts, published.mir, context.facts)) {
+      const verified = verifyFacts(facts, published.mir, context.facts, ProgramWork.state(context.resources).account);
+      if (verified.kind !== "complete") return refuseVerification(index, context.resources, verified);
+      for (const child of verified.violations) {
         violations.push({ rule: programChildRule("facts-valid", child.rule), site, detail: [textDetail(child.rule), ...child.detail] });
       }
     }
@@ -268,7 +278,7 @@ export function verifyPublishedChildren(
 
 export const verifyModuleBodies: VerifyModuleBodies = (index, module, context) => {
   const prepared = verificationTypes(index, context.resources);
-  if (prepared.kind === "resource-limit") return prepared;
+  if (prepared.kind !== "complete") return prepared;
   const syntax = inventorySyntax(moduleSyntaxRoots(module, "ModuleBodies"));
   const lookup = programLookup(index);
   const input = context.tirOf(module.module);
@@ -282,7 +292,7 @@ export const verifyModuleBodies: VerifyModuleBodies = (index, module, context) =
     violations.push({ rule: "shared-type-table", site: { kind: "module", module: module.module }, detail: [] });
   }
   const children = verifyPublishedChildren(index, module, input, context, prepared.types, lookup);
-  if (children.kind === "resource-limit") return refuseVerification(index, context.resources, children);
+  if (children.kind !== "complete") return refuseVerification(index, context.resources, children);
   for (const child of children.violations) violations.push(child);
   return { kind: "complete", violations };
 };

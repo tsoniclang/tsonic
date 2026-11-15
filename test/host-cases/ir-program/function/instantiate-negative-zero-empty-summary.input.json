@@ -1,5 +1,5 @@
 {
-  "operation": "instantiate",
+  "operation": "instantiate-invalid-limits",
   "index": {
     "schema": 1,
     "rootPackage": "P[%002Fprogram]",
@@ -119,5 +119,6 @@
       "maximumUnionMembers": 0,
       "maximumIntersectionMembers": 0
     }
-  }
+  },
+  "expectedError": "Invalid InstantiationLimits.maximumWork"
 }

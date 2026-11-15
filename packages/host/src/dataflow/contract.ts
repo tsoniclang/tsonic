@@ -10,6 +10,7 @@ export type CreateAccount = (limits: DataflowLimits) => DataflowAccount;
 export type ChargeWork = (account: DataflowAccount, units: number) => DataflowStop | null;
 export type ChargeResultEntries = (account: DataflowAccount, entries: number) => DataflowStop | null;
 export type AccountFailure = (account: DataflowAccount) => DataflowStop | null;
+export type RemainingWork = (account: DataflowAccount) => number;
 export type RefuseAccount = (account: DataflowAccount, refusal: CallerRefusal) => DataflowStop;
 
 export interface Lattice<State> {

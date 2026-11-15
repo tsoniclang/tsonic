@@ -16,7 +16,7 @@ import { chargeInstantiationWork, emitInstantiationRecord } from "./work.js";
 const sourceKey = (source: SourceNodeRef): string => encodeKey([source.kind,
   source.kind === "body" ? source.value.body : source.value.owner, source.value.node]);
 const stopped = (stop: InstantiationAllocationStop): ProgramVerificationResult => {
-  return { kind: "resource-limit", site: { kind: "index" }, dimension: stop.dimension, maximum: stop.maximum };
+  return stop.kind === "resource-limit" && stop.dimension === "created-records" ? { ...stop, site: { kind: "index" } } : stop;
 };
 const rootOccurrence = (metadata: MetadataRecord): SourceNodeRef | null => metadata.kind === "data-layout"
   ? metadata.occurrence : metadata.kind === "memory-layout" ? metadata.layouts[metadata.root]?.occurrence ?? null
@@ -268,7 +268,7 @@ export function verifyMetadataOperands(published: PublishedBody, input: TirVerif
     if (refusal !== null) return stopped(refusal);
   }
   const authorization = authorize(published, input, lookup, context, types, requested.values(), allowed);
-  if (authorization.kind === "resource-limit") return authorization;
+  if (authorization.kind !== "complete") return authorization;
   for (const request of requested.values()) {
     const key = artifactEnvironmentKey(request.key.definition, request.key.bindings);
     if (!allowed.get(request.node)?.has(key)) for (const use of request.uses) {

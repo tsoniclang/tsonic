@@ -22,7 +22,8 @@ import type {
 import type { ProgramLookup, ProgramViolation } from "./program-values.js";
 import { artifactEnvironmentKey, compareExecutions, compareText, numberDetail, programChildRule, programLookup, summaryBindingsOf, summaryReferenceOf, textDetail, uniqueRows } from "./program-values.js";
 import { chargeInstantiationWork, requireInstantiationMaximum } from "./work.js";
-import { refuseVerification } from "./verification-work.js";
+import type { InstantiationAllocationStop } from "./work.js";
+import { refuseVerification, verificationFailure } from "./verification-work.js";
 import { verifyBindingBounds, verifyBodyInventory, verifyModules, verifyPackages } from "./verify-structure.js";
 import { verifyModuleBindings } from "./verify-module-bindings.js";
 import { textModuleBinding, textModuleExport } from "./text-module-bindings.js";
@@ -197,6 +198,7 @@ function verifyBodyBindings(
 
 function verifyPublishedRecords(index: ProgramIndex, context: ProgramVerificationContext): ProgramVerificationResult {
   const violations: ProgramViolation[] = [];
+  const account = ProgramWork.state(context.resources).account;
   let previousMetadata: { readonly definition: DefId; readonly environment: string } | null = null;
   const metadataKeys = new Set<string>();
   for (const record of index.metadata) {
@@ -209,7 +211,9 @@ function verifyPublishedRecords(index: ProgramIndex, context: ProgramVerificatio
     if (metadataKeys.has(key)) violations.push({ rule: "metadata-key-unique", site, detail: [textDetail(key)] });
     metadataKeys.add(key);
     previousMetadata = { definition: record.key.definition, environment };
-    for (const child of verifyMetadata(record, context.facts)) {
+    const metadata = verifyMetadata(record, context.facts, account);
+    if (metadata.kind !== "complete") return refuseVerification(index, context.resources, metadata);
+    for (const child of metadata.violations) {
       violations.push({ rule: programChildRule("metadata-valid", child.rule), site, detail: [textDetail(child.rule), ...child.detail] });
     }
   }
@@ -224,7 +228,9 @@ function verifyPublishedRecords(index: ProgramIndex, context: ProgramVerificatio
     if (summaryKeys.has(key)) violations.push({ rule: "summary-key-unique", site, detail: [textDetail(key)] });
     summaryKeys.add(key);
     previousSummary = key;
-    for (const child of verifySummary(summary, context.facts)) {
+    const checked = verifySummary(summary, context.facts, { account, conditionRefusal: context.conditionRefusal });
+    if (checked.kind !== "complete") return refuseVerification(index, context.resources, checked);
+    for (const child of checked.violations) {
       violations.push({ rule: programChildRule("summary-valid", child.rule), site, detail: [textDetail(child.rule), ...child.detail] });
     }
   }
@@ -243,14 +249,13 @@ function verifyPublishedRecords(index: ProgramIndex, context: ProgramVerificatio
       violations.push({ rule: "constant-type-resolves", site, detail: [numberDetail(constant.value.type)] });
     } else {
       if (constant.value.kind !== "floating" && constant.value.kind !== "number") continue;
+      let carrierStop: InstantiationAllocationStop | null = null;
       const selected = nativeCarrierOf(index.types, constant.value.type, type => {
-        if (chargeInstantiationWork(ProgramWork.state(context.resources)) !== null) return null;
+        carrierStop ??= chargeInstantiationWork(ProgramWork.state(context.resources));
+        if (carrierStop !== null) return null;
         return index.types.terms[type];
       });
-      if (selected.kind === "resource-stop") {
-        return refuseVerification(index, context.resources, { kind: "resource-limit", site: { kind: "index" },
-          dimension: "work", maximum: ProgramWork.state(context.resources).limits.maximumWork });
-      }
+      if (carrierStop !== null) return refuseVerification(index, context.resources, carrierStop);
       const carrier = selected.kind === "primitive" ? selected.primitive : null;
       if (constant.value.kind === "floating") {
         if (carrier === null) throw new TypeError("Program floating constants require their actual selected native carrier");
@@ -298,13 +303,8 @@ function verifyExecutions(lookup: ProgramLookup, index: ProgramIndex): readonly 
 }
 
 export const verifyProgramIndex: VerifyProgramIndex = (index, context) => {
-  const seed = ProgramWork.state(context.resources).seed;
-  if (seed.kind !== "unseeded" && seed.table !== index.types) {
-    throw new TypeError("Program verification refusal belongs to another published type table");
-  }
-  if (seed.kind === "refused") {
-    return seed.stop;
-  }
+  const prior = verificationFailure(index, context.resources);
+  if (prior !== null) return prior;
   if (typeof context.nativeFactsKey !== "string" || context.nativeFactsKey.length === 0) {
     throw new TypeError("Program verification requires the selected native facts identity");
   }
@@ -332,7 +332,7 @@ export const verifyProgramIndex: VerifyProgramIndex = (index, context) => {
     for (const violation of group) violations.push(violation);
   }
   const records = verifyPublishedRecords(index, context);
-  if (records.kind === "resource-limit") return records;
+  if (records.kind !== "complete") return refuseVerification(index, context.resources, records);
   for (const violation of records.violations) violations.push(violation);
   for (const violation of verifyBindingBounds(index, context)) violations.push(violation);
   const bindingViolations = new Map<number, Violation<TypeRule, TypeSite>[]>();

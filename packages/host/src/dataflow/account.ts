@@ -47,6 +47,11 @@ export function failureOf(account: InvocationAccount): DataflowStop | null {
   return InvocationAccount.stateOf(account).failure;
 }
 
+export function remainingWorkOf(account: InvocationAccount): number {
+  const meter = InvocationAccount.stateOf(account);
+  return meter.failure === null ? meter.limits.maximumWork - meter.work : 0;
+}
+
 export function recordRefusal(account: InvocationAccount, refusal: CallerRefusal): DataflowStop {
   const meter = InvocationAccount.stateOf(account);
   meter.failure ??= refusal;

@@ -358,6 +358,7 @@ export function relationalTransportArtifacts(fixture) {
   const argument = owner => ({ authoredIndex: 0, parameter: fixture.definition, parameterIndex: 0, repeated: false,
     passing: "by-value", actual: 0, formal: { owner, producer: 0 }, projection: null });
   facts.arena = {
+    cells: [],
     projections: [{ id: 0, parent: null, projection: { kind: "field", member } },
       { id: 1, parent: null, projection: { kind: "method-value", member } },
       { id: 2, parent: null, projection: { kind: "element" } },

@@ -10,6 +10,36 @@ export async function literalCompatibilityCases(suite, types) {
   const boolean = { kind: "boolean", value: true };
   const absent = { kind: "absence" };
 
+  await suite.test("literal-base lookup admission is paid at every actual hop and stops before the next read", () => {
+    for (const length of [0, 1, 7]) {
+      const terms = Array.from({ length }, (_, index) => ({ kind: "literal", value: boolean, base: index + 1 }));
+      terms.push({ kind: "primitive", primitive: "bool" });
+      const required = 6 + 4 * length;
+      for (let maximum = 0; maximum <= required; maximum += 1) {
+        let remaining = maximum;
+        let stopped = false;
+        const reads = [];
+        const charge = units => {
+          assert.equal(stopped, false, "neither admission nor a later lookup follows the original stop");
+          if (units > remaining) { stopped = true; return false; }
+          remaining -= units;
+          return true;
+        };
+        const result = types.literalCompatibilityOf(table(terms), 0, boolean, facts, {
+          admit: (work, entries) => charge(work) && charge(entries),
+          typeOf: id => {
+            if (!charge(1)) return null;
+            reads.push(id);
+            return terms[id];
+          },
+        });
+        assert.equal(result.kind, maximum === required ? "compatible" : "resource-stop");
+        assert.deepEqual(reads, Array.from({ length: Math.min(length + 1, Math.max(0, Math.floor((maximum - 6) / 4) + 1)) }, (_, index) => index));
+        if (maximum === required) assert.equal(remaining, 0);
+      }
+    }
+  });
+
   await suite.test("literal compatibility retains exact payload/base identity and arbitrary optional nesting", () => {
     for (const [value, base] of [[string("x"), { kind: "string" }], [boolean, { kind: "primitive", primitive: "bool" }],
       [{ kind: "bigint", value: 2n ** 100n }, { kind: "intrinsic", intrinsic: "bigint" }],

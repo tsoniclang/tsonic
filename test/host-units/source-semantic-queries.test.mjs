@@ -65,6 +65,87 @@ function ready(source) {
   return { checked, interner, domain, descriptions, inputs, queries, database, signature, verification, declarationOf };
 }
 
+for (const annotation of ["boolean", null]) test(`real ${annotation ?? "inferred"} module initializer completes its own registered solution and selected execution`, async () => {
+  const program = ready(`export function value(): boolean { return true; } export const flag${annotation === null ? "" : `: ${annotation}`} = false;`);
+  const { types } = fixture;
+  const records = new Map();
+  for (const group of program.inputs.groups) {
+    const answer = program.database.run(program.queries.solutionOf, group.id);
+    assert.equal(answer.kind, "completed");
+    assert.deepEqual(answer.diagnostics, []);
+    for (const set of answer.value.constraints.constraints) records.set(set.body, { ...answer.value, constraints: set });
+  }
+  const typed = new Map();
+  const deps = { rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf,
+    typeOf: type => types.readType(program.interner, type), signatureOf: signature => types.readSignature(program.interner, signature),
+    checkerDiagnosticsOf: () => program.checked.checkerDiagnostics };
+  const elaborate = source => {
+    const record = records.get(source.body);
+    const result = wiring.elaborate.elaborate(deps, { instance: { body: source.body, bindings: { kind: "parametric" } },
+      scope: program.descriptions.get(source.owner).generics, body: source, constraints: record.constraints, solution: record.solution,
+      template: null, nestedBodies: source.nestedBodies.map(nested => typed.get(nested)), initializers: [] });
+    assert.equal(result.kind, "ok");
+    typed.set(source.body, result.value);
+    return result.value;
+  };
+  for (const body of program.checked.bodies.filter(body => body.root.kind !== "SourceFile")) elaborate(body);
+  const moduleSource = program.checked.bodies.find(body => body.root.kind === "SourceFile");
+  const moduleBody = elaborate(moduleSource);
+  const variable = program.checked.tree.statements.nodes[1].declarationList.declarations.nodes[0];
+  const initializer = program.domain.bodyOf.get(variable.tsonic.initializer);
+  const template = typed.get(initializer.body);
+  const scope = program.descriptions.get(initializer.owner).generics;
+  assert.deepEqual(scope, { classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] });
+  const bindings = { kind: "instantiated", bindings: { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] } };
+  const selected = wiring.elaborate.elaborate(deps, { instance: { body: initializer.body, bindings }, scope, body: initializer,
+    constraints: records.get(initializer.body).constraints, solution: records.get(initializer.body).solution,
+    template, nestedBodies: [], initializers: [] });
+  assert.equal(selected.kind, "ok");
+  assert.equal(selected.value.root.id, variable.initializer.id);
+  assert.equal(selected.value.root.kind, "FalseKeyword");
+  assert.equal(types.readSignature(program.interner, selected.value.signature).result, selected.value.completion);
+  const assembled = moduleBody.root.statements.nodes[1].declarationList.declarations.nodes[0];
+  assert.equal(assembled.initializer === template.root, true);
+  assert.equal(assembled.tsonic.initializer, selected.value.body);
+  assert.equal(assembled.tsonic.storage, selected.value.completion);
+  const selectedBodies = new Map([[initializer.body, selected.value]]);
+  for (const source of program.checked.bodies) {
+    if (selectedBodies.has(source.body)) continue;
+    const actualScope = program.descriptions.get(source.owner).generics;
+    assert.deepEqual(actualScope, { classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] });
+    const record = records.get(source.body);
+    const replay = wiring.elaborate.elaborate(deps, { instance: { body: source.body, bindings }, scope: actualScope, body: source,
+      constraints: record.constraints, solution: record.solution, template: typed.get(source.body),
+      nestedBodies: source.nestedBodies.map(nested => selectedBodies.get(nested)), initializers: [] });
+    assert.equal(replay.kind, "ok");
+    selectedBodies.set(source.body, replay.value);
+  }
+  const selectedModule = selectedBodies.get(moduleSource.body);
+  const selectedVariable = selectedModule.root.statements.nodes[1].declarationList.declarations.nodes[0];
+  assert.equal(selectedVariable.initializer === selected.value.root, true);
+  assert.equal(selectedVariable.tsonic.initializer, selected.value.body);
+  assert.equal(types.artifactBindingsKey(selectedModule.bindings), types.artifactBindingsKey(selected.value.bindings));
+  const publication = { module: program.checked.module, tree: moduleBody.root, bodies: [...typed.values(), ...selectedBodies.values()] };
+  const verifier = { source: program.checked, module: publication, types: types.viewTypes(program.interner),
+    declarationOf: program.declarationOf, memberTableOf: () => null, nominalOf: () => null,
+    bodyOf: instance => instance.bindings.kind === "parametric" ? typed.get(instance.body) ?? null
+      : types.artifactBindingsKey(instance.bindings) === types.artifactBindingsKey(bindings) ? selectedBodies.get(instance.body) ?? null : null,
+    nodeOf: program.domain.nodeOf, localExists: program.domain.localExists, diagnostics: program.checked.checkerDiagnostics,
+    bindingScopesOf: target => {
+      if (target.kind === "module") return target.module === program.checked.module ? [] : null;
+      const source = program.domain.bodyOf.get(target.instance.body);
+      const actual = program.descriptions.get(source?.owner)?.generics;
+      if (actual === undefined) return null;
+      if (source.root.kind === "SourceFile") return [actual, actual, program.descriptions.get(program.checked.tree.statements.nodes[0].tsonic.definition).generics,
+        ...(target.instance.bindings.kind === "instantiated" ? [actual] : [])];
+      return target.instance.bindings.kind === "parametric" ? [actual] : [actual, actual];
+    } };
+  const tir = await import("../../packages/host/dist/ir-tir/index.js");
+  assert.deepEqual(tir.verifyTirModule(verifier, publication), []);
+  for (const body of publication.bodies) assert.deepEqual(tir.verifyTir(verifier, body), []);
+  assert.equal(program.database.trace().some(event => event.kind === "dependency" && event.state === "active"), false);
+});
+
 for (const [authored, annotation, kind, expected] of [
   ["true", "boolean", "boolean", true], ["false", "boolean", "boolean", false],
   ['""', "string", "string", ""], ['"a\\nΩ"', "string", "string", "a\nΩ"],

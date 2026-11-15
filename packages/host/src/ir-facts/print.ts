@@ -9,7 +9,7 @@ import type {
 import type { CallbackInput, SummaryCallback } from "../snapshot/contract.js";
 import type {
   ArgumentTransport, BindingStorageFact, BodyFacts, BodyObservations, BoundActivation, BoundProducer, BoundRecordField,
-  CallbackEntry, CallComponent, CallEdge, CallGraph, CaptureEffect, CaptureFact, CaptureLocation,
+  CallbackEntry, CallbackExchange, CallComponent, CallEdge, CallGraph, CaptureEffect, CaptureFact, CaptureLocation,
   ClosedArrayFact, ClosedArrayReason, ConstructionAlternative, CountedLoopFact, EffectPaths,
   ErrorInvalidationFact, ErrorInvalidationReason, ErrorStorageFact, ErrorStorageFacts, EscapeFact, EscapeTarget, ExitContents,
   InitializationFact, InitializationFacts, InstanceRegion, IntegerFact, IntegerRange, InvocationAlternative, InvocationFact,
@@ -20,14 +20,21 @@ import type {
   PrintCallGraph, PrintFacts, PrintMetadata, PrintSummary, Producer, ProducerRef, Projection, ProjectionPath,
   RawLocationFact, ReadOriginsFact, RefinementFact, RefinementFacts, RefinementInvalidation, RefinementReason,
   RelationalArena, RelationalOwner, RelationalSite, RetentionFact, StoreLiveness, SubjectOriginsFact, Summary,
-  SummaryKey, SummaryWrite, SuspensionFact, SuspensionFacts, SuspensionValue, ValueContext, ValueFrontier,
+  SummaryBacking, SummaryKey, SummaryResultCell, SummaryRetention, SummaryWrite, SuspensionFact, SuspensionFacts, SuspensionValue, ValueContext, ValueFrontier,
   WriteFact, WrittenOrigins, WrittenOriginsReason,
 } from "./contract.js";
+import type { CreatedSlot, LogicalCell, LogicalCellLifetime, LogicalCellOccurrence, LogicalCellRow, StableReference } from "./cells-data.js";
+import type { Condition } from "./conditions-data.js";
+import type { BoundProducerRef } from "./relations-data.js";
+import type { InitializationEvent, InitializationPoint, InitializationRow, InitializationTable, InitializationWitness, SummaryPosition } from "./initialization-data.js";
 
 type Field = readonly [string, () => void];
+type Scalar = string | number | bigint | boolean | null;
+export type SummaryProjection = Scalar | undefined;
 
 interface Writer {
-  readonly parts: string[];
+  readonly text: (...values: readonly string[]) => void;
+  readonly scalar: (value: Scalar) => void;
   readonly pending: (() => void)[];
 }
 
@@ -53,36 +60,46 @@ const quoted = (text: string): string => {
   return parts.join("");
 };
 
-const scalar = (writer: Writer, value: string | number | bigint | boolean | null): void => {
-  if (typeof value === "string") writer.parts.push(quoted(value));
-  else if (typeof value === "bigint") writer.parts.push(value.toString(), "n");
+const printedScalar = (value: Scalar): string => {
+  if (typeof value === "string") return quoted(value);
+  else if (typeof value === "bigint") return `${value}n`;
   else if (typeof value === "number") {
-    writer.parts.push(Object.is(value, -0) ? "-0" : value === Infinity ? "+Infinity" : String(value));
-  } else writer.parts.push(String(value));
+    return Object.is(value, -0) ? "-0" : value === Infinity ? "+Infinity" : String(value);
+  } else return String(value);
 };
+const scalar = (writer: Writer, value: Scalar): void => writer.scalar(value);
 
 const identity = (writer: Writer, prefix: string, value: string | number): void => {
-  writer.parts.push(prefix, ":");
+  writer.text(prefix, ":");
   scalar(writer, value);
 };
 
 const record = (writer: Writer, label: string, fields: readonly Field[]): void => {
-  writer.parts.push(label, "(");
-  writer.pending.push(() => { writer.parts.push(")"); });
-  for (const [index, field] of Array.from(fields.entries()).reverse()) {
-    writer.pending.push(field[1]);
-    writer.pending.push(() => { writer.parts.push(field[0], "="); });
-    if (index !== 0) writer.pending.push(() => { writer.parts.push(", "); });
-  }
+  writer.text(label, "(");
+  let index = 0;
+  const next = (): void => {
+    const field = fields[index];
+    if (field === undefined) { writer.text(")"); return; }
+    if (index !== 0) writer.text(", ");
+    writer.text(field[0], "=");
+    index += 1;
+    writer.pending.push(next, field[1]);
+  };
+  writer.pending.push(next);
 };
 
 const sequence = <Value>(writer: Writer, values: readonly Value[], write: (value: Value) => void): void => {
-  writer.parts.push("[");
-  writer.pending.push(() => { writer.parts.push(values.length === 0 ? "]" : "\n]"); });
-  for (const [index, value] of Array.from(values.entries()).reverse()) {
-    writer.pending.push(() => { write(value); });
-    writer.pending.push(() => { writer.parts.push(index === 0 ? "\n  " : ",\n  "); });
-  }
+  writer.text("[");
+  let index = 0;
+  const next = (): void => {
+    if (index === values.length) { writer.text(index === 0 ? "]" : "\n]"); return; }
+    const value = values[index];
+    if (value === undefined) throw new TypeError("A canonical Facts sequence retains actual dense rows");
+    writer.text(index === 0 ? "\n  " : ",\n  ");
+    index += 1;
+    writer.pending.push(next, () => { write(value); });
+  };
+  writer.pending.push(next);
 };
 
 const nullable = <Value>(writer: Writer, value: Value | null, write: (value: Value) => void): void => {
@@ -91,16 +108,34 @@ const nullable = <Value>(writer: Writer, value: Value | null, write: (value: Val
 };
 
 const finish = <Value>(value: Value, write: (writer: Writer, value: Value) => void): string => {
-  const writer: Writer = { parts: [], pending: [] };
+  const parts: string[] = [];
+  const writer: Writer = { text: (...values) => { parts.push(...values); },
+    scalar: value => { parts.push(printedScalar(value)); }, pending: [] };
   writer.pending.push(() => { write(writer, value); });
   for (;;) {
     const next = writer.pending.pop();
     if (next === undefined) break;
     next();
   }
-  writer.parts.push("\n");
-  return writer.parts.join("");
+  parts.push("\n");
+  return parts.join("");
 };
+
+export function* projectSummary(value: Summary): Generator<SummaryProjection, void, undefined> {
+  const output: SummaryProjection[] = [];
+  const writer: Writer = { text: (...values) => {
+    for (const value of values) output.push(value);
+  }, scalar: value => { output.push(value); }, pending: [] };
+  writer.pending.push(() => { summary(writer, value); });
+  for (;;) {
+    yield undefined;
+    const next = writer.pending.pop();
+    if (next === undefined) return;
+    next();
+    for (const token of output) yield token;
+    output.length = 0;
+  }
+}
 
 const nodeRef = (writer: Writer, value: NodeRef): void => record(writer, "NodeRef", [
   ["body", () => identity(writer, "body", value.body)], ["node", () => identity(writer, "n", value.node)],
@@ -250,6 +285,7 @@ const producer = (writer: Writer, value: Producer): void => {
     case "parameter": case "capture": fields.push(["index", () => scalar(writer, value.index)]); break;
     case "receiver": break;
     case "shared": fields.push(["definition", () => identity(writer, "def", value.definition)]); break;
+    case "cell-content": fields.push(["cell", () => identity(writer, "cell", value.cell)], ["phase", () => scalar(writer, value.phase)]); break;
     case "suspension-input": fields.push(["at", () => nodeRef(writer, value.at)], ["channel", () => scalar(writer, value.channel)]); break;
     case "call-result": {
       const callee = value.callee;
@@ -273,6 +309,7 @@ const projectionPath = (writer: Writer, value: ProjectionPath): void => record(w
 ]);
 const captureLocation = (writer: Writer, value: CaptureLocation): void => record(writer, "CaptureLocation", [
   ["index", () => scalar(writer, value.index)], ["location", () => identity(writer, "bound", value.location)],
+  ["cell", () => identity(writer, "cell", value.cell)],
 ]);
 const valueContext = (writer: Writer, value: ValueContext): void => record(writer, "ValueContext", [
   ["id", () => identity(writer, "context", value.id)], ["receiver", () => nullable(writer, value.receiver, item => identity(writer, "origins", item))],
@@ -288,7 +325,60 @@ const openBoundary = (writer: Writer, value: OpenBoundary): void => record(write
   ["bindings", () => bindings(writer, value.bindings)], ["context", () => identity(writer, "context", value.context)],
   ["detail", () => scalar(writer, value.detail)],
 ]);
+const stableReference = (writer: Writer, value: StableReference): void => {
+  switch (value.kind) {
+    case "local": record(writer, value.kind, [["local", () => identity(writer, "l", value.local)]]); break;
+    case "parameter":
+    case "capture": record(writer, value.kind, [["index", () => scalar(writer, value.index)]]); break;
+    case "receiver": record(writer, value.kind, []); break;
+    case "static": record(writer, value.kind, [["declaration", () => record(writer, "DeclarationRequest", [
+      ["definition", () => identity(writer, "def", value.declaration.definition)],
+      ["bindings", () => artifact(writer, value.declaration.bindings)],
+    ])]]); break;
+  }
+};
+
+const createdSlot = (writer: Writer, value: CreatedSlot): void => {
+  switch (value.kind) {
+    case "local": record(writer, value.kind, [["local", () => localRef(writer, value.local)]]); break;
+    case "capture": record(writer, value.kind, [["path", () => identity(writer, "path", value.path)],
+      ["index", () => scalar(writer, value.index)]]); break;
+    case "field": record(writer, value.kind, [["member", () => memberStorageSelection(writer, value.member)]]); break;
+    case "entity": record(writer, value.kind, []); break;
+  }
+};
+
+const logicalCell = (writer: Writer, value: LogicalCell): void => {
+  if (value.kind === "created") record(writer, value.kind, [
+    ["anchor", () => value.anchor.kind === "result" ? record(writer, "result", []) : stableReference(writer, value.anchor)],
+    ["slot", () => createdSlot(writer, value.slot)],
+  ]);
+  else if (value.kind === "detached") record(writer, value.kind, []);
+  else stableReference(writer, value);
+};
+
+const cellOccurrence = (writer: Writer, value: LogicalCellOccurrence): void => {
+  if (value.kind === "declared") record(writer, value.kind, [["at", () => site(writer, value.at)]]);
+  else record(writer, value.kind, [
+    ["execution", () => execution(writer, value.execution)],
+    value.kind === "entry" ? ["local", () => identity(writer, "l", value.local)]
+      : ["point", () => mirPoint(writer, value.point)],
+  ]);
+};
+
+const cellLifetime = (writer: Writer, value: LogicalCellLifetime): void => record(writer, value.kind, [
+  ["execution", () => execution(writer, value.execution)], ["point", () => mirPoint(writer, value.point)],
+  ["local", () => identity(writer, "l", value.local)],
+]);
+
+const cellRow = (writer: Writer, value: LogicalCellRow): void => record(writer, "LogicalCellRow", [
+  ["id", () => identity(writer, "cell", value.id)], ["role", () => logicalCell(writer, value.role)],
+  ["occurrence", () => cellOccurrence(writer, value.occurrence)],
+  ["lifetimes", () => sequence(writer, value.lifetimes, item => cellLifetime(writer, item))],
+]);
+
 const arena = (writer: Writer, value: RelationalArena): void => record(writer, "RelationalArena", [
+  ["cells", () => sequence(writer, value.cells, item => cellRow(writer, item))],
   ["projections", () => sequence(writer, value.projections, item => projectionPath(writer, item))], ["producers", () => sequence(writer, value.producers, item => producer(writer, item))],
   ["contexts", () => sequence(writer, value.contexts, item => valueContext(writer, item))], ["boundProducers", () => sequence(writer, value.boundProducers, item => boundProducer(writer, item))],
   ["origins", () => sequence(writer, value.origins, item => origins(writer, item))], ["boundaries", () => sequence(writer, value.boundaries, item => openBoundary(writer, item))],
@@ -524,20 +614,102 @@ const captureEffect = (writer: Writer, value: CaptureEffect): void => record(wri
   ["writes", () => effectPaths(writer, value.writes)],
 ]);
 const summaryWrite = (writer: Writer, value: SummaryWrite): void => record(writer, "SummaryWrite", [
-  ["target", () => identity(writer, "producer", value.target)], ["value", () => identity(writer, "origins", value.value)],
+  ["target", () => identity(writer, "cell", value.target)], ["value", () => identity(writer, "origins", value.value)],
 ]);
 const summaryCallback = (writer: Writer, value: SummaryCallback): void => record(writer, "SummaryCallback", [
   ["parameterIndex", () => scalar(writer, value.parameterIndex)], ["timing", () => scalar(writer, value.timing)],
   ["rejection", () => scalar(writer, value.rejection)], ["inputs", () => sequence(writer, value.inputs, item => callbackInput(writer, item))],
+]);
+const summaryPosition = (writer: Writer, value: SummaryPosition): void => record(writer, value.kind, value.kind === "body" ? [
+  ["execution", () => execution(writer, value.execution)], ["point", () => mirPoint(writer, value.point)],
+  ["edge", () => scalar(writer, value.edge)],
+] : [["execution", () => declaredExecution(writer, value.execution)], ["source", () => sourceRef(writer, value.source)]]);
+const condition = (writer: Writer, value: Condition): void => record(writer, "Condition", [
+  ["alternatives", () => sequence(writer, value.alternatives, alternative => sequence(writer, alternative, event => scalar(writer, event)))],
+]);
+const boundReference = (writer: Writer, value: BoundProducerRef): void => record(writer, "BoundProducerRef", [
+  ["owner", () => owner(writer, value.owner)], ["producer", () => identity(writer, "bound", value.producer)],
+]);
+const initializationEvent = (writer: Writer, value: InitializationEvent): void => record(writer, value.kind, [
+  ["subject", () => boundReference(writer, value.subject)], ["exit", () => scalar(writer, value.exit)],
+]);
+const initializationWitness = (writer: Writer, value: InitializationWitness): void => record(writer, "InitializationWitness", [
+  ["read", () => sourceRef(writer, value.read)], ["via", () => sequence(writer, value.via, row => record(writer, "InitializationVia", [
+    ["key", () => summaryKey(writer, row.key)], ["row", () => scalar(writer, row.row)],
+  ]))],
+]);
+const initializationPoint = (writer: Writer, value: InitializationPoint): void => {
+  switch (value.kind) {
+    case "return": case "unwind": record(writer, value.kind, []); break;
+    case "need": record(writer, value.kind, [
+      ["at", () => summaryPosition(writer, value.at)], ["cell", () => scalar(writer, value.cell)],
+      ["witness", () => initializationWitness(writer, value.witness)],
+    ]); break;
+    case "before": record(writer, value.kind, [
+      ["at", () => summaryPosition(writer, value.at)], ["subject", () => boundReference(writer, value.subject)],
+    ]); break;
+    case "completed": record(writer, value.kind, [
+      ["handle", () => boundReference(writer, value.handle)], ["exit", () => scalar(writer, value.exit)],
+    ]); break;
+  }
+};
+const initializationRow = (writer: Writer, value: InitializationRow): void => record(writer, "InitializationRow", [
+  ["point", () => scalar(writer, value.point)], ["cell", () => scalar(writer, value.cell)], ["condition", () => scalar(writer, value.condition)],
+]);
+const initializationTable = (writer: Writer, value: InitializationTable): void => record(writer, "InitializationTable", [
+  ["cells", () => sequence(writer, value.cells, cell => identity(writer, "cell", cell))],
+  ["events", () => sequence(writer, value.events, event => initializationEvent(writer, event))],
+  ["conditions", () => sequence(writer, value.conditions, value => condition(writer, value))],
+  ["points", () => sequence(writer, value.points, point => initializationPoint(writer, point))],
+  ["rows", () => sequence(writer, value.rows, row => initializationRow(writer, row))],
+]);
+const callbackExchange = (writer: Writer, value: CallbackExchange): void => record(writer, value.kind, [
+  ["subject", () => boundReference(writer, value.subject)],
+  ...(value.kind === "unknown" ? [
+    ["boundary", () => boundaryRef(writer, value.boundary)],
+    ["signatures", () => sequence(writer, value.signatures, signature => identity(writer, "sig", signature))],
+    ["constraint", () => nullable(writer, value.constraint, constraint => summaryCallback(writer, constraint))],
+    ["invocationOnly", () => scalar(writer, value.invocationOnly)],
+  ] satisfies readonly Field[] : [
+    ["at", () => summaryPosition(writer, value.at)], ["signature", () => identity(writer, "sig", value.signature)],
+    ["provided", () => scalar(writer, value.provided)], ["context", () => identity(writer, "context", value.context)],
+    ["result", () => identity(writer, "origins", value.result)], ["thrown", () => identity(writer, "origins", value.thrown)],
+    ["handle", () => nullable(writer, value.handle, handle => boundReference(writer, handle))],
+    ["timing", () => scalar(writer, value.timing)], ["shared", () => sequence(writer, value.shared, row => summaryWrite(writer, row))],
+  ] satisfies readonly Field[]),
+]);
+const resultCell = (writer: Writer, value: SummaryResultCell): void => record(writer, "SummaryResultCell", [
+  ["value", () => identity(writer, "origins", value.value)], ["cell", () => identity(writer, "cell", value.cell)],
+  ["path", () => nullable(writer, value.path, path => identity(writer, "path", path))],
+]);
+const summaryBacking = (writer: Writer, value: SummaryBacking): void => record(writer, "SummaryBacking", [
+  ["at", () => summaryPosition(writer, value.at)], ["operation", () => pointerOperation(writer, value.operation)],
+  ["pointer", () => identity(writer, "origins", value.pointer)], ["cell", () => identity(writer, "cell", value.cell)],
+  ["use", () => record(writer, value.use.kind, value.use.kind === "return" ? [] : [
+    ["callee", () => value.use.kind === "argument" && summaryKey(writer, value.use.callee)],
+    ["slot", () => value.use.kind === "argument" && parameterSlot(writer, value.use.slot)],
+    ["passing", () => value.use.kind === "argument" && scalar(writer, value.use.passing)],
+  ])],
+]);
+const summaryRetention = (writer: Writer, value: SummaryRetention): void => record(writer, "SummaryRetention", [
+  ["source", () => identity(writer, "bound", value.source)], ["at", () => summaryPosition(writer, value.at)],
+  ["into", () => escapeTarget(writer, value.into)],
 ]);
 const summary = (writer: Writer, value: Summary): void => record(writer, "Summary", [
   ["key", () => summaryKey(writer, value.key)], ["signature", () => identity(writer, "sig", value.signature)],
   ["arena", () => arena(writer, value.arena)], ["parameters", () => sequence(writer, value.parameters, item => parameterEffect(writer, item))],
   ["captures", () => sequence(writer, value.captures, item => captureEffect(writer, item))], ["result", () => identity(writer, "origins", value.result)],
   ["thrown", () => identity(writer, "origins", value.thrown)], ["writes", () => sequence(writer, value.writes, item => summaryWrite(writer, item))],
-  ["retention", () => sequence(writer, value.retention, item => retention(writer, item))], ["callbacks", () => sequence(writer, value.callbacks, item => summaryCallback(writer, item))],
-  ["invocationOnlyParameters", () => sequence(writer, value.invocationOnlyParameters, item => scalar(writer, item))], ["suspends", () => scalar(writer, value.suspends)],
+  ["retention", () => sequence(writer, value.retention, item => summaryRetention(writer, item))], ["callbacks", () => sequence(writer, value.callbacks, item => callbackExchange(writer, item))],
+  ["suspends", () => scalar(writer, value.suspends)],
   ["bindingDependent", () => scalar(writer, value.bindingDependent)],
+  ["concurrentWrites", () => sequence(writer, value.concurrentWrites, item => summaryWrite(writer, item))],
+  ["contentsOnReturn", () => sequence(writer, value.contentsOnReturn, item => summaryWrite(writer, item))],
+  ["contentsOnUnwind", () => sequence(writer, value.contentsOnUnwind, item => summaryWrite(writer, item))],
+  ["returns", () => scalar(writer, value.returns)], ["unwinds", () => scalar(writer, value.unwinds)],
+  ["initialization", () => initializationTable(writer, value.initialization)],
+  ["resultCells", () => sequence(writer, value.resultCells, row => resultCell(writer, row))],
+  ["backing", () => sequence(writer, value.backing, row => summaryBacking(writer, row))],
 ]);
 const callComponent = (writer: Writer, value: CallComponent): void => record(writer, "CallComponent", [
   ["id", () => identity(writer, "component", value.id)], ["definitions", () => sequence(writer, value.definitions, item => identity(writer, "def", item))],
@@ -653,5 +825,6 @@ export const printObservations = (value: BodyObservations): string => finish(val
   ["instance", () => bodyInstance(writer, value.instance)], ["rows", () => sequence(writer, value.rows, item => observation(writer, item))],
 ]));
 export const printSummary: PrintSummary = value => finish(value, summary);
+export const printInitializationTable = (value: InitializationTable): string => finish(value, initializationTable);
 export const printMetadata: PrintMetadata = value => finish(value, metadata);
 export const printCallGraph: PrintCallGraph = value => finish(value, callGraph);

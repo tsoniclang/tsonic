@@ -27,6 +27,7 @@ const interfaceNames = ["ids", "diag", "ir-types", "ir-hir", "ir-infer", "ir-tir
 const interfaceSources = [...interfaceNames.map(name => `packages/host/src/${name}/contract.ts`),
   "packages/host/src/diag/index.ts"];
 const declarationSources = [...interfaceSources,
+  "packages/host/src/ir-hir/binding-data.ts", "packages/host/src/ir-hir/capture-data.ts",
   "packages/host/src/ir-types/native-facts-data.ts",
   "packages/host/src/ir-types/arena.ts", "packages/host/src/ir-types/data.ts",
   "packages/host/src/diag/invariant.ts", "packages/host/src/diag/order.ts",
@@ -939,6 +940,32 @@ test("one opaque invocation retains setup charges, original limit snapshots, fir
     assert.throws(() => product.chargeResultEntries(product.createAccount(limits), units), /result entries/);
 });
 
+test("remaining work reads the same original invocation without charging or reviving its first stop", () => {
+  for (const maximumWork of [0, 1, 7, Number.MAX_SAFE_INTEGER]) {
+    const account = product.createAccount({ maximumWork, maximumResultEntries: 0 });
+    assert.equal(product.remainingWork(account), maximumWork);
+    assert.equal(product.remainingWork(account), maximumWork);
+    assert.equal(product.chargeWork(account, maximumWork), null);
+    assert.equal(product.remainingWork(account), 0);
+    assert.equal(product.accountFailure(account), null);
+    const stop = product.chargeWork(account, 1);
+    assert.equal(product.remainingWork(account), 0);
+    assert.equal(product.accountFailure(account), stop);
+    assert.equal(product.chargeWork(account, 0), stop);
+  }
+  const account = product.createAccount({ maximumWork: 7, maximumResultEntries: 0 });
+  assert.equal(product.chargeWork(account, 3), null);
+  assert.equal(product.remainingWork(account), 4);
+  const entryStop = product.chargeResultEntries(account, 1);
+  assert.equal(product.remainingWork(account), 0);
+  assert.equal(product.accountFailure(account), entryStop);
+  const refused = product.createAccount(limits);
+  const cause = { kind: "refused", diagnostics: [] };
+  assert.equal(product.refuseAccount(refused, cause), cause);
+  assert.equal(product.remainingWork(refused), 0);
+  assert.equal(product.accountFailure(refused), cause);
+});
+
 test("negative zero is not an admitted invocation count or charge", () => {
   for (const field of ["maximumWork", "maximumResultEntries"])
     assert.throws(() => product.createAccount({ ...limits, [field]: -0 }), TypeError);
@@ -1031,7 +1058,7 @@ test("graph projection charges every row and edge before output growth and respe
 
 test("exact account-owned public inventory and complete nine-source owner compile in fresh strict isolation", async () => {
   complete(Object.keys(product).sort(), ["dominators", "graphOfMir", "naturalLoops", "orderGraph", "predecessors", "solve",
-    "stronglyConnectedComponents", "createAccount", "chargeWork", "chargeResultEntries", "accountFailure", "refuseAccount"].sort(), "no legacy public path or unreceived runtime port");
+    "stronglyConnectedComponents", "createAccount", "chargeWork", "chargeResultEntries", "accountFailure", "remainingWork", "refuseAccount"].sort(), "no legacy public path or unreceived runtime port");
   const deps = isolationDeps(tooling, quarantineRoots);
   const module = hostCatalogue.find(module => module.name === "dataflow");
   const report = await compileIsolated(deps, module, { root: repository, sourceFiles,
@@ -1041,6 +1068,7 @@ test("exact account-owned public inventory and complete nine-source owner compil
   complete(report.sourceInventory.map(entry => relative(repository, entry.path)).sort(), [...sourceFiles, ...declarationSources].sort(),
     "nine owner files plus the exact native dependency-production closure");
   complete(report.provenance.map(entry => relative(repository, entry.source)).sort(), [...interfaceSources,
+    "packages/host/src/ir-hir/binding-data.ts", "packages/host/src/ir-hir/capture-data.ts",
     "packages/host/src/ir-types/arena.ts", "packages/host/src/ir-types/data.ts", "packages/host/src/ir-types/native-facts-data.ts"].sort(),
     "public contracts retain their actual opaque and data declaration dependencies");
   assert.equal(report.loadedInventory.length > 21, true, "actual language declaration closure is nonempty");
@@ -1054,6 +1082,7 @@ test("actual emitted public declarations preserve generic ports, readonly result
   const stage = mkdtempSync(resolve(parent, "case-"));
   writeFileSync(resolve(stage, "package.json"), '{"type":"module","private":true}\n');
   const declarationFiles = [...sourceFiles, ...interfaceSources,
+    "packages/host/src/ir-hir/binding-data.ts", "packages/host/src/ir-hir/capture-data.ts",
     "packages/host/src/ir-types/arena.ts", "packages/host/src/ir-types/data.ts", "packages/host/src/ir-types/native-facts-data.ts"].map(path => path.replace("/src/", "/dist/")
     .replace(/\.ts$/u, ".d.ts"));
   const staged = [];
@@ -1073,6 +1102,9 @@ const ports: readonly [Port.Solve, Port.GraphOfMir, Port.Predecessors, Port.Orde
 const reserve: Port.ChargeResultEntries = Dataflow.chargeResultEntries;
 export function consume(body: MirBody, graph: Port.DirectedGraph, budget: Port.DataflowLimits): readonly boolean[] {
   const account = Dataflow.createAccount(budget);
+  const readRemaining: Port.RemainingWork = Dataflow.remainingWork;
+  const remaining: number = readRemaining(account);
+  void remaining;
   const reservation: Port.DataflowStop | null = reserve(account, 0);
   void reservation;
   const lattice: Port.Lattice<number> = { bottom: 0, overflow: -1, stateBound: 1,

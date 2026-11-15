@@ -8,8 +8,9 @@ import type { TirBody, TirVerifierInput, TypedPhase } from "../ir-tir/contract.j
 import type { MirBody, MirVerificationLimits } from "../ir-mir/contract.js";
 import type { BodyFacts, BodyObservations, FactsVerificationContext, MetadataRecord, Summary } from "../ir-facts/contract.js";
 import type { ProgramWork } from "./work.js";
-import type { ArtifactReference, InstantiationLimits, ProgramSite, ProgramVerificationStop } from "./work-data.js";
-export type { ArtifactReference, InstantiationLimits, ProgramSite, SummaryArtifactReference } from "./work-data.js";
+import type { CallerRefusal, DataflowAccount, DataflowStop } from "../dataflow/contract.js";
+import type { ArtifactReference, InstantiationLimits, ProgramVerificationLimits, ProgramSite, ProgramVerificationStop } from "./work-data.js";
+export type { ArtifactReference, InstantiationLimits, ProgramVerificationLimits, ProgramSite, SummaryArtifactReference } from "./work-data.js";
 
 export interface PackageExport {
   readonly specifier: string;
@@ -112,6 +113,7 @@ export type InstantiatedArtifact =
 
 // The complete table retains both input row prefixes; newly published rows follow them.
 export type InstantiationResult =
+  | DataflowStop
   | { readonly kind: "instantiated"; readonly artifact: InstantiatedArtifact; readonly types: TypeTable }
   | { readonly kind: "missing-binding-artifact"; readonly artifact: ArtifactReference;
       readonly bindings: BindingVector }
@@ -147,12 +149,13 @@ export type ParseProgramIndex = (text: string) => TextParseResult<ProgramIndex>;
 export type PrintModuleBodies = (index: ProgramIndex, module: ModuleBodies) => string;
 export type ParseModuleBodies = (index: ProgramIndex, text: string) => TextParseResult<ModuleBodies>;
 export type ProgramVerificationWork = ProgramWork;
-export type CreateProgramVerificationWork = (limits: InstantiationLimits) => ProgramVerificationWork;
+export type CreateProgramVerificationWork = (limits: ProgramVerificationLimits, account: DataflowAccount) => ProgramVerificationWork;
 export interface ProgramVerificationContext {
   readonly nativeFactsKey: string;
   readonly selectedNativeFacts: SelectedNativeFacts;
   readonly facts: FactsVerificationContext;
   readonly resources: ProgramVerificationWork;
+  readonly conditionRefusal: CallerRefusal;
   /** The limit of each body's MIR verification, as the limit setter gave it. Each body has its own account. */
   readonly mirVerification: MirVerificationLimits;
   readonly modulePathOf: (module: ModuleId) => ModulePath | null;

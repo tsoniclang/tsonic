@@ -3,14 +3,26 @@ import type {
   BlockId, BodyId, BoundProducerId, ComponentId, DefId, LayoutId, LibraryExportIdentity, LocalId, LocalRef, MemoryFieldId, NodeId, NodeRef,
   OpenBoundaryId, OriginsId, PlaceId, ProducerId, ProjectionPathId, SigId, SourceNodeRef, TyId, ValueContextId,
 } from "../ids/contract.js";
-import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, DeclaredExecution, Execution, MemberStorageSelection, NominalDefinition, PassingMode, SignatureRequest, TypeExpansionLimits, TypeInterner, TypeTable } from "../ir-types/contract.js";
+import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, Execution, MemberStorageSelection, NominalDefinition, PassingMode, SignatureRequest, TypeExpansionLimits, TypeInterner, TypeTable } from "../ir-types/contract.js";
 import type { DeclarationTarget, HirBody, HirNode } from "../ir-hir/contract.js";
 import type { MemberSelection, ResolvedCallee, TirBody } from "../ir-tir/contract.js";
 import type { MirBody } from "../ir-mir/contract.js";
-import type { CallbackInput, SummaryCallback } from "../snapshot/contract.js";
-import type { DataflowResult } from "../dataflow/contract.js";
+import type { CallbackInput } from "../snapshot/contract.js";
+import type { CallerRefusal, DataflowAccount, DataflowResult, DataflowStop } from "../dataflow/contract.js";
 import type { Condition, ConditionLimits } from "./conditions-data.js";
+import type { MirPoint, RelationalOwner, StoreEdge, SummaryKey } from "./relations-data.js";
+import type { EscapeTarget, PointerBackingOperation, Summary, SummaryWrite } from "./summary-data.js";
+import type { AppliedSummary, SummaryApplicationInput, SummaryApplicationLimits } from "./application-data.js";
+export type { AppliedCallback, AppliedCell, AppliedContext, AppliedOriginsValue, AppliedProducerValue, AppliedSubject,
+  AppliedSummary, AppliedWrite, SummaryApplicationInput, SummaryApplicationLimits, ValueEntryBinding } from "./application-data.js";
+export type { CallbackExchange, CaptureEffect, EffectPaths, EscapeTarget, ParameterEffect, ParameterSlot, PointerBackingOperation,
+  Summary, SummaryBacking, SummaryCompletion, SummaryRelations, SummaryResultCell, SummaryRetention, SummaryWrite } from "./summary-data.js";
+import type { OpenBoundaryRef, ProducerRef, RelationalArena } from "./arena-data.js";
+export type { BoundProducer, CaptureLocation, OpenBoundary, OpenBoundaryRef, Origins, OriginsRef, Producer, ProducerRef, Projection, ProjectionPath, RelationalArena, ValueContext } from "./arena-data.js";
 export type { Condition, ConditionLimits } from "./conditions-data.js";
+export type { BoundProducerRef, MirPoint, RelationalOwner, RelationalSite, StoreEdge, SummaryKey } from "./relations-data.js";
+export type { CreatedSlot, DeclaredCellInventory, LogicalCell, LogicalCellLifetime, LogicalCellOccurrence, LogicalCellRef, LogicalCellRow, StableReference } from "./cells-data.js";
+export type { InitializationEvent, InitializationPoint, InitializationRow, InitializationTable, InitializationWitness, SummaryPosition } from "./initialization-data.js";
 
 export type ConditionOr = (left: Condition, right: Condition, limits: ConditionLimits) => DataflowResult<Condition>;
 export type ConditionAnd = (left: Condition, right: Condition, limits: ConditionLimits) => DataflowResult<Condition>;
@@ -25,113 +37,12 @@ export interface AnalysisLimits {
   readonly maximumRelationalReferencesPerBody: number;
 }
 
-export type RelationalOwner =
-  | { readonly kind: "body"; readonly execution: Execution }
-  | { readonly kind: "summary"; readonly key: SummaryKey };
-
-export type RelationalSite =
-  | { readonly kind: "node"; readonly node: SourceNodeRef }
-  | { readonly kind: "declared"; readonly identity: LibraryExportIdentity; readonly site: number };
-
-export interface ProducerRef {
-  readonly owner: RelationalOwner;
-  readonly producer: ProducerId;
-}
-
-export interface OriginsRef {
-  readonly owner: RelationalOwner;
-  readonly origins: OriginsId;
-}
-
-export interface OpenBoundaryRef {
-  readonly owner: RelationalOwner;
-  readonly boundary: OpenBoundaryId;
-}
-
-export type Projection =
-  | { readonly kind: "field" | "method-value"; readonly member: MemberSelection }
-  | { readonly kind: "element" }
-  | { readonly kind: "index"; readonly constant: bigint }
-  | { readonly kind: "deref" };
-
-export interface ProjectionPath {
-  readonly id: ProjectionPathId;
-  readonly parent: ProjectionPathId | null;
-  readonly projection: Projection;
-}
-
-export type Producer = { readonly id: ProducerId; readonly path: ProjectionPathId | null } & (
-  | { readonly kind: "allocation"; readonly at: RelationalSite }
-  | { readonly kind: "parameter"; readonly index: number }
-  | { readonly kind: "receiver" }
-  | { readonly kind: "capture"; readonly index: number }
-  | { readonly kind: "shared"; readonly definition: DefId }
-  | { readonly kind: "suspension-input"; readonly at: NodeRef; readonly channel: "sent" | "return" | "thrown" }
-  | { readonly kind: "call-result"; readonly at: NodeRef;
-      readonly callee: { readonly kind: "direct"; readonly definition: DefId } | { readonly kind: "indirect" } }
-);
-
-export interface CaptureLocation {
-  readonly index: number;
-  readonly location: BoundProducerId;
-}
-
-export interface ValueContext {
-  readonly id: ValueContextId;
-  readonly receiver: OriginsId | null;
-  readonly arguments: readonly OriginsId[];
-  readonly captures: readonly CaptureLocation[];
-}
-
-export interface BoundProducer {
-  readonly id: BoundProducerId;
-  readonly producer: ProducerId;
-  readonly bindings: BindingVector;
-  readonly context: ValueContextId;
-}
-
-export type Origins = {
-  readonly id: OriginsId;
-  readonly producers: readonly BoundProducerId[];
-  readonly includesAbsence: boolean;
-} & (
-  | { readonly kind: "complete" }
-  | { readonly kind: "open"; readonly boundaries: readonly [OpenBoundaryId, ...OpenBoundaryId[]] }
-);
-
-export interface OpenBoundary {
-  readonly id: OpenBoundaryId;
-  readonly kind: "external-input" | "external-write" | "opaque-write" | "opaque-result"
-    | "unclassified-exposure" | "opaque-invocation" | "unresolved-transport";
-  readonly at: RelationalSite;
-  readonly subject: ProducerId;
-  readonly owner: ProducerId | null;
-  readonly bindings: BindingVector;
-  readonly context: ValueContextId;
-  readonly detail: string;
-}
-
-export interface RelationalArena {
-  readonly projections: readonly ProjectionPath[];
-  readonly producers: readonly Producer[];
-  readonly contexts: readonly ValueContext[];
-  readonly boundProducers: readonly BoundProducer[];
-  readonly origins: readonly Origins[];
-  readonly boundaries: readonly OpenBoundary[];
-}
-
-export interface MirPoint {
-  readonly block: BlockId;
-  readonly statement: number | null;
-}
 
 // A store is an executed operation: identified and ordered by its position in the lowered body; its node is the source
 // occurrence (S2-23, K-14). A store made on one outgoing edge of a terminator names that edge by its role (K-3370, K-3372):
 // `continue` the next edge of call and invoke, `resume` the resume edge of await, yield and delegate, `return` the return
 // edge of yield and delegate, `unwind` a handler unwind edge. Each terminator kind has at most one edge per role, so the
 // point and the edge together name one position. `null` is a store at a statement or at the terminator itself.
-export type StoreEdge = "continue" | "resume" | "return" | "unwind";
-
 export interface StoreLiveness {
   readonly node: NodeId;
   readonly point: MirPoint;
@@ -269,14 +180,6 @@ export interface WriteFact {
   readonly boundaries: readonly OpenBoundaryId[];
 }
 
-export type EscapeTarget =
-  | { readonly kind: "return" | "throw" }
-  | { readonly kind: "shared"; readonly definition: DefId; readonly path: ProjectionPathId | null }
-  | { readonly kind: "parameter"; readonly index: number; readonly path: ProjectionPathId | null }
-  | { readonly kind: "receiver"; readonly path: ProjectionPathId | null }
-  | { readonly kind: "capture"; readonly index: number; readonly path: ProjectionPathId | null }
-  | { readonly kind: "callback" | "suspension"; readonly at: RelationalSite }
-  | { readonly kind: "external"; readonly boundary: OpenBoundaryId };
 
 export interface EscapeFact {
   readonly point: MirPoint;
@@ -295,10 +198,6 @@ export interface ArgumentTransport {
   readonly formal: ProducerRef;
   readonly projection: ProjectionPathId | null;
 }
-
-export type SummaryKey =
-  | { readonly kind: "body"; readonly execution: Execution }
-  | { readonly kind: "declared"; readonly execution: DeclaredExecution };
 
 export type SummaryIdentity = (key: SummaryKey) => string;
 
@@ -434,10 +333,6 @@ export interface ErrorStorageFacts {
   readonly errors: readonly ErrorStorageFact[];
 }
 
-export type PointerBackingOperation =
-  | { readonly family: "typed-location";
-      readonly operation: "allocate" | "address-of" | "bind-pointer" | "project-pointer"; readonly at: NodeRef }
-  | { readonly family: "raw-memory"; readonly operation: "reinterpret"; readonly at: NodeRef };
 
 export interface PointerBackingProducer {
   readonly producer: BoundProducerId;
@@ -602,47 +497,6 @@ export interface BodyFacts {
   readonly closedArrays: readonly ClosedArrayFact[];
 }
 
-export type EffectPaths =
-  | { readonly kind: "complete"; readonly paths: readonly ProjectionPathId[] }
-  | { readonly kind: "open"; readonly paths: readonly ProjectionPathId[];
-      readonly boundaries: readonly [OpenBoundaryId, ...OpenBoundaryId[]] };
-
-export type ParameterSlot =
-  | { readonly kind: "receiver" }
-  | { readonly kind: "parameter"; readonly index: number };
-
-export interface ParameterEffect {
-  readonly slot: ParameterSlot;
-  readonly reads: EffectPaths;
-  readonly writes: EffectPaths;
-}
-
-export interface CaptureEffect {
-  readonly index: number;
-  readonly reads: EffectPaths;
-  readonly writes: EffectPaths;
-}
-
-export interface SummaryWrite {
-  readonly target: ProducerId;
-  readonly value: OriginsId;
-}
-
-export interface Summary {
-  readonly key: SummaryKey;
-  readonly signature: SigId;
-  readonly arena: RelationalArena;
-  readonly parameters: readonly ParameterEffect[];
-  readonly captures: readonly CaptureEffect[];
-  readonly result: OriginsId;
-  readonly thrown: OriginsId;
-  readonly writes: readonly SummaryWrite[];
-  readonly retention: readonly RetentionFact[];
-  readonly callbacks: readonly SummaryCallback[];
-  readonly invocationOnlyParameters: readonly number[];
-  readonly suspends: boolean;
-  readonly bindingDependent: boolean;
-}
 
 export interface CallEdge {
   readonly caller: DefId;
@@ -666,6 +520,7 @@ export interface CallGraph {
 }
 
 export type FactsRule =
+  | "cell-id-dense" | "cell-occurrence-resolves" | "cell-role-resolves"
   | "execution-entry-exact"
   | "body-instance-exact" | "cross-owner-qualified" | "type-resolves" | "signature-resolves" | "bindings-complete"
   | "relational-site-resolves" | "declared-site-ordinal"
@@ -696,7 +551,8 @@ export type SummaryRule =
   | "result-origins-resolves" | "thrown-origins-resolves" | "write-origins-resolves" | "retention-source-resolves"
   | "known-negative-distinct" | "summary-finite" | "summary-binding-dependence" | "writes-order" | "retention-order"
   | "callbacks-order" | "callback-parameter-resolves" | "callback-input-resolves"
-  | "invocation-only-parameters-order" | "invocation-only-parameter-resolves";
+  | "initialization-order" | "initialization-conditions-canonical" | "initialization-rows-exact"
+  | "initialization-cells-resolve" | "initialization-subjects-exact" | "initialization-witness";
 
 export type MetadataRule =
   | "definition-resolves" | "bindings-complete" | "cross-owner-qualified" | "type-resolves" | "occurrence-resolves"
@@ -711,6 +567,7 @@ export type CallGraphRule =
   | "component-members-order" | "component-dependencies-order" | "component-acyclic";
 
 export type FactsSite =
+  | { readonly kind: "cell"; readonly owner: RelationalOwner; readonly cell: number }
   | { readonly kind: "body"; readonly instance: BodyInstance }
   | { readonly kind: "execution"; readonly execution: Execution }
   | { readonly kind: "definition"; readonly definition: DefId }
@@ -756,15 +613,26 @@ export interface ObservationVerificationContext extends BindingVerificationConte
 export interface FactsVerificationContext extends MetadataVerificationContext, ObservationVerificationContext {
   readonly limits: AnalysisLimits;
   readonly tirBody: (instance: BodyInstance) => TirBody;
+  readonly mirBody: (instance: BodyInstance) => MirBody | null;
   readonly signatureIdOf: (request: SignatureRequest) => SigId | null;
   readonly declarationSourceOf: (definition: DefId) => SourceNodeRef | null;
   readonly diagnostics: readonly Diagnostic[];
   readonly bindingDependentOf: (definition: DefId) => boolean | null;
   readonly captureCount: (key: SummaryKey) => number | null;
-  readonly callbackSignaturesOf: (key: SummaryKey, parameter: number) => readonly SigId[] | null;
+  readonly callbackSignaturesOf: (key: SummaryKey, subject: BoundProducerId) => readonly SigId[] | null;
   readonly arenaOf: (owner: RelationalOwner) => RelationalArena | null;
+  readonly summaryOf: (key: SummaryKey) => Summary | null;
   readonly libraryExportExists: (identity: LibraryExportIdentity) => boolean;
   readonly declaredSiteCount: (identity: LibraryExportIdentity) => number | null;
+}
+
+export type FactsVerification<Rule extends string> =
+  | { readonly kind: "complete"; readonly violations: readonly Violation<Rule, FactsSite>[] }
+  | DataflowStop;
+
+export interface SummaryVerificationResources {
+  readonly account: DataflowAccount;
+  readonly conditionRefusal: CallerRefusal;
 }
 
 export type PrintFacts = (facts: BodyFacts) => string;
@@ -775,30 +643,33 @@ export interface ObservationsVerificationInput {
   readonly bodyOf: (body: BodyId) => HirBody | null;
   readonly nodeOf: (node: SourceNodeRef) => HirNode | null;
   readonly facts: ObservationVerificationContext;
+  readonly account: DataflowAccount;
   readonly types: TypeInterner;
   readonly typeExpansion: TypeExpansionLimits;
 }
 export type ObservationsVerification =
-  | { readonly kind: "complete"; readonly violations: readonly Violation<FactsRule, FactsSite>[] }
+  | FactsVerification<FactsRule>
   | { readonly kind: "resource-limit"; readonly dimension: "depth" | "visits" | "union-members" | "intersection-members";
       readonly maximum: number };
 export type VerifyObservations = (observations: BodyObservations,
   input: ObservationsVerificationInput) => ObservationsVerification;
 export type ParseFacts = (text: string) => TextParseResult<BodyFacts>;
 export type VerifyFacts = (facts: BodyFacts, mir: MirBody,
-  context: FactsVerificationContext) => readonly Violation<FactsRule, FactsSite>[];
+  context: FactsVerificationContext, account: DataflowAccount) => FactsVerification<FactsRule>;
 // The liveness family of one execution on its own, by the same rules verifyFacts applies to it (verifyFacts calls this).
 export type VerifyLiveness = (liveness: LivenessFacts, instance: BodyInstance, mir: MirBody,
-  context: FactsVerificationContext) => readonly Violation<FactsRule, FactsSite>[];
+  context: FactsVerificationContext, account: DataflowAccount) => FactsVerification<FactsRule>;
 export type PrintSummary = (summary: Summary) => string;
+export type ApplySummary = (input: SummaryApplicationInput, limits: SummaryApplicationLimits) => DataflowResult<AppliedSummary>;
+export type SummaryEquals = (left: Summary, right: Summary, account: DataflowAccount) => DataflowResult<boolean>;
 export type ParseSummary = (text: string) => TextParseResult<Summary>;
 export type VerifySummary = (summary: Summary,
-  context: FactsVerificationContext) => readonly Violation<SummaryRule, FactsSite>[];
+  context: FactsVerificationContext, resources: SummaryVerificationResources) => FactsVerification<SummaryRule>;
 export type PrintMetadata = (metadata: MetadataRecord) => string;
 export type ParseMetadata = (text: string) => TextParseResult<MetadataRecord>;
 export type VerifyMetadata = (metadata: MetadataRecord,
-  context: MetadataVerificationContext) => readonly Violation<MetadataRule, FactsSite>[];
+  context: MetadataVerificationContext, account: DataflowAccount) => FactsVerification<MetadataRule>;
 export type VerifyCallGraph = (graph: CallGraph,
-  context: FactsVerificationContext) => readonly Violation<CallGraphRule, FactsSite>[];
+  context: FactsVerificationContext, account: DataflowAccount) => FactsVerification<CallGraphRule>;
 export type PrintCallGraph = (graph: CallGraph) => string;
 export type ParseCallGraph = (text: string) => TextParseResult<CallGraph>;

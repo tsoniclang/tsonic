@@ -28,7 +28,7 @@ export const hostCatalogue = ([
   row("ir-tir", "library", [...first(4), "ir-infer"]),
   row("ir-mir", "library", [...first(5), "ir-infer"]),
   row("ir-facts", "library", [...first(6), "ir-infer", "snapshot", "dataflow"]),
-  row("ir-program", "library", [...first(7), "ir-infer"]),
+  row("ir-program", "library", [...first(7), "ir-infer", "dataflow"]),
   row("dataflow", "library", ["ids", "diag", "ir-mir"]),
   row("query", "library", [...first(2), "step"]),
   row("libraries", "library", [...first(3), "ir-facts", "ir-tir", "snapshot"]),

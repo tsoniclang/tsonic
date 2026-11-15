@@ -151,7 +151,8 @@ function generate(deps: InferDeps, group: InferenceGroup, signatures: ReadonlyMa
     }
     if (body.root.kind === "SourceFile") {
       for (const statement of body.root.statements.nodes)
-        if (statement.kind !== "FunctionDeclaration") return notInferredYet(PORT, `a ${statement.kind} in a module body`, statement.origin);
+        if (statement.kind !== "FunctionDeclaration" && statement.kind !== "VariableStatement")
+          return notInferredYet(PORT, `a ${statement.kind} in a module body`, statement.origin);
     } else {
       const pending: Frame[] = [{ kind: "enter", node: body.root }];
       for (let frame = pending.pop(); frame !== undefined; frame = pending.pop()) {
@@ -173,10 +174,11 @@ function generate(deps: InferDeps, group: InferenceGroup, signatures: ReadonlyMa
           || candidate.part.kind === "variable" || candidate.part.kind === "field");
         if (part === undefined) {
           const owner = deps.itemOf(body.owner);
-          if (owner.kind !== "Parameter" || owner.tsonic.initializer !== body.body || owner.type === null
+          if (owner.kind !== "Parameter" && owner.kind !== "VariableDeclaration" && owner.kind !== "PropertyDeclaration"
+            || owner.tsonic.initializer !== body.body || owner.type === null
             || owner.tsonic.declaredType.kind !== "available" || owner.tsonic.declaredType.value === null
             || owner.type.tsonic.type.kind !== "available" || owner.type.tsonic.type.value !== owner.tsonic.declaredType.value)
-            return notInferredYet(PORT, "an expression execution without its actual inferred part or checked parameter annotation", body.root.origin);
+            return notInferredYet(PORT, "an expression execution without its actual inferred part or checked declaration annotation", body.root.origin);
           flow(walk, body.root, typeAt(walk, body.root), owner.tsonic.declaredType.value, "initialization",
             { kind: "item", value: { owner: body.owner, node: owner.type.id } });
         } else flow(walk, body.root, typeAt(walk, body.root), { part }, "initialization", { kind: "body", value: refOf(walk, body.root) });

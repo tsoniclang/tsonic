@@ -28,7 +28,8 @@ const writtenKinds: readonly string[] = ["SourceFile", "EndOfFile", "ExportKeywo
   "Identifier", "NumberKeyword", "StringKeyword", "BooleanKeyword", "BigIntKeyword", "AnyKeyword", "UnknownKeyword", "NeverKeyword", "ObjectKeyword", "UndefinedKeyword", "VoidKeyword",
   "Block", "ReturnStatement", "BinaryExpression", "PlusToken", "CallExpression", "ExpressionStatement", "ParenthesizedExpression",
   "ExportDeclaration", "NamedExports", "ExportSpecifier", "NamespaceExport", "StringLiteral", "TrueKeyword", "FalseKeyword", "NullKeyword",
-  "ImportDeclaration", "ImportClause", "NamedImports", "ImportSpecifier", "NamespaceImport"];
+  "ImportDeclaration", "ImportClause", "NamedImports", "ImportSpecifier", "NamespaceImport",
+  "VariableStatement", "VariableDeclarationList", "VariableDeclaration"];
 
 function unwrittenForm(node: Hir.SyntaxNode<Syntax>): string | null {
   if (!writtenKinds.includes(node.kind)) return node.kind;
@@ -38,6 +39,8 @@ function unwrittenForm(node: Hir.SyntaxNode<Syntax>): string | null {
     case "Parameter":
       return node.questionToken !== null ? "optional Parameter"
         : node.dotDotDotToken !== null ? "rest Parameter" : null;
+    case "VariableDeclaration": return node.name.kind !== "Identifier" ? "pattern VariableDeclaration"
+      : node.exclamationToken !== null ? "definite-assignment VariableDeclaration" : null;
     case "CallExpression":
       return node.typeArguments !== null ? "CallExpression with type arguments" : node.questionDotToken !== null ? "optional CallExpression" : null;
     case "ExportDeclaration": return node.attributes !== null ? "ExportDeclaration with attributes"
@@ -286,6 +289,7 @@ interface Lowering {
   readonly references: ReadonlyMap<NodeId, RawFact<RawBindingTarget>>;
   readonly links: ReadonlyMap<NodeId, RawModuleLink>;
   readonly locals: Map<NodeId, LocalRef>;
+  readonly variableLocals: ReadonlyMap<BodyId, readonly Hir.HirLocal[]>;
   readonly associations: ReadonlyMap<NodeId, RawCallableAssociation>;
   readonly authoredTypes: ReadonlyMap<NodeId, RawTypeId>;
   readonly bodies: Hir.HirBody[];
@@ -307,32 +311,47 @@ interface NodeBodies {
   readonly captureParent: ReadonlyMap<BodyId, BodyId>;
   /** The bodies each body directly encloses, in preorder of their roots. */
   readonly children: ReadonlyMap<BodyId, readonly BodyId[]>;
+  readonly locals: ReadonlyMap<NodeId, LocalRef>;
+  readonly variables: readonly { readonly node: Hir.VariableDeclaration<Syntax>; readonly mutable: boolean; readonly local: LocalRef }[];
 }
 
 function nodeBodies(tree: Hir.SourceFile<Syntax>, moduleBody: BodyId, definitionAt: ReadonlyMap<NodeId, DefId>): NodeBodies {
   const bodies = new Map<NodeId, BodyId>();
   const captureParent = new Map<BodyId, BodyId>();
   const children = new Map<BodyId, BodyId[]>();
+  const locals = new Map<NodeId, LocalRef>();
+  const localCounts = new Map<BodyId, number>();
+  const variables: NodeBodies["variables"][number][] = [];
   type Frame = { readonly node: Hir.SyntaxNode<Syntax>; readonly body: BodyId; readonly callableBody: BodyId | null;
-    readonly children: Generator<Hir.SyntaxNode<Syntax>, void, undefined>; readonly inner: BodyId | null };
-  const enter = (node: Hir.SyntaxNode<Syntax>, body: BodyId, callableBody: BodyId | null): Frame => {
+    readonly children: Generator<Hir.SyntaxNode<Syntax>, void, undefined>; readonly inner: BodyId | null; readonly mutable: boolean };
+  const enter = (node: Hir.SyntaxNode<Syntax>, body: BodyId, callableBody: BodyId | null, mutable: boolean): Frame => {
     bodies.set(node.id, body);
     let inner: BodyId | null = null;
     if (node.kind === "FunctionDeclaration") {
       const definition = definitionAt.get(node.id) ?? throwInvariant(invariant("A function has no checked definition identity."));
       inner = encodeBodyId({ owner: definition, role: "function", ordinal: 0 });
-    } else if (node.kind === "Parameter" && node.initializer !== null) {
+      for (const [index, parameter] of node.parameters.nodes.entries()) locals.set(parameter.id, { body: inner, local: localId(index) });
+      localCounts.set(inner, node.parameters.nodes.length);
+    } else if ((node.kind === "Parameter" || node.kind === "VariableDeclaration") && node.initializer !== null) {
       const definition = definitionAt.get(node.id) ?? throwInvariant(invariant("A default parameter has no checked definition identity."));
-      if (callableBody === null) return throwInvariant(invariant("A default parameter has no enclosing callable execution."));
-      inner = encodeBodyId({ owner: definition, role: "default-argument", ordinal: 0 });
-      captureParent.set(inner, callableBody);
+      if (node.kind === "Parameter" && callableBody === null) return throwInvariant(invariant("A default parameter has no enclosing callable execution."));
+      inner = encodeBodyId({ owner: definition, role: node.kind === "Parameter" ? "default-argument" : "initializer", ordinal: 0 });
+      captureParent.set(inner, node.kind === "Parameter" ? callableBody
+        ?? throwInvariant(invariant("A default parameter has no enclosing callable execution.")) : body);
       const siblings = children.get(body) ?? [];
       siblings.push(inner);
       children.set(body, siblings);
     }
-    return { node, body, callableBody, inner, children: iterateChildrenOfSyntax(node) };
+    if (node.kind === "VariableDeclaration" && body !== moduleBody) {
+      const local = { body, local: localId(localCounts.get(body) ?? 0) };
+      locals.set(node.id, local);
+      localCounts.set(body, local.local + 1);
+      variables.push({ node, mutable, local });
+    }
+    return { node, body, callableBody, inner, children: iterateChildrenOfSyntax(node),
+      mutable: node.kind === "VariableDeclarationList" ? !node.flags.includes("Const") : mutable };
   };
-  const pending: Frame[] = [enter(tree, moduleBody, null)];
+  const pending: Frame[] = [enter(tree, moduleBody, null, true)];
   for (let frame = pending.pop(); frame !== undefined; frame = pending.pop()) {
     const next = frame.children.next();
     if (next.done) continue;
@@ -350,10 +369,11 @@ function nodeBodies(tree: Hir.SourceFile<Syntax>, moduleBody: BodyId, definition
         siblings.push(body);
         children.set(frame.body, siblings);
       }
-    } else if (frame.node.kind === "Parameter" && child === frame.node.initializer && frame.inner !== null) body = frame.inner;
-    pending.push(enter(child, body, callableBody));
+    } else if ((frame.node.kind === "Parameter" || frame.node.kind === "VariableDeclaration")
+      && child === frame.node.initializer && frame.inner !== null) body = frame.inner;
+    pending.push(enter(child, body, callableBody, frame.mutable));
   }
-  return { bodyOf: bodies, captureParent, children };
+  return { bodyOf: bodies, captureParent, children, locals, variables };
 }
 
 function headerOf<P extends Hir.Phase>(node: Hir.NodeHeader): Hir.NodeHeader & Record<never, P> {
@@ -515,6 +535,11 @@ function statement(lowering: Lowering, node: Hir.Statement<Syntax>): Hir.Stateme
 
 function buildStatement(lowering: Lowering, node: Hir.Statement<Syntax>, owner: DefId): Hir.Statement<Checked> {
   switch (node.kind) {
+    case "VariableStatement": return { ...headerOf(node), kind: "VariableStatement", modifiers: modifiers(node.modifiers),
+      declarationList: { ...headerOf(node.declarationList), kind: "VariableDeclarationList",
+        declarations: { loc: node.declarationList.declarations.loc,
+          nodes: node.declarationList.declarations.nodes.map(declaration => variableDeclaration(lowering, declaration, owner)) },
+        tsonic: { core: coreOf(lowering, node.declarationList.id), disposal: [] } }, tsonic: null };
     case "ReturnStatement":
       return { ...headerOf(node), kind: "ReturnStatement", expression: node.expression === null ? null : expression(lowering, node.expression), tsonic: null };
     case "ExpressionStatement":
@@ -538,6 +563,23 @@ function buildStatement(lowering: Lowering, node: Hir.Statement<Syntax>, owner: 
     }
     default: return throwInvariant(invariant("A statement of an unwritten kind passed the written-kinds check."));
   }
+}
+
+function variableDeclaration(lowering: Lowering, node: Hir.VariableDeclaration<Syntax>, owner: DefId): Hir.VariableDeclaration<Checked> {
+  if (node.name.kind !== "Identifier") return throwInvariant(invariant("A variable of a written form has no identifier name."));
+  const definition = definitionOf(lowering, node.id);
+  const declaration = targetOf(lowering, node.id);
+  const declared = node.type === null ? null : typeNode(lowering, node.type);
+  const initializer = node.initializer === null ? null : expression(lowering, node.initializer);
+  const body = initializer === null ? null : encodeBodyId({ owner: definition, role: "initializer", ordinal: 0 });
+  if (body !== null && initializer !== null) lowering.bodies.push({ body, owner: definition, params: [], locals: [],
+    root: initializer, captures: [], scopes: [], asynchronous: false, generator: false,
+    candidateLists: lowering.candidateLists.get(body) ?? [], nestedBodies: [] });
+  return { ...headerOf(node), kind: "VariableDeclaration", name: { ...headerOf(node.name), kind: "Identifier", text: node.name.text,
+    tsonic: { core: coreOf(lowering, node.name.id), role: "declaration-name", declaration } }, exclamationToken: null,
+    type: declared === null ? null : declared.node, initializer,
+    tsonic: { core: coreOf(lowering, node.id), parent: owner, attributes: [], memory: memoryOf(lowering, node.id),
+      declaration, declaredType: { kind: "available", value: declared === null ? null : declared.type }, initializer: body } };
 }
 
 function block(lowering: Lowering, node: Hir.Block<Syntax>): Hir.Block<Checked> {
@@ -565,6 +607,9 @@ function* checkedChildren(work: CheckedWork): Generator<CheckedWork, void, undef
       yield { kind: "statement", node: statement, owner };
     } else if (node.kind === "ReturnStatement" || node.kind === "ExpressionStatement") {
       if (child === node.expression && node.expression !== null) yield { kind: "expression", node: node.expression, owner };
+    } else if (node.kind === "VariableStatement" && child === node.declarationList) {
+      for (const declaration of node.declarationList.declarations.nodes)
+        if (declaration.initializer !== null) yield { kind: "expression", node: declaration.initializer, owner };
     } else if (node.kind === "FunctionDeclaration") {
       if (child.kind === "Parameter") {
         for (const parameterChild of iterateChildrenOfSyntax(child))
@@ -585,8 +630,6 @@ function lowerStatements(lowering: Lowering, owner: DefId): void {
     const node = work.node;
     if (work.kind === "statement" && node.kind === "FunctionDeclaration") {
       const definition = definitionOf(lowering, node.id);
-      const body = encodeBodyId({ owner: definition, role: "function", ordinal: 0 });
-      for (const [index, parameter] of node.parameters.nodes.entries()) lowering.locals.set(parameter.id, { body, local: localId(index) });
       return { work, children: checkedChildren({ ...work, owner: definition }) };
     }
     return { work, children: checkedChildren(work) };
@@ -656,9 +699,10 @@ function functionDeclaration(lowering: Lowering, node: Hir.FunctionDeclaration<S
     body, owner: definition,
     params: parameters.map((parameter, index) => ({ local: localId(index), declaration: parameter.definition,
       role: parameter.initializer === null ? "required" : "default", passing: parameter.passing, initializer: parameter.initializer })),
-    locals: parameters.map((parameter, index) => ({ id: localId(index), declaration: item(parameter.lowered.id, parameter.definition),
+    locals: [...parameters.map((parameter, index): Hir.HirLocal => ({ id: localId(index), declaration: item(parameter.lowered.id, parameter.definition),
       name: parameter.lowered.name.kind === "Identifier" ? parameter.lowered.name.text : "", role: "parameter",
       checkerSlot: { kind: "available", value: parameter.checkedType }, capturedFrom: null, mutable: true })),
+      ...lowering.variableLocals.get(body) ?? []],
     root: loweredBody, captures: [], scopes: [], asynchronous: false, generator: false, candidateLists: lowering.candidateLists.get(body) ?? [], nestedBodies: [],
   });
   const name = node.name;
@@ -706,17 +750,28 @@ export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<Hir.HirM
   const moduleDefinition = definitionAt.get(raw.tree.id) ?? throwInvariant(invariant("A module has no definition identity."));
   const moduleBody: BodyId = encodeBodyId({ owner: moduleDefinition, role: "module", ordinal: 0 });
   const structure = nodeBodies(raw.tree, moduleBody, definitionAt);
+  const variableLocals = new Map<BodyId, Hir.HirLocal[]>();
   const lowering: Lowering = {
     deps, raw, definitionAt, bodyOf: structure.bodyOf, captureParent: structure.captureParent, captures: new Map(),
     core: new Map(raw.core.filter(entry => entry.node.module === raw.module).map(entry => [entry.node.node, entry])),
     storage: new Map(raw.storage.filter(entry => entry.node.module === raw.module).map(entry => [entry.node.node, entry])),
     views: new Map(raw.checkerViews.filter(view => view.node.module === raw.module).map(view => [view.node.node, view])),
     references: referenceTargets(raw), links: moduleLinks(raw),
-    locals: new Map(), bodies: [], convertedTypes: new Map(), convertedSignatures: new Map(), expressions: new Map(), statements: new Map(),
+    locals: new Map(structure.locals), variableLocals, bodies: [], convertedTypes: new Map(), convertedSignatures: new Map(), expressions: new Map(), statements: new Map(),
     calls: new Map(raw.calls.filter(call => call.invocation.module === raw.module).map(call => [call.invocation.node, call])), candidateLists: new Map(),
     associations: new Map(raw.callableAssociations.filter(entry => entry.declaration.module === raw.module).map(entry => [entry.declaration.node, entry])),
     authoredTypes: new Map(raw.types.types.flatMap((row): [NodeId, RawTypeId][] => row.authoredTypeNode !== null && row.authoredTypeNode.module === raw.module ? [[row.authoredTypeNode.node, row.id]] : [])),
   };
+  for (const { node, mutable, local } of structure.variables) {
+    if (node.name.kind !== "Identifier") return throwInvariant(invariant("A variable of a written form has no identifier name."));
+    const checked = lowering.views.get(node.id);
+    if (checked === undefined) return throwInvariant(invariant("A local variable requires its own captured checked type."));
+    const rows = variableLocals.get(local.body) ?? [];
+    rows.push({ id: local.local, declaration: { kind: "item", value: { owner: definitionOf(lowering, node.id), node: node.id } },
+      name: node.name.text, role: "binding", checkerSlot: capturedFact(checked.read, type => typeOf(lowering, type)),
+      capturedFrom: null, mutable });
+    variableLocals.set(local.body, rows);
+  }
   lowerStatements(lowering, moduleDefinition);
   const tree: Hir.SourceFile<Checked> = { ...headerOf(raw.tree), kind: "SourceFile",
     statements: { loc: raw.tree.statements.loc, nodes: raw.tree.statements.nodes.map(child => statement(lowering, child)) },

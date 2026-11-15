@@ -17,9 +17,13 @@ import type {
   TypeBinding, TypeParameterIdentity, MemberStorageSelection,
 } from "../ir-types/contract.js";
 import type { CallbackInput, SummaryCallback } from "../snapshot/contract.js";
+import type { CreatedSlot, LogicalCell, LogicalCellLifetime, LogicalCellOccurrence, LogicalCellRow, StableReference } from "./cells-data.js";
+import type { BoundProducerRef } from "./relations-data.js";
+import type { Condition } from "./conditions-data.js";
+import type { InitializationEvent, InitializationPoint, InitializationRow, InitializationTable, InitializationWitness, SummaryPosition } from "./initialization-data.js";
 import type {
   ArgumentTransport, BindingStorageFact, BodyFacts, BodyObservations, BoundActivation, BoundProducer, BoundRecordField,
-  CallbackEntry, CallComponent, CallEdge, CallGraph, CaptureEffect, CaptureFact, CaptureLocation,
+  CallbackEntry, CallbackExchange, CallComponent, CallEdge, CallGraph, CaptureEffect, CaptureFact, CaptureLocation,
   ClosedArrayFact, ClosedArrayReason, ConstructionAlternative, CountedLoopFact, EffectPaths,
   ErrorInvalidationFact, ErrorInvalidationReason, ErrorStorageFact, ErrorStorageFacts, EscapeFact, EscapeTarget, ExitContents,
   InitializationFact, InitializationFacts, InstanceRegion, IntegerFact, IntegerRange, InvocationAlternative, InvocationFact,
@@ -30,7 +34,7 @@ import type {
   ParseCallGraph, ParseFacts, ParseMetadata, ParseObservations, ParseSummary, Producer, ProducerRef, Projection, ProjectionPath,
   RawLocationFact, ReadOriginsFact, RefinementFact, RefinementFacts, RefinementInvalidation, RefinementReason,
   RelationalArena, RelationalOwner, RelationalSite, RetentionFact, StoreLiveness, SubjectOriginsFact, Summary,
-  SummaryKey, SummaryWrite, SuspensionFact, SuspensionFacts, SuspensionValue, ValueContext, ValueFrontier,
+  SummaryBacking, SummaryKey, SummaryResultCell, SummaryRetention, SummaryWrite, SuspensionFact, SuspensionFacts, SuspensionValue, ValueContext, ValueFrontier,
   WriteFact, WrittenOrigins, WrittenOriginsReason,
 } from "./contract.js";
 
@@ -470,7 +474,8 @@ const projectionPath: Decode<ProjectionPath> = (state, input) => then(fields(sta
 const captureLocation: Decode<CaptureLocation> = (state, input) => then(fields(state, input, "CaptureLocation"), values =>
     then(readField(state, values, "index", scalarNumber), indexValue =>
     then(readField(state, values, "location", bound), locationValue =>
-      finishRecord<CaptureLocation>(state, values, { index: indexValue, location: locationValue }))));
+    then(readField(state, values, "cell", (state, input) => numeric(state, input, "cell", value => value)), cell =>
+      finishRecord<CaptureLocation>(state, values, { index: indexValue, location: locationValue, cell })))));
 const valueContext: Decode<ValueContext> = (state, input) => then(fields(state, input, "ValueContext"), values =>
     then(readField(state, values, "id", contextIdentity), idValue =>
     then(readField(state, values, "receiver", (state, input) => nullable(state, input, originsIdentity)), receiverValue =>
@@ -493,14 +498,79 @@ const openBoundary: Decode<OpenBoundary> = (state, input) => then(label(input, [
     then(readField(state, values, "context", contextIdentity), contextValue =>
     then(readField(state, values, "detail", scalarString), detailValue =>
       finishRecord<OpenBoundary>(state, values, { kind: kind, id: idValue, at: atValue, subject: subjectValue, owner: ownerValue, bindings: bindingsValue, context: contextValue, detail: detailValue }))))))))));
+type CellLocation = Exclude<StableReference, { readonly kind: "receiver" }>;
+const cellLocation: Decode<CellLocation> = (state, input) => then(label(input, ["local", "parameter", "capture", "static"]), kind => {
+  switch (kind) {
+    case "local": return then(fields(state, input, kind), values =>
+      then(readField(state, values, "local", local), value => finishRecord<CellLocation>(state, values, { kind, local: value })));
+    case "parameter":
+    case "capture": return then(fields(state, input, kind), values =>
+      then(readField(state, values, "index", scalarNumber), index => finishRecord<CellLocation>(state, values, { kind, index })));
+    case "static": return then(fields(state, input, kind), values =>
+      then(readField(state, values, "declaration", (state, input) => then(fields(state, input, "DeclarationRequest"), request =>
+        then(readField(state, request, "definition", definition), definition =>
+        then(readField(state, request, "bindings", artifact), bindings => finishRecord(state, request, { definition, bindings }))))), declaration =>
+      finishRecord<CellLocation>(state, values, { kind, declaration })));
+  }
+});
+const stableReference: Decode<StableReference> = (state, input) => input.kind === "word" && input.text === "receiver"
+  ? then(fields(state, input, "receiver"), values => finishRecord<StableReference>(state, values, { kind: "receiver" }))
+  : cellLocation(state, input);
+const createdSlot: Decode<CreatedSlot> = (state, input) => then(label(input, ["local", "capture", "field", "entity"]), kind => {
+  switch (kind) {
+    case "local": return then(fields(state, input, kind), values =>
+      then(readField(state, values, "local", localRef), value => finishRecord<CreatedSlot>(state, values, { kind, local: value })));
+    case "capture": return then(fields(state, input, kind), values =>
+      then(readField(state, values, "path", path), path =>
+      then(readField(state, values, "index", scalarNumber), index => finishRecord<CreatedSlot>(state, values, { kind, path, index }))));
+    case "field": return then(fields(state, input, kind), values =>
+      then(readField(state, values, "member", memberStorageSelection), member => finishRecord<CreatedSlot>(state, values, { kind, member })));
+    case "entity": return then(fields(state, input, kind), values => finishRecord<CreatedSlot>(state, values, { kind }));
+  }
+});
+const logicalCell: Decode<LogicalCell> = (state, input) => {
+  if (input.kind === "word" && input.text === "detached") return then(fields(state, input, "detached"), values =>
+    finishRecord<LogicalCell>(state, values, { kind: "detached" }));
+  if (input.kind !== "word" || input.text !== "created") return cellLocation(state, input);
+  return then(fields(state, input, "created"), values =>
+    then(readField<StableReference | { readonly kind: "result" }>(state, values, "anchor", (state, input) =>
+      input.kind === "word" && input.text === "result"
+        ? then(fields(state, input, "result"), fields => finishRecord(state, fields, { kind: "result" }))
+        : stableReference(state, input)), anchor =>
+    then(readField(state, values, "slot", createdSlot), slot => finishRecord<LogicalCell>(state, values, { kind: "created", anchor, slot }))));
+};
+const cellOccurrence: Decode<LogicalCellOccurrence> = (state, input) => then(label(input, ["entry", "statement", "declared"]), kind => {
+  switch (kind) {
+    case "entry": return then(fields(state, input, kind), values =>
+      then(readField(state, values, "execution", execution), execution =>
+      then(readField(state, values, "local", local), local => finishRecord<LogicalCellOccurrence>(state, values, { kind, execution, local }))));
+    case "statement": return then(fields(state, input, kind), values =>
+      then(readField(state, values, "execution", execution), execution =>
+      then(readField(state, values, "point", mirPoint), point => finishRecord<LogicalCellOccurrence>(state, values, { kind, execution, point }))));
+    case "declared": return then(fields(state, input, kind), values =>
+      then(readField(state, values, "at", site), at => finishRecord<LogicalCellOccurrence>(state, values, { kind, at })));
+  }
+});
+const cellLifetime: Decode<LogicalCellLifetime> = (state, input) => then(label(input, ["live", "dead"]), kind =>
+  then(fields(state, input, kind), values =>
+    then(readField(state, values, "execution", execution), execution =>
+    then(readField(state, values, "point", mirPoint), point =>
+    then(readField(state, values, "local", local), local => finishRecord<LogicalCellLifetime>(state, values, { kind, execution, point, local }))))));
+const cellRow: Decode<LogicalCellRow> = (state, input) => then(fields(state, input, "LogicalCellRow"), values =>
+  then(readField(state, values, "id", (state, input) => numeric(state, input, "cell", value => value)), id =>
+  then(readField(state, values, "role", logicalCell), role =>
+  then(readField(state, values, "occurrence", cellOccurrence), occurrence =>
+  then(readField(state, values, "lifetimes", (state, input) => sequence(state, input, cellLifetime)), lifetimes =>
+  finishRecord<LogicalCellRow>(state, values, { id, role, occurrence, lifetimes }))))));
 const arena: Decode<RelationalArena> = (state, input) => then(fields(state, input, "RelationalArena"), values =>
+    then(readField(state, values, "cells", (state, input) => sequence(state, input, cellRow)), cells =>
     then(readField(state, values, "projections", (state, input) => sequence(state, input, projectionPath)), projectionsValue =>
     then(readField(state, values, "producers", (state, input) => sequence(state, input, producer)), producersValue =>
     then(readField(state, values, "contexts", (state, input) => sequence(state, input, valueContext)), contextsValue =>
     then(readField(state, values, "boundProducers", (state, input) => sequence(state, input, boundProducer)), boundProducersValue =>
     then(readField(state, values, "origins", (state, input) => sequence(state, input, origins)), originsValue =>
     then(readField(state, values, "boundaries", (state, input) => sequence(state, input, openBoundary)), boundariesValue =>
-      finishRecord<RelationalArena>(state, values, { projections: projectionsValue, producers: producersValue, contexts: contextsValue, boundProducers: boundProducersValue, origins: originsValue, boundaries: boundariesValue }))))))));
+      finishRecord<RelationalArena>(state, values, { cells, projections: projectionsValue, producers: producersValue, contexts: contextsValue, boundProducers: boundProducersValue, origins: originsValue, boundaries: boundariesValue })))))))));
 const mirPoint: Decode<MirPoint> = (state, input) => then(fields(state, input, "MirPoint"), values =>
     then(readField(state, values, "block", block), blockValue =>
     then(readField(state, values, "statement", (state, input) => nullable(state, input, scalarNumber)), statementValue =>
@@ -833,7 +903,7 @@ const captureEffect: Decode<CaptureEffect> = (state, input) => then(fields(state
     then(readField(state, values, "writes", effectPaths), writesValue =>
       finishRecord<CaptureEffect>(state, values, { index: indexValue, reads: readsValue, writes: writesValue })))));
 const summaryWrite: Decode<SummaryWrite> = (state, input) => then(fields(state, input, "SummaryWrite"), values =>
-    then(readField(state, values, "target", producerIdentity), targetValue =>
+    then(readField(state, values, "target", (state, input) => numeric(state, input, "cell", value => value)), targetValue =>
     then(readField(state, values, "value", originsIdentity), valueValue =>
       finishRecord<SummaryWrite>(state, values, { target: targetValue, value: valueValue }))));
 const summaryCallback: Decode<SummaryCallback> = (state, input) => then(fields(state, input, "SummaryCallback"), values =>
@@ -842,6 +912,104 @@ const summaryCallback: Decode<SummaryCallback> = (state, input) => then(fields(s
     then(readField(state, values, "rejection", (state, input) => nullable(state, input, scalarNumber)), rejectionValue =>
     then(readField(state, values, "inputs", (state, input) => sequence(state, input, callbackInput)), inputsValue =>
       finishRecord<SummaryCallback>(state, values, { parameterIndex: parameterIndexValue, timing: timingValue, rejection: rejectionValue, inputs: inputsValue }))))));
+const summaryPosition: Decode<SummaryPosition> = (state, input) => then(label(input, ["body", "declared"]), kind =>
+  then(fields(state, input, kind), values => kind === "body"
+    ? then(readField(state, values, "execution", execution), execution =>
+      then(readField(state, values, "point", mirPoint), point =>
+      then(readField(state, values, "edge", (state, input) => nullable(state, input, (state, input) =>
+        literal(state, input, ["continue", "resume", "return", "unwind"]))), edge =>
+      finishRecord<SummaryPosition>(state, values, { kind, execution, point, edge }))))
+    : then(readField(state, values, "execution", declaredExecution), execution =>
+      then(readField(state, values, "source", sourceRef), source =>
+      finishRecord<SummaryPosition>(state, values, { kind, execution, source })))));
+const condition: Decode<Condition> = (state, input) => then(fields(state, input, "Condition"), values =>
+  then(readField(state, values, "alternatives", (state, input) => sequence(state, input, (state, input) =>
+    sequence(state, input, scalarNumber))), alternatives => finishRecord<Condition>(state, values, { alternatives })));
+const boundReference: Decode<BoundProducerRef> = (state, input) => then(fields(state, input, "BoundProducerRef"), values =>
+  then(readField(state, values, "owner", owner), owner =>
+  then(readField(state, values, "producer", bound), producer =>
+  finishRecord<BoundProducerRef>(state, values, { owner, producer }))));
+const initializationEvent: Decode<InitializationEvent> = (state, input) => then(label(input, ["callback", "handle"]), kind =>
+  then(fields(state, input, kind), values =>
+  then(readField(state, values, "subject", boundReference), subject =>
+  then(readField(state, values, "exit", (state, input) => literal(state, input, ["return", "unwind"])), exit =>
+  finishRecord<InitializationEvent>(state, values, { kind, subject, exit })))));
+const initializationWitness: Decode<InitializationWitness> = (state, input) => then(fields(state, input, "InitializationWitness"), values =>
+  then(readField(state, values, "read", sourceRef), read =>
+  then(readField(state, values, "via", (state, input) => sequence(state, input, (state, input) =>
+    then(fields(state, input, "InitializationVia"), fields =>
+    then(readField(state, fields, "key", summaryKey), key =>
+    then(readField(state, fields, "row", scalarNumber), row => finishRecord(state, fields, { key, row })))))), via =>
+  finishRecord<InitializationWitness>(state, values, { read, via }))));
+const initializationPoint: Decode<InitializationPoint> = (state, input) =>
+  then(label(input, ["need", "before", "return", "unwind", "completed"]), kind =>
+  then(fields(state, input, kind), values => {
+    switch (kind) {
+      case "return": case "unwind": return finishRecord<InitializationPoint>(state, values, { kind });
+      case "need": return then(readField(state, values, "at", summaryPosition), at =>
+        then(readField(state, values, "cell", scalarNumber), cell =>
+        then(readField(state, values, "witness", initializationWitness), witness =>
+        finishRecord<InitializationPoint>(state, values, { kind, at, cell, witness }))));
+      case "before": return then(readField(state, values, "at", summaryPosition), at =>
+        then(readField(state, values, "subject", boundReference), subject =>
+        finishRecord<InitializationPoint>(state, values, { kind, at, subject })));
+      case "completed": return then(readField(state, values, "handle", boundReference), handle =>
+        then(readField(state, values, "exit", (state, input) => literal(state, input, ["return", "unwind"])), exit =>
+        finishRecord<InitializationPoint>(state, values, { kind, handle, exit })));
+    }
+  }));
+const initializationRow: Decode<InitializationRow> = (state, input) => then(fields(state, input, "InitializationRow"), values =>
+  then(readField(state, values, "point", scalarNumber), point =>
+  then(readField(state, values, "cell", (state, input) => nullable(state, input, scalarNumber)), cell =>
+  then(readField(state, values, "condition", scalarNumber), condition => finishRecord<InitializationRow>(state, values, { point, cell, condition })))));
+const initializationTable: Decode<InitializationTable> = (state, input) => then(fields(state, input, "InitializationTable"), values =>
+  then(readField(state, values, "cells", (state, input) => sequence(state, input, (state, input) => numeric(state, input, "cell", value => value))), cells =>
+  then(readField(state, values, "events", (state, input) => sequence(state, input, initializationEvent)), events =>
+  then(readField(state, values, "conditions", (state, input) => sequence(state, input, condition)), conditions =>
+  then(readField(state, values, "points", (state, input) => sequence(state, input, initializationPoint)), points =>
+  then(readField(state, values, "rows", (state, input) => sequence(state, input, initializationRow)), rows =>
+  finishRecord<InitializationTable>(state, values, { cells, events, conditions, points, rows })))))));
+const callbackExchange: Decode<CallbackExchange> = (state, input) => then(label(input, ["known", "unknown"]), kind =>
+  then(fields(state, input, kind), values => then(readField(state, values, "subject", boundReference), subject => {
+    if (kind === "unknown") return then(readField(state, values, "boundary", boundaryRef), boundary =>
+      then(readField(state, values, "signatures", (state, input) => nonempty(state, input, signature)), signatures =>
+      then(readField(state, values, "constraint", (state, input) => nullable(state, input, summaryCallback)), constraint =>
+      then(readField(state, values, "invocationOnly", scalarBoolean), invocationOnly =>
+      finishRecord<CallbackExchange>(state, values, { kind, subject, boundary, signatures, constraint, invocationOnly })))));
+    return then(readField(state, values, "at", summaryPosition), at =>
+      then(readField(state, values, "signature", signature), signature =>
+      then(readField(state, values, "provided", scalarNumber), provided =>
+      then(readField(state, values, "context", contextIdentity), context =>
+      then(readField(state, values, "result", originsIdentity), result =>
+      then(readField(state, values, "thrown", originsIdentity), thrown =>
+      then(readField(state, values, "handle", (state, input) => nullable(state, input, boundReference)), handle =>
+      then(readField(state, values, "timing", (state, input) => literal(state, input, ["synchronous", "deferred"])), timing =>
+      then(readField(state, values, "shared", (state, input) => sequence(state, input, summaryWrite)), shared =>
+      finishRecord<CallbackExchange>(state, values, { kind, subject, at, signature, provided, context, result, thrown, handle, timing, shared }))))))))));
+  })));
+const resultCell: Decode<SummaryResultCell> = (state, input) => then(fields(state, input, "SummaryResultCell"), values =>
+  then(readField(state, values, "value", originsIdentity), value =>
+  then(readField(state, values, "cell", (state, input) => numeric(state, input, "cell", value => value)), cell =>
+  then(readField(state, values, "path", (state, input) => nullable(state, input, path)), path =>
+  finishRecord<SummaryResultCell>(state, values, { value, cell, path })))));
+const backingUse: Decode<SummaryBacking["use"]> = (state, input) => then(label(input, ["return", "argument"]), kind =>
+  then(fields(state, input, kind), values => kind === "return" ? finishRecord<SummaryBacking["use"]>(state, values, { kind })
+    : then(readField(state, values, "callee", summaryKey), callee =>
+      then(readField(state, values, "slot", parameterSlot), slot =>
+      then(readField(state, values, "passing", (state, input) => literal(state, input,
+        ["by-value", "byref-readonly", "byref-readwrite", "byref-writeonly-must-init", "borrow-shared", "borrow-mut", "move"])), passing =>
+      finishRecord<SummaryBacking["use"]>(state, values, { kind, callee, slot, passing }))))));
+const summaryBacking: Decode<SummaryBacking> = (state, input) => then(fields(state, input, "SummaryBacking"), values =>
+  then(readField(state, values, "at", summaryPosition), at =>
+  then(readField(state, values, "operation", pointerOperation), operation =>
+  then(readField(state, values, "pointer", originsIdentity), pointer =>
+  then(readField(state, values, "cell", (state, input) => numeric(state, input, "cell", value => value)), cell =>
+  then(readField(state, values, "use", backingUse), use =>
+  finishRecord<SummaryBacking>(state, values, { at, operation, pointer, cell, use })))))));
+const summaryRetention: Decode<SummaryRetention> = (state, input) => then(fields(state, input, "SummaryRetention"), values =>
+  then(readField(state, values, "source", bound), source =>
+  then(readField(state, values, "at", summaryPosition), at =>
+  then(readField(state, values, "into", escapeTarget), into => finishRecord<SummaryRetention>(state, values, { source, at, into })))));
 const summary: Decode<Summary> = (state, input) => then(fields(state, input, "Summary"), values =>
     then(readField(state, values, "key", summaryKey), keyValue =>
     then(readField(state, values, "signature", signature), signatureValue =>
@@ -851,12 +1019,20 @@ const summary: Decode<Summary> = (state, input) => then(fields(state, input, "Su
     then(readField(state, values, "result", originsIdentity), resultValue =>
     then(readField(state, values, "thrown", originsIdentity), thrownValue =>
     then(readField(state, values, "writes", (state, input) => sequence(state, input, summaryWrite)), writesValue =>
-    then(readField(state, values, "retention", (state, input) => sequence(state, input, retention)), retentionValue =>
-    then(readField(state, values, "callbacks", (state, input) => sequence(state, input, summaryCallback)), callbacksValue =>
-    then(readField(state, values, "invocationOnlyParameters", (state, input) => sequence(state, input, scalarNumber)), invocationOnlyParametersValue =>
+    then(readField(state, values, "retention", (state, input) => sequence(state, input, summaryRetention)), retentionValue =>
+    then(readField(state, values, "callbacks", (state, input) => sequence(state, input, callbackExchange)), callbacksValue =>
     then(readField(state, values, "suspends", scalarBoolean), suspendsValue =>
     then(readField(state, values, "bindingDependent", scalarBoolean), bindingDependentValue =>
-      finishRecord<Summary>(state, values, { key: keyValue, signature: signatureValue, arena: arenaValue, parameters: parametersValue, captures: capturesValue, result: resultValue, thrown: thrownValue, writes: writesValue, retention: retentionValue, callbacks: callbacksValue, invocationOnlyParameters: invocationOnlyParametersValue, suspends: suspendsValue, bindingDependent: bindingDependentValue })))))))))))))));
+    then(readField(state, values, "concurrentWrites", (state, input) => sequence(state, input, summaryWrite)), concurrentWrites =>
+    then(readField(state, values, "contentsOnReturn", (state, input) => sequence(state, input, summaryWrite)), contentsOnReturn =>
+    then(readField(state, values, "contentsOnUnwind", (state, input) => sequence(state, input, summaryWrite)), contentsOnUnwind =>
+    then(readField(state, values, "returns", scalarBoolean), returns =>
+    then(readField(state, values, "unwinds", scalarBoolean), unwinds =>
+    then(readField(state, values, "initialization", initializationTable), initialization =>
+    then(readField(state, values, "resultCells", (state, input) => sequence(state, input, resultCell)), resultCells =>
+    then(readField(state, values, "backing", (state, input) => sequence(state, input, summaryBacking)), backing =>
+      finishRecord<Summary>(state, values, { key: keyValue, signature: signatureValue, arena: arenaValue, parameters: parametersValue, captures: capturesValue, result: resultValue, thrown: thrownValue, writes: writesValue, retention: retentionValue, callbacks: callbacksValue, suspends: suspendsValue, bindingDependent: bindingDependentValue,
+        concurrentWrites, contentsOnReturn, contentsOnUnwind, returns, unwinds, initialization, resultCells, backing }))))))))))))))))))))));
 const callComponent: Decode<CallComponent> = (state, input) => then(fields(state, input, "CallComponent"), values =>
     then(readField(state, values, "id", component), idValue =>
     then(readField(state, values, "definitions", (state, input) => sequence(state, input, definition)), definitionsValue =>
@@ -992,7 +1168,7 @@ const projection: Decode<Projection> = (state, input) => then(label(input, ["fie
       finishRecord<Projection>(state, values, { kind: "deref" }));
   }
 });
-const producer: Decode<Producer> = (state, input) => then(label(input, ["allocation","parameter","receiver","capture","shared","suspension-input","call-result"]), kind => {
+const producer: Decode<Producer> = (state, input) => then(label(input, ["allocation","parameter","receiver","capture","shared","cell-content","suspension-input","call-result"]), kind => {
   switch (kind) {
     case "allocation": return then(fields(state, input, kind), values =>
       then(readField(state, values, "id", producerIdentity), id =>
@@ -1013,6 +1189,12 @@ const producer: Decode<Producer> = (state, input) => then(label(input, ["allocat
       then(readField(state, values, "path", (state, input) => nullable(state, input, path)), path =>
       then(readField(state, values, "definition", definition), definition =>
         finishRecord<Producer>(state, values, { kind, id, path, definition })))));
+    case "cell-content": return then(fields(state, input, kind), values =>
+      then(readField(state, values, "id", producerIdentity), id =>
+      then(readField(state, values, "path", (state, input) => nullable(state, input, path)), path =>
+      then(readField(state, values, "cell", (state, input) => numeric(state, input, "cell", value => value)), cell =>
+      then(readField(state, values, "phase", (state, input) => literal(state, input, ["entry", "uncontrolled"])), phase =>
+        finishRecord<Producer>(state, values, { kind, id, path, cell, phase }))))));
     case "suspension-input": return then(fields(state, input, kind), values =>
       then(readField(state, values, "id", producerIdentity), id =>
       then(readField(state, values, "path", (state, input) => nullable(state, input, path)), path =>
@@ -1361,5 +1543,6 @@ const parse = <Value>(text: string, decode: Decode<Value>): TextParseResult<Valu
 export const parseFacts: ParseFacts = text => parse(text, bodyFacts);
 export const parseObservations: ParseObservations = text => parse(text, bodyObservations);
 export const parseSummary: ParseSummary = text => parse(text, summary);
+export const parseInitializationTable = (text: string): TextParseResult<InitializationTable> => parse(text, initializationTable);
 export const parseMetadata: ParseMetadata = text => parse(text, metadata);
 export const parseCallGraph: ParseCallGraph = text => parse(text, callGraph);

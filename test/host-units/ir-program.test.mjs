@@ -1,3 +1,5 @@
+import { createAccount, remainingWork, chargeWork, accountFailure, refuseAccount } from "../../packages/host/dist/dataflow/index.js";
+import { conditionRefusal } from "./fixtures/facts-verification.mjs";
 import assert from "node:assert/strict";
 import { capturedCauses } from "./fixtures/captured-causes.mjs";
 import { spawnSync } from "node:child_process";
@@ -15,6 +17,7 @@ import { parseSources } from "../architecture/host/import-graph.mjs";
 import { encodeBodyId, encodeDefId, encodeKey, encodeModuleId, tyId } from "../../packages/host/dist/ids/index.js";
 import { summaryKey } from "../../packages/host/dist/ir-facts/index.js";
 import { artifactBindingsData, executionKey } from "../../packages/host/dist/ir-types/index.js";
+import { cellTransportCases } from "./fixtures/program-cells.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const runtimeNames = [
@@ -53,7 +56,7 @@ const { encodeContextKey, authoredMethodGraph, callerComponentCycle, callerSynta
 const { expectedSyntaxKinds, genericCarrierCase, mirTransportCases, nullableSyntaxCases, relationalTransportArtifacts, syntaxPhysicalNodes, syntaxTransportFamilies, syntaxTransportModule, transportTypeTable } = await import("./ir-program-transport-fixtures.mjs");
 let product;
 function moduleViolations(index, module, context) {
-  const outcome = product.verifyModuleBodies(index, module, { ...context, resources: product.createProgramVerificationWork(ProgramWork.state(context.resources).limits) });
+  const outcome = product.verifyModuleBodies(index, module, context);
   assert.equal(outcome.kind, "complete", "the bodies of the module were verified to the end, not refused for resources");
   return outcome.violations;
 }
@@ -101,6 +104,8 @@ before(async () => {
   product = await import("../../packages/host/dist/ir-program/index.js");
   typeProduct = await import("../../packages/host/dist/ir-types/index.js");
 });
+
+test("Program canonical logical-cell transport and pre-copy budget", cellTransportCases);
 
 function evaluate(input) {
   switch (input.operation) {
@@ -150,10 +155,10 @@ function evaluate(input) {
       } } };
       first.index.metadata = [{ key, kind: "data-layout", occurrence: { kind: "item", value: { owner: first.definition, node: 0 } },
         fingerprint: "native64-le", byteOrder: "little", addressWidth: 64 }];
-      first.index.summaries = [{ key: { kind: "body", execution: { instance: first.instance, provided: 0 } }, signature: firstSignature, arena: { projections: [], producers: [], contexts: [],
+      first.index.summaries = [{ key: { kind: "body", execution: { instance: first.instance, provided: 0 } }, signature: firstSignature, arena: { cells: [], projections: [], producers: [], contexts: [],
         boundProducers: [], origins: [{ id: 0, producers: [], includesAbsence: false, kind: "complete" }], boundaries: [] },
       parameters: [], captures: [], result: 0, thrown: 0, writes: [], retention: [], callbacks: [],
-      invocationOnlyParameters: [], suspends: false, bindingDependent: false }];
+      suspends: false, bindingDependent: false, concurrentWrites: [], contentsOnReturn: [], contentsOnUnwind: [], returns: true, unwinds: false, initialization: { cells: [], events: [], conditions: [{ alternatives: [] }, { alternatives: [[]] }], points: [{ kind: "return" }], rows: [{ point: 0, cell: null, condition: 0 }] }, resultCells: [], backing: [] }];
       first.index.constants = [{ reference: { initializer: first.instance, context: "compile-time" }, value: { kind: "absence", type: voidType } }];
       const publication = { table: { terms: [{ kind: "string" }, { kind: "intrinsic", intrinsic: "void" }],
         signatures: signatures.map(signature => ({ ...signature, result: 1 })) },
@@ -228,6 +233,7 @@ function evaluate(input) {
         actual = actual.statements.nodes[0];
         original = original.statements.nodes[0];
       }
+      fixture.context.resources = product.createProgramVerificationWork(ProgramWork.state(fixture.context.resources).limits, createAccount({ maximumWork: 10000 + (input.depth + 3) * (64 + 8 * fixture.bodyId.length), maximumResultEntries: 1000000000 }));
       return { complete, chainNodes: count, sharedRoot: Object.is(parsed.value.tree, parsed.value.bodies[0].tir.root),
         violations: moduleViolations(fixture.index, fixture.module, fixture.context) };
     }
@@ -303,6 +309,15 @@ function evaluate(input) {
       return product.verifyProgramIndex(fixture.index, fixture.context);
     }
     case "instantiate": return product.instantiate(input.index, input.module, input.artifact, input.bindings, input.limits);
+    case "instantiate-invalid-limits": {
+      let observed;
+      assert.throws(() => product.instantiate(input.index, input.module, input.artifact, input.bindings, input.limits), error => {
+        if (!(error instanceof TypeError) || error.message !== input.expectedError) return false;
+        observed = { kind: "caller-defect", name: error.name, message: error.message };
+        return true;
+      });
+      return observed;
+    }
     case "instantiate-method-fixture":
       authoredMethodGraph(input.module);
       return product.instantiate(input.index, input.module, input.artifact, input.bindings, input.limits);
@@ -377,6 +392,7 @@ function evaluate(input) {
     }
     case "verify-repeated-metadata-fixture": {
       const { first } = repeatedMetadataFixture(input.uses, input.ownerSize, input.fact);
+      first.context.resources = product.createProgramVerificationWork(ProgramWork.state(first.context.resources).limits, createAccount({ maximumWork: 10000 + (input.uses + 16) * (128 + 16 * first.definition.length), maximumResultEntries: 1000000000 }));
       return { index: product.verifyProgramIndex(first.index, first.context),
         module: moduleViolations(first.index, first.module, first.context) };
     }
@@ -645,7 +661,7 @@ for (const maximum of [-1, 0.5, NaN, Infinity, -Infinity, Number.MAX_SAFE_INTEGE
   test(`ir-program invalid binding-vector maximum fails at its index boundary: ${Object.is(maximum, -0) ? "-0" : String(maximum)}`, () => {
     const fixture = moduleFixture();
     assert.throws(() => product.createProgramVerificationWork({
-      ...ProgramWork.state(fixture.context.resources).limits, maximumBindingVectorsPerArtifact: maximum }), error => error instanceof TypeError
+      ...ProgramWork.state(fixture.context.resources).limits, maximumBindingVectorsPerArtifact: maximum }, createAccount({ maximumWork: 1000000, maximumResultEntries: 1000000000 })), error => error instanceof TypeError
       && error.message === "Invalid InstantiationLimits.maximumBindingVectorsPerArtifact");
   });
 }
@@ -657,16 +673,17 @@ test("Program verification work is opaque in current emitted public declarations
   writeFileSync(config, JSON.stringify({ extends: resolve(repository, "packages/host/tsconfig.json"),
     compilerOptions: { noEmit: true, rootDir: repository }, files: [input], include: [] }));
   const prefix = `import { createProgramVerificationWork } from "${resolve(repository, "packages/host/dist/ir-program/index.js")}";
-import type { InstantiationLimits, ProgramVerificationWork } from "${resolve(repository, "packages/host/dist/ir-program/contract.js")}";
+import type { ProgramVerificationLimits, ProgramVerificationWork } from "${resolve(repository, "packages/host/dist/ir-program/contract.js")}";
+import type { DataflowAccount } from "${resolve(repository, "packages/host/dist/dataflow/contract.js")}";
 `;
   const compile = () => spawnSync(process.execPath, [resolve(repository, "node_modules/@typescript/native-preview/bin/tsgo.js"),
     "--project", config, "--pretty", "false"], { cwd: repository, encoding: "utf8", maxBuffer: 1048576 });
-  writeFileSync(input, prefix + "export function create(limits: InstantiationLimits): ProgramVerificationWork { return createProgramVerificationWork(limits); }");
+  writeFileSync(input, prefix + "export function create(limits: ProgramVerificationLimits, account: DataflowAccount): ProgramVerificationWork { return createProgramVerificationWork(limits, account); }");
   const valid = compile();
   assert.equal(valid.status, 0, valid.stdout + valid.stderr);
-  writeFileSync(input, prefix + `export function forbidden(limits: InstantiationLimits, work: ProgramVerificationWork): void {
+  writeFileSync(input, prefix + `export function forbidden(limits: ProgramVerificationLimits, account: DataflowAccount, work: ProgramVerificationWork): void {
 const old: ProgramVerificationWork = { limits, work: 0, created: 0, seed: { kind: "unseeded" } };
-const actual = createProgramVerificationWork(limits);
+const actual = createProgramVerificationWork(limits, account);
 work.work = 1;
 work.created = 1;
 work.seed = { kind: "unseeded" };
@@ -680,7 +697,7 @@ void actual;
     [2353, 2339, 2339, 2339, 2341], invalid.stdout.slice(-8000));
   writeFileSync(input, `import type { ProgramVerificationResult } from "${resolve(repository, "packages/host/dist/ir-program/contract.js")}";
 export function current(result: ProgramVerificationResult): number {
-return result.kind === "complete" ? result.violations.length : result.maximum;
+return result.kind === "complete" ? result.violations.length : result.kind === "refused" ? result.diagnostics.length : result.maximum;
 }`);
   const currentResult = compile();
   assert.equal(currentResult.status, 0, currentResult.stdout + currentResult.stderr);
@@ -733,11 +750,10 @@ test("ir-program retains one actual selected-native identity at its ready and pu
   assert.equal(product.parseProgramIndex(without).kind, "invalid-text", "removed identity-free index grammar is rejected");
 });
 
-test("ir-program negative-zero binding maximum is the inherited zero budget", () => {
+test("ir-program negative-zero binding maximum is a caller-input defect", () => {
   const fixture = moduleFixture();
-  const context = { ...fixture.context, resources: product.createProgramVerificationWork({
-    ...ProgramWork.state(fixture.context.resources).limits, maximumBindingVectorsPerArtifact: -0 }) };
-  assert.deepEqual(product.verifyProgramIndex(fixture.index, context), { kind: "complete", violations: [] });
+  assert.throws(() => product.createProgramVerificationWork({
+    ...ProgramWork.state(fixture.context.resources).limits, maximumBindingVectorsPerArtifact: -0 }, createAccount({ maximumWork: 1000000, maximumResultEntries: 1000000000 })), TypeError);
 });
 
 for (const ordinal of [-1, -0, NaN]) test(`ir-program signature ordinal ${Object.is(ordinal, -0) ? "-0" : String(ordinal)} retains its complete endpoint finding`, () => {
@@ -925,11 +941,11 @@ for (const [name, message] of [
         component.path.push({ kind: "sum-arm", family: { origin: "authored", component, parameters: [], roles: [] }, index: 0 });
         fixture.index.types.terms.push({ kind: "projection", source: 0, projection: { kind: "component", component } });
         invoke = () => product.instantiate(fixture.index, fixture.module,
-          { kind: "tir", body: fixture.bodyId }, bindings, ProgramWork.state(fixture.context.resources).limits); break;
+          { kind: "tir", body: fixture.bodyId }, bindings, { ...ProgramWork.state(fixture.context.resources).limits, maximumWork: 1000000 }); break;
       }
     }
     if (name.startsWith("duplicate-") || name === "artifact-component-cycle") invoke = () => product.instantiate(fixture.index, fixture.module,
-      { kind: "tir", body: fixture.bodyId }, bindings, ProgramWork.state(fixture.context.resources).limits);
+      { kind: "tir", body: fixture.bodyId }, bindings, { ...ProgramWork.state(fixture.context.resources).limits, maximumWork: 1000000 });
     assert.throws(invoke, error => error instanceof TypeError && error.message === message);
   });
 }
@@ -959,7 +975,7 @@ for (const field of ["maximumWork", "maximumCreatedRecords", "maximumBindingVect
     test(`ir-program Instantiate rejects malformed ${field}: ${String(maximum)}`, () => {
       const fixture = moduleFixture();
       const bindings = { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] };
-      const limits = { ...ProgramWork.state(fixture.context.resources).limits, [field]: maximum };
+      const limits = { ...ProgramWork.state(fixture.context.resources).limits, maximumWork: 1000000, [field]: maximum };
       assert.throws(() => product.instantiate(fixture.index, fixture.module,
         { kind: "tir", body: fixture.bodyId }, bindings, limits),
       error => error instanceof TypeError && error.message === `Invalid InstantiationLimits.${field}`);
@@ -975,7 +991,7 @@ test("ir-program finite shared expression components retain complete instantiati
   body.bindings = { kind: "instantiated", bindings };
   const expected = { kind: "instantiated", artifact: { kind: "tir", body }, types: fixture.index.types };
   const actual = product.instantiate(fixture.index, fixture.module,
-    { kind: "tir", body: fixture.bodyId }, bindings, ProgramWork.state(fixture.context.resources).limits);
+    { kind: "tir", body: fixture.bodyId }, bindings, { ...ProgramWork.state(fixture.context.resources).limits, maximumWork: 1000000 });
   assert.equal(isDeepStrictEqual(actual, expected), true, "complete finite expression component result");
 });
 
@@ -1500,8 +1516,8 @@ for (const kind of ["literal", "union", "intersection", "array", "fixed-array", 
           assert.equal(complete, false, "budget monotonicity includes concrete-row transport");
           assert.equal(actual.kind, "resource-limit");
           assert.equal(actual.dimension, dimension);
-          assert.equal(Number.isSafeInteger(actual.maximum) && actual.maximum >= 0 && actual.maximum <= maximum, true,
-            "a refusal retains the genuine owning-layer remaining maximum and never a partial table");
+          assert.equal(actual.maximum, maximum,
+            "a refusal retains the original enclosing maximum and never a partial table");
           completeProgramValue(Object.keys(actual).sort(), ["dimension", "kind", "maximum"], "the complete closed refusal payload");
         }
       }
@@ -1590,8 +1606,8 @@ for (const kind of ["CallExpression", "BinaryExpression", "Decorator", "ObjectLi
         }
         assert.equal(actual.kind, "resource-limit", "no fabricated semantic outcome or partial artifact");
         assert.equal(actual.dimension, dimension);
-        assert.equal(Number.isSafeInteger(actual.maximum) && actual.maximum >= 0 && actual.maximum <= maximum, true,
-          "the exact lower-owner remaining maximum is never replaced with an outer allowance");
+        assert.equal(actual.maximum, maximum,
+          "the exact original invocation bound is preserved across lower-owner publication");
         completeProgramValue(Object.keys(actual).sort(), ["dimension", "kind", "maximum"], "the entire closed refusal record");
       }
       assert.equal(completed, true, "the finite actual fixture fits within the declared sweep");
@@ -1756,10 +1772,6 @@ test("ir-program Instantiate substitutes the owner, pointee, source and both vec
     "a binding of a parameter that the captures do not mention changes no capture type or vector and appends no type");
 });
 
-// SCHEMA-MIGRATION.md 5.8: the exact inventory charges of the binding captures. The baseline threshold of each dimension is found
-// by a sweep; the variant's threshold is the baseline's plus the charge derived from instantiate-phase.ts and program-values.ts,
-// and is asserted one below, at and one above. The refusal one below is the record the forwarding law gives: Program's own meter
-// with the outer limit for work, the type export with its unchanged remaining allowance for created records.
 test("ir-program binding capture records move the Instantiate work and created-record thresholds by exactly their inventory charges", () => {
   const fixture = moduleFixture();
   const input = decodeFixtureJson(readFileSync(resolve(repository, "test/host-cases/ir-program/function/six-core-safety-1.input.json"), "utf8"));
@@ -1806,15 +1818,10 @@ test("ir-program binding capture records move the Instantiate work and created-r
       { maximumWork: 0, maximumCreatedRecords: 0 }],
   ]) for (const [field, dimension, last] of [["maximumWork", "work", 400], ["maximumCreatedRecords", "created-records", 60]]) {
     const base = measure(baseline, field, dimension, last);
-    if (dimension === "work") completeProgramValue(base.below, { kind: "resource-limit", dimension, maximum: base.threshold - 1 },
-      `${name}: one below the baseline work threshold Program's own meter refuses with the outer limit`);
-    else {
-      completeProgramValue(Object.keys(base.below).sort(), ["dimension", "kind", "maximum"], `${name}: the closed refusal record`);
-      assert.equal(Number.isSafeInteger(base.below.maximum) && base.below.maximum >= 0 && base.below.maximum < base.threshold - 1, true,
-        `${name}: one below the baseline created-record threshold the type export refuses with its remaining allowance`);
-    }
+    completeProgramValue(base.below, { kind: "resource-limit", dimension, maximum: base.threshold - 1 },
+      `${name}: one below the baseline threshold retains the original enclosing limit`);
     const threshold = base.threshold + charge[field];
-    const below = { kind: "resource-limit", dimension, maximum: dimension === "work" ? threshold - 1 : base.below.maximum };
+    const below = { kind: "resource-limit", dimension, maximum: threshold - 1 };
     for (const maximum of [threshold - 1, threshold, threshold + 1]) {
       completeProgramValue(product.instantiate(index, variant, artifact, empty, { ...limits, [field]: maximum }),
         maximum < threshold ? below : expected(variant), `${name}: ${field} ${maximum} against the derived threshold ${threshold}`);
@@ -1964,7 +1971,7 @@ function branching(published) {
   ];
 }
 const underMirLimit = (fixture, maximumWork) => product.verifyModuleBodies(fixture.index, fixture.module, { ...fixture.context,
-  resources: product.createProgramVerificationWork(ProgramWork.state(fixture.context.resources).limits), mirVerification: { maximumWork } });
+  resources: product.createProgramVerificationWork(ProgramWork.state(fixture.context.resources).limits, createAccount({ maximumWork: 1000000, maximumResultEntries: 1000000000 })), mirVerification: { maximumWork } });
 const MIR_EMPTY_WORK = 4 + 2 + 1 + 11;
 const MIR_BRANCH_WORK = 14 + 5 + 1 + 1 + 16;
 
@@ -2252,7 +2259,7 @@ test("ir-program an already exceeded binding bound still retains the duplicate-i
   const record = fixture.index.bodies[1];
   fixture.index.bodies.push(record);
   const context = { ...fixture.context, resources: product.createProgramVerificationWork({
-    ...ProgramWork.state(fixture.context.resources).limits, maximumBindingVectorsPerArtifact: 0 }) };
+    ...ProgramWork.state(fixture.context.resources).limits, maximumBindingVectorsPerArtifact: 0 }, createAccount({ maximumWork: 1000000, maximumResultEntries: 1000000000 })) };
   const key = encodeKey([fixture.bodyId, ["instantiated", [[], [], [], []]]]);
   completeProgramValue(product.verifyProgramIndex(fixture.index, context), { kind: "complete", violations: [
     { rule: "body-index-order", site: { kind: "body", instance: record.instance }, detail: [{ kind: "text", value: key }, { kind: "text", value: key }] },
@@ -2305,7 +2312,7 @@ for (const kind of ["goto", "unreachable", "switch", "await", "yield", "yield-ab
     for (const [field, dimension] of [["maximumWork", "work"], ["maximumCreatedRecords", "created-records"]]) {
       for (let maximum = 0; maximum <= 128; maximum += 1) {
         const context = { ...first.context, resources: product.createProgramVerificationWork({
-          ...ProgramWork.state(first.context.resources).limits, [field]: maximum }) };
+          ...ProgramWork.state(first.context.resources).limits, ...(field === "maximumCreatedRecords" ? { maximumCreatedRecords: maximum } : {}) }, createAccount({ maximumWork: field === "maximumWork" ? maximum : 1000000, maximumResultEntries: 1000000000 })) };
         const result = product.verifyModuleBodies(first.index, first.module, context);
         if (result.kind === "resource-limit") {
           assert.equal(result.dimension, dimension, "the selected account refuses before further operand processing");
@@ -2420,7 +2427,7 @@ for (const name of mirTransportCases(moduleFixture()).map(value => value.name)) 
   completeProgramValue(product.parseModuleBodies(fixture.index, product.printModuleBodies(fixture.index, fixture.module)),
     { kind: "parsed", value: fixture.module }, "every actual shared decision, operand and qualified record is retained");
   const bindings = { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] };
-  completeProgramValue(product.instantiate(fixture.index, fixture.module, { kind: "mir", body: fixture.bodyId }, bindings, ProgramWork.state(fixture.context.resources).limits),
+  completeProgramValue(product.instantiate(fixture.index, fixture.module, { kind: "mir", body: fixture.bodyId }, bindings, { ...ProgramWork.state(fixture.context.resources).limits, maximumWork: 1000000 }),
     { kind: "instantiated", artifact: { kind: "mir", body: { ...fixture.module.bodies[0].mir, bindings: { kind: "instantiated", bindings } } },
       types: fixture.index.types }, "the entire MIR template projection preserves all independent fields and original table rows");
 });
@@ -2518,13 +2525,79 @@ test("ir-program source substitution refusal remains the first invocation stop b
   const result = product.verifyModuleBodies(first.index, first.module, first.context);
   completeProgramValue(result, { kind: "resource-limit", site: { kind: "body", instance: first.instance }, dimension: "visits", maximum: 0 },
     "the real captured observation batch has no partial row or invalid-fact finding on exhaustion");
-  const counters = [ProgramWork.state(first.context.resources).work, ProgramWork.state(first.context.resources).created];
+  const counters = [(1000000 - remainingWork(ProgramWork.state(first.context.resources).account)), ProgramWork.state(first.context.resources).created];
   const second = product.verifyModuleBodies(first.index, { ...first.module, bodies: [] }, { ...first.context,
     tirOf: () => { throw new Error("no checked-source lookup after this invocation refused"); } });
   assert.equal(result === second, true, "later calls retain the original refusal object");
-  assert.deepEqual([ProgramWork.state(first.context.resources).work, ProgramWork.state(first.context.resources).created], counters);
+  assert.deepEqual([(1000000 - remainingWork(ProgramWork.state(first.context.resources).account)), ProgramWork.state(first.context.resources).created], counters);
   const other = { ...first.index, types: structuredClone(first.index.types) };
   assert.throws(() => product.verifyModuleBodies(other, first.module, first.context), /another published type table/u);
+});
+
+test("ir-program standalone publication exhaustion names its original enclosing bound, not a remaining sub-allowance", () => {
+  const fixture = moduleFixture();
+  const base = ProgramWork.state(fixture.context.resources).limits;
+  const bindings = { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] };
+  for (const dimension of ["work", "created-records"]) {
+    let completed = false;
+    for (let maximum = 0; maximum <= 400; maximum += 1) {
+      const result = product.instantiate(fixture.index, fixture.module, { kind: "mir", body: fixture.bodyId }, bindings, {
+        ...base, maximumWork: dimension === "work" ? maximum : 10000,
+        maximumCreatedRecords: dimension === "created-records" ? maximum : 10000 });
+      if (result.kind === "instantiated") completed = true;
+      else {
+        assert.equal(completed, false);
+        assert.deepEqual(result, { kind: "resource-limit", dimension, maximum });
+      }
+    }
+    assert.equal(completed, true);
+  }
+});
+
+test("ir-program seed selection shares the actual independent created-record stop without a competing failure state", async () => {
+  const { emitInstantiationRecord } = await import("../../packages/host/dist/ir-program/work.js");
+  const { verificationTypes, verificationFailure } = await import("../../packages/host/dist/ir-program/verification-work.js");
+  const fixture = moduleFixture();
+  fixture.context.resources = product.createProgramVerificationWork({
+    ...ProgramWork.state(fixture.context.resources).limits, maximumCreatedRecords: 0 },
+    createAccount({ maximumWork: 1000, maximumResultEntries: 1000 }));
+  assert.deepEqual(emitInstantiationRecord(ProgramWork.state(fixture.context.resources)),
+    { kind: "resource-limit", dimension: "created-records", maximum: 0 });
+  const original = verificationFailure(fixture.index, fixture.context.resources);
+  assert.deepEqual(original, { kind: "resource-limit", dimension: "created-records", maximum: 0, site: { kind: "index" } });
+  assert.equal(verificationTypes(fixture.index, fixture.context.resources), original);
+  assert.equal(verificationFailure(fixture.index, fixture.context.resources), original);
+  assert.throws(() => verificationTypes({ ...fixture.index, types: structuredClone(fixture.index.types) }, fixture.context.resources),
+    /another published type table/u);
+});
+
+test("ir-program shared Metadata, Summary and Observation validators retain the same first enclosing work or entry stop", async () => {
+  const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
+  for (const boundary of ["index", "module"]) {
+    const make = () => publishedArtifactFixture("none").first;
+    const invoke = fixture => boundary === "index" ? product.verifyProgramIndex(fixture.index, fixture.context)
+      : product.verifyModuleBodies(fixture.index, fixture.module, fixture.context);
+    const actual = make();
+    assert.equal(invoke(actual).kind, "complete");
+    const needed = InvocationAccount.stateOf(ProgramWork.state(actual.context.resources).account);
+    for (const [dimension, maximum] of [["work", needed.work], ["result-entries", needed.entries]]) {
+      for (let available = 0; available < maximum; available += 1) {
+        const fixture = make();
+        const account = createAccount({ maximumWork: dimension === "work" ? available : needed.work,
+          maximumResultEntries: dimension === "result-entries" ? available : needed.entries });
+        fixture.context.resources = product.createProgramVerificationWork(ProgramWork.state(fixture.context.resources).limits, account);
+        const stopped = invoke(fixture);
+        assert.equal(stopped.kind, "resource-limit", boundary);
+        assert.equal(stopped.dimension, dimension);
+        assert.equal(stopped.maximum, available);
+        assert.equal(stopped, accountFailure(account));
+        assert.equal("violations" in stopped, false);
+        assert.equal(product.verifyModuleBodies(fixture.index, null, fixture.context), stopped);
+        assert.equal(product.verifyProgramIndex(fixture.index, { ...fixture.context,
+          selectedNativeFacts: undefined, tirOf: () => { throw new Error("no publication traversal after refusal"); } }), stopped);
+      }
+    }
+  }
 });
 
 test("ir-program every charged static witness stage refuses without partial findings under the same invocation account", () => {
@@ -2539,9 +2612,14 @@ test("ir-program every charged static witness stage refuses without partial find
   ];
   for (const create of factories) for (const [limit, dimension] of [["maximumWork", "work"], ["maximumCreatedRecords", "created-records"]]) {
     let completed = false;
-    for (let maximum = 0; maximum <= 192; maximum += 1) {
+    const reference = create().first;
+    const referenceAccount = ProgramWork.state(reference.context.resources).account;
+    const before = remainingWork(referenceAccount);
+    assert.equal(product.verifyModuleBodies(reference.index, reference.module, reference.context).kind, "complete");
+    const last = limit === "maximumWork" ? before - remainingWork(referenceAccount) : ProgramWork.state(reference.context.resources).created;
+    for (let maximum = 0; maximum <= last; maximum += 1) {
       const { first } = create();
-      Object.assign(ProgramWork.state(first.context.resources).limits, { ...ProgramWork.state(first.context.resources).limits, [limit]: maximum });
+      first.context.resources = product.createProgramVerificationWork({ ...ProgramWork.state(first.context.resources).limits, ...(limit === "maximumCreatedRecords" ? { maximumCreatedRecords: maximum } : {}) }, createAccount({ maximumWork: limit === "maximumWork" ? maximum : 1000000, maximumResultEntries: 1000000000 }));
       const result = product.verifyModuleBodies(first.index, first.module, first.context);
       if (result.kind === "complete") completed = true;
       else {
@@ -2716,16 +2794,16 @@ test("ir-program metadata witness kernel preserves selected descriptor opposites
           member: { decision: { ...first.index.metadata.find(value => value.kind === "memory-field").fields[0].member,
             read: 1, write: 1, getter: null, setter: null, location: { kind: "data", check: { kind: "none" }, receiver: "in-place" } },
             getter: null, setter: null }, value: operand })) } };
+    const beforeSeed = remainingWork(ProgramWork.state(first.context.resources).account);
     const prepared = verificationTypes(first.index, first.context.resources);
     assert.equal(prepared.kind, "complete");
-    const initial = { work: ProgramWork.state(first.context.resources).work, created: ProgramWork.state(first.context.resources).created };
+    const initial = { work: beforeSeed - remainingWork(ProgramWork.state(first.context.resources).account), created: ProgramWork.state(first.context.resources).created };
     for (const field of ["maximumWork", "maximumCreatedRecords"]) {
       for (let extra = 0; extra <= 32; extra += 1) {
         const seed = ProgramWork.state(first.context.resources).seed;
         first.context.resources = product.createProgramVerificationWork({
-          ...ProgramWork.state(first.context.resources).limits, maximumWork: 10000, maximumCreatedRecords: 10000,
-          [field]: (field === "maximumWork" ? initial.work : initial.created) + extra });
-        ProgramWork.state(first.context.resources).work += initial.work;
+          ...ProgramWork.state(first.context.resources).limits, maximumCreatedRecords: field === "maximumCreatedRecords" ? initial.created + extra : 10000 }, createAccount({ maximumWork: field === "maximumWork" ? initial.work + extra : 10000, maximumResultEntries: 1000000000 }));
+        assert.equal(chargeWork(ProgramWork.state(first.context.resources).account, initial.work), null);
         ProgramWork.state(first.context.resources).created += initial.created;
         ProgramWork.state(first.context.resources).seed = seed;
         const result = check(fixture);
@@ -2784,7 +2862,7 @@ test("ir-program summary and metadata selection distinguish unrelated owners and
     occurrence: { kind: "item", value: { owner: fixture.definition, node: 0 } }, fingerprint: "native64-le", byteOrder: "little", addressWidth: 64 };
   fixture.index.metadata = [{ ...metadata, key: { ...metadata.key, definition: unrelated } }, metadata];
   const artifact = { kind: "metadata", definition: fixture.definition };
-  completeProgramValue(product.instantiate(fixture.index, fixture.module, artifact, input.bindings, ProgramWork.state(fixture.context.resources).limits),
+  completeProgramValue(product.instantiate(fixture.index, fixture.module, artifact, input.bindings, { ...ProgramWork.state(fixture.context.resources).limits, maximumWork: 1000000 }),
     { kind: "instantiated", artifact: { kind: "metadata", metadata }, types: fixture.index.types }, "the exact selected independent data record is borrowed whole");
 });
 
@@ -2893,8 +2971,8 @@ for (const kind of ["tir", "mir", "facts", "summary"]) test(`ir-program ${kind} 
         assert.equal(actual.kind, "resource-limit", "an insufficient budget publishes no artifact or partial table");
         assert.equal(actual.dimension, dimension, "only the independently varied budget can be exhausted");
         completeProgramValue(Object.keys(actual).sort(), ["dimension", "kind", "maximum"], "a refusal has no hidden partial payload");
-        assert.equal(Number.isSafeInteger(actual.maximum) && actual.maximum >= 0 && actual.maximum <= maximum, true,
-          "C2972 forwards the genuine remaining lower-owner limit, not the caller's whole-work limit");
+        assert.equal(actual.maximum, maximum,
+          "publication preserves the original invocation limit without partial output");
         if (maximum === 0) completeProgramValue(actual, { kind: "resource-limit", dimension, maximum: 0 }, "complete exact zero-budget refusal");
       }
     }

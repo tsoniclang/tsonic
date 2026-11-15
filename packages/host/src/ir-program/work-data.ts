@@ -1,9 +1,15 @@
 import type { BodyId, DefId, ModuleId, NodeId, PackageId, SigId } from "../ids/contract.js";
-import type { ArtifactBindings, BodyInstance, SignatureEndpoint, TypeExpansionLimits, TypePublicationLimits } from "../ir-types/contract.js";
+import type { ArtifactBindings, BodyInstance, SignatureEndpoint, TypeExpansionLimits } from "../ir-types/contract.js";
+import type { DataflowStop } from "../dataflow/contract.js";
 
-export interface InstantiationLimits extends TypePublicationLimits {
+export interface ProgramVerificationLimits {
+  readonly maximumCreatedRecords: number;
   readonly maximumBindingVectorsPerArtifact: number;
   readonly typeExpansion: TypeExpansionLimits;
+}
+
+export interface InstantiationLimits extends ProgramVerificationLimits {
+  readonly maximumWork: number;
 }
 
 export type SummaryArtifactReference = { readonly kind: "summary"; readonly provided: number } & (
@@ -28,6 +34,7 @@ export type ProgramSite =
   | { readonly kind: "artifact"; readonly artifact: ArtifactReference; readonly bindings: ArtifactBindings };
 
 export type ProgramVerificationStop =
+  | DataflowStop
   | { readonly kind: "resource-limit"; readonly body: BodyInstance; readonly dimension: "work"; readonly maximum: number }
   | { readonly kind: "resource-limit"; readonly site: ProgramSite;
       readonly dimension: "work" | "created-records" | "depth" | "visits" | "union-members" | "intersection-members";

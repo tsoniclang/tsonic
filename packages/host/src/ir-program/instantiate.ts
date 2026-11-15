@@ -8,6 +8,7 @@ import type { BodyFacts, Summary } from "../ir-facts/contract.js";
 import { bindingVectorKey, exportTypes, seedTypeInterner, substitute, substituteSignature } from "../ir-types/index.js";
 import type { InstantiationMeter, InstantiationStop } from "./work.js";
 import type { TypeRewrite } from "./canonical-types.js";
+import { chargeWork, remainingWork } from "../dataflow/index.js";
 import { admitBindingVector, createBindingLookup, createProjectionInventory, drainProjectionInventory, inventoryRecord, summaryBindingsOf, summaryReferenceKey, summaryReferenceOf } from "./program-values.js";
 import { chargeInstantiationWork, createInstantiationMeter } from "./work.js";
 import type { ProjectionInventory } from "./program-values.js";
@@ -74,7 +75,7 @@ function select<Value>(
     if (work !== null) return work;
     const candidate = candidateOf(value);
     if (candidate === null) continue;
-    if (candidate.kind === "resource-limit") return candidate;
+    if (candidate.kind === "resource-limit" || candidate.kind === "refused") return candidate;
     if (candidate.dependence === "independent-data") return { kind: "exact", artifact: candidate.artifact };
     if (requested === null) {
       const key = bindingKey(meter, bindings);
@@ -224,7 +225,7 @@ function substituteReferences<Identity extends number>(
   meter: InstantiationMeter, roots: ReadonlySet<Identity>,
   apply: (roots: readonly Identity[]) => TypeTransform<readonly Identity[]>,
 ): { readonly kind: "complete"; readonly values: ReadonlyMap<Identity, Identity> }
-  | (InstantiationResult & { readonly kind: "resource-limit" }) {
+  | (InstantiationResult & { readonly kind: "resource-limit" | "refused" }) {
   const requested: Identity[] = [];
   for (const root of roots) {
     const work = chargeInstantiationWork(meter);
@@ -242,7 +243,7 @@ export const instantiate: Instantiate = (index, module, artifact, bindings, limi
   const meter = createInstantiationMeter(limits);
   const selected = selectArtifact(meter, index, module, artifact, bindings);
   switch (selected.kind) {
-    case "resource-limit": return selected;
+    case "resource-limit": case "refused": return selected;
     case "missing": return { kind: "missing-binding-artifact", artifact, bindings };
     case "exact": return { kind: "instantiated", artifact: selected.artifact, types: index.types };
     case "template": break;
@@ -261,11 +262,15 @@ export const instantiate: Instantiate = (index, module, artifact, bindings, limi
   const signatures = substituteReferences(meter, scan.signatures, roots => substituteSignature(interner, roots, bindings, expansion));
   if (signatures.kind !== "complete") return signatures;
   const publication = exportTypes(interner, {
-    maximumWork: limits.maximumWork - meter.work,
+    maximumWork: remainingWork(meter.account),
     maximumCreatedRecords: limits.maximumCreatedRecords - meter.created,
   });
-  if (publication.kind !== "complete") return publication;
-  meter.work += publication.work;
+  if (publication.kind !== "complete") {
+    const stop = { ...publication, maximum: publication.dimension === "work" ? limits.maximumWork : limits.maximumCreatedRecords };
+    meter.failure = stop;
+    return stop;
+  }
+  chargeWork(meter.account, publication.work);
   meter.created += publication.createdRecords;
   const stable = stabilizePublication(meter, index.types, publication.value);
   if (stable.kind !== "complete") return stable;
