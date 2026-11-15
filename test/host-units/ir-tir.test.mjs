@@ -4652,6 +4652,18 @@ test("binding occurrence roles preserve exact qualification and genuine namespac
   assert.deepStrictEqual(check(clause, checkedClause), []);
   assert.equal(check({ ...clause, tsonic: { binding: occurrence } }, checkedClause)[0].rule, "binding-capture-owner");
   assert.deepStrictEqual(check({ ...clause, name: target, tsonic: { binding: occurrence } }, checkedClause), []);
+  for (const kind of ["ImportSpecifier", "NamespaceImport"]) {
+    const imported = { ...target, kind, name: target, tsonic: { binding: occurrence } };
+    const original = { ...imported, tsonic: { core: emptyCore(), target: checkedClause.tsonic.target, bindings: [occurrence] } };
+    assert.deepStrictEqual(check(imported, original), []);
+    for (const phase of [null, {}]) assert.equal(check({ ...imported, tsonic: phase }, original)[0].rule, "binding-capture-owner");
+    for (const checked of [undefined, { ...original, kind: "ImportClause" },
+      { ...original, tsonic: { ...original.tsonic, bindings: [] } },
+      { ...original, tsonic: { ...original.tsonic, bindings: [{ kind: "body", value: { body: bodyId, node: 4 } }] } }])
+      assert.equal(check(imported, checked)[0].rule, "binding-capture-owner");
+    assert.equal(check({ ...imported, tsonic: { binding: { ...occurrence, value: { ...occurrence.value, node: 5 } } } }, original)[0].rule,
+      "binding-capture-owner");
+  }
   for (const [actual, checked] of [[{ ...clause, name: target }, checkedClause],
     [{ ...clause, name: target, tsonic: { binding: occurrence } }, { ...checkedClause, tsonic: { ...checkedClause.tsonic, bindings: [] } }],
     [{ ...clause, name: target, tsonic: { binding: { ...occurrence, value: { ...occurrence.value, node: 5 } } } }, checkedClause]])

@@ -60,6 +60,8 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
   await bodyDomainCases(suite);
   const { sourceScopeCases } = await import("./fixtures/facts-source-scopes.mjs");
   await sourceScopeCases(suite);
+  const { localProducerCases } = await import("./fixtures/facts-local-producers.mjs");
+  await localProducerCases(suite);
   const { conditionCases } = await import("./fixtures/facts-conditions.mjs");
   await conditionCases(suite);
   const { dependencyInventoryCases } = await import("./fixtures/facts-dependencies.mjs");

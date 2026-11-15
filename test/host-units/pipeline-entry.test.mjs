@@ -407,10 +407,15 @@ test("real public Host analysis joins a named import to its actual selected call
   const main = result.value.modules.find(module => module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts"));
   const leaf = result.value.modules.find(module => module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/leaf.ts"));
   assert.equal(main !== undefined && leaf !== undefined, true);
-  assert.equal(main.bindings.length, 1);
+  const record = result.value.index.modules.find(module => module.module === main.module);
+  assert.equal(record !== undefined, true);
+  assert.equal(record.bindings.length, 1);
   const caller = main.bodies.find(body => body.kind === "selected" && body.mir.blocks.some(block => block.terminator.kind === "call"));
   assert.equal(caller !== undefined, true);
   const call = caller.mir.blocks.find(block => block.terminator.kind === "call").terminator;
+  const name = caller.tir.root.statements.nodes[0].expression.expression;
+  assert.equal(name.tsonic.resolution.kind, "definition");
+  assert.deepEqual(name.tsonic.resolution.aliases, [record.bindings[0].occurrence]);
   assert.equal(call.callee.kind, "direct");
   assert.equal(leaf.bodies.some(body => body.kind === "selected" && body.instance.body === call.callee.resolution.activation.body), true);
   assert.equal(main.bodies.some(body => body.instance.body === call.callee.resolution.activation.body), false);
@@ -423,6 +428,32 @@ test("real public Host analysis joins a named import to its actual selected call
   assert.equal(edges[0].target.kind, "body");
   assert.equal(edges[0].target.execution.instance.body, call.callee.resolution.activation.body);
   assert.equal(edges[0].target.execution.provided, 1);
+});
+
+test("actual named callable inference requires the supplied qualified B1 row rather than a checked type shortcut", async () => {
+  const fixture = await loadFrontFixture();
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const input = analysisInput(fixture, "sdk-minimal");
+  input.snapshot = fixture.projectSnapshot({ sourceFiles: {
+    "main.ts": "import { value as renamed } from './leaf.js'; export function read(input: boolean): boolean { return renamed(!input); }",
+    "leaf.ts": "export function value(input: boolean): boolean { return input; }",
+  }, libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
+  for (const kind of ["missing", "unavailable", "cycle", "foreign"]) {
+    const captured = captureSourceBarrier(input);
+    assert.equal(captured.kind, "ok");
+    const source = captured.value;
+    const bindingOf = occurrence => {
+      const actual = source.bindingOf(occurrence);
+      assert.equal(actual !== null, true);
+      if (kind === "missing") return null;
+      if (kind === "unavailable") return { ...actual, target: { kind: "unavailable", reason: "not-provided", causes: [] } };
+      if (kind === "cycle") return { ...actual, target: { kind: "available", value: { kind: "binding", occurrence } } };
+      return { ...actual, occurrence: { ...occurrence, value: { ...occurrence.value, node: occurrence.value.node + 1 } } };
+    };
+    assert.throws(() => typeSourceBarrier(input, { ...source, bindingOf }), kind === "missing" ? /actual ready nearest-target row/
+      : kind === "foreign" ? /exact requested qualified occurrence/ : /actual nearest target is unavailable/);
+  }
 });
 
 test("the actual selected-call analysis admits its indices before growth and retains the original account refusal", async () => {

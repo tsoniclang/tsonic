@@ -31,7 +31,7 @@ function ready(source) {
     .map(item => [item.definition, item]));
   const deps = pipeline.inferDepsOf({ rules: { libraries: { sources: [], sourceRoles: [], guarantees: [] },
     types: interner, typeExpansion: EXPANSION }, hirBody: body => domain.bodyOf.get(body) ?? assert.fail("actual body required"),
-    itemOf: definition => items.get(definition) ?? assert.fail("actual declaration required"), bindings: [checked.bindings], limits: LIMITS, graph: GRAPH });
+    itemOf: definition => items.get(definition) ?? assert.fail("actual declaration required"), bindings: [checked.bindings], ...fixture.hir.createModuleBindingViews([checked.bindings]), limits: LIMITS, graph: GRAPH });
   const inputs = { modules: [{ module: checked, nodes }], types: interner, typeExpansion: EXPANSION };
   const partition = wiring.infer.groupsOf(deps, checked.bodies.map(body => body.body));
   assert.equal(partition.kind, "ok");
@@ -140,7 +140,7 @@ test("unary elaboration retains the actual Rules decision and rejects a missing 
     set.constraints.some(constraint => constraint.kind === "op")));
   const constraints = record.constraints.find(set => set.constraints.some(constraint => constraint.kind === "op"));
   const body = program.domain.bodyOf.get(constraints.body);
-  const deps = { types: program.interner, rules: program.deps.rules, nodeOf: program.domain.nodeOf,
+  const deps = { types: program.interner, rules: program.deps.rules, nodeOf: program.domain.nodeOf, bindingOf: program.deps.bindingOf,
     typeOf: type => fixture.types.readType(program.interner, type),
     signatureOf: signature => fixture.types.readSignature(program.interner, signature),
     checkerDiagnosticsOf: module => {

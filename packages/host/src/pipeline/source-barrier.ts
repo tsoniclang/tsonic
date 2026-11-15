@@ -4,7 +4,7 @@ import { throwInvariant } from "../diag/index.js";
 import type { DefId, DefinitionPath, ModuleId, NodeId } from "../ids/contract.js";
 import { decodeBodyId } from "../ids/index.js";
 import type { LowerDeps, ModuleDefinitions, ModuleExports, ModuleSourceOccurrence, RawModule, RawNodeRef } from "../front/contract.js";
-import type { HirModule } from "../ir-hir/contract.js";
+import type { HirBindingViews, HirModule } from "../ir-hir/contract.js";
 import { createModuleBindingViews, indexSyntaxTree, projectExportDeclarations, verifyHir } from "../ir-hir/index.js";
 import type { Libraries, LibraryCatalogue } from "../libraries/contract.js";
 import { admitGuarantees, bindRoles, libraryExportKey } from "../libraries/index.js";
@@ -18,7 +18,7 @@ function fail(message: string): never {
   return throwInvariant({ owner: "pipeline", query: null, origin: null, message });
 }
 
-export interface SourceBarrier {
+export interface SourceBarrier extends HirBindingViews {
   readonly modules: readonly DeclsModule[];
   readonly types: TypeInterner;
   readonly descriptions: ReadonlyMap<DefId, DefinitionDescription>;
@@ -144,5 +144,5 @@ export function captureSourceBarrier(inputs: HostAnalysisInputs): Result<SourceB
     if (violations.length !== 0) return fail(`The actual Front checked module failed its owning HIR verification barrier: ${violations[0]?.rule}.`);
   }
   return { kind: "ok", diagnostics: opened.diagnostics,
-    value: { modules, types, descriptions, definitionPaths: paths, nominalOf, libraries: admitted.value } };
+    value: { modules, types, descriptions, definitionPaths: paths, nominalOf, libraries: admitted.value, bindingOf: views.bindingOf } };
 }

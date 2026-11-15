@@ -64,6 +64,11 @@ function arena(scan: ProjectionInventory, value: RelationalArena): Instantiation
     }
   });
   inventoryEach(scan, value.boundProducers, producer => inventoryRecord(scan, 4) ?? inventoryBindings(scan, producer.bindings));
+  inventoryEach(scan, value.producers, producer => {
+    const lookup = inventoryFields(scan, 1);
+    if (lookup !== null) return lookup;
+    return producer.kind === "local" ? inventoryRecord(scan, 4) ?? inventoryRecord(scan, 2) : null;
+  });
   inventoryEach(scan, value.boundaries, boundary => inventoryRecord(scan, 8) ?? inventoryBindings(scan, boundary.bindings));
   return inventoryRecord(scan, 7);
 }

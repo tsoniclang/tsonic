@@ -1156,7 +1156,7 @@ const projection: Decode<Projection> = (state, input) => then(label(input, ["fie
       finishRecord<Projection>(state, values, { kind: "deref" }));
   }
 });
-const producer: Decode<Producer> = (state, input) => then(label(input, ["allocation","parameter","receiver","capture","shared","cell-content","suspension-input","call-result"]), kind => {
+const producer: Decode<Producer> = (state, input) => then(label(input, ["allocation","parameter","receiver","capture","local","shared","cell-content","suspension-input","call-result"]), kind => {
   switch (kind) {
     case "allocation": return then(fields(state, input, kind), values =>
       then(readField(state, values, "id", producerIdentity), id =>
@@ -1177,6 +1177,11 @@ const producer: Decode<Producer> = (state, input) => then(label(input, ["allocat
       then(readField(state, values, "path", (state, input) => nullable(state, input, path)), path =>
       then(readField(state, values, "definition", definition), definition =>
         finishRecord<Producer>(state, values, { kind, id, path, definition })))));
+    case "local": return then(fields(state, input, kind), values =>
+      then(readField(state, values, "id", producerIdentity), id =>
+      then(readField(state, values, "path", (state, input) => nullable(state, input, path)), path =>
+      then(readField(state, values, "local", localRef), local =>
+        finishRecord<Producer>(state, values, { kind, id, path, local })))));
     case "cell-content": return then(fields(state, input, kind), values =>
       then(readField(state, values, "id", producerIdentity), id =>
       then(readField(state, values, "path", (state, input) => nullable(state, input, path)), path =>

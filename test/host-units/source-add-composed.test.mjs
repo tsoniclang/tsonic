@@ -54,7 +54,7 @@ test(`real SDK source add with ${resultAnnotation === "" ? "inferred" : "annotat
     rules: { libraries: { sources: [], sourceRoles: [], guarantees: [] }, types: interner, typeExpansion: EXPANSION },
     hirBody: body => domain.bodyOf.get(body) ?? assert.fail("the requested body is not in the ready module"),
     itemOf: definition => items.get(definition) ?? assert.fail("the requested declaration is not in the ready module"),
-    bindings: [checked.bindings],
+    bindings: [checked.bindings], ...hir.createModuleBindingViews([checked.bindings]),
     limits: { maximumVariablesPerGroup: 32, maximumAtomicContributionsPerGroup: 32 },
     graph: { maximumWork: 4096, maximumResultEntries: 4096 },
   });
@@ -86,7 +86,7 @@ test(`real SDK source add with ${resultAnnotation === "" ? "inferred" : "annotat
   }
   const typed = new Map();
   const elaborateDeps = { types: interner, rules: deps.rules, nodeOf: domain.nodeOf, typeOf: type => types.readType(interner, type),
-    signatureOf: signature => types.readSignature(interner, signature), checkerDiagnosticsOf: () => checked.checkerDiagnostics };
+    signatureOf: signature => types.readSignature(interner, signature), bindingOf: deps.bindingOf, checkerDiagnosticsOf: () => checked.checkerDiagnostics };
   const elaborate = body => {
     const record = solved.get(body.body);
     const result = wiring.elaborate.elaborate(elaborateDeps, {

@@ -510,6 +510,7 @@ export type FactsRule =
   | "relational-site-resolves" | "declared-site-ordinal"
   | "producer-id-dense" | "context-id-dense" | "bound-producer-id-dense" | "origins-id-dense" | "boundary-id-dense"
   | "projection-id-dense" | "projection-parent-precedes" | "projection-unique" | "producer-unique" | "producer-resolves"
+  | "local-producer-location-only"
   | "context-resolves" | "bound-producer-resolves" | "origins-resolves" | "boundary-resolves"
   | "origin-alternatives-order" | "origin-alternatives-correlated"
   | "capture-locations-exact" | "context-arguments-total" | "node-resolves" | "place-resolves"

@@ -1,7 +1,7 @@
 import { summaryKey } from "./summary-key.js";
 import type { Violation } from "../diag/contract.js";
 import type { DataflowAccount, DataflowResult, DataflowStop } from "../dataflow/contract.js";
-import { chargeResultEntries, chargeWork } from "../dataflow/index.js";
+import { accountFailure, chargeResultEntries, chargeWork } from "../dataflow/index.js";
 import { admitBindingIdentity, admitOwnerIdentity, admitSelectionIdentity, recordFinding } from "./verification.js";
 import type { KeyData, SourceNodeRef } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
@@ -323,6 +323,24 @@ export const verifyRelationalArena = (
         }
         break;
       case "receiver": identity = null; break;
+      case "local": {
+        const stop = chargeWork(account, 1 + producer.local.body.length) ?? chargeResultEntries(account, 2);
+        if (stop !== null) return stop;
+        identity = [producer.local.body, producer.local.local];
+        const selected = owner.kind === "body" ? owner.execution : owner.key.kind === "body" ? owner.key.execution : null;
+        let exists = false;
+        if (selected !== null && producer.local.body === selected.instance.body
+          && Number.isSafeInteger(producer.local.local) && producer.local.local >= 0 && !Object.is(producer.local.local, -0)) {
+          exists = context.localExists(producer.local);
+          const failure = accountFailure(account);
+          if (failure !== null) return failure;
+        }
+        if (!exists) {
+          const finding = report("producer-resolves", site, "A local location retains an actual qualified source local of its selected owning body.");
+          if (finding !== null) return finding;
+        }
+        break;
+      }
       case "cell-content":
         identity = [producer.cell, producer.phase];
         if (!validIndex(producer.cell, arena.cells.length) || !Object.is(arena.cells[producer.cell]?.id, producer.cell))
@@ -457,8 +475,17 @@ export const verifyRelationalArena = (
     for (const bound of origins.producers) {
     const step = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
     if (step !== null) return step;
-      if (!validIndex(bound, arena.boundProducers.length) || !Object.is(arena.boundProducers[bound]?.id, bound)) {
+      const alternative = validIndex(bound, arena.boundProducers.length) ? arena.boundProducers[bound] : undefined;
+      if (alternative === undefined || !Object.is(alternative.id, bound)) {
         { const stop = report("bound-producer-resolves", site, "An origin alternative must reference an actual bound producer in its own arena."); if (stop !== null) return stop; }
+      } else {
+        const lookup = chargeWork(account, 1);
+        if (lookup !== null) return lookup;
+        const producer = validIndex(alternative.producer, arena.producers.length) ? arena.producers[alternative.producer] : undefined;
+        if (producer?.kind === "local") {
+          const stop = report("local-producer-location-only", site, "A local producer denotes a storage location, never an origin of a value.");
+          if (stop !== null) return stop;
+        }
       }
       if (previous !== null && compareNumbers(previous, bound) >= 0) {
         { const stop = report("origin-alternatives-order", site, "Origin alternatives must be distinct and ordered by canonical bound-producer identity."); if (stop !== null) return stop; }

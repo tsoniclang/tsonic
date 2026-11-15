@@ -1,4 +1,4 @@
-import type { BoundProducerId, DefId, NodeRef, OpenBoundaryId, OriginsId, ProducerId, ProjectionPathId, ValueContextId } from "../ids/contract.js";
+import type { BoundProducerId, DefId, LocalRef, NodeRef, OpenBoundaryId, OriginsId, ProducerId, ProjectionPathId, ValueContextId } from "../ids/contract.js";
 import type { BindingVector } from "../ir-types/contract.js";
 import type { MemberSelection } from "../ir-tir/contract.js";
 import type { LogicalCellRow } from "./cells-data.js";
@@ -36,6 +36,7 @@ export type Producer = { readonly id: ProducerId; readonly path: ProjectionPathI
   | { readonly kind: "parameter"; readonly index: number }
   | { readonly kind: "receiver" }
   | { readonly kind: "capture"; readonly index: number }
+  | { readonly kind: "local"; readonly local: LocalRef }
   | { readonly kind: "shared"; readonly definition: DefId }
   | { readonly kind: "cell-content"; readonly cell: number; readonly phase: "entry" | "uncontrolled" }
   | { readonly kind: "suspension-input"; readonly at: NodeRef; readonly channel: "sent" | "return" | "thrown" }

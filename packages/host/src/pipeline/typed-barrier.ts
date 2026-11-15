@@ -79,7 +79,7 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
   };
   const inference = inferDepsOf({ rules: { libraries: source.libraries, types: source.types,
     typeExpansion: inputs.limits.instantiation.typeExpansion }, hirBody: bodyOf, itemOf,
-    bindings: source.modules.map(module => module.module.bindings), limits: inputs.limits.inference,
+    bindings: source.modules.map(module => module.module.bindings), bindingOf: source.bindingOf, limits: inputs.limits.inference,
     graph: inputs.limits.dataflow });
   const grouped = pipelineWiring.infer.groupsOf(inference, [...sources.bodies.keys()]);
   if (grouped.kind === "refused") return grouped;
@@ -134,7 +134,7 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
   }
   const bodies = new Map<string, TirBody>();
   const modules = new Map<ModuleId, TirModule>();
-  const elaboration = { types: source.types, rules: inference.rules, nodeOf: sources.nodeOf,
+  const elaboration = { types: source.types, rules: inference.rules, nodeOf: sources.nodeOf, bindingOf: source.bindingOf,
     typeOf: (type: Parameters<typeof readType>[1]) => readType(source.types, type),
     signatureOf: (signature: Parameters<typeof readSignature>[1]) => readSignature(source.types, signature),
     checkerDiagnosticsOf: (module: ModuleId) => source.modules.find(checked => checked.module.module === module)?.module.checkerDiagnostics

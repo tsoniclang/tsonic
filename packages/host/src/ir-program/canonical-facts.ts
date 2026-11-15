@@ -64,7 +64,8 @@ function rewriteArena(rewrite: TypeRewrite, arena: RelationalArena): RelationalA
         case "deref": return path;
       }
     }),
-    producers: arena.producers, contexts: arena.contexts,
+    producers: arena.producers.map(producer => producer.kind === "local"
+      ? { ...producer, local: { body: producer.local.body, local: producer.local.local } } : producer), contexts: arena.contexts,
     boundProducers: arena.boundProducers.map(producer => ({
       id: producer.id, producer: producer.producer, bindings: rewriteBindings(rewrite, producer.bindings), context: producer.context,
     })), origins: arena.origins,

@@ -26,6 +26,60 @@ const EXPANSION = { maximumDepth: 64, maximumVisits: 4096, maximumUnionMembers: 
 const LIMITS = { maximumVariablesPerGroup: 128, maximumAtomicContributionsPerGroup: 256 };
 const GRAPH = { maximumWork: 65536, maximumResultEntries: 65536 };
 
+test("actual import syntax retains qualified B1 occurrences without inventing a default clause binding", async () => {
+  const { modules } = fixture.checkedModulesOf({
+    "main.ts": "import defaultValue, { value as renamed, 'value' as quoted } from './leaf.js'; import * as space from './leaf.js'; import './leaf.js';",
+    "leaf.ts": "export function value(input: boolean): boolean { return input; } export { value as default };",
+  });
+  const main = modules.find(module => module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts"));
+  const { elaborateImport } = await import("../../packages/host/dist/elaborate/imports.js");
+  for (const statement of main.tree.statements.nodes) {
+    const typed = elaborateImport(statement);
+    assert.equal(typed.id, statement.id);
+    assert.equal(typed.moduleSpecifier.tsonic.target, statement.tsonic.target.value);
+    assert.equal(typed.tsonic.target, statement.tsonic.target.value);
+    assert.throws(() => elaborateImport({ ...statement, tsonic: { ...statement.tsonic,
+      target: { kind: "unavailable", reason: "not-provided", causes: [] } } }), /actual checked module target/);
+    const clause = statement.importClause;
+    if (clause === null) assert.equal(typed.importClause, null);
+    else if (clause.name === null) assert.equal(typed.importClause.tsonic, null);
+    else {
+      assert.deepEqual(typed.importClause.tsonic.binding, clause.tsonic.bindings[0]);
+      const cloned = structuredClone(statement);
+      assert.equal(elaborateImport(cloned).importClause.name.text, clause.name.text,
+        "equal qualified occurrences are not required to share an allocated reference object");
+      assert.throws(() => elaborateImport({ ...statement, importClause: { ...clause,
+        tsonic: { ...clause.tsonic, bindings: [] } } }), /checked binding occurrence/);
+      assert.throws(() => elaborateImport({ ...statement, importClause: { ...clause, name: { ...clause.name,
+        tsonic: { ...clause.name.tsonic, binding: { ...clause.tsonic.bindings[0],
+          value: { ...clause.tsonic.bindings[0].value, node: clause.id + 1 } } } } } }), /checked binding occurrence/);
+    }
+    const named = clause?.namedBindings;
+    if (named?.kind === "NamedImports") {
+      const selected = typed.importClause.namedBindings.elements.nodes;
+      assert.deepEqual(selected.map(node => node.tsonic.binding), named.elements.nodes.map(node => node.tsonic.bindings[0]));
+      const first = named.elements.nodes[0];
+      assert.throws(() => elaborateImport({ ...statement, importClause: { ...clause, namedBindings: { ...named,
+        elements: { ...named.elements, nodes: [{ ...first, tsonic: { ...first.tsonic, bindings: [] } }] } } } }), /one actual checked binding occurrence/);
+      for (const selected of named.elements.nodes) {
+        const property = selected.propertyName;
+        if (property === null) continue;
+        const bad = { ...selected, propertyName: { ...property, tsonic: { ...property.tsonic,
+          binding: { ...selected.tsonic.bindings[0], value: { ...selected.tsonic.bindings[0].value, node: selected.id + 1 } } } } };
+        assert.throws(() => elaborateImport({ ...statement, importClause: { ...clause,
+          namedBindings: { ...named, elements: { ...named.elements, nodes: [bad] } } } }), /checked binding occurrence/);
+      }
+    } else if (named?.kind === "NamespaceImport") {
+      assert.deepEqual(typed.importClause.namedBindings.tsonic.binding, named.tsonic.bindings[0]);
+      assert.throws(() => elaborateImport({ ...statement, importClause: { ...clause,
+        namedBindings: { ...named, tsonic: { ...named.tsonic, bindings: [] } } } }), /one actual checked binding occurrence/);
+      assert.throws(() => elaborateImport({ ...statement, importClause: { ...clause, namedBindings: { ...named,
+        name: { ...named.name, tsonic: { ...named.name.tsonic,
+          binding: { kind: "body", value: { body: main.bodies[0].body, node: named.id } } } } } } }), /checked binding occurrence/);
+    }
+  }
+});
+
 test("real bodyless call, method, construct and index formals retain definitions without execution locals", async () => {
   const program = ready('export function value(argument: boolean): boolean { return argument; } interface Callable { (value: number): number; method(value: boolean): boolean; new(value: string): Callable; [key: number]: number; [""]: number; [tag]: string; } declare const tag: symbol;');
   const { types } = fixture;
@@ -36,7 +90,7 @@ test("real bodyless call, method, construct and index formals retain definitions
     for (const set of answer.value.constraints.constraints) records.set(set.body, { constraints: set, solution: answer.value.solution });
   }
   const bodies = new Map();
-  const deps = { types: program.interner, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf,
+  const deps = { types: program.interner, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf, bindingOf: program.inputs.inference.bindingOf,
     typeOf: type => types.readType(program.interner, type), signatureOf: signature => types.readSignature(program.interner, signature),
     checkerDiagnosticsOf: () => program.checked.checkerDiagnostics };
   const orderedBodies = [...program.checked.bodies.filter(body => body.root.kind !== "SourceFile"),
@@ -114,7 +168,7 @@ for (const annotation of ["boolean", null]) test(`real ${annotation ?? "inferred
     assert.equal(answer.diagnostics.length, 0);
     for (const set of answer.value.constraints.constraints) records.set(set.body, { constraints: set, solution: answer.value.solution });
   }
-  const deps = { types: program.interner, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf,
+  const deps = { types: program.interner, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf, bindingOf: program.inputs.inference.bindingOf,
     typeOf: type => types.readType(program.interner, type), signatureOf: signature => types.readSignature(program.interner, signature),
     checkerDiagnosticsOf: () => program.checked.checkerDiagnostics };
   const inputOf = (body, nestedBodies) => ({ instance: { body: body.body, bindings: { kind: "parametric" } },
@@ -161,7 +215,7 @@ function ready(source) {
   const declarations = { modules: [{ module: checked, nodes: domain.nodes }], types: interner, typeExpansion: EXPANSION };
   const inference = inferStep.inferDepsOf({ rules: { libraries: { sources: [], sourceRoles: [], guarantees: [] },
     types: interner, typeExpansion: EXPANSION }, hirBody: body => domain.bodyOf.get(body) ?? assert.fail("actual checked body"),
-    itemOf: definition => items.get(definition) ?? assert.fail("actual checked declaration"), bindings: [checked.bindings], limits: LIMITS, graph: GRAPH });
+    itemOf: definition => items.get(definition) ?? assert.fail("actual checked declaration"), bindings: [checked.bindings], ...fixture.hir.createModuleBindingViews([checked.bindings]), limits: LIMITS, graph: GRAPH });
   const grouped = wiring.infer.groupsOf(inference, checked.bodies.map(body => body.body));
   assert.equal(grouped.kind, "ok");
   const types = fixture.types.viewTypes(interner);
@@ -201,7 +255,7 @@ for (const annotation of ["boolean", null]) test(`real ${annotation ?? "inferred
     for (const set of answer.value.constraints.constraints) records.set(set.body, { ...answer.value, constraints: set });
   }
   const typed = new Map();
-  const deps = { types: program.interner, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf,
+  const deps = { types: program.interner, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf, bindingOf: program.inputs.inference.bindingOf,
     typeOf: type => types.readType(program.interner, type), signatureOf: signature => types.readSignature(program.interner, signature),
     checkerDiagnosticsOf: () => program.checked.checkerDiagnostics };
   const elaborate = source => {
@@ -330,7 +384,7 @@ for (const [authored, annotation, kind, expected] of [
   assert.deepEqual(embedding.proof.steps, [{ from: { root: from.value.component, path: [] },
     to: { root: to.value.component, path: [] }, rule: "literal-fit", premises: [] }]);
   const typed = new Map();
-  const deps = { types: program.interner, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf,
+  const deps = { types: program.interner, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf, bindingOf: program.inputs.inference.bindingOf,
     typeOf: type => types.readType(program.interner, type), signatureOf: signature => types.readSignature(program.interner, signature),
     checkerDiagnosticsOf: () => program.checked.checkerDiagnostics };
   const elaborate = body => {
@@ -409,7 +463,7 @@ test(`real ${annotation === null ? "inferred" : "annotated"} ${authored} default
     assert.equal(initializerRecord.solution.constraints[0].decision.embedding.conversion, "literal-fit");
   }
   const typed = new Map();
-  const deps = { types: program.interner, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf,
+  const deps = { types: program.interner, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf, bindingOf: program.inputs.inference.bindingOf,
     typeOf: type => types.readType(program.interner, type), signatureOf: signature => types.readSignature(program.interner, signature),
     checkerDiagnosticsOf: () => program.checked.checkerDiagnostics };
   const inputOf = body => ({ instance: { body: body.body, bindings: { kind: "parametric" } },
@@ -515,7 +569,7 @@ test("an actual null return completes its inferred declaration and selected body
     for (const set of answer.value.constraints.constraints) records.set(set.body, { ...answer.value, constraints: set });
   }
   const typed = new Map();
-  const deps = { types: program.interner, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf,
+  const deps = { types: program.interner, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf, bindingOf: program.inputs.inference.bindingOf,
     typeOf: type => types.readType(program.interner, type), signatureOf: signature => types.readSignature(program.interner, signature),
     checkerDiagnosticsOf: () => program.checked.checkerDiagnostics };
   const inputOf = body => ({ instance: { body: body.body, bindings: { kind: "parametric" } },

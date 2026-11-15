@@ -7,6 +7,7 @@ import type { ConstraintsOf, ConstraintsPaused, ConstraintsRequest, GroupConstra
 import { requirePresent, resourceLimitDiagnostic } from "../diag/index.js";
 import { internType, readType, signatureRequestKey } from "../ir-types/index.js";
 import { inferredPartKey, inferredPartsOf } from "../ir-infer/index.js";
+import { resolveModuleBinding } from "../ir-hir/index.js";
 import { callerDefect, notInferredYet, validateInferenceLimits } from "./frontier.js";
 import { ownSignatureRequest } from "./own-signature.js";
 import { callableEndpoints, candidateEndpoint, endpointRequest, unavailableCandidate } from "./candidates.js";
@@ -188,7 +189,7 @@ function generate(deps: InferDeps, group: InferenceGroup, signatures: ReadonlyMa
     if (body.root.kind === "SourceFile") {
       for (const statement of body.root.statements.nodes)
         if (statement.kind !== "FunctionDeclaration" && statement.kind !== "VariableStatement"
-          && statement.kind !== "InterfaceDeclaration" && statement.kind !== "TypeAliasDeclaration")
+          && statement.kind !== "InterfaceDeclaration" && statement.kind !== "TypeAliasDeclaration" && statement.kind !== "ImportDeclaration")
           return notInferredYet(PORT, `a ${statement.kind} in a module body`, statement.origin);
     } else {
       const pending: Frame[] = [{ kind: "enter", node: body.root }];
@@ -348,16 +349,20 @@ function leave(walk: Walk, node: HirNode): void {
 
 function localType(walk: Walk, node: Extract<HirNode, { readonly kind: "Identifier" }>): Slot {
   const name = node.tsonic;
-  if (name.role === "value" && name.resolution.kind === "declarations") {
-    const signatures = name.resolution.definitions.flatMap(definition => callableEndpoints(walk.generation.deps, definition).map(endpoint => {
+  if (name.role !== "value") return notInferredYet(PORT, "a value read without its checked value role", node.origin);
+  const binding = name.resolution.kind === "binding" ? resolveModuleBinding(walk.generation.deps, name.resolution.occurrence) : null;
+  const resolution = binding === null ? name.resolution : binding.target.kind === "available" ? binding.target.value
+    : notInferredYet(PORT, "a binding whose actual nearest target is unavailable (" + binding.target.reason + ")", node.origin);
+  if (resolution.kind === "declarations") {
+    const signatures = resolution.definitions.flatMap(definition => callableEndpoints(walk.generation.deps, definition).map(endpoint => {
       const request = endpointRequest(walk.generation.deps, endpoint, { kind: "instantiated", bindings: TEMPLATE });
       return present(walk.generation.signatures.get(signatureRequestKey(request)), "the actual declared callee signature").id;
     }));
     return internType(walk.generation.deps.types, { kind: "callable", calls: signatures, constructs: [] });
   }
-  if (name.role !== "value" || name.resolution.kind !== "local")
+  if (resolution.kind !== "local")
     return notInferredYet(PORT, "a value read that is not an actual local", node.origin);
-  const reference = name.resolution.local;
+  const reference = resolution.local;
   const parameters = parametersOf(walk.generation, reference.body);
   const parameter = parameters.get(reference.local);
   if (parameter !== undefined) return parameter;

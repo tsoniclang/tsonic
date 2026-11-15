@@ -359,6 +359,10 @@ export const verifyOccurrenceRole = (node: TirNode, original: HirNode | undefine
       if (node.tsonic === null || binding === undefined || !sameSourceReference(binding, node.tsonic.binding))
         emit("binding-capture-owner", node, "a default import must retain its actual checked qualified occurrence");
     }
+  } else if (node.kind === "ImportSpecifier" || node.kind === "NamespaceImport") {
+    const binding = original?.kind === node.kind ? original.tsonic.bindings.find(occurrence => occurrence.value.node === node.id) : undefined;
+    if (node.tsonic === null || !("binding" in node.tsonic) || binding === undefined || !sameSourceReference(binding, node.tsonic.binding))
+      emit("binding-capture-owner", node, "an imported name must retain its actual checked qualified occurrence");
   } else if (source !== undefined && source !== null && target !== null && ("binding" in source || "binding" in target)) {
     if (!("binding" in source) || !("binding" in target) || !sameSourceReference(source.binding, target.binding))
       emit("binding-capture-owner", node, "typed binding syntax must retain its actual checked qualified occurrence");

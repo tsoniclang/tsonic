@@ -2,7 +2,7 @@ import type { InvariantFailure, Result } from "../diag/contract.js";
 import { requirePresent, throwInvariant } from "../diag/index.js";
 import type { BodyId, NodeId, NodeRef, Origin, TyId } from "../ids/contract.js";
 import type { BinaryExpression, Block, CheckedPhase, Expression, HirBody, HirNode, Identifier, NodeHeader, ParameterDeclaration, Statement, VariableDeclaration } from "../ir-hir/contract.js";
-import { walkSyntaxTree } from "../ir-hir/index.js";
+import { resolveModuleBinding, walkSyntaxTree } from "../ir-hir/index.js";
 import type { ApplicationDecision, BodyTyping, EmbeddingDecision, FlowRole, InferredSignaturePart } from "../ir-infer/contract.js";
 import type { TirArgument, TirBody, TirLocal, TirResolution, TypedOperation, TypedPhase, TypedValue } from "../ir-tir/contract.js";
 import { artifactBindingsKey } from "../ir-types/index.js";
@@ -276,13 +276,15 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
   const admitName = (node: Identifier<CheckedPhase>, position: number): void => {
     const checked = node.tsonic;
     if (checked.role !== "value") return notElaboratedYet(`a name of role ${checked.role}`, node.origin);
-    const resolution = checked.resolution;
+    const binding = checked.resolution.kind === "binding" ? resolveModuleBinding(deps, checked.resolution.occurrence) : null;
+    const resolution = binding === null ? checked.resolution : binding.target.kind === "available" ? binding.target.value
+      : notElaboratedYet("a binding whose actual nearest target is unavailable (" + binding.target.reason + ")", node.origin);
     if (resolution.kind === "declarations") {
       const definition = resolution.definitions[0];
       const storage = calleeTypes.get(node.id);
       if (resolution.definitions.length !== 1 || definition === undefined || storage === undefined)
         return notElaboratedYet("the selected declaration-value type and alias relation", node.origin);
-      names[position] = { resolution: { kind: "definition", definition, aliases: [] }, storage };
+      names[position] = { resolution: { kind: "definition", definition, aliases: binding?.aliases ?? [] }, storage };
       return;
     }
     if (resolution.kind !== "local") return notElaboratedYet(`a name resolving to a ${resolution.kind}`, node.origin);

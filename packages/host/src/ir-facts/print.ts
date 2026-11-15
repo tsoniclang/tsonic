@@ -284,6 +284,7 @@ const producer = (writer: Writer, value: Producer): void => {
     case "allocation": fields.push(["at", () => site(writer, value.at)]); break;
     case "parameter": case "capture": fields.push(["index", () => scalar(writer, value.index)]); break;
     case "receiver": break;
+    case "local": fields.push(["local", () => localRef(writer, value.local)]); break;
     case "shared": fields.push(["definition", () => identity(writer, "def", value.definition)]); break;
     case "cell-content": fields.push(["cell", () => identity(writer, "cell", value.cell)], ["phase", () => scalar(writer, value.phase)]); break;
     case "suspension-input": fields.push(["at", () => nodeRef(writer, value.at)], ["channel", () => scalar(writer, value.channel)]); break;
