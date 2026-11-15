@@ -72,3 +72,25 @@ test("real public AnalyzeHostProgram closes the exported float64 add and every a
     && statement.value.operation.decision.operation.carrier === "float64")), true,
   "the selected native addition survives as the canonical MIR binary assignment");
 });
+
+for (const limit of ["work", "result-entries", "query.maximumRecords"])
+test(`real public AnalyzeHostProgram refuses ${limit} exhaustion without publishing a partial program`, async () => {
+  assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true);
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal");
+  if (limit === "work") input.limits.dataflow.maximumWork = 0;
+  else if (limit === "result-entries") input.limits.dataflow.maximumResultEntries = 0;
+  else input.limits.query.maximumRecords = 0;
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "refused");
+  assert.equal(Object.hasOwn(result, "value"), false, "a refused invocation cannot expose a partial HostProgram");
+  assert.equal(result.diagnostics.length, 1);
+  const diagnostic = result.diagnostics[0];
+  assert.equal(diagnostic.code.kind, "host");
+  assert.equal(diagnostic.code.name, "TSONIC_COMPILER_RESOURCE_LIMIT");
+  assert.equal(diagnostic.severity, "error");
+  assert.equal(diagnostic.source, limit === "query.maximumRecords" ? "query" : "infer");
+  const reportedLimit = limit === "query.maximumRecords" ? limit : `partition graph ${limit}`;
+  assert.deepEqual(diagnostic.arguments, [{ kind: "text", value: reportedLimit }, { kind: "number", value: 0 }]);
+});
