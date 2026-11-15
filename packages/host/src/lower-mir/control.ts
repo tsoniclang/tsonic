@@ -1,11 +1,155 @@
-import type { BlockId, ConstId } from "../ids/contract.js";
-import type { BreakStatement, ContinueStatement, DoStatement, ForStatement, IfStatement, LabeledStatement, NodeHeader, WhileStatement } from "../ir-hir/contract.js";
+import type { BlockId, ConstId, PlaceId } from "../ids/contract.js";
+import type { BinaryExpression, BreakStatement, ConditionalExpression, ContinueStatement, DoStatement, ForStatement, IfStatement, LabeledStatement, NodeHeader, WhileStatement } from "../ir-hir/contract.js";
 import type { TypedPhase } from "../ir-tir/contract.js";
 import type { ControlScope, Evaluated, LoopContinuation, Lowering, Work } from "./model.js";
-import { callerDefect, failure, notLoweredYet, siteOf } from "./model.js";
-import { popOperand } from "./operands.js";
+import { callerDefect, failure, notLoweredYet, rawType, siteOf } from "./model.js";
+import { held, popOperand, pushOperand, temporary } from "./operands.js";
 import { leaveLocalScopes } from "./bindings.js";
-import { constantOperand, enterBlock, newBlock, terminate } from "./state.js";
+import { constantOperand, emitStatement, enterBlock, newBlock, terminate } from "./state.js";
+
+export function enterConditional(lowering: Lowering, node: ConditionalExpression<TypedPhase>): boolean {
+  const condition = popOperand(lowering, failure("a conditional completed without its control", node.origin));
+  const selected = node.tsonic.selection;
+  if (selected.kind !== "conditional") return callerDefect("a conditional has another selection kind", node.origin);
+  const control = booleanControl(lowering, condition, node.condition);
+  if (control === null) return false;
+  if (selected.disposition !== "dynamic") return selectArm(lowering, node, selected.disposition === "true");
+  if (control.kind === "known") return selectArm(lowering, node, control.value);
+  const head = lowering.state.current;
+  if (head === null) return callerDefect("a conditional has no executing split", node.origin);
+  const site = siteOf(lowering.body, node);
+  const result = temporary(lowering, rawType(node.tsonic), site);
+  if (result === null) return false;
+  const first = newBlock(lowering.state, siteOf(lowering.body, node.whenTrue));
+  if (first === null) return false;
+  const otherwise = newBlock(lowering.state, siteOf(lowering.body, node.whenFalse));
+  if (otherwise === null) return false;
+  const exit = newBlock(lowering.state, site);
+  if (exit === null) return false;
+  lowering.branches.push({ block: head.id, prefix: lowering.operands.length });
+  terminate(lowering.state, { ...site, kind: "switch", operand: condition.operand, targets: [{ constant: control.constant, target: first }], otherwise, step: null });
+  enterBlock(lowering.state, first);
+  lowering.selections.set(node.condition.id, "true");
+  lowering.work.push({ kind: "conditional-true", node, place: result, otherwise, exit }, { kind: "expression", node: node.whenTrue });
+  return true;
+}
+
+function selectArm(lowering: Lowering, node: ConditionalExpression<TypedPhase>, taken: boolean): boolean {
+  lowering.selections.set(node.condition.id, taken ? "true" : "false");
+  lowering.work.push({ kind: "selected-end", node }, { kind: "expression", node: taken ? node.whenTrue : node.whenFalse });
+  return true;
+}
+
+function assignSelected(lowering: Lowering, node: ConditionalExpression<TypedPhase> | BinaryExpression<TypedPhase>, place: PlaceId, value: Evaluated): boolean {
+  if (value.storage !== rawType(node.tsonic)) return callerDefect("a selected arm differs from its actual result storage", node.origin);
+  return emitStatement(lowering.state, { ...siteOf(lowering.body, node), kind: "assign", place, value: { kind: "use", operand: value.operand }, step: null });
+}
+
+function selectedResult(lowering: Lowering, node: ConditionalExpression<TypedPhase> | BinaryExpression<TypedPhase>, place: PlaceId): boolean {
+  const value = popOperand(lowering, failure("a selected arm completed without its value", node.origin));
+  return assignSelected(lowering, node, place, value);
+}
+
+export function endSelected(lowering: Lowering, node: ConditionalExpression<TypedPhase> | BinaryExpression<TypedPhase>): boolean {
+  const value = popOperand(lowering, failure("a selected arm completed without its value", node.origin));
+  if (value.storage !== rawType(node.tsonic)) return callerDefect("a selected arm differs from its actual result storage", node.origin);
+  pushOperand(lowering, value);
+  lowering.selections.delete(node.kind === "ConditionalExpression" ? node.condition.id : node.left.id);
+  return true;
+}
+
+export function enterShortCircuit(lowering: Lowering, node: BinaryExpression<TypedPhase>): boolean {
+  const left = popOperand(lowering, failure("a short-circuit expression completed without its control", node.origin));
+  const payload = node.tsonic;
+  if (payload.role !== "short-circuit" || payload.selection.kind === "conditional")
+    return callerDefect("a short-circuit expression has another selection kind", node.origin);
+  const selected = payload.selection;
+  const when = selected.kind === "and" ? "true" : selected.kind === "or" ? "false" : "absent";
+  if (selected.disposition === "right") return selectRight(lowering, node, when);
+  if (selected.disposition === "left") return keepLeft(lowering, node, left);
+  let constant: ConstId;
+  let rightOnMatch: boolean;
+  if (selected.kind === "coalesce") {
+    const type = lowering.typeOf(left.storage);
+    if (type.kind === "intrinsic" && type.intrinsic === "absence") return selectRight(lowering, node, when);
+    if (type.kind !== "optional") return notLoweredYet("a coalescing selector without its selected absence carrier", node.origin);
+    const absence = constantOperand(lowering.state, left.storage, { kind: "literal", value: { kind: "absence" } });
+    if (absence === null) return false;
+    constant = absence.constant;
+    rightOnMatch = true;
+  } else {
+    const control = booleanControl(lowering, left, node.left);
+    if (control === null) return false;
+    if (control.kind === "known") return control.value === (selected.kind === "and")
+      ? selectRight(lowering, node, when) : keepLeft(lowering, node, left);
+    constant = control.constant;
+    rightOnMatch = selected.kind === "and";
+  }
+  const head = lowering.state.current;
+  if (head === null) return callerDefect("a short-circuit expression has no executing split", node.origin);
+  if (left.storage !== rawType(payload)) return notLoweredYet("a selected result storage embedding", node.origin);
+  const site = siteOf(lowering.body, node);
+  const result = temporary(lowering, rawType(payload), site);
+  if (result === null) return false;
+  const retained = newBlock(lowering.state, siteOf(lowering.body, node.left));
+  if (retained === null) return false;
+  const right = newBlock(lowering.state, siteOf(lowering.body, node.right));
+  if (right === null) return false;
+  const exit = newBlock(lowering.state, site);
+  if (exit === null) return false;
+  lowering.branches.push({ block: head.id, prefix: lowering.operands.length });
+  terminate(lowering.state, { ...site, kind: "switch", operand: left.operand,
+    targets: [{ constant, target: rightOnMatch ? right : retained }], otherwise: rightOnMatch ? retained : right, step: null });
+  enterBlock(lowering.state, retained);
+  if (!assignSelected(lowering, node, result, left)) return false;
+  terminate(lowering.state, { ...site, kind: "goto", target: exit });
+  enterBlock(lowering.state, right);
+  lowering.selections.set(node.left.id, when);
+  lowering.work.push({ kind: "short-circuit-end", node, place: result, exit }, { kind: "expression", node: node.right });
+  return true;
+}
+
+function selectRight(lowering: Lowering, node: BinaryExpression<TypedPhase>, when: "true" | "false" | "absent"): boolean {
+  lowering.selections.set(node.left.id, when);
+  lowering.work.push({ kind: "selected-end", node }, { kind: "expression", node: node.right });
+  return true;
+}
+
+function keepLeft(lowering: Lowering, node: BinaryExpression<TypedPhase>, left: Evaluated): boolean {
+  if (left.storage !== rawType(node.tsonic)) return notLoweredYet("a selected result storage embedding", node.origin);
+  pushOperand(lowering, left);
+  return true;
+}
+
+export function endShortCircuit(lowering: Lowering, pending: Extract<Work, { readonly kind: "short-circuit-end" }>): boolean {
+  if (!selectedResult(lowering, pending.node, pending.place)) return false;
+  terminate(lowering.state, { ...siteOf(lowering.body, pending.node), kind: "goto", target: pending.exit });
+  lowering.branches.pop();
+  lowering.selections.delete(pending.node.left.id);
+  enterBlock(lowering.state, pending.exit);
+  pushOperand(lowering, held(pending.place, rawType(pending.node.tsonic), siteOf(lowering.body, pending.node)));
+  return true;
+}
+
+export function endConditionalTrue(lowering: Lowering, pending: Extract<Work, { readonly kind: "conditional-true" }>): boolean {
+  if (!selectedResult(lowering, pending.node, pending.place)) return false;
+  terminate(lowering.state, { ...siteOf(lowering.body, pending.node), kind: "goto", target: pending.exit });
+  enterBlock(lowering.state, pending.otherwise);
+  lowering.selections.set(pending.node.condition.id, "false");
+  lowering.work.push({ kind: "conditional-false", node: pending.node, place: pending.place, exit: pending.exit },
+    { kind: "expression", node: pending.node.whenFalse });
+  return true;
+}
+
+export function endConditionalFalse(lowering: Lowering, pending: Extract<Work, { readonly kind: "conditional-false" }>): boolean {
+  if (!selectedResult(lowering, pending.node, pending.place)) return false;
+  terminate(lowering.state, { ...siteOf(lowering.body, pending.node), kind: "goto", target: pending.exit });
+  lowering.branches.pop();
+  lowering.selections.delete(pending.node.condition.id);
+  enterBlock(lowering.state, pending.exit);
+  pushOperand(lowering, held(pending.place, rawType(pending.node.tsonic), siteOf(lowering.body, pending.node)));
+  return true;
+}
 
 function booleanControl(lowering: Lowering, condition: Evaluated, node: NodeHeader):
   { readonly kind: "known"; readonly value: boolean } | { readonly kind: "dynamic"; readonly constant: ConstId } | null {

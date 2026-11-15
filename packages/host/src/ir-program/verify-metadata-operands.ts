@@ -22,7 +22,7 @@ const rootOccurrence = (metadata: MetadataRecord): SourceNodeRef | null => metad
   ? metadata.occurrence : metadata.kind === "memory-layout" ? metadata.layouts[metadata.root]?.occurrence ?? null
   : metadata.fields[metadata.root]?.occurrence ?? null;
 
-function authorize(published: PublishedBody, input: TirVerifierInput, lookup: ProgramLookup,
+function authorize(published: Extract<PublishedBody, { readonly kind: "selected" }>, input: TirVerifierInput, lookup: ProgramLookup,
   context: ProgramVerificationContext, types: TypeInterner,
   requests: Iterable<{ readonly node: NodeId; readonly key: MetadataKey }>, allowed: Map<NodeId, Set<string>>): ProgramVerificationResult {
   const candidates: { readonly node: NodeId; readonly key: MetadataKey; readonly vector: number }[] = [];
@@ -148,7 +148,7 @@ function authorize(published: PublishedBody, input: TirVerifierInput, lookup: Pr
   return { kind: "complete", violations: [] };
 }
 
-export function verifyMetadataOperands(published: PublishedBody, input: TirVerifierInput, lookup: ProgramLookup,
+export function verifyMetadataOperands(published: Extract<PublishedBody, { readonly kind: "selected" }>, input: TirVerifierInput, lookup: ProgramLookup,
   context: ProgramVerificationContext, types: TypeInterner): ProgramVerificationResult {
   const allowed = new Map<NodeId, Set<string>>();
   const requested = new Map<string, { readonly node: NodeId; readonly key: MetadataKey;

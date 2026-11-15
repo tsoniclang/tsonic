@@ -30,6 +30,7 @@ function verifyReferenceRoots(
   lookup: ProgramLookup, published: PublishedBody, context: ProgramVerificationContext,
 ): readonly ProgramViolation[] {
   const violations: ProgramViolation[] = [];
+  if (published.kind === "template") return violations;
   const site: ProgramSite = { kind: "body", instance: published.instance };
   function missing(rule: "binding-artifact-present" | "cross-owner-reference-resolves", path: string, key: string): void {
     violations.push({ rule, site, detail: [textDetail(path), textDetail(key)] });
@@ -217,12 +218,13 @@ export function verifyPublishedChildren(
   lookup: ProgramLookup,
 ): ProgramVerificationResult {
   const violations: ProgramViolation[] = [];
+  if (input !== null) input = { ...input, module: {
+    module: module.module, tree: module.tree, bodies: module.bodies.map(published => published.tir),
+  } };
   if (input === null) {
     violations.push({ rule: "tir-valid", site: { kind: "module", module: module.module }, detail: [textDetail("missing-module-data")] });
   } else {
-    for (const child of verifyTirModule(input, {
-      module: module.module, tree: module.tree, bodies: module.bodies.map(published => published.tir),
-    })) {
+    for (const child of verifyTirModule(input, input.module)) {
       const site: ProgramSite = { kind: "node", module: child.site.module, node: child.site.node };
       violations.push({ rule: programChildRule("tir-valid", child.rule), site, detail: [textDetail(child.rule), ...child.detail] });
     }
@@ -230,6 +232,12 @@ export function verifyPublishedChildren(
   const sourceBodies = uniqueRows(input === null ? [] : input.source.bodies, body => body.body);
   for (const published of module.bodies) {
     const site: ProgramSite = { kind: "body", instance: published.instance };
+    if (input !== null) {
+      for (const child of verifyTir(input, published.tir)) {
+        violations.push({ rule: programChildRule("tir-valid", child.rule), site, detail: [textDetail(child.rule), ...child.detail] });
+      }
+    }
+    if (published.kind === "template") continue;
     const source = sourceBodies.get(published.instance.body);
     if (source === undefined || source === null || input === null) {
       violations.push({ rule: "facts-valid", site, detail: [textDetail("missing-observation-source")] });
@@ -250,9 +258,6 @@ export function verifyPublishedChildren(
       for (const child of metadata.violations) violations.push(child);
     }
     if (input !== null) {
-      for (const child of verifyTir(input, published.tir)) {
-        violations.push({ rule: programChildRule("tir-valid", child.rule), site, detail: [textDetail(child.rule), ...child.detail] });
-      }
       const mir = verifyMir(published.mir, {
         selectedNativeFacts: context.selectedNativeFacts,
         limits: context.mirVerification, source: published.tir, bodyOf: input.bodyOf, types: index.types,
@@ -329,6 +334,13 @@ export function verifyModuleInventory(
       violations.push({ rule: "body-levels-total", site: bodySite, detail: [textDetail(module.module)] });
     }
     const tirKey = instanceKey({ body: published.tir.body, bindings: published.tir.bindings });
+    if (key !== tirKey || (published.kind === "template") !== (published.instance.bindings.kind === "parametric")) {
+      violations.push({ rule: "body-instance-exact", site: bodySite, detail: [textDetail(tirKey), textDetail(published.kind)] });
+    }
+    if (expected !== undefined && expected !== null && expected.kind !== published.kind) {
+      violations.push({ rule: "body-levels-total", site: bodySite, detail: [textDetail(expected.kind), textDetail(published.kind)] });
+    }
+    if (published.kind === "template") continue;
     const mirKey = instanceKey({ body: published.mir.body, bindings: published.mir.bindings });
     const observationsKey = instanceKey(published.observations.instance);
     if (key !== tirKey || key !== mirKey || key !== observationsKey) {
@@ -365,7 +377,7 @@ export function verifyModuleInventory(
         violations.push({ rule: "execution-entry-resolves", site: bodySite, detail: [numberDetail(execution.provided)] });
       }
     }
-    if (expected !== undefined && expected !== null) {
+    if (expected !== undefined && expected !== null && expected.kind === "selected") {
       const actualCounts = [
         published.mir.locals.length, published.mir.constants.length,
         published.mir.places.length, published.mir.blocks.length,

@@ -1,6 +1,6 @@
 import { requirePresent } from "../diag/index.js";
 import type { LocalId } from "../ids/contract.js";
-import type { CallExpression, Expression } from "../ir-hir/contract.js";
+import type { CallExpression, Expression, NewExpression } from "../ir-hir/contract.js";
 import type { MirCallArgument } from "../ir-mir/contract.js";
 import type { TypedPhase, TypedValue } from "../ir-tir/contract.js";
 import type { Lowering, Work } from "./model.js";
@@ -8,19 +8,23 @@ import { callerDefect, failure, notLoweredYet, siteOf } from "./model.js";
 import { exposeLocal, held, popOperand, pushOperand, saveHandedOut, temporary } from "./operands.js";
 import { constantOperand, enterBlock, newBlock, placeOfLocal, terminate } from "./state.js";
 
-export function enterCall(lowering: Lowering, node: CallExpression<TypedPhase>): boolean {
+export function enterCall(lowering: Lowering, node: CallExpression<TypedPhase> | NewExpression<TypedPhase>): boolean {
   const selected = node.tsonic;
   if (selected.operation !== null) return notLoweredYet("a call with a selected operation", node.origin);
   if (selected.application.kind !== "decided") return callerDefect("a deferred call application", node.origin);
   const application = selected.application.decision;
+  const signature = lowering.signatureOf(application.callee.decision.api.signature);
+  if (signature.kind !== (node.kind === "NewExpression" ? "construct" : "call"))
+    return callerDefect("an application has another selected invocation kind", node.origin);
   if (application.receiver !== null) return notLoweredYet("a call with a receiver", node.origin);
   const callee = node.expression;
   const direct = callee.kind === "Identifier" && callee.tsonic.role === "value" && callee.tsonic.resolution.kind === "definition";
-  if (direct && callee.tsonic.resolution.definition !== application.callee.decision.advertised.declaration)
+  if (direct && node.kind === "CallExpression" && callee.tsonic.resolution.definition !== application.callee.decision.advertised.declaration)
     return callerDefect("a direct call target differs from its selected declaration", node.origin);
   lowering.work.push({ kind: "call", node, application, direct });
-  for (let position = node.arguments.nodes.length - 1; position >= 0; position -= 1) {
-    const argument = requirePresent(node.arguments.nodes[position], failure("a call argument list contains a hole", node.origin));
+  const arguments_ = node.arguments?.nodes;
+  for (let position = (arguments_?.length ?? 0) - 1; position >= 0; position -= 1) {
+    const argument = requirePresent(arguments_?.[position], failure("a call argument list contains a hole", node.origin));
     if (argument.kind === "SpreadElement") return notLoweredYet("a spread call argument", argument.origin);
     const mapping = application.callee.decision.parameters[position];
     lowering.work.push({ kind: mapping?.kind === "argument" && mapping.passing !== "by-value" && mapping.passing !== "move"
@@ -61,10 +65,12 @@ export function argumentPlace(lowering: Lowering, node: Expression<TypedPhase>):
 export function finishCall(lowering: Lowering, pending: Extract<Work, { readonly kind: "call" }>): boolean {
   const { node, application } = pending;
   const decision = application.callee.decision;
-  if (application.arguments.length < node.arguments.nodes.length || decision.parameters.length !== application.arguments.length)
+  const sourceArguments = node.arguments?.nodes;
+  const sourceCount = sourceArguments?.length ?? 0;
+  if (application.arguments.length < sourceCount || decision.parameters.length !== application.arguments.length)
     return notLoweredYet("a call with unmatched argument and parameter inventories", node.origin);
   const arguments_: MirCallArgument[] = [];
-  let argument = node.arguments.nodes.length - 1;
+  let argument = sourceCount - 1;
   let supplied = false;
   for (let position = application.arguments.length - 1; position >= 0; position -= 1) {
     const selected = requirePresent(application.arguments[position], failure("a call has no selected argument", node.origin));
@@ -87,7 +93,7 @@ export function finishCall(lowering: Lowering, pending: Extract<Work, { readonly
     supplied = true;
     if (selected.kind !== "provided" || mapping.kind !== "argument" || mapping.component !== null)
       return notLoweredYet("a call with omitted, rest or expanded arguments", node.origin);
-    const authored = requirePresent(node.arguments.nodes[argument], failure("a call has a selected argument without its source", node.origin));
+    const authored = requirePresent(sourceArguments?.[argument], failure("a call has a selected argument without its source", node.origin));
     if (selected.expression !== authored.id || mapping.argument !== argument)
       return callerDefect("a call argument differs from its actual selected mapping", node.origin);
     const value = popOperand(lowering, failure("a call completed without its argument", node.origin));

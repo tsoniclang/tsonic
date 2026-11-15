@@ -1,10 +1,10 @@
 import type { BodyRecord, ConstantRecord, ModuleRecord, PackageRecord, PrintModuleBodies, PrintProgramIndex, PublishedBody, SignatureRecord } from "./contract.js";
 import type { SyntaxTextContext, TextWork } from "./text-values.js";
 import type { TirBody } from "../ir-tir/contract.js";
-import { printFacts, printMetadata, printObservations, printSummary } from "../ir-facts/index.js";
+import { printDependencyInventory, printFacts, printMetadata, printObservations, printSummary } from "../ir-facts/index.js";
 import { printMir } from "../ir-mir/index.js";
 import { printTypes } from "../ir-types/index.js";
-import { textArtifactBindings, textBindingVector, textBodyInstance, textConstantReference, textConstValue, textExecution, textTypeEvidence } from "./text-types.js";
+import { textArtifactBindings, textBindingVector, textBodyInstance, textConstantReference, textConstValue, textTypeEvidence } from "./text-types.js";
 import { textHirLexicalScope } from "./text-core.js";
 import { textBodyCaptureRow } from "./text-inference.js";
 import { textModuleBinding, textModuleExport } from "./text-module-bindings.js";
@@ -54,10 +54,13 @@ function signatureRecord(value: SignatureRecord): TextWork {
 
 function bodyRecord(value: BodyRecord): TextWork {
   return deferred(value, () => record("BodyRecord", [
+    field("kind", text(value.kind)),
     field("instance", textBodyInstance(value.instance)), field("module", identity("mod", value.module)),
     field("owner", identity("def", value.owner)), field("root", numericIdentity("n", value.root)),
-    field("mirLocalCount", numeric(value.mirLocalCount)), field("mirConstantCount", numeric(value.mirConstantCount)),
-    field("mirPlaceCount", numeric(value.mirPlaceCount)), field("mirBlockCount", numeric(value.mirBlockCount)),
+    ...(value.kind === "template" ? [] : [
+      field("mirLocalCount", numeric(value.mirLocalCount)), field("mirConstantCount", numeric(value.mirConstantCount)),
+      field("mirPlaceCount", numeric(value.mirPlaceCount)), field("mirBlockCount", numeric(value.mirBlockCount)),
+    ]),
   ]));
 }
 
@@ -72,7 +75,7 @@ export const printProgramIndex: PrintProgramIndex = index => `${emitText(deferre
   field("packages", sequence(index.packages, packageRecord)), field("modules", sequence(index.modules, moduleRecord)),
   field("types", token(printTypes(index.types).trimEnd())),
   field("signatures", sequence(index.signatures, signatureRecord)), field("bodies", sequence(index.bodies, bodyRecord)),
-  field("executions", sequence(index.executions, textExecution)),
+  field("dependencyInventory", token(printDependencyInventory(index.dependencyInventory).trimEnd())),
   field("metadata", sequence(index.metadata, value => token(printMetadata(value).trimEnd()))),
   field("summaries", sequence(index.summaries, value => token(printSummary(value).trimEnd()))),
   field("constants", sequence(index.constants, constantRecord)), field("diagnostics", sequence(index.diagnostics, textDiagnostic)),
@@ -105,9 +108,12 @@ function tirBodyRecord(value: TirBody, context: SyntaxTextContext): TextWork {
 
 function publishedBody(value: PublishedBody, context: SyntaxTextContext): TextWork {
   return deferred(value, () => record("PublishedBody", [
+    field("kind", text(value.kind)),
     field("instance", textBodyInstance(value.instance)), field("tir", tirBodyRecord(value.tir, context)),
+    ...(value.kind === "template" ? [] : [
     field("mir", token(printMir(value.mir).trimEnd())), field("facts", sequence(value.facts, facts => token(printFacts(facts).trimEnd()))),
     field("observations", token(printObservations(value.observations).trimEnd())),
+    ]),
   ]));
 }
 

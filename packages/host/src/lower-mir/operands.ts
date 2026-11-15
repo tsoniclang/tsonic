@@ -4,7 +4,7 @@ import type { LocalId, PlaceId, TyId } from "../ids/contract.js";
 import type { MirSite } from "../ir-mir/contract.js";
 import type { Evaluated, Lowering } from "./model.js";
 import { failure } from "./model.js";
-import { emitStatement, newLocal, placeOfLocal } from "./state.js";
+import { emitBeforeTerminator, emitStatement, newLocal, placeOfLocal } from "./state.js";
 
 /** Pushes an evaluated operand; one read in place from a handed-out local is also exposed. */
 export function pushOperand(lowering: Lowering, evaluated: Evaluated): void {
@@ -50,10 +50,28 @@ export const held = (place: PlaceId, storage: TyId, site: MirSite): Evaluated =>
 export function saveReads(lowering: Lowering, positions: Iterable<number>): boolean {
   for (const position of positions) {
     const pending = requirePresent(lowering.operands[position], failure("an exposed operand is not on the stack", null));
-    const saved = temporary(lowering, pending.storage, pending.site);
-    if (saved === null) return false;
-    if (!emitStatement(lowering.state, { ...pending.site, kind: "assign", place: saved, value: { kind: "use", operand: pending.operand }, step: null }))
-      return false;
+    let first = 0;
+    let end = lowering.branches.length;
+    while (first < end) {
+      const middle = first + Math.floor((end - first) / 2);
+      const branch = requirePresent(lowering.branches[middle], failure("a split stack has a hole", null));
+      if (branch.prefix > position) end = middle;
+      else first = middle + 1;
+    }
+    const dominating = lowering.branches[first];
+    let saved: PlaceId | null;
+    if (dominating === undefined) {
+      saved = temporary(lowering, pending.storage, pending.site);
+      if (saved === null) return false;
+      if (!emitStatement(lowering.state, { ...pending.site, kind: "assign", place: saved, value: { kind: "use", operand: pending.operand }, step: null })) return false;
+    } else {
+      const local = newLocal(lowering.state, pending.storage, { kind: "temporary" }, "local", null, pending.site.origin);
+      if (local === null) return false;
+      saved = placeOfLocal(lowering.state, local);
+      if (saved === null) return false;
+      if (!emitBeforeTerminator(lowering.state, dominating.block, { ...pending.site, kind: "storage-live", local })) return false;
+      if (!emitBeforeTerminator(lowering.state, dominating.block, { ...pending.site, kind: "assign", place: saved, value: { kind: "use", operand: pending.operand }, step: null })) return false;
+    }
     forgetRead(lowering, position, pending);
     lowering.operands[position] = held(saved, pending.storage, pending.site);
   }

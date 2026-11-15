@@ -1,18 +1,18 @@
 import type { Diagnostic, Result } from "../diag/contract.js";
 import { requirePresent, resourceLimitDiagnostic } from "../diag/index.js";
-import type { BodyId, LocalId, PlaceId, TyId } from "../ids/contract.js";
-import type { BinaryExpression, Block, Expression, NodeHeader, ReturnStatement, Statement, ThrowStatement } from "../ir-hir/contract.js";
+import type { BodyId, LocalId, PlaceId } from "../ids/contract.js";
+import type { BinaryExpression, Expression, NodeHeader, ReturnStatement, Statement, ThrowStatement } from "../ir-hir/contract.js";
 import type { MirBody, MirLocalRole, MirUnwind } from "../ir-mir/contract.js";
 import { localOwnershipOfMir } from "../ir-mir/index.js";
 import type { TirBody, TirLocal, TypedBinary, TypedPhase, TypedUnary, TypedValue } from "../ir-tir/contract.js";
 import type { LiteralValue } from "../ir-types/contract.js";
 import type { InternalBodyInput, LowerMirDeps } from "./contract.js";
 import type { ControlScope, Lowering, Work } from "./model.js";
-import { callerDefect, failure, notLoweredYet, siteOf } from "./model.js";
+import { callerDefect, failure, notLoweredYet, rawType, siteOf } from "./model.js";
 import { held, popOperand, pushOperand, saveHandedOut, saveReads, temporary } from "./operands.js";
-import { breaks, continues, endDo, endElse, endFor, endLabel, endThen, endWhile, enterDo, enterFor, enterIf, enterWhile, loopCondition, nextFor } from "./control.js";
+import { breaks, continues, endConditionalFalse, endConditionalTrue, endDo, endElse, endFor, endLabel, endSelected, endShortCircuit, endThen, endWhile, enterConditional, enterDo, enterFor, enterIf, enterShortCircuit, enterWhile, loopCondition, nextFor } from "./control.js";
 import { argumentPlace, enterCall, finishCall } from "./calls.js";
-import { declareLocal, declarations, endLocalBlock, enterLocalBlock, prepareFunctionLocals } from "./bindings.js";
+import { declareLocal, declarations, endLocalBlock, enterLocalBlock, initializeLocal, nextDeclaration, prepareFunctionLocals } from "./bindings.js";
 import { addEntry, constantOperand, createState, emitStatement, enterBlock, finishBody, newBlock, newLocal, newPlace, placeOfLocal, terminate } from "./state.js";
 
 // The lowering of one typed body into its MIR graph.
@@ -45,12 +45,12 @@ export function lowerBody(deps: LowerMirDeps, body: TirBody, internal: readonly 
   if (!Number.isSafeInteger(maximumRecords) || maximumRecords < 0 || Object.is(maximumRecords, -0))
     throw new TypeError("lower-mir: maximumRecords must be a safe nonnegative count");
   const root = body.root;
-  if (body.bindings.kind !== "instantiated") callerDefect("LowerMir requires the selected complete body instance, not its parametric template", root.origin);
-  if (root.kind === "SourceFile") return notLoweredYet("a module initializer body", root.origin);
+  if (body.bindings.kind !== "instantiated")
+    return callerDefect("LowerMir requires the selected complete body instance, not its parametric template", root.origin);
   if (body.asynchronous || body.generator) return notLoweredYet("an asynchronous body or a generator", root.origin);
   const lowering: Lowering = { state: createState(body.body, body.bindings, body.completion, deps.limits), typeOf: deps.typeOf,
     signatureOf: deps.signatureOf, internal, internalOf: null, body, work: [], operands: [],
-    exposed: new Set(), reads: new Map(), localOf: new Map(), labels: new Map(), preservedLocals: new Set(), receiver: null,
+    exposed: new Set(), reads: new Map(), branches: [], selections: new Map(), localOf: new Map(), labels: new Map(), preservedLocals: new Set(), receiver: null,
     outerLocals: new Map(), scope: null };
   const mir = enter(lowering, root) && walk(lowering) ? finish(deps, lowering) : null;
   return mir === null ? { kind: "refused", diagnostics: [sizeLimit(deps, body)] } : { kind: "ok", value: mir, diagnostics: [] };
@@ -66,18 +66,19 @@ function sizeLimit(deps: LowerMirDeps, body: TirBody): Diagnostic {
 }
 
 /** The locals present on entry, the first block and the entry. False: refused. */
-function enter(lowering: Lowering, root: Block<TypedPhase> | Expression<TypedPhase>): boolean {
+function enter(lowering: Lowering, root: TirBody["root"]): boolean {
   const { state, body } = lowering;
+  if (root.kind === "SourceFile" && body.params.length !== 0)
+    return callerDefect("a module initializer has callable parameters", root.origin);
   if (body.captures.length > state.limits.maximumRecords - state.records) return false;
   const capturedLocals = body.captures.length === 0 ? null : captureIndex(body, root);
   let parameters = 0;
-  const signature = lowering.signatureOf(body.signature);
   for (const header of body.params) {
     const row = header.tsonic;
     if (row.local.body !== body.body) return callerDefect("a parameter names another body", header.origin);
-    if (row.role !== "required" && row.role !== "this") return notLoweredYet(`a parameter of role ${row.role}`, root.origin);
-    if (row.role !== "this" && signature.parameters[parameters]?.acceptsOmission)
-      return notLoweredYet("an omitted entry without its selected parameter occurrence", root.origin);
+    if (row.role === "rest") return notLoweredYet("a parameter of role rest", root.origin);
+    if (header.initializer !== null && row.initializer === null)
+      return notLoweredYet("a parameter initializer without its placed execution", header.origin);
     if (row.role === "this" && lowering.receiver !== null) return callerDefect("two selected receiver parameter rows", root.origin);
     const role: MirLocalRole = row.role === "this" ? { kind: "receiver" } : { kind: "parameter", index: parameters };
     const local = newLocal(state, row.storage, role, row.passing,
@@ -103,9 +104,9 @@ function enter(lowering: Lowering, root: Block<TypedPhase> | Expression<TypedPha
   if (first === null) return false;
   enterBlock(state, first);
   if (!prepareFunctionLocals(lowering)) return false;
-  // Every fixed parameter is required: the full count is the one admissible supplied count.
   addEntry(state, { provided: parameters, block: first });
-  if (root.kind === "Block") lowering.work.push({ kind: "statement", node: root });
+  if (root.kind === "SourceFile") lowering.work.push({ kind: "module", node: root, position: 0 });
+  else if (root.kind === "Block") lowering.work.push({ kind: "statement", node: root });
   else lowering.work.push({ kind: "complete", node: root }, { kind: "expression", node: root });
   return true;
 }
@@ -138,9 +139,17 @@ function captureIndex(body: TirBody, root: NodeHeader): ReadonlyMap<number, TirL
 /** Runs the pending work to its end. False: refused. */
 function walk(lowering: Lowering): boolean {
   for (let next = lowering.work.pop(); next !== undefined; next = lowering.work.pop()) {
-    const done = next.kind === "statement" ? statement(lowering, next.node)
+    const done = next.kind === "module" ? moduleStatement(lowering, next)
+      : next.kind === "statement" ? statement(lowering, next.node)
       : next.kind === "expression" ? expression(lowering, next.node)
+        : next.kind === "conditional" ? enterConditional(lowering, next.node)
+          : next.kind === "short-circuit" ? enterShortCircuit(lowering, next.node)
+            : next.kind === "short-circuit-end" ? endShortCircuit(lowering, next)
+          : next.kind === "conditional-true" ? endConditionalTrue(lowering, next)
+            : next.kind === "conditional-false" ? endConditionalFalse(lowering, next)
+              : next.kind === "selected-end" ? endSelected(lowering, next.node)
         : next.kind === "declaration" ? declareLocal(lowering, next.node, next.lexical)
+          : next.kind === "declarations" ? nextDeclaration(lowering, next)
           : next.kind === "block-end" ? endLocalBlock(lowering, next.node, next.scope)
         : next.kind === "argument-place" ? argumentPlace(lowering, next.node)
         : next.kind === "call" ? finishCall(lowering, next)
@@ -163,6 +172,15 @@ function walk(lowering: Lowering): boolean {
   return true;
 }
 
+function moduleStatement(lowering: Lowering, pending: Extract<Work, { readonly kind: "module" }>): boolean {
+  if (pending.position === pending.node.statements.nodes.length) return true;
+  const node = requirePresent(pending.node.statements.nodes[pending.position], failure("a module statement list has a hole", pending.node.origin));
+  lowering.work.push({ ...pending, position: pending.position + 1 });
+  if (node.kind !== "FunctionDeclaration" && node.kind !== "ImportDeclaration" && node.kind !== "ExportDeclaration")
+    lowering.work.push({ kind: "statement", node });
+  return true;
+}
+
 /** Ends a body whose last block is still open, and assembles the graph. Null: refused. */
 function finish(deps: LowerMirDeps, lowering: Lowering): MirBody | null {
   const { state, body } = lowering;
@@ -172,7 +190,41 @@ function finish(deps: LowerMirDeps, lowering: Lowering): MirBody | null {
       return callerDefect("the end of a body that completes with a value is reached", body.root.origin);
     terminate(state, { ...siteOf(body, body.root), kind: "return", value: null });
   }
+  if (!omittedEntries(lowering)) return null;
   return finishBody(state);
+}
+
+function omittedEntries(lowering: Lowering): boolean {
+  const { state, body } = lowering;
+  const signature = lowering.signatureOf(body.signature);
+  let provided = signature.parameters.length;
+  let next = requirePresent(state.entries[0], failure("a completed body has no full entry", body.root.origin)).block;
+  for (let position = body.params.length - 1; position >= 0; position -= 1) {
+    const header = requirePresent(body.params[position], failure("a parameter vector has a hole", body.root.origin));
+    const row = header.tsonic;
+    if (row.role === "this") continue;
+    provided -= 1;
+    const formal = requirePresent(signature.parameters[provided], failure("a parameter has no selected formal", header.origin));
+    if (!formal.acceptsOmission) break;
+    const site = siteOf(body, header);
+    const entry = newBlock(state, site);
+    if (entry === null) return false;
+    enterBlock(state, entry);
+    const local = requirePresent(lowering.localOf.get(row.local.local), failure("an omitted parameter has no selected storage", header.origin));
+    if (row.initializer !== null) {
+      if (!initializeLocal(lowering, header, local, row.storage, row.initializer)) return false;
+    } else {
+      const destination = placeOfLocal(state, local);
+      if (destination === null) return false;
+      const absence = constantOperand(state, row.storage, { kind: "literal", value: { kind: "absence" } });
+      if (absence === null) return false;
+      if (!emitStatement(state, { ...site, kind: "assign", place: destination, value: { kind: "use", operand: absence }, step: null })) return false;
+    }
+    terminate(state, { ...site, kind: "goto", target: next });
+    addEntry(state, { provided, block: entry });
+    next = entry;
+  }
+  return true;
 }
 
 function statement(lowering: Lowering, node: Statement<TypedPhase>): boolean {
@@ -239,7 +291,9 @@ function value(lowering: Lowering, payload: TypedValue, node: NodeHeader): void 
     case "deferred": return callerDefect("a deferred conversion", node.origin);
   }
   if (payload.narrowing !== null && payload.narrowing.kind === "narrowed") lowering.work.push({ kind: "narrow", node, narrowing: payload.narrowing });
-  if (payload.demand.kind !== "always") return notLoweredYet("a value demanded under a selection", node.origin);
+  if (payload.demand.kind !== "always" && (payload.demand.kind === "never"
+    || lowering.selections.get(payload.demand.control) !== payload.demand.when))
+    return notLoweredYet("a value demanded under a selection", node.origin);
 }
 
 function literal(lowering: Lowering, node: NodeHeader, payload: TypedValue, selected: LiteralValue): boolean {
@@ -254,6 +308,15 @@ function literal(lowering: Lowering, node: NodeHeader, payload: TypedValue, sele
 function expression(lowering: Lowering, node: Expression<TypedPhase>): boolean {
   const { state, body } = lowering;
   switch (node.kind) {
+    case "ConditionalExpression": {
+      const selection = node.tsonic.selection;
+      if (selection.kind !== "conditional" || selection.control !== node.condition.id
+        || selection.whenTrue !== node.whenTrue.id || selection.whenFalse !== node.whenFalse.id)
+        return callerDefect("a conditional selection differs from its actual operands", node.origin);
+      value(lowering, node.tsonic, node);
+      lowering.work.push({ kind: "conditional", node }, { kind: "expression", node: node.condition });
+      return true;
+    }
     case "ThisKeyword": {
       const payload = node.tsonic;
       if (payload.role !== "receiver") return callerDefect("a receiver expression without its selected receiver", node.origin);
@@ -314,12 +377,21 @@ function expression(lowering: Lowering, node: Expression<TypedPhase>): boolean {
     case "BinaryExpression": {
       const payload = node.tsonic;
       if (payload.role === "assignment") return assignment(lowering, node, payload);
+      if (payload.role === "short-circuit") {
+        const selected = payload.selection;
+        const expected = node.operatorToken.kind === "AmpersandAmpersandToken" ? "and"
+          : node.operatorToken.kind === "BarBarToken" ? "or" : node.operatorToken.kind === "QuestionQuestionToken" ? "coalesce" : null;
+        if (selected.kind === "conditional" || selected.kind !== expected || selected.control !== node.left.id || selected.right !== node.right.id)
+          return callerDefect("a short-circuit selection differs from its actual operands", node.origin);
+        value(lowering, payload, node);
+        lowering.work.push({ kind: "short-circuit", node }, { kind: "expression", node: node.left });
+        return true;
+      }
       if (payload.role === "sequence") {
         value(lowering, payload, node);
         lowering.work.push({ kind: "expression", node: node.right }, { kind: "discard", node: node.left }, { kind: "expression", node: node.left });
         return true;
       }
-      if (payload.role !== "arithmetic" && payload.role !== "comparison") return notLoweredYet(`a binary expression of role ${payload.role}`, node.origin);
       value(lowering, payload, node);
       if (payload.operation.kind !== "decided") return callerDefect("a deferred operation", node.origin);
       // The operation is emitted when both operands are evaluated, the left one first.
@@ -334,7 +406,7 @@ function expression(lowering: Lowering, node: Expression<TypedPhase>): boolean {
     }
     case "TypeOfExpression":
     case "VoidExpression": return unary(lowering, node, node.expression, node.tsonic);
-    case "CallExpression":
+    case "CallExpression": case "NewExpression":
       value(lowering, node.tsonic, node);
       return enterCall(lowering, node);
     default:
@@ -427,10 +499,6 @@ function operation(lowering: Lowering, pendingOperation: Extract<Work, { readonl
   enterBlock(state, next);
   pushOperand(lowering, held(result, selected.decision.result, site));
   return true;
-}
-
-function rawType(payload: TypedValue): TyId {
-  return payload.narrowing !== null && payload.narrowing.kind === "narrowed" ? payload.narrowing.source : payload.type;
 }
 
 function narrow(lowering: Lowering, node: NodeHeader, decision: Extract<NonNullable<TypedValue["narrowing"]>, { readonly kind: "narrowed" }>): boolean {

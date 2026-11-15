@@ -1,9 +1,15 @@
 import type { BoundProducerId, DefId, NodeRef, OpenBoundaryId, OriginsId, ProjectionPathId, SigId, ValueContextId } from "../ids/contract.js";
 import type { PassingMode } from "../ir-types/contract.js";
+import type { ErrorValue, UnitRef } from "../diag/contract.js";
 import type { SummaryCallback } from "../snapshot/contract.js";
 import type { OpenBoundaryRef, RelationalArena } from "./arena-data.js";
 import type { InitializationTable, SummaryPosition } from "./initialization-data.js";
 import type { BoundProducerRef, RelationalSite, SummaryKey } from "./relations-data.js";
+
+export interface SummaryAnswer {
+  readonly value: Summary | ErrorValue;
+  readonly unit: UnitRef;
+}
 
 export type EscapeTarget =
   | { readonly kind: "return" | "throw" }

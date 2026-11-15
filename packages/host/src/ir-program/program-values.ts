@@ -34,7 +34,7 @@ export interface ProgramLookup {
 export type ProgramViolation = Violation<ProgramRule, ProgramSite>;
 
 export function programChildRule(
-  group: "tir-valid" | "mir-valid" | "facts-valid" | "metadata-valid" | "summary-valid", child: string,
+  group: "tir-valid" | "mir-valid" | "facts-valid" | "metadata-valid" | "summary-valid" | "dependency-inventory-valid", child: string,
 ): ProgramRule {
   return child === "cross-owner-qualified" ? "cross-owner-qualified" : group;
 }
@@ -292,7 +292,12 @@ export function programLookup(index: ProgramIndex): ProgramLookup {
     else previous.push(record);
   }
   const executionsByInstance = new Map<string, Execution[]>();
-  for (const execution of index.executions) {
+  const executions = new Map<string, Execution | null>();
+  for (const operation of index.dependencyInventory.operations) {
+    if (operation.kind !== "body") continue;
+    const execution = operation.execution;
+    const selected = executionKey(execution);
+    executions.set(selected, executions.has(selected) ? null : execution);
     const key = instanceKey(execution.instance);
     const previous = executionsByInstance.get(key);
     if (previous === undefined) executionsByInstance.set(key, [execution]);
@@ -304,7 +309,7 @@ export function programLookup(index: ProgramIndex): ProgramLookup {
     definitions: uniqueRows(definitions, location => location.entry.definition),
     bodies,
     instances: uniqueRows(index.bodies, record => instanceKey(record.instance)),
-    executions: uniqueRows(index.executions, executionKey),
+    executions,
     executionsByInstance,
     metadata: uniqueRows(index.metadata, record => artifactEnvironmentKey(record.key.definition, record.key.bindings)),
     summaries: uniqueRows(index.summaries, record => summaryKey(record.key)),

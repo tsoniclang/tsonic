@@ -445,13 +445,18 @@ export function rewriteModuleSyntax(rewrite: TypeRewrite, module: ModuleBodies, 
   return {
     module: module.module,
     tree: ports.SourceFile(module.tree)(),
-    bodies: module.bodies.map((body, position) => ({
-      instance: rewriteInstance(rewrite, body.instance),
-      tir: rewriteTirBody(rewrite, body.tir, ports.BodyRoot(body.tir.root)(), rewriteArtifactBindings(rewrite, body.tir.bindings),
-        body.tir.params.map(parameter => ports.ParameterDeclaration(parameter)())),
-      mir: rewriteMirBody(rewrite, body.mir, at + ".bodies[" + position + "].mir", rewriteArtifactBindings(rewrite, body.mir.bindings)),
-      facts: body.facts.map(facts => rewriteBodyFacts(rewrite, facts, rewriteExecution(rewrite, facts.execution))),
-      observations: rewriteObservations(rewrite, body.observations),
-    })),
+    bodies: module.bodies.map((body, position) => {
+      const common = {
+        instance: rewriteInstance(rewrite, body.instance),
+        tir: rewriteTirBody(rewrite, body.tir, ports.BodyRoot(body.tir.root)(), rewriteArtifactBindings(rewrite, body.tir.bindings),
+          body.tir.params.map(parameter => ports.ParameterDeclaration(parameter)())),
+      };
+      return body.kind === "template" ? { ...common, kind: "template" } : {
+        ...common, kind: "selected",
+        mir: rewriteMirBody(rewrite, body.mir, at + ".bodies[" + position + "].mir", rewriteArtifactBindings(rewrite, body.mir.bindings)),
+        facts: body.facts.map(facts => rewriteBodyFacts(rewrite, facts, rewriteExecution(rewrite, facts.execution))),
+        observations: rewriteObservations(rewrite, body.observations),
+      };
+    }),
   };
 }

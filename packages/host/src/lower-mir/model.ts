@@ -1,9 +1,9 @@
 import type { InvariantFailure } from "../diag/contract.js";
 import { throwInvariant } from "../diag/index.js";
 import type { BlockId, BodyId, LocalId, NodeId, Origin, PlaceId, TyId } from "../ids/contract.js";
-import type { Block, CallExpression, DoStatement, Expression, ForStatement, IfStatement, LabeledStatement, NodeHeader, ReturnStatement, Statement, ThrowStatement, VariableDeclaration, WhileStatement } from "../ir-hir/contract.js";
+import type { BinaryExpression, Block, CallExpression, ConditionalExpression, DoStatement, Expression, ForStatement, IfStatement, LabeledStatement, NewExpression, NodeHeader, ReturnStatement, SourceFile, Statement, ThrowStatement, VariableDeclaration, VariableDeclarationList, WhileStatement } from "../ir-hir/contract.js";
 import type { MirOperand, MirSite } from "../ir-mir/contract.js";
-import type { TirApplication, TirBody, TypedOperation, TypedPhase, TypedValue } from "../ir-tir/contract.js";
+import type { TirApplication, TirBody, TirDemand, TypedOperation, TypedPhase, TypedValue } from "../ir-tir/contract.js";
 import type { InternalBodyInput, LowerMirDeps } from "./contract.js";
 import type { LowerState } from "./state.js";
 
@@ -17,12 +17,20 @@ export const notLoweredYet = (what: string, origin: Origin): never => invariant(
 export const callerDefect = (what: string, origin: Origin): never => invariant(`caller defect: ${what}`, origin);
 
 export type Work =
+  | { readonly kind: "module"; readonly node: SourceFile<TypedPhase>; readonly position: number }
   | { readonly kind: "statement"; readonly node: Statement<TypedPhase> }
   | { readonly kind: "expression"; readonly node: Expression<TypedPhase> }
+  | { readonly kind: "conditional"; readonly node: ConditionalExpression<TypedPhase> }
+  | { readonly kind: "short-circuit"; readonly node: BinaryExpression<TypedPhase> }
+  | { readonly kind: "short-circuit-end"; readonly node: BinaryExpression<TypedPhase>; readonly place: PlaceId; readonly exit: BlockId }
+  | { readonly kind: "selected-end"; readonly node: ConditionalExpression<TypedPhase> | BinaryExpression<TypedPhase> }
+  | { readonly kind: "conditional-true"; readonly node: ConditionalExpression<TypedPhase>; readonly place: PlaceId; readonly otherwise: BlockId; readonly exit: BlockId }
+  | { readonly kind: "conditional-false"; readonly node: ConditionalExpression<TypedPhase>; readonly place: PlaceId; readonly exit: BlockId }
   | { readonly kind: "argument-place"; readonly node: Expression<TypedPhase> }
   | { readonly kind: "declaration"; readonly node: VariableDeclaration<TypedPhase>; readonly lexical: boolean }
+  | { readonly kind: "declarations"; readonly node: VariableDeclarationList<TypedPhase>; readonly lexical: boolean; readonly position: number }
   | { readonly kind: "block-end"; readonly node: Block<TypedPhase>; readonly scope: LocalScope }
-  | { readonly kind: "call"; readonly node: CallExpression<TypedPhase>; readonly application: TirApplication; readonly direct: boolean }
+  | { readonly kind: "call"; readonly node: CallExpression<TypedPhase> | NewExpression<TypedPhase>; readonly application: TirApplication; readonly direct: boolean }
   | { readonly kind: "operation"; readonly node: NodeHeader; readonly operation: TypedOperation; readonly form: "unary" | "binary" }
   | { readonly kind: "operation"; readonly node: NodeHeader; readonly operation: TypedOperation; readonly form: "convert"; readonly to: TyId }
   | { readonly kind: "narrow"; readonly node: NodeHeader; readonly narrowing: Extract<NonNullable<TypedValue["narrowing"]>, { readonly kind: "narrowed" }> }
@@ -79,6 +87,8 @@ export interface Lowering {
   readonly body: TirBody;
   readonly work: Work[];
   readonly operands: Evaluated[];
+  readonly branches: { readonly block: BlockId; readonly prefix: number }[];
+  readonly selections: Map<NodeId, Extract<TirDemand, { readonly kind: "selected" }>["when"]>;
   /**
    * The positions in `operands` of the entries read in place from a handed-out local and not saved yet.
    * Kept with the stack by `pushOperand` and `popOperand`, so that a writing control point saves exactly these.
@@ -95,3 +105,6 @@ export interface Lowering {
 }
 
 export const siteOf = (body: TirBody, node: NodeHeader): MirSite => ({ origin: node.origin, tir: { body: body.body, node: node.id } });
+
+export const rawType = (payload: TypedValue): TyId =>
+  payload.narrowing !== null && payload.narrowing.kind === "narrowed" ? payload.narrowing.source : payload.type;

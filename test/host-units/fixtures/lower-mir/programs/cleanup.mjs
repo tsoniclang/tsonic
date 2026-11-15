@@ -14,8 +14,8 @@ const RES = declareType("res", { kind: "shape", members: [member("log", T.int32A
 const SIG_S2 = signature("s2", [["k", T.int32], ["m", T.int32Rows]], T.int32);
 const SIG_RISKY = signature("risky", [["n", T.int32]], T.int32);
 const SIG_S3 = signature("s3", [["n", T.int32]], T.int32);
-const SIG_FAILURE = signature("Failure.constructor", [["code", T.int32]], FAILURE);
-const SIG_RES = signature("Res.constructor", [["log", T.int32Array]], RES);
+const SIG_FAILURE = signature("Failure.constructor", [["code", T.int32]], FAILURE, null, "construct");
+const SIG_RES = signature("Res.constructor", [["log", T.int32Array]], RES, null, "construct");
 const SIG_DISPOSE = signature("Res.dispose", [], T.void, RES);
 const SIG_S6 = signature("s6", [["log", T.int32Array], ["fail", T.bool]], T.int32);
 

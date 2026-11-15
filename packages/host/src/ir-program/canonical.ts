@@ -23,12 +23,15 @@ export const canonicalizeProgram: CanonicalizeProgram = (program, publication) =
     index: {
       schema: index.schema, nativeFactsKey: index.nativeFactsKey, rootPackage: index.rootPackage, packages: index.packages, modules: index.modules,
       types: publication.table, signatures: index.signatures.map(record => rewriteSignature(rewrite, record)),
-      bodies: index.bodies.map(record => ({
-        instance: rewriteInstance(rewrite, record.instance), module: record.module, owner: record.owner, root: record.root,
-        mirLocalCount: record.mirLocalCount, mirConstantCount: record.mirConstantCount,
-        mirPlaceCount: record.mirPlaceCount, mirBlockCount: record.mirBlockCount,
-      })),
-      executions: index.executions.map(execution => rewriteExecution(rewrite, execution)),
+      bodies: index.bodies.map(record => ({ ...record, instance: rewriteInstance(rewrite, record.instance) })),
+      dependencyInventory: {
+        operations: index.dependencyInventory.operations.map(key => rewriteSummaryKey(rewrite, key)),
+        dependencies: index.dependencyInventory.dependencies.map(row => ({
+          dependent: rewriteExecution(rewrite, row.dependent), at: row.at, reason: row.reason,
+          target: rewriteSummaryKey(rewrite, row.target),
+        })),
+        components: index.dependencyInventory.components,
+      },
       metadata: index.metadata.map(record => rewriteMetadata(rewrite, record)),
       summaries: index.summaries.map(summary => rewriteSummary(rewrite, summary, rewriteSummaryKey(rewrite, summary.key))),
       constants: index.constants.map(record => ({ reference: {

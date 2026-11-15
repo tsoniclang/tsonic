@@ -1,12 +1,16 @@
 import { encodeKey } from "../ids/index.js";
 import type { ArtifactBindings } from "../ir-types/contract.js";
 import { declaredExecutionKey, executionKey } from "../ir-types/index.js";
-import type { FactsVerificationContext, SummaryIdentity, SummaryKey } from "./contract.js";
+import type { AdmitSummaryIdentity, FactsVerificationContext, SummaryIdentity, SummaryKey } from "./contract.js";
+import { admitOwnerIdentity } from "./verification.js";
 import type { DefId } from "../ids/contract.js";
 import type { SummaryPosition } from "./initialization-data.js";
 
 export const summaryKey: SummaryIdentity = key => encodeKey([key.kind, key.kind === "body"
   ? executionKey(key.execution) : declaredExecutionKey(key.execution)]);
+
+export const admitSummaryIdentity: AdmitSummaryIdentity = (key, account) =>
+  admitOwnerIdentity({ kind: "summary", key }, account);
 
 export const summaryPositionKey = (at: SummaryPosition): string => at.kind === "body"
   ? encodeKey([at.kind, executionKey(at.execution), at.point.block, at.point.statement, at.edge])

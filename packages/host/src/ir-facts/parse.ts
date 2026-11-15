@@ -1,11 +1,11 @@
 import type { TextParseResult } from "../diag/contract.js";
 import type {
-  BlockId, BoundProducerId, ComponentId, DefId, LayoutId, LibraryExportIdentity, LibraryModuleIdentity,
+  BlockId, BoundProducerId, DefId, LayoutId, LibraryExportIdentity, LibraryModuleIdentity,
   LocalId, LocalRef, MemoryFieldId, NodeId, NodeRef, OpenBoundaryId, OriginsId, PlaceId, ProducerId, ItemNodeRef,
   ProjectionPathId, SigId, SourceNodeRef, TyId, ValueContextId, BodyId,
 } from "../ids/contract.js";
 import {
-  blockId, boundProducerId, decodeBodyId, decodeComponentId, decodeDefId, encodeBodyId, encodeComponentId, encodeDefId,
+  blockId, boundProducerId, decodeBodyId, decodeDefId, encodeBodyId, encodeDefId,
   layoutId, localId, memoryFieldId, nodeId, openBoundaryId, originsId, placeId, producerId, projectionPathId, sigId,
   tyId, valueContextId,
 } from "../ids/index.js";
@@ -23,7 +23,7 @@ import type { Condition } from "./conditions-data.js";
 import type { InitializationEvent, InitializationPoint, InitializationRow, InitializationTable, InitializationWitness, SummaryPosition } from "./initialization-data.js";
 import type {
   ArgumentTransport, BindingStorageFact, BodyFacts, BodyObservations, BoundActivation, BoundProducer, BoundRecordField,
-  CallbackEntry, CallbackExchange, CallComponent, CallEdge, CallGraph, CaptureEffect, CaptureFact, CaptureLocation,
+  CallbackEntry, CallbackExchange, DependencyComponent, ExecutionDependency, DependencyInventory, CaptureEffect, CaptureFact, CaptureLocation,
   ClosedArrayFact, ClosedArrayReason, ConstructionAlternative, CountedLoopFact, EffectPaths,
   ErrorInvalidationFact, ErrorInvalidationReason, ErrorStorageFact, ErrorStorageFacts, EscapeFact, EscapeTarget, ExitContents,
   InitializationFact, InitializationFacts, InstanceRegion, IntegerFact, IntegerRange, InvocationAlternative, InvocationFact,
@@ -31,7 +31,7 @@ import type {
   MemoryLayout, MemoryRecordBindingFact, MetadataFieldRef, MetadataKey, MetadataLayoutRef, MetadataRecord,
   MirPoint, ObservationFact, OpenBoundary, OpenBoundaryRef, OriginFacts, Origins, ParameterEffect, ParameterSlot,
   PointPlaceOrigins, PointerBackingFact, PointerBackingFacts, PointerBackingOperation, PointerBackingProducer,
-  ParseCallGraph, ParseFacts, ParseMetadata, ParseObservations, ParseSummary, Producer, ProducerRef, Projection, ProjectionPath,
+  ParseDependencyInventory, ParseFacts, ParseMetadata, ParseObservations, ParseSummary, Producer, ProducerRef, Projection, ProjectionPath,
   RawLocationFact, ReadOriginsFact, RefinementFact, RefinementFacts, RefinementInvalidation, RefinementReason,
   RelationalArena, RelationalOwner, RelationalSite, RetentionFact, StoreLiveness, SubjectOriginsFact, Summary,
   SummaryBacking, SummaryKey, SummaryResultCell, SummaryRetention, SummaryWrite, SuspensionFact, SuspensionFacts, SuspensionValue, ValueContext, ValueFrontier,
@@ -322,11 +322,6 @@ const body: Decode<BodyId> = (state, input) =>
   then(identityPrefix(state, input, "body", "string"), () => then(scalarString(state, peek(state)), value => {
     const decoded = decodeBodyId(value);
     return decoded.kind === "decoded" ? accept(encodeBodyId(decoded.value)) : fail(input, ["canonical BodyId"]);
-  }));
-const component: Decode<ComponentId> = (state, input) =>
-  then(identityPrefix(state, input, "component", "string"), () => then(scalarString(state, peek(state)), value => {
-    const decoded = decodeComponentId(value);
-    return decoded.kind === "decoded" ? accept(encodeComponentId(decoded.value)) : fail(input, ["canonical ComponentId"]);
   }));
 const label = <const Name extends string>(input: SyntaxValue, names: readonly Name[]): Decoded<Name> => {
   if (input.kind === "word") for (const name of names) if (input.text === name) return accept(name);
@@ -1033,35 +1028,26 @@ const summary: Decode<Summary> = (state, input) => then(fields(state, input, "Su
     then(readField(state, values, "backing", (state, input) => sequence(state, input, summaryBacking)), backing =>
       finishRecord<Summary>(state, values, { key: keyValue, signature: signatureValue, arena: arenaValue, parameters: parametersValue, captures: capturesValue, result: resultValue, thrown: thrownValue, writes: writesValue, retention: retentionValue, callbacks: callbacksValue, suspends: suspendsValue, bindingDependent: bindingDependentValue,
         concurrentWrites, contentsOnReturn, contentsOnUnwind, returns, unwinds, initialization, resultCells, backing }))))))))))))))))))))));
-const callComponent: Decode<CallComponent> = (state, input) => then(fields(state, input, "CallComponent"), values =>
-    then(readField(state, values, "id", component), idValue =>
-    then(readField(state, values, "definitions", (state, input) => sequence(state, input, definition)), definitionsValue =>
-    then(readField(state, values, "dependencies", (state, input) => sequence(state, input, component)), dependenciesValue =>
-      finishRecord<CallComponent>(state, values, { id: idValue, definitions: definitionsValue, dependencies: dependenciesValue })))));
-const callEdge: Decode<CallEdge> = (state, input) => then(label(input, ["direct","indirect","getter","setter","constructor","initializer","callback"]), kind =>
-  then(fields(state, input, kind), values =>
-    then(readField(state, values, "caller", definition), caller =>
-    then(readField(state, values, "at", nodeRef), at =>
-      readField(state, values, "callee", (state, input) =>
-        then(label(input, ["definition","open"]), calleeKind =>
-          then(fields(state, input, calleeKind), callee => {
-            switch (calleeKind) {
-              case "definition": return then(readField(state, callee, "definition", definition), definition =>
-                then(finishRecord(state, callee, definition), selected =>
-                  then(readField(state, values, "bindings", artifact), bindings =>
-                    finishRecord<CallEdge>(state, values, { kind, caller, at, callee: { kind: calleeKind, definition: selected }, bindings }))));
-              case "open": return then(readField(state, callee, "boundary", boundaryRef), boundary =>
-                then(finishRecord(state, callee, boundary), selected =>
-                  then(readField(state, values, "bindings", artifact), bindings =>
-                    finishRecord<CallEdge>(state, values, { kind, caller, at, callee: { kind: calleeKind, boundary: selected }, bindings }))));
-            }
-          })))))));
-
-const callGraph: Decode<CallGraph> = (state, input) => then(fields(state, input, "CallGraph"), values =>
-    then(readField(state, values, "definitions", (state, input) => sequence(state, input, definition)), definitionsValue =>
-    then(readField(state, values, "edges", (state, input) => sequence(state, input, callEdge)), edgesValue =>
-    then(readField(state, values, "components", (state, input) => sequence(state, input, callComponent)), componentsValue =>
-      finishRecord<CallGraph>(state, values, { definitions: definitionsValue, edges: edgesValue, components: componentsValue })))));
+const dependencyComponent: Decode<DependencyComponent> = (state, input) => then(label(input, ["declared", "body"]), kind =>
+  then(fields(state, input, kind), values => kind === "declared"
+    ? then(readField(state, values, "operation", scalarNumber), operation =>
+      finishRecord<DependencyComponent>(state, values, { kind, operation }))
+    : then(readField(state, values, "members", (state, input) => sequence(state, input, scalarNumber)), members =>
+      then(readField(state, values, "rows", (state, input) => sequence(state, input, scalarNumber)), rows =>
+      then(readField(state, values, "dependencies", (state, input) => sequence(state, input, scalarNumber)), dependencies =>
+        finishRecord<DependencyComponent>(state, values, { kind, members, rows, dependencies }))))));
+const executionDependency: Decode<ExecutionDependency> = (state, input) => then(fields(state, input, "ExecutionDependency"), values =>
+  then(readField(state, values, "dependent", execution), dependent =>
+  then(readField(state, values, "at", nodeRef), at =>
+  then(readField(state, values, "reason", (state, input) => literal(state, input,
+    ["call", "getter", "setter", "constructor", "initializer", "activation", "dispatch", "protocol"])), reason =>
+  then(readField(state, values, "target", summaryKey), target =>
+    finishRecord<ExecutionDependency>(state, values, { dependent, at, reason, target }))))));
+const dependencyInventory: Decode<DependencyInventory> = (state, input) => then(fields(state, input, "DependencyInventory"), values =>
+  then(readField(state, values, "operations", (state, input) => sequence(state, input, summaryKey)), operations =>
+  then(readField(state, values, "dependencies", (state, input) => sequence(state, input, executionDependency)), dependencies =>
+  then(readField(state, values, "components", (state, input) => sequence(state, input, dependencyComponent)), components =>
+    finishRecord<DependencyInventory>(state, values, { operations, dependencies, components })))));
 const itemRef: Decode<ItemNodeRef> = (state, input) => then(fields(state, input, "ItemNodeRef"), values =>
     then(readField(state, values, "owner", definition), ownerValue =>
     then(readField(state, values, "node", node), nodeValue =>
@@ -1545,4 +1531,4 @@ export const parseObservations: ParseObservations = text => parse(text, bodyObse
 export const parseSummary: ParseSummary = text => parse(text, summary);
 export const parseInitializationTable = (text: string): TextParseResult<InitializationTable> => parse(text, initializationTable);
 export const parseMetadata: ParseMetadata = text => parse(text, metadata);
-export const parseCallGraph: ParseCallGraph = text => parse(text, callGraph);
+export const parseDependencyInventory: ParseDependencyInventory = text => parse(text, dependencyInventory);

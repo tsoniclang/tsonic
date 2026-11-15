@@ -9,15 +9,15 @@ import type { BodyInstance } from "../ir-types/contract.js";
 import type { BodyRecord, ConstantRecord, DefinitionNode, ModuleRecord, PackageExport, PackageRecord, ParseProgramIndex, ProgramIndex, SignatureRecord } from "./contract.js";
 import { hostDiagnosticCode } from "../diag/index.js";
 import { expansionId, localId, nodeId, sigId, tyId } from "../ids/index.js";
-import { parseFacts, parseMetadata, parseObservations, parseSummary } from "../ir-facts/index.js";
+import { parseDependencyInventory, parseFacts, parseMetadata, parseObservations, parseSummary } from "../ir-facts/index.js";
 import { parseMir } from "../ir-mir/index.js";
 import { parseTypes } from "../ir-types/index.js";
 import type { Cursor, RecordFields } from "./parse-values.js";
 import { choice, closeRecord, delimiter, invalid, nullable, openRecord, readArray, readBodyId, readChild, readDefinitionId, readField, readModuleId, readNodeId, readNumber, readPackageId, readSignatureId, readString, whitespace } from "./parse-values.js";
 import { readDiagnostic } from "./parse-diagnostics.js";
-import { readArtifactBindings, readConstantReference, readConstValue, readExecution, readInstance } from "./parse-types.js";
+import { readArtifactBindings, readConstantReference, readConstValue, readInstance } from "./parse-types.js";
 import type { TextStep } from "./parse-values.js";
-import { arrayText, atomicText, fieldText } from "./parse-values.js";
+import { arrayText, atomicText, fieldText, readStringChoice } from "./parse-values.js";
 import { evaluateText } from "./parse-values.js";
 import { readModuleBindingText, readModuleExportText } from "./text-module-bindings.js";
 import type { SyntaxReadPorts, SyntaxValue } from "./parse-syntax-values.js";
@@ -27,14 +27,19 @@ import { parseSyntaxDocument } from "./parse-syntax.js";
 
 function readPublishedBodyText<Root>(cursor: Cursor, ports: SyntaxReadPorts, finish: (value: SyntaxValue<PublishedBody>) => TextStep<Root>): TextStep<Root> {
   return atomicText(cursor, next => openRecord(next, "PublishedBody"), fields =>
+    fieldText<"template" | "selected", Root>(cursor, fields, "kind", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["template", "selected"]), done), kind =>
     fieldText<BodyInstance, Root>(cursor, fields, "instance", (next, done) => atomicText(next, readInstance, done), instance =>
-      fieldText<SyntaxValue<TirBody>, Root>(cursor, fields, "tir", (next, done) => readTirBodyText(next, ports, done), tir =>
-        fieldText<MirBody, Root>(cursor, fields, "mir", (next, done) => atomicText(next, cursor => readChild(cursor, parseMir), done), mir =>
+      fieldText<SyntaxValue<TirBody>, Root>(cursor, fields, "tir", (next, done) => readTirBodyText(next, ports, done), tir => {
+        if (kind === "template") return finishSyntaxRecord<PublishedBody, Root>(cursor, fields, {
+          resolve: () => resolveSyntaxValue(tir, body => ({ kind, instance, tir: body })),
+        }, finish);
+        return fieldText<MirBody, Root>(cursor, fields, "mir", (next, done) => atomicText(next, cursor => readChild(cursor, parseMir), done), mir =>
           fieldText<readonly BodyFacts[], Root>(cursor, fields, "facts", (next, done) => arrayText(next, (next, done) => atomicText(next, cursor => readChild(cursor, parseFacts), done), done), facts =>
           fieldText<BodyObservations, Root>(cursor, fields, "observations", (next, done) => atomicText(next, cursor => readChild(cursor, parseObservations), done), observations =>
             finishSyntaxRecord<PublishedBody, Root>(cursor, fields, {
-              resolve: () => resolveSyntaxValue(tir, body => ({ instance, tir: body, mir, observations, facts })),
-            }, finish)))))));
+              resolve: () => resolveSyntaxValue(tir, body => ({ kind, instance, tir: body, mir, observations, facts })),
+            }, finish))));
+      }))));
 }
 
 function readModuleBodiesText<Root>(cursor: Cursor, ports: SyntaxReadPorts, finish: (value: SyntaxValue<ModuleBodies>) => TextStep<Root>): TextStep<Root> {
@@ -120,6 +125,8 @@ function readBodyRecord(cursor: Cursor): TextParseResult<BodyRecord> {
   const opened = delimiter(cursor, "(");
   if (opened.kind === "invalid-text") return opened;
   const fields: RecordFields = { given: new Set<string>() };
+  const availability = readField(cursor, fields, "kind", cursor => readStringChoice(cursor, ["template", "selected"]));
+  if (availability.kind === "invalid-text") return availability;
   const instance = readField(cursor, fields, "instance", readInstance);
   if (instance.kind === "invalid-text") return instance;
   const module = readField(cursor, fields, "module", readModuleId);
@@ -128,6 +135,12 @@ function readBodyRecord(cursor: Cursor): TextParseResult<BodyRecord> {
   if (owner.kind === "invalid-text") return owner;
   const root = readField(cursor, fields, "root", readNodeId);
   if (root.kind === "invalid-text") return root;
+  if (availability.value === "template") {
+    const closed = closeRecord(cursor, fields);
+    return closed.kind === "invalid-text" ? closed : { kind: "parsed", value: {
+      kind: "template", instance: instance.value, module: module.value, owner: owner.value, root: root.value,
+    } };
+  }
   const mirLocalCount = readField(cursor, fields, "mirLocalCount", readNumber);
   if (mirLocalCount.kind === "invalid-text") return mirLocalCount;
   const mirConstantCount = readField(cursor, fields, "mirConstantCount", readNumber);
@@ -138,7 +151,7 @@ function readBodyRecord(cursor: Cursor): TextParseResult<BodyRecord> {
   if (mirBlockCount.kind === "invalid-text") return mirBlockCount;
   const closed = closeRecord(cursor, fields);
   return closed.kind === "invalid-text" ? closed : { kind: "parsed", value: {
-    instance: instance.value, module: module.value, owner: owner.value, root: root.value, mirLocalCount: mirLocalCount.value, mirConstantCount: mirConstantCount.value, mirPlaceCount: mirPlaceCount.value, mirBlockCount: mirBlockCount.value
+    kind: "selected", instance: instance.value, module: module.value, owner: owner.value, root: root.value, mirLocalCount: mirLocalCount.value, mirConstantCount: mirConstantCount.value, mirPlaceCount: mirPlaceCount.value, mirBlockCount: mirBlockCount.value
   } };
 }
 
@@ -178,8 +191,8 @@ function readProgramIndex(cursor: Cursor): TextParseResult<ProgramIndex> {
   if (signatures.kind === "invalid-text") return signatures;
   const bodies = readField(cursor, fields, "bodies", next => readArray(next, readBodyRecord));
   if (bodies.kind === "invalid-text") return bodies;
-  const executions = readField(cursor, fields, "executions", next => readArray(next, readExecution));
-  if (executions.kind === "invalid-text") return executions;
+  const dependencyInventory = readField(cursor, fields, "dependencyInventory", next => readChild(next, parseDependencyInventory));
+  if (dependencyInventory.kind === "invalid-text") return dependencyInventory;
   const metadata = readField(cursor, fields, "metadata", next => readArray(next, next => readChild(next, parseMetadata)));
   if (metadata.kind === "invalid-text") return metadata;
   const summaries = readField(cursor, fields, "summaries", next => readArray(next, next => readChild(next, parseSummary)));
@@ -192,7 +205,7 @@ function readProgramIndex(cursor: Cursor): TextParseResult<ProgramIndex> {
   if (nativeFactsKey.kind === "invalid-text") return nativeFactsKey;
   const closed = closeRecord(cursor, fields);
   return closed.kind === "invalid-text" ? closed : { kind: "parsed", value: {
-    schema: schema.value, nativeFactsKey: nativeFactsKey.value, rootPackage: rootPackage.value, packages: packages.value, modules: modules.value, types: types.value, signatures: signatures.value, bodies: bodies.value, executions: executions.value, metadata: metadata.value, summaries: summaries.value, constants: constants.value, diagnostics: diagnostics.value
+    schema: schema.value, nativeFactsKey: nativeFactsKey.value, rootPackage: rootPackage.value, packages: packages.value, modules: modules.value, types: types.value, signatures: signatures.value, bodies: bodies.value, dependencyInventory: dependencyInventory.value, metadata: metadata.value, summaries: summaries.value, constants: constants.value, diagnostics: diagnostics.value
   } };
 }
 

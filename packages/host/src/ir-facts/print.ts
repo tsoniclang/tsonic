@@ -9,7 +9,7 @@ import type {
 import type { CallbackInput, SummaryCallback } from "../snapshot/contract.js";
 import type {
   ArgumentTransport, BindingStorageFact, BodyFacts, BodyObservations, BoundActivation, BoundProducer, BoundRecordField,
-  CallbackEntry, CallbackExchange, CallComponent, CallEdge, CallGraph, CaptureEffect, CaptureFact, CaptureLocation,
+  CallbackEntry, CallbackExchange, DependencyComponent, ExecutionDependency, DependencyInventory, CaptureEffect, CaptureFact, CaptureLocation,
   ClosedArrayFact, ClosedArrayReason, ConstructionAlternative, CountedLoopFact, EffectPaths,
   ErrorInvalidationFact, ErrorInvalidationReason, ErrorStorageFact, ErrorStorageFacts, EscapeFact, EscapeTarget, ExitContents,
   InitializationFact, InitializationFacts, InstanceRegion, IntegerFact, IntegerRange, InvocationAlternative, InvocationFact,
@@ -17,7 +17,7 @@ import type {
   MemoryLayout, MemoryRecordBindingFact, MetadataFieldRef, MetadataKey, MetadataLayoutRef, MetadataRecord,
   MirPoint, ObservationFact, OpenBoundary, OpenBoundaryRef, OriginFacts, Origins, ParameterEffect, ParameterSlot,
   PointPlaceOrigins, PointerBackingFact, PointerBackingFacts, PointerBackingOperation, PointerBackingProducer,
-  PrintCallGraph, PrintFacts, PrintMetadata, PrintSummary, Producer, ProducerRef, Projection, ProjectionPath,
+  PrintDependencyInventory, PrintFacts, PrintMetadata, PrintSummary, Producer, ProducerRef, Projection, ProjectionPath,
   RawLocationFact, ReadOriginsFact, RefinementFact, RefinementFacts, RefinementInvalidation, RefinementReason,
   RelationalArena, RelationalOwner, RelationalSite, RetentionFact, StoreLiveness, SubjectOriginsFact, Summary,
   SummaryBacking, SummaryKey, SummaryResultCell, SummaryRetention, SummaryWrite, SuspensionFact, SuspensionFacts, SuspensionValue, ValueContext, ValueFrontier,
@@ -711,17 +711,19 @@ const summary = (writer: Writer, value: Summary): void => record(writer, "Summar
   ["resultCells", () => sequence(writer, value.resultCells, row => resultCell(writer, row))],
   ["backing", () => sequence(writer, value.backing, row => summaryBacking(writer, row))],
 ]);
-const callComponent = (writer: Writer, value: CallComponent): void => record(writer, "CallComponent", [
-  ["id", () => identity(writer, "component", value.id)], ["definitions", () => sequence(writer, value.definitions, item => identity(writer, "def", item))],
-  ["dependencies", () => sequence(writer, value.dependencies, item => identity(writer, "component", item))],
+const dependencyComponent = (writer: Writer, value: DependencyComponent): void => record(writer, value.kind, value.kind === "declared"
+  ? [["operation", () => scalar(writer, value.operation)]]
+  : [["members", () => sequence(writer, value.members, item => scalar(writer, item))],
+    ["rows", () => sequence(writer, value.rows, item => scalar(writer, item))],
+    ["dependencies", () => sequence(writer, value.dependencies, item => scalar(writer, item))]]);
+const executionDependency = (writer: Writer, value: ExecutionDependency): void => record(writer, "ExecutionDependency", [
+  ["dependent", () => execution(writer, value.dependent)], ["at", () => nodeRef(writer, value.at)],
+  ["reason", () => scalar(writer, value.reason)], ["target", () => summaryKey(writer, value.target)],
 ]);
-const callEdge = (writer: Writer, value: CallEdge): void => record(writer, value.kind, [
-  ["caller", () => identity(writer, "def", value.caller)], ["at", () => nodeRef(writer, value.at)],
-  ["callee", () => callCallee(writer, value)], ["bindings", () => artifact(writer, value.bindings)],
-]);
-const callGraph = (writer: Writer, value: CallGraph): void => record(writer, "CallGraph", [
-  ["definitions", () => sequence(writer, value.definitions, item => identity(writer, "def", item))], ["edges", () => sequence(writer, value.edges, item => callEdge(writer, item))],
-  ["components", () => sequence(writer, value.components, item => callComponent(writer, item))],
+const dependencyInventory = (writer: Writer, value: DependencyInventory): void => record(writer, "DependencyInventory", [
+  ["operations", () => sequence(writer, value.operations, item => summaryKey(writer, item))],
+  ["dependencies", () => sequence(writer, value.dependencies, item => executionDependency(writer, item))],
+  ["components", () => sequence(writer, value.components, item => dependencyComponent(writer, item))],
 ]);
 
 const refinementReason = (writer: Writer, value: RefinementReason): void => record(writer, value.kind,
@@ -814,11 +816,6 @@ const effectPaths = (writer: Writer, value: EffectPaths): void => {
 };
 const parameterSlot = (writer: Writer, value: ParameterSlot): void => record(writer, value.kind,
   value.kind === "receiver" ? [] : [["index", () => scalar(writer, value.index)]]);
-const callCallee = (writer: Writer, edge: CallEdge): void => {
-  const value = edge.callee;
-  record(writer, value.kind, value.kind === "definition" ? [["definition", () => identity(writer, "def", value.definition)]]
-    : [["boundary", () => boundaryRef(writer, value.boundary)]]);
-};
 
 export const printFacts: PrintFacts = facts => finish(facts, bodyFacts);
 export const printObservations = (value: BodyObservations): string => finish(value, (writer, value) => record(writer, "BodyObservations", [
@@ -827,4 +824,4 @@ export const printObservations = (value: BodyObservations): string => finish(val
 export const printSummary: PrintSummary = value => finish(value, summary);
 export const printInitializationTable = (value: InitializationTable): string => finish(value, initializationTable);
 export const printMetadata: PrintMetadata = value => finish(value, metadata);
-export const printCallGraph: PrintCallGraph = value => finish(value, callGraph);
+export const printDependencyInventory: PrintDependencyInventory = value => finish(value, dependencyInventory);

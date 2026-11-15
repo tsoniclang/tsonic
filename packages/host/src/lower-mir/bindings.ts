@@ -1,13 +1,13 @@
 import { requirePresent } from "../diag/index.js";
-import type { BodyId, LocalRef } from "../ids/contract.js";
+import type { BodyId, LocalId, LocalRef, PlaceId, TyId } from "../ids/contract.js";
 import type { Block, NodeHeader, VariableDeclaration, VariableDeclarationList } from "../ir-hir/contract.js";
 import type { MirClosureCapture } from "../ir-mir/contract.js";
 import type { TirNode, TypedPhase } from "../ir-tir/contract.js";
 import type { InternalBodyInput } from "./contract.js";
-import type { LocalScope, Lowering } from "./model.js";
+import type { LocalScope, Lowering, Work } from "./model.js";
 import { callerDefect, failure, notLoweredYet, siteOf } from "./model.js";
 import { exposeLocal, saveHandedOut } from "./operands.js";
-import { emitStatement, enterBlock, newBlock, newLocal, placeOfLocal, terminate } from "./state.js";
+import { emitStatement, enterBlock, newBlock, newLocal, newPlace, placeOfLocal, terminate } from "./state.js";
 
 export function enterLocalBlock(lowering: Lowering, node: Block<TypedPhase>): boolean {
   const scope: LocalScope = { parent: lowering.scope, locals: [] };
@@ -39,11 +39,16 @@ export function declarations(lowering: Lowering, list: VariableDeclarationList<T
   if (list.tsonic.role !== "ordinary") return notLoweredYet("a using declaration", list.origin);
   if (list.declarations.nodes.length === 0) return callerDefect("an empty variable declaration list", list.origin);
   const lexical = list.flags.includes("Let") || list.flags.includes("Const");
-  for (let index = list.declarations.nodes.length - 1; index >= 0; index -= 1) {
-    const declaration = requirePresent(list.declarations.nodes[index], failure("a variable declaration list has a hole", list.origin));
-    if (declaration.kind !== "VariableDeclaration") return callerDefect("a missing variable declaration", declaration.origin);
-    lowering.work.push({ kind: "declaration", node: declaration, lexical });
-  }
+  lowering.work.push({ kind: "declarations", node: list, lexical, position: 0 });
+  return true;
+}
+
+export function nextDeclaration(lowering: Lowering, pending: Extract<Work, { readonly kind: "declarations" }>): boolean {
+  const list = pending.node;
+  if (pending.position === list.declarations.nodes.length) return true;
+  const declaration = requirePresent(list.declarations.nodes[pending.position], failure("a variable declaration list has a hole", list.origin));
+  if (declaration.kind !== "VariableDeclaration") return callerDefect("a missing variable declaration", declaration.origin);
+  lowering.work.push({ ...pending, position: pending.position + 1 }, { kind: "declaration", node: declaration, lexical: pending.lexical });
   return true;
 }
 
@@ -104,7 +109,7 @@ export function prepareFunctionLocals(lowering: Lowering): boolean {
   return true;
 }
 
-function initializerOf(lowering: Lowering, node: VariableDeclaration<TypedPhase>, body: BodyId): InternalBodyInput {
+function initializerOf(lowering: Lowering, node: NodeHeader, body: BodyId): InternalBodyInput {
   if (lowering.internalOf === null) {
     const index = new Map<BodyId, InternalBodyInput>();
     for (const input of lowering.internal) {
@@ -119,9 +124,16 @@ function initializerOf(lowering: Lowering, node: VariableDeclaration<TypedPhase>
 
 export function declareLocal(lowering: Lowering, node: VariableDeclaration<TypedPhase>, lexical: boolean): boolean {
   const selected = node.tsonic;
-  const source = localBinding(lowering, node);
   if (node.initializer !== null && selected.initializer === null)
     return notLoweredYet("a variable initializer without its placed execution", node.origin);
+  if (selected.declaration.kind === "definition" && lowering.body.root.kind === "SourceFile") {
+    if (node.name.kind !== "Identifier") return notLoweredYet("a destructuring variable declaration", node.origin);
+    if (selected.initializer === null) return true;
+    const destination = newPlace(lowering.state, { kind: "static", definition: selected.declaration.definition }, selected.storage, node.origin);
+    if (destination === null) return false;
+    return initializePlace(lowering, node, destination, selected.storage, selected.initializer);
+  }
+  const source = localBinding(lowering, node);
   const site = siteOf(lowering.body, node);
   let local = lowering.localOf.get(source.local);
   if (lexical) {
@@ -135,12 +147,21 @@ export function declareLocal(lowering: Lowering, node: VariableDeclaration<Typed
   }
   const storage = requirePresent(local, failure("a function-scoped declaration has no entry storage", node.origin));
   if (selected.initializer === null) return true;
-  const input = initializerOf(lowering, node, selected.initializer);
-  const signature = lowering.signatureOf(input.signature);
-  if (signature.receiver !== null || signature.parameters.length !== 0 || signature.result !== selected.storage)
-    return callerDefect("an initializer signature differs from its selected destination", node.origin);
-  const destination = placeOfLocal(lowering.state, storage);
+  return initializeLocal(lowering, node, storage, selected.storage, selected.initializer);
+}
+
+export function initializeLocal(lowering: Lowering, node: NodeHeader, local: LocalId, storage: TyId, initializer: BodyId): boolean {
+  const destination = placeOfLocal(lowering.state, local);
   if (destination === null) return false;
+  return initializePlace(lowering, node, destination, storage, initializer);
+}
+
+function initializePlace(lowering: Lowering, node: NodeHeader, destination: PlaceId, storage: TyId, initializer: BodyId): boolean {
+  const site = siteOf(lowering.body, node);
+  const input = initializerOf(lowering, node, initializer);
+  const signature = lowering.signatureOf(input.signature);
+  if (signature.receiver !== null || signature.parameters.length !== 0 || signature.result !== storage)
+    return callerDefect("an initializer signature differs from its selected destination", node.origin);
   const captures: MirClosureCapture[] = [];
   for (const capture of input.captures) {
     const captured = capture.local.body === lowering.body.body ? lowering.localOf.get(capture.local.local)

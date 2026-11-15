@@ -138,7 +138,9 @@ export function moduleFixture(path = "src/main.ts", root = "/program") {
     modules: [{ module: moduleId, package: packageId, items: [{ definition, node: 0 }], exports: [], bindings: [], checkerDiagnostics: [] }],
     types, signatures: [], bodies: [{ instance, module: moduleId, owner: definition, root: 0,
       mirLocalCount: 0, mirConstantCount: 0, mirPlaceCount: 0, mirBlockCount: 1 }],
-    executions: [{ instance, provided: 0 }], metadata: [], summaries: [], constants: [], diagnostics: [],
+    dependencyInventory: { operations: [{ kind: "body", execution: { instance, provided: 0 } }], dependencies: [],
+      components: [{ kind: "body", members: [0], rows: [], dependencies: [] }] },
+    metadata: [], summaries: [], constants: [], diagnostics: [],
   };
   const available = value => ({ kind: "available", value });
   const checked = { ...syntax, tsonic: {
@@ -209,7 +211,8 @@ export function pairedModuleFixture(root = "/program") {
   first.index.packages.push(second.index.packages[0]);
   first.index.modules.push(second.index.modules[0]);
   first.index.bodies.push(second.index.bodies[0]);
-  first.index.executions.push(second.index.executions[0]);
+  first.index.dependencyInventory.operations.push(second.index.dependencyInventory.operations[0]);
+  first.index.dependencyInventory.components.push({ kind: "body", members: [1], rows: [], dependencies: [] });
   return { first, second };
 }
 
@@ -225,7 +228,8 @@ export function dualInstanceFixture() {
   published.mir.bindings = bindings;
   published.facts[0].execution.instance = instance;
   published.observations.instance = instance;
-  fixture.index.executions.push({ instance, provided: 0 });
+  fixture.index.dependencyInventory.operations.push({ kind: "body", execution: { instance, provided: 0 } });
+  fixture.index.dependencyInventory.components.push({ kind: "body", members: [1], rows: [], dependencies: [] });
   fixture.module.bodies.push(published);
   fixture.index.bodies.push({ ...fixture.index.bodies[0], instance });
   fixture.tirInput.module.bodies.push(published.tir);

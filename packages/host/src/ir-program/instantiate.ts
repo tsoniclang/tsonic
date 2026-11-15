@@ -114,12 +114,16 @@ export function selectArtifact(
     case "tir":
     case "mir": return select(meter, module.bodies, bindings, value => {
       if (value.instance.body !== artifact.body) return null;
-      const selected: StructuralArtifact = artifact.kind === "tir" ? { kind: "tir", body: value.tir }
-        : { kind: "mir", body: value.mir };
+      let selected: StructuralArtifact;
+      if (artifact.kind === "tir") selected = { kind: "tir", body: value.tir };
+      else {
+        if (value.kind === "template") return null;
+        selected = { kind: "mir", body: value.mir };
+      }
       return { kind: "candidate", artifact: selected, bindings: value.instance.bindings, dependence: value.tir.dependence };
     });
     case "facts": return select(meter, module.bodies, bindings, value => {
-      if (value.instance.body !== artifact.body) return null;
+      if (value.instance.body !== artifact.body || value.kind === "template") return null;
       let selected: BodyFacts | null = null;
       for (const facts of value.facts) {
         const stop = chargeInstantiationWork(meter);

@@ -13,7 +13,7 @@ export interface GateFinding {
 
 export type ModuleName = "ids" | "diag" | "ir-types" | "ir-hir" | "ir-infer" | "ir-tir" | "ir-mir" | "ir-facts" | "ir-program"
   | "dataflow" | "query" | "libraries" | "snapshot" | "front" | "decls" | "rules" | "infer" | "elaborate" | "validate"
-  | "lower-mir" | "evaluate" | "metadata" | "analyses/liveness" | "analyses/initialization" | "analyses/refinements"
+  | "lower-mir" | "evaluate" | "metadata" | "analyses/body" | "analyses/liveness" | "analyses/initialization" | "analyses/refinements"
   | "analyses/origins" | "analyses/suspension" | "analyses/errorStorage" | "analyses/pointerBacking" | "summaries"
   | "pipeline" | "project" | "packages" | "plugins" | "artifacts" | "orchestration" | "cli" | "create-tsonic";
 

@@ -1,12 +1,12 @@
 import type { Diagnostic, TextParseResult, Violation } from "../diag/contract.js";
 import type { BodyId, DefId, DefinitionPath, ModuleId, ModulePath, NodeId, PackageId, SigId } from "../ids/contract.js";
 import type {
-  ArtifactBindings, BindingVector, BodyInstance, ConstantReference, ConstValue, Execution, SelectedNativeFacts, SignatureEndpoint, TypePublication, TypeTable,
+  ArtifactBindings, BindingVector, BodyInstance, ConstantReference, ConstValue, SelectedNativeFacts, SignatureEndpoint, TypePublication, TypeTable,
 } from "../ir-types/contract.js";
 import type { HirModuleBinding, HirModuleExport, SourceFile } from "../ir-hir/contract.js";
 import type { TirBody, TirVerifierInput, TypedPhase } from "../ir-tir/contract.js";
 import type { MirBody, MirVerificationLimits } from "../ir-mir/contract.js";
-import type { BodyFacts, BodyObservations, FactsVerificationContext, MetadataRecord, Summary } from "../ir-facts/contract.js";
+import type { BodyFacts, BodyObservations, DependencyInventory, FactsVerificationContext, MetadataRecord, Summary } from "../ir-facts/contract.js";
 import type { ProgramWork } from "./work.js";
 import type { CallerRefusal, DataflowAccount, DataflowStop } from "../dataflow/contract.js";
 import type { ArtifactReference, InstantiationLimits, ProgramVerificationLimits, ProgramSite, ProgramVerificationStop } from "./work-data.js";
@@ -51,16 +51,16 @@ export type SignatureRecord = {
   | { readonly kind: "api-body"; readonly body: BodyId | null }
 );
 
-export interface BodyRecord {
+export type BodyRecord = {
   readonly instance: BodyInstance;
   readonly module: ModuleId;
   readonly owner: DefId;
   readonly root: NodeId;
-  readonly mirLocalCount: number;
-  readonly mirConstantCount: number;
-  readonly mirPlaceCount: number;
-  readonly mirBlockCount: number;
-}
+} & (
+  | { readonly kind: "template" }
+  | { readonly kind: "selected"; readonly mirLocalCount: number; readonly mirConstantCount: number;
+      readonly mirPlaceCount: number; readonly mirBlockCount: number }
+);
 
 export interface ConstantRecord {
   readonly reference: ConstantReference;
@@ -78,20 +78,21 @@ export interface ProgramIndex {
   readonly types: TypeTable;
   readonly signatures: readonly SignatureRecord[];
   readonly bodies: readonly BodyRecord[];
-  readonly executions: readonly Execution[];
+  readonly dependencyInventory: DependencyInventory;
   readonly metadata: readonly MetadataRecord[];
   readonly summaries: readonly Summary[];
   readonly constants: readonly ConstantRecord[];
   readonly diagnostics: readonly Diagnostic[];
 }
 
-export interface PublishedBody {
+export type PublishedBody = {
   readonly instance: BodyInstance;
   readonly tir: TirBody;
-  readonly mir: MirBody;
-  readonly observations: BodyObservations;
-  readonly facts: readonly BodyFacts[];
-}
+} & (
+  | { readonly kind: "template" }
+  | { readonly kind: "selected"; readonly mir: MirBody; readonly observations: BodyObservations;
+      readonly facts: readonly BodyFacts[] }
+);
 
 export interface ModuleBodies {
   readonly module: ModuleId;
@@ -140,7 +141,7 @@ export type ProgramRule =
   | "facts-valid" | "cross-owner-qualified" | "cross-owner-reference-resolves"
   | "metadata-constant-not-materialised"
   | "template-body-shared" | "nested-body-boundary" | "instance-node-ids-exact"
-  | "executions-order" | "execution-key-unique" | "execution-body-resolves" | "execution-entry-resolves"
+  | "dependency-inventory-valid" | "execution-body-resolves" | "execution-entry-resolves"
   | "facts-execution-total" | "facts-execution-order";
 
 export type CanonicalizeProgram = (program: HostProgram, publication: TypePublication) => HostProgram;

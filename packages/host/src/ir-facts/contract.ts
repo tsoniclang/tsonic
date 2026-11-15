@@ -1,6 +1,6 @@
 import type { Diagnostic, TextParseResult, Violation } from "../diag/contract.js";
 import type {
-  BlockId, BodyId, BoundProducerId, ComponentId, DefId, LayoutId, LibraryExportIdentity, LocalId, LocalRef, MemoryFieldId, NodeId, NodeRef,
+  BlockId, BodyId, BoundProducerId, DefId, LayoutId, LibraryExportIdentity, LocalId, LocalRef, MemoryFieldId, NodeId, NodeRef,
   OpenBoundaryId, OriginsId, PlaceId, ProducerId, ProjectionPathId, SigId, SourceNodeRef, TyId, ValueContextId,
 } from "../ids/contract.js";
 import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, Execution, MemberStorageSelection, NominalDefinition, PassingMode, SignatureRequest, TypeExpansionLimits, TypeInterner, TypeTable } from "../ir-types/contract.js";
@@ -13,21 +13,24 @@ import type { Condition, ConditionLimits } from "./conditions-data.js";
 import type { MirPoint, RelationalOwner, StoreEdge, SummaryKey } from "./relations-data.js";
 import type { EscapeTarget, PointerBackingOperation, Summary, SummaryWrite } from "./summary-data.js";
 import type { AppliedSummary, SummaryApplicationInput, SummaryApplicationLimits } from "./application-data.js";
+import type { DependencyInventory } from "./dependency-data.js";
 export type { AppliedCallback, AppliedCell, AppliedContext, AppliedOriginsValue, AppliedProducerValue, AppliedSubject,
   AppliedSummary, AppliedWrite, SummaryApplicationInput, SummaryApplicationLimits, ValueEntryBinding } from "./application-data.js";
 export type { CallbackExchange, CaptureEffect, EffectPaths, EscapeTarget, ParameterEffect, ParameterSlot, PointerBackingOperation,
-  Summary, SummaryBacking, SummaryCompletion, SummaryRelations, SummaryResultCell, SummaryRetention, SummaryWrite } from "./summary-data.js";
-import type { OpenBoundaryRef, ProducerRef, RelationalArena } from "./arena-data.js";
+  Summary, SummaryAnswer, SummaryBacking, SummaryCompletion, SummaryRelations, SummaryResultCell, SummaryRetention, SummaryWrite } from "./summary-data.js";
+import type { ProducerRef, RelationalArena } from "./arena-data.js";
 export type { BoundProducer, CaptureLocation, OpenBoundary, OpenBoundaryRef, Origins, OriginsRef, Producer, ProducerRef, Projection, ProjectionPath, RelationalArena, ValueContext } from "./arena-data.js";
 export type { Condition, ConditionLimits } from "./conditions-data.js";
 export type { BoundProducerRef, MirPoint, RelationalOwner, RelationalSite, StoreEdge, SummaryKey } from "./relations-data.js";
 export type { CreatedSlot, DeclaredCellInventory, LogicalCell, LogicalCellLifetime, LogicalCellOccurrence, LogicalCellRef, LogicalCellRow, StableReference } from "./cells-data.js";
 export type { InitializationEvent, InitializationPoint, InitializationRow, InitializationTable, InitializationWitness, SummaryPosition } from "./initialization-data.js";
+export type { DependencyComponent, DependencyInventory, ExecutionDependency, RequiredOperations } from "./dependency-data.js";
 
 export type ConditionOr = (left: Condition, right: Condition, limits: ConditionLimits) => DataflowResult<Condition>;
 export type ConditionAnd = (left: Condition, right: Condition, limits: ConditionLimits) => DataflowResult<Condition>;
 export type ConditionEquals = (left: Condition, right: Condition, limits: ConditionLimits) => DataflowResult<boolean>;
 export type ConditionSubstitute = (condition: Condition, events: readonly Condition[], limits: ConditionLimits) => DataflowResult<Condition>;
+export type AdmitSummaryIdentity = (key: SummaryKey, account: DataflowAccount) => DataflowStop | null;
 
 export interface AnalysisLimits {
   readonly maximumProjectionDepth: number;
@@ -498,27 +501,6 @@ export interface BodyFacts {
 }
 
 
-export interface CallEdge {
-  readonly caller: DefId;
-  readonly at: NodeRef;
-  readonly kind: "direct" | "indirect" | "getter" | "setter" | "constructor" | "initializer" | "callback";
-  readonly callee: { readonly kind: "definition"; readonly definition: DefId }
-    | { readonly kind: "open"; readonly boundary: OpenBoundaryRef };
-  readonly bindings: ArtifactBindings;
-}
-
-export interface CallComponent {
-  readonly id: ComponentId;
-  readonly definitions: readonly DefId[];
-  readonly dependencies: readonly ComponentId[];
-}
-
-export interface CallGraph {
-  readonly definitions: readonly DefId[];
-  readonly edges: readonly CallEdge[];
-  readonly components: readonly CallComponent[];
-}
-
 export type FactsRule =
   | "cell-id-dense" | "cell-occurrence-resolves" | "cell-role-resolves"
   | "execution-entry-exact"
@@ -561,10 +543,10 @@ export type MetadataRule =
   | "field-alignment-valid" | "selected-declarations-order" | "member-correspondence-exact"
   | "data-layout-reference-resolves" | "array-extent-exact" | "layout-geometry-consistent";
 
-export type CallGraphRule =
-  | "definitions-order" | "edges-order" | "components-order" | "definition-resolves" | "call-site-resolves"
-  | "cross-owner-qualified" | "component-identity" | "component-membership-exact" | "component-dependencies-exact"
-  | "component-members-order" | "component-dependencies-order" | "component-acyclic";
+export type DependencyRule =
+  | "operation-unique" | "execution-resolves" | "bindings-complete" | "call-site-resolves" | "cross-owner-qualified"
+  | "dependency-resolves" | "dependency-unique" | "component-membership-exact" | "component-dependencies-exact"
+  | "component-kind-exact" | "component-rows-exact" | "component-acyclic";
 
 export type FactsSite =
   | { readonly kind: "cell"; readonly owner: RelationalOwner; readonly cell: number }
@@ -583,7 +565,7 @@ export type FactsSite =
   | { readonly kind: "boundary"; readonly owner: RelationalOwner; readonly boundary: OpenBoundaryId }
   | { readonly kind: "summary"; readonly summary: SummaryKey }
   | { readonly kind: "metadata"; readonly metadata: MetadataKey }
-  | { readonly kind: "component"; readonly component: ComponentId };
+  | { readonly kind: "component"; readonly component: number };
 
 export type FactsBindingTarget =
   | { readonly kind: "body"; readonly instance: BodyInstance }
@@ -669,7 +651,7 @@ export type PrintMetadata = (metadata: MetadataRecord) => string;
 export type ParseMetadata = (text: string) => TextParseResult<MetadataRecord>;
 export type VerifyMetadata = (metadata: MetadataRecord,
   context: MetadataVerificationContext, account: DataflowAccount) => FactsVerification<MetadataRule>;
-export type VerifyCallGraph = (graph: CallGraph,
-  context: FactsVerificationContext, account: DataflowAccount) => FactsVerification<CallGraphRule>;
-export type PrintCallGraph = (graph: CallGraph) => string;
-export type ParseCallGraph = (text: string) => TextParseResult<CallGraph>;
+export type VerifyDependencyInventory = (inventory: DependencyInventory,
+  context: FactsVerificationContext, account: DataflowAccount) => FactsVerification<DependencyRule>;
+export type PrintDependencyInventory = (inventory: DependencyInventory) => string;
+export type ParseDependencyInventory = (text: string) => TextParseResult<DependencyInventory>;

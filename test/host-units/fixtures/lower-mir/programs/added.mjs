@@ -1,6 +1,7 @@
 // Inputs added after R1's review of W4-1 (clauses that had no case) and for the ruling on activation (K-3239 item 4).
-import { PARAMETRIC, PURE, T, bodyId, builders, callee, core, deepBody, invoking, library, mapped, native, protocol, signature, step, arrayIteration,
-  typedBody } from "../typed.mjs";
+import { SELECTED_BINDINGS, PURE, T, bodyId, builders, callee, core, deepBody, invoking, library, mapped, native, protocol, signature, step, arrayIteration,
+  seal, typedBody } from "../typed.mjs";
+import { sameInstance } from "../../../../../packages/host/dist/ir-types/index.js";
 
 const ADD = native("+", "int32", [T.int32, T.int32], T.int32);
 const LESS = native("<", "int32", [T.int32, T.int32], T.bool);
@@ -32,8 +33,16 @@ export function scaled() {
     locals: [["a", "parameter", T.int32], ["b", "parameter", T.int32]],
     params: [[0, "required", T.int32], [1, "default", T.int32, B_DEFAULT]], nestedBodies: [B_DEFAULT],
     root: b.block(b.returns({ $: "a+b", ...b.arithmetic(b.id("a", 0, T.int32), "PlusToken", b.id("b", 1, T.int32), T.int32, ADD) })) });
-  const internal = [{ instance: { body: B_DEFAULT, bindings: PARAMETRIC }, captures: [], signature: SIG_B_DEFAULT }];
-  return { program, internal, B_DEFAULT };
+  const internal = [{ instance: { body: B_DEFAULT, bindings: SELECTED_BINDINGS }, captures: [], signature: SIG_B_DEFAULT }];
+  const childBuilder = builders("scaled.b", "default");
+  const syntax = childBuilder.num("2", T.int32);
+  const child = typedBody("scaled.b", { role: "default", signature: SIG_B_DEFAULT, completion: T.int32, root: syntax });
+  child.tir.root = seal("scaled.b", syntax, "default", program.nodeCount).root;
+  const header = program.tir.params[1];
+  child.tir.root.parent = header.id;
+  header.initializer = child.tir.root;
+  program.bodyOf = instance => sameInstance(instance, internal[0].instance) ? child.tir : null;
+  return { program, internal, B_DEFAULT, child };
 }
 
 // R6: a `return` out of an iteration that has a `finish` step.

@@ -190,6 +190,7 @@ export type InvariantOwner =
   | "lower-mir"
   | "evaluate"
   | "metadata"
+  | "analyses/body"
   | "analyses/liveness"
   | "analyses/initialization"
   | "analyses/refinements"

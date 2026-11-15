@@ -10,7 +10,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { after, before, test as declare } from "node:test";
 import { checkCoverage } from "../architecture/host/coverage.mjs";
 import { parseSources } from "../architecture/host/import-graph.mjs";
-import { ARRAY_STEP, EMPTY_BINDINGS, MODULE, PARAMETRIC, SELECTED_BINDINGS, SIG, T, TABLE, bodyId, builders, callee, declareType, def, defaultMapping, mapped, native, omittedMapping, selected, signature, typedBody, typedOperation, value, verificationContext } from "./fixtures/lower-mir/typed.mjs";
+import { ARRAY_STEP, EMPTY_BINDINGS, MODULE, PARAMETRIC, SELECTED_BINDINGS, SIG, T, TABLE, bodyId, builders, callee, declareType, def, defaultMapping, mapped, native, omittedMapping, seal, selected, signature, typedBody, typedOperation, value, verificationContext } from "./fixtures/lower-mir/typed.mjs";
 import {
   argumentConstantOf, argumentKindsOf, at, blocksWithStatementAt, calleeNameOf, capturedLocalsOf, capturedRootsOf, checkedPlace, checks,
   controlPoints, createsClosure, destinationBaseOf, destinationChainOf, destinationFieldOf, destinationRootOf, edgesOf, effects,
@@ -36,6 +36,7 @@ const CALLER_DEFECT = "caller defect: ";
 let current = null;
 const literalTrue = declareType("lowerLiteralTrue", { kind: "literal", value: { kind: "boolean", value: true }, base: T.bool });
 const literalFalse = declareType("lowerLiteralFalse", { kind: "literal", value: { kind: "boolean", value: false }, base: T.bool });
+const optionalBool = declareType("lowerOptionalBool", { kind: "optional", value: T.bool });
 const indirectSignature = signature("lower.indirect.target", [["x", T.int32]], T.int32);
 const indirectType = declareType("lowerIndirectCallable", { kind: "callable", calls: [indirectSignature], constructs: [] });
 const test = (name, ...rest) => {
@@ -211,7 +212,7 @@ function expectedAdd(program, type, unwind) {
     : [{ ...root, id: 0, statements: [begun], terminator: { ...sum, kind: "invoke", operation: program.decision, operands: [a, b],
       destination: 2, next: 1, unwind: { kind: unwind }, step: null } },
     { ...returned, id: 1, statements: [], terminator: { ...returned, kind: "return", value: result } }];
-  return { body, bindings: { kind: "instantiated", bindings: EMPTY_BINDINGS }, entries: [{ provided: 2, block: 0 }], locals, constants: [], places, blocks, result: type };
+  return { body, bindings: SELECTED_BINDINGS, entries: [{ provided: 2, block: 0 }], locals, constants: [], places, blocks, result: type };
 }
 
 // The checkpoint program is over `number`, which is float64 (K-3291); the unit program of WT-1 is over int32. Lowering
@@ -267,6 +268,12 @@ test("first producer: an operand read from the caller's storage is saved before 
   assert.deepEqual(kinds(mir), [["storage-live", "invoke"], ["storage-live", "assign", "return"]]);
 });
 
+test("production lowering rejects template identity even when the checked binding scope is empty", () => {
+  const program = shaped("selected.empty.scope", [], T.void, b => b.block());
+  assert.throws(() => produced(deps, { ...program.tir, bindings: PARAMETRIC }, []), /selected complete body instance/u);
+  assert.equal(produced(deps, program.tir, []).kind, "ok");
+});
+
 test("first producer: the receiver's row and a body that completes with no value", () => {
   // The row of role `this` is the local of role `receiver`; the other rows are counted without it (parameter-source-exact).
   const method = shaped("first.method", [["self", "this", T.counter], ["a", "required", T.int32]], T.int32,
@@ -286,12 +293,6 @@ test("first producer: the receiver's row and a body that completes with no value
   const twice = nested("first.twice", T.int32, ({ leaf }) => leaf("a"), { statements: ({ b, leaf }, tree) => [b.returns(tree), b.returns(leaf("b"))] });
   mir = lower(twice);
   assert.deepEqual([mir.blocks.length, mir.places.length, mir.blocks[0].terminator.value], [1, 1, { kind: "place", place: 0 }]);
-});
-
-test("production lowering requires the selected complete instance instead of its schema-level template", () => {
-  const program = add("selected.complete", T.int32, plus("int32", T.int32));
-  assert.throws(() => produced(deps, { ...program.tir, bindings: PARAMETRIC }, []), /selected complete body instance/u);
-  assert.equal(produced(deps, program.tir, []).kind, "ok");
 });
 
 test("first producer: below the size of its graph a body is refused with one diagnostic at its origin; at that size it is lowered", () => {
@@ -371,6 +372,244 @@ test("first producer: each exposed read is saved once, distinct reads of one loc
   assert.deepEqual(saves(mir), []);
 });
 
+const conditional = (condition, whenTrue, whenFalse, type, disposition = "dynamic", tag = "choice") => {
+  const arm = (node, when, label) => ({ ...node, $: `${tag}.${label}`, tsonic: at => ({
+    ...(typeof node.tsonic === "function" ? node.tsonic(at) : node.tsonic),
+    demand: disposition === "dynamic" ? { kind: "selected", control: at(`${tag}.control`), when }
+      : disposition === when ? { kind: "always" } : { kind: "never", control: at(`${tag}.control`) },
+  }) });
+  return { $: tag, kind: "ConditionalExpression", condition: { ...condition, $: `${tag}.control` },
+    questionToken: { kind: "QuestionToken", tsonic: null }, whenTrue: arm(whenTrue, "true", "yes"),
+    colonToken: { kind: "ColonToken", tsonic: null }, whenFalse: arm(whenFalse, "false", "no"),
+    tsonic: at => ({ ...value(type), selection: { kind: "conditional", control: at(`${tag}.control`),
+      whenTrue: at(`${tag}.yes`), whenFalse: at(`${tag}.no`), disposition } }) };
+};
+
+const exactLowerBudget = (program, mir) => {
+  const required = mir.locals.length + mir.places.length + mir.constants.length + mir.blocks.length
+    + mir.blocks.reduce((total, block) => total + block.statements.length, 0);
+  for (let maximumRecords = 0; maximumRecords < required; maximumRecords += 1)
+    assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, []).kind, "refused", `under ${maximumRecords}/${required}`);
+  assert.deepEqual(produced({ ...deps, limits: { maximumRecords: required } }, program.tir, []).value, mir);
+};
+
+const shortCircuit = (b, kind, left, right, type, disposition = "dynamic", tag = "logical") => b.binary(
+  { ...left, $: `${tag}.control` }, kind === "and" ? "AmpersandAmpersandToken" : kind === "or" ? "BarBarToken" : "QuestionQuestionToken",
+  { ...right, $: `${tag}.right`, tsonic: at => ({ ...(typeof right.tsonic === "function" ? right.tsonic(at) : right.tsonic),
+    demand: disposition === "left" ? { kind: "never", control: at(`${tag}.control`) }
+      : disposition === "right" ? { kind: "always" } : { kind: "selected", control: at(`${tag}.control`),
+        when: kind === "and" ? "true" : kind === "or" ? "false" : "absent" },
+  }) }, at => ({ ...value(type), role: "short-circuit", selection: { kind, control: at(`${tag}.control`),
+    right: at(`${tag}.right`), disposition } }));
+
+test("native boolean and/or and optional absence select exactly their authored short-circuit path", () => {
+  for (const kind of ["and", "or", "coalesce"]) {
+    const storage = kind === "coalesce" ? optionalBool : T.bool;
+    const program = shaped(`logical.dynamic.${kind}`, [["left", "required", storage], ["right", "required", storage]], storage,
+      b => shortCircuit(b, kind, b.id("left", 0, storage), b.id("right", 1, storage), storage));
+    const mir = lower(program);
+    assert.deepEqual(mir.blocks.map(block => block.terminator.kind), ["switch", "goto", "goto", "return"]);
+    assert.equal(mir.locals.filter(local => local.role.kind === "temporary").length, 1);
+    for (const input of kind === "coalesce" ? [null, true] : [true, false]) {
+      const readsRight = kind === "and" ? input : kind === "or" ? !input : input === null;
+      const path = walk(mir, { decide: () => input });
+      const assignments = path.events.filter(event => event.record.kind === "assign");
+      assert.equal(assignments.length, 1);
+      assert.equal(rootLocalOf(mir, assignments[0].record.value.operand.place), sourceLocal(mir, readsRight ? 1 : 0));
+      assert.equal(assignments[0].record.place, mir.blocks.at(-1).terminator.value.place);
+      const rightBlock = mir.blocks.find(block => block.tir.node === program.at("logical.right"));
+      assert.equal(path.events.some(event => event.block === rightBlock.id), readsRight);
+    }
+    exactLowerBudget(program, mir);
+  }
+});
+
+test("static short-circuit disposition and actual literal boolean/absence evidence do not visit a dead right arm", () => {
+  for (const kind of ["and", "or", "coalesce"]) {
+    for (const disposition of ["left", "right", "dynamic"]) {
+      for (const known of [true, false]) {
+        if (kind === "coalesce" && (disposition === "dynamic" ? !known : false)) continue;
+        const readRight = disposition === "right" || disposition === "dynamic" && (kind === "coalesce" || known === (kind === "and"));
+        const result = disposition === "dynamic" && !readRight ? known ? literalTrue : literalFalse : T.bool;
+        const program = shaped(`logical.static.${kind}.${disposition}.${known}`, [], result, b => shortCircuit(b, kind,
+          kind === "coalesce" && readRight ? b.keyword("NullKeyword", T.absence)
+            : b.keyword(known ? "TrueKeyword" : "FalseKeyword", disposition === "dynamic" ? known ? literalTrue : literalFalse : T.bool),
+          b.keyword(result === literalFalse ? "FalseKeyword" : "TrueKeyword", result), result, disposition));
+        const right = program.tir.root.right;
+        const descriptor = Object.getOwnPropertyDescriptor(right, "tsonic");
+        if (!readRight) Object.defineProperty(right, "tsonic", { configurable: true, get() { throw new Error("dead logical arm read"); } });
+        const output = produced(deps, program.tir, []);
+        if (!readRight) Object.defineProperty(right, "tsonic", descriptor);
+        assert.equal(output.kind, "ok");
+        assert.deepEqual(verified(output.value, program), []);
+        assert.equal(output.value.blocks.length, 1);
+        assert.equal(output.value.locals.length, 0);
+        exactLowerBudget(program, output.value);
+      }
+    }
+  }
+});
+
+test("selected short-circuit effects preserve pre-split pending reads once and never run on the retained-left path", () => {
+  for (const kind of ["and", "or"]) {
+    const program = shaped(`logical.snapshot.${kind}`, [["left", "required", T.bool], ["x", "required", T.bool]], T.bool, b =>
+      b.comparison({ $: "original", ...b.id("x", 1, T.bool) }, "EqualsEqualsEqualsToken", shortCircuit(b, kind,
+        b.id("left", 0, T.bool), b.assign(b.target("x", 1, T.bool), "EqualsToken", b.keyword("FalseKeyword", T.bool), T.bool, T.bool), T.bool),
+      native("===", "bool", [T.bool, T.bool], T.bool)));
+    const mir = lower(program);
+    const copies = mir.blocks[0].statements.filter(record => record.kind === "assign" && record.tir.node === program.at("original"));
+    assert.equal(copies.length, 1);
+    for (const flag of [true, false]) {
+      const path = walk(mir, { decide: () => flag });
+      const writes = path.events.filter(event => event.record.kind === "assign"
+        && event.record.place === mir.places.find(place => place.base.kind === "local" && place.base.local === sourceLocal(mir, 1)).id);
+      assert.equal(writes.length, flag === (kind === "and") ? 1 : 0);
+    }
+    exactLowerBudget(program, mir);
+  }
+});
+
+test("short-circuit inputs keep actual selected endpoints, boolean/absence carrier and result-view frontiers", () => {
+  const make = (tag, kind = "and") => shaped(`logical.invalid.${tag}`, [["x", "required", T.bool], ["y", "required", T.bool]], T.bool,
+    b => shortCircuit(b, kind, b.id("x", 0, T.bool), b.id("y", 1, T.bool), T.bool));
+  for (const field of ["kind", "control", "right"]) {
+    const program = make(field);
+    program.tir.root.tsonic.selection[field] = field === "kind" ? "conditional" : -1;
+    assert.throws(() => produced(deps, program.tir, []), error => defectOfLowerMir(error) && error.message.includes("actual operands"));
+  }
+  const unknownToken = make("token");
+  unknownToken.tir.root.operatorToken.kind = "PlusToken";
+  assert.throws(() => produced(deps, unknownToken.tir, []), error => defectOfLowerMir(error) && error.message.includes("actual operands"));
+  const nonbool = make("nonbool");
+  nonbool.tir.root.left.tsonic.type = T.string;
+  assert.throws(() => produced(deps, nonbool.tir, []), notLoweredYet("a condition without a selected boolean conversion"));
+  const unknownAbsence = make("absence", "coalesce");
+  assert.throws(() => produced(deps, unknownAbsence.tir, []), notLoweredYet("a coalescing selector without its selected absence carrier"));
+  for (const disposition of ["left", "dynamic"]) {
+    const changed = make(`result.${disposition}`);
+    changed.tir.root.tsonic.type = T.uint32;
+    changed.tir.root.tsonic.selection.disposition = disposition;
+    assert.throws(() => produced(deps, changed.tir, []), notLoweredYet("a selected result storage embedding"));
+  }
+  const wrongRight = make("right-storage");
+  wrongRight.tir.root.right.tsonic.type = T.uint32;
+  assert.throws(() => produced(deps, wrongRight.tir, []), error => defectOfLowerMir(error) && error.message.includes("result storage"));
+});
+
+test("selected conditional arms execute once on their actual edge and share one written result", () => {
+  const program = shaped("conditional.dynamic", [["c", "required", T.bool], ["x", "required", T.int32], ["y", "required", T.int32]], T.int32,
+    b => conditional(b.id("c", 0, T.bool), b.id("x", 1, T.int32), b.id("y", 2, T.int32), T.int32));
+  const node = program.tir.root;
+  for (const [arm, when] of [[node.whenTrue, "true"], [node.whenFalse, "false"]])
+    arm.tsonic.demand = { kind: "selected", control: node.condition.id, when };
+  const mir = lower(program);
+  assert.deepEqual(mir.blocks.map(block => block.terminator.kind), ["switch", "goto", "goto", "return"]);
+  assert.equal(mir.locals.filter(local => local.role.kind === "temporary").length, 1);
+  for (const [chosen, source] of [[true, 1], [false, 2]]) {
+    const result = walk(mir, { decide: () => chosen });
+    const assignments = result.events.filter(item => item.record.kind === "assign");
+    assert.equal(assignments.length, 1);
+    assert.equal(rootLocalOf(mir, assignments[0].record.value.operand.place), sourceLocal(mir, source));
+    assert.equal(assignments[0].record.place, mir.blocks.at(-1).terminator.value.place);
+  }
+  exactLowerBudget(program, mir);
+});
+
+test("static conditional evidence visits only its selected arm and retains selected-demand qualification", () => {
+  for (const disposition of ["true", "false", "dynamic"]) {
+    for (const known of [true, false]) {
+      if (disposition !== "dynamic" && known !== (disposition === "true")) continue;
+      const taken = disposition === "dynamic" ? known : disposition === "true";
+      const program = shaped(`conditional.static.${disposition}.${known}`, [["x", "required", T.int32]], T.int32,
+        b => conditional(b.keyword(known ? "TrueKeyword" : "FalseKeyword", known ? literalTrue : literalFalse),
+          taken ? b.id("x", 0, T.int32) : b.keyword("NullKeyword", T.absence),
+          taken ? b.keyword("NullKeyword", T.absence) : b.id("x", 0, T.int32), T.int32, disposition));
+      const node = program.tir.root;
+      const arm = taken ? node.whenTrue : node.whenFalse;
+      arm.tsonic.demand = { kind: "selected", control: node.condition.id, when: taken ? "true" : "false" };
+      const dead = taken ? node.whenFalse : node.whenTrue;
+      const descriptor = Object.getOwnPropertyDescriptor(dead, "tsonic");
+      Object.defineProperty(dead, "tsonic", { configurable: true, get() { throw new Error("unselected arm was read"); } });
+      const output = produced(deps, program.tir, []);
+      assert.equal(output.kind, "ok");
+      Object.defineProperty(dead, "tsonic", descriptor);
+      const mir = output.value;
+      assert.deepEqual(verified(mir, program), []);
+      assert.equal(mir.blocks.length, 1);
+      assert.equal(mir.locals.length, 1);
+      assert.equal(mir.blocks[0].terminator.value.kind, "place");
+      exactLowerBudget(program, mir);
+    }
+  }
+});
+
+test("nested conditional writes select only the real dominating operand prefix without copying either stack", () => {
+  const program = shaped("conditional.nested", [["c", "required", T.bool], ["d", "required", T.bool],
+    ["x", "required", T.int32], ["y", "required", T.int32]], T.int32, b => {
+    const add = (left, right) => b.arithmetic(left, "PlusToken", right, T.int32, native("+", "int32", [T.int32, T.int32], T.int32));
+    const write = (name, local, number) => b.assign(b.target(name, local, T.int32), "EqualsToken", b.num(number, T.int32), T.int32, T.int32);
+    return add({ $: "outer-read", ...b.id("x", 2, T.int32) }, conditional(b.id("c", 0, T.bool),
+      add({ $: "inner-read", ...b.id("y", 3, T.int32) }, conditional(b.id("d", 1, T.bool),
+        b.sequence(write("x", 2, "2"), write("y", 3, "3"), T.int32), b.num("4", T.int32), T.int32, "dynamic", "inner")),
+      b.num("5", T.int32), T.int32));
+  });
+  const mir = lower(program);
+  const splits = mir.blocks.filter(block => block.terminator.kind === "switch");
+  assert.equal(splits.length, 2);
+  for (const [position, tag] of [[0, "outer-read"], [1, "inner-read"]]) {
+    const snapshots = splits[position].statements.filter(record => record.kind === "assign" && record.tir.node === program.at(tag));
+    assert.equal(snapshots.length, 1);
+    assert.equal(mir.blocks.flatMap(block => block.statements).filter(record => record.kind === "assign" && record.tir.node === program.at(tag)).length, 1);
+  }
+  exactLowerBudget(program, mir);
+});
+
+test("a branch-local write snapshots earlier pending reads at the actual dominating split, never only on one arm", () => {
+  for (const writing of ["true", "false", "both", "neither"]) {
+    const program = shaped(`conditional.snapshot.${writing}`, [["c", "required", T.bool], ["x", "required", T.int32]], T.int32, b => {
+      const store = number => b.assign(b.target("x", 1, T.int32), "EqualsToken",
+        b.num(String(number), T.int32), T.int32, T.int32);
+      return b.arithmetic({ $: "original", ...b.id("x", 1, T.int32) }, "PlusToken",
+        conditional(b.id("c", 0, T.bool), writing === "true" || writing === "both" ? store(2) : b.num("4", T.int32),
+          writing === "false" || writing === "both" ? store(3) : b.num("5", T.int32), T.int32),
+        T.int32, native("+", "int32", [T.int32, T.int32], T.int32));
+    });
+    const mir = lower(program);
+    const snapshots = mir.blocks[0].statements.filter(record => record.kind === "assign" && record.tir.node === program.at("original"));
+    assert.equal(snapshots.length, writing === "neither" ? 0 : 1);
+    for (const block of mir.blocks.slice(1))
+      assert.equal(block.statements.some(record => record.tir.node === program.at("original")), false);
+    if (writing !== "neither") {
+      const final = mir.blocks.at(-1).statements.find(record => record.kind === "assign" && record.value.kind === "binary");
+      assert.equal(final.value.left.place, snapshots[0].place);
+      assert.equal(snapshots[0].value.operand.place, mir.places.find(place => place.base.kind === "local" && place.base.local === sourceLocal(mir, 1)).id);
+    }
+    exactLowerBudget(program, mir);
+  }
+});
+
+test("conditional inputs reject mismatched selected operands, arm storage and unavailable boolean conversion", () => {
+  const make = name => shaped(`conditional.invalid.${name}`, [["c", "required", T.bool]], T.int32,
+    b => conditional(b.id("c", 0, T.bool), b.num("1", T.int32), b.num("2", T.int32), T.int32));
+  for (const field of ["kind", "control", "whenTrue", "whenFalse"]) {
+    const program = make(field);
+    program.tir.root.tsonic.selection[field] = field === "kind" ? "and" : -1;
+    assert.throws(() => produced(deps, program.tir, []), error => defectOfLowerMir(error) && error.message.includes("actual operands"));
+  }
+  for (const arm of ["whenTrue", "whenFalse"]) {
+    const program = make(arm);
+    program.tir.root[arm].tsonic.type = T.uint32;
+    assert.throws(() => produced(deps, program.tir, []), error => defectOfLowerMir(error) && error.message.includes("result storage"));
+  }
+  const staticMismatch = make("static-storage");
+  staticMismatch.tir.root.tsonic.selection.disposition = "true";
+  staticMismatch.tir.root.whenTrue.tsonic.type = T.uint32;
+  assert.throws(() => produced(deps, staticMismatch.tir, []), error => defectOfLowerMir(error) && error.message.includes("result storage"));
+  const unknown = make("condition");
+  unknown.tir.root.condition.tsonic.type = T.string;
+  assert.throws(() => produced(deps, unknown.tir, []), error => error.message.includes("without a selected boolean conversion"));
+});
+
 test("growing pending read and statement lists preserve every individual read and exact record refusal", () => {
   for (const count of [4, 16, 64]) {
     const program = nested(`exposed.growth.${count}`, T.int32, ({ leaf, sum, group }) => {
@@ -435,10 +674,8 @@ test("selected scalar literals use one constant and no temporary or check, with 
     const program = shaped(`literal.${name}`, [], type, b => b.block(b.returns(build(b))));
     const outcome = produced(deps, program.tir, []);
     assert.equal(outcome.kind, "ok");
-    assert.deepEqual(outcome.diagnostics, []);
     const mir = outcome.value;
-    if (name === "fraction") assert.throws(() => verified(mir, program), error => error instanceof TypeError
-      && error.message === `ir-mir: missing selected literal literal-conversion evidence for type ${type} (float64)`);
+    if (name === "fraction") assert.throws(() => verified(mir, program), /missing selected literal literal-conversion evidence/u);
     else assert.deepEqual(verified(mir, program), []);
     assert.deepEqual(mir.constants, [{ id: 0, type, value: { kind: "literal", value: expected } }]);
     assert.deepEqual([mir.locals, mir.places, mir.blocks.length, mir.blocks[0].statements], [[], [], 1, []]);
@@ -796,6 +1033,46 @@ test("assignment rejects unavailable selected inputs rather than inventing a tar
   }
 });
 
+test("selected constructor applications use the actual construct endpoint, arguments and original failure continuation", () => {
+  for (const count of [0, 2]) {
+    for (const absentSyntax of [false, true]) {
+      if (count !== 0 && absentSyntax) continue;
+      const name = `construct.direct.${count}.${absentSyntax}`;
+      const target = `${name}.target`;
+      const signatureId = signature(target, Array.from({ length: count }, (_, index) => [`p${index}`, T.int32]), T.counter, null, "construct");
+      const program = shaped(name, [["x", "required", T.int32]], T.counter, builder => {
+        const args = count === 0 ? [] : [
+          { ...directApplication(builder, `${name}.first`, [builder.id("x", 0, T.int32)]), $: "first" },
+          { ...directApplication(builder, `${name}.second`, [builder.id("x", 0, T.int32)]), $: "second" },
+        ];
+        const created = { $: "construct", ...builder.construct(builder.global(target, target, T.unknown), args, T.counter, at => ({
+          callee: callee(target, signatureId, args.map((_, index) => mapped(index, index)), T.counter), receiver: null,
+          arguments: args.map((arg, parameter) => ({ kind: "provided", parameter, expression: at(arg.$) })),
+        })) };
+        if (absentSyntax) created.arguments = null;
+        return builder.block(builder.returns(created));
+      });
+      const mir = lower(program);
+      const calls = controlPoints(mir).filter(point => point.kind === "call");
+      const construction = calls.at(-1);
+      assert.equal(construction.record.callee.resolution.decision.api.signature, signatureId);
+      assert.equal(construction.record.arguments.length, count);
+      assert.equal(construction.node, program.at("construct"));
+      assert.deepEqual(construction.record.unwind, { kind: "escape" });
+      if (count === 2) assert.deepEqual(calls.map(point => point.node), [program.at("first"), program.at("second"), program.at("construct")]);
+      const size = mir.locals.length + mir.places.length + mir.constants.length + mir.blocks.length
+        + mir.blocks.reduce((count, block) => count + block.statements.length, 0);
+      for (let maximumRecords = 0; maximumRecords < size; maximumRecords += 1)
+        assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, []).kind, "refused");
+      assert.equal(produced({ ...deps, limits: { maximumRecords: size } }, program.tir, []).kind, "ok");
+      const original = TABLE.signatures[signatureId].kind;
+      TABLE.signatures[signatureId].kind = "call";
+      assert.throws(() => produced(deps, program.tir, []), /another selected invocation kind/u);
+      TABLE.signatures[signatureId].kind = original;
+    }
+  }
+});
+
 function directApplication(builder, name, expressions, result = T.int32, passing = "by-value") {
   const target = `direct.target.${name}`;
   const signatureId = signature(target, expressions.map((_, index) => [`p${index}`, T.int32, "required", null, passing]), result);
@@ -871,7 +1148,148 @@ test("required absence-capable parameters still need genuine selected omission e
   }
   const program = shaped("entry.required-absence", [["x", "required", T.absence]], T.absence, b => b.id("x", 0, T.absence));
   TABLE.signatures[program.tir.signature].parameters[0].acceptsOmission = true;
-  assert.throws(() => produced(deps, program.tir, []), notLoweredYet("an omitted entry without its selected parameter occurrence"));
+  const mir = lower(program);
+  assert.deepEqual(providedCountsOf(mir), [1, 0]);
+  assert.equal(walk(mir, { entry: 0 }).events.some(item => item.kind === "assign"), false);
+  const omitted = walk(mir, { entry: 1 }).events.filter(item => item.kind === "assign");
+  assert.equal(omitted.length, 1);
+  assert.equal(omitted[0].node, program.tir.params[0].id);
+  assert.equal(rootLocalOf(mir, omitted[0].record.place), sourceLocal(mir, 0));
+  assert.deepEqual(mir.constants[omitted[0].record.value.operand.constant].value, { kind: "literal", value: { kind: "absence" } });
+  const size = mir.locals.length + mir.places.length + mir.constants.length + mir.blocks.length
+    + mir.blocks.reduce((count, block) => count + block.statements.length, 0);
+  for (let maximumRecords = 0; maximumRecords < size; maximumRecords += 1)
+    assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, []).kind, "refused", `omitted actual parameter under ${maximumRecords}`);
+  assert.equal(produced({ ...deps, limits: { maximumRecords: size } }, program.tir, []).kind, "ok");
+});
+
+test("optional suffix entries initialize only missing slots in parameter order with the same record allowance", () => {
+  for (const receiver of [false, true]) {
+    const rows = [...(receiver ? [["self", "this", T.counter]] : []), ["x", "optional", T.absence], ["y", "optional", T.absence]];
+    const program = shaped(`entry.optional.${receiver}`, rows, T.void, b => b.block(b.returns(null)),
+      { receiver: receiver ? T.counter : null });
+    const mir = lower(program);
+    assert.deepEqual(providedCountsOf(mir), [2, 1, 0]);
+    const headers = program.tir.params.filter(header => header.tsonic.role !== "this");
+    for (const provided of [2, 1, 0]) {
+      const assigned = walk(mir, { entry: 2 - provided }).events.filter(item => item.kind === "assign");
+      assert.deepEqual(assigned.map(item => item.node), headers.slice(provided).map(header => header.id));
+      assert.deepEqual(assigned.map(item => rootLocalOf(mir, item.record.place)), headers.slice(provided)
+        .map(header => sourceLocal(mir, header.tsonic.local.local)));
+    }
+    const size = mir.locals.length + mir.places.length + mir.constants.length + mir.blocks.length
+      + mir.blocks.reduce((count, block) => count + block.statements.length, 0);
+    for (let maximumRecords = 0; maximumRecords < size; maximumRecords += 1)
+      assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, []).kind, "refused", `optional suffix under ${maximumRecords}`);
+    assert.equal(produced({ ...deps, limits: { maximumRecords: size } }, program.tir, []).kind, "ok");
+  }
+});
+
+test("actual selected parameter headers place a separate default execution only in omitted entries", () => {
+  for (const kind of ["boolean", "string"]) {
+    const name = `entry.default.${kind}`;
+    const parameterName = `${name}.p`;
+    const type = kind === "boolean" ? T.bool : T.string;
+    const initializer = bodyId(parameterName, "default");
+    const b = builders(name);
+    const program = typedBody(name, { signature: signature(name, [["p", type, "default", initializer]], type), completion: type,
+      locals: [["p", "parameter", type]], params: [[0, "default", type, initializer]], nestedBodies: [initializer],
+      root: b.id("p", 0, type) });
+    const defaultBuilder = builders(parameterName, "default");
+    const syntax = kind === "boolean" ? defaultBuilder.keyword("FalseKeyword", type)
+      : { kind: "StringLiteral", text: "λ", tokenFlags: [], tsonic: { ...value(type), role: "value", value: "λ" } };
+    const child = typedBody(parameterName, { role: "default", signature: signature(parameterName, [], type), completion: type, root: syntax });
+    const header = program.tir.params[0];
+    child.tir.root = seal(parameterName, syntax, "default", program.nodeCount).root;
+    child.tir.root.parent = header.id;
+    header.initializer = child.tir.root;
+    const input = { instance: { body: initializer, bindings: SELECTED_BINDINGS }, captures: [], signature: child.tir.signature };
+    program.bodyOf = instance => instanceKey(instance) === instanceKey(input.instance) ? child.tir : null;
+    lower(child);
+    const mir = lower(program, [input]);
+    assert.deepEqual(providedCountsOf(mir), [1, 0]);
+    assert.deepEqual(internalCallsOn(walk(mir, { entry: 0 })), []);
+    const omitted = internalCallsOn(walk(mir, { entry: 1 }));
+    assert.equal(omitted.length, 1);
+    assert.equal(omitted[0].node, header.id, "the actual selected Parameter is the call occurrence");
+    assert.equal(destinationRootOf(mir, omitted[0]), sourceLocal(mir, 0));
+    assert.equal(omitted[0].record.callee.instance, input.instance);
+    assert.equal(walk(mir, { entry: 1, decide: () => "unwind" }).end, "unwind");
+    const size = mir.locals.length + mir.places.length + mir.constants.length + mir.blocks.length
+      + mir.blocks.reduce((count, block) => count + block.statements.length, 0);
+    for (let maximumRecords = 0; maximumRecords < size; maximumRecords += 1)
+      assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, [input]).kind, "refused", `${kind} default under ${maximumRecords}`);
+    assert.equal(produced({ ...deps, limits: { maximumRecords: size } }, program.tir, [input]).kind, "ok");
+    assert.throws(() => produced(deps, program.tir, []), error => defectOfLowerMir(error)
+      && error.message === `${CALLER_DEFECT}a placed initializer has no supplied execution data`);
+    const placed = header.tsonic.initializer;
+    header.tsonic.initializer = null;
+    assert.throws(() => produced(deps, program.tir, [input]), notLoweredYet("a parameter initializer without its placed execution"));
+    header.tsonic.initializer = placed;
+  }
+});
+
+test("ordered default entries execute real child MIR and capture the actual earlier parameter", async () => {
+  const evaluator = await import("../../packages/host/dist/evaluate/index.js");
+  const types = await import("../../packages/host/dist/ir-types/index.js");
+  const name = "entry.default.actual-capture";
+  const names = [`${name}.x`, `${name}.y`];
+  const initializers = names.map(parameter => bodyId(parameter, "default"));
+  const b = builders(name);
+  const program = typedBody(name, { signature: signature(name, [["x", T.bool, "default", initializers[0]],
+    ["y", T.bool, "default", initializers[1]]], T.bool), completion: T.bool,
+    locals: [["x", "parameter", T.bool, true], ["y", "parameter", T.bool]],
+    params: [[0, "default", T.bool, initializers[0]], [1, "default", T.bool, initializers[1]]], nestedBodies: initializers,
+    root: b.id("y", 1, T.bool) });
+  const bindings = { kind: "instantiated", bindings: EMPTY_BINDINGS };
+  program.tir.bindings = bindings;
+  const source = { body: program.tir.body, local: 0 };
+  const capture = { local: source, capture: "captured-location" };
+  let nextNode = program.nodeCount;
+  const children = names.map((parameter, index) => {
+    const childBuilder = builders(parameter, "default");
+    const root = index === 0 ? childBuilder.keyword("FalseKeyword", T.bool) : childBuilder.id("x", 0, T.bool);
+    const child = typedBody(parameter, { role: "default", signature: signature(parameter, [], T.bool), completion: T.bool,
+      locals: index === 0 ? [] : [["x", "capture", T.bool, true, source]], captures: index === 0 ? [] : [capture], root });
+    const syntax = seal(parameter, root, "default", nextNode);
+    nextNode = syntax.count;
+    child.tir.root = syntax.root;
+    child.tir.bindings = bindings;
+    child.tir.root.parent = program.tir.params[index].id;
+    program.tir.params[index].initializer = child.tir.root;
+    return child;
+  });
+  const inputs = children.map(child => ({ instance: { body: child.tir.body, bindings },
+    captures: child.tir.captures, signature: child.tir.signature }));
+  const sources = new Map(children.map(child => [instanceKey({ body: child.tir.body, bindings }), child.tir]));
+  program.bodyOf = instance => sources.get(instanceKey(instance)) ?? null;
+  const graphs = new Map(children.map(child => [instanceKey({ body: child.tir.body, bindings }), lower(child)]));
+  const mir = lower(program, inputs);
+  assert.deepEqual(providedCountsOf(mir), [2, 1, 0]);
+  const interner = types.seedTypeInterner(TABLE);
+  const views = { types: types.viewTypes(interner), typeOf: type => types.readType(interner, type),
+    signatureOf: selected => types.readSignature(interner, selected), selectedNativeFacts: verificationContext(program).selectedNativeFacts,
+    limits: { maximumSteps: 100, maximumIntermediateBits: 16, maximumResultBits: 16, maximumArithmeticWork: 100 } };
+  for (const [arguments_, expected, calls] of [[[], false, initializers], [[true], true, initializers.slice(1)],
+    [[false, true], true, []], [[true, false], false, []]]) {
+    const requested = [];
+    let result = evaluator.evaluate(views, { body: mir.body, bindings }, mir,
+      arguments_.map(value => ({ kind: "boolean", type: T.bool, value })), "compile-time", { query: "constValue", key: [name, arguments_.length] });
+    while (result.kind === "paused") {
+      assert.equal(result.requests.length, 1);
+      const request = result.requests[0];
+      assert.equal(request.kind, "mir-body");
+      requested.push(request.instance.body);
+      assert.equal(requested.length <= 2, true, "each omitted default executes once");
+      const graph = graphs.get(instanceKey(request.instance));
+      assert.equal(graph !== undefined, true, "the exact complete selected child instance is ready");
+      result = evaluator.resumeEvaluate(views, result.paused, [{ kind: "mir-body", body: graph }]);
+    }
+    assert.deepEqual(requested, calls);
+    assert.equal(result.value.kind, "ok");
+    assert.deepEqual(result.value.value, { kind: "value", value: { kind: "boolean", type: T.bool, value: expected } });
+    assert.deepEqual(result.value.diagnostics, []);
+  }
 });
 
 test("nested call arguments execute in authored order and protect only genuinely exposed earlier values", () => {
@@ -1157,7 +1575,7 @@ test("call frontiers and mismatched selected inputs never invent a callee, recei
     ["rest-mapping", node => { node.tsonic.application.decision.arguments[0] = { kind: "omitted", parameter: 0, value: { kind: "absence" } };
       node.tsonic.application.decision.callee.decision.parameters[0] = { kind: "rest", parameter: 0, arguments: [], passing: "by-value" }; }, false, "a rest call argument"],
     ["initializer-mismatch", node => { node.tsonic.application.decision.arguments[0] = { kind: "omitted", parameter: 0,
-      value: { kind: "initializer", instance: { body: bodyId("direct.other-default", "default"), bindings: PARAMETRIC } } };
+      value: { kind: "initializer", instance: { body: bodyId("direct.other-default", "default"), bindings: SELECTED_BINDINGS } } };
       node.tsonic.application.decision.callee.decision.parameters[0] = defaultMapping(0, "direct.expected-default"); }, true, "an omitted call argument names another initializer"],
     ["interior-omitted", node => { const application = node.tsonic.application.decision;
       application.arguments = [{ kind: "omitted", parameter: 0, value: { kind: "absence" } }, { ...application.arguments[0], parameter: 1 }];
@@ -1243,10 +1661,125 @@ function initializedBinding(name, keyword = "let", mode = "captured-value", oute
     params: outer ? [] : [[0, "required", T.int32]], captures: outer ? [capture] : [], nestedBodies: [initializer],
     root: rootOf === null ? b.block(...statements, b.returns(b.id("slot", 1, T.int32))) : rootOf(b, statements) });
   program.tir.locals[1].declaration = { kind: "body", value: program.nodeRef("declaration") };
-  const input = { instance: { body: initializer, bindings: child.tir.bindings }, captures: [capture], signature: child.tir.signature };
+  const input = { instance: { body: initializer, bindings: SELECTED_BINDINGS }, captures: [capture], signature: child.tir.signature };
   program.bodyOf = instance => instanceKey(instance) === instanceKey(input.instance) ? child.tir : null;
   return { program, input, child };
 }
+
+function initializedModule(name, count = 2) {
+  const builder = builders(name, "module");
+  const children = Array.from({ length: count }, (_, index) => {
+    const childName = `${name}.value${index}`;
+    const childBuilder = builders(childName, "initializer");
+    return typedBody(childName, { role: "initializer", signature: signature(childName, [], T.bool), completion: T.bool,
+      root: childBuilder.keyword(index % 2 === 0 ? "TrueKeyword" : "FalseKeyword", T.bool) });
+  });
+  const declarations = children.map((child, index) => {
+    const declaration = builder.variable(builder.declName(`value${index}`, index), index, T.bool,
+      builder.keyword(index % 2 === 0 ? "TrueKeyword" : "FalseKeyword", T.bool), child.tir.body);
+    declaration.$ = `value${index}`;
+    declaration.tsonic.declaration = { kind: "definition", definition: def(`${name}.value${index}`) };
+    declaration.name.tsonic.declaration = declaration.tsonic.declaration;
+    const statement = builder.declare([declaration]);
+    statement.declarationList.flags = [index % 2 === 0 ? "Const" : "Let"];
+    return statement;
+  });
+  const program = typedBody(name, { role: "module", signature: signature(name, [], T.void), completion: T.void,
+    nestedBodies: children.map(child => child.tir.body),
+    root: { kind: "SourceFile", statements: { $list: true, nodes: declarations },
+      endOfFileToken: { kind: "EndOfFile", tsonic: null }, languageVariant: "Standard", scriptKind: "TS",
+      commentDirectives: [], pragmas: [], checkJsDirective: null, tsonic: { module: MODULE, template: null } } });
+  for (const [index, child] of children.entries()) child.tir.root = program.tir.root.statements.nodes[index].declarationList.declarations.nodes[0].initializer;
+  const inputs = children.map(child => ({ instance: { body: child.tir.body, bindings: child.tir.bindings }, captures: [], signature: child.tir.signature }));
+  program.bodyOf = instance => children.find(child => instanceKey(instance) === instanceKey({ body: child.tir.body, bindings: child.tir.bindings }))?.tir ?? null;
+  return { program, children, inputs };
+}
+
+test("selected module variables execute separate initializers once in authored order into actual static definitions", () => {
+  for (const count of [0, 1, 3]) {
+    const { program, children, inputs } = initializedModule(`module.variables.${count}`, count);
+    for (const child of children) lower(child);
+    const mir = lower(program, inputs);
+    assert.deepEqual(mir.entries, [{ provided: 0, block: 0 }]);
+    assert.equal(mir.locals.length, 0);
+    assert.equal(mir.constants.length, 0, "the module never reexecutes separate initializer syntax");
+    const calls = mir.blocks.filter(block => block.terminator.kind === "call").map(block => block.terminator);
+    assert.deepEqual(calls.map(call => call.callee.instance), inputs.map(input => input.instance));
+    for (const [index, call] of calls.entries()) {
+      assert.equal(call.tir.node, program.at(`value${index}`));
+      assert.deepEqual(mir.places[call.destination].base, { kind: "static", definition: def(`module.variables.${count}.value${index}`) });
+      assert.equal(mir.places[call.destination].storage, T.bool);
+      assert.deepEqual([call.arguments, call.callee.captures, call.unwind], [[], [], { kind: "escape" }]);
+    }
+    assert.deepEqual(mir.blocks.at(-1).terminator.value, null);
+    const size = mir.locals.length + mir.places.length + mir.constants.length + mir.blocks.length
+      + mir.blocks.reduce((total, block) => total + block.statements.length, 0);
+    for (let maximumRecords = 0; maximumRecords < size; maximumRecords += 1)
+      assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, inputs).kind, "refused");
+    assert.equal(produced({ ...deps, limits: { maximumRecords: size } }, program.tir, inputs).kind, "ok");
+  }
+});
+
+test("module declarations without initializers have no fabricated value, local lifetime or child execution", () => {
+  const { program, inputs } = initializedModule("module.uninitialized", 1);
+  const declaration = program.tir.root.statements.nodes[0].declarationList.declarations.nodes[0];
+  declaration.initializer = null;
+  declaration.tsonic.initializer = null;
+  program.tir.nestedBodies = [];
+  const mir = lower(program);
+  assert.deepEqual([mir.locals, mir.places, mir.constants, mir.blocks[0].statements], [[], [], [], []]);
+  assert.equal(mir.blocks.length, 1);
+  declaration.initializer = { kind: "FalseKeyword", tsonic: value(T.bool) };
+  assert.throws(() => produced(deps, program.tir, inputs), notLoweredYet("a variable initializer without its placed execution"));
+});
+
+test("module callable-header and sparse statement inputs are actual caller defects", () => {
+  const { program } = initializedModule("module.invalid", 0);
+  program.tir.params = [{}];
+  assert.throws(() => produced(deps, program.tir, []), error => defectOfLowerMir(error) && error.message.includes("module initializer has callable parameters"));
+  program.tir.params = [];
+  program.tir.root.statements.nodes.length = 1;
+  assert.throws(() => produced(deps, program.tir, []), /module statement list has a hole/);
+});
+
+test("module declaration streaming stops before later statement or declaration reads on the original record refusal", () => {
+  for (const vector of ["statements", "declarations"]) {
+    const { program, inputs } = initializedModule(`module.stream.${vector}`, 1);
+    const statement = program.tir.root.statements.nodes[0];
+    const nodes = vector === "statements" ? program.tir.root.statements.nodes : statement.declarationList.declarations.nodes;
+    nodes.length = 10000;
+    Object.defineProperty(nodes, 1, { configurable: true, get() { throw new Error("later module input read after refusal"); } });
+    const result = produced({ ...deps, limits: { maximumRecords: 1 } }, program.tir, inputs);
+    assert.equal(result.kind, "refused");
+    assert.equal(result.diagnostics.length, 1);
+  }
+  const { program, inputs } = initializedModule("module.destructured", 1);
+  program.tir.root.statements.nodes[0].declarationList.declarations.nodes[0].name = { kind: "ObjectBindingPattern", elements: { nodes: [] }, tsonic: null };
+  assert.throws(() => produced(deps, program.tir, inputs), notLoweredYet("a destructuring variable declaration"));
+});
+
+test("module callable and binding declarations do not execute nested bodies or invent import and export work", () => {
+  const { program } = initializedModule("module.declarations", 0);
+  const builder = builders("module.declarations", "module");
+  const statement = { kind: "FunctionDeclaration", modifiers: null, typeParameters: null,
+    parameters: { $list: true, nodes: [] }, type: null, fullSignature: null, asteriskToken: null,
+    name: null, body: builder.block(builder.throws(builder.num("7", T.int32))),
+    tsonic: { definition: def("module.declarations.function"), parameters: [], signatures: [], template: null, attributes: [] } };
+  const target = { target: "project", module: MODULE };
+  const specifier = () => ({ kind: "StringLiteral", text: "module", singleQuote: false, hasExtendedUnicodeEscape: false,
+    tsonic: { role: "module-specifier", target } });
+  const statements = [statement,
+    { kind: "ImportDeclaration", modifiers: null, importClause: null, moduleSpecifier: specifier(), attributes: null,
+      tsonic: { definition: def("module.declarations.import"), target } },
+    { kind: "ExportDeclaration", modifiers: null, isTypeOnly: false, exportClause: null, moduleSpecifier: specifier(), attributes: null,
+      tsonic: { definition: def("module.declarations.export"), target } }];
+  const sealed = seal("module.declarations", { ...program.tir.root, statements: { $list: true, nodes: statements },
+    endOfFileToken: { kind: "EndOfFile", tsonic: null } }, "module");
+  program.tir.root = sealed.root;
+  const mir = lower(program);
+  assert.deepEqual([mir.locals, mir.places, mir.constants, mir.blocks[0].statements], [[], [], [], []]);
+  assert.equal(mir.blocks[0].terminator.kind, "return");
+});
 
 test("a named initializer executes once at its actual Identifier declaration into the selected owned slot", () => {
   for (const keyword of ["var", "let", "const"]) for (const mode of ["captured-value", "captured-location"]) for (const outer of [false, true]) {
@@ -1393,8 +1926,8 @@ test("an actual selected expression body returns its value at that occurrence wi
   assert.deepEqual(lower(identity).blocks[0].terminator.value, { kind: "place", place: 0 });
 });
 
-test("incoming capture slots retain actual value and location modes and reject an unresolved selected capture", () => {
-  for (const mode of ["captured-value", "captured-location", null]) {
+test("incoming capture slots retain actual value and location modes before writing operations", () => {
+  for (const mode of ["captured-value", "captured-location"]) {
     const outer = { body: bodyId(`capture.outer.${mode}`), local: 0 };
     const program = shaped(`capture.incoming.${mode}`, [["x", "required", T.int32]], T.int32, b => b.block(b.returns(
       b.arithmetic({ $: "capture-read", ...b.id("saved", 1, T.int32) }, "PlusToken",
@@ -1402,12 +1935,6 @@ test("incoming capture slots retain actual value and location modes and reject a
     program.tir.locals.push({ id: 1, declaration: { kind: "body", value: program.nodeRef("capture-read") }, name: "saved", role: "capture",
       capturedFrom: outer, mutable: true, storage: T.int32 });
     program.tir.captures = [{ local: outer, capture: mode }];
-    if (mode === null) {
-      program.tir.dependence = "binding-dependent";
-      assert.throws(() => produced(deps, program.tir, []), error => defectOfLowerMir(error)
-        && error.message === `${CALLER_DEFECT}an undecided capture in a selected body`);
-      continue;
-    }
     const mir = lower(program);
     assert.deepEqual(mir.locals[1], { id: 1, storage: T.int32, role: { kind: "capture", index: 0 }, mode,
       source: outer, origin: program.tir.root.origin });
@@ -2053,12 +2580,9 @@ test("first producer: the frontier is one check that names what it met", () => {
   const a = b => b.id("a", 0, T.int32);
   const P = plus("int32", T.int32);
   // Bodies and parameter rows.
-  refused(shaped("frontier.module", [], T.void, () => ({ kind: "SourceFile", statements: { loc: { pos: 0, end: 0 }, nodes: [] },
-    endOfFileToken: { kind: "EndOfFileToken", tsonic: null }, languageVariant: "Standard", scriptKind: "TS", commentDirectives: [], pragmas: [],
-    checkJsDirective: null, tsonic: { module: MODULE, template: null } })), "a module initializer body");
   refused(returning("frontier.async", a, undefined, undefined, { extra: { asynchronous: true } }), "an asynchronous body or a generator");
   refused(returning("frontier.generator", a, undefined, undefined, { extra: { generator: true } }), "an asynchronous body or a generator");
-  for (const role of ["optional", "default", "rest"]) refused(returning(`frontier.${role}`, a, [["a", role, T.int32]]), `a parameter of role ${role}`);
+  refused(returning("frontier.rest", a, [["a", "rest", T.int32]]), "a parameter of role rest");
   // Statements and expressions.
   refused(shaped("frontier.statement", [["a", "required", T.int32]], T.int32,
     b => b.block(b.declare([], { role: "using", asynchronous: false, protocols: [] }), b.returns(a(b)))), "a using declaration");
@@ -2072,9 +2596,9 @@ test("first producer: the frontier is one check that names what it met", () => {
     "a keyword literal of role type-literal");
   refused(returning("frontier.string-role", () => ({ kind: "StringLiteral", text: "x", tokenFlags: [],
     tsonic: { role: "type-literal", type: T.string } }), [], T.string), "a string literal of role type-literal");
-  refused(returning("frontier.short-circuit", b => b.binary(a(b), "AmpersandAmpersandToken", a(b), {
+  assert.throws(() => produced(deps, returning("frontier.short-circuit", b => b.binary(a(b), "AmpersandAmpersandToken", a(b), {
     ...value(T.int32), role: "short-circuit", selection: { kind: "and", control: 0, right: 0, disposition: "dynamic" },
-  })), "a binary expression of role short-circuit");
+  })).tir, []), error => defectOfLowerMir(error) && error.message.includes("actual operands"));
   refused(returning("frontier.target", b => b.target("a", 0, T.int32)), "an identifier of role assignment-target");
   refused(returning("frontier.global", b => b.global("g", "frontier.g", T.int32)), "a name resolved to a definition");
   refused(shaped("frontier.outerLocal", [["a", "required", T.int32]], T.int32,
@@ -2109,7 +2633,7 @@ test("first producer: a body that must not be offered is a caller defect, told f
   defect(shaped("defect.end", [["a", "required", T.int32]], T.int32, b => b.block()), "the end of a body that completes with a value is reached");
   // Initializer data supplied with the body: the body places an initializer execution, which is past the frontier.
   const program = add("defect.internal", T.int32, plus("int32", T.int32));
-  assert.deepEqual(produced(deps, program.tir, [{ instance: { body: bodyId("defect.internal", "default"), bindings: PARAMETRIC }, captures: [], signature: 0 }]),
+  assert.deepEqual(produced(deps, program.tir, [{ instance: { body: bodyId("defect.internal", "default"), bindings: SELECTED_BINDINGS }, captures: [], signature: 0 }]),
     produced(deps, program.tir, []), "unused supplied data never fabricates an initializer execution");
   // A statement list with a hole is a defect of the tree, reported by name (R5 C-a).
   const holed = shaped("defect.hole", [["a", "required", T.int32]], T.int32, b => ({ ...b.block(), statements: { $list: true, nodes: [, b.returns(b.id("a", 0, T.int32))] } }));
@@ -2772,7 +3296,8 @@ test("an operation that can fail is a control point with the selected failure ki
 });
 
 test("a required parameter before a default: entries for the counts 2 and 1, none for 0", () => {
-  const { program, internal, B_DEFAULT } = scaled();
+  const { program, internal, B_DEFAULT, child } = scaled();
+  lower(child);
   const mir = lower(program, internal);
   // R7: one entry per admissible count of supplied fixed arguments. `scaled(a, b = 2)` cannot be called with none.
   assert.deepEqual(providedCountsOf(mir), [2, 1]);

@@ -88,7 +88,7 @@ test("a decision reader compiles against fresh ir-infer declarations; a module w
       assert.equal(report.loadedInventory.every(file => report.expectedInventory.includes(file)), true, name);
     });
   }
-  for (const [name, up] of [["analyses/liveness", "../../"], ["analyses/initialization", "../../"], ["analyses/suspension", "../../"], ["analyses/errorStorage", "../../"], ["metadata", "../"], ["front", "../"]]) {
+  for (const [name, up] of [["analyses/body", "../../"], ["analyses/liveness", "../../"], ["analyses/initialization", "../../"], ["analyses/suspension", "../../"], ["analyses/errorStorage", "../../"], ["metadata", "../"], ["front", "../"]]) {
     await fixture([...decisionSources, ...readerSources(name, up)], async ({ root, deps }) => {
       const report = await compileIsolated(deps, module(name), input(root, name));
       assert.equal(report.status, "failed", `${name}: ${label(report)}`);
@@ -310,7 +310,7 @@ test("whole-source inventories, admission, paths and repeated fresh declarations
 
 test("all actual Host modules pass S1 inspection and fresh whole-module declaration isolation", async context => {
   const modules = hostCatalogue.filter(module => module.directory.startsWith(`${host}/`));
-  assert.equal(modules.length, 37, "complete current contract owners");
+  assert.equal(modules.length, 38, "complete current contract owners");
   const deps = isolationDeps(tooling, quarantineRoots);
   const inventory = deps.enumerate(resolve(repository, host)).map(path => relative(repository, path)).sort();
   const files = new Map(inventory.map(path => [path, readFileSync(resolve(repository, path), "utf8")]));
@@ -355,14 +355,16 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
       "text-phase-declarations.ts", "text-phase.ts", "text-tir.ts", "text-types.ts", "text-values.ts",
       "verify-index.ts", "verify-module.ts", "verify-structure.ts", "verification-work.ts", "verify-metadata-operands.ts", "work.ts", "work-data.ts"].map(name => `${host}/ir-program/${name}`),
     ...["account.ts", "components.ts", "dominators.ts", "graph.ts", "index.ts", "loops.ts", "ordering.ts", "solve.ts"].map(name => `${host}/dataflow/${name}`),
-    ...["index.ts", "conditions.ts", "conditions-data.ts", "parse.ts", "print.ts", "verify-call-graph.ts", "verify-facts.ts", "verify-metadata.ts",
+    ...["index.ts", "conditions.ts", "conditions-data.ts", "parse.ts", "print.ts", "dependency-data.ts", "execution-entry.ts", "verify-dependencies.ts", "verify-facts.ts", "verify-metadata.ts",
       "verify-relations.ts", "verify-summary.ts", "summary-key.ts", "verify-observations.ts", "application-data.ts", "apply-initialization.ts",
       "apply-summary.ts", "apply-values.ts", "arena-data.ts", "binding-inputs.ts", "cells-data.ts", "initialization-data.ts", "mir-point.ts",
       "relations-data.ts", "summary-data.ts", "summary-equals.ts", "verification.ts", "verify-bindings.ts", "verify-body-nodes.ts", "verify-cells.ts",
       "verify-initialization.ts", "verify-liveness.ts", "verify-position.ts"].map(name => `${host}/ir-facts/${name}`),
     ...["index.ts", "roles.ts", "verify-catalogue.ts", "admit-guarantees.ts", "verify-summaries.ts",
       "verify-bound.ts"].map(name => `${host}/libraries/${name}`),
-    ...["index.ts", "bind-declared.ts", "translate-native.ts", "unknown-declared.ts"].map(name => `${host}/summaries/${name}`),
+    ...["index.ts", "bind-declared.ts", "translate-native.ts", "unknown-declared.ts", "components.ts", "dependencies.ts", "converge.ts"].map(name => `${host}/summaries/${name}`),
+    ...["index.ts", "round.ts", "storage.ts", "source.ts", "proof.ts"].map(name => `${host}/analyses/body/${name}`),
+    ...["index.ts", "model.ts", "storage-use.ts"].map(name => `${host}/analyses/liveness/${name}`),
     ...["index.ts", "verify-extensions.ts", "verify-packages.ts", "verify.ts"].map(name => `${host}/snapshot/${name}`),
     ...["index.ts"].map(name => `${host}/step/${name}`),
     ...["database.ts", "index.ts", "memo.ts"].map(name => `${host}/query/${name}`),

@@ -12,6 +12,7 @@ import { compareNumbers, escapeData, nodeOwnedBy, ownerKey, relationalUsage, val
 import { summaryBindingInputs } from "./binding-inputs.js";
 import { verifyFactBindings } from "./verify-bindings.js";
 import { verifyCells } from "./verify-cells.js";
+import { acceptsProvided } from "./execution-entry.js";
 
 interface CallbackFormals {
   readonly signatures: readonly Signature[];
@@ -49,19 +50,9 @@ export const verifySummary: VerifySummary = (summary, context, resources) => {
     { const stop = report("signature-resolves", "The summary retains the signature of its exact selected execution request."); if (stop !== null) return stop; }
   }
   if (signature !== undefined) {
-    let fixed = 0;
-    let minimum = 0;
-    let complete = true;
-    for (const parameter of signature.parameters) {
-    const step = chargeWork(account, 1);
-    if (step !== null) return step;
-      if (parameter === undefined) { complete = false; continue; }
-      if (parameter.kind === "rest") continue;
-      fixed += 1;
-      if (!parameter.acceptsOmission) minimum = fixed;
-    }
-    const provided = summary.key.execution.provided;
-    if (complete && (!Number.isSafeInteger(provided) || provided < minimum || provided > fixed || Object.is(provided, -0))) {
+    const entry = acceptsProvided(signature, summary.key.execution.provided, account);
+    if (entry.kind !== "complete") return entry;
+    if (entry.value === false) {
       { const stop = report("summary-entry-exact", "The selected provided count is an admissible fixed-argument entry of this exact signature."); if (stop !== null) return stop; }
     }
   }

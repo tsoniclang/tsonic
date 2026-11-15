@@ -10,7 +10,7 @@
 // Elaborate into the ConstructionPlan (MR-16): "fields-first" (derived field initializers before base
 // construction) or "base-first". Derived has no authored constructor: its plan is class-owned.
 import { N } from "../names.mjs";
-import { EMPTY_BINDINGS, PARAMETRIC, T, bodyId, builders, callee, declareType, def, direct, native, selection, signature, typedBody, value, decided } from "../typed.mjs";
+import { EMPTY_BINDINGS, SELECTED_BINDINGS, T, bodyId, builders, callee, declareType, def, direct, native, selection, signature, typedBody, value, decided } from "../typed.mjs";
 
 const member = (key, type) => ({ key: { kind: "text", value: key }, origins: [], readOrigins: [], writeOrigins: [], kind: "property",
   read: type, write: type, optional: false, readonly: false });
@@ -28,7 +28,7 @@ const MUL = native("*", "int32", [T.int32, T.int32], T.int32);
 const ADD = native("+", "int32", [T.int32, T.int32], T.int32);
 
 export function s7(order) {
-  const field = (name, initializer) => ({ kind: N.stepField, field: def(`Derived.${name}`), initializer: { body: initializer, bindings: PARAMETRIC } });
+  const field = (name, initializer) => ({ kind: N.stepField, field: def(`Derived.${name}`), initializer: { body: initializer, bindings: SELECTED_BINDINGS } });
   const base = { kind: N.stepBase, callee: callee("Base.constructor", SIG_BASE_CTOR, [], T.void), arguments: [] };
   const steps = order === "fields-first" ? [field("v", V_INIT), field("seen", SEEN_INIT), base] : [base, field("v", V_INIT), field("seen", SEEN_INIT)];
 
@@ -47,8 +47,8 @@ export function s7(order) {
         { $: "Derived.count", ...b.property(b.global("Derived", "Derived", T.unknown), "count",
           b.read(T.int32, selection("count", T.int32, T.int32, direct("in-place")))) }, T.int32, ADD))) });
   const internal = [
-    { instance: { body: V_INIT, bindings: PARAMETRIC }, captures: [], signature: SIG_INIT },
-    { instance: { body: SEEN_INIT, bindings: PARAMETRIC }, captures: [], signature: SIG_INIT },
+    { instance: { body: V_INIT, bindings: SELECTED_BINDINGS }, captures: [], signature: SIG_INIT },
+    { instance: { body: SEEN_INIT, bindings: SELECTED_BINDINGS }, captures: [], signature: SIG_INIT },
   ];
 
   // The module body: the class declaration at its position, with static members in member order
@@ -64,8 +64,8 @@ export function s7(order) {
       ] },
       tsonic: { definition: def("Derived"), parameters: [], type: DERIVED, heritage: [], members: [def("Derived.count"), def("Derived.static-block")], attributes: [] } }) });
   const moduleInternal = [
-    { instance: { body: COUNT_INIT, bindings: PARAMETRIC }, captures: [], signature: SIG_INIT },
-    { instance: { body: STATIC_BLOCK, bindings: PARAMETRIC }, captures: [], signature: SIG_BLOCK },
+    { instance: { body: COUNT_INIT, bindings: SELECTED_BINDINGS }, captures: [], signature: SIG_INIT },
+    { instance: { body: STATIC_BLOCK, bindings: SELECTED_BINDINGS }, captures: [], signature: SIG_BLOCK },
   ];
   return { program, internal, moduleBody, moduleInternal, V_INIT, SEEN_INIT, COUNT_INIT, STATIC_BLOCK };
 }

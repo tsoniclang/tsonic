@@ -171,6 +171,10 @@ export function verifyBodyInventory(lookup: ProgramLookup, index: ProgramIndex, 
     if (module === undefined || module === null || owner === undefined || owner === null || owner.module !== record.module) {
       violations.push({ rule: "body-module-resolves", site, detail: [textDetail(record.module)] });
     }
+    if ((record.kind === "template") !== (record.instance.bindings.kind === "parametric")) {
+      violations.push({ rule: "body-instance-exact", site, detail: [textDetail(record.kind)] });
+    }
+    if (record.kind === "template") continue;
     const counts: readonly { readonly name: string; readonly count: number }[] = [
       { name: "mirLocalCount", count: record.mirLocalCount },
       { name: "mirConstantCount", count: record.mirConstantCount },

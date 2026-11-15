@@ -2,12 +2,12 @@ import { ProgramWork } from "./work.js";
 import { orderDiagnostics } from "../diag/index.js";
 import type { DefId, ModuleId } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
-import { summaryKey, verifyMetadata, verifySummary } from "../ir-facts/index.js";
+import { summaryKey, verifyDependencyInventory, verifyMetadata, verifySummary } from "../ir-facts/index.js";
 import { indexSyntaxTree } from "../ir-hir/index.js";
 import { artifactBindingsData, artifactBindingsKey, constantReferenceKey, executionKey, floatingBitsFit, instanceKey, nativeCarrierOf, nativeFactsKey, printTypes, verifyNativeFacts, verifyTypes } from "../ir-types/index.js";
 import type { TirVerifierInput } from "../ir-tir/contract.js";
 import type { HirCallableEndpoint } from "../ir-hir/contract.js";
-import type { BindingVerificationInput, Execution, TypeRule, TypeSite } from "../ir-types/contract.js";
+import type { BindingVerificationInput, TypeRule, TypeSite } from "../ir-types/contract.js";
 import type { Violation } from "../diag/contract.js";
 import type {
   ProgramIndex,
@@ -20,7 +20,7 @@ import type {
 } from "./contract.js";
 
 import type { ProgramLookup, ProgramViolation } from "./program-values.js";
-import { artifactEnvironmentKey, compareExecutions, compareText, numberDetail, programChildRule, programLookup, summaryBindingsOf, summaryReferenceOf, textDetail, uniqueRows } from "./program-values.js";
+import { artifactEnvironmentKey, compareText, numberDetail, programChildRule, programLookup, summaryBindingsOf, summaryReferenceOf, textDetail, uniqueRows } from "./program-values.js";
 import { chargeInstantiationWork, requireInstantiationMaximum } from "./work.js";
 import type { InstantiationAllocationStop } from "./work.js";
 import { refuseVerification, verificationFailure } from "./verification-work.js";
@@ -280,19 +280,13 @@ function verifyPublishedRecords(index: ProgramIndex, context: ProgramVerificatio
 
 function verifyExecutions(lookup: ProgramLookup, index: ProgramIndex): readonly ProgramViolation[] {
   const violations: ProgramViolation[] = [];
-  const keys = new Set<string>();
-  let previous: Execution | null = null;
-  for (const execution of index.executions) {
+  for (const operation of index.dependencyInventory.operations) {
+    if (operation.kind !== "body") continue;
+    const execution = operation.execution;
     const site: ProgramSite = { kind: "body", instance: execution.instance };
     const key = executionKey(execution);
-    if (previous !== null && compareExecutions(previous, execution) >= 0) {
-      violations.push({ rule: "executions-order", site, detail: [textDetail(executionKey(previous)), textDetail(key)] });
-    }
-    previous = execution;
-    if (keys.has(key)) violations.push({ rule: "execution-key-unique", site, detail: [textDetail(key)] });
-    keys.add(key);
     const body = lookup.instances.get(instanceKey(execution.instance));
-    if (body === undefined || body === null) {
+    if (body === undefined || body === null || body.kind !== "selected") {
       violations.push({ rule: "execution-body-resolves", site, detail: [textDetail(key)] });
     }
     if (!Number.isSafeInteger(execution.provided) || execution.provided < 0 || Object.is(execution.provided, -0)) {
@@ -312,8 +306,11 @@ export const verifyProgramIndex: VerifyProgramIndex = (index, context) => {
     throw new TypeError("Program verification requires the matching selected native facts record");
   }
   requireInstantiationMaximum(ProgramWork.state(context.resources).limits.maximumBindingVectorsPerArtifact, "maximumBindingVectorsPerArtifact");
+  const inventory = verifyDependencyInventory(index.dependencyInventory, context.facts, ProgramWork.state(context.resources).account);
+  if (inventory.kind !== "complete") return refuseVerification(index, context.resources, inventory);
   const lookup = programLookup(index);
   const violations: ProgramViolation[] = [];
+  for (const child of inventory.violations) violations.push({ rule: programChildRule("dependency-inventory-valid", child.rule), site: { kind: "index" }, detail: [textDetail(child.rule), ...child.detail] });
   if (index.schema !== 1) violations.push({ rule: "schema-supported", site: { kind: "index" }, detail: [numberDetail(index.schema)] });
   if (typeof index.nativeFactsKey !== "string" || index.nativeFactsKey.length === 0 || index.nativeFactsKey !== context.nativeFactsKey) {
     violations.push({ rule: "native-facts-identity", site: { kind: "index" }, detail: [] });

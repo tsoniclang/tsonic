@@ -136,6 +136,15 @@ export function emitStatement(state: LowerState, statement: MirStatement): boole
   return true;
 }
 
+export function emitBeforeTerminator(state: LowerState, block: BlockId, statement: MirStatement): boolean {
+  if (state.refused) return false;
+  const target = state.blocks[block];
+  if (target === undefined || target.terminator === null) return throwInvariant(invariant("a dominating read needs its actual terminated split block"));
+  if (!charge(state)) return false;
+  target.statements.push(statement);
+  return true;
+}
+
 /** Ends the open block. After it no block is open. */
 export function terminate(state: LowerState, terminator: MirTerminator): void {
   if (state.refused) return;

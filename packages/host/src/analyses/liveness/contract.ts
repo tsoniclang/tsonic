@@ -1,12 +1,16 @@
 import type { Result } from "../../diag/contract.js";
-import type { DataflowLimits } from "../../dataflow/contract.js";
-import type { AnalysisLimits, LivenessFacts, Summary, SummaryKey } from "../../ir-facts/contract.js";
+import type { DataflowAccount } from "../../dataflow/contract.js";
+import type { LivenessFacts } from "../../ir-facts/contract.js";
 import type { MirBody } from "../../ir-mir/contract.js";
+import type { Execution } from "../../ir-types/contract.js";
 
-export interface LivenessDeps {
-  readonly summaryOf: (key: SummaryKey) => Summary;
-  readonly limits: AnalysisLimits;
-  readonly flowLimits: DataflowLimits;
+export interface StorageUseDeps {
+  readonly account: DataflowAccount;
 }
 
-export type AnalyzeLiveness = (deps: LivenessDeps, body: MirBody) => Result<LivenessFacts>;
+export interface StorageUseInput {
+  readonly execution: Execution;
+  readonly body: MirBody;
+}
+
+export type AnalyzeStorageUse = (deps: StorageUseDeps, input: StorageUseInput) => Result<LivenessFacts>;

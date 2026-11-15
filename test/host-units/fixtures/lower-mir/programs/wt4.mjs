@@ -4,7 +4,7 @@
 //   export function f(x: int32 | null = next(), y: int32 = x ?? 0): int32 { return (x ?? -1) + y; }
 //   export function calls(): int32 { return f() + f(null) + f(undefined) + f(1) + f(1, 2); }
 // The two parameter defaults are bodies of their own (section 5 part 1 row 3).
-import { PARAMETRIC, SIG, T, bodyId, builders, callee, defaultMapping, mapped, native, selected, signature, typedBody, typedOperation } from "../typed.mjs";
+import { SELECTED_BINDINGS, SIG, T, bodyId, builders, callee, defaultMapping, mapped, native, selected, signature, typedBody, typedOperation } from "../typed.mjs";
 
 const ADD = native("+", "int32", [T.int32, T.int32], T.int32);
 const X_DEFAULT = bodyId("f.x", "default");
@@ -51,12 +51,12 @@ export function wt4() {
 
   // The ready data Pipeline supplies for the initializer executions f places (section 7 part 1).
   const internal = [
-    { instance: { body: X_DEFAULT, bindings: PARAMETRIC }, captures: [], signature: SIG_X_DEFAULT },
-    { instance: { body: Y_DEFAULT, bindings: PARAMETRIC }, captures: [{ local: { body: bodyId("f"), local: 0 }, capture: "captured-location" }], signature: SIG_Y_DEFAULT },
+    { instance: { body: X_DEFAULT, bindings: SELECTED_BINDINGS }, captures: [], signature: SIG_X_DEFAULT },
+    { instance: { body: Y_DEFAULT, bindings: SELECTED_BINDINGS }, captures: [{ local: { body: bodyId("f"), local: 0 }, capture: "captured-location" }], signature: SIG_Y_DEFAULT },
   ];
 
   const c = builders("calls");
-  const omitted = (parameter, body) => ({ kind: "omitted", parameter, value: { kind: "initializer", instance: { body, bindings: PARAMETRIC } } });
+  const omitted = (parameter, body) => ({ kind: "omitted", parameter, value: { kind: "initializer", instance: { body, bindings: SELECTED_BINDINGS } } });
   const callF = (label, args, mappings, argumentsOf) => ({ $: label, ...c.call(c.global("f", "f", T.unknown), args, T.int32,
     at => ({ callee: callee("f", SIG_F, mappings, T.int32), receiver: null, arguments: argumentsOf(at) })) });
   const one = (label, argument) => callF(label, [{ $: `${label}#0`, ...argument }], [mapped(0, 0), defaultMapping(1, "f.y")],

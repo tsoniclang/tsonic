@@ -16,7 +16,7 @@ const analyses = (["liveness", "initialization", "refinements", "origins", "susp
 const decisionReadingAnalyses = (["refinements", "origins", "pointerBacking"]);
 const libraries = ([...first(4), "ir-infer", ...foundations.slice(4), "ir-program", "dataflow", "query", "libraries", "snapshot", "step"]);
 const components = (["front", "decls", "rules", "infer", "elaborate", "validate", "lower-mir", "evaluate", "metadata",
-  ...analyses.map(name => `analyses/${name}`), "summaries"]);
+  "analyses/body", ...analyses.map(name => `analyses/${name}`), "summaries"]);
 const drivers = (["project", "packages", "plugins", "artifacts"]);
 
 export const hostCatalogue = ([
@@ -43,8 +43,9 @@ export const hostCatalogue = ([
   row("lower-mir", "component", [...first(6), "ir-infer"]),
   row("evaluate", "component", [...first(6), "libraries", "ir-infer", "step"]),
   row("metadata", "component", [...first(4), "ir-facts", "step"]),
+  row("analyses/body", "component", [...first(7), "dataflow"]),
   ...analyses.map(name => row(`analyses/${name}`, "component", [...first(7), "dataflow", ...(decisionReadingAnalyses.includes(name) ? ["ir-infer"] : [])])),
-  row("summaries", "component", [...first(7), "dataflow", "ir-infer", "libraries"]),
+  row("summaries", "component", [...first(7), "dataflow", "ir-infer", "libraries", "analyses/body", "analyses/liveness"]),
   row("pipeline", "pipeline", [...libraries, ...components]),
   ...drivers.map(name => row(name, "driver", ["ids", "diag", "snapshot"], `${root}/${name}`,
     [{ path: `${root}/${name}/effects.ts`, role: name === "plugins" ? "plugin-loading" : "effects" }])),

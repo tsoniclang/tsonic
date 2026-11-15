@@ -27,10 +27,11 @@ const expectedImports = ([
   ["elaborate", [...first.slice(0, 5), "ir-infer", "step"]], ["validate", [...first.slice(0, 5), "libraries", "ir-infer"]],
   ["lower-mir", [...first.slice(0, 6), "ir-infer"]], ["evaluate", [...first.slice(0, 6), "libraries", "ir-infer", "step"]],
   ["metadata", [...first.slice(0, 4), "ir-facts", "step"]],
+  ["analyses/body", [...first, "dataflow"]],
   ...["liveness", "initialization", "refinements", "origins", "suspension", "errorStorage", "pointerBacking"].map(name => [`analyses/${name}`, [...first, "dataflow", ...(["refinements", "origins", "pointerBacking"].includes(name) ? ["ir-infer"] : [])]]),
-  ["summaries", [...first, "dataflow", "ir-infer", "libraries"]],
+  ["summaries", [...first, "dataflow", "ir-infer", "libraries", "analyses/body", "analyses/liveness"]],
   ["pipeline", [...first.slice(0, 4), "ir-infer", ...first.slice(4), "ir-program", "dataflow", "query", "libraries", "snapshot", "step", "front", "decls", "rules", "infer", "elaborate", "validate", "lower-mir", "evaluate", "metadata",
-    "analyses/liveness", "analyses/initialization", "analyses/refinements", "analyses/origins", "analyses/suspension", "analyses/errorStorage", "analyses/pointerBacking", "summaries"]],
+    "analyses/body", "analyses/liveness", "analyses/initialization", "analyses/refinements", "analyses/origins", "analyses/suspension", "analyses/errorStorage", "analyses/pointerBacking", "summaries"]],
   ...["project", "packages", "plugins", "artifacts"].map(name => [name, ["ids", "diag", "snapshot"]]),
   ["orchestration", ["ids", "diag", "ir-types", "snapshot", "ir-program", "pipeline", "project", "packages", "plugins", "artifacts"]],
   ["cli", ["orchestration", "diag", "snapshot"]], ["create-tsonic", ["orchestration", "diag", "snapshot"]],
@@ -61,14 +62,14 @@ function expect(entries, expected, authority = hostCatalogue) {
 const at = (code, path, line = 1, column = 1) => ({ code, path, line, column });
 
 test("the complete R6 catalogue and snapshot amendment have exactly one explicit row per owner", () => {
-  assert.equal(hostCatalogue.length, 39);
+  assert.equal(hostCatalogue.length, 40);
   assert.equal(JSON.stringify(hostCatalogue.map(module => [module.name, module.imports])), JSON.stringify(expectedImports));
   assert.equal(hostCatalogue.filter(module => ["library", "component"].includes(module.kind)).every(module => module.effects.length === 0), true);
   assert.equal(JSON.stringify(hostCatalogue.filter(module => module.effects.length > 0).map(module => [module.name, module.effects])),
     JSON.stringify(["project", "packages", "plugins", "artifacts", "orchestration"].map(name => [name,
       [{ path: `${host}/${name}/effects.ts`, role: name === "plugins" ? "plugin-loading" : "effects" }]])));
   assert.equal(hostCatalogue.filter(module => module.kind === "library").length, 14);
-  assert.equal(hostCatalogue.filter(module => module.kind === "component").length, 17);
+  assert.equal(hostCatalogue.filter(module => module.kind === "component").length, 18);
 });
 
 test("invariant owners are exactly the written catalogue module names above ids", () => {
@@ -96,7 +97,9 @@ for (const [name, imports] of expectedImports) {
       const target = hostCatalogue.find(module => module.name === targetName);
       const sourcePath = `${module.directory}/unit.ts`;
       const specifier = posix.relative(module.directory, target.contract).replace(/\.ts$/u, ".js");
-      expect([[sourcePath, `import type { Data } from "${specifier.startsWith(".") ? specifier : `./${specifier}`}"; export type Read = Data;`], [target.contract, data]], []);
+      const restricted = name === "summaries" && ["analyses/body", "analyses/liveness"].includes(targetName);
+      expect([[sourcePath, `import type { Data } from "${specifier.startsWith(".") ? specifier : `./${specifier}`}"; export type Read = Data;`], [target.contract, data]],
+        restricted ? [at("forbidden-import", sourcePath)] : []);
     }
     const targetName = name === "ir-types" ? "ids" : "ir-types";
     const target = hostCatalogue.find(module => module.name === targetName);
@@ -111,7 +114,7 @@ test("step is the one pause carrier: only Query, the pausing operations, their r
   const importers = ["ir-infer", "query", "decls", "infer", "elaborate", "evaluate", "metadata", "pipeline"];
   assert.deepEqual(hostCatalogue.filter(module => module.imports.includes("step")).map(module => module.name).sort(), [...importers].sort());
   const requestFree = hostCatalogue.filter(module => module.name.startsWith("analyses/") || module.name === "summaries");
-  assert.equal(requestFree.length, 8);
+  assert.equal(requestFree.length, 9);
   assert.equal(requestFree.some(module => module.imports.includes("step")), false, "request-free analysis and convergence have no pause path");
   const step = hostCatalogue.find(module => module.name === "step");
   assert.deepEqual(step.imports, []);
@@ -127,7 +130,7 @@ test("the decision vocabulary stays in ir-infer: the readers partition the catal
   const readers = ["ir-tir", "ir-mir", "ir-facts", "ir-program", "decls", "rules", "infer", "elaborate", "validate", "lower-mir", "evaluate",
     "analyses/refinements", "analyses/origins", "analyses/pointerBacking", "summaries", "pipeline"];
   const others = ["ids", "diag", "ir-types", "ir-hir", "ir-infer", "dataflow", "query", "libraries", "snapshot", "step", "front", "metadata",
-    "analyses/liveness", "analyses/initialization", "analyses/suspension", "analyses/errorStorage",
+    "analyses/body", "analyses/liveness", "analyses/initialization", "analyses/suspension", "analyses/errorStorage",
     "project", "packages", "plugins", "artifacts", "orchestration", "cli", "create-tsonic"];
   assert.deepEqual([...readers, ...others].sort(), hostCatalogue.map(module => module.name).sort());
   assert.deepEqual(hostCatalogue.filter(module => module.imports.includes("ir-infer")).map(module => module.name).sort(), [...readers].sort());
@@ -195,7 +198,7 @@ test("Summaries borrows only named owning BodyAnalysis operation types, never pe
   const body = { ...hostCatalogue.find(module => module.name === "analyses/liveness"), name: "analyses/body",
     directory: `${host}/analyses/body`, contract: file("analyses/body", "contract.ts"), entry: file("analyses/body", "index.ts"),
     implementationOwners: ["analyses/body", "pipeline"] };
-  const authority = [...hostCatalogue.map(module => module.name === "summaries"
+  const authority = [...hostCatalogue.filter(module => module.name !== "analyses/body").map(module => module.name === "summaries"
     ? { ...module, imports: [...module.imports, "analyses/body", "analyses/liveness"] } : module), body];
   for (const [owner, operation, environment, input, value] of [
     ["body", "AnalyzeBodyRound", "BodyRoundDeps", "BodyRoundInput", "BodyRoundValue"],

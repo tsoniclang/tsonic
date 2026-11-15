@@ -201,7 +201,7 @@ function bodyBoundaries(node: TirNode): ReadonlySet<NodeId> {
     if (node.body !== null) excluded.add(node.body.id);
     for (const parameter of node.parameters.nodes) excluded.add(parameter.id);
   }
-  if ((node.kind === "PropertyDeclaration" || node.kind === "PropertySignature" || node.kind === "EnumMember")
+  if ((node.kind === "PropertyDeclaration" || node.kind === "PropertySignature" || node.kind === "EnumMember" || node.kind === "VariableDeclaration")
     && node.initializer !== null) excluded.add(node.initializer.id);
   if (node.kind === "Parameter" && node.initializer !== null) excluded.add(node.initializer.id);
   if (node.kind === "ClassStaticBlockDeclaration") excluded.add(node.body.id);
