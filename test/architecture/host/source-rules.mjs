@@ -6,6 +6,15 @@ const nativeOpaqueOwners = ({ TypeInterner: "ir-types", ProgramVerificationWork:
 const opaqueOwners = ({ ...nativeOpaqueOwners, CheckerExtensions: "front", CheckedProgram: "front", PluginModule: "plugins", TargetSession: "orchestration" });
 const rawCaptureTypes = (["RawModule", "RawTypeTable", "RawTypeId", "RawNumericLiteral"]);
 const sdkPayloads = ({ CompilerExtension: "compiler-extension", SourceDeclarationProvider: "declaration-provider", SourceSemanticsModule: "semantics-module" });
+const readyPortSignatures = ({
+  front: {
+    CreateCheckerExtensions: ["readonly front.CheckerRegistration[]", "front.CheckerExtensions"],
+    ExtensionReferencesOf: ["front.CheckerExtensions", "readonly snapshot.ExtensionReferenceEntry[]"],
+    LowerModuleDefinitions: ["front.RawModule", "diag.Result<front.ModuleDefinitions>"],
+  },
+  decls: { DescribeDefinitions: ["decls.DeclsModule", "readonly decls.DefinitionExports[]", "decls.DefinitionTable"] },
+  rules: { CreateRuleTable: ["rules.RulesDeps", "ir-infer.RuleTable"] },
+});
 export function sourceFindings(source, files, catalogue, graph, quarantineRoots) {
   const { ast } = source;
   const publicValues = publicDeclarations(source, files, catalogue);
@@ -157,6 +166,27 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
     contractFunctions.set(module, functions);
   }
   const stageTypes = new Set();
+  const readyPortType = node => {
+    if (node === undefined) return undefined;
+    if (ast.is.IsTypeOperatorNode(node) && ast.operatorKindName(node) === "KindReadonlyKeyword") {
+      const element = readyPortType(ast.as.AsTypeOperatorNode(node).Type);
+      return element === undefined ? undefined : `readonly ${element}`;
+    }
+    if (ast.is.IsArrayTypeNode(node)) {
+      const element = readyPortType(ast.as.AsArrayTypeNode(node).ElementType);
+      return element === undefined ? undefined : `${element}[]`;
+    }
+    if (!ast.is.IsTypeReferenceNode(node)) return undefined;
+    const declarations = checker(node).getSymbolDeclarations(symbol(ast.as.AsTypeReferenceNode(node).TypeName));
+    if (declarations.length !== 1) return undefined;
+    const declaration = declarations[0];
+    const path = ast.getFileName(ast.getSourceFile(declaration)).slice("/host-gate/".length);
+    const module = owner(path);
+    if (module === undefined || ![module.contract, module.contract.replace(/\.ts$/u, ".d.ts")].includes(path)) return undefined;
+    const argumentsOfType = ast.typeArguments(node).map(readyPortType);
+    if (argumentsOfType.includes(undefined)) return undefined;
+    return `${module.name}.${ast.text(ast.name(declaration))}${argumentsOfType.length === 0 ? "" : `<${argumentsOfType.join(",")}>`}`;
+  };
   const brandAssertions = new Map();
   const brandValues = new Map(publicValues);
   for (const [declaration, module] of brandValues) {
@@ -693,11 +723,19 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
         if (reference === undefined || !contractFunctions.get(module)?.has(reference)) add("contract-shape", file, current);
       }
       if (ast.is.IsTypeAliasDeclaration(current) && stageTypes.has(symbol(ast.name(current)))) {
-        const parameters = ast.parameters(ast.typeNode(current));
+        const signature = ast.typeNode(current);
+        const parameters = ast.parameters(signature);
+        const readySignature = readyPortSignatures[module.name]?.[ast.text(ast.name(current))];
+        const actualSignature = readySignature === undefined ? undefined : [...parameters.map(parameter => {
+          const selected = ast.as.AsParameterDeclaration(parameter);
+          return selected.QuestionToken !== undefined || selected.DotDotDotToken !== undefined || selected.Initializer !== undefined
+            ? undefined : readyPortType(ast.typeNode(parameter));
+        }), readyPortType(ast.as.AsFunctionTypeNode(signature).Type)];
         const first = ast.typeNode(parameters[0]);
         const identity = first !== undefined && ast.is.IsTypeReferenceNode(first) ? symbol(ast.as.AsTypeReferenceNode(first).TypeName) : undefined;
         const declarations = checker(current).getSymbolDeclarations(identity);
-        if (parameters.length < 2 || declarations.length === 0 || !declarations.every(declaration =>
+        if (readySignature !== undefined ? JSON.stringify(actualSignature) !== JSON.stringify(readySignature) :
+          parameters.length < 2 || declarations.length === 0 || !declarations.every(declaration =>
           [module.contract, module.contract.replace(/\.ts$/u, ".d.ts")]
             .includes(ast.getFileName(ast.getSourceFile(declaration)).slice("/host-gate/".length)) &&
           ast.text(ast.name(declaration)).endsWith("Deps") && (ast.is.IsInterfaceDeclaration(declaration) ||

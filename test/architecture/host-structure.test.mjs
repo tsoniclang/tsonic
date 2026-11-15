@@ -407,6 +407,58 @@ test("pure stage contracts require their genuine Deps first while state and try 
   expect([[file("infer"), 'export function run(deps: { readonly limit: number }, input: number): number { try { return input + deps.limit; } catch { return 0; } }']], [at("impure-component", file("infer"))]);
 });
 
+test("signed construction and projection ports require exact canonical owner-qualified signatures", () => {
+  const cases = [
+    { owner: "front", name: "CreateCheckerExtensions", declarations: 'export interface CheckerRegistration { readonly value: number; }\nexport type CheckerExtensions = object & { readonly brand: "checker-extensions" };',
+      signature: '(registrations: readonly CheckerRegistration[]) => CheckerExtensions',
+      wrong: '(registrations: CheckerRegistration[]) => CheckerExtensions', extra: [] },
+    { owner: "front", name: "ExtensionReferencesOf", declarations: 'import type { ExtensionReferenceEntry } from "../snapshot/contract.js";\nexport type CheckerExtensions = object & { readonly brand: "checker-extensions" };',
+      signature: '(table: CheckerExtensions) => readonly ExtensionReferenceEntry[]',
+      wrong: '(table: CheckerExtensions) => ExtensionReferenceEntry[]',
+      extra: [["snapshot", 'export interface ExtensionReferenceEntry { readonly value: number; }']] },
+    { owner: "front", name: "LowerModuleDefinitions", declarations: 'import type { Result } from "../diag/contract.js";\nexport interface RawModule { readonly value: number; }\nexport interface ModuleDefinitions { readonly value: number; }',
+      signature: '(module: RawModule) => Result<ModuleDefinitions>', wrong: '(module: RawModule) => ModuleDefinitions',
+      extra: [["diag", 'export interface Result<Value> { readonly value: Value; }']] },
+    { owner: "decls", name: "DescribeDefinitions", declarations: 'export interface DeclsModule { readonly value: number; }\nexport interface DefinitionExports { readonly value: number; }\nexport interface DefinitionTable { readonly value: number; }',
+      signature: '(module: DeclsModule, names: readonly DefinitionExports[]) => DefinitionTable',
+      wrong: '(names: readonly DefinitionExports[], module: DeclsModule) => DefinitionTable', extra: [] },
+    { owner: "rules", name: "CreateRuleTable", declarations: 'import type { RuleTable } from "../ir-infer/contract.js";\nexport interface RulesDeps { readonly value: number; }',
+      signature: '(deps: RulesDeps) => RuleTable', wrong: '(deps: { readonly value: number }) => RuleTable',
+      extra: [["ir-infer", 'export interface RuleTable { readonly value: number; }']] },
+  ];
+  for (const suffix of ["ts", "d.ts"]) for (const sample of cases) {
+    const contract = file(sample.owner, `contract.${suffix}`);
+    const entry = file(sample.owner, `index.${suffix}`);
+    const body = [entry, `import type { ${sample.name} } from "./contract.js";\n${suffix === "ts"
+      ? `export const port: ${sample.name} = () => { throw new Error("not executed"); };`
+      : `export declare const port: ${sample.name};`}`];
+    const extras = sample.extra.map(([owner, text]) => [file(owner, `contract.${suffix}`), text]);
+    const expected = [at("impure-component", contract, sample.declarations.split("\n").length + 1)];
+    const inspectSignature = (name, signature, implementation = body, extra = extras) =>
+      [...extra, [contract, `${sample.declarations}\nexport type ${name} = ${signature};`], implementation];
+    expect(inspectSignature(sample.name, sample.signature), []);
+    const mutable = sample.name === "CreateCheckerExtensions" || sample.name === "ExtensionReferencesOf";
+    expect(inspectSignature(sample.name, sample.wrong), mutable
+      ? [at("contract-shape", contract, sample.declarations.split("\n").length + 1), ...expected,
+        ...(suffix === "d.ts" ? [at("contract-shape", entry), at("contract-shape", entry, 2)] : [])] : expected);
+    expect(inspectSignature(sample.name, sample.signature.replace("(", "(padding: number, ")), expected);
+    expect(inspectSignature(sample.name, sample.signature.replace(/\b(registrations|table|module|deps):/u, "$1?:")), expected);
+    const ordinary = [entry, body[1].replaceAll(sample.name, "OrdinarySemanticOperation")];
+    expect(inspectSignature("OrdinarySemanticOperation", sample.signature, ordinary), expected);
+    const foreignName = sample.owner === "rules" ? "RulesDeps" : sample.owner === "decls" ? "DeclsModule"
+      : sample.name === "LowerModuleDefinitions" ? "RawModule" : sample.name === "ExtensionReferencesOf" ? "CheckerExtensions" : "CheckerRegistration";
+    const foreign = file("ids", `contract.${suffix}`);
+    expect([...extras, [foreign, `export interface ${foreignName} { readonly value: number; }`],
+      [contract, `${sample.declarations}\nimport type { ${foreignName} as ForeignReady } from "../ids/contract.js";\nexport type ${sample.name} = ${sample.signature.replaceAll(foreignName, "ForeignReady")};`], body],
+      [at("impure-component", contract, sample.declarations.split("\n").length + 2)]);
+    if (sample.owner !== "front") {
+      const wrongOwner = file("infer", `contract.${suffix}`);
+      expect([...extras, [wrongOwner, `${sample.declarations}\nexport type ${sample.name} = ${sample.signature};`],
+        [file("infer", `index.${suffix}`), body[1]]], [at("impure-component", wrongOwner, sample.declarations.split("\n").length + 1)]);
+    }
+  }
+});
+
 test("original and emitted component ports require the same genuine owner Deps", () => {
   for (const suffix of ["ts", "d.ts"]) {
     const contract = file("infer", `contract.${suffix}`);
