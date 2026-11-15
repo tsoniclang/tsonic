@@ -4,8 +4,9 @@ import type { UnitRef } from "../../diag/contract.js";
 import { resourceLimitDiagnostic, throwInvariant } from "../../diag/index.js";
 import type { AppliedOriginsValue, MirPoint, RelationalArena, Summary, SummaryKey } from "../../ir-facts/contract.js";
 import { admitSummaryIdentity, applySummary, summaryKey } from "../../ir-facts/index.js";
-import type { MirBody, MirCallee, MirTerminator } from "../../ir-mir/contract.js";
+import type { MirBody, MirOperand, MirTerminator } from "../../ir-mir/contract.js";
 import type { ValueContextId } from "../../ids/contract.js";
+import type { BodyInstance } from "../../ir-types/contract.js";
 import type { BodyRoundDeps, BodyRoundInput } from "./contract.js";
 
 export interface CallError {
@@ -22,10 +23,22 @@ export function isCallError(value: ReadonlySet<unknown> | Summary | CallError | 
   return value !== null && "kind" in value;
 }
 
-export function initializerCallee(operation: Extract<MirTerminator, { readonly kind: "call" }>): Extract<MirCallee, { readonly kind: "body" }> {
-  if (operation.callee.kind !== "body")
+export function callInstance(operation: Extract<MirTerminator, { readonly kind: "call" }>): BodyInstance {
+  if (operation.callee.kind === "body") {
+    if (operation.callee.captures.length === 0) return operation.callee.instance;
+  } else if (operation.callee.kind === "direct" && operation.callee.resolution.activation !== null
+    && operation.callee.resolution.decision.activation === null) return operation.callee.resolution.activation;
+  return frontier(operation, "BodyAnalysis requires the actual selected argument, receiver and capture transport for this call.");
+}
+
+export function scalarArgument(deps: BodyRoundDeps, operation: Extract<MirTerminator, { readonly kind: "call" }>,
+  index: number): DataflowResult<MirOperand> {
+  const read = chargeWork(deps.account, 1);
+  if (read !== null) return read;
+  const argument = operation.arguments[index];
+  if (argument?.kind !== "value" || argument.passing !== "by-value")
     return frontier(operation, "BodyAnalysis requires the actual selected argument, receiver and capture transport for this call.");
-  return operation.callee;
+  return { kind: "complete", value: argument.operand };
 }
 
 export function callSummary(deps: BodyRoundDeps, body: MirBody,
@@ -34,10 +47,14 @@ export function callSummary(deps: BodyRoundDeps, body: MirBody,
   if (prior !== null) return prior;
   const admission = chargeWork(deps.account, 1) ?? chargeResultEntries(deps.account, 3);
   if (admission !== null) return admission;
-  const callee = initializerCallee(operation);
-  if (operation.receiver !== null || operation.arguments.length !== 0 || callee.captures.length !== 0)
+  const instance = callInstance(operation);
+  if (operation.receiver !== null || operation.callee.kind === "body" && operation.arguments.length !== 0)
     return frontier(operation, "BodyAnalysis requires the actual selected argument, receiver and capture transport for this call.");
-  const key: SummaryKey = { kind: "body", execution: { instance: callee.instance, provided: operation.arguments.length } };
+  for (let index = 0; index < operation.arguments.length; index += 1) {
+    const argument = scalarArgument(deps, operation, index);
+    if (argument.kind !== "complete") return argument;
+  }
+  const key: SummaryKey = { kind: "body", execution: { instance, provided: operation.arguments.length } };
   const identity = admitSummaryIdentity(key, deps.account);
   if (identity !== null) return identity;
   const requested = summaryKey(key);
@@ -55,8 +72,22 @@ export function callSummary(deps: BodyRoundDeps, body: MirBody,
   const signatureRead = chargeWork(deps.account, 1);
   if (signatureRead !== null) return signatureRead;
   const signature = deps.signatureOf(summary.signature);
-  if (signature.receiver !== null || signature.parameters.length !== 0)
+  const signatureStop = accountFailure(deps.account);
+  if (signatureStop !== null) return signatureStop;
+  if (signature.receiver !== null || signature.parameters.length !== operation.arguments.length)
     return frontier(operation, "BodyAnalysis requires the actual selected argument mapping of this callee signature.");
+  if (operation.callee.kind === "direct" && (operation.callee.resolution.decision.parameters.length !== operation.arguments.length
+    || operation.callee.resolution.decision.completion.signature !== summary.signature
+    || operation.callee.resolution.decision.result !== signature.result))
+    return frontier(operation, "A direct call retains its actual selected completion and result association.");
+  if (operation.callee.kind === "direct") for (let index = 0; index < signature.parameters.length; index += 1) {
+    const read = chargeWork(deps.account, 1);
+    if (read !== null) return read;
+    const mapping = operation.callee.resolution.decision.parameters[index];
+    if (signature.parameters[index]?.passing !== "by-value" || mapping?.kind !== "argument" || mapping.parameter !== index
+      || mapping.argument !== index || mapping.component !== null || mapping.passing !== "by-value")
+      return frontier(operation, "BodyAnalysis requires the actual fixed by-value mapping for each selected argument.");
+  }
   if (operation.destination !== null && body.places[operation.destination]?.storage !== signature.result)
     return frontier(operation, "A placed initializer retains its actual selected destination storage and result type.");
   if (summary.unwinds || summary.suspends)
@@ -92,7 +123,7 @@ export function applyScalarCall(deps: BodyRoundDeps, input: BodyRoundInput,
   if (hasReferences(value.result) || hasReferences(value.thrown) || value.thrown.includesAbsence)
     return frontier(operation, "BodyAnalysis requires the actual Origins result and thrown-value binding of this call.");
   const effects = value.cells.length + value.subjects.length + value.events.length + value.writes.length + value.concurrentWrites.length
-    + value.contentsOnReturn.length + value.contentsOnUnwind.length + value.parameters.length + value.captures.length
+    + value.contentsOnReturn.length + value.contentsOnUnwind.length + value.captures.length
     + value.retention.length + value.callbacks.length + value.resultCells.length + value.backing.length;
   if (effects !== 0)
     return frontier(operation, "BodyAnalysis requires the actual caller cell, event, callback or backing producer for these applied effects.");

@@ -2,9 +2,9 @@ import type { DataflowStop } from "../../dataflow/contract.js";
 import { accountFailure, chargeResultEntries, chargeWork, refuseAccount } from "../../dataflow/index.js";
 import type { Diagnostic, DiagnosticIdentity, ErrorValue, UnitResult } from "../../diag/contract.js";
 import { hostDiagnosticCode, requirePresent, resourceLimitDiagnostic } from "../../diag/index.js";
-import type { NodeId, OriginsId, PlaceId, TyId } from "../../ids/contract.js";
+import type { NodeId, OriginsId, PlaceId, ProducerId, TyId } from "../../ids/contract.js";
 import { originsId, producerId, valueContextId } from "../../ids/index.js";
-import type { BoundActivation, InitializationFact, IntegerFact, Producer, ReadOriginsFact, SubjectOriginsFact, Summary, ValueContext, WriteFact } from "../../ir-facts/contract.js";
+import type { ArgumentTransport, BoundActivation, InitializationFact, IntegerFact, InvocationFact, Producer, ReadOriginsFact, SubjectOriginsFact, Summary, ValueContext, WriteFact } from "../../ir-facts/contract.js";
 import { admitSummaryIdentity } from "../../ir-facts/index.js";
 import type { MirOperand, MirSite } from "../../ir-mir/contract.js";
 import { localOwnershipOfMir } from "../../ir-mir/index.js";
@@ -12,7 +12,7 @@ import type { TirNode } from "../../ir-tir/contract.js";
 import { nativeCarrierOf, sameInstance } from "../../ir-types/index.js";
 import type { BodyRoundDeps, BodyRoundInput, BodyRoundResult, BodyRoundValue } from "./contract.js";
 import type { CallError } from "./calls.js";
-import { applyScalarCall, callSummary, initializerCallee, isCallError } from "./calls.js";
+import { applyScalarCall, callInstance, callSummary, isCallError, scalarArgument } from "./calls.js";
 import { orderedRows, sourceOccurrences } from "./source.js";
 import { assignedEntry, bodyFrontier, readLocal, solveAssigned, statementOperands, terminatorOperands, transferAssigned } from "./storage.js";
 
@@ -110,13 +110,17 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
   const signatureWork = chargeWork(account, 1);
   if (signatureWork !== null) return signatureWork;
   const signature = deps.signatureOf(tir.signature);
+  const signatureStop = accountFailure(account);
+  if (signatureStop !== null) return signatureStop;
   const summaryWork = chargeResultEntries(account, 40 + signature.parameters.length * 4);
   if (summaryWork !== null) return summaryWork;
-  const bounded = (limit: "maximumRelationalRecordsPerBody" | "maximumRelationalReferencesPerBody" | "maximumConditionAlternatives", size: number): DataflowStop | null =>
-    size <= deps.limits[limit] ? null : refuseAccount(account, { kind: "refused", diagnostics: [
+  const bounded = (limit: "maximumRelationalRecordsPerBody" | "maximumRelationalReferencesPerBody" | "maximumConditionAlternatives",
+    size: number, retained = 0): DataflowStop | null =>
+    size <= deps.limits[limit] - retained ? null : refuseAccount(account, { kind: "refused", diagnostics: [
       resourceLimitDiagnostic({ owner: "analyses/origins", limit: `analysis.${limit}`, maximum: deps.limits[limit],
         site: { kind: "source", origin: tir.root.origin }, unit: { request: deps.unit, position: { kind: "result" } } })] });
   const formalCount = signature.parameters.length + (signature.receiver === null ? 0 : 1);
+  let contextReferences = formalCount;
   const bound = bounded("maximumRelationalRecordsPerBody", 2 + formalCount + (hasAbsence ? 1 : 0))
     ?? bounded("maximumRelationalReferencesPerBody", signature.parameters.length + (signature.receiver === null ? 0 : 1))
     ?? bounded("maximumConditionAlternatives", 1);
@@ -153,6 +157,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
   const subjects: SubjectOriginsFact[] = [];
   const writes: WriteFact[] = [];
   const activations: BoundActivation[] = [];
+  const invocations: InvocationFact[] = [];
   let returns = false;
   let resultOrigins = empty;
   const originsOf = (operand: MirOperand): OriginsId => requirePresent(operand.kind === "constant" ? constantOrigins[operand.constant]
@@ -225,17 +230,77 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       const selected = callSummary(deps, mir, terminator);
       if (selected.kind !== "complete") return selected;
       if (isCallError(selected.value)) return failedCall(deps, selected.value);
-      const bound = bounded("maximumRelationalRecordsPerBody", arena.producers.length + arena.contexts.length + arena.origins.length + 1);
+      const bound = bounded("maximumRelationalRecordsPerBody", arena.producers.length + arena.contexts.length + arena.origins.length + 1)
+        ?? bounded("maximumRelationalReferencesPerBody", terminator.arguments.length, contextReferences);
       if (bound !== null) return bound;
-      const growth = chargeWork(account, 1) ?? chargeResultEntries(account, 5);
+      contextReferences += terminator.arguments.length;
+      const growth = chargeWork(account, 1) ?? chargeResultEntries(account, 6);
       if (growth !== null) return growth;
+      const arguments_: OriginsId[] = [];
+      const transports: ArgumentTransport[] = [];
+      if (terminator.callee.kind === "direct") {
+        const setup = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
+        if (setup !== null) return setup;
+        const formals = new Map<number, ProducerId>();
+        for (const producer of selected.value.arena.producers) {
+          const formalWork = chargeWork(account, 1);
+          if (formalWork !== null) return formalWork;
+          if (producer.kind !== "parameter") continue;
+          const row = chargeResultEntries(account, 1);
+          if (row !== null) return row;
+          formals.set(producer.index, producer.id);
+        }
+        const syntax = source.value.get(terminator.tir.node);
+        const application = syntax?.kind === "CallExpression" || syntax?.kind === "NewExpression" ? syntax.tsonic?.application : null;
+        if (application?.kind !== "decided")
+          return bodyFrontier("A selected direct call retains its actual source application and argument occurrences.");
+        const signatureRead = chargeWork(account, 1);
+        if (signatureRead !== null) return signatureRead;
+        const signature = deps.signatureOf(terminator.callee.resolution.decision.api.signature);
+        const signatureStop = accountFailure(account);
+        if (signatureStop !== null) return signatureStop;
+        for (let index = 0; index < terminator.arguments.length; index += 1) {
+          const argumentWork = chargeWork(account, 1) ?? chargeResultEntries(account, 5);
+          if (argumentWork !== null) return argumentWork;
+          const argument = scalarArgument(deps, terminator, index);
+          if (argument.kind !== "complete") return argument;
+          const sourceArgument = application.decision.arguments[index];
+          const parameter = requirePresent(signature.parameters[index], { owner: "analyses/body", query: null, origin: terminator.origin,
+            message: "An actual fixed call retains every selected signature parameter." });
+          if (sourceArgument?.kind !== "provided" || sourceArgument.parameter !== index)
+            return bodyFrontier("A selected fixed argument retains its actual provided occurrence and formal declaration.");
+          if (!read(argument.value, sourceArgument.expression, assigned)) {
+            const stop = accountFailure(account);
+            if (stop !== null) return stop;
+            const failure = chargeWork(account, 5) ?? chargeResultEntries(account, 8);
+            return failure ?? { kind: "complete", value: uninitialized(deps, terminator) };
+          }
+          const origins = originsOf(argument.value);
+          arguments_.push(origins);
+          transports.push({ authoredIndex: index, parameter: parameter.declaration, parameterIndex: index, repeated: false,
+            passing: "by-value", actual: origins, formal: { owner: { kind: "summary", key: selected.value.key },
+              producer: requirePresent(formals.get(index), { owner: "analyses/body", query: null, origin: terminator.origin,
+                message: "A selected scalar call retains its actual callee formal producer." }) }, projection: null });
+        }
+      }
       const context = valueContextId(contexts.length);
-      contexts.push({ id: context, receiver: null, arguments: [], captures: [] });
+      contexts.push({ id: context, receiver: null, arguments: arguments_, captures: [] });
       const point = { block: block.id, statement: null };
       const applied = applyScalarCall(deps, input, terminator, point, selected.value, arena, context);
       if (applied.kind !== "complete") return applied;
-      activations.push({ node: terminator.tir.node, point, activation: initializerCallee(terminator).instance, context,
+      activations.push({ node: terminator.tir.node, point, activation: callInstance(terminator), context,
         caller: valueContextId(0), entry: null });
+      if (terminator.callee.kind === "direct") {
+        const invocationWork = chargeWork(account, 1) ?? chargeResultEntries(account, 6);
+        if (invocationWork !== null) return invocationWork;
+        const signature = deps.signatureOf(terminator.callee.resolution.decision.api.signature);
+        const signatureStop = accountFailure(account);
+        if (signatureStop !== null) return signatureStop;
+        invocations.push({ node: terminator.tir.node, point, kind: signature.kind, alternatives: [{
+          resolution: terminator.callee.resolution, context, arguments: transports,
+          result: terminator.destination === null ? empty : originsOf({ kind: "place", place: terminator.destination }),
+          thrown: empty, summary: selected.value.key }], boundaries: [] });
+      }
       if (selected.value.returns && terminator.destination !== null) {
         const local = readLocal(mir, { kind: "place", place: terminator.destination });
         const write = chargeResultEntries(account, 3);
@@ -299,7 +364,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     reads: { kind: "complete", paths: [] }, writes: { kind: "complete", paths: [] } });
   const value: BodyRoundValue = { facts: { execution, arena, liveness, initialization: { reads: initialization.value },
     refinements: { refinements: [], integers: integerRows.value, countedLoops: [] }, origins: { points: [], reads: readRows.value,
-      subjects: subjectRows.value, writes, escapes: [], invocations: [], callbacks: [], activations, frontiers: [],
+      subjects: subjectRows.value, writes, escapes: [], invocations, callbacks: [], activations, frontiers: [],
       constructions: [], instanceRegions: [], exitContents: { onReturn: [], onUnwind: [] } },
     suspension: { suspensions: [] }, errorStorage: { errors: [] }, pointerBacking: { pointers: [] }, rawLocations: [],
     fieldBindings: [], recordBindings: [], memoryBindings: [], selectedMemoryDeclarations: [], closedArrays: [] },

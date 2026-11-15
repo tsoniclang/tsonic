@@ -7,7 +7,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { checkCoverage } from "../architecture/host/coverage.mjs";
 import { parseSources } from "../architecture/host/import-graph.mjs";
 import { add, plus, shaped } from "./fixtures/lower-mir/programs/first.mjs";
-import { T, TABLE, bodyId, builders, declareType, def, native, seal, signature, typedBody, verificationContext } from "./fixtures/lower-mir/typed.mjs";
+import { wt1 } from "./fixtures/lower-mir/programs/wt1.mjs";
+import { EMPTY_BINDINGS, T, TABLE, bodyId, builders, callee, declareType, def, mapped, native, seal, signature, typedBody, verificationContext } from "./fixtures/lower-mir/typed.mjs";
 import { executionKey, sameInstance } from "../../packages/host/dist/ir-types/index.js";
 import { lowerToMir } from "../../packages/host/dist/lower-mir/index.js";
 import { verifyMir } from "../../packages/host/dist/ir-mir/index.js";
@@ -107,23 +108,27 @@ function checkedPair(current, result) {
     for (const child of iterateChildrenOfSyntax(node)) pending.push(child);
   }
   const ready = [current, ...(current.related ?? [])];
+  current.pair = pair;
   const readyBody = instance => ready.find(row => sameInstance(row.execution.instance, instance));
   const readyOwner = definition => ready.find(row => row.program.tir.owner === definition);
   const context = { types: TABLE, limits: current.deps.limits, diagnostics: [],
     tirBody: instance => readyBody(instance)?.program.tir ?? null,
     mirBody: instance => readyBody(instance)?.input.mir ?? null,
     bodyOwner: body => ready.find(row => row.program.tir.body === body)?.program.tir.owner ?? null,
-    definitionExists: definition => readyOwner(definition) !== undefined,
+    definitionExists: definition => readyOwner(definition) !== undefined || ready.some(row =>
+      row.program.tir.params.some(header => header.tsonic.declaration === definition)),
     declarationSourceOf: definition => definition === current.program.tir.owner ? { kind: "body", value: current.program.nodeRef(0) } : null,
     bindingScopeOf: definition => readyOwner(definition) === undefined ? null : scope,
-    sourceBindingScopesOf: () => assert.fail("Each actual scalar binding occurrence has its checked definition."), nominalOf: () => null,
+    sourceBindingScopesOf: () => { assert.fail("These actual scalar rounds have no definition-null source binding vectors."); }, nominalOf: () => null,
     nodeExists: selected => selected.kind === "body" ? selected.value.body === current.program.tir.body && nodes.has(selected.value.node)
       : current.program.tir.params.some(header => header.tsonic.declaration === selected.value.owner && nodes.has(selected.value.node)),
     localExists: local => local.body === current.program.tir.body && current.program.tir.locals[local.local]?.id === local.local,
     signatureIdOf: () => null, bindingDependentOf: definition => readyOwner(definition)?.program.tir.dependence === "binding-dependent",
     captureCount: key => key.kind === "body" ? readyBody(key.execution.instance)?.program.tir.captures.length ?? null : null,
     callbackSignaturesOf: () => null, metadataOf: () => null, libraryExportExists: () => false, declaredSiteCount: () => null,
-    arenaOf: () => pair.facts.arena, summaryOf: () => pair.summary };
+    arenaOf: owner => owner.kind === "body" ? readyBody(owner.execution.instance)?.pair?.facts.arena ?? null
+      : owner.key.kind === "body" ? readyBody(owner.key.execution.instance)?.pair?.summary.arena ?? null : null,
+    summaryOf: () => pair.summary };
   current.factsContext = context;
   const account = createAccount(limits);
   assert.deepEqual(verifyFacts(pair.facts, current.input.mir, context, account), { kind: "complete", violations: [] }, "the real Facts barrier accepts producer output");
@@ -137,6 +142,39 @@ function checkedPair(current, result) {
   assert.equal(factsText.kind, "parsed", factsText.kind === "parsed" ? "canonical Facts text" : JSON.stringify(factsText));
   assert.equal(summaryText.kind, "parsed", summaryText.kind === "parsed" ? "canonical Summary text" : JSON.stringify(summaryText));
   return pair;
+}
+
+function checkSignatureStops(current) {
+  const operation = current.input.mir.blocks.find(block => block.terminator.kind === "call").terminator;
+  for (const run of [deps => callSummary(deps, current.input.mir, operation), deps => analyzeBodyRound(deps, current.input)]) {
+    let reads = 0;
+    const baseline = run({ ...current.deps, account: createAccount(limits), signatureOf: selected => {
+      reads += 1;
+      return current.deps.signatureOf(selected);
+    } });
+    assert.equal(baseline.kind, "complete");
+    assert.equal(reads > 0, true);
+    for (let stopAt = 1; stopAt <= reads; stopAt += 1) {
+      const account = createAccount(limits);
+      const refused = { kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "analyses/origins",
+        limit: "analysis.maximumOriginAlternatives", maximum: 0, site: { kind: "source", origin: operation.origin },
+        unit: { request: current.deps.unit, position: { kind: "result" } } })] };
+      let count = 0;
+      const result = run({ ...current.deps, account, signatureOf: selected => {
+        assert.equal(accountFailure(account), null, "no signature reader is called after the original stop");
+        count += 1;
+        if (count !== stopAt) return current.deps.signatureOf(selected);
+        assert.equal(refuseAccount(account, refused), refused);
+        return new Proxy({}, { get() { assert.fail("No signature answer or header is read after its original refusal."); } });
+      } });
+      assert.equal(count, stopAt);
+      assert.equal(result, refused);
+      assert.equal(accountFailure(account), refused);
+      assert.equal(analyzeBodyRound({ ...current.deps, account }, new Proxy({}, {
+        get() { assert.fail("No round context is read after a signature reader refusal."); },
+      })), refused);
+    }
+  }
 }
 
 const TRUE_LITERAL = declareType("body-round.true", { kind: "literal", value: { kind: "boolean", value: true }, base: T.bool });
@@ -369,6 +407,237 @@ test("a literal-typed initialized local and its pure return conversion retain bo
   }
 });
 
+test("a real selected zero-argument direct call retains its surface invocation and exact activation context", () => {
+  const childName = "body-round.direct.target";
+  const child = shaped(childName, [], T.bool, builder => builder.block(builder.returns(builder.keyword("TrueKeyword", T.bool))));
+  const target = fixture(child);
+  const childPair = checkedPair(target, analyzeBodyRound(target.deps, target.input));
+  const selected = callee(childName, child.tir.signature, [], T.bool);
+  const program = shaped("body-round.direct.caller", [], T.bool, builder => builder.block(builder.returns(
+    builder.call(builder.global("target", childName, T.unknown), [], T.bool,
+      () => ({ callee: selected, receiver: null, arguments: [] })))));
+  const current = fixture(program);
+  current.related = [target];
+  const completed = { request: target.deps.unit, position: { kind: "result" } };
+  current.deps.summaryOf = key => {
+    assert.equal(executionKey(key.execution), executionKey(target.execution));
+    return { value: childPair.summary, unit: completed };
+  };
+  const pair = checkedPair(current, analyzeBodyRound(current.deps, current.input));
+  assert.equal(pair.facts.origins.invocations.length, 1);
+  checkSignatureStops(current);
+  assert.equal(pair.facts.origins.activations.length, 1);
+  const invocation = pair.facts.origins.invocations[0];
+  const activation = pair.facts.origins.activations[0];
+  const operation = current.input.mir.blocks[invocation.point.block].terminator;
+  assert.equal(operation.kind, "call");
+  assert.equal(operation.callee.kind, "direct");
+  assert.equal(invocation.alternatives[0].resolution, operation.callee.resolution);
+  assert.equal(invocation.alternatives[0].context, activation.context);
+  assert.deepEqual(invocation.point, activation.point);
+  assert.equal(sameInstance(activation.activation, target.execution.instance), true);
+  assert.deepEqual(invocation.alternatives[0].arguments, []);
+  assert.deepEqual(pair.summary.callbacks, []);
+  assert.deepEqual(verifyFacts(pair.facts, current.input.mir, { ...current.factsContext,
+    bindingDependentOf: () => { assert.fail("An actual selected activation never substitutes a template dependence decision."); } }, createAccount(limits)),
+  { kind: "complete", violations: [] });
+  const template = { ...target.execution.instance, bindings: { kind: "parametric" } };
+  const wrongTemplate = verifyFacts({ ...pair.facts, origins: { ...pair.facts.origins,
+    invocations: [{ ...invocation, alternatives: [{ ...invocation.alternatives[0], resolution: { ...selected, activation: template } }] }] } },
+  current.input.mir, current.factsContext, createAccount(limits));
+  assert.equal(wrongTemplate.kind, "complete");
+  assert.equal(wrongTemplate.violations.some(row => row.rule === "summary-reference-exact"), true,
+    "a parametric template is not the genuine empty-binding selected body activation");
+  for (const invocations of [[], [{ ...invocation, alternatives: [{ ...invocation.alternatives[0], context: 0 }] }]]) {
+    const result = verifyFacts({ ...pair.facts, origins: { ...pair.facts.origins, invocations } }, current.input.mir,
+      current.factsContext, createAccount(limits));
+    assert.equal(result.kind, "complete");
+    assert.equal(result.violations.some(row => row.rule === "cross-owner-qualified"), true,
+      "a real direct operation cannot borrow a node-only or different-context alternative");
+  }
+  for (const activation of ["at-creation", "when-first-driven"]) {
+    const altered = { ...operation, callee: { ...operation.callee, resolution: { ...selected,
+      decision: { ...selected.decision, activation } } } };
+    assert.throws(() => callSummary(current.deps, current.input.mir, altered), /actual selected argument, receiver and capture transport/);
+  }
+  for (const completion of [{ ...selected.decision.completion, signature: CALLER_SIGNATURE }]) {
+    assert.throws(() => callSummary(current.deps, current.input.mir, { ...operation, callee: { ...operation.callee,
+      resolution: { ...selected, decision: { ...selected.decision, completion } } } }), /selected completion/);
+  }
+  for (const decision of [{ ...selected.decision, parameters: [{ kind: "omitted", parameter: 0, type: T.bool }] },
+    { ...selected.decision, result: T.float64 }]) {
+    assert.throws(() => callSummary(current.deps, current.input.mir, { ...operation, callee: { ...operation.callee,
+      resolution: { ...selected, decision } } }), /selected completion/);
+  }
+  const discardProgram = shaped("body-round.direct.discard", [], T.void, builder => builder.block(builder.expressionStatement(
+    builder.call(builder.global("target", childName, T.unknown), [], T.bool,
+      () => ({ callee: selected, receiver: null, arguments: [] }))), builder.returns(null)));
+  const discarded = fixture(discardProgram);
+  discarded.related = [target];
+  discarded.deps.summaryOf = current.deps.summaryOf;
+  const discardedMir = { ...discarded.input.mir, blocks: discarded.input.mir.blocks.map(block => block.terminator.kind !== "call"
+    ? block : { ...block, terminator: { ...block.terminator, destination: null } }) };
+  assert.deepEqual(verifyMir(discardedMir, verificationContext(discardProgram)), { kind: "complete", violations: [] },
+    "the canonical MIR call may genuinely discard a selected scalar result");
+  const discardedAccount = createAccount(limits);
+  const discardedStorage = analyzeStorageUse({ account: discardedAccount }, { execution: discarded.execution, body: discardedMir });
+  assert.equal(discardedStorage.kind, "ok");
+  discarded.deps.account = discardedAccount;
+  discarded.input = { ...discarded.input, mir: discardedMir, liveness: discardedStorage.value };
+  const discardPair = checkedPair(discarded, analyzeBodyRound(discarded.deps, discarded.input));
+  assert.equal(discardPair.facts.origins.invocations.length, 1);
+  assert.equal(discardPair.facts.origins.writes.length, 0);
+  for (const dimension of ["maximumWork", "maximumResultEntries"]) {
+    let complete = false;
+    for (let maximum = 0; maximum < 10000; maximum += 1) {
+      const account = createAccount({ ...limits, [dimension]: maximum });
+      const result = analyzeBodyRound({ ...current.deps, account }, current.input);
+      if (result.kind === "complete") { complete = true; break; }
+      assert.equal(result, accountFailure(account));
+      assert.equal(analyzeBodyRound({ ...current.deps, account }, new Proxy({}, { get() { assert.fail("No direct-call input after stop."); } })), result);
+    }
+    assert.equal(complete, true);
+  }
+});
+
+test("real fixed by-value scalar arguments retain selected formals, source reads and actual empty applied effects", () => {
+  const childName = "body-round.direct.argument.target";
+  const child = shaped(childName, [["argument", "required", T.bool]], T.bool,
+    builder => builder.block(builder.returns(builder.id("argument", 0, T.bool))));
+  const target = fixture(child);
+  const childPair = checkedPair(target, analyzeBodyRound(target.deps, target.input));
+  const selected = callee(childName, child.tir.signature, [mapped(0, 0)], T.bool);
+  const program = shaped("body-round.direct.argument.caller", [["input", "required", T.bool]], T.bool,
+    builder => builder.block(builder.returns(builder.call(builder.global("target", childName, T.unknown),
+      [{ $: "actual-input", ...builder.id("input", 0, T.bool) }], T.bool,
+      at => ({ callee: selected, receiver: null, arguments: [{ kind: "provided", parameter: 0, expression: at("actual-input") }] })))));
+  const current = fixture(program);
+  current.related = [target];
+  const completed = { request: target.deps.unit, position: { kind: "result" } };
+  current.deps.summaryOf = key => {
+    assert.equal(executionKey(key.execution), executionKey(target.execution));
+    return { value: childPair.summary, unit: completed };
+  };
+  const pair = checkedPair(current, analyzeBodyRound(current.deps, current.input));
+  const invocation = pair.facts.origins.invocations[0];
+  checkSignatureStops(current);
+  const alternative = invocation.alternatives[0];
+  const transport = alternative.arguments[0];
+  assert.equal(transport.parameter, TABLE.signatures[child.tir.signature].parameters[0].declaration);
+  assert.equal(transport.parameterIndex, 0);
+  assert.equal(transport.authoredIndex, 0);
+  assert.equal(transport.passing, "by-value");
+  assert.equal(transport.repeated, false);
+  assert.equal(transport.projection, null);
+  assert.equal(pair.facts.arena.contexts[alternative.context].arguments[0], transport.actual);
+  assert.equal(transport.formal.owner.kind, "summary");
+  assert.equal(executionKey(transport.formal.owner.key.execution), executionKey(target.execution));
+  const formal = childPair.summary.arena.producers[transport.formal.producer];
+  assert.equal(formal.kind, "parameter");
+  assert.equal(formal.index, 0);
+  const argumentNode = program.at("actual-input");
+  assert.equal(pair.facts.initialization.reads.some(row => row.node === argumentNode && row.assigned), true);
+  assert.equal(pair.facts.origins.reads.some(row => row.node === argumentNode && row.origins === transport.actual), true);
+  assert.equal(pair.summary.parameters[0].reads.kind, "complete");
+  assert.deepEqual(pair.summary.parameters[0].reads.paths, []);
+  for (const maximum of [1, 2]) {
+    const account = createAccount(limits);
+    const result = analyzeBodyRound({ ...current.deps, account,
+      limits: { ...analysisLimits, maximumRelationalReferencesPerBody: maximum } }, current.input);
+    assert.equal(result.kind, maximum === 1 ? "refused" : "complete");
+    if (result.kind !== "complete") assert.equal(result, accountFailure(account));
+  }
+  const operation = current.input.mir.blocks[invocation.point.block].terminator;
+  for (const argument of [{ kind: "omitted" }, { ...operation.arguments[0], passing: "move" }])
+    assert.throws(() => callSummary(current.deps, current.input.mir, { ...operation, arguments: [argument] }), /actual selected argument/);
+  for (const mapping of [{ ...selected.decision.parameters[0], parameter: 1 },
+    { ...selected.decision.parameters[0], argument: 1 }, { ...selected.decision.parameters[0], component: 0 },
+    { ...selected.decision.parameters[0], passing: "move" }, { kind: "default", parameter: 0, initializer: DEFAULT_BODY }])
+    assert.throws(() => callSummary(current.deps, current.input.mir, { ...operation, callee: { ...operation.callee,
+      resolution: { ...selected, decision: { ...selected.decision, parameters: [mapping] } } } }), /actual fixed by-value mapping/);
+  assert.throws(() => callSummary({ ...current.deps, signatureOf: () => ({ ...TABLE.signatures[child.tir.signature],
+    parameters: [{ ...TABLE.signatures[child.tir.signature].parameters[0], passing: "move" }] }) }, current.input.mir, operation),
+  /actual fixed by-value mapping/);
+  assert.throws(() => callSummary({ ...current.deps, signatureOf: () => ({ ...TABLE.signatures[child.tir.signature],
+    parameters: new Array(1) }) }, current.input.mir, operation), /actual fixed by-value mapping/);
+  const syntax = sourceOccurrences(current.input.tir, createAccount(limits)).value.get(operation.tir.node);
+  const annotation = syntax.tsonic;
+  for (const actual of [null, {}, { ...annotation, application: { kind: "deferred" } },
+    { ...annotation, application: { ...annotation.application, decision: { ...annotation.application.decision, arguments: [] } } },
+    { ...annotation, application: { ...annotation.application, decision: { ...annotation.application.decision,
+      arguments: [{ ...annotation.application.decision.arguments[0], parameter: 1 }] } } }]) {
+    syntax.tsonic = actual;
+    try {
+      assert.throws(() => analyzeBodyRound({ ...current.deps, account: createAccount(limits) }, current.input),
+        /actual source application|actual provided occurrence/);
+    } finally { syntax.tsonic = annotation; }
+  }
+  for (const node of [9999, program.tir.root.id]) assert.throws(() => analyzeBodyRound({ ...current.deps, account: createAccount(limits) }, { ...current.input,
+    mir: { ...current.input.mir, blocks: current.input.mir.blocks.map(block => block.id !== invocation.point.block ? block
+      : { ...block, terminator: { ...block.terminator, tir: { ...block.terminator.tir, node } } }) } }), /actual source application/);
+  for (const kind of ["NewExpression"]) {
+    syntax.kind = kind;
+    syntax.tsonic = { ...annotation, application: { kind: "deferred" } };
+    try {
+      assert.throws(() => analyzeBodyRound({ ...current.deps, account: createAccount(limits) }, current.input), /actual source application/);
+    } finally { syntax.kind = "CallExpression"; syntax.tsonic = annotation; }
+  }
+  const unrelatedProducer = { id: childPair.summary.arena.producers.length, path: null, kind: "call-result",
+    at: operation.tir, callee: { kind: "indirect" } };
+  const extra = analyzeBodyRound({ ...current.deps, account: createAccount(limits), summaryOf: () => ({
+    unit: completed, value: { ...childPair.summary, arena: { ...childPair.summary.arena,
+      producers: [...childPair.summary.arena.producers, unrelatedProducer] } } }) }, current.input);
+  assert.equal(extra.kind, "complete");
+  assert.equal(extra.value.value.facts.origins.invocations[0].alternatives[0].arguments[0].formal.producer, formal.id,
+    "an unused producer row does not become a formal or change the selected parameter relation");
+  const unwrittenName = "body-round.direct.argument.unwritten";
+  const builder = builders(unwrittenName);
+  const uninitializedProgram = typedBody(unwrittenName, { signature: signature(unwrittenName, [], T.bool), completion: T.bool,
+    locals: [["unwritten", "binding", T.bool, true]], root: builder.block(
+      builder.declare([builder.variable(builder.declName("unwritten", 0), 0, T.bool)]),
+      builder.returns(builder.call(builder.global("target", childName, T.unknown),
+        [{ $: "unwritten-actual", ...builder.id("unwritten", 0, T.bool) }], T.bool,
+        at => ({ callee: selected, receiver: null, arguments: [{ kind: "provided", parameter: 0, expression: at("unwritten-actual") }] })))) });
+  const unwritten = fixture(uninitializedProgram);
+  unwritten.deps.summaryOf = current.deps.summaryOf;
+  const failed = analyzeBodyRound(unwritten.deps, unwritten.input);
+  assert.equal(failed.kind, "complete");
+  assert.equal(failed.value.value.kind, "error");
+  assert.equal(failed.value.diagnostics[0].code.rendered, "TSONIC_READ_BEFORE_INITIALIZATION");
+  for (const dimension of ["maximumWork", "maximumResultEntries"]) {
+    for (const entry of [current, unwritten]) {
+      let complete = false;
+      for (let maximum = 0; maximum < 10000; maximum += 1) {
+        const account = createAccount({ ...limits, [dimension]: maximum });
+        const result = analyzeBodyRound({ ...entry.deps, account }, entry.input);
+        if (result.kind === "complete") { complete = true; break; }
+        assert.equal(result, accountFailure(account));
+        assert.equal(analyzeBodyRound({ ...entry.deps, account }, new Proxy({}, { get() { assert.fail("No actual argument input after stop."); } })), result);
+      }
+      assert.equal(complete, true);
+    }
+  }
+});
+
+test("WT1's real two-argument add call keeps both actual selected formal identities in authored order", () => {
+  const programs = wt1();
+  const target = fixture(programs.add);
+  const child = checkedPair(target, analyzeBodyRound(target.deps, target.input));
+  const current = fixture(programs.total);
+  current.related = [target];
+  current.deps.summaryOf = key => {
+    assert.equal(executionKey(key.execution), executionKey(target.execution));
+    return { value: child.summary, unit: { request: target.deps.unit, position: { kind: "result" } } };
+  };
+  const pair = checkedPair(current, analyzeBodyRound(current.deps, current.input));
+  const alternative = pair.facts.origins.invocations[0].alternatives[0];
+  assert.deepEqual(alternative.arguments.map(row => [row.authoredIndex, row.parameterIndex, row.formal.producer]), [[0, 0, 0], [1, 1, 1]]);
+  assert.deepEqual(alternative.arguments.map(row => row.parameter), TABLE.signatures[programs.add.tir.signature].parameters.map(row => row.declaration));
+  assert.deepEqual(pair.facts.arena.contexts[alternative.context].arguments, alternative.arguments.map(row => row.actual));
+  assert.deepEqual(child.summary.parameters.map(row => [row.reads, row.writes]), [0, 1].map(() => [
+    { kind: "complete", paths: [] }, { kind: "complete", paths: [] }]));
+});
+
 test("a called semantic error keeps its actual completed UnitRef through the solved lattice and result position", () => {
   const { current, unit, operation } = defaultRound();
   const error = { kind: "error", causes: [] };
@@ -406,8 +675,9 @@ test("call identity, selected storage and missing effect relations are checked b
   const summary = childPair.summary;
   const run = (selected = operation, answer = summary, overrides = {}) => callSummary({ ...current.deps,
     account: createAccount(limits), summaryOf: () => ({ value: answer, unit }), ...overrides }, current.input.mir, selected);
-  for (const callee of [{ kind: "direct" }, { ...operation.callee, captures: [0] }])
-    assert.throws(() => run({ ...operation, callee }), /actual selected argument, receiver and capture transport/);
+  for (const selected of [{ kind: "indirect" }, { kind: "direct", resolution: { ...callee("body-round.unresolved", DEFAULT_SIGNATURE, [], T.bool), activation: null } },
+    { ...operation.callee, captures: [0] }])
+    assert.throws(() => run({ ...operation, callee: selected }), /actual selected argument, receiver and capture transport/);
   assert.throws(() => run({ ...operation, receiver: { kind: "constant", constant: 0 } }), /actual selected argument/);
   assert.throws(() => run({ ...operation, arguments: [{}] }), /actual selected argument/);
   assert.throws(() => run(operation, { ...summary, key: { ...summary.key,
@@ -426,8 +696,10 @@ test("call identity, selected storage and missing effect relations are checked b
   const absent = { ...summary.arena.origins[0], id: 1, includesAbsence: true };
   const absentArena = { ...summary.arena, origins: [...summary.arena.origins, absent] };
   assert.throws(() => apply({ ...summary, arena: absentArena, thrown: 1 }), /actual Origins result and thrown-value binding/);
-  assert.throws(() => apply({ ...summary, parameters: [{ slot: { kind: "parameter", index: 0 },
-    reads: { kind: "complete", paths: [] }, writes: { kind: "complete", paths: [] } }] }), /actual caller cell, event, callback or backing producer/);
+  assert.throws(() => apply({ ...summary, arena: { ...summary.arena,
+    producers: [{ id: 0, path: null, kind: "call-result", at: operation.tir, callee: { kind: "indirect" } }],
+    boundProducers: [{ id: 0, producer: 0, bindings: EMPTY_BINDINGS, context: 0 }] } }),
+  /actual caller cell, event, callback or backing producer/);
   const pending = { ...summary, initialization: { ...summary.initialization,
     points: [{ kind: "unwind" }], rows: [{ point: 0, cell: null, condition: 0 }] } };
   assert.throws(() => apply(pending), /actual supplied cell and completion-event bindings/);
