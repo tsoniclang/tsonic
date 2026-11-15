@@ -124,6 +124,28 @@ test(`real public Host publication orders all ${count + 1} default entries numer
   }
 });
 
+for (const [form, statements] of [
+  ["else", "if (flag) return a; else return b;"],
+  ["fall-through", "if (flag) return a; return b;"],
+  ["blocks", "if (flag) { return a; } else { return b; }"],
+])
+test(`real public Host analysis closes a scalar boolean ${form} branch with both actual return paths`, async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `export function choose(flag: boolean, a: number, b: number): number { ${statements} }\n`);
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok");
+  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  const main = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
+  const module = result.value.modules.find(module => module.module === main);
+  const callable = module.bodies.find(body => body.kind === "selected" && body.tir.params.length === 3);
+  assert.notEqual(callable, undefined);
+  assert.equal(callable.tir.root.statements.nodes[0].kind, "IfStatement");
+  assert.equal(callable.mir.blocks.filter(block => block.terminator.kind === "switch").length, 1);
+  assert.equal(callable.mir.blocks.filter(block => block.terminator.kind === "return").length, 2);
+  assert.deepEqual(callable.facts.map(facts => facts.execution.provided), [3]);
+});
+
 for (const limit of ["work", "result-entries", "query.maximumRecords"])
 test(`real public AnalyzeHostProgram refuses ${limit} exhaustion without publishing a partial program`, async () => {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true);

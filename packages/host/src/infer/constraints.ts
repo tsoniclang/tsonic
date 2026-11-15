@@ -225,6 +225,8 @@ function childrenOf(node: HirNode): readonly HirNode[] {
   switch (node.kind) {
     case "Block": return node.statements.nodes;
     case "ReturnStatement": return node.expression === null ? [] : [node.expression];
+    case "IfStatement": return node.elseStatement === null ? [node.expression, node.thenStatement]
+      : [node.expression, node.thenStatement, node.elseStatement];
     case "ParenthesizedExpression": return [node.expression];
     case "BinaryExpression": return [node.left, node.right];
     case "Identifier": case "TrueKeyword": case "FalseKeyword": case "StringLiteral": case "NullKeyword": return [];

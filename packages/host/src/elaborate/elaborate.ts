@@ -300,6 +300,15 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
         else visit(value);
         return;
       }
+      case "IfStatement":
+        if (building) statements[position] = { ...header(node), kind: "IfStatement", expression: expressionOf(node.expression),
+          thenStatement: statementOf(node.thenStatement), elseStatement: node.elseStatement === null ? null : statementOf(node.elseStatement), tsonic: null };
+        else {
+          if (node.elseStatement !== null) visit(node.elseStatement);
+          visit(node.thenStatement);
+          visit(node.expression);
+        }
+        return;
       case "BinaryExpression":
         if (building) {
           expressions[position] = binary(node, position);

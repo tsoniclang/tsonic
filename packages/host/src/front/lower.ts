@@ -28,7 +28,7 @@ const invariant = (message: string): InvariantFailure => ({ owner: "front", quer
  */
 const writtenKinds: readonly string[] = ["SourceFile", "EndOfFile", "ExportKeyword", "FunctionDeclaration", "Parameter",
   "Identifier", "NumberKeyword", "StringKeyword", "BooleanKeyword", "BigIntKeyword", "AnyKeyword", "UnknownKeyword", "NeverKeyword", "ObjectKeyword", "UndefinedKeyword", "VoidKeyword",
-  "Block", "ReturnStatement", "BinaryExpression", "PlusToken", "CallExpression", "ExpressionStatement", "ParenthesizedExpression",
+  "Block", "ReturnStatement", "IfStatement", "BinaryExpression", "PlusToken", "CallExpression", "ExpressionStatement", "ParenthesizedExpression",
   "ExportDeclaration", "NamedExports", "ExportSpecifier", "NamespaceExport", "StringLiteral", "TrueKeyword", "FalseKeyword", "NullKeyword",
   "ImportDeclaration", "ImportClause", "NamedImports", "ImportSpecifier", "NamespaceImport",
   "VariableStatement", "VariableDeclarationList", "VariableDeclaration", "InterfaceDeclaration", "TypeParameter", "PropertySignature",
@@ -605,6 +605,10 @@ function buildStatement(lowering: Lowering, node: Hir.Statement<Syntax>, owner: 
         tsonic: { core: coreOf(lowering, node.declarationList.id), disposal: [] } }, tsonic: null };
     case "ReturnStatement":
       return { ...headerOf(node), kind: "ReturnStatement", expression: node.expression === null ? null : expression(lowering, node.expression), tsonic: null };
+    case "IfStatement":
+      return { ...headerOf(node), kind: "IfStatement", expression: expression(lowering, node.expression),
+        thenStatement: statement(lowering, node.thenStatement),
+        elseStatement: node.elseStatement === null ? null : statement(lowering, node.elseStatement), tsonic: null };
     case "ExpressionStatement":
       return { ...headerOf(node), kind: "ExpressionStatement", expression: expression(lowering, node.expression), tsonic: null };
     case "Block": return { ...headerOf(node), kind: "Block", statements: { loc: node.statements.loc,
@@ -677,6 +681,10 @@ function* checkedChildren(work: CheckedWork): Generator<CheckedWork, void, undef
       yield { kind: "statement", node: statement, owner };
     } else if (node.kind === "ReturnStatement" || node.kind === "ExpressionStatement") {
       if (child === node.expression && node.expression !== null) yield { kind: "expression", node: node.expression, owner };
+    } else if (node.kind === "IfStatement") {
+      if (child === node.expression) yield { kind: "expression", node: node.expression, owner };
+      else if (child === node.thenStatement) yield { kind: "statement", node: node.thenStatement, owner };
+      else if (child === node.elseStatement && node.elseStatement !== null) yield { kind: "statement", node: node.elseStatement, owner };
     } else if (node.kind === "VariableStatement" && child === node.declarationList) {
       for (const declaration of node.declarationList.declarations.nodes)
         if (declaration.initializer !== null) yield { kind: "expression", node: declaration.initializer, owner };
