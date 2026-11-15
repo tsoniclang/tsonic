@@ -55,6 +55,12 @@ test("actual checked generic formals and converted parameter types share the sam
   assert.equal(box.kind, "InterfaceDeclaration");
   assert.deepEqual(box.typeParameters.nodes[0].tsonic.parameter,
     { declaration: declaration.definition, constraint: null, default: null });
+  const document = fixture.hir.printHir(checked.value);
+  assert.deepEqual(fixture.hir.parseHir(document), { kind: "parsed", value: checked.value });
+  assert.equal(document.includes("TypeParameter(declaration="), true);
+  const retired = `TypeParameterIdentity(owner=def:${JSON.stringify(declaration.definition)}, index=0)`;
+  assert.equal(fixture.hir.parseHir(document.replace("TypeParameter(declaration=",
+    `TypeParameter(identity=${retired}, declaration=`)).kind, "invalid-text");
   const parameters = fixture.types.viewTypes(interner).terms.filter(term => term.kind === "param");
   assert.deepEqual(parameters, [{ kind: "param", parameter: declaration.definition }]);
   assert.throws(() => fixture.front.lowerModule({ ...deps,
