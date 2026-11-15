@@ -104,6 +104,52 @@ test("real bodyless call, method, construct and index formals retain definitions
   empty.expression.tsonic = { role: "declaration-name-expression" };
 });
 
+for (const annotation of ["boolean", null]) test(`real ${annotation ?? "inferred"} local retains its qualified declaration and separate initializer`, () => {
+  const program = ready(`export function local(): boolean { const value${annotation === null ? "" : `: ${annotation}`} = true; return value; }`);
+  const { types } = fixture;
+  const records = new Map();
+  for (const group of program.inputs.groups) {
+    const answer = program.database.run(program.queries.solutionOf, group.id);
+    assert.equal(answer.kind, "completed");
+    assert.equal(answer.diagnostics.length, 0);
+    for (const set of answer.value.constraints.constraints) records.set(set.body, { constraints: set, solution: answer.value.solution });
+  }
+  const deps = { types: program.interner, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf,
+    typeOf: type => types.readType(program.interner, type), signatureOf: signature => types.readSignature(program.interner, signature),
+    checkerDiagnosticsOf: () => program.checked.checkerDiagnostics };
+  const inputOf = (body, nestedBodies) => ({ instance: { body: body.body, bindings: { kind: "parametric" } },
+    scope: program.descriptions.get(body.owner).generics, body, ...records.get(body.body), template: null, nestedBodies, initializers: [] });
+  const initializer = program.checked.bodies.find(body => body.root.kind === "TrueKeyword");
+  const initialized = wiring.elaborate.elaborate(deps, inputOf(initializer, []));
+  assert.equal(initialized.kind, "ok");
+  const source = program.checked.bodies.find(body => body.root.kind === "Block");
+  const input = inputOf(source, [initialized.value]);
+  const result = wiring.elaborate.elaborate(deps, input);
+  assert.equal(result.kind, "ok");
+  const declaration = result.value.root.statements.nodes[0].declarationList.declarations.nodes[0];
+  const local = result.value.locals[0];
+  assert.equal(declaration.initializer === initialized.value.root, true, "the actual child syntax has one semantic owner");
+  assert.equal(declaration.tsonic.initializer, initializer.body);
+  assert.deepEqual(declaration.tsonic.declaration, { kind: "local", local: { body: source.body, local: local.id } });
+  assert.equal(local.storage, initialized.value.completion);
+  assert.equal(local.declaration.kind, "item");
+  assert.equal(local.declaration.value.owner, initializer.owner);
+  assert.equal(local.declaration.value.node, declaration.id);
+  assert.throws(() => wiring.elaborate.elaborate(deps, { ...input, nestedBodies: [] }), /actual direct body inventory/u);
+  assert.throws(() => wiring.elaborate.elaborate(deps, { ...input, nestedBodies: [initialized.value, initialized.value] }), /unique completed body/u);
+  assert.throws(() => wiring.elaborate.elaborate(deps, { ...input, nestedBodies: [{ ...initialized.value,
+    bindings: { kind: "instantiated", bindings: { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] } } }] }), /same actual bindings/u);
+  assert.throws(() => wiring.elaborate.elaborate(deps, { ...input, nestedBodies: [{ ...initialized.value, owner: source.owner }] }), /actual declaration, expression and execution result/u);
+  assert.throws(() => wiring.elaborate.elaborate(deps, { ...input, nestedBodies: [{ ...initialized.value,
+    root: { ...initialized.value.root, parent: null } }] }), /actual declaration, expression and execution result/u);
+  const checkedLocal = source.locals[0];
+  const original = checkedLocal.declaration;
+  checkedLocal.declaration = { kind: "body", value: { body: source.body, node: declaration.id } };
+  assert.throws(() => wiring.elaborate.elaborate(deps, input), /actual checked declaration of a non-parameter local/u);
+  checkedLocal.declaration = original;
+  assert.equal(wiring.elaborate.elaborate(deps, input).kind, "ok");
+});
+
 function ready(source) {
   const { checked, interner, snapshot } = fixture.checkedModuleOf(source);
   assert.deepEqual(fixture.verifyChecked(checked, interner), []);
@@ -113,7 +159,7 @@ function ready(source) {
   const descriptions = new Map(wiring.decls.describeDefinitions({ module: checked, nodes: domain.nodes }, []).definitions
     .map(description => [description.definition, description]));
   const declarations = { modules: [{ module: checked, nodes: domain.nodes }], types: interner, typeExpansion: EXPANSION };
-  const inference = inferStep.inferDepsOf({ rules: { libraries: { sources: [], sourceRoles: [], declaredSummaries: [] },
+  const inference = inferStep.inferDepsOf({ rules: { libraries: { sources: [], sourceRoles: [], guarantees: [] },
     types: interner, typeExpansion: EXPANSION }, hirBody: body => domain.bodyOf.get(body) ?? assert.fail("actual checked body"),
     itemOf: definition => items.get(definition) ?? assert.fail("actual checked declaration"), bindings: [checked.bindings], limits: LIMITS, graph: GRAPH });
   const grouped = wiring.infer.groupsOf(inference, checked.bodies.map(body => body.body));

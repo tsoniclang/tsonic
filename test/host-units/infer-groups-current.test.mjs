@@ -39,6 +39,36 @@ function run(program, graph = AMPLE, order = [...program.bodies.keys()]) {
   return infer.groupsOf(deps(program, graph), order);
 }
 
+test("a genuine inferred local depends on its own initializer's part through the qualified local declaration", () => {
+  const program = input("export function local(): boolean { const value = true; return value; }");
+  const result = run(program);
+  assert.equal(result.kind, "ok");
+  const callable = [...program.bodies.values()].find(body => body.root.kind === "Block");
+  const initializer = [...program.bodies.values()].find(body => body.root.kind === "TrueKeyword");
+  const producer = result.value.findIndex(group => group.bodies.includes(initializer.body));
+  const consumer = result.value.findIndex(group => group.bodies.includes(callable.body));
+  assert.equal(producer < consumer, true);
+  assert.equal(result.value[producer].signatures.some(part => part.part.kind === "variable" && part.definition === initializer.owner), true);
+  for (const dimension of ["maximumWork", "maximumResultEntries"]) {
+    let complete = false;
+    for (let maximum = 0; maximum < 4096; maximum += 1) {
+      const bounded = run(program, { ...AMPLE, [dimension]: maximum });
+      if (bounded.kind === "ok") { complete = true; break; }
+      assert.equal(bounded.kind, "refused");
+      assert.equal("value" in bounded, false);
+    }
+    assert.equal(complete, true);
+  }
+  const local = callable.locals[0];
+  const declaration = local.declaration;
+  local.declaration = { kind: "body", value: { body: callable.body, node: declaration.value.node } };
+  assert.throws(() => run(program), /without its actual item association/u);
+  local.declaration = declaration;
+  const read = callable.root.statements.nodes[1].expression;
+  read.tsonic = { ...read.tsonic, resolution: { kind: "local", local: { body: callable.body, local: 999 } } };
+  assert.throws(() => run(program), /actual checked body and dense slot/u);
+});
+
 function functions(program) {
   return program.checked.tree.statements.nodes.filter(node => node.kind === "FunctionDeclaration");
 }
@@ -155,7 +185,8 @@ test("one invocation pays for SCC and actual post-SCC group publication without 
   while (sccWork < 128 && dataflow.stronglyConnectedComponents({ successors: [[]] },
     dataflow.createAccount({ ...AMPLE, maximumWork: sccWork })).kind !== "complete") sccWork += 1;
   assert.equal(sccWork < 128, true);
-  const prepareWork = 16;
+  const traversalWork = 4 + 3 + 4;
+  const prepareWork = 6 + 1 + 1 + traversalWork + 1;
   const publicationWork = 8;
   const maximumWork = prepareWork + sccWork + publicationWork;
   assert.equal(run(program, { ...AMPLE, maximumWork }).kind, "ok");
@@ -164,8 +195,8 @@ test("one invocation pays for SCC and actual post-SCC group publication without 
     assert.equal(result.kind, "refused", "post-SCC publication step " + suffix);
     assert.equal("value" in result, false);
   }
-  assert.equal(run(program, { ...AMPLE, maximumResultEntries: 5 }).kind, "ok");
-  assert.equal(run(program, { ...AMPLE, maximumResultEntries: 4 }).kind, "refused");
+  assert.equal(run(program, { ...AMPLE, maximumResultEntries: 13 }).kind, "ok");
+  assert.equal(run(program, { ...AMPLE, maximumResultEntries: 12 }).kind, "refused");
 });
 
 test("a fault-injected original refusal on the actual invocation account is retained without a body read", async () => {

@@ -188,6 +188,36 @@ test(`real public Host analysis executes an ${annotation === "" ? "inferred" : "
     && edge.target.execution.instance.body === initializer.instance.body), true);
 });
 
+test("real public Host analysis closes a direct zero-argument scalar call through its actual selected callee", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { sameInstance } = await import("../../packages/host/dist/ir-types/index.js");
+  const input = analysisInput(fixture, "sdk-minimal",
+    "export function value(): boolean { return true; } export function read(): boolean { return value(); }\n");
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok");
+  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  const main = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
+  const module = result.value.modules.find(module => module.module === main);
+  const selected = module.bodies.filter(body => body.kind === "selected");
+  const caller = selected.find(body => body.mir.blocks.some(block => block.terminator.kind === "call"));
+  assert.notEqual(caller, undefined);
+  const block = caller.mir.blocks.find(block => block.terminator.kind === "call");
+  const call = block.terminator;
+  assert.equal(call.callee.kind, "direct");
+  assert.notEqual(call.callee.resolution.activation, null);
+  const callee = selected.find(body => sameInstance(body.instance, call.callee.resolution.activation));
+  assert.notEqual(callee, undefined);
+  assert.notEqual(callee, caller);
+  assert.equal(call.arguments.length, 0);
+  assert.equal(caller.facts.some(facts => facts.origins.activations.some(row => row.node === call.tir.node
+    && row.point.block === block.id && row.point.statement === null && sameInstance(row.activation, callee.instance))), true);
+  assert.equal(result.value.index.dependencyInventory.dependencies.some(edge => edge.reason === "call"
+    && sameInstance(edge.dependent.instance, caller.instance) && edge.dependent.provided === 0
+    && edge.target.kind === "body" && sameInstance(edge.target.execution.instance, callee.instance)
+    && edge.target.execution.provided === 0), true);
+});
+
 for (const limit of ["work", "result-entries", "query.maximumRecords"])
 test(`real public AnalyzeHostProgram refuses ${limit} exhaustion without publishing a partial program`, async () => {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true);

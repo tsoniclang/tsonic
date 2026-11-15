@@ -81,6 +81,22 @@ after(async () => {
   } finally { session.disconnect(); }
 });
 
+test("checked scalar branches retain actual expression and arm identities, including a missing else", () => {
+  for (const statements of ["if (flag) return a; else return b;", "if (flag) return a; return b;",
+    "if (flag) { return a; } else { return b; }"]) {
+    const { checked, interner } = checkedModuleOf(`export function choose(flag: boolean, a: number, b: number): number { ${statements} }`);
+    assert.deepEqual(verifyChecked(checked, interner), []);
+    const callable = checked.tree.statements.nodes[0];
+    const branch = callable.body.statements.nodes[0];
+    assert.equal(branch.kind, "IfStatement");
+    assert.equal(branch.tsonic, null);
+    assert.equal(branch.expression.parent, branch.id);
+    assert.equal(branch.thenStatement.parent, branch.id);
+    assert.equal(branch.elseStatement === null, statements === "if (flag) return a; return b;");
+    if (branch.elseStatement !== null) assert.equal(branch.elseStatement.parent, branch.id);
+  }
+});
+
 const identityKinds = new Set(["SourceFile", "FunctionDeclaration", "ClassDeclaration", "InterfaceDeclaration", "TypeAliasDeclaration", "EnumDeclaration",
   "EnumMember", "ModuleDeclaration", "VariableDeclaration", "BindingElement", "Parameter", "TypeParameter", "PropertyDeclaration", "MethodDeclaration",
   "GetAccessor", "SetAccessor", "Constructor", "ClassStaticBlockDeclaration", "PropertySignature", "MethodSignature", "CallSignature",
@@ -1348,14 +1364,17 @@ test("an applicable SDK receipt is not a complete overload inventory, and missin
   assert.throws(() => convert(obligations), { name: "TypeError", message: "front: call candidate conditional failure conversion is not implemented" });
 });
 
-test("the checker's boolean is the scalar boolean; a union holding it is not a scalar and is refused by name", () => {
+test("the checker's boolean is scalar while a union retains its actual separate member forms", () => {
   const scalar = openedModule("export function same(flag: boolean): boolean { return flag; }\n");
   const raw = front.captureModule(scalar.deps, scalar.program, scalar.module);
   assert.equal(raw.kind, "ok");
   assert.deepEqual([...new Set(raw.value.types.types.map(row => JSON.stringify(row.form)))], [JSON.stringify({ kind: "available", value: { kind: "scalar", scalar: "boolean" } })]);
   const union = openedModule("export function maybe(flag: boolean | undefined, n: number): number { return n; }\n");
-  assert.throws(() => front.captureModule(union.deps, union.program, union.module),
-    { name: "TypeError", message: "front: the captured form of the checker type boolean | undefined is not implemented" });
+  const captured = front.captureModule(union.deps, union.program, union.module);
+  assert.equal(captured.kind, "ok");
+  const forms = captured.value.types.types.map(row => row.form).filter(form => form.kind === "available").map(form => form.value);
+  assert.equal(forms.some(form => form.kind === "union"), true);
+  assert.equal(forms.some(form => form.kind === "scalar" && form.scalar === "boolean"), true);
 });
 
 test("the frontier check names the first unwritten form in preorder (R3 L-2)", async () => {
@@ -1729,7 +1748,8 @@ test("the identity inputs through the real producer: captureModule and lowerModu
   const keywordFiles = ["function-with-namespace /project/src/a.ts", "augmentation-and-reexport /project/src/aug.ts", "augmentation-before-original /project/src/0aug.ts",
     "same-kind-merges /project/src/a.ts", "module-declaration-forms /project/src/g.ts", "module-declaration-forms /project/src/ambient.d.ts"];
   const agreeingFiles = ["augmentation-and-reexport /project/src/a.ts", "augmentation-and-reexport /project/src/b.ts", "default-expression /project/src/u.ts",
-    "augmentation-before-original /project/src/a.ts", "default-expression-order /project/src/main.ts", "renamed-reexports /project/src/s.ts"];
+    "augmentation-before-original /project/src/a.ts", "default-expression-order /project/src/main.ts", "renamed-reexports /project/src/s.ts",
+    "overloads /project/src/a.ts", "unnamed-signatures /project/src/a.ts"];
   const typeFrontier = /^front: the captured form of the checker type .+ is not implemented$/u;
   const outcomes = { agreed: [], keyword: [], type: [] };
   for (const entry of cases) {
@@ -1764,7 +1784,7 @@ test("the identity inputs through the real producer: captureModule and lowerModu
   }
   assert.deepEqual(outcomes.agreed.sort(), [...agreeingFiles].sort());
   assert.deepEqual(outcomes.keyword.sort(), [...keywordFiles].sort());
-  assert.equal(outcomes.type.length, 30, "every other file of the 42 is refused at the checker-type frontier");
+  assert.equal(outcomes.type.length, 28, "every other file of the 42 is refused at the checker-type frontier");
 });
 
 // K-3297 item 3 and R2's V-1/V-2: capture limits before growth, one numbering of every file, cached on the opened program.
@@ -1860,7 +1880,7 @@ test("K-3341 nested bodies: zero, one and many direct children in preorder, as t
 // read; at 9 the read happens and the frontier is met.
 test("K-3341 first refusal: a limit met before a later unsupported read returns the refusal and never makes that read", async () => {
   const diag = await import("../../packages/host/dist/diag/index.js");
-  const sourceText = "export function pick(a: number, b: string | number): number { return a; }\n";
+  const sourceText = "export function pick(a: number, b: Record<string, number>): number { return a; }\n";
   const module = moduleOf(packageOf("/project"), "src/main.ts");
   const under = value => {
     const { deps, program } = openedModule(sourceText);
@@ -1869,7 +1889,7 @@ test("K-3341 first refusal: a limit met before a later unsupported read returns 
   const refusal = maximum => ({ kind: "refused", diagnostics: [diag.resourceLimitDiagnostic({ owner: "front", limit: "front.maximumCapturedFactsPerModule", maximum,
     site: { kind: "file", path: "/project/src/main.ts" }, unit: { request: { query: "captureModule", key: module }, position: { kind: "result" } } })] });
   for (const value of [0, 1, 4, 5, 8]) assert.deepEqual(under(value), refusal(value), `maximum ${value}`);
-  assert.throws(() => under(9), { name: "TypeError", message: "front: the captured form of the checker type string | number is not implemented" });
+  assert.throws(() => under(9), { name: "TypeError", message: "front: the captured form of the checker type Record<string, number> is not implemented" });
 });
 
 // K-3341: a five-parameter function. Facts: the signature row, five parameters (4 each), the result (2), the association, six
@@ -1971,7 +1991,7 @@ test("K-3361: a receiver is captured apart from the ordinary parameters and lowe
 // written before the run.
 test("K-3341 many parameters, last one unsupported: refused at zero and at the fact before its type with that type never read; one more admits the read", async () => {
   const diag = await import("../../packages/host/dist/diag/index.js");
-  const sourceText = "export function many(a: number, b: number, c: number, d: number, e: string | number): number { return a; }\n";
+  const sourceText = "export function many(a: number, b: number, c: number, d: number, e: Record<string, number>): number { return a; }\n";
   const module = moduleOf(packageOf("/project"), "src/main.ts");
   const under = value => {
     const { deps, program } = openedModule(sourceText);
@@ -1980,7 +2000,7 @@ test("K-3341 many parameters, last one unsupported: refused at zero and at the f
   for (const value of [0, 20]) assert.deepEqual(under(value), { kind: "refused", diagnostics: [diag.resourceLimitDiagnostic({ owner: "front",
     limit: "front.maximumCapturedFactsPerModule", maximum: value, site: { kind: "file", path: "/project/src/main.ts" },
     unit: { request: { query: "captureModule", key: module }, position: { kind: "result" } } })] }, `maximum ${value}`);
-  assert.throws(() => under(21), { name: "TypeError", message: "front: the captured form of the checker type string | number is not implemented" });
+  assert.throws(() => under(21), { name: "TypeError", message: "front: the captured form of the checker type Record<string, number> is not implemented" });
 });
 
 // K-3343: identity counters belong to the owner itself. The raw modules are constructed (K-3343 allows it): the syntax tree comes

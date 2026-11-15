@@ -51,7 +51,7 @@ test(`real SDK source add with ${resultAnnotation === "" ? "inferred" : "annotat
   };
   const inputs = { modules: [{ module: checked, nodes }], types: interner, typeExpansion: EXPANSION };
   const deps = pipeline.inferDepsOf({
-    rules: { libraries: { sources: [], sourceRoles: [], declaredSummaries: [] }, types: interner, typeExpansion: EXPANSION },
+    rules: { libraries: { sources: [], sourceRoles: [], guarantees: [] }, types: interner, typeExpansion: EXPANSION },
     hirBody: body => domain.bodyOf.get(body) ?? assert.fail("the requested body is not in the ready module"),
     itemOf: definition => items.get(definition) ?? assert.fail("the requested declaration is not in the ready module"),
     bindings: [checked.bindings],

@@ -636,9 +636,9 @@ if (!consumed.get(index)?.has(component)) {
           "Rest transports retain every actual unconsumed tuple component or one symbolic repeated sequence, including known empty spreads."); if (stop !== null) return stop; }
       }
       const activation = alternative.resolution.activation;
-      const dependent = context.bindingDependentOf(decision.api.declaration);
-      const environment: ArtifactBindings | null = dependent === null ? null : dependent
-        ? { kind: "instantiated", bindings: decision.implementationBindings } : { kind: "parametric" };
+      const dependent = activation === null ? context.bindingDependentOf(decision.api.declaration) : null;
+      const environment: ArtifactBindings | null = activation !== null || dependent === true
+        ? { kind: "instantiated", bindings: decision.implementationBindings } : dependent === null ? null : { kind: "parametric" };
       // The captured locations of an invocation are the rows of its activation body; a callee without an activation has none.
       const actual = activation === null ? null : context.tirBody(activation);
       const captured = actual === null ? 0 : actual.captures.length;

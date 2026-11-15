@@ -29,7 +29,7 @@ const checked = (input, meter = account()) => verifyFacts(input.facts, input.sel
 
 function surfaceFixture(kind = "direct") {
   const input = fixture();
-  const instance = input.callee.template.instance;
+  const instance = input.callee.instance;
   const endpoint = role => ({ declaration: input.callee.definition, role, signature: 0, body: input.callee.bodyId });
   const bindings = input.callee.selected.tir.lexicalBindings;
   const resolution = { activation: instance, decision: {
@@ -48,6 +48,21 @@ function surfaceFixture(kind = "direct") {
 }
 
 export async function activationPointCases(suite) {
+await suite.test("surface body activations retain selected empty complete bindings independently of declaration dependence", () => {
+  for (const kind of ["direct", "indirect"]) {
+    const input = surfaceFixture(kind);
+    input.context.facts.bindingDependentOf = () => { assert.fail("A selected body uses its actual complete implementation environment."); };
+    assert.deepEqual(checked(input), { kind: "complete", violations: [] }, kind);
+    const alternative = input.facts.origins.invocations[0].alternatives[0];
+    alternative.resolution.activation = input.callee.template.instance;
+    alternative.summary.execution.instance = input.callee.template.instance;
+    input.facts.origins.activations[0].activation = input.callee.template.instance;
+    const result = checked(input);
+    assert.equal(result.kind, "complete");
+    assert.equal(result.violations.some(row => row.rule === "summary-reference-exact"), true, kind);
+  }
+});
+
 await suite.test("direct body binding retains the actual MIR point without a fabricated surface invocation", () => {
   const input = fixture();
   assert.equal(input.facts.origins.invocations.length, 0);

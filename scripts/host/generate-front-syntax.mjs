@@ -218,8 +218,10 @@ out.push(`import { attributesToken, checkJsDirective, commentDirectives, defect,
 out.push(...helpers);
 out.push(``);
 for (const guard of guards.values()) {
-  out.push(`const ${guard.name}Kinds: readonly string[] = [${guard.kinds.map(k => `"${k}"`).join(", ")}];`);
-  out.push(`function ${guard.name}(node: Hir.SyntaxNode<Hir.SyntaxPhase>): node is ${guard.type} { return ${guard.name}Kinds.includes(node.kind); }`);
+  const typeNodes = guard.type === "Hir.TypeNode<Hir.SyntaxPhase>";
+  const name = typeNodes ? "typeNodeKinds" : `${guard.name}Kinds`;
+  out.push(`${typeNodes ? "export " : ""}const ${name}: readonly string[] = [${guard.kinds.map(k => `"${k}"`).join(", ")}];`);
+  out.push(`${typeNodes ? "export " : ""}function ${guard.name}(node: Hir.SyntaxNode<Hir.SyntaxPhase>): node is ${guard.type} { return ${name}.includes(node.kind); }`);
 }
 out.push(`/** The kinds of HIR's expression syntax. */`);
 out.push(`export const expressionKinds: readonly string[] = [${[...new Set(kindsOfType(shape.getTypeFromTypeNode(ast.typeNode(decls.get("Expression")))))].sort().map(kind => `"${kind}"`).join(", ")}];`);

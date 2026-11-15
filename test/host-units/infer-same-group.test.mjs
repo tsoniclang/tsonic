@@ -28,7 +28,7 @@ function ready(source) {
   items.set(checked.tree.tsonic.definition, checked.tree);
   const descriptions = new Map(wiring.decls.describeDefinitions({ module: checked, nodes }, []).definitions
     .map(item => [item.definition, item]));
-  const deps = pipeline.inferDepsOf({ rules: { libraries: { sources: [], sourceRoles: [], declaredSummaries: [] },
+  const deps = pipeline.inferDepsOf({ rules: { libraries: { sources: [], sourceRoles: [], guarantees: [] },
     types: interner, typeExpansion: EXPANSION }, hirBody: body => domain.bodyOf.get(body) ?? assert.fail("actual body required"),
     itemOf: definition => items.get(definition) ?? assert.fail("actual declaration required"), bindings: [checked.bindings], limits: LIMITS, graph: GRAPH });
   const inputs = { modules: [{ module: checked, nodes }], types: interner, typeExpansion: EXPANSION };

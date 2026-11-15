@@ -122,16 +122,17 @@ export const partition: GroupsOf = (deps, bodies) => {
     const seen = new Set<HirNode>();
     const pending: Iterator<HirNode>[] = [];
     let current: HirNode | null = body.root;
-    while (current !== null || pending.length !== 0) {
-      if (!take(1)) return stop();
+    while (true) {
       if (current === null) {
         const frame = pending.at(-1);
-        if (frame === undefined) return callerDefect(PORT, "a checked traversal retains its actual pending child iterator");
+        if (frame === undefined) break;
+        if (!take(1)) return stop();
         const next = frame.next();
         if (next.done === true) pending.pop();
         else current = next.value;
         continue;
       }
+      if (!take(1)) return stop();
       const node: HirNode = current;
       current = null;
       if (excluded.has(node.id) || seen.has(node) || node.kind === "InterfaceDeclaration" || node.kind === "TypeAliasDeclaration") continue;
