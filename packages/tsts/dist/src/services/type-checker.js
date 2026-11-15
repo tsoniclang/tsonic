@@ -6,7 +6,7 @@ import { Node_Name } from "../internal/ast/spine.js";
 import { readTypeIndexInfo } from "./type-members.js";
 import { readInvocationReturnType } from "./signature-returns.js";
 import { NodeFlagsOptionalChain, SymbolFlagsAlias, SymbolFlagsNamespace, SymbolFlagsType, SymbolFlagsValue, } from "../internal/ast/generated/flags.js";
-import { IsElementAccessExpression, IsAwaitExpression, IsExportSpecifier, IsGetAccessorDeclaration, IsIdentifier, IsImportSpecifier, IsNamespaceExport, IsNamespaceImport, IsObjectLiteralExpression, IsMethodDeclaration, IsMethodSignatureDeclaration, IsPropertyAccessExpression, IsPropertyAssignment, IsPropertyDeclaration, IsPropertySignatureDeclaration, IsSetAccessorDeclaration, IsShorthandPropertyAssignment, } from "../internal/ast/generated/predicates.js";
+import { IsElementAccessExpression, IsAwaitExpression, IsExportSpecifier, IsGetAccessorDeclaration, IsIdentifier, IsImportClause, IsImportEqualsDeclaration, IsImportSpecifier, IsNamespaceExport, IsNamespaceImport, IsObjectLiteralExpression, IsMethodDeclaration, IsMethodSignatureDeclaration, IsPropertyAccessExpression, IsPropertyAssignment, IsPropertyDeclaration, IsPropertySignatureDeclaration, IsSetAccessorDeclaration, IsShorthandPropertyAssignment, } from "../internal/ast/generated/predicates.js";
 import { GetSourceFileOfNode, GetContainingFunction, IsCallOrNewExpression, IsFunctionLike, IsObjectLiteralMethod, IsPropertyName, IsDynamicName, IsImportCall, ModuleExportNameIsDefault, OEKAssertions, OEKParentheses, SkipOuterExpressions, SkipParentheses, } from "../internal/ast/utilities.js";
 import { Program_GetSourceFile, Program_GetTypeChecker, Program_GetTypeCheckerById, Program_GetTypeCheckerForFile, Program_IsSourceFileDefaultLibrary } from "../internal/compiler/program.js";
 import { CheckerLifetimeAPI, CheckerLifetimeDiagnostics, WithCheckerLifetime } from "../internal/core/context.js";
@@ -153,15 +153,21 @@ export function createTypeCheckerQueries(program, defaultOptions) {
                 const namespaceForm = IsNamespaceImport(declaration) || IsNamespaceExport(declaration);
                 const memberForm = (IsImportSpecifier(declaration) || IsExportSpecifier(declaration))
                     && !ModuleExportNameIsDefault(Node_PropertyNameOrName(declaration));
-                const referenced = namespaceForm || memberForm ? referencedModule(checker, declaration) : undefined;
+                const moduleForm = namespaceForm || IsImportSpecifier(declaration) || IsExportSpecifier(declaration)
+                    || IsImportClause(declaration) || IsImportEqualsDeclaration(declaration);
+                const moduleSpecifier = moduleForm ? Checker_getModuleSpecifierForImportOrExport(checker, declaration) : undefined;
+                const selectedModule = moduleSpecifier === undefined ? undefined : moduleOfSpecifier(checker, declaration, moduleSpecifier);
+                const referenced = namespaceForm || memberForm ? selectedModule : undefined;
+                const moduleFailure = selectedModule === undefined && moduleSpecifier !== undefined
+                    ? LinkStore_TryGet(checker.nodeLinks, moduleSpecifier)?.externalModuleFailure : undefined;
                 // A namespace form names the module itself: its `export =` assignment when it has one, the module otherwise.
                 // The checker's own target for it is the final value behind the assignment or a symbol it makes for the import.
                 if (referenced !== undefined && namespaceForm)
                     return { kind: "symbol", symbol: referenced.exportAssignment ?? referenced.module };
-                const immediate = retained?.immediateFailure === undefined
-                    ? Checker_getImmediateAliasedSymbol(checker, symbol) : retained.immediateTarget;
+                const immediate = retained?.immediateFailure === undefined && moduleFailure === undefined
+                    ? Checker_getImmediateAliasedSymbol(checker, symbol) : retained?.immediateTarget;
                 const target = immediate === checker?.unknownSymbol ? undefined : immediate;
-                const cause = LinkStore_TryGet(checker.aliasSymbolLinks, symbol)?.immediateFailure;
+                const cause = LinkStore_TryGet(checker.aliasSymbolLinks, symbol)?.immediateFailure ?? moduleFailure;
                 const answer = target !== undefined ? { kind: "symbol", symbol: target }
                     : cause === undefined ? undefined : { kind: "unresolved", cause };
                 if (referenced?.exportAssignment !== undefined) {

@@ -823,6 +823,6 @@ test("constraint pauses retain every actual request body and reject removed or f
     { ...generation.paused, requestBodies: [module.body] }, answers), /outside its actual group/u);
   assert.throws(() => wiring.infer.resumeConstraintsOf(program.inputs.inference,
     { ...generation.paused, requests: [...generation.requests, ...generation.requests], requestBodies: [...group.bodies, ...group.bodies] },
-    [...answers, ...answers]), /more than once in one pause/u);
+    [...answers, ...answers]), /a complete signature request was repeated in one pause/u);
   assert.equal(wiring.infer.resumeConstraintsOf(program.inputs.inference, generation.paused, answers).value.kind, "ok");
 });

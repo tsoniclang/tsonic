@@ -1876,11 +1876,11 @@ test("K-3341 nested bodies: zero, one and many direct children in preorder, as t
 
 // K-3341: the first refusal stops capture before any further read. In `pick`, the facts are admitted in this order: the signature
 // row (1); a's component, symbol, type and passing (2 to 5); b's component, symbol, type and passing (6 to 9), before its
-// checker-type frontier (`string | number`). Under every maximum below 9 the earned refusal is returned and b's type is never
+// checker-type frontier (`typeof globalThis`). Under every maximum below 9 the earned refusal is returned and b's type is never
 // read; at 9 the read happens and the frontier is met.
 test("K-3341 first refusal: a limit met before a later unsupported read returns the refusal and never makes that read", async () => {
   const diag = await import("../../packages/host/dist/diag/index.js");
-  const sourceText = "export function pick(a: number, b: Record<string, number>): number { return a; }\n";
+  const sourceText = "export function pick(a: number, b: typeof globalThis): number { return a; }\n";
   const module = moduleOf(packageOf("/project"), "src/main.ts");
   const under = value => {
     const { deps, program } = openedModule(sourceText);
@@ -1889,7 +1889,7 @@ test("K-3341 first refusal: a limit met before a later unsupported read returns 
   const refusal = maximum => ({ kind: "refused", diagnostics: [diag.resourceLimitDiagnostic({ owner: "front", limit: "front.maximumCapturedFactsPerModule", maximum,
     site: { kind: "file", path: "/project/src/main.ts" }, unit: { request: { query: "captureModule", key: module }, position: { kind: "result" } } })] });
   for (const value of [0, 1, 4, 5, 8]) assert.deepEqual(under(value), refusal(value), `maximum ${value}`);
-  assert.throws(() => under(9), { name: "TypeError", message: "front: the captured form of the checker type Record<string, number> is not implemented" });
+  assert.throws(() => under(9), { name: "TypeError", message: "front: the captured form of the checker type typeof globalThis is not implemented" });
 });
 
 // K-3341: a five-parameter function. Facts: the signature row, five parameters (4 each), the result (2), the association, six
@@ -1986,12 +1986,12 @@ test("K-3361: a receiver is captured apart from the ordinary parameters and lowe
   assert.throws(refusalOf(generic), { name: "TypeError", message: "front: checked annotation not implemented: FunctionDeclaration with type parameters" });
 });
 
-// R2 M-2: the same five parameters with the last typed `string | number`. Its facts: the signature row (1), four parameters
-// (3 each, to 13), e's component and symbol (14, 15), e's type (16), whose read meets the checker-type frontier. Expectations
+// R2 M-2: the same five parameters with the last typed `typeof globalThis`. Its facts: the signature row (1), four parameters
+// (4 each, to 17), e's component and symbol (18, 19), passing (20) and type (21), whose read meets the checker-type frontier. Expectations
 // written before the run.
 test("K-3341 many parameters, last one unsupported: refused at zero and at the fact before its type with that type never read; one more admits the read", async () => {
   const diag = await import("../../packages/host/dist/diag/index.js");
-  const sourceText = "export function many(a: number, b: number, c: number, d: number, e: Record<string, number>): number { return a; }\n";
+  const sourceText = "export function many(a: number, b: number, c: number, d: number, e: typeof globalThis): number { return a; }\n";
   const module = moduleOf(packageOf("/project"), "src/main.ts");
   const under = value => {
     const { deps, program } = openedModule(sourceText);
@@ -2000,7 +2000,7 @@ test("K-3341 many parameters, last one unsupported: refused at zero and at the f
   for (const value of [0, 20]) assert.deepEqual(under(value), { kind: "refused", diagnostics: [diag.resourceLimitDiagnostic({ owner: "front",
     limit: "front.maximumCapturedFactsPerModule", maximum: value, site: { kind: "file", path: "/project/src/main.ts" },
     unit: { request: { query: "captureModule", key: module }, position: { kind: "result" } } })] }, `maximum ${value}`);
-  assert.throws(() => under(21), { name: "TypeError", message: "front: the captured form of the checker type Record<string, number> is not implemented" });
+  assert.throws(() => under(21), { name: "TypeError", message: "front: the captured form of the checker type typeof globalThis is not implemented" });
 });
 
 // K-3343: identity counters belong to the owner itself. The raw modules are constructed (K-3343 allows it): the syntax tree comes

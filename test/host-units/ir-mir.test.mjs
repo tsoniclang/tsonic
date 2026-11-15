@@ -1588,7 +1588,7 @@ test("MIR ordinary constants retain unresolved and sparse supplied type-table re
 });
 
 test("MIR index selector keys are real reachable type references, not opaque source labels", async () => {
-  const { verifyTypeReferences } = await import("../../packages/host/dist/ir-mir/verify.js");
+  const { verifyTypeReferences } = await import("../../packages/host/dist/ir-mir/verify-types.js");
   const body = parsedBody();
   const origin = { kind: "body", value: { body: body.body, node: identities.nodeId(0) } };
   const at = { kind: "body", body: body.body };
@@ -1598,8 +1598,20 @@ test("MIR index selector keys are real reachable type references, not opaque sou
     const table = { terms: [{ kind: "string" }, projection,
       { kind: "open", group: identities.encodeGroupId([body.body]), variable: 0 }], signatures: [] };
     const rule = key === 99 ? "type-resolves" : "type-closed";
-    same(verifyTypeReferences(table, [{ type: identities.tyId(1), site: at }], []), key === 0 ? []
-      : [{ rule, site: at, detail: [{ kind: "number", value: 1 }] }], `actual ${kind} key ${key}`);
+    const roots = [{ type: identities.tyId(1), site: at }];
+    const complete = { spent: 0, maximum: 100000, exhausted: false };
+    const expected = key === 0 ? [] : [{ rule, site: at, detail: [{ kind: "number", value: 1 }] }];
+    same(verifyTypeReferences(table, roots, [], complete), expected, `actual ${kind} key ${key}`);
+    for (let maximum = 0; maximum <= complete.spent; maximum += 1) {
+      const meter = { spent: 0, maximum, exhausted: false };
+      const terms = new Proxy(table.terms, { get(rows, field) {
+        assert.equal(meter.exhausted, false, "no selected key type lookup follows refusal");
+        return Reflect.get(rows, field);
+      } });
+      same(verifyTypeReferences({ ...table, terms }, roots, [], meter), maximum < complete.spent ? [] : expected,
+        `actual ${kind} key ${key} refuses before partial graph findings at ${maximum}`);
+      assert.equal(meter.exhausted, maximum < complete.spent);
+    }
   }
 });
 
@@ -2549,6 +2561,14 @@ test("MIR body receiver presence and exact storage are decided by its genuine so
   const receiver = { id: identities.localId(0), storage: identities.tyId(1), role: { kind: "receiver" },
     mode: "by-value", source: { body: body.body, local: identities.localId(0) }, origin: body.blocks[0].origin };
   same(verified({ ...body, locals: [receiver] }, receiverContext), [], "one exact receiver valid");
+  for (const field of ["local", "passing"]) {
+    const parameter = receiverContext.source.params[0];
+    same(verified({ ...body, locals: [receiver] }, { ...receiverContext, source: { ...receiverContext.source,
+      params: [{ ...parameter, tsonic: { ...parameter.tsonic, [field]: null } }] } }),
+    [expectedViolation("parameter-source-exact", { kind: "body" }),
+      expectedViolation("parameter-source-exact", { kind: "local", local: 0 })],
+    `a genuine bodyless ${field} absence cannot supply an execution header`);
+  }
   same(verified({ ...body, locals: [{ ...receiver, source: null }] }, receiverContext),
     [expectedViolation("parameter-source-exact", { kind: "local", local: 0 })], "a receiver that names no source local is not the storage of its row");
   same(verified({ ...body, locals: [receiver] }, { ...receiverContext, source: { ...receiverContext.source, params: [] } }),

@@ -714,7 +714,7 @@ export declare const NodeCheckFlagsInitializerIsUndefined: NodeCheckFlags;
 export declare const NodeCheckFlagsInitializerIsUndefinedComputed: NodeCheckFlags;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/types.go::type::NodeLinks","kind":"type","status":"implemented","sigHash":"bd590e6f5400ae09b28e5727ed6248a2d37e091372315daced254882f1bd9068","bodyHash":"856e653cb8e47d6489ff9bc700098ab09d3eff754541a4e19c74c630c6440bf2"}
- * @tsgo-override {"category":"runtime-correctness","allow":["signature"],"reason":"One added link of an import declaration or import call: the symbol cloneTypeAsModuleType made for it, so that Checker.resolveESModuleSymbol makes that symbol once. The Go body makes a new one on every call, and a ring of aliases that passes through such a symbol is then never closed by any walk that remembers symbols by identity, the seen set of Checker.getSymbolFlagsEx included.","goSignature":"interface{declarationRequiresScopeChange:packages/tsts/src/internal/core/tristate.ts::Tristate;flags:packages/tsts/src/internal/checker/types.ts::NodeCheckFlags;hasReportedStatementInAmbientContext:packages/tsts/src/go/scalars.ts::bool}","tsSignature":"interface{declarationRequiresScopeChange:packages/tsts/src/internal/core/tristate.ts::Tristate;flags:packages/tsts/src/internal/checker/types.ts::NodeCheckFlags;hasReportedStatementInAmbientContext:packages/tsts/src/go/scalars.ts::bool;moduleTypeSymbol?:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/symbol.ts::Symbol>}"}
+ * @tsgo-override {"category":"runtime-correctness","allow":["signature"],"reason":"One added link of an import declaration or import call: the symbol cloneTypeAsModuleType made for it, so that Checker.resolveESModuleSymbol makes that symbol once. The Go body makes a new one on every call, and a ring of aliases that passes through such a symbol is then never closed by any walk that remembers symbols by identity, the seen set of Checker.getSymbolFlagsEx included. Retain only the actually emitted original failed external-module answer on its same native module-specifier link, without a diagnostic lookup or a second resolver.","goSignature":"interface{declarationRequiresScopeChange:packages/tsts/src/internal/core/tristate.ts::Tristate;flags:packages/tsts/src/internal/checker/types.ts::NodeCheckFlags;hasReportedStatementInAmbientContext:packages/tsts/src/go/scalars.ts::bool}","tsSignature":"interface{declarationRequiresScopeChange:packages/tsts/src/internal/core/tristate.ts::Tristate;externalModuleFailure?:packages/tsts/src/internal/ast/diagnostic.ts::Diagnostic;flags:packages/tsts/src/internal/checker/types.ts::NodeCheckFlags;hasReportedStatementInAmbientContext:packages/tsts/src/go/scalars.ts::bool;moduleTypeSymbol?:packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/symbol.ts::Symbol>}"}
  *
  * Go source:
  * NodeLinks struct {
@@ -727,6 +727,7 @@ export interface NodeLinks {
     flags: NodeCheckFlags;
     declarationRequiresScopeChange: Tristate;
     hasReportedStatementInAmbientContext: bool;
+    externalModuleFailure?: Diagnostic;
     moduleTypeSymbol?: GoPtr<Symbol_62f2f8bf>;
 }
 /**
