@@ -46,9 +46,9 @@ export function readTypedBindingPatternText<Root>(cursor: Cursor, finish: (value
 export function readTypedParameterText<Root>(cursor: Cursor, finish: (value: TypedParameter) => TextStep<Root>): TextStep<Root> {
   return atomicText(cursor, next => openRecord(next, "TypedParameter"), fields =>
     fieldText<DefId, Root>(cursor, fields, "declaration", (next, done) => atomicText(next, readDefinitionId, done), declarationValue =>
-    fieldText<LocalRef, Root>(cursor, fields, "local", (next, done) => atomicText(next, readLocalRef, done), localValue =>
+    fieldText<LocalRef | null, Root>(cursor, fields, "local", (next, done) => nullableText(next, (next, done) => atomicText(next, readLocalRef, done), done), localValue =>
       fieldText<TyId, Root>(cursor, fields, "storage", (next, done) => atomicText(next, readTypeId, done), storageValue =>
-        fieldText<PassingMode, Root>(cursor, fields, "passing", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["by-value","byref-readonly","byref-readwrite","byref-writeonly-must-init","borrow-shared","borrow-mut","move"]), done), passingValue =>
+        fieldText<PassingMode | null, Root>(cursor, fields, "passing", (next, done) => nullableText(next, (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["by-value","byref-readonly","byref-readwrite","byref-writeonly-must-init","borrow-shared","borrow-mut","move"]), done), done), passingValue =>
           fieldText<BodyId | null, Root>(cursor, fields, "initializer", (next, done) => nullableText(next, (next, done) => atomicText(next, readBodyId, done), done), initializerValue =>
             fieldText<TypedParameter["role"], Root>(cursor, fields, "role", (next, done) =>
               atomicText(next, current => readStringChoice(current, ["required","optional","default","rest","this"]), done), roleValue =>

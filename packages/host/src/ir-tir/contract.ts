@@ -1,7 +1,7 @@
-import type { BodyId, DefId, KeyData, LocalId, LocalRef, ModuleId, NodeId, NodeRef, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
+import type { BodyId, DefId, KeyData, LocalId, LocalRef, ModuleId, NodeId, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { Diagnostic, TextParseResult, Violation } from "../diag/contract.js";
 import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, ExactRational, MemberKey, MemberTable, NominalDefinition, PassingMode, TypeComponent, TypeEvidence, TypeParameter, TypeTable } from "../ir-types/contract.js";
-import type { BodyRoot, DeclarationTarget, HirAttribute, HirCallableEndpoint, HirLexicalScope, HirModule, HirNode, ImportTarget, ParameterDeclaration, Phase, SourceFile, SyntaxNode } from "../ir-hir/contract.js";
+import type { BodyRoot, CapturedFact, DeclarationTarget, HirAttribute, HirCallableEndpoint, HirLexicalScope, HirModule, HirNode, ImportTarget, ParameterDeclaration, Phase, SourceFile, SyntaxNode } from "../ir-hir/contract.js";
 import type { ApplicationDecision, BodyCaptureRow, ClosureDecision, ConstructionPartDecision, DeferredDecision, EmbeddingDecision, FlowRole, InferenceDeclaration, MemberDecision, OperationDecision, OperationIdentity, RefinementDecision, RuleOutcome } from "../ir-infer/contract.js";
 
 export interface TypedOperation {
@@ -96,7 +96,12 @@ export interface TypedValue {
   readonly demand: TirDemand;
 }
 
+export interface DeclarationNameExpression {
+  readonly role: "declaration-name-expression";
+}
+
 export type TypedName =
+  | DeclarationNameExpression
   | (TypedValue & { readonly role: "value"; readonly resolution: TirResolution })
   | (TypedValue & { readonly role: "shorthand-value"; readonly key: MemberKey; readonly resolution: TirResolution })
   | { readonly role: "assignment-target"; readonly resolution: TirResolution; readonly access: TargetAccess }
@@ -108,10 +113,12 @@ export type TypedName =
   | { readonly role: "private-name"; readonly declaration: DefId };
 
 export type TypedPropertyKey =
+  | { readonly kind: "declaration"; readonly key: CapturedFact<MemberKey> }
   | { readonly kind: "constant"; readonly key: MemberKey }
   | { readonly kind: "computed"; readonly type: TyId };
 
 export type TypedString =
+  | DeclarationNameExpression
   | (TypedValue & { readonly role: "value"; readonly value: string })
   | { readonly role: "property-name"; readonly key: MemberKey }
   | { readonly role: "declaration-name"; readonly declaration: DeclarationTarget }
@@ -121,6 +128,7 @@ export type TypedString =
   | { readonly role: "attribute-value"; readonly value: string };
 
 export type TypedNumber =
+  | DeclarationNameExpression
   | (TypedValue & { readonly role: "value"; readonly value: ExactRational })
   | { readonly role: "property-name"; readonly key: MemberKey }
   | { readonly role: "declaration-name"; readonly declaration: DeclarationTarget }
@@ -170,6 +178,7 @@ export type TargetAccess =
       readonly narrowing: RefinementDecision | null; readonly evidenceIndex: number | null };
 
 export type TypedMember =
+  | DeclarationNameExpression
   | (TypedValue & { readonly role: "value"; readonly selection: RuleOutcome<MemberSelection> })
   | { readonly role: "assignment-target"; readonly selection: RuleOutcome<MemberSelection>; readonly access: TargetAccess };
 
@@ -244,9 +253,9 @@ export interface TypedBindingPattern {
 
 export interface TypedParameter {
   readonly declaration: DefId;
-  readonly local: LocalRef;
+  readonly local: LocalRef | null;
   readonly storage: TyId;
-  readonly passing: PassingMode;
+  readonly passing: PassingMode | null;
   readonly initializer: BodyId | null;
   readonly role: "required" | "optional" | "default" | "rest" | "this";
 }
@@ -671,6 +680,9 @@ export type MemberSelectionKey = (member: MemberSelection) => KeyData;
 export type PrintTir = (body: TirBody) => string;
 export type ParseTir = (text: string) => TextParseResult<TirBody>;
 export type VerifyTir = (input: TirVerifierInput, body: TirBody) => readonly Violation<TirRule, TirSite>[];
+export type TirBindingOwners = (input: TirVerifierInput, target: TirBindingTarget) => readonly (DefId | null)[];
+export type TirOperationsOf = (input: TirVerifierInput, instance: BodyInstance) =>
+  readonly { readonly operation: TypedOperation; readonly node: NodeRef; readonly origin: Origin }[];
 export type VerifyTirModule = (
   input: TirVerifierInput,
   module: TirModule,

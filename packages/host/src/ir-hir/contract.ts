@@ -4692,3 +4692,10 @@ export type ChildrenOfSyntax = <P extends Phase>(
 export type IterateChildrenOfSyntax = <P extends Phase>(
   node: SyntaxNode<P>,
 ) => Generator<SyntaxNode<P>, void, undefined>;
+
+export interface SyntaxChild<P extends Phase> {
+  readonly node: SyntaxNode<P>;
+  readonly fields: readonly (string | number)[];
+}
+
+export type IterateSyntaxChildEdges = <P extends Phase>(node: SyntaxNode<P>) => Generator<SyntaxChild<P>, void, undefined>;

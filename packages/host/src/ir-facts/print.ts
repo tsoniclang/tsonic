@@ -481,7 +481,8 @@ const invocationAlternative = (writer: Writer, value: InvocationAlternative): vo
   ["thrown", () => identity(writer, "origins", value.thrown)], ["summary", () => summaryKey(writer, value.summary)],
 ]);
 const invocationFact = (writer: Writer, value: InvocationFact): void => record(writer, value.kind, [
-  ["node", () => identity(writer, "n", value.node)], ["alternatives", () => sequence(writer, value.alternatives, item => invocationAlternative(writer, item))],
+  ["node", () => identity(writer, "n", value.node)], ["point", () => mirPoint(writer, value.point)],
+  ["alternatives", () => sequence(writer, value.alternatives, item => invocationAlternative(writer, item))],
   ["boundaries", () => sequence(writer, value.boundaries, item => identity(writer, "boundary", item))],
 ]);
 const callbackEntry = (writer: Writer, value: CallbackEntry): void => record(writer, "CallbackEntry", [
@@ -490,7 +491,8 @@ const callbackEntry = (writer: Writer, value: CallbackEntry): void => record(wri
   ["inputs", () => sequence(writer, value.inputs, item => callbackInput(writer, item))],
 ]);
 const activation = (writer: Writer, value: BoundActivation): void => record(writer, "BoundActivation", [
-  ["node", () => identity(writer, "n", value.node)], ["activation", () => bodyInstance(writer, value.activation)],
+  ["node", () => identity(writer, "n", value.node)], ["point", () => mirPoint(writer, value.point)],
+  ["activation", () => bodyInstance(writer, value.activation)],
   ["context", () => identity(writer, "context", value.context)], ["caller", () => nullable(writer, value.caller, item => identity(writer, "context", item))],
   ["entry", () => nullable(writer, value.entry, item => argumentTransport(writer, item))],
 ]);

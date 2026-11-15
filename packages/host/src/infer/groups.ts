@@ -6,7 +6,7 @@ import type { InferenceGroup, InferredSignaturePart } from "../ir-infer/contract
 import type { GroupDeps, GroupsOf } from "./contract.js";
 import { requirePresent, resourceLimitDiagnostic } from "../diag/index.js";
 import { decodeBodyId, encodeGroupId } from "../ids/index.js";
-import { childrenOfSyntax } from "../ir-hir/index.js";
+import { iterateChildrenOfSyntax } from "../ir-hir/index.js";
 import { inferredPartsOf } from "../ir-infer/index.js";
 import { chargeResultEntries, chargeWork, createAccount, stronglyConnectedComponents } from "../dataflow/index.js";
 import { callerDefect, notInferredYet, validateGraphLimits } from "./frontier.js";
@@ -120,10 +120,23 @@ export const partition: GroupsOf = (deps, bodies) => {
     if (!take(body.nestedBodies.length)) return stop();
     const excluded = new Set<NodeId>(body.nestedBodies.map(nested => present(ready[present(index.get(nested), "a nested body's index")], "a nested body").root.id));
     const seen = new Set<HirNode>();
-    const pending: HirNode[] = [body.root];
-    for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
+    const pending: Iterator<HirNode>[] = [];
+    let current: HirNode | null = body.root;
+    while (current !== null || pending.length !== 0) {
       if (!take(1)) return stop();
-      if (excluded.has(node.id) || seen.has(node)) continue;
+      if (current === null) {
+        const frame = pending.at(-1);
+        if (frame === undefined) return callerDefect(PORT, "a checked traversal retains its actual pending child iterator");
+        const next = frame.next();
+        if (next.done === true) pending.pop();
+        else current = next.value;
+        continue;
+      }
+      const node: HirNode = current;
+      current = null;
+      if (excluded.has(node.id) || seen.has(node) || node.kind === "InterfaceDeclaration" || node.kind === "TypeAliasDeclaration") continue;
+      const growth = chargeResultEntries(account, 2);
+      if (growth !== null) return refuse(growth);
       seen.add(node);
       if (node.kind === "Identifier") {
         const name = node.tsonic;
@@ -140,9 +153,7 @@ export const partition: GroupsOf = (deps, bodies) => {
           if (target !== undefined && !edge(position, target)) return stop();
         }
       }
-      const children = childrenOfSyntax(node);
-      if (!take(children.length)) return stop();
-      for (const child of children) pending.push(child);
+      pending.push(iterateChildrenOfSyntax(node));
     }
   }
   const graph: number[][] = [];

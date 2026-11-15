@@ -151,7 +151,8 @@ function generate(deps: InferDeps, group: InferenceGroup, signatures: ReadonlyMa
     }
     if (body.root.kind === "SourceFile") {
       for (const statement of body.root.statements.nodes)
-        if (statement.kind !== "FunctionDeclaration" && statement.kind !== "VariableStatement")
+        if (statement.kind !== "FunctionDeclaration" && statement.kind !== "VariableStatement"
+          && statement.kind !== "InterfaceDeclaration" && statement.kind !== "TypeAliasDeclaration")
           return notInferredYet(PORT, `a ${statement.kind} in a module body`, statement.origin);
     } else {
       const pending: Frame[] = [{ kind: "enter", node: body.root }];
@@ -247,8 +248,8 @@ function leave(walk: Walk, node: HirNode): void {
     const right = typeAt(walk, node.right);
     walk.draft.constraints.push({ kind: "op", occurrence: refOf(walk, node), operator: "+",
       operands: [left, right], result, permissionScope: null });
-    const operands: readonly (readonly [Slot, HirNode])[] = [[left, node.left], [right, node.right], [result, node]];
-    for (const [type, source] of operands)
+    const evidence: readonly (readonly [Slot, HirNode])[] = [[left, node.left], [right, node.right], [result, node]];
+    for (const [type, source] of evidence)
       walk.draft.evidence.push({ type, node: source, component: { kind: "body", value: refOf(walk, source) } });
     walk.typeOf.set(node.id, result);
   } else if (node.kind === "ReturnStatement") {

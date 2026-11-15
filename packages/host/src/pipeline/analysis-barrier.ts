@@ -1,0 +1,273 @@
+import type { CallerRefusal, DataflowAccount, DataflowStop } from "../dataflow/contract.js";
+import { chargeResultEntries, chargeWork } from "../dataflow/index.js";
+import type { Diagnostic, Result, UnitRequest } from "../diag/contract.js";
+import { resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
+import type { BodyId, DefId, NodeRef } from "../ids/contract.js";
+import type { BodyFacts, BodyObservations, DependencyInventory, ExecutionDependency, FactsVerificationContext,
+  SummaryAnswer, SummaryKey } from "../ir-facts/contract.js";
+import { admitSummaryIdentity, summaryKey } from "../ir-facts/index.js";
+import type { MirBody } from "../ir-mir/contract.js";
+import { verifyMir } from "../ir-mir/index.js";
+import type { BodyInstance, Execution } from "../ir-types/contract.js";
+import { executionKey, instanceKey, internType, readSignature, readType, viewTypes } from "../ir-types/index.js";
+import type { Query } from "../query/contract.js";
+import type { BodyRoundValue } from "../analyses/body/contract.js";
+import type { ErrorValue } from "../diag/contract.js";
+import type { HostAnalysisInputs } from "./contract.js";
+import type { DeclaredSignatureErrorData } from "../decls/contract.js";
+import type { SourceSemanticInputs, SourceSemanticWitness } from "./semantic-queries.js";
+import type { TypedSourceBarrier } from "./typed-barrier.js";
+import { checkedSourceViews } from "./checked-inputs.js";
+import { lowerMirDeps, mirVerificationContext } from "./lower-mir-step.js";
+import { pipelineWiring } from "./wiring.js";
+
+function fail(message: string): never {
+  return throwInvariant({ owner: "pipeline", query: null, origin: null, message });
+}
+
+export function analysisStop(stop: DataflowStop, unit: UnitRequest): Extract<Result<never>, { readonly kind: "refused" }> {
+  if (stop.kind === "refused") return stop;
+  return { kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "pipeline", limit: stop.dimension,
+    maximum: stop.maximum, site: { kind: "none" }, unit: { request: unit, position: { kind: "result" } } })] };
+}
+
+export interface AnalysisBarrier {
+  readonly inventory: DependencyInventory;
+  readonly mir: ReadonlyMap<string, MirBody>;
+  readonly observations: ReadonlyMap<string, BodyObservations>;
+  readonly facts: ReadonlyMap<string, BodyFacts>;
+  readonly summaries: ReadonlyMap<string, SummaryAnswer>;
+  readonly verification: FactsVerificationContext;
+}
+
+export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourceBarrier, account: DataflowAccount): Result<AnalysisBarrier> {
+  const { source } = typed;
+  const sources = checkedSourceViews(source.modules);
+  const unit: UnitRequest = { query: "AnalyzeHostProgram", key: inputs.snapshot.packages.fingerprint };
+  const table = viewTypes(source.types);
+  const mir = new Map<string, MirBody>();
+  const observations = new Map<string, BodyObservations>();
+  const facts = new Map<string, BodyFacts>();
+  const summaries = new Map<string, SummaryAnswer>();
+  const operations: SummaryKey[] = [];
+  const known = new Set<string>();
+  const dependencies: ExecutionDependency[] = [];
+  const moduleExecutions: Execution[] = [];
+  const entries: Execution[] = [];
+  const safety: Query<SourceSemanticInputs, BodyInstance, ErrorValue | null, SourceSemanticWitness, DeclaredSignatureErrorData> = {
+    name: "safetyDiagnostics", keyData: instanceKey, answerPolicy: { kind: "refusal-only" },
+    compute: (context, instance) => {
+      const body = typed.bodies.get(instanceKey(instance));
+      const verification = body === undefined ? null : typed.verifierOf(body.root.origin.module);
+      if (body === undefined || verification === null) return fail("Safety requires its actual verified typed body and source relation.");
+      return pipelineWiring.validate.safetyDiagnostics({ libraries: source.libraries, verification }, body,
+        { query: context.fact.query, key: context.fact.key });
+    },
+  };
+  const readyBody = (instance: BodyInstance) => typed.bodies.get(instanceKey(instance))
+    ?? fail("The selected dependency needs its actual verified typed body instance.");
+  const add = (key: SummaryKey): DataflowStop | null => {
+    const work = chargeWork(account, 1);
+    if (work !== null) return work;
+    const identityWork = admitSummaryIdentity(key, account);
+    if (identityWork !== null) return identityWork;
+    const identity = summaryKey(key);
+    if (known.has(identity)) return null;
+    const growth = chargeResultEntries(account, 2);
+    if (growth !== null) return growth;
+    known.add(identity);
+    operations.push(key);
+    return null;
+  };
+  for (const body of typed.bodies.values()) {
+    if (body.bindings.kind !== "instantiated") continue;
+    const instance: BodyInstance = { body: body.body, bindings: body.bindings };
+    const identity = instanceKey(instance);
+    const safe = typed.database.run(safety, instance);
+    if (safe.kind === "refused") return safe;
+    if (safe.value !== null) {
+      const first = safe.diagnostics[0];
+      if (first === undefined) return fail("A safety error requires its actual original diagnostic.");
+      return { kind: "refused", diagnostics: [first, ...safe.diagnostics.slice(1)] };
+    }
+    const run = { selectedNativeFacts: inputs.snapshot.nativeFacts, interner: source.types, table,
+      defs: { completionSelector: internType(source.types, { kind: "primitive", primitive: "int32" }),
+        exceptionStorage: internType(source.types, { kind: "intrinsic", intrinsic: "unknown" }) },
+      lowering: inputs.limits.lowering, verification: inputs.limits.mirVerification,
+      declarationOf: typed.declarationOf, bodyOwner: (body: BodyId) => sources.bodies.get(body)?.owner ?? null,
+      bodyOf: (instance: BodyInstance) => typed.bodies.get(instanceKey(instance)) ?? null };
+    const internal = body.nestedBodies.map(child => {
+      const instance: BodyInstance = { body: child, bindings: body.bindings };
+      const selected = readyBody(instance);
+      return { instance, signature: selected.signature, captures: selected.captures };
+    });
+    const lowered = pipelineWiring.lowerMir.lowerToMir(lowerMirDeps(run,
+      { request: { query: "mirBody", key: identity }, position: { kind: "result" } }), body, internal);
+    if (lowered.kind === "refused") return lowered;
+    const verified = verifyMir(lowered.value, mirVerificationContext(run, body));
+    if (verified.kind === "resource-limit") return analysisStop(verified, unit);
+    if (verified.violations.length !== 0) return fail(`The actual LowerMir result violates ${verified.violations[0]?.rule}.`);
+    const growth = chargeResultEntries(account, 2);
+    if (growth !== null) return analysisStop(growth, unit);
+    mir.set(identity, lowered.value);
+    const checked = sources.bodies.get(body.body);
+    if (checked === undefined) return fail("An observation inventory requires its actual checked execution.");
+    const original = source.modules.find(module => module.module.module === body.root.origin.module);
+    if (original === undefined) return fail("A selected execution has no original module.");
+    for (const node of original.nodes) {
+      if (sources.nodeOf({ kind: "body", value: { body: checked.body, node: node.id } }) !== node) continue;
+      const captured = node.tsonic;
+      if (captured !== null && "observation" in captured && (captured.observation.kind !== "available" || captured.observation.value !== null))
+        return fail("The actual observation capture requires its checked descriptor-to-MetadataKey Layout producer.");
+    }
+    observations.set(identity, { instance, rows: [] });
+    for (const entry of lowered.value.entries) {
+      const execution: Execution = { instance, provided: entry.provided };
+      const stopped = add({ kind: "body", execution });
+      if (stopped !== null) return analysisStop(stopped, unit);
+      if (body.root.kind === "SourceFile") moduleExecutions.push(execution);
+      else if ((source.descriptions.get(body.owner)?.exports.length ?? 0) !== 0) entries.push(execution);
+    }
+  }
+  const callableEntriesAt = (at: NodeRef, definition: DefId): readonly SummaryKey[] | null => {
+    const current = sources.bodies.get(at.body);
+    const sourceNode = current === undefined ? null : sources.nodeOf({ kind: "body", value: at });
+    if (sourceNode === null) return null;
+    const itemSource = sources.declarationSourceOf(definition);
+    const declaration = itemSource === null ? null : sources.nodeOf(itemSource);
+    if (declaration === null || declaration.kind !== "FunctionDeclaration") return null;
+    if (declaration.tsonic.body === null) return null;
+    const result: SummaryKey[] = [];
+    for (const key of operations) if (key.kind === "body" && key.execution.instance.body === declaration.tsonic.body) {
+      const currentBody = readyBody(key.execution.instance);
+      if (currentBody.owner !== definition || !declaration.tsonic.signatures.some(endpoint => endpoint.role === "api-body"
+        && endpoint.body === currentBody.body && endpoint.signature === currentBody.signature)) continue;
+      result.push(key);
+    }
+    return result.length === 0 ? null : result;
+  };
+  for (let index = 0; index < operations.length; index += 1) {
+    const operation = operations[index];
+    if (operation === undefined || operation.kind !== "body")
+      return fail("A declared required operation needs its actual selected native guarantee association and binder.");
+    const discovered = pipelineWiring.summaries.dependenciesOf({ account, callableEntriesAt,
+      calleeAt: () => null, initializerAt: () => null, operationEntriesAt: () => null, dispatchEntriesAt: () => null },
+    { execution: operation.execution, tir: readyBody(operation.execution.instance) });
+    if (discovered.kind !== "complete") return analysisStop(discovered, unit);
+    for (const key of discovered.value.operations) {
+      const stop = add(key);
+      if (stop !== null) return analysisStop(stop, unit);
+    }
+    for (const edge of discovered.value.dependencies) {
+      const stop = chargeResultEntries(account, 1);
+      if (stop !== null) return analysisStop(stop, unit);
+      dependencies.push(edge);
+    }
+  }
+  const conditionRefusal: CallerRefusal = { kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "pipeline",
+    limit: "condition alternatives", maximum: inputs.limits.analyses.maximumConditionAlternatives,
+    site: { kind: "none" }, unit: { request: unit, position: { kind: "result" } } })] };
+  const components = pipelineWiring.summaries.componentsOf({ account, maximumComponentSize: inputs.limits.summaries.maximumComponentSize,
+    componentRefusal: { kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "pipeline", limit: "component members",
+      maximum: inputs.limits.summaries.maximumComponentSize, site: { kind: "none" }, unit: { request: unit, position: { kind: "result" } } })] } },
+  { operations, dependencies });
+  if (components.kind !== "complete") return analysisStop(components, unit);
+  const verification: FactsVerificationContext = { types: table, limits: inputs.limits.analyses,
+    bindingScopeOf: definition => source.descriptions.get(definition)?.generics ?? null,
+    bindingScopesOf: target => {
+      const instance = target.kind === "body" || target.kind === "observations" ? target.instance
+        : target.kind === "summary" && target.summary.kind === "body" ? target.summary.execution.instance : null;
+      if (instance === null) return null;
+      const body = typed.bodies.get(instanceKey(instance));
+      const scope = body === undefined ? undefined : source.descriptions.get(body.owner)?.generics;
+      return scope === undefined ? null : [scope];
+    },
+    nominalOf: source.nominalOf, nodeExists: node => sources.nodeOf(node) !== null, localExists: sources.localExists,
+    definitionExists: definition => source.descriptions.has(definition), metadataOf: () => null,
+    bodyOwner: body => sources.bodies.get(body)?.owner ?? null, tirBody: readyBody,
+    mirBody: instance => mir.get(instanceKey(instance)) ?? null,
+    signatureIdOf: request => {
+      const description = typed.declarationOf(request.definition);
+      const endpoint = description?.endpoints.filter(endpoint => endpoint.role === request.endpoint)[request.ordinal];
+      return endpoint?.signature ?? null;
+    }, declarationSourceOf: sources.declarationSourceOf,
+    diagnostics: source.modules.flatMap(module => module.module.checkerDiagnostics),
+    bindingDependentOf: definition => {
+      const candidates = [...typed.bodies.values()].filter(body => body.owner === definition);
+      return candidates.length === 0 ? null : candidates.some(body => body.dependence === "binding-dependent");
+    },
+    captureCount: key => key.kind === "body" ? readyBody(key.execution.instance).captures.length : null,
+    callbackSignaturesOf: () => null,
+    arenaOf: owner => {
+      const answer = summaries.get(summaryKey(owner.kind === "body" ? { kind: "body", execution: owner.execution } : owner.key));
+      return answer !== undefined && !("kind" in answer.value) ? answer.value.arena : null;
+    },
+    summaryOf: key => {
+      const answer = summaries.get(summaryKey(key));
+      return answer !== undefined && !("kind" in answer.value) ? answer.value : null;
+    },
+    libraryExportExists: () => false, declaredSiteCount: () => null };
+  const componentOf = new Map<string, number>();
+  for (const [index, component] of components.value.components.entries()) if (component.kind === "body")
+    for (const member of component.members) {
+      const operation = operations[member];
+      if (operation === undefined) return fail("The canonical component inventory is dense.");
+      componentOf.set(summaryKey(operation), index);
+    }
+  const bodyFactsOf: Query<SourceSemanticInputs, Execution, BodyRoundValue | ErrorValue, SourceSemanticWitness, DeclaredSignatureErrorData> = {
+    name: "bodyFactsOf", keyData: executionKey, answerPolicy: { kind: "refusal-only" },
+    compute: (context, execution) => {
+      const index = componentOf.get(summaryKey({ kind: "body", execution }));
+      const component = index === undefined ? undefined : components.value.components[index];
+      if (component === undefined || component.kind !== "body" || component.members.length !== 1)
+        return fail("The actual multi-member convergence requires its genuine stable-batch producer and per-member unit positions.");
+      const outside = component.rows.flatMap(row => {
+        const dependency = dependencies[row];
+        if (dependency === undefined) return fail("A component dependency row must retain its actual closed inventory index.");
+        const answer = summaries.get(summaryKey(dependency.target));
+        if (answer === undefined) return fail("The selected component requires its already completed exact outside answer.");
+        return [{ key: dependency.target, answer }];
+      });
+      const graph = mir.get(instanceKey(execution.instance));
+      if (graph === undefined || index === undefined) return fail("A body round requires its actual verified graph and component.");
+      const result = pipelineWiring.summaries.convergeComponent({
+        analyzeStorageUse: pipelineWiring.liveness.analyzeStorageUse, analyzeBodyRound: pipelineWiring.bodyAnalysis.analyzeBodyRound,
+        environment: { types: table, typeOf: type => readType(source.types, type),
+          signatureOf: signature => readSignature(source.types, signature), limits: inputs.limits.analyses },
+        verification, resources: { account, conditionRefusal },
+      }, { inventory: components.value, component: index,
+        members: [{ execution, mir: graph, tir: readyBody(execution.instance), unit: { query: context.fact.query, key: context.fact.key } }],
+        outside, maximumIterations: inputs.limits.summaries.maximumIterationsPerComponent, iterationRefusal: conditionRefusal });
+      if (result.kind !== "complete") return analysisStop(result, unit);
+      const actual = result.value[0];
+      if (actual === undefined) return fail("A singleton component returns its one actual round result.");
+      return actual.result;
+    },
+  };
+  const diagnostics: Diagnostic[] = [];
+  for (const component of components.value.components) {
+    if (component.kind !== "body") return fail("A declared component needs its genuine admitted selected native association.");
+    for (const member of component.members) {
+      const operation = operations[member];
+      if (operation?.kind !== "body") return fail("The selected body component retains actual body operations.");
+      const result = typed.database.run(bodyFactsOf, operation.execution);
+      if (result.kind === "refused") return result;
+      diagnostics.push(...result.diagnostics);
+      const answer: SummaryAnswer = { value: "facts" in result.value ? result.value.summary : result.value,
+        unit: { request: { query: bodyFactsOf.name, key: executionKey(operation.execution) }, position: { kind: "result" } } };
+      summaries.set(summaryKey(operation), answer);
+      if (!("facts" in result.value)) {
+        const first = result.diagnostics[0];
+        if (first === undefined) return fail("An error-valued body requires its original grounded diagnostic.");
+        return { kind: "refused", diagnostics: [first, ...result.diagnostics.slice(1)] };
+      }
+      facts.set(executionKey(operation.execution), result.value.facts);
+    }
+  }
+  const initialized = pipelineWiring.bodyAnalysis.proveInitialization({ account, unit, summaryOf: key => summaries.get(summaryKey(key))
+    ?? fail("Initialization proof requires each actual completed stable summary.") }, { modules: moduleExecutions, entries, storage: [] });
+  if (initialized.kind !== "complete") return analysisStop(initialized, unit);
+  if (initialized.value.kind === "refused") return initialized.value;
+  if ("kind" in initialized.value.value) return fail("The original initialization error requires its actual source diagnostics.");
+  return { kind: "ok", diagnostics, value: { inventory: components.value, mir, observations, facts, summaries, verification } };
+}

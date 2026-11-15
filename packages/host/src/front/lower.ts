@@ -4,15 +4,17 @@ import type { BodyId, DefId, LocalRef, NodeId, RawSignatureId, RawTypeId, SigId,
 import { candidateListId, encodeBodyId, localId } from "../ids/index.js";
 import type * as Hir from "../ir-hir/contract.js";
 import { iterateChildrenOfSyntax } from "../ir-hir/index.js";
-import type { SignatureParameter, TypeTerm } from "../ir-types/contract.js";
+import type { LiteralTypeValue, SignatureParameter, TypeTerm } from "../ir-types/contract.js";
 import { internSignature, internType } from "../ir-types/index.js";
 import type { PassingMode } from "../ir-types/contract.js";
-import type { ConvertedCheckedType, LowerDeps, ModuleDefinitions, ModuleExports, RawBindingTarget, RawCallSelection, RawCallableAssociation, RawCheckerViews, RawCoreCapture, RawFact, RawModule, RawModuleLink, RawStorageCapture } from "./contract.js";
+import type { ConvertedCheckedType, LowerDeps, ModuleDefinitions, ModuleExports, RawBindingTarget, RawCallSelection, RawCallableAssociation, RawCheckerViews, RawCoreCapture, RawFact, RawModule, RawModuleLink, RawPropertyName, RawStorageCapture } from "./contract.js";
 import { moduleIdentities } from "./identities.js";
 import { lowerBindingFact, lowerBindings } from "./bindings.js";
 import { lowerExportDeclaration } from "./lower-exports.js";
 import { lowerImportDeclaration } from "./lower-imports.js";
 import { expressionKinds } from "./syntax-capture.js";
+import { lowerCheckedInterface, lowerCheckedModifiers, lowerCheckedType } from "./checked-declarations.js";
+import type { DeclarationLowering } from "./checked-declarations.js";
 
 type Syntax = Hir.SyntaxPhase;
 type Checked = Hir.CheckedPhase;
@@ -29,16 +31,16 @@ const writtenKinds: readonly string[] = ["SourceFile", "EndOfFile", "ExportKeywo
   "Block", "ReturnStatement", "BinaryExpression", "PlusToken", "CallExpression", "ExpressionStatement", "ParenthesizedExpression",
   "ExportDeclaration", "NamedExports", "ExportSpecifier", "NamespaceExport", "StringLiteral", "TrueKeyword", "FalseKeyword", "NullKeyword",
   "ImportDeclaration", "ImportClause", "NamedImports", "ImportSpecifier", "NamespaceImport",
-  "VariableStatement", "VariableDeclarationList", "VariableDeclaration"];
+  "VariableStatement", "VariableDeclarationList", "VariableDeclaration", "InterfaceDeclaration", "TypeParameter", "PropertySignature",
+  "CallSignature", "ConstructSignature", "MethodSignature", "IndexSignature", "TypeReference", "UnionType", "IntersectionType",
+  "SymbolKeyword", "ReadonlyKeyword", "DeclareKeyword", "ComputedPropertyName", "PropertyAccessExpression", "QuestionToken"];
 
 function unwrittenForm(node: Hir.SyntaxNode<Syntax>): string | null {
   if (!writtenKinds.includes(node.kind)) return node.kind;
   switch (node.kind) {
     case "FunctionDeclaration":
       return node.body === null ? "FunctionDeclaration without a body" : node.typeParameters !== null ? "FunctionDeclaration with type parameters" : null;
-    case "Parameter":
-      return node.questionToken !== null ? "optional Parameter"
-        : node.dotDotDotToken !== null ? "rest Parameter" : null;
+    case "Parameter": return node.dotDotDotToken !== null ? "rest Parameter" : null;
     case "VariableDeclaration": return node.name.kind !== "Identifier" ? "pattern VariableDeclaration"
       : node.exclamationToken !== null ? "definite-assignment VariableDeclaration" : null;
     case "CallExpression":
@@ -172,6 +174,19 @@ function convertDependencies(lowering: Lowering, first: ConversionTask): void {
         const inventory = lowering.raw.types.members[row.form.value.inventory];
         if (inventory === undefined) return throwInvariant(invariant("A callable type has no captured member inventory."));
         for (const id of [...inventory.calls, ...inventory.constructs].reverse()) pending.push({ kind: "signature", id, ready: false });
+      } else if (row.form.value.kind === "declared") {
+        for (let index = row.form.value.arguments.length - 1; index >= 0; index -= 1) {
+          const argument = row.form.value.arguments[index]?.argument;
+          if (argument === undefined || argument.kind !== "available")
+            throw new TypeError("front: declared type conversion requires its actual selected checked argument");
+          pending.push({ kind: "type", id: argument.value, ready: false });
+        }
+      } else if (row.form.value.kind === "union" || row.form.value.kind === "intersection") {
+        for (let index = row.form.value.members.length - 1; index >= 0; index -= 1) {
+          const member = row.form.value.members[index];
+          if (member === undefined) return throwInvariant(invariant("A captured composite type cannot lose a member before conversion."));
+          pending.push({ kind: "type", id: member, ready: false });
+        }
       }
     } else {
       if (lowering.convertedSignatures.has(next.id)) continue;
@@ -206,7 +221,20 @@ function finishType(lowering: Lowering, type: RawTypeId): void {
   const form = row.form.value;
   const scalar = form.kind === "scalar" ? form.scalar : null;
   let term: TypeTerm;
-  if (form.kind === "structure") {
+  if (form.kind === "parameter") {
+    term = { kind: "param", parameter: { owner: deps.definitionOf(form.owner), index: form.index } };
+  } else if (form.kind === "declared") {
+    if (form.extent.kind !== "available" || form.extent.value !== null)
+      throw new TypeError("front: declared type conversion requires its actual selected extent association");
+    term = { kind: "declared", definition: deps.definitionOf(form.declaration), facet: form.facet, extent: null,
+      arguments: form.arguments.map(argument => argument.argument.kind === "available"
+        ? lowering.convertedTypes.get(argument.argument.value)?.type
+          ?? throwInvariant(invariant("A declared type requires its completed selected checked argument."))
+        : throwInvariant(invariant("A declared type cannot invent an unavailable checked argument."))) };
+  } else if (form.kind === "union" || form.kind === "intersection") {
+    term = { kind: form.kind, members: form.members.map(member => lowering.convertedTypes.get(member)?.type
+      ?? throwInvariant(invariant("A composite type can publish only its actual completed members."))) };
+  } else if (form.kind === "structure") {
     const inventory = raw.types.members[form.inventory];
     if (inventory === undefined) return throwInvariant(invariant("A callable type has no captured member inventory."));
     if (inventory.members.length !== 0 || inventory.indexes.length !== 0)
@@ -218,7 +246,7 @@ function finishType(lowering: Lowering, type: RawTypeId): void {
   else if (scalar === "string") term = { kind: "string" };
   else if (scalar === "boolean") term = { kind: "primitive", primitive: "bool" };
   else if (scalar === "null" || scalar === "undefined") term = { kind: "intrinsic", intrinsic: "absence" };
-  else if (scalar === "bigint" || scalar === "any" || scalar === "unknown" || scalar === "never" || scalar === "void" || scalar === "object")
+  else if (scalar === "bigint" || scalar === "symbol" || scalar === "any" || scalar === "unknown" || scalar === "never" || scalar === "void" || scalar === "object")
     term = { kind: "intrinsic", intrinsic: scalar };
   else throw new TypeError(`front: the conversion of the checker type form ${form.kind} is not implemented`);
   const category = scalar === "number" ? "number" : scalar === "string" ? "string" : scalar === "boolean" ? "boolean" : scalar === "bigint" ? "bigint"
@@ -227,9 +255,11 @@ function finishType(lowering: Lowering, type: RawTypeId): void {
   if (row.literal.kind !== "available")
     throw new TypeError("front: checked literal conversion requires its actual captured literal association");
   const literal = row.literal.value;
-  if (literal !== null && literal.kind !== "boolean" && literal.kind !== "string")
+  if (literal !== null && literal.kind !== "boolean" && literal.kind !== "string" && literal.kind !== "symbol")
     throw new TypeError(`front: checked literal conversion of ${literal.kind} is not implemented`);
-  const id = literal === null ? base : internType(deps.types, { kind: "literal", value: literal, base });
+  const value: LiteralTypeValue | null = literal?.kind === "symbol"
+    ? { kind: "unique-symbol", declaration: deps.definitionOf(literal.declaration) } : literal;
+  const id = value === null ? base : internType(deps.types, { kind: "literal", value, base });
   const converted: ConvertedCheckedType = { type: id, evidence: {
     type: id, component: { kind: "body", value: {
       body: lowering.bodyOf.get(component.root.node) ?? throwInvariant(invariant("A type component lies in no body.")), node: component.root.node } },
@@ -255,12 +285,11 @@ function finishSignature(lowering: Lowering, id: RawSignatureId): void {
       throw new TypeError("front: declarationless callable parameter conversion is not implemented");
     if (parameter.initializer !== null && parameter.initializer.module !== declared.module)
       return throwInvariant(invariant("A callable default initializer must retain its parameter's actual source module."));
-    if (parameter.initializer === null && parameter.kind !== "required")
-      throw new TypeError("front: non-required callable parameter conversion is not implemented");
+    if (parameter.kind === "variadic") throw new TypeError("front: variadic callable parameter conversion is not implemented");
     const parameterDefinition = lowering.deps.definitionOf(declared);
     if (parameter.passing.kind !== "available")
       throw new TypeError("front: a callable parameter whose captured passing mode is unavailable is not implemented (" + parameter.passing.reason + ")");
-    return { declaration: parameterDefinition, kind: parameter.initializer === null ? "required" : "default",
+    return { declaration: parameterDefinition, kind: parameter.initializer === null ? parameter.kind : "default",
       type: convertedType(parameter.type), passing: parameter.passing.value,
       initializer: parameter.initializer === null ? null : encodeBodyId({ owner: parameterDefinition, role: "default-argument", ordinal: 0 }),
       acceptsOmission: parameter.acceptsOmission };
@@ -273,7 +302,7 @@ function finishSignature(lowering: Lowering, id: RawSignatureId): void {
 
 /** The definition identities of one module, read from its raw tree alone. */
 export function lowerDefinitions(raw: RawModule): Result<ModuleDefinitions> {
-  return { kind: "ok", diagnostics: [], value: moduleIdentities(raw.module, raw.tree) };
+  return { kind: "ok", diagnostics: [], value: moduleIdentities(raw.module, raw.tree, raw.propertyNames) };
 }
 
 /** The export entries of one module: per exported name its declaration group, in canonical declaration order. */
@@ -287,6 +316,7 @@ interface Lowering {
   readonly definitionAt: ReadonlyMap<NodeId, DefId>;
   readonly views: ReadonlyMap<NodeId, RawCheckerViews>;
   readonly references: ReadonlyMap<NodeId, RawFact<RawBindingTarget>>;
+  readonly propertyNames: ReadonlyMap<NodeId, RawPropertyName>;
   readonly links: ReadonlyMap<NodeId, RawModuleLink>;
   readonly locals: Map<NodeId, LocalRef>;
   readonly variableLocals: ReadonlyMap<BodyId, readonly Hir.HirLocal[]>;
@@ -449,15 +479,40 @@ function token<K extends Hir.TokenSyntaxKind>(node: Hir.Token<Syntax, K>): Hir.T
 
 /** An authored annotation: its type is the one capture read from the checker for that type node. */
 function typeNode(lowering: Lowering, node: Hir.TypeNode<Syntax>): { readonly node: Hir.TypeNode<Checked>; readonly type: TyId } {
-  switch (node.kind) {
-    case "NumberKeyword": case "StringKeyword": case "BooleanKeyword": case "BigIntKeyword": case "AnyKeyword":
-    case "UnknownKeyword": case "NeverKeyword": case "ObjectKeyword": case "UndefinedKeyword": case "VoidKeyword": break;
-    default: return throwInvariant(invariant("A type node of an unwritten kind passed the written-kinds check."));
-  }
   const raw = lowering.authoredTypes.get(node.id);
   if (raw === undefined) return throwInvariant(invariant("An authored type annotation has no captured checker type."));
   const type = typeOf(lowering, raw);
-  return { node: { ...headerOf(node), kind: node.kind, tsonic: { core: coreOf(lowering, node.id), type: { kind: "available", value: type }, referencedDefinitions: [] } }, type };
+  return { node: lowerCheckedType(declarationLowering(lowering), node), type };
+}
+
+function declarationLowering(lowering: Lowering): DeclarationLowering {
+  return {
+    core: node => coreOf(lowering, node), definition: node => definitionOf(lowering, node), memory: node => memoryOf(lowering, node),
+    resolution: node => resolutionOf(lowering, node, lowering.references.get(node)),
+    checkedType: node => {
+      const captured = lowering.authoredTypes.get(node);
+      if (captured === undefined) return throwInvariant(invariant("Every checked type annotation retains its actual captured SDK type."));
+      return typeOf(lowering, captured);
+    },
+    signature: node => {
+      const rows = lowering.associations.get(node)?.advertised;
+      const selected = rows?.[0];
+      if (rows?.length !== 1 || selected === undefined)
+        return throwInvariant(invariant("A bodyless callable header requires its actual single checked signature association."));
+      return signatureOf(lowering, selected);
+    },
+    expression: node => expression(lowering, node),
+    property: node => {
+      const row = lowering.propertyNames.get(node);
+      if (row === undefined) return throwInvariant(invariant("A computed property requires its actual captured property-key state."));
+      if (row.selected.kind !== "available") return { kind: "unavailable", reason: row.selected.reason, causes: row.selected.causes };
+      const key = row.selected.value;
+      if (key === null) return { kind: "unavailable", reason: "missing-original-component", causes: [] };
+      if (key.kind === "text") return { kind: "available", value: key };
+      if (key.kind === "symbol") return { kind: "available", value: { kind: "symbol", declaration: lowering.deps.definitionOf(key.declaration) } };
+      throw new TypeError("front: checked numeric computed property keys require their exact numeric capture");
+    },
+  };
 }
 
 function expression(lowering: Lowering, node: Hir.Expression<Syntax>): Hir.Expression<Checked> {
@@ -489,6 +544,14 @@ function buildExpression(lowering: Lowering, node: Hir.Expression<Syntax>): Hir.
       return { ...headerOf(node), kind: "CallExpression", expression: expression(lowering, node.expression), questionDotToken: null, typeArguments: null,
         arguments: { loc: node.arguments.loc, nodes: node.arguments.nodes.map(argument => expression(lowering, argument)) },
         tsonic: { core: coreOf(lowering, node.id), ...valueOf(lowering, node.id), application: { kind: "available", value: applicationOf(lowering, node) } } };
+    case "PropertyAccessExpression":
+      if (node.name.kind !== "Identifier" || node.questionDotToken !== null) throw new TypeError("front: checked optional or private property access is not implemented");
+      return { ...headerOf(node), kind: node.kind, expression: expression(lowering, node.expression), questionDotToken: null,
+        name: { ...headerOf(node.name), kind: "Identifier", text: node.name.text,
+          tsonic: { core: coreOf(lowering, node.name.id), role: "property-name", key: { kind: "available", value: { kind: "text", value: node.name.text } },
+            origins: { kind: "unavailable", reason: "not-provided", causes: [] } } },
+        tsonic: { core: coreOf(lowering, node.id), role: "value", value: valueOf(lowering, node.id),
+          origins: { kind: "unavailable", reason: "not-provided", causes: [] }, accessor: { kind: "unavailable", reason: "not-provided", causes: [] } } };
     default: return throwInvariant(invariant("An expression of an unwritten kind passed the written-kinds check."));
   }
 }
@@ -535,7 +598,7 @@ function statement(lowering: Lowering, node: Hir.Statement<Syntax>): Hir.Stateme
 
 function buildStatement(lowering: Lowering, node: Hir.Statement<Syntax>, owner: DefId): Hir.Statement<Checked> {
   switch (node.kind) {
-    case "VariableStatement": return { ...headerOf(node), kind: "VariableStatement", modifiers: modifiers(node.modifiers),
+    case "VariableStatement": return { ...headerOf(node), kind: "VariableStatement", modifiers: lowerCheckedModifiers(node.modifiers),
       declarationList: { ...headerOf(node.declarationList), kind: "VariableDeclarationList",
         declarations: { loc: node.declarationList.declarations.loc,
           nodes: node.declarationList.declarations.nodes.map(declaration => variableDeclaration(lowering, declaration, owner)) },
@@ -547,6 +610,7 @@ function buildStatement(lowering: Lowering, node: Hir.Statement<Syntax>, owner: 
     case "Block": return { ...headerOf(node), kind: "Block", statements: { loc: node.statements.loc,
       nodes: node.statements.nodes.map(child => statement(lowering, child)) }, multiLine: node.multiLine, tsonic: null };
     case "FunctionDeclaration": return functionDeclaration(lowering, node, owner);
+    case "InterfaceDeclaration": return lowerCheckedInterface(declarationLowering(lowering), node, owner);
     case "ExportDeclaration": case "ImportDeclaration": {
       const inputs = {
       core: (node: NodeId) => coreOf(lowering, node), memory: (node: NodeId) => memoryOf(lowering, node), definition: (node: NodeId) => definitionOf(lowering, node),
@@ -600,7 +664,13 @@ function* checkedChildren(work: CheckedWork): Generator<CheckedWork, void, undef
   let statementIndex = 0;
   for (const child of iterateChildrenOfSyntax(node)) {
     if (work.kind === "expression") {
-      if (isExpression(child)) yield { kind: "expression", node: child, owner };
+      if (isExpression(child) && !(node.kind === "PropertyAccessExpression" && child === node.name)) yield { kind: "expression", node: child, owner };
+    } else if (node.kind === "InterfaceDeclaration") {
+      if (child === node.members.nodes[0]) {
+        for (const member of node.members.nodes)
+          if ("name" in member && member.name.kind === "ComputedPropertyName")
+            yield { kind: "expression", node: member.name.expression, owner };
+      }
     } else if (node.kind === "Block") {
       const statement = node.statements.nodes[statementIndex++];
       if (statement === undefined || statement !== child) return throwInvariant(invariant("A block child is not its canonical statement occurrence."));
@@ -643,12 +713,6 @@ function lowerStatements(lowering: Lowering, owner: DefId): void {
       else lowering.statements.set(frame.work.node.id, buildStatement(lowering, frame.work.node, frame.work.owner));
     }
   }
-}
-
-function modifiers(node: Hir.ModifierList<Syntax> | null): Hir.ModifierList<Checked> | null {
-  if (node === null) return null;
-  return { loc: node.loc, nodes: node.nodes.map(modifier => modifier.kind === "ExportKeyword" ? token(modifier)
-    : throwInvariant(invariant("A modifier of an unwritten kind passed the written-kinds check."))) };
 }
 
 function functionDeclaration(lowering: Lowering, node: Hir.FunctionDeclaration<Syntax>, owner: DefId): Hir.FunctionDeclaration<Checked> {
@@ -706,7 +770,7 @@ function functionDeclaration(lowering: Lowering, node: Hir.FunctionDeclaration<S
     root: loweredBody, captures: [], scopes: [], asynchronous: false, generator: false, candidateLists: lowering.candidateLists.get(body) ?? [], nestedBodies: [],
   });
   const name = node.name;
-  return { ...headerOf(node), kind: "FunctionDeclaration", modifiers: modifiers(node.modifiers), typeParameters: null,
+  return { ...headerOf(node), kind: "FunctionDeclaration", modifiers: lowerCheckedModifiers(node.modifiers), typeParameters: null,
     parameters: { loc: node.parameters.loc, nodes: parameters.map(parameter => parameter.lowered) }, type: returnType, fullSignature: null, asteriskToken: null,
     body: loweredBody,
     name: name === null ? null : { ...headerOf(name), kind: "Identifier", text: name.text, tsonic: { core: coreOf(lowering, name.id), role: "declaration-name", declaration: targetOf(lowering, node.id) } },
@@ -745,7 +809,7 @@ export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<Hir.HirM
   const exported = deps.exportsOf(raw.module);
   if (exported === null || exported.module !== raw.module)
     return throwInvariant(invariant("Checked lowering requires the actual completed B1 module export and binding inventory."));
-  const rows = moduleIdentities(raw.module, raw.tree).rows;
+  const rows = moduleIdentities(raw.module, raw.tree, raw.propertyNames).rows;
   const definitionAt = new Map<NodeId, DefId>(rows.map(row => [row.node, deps.definitionOf({ module: raw.module, node: row.node })]));
   const moduleDefinition = definitionAt.get(raw.tree.id) ?? throwInvariant(invariant("A module has no definition identity."));
   const moduleBody: BodyId = encodeBodyId({ owner: moduleDefinition, role: "module", ordinal: 0 });
@@ -757,6 +821,7 @@ export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<Hir.HirM
     storage: new Map(raw.storage.filter(entry => entry.node.module === raw.module).map(entry => [entry.node.node, entry])),
     views: new Map(raw.checkerViews.filter(view => view.node.module === raw.module).map(view => [view.node.node, view])),
     references: referenceTargets(raw), links: moduleLinks(raw),
+    propertyNames: new Map(raw.propertyNames.filter(row => row.node.module === raw.module).map(row => [row.node.node, row])),
     locals: new Map(structure.locals), variableLocals, bodies: [], convertedTypes: new Map(), convertedSignatures: new Map(), expressions: new Map(), statements: new Map(),
     calls: new Map(raw.calls.filter(call => call.invocation.module === raw.module).map(call => [call.invocation.node, call])), candidateLists: new Map(),
     associations: new Map(raw.callableAssociations.filter(entry => entry.declaration.module === raw.module).map(entry => [entry.declaration.node, entry])),

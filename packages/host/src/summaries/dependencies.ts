@@ -159,6 +159,7 @@ export const dependenciesOf: DependenciesOf = (deps, input) => {
       case "Decorator": return application(at, selected(node.tsonic.application), "call");
       case "PropertyAccessExpression": case "ElementAccessExpression": {
         const value = node.tsonic;
+        if (value.role === "declaration-name-expression") return null;
         const member = selected(value.selection);
         const read = value.role === "value" || value.access.kind === "read-write";
         const getter = read && member.getter !== null ? callee(at, member.getter, "getter") : null;

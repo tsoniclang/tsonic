@@ -1,4 +1,5 @@
-import type { DeclaredSignatureOf, DescribeDefinitions, ErrorSignature, PlaceSignature, ResumeDeclaredSignatureOf } from "./contract.js";
+import type { ClassifyCycle, DeclaredSignatureOf, DescribeDefinitions, ErrorSignature, PlaceSignature, ResumeDeclaredSignatureOf } from "./contract.js";
+import { classifyCycle as classify } from "./cycles.js";
 import { placeSignature as place } from "./placement.js";
 import { describeDefinitions as describe } from "./definitions.js";
 import { declaredSignatureOf as signatureOf, errorSignature as erroneousSignature, resumeDeclaredSignatureOf as resumeSignatureOf } from "./signatures.js";
@@ -8,3 +9,4 @@ export const declaredSignatureOf: DeclaredSignatureOf = signatureOf;
 export const resumeDeclaredSignatureOf: ResumeDeclaredSignatureOf = resumeSignatureOf;
 export const errorSignature: ErrorSignature = erroneousSignature;
 export const placeSignature: PlaceSignature = place;
+export const classifyCycle: ClassifyCycle = classify;

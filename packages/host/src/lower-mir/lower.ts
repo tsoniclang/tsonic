@@ -75,7 +75,8 @@ function enter(lowering: Lowering, root: TirBody["root"]): boolean {
   let parameters = 0;
   for (const header of body.params) {
     const row = header.tsonic;
-    if (row.local.body !== body.body) return callerDefect("a parameter names another body", header.origin);
+    if (row.local === null || row.passing === null || row.local.body !== body.body)
+      return callerDefect("a parameter requires its actual executing body local and passing", header.origin);
     if (row.role === "rest") return notLoweredYet("a parameter of role rest", root.origin);
     if (header.initializer !== null && row.initializer === null)
       return notLoweredYet("a parameter initializer without its placed execution", header.origin);
@@ -202,6 +203,7 @@ function omittedEntries(lowering: Lowering): boolean {
   for (let position = body.params.length - 1; position >= 0; position -= 1) {
     const header = requirePresent(body.params[position], failure("a parameter vector has a hole", body.root.origin));
     const row = header.tsonic;
+    if (row.local === null) return callerDefect("an execution parameter requires its actual body local", header.origin);
     if (row.role === "this") continue;
     provided -= 1;
     const formal = requirePresent(signature.parameters[provided], failure("a parameter has no selected formal", header.origin));

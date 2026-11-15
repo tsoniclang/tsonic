@@ -215,6 +215,7 @@ export interface InvocationAlternative {
 
 export interface InvocationFact {
   readonly node: NodeId;
+  readonly point: MirPoint;
   readonly kind: "call" | "construct" | "getter" | "setter" | "native-callback";
   readonly alternatives: readonly InvocationAlternative[];
   readonly boundaries: readonly OpenBoundaryId[];
@@ -230,6 +231,7 @@ export interface CallbackEntry {
 
 export interface BoundActivation {
   readonly node: NodeId;
+  readonly point: MirPoint;
   readonly activation: BodyInstance;
   readonly context: ValueContextId;
   readonly caller: ValueContextId | null;

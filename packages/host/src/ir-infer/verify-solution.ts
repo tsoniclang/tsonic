@@ -4,7 +4,7 @@ import type { BindingVector, TypeEvidence } from "../ir-types/contract.js";
 import type { HirCallableEndpoint } from "../ir-hir/contract.js";
 import type {
   ApplicationArgument, ApplicationDecision, BodyTyping, ConstraintDecision, ConstraintRef, DeferredDecision, EmbeddingDecision, EmbeddingProof, InferRule, InferSite,
-  InferVerificationInput, MemberDecision, OperationDecision, OperatorConstraint, SolvedConstraint,
+  InferenceBindingInput, InferVerificationInput, MemberDecision, OperationDecision, OperatorConstraint, SolvedConstraint,
 } from "./contract.js";
 import { encodeKey } from "../ids/index.js";
 import { callableEndpointKey, hasOverloadEndpoints, selectedEndpointRoleFaults } from "../ir-hir/index.js";
@@ -436,7 +436,7 @@ type BindingTask = { readonly site: InferSite } & (
   | { readonly kind: "deferred"; readonly value: DeferredDecision }
 );
 
-export function visitBindings(input: InferVerificationInput,
+export function visitBindings(input: InferenceBindingInput,
   visit: (vector: BindingVector, site: InferSite, definition: DefId | null) => void,
   visitEvidence: (value: TypeEvidence, site: InferSite) => void): void {
   const roots: BindingTask[] = [];

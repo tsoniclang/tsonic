@@ -92,6 +92,10 @@ export function verifyRows(
   const parameterRows: TirBody["params"][number]["tsonic"][] = [];
   for (const header of source.params) {
     const parameter = header.tsonic;
+    if (parameter.local === null || parameter.passing === null) {
+      violations.push({ rule: "parameter-source-exact", site: bodySite, detail: [] });
+      continue;
+    }
     parameterModes.set(parameter.local.local, parameter.passing);
     if (parameter.role === "this") receiverRow = parameter;
     else parameterRows.push(parameter);
@@ -131,7 +135,7 @@ export function verifyRows(
     if (local === undefined || local.role.kind !== "receiver" && local.role.kind !== "parameter") continue;
     const row = local.role.kind === "receiver" ? receiverRow
       : densePosition(local.role.index, parameterRows.length) ? parameterRows[local.role.index] : undefined;
-    if (row === undefined || local.source === null || local.source.body !== source.body || !Object.is(local.source.local, row.local.local))
+    if (row === undefined || row.local === null || local.source === null || local.source.body !== source.body || !Object.is(local.source.local, row.local.local))
       violations.push({ rule: "parameter-source-exact", site: { kind: "local", body: body.body, local: local.id }, detail: [] });
   }
   const constants = new Set<string>();

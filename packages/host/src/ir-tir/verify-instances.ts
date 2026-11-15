@@ -1,8 +1,11 @@
 import type { BodyId, DefId, LocalId, LocalRef, NodeId } from "../ids/contract.js";
+import { diagnosticIdentityKey, unitPositionData } from "../diag/index.js";
+import { encodeKey } from "../ids/index.js";
+import type { Cause } from "../diag/contract.js";
 import type { BindingScope } from "../ir-types/contract.js";
 import { bindingVectorKey, instanceKey } from "../ir-types/index.js";
 import type { CheckedPhase, HirBody, HirNode, HirParam, ParameterDeclaration } from "../ir-hir/contract.js";
-import { childrenOfSyntax } from "../ir-hir/index.js";
+import { childrenOfSyntax, iterateChildrenOfSyntax } from "../ir-hir/index.js";
 import type { CaptureSource, LogicalCapture } from "../ir-infer/contract.js";
 import { captureRequiresLocation, sameCaptureSource } from "../ir-infer/index.js";
 import type { TirBody, TirModule, TirNode, TirSelection, TirVerifierInput, TypedBinding, TypedParameter, TypedPhase } from "./contract.js";
@@ -33,8 +36,103 @@ export const sameBindingScope = (left: BindingScope, right: BindingScope): boole
 const validIdentity = (value: number): boolean =>
   Number.isSafeInteger(value) && value >= 0 && !Object.is(value, -0);
 
+const causeIdentity = (cause: Cause): string => cause.kind === "diagnostic"
+  ? diagnosticIdentityKey(cause.diagnostic)
+  : encodeKey([cause.unit.request.query, cause.unit.request.key, unitPositionData(cause.unit.position)]);
+
+export const verifyDeclarationNames = (
+  nodes: readonly TirNode[], originals: ReadonlyMap<NodeId, HirNode>, emit: TirOccurrenceEmit,
+): void => {
+  const parents = new Map<NodeId, TirNode>();
+  const eligible = new Set<NodeId>();
+  for (const node of nodes) if (node.kind === "PropertySignature" || node.kind === "MethodSignature") parents.set(node.id, node);
+  for (const node of nodes) {
+    if (node.kind !== "ComputedPropertyName" || node.tsonic.kind !== "declaration") continue;
+    const checked = originals.get(node.id);
+    const originalParent = checked?.parent === null || checked?.parent === undefined ? undefined : originals.get(checked.parent);
+    const parent = node.parent === null ? undefined : parents.get(node.parent);
+    if (checked?.kind !== "ComputedPropertyName" || originalParent === undefined
+      || originalParent.kind !== "PropertySignature" && originalParent.kind !== "MethodSignature"
+      || originalParent.name !== checked || parent === undefined
+      || parent.kind !== "PropertySignature" && parent.kind !== "MethodSignature" || parent.name !== node
+      || parent.id !== originalParent.id) {
+      emit("occurrence-role", node, "nonexecuting names belong only to their actual checked declaration-only computed-name context");
+      continue;
+    }
+    const actual = node.tsonic.key;
+    const expected = checked.tsonic.key;
+    let same = actual.kind === expected.kind;
+    if (actual.kind === "available" && expected.kind === "available") {
+      const left = actual.value;
+      const right = expected.value;
+      same = left.kind === right.kind && (left.kind === "text" ? right.kind === "text" && left.value === right.value
+        : left.kind === "symbol" ? right.kind === "symbol" && left.declaration === right.declaration
+          : right.kind === "number" && left.value.numerator === right.value.numerator && left.value.denominator === right.value.denominator);
+    } else if (actual.kind === "unavailable" && expected.kind === "unavailable") {
+      same = actual.reason === expected.reason && actual.causes.length === expected.causes.length;
+      for (let index = 0; index < actual.causes.length; index++) {
+        const left = actual.causes[index];
+        const right = expected.causes[index];
+        if (left === undefined || right === undefined || left.kind !== right.kind || causeIdentity(left) !== causeIdentity(right)) same = false;
+      }
+    }
+    if (!same) emit("occurrence-role", node, "a declaration name retains its one original checked key fact and causes");
+    const pending: TirNode[] = [node.expression];
+    for (let child = pending.pop(); child !== undefined; child = pending.pop()) {
+      if (eligible.has(child.id)) continue;
+      eligible.add(child.id);
+      if (child.tsonic !== null && (!("role" in child.tsonic) || child.tsonic.role !== "declaration-name-expression"))
+        emit("occurrence-role", child, "every nonexecuting name-expression payload asserts syntax role only");
+      for (const nested of iterateChildrenOfSyntax(child)) pending.push(nested);
+    }
+  }
+  for (const node of nodes) if (node.tsonic !== null && "role" in node.tsonic
+    && node.tsonic.role === "declaration-name-expression" && !eligible.has(node.id))
+    emit("occurrence-role", node, "a nonexecuting name-expression role cannot replace an executable value or member decision");
+};
+
+export const verifyBodylessParameters = (
+  input: TirVerifierInput, nodes: readonly TirNode[], originals: ReadonlyMap<NodeId, HirNode>, emit: TirOccurrenceEmit,
+): void => {
+  for (const node of nodes) {
+    if (node.kind !== "FunctionDeclaration" && node.kind !== "MethodDeclaration" && node.kind !== "MethodSignature"
+      && node.kind !== "CallSignature" && node.kind !== "ConstructSignature" && node.kind !== "IndexSignature"
+      && node.kind !== "Constructor" && node.kind !== "GetAccessor" && node.kind !== "SetAccessor") continue;
+    const original = originals.get(node.id);
+    if (original === undefined || original.kind !== node.kind || original.tsonic.body !== null) continue;
+    let valid = original.parameters.nodes.length === node.parameters.nodes.length && node.tsonic.definition === original.tsonic.definition;
+    const signatures = original.tsonic.signatures.map(endpoint => input.types.signatures[endpoint.signature]);
+    let ordinal = 0;
+    for (const [position, parameter] of node.parameters.nodes.entries()) {
+      const checked = original.parameters.nodes[position];
+      const selected = parameter.tsonic;
+      if (checked === undefined || checked.tsonic.declaration.kind !== "definition" || parameter.id !== checked.id
+        || parameter.parent !== node.id || checked.parent !== original.id || checked.tsonic.parent !== original.tsonic.definition
+        || selected.declaration !== checked.tsonic.declaration.definition || selected.local !== null
+        || selected.initializer !== null || checked.tsonic.initializer !== null || parameter.initializer !== null
+        || checked.tsonic.declaredType.kind !== "available" || checked.tsonic.declaredType.value === null) valid = false;
+      for (const signature of signatures) {
+        if (signature === undefined || signature.declaration !== original.tsonic.definition) { valid = false; continue; }
+        if (selected.role === "this") {
+          if (position !== 0 || signature.receiver !== selected.storage) valid = false;
+        } else {
+          const formal = signature.parameters[ordinal];
+          if (formal === undefined || formal.type !== selected.storage || formal.passing !== selected.passing
+            || formal.kind !== selected.role || formal.initializer !== selected.initializer) valid = false;
+        }
+      }
+      if (selected.role !== "this") ordinal += 1;
+      if (node.kind === "IndexSignature" && (selected.passing !== null || selected.local !== null
+        || node.parameters.nodes.length !== 1 || selected.role !== "required" || node.tsonic.key !== selected.storage
+        || checked?.tsonic.declaredType.kind !== "available" || checked.tsonic.declaredType.value !== selected.storage)) valid = false;
+    }
+    for (const signature of signatures) if (signature === undefined || signature.parameters.length !== ordinal) valid = false;
+    if (!valid) emit("parameter-order", node, "bodyless formals retain their genuine checked declarations and selected signature without execution locals");
+  }
+};
+
 export const sameParameterSelection = (selected: TypedParameter, checked: HirParam, body: BodyId): boolean =>
-  selected.local.body === body && Object.is(selected.local.local, checked.local)
+  selected.local !== null && selected.passing !== null && selected.local.body === body && Object.is(selected.local.local, checked.local)
   && selected.declaration === checked.declaration && selected.role === checked.role
   && selected.passing === checked.passing && selected.initializer === checked.initializer;
 
@@ -373,9 +471,11 @@ export const verifyBindingSlots = (
       && node.kind !== "GetAccessor" && node.kind !== "SetAccessor" && node.kind !== "ArrowFunction" && node.kind !== "FunctionExpression") continue;
     const callable = node.kind === "ArrowFunction" || node.kind === "FunctionExpression" ? node.tsonic.callable : node.tsonic;
     if (callable.template === null || callable.template.body === body.body && node === body.root) continue;
-    const nested = bodyOf({ body: callable.template.body, bindings: { kind: "parametric" } });
+    const nested = bodyOf({ body: callable.template.body, bindings: body.bindings });
     if (nested === null || nested.body !== callable.template.body || nested.owner !== callable.definition
-      || nested.bindings.kind !== "parametric") continue;
+      || instanceKey({ body: nested.body, bindings: nested.bindings }) !== instanceKey({ body: callable.template.body, bindings: body.bindings })
+      || nested.params.length !== node.parameters.nodes.length
+      || node.parameters.nodes.some((parameter, index) => nested.params[index] !== parameter)) continue;
     for (const parameter of nested.params) registerParameter(parameter, nested);
   }
   const storage = (reference: LocalRef, type: number | null, node: TirNode): void => {
@@ -395,7 +495,11 @@ export const verifyBindingSlots = (
       const phase = node.tsonic;
       if (phase.role === "binding") binding(phase, node);
     } else if (node.kind === "Parameter") {
-      storage(node.tsonic.local, node.tsonic.storage, node);
+      const original = originals.get(node.id);
+      if (original?.kind === "Parameter" && original.tsonic.declaration.kind === "definition") continue;
+      if (node.tsonic.local === null)
+        emit("parameter-order", node, "an execution parameter requires its actual qualified local");
+      else storage(node.tsonic.local, node.tsonic.storage, node);
       const owner = parameterOwners.get(node);
       const checked = owner === undefined ? undefined : checkedParameterRows(owner.body)?.declarations.get(node.tsonic.declaration);
       if (owner === undefined || checked === undefined || !sameParameterSelection(node.tsonic, checked, owner.body))

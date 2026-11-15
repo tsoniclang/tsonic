@@ -92,10 +92,10 @@ function origins(scan: ProjectionInventory, value: OriginFacts): InstantiationSt
       inventoryEach(scan, alternative.arguments, argument => transport(scan, argument));
       return inventoryRecord(scan, 6) ?? inventoryCallee(scan, alternative.resolution) ?? summaryKey(scan, alternative.summary);
     });
-    return inventoryRecord(scan, 4);
+    return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 2);
   });
   inventoryEach(scan, value.callbacks, callback => inventoryRecord(scan, 5) ?? transport(scan, callback.argument));
-  inventoryEach(scan, value.activations, activation => inventoryRecord(scan, 5) ?? inventoryInstance(scan, activation.activation)
+  inventoryEach(scan, value.activations, activation => inventoryRecord(scan, 6) ?? inventoryRecord(scan, 2) ?? inventoryInstance(scan, activation.activation)
     ?? (activation.entry === null ? null : transport(scan, activation.entry)));
   inventoryEach(scan, value.constructions, construction => inventoryRecord(scan, 6)
     ?? (construction.body === null ? null : inventoryInstance(scan, construction.body)));

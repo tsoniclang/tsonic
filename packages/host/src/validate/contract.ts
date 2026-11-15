@@ -1,19 +1,19 @@
-import type { Computed, Result, Violation } from "../diag/contract.js";
-import type { NodeRef } from "../ids/contract.js";
+import type { ErrorValue, Result, UnitRequest, UnitResult, Violation } from "../diag/contract.js";
+import type { ModuleId, NodeId, NodeRef } from "../ids/contract.js";
 import type { SignatureOf, TypeOf } from "../ir-types/contract.js";
 import type { HirModule } from "../ir-hir/contract.js";
 import type { RuleTable } from "../ir-infer/contract.js";
-import type { TirBody } from "../ir-tir/contract.js";
-import type { Libraries } from "../libraries/contract.js";
+import type { TirBody, TirVerifierInput } from "../ir-tir/contract.js";
+import type { BoundLibraries } from "../libraries/contract.js";
 
 export interface FormsDeps {
-  readonly libraries: Libraries;
+  readonly libraries: BoundLibraries;
+  readonly role: "source" | "declaration";
 }
 
 export interface SafetyDeps {
-  readonly libraries: Libraries;
-  readonly typeOf: TypeOf;
-  readonly signatureOf: SignatureOf;
+  readonly libraries: BoundLibraries;
+  readonly verification: TirVerifierInput;
 }
 
 export interface ConsistencyDeps {
@@ -30,8 +30,14 @@ export type ConsistencyRule =
   | "refinement-destination"
   | "refinement-replay";
 
-export type FormDiagnostics = (deps: FormsDeps, module: HirModule) => Computed<null>;
-export type SafetyDiagnostics = (deps: SafetyDeps, body: TirBody) => Computed<null>;
+export interface RefusedOccurrence {
+  readonly module: ModuleId;
+  readonly node: NodeId;
+  readonly error: ErrorValue;
+}
+
+export type FormDiagnostics = (deps: FormsDeps, module: HirModule, unit: UnitRequest) => UnitResult<readonly RefusedOccurrence[]>;
+export type SafetyDiagnostics = (deps: SafetyDeps, body: TirBody, unit: UnitRequest) => UnitResult<ErrorValue | null>;
 export type Consistency = (
   deps: ConsistencyDeps,
   body: TirBody,

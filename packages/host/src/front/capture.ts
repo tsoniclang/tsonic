@@ -7,11 +7,11 @@ import { nodeId, rawCandidateListId, rawComponentId, rawMemberTableId, rawSignat
 import type * as Hir from "../ir-hir/contract.js";
 import type { RawComponentId, RawSignatureId, RawSymbolId, RawTypeId } from "../ids/contract.js";
 import type {
-  CaptureDeps, CheckedProgram, RawArgumentBinding, RawAuthoredArgument, RawBinding, RawBindingTarget, RawCallSelection, RawCallableAssociation, RawCandidateList, RawCoreCapture, RawCheckedType, RawCheckerViews, RawComponent, RawComponentStep, RawDiagnosticCoverage, RawFact, RawLiteral, RawMemberTable, RawModule, RawModuleExport, RawModuleLink, RawNodeRef, RawParameter, RawProviderDeclaration, RawReference, RawSignature, RawSymbol, RawTypeForm,
+  CaptureDeps, CheckedProgram, RawArgumentBinding, RawAuthoredArgument, RawBinding, RawBindingTarget, RawCallSelection, RawCallableAssociation, RawCandidateList, RawCoreCapture, RawCheckedType, RawCheckerViews, RawComponent, RawComponentStep, RawDiagnosticCoverage, RawFact, RawLiteral, RawMemberKey, RawMemberTable, RawModule, RawModuleExport, RawModuleLink, RawNodeRef, RawParameter, RawPropertyName, RawProviderDeclaration, RawReference, RawSignature, RawSymbol, RawTypeArgument, RawTypeForm,
 } from "./contract.js";
 import { ExtensionTable, OpenedProgram } from "./handles.js";
 import type { FileNumbering, FileSyntaxEntry } from "./handles.js";
-import { captureNode, expressionKinds } from "./syntax-capture.js";
+import { captureNode, expressionKinds, typeNodeKinds } from "./syntax-capture.js";
 import type { SyntaxCaptureContext } from "./syntax-support.js";
 import { isModuleBindingKind } from "../ir-hir/index.js";
 import { captureCheckerDiagnostic } from "./diagnostics.js";
@@ -21,7 +21,27 @@ const available = <Value>(value: Value): RawFact<Value> => ({ kind: "available",
 const notProvided = <Value>(): RawFact<Value> => ({ kind: "unavailable", reason: "not-provided", causes: [] });
 
 /** The declaration kinds whose node is the declaration of a callable with a signature and possibly a body. */
-const callableKinds: readonly string[] = ["KindFunctionDeclaration"];
+const callableKinds: readonly string[] = ["KindFunctionDeclaration", "KindCallSignature", "KindConstructSignature", "KindMethodSignature"];
+function wellKnownSymbol(kind: NonNullable<ReturnType<TypeCheckerQueries["getResolvedWellKnownSymbolInfo"]>>["kind"]):
+  NonNullable<Extract<RawMemberKey, { readonly kind: "symbol" }>["wellKnown"]> {
+  switch (kind) {
+    case "has-instance": return "hasInstance";
+    case "is-concat-spreadable": return "isConcatSpreadable";
+    case "iterator": return "iterator";
+    case "async-iterator": return "asyncIterator";
+    case "match": return "match";
+    case "match-all": return "matchAll";
+    case "replace": return "replace";
+    case "search": return "search";
+    case "species": return "species";
+    case "split": return "split";
+    case "to-primitive": return "toPrimitive";
+    case "to-string-tag": return "toStringTag";
+    case "unscopables": return "unscopables";
+    case "dispose": return "dispose";
+    case "async-dispose": return "asyncDispose";
+  }
+}
 
 /**
  * The tables of one capture, built while the module's nodes are read. Each table's identities are positions in it,
@@ -214,6 +234,43 @@ function component(scope: CaptureScope, root: RawNodeRef, path: readonly RawComp
  */
 function typeForm(scope: CaptureScope, type: Type, position: RawComponentId): RawTypeForm | null {
   const shape = scope.shape;
+  const symbol = scope.checker.getTypeSymbol(type);
+  const declarations = symbol === undefined ? [] : scope.checker.getSymbolDeclarations(symbol);
+  for (const declaration of declarations) {
+    if (!admit(scope, "edges")) return null;
+    if (declaration === undefined) return throwInvariant(invariant("A type's declaration inventory cannot contain an absent row."));
+    if (scope.checked.ast.kindName(declaration) !== "KindTypeParameter") continue;
+    if (declarations.length !== 1) return throwInvariant(invariant("A checked type parameter must retain its one actual declaration."));
+    const ast = scope.checked.ast;
+    const parent = ast.parent(declaration);
+    if (parent === undefined) return throwInvariant(invariant("A checked type parameter must retain its actual binder."));
+    const parameter = referenceTo(scope, scope.program, declaration);
+    const owner = referenceTo(scope, scope.program, parent);
+    if (scope.meter.refusal !== null) return null;
+    if (parameter === null || owner === null) return throwInvariant(invariant("A checked type parameter's binder must belong to the actual captured source domain."));
+    const parameters = ast.typeParameters(parent);
+    let index: number | null = null;
+    for (let candidate = 0; candidate < parameters.length; candidate += 1) {
+      if (!admit(scope, "edges")) return null;
+      if (parameters[candidate] === declaration) {
+        if (index !== null) return throwInvariant(invariant("A type parameter cannot occur twice in its actual binder inventory."));
+        index = candidate;
+      }
+    }
+    if (index === null) return throwInvariant(invariant("A checked type parameter must occur in its actual binder's ordered parameter vector."));
+    const selected = ast.as.AsTypeParameterDeclaration(declaration);
+    if (selected === undefined) return throwInvariant(invariant("A checked type parameter must retain its actual syntax payload."));
+    const read = (node: Node | undefined): RawTypeId | null => {
+      if (node === undefined) return null;
+      const source = referenceTo(scope, scope.program, node);
+      return source === null ? null : rawType(scope, () => scope.checker.getTypeFromTypeNode(node), component(scope, source, []), source);
+    };
+    const constraint = read(selected.Constraint);
+    if (scope.meter.refusal !== null) return null;
+    const defaultType = read(selected.DefaultType);
+    if (scope.meter.refusal !== null) return null;
+    return { kind: "parameter", parameter, owner, index, captures: notProvided(), constraint, default: defaultType };
+  }
   const literal = shape.getNumericLiteralTypeValue(type) !== undefined || shape.getStringLiteralTypeValue(type) !== undefined ||
     shape.getBooleanLiteralTypeValue(type) !== undefined;
   // The checker's `boolean` is a union of its two literal types and is boolean-like as a whole; any other union is not a scalar.
@@ -222,6 +279,7 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId): Ra
     if (shape.isNumberLike(type)) return { kind: "scalar", scalar: "number" };
     if (shape.isStringLike(type)) return { kind: "scalar", scalar: "string" };
     if (shape.isBigIntLike(type)) return { kind: "scalar", scalar: "bigint" };
+    if (shape.isSymbolLike(type)) return { kind: "scalar", scalar: "symbol" };
     if (shape.isAny(type)) return { kind: "scalar", scalar: "any" };
     if (shape.isUnknown(type)) return { kind: "scalar", scalar: "unknown" };
     if (shape.isNever(type)) return { kind: "scalar", scalar: "never" };
@@ -232,6 +290,61 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId): Ra
     }
     if (shape.isVoidLike(type)) return { kind: "scalar", scalar: "void" };
     if (shape.isNonPrimitive(type)) return { kind: "scalar", scalar: "object" };
+  }
+  if (shape.isUnion(type) || shape.isIntersection(type)) {
+    const kind = shape.isUnion(type) ? "union" : "intersection";
+    const parent = scope.tables.components[position];
+    if (parent === undefined) return throwInvariant(invariant("A captured composite type requires its actual original component."));
+    const actual = shape.getUnionOrIntersectionTypes(type);
+    const members: RawTypeId[] = [];
+    for (let index = 0; index < actual.length; index += 1) {
+      if (!admit(scope, "edges")) return null;
+      const member = actual[index];
+      if (member === undefined) return throwInvariant(invariant("A checked composite type cannot contain a missing member."));
+      for (let part = 0; part < parent.path.length; part += 1) if (!admit(scope, "edges")) return null;
+      const path: readonly RawComponentStep[] = [...parent.path,
+        { kind: kind === "union" ? "union-member" : "intersection-member", index }];
+      const captured = rawType(scope, () => member, component(scope, parent.root, path), null);
+      if (captured === null) return null;
+      members.push(captured);
+    }
+    return { kind, members };
+  }
+  if (symbol !== undefined && declarations.length === 1) {
+    const declaration = declarations[0];
+    if (declaration !== undefined && scope.checked.ast.kindName(declaration) === "KindInterfaceDeclaration") {
+      const source = referenceTo(scope, scope.program, declaration);
+      if (scope.meter.refusal !== null) return null;
+      if (source === null) return throwInvariant(invariant("A declared interface type requires its actual admitted declaration."));
+      const parameters: RawNodeRef[] = [];
+      for (const parameter of scope.checked.ast.typeParameters(declaration)) {
+        if (!admit(scope, "edges")) return null;
+        if (parameter === undefined) return throwInvariant(invariant("An interface's actual parameter inventory must be dense."));
+        const reference = referenceTo(scope, scope.program, parameter);
+        if (scope.meter.refusal !== null) return null;
+        if (reference === null) return throwInvariant(invariant("An interface parameter must retain its actual admitted declaration."));
+        parameters.push(reference);
+      }
+      const infos = parameters.length === 0 ? [] : shape.getTypeReferenceArgumentInfos(type);
+      if (infos === undefined) return throwInvariant(invariant("A selected generic interface requires its actual checked argument associations."));
+      const parent = scope.tables.components[position];
+      if (parent === undefined) return throwInvariant(invariant("A declared type requires its actual captured component."));
+      const arguments_: RawTypeArgument[] = [];
+      for (let index = 0; index < infos.length; index += 1) {
+        if (!admit(scope, "edges")) return null;
+        const info = infos[index];
+        const parameter = parameters[index];
+        if (info === undefined || parameter === undefined) return throwInvariant(invariant("An interface's checked arguments must match its actual ordered parameters."));
+        for (let part = 0; part < parent.path.length; part += 1) if (!admit(scope, "edges")) return null;
+        const argument = rawType(scope, () => info.argument,
+          component(scope, parent.root, [...parent.path, { kind: "argument-place", index }]), null);
+        if (argument === null) return null;
+        arguments_.push({ parameter, declaration: null, argument: available(argument), explicitTypeNode: null, defaultTypeNode: null, scope: info.scope });
+      }
+      if (arguments_.length !== parameters.length) return throwInvariant(invariant("Every selected interface parameter requires its actual checked argument."));
+      return { kind: "declared", declaration: source, facet: "instance", parameters, arguments: arguments_, definition: null,
+        extent: scope.emptyCoreInventory ? available(null) : notProvided() };
+    }
   }
   const calls = shape.getCallSignatures(type);
   const constructs = shape.getConstructSignatures(type);
@@ -333,6 +446,22 @@ function captureFacts(scope: CaptureScope): void {
         const string = scope.shape.getStringLiteralTypeValue(next.type);
         if (boolean !== undefined) literal = { kind: "boolean", value: boolean };
         else if (string !== undefined) literal = { kind: "string", value: string };
+        else if (scope.shape.isSymbolLike(next.type)) {
+          const base = scope.shape.getBaseTypeOfLiteralType(next.type);
+          if (base === undefined) return throwInvariant(invariant("A checked symbol requires its actual SDK base type."));
+          if (!scope.shape.isTypeIdenticalTo(base, next.type)) {
+            const symbol = scope.checker.getTypeSymbol(next.type);
+            const declarations = symbol === undefined ? [] : scope.checker.getSymbolDeclarations(symbol);
+            if (!admit(scope, "edges")) return;
+            const declaration = declarations[0];
+            if (declarations.length !== 1 || declaration === undefined)
+              return throwInvariant(invariant("A unique symbol must retain its one actual checked declaration."));
+            const source = referenceTo(scope, scope.program, declaration);
+            if (scope.meter.refusal !== null) return;
+            if (source === null) return throwInvariant(invariant("A unique symbol's declaration must belong to the admitted source domain."));
+            literal = { kind: "symbol", declaration: source };
+          }
+        }
         const base = literal === null ? next.type : scope.shape.getBaseTypeOfLiteralType(next.type);
         if (base === undefined) return throwInvariant(invariant("A captured literal type requires its actual SDK base type."));
         const captured = typeForm(scope, base, next.position);
@@ -634,11 +763,37 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
   const associations: RawCallableAssociation[] = [];
   const calls: RawCallSelection[] = [];
   const bindings: RawBinding[] = [];
+  const propertyNames: RawPropertyName[] = [];
   capture: for (const [index, node] of nodes.entries()) {
     const reference: RawNodeRef = { module, node: nodeId(index) };
     const kind = ast.kindName(node);
     const parent = ast.parent(node);
     const declarationName = parent !== undefined && ast.name(parent) === node;
+    if (kind === "KindComputedPropertyName") {
+      if (!admit(scope, "facts")) break;
+      const selected = scope.checker.getEffectivePropertyName(node);
+      let key: RawFact<RawMemberKey | null> = { kind: "unavailable", reason: "missing-original-component", causes: [] };
+      if (selected?.kind === "string") key = available({ kind: "text", value: selected.name });
+      else if (selected?.kind === "numeric") {
+        const value = scope.shape.getNumericLiteralTypeValue(selected.type);
+        if (typeof value !== "number") return throwInvariant(invariant("A selected numeric property key requires its actual checker number evidence."));
+        key = available({ kind: "numeric", value: { kind: "checker-value", value } });
+      } else if (selected?.kind === "unique-symbol") {
+        const symbol = scope.checker.getTypeSymbol(selected.type);
+        const declarations = symbol === undefined ? [] : scope.checker.getSymbolDeclarations(symbol);
+        if (!admit(scope, "edges")) break;
+        const declaration = declarations[0];
+        if (declarations.length !== 1 || declaration === undefined)
+          return throwInvariant(invariant("A selected unique-symbol property key requires its actual unique declaration."));
+        const source = referenceTo(scope, program, declaration);
+        if (scope.meter.refusal !== null) break;
+        if (source === null) return throwInvariant(invariant("A selected unique-symbol key requires its admitted original source declaration."));
+        const wellKnown = scope.checker.getResolvedWellKnownSymbolInfo(node);
+        key = available({ kind: "symbol", declaration: source,
+          wellKnown: wellKnown === undefined ? null : wellKnownSymbol(wellKnown.kind) });
+      }
+      propertyNames.push({ node: reference, selected: key, numericIndex: selected?.kind === "numeric" });
+    }
     const bindingSyntax = isModuleBindingKind(kind.replace(/^Kind/u, ""), kind !== "KindImportClause" || ast.name(node) !== undefined);
     if (bindingSyntax) {
       if (!admit(scope, "facts")) break;
@@ -691,12 +846,12 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
       }
     }
     // An authored type annotation (the type child of its declaration): the type the checker gives that type node.
-    if (parent !== undefined && ast.typeNode(parent) === node &&
+    if (typeNodeKinds.includes(kind.replace(/^Kind/u, "")) &&
       rawType(scope, () => scope.checker.getTypeFromTypeNode(node), component(scope, reference, []), reference) === null) break;
     if (callableKinds.includes(kind)) {
       const signature = scope.checker.getSignatureFromDeclaration(node);
       if (signature === undefined) return throwInvariant(invariant("The checker gave no signature for a callable declaration."));
-      const advertised = rawSignature(scope, signature, reference, "call");
+      const advertised = rawSignature(scope, signature, reference, kind === "KindConstructSignature" ? "construct" : "call");
       if (advertised === null) break;
       captureFacts(scope);
       if (scope.meter.refusal !== null) break;
@@ -756,7 +911,7 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
     types: { types: scope.tables.types, components: scope.tables.components, signatures: scope.tables.signatures, members: scope.tables.members,
       symbols: scope.tables.symbols, candidates: scope.tables.candidates, dataLayouts: [], memoryLayouts: [], memoryFields: [] },
     checkerViews: views, calls, callableAssociations: associations, providerDeclarations, references, links, exports, bindings,
-    implementations: [], heritage: [], constructors: [], enums: [], propertyNames: [], memberUses: [], protocols: [], storage: [], core,
+    implementations: [], heritage: [], constructors: [], enums: [], propertyNames, memberUses: [], protocols: [], storage: [], core,
     checkerDiagnostics, diagnosticCoverage,
   };
   return { kind: "ok", value: raw, diagnostics: checkerDiagnostics };

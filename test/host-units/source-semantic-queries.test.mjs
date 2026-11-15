@@ -26,8 +26,86 @@ const EXPANSION = { maximumDepth: 64, maximumVisits: 4096, maximumUnionMembers: 
 const LIMITS = { maximumVariablesPerGroup: 128, maximumAtomicContributionsPerGroup: 256 };
 const GRAPH = { maximumWork: 65536, maximumResultEntries: 65536 };
 
+test("real bodyless call, method, construct and index formals retain definitions without execution locals", async () => {
+  const program = ready('export function value(argument: boolean): boolean { return argument; } interface Callable { (value: number): number; method(value: boolean): boolean; new(value: string): Callable; [key: number]: number; [""]: number; [tag]: string; } declare const tag: symbol;');
+  const { types } = fixture;
+  const records = new Map();
+  for (const group of program.inputs.groups) {
+    const answer = program.database.run(program.queries.solutionOf, group.id);
+    assert.equal(answer.kind, "completed");
+    for (const set of answer.value.constraints.constraints) records.set(set.body, { constraints: set, solution: answer.value.solution });
+  }
+  const bodies = new Map();
+  const deps = { types: program.interner, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf,
+    typeOf: type => types.readType(program.interner, type), signatureOf: signature => types.readSignature(program.interner, signature),
+    checkerDiagnosticsOf: () => program.checked.checkerDiagnostics };
+  const orderedBodies = [...program.checked.bodies.filter(body => body.root.kind !== "SourceFile"),
+    ...program.checked.bodies.filter(body => body.root.kind === "SourceFile")];
+  for (const source of orderedBodies) {
+    const record = records.get(source.body);
+    const answer = wiring.elaborate.elaborate(deps, { instance: { body: source.body, bindings: { kind: "parametric" } },
+      scope: program.descriptions.get(source.owner).generics, body: source, constraints: record.constraints, solution: record.solution,
+      template: null, nestedBodies: source.nestedBodies.map(body => bodies.get(body)), initializers: [] });
+    assert.equal(answer.kind, "ok");
+    bodies.set(source.body, answer.value);
+  }
+  const module = [...bodies.values()].find(body => body.root.kind === "SourceFile");
+  const publication = { module: program.checked.module, tree: module.root,
+    bodies: program.checked.bodies.map(body => bodies.get(body.body)) };
+  const declaration = module.root.statements.nodes[1];
+  assert.equal(declaration.kind, "InterfaceDeclaration");
+  assert.deepEqual(declaration.members.nodes.slice(0, 4).map(member => member.parameters.nodes[0].tsonic.local), [null, null, null, null]);
+  assert.deepEqual(declaration.members.nodes.slice(0, 4).map(member => member.parameters.nodes[0].tsonic.passing), ["by-value", "by-value", "by-value", null]);
+  const tir = await import("../../packages/host/dist/ir-tir/index.js");
+  const verifier = { source: program.checked, module: publication, types: types.viewTypes(program.interner),
+    declarationOf: program.declarationOf, nominalOf: definition => definition === declaration.tsonic.definition
+      ? { kind: "declared", facets: ["instance"] } : null,
+    memberTableOf: () => null, bodyOf: instance => instance.bindings.kind === "parametric" ? bodies.get(instance.body) ?? null : null,
+    nodeOf: program.domain.nodeOf, localExists: program.domain.localExists, diagnostics: program.checked.checkerDiagnostics,
+    bindingScopesOf: target => tir.tirBindingOwners(verifier, target).map(owner =>
+      program.descriptions.get(owner ?? bodies.get(target.instance.body).owner).generics) };
+  assert.equal(tir.verifyTirModule(verifier, publication).length, 0);
+  assert.equal(tir.verifyTir(verifier, module).length, 0);
+  const decoded = tir.parseTir(tir.printTir(module));
+  assert.equal(decoded.kind, "parsed");
+  assert.deepEqual(decoded.value.root.statements.nodes[1].members.nodes.slice(0, 4).map(member => member.parameters.nodes[0].tsonic.local), [null, null, null, null]);
+  for (let index = 0; index < 4; index++) {
+    const parameter = declaration.members.nodes[index].parameters.nodes[0];
+    const local = parameter.tsonic.local;
+    parameter.tsonic.local = { body: module.body, local: 0 };
+    assert.equal(tir.verifyTir(verifier, module).some(violation => violation.rule === "parameter-order"), true);
+    parameter.tsonic.local = local;
+  }
+  const key = declaration.members.nodes[3].parameters.nodes[0];
+  key.tsonic.passing = "by-value";
+  assert.equal(tir.verifyTir(verifier, module).some(violation => violation.rule === "parameter-order"), true);
+  key.tsonic.passing = null;
+  const empty = declaration.members.nodes[4].name;
+  const unresolved = declaration.members.nodes[5].name;
+  assert.equal(empty.tsonic.kind, "declaration");
+  assert.deepEqual(empty.tsonic.key, { kind: "available", value: { kind: "text", value: "" } });
+  assert.equal(unresolved.tsonic.key.kind, "unavailable");
+  assert.equal(empty.expression.tsonic.role, "declaration-name-expression");
+  assert.equal(unresolved.expression.tsonic.role, "declaration-name-expression");
+  assert.equal("type" in unresolved.expression.tsonic, false);
+  assert.deepEqual(decoded.value.root.statements.nodes[1].members.nodes[5].name.tsonic, unresolved.tsonic);
+  const original = unresolved.tsonic;
+  unresolved.tsonic = { kind: "declaration", key: { kind: "available", value: { kind: "text", value: "fabricated" } } };
+  assert.equal(tir.verifyTir(verifier, module).some(violation => violation.rule === "occurrence-role"), true);
+  unresolved.tsonic = original;
+  const executing = [...bodies.values()].find(body => body.root.kind === "Block");
+  const value = executing.root.statements.nodes[0].expression;
+  const selected = value.tsonic;
+  value.tsonic = { role: "declaration-name-expression" };
+  assert.equal(tir.verifyTir(verifier, executing).some(violation => violation.rule === "occurrence-role"), true);
+  value.tsonic = selected;
+  empty.expression.tsonic = selected;
+  assert.equal(tir.verifyTir(verifier, module).some(violation => violation.rule === "occurrence-role"), true);
+  empty.expression.tsonic = { role: "declaration-name-expression" };
+});
+
 function ready(source) {
-  const { checked, interner } = fixture.checkedModuleOf(source);
+  const { checked, interner, snapshot } = fixture.checkedModuleOf(source);
   assert.deepEqual(fixture.verifyChecked(checked, interner), []);
   const domain = checkedDomain(checked, fixture.hir);
   const items = new Map(checked.items.map(item => [item.definition, domain.nodes[item.node]]));
@@ -49,7 +127,8 @@ function ready(source) {
       endpoints: "signatures" in node.tsonic ? node.tsonic.signatures : [] };
   };
   const verification = (group, constraints) => ({
-    types, declarationOf, nominalOf: () => null, nodeExists: reference => domain.nodeOf(reference) !== null,
+    types, declarationOf, nominalOf: definition => descriptions.get(definition)?.kind === "InterfaceDeclaration"
+      ? { kind: "declared", facets: ["instance"] } : null, nodeExists: reference => domain.nodeOf(reference) !== null,
     localExists: domain.localExists,
     bindingScopes: constraints.constraints.flatMap(set => set.constraints.filter(constraint => constraint.kind === "flow")
       .map(() => descriptions.get(domain.bodyOf.get(set.body).owner).generics)),
@@ -62,7 +141,7 @@ function ready(source) {
   const endpoint = node.tsonic.signatures.find(endpoint => endpoint.role === "api-body");
   assert.equal(endpoint !== undefined, true);
   const signature = { definition: endpoint.declaration, endpoint: endpoint.role, ordinal: 0, bindings: { kind: "parametric" } };
-  return { checked, interner, domain, descriptions, inputs, queries, database, signature, verification, declarationOf };
+  return { checked, interner, snapshot, domain, descriptions, inputs, queries, database, signature, verification, declarationOf };
 }
 
 for (const annotation of ["boolean", null]) test(`real ${annotation ?? "inferred"} module initializer completes its own registered solution and selected execution`, async () => {
@@ -76,7 +155,7 @@ for (const annotation of ["boolean", null]) test(`real ${annotation ?? "inferred
     for (const set of answer.value.constraints.constraints) records.set(set.body, { ...answer.value, constraints: set });
   }
   const typed = new Map();
-  const deps = { rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf,
+  const deps = { types: program.interner, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf,
     typeOf: type => types.readType(program.interner, type), signatureOf: signature => types.readSignature(program.interner, signature),
     checkerDiagnosticsOf: () => program.checked.checkerDiagnostics };
   const elaborate = source => {
@@ -143,6 +222,34 @@ for (const annotation of ["boolean", null]) test(`real ${annotation ?? "inferred
   const tir = await import("../../packages/host/dist/ir-tir/index.js");
   assert.deepEqual(tir.verifyTirModule(verifier, publication), []);
   for (const body of publication.bodies) assert.deepEqual(tir.verifyTir(verifier, body), []);
+  const lower = await import("../../packages/host/dist/pipeline/lower-mir-step.js");
+  const mir = await import("../../packages/host/dist/ir-mir/index.js");
+  const run = { interner: program.interner, table: types.viewTypes(program.interner), selectedNativeFacts: program.snapshot.nativeFacts,
+    defs: { completionSelector: types.internType(program.interner, { kind: "primitive", primitive: "int32" }),
+      exceptionStorage: types.internType(program.interner, { kind: "intrinsic", intrinsic: "unknown" }) },
+    lowering: { maximumRecords: 100000 }, verification: { maximumWork: 1000000 }, declarationOf: program.declarationOf,
+    bodyOwner: body => program.domain.bodyOf.get(body)?.owner ?? null, bodyOf: verifier.bodyOf };
+  const loweredBodies = new Map();
+  for (const body of selectedBodies.values()) {
+    const actualChildren = body.nestedBodies.map(nested => {
+      const child = selectedBodies.get(nested);
+      assert.equal(child !== undefined, true, "the selected child was genuinely elaborated and verified");
+      return { instance: { body: child.body, bindings: child.bindings }, captures: child.captures, signature: child.signature };
+    });
+    const unit = { request: { query: "mirBody", key: [body.body, types.artifactBindingsData(body.bindings)] }, position: { kind: "result" } };
+    const result = wiring.lowerMir.lowerToMir(lower.lowerMirDeps(run, unit), body, actualChildren);
+    assert.equal(result.kind, "ok");
+    assert.deepEqual(result.diagnostics, []);
+    assert.deepEqual(mir.verifyMir(result.value, lower.mirVerificationContext(run, body)), { kind: "complete", violations: [] });
+    assert.deepEqual(mir.parseMir(mir.printMir(result.value)), { kind: "parsed", value: result.value });
+    loweredBodies.set(body.body, result.value);
+  }
+  const moduleMir = loweredBodies.get(moduleSource.body);
+  const initializerCalls = moduleMir.blocks.filter(block => block.terminator.kind === "call");
+  assert.equal(initializerCalls.length, 1, "the initializer remains one separate executed body");
+  assert.deepEqual(initializerCalls[0].terminator.callee, { kind: "body", instance: { body: selected.value.body, bindings }, captures: selected.value.captures });
+  assert.equal(moduleMir.places.some(place => place.base.kind === "static" && place.base.definition === initializer.owner), true,
+    "module storage belongs to the actual variable definition, not a fabricated local");
   assert.equal(program.database.trace().some(event => event.kind === "dependency" && event.state === "active"), false);
 });
 
@@ -177,7 +284,7 @@ for (const [authored, annotation, kind, expected] of [
   assert.deepEqual(embedding.proof.steps, [{ from: { root: from.value.component, path: [] },
     to: { root: to.value.component, path: [] }, rule: "literal-fit", premises: [] }]);
   const typed = new Map();
-  const deps = { rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf,
+  const deps = { types: program.interner, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf,
     typeOf: type => types.readType(program.interner, type), signatureOf: signature => types.readSignature(program.interner, signature),
     checkerDiagnosticsOf: () => program.checked.checkerDiagnostics };
   const elaborate = body => {
@@ -256,7 +363,7 @@ test(`real ${annotation === null ? "inferred" : "annotated"} ${authored} default
     assert.equal(initializerRecord.solution.constraints[0].decision.embedding.conversion, "literal-fit");
   }
   const typed = new Map();
-  const deps = { rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf,
+  const deps = { types: program.interner, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf,
     typeOf: type => types.readType(program.interner, type), signatureOf: signature => types.readSignature(program.interner, signature),
     checkerDiagnosticsOf: () => program.checked.checkerDiagnostics };
   const inputOf = body => ({ instance: { body: body.body, bindings: { kind: "parametric" } },
@@ -362,7 +469,7 @@ test("an actual null return completes its inferred declaration and selected body
     for (const set of answer.value.constraints.constraints) records.set(set.body, { ...answer.value, constraints: set });
   }
   const typed = new Map();
-  const deps = { rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf,
+  const deps = { types: program.interner, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf,
     typeOf: type => types.readType(program.interner, type), signatureOf: signature => types.readSignature(program.interner, signature),
     checkerDiagnosticsOf: () => program.checked.checkerDiagnostics };
   const inputOf = body => ({ instance: { body: body.body, bindings: { kind: "parametric" } },

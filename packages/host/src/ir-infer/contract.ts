@@ -751,11 +751,14 @@ export interface InferenceDeclaration {
   readonly endpoints: readonly HirCallableEndpoint[];
 }
 
-export interface InferVerificationInput {
+export interface InferenceBindingInput {
   readonly group: InferenceGroup;
   readonly constraints: readonly ConstraintSet[];
-  readonly contributions: readonly AtomicContribution[];
   readonly solution: Solution | null;
+}
+
+export interface InferVerificationInput extends InferenceBindingInput {
+  readonly contributions: readonly AtomicContribution[];
   readonly types: TypeTable;
   readonly bindingScopes: readonly BindingScope[];
   readonly declarationOf: (definition: DefId) => InferenceDeclaration | null;
@@ -773,6 +776,8 @@ export type ParseInferenceGroup = (text: string) => TextParseResult<InferenceGro
 export type PrintSolution = (solution: Solution) => string;
 export type ParseSolution = (text: string) => TextParseResult<Solution>;
 export type VerifyInference = (input: InferVerificationInput) => readonly Violation<InferRule, InferSite>[];
+export type InferenceBindingSites = (input: InferenceBindingInput) =>
+  readonly { readonly site: InferSite; readonly definition: DefId | null }[];
 export type CompareContributionKeys = (left: ContributionKey, right: ContributionKey) => number;
 export type CaptureRequiresLocation = (reassignable: boolean, incoming: CaptureSource) => boolean;
 export type SameCaptureSource = (left: CaptureSource, right: CaptureSource) => boolean;

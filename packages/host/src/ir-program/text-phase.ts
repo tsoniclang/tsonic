@@ -4,11 +4,17 @@ import { token, text, numeric, numericIdentity, identity, field, record, sequenc
 import { textConversionDecision, textTirDemand, textTirResolution, textTargetAccess, textTirApplication, textTirProtocol, textTypedOperation, textTirSelection, textMemberSelection } from "./text-tir.js";
 import { textRefinementDecision, textRuleOutcome, textConstructionPartDecision, textApplicationDecision, textClosureDecision } from "./text-inference.js";
 import { textMemberKey, textExactRational, textBindingVector } from "./text-types.js";
-import { textDeclarationTarget, textImportTarget } from "./text-core.js";
+import { textCapturedFact, textDeclarationTarget, textImportTarget } from "./text-core.js";
+import type { DeclarationNameExpression } from "../ir-tir/contract.js";
 import { textTypedClass, textTypedCallable } from "./text-phase-declarations.js";
+
+function textNameExpression(value: DeclarationNameExpression): TextWork {
+  return record("DeclarationNameExpression", [field("role", text(value.role))]);
+}
 
 export function textTypedName(value: TypedName): TextWork {
   return deferred(value, () => {
+    if (value.role === "declaration-name-expression") return textNameExpression(value);
     switch (value.role) {
       case "value":
         return record("TypedName", [
@@ -75,6 +81,7 @@ export function textTypedName(value: TypedName): TextWork {
 export function textTypedPropertyKey(value: TypedPropertyKey): TextWork {
   return deferred(value, () => {
     switch (value.kind) {
+      case "declaration": return record(value.kind, [field("key", textCapturedFact(value.key, textMemberKey))]);
       case "constant":
         return record(value.kind, [
       field("key", textMemberKey(value.key)),
@@ -197,6 +204,7 @@ export function textTypedKeyword(value: TypedKeyword): TextWork {
 
 export function textTypedString(value: TypedString): TextWork {
   return deferred(value, () => {
+    if (value.role === "declaration-name-expression") return textNameExpression(value);
     switch (value.role) {
       case "value":
         return record("TypedString", [
@@ -245,6 +253,7 @@ export function textTypedString(value: TypedString): TextWork {
 
 export function textTypedNumber(value: TypedNumber): TextWork {
   return deferred(value, () => {
+    if (value.role === "declaration-name-expression") return textNameExpression(value);
     switch (value.role) {
       case "value":
         return record("TypedNumber", [
@@ -467,6 +476,7 @@ export function textTypedConditional(value: TypedConditional): TextWork {
 
 export function textTypedMember(value: TypedMember): TextWork {
   return deferred(value, () => {
+    if (value.role === "declaration-name-expression") return textNameExpression(value);
     switch (value.role) {
       case "value":
         return record("TypedMember", [

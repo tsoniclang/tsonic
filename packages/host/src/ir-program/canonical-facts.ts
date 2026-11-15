@@ -84,7 +84,7 @@ function rewriteOrigins(rewrite: TypeRewrite, origins: OriginFacts): OriginFacts
   return {
     points: origins.points, reads: origins.reads, subjects: origins.subjects, writes: origins.writes, escapes: origins.escapes, exitContents: origins.exitContents,
     invocations: origins.invocations.map(invocation => ({
-      node: invocation.node, kind: invocation.kind,
+      node: invocation.node, point: invocation.point, kind: invocation.kind,
       alternatives: invocation.alternatives.map(alternative => ({
         resolution: rewriteCallee(rewrite, alternative.resolution), context: alternative.context,
         arguments: alternative.arguments.map(argument => rewriteTransport(rewrite, argument)),
@@ -96,7 +96,7 @@ function rewriteOrigins(rewrite: TypeRewrite, origins: OriginFacts): OriginFacts
       rejection: callback.rejection, inputs: callback.inputs,
     })),
     activations: origins.activations.map(activation => ({
-      node: activation.node, activation: rewriteInstance(rewrite, activation.activation), context: activation.context, caller: activation.caller,
+      node: activation.node, point: activation.point, activation: rewriteInstance(rewrite, activation.activation), context: activation.context, caller: activation.caller,
       entry: activation.entry === null ? null : rewriteTransport(rewrite, activation.entry),
     })), frontiers: origins.frontiers,
     constructions: origins.constructions.map(construction => ({

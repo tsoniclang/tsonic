@@ -348,6 +348,7 @@ const assignmentTokens: readonly string[] = (["EqualsToken", "PlusEqualsToken", 
   "AmpersandAmpersandEqualsToken", "BarBarEqualsToken", "QuestionQuestionEqualsToken"]);
 
 export const verifyOccurrenceRole = (node: TirNode, original: HirNode | undefined, emit: TirOccurrenceEmit): void => {
+  if (node.tsonic !== null && "role" in node.tsonic && node.tsonic.role === "declaration-name-expression") return;
   const source = original?.tsonic;
   const target = node.tsonic;
   if (node.kind === "ImportClause") {

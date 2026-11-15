@@ -1,6 +1,7 @@
-import type { DeclaredSignatureErrorData, DeclaredSignaturePause, DeclsDeps } from "../decls/contract.js";
+import type { DeclarationCycleMember, DeclarationCycleTarget, DeclaredSignaturePause, DeclsDeps } from "../decls/contract.js";
 import type { Diagnostic, UnitRequest } from "../diag/contract.js";
 import { throwInvariant } from "../diag/index.js";
+import { encodeKey } from "../ids/index.js";
 import type { GroupId, SourceNodeRef } from "../ids/contract.js";
 import type { ConstraintsAnswer, ConstraintsPaused, ConstraintsRequest, GroupConstraints, GroupSolution, InferDeps,
   InferPaused, InferStep, SolveAnswer, SolveRequest } from "../infer/contract.js";
@@ -8,7 +9,9 @@ import type { InferenceGroup, InferredPartRequest, InferredPartType } from "../i
 import { inferredPartKey } from "../ir-infer/index.js";
 import type { Signature, SignatureRequest } from "../ir-types/contract.js";
 import { signatureRequestData } from "../ir-types/index.js";
-import type { Query } from "../query/contract.js";
+import type { Database, Query, QueryLimits } from "../query/contract.js";
+import { createDatabase } from "../query/index.js";
+import type { DeclaredSignatureErrorData } from "../decls/contract.js";
 import type { CheckedSourceViews } from "./checked-inputs.js";
 import type { Pause, Route } from "./driver.js";
 import { defineQuery, factRoute, nestedRoute, projectionRoute } from "./driver.js";
@@ -21,7 +24,7 @@ export interface SourceSemanticInputs {
   readonly inference: InferDeps;
   readonly groups: readonly InferenceGroup[];
   readonly sources: CheckedSourceViews;
-  readonly verification: (group: InferenceGroup, constraints: GroupConstraints) => InferenceViews;
+  readonly verification: (group: InferenceGroup, constraints: GroupConstraints, result: GroupSolution) => InferenceViews;
 }
 
 type InferenceRequest = ConstraintsRequest | SolveRequest;
@@ -31,11 +34,7 @@ type InferencePause =
   | { readonly kind: "solve"; readonly unit: UnitRequest; readonly group: InferenceGroup;
       readonly constraints: GroupConstraints; readonly state: InferPaused };
 
-type SemanticTarget =
-  | { readonly kind: "declared-signature"; readonly request: SignatureRequest }
-  | { readonly kind: "inference-solution"; readonly group: InferenceGroup };
-
-export type SourceSemanticWitness = { readonly target: SemanticTarget; readonly source: SourceNodeRef } & (
+export type SourceSemanticWitness = { readonly target: DeclarationCycleTarget; readonly source: SourceNodeRef } & (
   | { readonly kind: "declared-signature"; readonly state: DeclaredSignaturePause; readonly ready: readonly InferredPartType[] }
   | { readonly kind: "inference"; readonly state: InferencePause; readonly ready: readonly InferenceAnswer[] }
 );
@@ -46,6 +45,34 @@ export interface SourceSemanticQueries {
 }
 
 type SolutionStep = Pause<InferencePublication, InferenceRequest, InferencePause>;
+
+export function createSourceSemanticDatabase(inputs: SourceSemanticInputs, limits: QueryLimits): {
+  readonly queries: SourceSemanticQueries;
+  readonly database: Database<SourceSemanticInputs, SourceSemanticWitness, DeclaredSignatureErrorData>;
+} {
+  const queries = createSourceSemanticQueries(inputs);
+  const database = createDatabase<SourceSemanticInputs, SourceSemanticWitness, DeclaredSignatureErrorData>(inputs, limits, cycle => {
+    const members = cycle.members.map((member, index): DeclarationCycleMember => {
+      const previous = cycle.members[(index + cycle.members.length - 1) % cycle.members.length];
+      if (previous === undefined) return fail("A closed cycle retains its actual incoming typed demand.");
+      const target = previous.witness.target;
+      const query = target.kind === "declared-signature" ? queries.declaredSignatureOf.name : queries.solutionOf.name;
+      const key = target.kind === "declared-signature" ? signatureRequestData(target.request) : target.group.id;
+      if (member.fact.query !== query || member.fact.encodedKey !== encodeKey(key))
+        return fail("The incoming semantic target must project to this same original registered fact identity.");
+      const witness = member.witness;
+      if (inputs.sources.nodeOf(witness.source) === null)
+        return fail("A semantic cycle witness requires its actual checked source occurrence.");
+      return { unit: { query: member.fact.query, key: member.fact.key }, target, answerPolicy: member.answerPolicy,
+        producer: witness.kind === "declared-signature" ? witness
+          : { kind: "inference-solution", group: witness.state.group } };
+    });
+    const first = members[0];
+    if (first === undefined) return fail("A closed cycle cannot be empty.");
+    return pipelineWiring.decls.classifyCycle(inputs.declarations, [first, ...members.slice(1)]);
+  }, "off");
+  return { queries, database };
+}
 
 function fail(message: string): never {
   return throwInvariant({ owner: "pipeline", query: null, origin: null, message });
@@ -102,7 +129,7 @@ export function createSourceSemanticQueries(inputs: SourceSemanticInputs): Sourc
     step: InferStep<GroupSolution, SolveRequest, InferPaused>): SolutionStep {
     if (step.kind === "paused") return { ...step, paused: { kind: "solve", unit, group, constraints, state: step.paused } };
     if (step.value.kind === "refused") return { kind: "done", value: step.value };
-    const publication = completeInference(group, constraints, step.value.value, inputs.verification(group, constraints));
+    const publication = completeInference(group, constraints, step.value.value, inputs.verification(group, constraints, step.value.value));
     return { kind: "done", value: { kind: "ok", value: publication, positions: publication.positions,
       diagnostics: step.value.diagnostics, emissions: [] } };
   }

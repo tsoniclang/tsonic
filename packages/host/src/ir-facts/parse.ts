@@ -705,9 +705,10 @@ const invocationAlternative: Decode<InvocationAlternative> = (state, input) => t
 const invocationFact: Decode<InvocationFact> = (state, input) => then(label(input, ["call","construct","getter","setter","native-callback"]), kind =>
   then(fields(state, input, kind), values =>
     then(readField(state, values, "node", node), nodeValue =>
+    then(readField(state, values, "point", mirPoint), pointValue =>
     then(readField(state, values, "alternatives", (state, input) => sequence(state, input, invocationAlternative)), alternativesValue =>
     then(readField(state, values, "boundaries", (state, input) => sequence(state, input, boundary)), boundariesValue =>
-      finishRecord<InvocationFact>(state, values, { kind: kind, node: nodeValue, alternatives: alternativesValue, boundaries: boundariesValue }))))));
+      finishRecord<InvocationFact>(state, values, { kind: kind, node: nodeValue, point: pointValue, alternatives: alternativesValue, boundaries: boundariesValue })))))));
 const callbackEntry: Decode<CallbackEntry> = (state, input) => then(fields(state, input, "CallbackEntry"), values =>
     then(readField(state, values, "node", node), nodeValue =>
     then(readField(state, values, "argument", argumentTransport), argumentValue =>
@@ -717,11 +718,12 @@ const callbackEntry: Decode<CallbackEntry> = (state, input) => then(fields(state
       finishRecord<CallbackEntry>(state, values, { node: nodeValue, argument: argumentValue, timing: timingValue, rejection: rejectionValue, inputs: inputsValue })))))));
 const activation: Decode<BoundActivation> = (state, input) => then(fields(state, input, "BoundActivation"), values =>
     then(readField(state, values, "node", node), nodeValue =>
+    then(readField(state, values, "point", mirPoint), pointValue =>
     then(readField(state, values, "activation", bodyInstance), activationValue =>
     then(readField(state, values, "context", contextIdentity), contextValue =>
     then(readField(state, values, "caller", (state, input) => nullable(state, input, contextIdentity)), callerValue =>
     then(readField(state, values, "entry", (state, input) => nullable(state, input, argumentTransport)), entryValue =>
-      finishRecord<BoundActivation>(state, values, { node: nodeValue, activation: activationValue, context: contextValue, caller: callerValue, entry: entryValue })))))));
+      finishRecord<BoundActivation>(state, values, { node: nodeValue, point: pointValue, activation: activationValue, context: contextValue, caller: callerValue, entry: entryValue }))))))));
 const frontier: Decode<ValueFrontier> = (state, input) => then(label(input, ["boundary","origin"]), kind =>
   then(fields(state, input, kind), values =>
     then(readField(state, values, "node", node), nodeValue =>

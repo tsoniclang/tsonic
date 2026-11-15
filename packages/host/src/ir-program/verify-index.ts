@@ -133,8 +133,10 @@ function verifySourceInventory(
     }
     for (const item of record.items) {
       const site: ProgramSite = { kind: "definition", definition: item.definition };
-      const original = definitions.get(item.definition);
-      if (original === undefined || original === null || !Object.is(original.node, item.node)) {
+      const original = item.definition === input.source.tree.tsonic.definition ? input.source.tree
+        : definitions.get(item.definition);
+      const originalNode = original === undefined || original === null ? undefined : "node" in original ? original.node : original.id;
+      if (originalNode === undefined || !Object.is(originalNode, item.node)) {
         violations.push({ rule: "item-definition-resolves", site, detail: [numberDetail(item.node)] });
       }
       const node = byId.get(item.node);

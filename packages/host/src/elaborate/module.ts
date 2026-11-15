@@ -1,11 +1,12 @@
 import type { Result } from "../diag/contract.js";
 import { throwInvariant } from "../diag/index.js";
-import type { BodyId, TyId } from "../ids/contract.js";
-import type { CheckedPhase, Expression, FunctionDeclaration, Identifier, ModifierList, ParameterDeclaration, SourceFile, Statement, TypeNode, VariableDeclaration } from "../ir-hir/contract.js";
+import type { BodyId } from "../ids/contract.js";
+import type { CheckedPhase, Expression, FunctionDeclaration, ParameterDeclaration, SourceFile, Statement, VariableDeclaration } from "../ir-hir/contract.js";
 import type { BodyTyping } from "../ir-infer/contract.js";
 import type { TirBody, TypedBodyTemplate, TypedParameter, TypedPhase } from "../ir-tir/contract.js";
 import type { ElaborateDeps, ElaborateInput } from "./contract.js";
 import { artifactBindingsKey } from "../ir-types/index.js";
+import { declarationAlias, declarationInterface, declarationModifiers as modifiers, declarationName as name, declarationType as annotation } from "./declarations.js";
 
 function defect(message: string): never {
   return throwInvariant({ owner: "elaborate", query: null, origin: null, message });
@@ -13,35 +14,12 @@ function defect(message: string): never {
 
 const templateOf = (body: TirBody): TypedBodyTemplate => ({ body: body.body, lexicalBindings: body.lexicalBindings, dependence: body.dependence });
 
-function modifiers(input: ModifierList<CheckedPhase> | null): ModifierList<TypedPhase> | null {
-  return input === null ? null : { ...input, nodes: input.nodes.map(node => {
-    if (node.kind === "Decorator") return defect("not elaborated yet: a declaration decorator.");
-    return { ...node, tsonic: null };
-  }) };
-}
-
-function annotation(node: TypeNode<CheckedPhase> | null): TypeNode<TypedPhase> | null {
-  if (node === null) return null;
-  switch (node.kind) {
-    case "NumberKeyword": case "BooleanKeyword": case "StringKeyword": case "AnyKeyword": case "UnknownKeyword":
-    case "NeverKeyword": case "VoidKeyword":
-      if (node.tsonic.type.kind !== "available") return defect("not elaborated yet: an unavailable declaration type.");
-      return { ...node, tsonic: { type: node.tsonic.type.value, declarations: node.tsonic.referencedDefinitions } };
-    default: return defect(`not elaborated yet: declaration type ${node.kind}.`);
-  }
-}
-
-function name(node: Identifier<CheckedPhase>, storage: TyId | null): Identifier<TypedPhase> {
-  if (node.tsonic.role !== "declaration-name") return defect("A declaration name does not retain its actual declaration target.");
-  return { ...node, tsonic: { role: "declaration-name", declaration: node.tsonic.declaration, storage } };
-}
-
 export function elaborateParameter(node: ParameterDeclaration<CheckedPhase>, body: BodyId, selected: TypedParameter,
   initializer: Expression<TypedPhase> | null): ParameterDeclaration<TypedPhase> {
   if (node.name.kind !== "Identifier" || node.name.tsonic.role !== "declaration-name"
     || node.name.tsonic.declaration.kind !== "local") return defect("not elaborated yet: a nonlocal parameter declaration.");
   const local = node.name.tsonic.declaration.local;
-  if (local.body !== body || local.body !== selected.local.body || local.local !== selected.local.local)
+  if (selected.local === null || local.body !== body || local.body !== selected.local.body || local.local !== selected.local.local)
     return defect("A parameter has no actual typed-body local association.");
   if (node.initializer === null ? initializer !== null || selected.initializer !== null
     : initializer === null || initializer.id !== node.initializer.id || initializer.parent !== node.id || selected.initializer === null)
@@ -122,6 +100,8 @@ export function elaborateModuleBody(deps: ElaborateDeps, input: ElaborateInput, 
     return defect("not elaborated yet: executable module values or storage.");
   const statements: Statement<TypedPhase>[] = root.statements.nodes.map(statement => {
     if (statement.kind === "FunctionDeclaration") return callable(deps, statement, children);
+    if (statement.kind === "InterfaceDeclaration") return declarationInterface(deps, statement);
+    if (statement.kind === "TypeAliasDeclaration") return declarationAlias(statement);
     if (statement.kind === "VariableStatement") return { ...statement, modifiers: modifiers(statement.modifiers),
       declarationList: { ...statement.declarationList,
         declarations: { ...statement.declarationList.declarations,

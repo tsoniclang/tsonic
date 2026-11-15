@@ -1,11 +1,6 @@
-import type { ChildrenOfSyntax, IterateChildrenOfSyntax, Phase, SyntaxNode, NodeList } from "./contract.js";
+import type { ChildrenOfSyntax, IterateChildrenOfSyntax, IterateSyntaxChildEdges, Phase, SyntaxNode, NodeList, SyntaxChild } from "./contract.js";
 
 const emptyChildren: readonly never[] = ([]);
-
-export interface SyntaxChild<PhaseType extends Phase> {
-  readonly node: SyntaxNode<PhaseType>;
-  readonly fields: readonly (string | number)[];
-}
 
 type ChildProjection<PhaseType extends Phase, Value> = (
   node: SyntaxNode<PhaseType>, field: string, index: number | null, list: boolean,
@@ -39,9 +34,15 @@ export const childrenOfSyntax: ChildrenOfSyntax = <PhaseType extends Phase>(
 export function syntaxChildEdges<PhaseType extends Phase>(
   node: SyntaxNode<PhaseType>,
 ): readonly SyntaxChild<PhaseType>[] {
-  return [...projectSyntax(node, (child, field, index, list) => ({ node: child,
-    fields: index === null ? [field] : list ? [field, "nodes", index] : [field, index] }))];
+  return [...iterateSyntaxChildEdges(node)];
 }
+
+export const iterateSyntaxChildEdges: IterateSyntaxChildEdges = function* <PhaseType extends Phase>(
+  node: SyntaxNode<PhaseType>,
+): Generator<SyntaxChild<PhaseType>, void, undefined> {
+  yield* projectSyntax(node, (child, field, index, list) => ({ node: child,
+    fields: index === null ? [field] : list ? [field, "nodes", index] : [field, index] }));
+};
 
 function projectSyntax<PhaseType extends Phase, Value>(
   node: SyntaxNode<PhaseType>, project: ChildProjection<PhaseType, Value>,

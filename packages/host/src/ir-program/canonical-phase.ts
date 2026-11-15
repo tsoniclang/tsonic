@@ -29,6 +29,7 @@ export function rewriteAccess(rewrite: TypeRewrite, access: TargetAccess, at: st
 
 export function rewriteName(rewrite: TypeRewrite, name: TypedName, at: string): TypedName {
   switch (name.role) {
+    case "declaration-name-expression": return name;
     case "value": return { ...rewriteValue(rewrite, name, at), role: "value", resolution: name.resolution };
     case "shorthand-value": return { ...rewriteValue(rewrite, name, at), role: "shorthand-value", key: name.key, resolution: name.resolution };
     case "assignment-target": return { role: "assignment-target", resolution: name.resolution, access: rewriteAccess(rewrite, name.access, `${at}.access`) };
@@ -43,6 +44,7 @@ export function rewriteName(rewrite: TypeRewrite, name: TypedName, at: string): 
 
 export function rewriteString(rewrite: TypeRewrite, value: TypedString, at: string): TypedString {
   switch (value.role) {
+    case "declaration-name-expression": return value;
     case "value": return { ...rewriteValue(rewrite, value, at), role: "value", value: value.value };
     case "type-literal": return { role: "type-literal", type: rewrite.type(value.type) };
     case "property-name":
@@ -55,6 +57,7 @@ export function rewriteString(rewrite: TypeRewrite, value: TypedString, at: stri
 
 export function rewriteNumber(rewrite: TypeRewrite, value: TypedNumber, at: string): TypedNumber {
   switch (value.role) {
+    case "declaration-name-expression": return value;
     case "value": return { ...rewriteValue(rewrite, value, at), role: "value", value: value.value };
     case "type-literal": return { role: "type-literal", type: rewrite.type(value.type) };
     case "property-name":
@@ -119,6 +122,7 @@ export function rewriteUpdate(rewrite: TypeRewrite, value: TypedUpdate, at: stri
 }
 
 export function rewriteTypedMember(rewrite: TypeRewrite, value: TypedMember, at: string): TypedMember {
+  if (value.role === "declaration-name-expression") return value;
   const selection = rewriteOutcome(rewrite, value.selection, member => rewriteSelection(rewrite, member), `${at}.selection`);
   switch (value.role) {
     case "value": return { ...rewriteValue(rewrite, value, at), role: "value", selection };
@@ -238,6 +242,7 @@ export function rewriteSourceFilePhase(rewrite: TypeRewrite, value: TypedSourceF
 
 export function rewritePropertyKey(rewrite: TypeRewrite, value: TypedPropertyKey): TypedPropertyKey {
   switch (value.kind) {
+    case "declaration": return value;
     case "constant": return value;
     case "computed": return { kind: "computed", type: rewrite.type(value.type) };
   }

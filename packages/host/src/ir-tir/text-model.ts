@@ -50,6 +50,7 @@ export const createTirLayouts = (): TirLayouts => {
     work_TypedStaticBlock: lazyRecord(() => phase_declarations.work_TypedStaticBlock)
   });
   const phase_values = createPhaseValuesText(kernel, {
+    work_UnavailableCapture: lazyRecord(() => captures.work_C_BindingVector__unavailable),
     work_BindingVector: lazyRecord(() => type_values.work_BindingVector),
     work_ConstructionPartDecision: lazyRecord(() => rule_decisions.work_ConstructionPartDecision),
     work_ConversionDecision: lazyRecord(() => body.work_ConversionDecision),

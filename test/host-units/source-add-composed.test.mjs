@@ -85,7 +85,7 @@ test(`real SDK source add with ${resultAnnotation === "" ? "inferred" : "annotat
       checkedBody.root.kind === "SourceFile" ? [] : ["op", "flow"]);
   }
   const typed = new Map();
-  const elaborateDeps = { rules: deps.rules, nodeOf: domain.nodeOf, typeOf: type => types.readType(interner, type),
+  const elaborateDeps = { types: interner, rules: deps.rules, nodeOf: domain.nodeOf, typeOf: type => types.readType(interner, type),
     signatureOf: signature => types.readSignature(interner, signature), checkerDiagnosticsOf: () => checked.checkerDiagnostics };
   const elaborate = body => {
     const record = solved.get(body.body);
@@ -257,6 +257,8 @@ test(`real SDK source add with ${resultAnnotation === "" ? "inferred" : "annotat
     assert.equal(irTir.verifyTir(invalidView, actualModule).length > 0, true, "a nested parameter context must be its actual canonical parametric body");
   }
   for (const mutate of [
+    parameter => { parameter.tsonic.local = null; },
+    parameter => { parameter.tsonic.passing = null; },
     parameter => { parameter.tsonic.local.body = moduleBody.body; },
     parameter => { parameter.tsonic.local.local = functionBody.params[1].local; },
     parameter => { parameter.tsonic.passing = "borrow-shared"; },

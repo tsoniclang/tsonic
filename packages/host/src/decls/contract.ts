@@ -1,8 +1,8 @@
-import type { Cause, Diagnostic, UnitRequest, UnitResult, UnitValue } from "../diag/contract.js";
+import type { Cause, Diagnostic, UnitDiagnostic, UnitRequest, UnitResult, UnitValue } from "../diag/contract.js";
 import type { BodyId, DefId, DefinitionPath, ModuleId } from "../ids/contract.js";
 import type { BindingScope, Signature, SignatureRequest, TypeExpansionLimits, TypeInterner } from "../ir-types/contract.js";
 import type { HirModule, HirNode, SyntaxKind } from "../ir-hir/contract.js";
-import type { InferredPartRequest, InferredPartType, SignaturePlacement } from "../ir-infer/contract.js";
+import type { InferenceGroup, InferredPartRequest, InferredPartType, SignaturePlacement } from "../ir-infer/contract.js";
 import type { Step } from "../step/contract.js";
 
 // Decls (COMPONENTS section 2; amendment S2-7). This file states the two operations of checkpoint 2,
@@ -104,6 +104,27 @@ export interface DeclaredSignatureErrorData {
   readonly ready: readonly { readonly index: number; readonly answer: InferredPartType }[];
   readonly unavailable: readonly [number, ...number[]];
 }
+
+export type DeclarationCycleTarget =
+  | { readonly kind: "declared-signature"; readonly request: SignatureRequest }
+  | { readonly kind: "inference-solution"; readonly group: InferenceGroup };
+
+export interface DeclarationCycleMember {
+  readonly unit: UnitRequest;
+  readonly target: DeclarationCycleTarget;
+  readonly answerPolicy: "typed-error" | "refusal-only";
+  readonly producer:
+    | { readonly kind: "declared-signature"; readonly state: DeclaredSignaturePause; readonly ready: readonly InferredPartType[] }
+    | { readonly kind: "inference-solution"; readonly group: InferenceGroup };
+}
+
+export type DeclarationCycleOutcome =
+  | { readonly kind: "refused"; readonly diagnostic: Diagnostic }
+  | { readonly kind: "error"; readonly cause: Cause; readonly data: DeclaredSignatureErrorData;
+      readonly diagnostics: readonly Diagnostic[]; readonly emissions: readonly UnitDiagnostic[] };
+
+export type ClassifyCycle = (deps: DeclsDeps,
+  members: readonly [DeclarationCycleMember, ...DeclarationCycleMember[]]) => readonly DeclarationCycleOutcome[];
 
 export type ErrorSignature = (deps: DeclsDeps, request: SignatureRequest, cause: Cause,
   data: DeclaredSignatureErrorData) => UnitValue<Signature>;

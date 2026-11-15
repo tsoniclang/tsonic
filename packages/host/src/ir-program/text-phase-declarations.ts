@@ -41,9 +41,9 @@ export function textTypedParameter(value: TypedParameter): TextWork {
   return deferred(value, () => {
     return record("TypedParameter", [
       field("declaration", identity("def", value.declaration)),
-      field("local", textLocalRef(value.local)),
+      field("local", value.local === null ? token("null") : textLocalRef(value.local)),
       field("storage", numericIdentity("t", value.storage)),
-      field("passing", text(value.passing)),
+      field("passing", value.passing === null ? token("null") : text(value.passing)),
       field("initializer", (value.initializer === null ? token("null") : identity("body", value.initializer))),
       field("role", text(value.role)),
     ]);

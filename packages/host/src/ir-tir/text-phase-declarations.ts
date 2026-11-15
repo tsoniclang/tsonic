@@ -114,9 +114,9 @@ export const createPhaseDeclarationsText = (kernel: TirTextKernel, read: PhaseDe
     .finish((field_storage) => ({ storage: field_storage })));
   const work_TypedParameter: TirRecordCodec<TypedParameter> = defineRecord<TypedParameter>("TypedParameter", "TypedParameter", null, "TypedParameter", null, null, fields => fields
     .field("declaration", "def", value => referenceWork("def", value.declaration), definitionReader)
-    .field("local", "LocalRef", value => read.work_LocalRef.write(value.local), lazyReader(() => read.work_LocalRef.reader))
+    .field("local", "?LocalRef", value => nullableWork(value.local, actual => read.work_LocalRef.write(actual)), nullableReader(lazyReader(() => read.work_LocalRef.reader)))
     .field("storage", "t", value => referenceWork("t", value.storage), typeReader)
-    .field("passing", "PassingMode", value => scalarWork("PassingMode", value.passing), literalReader<(TypedParameter)["passing"]>("PassingMode", ["by-value","byref-readonly","byref-readwrite","byref-writeonly-must-init","borrow-shared","borrow-mut","move"]))
+    .field("passing", "?PassingMode", value => nullableWork(value.passing, actual => scalarWork("PassingMode", actual)), nullableReader(literalReader<NonNullable<TypedParameter["passing"]>>("PassingMode", ["by-value","byref-readonly","byref-readwrite","byref-writeonly-must-init","borrow-shared","borrow-mut","move"])))
     .field("initializer", "?body", value => nullableWork(value.initializer, actual => scalarWork("body", actual)), nullableReader(bodyReader))
     .field("role", "ParameterRole", value => scalarWork("ParameterRole", value.role), literalReader<TypedParameter["role"]>("ParameterRole", ["required","optional","default","rest","this"]))
     .finish((field_declaration, field_local, field_storage, field_passing, field_initializer, field_role) => ({

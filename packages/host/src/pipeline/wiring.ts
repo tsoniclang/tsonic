@@ -2,8 +2,8 @@ import type { CaptureModule, CaptureProgramModules, CreateCheckerExtensions, Ext
   LowerModuleExports, OpenCheckedProgram } from "../front/contract.js";
 import { captureModule, captureProgramModules, createCheckerExtensions, extensionReferencesOf, lowerModule, lowerModuleDefinitions,
   lowerModuleExports, openCheckedProgram } from "../front/index.js";
-import type { DeclaredSignatureOf, DescribeDefinitions, ErrorSignature, PlaceSignature, ResumeDeclaredSignatureOf } from "../decls/contract.js";
-import { declaredSignatureOf, describeDefinitions, errorSignature, placeSignature, resumeDeclaredSignatureOf } from "../decls/index.js";
+import type { ClassifyCycle, DeclaredSignatureOf, DescribeDefinitions, ErrorSignature, PlaceSignature, ResumeDeclaredSignatureOf } from "../decls/contract.js";
+import { classifyCycle, declaredSignatureOf, describeDefinitions, errorSignature, placeSignature, resumeDeclaredSignatureOf } from "../decls/index.js";
 import type { CreateRuleTable } from "../rules/contract.js";
 import { createRuleTable } from "../rules/index.js";
 import type { ConstraintsOf, GroupsOf, ResumeConstraintsOf, ResumeSolveGroup, SolveGroup } from "../infer/contract.js";
@@ -12,6 +12,14 @@ import type { Elaborate } from "../elaborate/contract.js";
 import { elaborate } from "../elaborate/index.js";
 import type { LowerToMir } from "../lower-mir/contract.js";
 import { lowerToMir } from "../lower-mir/index.js";
+import type { AnalyzeStorageUse } from "../analyses/liveness/contract.js";
+import { analyzeStorageUse } from "../analyses/liveness/index.js";
+import type { AnalyzeBodyRound, ProveInitialization } from "../analyses/body/contract.js";
+import { analyzeBodyRound, proveInitialization } from "../analyses/body/index.js";
+import type { BindDeclaredSummary, ComponentsOf, ConvergeComponent, DependenciesOf } from "../summaries/contract.js";
+import { bindDeclaredSummary, componentsOf, convergeComponent, dependenciesOf } from "../summaries/index.js";
+import type { FormDiagnostics, SafetyDiagnostics } from "../validate/contract.js";
+import { formDiagnostics, safetyDiagnostics } from "../validate/index.js";
 
 /**
  * What Pipeline wires: its run-time connections to the components. One member per public operation of a
@@ -29,9 +37,15 @@ export interface PipelineWiring {
     readonly resumeSolveGroup: ResumeSolveGroup; readonly solveGroup: SolveGroup };
   readonly elaborate: { readonly elaborate: Elaborate };
   readonly lowerMir: { readonly lowerToMir: LowerToMir };
+  readonly liveness: { readonly analyzeStorageUse: AnalyzeStorageUse };
+  readonly bodyAnalysis: { readonly analyzeBodyRound: AnalyzeBodyRound; readonly proveInitialization: ProveInitialization };
+  readonly summaries: { readonly bindDeclaredSummary: BindDeclaredSummary; readonly componentsOf: ComponentsOf;
+    readonly dependenciesOf: DependenciesOf; readonly convergeComponent: ConvergeComponent };
+  readonly validate: { readonly formDiagnostics: FormDiagnostics; readonly safetyDiagnostics: SafetyDiagnostics };
 }
 
 export interface DeclsWiring {
+  readonly classifyCycle: ClassifyCycle;
   readonly describeDefinitions: DescribeDefinitions;
   readonly declaredSignatureOf: DeclaredSignatureOf;
   readonly resumeDeclaredSignatureOf: ResumeDeclaredSignatureOf;
@@ -54,9 +68,13 @@ export interface FrontWiring {
 export const pipelineWiring: PipelineWiring = {
   front: { createCheckerExtensions, extensionReferencesOf, openCheckedProgram, captureProgramModules, captureModule, lowerModuleDefinitions,
     lowerModuleExports, lowerModule },
-  decls: { describeDefinitions, declaredSignatureOf, resumeDeclaredSignatureOf, errorSignature, placeSignature },
+  decls: { classifyCycle, describeDefinitions, declaredSignatureOf, resumeDeclaredSignatureOf, errorSignature, placeSignature },
   rules: { createRuleTable },
   infer: { constraintsOf, groupsOf, resumeConstraintsOf, resumeSolveGroup, solveGroup },
   elaborate: { elaborate },
   lowerMir: { lowerToMir },
+  liveness: { analyzeStorageUse },
+  bodyAnalysis: { analyzeBodyRound, proveInitialization },
+  summaries: { bindDeclaredSummary, componentsOf, dependenciesOf, convergeComponent },
+  validate: { formDiagnostics, safetyDiagnostics },
 };

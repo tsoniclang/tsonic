@@ -5,12 +5,12 @@ import type { Diagnostic, Violation } from "../diag/contract.js";
 import { childrenOfSyntax, hasOverloadEndpoints, indexSyntaxTree, walkSyntaxTree } from "../ir-hir/index.js";
 import type { BindingVerificationInput, BodyInstance, TypeEvidence, TypeRule, TypeTable } from "../ir-types/contract.js";
 import { verifyTypes } from "../ir-types/index.js";
-import type { TirBindingTarget, TirBody, TirModule, TirNode, TirNodeSite, TirRule, TirSite, TirVerifierInput, TypedPhase, VerifyTir, VerifyTirModule } from "./contract.js";
+import type { TirBindingOwners, TirBindingTarget, TirBody, TirModule, TirNode, TirNodeSite, TirOperationsOf, TirRule, TirSite, TirVerifierInput, TypedPhase, VerifyTir, VerifyTirModule } from "./contract.js";
 import type { TirOccurrenceEmit, TirStructure, TirTypeGraph } from "./verify-occurrences.js";
 import { collectTirSemantics, inspectTirStructure, sameLocalReference, sameSourceReference, typedValueOf, verifyDeferredParameters, verifyOccurrenceOperation, verifyOccurrenceRole, verifyOperationShape, verifyValueEndpoints } from "./verify-occurrences.js";
 import type { TirDeclarationInventory, TirMemberInventory } from "./verify-applications.js";
 import { applicationOf, declarationEndpoints, indexMembers, verifyActivation, verifyArgumentTransport, verifyCallEndpoints, verifyMemberDecision, verifyMemberSelection, verifyProtocolOperation, verifyProtocolRecord } from "./verify-applications.js";
-import { sameBindingScope, sameParameterSelection, verifyBindingSlots, verifyCanonicalTemplates, verifyControlledContexts, verifyNestedPublication, verifyPublicationInventory, verifyPublishedInstance, verifyQualifiedReferences } from "./verify-instances.js";
+import { sameBindingScope, sameParameterSelection, verifyBindingSlots, verifyBodylessParameters, verifyCanonicalTemplates, verifyControlledContexts, verifyDeclarationNames, verifyNestedPublication, verifyPublicationInventory, verifyPublishedInstance, verifyQualifiedReferences } from "./verify-instances.js";
 import { sameSyntaxFields } from "./syntax-compare.js";
 import { createTirLayouts } from "./text-model.js";
 
@@ -196,7 +196,7 @@ export const verifyBodyRecords = (body: TirBody, original: HirBody | undefined, 
     const selected = parameter.tsonic;
     const checked = original?.params[position];
     if (checked !== undefined && !sameParameterSelection(selected, checked, body.body)) parameterOrder = false;
-    const local = body.locals[selected.local.local];
+    const local = selected.local === null ? undefined : body.locals[selected.local.local];
     if (local === undefined || local.role !== "parameter" || !Object.is(local.storage, selected.storage)) {
       emit("local-storage", null, "parameter storage does not retain its real local slot");
     }
@@ -431,6 +431,34 @@ const verifyTypePayload = (
   }
 };
 
+export const tirBindingOwners: TirBindingOwners = (input, target) => {
+  let subject: TirBody | TirModule;
+  let stops: ReadonlySet<NodeId>;
+  if (target.kind === "body") {
+    const body = input.bodyOf(target.instance);
+    if (body === null) throw new TypeError("The binding inventory requires its actual selected or template body.");
+    subject = body;
+    stops = readSourceBoundary(body.body, input.source, input.nodeOf).nestedRoots;
+  } else {
+    if (target.module !== input.module.module) throw new TypeError("The binding inventory requires its actual module.");
+    subject = input.module;
+    stops = new Set(input.module.bodies.map(body => body.root.id));
+  }
+  const output: (DefId | null)[] = [];
+  for (const record of inspectTirStructure(subject, createTirLayouts(), stops).records)
+    if (record.association?.kind === "binding") output.push(record.bindingOwner);
+  return output;
+};
+
+export const tirOperationsOf: TirOperationsOf = (input, instance) => {
+  const body = input.bodyOf(instance);
+  if (body === null) throw new TypeError("The operation inventory requires its actual verified typed body.");
+  const boundary = readSourceBoundary(body.body, input.source, input.nodeOf);
+  const structure = inspectTirStructure(body, createTirLayouts(), boundary.nestedRoots);
+  return collectTirSemantics(structure.nodes).operations.map(({ value, node }) =>
+    ({ operation: value, node: { body: body.body, node: node.id }, origin: node.origin }));
+};
+
 export const verifyTypedBody: VerifyTir = (input, body) => {
   const violations: Violation<TirRule, TirSite>[] = [];
   const emitted = new Set<string>();
@@ -449,6 +477,8 @@ export const verifyTypedBody: VerifyTir = (input, body) => {
   const boundary = readSourceBoundary(body.body, input.source, input.nodeOf);
   const structure = inspectTirStructure(body, createTirLayouts(), boundary.nestedRoots);
   const inventory = verifySourcePreservation(body, input.source, input.module, boundary, emit);
+  verifyBodylessParameters(input, structure.nodes, inventory.sourceNodes, emit);
+  verifyDeclarationNames(structure.nodes, inventory.sourceNodes, emit);
   const semantics = collectTirSemantics(structure.nodes);
   verifyBodyRecords(body, inventory.original, emit);
   const typeGraph = verifyClosedReferences(body.root, structure, input.types, input.diagnostics, emit);
@@ -589,6 +619,8 @@ export const verifyTypedModule: VerifyTirModule = (input, module) => {
   const declarationOf = declarationInventory(input);
   verifyScalarReferences(structure, sourceNodes, declarationOf, emit);
   for (const node of structure.nodes) verifyOccurrenceRole(node, sourceNodes.get(node.id), emit);
+  verifyBodylessParameters(input, structure.nodes, sourceNodes, emit);
+  verifyDeclarationNames(structure.nodes, sourceNodes, emit);
   verifyTypePayload(input, { kind: "module", module: module.module }, structure, declarationOf, emit, appendViolation);
   return violations;
 };

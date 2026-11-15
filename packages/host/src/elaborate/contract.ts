@@ -1,11 +1,12 @@
 import type { Diagnostic, Result } from "../diag/contract.js";
 import type { ModuleId, SourceNodeRef } from "../ids/contract.js";
-import type { BindingScope, BodyInstance, SignatureOf, TypeOf } from "../ir-types/contract.js";
+import type { BindingScope, BodyInstance, SignatureOf, TypeOf, TypeInterner } from "../ir-types/contract.js";
 import type { HirBody, HirNode } from "../ir-hir/contract.js";
 import type { ConstraintSet, RuleTable, Solution } from "../ir-infer/contract.js";
 import type { TirBody } from "../ir-tir/contract.js";
 
 export interface ElaborateDeps {
+  readonly types: TypeInterner;
 
   readonly rules: RuleTable;
 

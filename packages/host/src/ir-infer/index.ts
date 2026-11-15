@@ -1,5 +1,5 @@
 import type {
-  CaptureRequiresLocation, SameCaptureSource,
+  CaptureRequiresLocation, SameCaptureSource, InferenceBindingSites,
   ParseConstraints, ParseContributions, ParseInferenceGroup, ParseSolution,
   PrintConstraints, PrintContributions, PrintInferenceGroup, PrintSolution, VerifyInference, InferredPartsOf, InferredPartKey, CompareContributionKeys,
 } from "./contract.js";
@@ -9,6 +9,7 @@ import { verifyInput } from "./verify.js";
 import { inferredPartsOf as partsOf, inferredPartKey as partKey } from "./inferred-parts.js";
 import { compareContribution } from "./verify-contributions.js";
 import { requiresLocation, sameSource } from "./capture-law.js";
+import { visitBindings } from "./verify-solution.js";
 
 export const printConstraints: PrintConstraints = constraints => printDocument({ kind: "ConstraintSet", value: constraints });
 export const parseConstraints: ParseConstraints = readConstraints;
@@ -31,3 +32,8 @@ export const inferredPartKey: InferredPartKey = partKey;
 export const compareContributionKeys: CompareContributionKeys = compareContribution;
 export const captureRequiresLocation: CaptureRequiresLocation = requiresLocation;
 export const sameCaptureSource: SameCaptureSource = sameSource;
+export const inferenceBindingSites: InferenceBindingSites = input => {
+  const sites: ReturnType<InferenceBindingSites>[number][] = [];
+  visitBindings(input, (_vector, site, definition) => { sites.push({ site, definition }); }, () => {});
+  return sites;
+};

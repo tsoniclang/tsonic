@@ -434,12 +434,21 @@ if (!integerNodes.has(id)) sameIntegerDomain = false;
     if (!context.definitionExists(argument.parameter)) { const stop = report("argument-transports-total", site, "A transport retains its actual parameter declaration."); if (stop !== null) return stop; }
       return null;
   };
-  { const stop = nodeOrder(facts.origins.invocations, "invocations-order"); if (stop !== null) return stop; }
+  { const stop = ordered(facts.origins.invocations, "invocations-order", (left, right) => comparePoints(left.point, right.point), row => at(row.node)); if (stop !== null) return stop; }
   for (const invocation of facts.origins.invocations) {
     const step = chargeWork(account, 1);
     if (step !== null) return step;
 
     { const stop = node(invocation.node); if (stop !== null) return stop; } const site = at(invocation.node);
+    { const stop = point(invocation.point, site); if (stop !== null) return stop; }
+    const read = chargeWork(account, 1);
+    if (read !== null) return read;
+    const block = validIndex(invocation.point.block, mir.blocks.length) ? mir.blocks[invocation.point.block] : undefined;
+    const operation = invocation.point.statement === null ? block?.terminator : undefined;
+    if (operation?.kind !== "call" || operation.tir.body !== facts.execution.instance.body || operation.tir.node !== invocation.node) {
+      const stop = report("cross-owner-qualified", site, "An invocation retains its actual MIR call occurrence and qualified source node.");
+      if (stop !== null) return stop;
+    }
     const syntax = nodes.get(invocation.node);
     const application = (syntax?.kind === "CallExpression" || syntax?.kind === "NewExpression" || syntax?.kind === "TaggedTemplateExpression") && syntax.tsonic.application.kind === "decided"
       ? syntax.tsonic.application.decision : null;
@@ -681,33 +690,27 @@ if (!Number.isSafeInteger(input.parameterIndex) || input.parameterIndex < 0 || O
     }
   }
   }
-  // The selected complete instances of direct activations, built once: for the first invocation row of each node,
-  // every alternative that has a body, keyed by node, value context and complete instance. `instanceKey` equality is
-  // body equality together with `sameBindings` (both compare the encoded artifact data, verify-relations.ts).
   const numberKey = (value: number): string => Object.is(value, -0) ? "-0" : String(value);
-  const selectedActivationKey = (node: NodeId, valueContextId: number, selected: BodyInstance): string | null =>
-    Number.isNaN(valueContextId) ? null : encodeKey([numberKey(node), String(valueContextId + 0), instanceKey(selected)]);
-  const invocationNodes = new Set<string>();
+  const pointKey = (value: MirPoint): string => encodeKey([numberKey(value.block), value.statement === null ? null : numberKey(value.statement)]);
+  const selectedActivationKey = (point: MirPoint, node: NodeId, valueContextId: number, selected: BodyInstance): string =>
+    encodeKey([pointKey(point), numberKey(node), numberKey(valueContextId), instanceKey(selected)]);
+  const invocationPoints = new Set<string>();
   const selectedActivations = new Set<string>();
   for (const invocation of facts.origins.invocations) {
-    const step = chargeWork(account, 1);
-    if (step !== null) return step;
-
-    if (invocationNodes.has(numberKey(invocation.node))) continue;
-    const output = chargeResultEntries(account, 1);
-    if (output !== null) return output;
-    invocationNodes.add(numberKey(invocation.node));
+    const work = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
+    if (work !== null) return work;
+    const occurrence = pointKey(invocation.point);
+    if (invocationPoints.has(occurrence)) continue;
+    invocationPoints.add(occurrence);
     for (const alternative of invocation.alternatives) {
-    const step = chargeWork(account, 1);
-    if (step !== null) return step;
-
-      const key = alternative.resolution.activation === null ? null
-        : selectedActivationKey(invocation.node, alternative.context, alternative.resolution.activation);
-      if (key !== null) {
-        const output = chargeResultEntries(account, 1);
-        if (output !== null) return output;
-        selectedActivations.add(key);
-      }
+      const step = chargeWork(account, 1);
+      if (step !== null) return step;
+      const selected = alternative.resolution.activation;
+      if (selected === null || !validIndex(alternative.context, facts.arena.contexts.length)) continue;
+      const identity = chargeWork(account, selected.body.length) ?? admitArtifactIdentity(selected.bindings, account)
+        ?? chargeResultEntries(account, 1);
+      if (identity !== null) return identity;
+      selectedActivations.add(selectedActivationKey(invocation.point, invocation.node, alternative.context, selected));
     }
   }
   let previousActivation: BoundActivation | null = null;
@@ -722,7 +725,8 @@ if (!Number.isSafeInteger(input.parameterIndex) || input.parameterIndex < 0 || O
     const transport = transportKey(activation.entry);
     const comparison = chargeWork(account, instance.length + transport.length + previousInstance.length + previousTransport.length);
     if (comparison !== null) return comparison;
-    if (previousActivation !== null && (compareNumbers(previousActivation.node, activation.node)
+    if (previousActivation !== null && (comparePoints(previousActivation.point, activation.point)
+      || compareNumbers(previousActivation.node, activation.node)
       || compareText(previousInstance, instance) || compareNumbers(previousActivation.context, activation.context)
       || compareNullableNumber(previousActivation.caller, activation.caller, -1) || compareText(previousTransport, transport)) >= 0) {
       const stop = report("activations-order", at(activation.node), "Fact rows retain distinct canonical endpoint order.");
@@ -737,16 +741,40 @@ if (!Number.isSafeInteger(input.parameterIndex) || input.parameterIndex < 0 || O
     if (step !== null) return step;
 
     { const stop = node(activation.node); if (stop !== null) return stop; } const site = at(activation.node); { const stop = valueContext(activation.context, site); if (stop !== null) return stop; }
+    { const stop = point(activation.point, site); if (stop !== null) return stop; }
     if (activation.caller !== null) { const stop = valueContext(activation.caller, site); if (stop !== null) return stop; }
     const activated = activation.activation;
     const activatedOwner = context.bodyOwner(activated.body);
     if (activatedOwner === null || !context.definitionExists(activatedOwner)) { const stop = report("producer-resolves", site,
       "An activation retains its actual executed body and its existing owner declaration."); if (stop !== null) return stop; }
-    if (activation.entry !== null) { const stop = checkArgument(activation.entry, site); if (stop !== null) return stop; }
-    else {
-      const key = selectedActivationKey(activation.node, activation.context, activated);
-      if (key === null || !selectedActivations.has(key)) { const stop = report("cross-owner-qualified", site,
-        "A direct activation is the complete selected instance of an invocation alternative at its node and value context."); if (stop !== null) return stop; }
+    if (activation.entry !== null) {
+      const stop = checkArgument(activation.entry, site);
+      if (stop !== null) return stop;
+      continue;
+    }
+    const read = chargeWork(account, 1);
+    if (read !== null) return read;
+    const block = validIndex(activation.point.block, mir.blocks.length) ? mir.blocks[activation.point.block] : undefined;
+    const operation = activation.point.statement === null ? block?.terminator : undefined;
+    const call = operation?.kind === "call" && operation.tir.body === facts.execution.instance.body && operation.tir.node === activation.node
+      ? operation : null;
+    if (call === null) {
+      const stop = report("cross-owner-qualified", site, "An activation binding retains its actual MIR call occurrence and qualified source node.");
+      if (stop !== null) return stop;
+    }
+    if (call !== null) {
+      const selected = call.callee.kind === "body" ? call.callee.instance : call.callee.resolution.activation;
+      if (selected !== null) {
+        const work = chargeWork(account, 1 + selected.body.length) ?? admitArtifactIdentity(selected.bindings, account);
+        if (work !== null) return work;
+      }
+      if (selected === null || selected.body !== activated.body || !sameBindings(selected.bindings, activated.bindings)) {
+        const stop = report("cross-owner-qualified", site, "A direct activation binding retains the complete selected instance of its actual MIR callee.");
+        if (stop !== null) return stop;
+      } else if (call.callee.kind !== "body" && !selectedActivations.has(selectedActivationKey(activation.point, activation.node, activation.context, activated))) {
+        const stop = report("cross-owner-qualified", site, "A direct activation binding retains the selected invocation alternative at its exact MIR point and value context.");
+        if (stop !== null) return stop;
+      }
     }
   }
   { const stop = ordered(facts.origins.frontiers, "frontiers-order", (left, right) => compareNumbers(left.node, right.node) || compareText(left.kind, right.kind) ||

@@ -1,5 +1,5 @@
-import type { CallableEndpointKey, ChildrenOfSyntax, HasOverloadEndpoints, IndexSyntaxTree, IterateChildrenOfSyntax, OrderPragmaArguments, ParseHir, PrintHir, SelectedEndpointRoleFaults, VerifyHir, WalkSyntaxTree } from "./contract.js";
-import { childrenOfSyntax as children, iterateChildrenOfSyntax as iterateChildren } from "./children.js";
+import type { CallableEndpointKey, ChildrenOfSyntax, HasOverloadEndpoints, IndexSyntaxTree, IterateChildrenOfSyntax, IterateSyntaxChildEdges, OrderPragmaArguments, ParseHir, PrintHir, SelectedEndpointRoleFaults, VerifyHir, WalkSyntaxTree } from "./contract.js";
+import { childrenOfSyntax as children, iterateChildrenOfSyntax as iterateChildren, iterateSyntaxChildEdges as iterateEdges } from "./children.js";
 import { indexSyntaxTree as index, walkSyntaxTree as walk } from "./walk.js";
 import { parseHir as parse } from "./parse.js";
 import { printHir as print } from "./print.js";
@@ -16,6 +16,7 @@ export const projectExportDeclarations: ProjectExportDeclarations = exportDeclar
 
 export const childrenOfSyntax: ChildrenOfSyntax = children;
 export const iterateChildrenOfSyntax: IterateChildrenOfSyntax = iterateChildren;
+export const iterateSyntaxChildEdges: IterateSyntaxChildEdges = iterateEdges;
 export const indexSyntaxTree: IndexSyntaxTree = index;
 export const walkSyntaxTree: WalkSyntaxTree = walk;
 export const parseHir: ParseHir = parse;

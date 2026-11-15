@@ -6,10 +6,10 @@ import type { HirModule, HirModuleBinding, HirModuleExport, SourceFile, SyntaxPh
 import type { LibraryCatalogue, WellKnownSymbol } from "../libraries/contract.js";
 import type { ExtensionReferenceEntry, ImportPreparation, LibraryRoleEntry, PackageSnapshot, ProjectSnapshot } from "../snapshot/contract.js";
 import type { ExtensionTable, OpenedProgram } from "./handles.js";
-import type { ExtensionReference } from "../snapshot/contract.js";
-import type { CompilerExtension, SourceDeclarationProvider, SourceSemanticsModule } from "@tsonic/tsts";
 import type { ProgramModuleSet } from "./program-data.js";
 export type { ProgramModule, ProgramModuleSet, SessionDocument } from "./program-data.js";
+import type { ExtensionReference } from "../snapshot/contract.js";
+import type { CompilerExtension, SourceDeclarationProvider, SourceSemanticsModule } from "@tsonic/tsts";
 
 export type CheckerExtensions = ExtensionTable;
 export type CheckedProgram = OpenedProgram;

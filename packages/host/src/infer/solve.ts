@@ -1,6 +1,5 @@
 import type { Cause, Diagnostic, ErrorValue, Result, UnitAnswerPosition, UnitRequest } from "../diag/contract.js";
 import type { TyId } from "../ids/contract.js";
-import type { BodyInstance } from "../ir-types/contract.js";
 import type {
   AtomicContribution, Constraint, ConstraintDecision, ConstraintSet, ContributionOutcome, FinalVariable, InferenceGroup,
   InferenceValue, InferredPartType, RecordedCheck, SolvedConstraint, VariableBound,
@@ -9,6 +8,7 @@ import type { GroupConstraints, GroupSolution, InferDeps, InferPaused, InferStep
 import { requirePresent, resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
 import { compareContributionKeys, inferredPartKey, inferredPartsOf } from "../ir-infer/index.js";
 import { internType } from "../ir-types/index.js";
+import type { BodyInstance } from "../ir-types/contract.js";
 import { encodeKey } from "../ids/index.js";
 import { callerDefect, notInferredYet, validateInferenceLimits } from "./frontier.js";
 import { ownSignatureRequest } from "./own-signature.js";

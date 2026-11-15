@@ -323,6 +323,7 @@ export function inventoryAccess(scan: ProjectionInventory, value: TargetAccess):
 
 export function inventoryName(scan: ProjectionInventory, value: TypedName): InstantiationStop | null {
   switch (value.role) {
+    case "declaration-name-expression": return inventoryRecord(scan, 1);
     case "value": return inventoryRecord(scan, 8) ?? inventoryValue(scan, value);
     case "shorthand-value": return inventoryRecord(scan, 9) ?? inventoryValue(scan, value);
     case "assignment-target": return inventoryRecord(scan, 3) ?? inventoryAccess(scan, value.access);
@@ -337,6 +338,7 @@ export function inventoryName(scan: ProjectionInventory, value: TypedName): Inst
 
 export function inventoryString(scan: ProjectionInventory, value: TypedString): InstantiationStop | null {
   switch (value.role) {
+    case "declaration-name-expression": return inventoryRecord(scan, 1);
     case "value": return inventoryRecord(scan, 8) ?? inventoryValue(scan, value);
     case "type-literal": return inventoryRecord(scan, 2) ?? inventoryType(scan, value.type);
     case "property-name":
@@ -349,6 +351,7 @@ export function inventoryString(scan: ProjectionInventory, value: TypedString): 
 
 export function inventoryNumber(scan: ProjectionInventory, value: TypedNumber | TypedBigInt): InstantiationStop | null {
   switch (value.role) {
+    case "declaration-name-expression": return inventoryRecord(scan, 1);
     case "value": return inventoryRecord(scan, 8) ?? inventoryValue(scan, value);
     case "type-literal": return inventoryRecord(scan, 2) ?? inventoryType(scan, value.type);
     case "property-name":
@@ -396,6 +399,7 @@ export function inventoryUpdate(scan: ProjectionInventory, value: TypedUpdate): 
 }
 
 export function inventoryTypedMember(scan: ProjectionInventory, value: TypedMember): InstantiationStop | null {
+  if (value.role === "declaration-name-expression") return inventoryRecord(scan, 1);
   const selection = inventoryOutcome(scan, value.selection, selection => inventorySelection(scan, selection));
   if (selection !== null) return selection;
   switch (value.role) {
@@ -491,6 +495,7 @@ export function inventorySourcePhase(scan: ProjectionInventory, value: TypedSour
 
 export function inventoryPropertyKey(scan: ProjectionInventory, value: TypedPropertyKey): InstantiationStop | null {
   switch (value.kind) {
+    case "declaration": return inventoryRecord(scan, 2) ?? captured(scan, value.key, () => null);
     case "constant": return inventoryFields(scan, 1);
     case "computed": return inventoryRecord(scan, 2) ?? inventoryType(scan, value.type);
   }

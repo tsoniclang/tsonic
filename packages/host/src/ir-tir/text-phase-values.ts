@@ -1,6 +1,8 @@
 import { lazyReader, literalReader, nullableReader, sequenceReader } from "./text-construction.js";
 import { unionRecord } from "./text-layouts.js";
 import type { TirRecordCodec } from "./text-layouts.js";
+import type { CapturedFact } from "../ir-hir/contract.js";
+import type { DeclarationNameExpression } from "./contract.js";
 import type {
   BackedConversionIdentity, ConversionDecision, ConversionIdentity, MemberSelection, TargetAccess, TirApplication, TirDemand, TirProtocol, TirResolution, TirSelection, TypedApplication, TypedBigInt, TypedBinary, TypedConditional, TypedConstruction, TypedControlTransfer, TypedDecorator, TypedInstantiation, TypedIteration, TypedKeyword, TypedMember, TypedName, TypedNumber, TypedObjectSpread, TypedOmission, TypedOperation, TypedOperationOf, TypedPrefix, TypedProperty, TypedPropertyKey, TypedProtocolValue, TypedShorthand, TypedSpread, TypedString, TypedTemplate, TypedUnary, TypedUpdate, TypedValue
 } from "./contract.js";
@@ -20,6 +22,7 @@ import type { TirTextKernel, TirTypedRecordWork } from "./text-layouts.js";
 import { scalarWork, referenceWork, nullableWork, sequenceWork } from "./text-layouts.js";
 
 export interface PhaseValuesTextReads {
+  readonly work_UnavailableCapture: TirRecordCodec<Extract<CapturedFact<never>, { readonly kind: "unavailable" }>>;
   readonly work_BindingVector: TirRecordCodec<BindingVector>;
   readonly work_ConstructionPartDecision: TirRecordCodec<ConstructionPartDecision>;
   readonly work_ConversionDecision: TirRecordCodec<ConversionDecision>;
@@ -145,6 +148,21 @@ export const createPhaseValuesText = (kernel: TirTextKernel, read: PhaseValuesTe
       type: field_type, convertedType: field_convertedType, conversion: field_conversion, narrowing: field_narrowing,
       evidenceIndex: field_evidenceIndex, demand: field_demand,
     })));
+  const declarationNameExpression = defineRecord<DeclarationNameExpression>("DeclarationNameExpression", "DeclarationNameExpression", null,
+    "DeclarationNameExpression", null, null, fields => fields
+      .field("role", "'declaration-name-expression", value => scalarWork("'declaration-name-expression", value.role),
+        literalReader<DeclarationNameExpression["role"]>("'declaration-name-expression", ["declaration-name-expression"]))
+      .finish(role => ({ role })));
+  const keyAvailable = defineRecord<Extract<CapturedFact<MemberKey>, { readonly kind: "available" }>>(
+    "C<MemberKey>#available", "C<MemberKey>", { field: "kind", value: "available" }, "available", null, null, fields => fields
+      .field("value", "MemberKey", value => read.work_MemberKey.write(value.value), lazyReader(() => read.work_MemberKey.reader))
+      .finish(value => ({ kind: "available", value })));
+  const keyFact = unionRecord<CapturedFact<MemberKey>>("C<MemberKey>", value => value.kind === "available"
+    ? keyAvailable.write(value) : read.work_UnavailableCapture.write(value), () => [keyAvailable.reader, read.work_UnavailableCapture.reader]);
+  const keyDeclaration = defineRecord<Extract<TypedPropertyKey, { readonly kind: "declaration" }>>(
+    "TypedPropertyKey#declaration", "TypedPropertyKey", { field: "kind", value: "declaration" }, "declaration", null, null, fields => fields
+      .field("key", "C<MemberKey>", value => keyFact.write(value.key), lazyReader(() => keyFact.reader))
+      .finish(key => ({ kind: "declaration", key })));
   const work_TypedName_value: TirRecordCodec<TypedName & { readonly role: "value" }> = defineRecord<TypedName & { readonly role: "value" }>("TypedName@value", "TypedName", { field: "role", value: "value" }, "TypedName", null, null, fields => fields
     .field("type", "t", value => referenceWork("t", value.type), typeReader)
     .field("convertedType", "t", value => referenceWork("t", value.convertedType), typeReader)
@@ -604,6 +622,7 @@ export const createPhaseValuesText = (kernel: TirTextKernel, read: PhaseValuesTe
     .field("application", "O<TirApplication>", value => read.work_O_TirApplication_.write(value.application), lazyReader(() => read.work_O_TirApplication_.reader))
     .finish((field_application) => ({ application: field_application })));
   const work_TypedName: TirRecordCodec<TypedName> = unionRecord<TypedName>("TypedName", (value: TypedName): TirTypedRecordWork => {
+    if (value.role === "declaration-name-expression") return declarationNameExpression.write(value);
     switch (value.role) {
       case "value": return work_TypedName_value.write(value);
       case "shorthand-value": return work_TypedName_shorthand_value.write(value);
@@ -615,14 +634,16 @@ export const createPhaseValuesText = (kernel: TirTextKernel, read: PhaseValuesTe
       case "private-name": return work_TypedName_private_name.write(value);
       case "binding-name": return work_TypedName_binding_name.write(value);
     }
-  }, () => [work_TypedName_value.reader, work_TypedName_shorthand_value.reader, work_TypedName_assignment_target.reader, work_TypedName_declaration_name.reader, work_TypedName_property_name.reader, work_TypedName_type_name.reader, work_TypedName_label.reader, work_TypedName_private_name.reader, work_TypedName_binding_name.reader]);
+  }, () => [declarationNameExpression.reader, work_TypedName_value.reader, work_TypedName_shorthand_value.reader, work_TypedName_assignment_target.reader, work_TypedName_declaration_name.reader, work_TypedName_property_name.reader, work_TypedName_type_name.reader, work_TypedName_label.reader, work_TypedName_private_name.reader, work_TypedName_binding_name.reader]);
   const work_TypedPropertyKey: TirRecordCodec<TypedPropertyKey> = unionRecord<TypedPropertyKey>("TypedPropertyKey", (value: TypedPropertyKey): TirTypedRecordWork => {
     switch (value.kind) {
+      case "declaration": return keyDeclaration.write(value);
       case "constant": return work_TypedPropertyKey_constant.write(value);
       case "computed": return work_TypedPropertyKey_computed.write(value);
     }
-  }, () => [work_TypedPropertyKey_constant.reader, work_TypedPropertyKey_computed.reader]);
+  }, () => [keyDeclaration.reader, work_TypedPropertyKey_constant.reader, work_TypedPropertyKey_computed.reader]);
   const work_TypedString: TirRecordCodec<TypedString> = unionRecord<TypedString>("TypedString", (value: TypedString): TirTypedRecordWork => {
+    if (value.role === "declaration-name-expression") return declarationNameExpression.write(value);
     switch (value.role) {
       case "value": return work_TypedString_value.write(value);
       case "property-name": return work_TypedString_property_name.write(value);
@@ -632,15 +653,16 @@ export const createPhaseValuesText = (kernel: TirTextKernel, read: PhaseValuesTe
       case "export-name": return work_TypedString_export_name.write(value);
       case "attribute-value": return work_TypedString_attribute_value.write(value);
     }
-  }, () => [work_TypedString_value.reader, work_TypedString_property_name.reader, work_TypedString_declaration_name.reader, work_TypedString_type_literal.reader, work_TypedString_module_specifier.reader, work_TypedString_export_name.reader, work_TypedString_attribute_value.reader]);
+  }, () => [declarationNameExpression.reader, work_TypedString_value.reader, work_TypedString_property_name.reader, work_TypedString_declaration_name.reader, work_TypedString_type_literal.reader, work_TypedString_module_specifier.reader, work_TypedString_export_name.reader, work_TypedString_attribute_value.reader]);
   const work_TypedNumber: TirRecordCodec<TypedNumber> = unionRecord<TypedNumber>("TypedNumber", (value: TypedNumber): TirTypedRecordWork => {
+    if (value.role === "declaration-name-expression") return declarationNameExpression.write(value);
     switch (value.role) {
       case "value": return work_TypedNumber_value.write(value);
       case "property-name": return work_TypedNumber_property_name.write(value);
       case "declaration-name": return work_TypedNumber_declaration_name.write(value);
       case "type-literal": return work_TypedNumber_type_literal.write(value);
     }
-  }, () => [work_TypedNumber_value.reader, work_TypedNumber_property_name.reader, work_TypedNumber_declaration_name.reader, work_TypedNumber_type_literal.reader]);
+  }, () => [declarationNameExpression.reader, work_TypedNumber_value.reader, work_TypedNumber_property_name.reader, work_TypedNumber_declaration_name.reader, work_TypedNumber_type_literal.reader]);
   const work_TypedBigInt: TirRecordCodec<TypedBigInt> = unionRecord<TypedBigInt>("TypedBigInt", (value: TypedBigInt): TirTypedRecordWork => {
     switch (value.role) {
       case "value": return work_TypedBigInt_value.write(value);
@@ -674,11 +696,12 @@ export const createPhaseValuesText = (kernel: TirTextKernel, read: PhaseValuesTe
     }
   }, () => [work_TypedPrefix_value.reader, work_TypedPrefix_update.reader, work_TypedPrefix_type_literal.reader]);
   const work_TypedMember: TirRecordCodec<TypedMember> = unionRecord<TypedMember>("TypedMember", (value: TypedMember): TirTypedRecordWork => {
+    if (value.role === "declaration-name-expression") return declarationNameExpression.write(value);
     switch (value.role) {
       case "value": return work_TypedMember_value.write(value);
       case "assignment-target": return work_TypedMember_assignment_target.write(value);
     }
-  }, () => [work_TypedMember_value.reader, work_TypedMember_assignment_target.reader]);
+  }, () => [declarationNameExpression.reader, work_TypedMember_value.reader, work_TypedMember_assignment_target.reader]);
   const work_TypedConstruction: TirRecordCodec<TypedConstruction> = unionRecord<TypedConstruction>("TypedConstruction", (value: TypedConstruction): TirTypedRecordWork => {
     switch (value.role) {
       case "value": return work_TypedConstruction_value.write(value);
