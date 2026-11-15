@@ -297,17 +297,33 @@ function leave(walk: Walk, node: HirNode): void {
     const captured = node.tsonic.application;
     if (captured.kind !== "available" || captured.value.kind !== "call" || captured.value.candidates.kind !== "available")
       return notInferredYet(PORT, "the actual captured call candidate inventory", node.origin);
-    if (captured.value.receiver !== null || captured.value.arguments.length !== 0 || captured.value.typeArguments.length !== 0)
+    if (captured.value.receiver !== null || captured.value.typeArguments.length !== 0)
       return notInferredYet(PORT, "the authoritative receiver, argument and binder contributions of a call", node.origin);
+    if (captured.value.arguments.length !== node.arguments.nodes.length)
+      return callerDefect(PORT, "a call retains its actual captured source argument inventory");
+    const arguments_ = captured.value.arguments.map((argument, index) => {
+      const source = node.arguments.nodes[index];
+      if (source === undefined || argument.kind !== "value" || argument.expression !== source.id)
+        return notInferredYet(PORT, "the actual selected source transport of a spread call argument", node.origin);
+      const type = typeAt(walk, source);
+      if (typeof type !== "number" || readType(walk.generation.deps.types, type).kind === "open")
+        return notInferredYet(PORT, "the actual finalized argument contribution footprint", source.origin);
+      return { occurrence: refOf(walk, source), kind: argument.kind, type, tuple: null, closure: null };
+    });
     const result = present(walk.operators.get(node.id), "the actual application result position");
     const callee = typeAt(walk, node.expression);
     if (typeof callee !== "number") return notInferredYet(PORT, "a callee whose signature is an unresolved inferred part", node.origin);
     walk.draft.constraints.push({ kind: "call", occurrence: refOf(walk, node), application: {
-      captured: node.tsonic.core, permissionScope: null, callee, receiver: null, typeArguments: [], arguments: [],
+      captured: node.tsonic.core, permissionScope: null, callee, receiver: null, typeArguments: [], arguments: arguments_,
       candidates: captured.value.candidates.value, result,
     } });
     walk.draft.evidence.push({ type: callee, node: node.expression, component: { kind: "body", value: refOf(walk, node.expression) } },
       { type: result, node, component: { kind: "body", value: refOf(walk, node) } });
+    for (const [index, argument] of arguments_.entries()) {
+      const source = node.arguments.nodes[index];
+      if (source === undefined) return callerDefect(PORT, "a call retains every actual argument occurrence");
+      walk.draft.evidence.push({ type: argument.type, node: source, component: { kind: "body", value: argument.occurrence } });
+    }
     walk.typeOf.set(node.id, result);
   } else if (node.kind === "ReturnStatement") {
     if (node.expression === null) return notInferredYet(PORT, "a return without a value", node.origin);

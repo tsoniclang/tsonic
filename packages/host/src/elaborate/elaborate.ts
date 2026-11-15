@@ -4,7 +4,7 @@ import type { BodyId, NodeId, NodeRef, Origin, TyId } from "../ids/contract.js";
 import type { BinaryExpression, Block, CheckedPhase, Expression, HirBody, HirNode, Identifier, NodeHeader, ParameterDeclaration, Statement, VariableDeclaration } from "../ir-hir/contract.js";
 import { walkSyntaxTree } from "../ir-hir/index.js";
 import type { ApplicationDecision, BodyTyping, EmbeddingDecision, FlowRole, InferredSignaturePart } from "../ir-infer/contract.js";
-import type { TirBody, TirLocal, TirResolution, TypedOperation, TypedPhase, TypedValue } from "../ir-tir/contract.js";
+import type { TirArgument, TirBody, TirLocal, TirResolution, TypedOperation, TypedPhase, TypedValue } from "../ir-tir/contract.js";
 import { artifactBindingsKey } from "../ir-types/index.js";
 import type { ElaborateDeps, ElaborateInput } from "./contract.js";
 import { elaborateModuleBody, elaborateParameter, elaborateVariable } from "./module.js";
@@ -364,18 +364,28 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
       case "CallExpression":
         if (building) {
           const application = applications[position] ?? compilerDefect("a call has no solved selected application", node.origin);
-          if (node.arguments.nodes.length !== 0 || node.typeArguments !== null || node.questionDotToken !== null
-            || application.parameters.length !== 0)
+          if (node.typeArguments !== null || node.questionDotToken !== null
+            || application.parameters.length !== node.arguments.nodes.length)
             return notElaboratedYet("the selected argument and receiver transport of this call", node.origin);
+          const arguments_ = application.parameters.map((mapping, parameter): TirArgument => {
+            const source = node.arguments.nodes[parameter];
+            if (source === undefined || mapping.kind !== "argument" || mapping.parameter !== parameter || mapping.argument !== parameter
+              || mapping.component !== null || mapping.passing !== "by-value")
+              return notElaboratedYet("the actual fixed by-value source argument mapping", node.origin);
+            return { kind: "provided", parameter, expression: source.id };
+          });
           read.applications.add(position);
           expressions[position] = { ...header(node), kind: "CallExpression", expression: expressionOf(node.expression),
-            arguments: { ...node.arguments, nodes: [] }, typeArguments: null, questionDotToken: null,
+            arguments: { ...node.arguments, nodes: node.arguments.nodes.map(expressionOf) }, typeArguments: null, questionDotToken: null,
             tsonic: { ...valueOf(position, application.result, node.origin), operation: null,
               application: { kind: "decided", decision: { callee: { decision: application,
                 activation: application.api.body === null ? null : { body: application.api.body,
                   bindings: instance.bindings.kind === "parametric" ? instance.bindings
-                    : { kind: "instantiated", bindings: application.implementationBindings } } }, receiver: null, arguments: [] } } } };
-        } else visit(node.expression);
+                    : { kind: "instantiated", bindings: application.implementationBindings } } }, receiver: null, arguments: arguments_ } } } };
+        } else {
+          visitList(node.arguments.nodes, node.origin);
+          visit(node.expression);
+        }
         return;
       case "ParenthesizedExpression":
         if (building) {

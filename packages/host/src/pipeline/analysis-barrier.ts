@@ -242,8 +242,8 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
         }
       }
       if (selectedCall === null || selectedCall.callee.kind !== "direct") return null;
-      if (captured.kind !== "call" || captured.receiver !== null || captured.arguments.length !== 0
-        || decision.parameters.length !== 0 || decision.api.body === null || callee.activation === null
+      if (captured.kind !== "call" || captured.receiver !== null || captured.arguments.length !== decision.parameters.length
+        || decision.api.body === null || callee.activation === null
         || callee.activation.body !== decision.api.body) return null;
       if (selectedCall.arguments.length !== decision.parameters.length)
         return fail("The actual selected call retains its complete MIR argument dispositions.");
@@ -252,12 +252,35 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
       if (stop !== null) return null;
       const selected = readyBody(execution.instance);
       const graph = mir.get(instanceKey(execution.instance));
+      const signatureRead = chargeWork(account, 1);
+      if (signatureRead !== null) return null;
       const signature = readSignature(source.types, decision.api.signature);
-      const entry = graph?.entries[0];
       if (selected.owner !== decision.api.declaration || selected.signature !== signature.id
-        || signature.parameters.length !== 0 || signature.receiver !== null || graph === undefined
-        || graph.entries.length !== 1 || entry?.provided !== execution.provided)
+        || signature.parameters.length !== decision.parameters.length || signature.receiver !== null || graph === undefined)
         return fail("A selected call retains its actual API body, authoritative signature and offered entry.");
+      for (let parameter = 0; parameter < decision.parameters.length; parameter += 1) {
+        const read = chargeWork(account, 1);
+        if (read !== null) return null;
+        const mapping = decision.parameters[parameter];
+        const argument = selectedCall.arguments[parameter];
+        const original = captured.arguments[parameter];
+        if (mapping?.kind !== "argument" || mapping.parameter !== parameter || mapping.argument !== parameter
+          || mapping.component !== null || mapping.passing !== "by-value" || original?.kind !== "value"
+          || argument?.kind !== "value" || argument.passing !== mapping.passing)
+          return null;
+      }
+      let found = false;
+      for (let position = 0; position < graph.entries.length; position += 1) {
+        const read = chargeWork(account, 1);
+        if (read !== null) return null;
+        const entry = graph.entries[position];
+        if (entry === undefined) return fail("The actual offered entry inventory is dense.");
+        if (entry.provided === execution.provided) {
+          if (found) return fail("A selected provided count names one actual offered entry.");
+          found = true;
+        }
+      }
+      if (!found) return fail("A selected call requires its actual offered provided-count entry.");
       return { kind: "body", execution };
     };
     const discovered = pipelineWiring.summaries.dependenciesOf({ account, callableEntriesAt,

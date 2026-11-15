@@ -679,7 +679,7 @@ test("selected endpoint roles: an advertised row for an overloaded family, the s
 });
 
 test("HIR public index has exactly the current complete data and binding operations", () => {
-  assert.deepStrictEqual(Object.keys(product).sort(), ["callableEndpointKey", "childrenOfSyntax", "createModuleBindingViews", "hasOverloadEndpoints", "indexSyntaxTree", "isModuleBindingKind", "iterateChildrenOfSyntax", "orderPragmaArguments", "parseHir", "printHir", "projectExportDeclarations", "resolveModuleBinding", "selectedEndpointRoleFaults", "verifyHir", "walkSyntaxTree"]);
+  assert.deepStrictEqual(Object.keys(product).sort(), ["callableEndpointKey", "childrenOfSyntax", "createModuleBindingViews", "hasOverloadEndpoints", "indexSyntaxTree", "isModuleBindingKind", "iterateChildrenOfSyntax", "iterateSyntaxChildEdges", "orderPragmaArguments", "parseHir", "printHir", "projectExportDeclarations", "resolveModuleBinding", "selectedEndpointRoleFaults", "verifyHir", "walkSyntaxTree"]);
   assert.deepStrictEqual(readdirSync(resolve(repository, "packages/host/src/ir-hir")).filter(name => name.endsWith(".ts")).sort(),
     ownedSources.map(path => basename(path)).sort());
 });

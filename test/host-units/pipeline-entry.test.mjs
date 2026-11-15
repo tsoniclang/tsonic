@@ -218,6 +218,32 @@ test("real public Host analysis closes a direct zero-argument scalar call throug
     && edge.target.execution.provided === 0), true);
 });
 
+for (const [count, source] of [
+  [1, "export function value(input: boolean): boolean { return input; } export function read(input: boolean): boolean { return value(input); }"],
+  [2, "export function add(a: number, b: number): number { return a + b; } export function read(a: number, b: number): number { return add(a, b); }"],
+])
+test(`real public Host analysis closes ${count} fixed by-value scalar call arguments through the selected mapping`, async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", source);
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok");
+  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  const main = result.value.modules.find(module => module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts"));
+  const caller = main.bodies.find(body => body.kind === "selected" && body.mir.blocks.some(block => block.terminator.kind === "call"));
+  assert.equal(caller !== undefined, true);
+  const call = caller.mir.blocks.find(block => block.terminator.kind === "call").terminator;
+  assert.equal(call.callee.kind, "direct");
+  assert.deepEqual(call.callee.resolution.decision.parameters, Array.from({ length: count }, (_, parameter) =>
+    ({ kind: "argument", parameter, argument: parameter, component: null, passing: "by-value" })));
+  assert.deepEqual(call.arguments.map(argument => [argument.kind, argument.passing]),
+    Array.from({ length: count }, () => ["value", "by-value"]));
+  assert.equal(result.value.index.dependencyInventory.dependencies.some(edge => edge.reason === "call"
+    && edge.dependent.instance.body === caller.instance.body && edge.dependent.provided === count
+    && edge.target.kind === "body" && edge.target.execution.instance.body === call.callee.resolution.activation.body
+    && edge.target.execution.provided === count), true);
+});
+
 test("the actual selected-call analysis admits its indices before growth and retains the original account refusal", async () => {
   const fixture = await loadFrontFixture();
   const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");

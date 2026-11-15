@@ -190,6 +190,55 @@ test("constructed call result categories retain the selected native carrier with
   }
 });
 
+test("actual fixed call arguments retain their checked source and reject malformed or unoffered mapping evidence", () => {
+  const program = ready("export function value(input: boolean): boolean { return input; } export function read(input: boolean): boolean { return value(input); }");
+  const record = [...drive(program).values()].find(record => record.constraints.some(set =>
+    set.constraints.some(constraint => constraint.kind === "call")));
+  const system = record.constraints.find(set => set.constraints.some(constraint => constraint.kind === "call"));
+  const constraint = system.constraints.find(constraint => constraint.kind === "call");
+  const scheme = program.deps.rules.constraints.call;
+  const candidates = system.candidates;
+  const evidence = system.evidence.slice(0, 3);
+  assert.deepEqual(evidence.map(row => row.value.type), [
+    constraint.application.callee, constraint.application.result, constraint.application.arguments[0].type,
+  ]);
+  const enumerate = selected => scheme.enumerate({ group: record.group.id, reference: { body: system.body, index: 0 },
+    constraint: selected, variables: system.variables, candidates, evidence, remainingContributions: 1 });
+  const enumeration = enumerate(constraint);
+  assert.equal(enumeration.kind, "ok");
+  const evaluate = (rows, selected = candidates) => scheme.evaluate({ constraint, contribution: enumeration.value[0],
+    evidence: rows, candidates: selected, reads: [] });
+  assert.deepEqual(evaluate(evidence).value.decision.application.parameters,
+    [{ kind: "argument", parameter: 0, argument: 0, component: null, passing: "by-value" }]);
+  assert.throws(() => evaluate(evidence.slice(0, 2)), /actual callee and result evidence/u);
+  assert.throws(() => evaluate([...evidence.slice(0, 2), { ...evidence[2], value: { ...evidence[2].value,
+    type: constraint.application.callee } }]), /actual selected occurrence evidence/u);
+  assert.throws(() => enumerate({ ...constraint, application: { ...constraint.application,
+    arguments: [{ ...constraint.application.arguments[0], kind: "spread" }] } }), /contribution footprints/u);
+  const candidate = candidates[0].candidates[0];
+  assert.throws(() => evaluate(evidence, [{ ...candidates[0], candidates: [{ ...candidate,
+    endpoints: { kind: "unavailable", reason: "incomplete-association", causes: [] } }] }]), /original candidate bindings/u);
+  const body = program.domain.bodyOf.get(system.body);
+  for (const argument of [null, { kind: "value", expression: constraint.occurrence.node }]) {
+    const changed = structuredClone(body);
+    const call = fixture.hir.indexSyntaxTree(changed.root).find(node => node.id === constraint.occurrence.node);
+    assert.equal(call.kind, "CallExpression");
+    call.tsonic.application.value.arguments = argument === null ? [] : [argument];
+    const deps = { ...program.deps, hirBody: identity => identity === changed.body ? changed : program.deps.hirBody(identity) };
+    const paused = wiring.infer.constraintsOf(deps, record.group);
+    assert.equal(paused.kind, "paused");
+    const answers = paused.requests.map(request => {
+      assert.equal(request.kind, "declaredSignatureOf");
+      const answer = wiring.decls.declaredSignatureOf(program.inputs, request.request);
+      assert.equal(answer.kind, "done");
+      assert.equal(answer.value.kind, "ok");
+      return { kind: request.kind, value: answer.value.value };
+    });
+    assert.throws(() => wiring.infer.resumeConstraintsOf(deps, paused.paused, answers),
+      argument === null ? /actual captured source argument inventory/u : /actual selected source transport/u);
+  }
+});
+
 test("real unannotated return solves its actual producer before one unmemoised same-group placement", () => {
   const program = ready("export function add(a: number, b: number) { return a + b; }\n");
   const records = drive(program);
