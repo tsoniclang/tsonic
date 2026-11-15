@@ -74,11 +74,9 @@ export const verifyQualifiedReferences = (
   }
 };
 
-export const verifyNestedPublication = (
-  input: TirVerifierInput, body: TirBody, semantics: TirSemanticInventory, original: HirBody | undefined,
-  moduleNodes: ReadonlyMap<NodeId, TirNode>, actualNodes: readonly TirNode[],
-  headers: readonly (ParameterDeclaration<CheckedPhase> | null)[], emit: TirOccurrenceEmit,
-): ReadonlySet<NodeId> => {
+export const verifyCanonicalTemplates = (
+  input: TirVerifierInput, module: TirModule, moduleNodes: ReadonlyMap<NodeId, TirNode>, emit: TirOccurrenceEmit,
+): { readonly originals: ReadonlyMap<BodyId, HirBody>; readonly templates: ReadonlyMap<BodyId, TirBody> } => {
   const originals = new Map<BodyId, HirBody>();
   const order = new Map<BodyId, number>();
   for (let position = 0; position < input.source.bodies.length; position++) {
@@ -87,8 +85,9 @@ export const verifyNestedPublication = (
   }
   const templates = new Map<BodyId, TirBody>();
   let previous = -1;
-  for (const candidate of input.module.bodies) {
+  for (const candidate of module.bodies) {
     if (candidate === undefined || candidate.bindings.kind !== "parametric") continue;
+    if (templates.has(candidate.body)) emit("template-shared-once", null, "actual source body has more than one canonical parametric template");
     templates.set(candidate.body, candidate);
     const position = order.get(candidate.body);
     if (position === undefined || position < previous) emit("stable-order", null, "canonical template publication does not retain actual source body order");
@@ -102,6 +101,15 @@ export const verifyNestedPublication = (
   for (const source of input.source.bodies) if (source !== undefined && !templates.has(source.body)) {
     emit("template-shared-once", null, "actual source body has no canonical parametric template in the publication");
   }
+  return { originals, templates };
+};
+
+export const verifyNestedPublication = (
+  input: TirVerifierInput, body: TirBody, semantics: TirSemanticInventory, original: HirBody | undefined,
+  moduleNodes: ReadonlyMap<NodeId, TirNode>, actualNodes: readonly TirNode[],
+  headers: readonly (ParameterDeclaration<CheckedPhase> | null)[], emit: TirOccurrenceEmit,
+): ReadonlySet<NodeId> => {
+  const { originals, templates } = verifyCanonicalTemplates(input, input.module, moduleNodes, emit);
   const ownNodes = new Map<NodeId, TirNode>();
   for (const node of actualNodes) ownNodes.set(node.id, node);
   for (const template of semantics.templates) {

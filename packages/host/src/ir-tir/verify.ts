@@ -10,7 +10,7 @@ import type { TirOccurrenceEmit, TirStructure, TirTypeGraph } from "./verify-occ
 import { collectTirSemantics, inspectTirStructure, sameLocalReference, sameSourceReference, typedValueOf, verifyDeferredParameters, verifyOccurrenceOperation, verifyOccurrenceRole, verifyOperationShape, verifyValueEndpoints } from "./verify-occurrences.js";
 import type { TirDeclarationInventory, TirMemberInventory } from "./verify-applications.js";
 import { applicationOf, declarationEndpoints, indexMembers, verifyActivation, verifyArgumentTransport, verifyCallEndpoints, verifyMemberDecision, verifyMemberSelection, verifyProtocolOperation, verifyProtocolRecord } from "./verify-applications.js";
-import { sameBindingScope, sameParameterSelection, verifyBindingSlots, verifyControlledContexts, verifyNestedPublication, verifyPublicationInventory, verifyPublishedInstance, verifyQualifiedReferences } from "./verify-instances.js";
+import { sameBindingScope, sameParameterSelection, verifyBindingSlots, verifyCanonicalTemplates, verifyControlledContexts, verifyNestedPublication, verifyPublicationInventory, verifyPublishedInstance, verifyQualifiedReferences } from "./verify-instances.js";
 import { sameSyntaxFields } from "./syntax-compare.js";
 import { createTirLayouts } from "./text-model.js";
 
@@ -576,6 +576,9 @@ export const verifyTypedModule: VerifyTirModule = (input, module) => {
     stops.add(body.root.id);
   }
   const structure = inspectTirStructure(module, createTirLayouts(), stops);
+  const moduleNodes = new Map<NodeId, TirNode>();
+  for (const node of indexSyntaxTree<TypedPhase>(module.tree)) moduleNodes.set(node.id, node);
+  verifyCanonicalTemplates(input, module, moduleNodes, emit);
   const sourceNodes = new Map<NodeId, HirNode>();
   for (const node of indexSyntaxTree<CheckedPhase>(input.source.tree)) sourceNodes.set(node.id, node);
   if (module.module !== input.module.module || module.module !== input.source.module || module.tree !== input.module.tree) {

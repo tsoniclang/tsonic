@@ -59,6 +59,56 @@ function record(lowering) {
 }
 const fresh = maximumRecords => state.createState(BODY, { kind: "parametric" }, 0, { maximumRecords });
 
+test("a necessary dominating snapshot is admitted before its existing terminator and stops at the first refusal", () => {
+  const statement = { ...site, kind: "storage-live", local: 0 };
+  for (const maximumRecords of [1, 2]) {
+    const graph = fresh(maximumRecords);
+    const block = state.newBlock(graph, site);
+    state.enterBlock(graph, block);
+    const terminator = { ...site, kind: "return", value: null };
+    state.terminate(graph, terminator);
+    assert.equal(state.emitBeforeTerminator(graph, block, statement), maximumRecords === 2);
+    assert.equal(graph.blocks[0].terminator, terminator);
+    assert.equal(graph.blocks[0].statements.length, maximumRecords - 1);
+    if (maximumRecords === 1) {
+      assert.equal(state.emitBeforeTerminator(graph, 999, statement), false);
+      assert.equal(graph.records, 1);
+    }
+  }
+  const graph = fresh(2);
+  const block = state.newBlock(graph, site);
+  for (const invalid of [block, 999]) assert.throws(() => state.emitBeforeTerminator(graph, invalid, statement),
+    error => error instanceof Error && error.message.includes("actual terminated split"));
+});
+
+test("the private conditional finisher rejects a changed selection kind instead of choosing an arm", async () => {
+  const { enterConditional } = await import("../../packages/host/dist/lower-mir/control.js");
+  const lowering = { operands: [{ operand: { kind: "constant", constant: 0 }, inPlace: null }],
+    exposed: new Set(), reads: new Map() };
+  assert.throws(() => enterConditional(lowering, { origin, tsonic: { selection: { kind: "and" } } }),
+    error => error instanceof Error && error.message.includes("another selection kind"));
+  lowering.state = fresh(10);
+  lowering.operands.push({ operand: { kind: "place", place: 0 }, inPlace: null, storage: 0 });
+  lowering.typeOf = () => ({ kind: "primitive", primitive: "bool" });
+  assert.throws(() => enterConditional(lowering, { origin, condition: { origin },
+    tsonic: { selection: { kind: "conditional", disposition: "dynamic" } } }),
+  error => error instanceof Error && error.message.includes("no executing split"));
+});
+
+test("the private short-circuit finisher preserves its actual selected kind and executing split", async () => {
+  const { enterShortCircuit } = await import("../../packages/host/dist/lower-mir/control.js");
+  const selected = { kind: "and", disposition: "dynamic" };
+  const node = { origin, left: { origin }, right: { origin }, tsonic: { role: "short-circuit", selection: selected } };
+  const freshLowering = () => ({ state: fresh(20), exposed: new Set(), reads: new Map(),
+    operands: [{ operand: { kind: "place", place: 0 }, inPlace: null, storage: 0 }],
+    typeOf: () => ({ kind: "primitive", primitive: "bool" }) });
+  for (const payload of [{ role: "arithmetic" }, { role: "short-circuit", selection: { kind: "conditional" } }])
+    assert.throws(() => enterShortCircuit(freshLowering(), { ...node, tsonic: payload }),
+      error => error instanceof Error && error.message.includes("another selection kind"));
+  assert.throws(() => enterShortCircuit(freshLowering(), node),
+    error => error instanceof Error && error.message.includes("no executing split"));
+});
+
 test("private declaration lifetimes reject unrelated scope anchors and a missing lexical owner", async () => {
   const { declareLocal, leaveLocalScopes } = await import("../../packages/host/dist/lower-mir/bindings.js");
   assert.throws(() => leaveLocalScopes({ scope: null }, { parent: null, locals: [] }, { origin }),
@@ -83,7 +133,7 @@ test("an initializer stops before call handoff when saving an actual pending exp
       state: graph, localOf: new Map([[0, source]]), scope: { parent: null, locals: [] },
       internal: [{ instance: { body: initializer, bindings: { kind: "parametric" } }, signature: 0, captures: [] }],
       internalOf: null, signatureOf: () => ({ receiver: null, parameters: [], result: 0 }),
-      operands: [], reads: new Map(), preservedLocals: new Set([source]), exposed: new Set() };
+      operands: [], reads: new Map(), branches: [], preservedLocals: new Set([source]), exposed: new Set() };
     pushOperand(lowering, { operand: { kind: "place", place }, inPlace: source, storage: 0, site });
     const declaration = { id: 1, origin, name: { kind: "Identifier" }, initializer: { kind: "NumericLiteral" },
       tsonic: { declaration: { kind: "local", local: { body: BODY, local: 1 } }, storage: 0, initializer } };

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { publicationFixture } from "./fixtures/program-publication.mjs";
+import { encodeContextKey } from "./ir-program-fixtures.mjs";
 import { canonicalizeProgram, parseModuleBodies, parseProgramIndex, printModuleBodies, printProgramIndex,
   instantiate, verifyModuleBodies, verifyProgramIndex } from "../../packages/host/dist/ir-program/index.js";
 import { ProgramWork } from "../../packages/host/dist/ir-program/work.js";
@@ -82,4 +83,15 @@ test("artifact selection never fabricates MIR or execution Facts from a typed te
     const templateOnly = { ...fixture.module, bodies: [fixture.template] };
     assert.equal(instantiate(fixture.index, templateOnly, artifact, bindings, limits).kind, "missing-binding-artifact");
   }
+});
+
+test("deleting the entire publication cannot bypass authentic checked-source template coverage", () => {
+  const fixture = publicationFixture();
+  fixture.module.bodies = [];
+  fixture.index.bodies = [];
+  fixture.index.dependencyInventory = { operations: [], dependencies: [], components: [] };
+  fixture.answers.set(encodeContextKey(["tirBindingScopesOf", { kind: "module", module: fixture.module.module }]), [fixture.scope]);
+  const result = verifyModuleBodies(fixture.index, fixture.module, fixture.context);
+  assert.equal(result.kind, "complete");
+  assert.equal(result.violations.some(row => row.rule === "tir-valid" && row.detail[0]?.value === "template-shared-once"), true);
 });

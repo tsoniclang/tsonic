@@ -204,10 +204,9 @@ function bodylessModuleScenario() {
   const sourceEnd = { ...header(4, 0), kind: "EndOfFile", tsonic: null };
   const sourceTree = { ...header(0), kind: "SourceFile", statements: nodeList([sourceAlias]), endOfFileToken: sourceEnd,
     languageVariant: "Standard", scriptKind: "TS", commentDirectives: [], pragmas: [], checkJsDirective: null,
-    tsonic: { core: emptyCore(), parent: null, attributes: [], memory: available(null), definition: ownerId, body: bodyId } };
+    tsonic: { core: emptyCore(), parent: null, attributes: [], memory: available(null), definition: ownerId, body: null } };
   const source = { module: moduleId, tree: sourceTree,
-    bodies: [{ body: bodyId, owner: ownerId, params: [], locals: [], root: sourceTree, captures: [], scopes: [],
-      asynchronous: false, generator: false, candidateLists: [], nestedBodies: [] }], exports: [], bindings: [], checkerDiagnostics: [], obligations: [],
+    bodies: [], exports: [], bindings: [], checkerDiagnostics: [], obligations: [],
     items: [{ definition: ownerId, node: 0 }, { definition, node: 1 }] };
   const module = { module: moduleId, tree, bodies: [] };
   const nodes = new Map([sourceTree, sourceAlias, sourceName, sourceKeyword, sourceEnd].map(node => [node.id, node]));
@@ -4817,8 +4816,10 @@ test("a duplicate canonical publication is rejected even when both entries are t
   const body = emptyModuleBody();
   const input = emptyVerificationInput(body);
   input.module.bodies.push(body);
-  assertCompleteValue(product.verifyTir(input, body), [bodyViolation("template-shared-once",
-    "canonical publication contains a duplicate artifact key or does not contain the selected body exactly once")]);
+  assertCompleteValue(product.verifyTir(input, body), [
+    bodyViolation("template-shared-once", "canonical publication contains a duplicate artifact key or does not contain the selected body exactly once"),
+    bodyViolation("template-shared-once", "actual source body has more than one canonical parametric template"),
+  ]);
 });
 
 test("an instantiated publication cannot replace its required authentic parametric template", () => {
@@ -6799,8 +6800,10 @@ for (const family of ["classBindings", "methodBindings", "capturedBindings", "se
     assert.throws(() => product.verifyTir(input, other), { name: "TypeError",
       message: `ir-tir: sparse vector at $body["bindings"]["bindings"]["${family}"][0]` });
     input.module.bodies = [body, body];
-    assertCompleteValue(product.verifyTir(input, body), [bodyViolation("template-shared-once",
-      "canonical publication contains a duplicate artifact key or does not contain the selected body exactly once")]);
+    assertCompleteValue(product.verifyTir(input, body), [
+      bodyViolation("template-shared-once", "canonical publication contains a duplicate artifact key or does not contain the selected body exactly once"),
+      bodyViolation("template-shared-once", "actual source body has more than one canonical parametric template"),
+    ]);
     input.module.bodies = [body];
     assertCompleteValue(product.verifyTir(input, body), []);
   });
