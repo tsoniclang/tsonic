@@ -137,6 +137,56 @@ test("real default-argument inferred part belongs to its genuine initializer exe
   assert.equal(result.value.indexOf(group) < result.value.findIndex(candidate => candidate.bodies.includes(body.body)), true);
 });
 
+test("real chained formal dependencies retain only their actual initializer edges and pre-admit the shared formal index", () => {
+  const program = input("export function chain(a: boolean, b = a, c = b): boolean { return c; }");
+  const owner = functions(program)[0];
+  const callable = program.bodies.get(owner.tsonic.body);
+  const result = run(program);
+  assert.equal(result.kind, "ok");
+  const first = callable.params[1].initializer;
+  const second = callable.params[2].initializer;
+  const groupOf = body => result.value.findIndex(group => group.bodies.includes(body));
+  assert.equal(groupOf(first) < groupOf(second), true);
+  assert.equal(groupOf(second) < groupOf(callable.body), true);
+  assert.deepEqual(run(program, AMPLE, [...program.bodies.keys()].reverse()), result);
+  for (const dimension of ["maximumWork", "maximumResultEntries"]) {
+    let complete = false;
+    for (let maximum = 0; maximum < 8192; maximum++) {
+      const bounded = run(program, { ...AMPLE, [dimension]: maximum });
+      if (bounded.kind === "ok") { complete = true; break; }
+      assert.equal(bounded.kind, "refused");
+      assert.equal("value" in bounded, false);
+      assert.equal(bounded.diagnostics[0].arguments.some(argument => argument.kind === "number" && argument.value === maximum), true);
+    }
+    assert.equal(complete, true);
+  }
+  const duplicate = structuredClone(program);
+  duplicate.bodies.get(callable.body).params.push({ ...callable.params[0] });
+  assert.throws(() => run(duplicate), /formal dependency inventory repeats/u);
+  const wrong = structuredClone(program);
+  wrong.items.get(callable.params[1].declaration).tsonic.initializer = first;
+  wrong.bodies.get(callable.body).locals[callable.params[1].local].declaration = {
+    kind: "item", value: { owner: callable.params[0].declaration, node: owner.parameters.nodes[0].id },
+  };
+  assert.throws(() => run(wrong), /actual checked initializer declaration/u);
+  const unavailable = structuredClone(program);
+  unavailable.items.get(callable.params[1].declaration).tsonic.declaredType = {
+    kind: "unavailable", reason: "not-provided", causes: [],
+  };
+  assert.throws(() => run(unavailable), /annotation availability is missing/u);
+  const annotated = structuredClone(program);
+  annotated.items.get(callable.params[1].declaration).tsonic.declaredType = owner.parameters.nodes[0].tsonic.declaredType;
+  assert.equal(run(annotated).kind, "ok");
+  const missing = structuredClone(program);
+  const missingParameter = missing.bodies.get(callable.body).params[1];
+  const missingDeclaration = missing.items.get(missingParameter.declaration);
+  const outside = fixture.ids.encodeBodyId({ owner: missingParameter.declaration, role: "initializer", ordinal: 99 });
+  missingDeclaration.initializer = null;
+  missingDeclaration.tsonic.initializer = outside;
+  missingParameter.initializer = outside;
+  assert.throws(() => run(missing), /formal initializer dependency is outside/u);
+});
+
 test("group graph work and result refusal retain the original maximum and never return partial groups", () => {
   const program = input();
   const empty = infer.groupsOf({ ...deps(program), hirBody: () => assert.fail("empty inventory reads no body") }, []);
