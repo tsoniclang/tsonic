@@ -6,7 +6,7 @@ import type { BodyId, DefId, NodeRef } from "../ids/contract.js";
 import type { BodyFacts, BodyObservations, DependencyInventory, ExecutionDependency, FactsVerificationContext,
   SummaryAnswer, SummaryKey } from "../ir-facts/contract.js";
 import { admitSummaryIdentity, summaryKey } from "../ir-facts/index.js";
-import type { MirBody } from "../ir-mir/contract.js";
+import type { MirBody, MirTerminator } from "../ir-mir/contract.js";
 import { verifyMir } from "../ir-mir/index.js";
 import type { BodyInstance, Execution } from "../ir-types/contract.js";
 import { executionKey, instanceKey, internType, readSignature, readType, viewTypes } from "../ir-types/index.js";
@@ -45,11 +45,14 @@ export interface AnalysisBarrier {
 }
 
 export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourceBarrier, account: DataflowAccount): Result<AnalysisBarrier> {
+  const unit: UnitRequest = { query: "AnalyzeHostProgram", key: inputs.snapshot.packages.fingerprint };
+  const callIndexGrowth = chargeResultEntries(account, 1);
+  if (callIndexGrowth !== null) return analysisStop(callIndexGrowth, unit);
   const { source } = typed;
   const sources = checkedSourceViews(source.modules);
-  const unit: UnitRequest = { query: "AnalyzeHostProgram", key: inputs.snapshot.packages.fingerprint };
   const table = viewTypes(source.types);
   const mir = new Map<string, MirBody>();
+  const callSites = new Map<MirBody, ReadonlyMap<NodeId, readonly Extract<MirTerminator, { readonly kind: "call" }>[]>>();
   const observations = new Map<string, BodyObservations>();
   const parameterHeaders = new Map<string, ReadonlyMap<NodeId, ParameterDeclaration<TypedPhase>>>();
   const facts = new Map<string, BodyFacts>();
@@ -135,6 +138,23 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
     const verified = verifyMir(lowered.value, mirVerificationContext(run, body));
     if (verified.kind === "resource-limit") return analysisStop(verified, unit);
     if (verified.violations.length !== 0) return fail(`The actual LowerMir result violates ${verified.violations[0]?.rule}.`);
+    const callGrowth = chargeResultEntries(account, 2);
+    if (callGrowth !== null) return analysisStop(callGrowth, unit);
+    const calls = new Map<NodeId, Extract<MirTerminator, { readonly kind: "call" }>[]>();
+    for (let index = 0; index < lowered.value.blocks.length; index += 1) {
+      const read = chargeWork(account, 1);
+      if (read !== null) return analysisStop(read, unit);
+      const block = lowered.value.blocks[index];
+      if (block === undefined) return fail("The actual verified graph block inventory is dense.");
+      const terminator = block.terminator;
+      if (terminator.kind !== "call" || terminator.callee.kind === "body") continue;
+      const rows = calls.get(terminator.tir.node);
+      const growth = chargeResultEntries(account, rows === undefined ? 3 : 1);
+      if (growth !== null) return analysisStop(growth, unit);
+      if (rows === undefined) calls.set(terminator.tir.node, [terminator]);
+      else rows.push(terminator);
+    }
+    callSites.set(lowered.value, calls);
     const growth = chargeResultEntries(account, 3);
     if (growth !== null) return analysisStop(growth, unit);
     mir.set(identity, lowered.value);
@@ -202,8 +222,46 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
         return fail("A placed initializer requires its actual selected parameterless entry and verified graph.");
       return { kind: "body", execution: { instance, provided: entry.provided } };
     };
+    const calleeAt: Parameters<typeof pipelineWiring.summaries.dependenciesOf>[0]["calleeAt"] = (at, callee) => {
+      if (at.body !== body.body) return fail("A selected call occurrence belongs to its actual requesting execution.");
+      const original = sources.nodeOf({ kind: "body", value: at });
+      if (original?.kind !== "CallExpression" || original.tsonic.application.kind !== "available") return null;
+      const captured = original.tsonic.application.value;
+      const decision = callee.decision;
+      const currentGraph = mir.get(instanceKey(operation.execution.instance));
+      const calls = currentGraph === undefined ? undefined : callSites.get(currentGraph)?.get(at.node);
+      let selectedCall: Extract<MirTerminator, { readonly kind: "call" }> | null = null;
+      for (let position = 0; position < (calls?.length ?? 0); position += 1) {
+        const read = chargeWork(account, 1);
+        if (read !== null) return null;
+        const call = calls?.[position];
+        if (call === undefined) return fail("The actual selected call-site projection is dense.");
+        if (call.callee.kind !== "body" && call.callee.resolution === callee) {
+          if (selectedCall !== null) return fail("A selected call must name one actual verified MIR occurrence.");
+          selectedCall = call;
+        }
+      }
+      if (selectedCall === null || selectedCall.callee.kind !== "direct") return null;
+      if (captured.kind !== "call" || captured.receiver !== null || captured.arguments.length !== 0
+        || decision.parameters.length !== 0 || decision.api.body === null || callee.activation === null
+        || callee.activation.body !== decision.api.body) return null;
+      if (selectedCall.arguments.length !== decision.parameters.length)
+        return fail("The actual selected call retains its complete MIR argument dispositions.");
+      const execution: Execution = { instance: callee.activation, provided: selectedCall.arguments.length };
+      const stop = admitSummaryIdentity({ kind: "body", execution }, account);
+      if (stop !== null) return null;
+      const selected = readyBody(execution.instance);
+      const graph = mir.get(instanceKey(execution.instance));
+      const signature = readSignature(source.types, decision.api.signature);
+      const entry = graph?.entries[0];
+      if (selected.owner !== decision.api.declaration || selected.signature !== signature.id
+        || signature.parameters.length !== 0 || signature.receiver !== null || graph === undefined
+        || graph.entries.length !== 1 || entry?.provided !== execution.provided)
+        return fail("A selected call retains its actual API body, authoritative signature and offered entry.");
+      return { kind: "body", execution };
+    };
     const discovered = pipelineWiring.summaries.dependenciesOf({ account, callableEntriesAt,
-      signatureOf: signature => readSignature(source.types, signature), calleeAt: () => null, initializerAt,
+      signatureOf: signature => readSignature(source.types, signature), calleeAt, initializerAt,
       operationEntriesAt: () => null, dispatchEntriesAt: () => null },
     { execution: operation.execution, tir: body });
     if (discovered.kind !== "complete") return analysisStop(discovered, unit);
@@ -267,13 +325,26 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
       const component = index === undefined ? undefined : components.value.components[index];
       if (component === undefined || component.kind !== "body" || component.members.length !== 1)
         return fail("The actual multi-member convergence requires its genuine stable-batch producer and per-member unit positions.");
-      const outside = component.rows.flatMap(row => {
+      const outsideGrowth = chargeResultEntries(account, 2);
+      if (outsideGrowth !== null) return analysisStop(outsideGrowth, unit);
+      const outside: { readonly key: SummaryKey; readonly answer: SummaryAnswer }[] = [];
+      const outsideKeys = new Set<string>();
+      for (const row of component.rows) {
+        const read = chargeWork(account, 1);
+        if (read !== null) return analysisStop(read, unit);
         const dependency = dependencies[row];
         if (dependency === undefined) return fail("A component dependency row must retain its actual closed inventory index.");
-        const answer = summaries.get(summaryKey(dependency.target));
+        const admission = admitSummaryIdentity(dependency.target, account);
+        if (admission !== null) return analysisStop(admission, unit);
+        const key = summaryKey(dependency.target);
+        if (outsideKeys.has(key)) continue;
+        const answer = summaries.get(key);
         if (answer === undefined) return fail("The selected component requires its already completed exact outside answer.");
-        return [{ key: dependency.target, answer }];
-      });
+        const growth = chargeResultEntries(account, 3);
+        if (growth !== null) return analysisStop(growth, unit);
+        outsideKeys.add(key);
+        outside.push({ key: dependency.target, answer });
+      }
       const graph = mir.get(instanceKey(execution.instance));
       if (graph === undefined || index === undefined) return fail("A body round requires its actual verified graph and component.");
       const result = pipelineWiring.summaries.convergeComponent({

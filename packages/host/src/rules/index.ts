@@ -6,6 +6,7 @@ import { notDecidedYet } from "./frontier.js";
 import { decideOperator } from "./operators.js";
 import { flowScheme, operatorScheme } from "./schemes.js";
 import { localVariableRule, signatureVariableRule } from "./variables.js";
+import { callScheme, decideCandidate } from "./candidates.js";
 
 const decided = <Decision>(decision: Decision): Result<RuleOutcome<Decision>> =>
   ({ kind: "ok", value: { kind: "decided", decision }, diagnostics: [] });
@@ -30,7 +31,7 @@ export const createRuleTable: CreateRuleTable = (deps): RuleTable => ({
   member: atContext("member"),
   index: atContext("index"),
   constructLiteral: atContext("literal-construction"),
-  candidate: atContext("candidate"),
+  candidate: input => decided(decideCandidate(deps, input)),
   operator: input => decided(decideOperator(deps, input.operator, input.operands, input.context.occurrence, input.context.origin)),
   literalFit: atContext("literal-fit"),
   protocol: atContext("protocol"),
@@ -46,7 +47,7 @@ export const createRuleTable: CreateRuleTable = (deps): RuleTable => ({
     op: operatorScheme(deps),
     member: atConstraint("member"),
     index: atConstraint("index"),
-    call: atConstraint("call"),
+    call: callScheme(deps),
     construct: atConstraint("construct"),
     constructLiteral: atConstraint("literal-construction"),
     protocol: atConstraint("protocol"),

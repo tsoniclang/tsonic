@@ -1,6 +1,6 @@
 import type { BodyId, GroupId, KeyData, NodeRef, SigId, TyId } from "../ids/contract.js";
 import type { Violation } from "../diag/contract.js";
-import type { HirCandidate, HirCandidateList } from "../ir-hir/contract.js";
+import type { InferenceCandidate, InferenceCandidateList } from "./contract.js";
 import type { Signature, TypeTable, TypeTerm } from "../ir-types/contract.js";
 import type {
   AtomicContribution, Constraint, ConstraintRef, ConstraintSet, ContributionKey, ContributionRole,
@@ -21,8 +21,8 @@ export interface Inventory {
   readonly variableOwners: ReadonlyMap<number, BodyId>;
   readonly constraints: ReadonlyMap<string, OwnedConstraint>;
   readonly contributions: ReadonlyMap<string, OwnedContribution>;
-  readonly candidates: ReadonlyMap<string, HirCandidateList>;
-  readonly originalCandidates: ReadonlyMap<HirCandidateList, ReadonlyMap<number, HirCandidate | null>>;
+  readonly candidates: ReadonlyMap<string, InferenceCandidateList>;
+  readonly originalCandidates: ReadonlyMap<InferenceCandidateList, ReadonlyMap<number, InferenceCandidate | null>>;
 }
 
 interface OwnedContribution {
@@ -120,8 +120,8 @@ export function makeInventory(input: InferVerificationInput): Inventory {
   const variableOwners = new Map<number, BodyId>();
   const constraints = new Map<string, OwnedConstraint>();
   const contributions = new Map<string, OwnedContribution>();
-  const candidates = new Map<string, HirCandidateList>();
-  const originalCandidates = new Map<HirCandidateList, ReadonlyMap<number, HirCandidate | null>>();
+  const candidates = new Map<string, InferenceCandidateList>();
+  const originalCandidates = new Map<InferenceCandidateList, ReadonlyMap<number, InferenceCandidate | null>>();
   for (const set of input.constraints) {
     if (!sets.has(set.body)) sets.set(set.body, set);
     for (const variable of set.variables) {
@@ -135,7 +135,7 @@ export function makeInventory(input: InferVerificationInput): Inventory {
     for (const candidate of set.candidates) {
       const key = candidateKey(set.body, candidate.id);
       if (!candidates.has(key)) candidates.set(key, candidate);
-      const originals = new Map<number, HirCandidate | null>();
+      const originals = new Map<number, InferenceCandidate | null>();
       for (const original of candidate.candidates)
         originals.set(original.ordinal, originals.has(original.ordinal) ? null : original);
       originalCandidates.set(candidate, originals);

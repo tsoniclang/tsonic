@@ -23,7 +23,7 @@ import type { EvidenceSchemas } from "./text-evidence.js";
 import type { InvocationsSchemas } from "./text-invocations.js";
 import type { OperationsSchemas } from "./text-operations.js";
 import type { TyId } from "../ids/contract.js";
-import type { HirCandidateList } from "../ir-hir/contract.js";
+import type { InferenceCandidateList } from "./contract.js";
 import type { LiteralValue, MemberKey, MemberOrigin, TypeComponent, TypeEvidence } from "../ir-types/contract.js";
 import type { RecordSchema, Staged } from "./text-data.js";
 import type { Schema } from "./text-data.js";
@@ -140,7 +140,7 @@ export type TextRoot =
   | { readonly kind: "MemberOrigin"; readonly value: MemberOrigin }
   | { readonly kind: "LiteralValue"; readonly value: LiteralValue }
   | { readonly kind: "InferenceVariable"; readonly value: InferenceVariable }
-  | { readonly kind: "HirCandidateList"; readonly value: HirCandidateList }
+  | { readonly kind: "InferenceCandidateList"; readonly value: InferenceCandidateList }
   | { readonly kind: "TypeEvidence"; readonly value: TypeEvidence }
   | { readonly kind: "Constraint"; readonly value: Constraint }
   | { readonly kind: "FinalVariable"; readonly value: FinalVariable }
@@ -391,7 +391,7 @@ export function createDecisionsSchemas(captureValues: CaptureValuesSchemas, cons
       case "MemberOrigin": return memberOriginSchema.stage(input.value);
       case "LiteralValue": return literalValueSchema.stage(input.value);
       case "InferenceVariable": return inferenceVariableSchema.stage(input.value);
-      case "HirCandidateList": return hirCandidateListSchema.stage(input.value);
+      case "InferenceCandidateList": return hirCandidateListSchema.stage(input.value);
       case "TypeEvidence": return typeEvidenceSchema.stage(input.value);
       case "Constraint": return constraintSchema.stage(input.value);
       case "FinalVariable": return finalVariableSchema.stage(input.value);

@@ -218,6 +218,44 @@ test("real public Host analysis closes a direct zero-argument scalar call throug
     && edge.target.execution.provided === 0), true);
 });
 
+test("the actual selected-call analysis admits its indices before growth and retains the original account refusal", async () => {
+  const fixture = await loadFrontFixture();
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { analyzeTypedSource } = await import("../../packages/host/dist/pipeline/analysis-barrier.js");
+  const { accountFailure, createAccount, refuseAccount } = await import("../../packages/host/dist/dataflow/index.js");
+  const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
+  const input = analysisInput(fixture, "sdk-minimal",
+    "export function value(): boolean { return true; } export function read(): boolean { return value(); }\n");
+  const ready = () => {
+    const captured = captureSourceBarrier(input);
+    assert.equal(captured.kind, "ok");
+    const typed = typeSourceBarrier(input, captured.value);
+    assert.equal(typed.kind, "ok");
+    return typed.value;
+  };
+  const fresh = (maximumResultEntries = 1000000) => createAccount({ maximumWork: 1000000, maximumResultEntries });
+  const completeAccount = fresh();
+  const complete = analyzeTypedSource(input, ready(), completeAccount);
+  assert.equal(complete.kind, "ok");
+  const entries = InvocationAccount.stateOf(completeAccount).entries;
+  assert.equal(analyzeTypedSource(input, ready(), fresh(entries)).kind, "ok", "the exact actual cumulative admission is sufficient");
+  for (const maximum of [0, 1, 2, 8, 32, entries - 1]) {
+    const account = fresh(maximum);
+    const result = analyzeTypedSource(input, ready(), account);
+    assert.equal(result.kind, "refused", `actual selected-call result limit ${maximum}`);
+    assert.notEqual(accountFailure(account), null);
+    assert.equal(Object.hasOwn(result, "value"), false);
+    const unread = new Proxy({}, { get() { assert.fail("No typed source is read after the original analysis refusal."); } });
+    assert.equal(analyzeTypedSource(input, unread, account).kind, "refused");
+  }
+  const original = { kind: "refused", diagnostics: [] };
+  const stopped = fresh();
+  assert.equal(refuseAccount(stopped, original), original);
+  const unread = new Proxy({}, { get() { assert.fail("An original caller refusal precedes every typed-source read."); } });
+  assert.equal(analyzeTypedSource(input, unread, stopped), original);
+});
+
 for (const limit of ["work", "result-entries", "query.maximumRecords"])
 test(`real public AnalyzeHostProgram refuses ${limit} exhaustion without publishing a partial program`, async () => {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true);

@@ -11,6 +11,7 @@ import { candidateKey, compareNumber, compareText, constraintKey, emit, makeInve
 import type { Inventory } from "./verify-contributions.js";
 import { inferredPartKey } from "./inferred-parts.js";
 import { verifySolution, visitBindings } from "./verify-solution.js";
+import { callableEndpointKey, hasOverloadEndpoints, selectedEndpointRoleFaults } from "../ir-hir/index.js";
 
 const parts: readonly string[] = ["return", "yield", "variable", "field", "parameter-initializer"];
 const kinds: readonly string[] = ["signature", "local", "binder", "literal"];
@@ -45,6 +46,7 @@ export function verifyGroup(input: InferVerificationInput, output: Violation<Inf
   }
   const owned = new Set<string>();
   const variableIds = new Set<number>();
+  const endpointInventories = new Map<DefId, { readonly endpoints: ReadonlySet<string>; readonly overloaded: boolean } | null>();
   let variableCount = 0;
   for (const set of input.constraints) {
     const bodySite: InferSite = { kind: "body", body: set.body };
@@ -80,6 +82,20 @@ export function verifyGroup(input: InferVerificationInput, output: Violation<Inf
         if (!ordinal(candidate.ordinal) || previousCandidate !== null && compareNumber(candidate.ordinal, previousCandidate) <= 0)
           emit(output, "candidate-order", bodySite, "ordinal");
         previousCandidate = candidate.ordinal;
+        if (candidate.endpoints.kind === "available") {
+          let declaration = endpointInventories.get(candidate.declaration);
+          if (declaration === undefined) {
+            const actual = input.declarationOf(candidate.declaration);
+            declaration = actual === null ? null : { endpoints: new Set(actual.endpoints.map(callableEndpointKey)),
+              overloaded: hasOverloadEndpoints(actual.endpoints) };
+            endpointInventories.set(candidate.declaration, declaration);
+          }
+          const selected = candidate.endpoints.value;
+          if (declaration === null || selected.advertised.declaration !== candidate.declaration
+            || !declaration.endpoints.has(callableEndpointKey(selected.advertised)) || !declaration.endpoints.has(callableEndpointKey(selected.api))
+            || selectedEndpointRoleFaults(declaration.overloaded, selected.advertised, selected.api) !== 0)
+            emit(output, "endpoint-agreement", bodySite, "candidate");
+        }
       }
     }
     for (const [index, constraint] of set.constraints.entries()) {
@@ -305,7 +321,7 @@ export const verifyInput: VerifyInference = input => {
     for (const [index, variable] of set.variables.entries()) verifyDocument(visitData, input, flags, { kind: "InferenceVariable", value: variable },
       { kind: "variable", group: input.group.id, variable: variable.id }, false, output, `${path}.variables[${index}]`);
     for (const [index, candidate] of set.candidates.entries())
-      verifyDocument(visitData, input, flags, { kind: "HirCandidateList", value: candidate }, bodySite, false, output, `${path}.candidates[${index}]`);
+      verifyDocument(visitData, input, flags, { kind: "InferenceCandidateList", value: candidate }, bodySite, false, output, `${path}.candidates[${index}]`);
     for (const [index, evidence] of set.evidence.entries())
       verifyDocument(visitData, input, flags, { kind: "TypeEvidence", value: evidence.value }, bodySite, false, output, `${path}.evidence[${index}].value`);
     for (const [index, constraint] of set.constraints.entries()) verifyDocument(visitData, input, flags, { kind: "Constraint", value: constraint },

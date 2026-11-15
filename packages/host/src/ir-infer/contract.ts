@@ -2,7 +2,7 @@ import type { BodyId, CandidateListId, DefId, GroupId, LocalRef, NodeRef, Origin
 import type { Diagnostic, ErrorValue, Result, TextParseResult, UnitRef, Violation } from "../diag/contract.js";
 import type { CheckFailure, HandleActivation, ReceiverAccess } from "../ir-types/contract.js";
 import type { BindingScope, BindingVector, BodyInstance, LiteralValue, MemberKey, MemberOrigin, MemberStorageSelection, NativePrimitive, NominalDefinition, PassingMode, SignatureRequest, TypeComponent, TypeEvidence, TypeParameterIdentity, TypeTable } from "../ir-types/contract.js";
-import type { HirBinaryOperator, HirCallableEndpoint, HirCandidateList, HirCoreCapture, HirUnaryOperator, HirNode } from "../ir-hir/contract.js";
+import type { CapturedFact, HirBinaryOperator, HirCallableEndpoint, HirCandidate, HirCoreCapture, HirUnaryOperator, HirNode } from "../ir-hir/contract.js";
 
 export type InferredPart =
   | { readonly kind: "return" | "yield" | "variable" | "field" }
@@ -209,11 +209,25 @@ export type Constraint = EqualityConstraint | FlowConstraint | LiteralConstraint
   | MemberConstraint | IndexConstraint | CallConstraint | ConstructConstraint | LiteralConstructionConstraint
   | ProtocolConstraint | RefinementConstraint | DischargeConstraint | DefaultConstraint | ClosureConstraint;
 
+export interface CandidateEndpoints {
+  readonly advertised: HirCallableEndpoint;
+  readonly api: HirCallableEndpoint;
+}
+
+export interface InferenceCandidate extends HirCandidate {
+  readonly endpoints: CapturedFact<CandidateEndpoints>;
+}
+
+export interface InferenceCandidateList {
+  readonly id: CandidateListId;
+  readonly candidates: readonly InferenceCandidate[];
+}
+
 export interface ConstraintSet {
   readonly group: GroupId;
   readonly body: BodyId;
   readonly variables: readonly InferenceVariable[];
-  readonly candidates: readonly HirCandidateList[];
+  readonly candidates: readonly InferenceCandidateList[];
   readonly evidence: readonly InferenceValue[];
   readonly constraints: readonly Constraint[];
 }
@@ -607,14 +621,14 @@ export interface EnumerationInput<ConstraintKind extends Constraint> {
   readonly constraint: ConstraintKind;
   readonly reference: ConstraintRef;
   readonly variables: readonly InferenceVariable[];
-  readonly candidates: readonly HirCandidateList[];
+  readonly candidates: readonly InferenceCandidateList[];
   readonly evidence: readonly InferenceValue[];
 }
 
 export interface ContributionEvaluation<ConstraintKind extends Constraint> {
   readonly contribution: AtomicContribution;
   readonly constraint: ConstraintKind;
-  readonly candidates: readonly HirCandidateList[];
+  readonly candidates: readonly InferenceCandidateList[];
   readonly evidence: readonly InferenceValue[];
   readonly reads: readonly FinalVariable[];
 }

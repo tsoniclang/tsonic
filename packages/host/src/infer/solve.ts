@@ -45,6 +45,7 @@ export const resumeSolveGroup: ResumeSolveGroup = (deps, paused, answers) => {
 
 type Reached =
   | { readonly kind: "op"; readonly constraint: Extract<Constraint, { readonly kind: "op" }>; readonly evidence: readonly InferenceValue[] }
+  | { readonly kind: "call"; readonly constraint: Extract<Constraint, { readonly kind: "call" }>; readonly evidence: readonly InferenceValue[] }
   | { readonly kind: "flow"; readonly constraint: Extract<Constraint, { readonly kind: "flow" }>; readonly evidence: readonly InferenceValue[] };
 
 interface FiledBound {
@@ -158,7 +159,12 @@ function solve(deps: InferDeps, group: InferenceGroup, generated: GroupConstrain
     if (evaluated.kind === "refused") return refused(...evaluated.diagnostics);
     diagnostics.push(...evaluated.diagnostics);
     const outcome: ContributionOutcome = evaluated.value;
-    if (outcome.selectedCandidate !== null) return notInferredYet(PORT, "a contribution that selects a candidate", null);
+    const application = item.reached.kind === "call" ? item.reached.constraint.application : null;
+    if (outcome.selectedCandidate !== null && (item.reached.kind !== "call" || outcome.decision?.kind !== "call"
+      || outcome.decision.application.candidate !== outcome.selectedCandidate
+      || !item.set.candidates.some(list => list.id === application?.candidates
+        && list.candidates.some(candidate => candidate.ordinal === outcome.selectedCandidate))))
+      return ruleDefect("a selected candidate must retain its actual call constraint, decision and captured candidate identity");
     const undecidedFlow = outcome.decision === null && item.reached.kind === "flow" && outcome.bounds.length === 1
       ? { set: item.set, index: item.index } : null;
     for (const bound of outcome.bounds) {
@@ -293,6 +299,9 @@ function solve(deps: InferDeps, group: InferenceGroup, generated: GroupConstrain
 function reach(constraint: Constraint, evidence: readonly InferenceValue[], offset: number): Reached {
   if (constraint.kind === "op") return { kind: "op", constraint, evidence: evidence.slice(offset, offset + constraint.operands.length + 1) };
   if (constraint.kind === "flow") return { kind: "flow", constraint, evidence: evidence.slice(offset, offset + 2) };
+  if (constraint.kind === "call") return { kind: "call", constraint, evidence: evidence.slice(offset,
+    offset + 2 + (constraint.application.receiver === null ? 0 : 1) + constraint.application.typeArguments.length
+    + constraint.application.arguments.reduce((length, argument) => length + 1 + (argument.tuple?.length ?? 0), 0)) };
   return notInferredYet(PORT, `a constraint of kind ${constraint.kind}`, null);
 }
 
@@ -307,6 +316,7 @@ function enumerate(deps: InferDeps, group: InferenceGroup, set: ConstraintSet, r
   switch (reached.kind) {
     case "op": return deps.rules.constraints.op.enumerate({ ...common, constraint: reached.constraint });
     case "flow": return deps.rules.constraints.flow.enumerate({ ...common, constraint: reached.constraint });
+    case "call": return deps.rules.constraints.call.enumerate({ ...common, constraint: reached.constraint });
   }
 }
 
@@ -315,6 +325,7 @@ function evaluate(deps: InferDeps, set: ConstraintSet, item: Enumerated, reads: 
   switch (item.reached.kind) {
     case "op": return deps.rules.constraints.op.evaluate({ ...common, constraint: item.reached.constraint });
     case "flow": return deps.rules.constraints.flow.evaluate({ ...common, constraint: item.reached.constraint });
+    case "call": return deps.rules.constraints.call.evaluate({ ...common, constraint: item.reached.constraint });
   }
 }
 

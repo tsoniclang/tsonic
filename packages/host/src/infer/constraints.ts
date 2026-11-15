@@ -2,13 +2,14 @@ import type { Diagnostic } from "../diag/contract.js";
 import type { BodyId, DefId, LocalId, LocalRef, NodeId, NodeRef, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { BindingVector, CategoryEvidence, Signature } from "../ir-types/contract.js";
 import type { Expression, HirBody, HirNode, CheckedPhase } from "../ir-hir/contract.js";
-import type { FlowConstraint, InferenceGroup, InferenceValue, InferenceVariable, InferredPartType, InferredSignaturePart, OperatorConstraint } from "../ir-infer/contract.js";
+import type { CallConstraint, FlowConstraint, InferenceCandidateList, InferenceGroup, InferenceValue, InferenceVariable, InferredPartType, InferredSignaturePart, OperatorConstraint } from "../ir-infer/contract.js";
 import type { ConstraintsOf, ConstraintsPaused, ConstraintsRequest, GroupConstraints, InferDeps, InferStep, ResumeConstraintsOf } from "./contract.js";
 import { requirePresent, resourceLimitDiagnostic } from "../diag/index.js";
-import { internType, readType } from "../ir-types/index.js";
+import { internType, readType, signatureRequestKey } from "../ir-types/index.js";
 import { inferredPartKey, inferredPartsOf } from "../ir-infer/index.js";
 import { callerDefect, notInferredYet, validateInferenceLimits } from "./frontier.js";
 import { ownSignatureRequest } from "./own-signature.js";
+import { callableEndpoints, candidateEndpoint, endpointRequest, unavailableCandidate } from "./candidates.js";
 
 const PORT = "ConstraintsOf";
 const RESUME = "ResumeConstraintsOf";
@@ -18,7 +19,8 @@ type Output = InferStep<GroupConstraints, ConstraintsRequest, ConstraintsPaused>
 type Slot = TyId | { readonly part: InferredSignaturePart };
 type DraftConstraint =
   | Omit<FlowConstraint, "from" | "to"> & { readonly from: Slot; readonly to: Slot }
-  | Omit<OperatorConstraint, "operands" | "result"> & { readonly operands: readonly Slot[]; readonly result: Slot };
+  | Omit<OperatorConstraint, "operands" | "result"> & { readonly operands: readonly Slot[]; readonly result: Slot }
+  | CallConstraint;
 
 interface Draft {
   readonly body: HirBody;
@@ -33,7 +35,8 @@ interface Generation {
   readonly parts: ReadonlyMap<BodyId, readonly InferredSignaturePart[]>;
   readonly partTypes: Map<string, TyId>;
   readonly ownParts: ReadonlySet<string>;
-  readonly signatures: ReadonlyMap<BodyId, Signature>;
+  readonly ownDefinitions: ReadonlySet<DefId>;
+  readonly signatures: ReadonlyMap<string, Signature>;
   readonly parameters: Map<BodyId, ReadonlyMap<LocalId, Slot>>;
   readonly outsideParts: ReadonlyMap<string, InferredPartType>;
   nextVariable: number;
@@ -57,11 +60,19 @@ export const constraintsOf: ConstraintsOf = (deps, group) => {
   const ownDefinitions = new Set(group.signatures.map(part => part.definition));
   const ownParts = new Set(group.signatures.map(inferredPartKey));
   const requestedParts = new Set<string>();
+  const requestedSignatures = new Set<string>();
+  const signatureRequest = (body: BodyId, request: Extract<ConstraintsRequest, { readonly kind: "declaredSignatureOf" }>): void => {
+    const key = signatureRequestKey(request.request);
+    if (requestedSignatures.has(key)) return;
+    requestedSignatures.add(key);
+    requests.push(request);
+    requestBodies.push(body);
+  };
   for (const reference of group.bodies) {
     const body = deps.hirBody(reference);
     if (body.body !== reference) return callerDefect(PORT, "a checked body belongs to another complete body identity");
     const request = ownSignatureRequest(deps, body, PORT, ownDefinitions);
-    if (request !== null) { requestBodies.push(reference); requests.push(request); }
+    if (request !== null) signatureRequest(reference, request);
     else if (ownDefinitions.has(body.owner)) for (const part of inferredPartsOf(body.owner, deps.itemOf(body.owner))) {
       const key = inferredPartKey(part);
       if (!ownParts.has(key) && !requestedParts.has(key)) {
@@ -84,6 +95,13 @@ export const constraintsOf: ConstraintsOf = (deps, group) => {
         requestBodies.push(reference);
       }
     }
+    for (const list of body.candidateLists) for (const candidate of list.candidates) {
+      if (unavailableCandidate(candidate) !== null) continue;
+      const endpoint = candidateEndpoint(deps, candidate);
+      if (candidate.bindings.kind !== "available") return callerDefect(PORT, "a candidate must retain its actual complete bindings");
+      signatureRequest(reference, { kind: "declaredSignatureOf", request: endpointRequest(deps, endpoint,
+        { kind: "instantiated", bindings: candidate.bindings.value }) });
+    }
   }
   const [first, ...rest] = requests;
   if (first === undefined) return generate(deps, group, new Map(), []);
@@ -98,7 +116,7 @@ export const resumeConstraintsOf: ResumeConstraintsOf = (deps, paused, answers) 
   if (paused.requestBodies.length !== paused.requests.length)
     return callerDefect(RESUME, "every pending semantic request must retain its actual requesting body");
   const members = new Set(paused.group.bodies);
-  const signatures = new Map<BodyId, Signature>();
+  const signatures = new Map<string, Signature>();
   const outsideParts: InferredPartType[] = [];
   for (const [index, request] of paused.requests.entries()) {
     const body = present(paused.requestBodies[index], "the actual requesting body");
@@ -116,8 +134,11 @@ export const resumeConstraintsOf: ResumeConstraintsOf = (deps, paused, answers) 
     } else {
       if (request.kind !== "declaredSignatureOf" || !("kind" in answer) || answer.kind !== "declaredSignatureOf")
         return callerDefect(RESUME, "a signature request requires its signature answer");
-      if (signatures.has(body)) return callerDefect(RESUME, "a body requested its own signature more than once in one pause");
-      signatures.set(body, answer.value);
+      const key = signatureRequestKey(request.request);
+      if (signatures.has(key)) return callerDefect(RESUME, "a complete signature request was repeated in one pause");
+      if (answer.value.declaration !== request.request.definition)
+        return callerDefect(RESUME, "a signature answer must retain the actual requested declaration");
+      signatures.set(key, answer.value);
     }
   }
   return generate(deps, paused.group, signatures, outsideParts);
@@ -150,15 +171,16 @@ function ownedParts(deps: InferDeps, group: InferenceGroup): ReadonlyMap<BodyId,
   return parts;
 }
 
-function generate(deps: InferDeps, group: InferenceGroup, signatures: ReadonlyMap<BodyId, Signature>, outsideParts: readonly InferredPartType[]): Output {
+function generate(deps: InferDeps, group: InferenceGroup, signatures: ReadonlyMap<string, Signature>, outsideParts: readonly InferredPartType[]): Output {
   const generation: Generation = { deps, group, parts: ownedParts(deps, group), partTypes: new Map(), nextVariable: 0,
-    ownParts: new Set(group.signatures.map(inferredPartKey)), signatures, parameters: new Map(),
+    ownParts: new Set(group.signatures.map(inferredPartKey)), ownDefinitions: new Set(group.signatures.map(part => part.definition)), signatures, parameters: new Map(),
     outsideParts: new Map(outsideParts.map(part => [inferredPartKey(part.part), part])) };
   const drafts: Draft[] = [];
   for (const reference of group.bodies) {
     const body = deps.hirBody(reference);
     const draft: Draft = { body, variables: [], constraints: [], evidence: [] };
-    const walk: Walk = { generation, draft, signature: signatures.get(reference), typeOf: new Map(), operators: new Map() };
+    const own = ownSignatureRequest(deps, body, PORT, generation.ownDefinitions);
+    const walk: Walk = { generation, draft, signature: own === null ? undefined : signatures.get(signatureRequestKey(own.request)), typeOf: new Map(), operators: new Map() };
     for (const part of generation.parts.get(reference) ?? []) {
       const diagnostic = allocate(walk, { kind: "signature", signature: part, occurrence: refOf(walk, body.root) });
       if (diagnostic !== null) return refused(diagnostic);
@@ -172,7 +194,7 @@ function generate(deps: InferDeps, group: InferenceGroup, signatures: ReadonlyMa
       const pending: Frame[] = [{ kind: "enter", node: body.root }];
       for (let frame = pending.pop(); frame !== undefined; frame = pending.pop()) {
         if (frame.kind === "enter") {
-          if (frame.node.kind === "BinaryExpression") {
+          if (frame.node.kind === "BinaryExpression" || frame.node.kind === "CallExpression") {
             const diagnostic = allocate(walk, { kind: "local", local: null, occurrence: refOf(walk, frame.node) });
             if (diagnostic !== null) return refused(diagnostic);
             walk.operators.set(frame.node.id, internType(deps.types,
@@ -205,10 +227,11 @@ function generate(deps: InferDeps, group: InferenceGroup, signatures: ReadonlyMa
     : generation.partTypes.get(inferredPartKey(slot.part))
       ?? present(generation.outsideParts.get(inferredPartKey(slot.part)), "the actual ready outside part").type;
   return { kind: "done", value: { kind: "ok", value: { outsideParts, constraints: drafts.map(draft => ({
-    group: group.id, body: draft.body.body, variables: draft.variables, candidates: draft.body.candidateLists,
+    group: group.id, body: draft.body.body, variables: draft.variables, candidates: readyCandidates(generation, draft.body),
     constraints: draft.constraints.map(constraint => constraint.kind === "flow"
       ? { ...constraint, from: typeOf(constraint.from), to: typeOf(constraint.to) }
-      : { ...constraint, operands: constraint.operands.map(typeOf), result: typeOf(constraint.result) }),
+      : constraint.kind === "op" ? { ...constraint, operands: constraint.operands.map(typeOf), result: typeOf(constraint.result) }
+      : constraint),
     evidence: draft.evidence.map(entry => {
       const part = typeof entry.type === "number" ? undefined : generation.outsideParts.get(inferredPartKey(entry.type.part));
       const error: InferenceValue["error"] = part === undefined || part.error === null
@@ -244,6 +267,7 @@ function childrenOf(node: HirNode): readonly HirNode[] {
     case "VariableStatement": return [];
     case "ParenthesizedExpression": return [node.expression];
     case "BinaryExpression": return [node.left, node.right];
+    case "CallExpression": return [node.expression, ...node.arguments.nodes];
     case "Identifier": case "TrueKeyword": case "FalseKeyword": case "StringLiteral": case "NullKeyword": return [];
     default: return notInferredYet(PORT, `a ${node.kind}`, node.origin);
   }
@@ -269,6 +293,22 @@ function leave(walk: Walk, node: HirNode): void {
     for (const [type, source] of evidence)
       walk.draft.evidence.push({ type, node: source, component: { kind: "body", value: refOf(walk, source) } });
     walk.typeOf.set(node.id, result);
+  } else if (node.kind === "CallExpression") {
+    const captured = node.tsonic.application;
+    if (captured.kind !== "available" || captured.value.kind !== "call" || captured.value.candidates.kind !== "available")
+      return notInferredYet(PORT, "the actual captured call candidate inventory", node.origin);
+    if (captured.value.receiver !== null || captured.value.arguments.length !== 0 || captured.value.typeArguments.length !== 0)
+      return notInferredYet(PORT, "the authoritative receiver, argument and binder contributions of a call", node.origin);
+    const result = present(walk.operators.get(node.id), "the actual application result position");
+    const callee = typeAt(walk, node.expression);
+    if (typeof callee !== "number") return notInferredYet(PORT, "a callee whose signature is an unresolved inferred part", node.origin);
+    walk.draft.constraints.push({ kind: "call", occurrence: refOf(walk, node), application: {
+      captured: node.tsonic.core, permissionScope: null, callee, receiver: null, typeArguments: [], arguments: [],
+      candidates: captured.value.candidates.value, result,
+    } });
+    walk.draft.evidence.push({ type: callee, node: node.expression, component: { kind: "body", value: refOf(walk, node.expression) } },
+      { type: result, node, component: { kind: "body", value: refOf(walk, node) } });
+    walk.typeOf.set(node.id, result);
   } else if (node.kind === "ReturnStatement") {
     if (node.expression === null) return notInferredYet(PORT, "a return without a value", node.origin);
     const own = (walk.generation.parts.get(walk.draft.body.body) ?? []).find(part => part.part.kind === "return");
@@ -280,6 +320,13 @@ function leave(walk: Walk, node: HirNode): void {
 
 function localType(walk: Walk, node: Extract<HirNode, { readonly kind: "Identifier" }>): Slot {
   const name = node.tsonic;
+  if (name.role === "value" && name.resolution.kind === "declarations") {
+    const signatures = name.resolution.definitions.flatMap(definition => callableEndpoints(walk.generation.deps, definition).map(endpoint => {
+      const request = endpointRequest(walk.generation.deps, endpoint, { kind: "instantiated", bindings: TEMPLATE });
+      return present(walk.generation.signatures.get(signatureRequestKey(request)), "the actual declared callee signature").id;
+    }));
+    return internType(walk.generation.deps.types, { kind: "callable", calls: signatures, constructs: [] });
+  }
   if (name.role !== "value" || name.resolution.kind !== "local")
     return notInferredYet(PORT, "a value read that is not an actual local", node.origin);
   const reference = name.resolution.local;
@@ -324,7 +371,7 @@ function parametersOf(state: Generation, body: BodyId): ReadonlyMap<LocalId, Slo
     const type: Slot = checked.kind === "available" && checked.value !== null ? checked.value
       : state.ownParts.has(inferredPartKey(part)) ? { part }
       : state.outsideParts.has(inferredPartKey(part)) ? { part }
-      : present(present(state.signatures.get(body), "the ready external parameter signature").parameters[index], "the actual parameter type").type;
+      : present(present(ownReadySignature(state, owner), "the ready external parameter signature").parameters[index], "the actual parameter type").type;
     parameters.set(parameter.local, type);
     if (parameter.role !== "this") index += 1;
   }
@@ -363,6 +410,8 @@ function evidenceOf(deps: InferDeps, group: InferenceGroup, type: TyId, node: Hi
     return notInferredYet(PORT, "the actual checked error association of a constraint type position", node.origin);
   if (term.kind === "open" || term.kind === "error")
     return { value: { type, component, category: { kind: "dynamic" }, numeric: null, sum: null, nominal: null, pointer: null }, error };
+  if (term.kind === "callable") return { value: { type, component, category: { kind: "known", category: "callable" },
+    numeric: null, sum: null, nominal: null, pointer: null }, error: null };
   if (term.kind === "intrinsic" && term.intrinsic === "absence")
     return { value: { type, component, category: { kind: "known", category: "absence" },
       numeric: null, sum: null, nominal: null, pointer: null }, error: null };
@@ -377,6 +426,24 @@ function evidenceOf(deps: InferDeps, group: InferenceGroup, type: TyId, node: Hi
   return { value: { type, component, category, numeric: component.kind === "body"
     ? { producer: component.value, kind: "declared", category, authored: null } : null,
     sum: null, nominal: null, pointer: null }, error: null };
+}
+
+function ownReadySignature(state: Generation, body: HirBody): Signature | undefined {
+  const request = ownSignatureRequest(state.deps, body, PORT, state.ownDefinitions);
+  return request === null ? undefined : state.signatures.get(signatureRequestKey(request.request));
+}
+
+function readyCandidates(state: Generation, body: HirBody): readonly InferenceCandidateList[] {
+  return body.candidateLists.map(list => ({ id: list.id, candidates: list.candidates.map(candidate => {
+    const unavailable = unavailableCandidate(candidate);
+    if (unavailable !== null) return { ...candidate, endpoints: unavailable };
+    const endpoint = candidateEndpoint(state.deps, candidate);
+    if (candidate.bindings.kind !== "available") return callerDefect(PORT, "a candidate must retain its complete bindings");
+    const request = endpointRequest(state.deps, endpoint, { kind: "instantiated", bindings: candidate.bindings.value });
+    const signature = present(state.signatures.get(signatureRequestKey(request)), "the actual authoritative candidate signature");
+    const selected = { ...endpoint, signature: signature.id };
+    return { ...candidate, endpoints: { kind: "available", value: { advertised: selected, api: selected } } };
+  }) }));
 }
 
 function present<Value>(value: Value | undefined, what: string): Value {

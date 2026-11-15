@@ -4,7 +4,8 @@ import type { EvidenceSchemas } from "./text-evidence.js";
 import type { Cause, Diagnostic, DiagnosticCode, DiagnosticFix, DiagnosticSite, HostDiagnosticCode, MessageArgument, RelatedDiagnostic, TextEdit } from "../diag/contract.js";
 import type { ErrorSchemas } from "./text-errors.js";
 import type { Origin, SigId, TyId } from "../ids/contract.js";
-import type { HirCallableEndpoint, HirCandidate, HirCandidateList, HirInferenceContribution } from "../ir-hir/contract.js";
+import type { CapturedFact, HirCallableEndpoint, HirInferenceContribution } from "../ir-hir/contract.js";
+import type { CandidateEndpoints, InferenceCandidate, InferenceCandidateList } from "./contract.js";
 import type { BindingVector } from "../ir-types/contract.js";
 import type { RecordSchema } from "./text-data.js";
 import type { Schema } from "./text-data.js";
@@ -92,8 +93,8 @@ export interface OriginArgumentRecord {
 export interface CaptureValuesSchemas {
   readonly hirCallableEndpointSchema: RecordSchema<HirCallableEndpoint>;
   readonly endpointRoleSchema: Schema<"advertised" | "api-body" | "api-signature">;
-  readonly hirCandidateListSchema: RecordSchema<HirCandidateList>;
-  readonly hirCandidateSchema: RecordSchema<HirCandidate>;
+  readonly hirCandidateListSchema: RecordSchema<InferenceCandidateList>;
+  readonly hirCandidateSchema: RecordSchema<InferenceCandidate>;
   readonly hirInferenceContributionSchema: RecordSchema<HirInferenceContribution>;
   readonly hirContributionRoleSchema: Schema<"argument" | "context" | "receiver" | "result" | "type-argument">;
   readonly unavailableSchema: RecordSchema<UnavailableRecord>;
@@ -139,21 +140,35 @@ export function createCaptureValuesSchemas(data: DataSchemas, evidence: Evidence
 
   const endpointRoleSchema = enumSchema("EndpointRole", ["advertised","api-signature","api-body"]);
 
-  const hirCandidateListSchema = recordSchema<HirCandidateList>("HirCandidateList", "HirCandidateList", read => {
+  const hirCandidateListSchema = recordSchema<InferenceCandidateList>("InferenceCandidateList", "InferenceCandidateList", read => {
     const id = read("id", () => candSchema, value => value.id);
     const candidates = read("candidates", () => arraySchema(hirCandidateSchema), value => value.candidates);
     return { fields: [id, candidates], value: () => ({ id: id.value(), candidates: candidates.value() }) };
   });
 
-  const hirCandidateSchema = recordSchema<HirCandidate>("HirCandidate", "HirCandidate", read => {
+  const hirCandidateSchema = recordSchema<InferenceCandidate>("InferenceCandidate", "InferenceCandidate", read => {
     const ordinal = read("ordinal", () => numberSchema, value => value.ordinal);
     const declaration = read("declaration", () => defSchema, value => value.declaration);
     const appliedSignature = read("appliedSignature", () => capturedSignatureSchema, value => value.appliedSignature);
     const bindings = read("bindings", () => capturedBindingsSchema, value => value.bindings);
     const conditionalFailure = read("conditionalFailure", () => capturedDiagnosticSchema, value => value.conditionalFailure);
     const contributions = read("contributions", () => arraySchema(hirInferenceContributionSchema), value => value.contributions);
-    return { fields: [ordinal, declaration, appliedSignature, bindings, conditionalFailure, contributions], value: () => ({ ordinal: ordinal.value(), declaration: declaration.value(), appliedSignature: appliedSignature.value(), bindings: bindings.value(), conditionalFailure: conditionalFailure.value(), contributions: contributions.value() }) };
+    const endpoints = read("endpoints", () => capturedCandidateEndpointsSchema, value => value.endpoints);
+    return { fields: [ordinal, declaration, appliedSignature, bindings, conditionalFailure, contributions, endpoints], value: () => ({ ordinal: ordinal.value(), declaration: declaration.value(), appliedSignature: appliedSignature.value(), bindings: bindings.value(), conditionalFailure: conditionalFailure.value(), contributions: contributions.value(), endpoints: endpoints.value() }) };
   });
+
+  const candidateEndpointsSchema = recordSchema<CandidateEndpoints>("CandidateEndpoints", "CandidateEndpoints", read => {
+    const advertised = read("advertised", () => hirCallableEndpointSchema, value => value.advertised);
+    const api = read("api", () => hirCallableEndpointSchema, value => value.api);
+    return { fields: [advertised, api], value: () => ({ advertised: advertised.value(), api: api.value() }) };
+  });
+  const availableCandidateEndpointsSchema = recordSchema<{ readonly kind: "available"; readonly value: CandidateEndpoints }>("AvailableCandidateEndpoints", "available", read => {
+    const value = read("value", () => candidateEndpointsSchema, input => input.value);
+    return { fields: [value], value: () => ({ kind: "available", value: value.value() }) };
+  });
+  const capturedCandidateEndpointsSchema = unionSchema<CapturedFact<CandidateEndpoints>>("CapturedCandidateEndpoints",
+    () => [availableCandidateEndpointsSchema, unavailableSchema], value => value.kind === "available"
+      ? availableCandidateEndpointsSchema.stage(value) : unavailableSchema.stage(value));
 
   const hirInferenceContributionSchema = recordSchema<HirInferenceContribution>("HirInferenceContribution", "HirInferenceContribution", read => {
     const parameter = read("parameter", () => typeParameterIdentitySchema, value => value.parameter);

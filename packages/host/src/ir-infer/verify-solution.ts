@@ -229,6 +229,10 @@ function decisionRecords(context: SolutionContext, record: SolvedConstraint, con
           if (candidate === undefined || candidate === null) emit(output, "candidate-reference", site, "candidate");
           else if (candidate.declaration !== decision.application.advertised.declaration)
             emit(output, "endpoint-agreement", site, "candidate");
+          else if (candidate.endpoints.kind !== "available"
+            || callableEndpointKey(candidate.endpoints.value.advertised) !== callableEndpointKey(decision.application.advertised)
+            || callableEndpointKey(candidate.endpoints.value.api) !== callableEndpointKey(decision.application.api))
+            emit(output, "endpoint-agreement", site, "candidate");
         }
       }
       if (decision.operation?.kind === "decided") pending.push({ kind: "operation", value: decision.operation.decision });

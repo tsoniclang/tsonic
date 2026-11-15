@@ -1,10 +1,10 @@
 import type { InvariantFailure, Result } from "../diag/contract.js";
 import { requirePresent, throwInvariant } from "../diag/index.js";
-import type { BodyId, LocalRef, NodeId, NodeRef, Origin, TyId } from "../ids/contract.js";
+import type { BodyId, NodeId, NodeRef, Origin, TyId } from "../ids/contract.js";
 import type { BinaryExpression, Block, CheckedPhase, Expression, HirBody, HirNode, Identifier, NodeHeader, ParameterDeclaration, Statement, VariableDeclaration } from "../ir-hir/contract.js";
 import { walkSyntaxTree } from "../ir-hir/index.js";
-import type { BodyTyping, EmbeddingDecision, FlowRole, InferredSignaturePart } from "../ir-infer/contract.js";
-import type { TirBody, TirLocal, TypedOperation, TypedPhase, TypedValue } from "../ir-tir/contract.js";
+import type { ApplicationDecision, BodyTyping, EmbeddingDecision, FlowRole, InferredSignaturePart } from "../ir-infer/contract.js";
+import type { TirBody, TirLocal, TirResolution, TypedOperation, TypedPhase, TypedValue } from "../ir-tir/contract.js";
 import { artifactBindingsKey } from "../ir-types/index.js";
 import type { ElaborateDeps, ElaborateInput } from "./contract.js";
 import { elaborateModuleBody, elaborateParameter, elaborateVariable } from "./module.js";
@@ -120,7 +120,9 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
   const operations: (TypedOperation | undefined)[] = [];
   const flows: (Flow | undefined)[] = [];
   const variables: (TyId | undefined)[] = [];
-  const read = { operations: new Set<number>(), flows: new Set<number>(), variables: new Set<number>() };
+  const applications: (ApplicationDecision | undefined)[] = [];
+  const calleeTypes = new Map<NodeId, TyId>();
+  const read = { operations: new Set<number>(), flows: new Set<number>(), variables: new Set<number>(), applications: new Set<number>() };
   const finals: (TyId | undefined)[] = [];
   for (const final of solution.variables) finals[final.variable] = final.value.type;
   const finalType = (type: TyId, origin: Origin): TyId => {
@@ -148,6 +150,13 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
       if (decision.kind === "deferred") notElaboratedYet("a deferred conversion", origin);
       if (decision.kind !== "flow") return callerDefect(`a flow constraint solved by a decision of kind ${decision.kind}`, origin);
       flows[position] = { embedding: decision.embedding, destination: finalType(constraint.to, origin), role: constraint.role };
+    } else if (constraint.kind === "call") {
+      if (decision.kind !== "call" || decision.operation !== null || applications[position] !== undefined)
+        return callerDefect("a call must retain its one selected application decision", origin);
+      const node = nodes[position];
+      if (node?.kind !== "CallExpression") return callerDefect("a call decision must name its actual call syntax", origin);
+      applications[position] = decision.application;
+      calleeTypes.set(node.expression.id, finalType(constraint.application.callee, origin));
     } else {
       notElaboratedYet(`a solved ${constraint.kind} constraint`, origin);
     }
@@ -261,17 +270,25 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
     statements: { loc: node.statements.loc, nodes: node.statements.nodes.map(statementOf) } });
 
   const binaryRoles: ("arithmetic" | "comparison" | undefined)[] = [];
-  const names: ({ readonly local: LocalRef; readonly storage: TyId } | undefined)[] = [];
+  const names: ({ readonly resolution: TirResolution; readonly storage: TyId } | undefined)[] = [];
   const visited = (node: HirNode): InvariantFailure => failure("compiler defect", `a ${node.kind} built without its visit`, node.origin);
 
   const admitName = (node: Identifier<CheckedPhase>, position: number): void => {
     const checked = node.tsonic;
     if (checked.role !== "value") return notElaboratedYet(`a name of role ${checked.role}`, node.origin);
     const resolution = checked.resolution;
+    if (resolution.kind === "declarations") {
+      const definition = resolution.definitions[0];
+      const storage = calleeTypes.get(node.id);
+      if (resolution.definitions.length !== 1 || definition === undefined || storage === undefined)
+        return notElaboratedYet("the selected declaration-value type and alias relation", node.origin);
+      names[position] = { resolution: { kind: "definition", definition, aliases: [] }, storage };
+      return;
+    }
     if (resolution.kind !== "local") return notElaboratedYet(`a name resolving to a ${resolution.kind}`, node.origin);
     if (resolution.local.body !== body.body) notElaboratedYet("a name resolving to a local of another body", node.origin);
     const storage = storageOf[resolution.local.local] ?? callerDefect("a name resolving to a local the body does not have", node.origin);
-    names[position] = { local: resolution.local, storage };
+    names[position] = { resolution: { kind: "local", local: resolution.local }, storage };
   };
   const admitBinary = (node: BinaryExpression<CheckedPhase>, position: number): void => {
     if (node.modifiers !== null || node.type !== null) notElaboratedYet("a binary expression with modifiers or a type", node.origin);
@@ -283,7 +300,7 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
   const identifier = (node: Identifier<CheckedPhase>, position: number): Identifier<TypedPhase> => {
     const name = requirePresent(names[position], visited(node));
     return { ...header(node), kind: "Identifier", text: node.text,
-      tsonic: { role: "value", resolution: { kind: "local", local: name.local }, ...valueOf(position, name.storage, node.origin) } };
+      tsonic: { role: "value", resolution: name.resolution, ...valueOf(position, name.storage, node.origin) } };
   };
 
   const binary = (node: BinaryExpression<CheckedPhase>, position: number): BinaryExpression<TypedPhase> => {
@@ -344,6 +361,22 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
           visit(node.left);
         }
         return;
+      case "CallExpression":
+        if (building) {
+          const application = applications[position] ?? compilerDefect("a call has no solved selected application", node.origin);
+          if (node.arguments.nodes.length !== 0 || node.typeArguments !== null || node.questionDotToken !== null
+            || application.parameters.length !== 0)
+            return notElaboratedYet("the selected argument and receiver transport of this call", node.origin);
+          read.applications.add(position);
+          expressions[position] = { ...header(node), kind: "CallExpression", expression: expressionOf(node.expression),
+            arguments: { ...node.arguments, nodes: [] }, typeArguments: null, questionDotToken: null,
+            tsonic: { ...valueOf(position, application.result, node.origin), operation: null,
+              application: { kind: "decided", decision: { callee: { decision: application,
+                activation: application.api.body === null ? null : { body: application.api.body,
+                  bindings: instance.bindings.kind === "parametric" ? instance.bindings
+                    : { kind: "instantiated", bindings: application.implementationBindings } } }, receiver: null, arguments: [] } } } };
+        } else visit(node.expression);
+        return;
       case "ParenthesizedExpression":
         if (building) {
           const inner = requirePresent(values[node.expression.id - first], failure("compiler defect", "an operand without a typed value", node.origin));
@@ -391,6 +424,7 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
   refuseUnread(operations, read.operations, "operator decision");
   refuseUnread(flows, read.flows, "flow decision");
   refuseUnread(variables, read.variables, "variable");
+  refuseUnread(applications, read.applications, "application decision");
 
   return { kind: "ok", diagnostics: [], value: {
     body: body.body, owner: body.owner, bindings: instance.bindings,

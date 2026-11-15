@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { isDeepStrictEqual } from "node:util";
 import { before, test } from "node:test";
 import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
 import { checkedDomain } from "./fixtures/front/checked-domain.mjs";
@@ -95,8 +96,9 @@ function drive(program) {
         endpoints: "signatures" in node.tsonic ? node.tsonic.signatures : [] };
     };
     assert.deepEqual(irInfer.verifyInference({ ...record, types, declarationOf, nominalOf: () => null,
-      bindingScopes: constraints.flatMap(set => set.constraints.filter(constraint => constraint.kind === "flow")
-        .map(() => program.descriptions.get(program.domain.bodyOf.get(set.body).owner).generics)),
+      bindingScopes: irInfer.inferenceBindingSites({ group, constraints, solution: record.solution }).map(binding =>
+        program.descriptions.get(binding.definition ?? program.domain.bodyOf.get(binding.site.kind === "body" ? binding.site.body
+          : binding.site.kind === "constraint" ? binding.site.constraint.body : assert.fail("This fixture requires its actual binding owner.")).owner).generics),
       nodeExists: reference => program.domain.nodeOf(reference) !== null, localExists: program.domain.localExists }), []);
     for (const set of constraints) for (const variable of set.variables) if (variable.kind === "signature")
       parts.set(irInfer.inferredPartKey(variable.signature), { part: variable.signature,
@@ -107,6 +109,86 @@ function drive(program) {
   }
   return completed;
 }
+
+test("real direct scalar call retains one authoritative candidate endpoint relation and its exact completion", () => {
+  const program = ready("export function value(): boolean { return true; } export function read(): boolean { return value(); }\n");
+  const records = [...drive(program).values()];
+  const record = records.find(record => record.constraints.some(set => set.constraints.some(constraint => constraint.kind === "call")));
+  assert.notEqual(record, undefined);
+  const system = record.constraints.find(set => set.constraints.some(constraint => constraint.kind === "call"));
+  const candidate = system.candidates[0].candidates[0];
+  const original = program.domain.bodyOf.get(system.body).candidateLists[0].candidates[0];
+  assert.equal(candidate.appliedSignature, original.appliedSignature);
+  assert.equal(candidate.bindings, original.bindings);
+  assert.equal(candidate.conditionalFailure, original.conditionalFailure);
+  assert.equal(candidate.contributions, original.contributions);
+  assert.equal(candidate.endpoints.kind, "available");
+  const declaration = program.items.get(candidate.declaration);
+  assert.equal(candidate.endpoints.value.api.body, declaration.tsonic.body);
+  assert.equal(candidate.endpoints.value.advertised.signature, candidate.endpoints.value.api.signature);
+  const decision = record.solution.constraints.find(solved => solved.decision.kind === "call").decision;
+  assert.equal(decision.application.api, candidate.endpoints.value.api);
+  assert.equal(decision.application.result, fixture.types.readSignature(program.interner, decision.application.api.signature).result);
+  assert.equal(isDeepStrictEqual(irInfer.parseConstraints(irInfer.printConstraints(system)), { kind: "parsed", value: system }), true,
+    "The actual authoritative candidate and call constraint survive the canonical text boundary.");
+  const retired = { ...system, candidates: [{ ...system.candidates[0], candidates: [{ ...original,
+    advertised: candidate.endpoints.value.advertised, api: candidate.endpoints.value.api }] }] };
+  assert.throws(() => irInfer.printConstraints(retired), TypeError);
+  const unavailable = { kind: "unavailable", reason: "incomplete-association", causes: [] };
+  const pending = { ...system, candidates: [{ ...system.candidates[0], candidates: [{ ...candidate, endpoints: unavailable }] }] };
+  assert.equal(isDeepStrictEqual(irInfer.parseConstraints(irInfer.printConstraints(pending)), { kind: "parsed", value: pending }), true,
+    "An unavailable endpoint association is preserved without fabricating an endpoint.");
+  const first = wiring.infer.constraintsOf(program.deps, record.group);
+  assert.equal(first.kind, "paused");
+  const callee = first.requests.find(request => request.kind === "declaredSignatureOf" && request.request.definition === candidate.declaration);
+  assert.notEqual(callee, undefined);
+  assert.equal(callee.request.endpoint, candidate.endpoints.value.api.role);
+  assert.equal(callee.request.bindings.kind, "instantiated");
+});
+
+test("constructed call result categories retain the selected native carrier without fabricating number evidence for char", () => {
+  const program = ready("export function value(): boolean { return true; } export function read(): boolean { return value(); }\n");
+  const record = [...drive(program).values()].find(record => record.constraints.some(set =>
+    set.constraints.some(constraint => constraint.kind === "call")));
+  const system = record.constraints.find(set => set.constraints.some(constraint => constraint.kind === "call"));
+  const original = system.constraints.find(constraint => constraint.kind === "call");
+  const originalCandidate = system.candidates[0].candidates[0];
+  const signature = fixture.types.readSignature(program.interner, originalCandidate.endpoints.value.api.signature);
+  const cases = [
+    [{ kind: "primitive", primitive: "bool" }, { kind: "known", category: "boolean" }],
+    [{ kind: "primitive", primitive: "float64" }, { kind: "known", category: "number" }],
+    [{ kind: "string" }, { kind: "known", category: "string" }],
+    [{ kind: "intrinsic", intrinsic: "absence" }, { kind: "known", category: "absence" }],
+    ...["char", "int32", "float32", "decimal"].map(primitive =>
+      [{ kind: "primitive", primitive }, { kind: "dynamic" }]),
+  ];
+  for (const [term, category] of cases) {
+    const resultType = fixture.types.internType(program.interner, term);
+    const selected = fixture.types.internSignature(program.interner, { ...signature, result: resultType });
+    const calleeType = fixture.types.internType(program.interner, { kind: "callable", calls: [selected], constructs: [] });
+    const candidate = { ...originalCandidate, appliedSignature: { kind: "available", value: selected },
+      endpoints: { kind: "available", value: {
+        advertised: { ...originalCandidate.endpoints.value.advertised, signature: selected },
+        api: { ...originalCandidate.endpoints.value.api, signature: selected } } } };
+    const candidates = [{ ...system.candidates[0], candidates: [candidate] }];
+    const constraint = { ...original, application: { ...original.application, callee: calleeType } };
+    const value = type => ({ value: { type, component: { kind: "body", value: constraint.occurrence },
+      category: { kind: "dynamic" }, numeric: null, sum: null, nominal: null, pointer: null }, error: null });
+    const evidence = [value(calleeType), value(constraint.application.result)];
+    const scheme = program.deps.rules.constraints.call;
+    const enumeration = scheme.enumerate({ group: record.group.id, reference: { body: system.body, index: 0 },
+      constraint, variables: system.variables, candidates, evidence, remainingContributions: 1 });
+    assert.equal(enumeration.kind, "ok");
+    const result = scheme.evaluate({ constraint, contribution: enumeration.value[0], evidence, candidates, reads: [] });
+    assert.equal(result.kind, "ok");
+    assert.equal(result.value.decision.application.result, resultType);
+    assert.equal(result.value.bounds[0].value.type, resultType);
+    assert.equal(isDeepStrictEqual(result.value.bounds[0].value.category, category), true,
+      "The result retains only genuinely established source-category evidence.");
+    assert.equal(isDeepStrictEqual(fixture.types.readType(program.interner, resultType), term), true,
+      "Category uncertainty never changes the selected native type or its carrier.");
+  }
+});
 
 test("real unannotated return solves its actual producer before one unmemoised same-group placement", () => {
   const program = ready("export function add(a: number, b: number) { return a + b; }\n");
