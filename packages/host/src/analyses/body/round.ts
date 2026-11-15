@@ -14,7 +14,8 @@ import type { BodyRoundDeps, BodyRoundInput, BodyRoundResult, BodyRoundValue } f
 import type { CallError } from "./calls.js";
 import { applyScalarCall, callInstance, callSummary, isCallError, scalarArgument } from "./calls.js";
 import { orderedRows, sourceOccurrences } from "./source.js";
-import { assignedEntry, bodyFrontier, readLocal, solveAssigned, statementOperands, terminatorOperands, transferAssigned } from "./storage.js";
+import type { LocalSlotEvidence } from "./storage.js";
+import { assignedEntry, bodyFrontier, localSlotEvidence, readLocal, solveAssigned, statementOperands, terminatorOperands, transferAssigned } from "./storage.js";
 
 function scalarKind(deps: BodyRoundDeps, type: TyId): "primitive" | "absence" | null {
   const selected = nativeCarrierOf(deps.types, type, current =>
@@ -181,6 +182,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
   const solved = solveAssigned(deps, input);
   if (solved.kind !== "complete") return solved;
   if (solved.value.error !== null) return failedCall(deps, solved.value.error);
+  let localSlots: ReadonlyMap<LocalId, LocalSlotEvidence> | null = null;
   const initialized = new Map<NodeId, Map<PlaceId, InitializationFact>>();
   let initializedCount = 0;
   const reads: ReadOriginsFact[] = [];
@@ -307,14 +309,30 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
             if (growth !== null) return growth;
             const source = requirePresent(mir.locals[local], { owner: "analyses/body", query: null, origin: terminator.origin,
               message: "A verified capture retains its actual executing local." });
-            if (source.role.kind !== "parameter" && source.role.kind !== "receiver")
+            if (source.role.kind !== "parameter" && source.role.kind !== "receiver" && source.role.kind !== "user")
               return bodyFrontier("BodyAnalysis requires the actual local lifetime and value-subject binding for this captured slot.");
             if (source.source === null || source.source.body !== tir.body || tir.locals[source.source.local]?.id !== source.source.local)
               return bodyFrontier("A captured caller slot retains its actual qualified source local, not its formal value identity.");
             const cell = cells.length;
             const location = boundProducerId(boundProducers.length);
             const producer = producerId(producers.length);
-            cells.push({ id: cell, role: { kind: "local", local }, occurrence: { kind: "entry", execution, local }, lifetimes: [] });
+            let slot: LocalSlotEvidence | undefined;
+            if (source.role.kind === "user") {
+              if (localSlots === null) {
+                const evidence = localSlotEvidence(input, solved.value.reachable, account);
+                if (evidence.kind !== "complete") return evidence;
+                localSlots = evidence.value;
+              }
+              const lookup = chargeWork(account, 1);
+              if (lookup !== null) return lookup;
+              slot = localSlots.get(local);
+              if (slot === undefined || slot.starts.length !== 1)
+                return bodyFrontier("BodyAnalysis requires the actual reaching storage-start relation for this captured local slot.");
+            }
+            cells.push({ id: cell, role: { kind: "local", local }, occurrence: slot === undefined
+              ? { kind: "entry", execution, local } : { kind: "statement", execution,
+                point: requirePresent(slot.starts[0], { owner: "analyses/body", query: null, origin: terminator.origin,
+                  message: "A captured local slot retains its actual verified storage-start occurrence." }) }, lifetimes: slot?.lifetimes ?? [] });
             cellLocals.push(local);
             producers.push({ id: producer, path: null, kind: "local", local: source.source });
             boundProducers.push({ id: location, producer, bindings: tir.lexicalBindings, context: valueContextId(0) });

@@ -38,6 +38,7 @@ let terminatorOperands;
 let readLocal;
 let assignedLattice;
 let assignedEntry;
+let localSlotEvidence;
 let bodyNodes;
 let callSummary;
 let applyScalarCall;
@@ -49,7 +50,7 @@ before(async () => {
   await post("Profiler.enable");
   await post("Profiler.startPreciseCoverage", { callCount: true, detailed: true });
   ({ analyzeBodyRound, proveInitialization } = await import("../../packages/host/dist/analyses/body/index.js"));
-  ({ solveAssigned, transferAssigned, statementOperands, terminatorOperands, readLocal, assignedLattice, assignedEntry } =
+  ({ solveAssigned, transferAssigned, statementOperands, terminatorOperands, readLocal, assignedLattice, assignedEntry, localSlotEvidence } =
     await import("../../packages/host/dist/analyses/body/storage.js"));
   ({ sourceOccurrences, orderedRows } = await import("../../packages/host/dist/analyses/body/source.js"));
   ({ bodyNodes } = await import("../../packages/host/dist/ir-facts/verify-body-nodes.js"));
@@ -530,16 +531,19 @@ test("actual captured call bindings refuse growth and retain every unsupported n
   }
 });
 
-test("an actual body-local captured initializer retains the not-yet-produced lifetime/value-subject binding frontier", () => {
-  const name = "body-round.local-capture";
+function localCaptureProgram(name, initialized, lexical = false) {
   const childName = `${name}.b`;
   const body = bodyId(childName, "initializer");
   const builder = builders(name);
   const first = { $: "a", ...builder.variable(builder.declName("a", 0), 0, T.bool) };
   const second = { $: "b", ...builder.variable(builder.declName("b", 1), 1, T.bool, null, body) };
+  const statements = [builder.declare([first]), ...(initialized ? [builder.expressionStatement(builder.assign(builder.target("a", 0, T.bool),
+    "EqualsToken", builder.keyword("TrueKeyword", T.bool), T.bool, T.bool))] : []), builder.declare([second])];
   const program = typedBody(name, { signature: signature(name, [], T.bool), completion: T.bool,
     locals: [["a", "binding", T.bool, true], ["b", "binding", T.bool]],
-    root: builder.block(builder.declare([first]), builder.declare([second]), builder.returns(builder.id("b", 1, T.bool))) });
+    root: builder.block(...(lexical ? [builder.block(...statements)] : statements), builder.returns(builder.id("b", 1, T.bool))) });
+  const scope = lexical ? program.tir.root.statements.nodes[0] : program.tir.root;
+  if (lexical) scope.statements.nodes[0].declarationList.flags = ["Let"];
   program.tir.locals[0].declaration = { kind: "body", value: program.nodeRef("a") };
   program.tir.locals[1].declaration = { kind: "body", value: program.nodeRef("b") };
   const source = { body: program.tir.body, local: 0 };
@@ -548,7 +552,7 @@ test("an actual body-local captured initializer retains the not-yet-produced lif
     locals: [["a", "capture", T.bool, false, source]], captures: [{ local: source, capture: "captured-location" }],
     root: childBuilder.id("a", 0, T.bool) });
   child.tir.root = seal(childName, childBuilder.id("a", 0, T.bool), "initializer", program.nodeCount).root;
-  const declaration = program.tir.root.statements.nodes[1].declarationList.declarations.nodes[0];
+  const declaration = scope.statements.nodes[initialized ? 2 : 1].declarationList.declarations.nodes[0];
   child.tir.root.parent = declaration.id;
   declaration.initializer = child.tir.root;
   const bodies = [program.tir, child.tir];
@@ -558,9 +562,102 @@ test("an actual body-local captured initializer retains the not-yet-produced lif
   const caller = fixture(program, [{ instance: { body, bindings: child.tir.bindings }, signature: child.tir.signature, captures: child.tir.captures }]);
   const initializer = fixture(child);
   initializer.related = [caller];
-  const pair = checkedPair(initializer, analyzeBodyRound(initializer.deps, initializer.input));
-  assert.throws(() => analyzeBodyRound({ ...caller.deps, summaryOf: () => ({ value: pair.summary,
-    unit: { request: initializer.deps.unit, position: { kind: "result" } } }) }, caller.input), /actual local lifetime and value-subject binding/);
+  const childPair = checkedPair(initializer, analyzeBodyRound(initializer.deps, initializer.input));
+  caller.related = [initializer];
+  caller.deps.summaryOf = () => ({ value: childPair.summary, unit: { request: initializer.deps.unit, position: { kind: "result" } } });
+  return { caller, initializer, childPair };
+}
+
+test("body-local capture cells retain actual storage markers and discharge only initialized read-time content", () => {
+  for (const lexical of [false, true]) for (const initialized of [false, true]) {
+    const { caller } = localCaptureProgram(`body-round.local-capture.${lexical}.${initialized}`, initialized, lexical);
+    const result = analyzeBodyRound(caller.deps, caller.input);
+    assert.equal(result.kind, "complete");
+    if (initialized) {
+      const pair = checkedPair(caller, result);
+      const cell = pair.facts.arena.cells[0];
+      assert.equal(cell.occurrence.kind, "statement");
+      assert.equal(cell.occurrence.execution, caller.execution);
+      const start = caller.input.mir.blocks[cell.occurrence.point.block].statements[cell.occurrence.point.statement];
+      assert.equal(start.kind, "storage-live");
+      assert.equal(start.local, cell.role.local);
+      assert.deepEqual(cell.lifetimes.map(marker => marker.kind), lexical ? ["live", "dead"] : ["live"]);
+      for (const marker of cell.lifetimes) {
+        const actual = caller.input.mir.blocks[marker.point.block].statements[marker.point.statement];
+        assert.equal(actual.kind, marker.kind === "live" ? "storage-live" : "storage-dead");
+        assert.equal(actual.local, cell.role.local);
+      }
+      assert.equal(pair.facts.arena.producers[pair.facts.arena.boundProducers[0].producer].kind, "local");
+      assert.deepEqual(pair.summary.arena.cells, []);
+      assert.deepEqual(pair.summary.arena.producers, []);
+      assert.deepEqual(pair.summary.initialization.points, [{ kind: "return" }]);
+    } else {
+      assert.equal(result.value.value.kind, "error");
+      assert.equal(result.value.diagnostics[0].code.rendered, "TSONIC_READ_BEFORE_INITIALIZATION");
+      assert.equal(result.value.value, result.value.positions[0].error);
+    }
+    for (const dimension of ["maximumWork", "maximumResultEntries"]) {
+      let complete = false;
+      for (let maximum = 0; maximum < 10000; maximum += 1) {
+        const account = createAccount({ ...limits, [dimension]: maximum });
+        const partial = analyzeBodyRound({ ...caller.deps, account }, caller.input);
+        if (partial.kind === "complete") { complete = true; break; }
+        assert.equal(partial, accountFailure(account));
+        assert.equal(analyzeBodyRound({ ...caller.deps, account }, new Proxy({}, {
+          get() { assert.fail("No local-lifetime input after the original stop."); },
+        })), partial);
+      }
+      assert.equal(complete, true);
+    }
+  }
+});
+
+test("actual storage-marker evidence has hand-counted bounds and skips genuine unreached blocks", () => {
+  const { caller } = localCaptureProgram("body-round.local-marker-budget", false);
+  assert.deepEqual(caller.input.mir.blocks.map(block => block.statements.map(statement => statement.kind)),
+    [["storage-live", "storage-live"], []]);
+  for (const [dimension, needed] of [["maximumWork", 9], ["maximumResultEntries", 13]]) {
+    for (let maximum = 0; maximum <= needed; maximum += 1) {
+      const account = createAccount({ ...limits, [dimension]: maximum });
+      const result = localSlotEvidence(caller.input, [true, true], account);
+      if (maximum === needed) assert.equal(result.kind, "complete");
+      else {
+        assert.equal(result, accountFailure(account));
+        assert.equal(localSlotEvidence(new Proxy({}, { get() { assert.fail("No marker input after stop."); } }), [], account), result);
+      }
+    }
+  }
+  const hidden = { ...caller.input, mir: { ...caller.input.mir, blocks: new Proxy(caller.input.mir.blocks, {
+    get(target, key, receiver) {
+      if (key === "0" || key === "1") assert.fail("Unreached marker payload is not read.");
+      return Reflect.get(target, key, receiver);
+    },
+  }) } };
+  const unused = localSlotEvidence(hidden, [false, false], createAccount(limits));
+  assert.equal(unused.kind, "complete");
+  assert.equal(unused.value.size, 0);
+});
+
+test("captured local slots need the actual unique storage-start and source-slot role", () => {
+  const { caller } = localCaptureProgram("body-round.local-marker-boundary", true);
+  const mir = caller.input.mir;
+  const slot = mir.locals.find(local => local.source?.local === 0);
+  const first = mir.blocks[0];
+  const marker = first.statements.find(statement => statement.kind === "storage-live" && statement.local === slot.id);
+  const repeat = { ...mir, blocks: [{ ...first, statements: [marker, ...first.statements] }, ...mir.blocks.slice(1)] };
+  assert.deepEqual(verifyMir(repeat, verificationContext(caller.program)), { kind: "complete", violations: [] });
+  assert.throws(() => analyzeBodyRound({ ...caller.deps, account: createAccount(limits) }, { ...caller.input, mir: repeat }),
+    /actual reaching storage-start relation/);
+  const temporary = { ...mir, locals: mir.locals.map(local => local === slot ? { ...local, role: { kind: "temporary" } } : local) };
+  assert.deepEqual(verifyMir(temporary, verificationContext(caller.program)), { kind: "complete", violations: [] });
+  assert.throws(() => analyzeBodyRound({ ...caller.deps, account: createAccount(limits) }, { ...caller.input, mir: temporary }),
+    /actual local lifetime and value-subject binding/);
+  const missing = { ...mir, blocks: [{ ...first, statements: first.statements.filter(statement => statement !== marker) }, ...mir.blocks.slice(1)] };
+  const malformed = verifyMir(missing, verificationContext(caller.program));
+  assert.equal(malformed.kind, "complete");
+  assert.equal(malformed.violations.some(finding => finding.rule === "storage-live-before-use"), true);
+  assert.throws(() => analyzeBodyRound({ ...caller.deps, account: createAccount(limits) }, { ...caller.input, mir: missing }),
+    /actual reaching storage-start relation/);
 });
 
 test("an omitted actual boolean default calls its separately analyzed scalar initializer at the exact MIR occurrence", () => {

@@ -343,6 +343,56 @@ test(`real public Host analysis executes an ${annotation === "" ? "inferred" : "
     && edge.target.execution.instance.body === initializer.instance.body), true);
 });
 
+test("real public Host analysis discharges a body-local captured initializer through its actual storage lifetime", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal",
+    "export function local(input: boolean): boolean { let a: boolean = input; const b: boolean = a; return b; }\n");
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok");
+  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  const main = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
+  const module = result.value.modules.find(module => module.module === main);
+  const caller = module.bodies.find(body => body.kind === "selected" && body.tir.params.length === 1);
+  assert.notEqual(caller, undefined);
+  const declarations = caller.tir.root.statements.nodes.slice(0, 2)
+    .map(statement => statement.declarationList.declarations.nodes[0]);
+  const source = declarations[0].name.tsonic.declaration.local;
+  const child = module.bodies.find(body => body.kind === "selected" && body.instance.body === declarations[1].tsonic.initializer);
+  assert.equal(child !== undefined && child.tir.root === declarations[1].initializer, true);
+  assert.deepEqual(child.tir.captures, [{ local: source, capture: "captured-location" }]);
+  const local = caller.mir.locals.find(local => local.source?.body === source.body && local.source.local === source.local);
+  assert.notEqual(local, undefined);
+  const facts = caller.facts[0];
+  const cell = facts.arena.cells.find(cell => cell.role.kind === "local" && cell.role.local === local.id);
+  assert.equal(cell !== undefined && cell.occurrence.kind === "statement", true);
+  const point = cell.occurrence.point;
+  const start = caller.mir.blocks[point.block].statements[point.statement];
+  assert.equal(start.kind, "storage-live");
+  assert.equal(start.local, local.id);
+  assert.equal(cell.lifetimes.some(marker => marker.kind === "live"), true);
+  for (const marker of cell.lifetimes) {
+    const operation = caller.mir.blocks[marker.point.block].statements[marker.point.statement];
+    assert.equal(operation.kind, marker.kind === "live" ? "storage-live" : "storage-dead");
+    assert.equal(operation.local, local.id);
+  }
+  const summary = result.value.index.summaries.find(summary => summary.key.kind === "body"
+    && summary.key.execution.instance.body === caller.instance.body);
+  assert.notEqual(summary, undefined);
+  assert.equal(summary.initialization.points.every(point => point.kind !== "need"), true);
+});
+
+test("real public Host analysis rejects an uninitialized body-local captured read without publishing a program", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal",
+    "export function local(): boolean { let a: boolean; const b: boolean = a; return b; }\n");
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "refused");
+  assert.equal("value" in result, false);
+  assert.equal(result.diagnostics.some(diagnostic => diagnostic.code.rendered === "TSONIC_READ_BEFORE_INITIALIZATION"), true);
+});
+
 test("real public Host analysis closes a direct zero-argument scalar call through its actual selected callee", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

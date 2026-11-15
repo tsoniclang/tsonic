@@ -3,6 +3,7 @@ import { accountFailure, chargeResultEntries, chargeWork, solve } from "../../da
 import { requirePresent, throwInvariant } from "../../diag/index.js";
 import type { BlockId, LocalId } from "../../ids/contract.js";
 import type { MirBody, MirOperand, MirStatement, MirTerminator } from "../../ir-mir/contract.js";
+import type { LogicalCellLifetime, MirPoint } from "../../ir-facts/contract.js";
 import { localOwnershipOfMir } from "../../ir-mir/index.js";
 import type { BodyRoundDeps, BodyRoundInput } from "./contract.js";
 import type { CallError } from "./calls.js";
@@ -12,6 +13,46 @@ export type Assigned = ReadonlySet<LocalId> | CallError | null;
 
 export function bodyFrontier(message: string): never {
   return throwInvariant({ owner: "analyses/initialization", query: null, origin: null, message });
+}
+
+export interface LocalSlotEvidence {
+  readonly starts: readonly MirPoint[];
+  readonly lifetimes: readonly LogicalCellLifetime[];
+}
+
+export function localSlotEvidence(input: BodyRoundInput, reachable: readonly boolean[],
+  account: DataflowAccount): DataflowResult<ReadonlyMap<LocalId, LocalSlotEvidence>> {
+  const admitted = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
+  if (admitted !== null) return admitted;
+  const slots = new Map<LocalId, { readonly starts: MirPoint[]; readonly lifetimes: LogicalCellLifetime[] }>();
+  for (let blockIndex = 0; blockIndex < input.mir.blocks.length; blockIndex += 1) {
+    const blockWork = chargeWork(account, 2);
+    if (blockWork !== null) return blockWork;
+    if (reachable[blockIndex] !== true) continue;
+    const block = requirePresent(input.mir.blocks[blockIndex], { owner: "analyses/body", query: null, origin: null,
+      message: "A reached storage-marker block remains in the verified MIR." });
+    for (let position = 0; position < block.statements.length; position += 1) {
+      const statementWork = chargeWork(account, 1);
+      if (statementWork !== null) return statementWork;
+      const statement = requirePresent(block.statements[position], { owner: "analyses/body", query: null, origin: block.origin,
+        message: "A reached storage marker retains its actual statement occurrence." });
+      if (statement.kind !== "storage-live" && statement.kind !== "storage-dead") continue;
+      const growth = chargeWork(account, 1) ?? chargeResultEntries(account, 3);
+      if (growth !== null) return growth;
+      let slot = slots.get(statement.local);
+      if (slot === undefined) {
+        const entry = chargeResultEntries(account, 3);
+        if (entry !== null) return entry;
+        slot = { starts: [], lifetimes: [] };
+        slots.set(statement.local, slot);
+      }
+      const point = { block: block.id, statement: position };
+      slot.lifetimes.push({ kind: statement.kind === "storage-live" ? "live" : "dead", execution: input.execution,
+        point, local: statement.local });
+      if (statement.kind === "storage-live") slot.starts.push(point);
+    }
+  }
+  return { kind: "complete", value: slots };
 }
 
 export function assignedEntry(entries: readonly Assigned[], block: BlockId): ReadonlySet<LocalId> {
