@@ -4,7 +4,7 @@ import type { CallExpression, Expression, NewExpression } from "../ir-hir/contra
 import type { MirCallArgument } from "../ir-mir/contract.js";
 import type { TypedPhase, TypedValue } from "../ir-tir/contract.js";
 import type { Lowering, Work } from "./model.js";
-import { callerDefect, failure, notLoweredYet, siteOf } from "./model.js";
+import { callerDefect, failure, localFromSource, notLoweredYet, siteOf } from "./model.js";
 import { exposeLocal, held, popOperand, pushOperand, saveHandedOut, temporary } from "./operands.js";
 import { constantOperand, enterBlock, newBlock, placeOfLocal, terminate } from "./state.js";
 
@@ -47,7 +47,7 @@ export function argumentPlace(lowering: Lowering, node: Expression<TypedPhase>):
     if (target.tsonic.role !== "value") return callerDefect("a place argument without its selected value", target.origin);
     selected = target.tsonic;
     if (target.tsonic.resolution.kind !== "local") return notLoweredYet(`a place argument resolved to a ${target.tsonic.resolution.kind}`, target.origin);
-    local = target.tsonic.resolution.local.body === lowering.body.body ? lowering.localOf.get(target.tsonic.resolution.local.local) : undefined;
+    local = localFromSource(lowering, target.tsonic.resolution.local);
   } else if (target.kind === "ThisKeyword") {
     if (target.tsonic.role !== "receiver") return callerDefect("a place argument without its selected receiver", target.origin);
     selected = target.tsonic;

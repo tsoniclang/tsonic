@@ -1634,10 +1634,13 @@ test("receiver lowering does not guess lexical captures, accept two receiver row
   duplicate.tir.params.push(duplicate.tir.params[0]);
   assert.throws(() => produced(deps, duplicate.tir, []), error => defectOfLowerMir(error)
     && error.message === `${CALLER_DEFECT}two selected receiver parameter rows`);
-  const foreign = make("receiver.parameter.foreign");
-  foreign.tir.params[0].tsonic.local.body = bodyId("receiver.another-body");
-  assert.throws(() => produced(deps, foreign.tir, []), error => defectOfLowerMir(error)
-    && error.message === `${CALLER_DEFECT}a parameter names another body`);
+  for (const field of ["foreign", "local", "passing"]) {
+    const invalid = make(`receiver.parameter.${field}`);
+    if (field === "foreign") invalid.tir.params[0].tsonic.local.body = bodyId("receiver.another-body");
+    else invalid.tir.params[0].tsonic[field] = null;
+    assert.throws(() => produced(deps, invalid.tir, []), error => defectOfLowerMir(error)
+      && error.message === `${CALLER_DEFECT}a parameter requires its actual executing body local and passing`);
+  }
 });
 
 function initializedBinding(name, keyword = "let", mode = "captured-value", outer = false, repeat = false, rootOf = null) {
@@ -1970,6 +1973,73 @@ test("qualified capture-row order joins actual local slots rather than names, lo
   for (let maximumRecords = 0; maximumRecords < size; maximumRecords += 1)
     assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, []).kind, "refused", `qualified capture under ${maximumRecords}`);
   assert.equal(produced({ ...deps, limits: { maximumRecords: size } }, program.tir, []).kind, "ok");
+});
+
+test("actual outer-qualified reads select the retained capture instead of a same-number own or foreign local", () => {
+  for (const mode of ["captured-value", "captured-location"]) {
+    const name = `capture.lookup.${mode}`;
+    const first = { body: bodyId(`${name}.first`), local: 0 };
+    const second = { body: bodyId(`${name}.second`), local: 0 };
+    const program = shaped(name, [["same", "required", T.int32]], T.int32, builder => builder.block(builder.returns(
+      builder.arithmetic(builder.id("same", 0, T.int32), "PlusToken", { $: "capture-source", ...builder.id("same", 1, T.int32,
+        { payload: { resolution: { kind: "local", local: first } } }) }, T.int32, plus("int32", T.int32)))));
+    program.tir.locals.push(...[first, second].map((source, index) => ({ id: index + 1,
+      declaration: { kind: "body", value: program.nodeRef("capture-source") }, name: "same", role: "capture",
+      capturedFrom: source, mutable: true, storage: T.int32 })));
+    program.tir.captures = [{ local: second, capture: mode }, { local: first, capture: mode }];
+    const expression = program.tir.root.statements.nodes[0].expression;
+    for (const [source, capture] of [[first, 1], [second, 0]]) {
+      expression.right.tsonic.resolution.local = source;
+      const mir = lower(program);
+      const calculation = mir.blocks.flatMap(block => block.statements).find(row => row.kind === "assign" && row.value.kind === "binary");
+      assert.equal(rootLocalOf(mir, calculation.value.left.place), 0);
+      const selected = mir.locals[rootLocalOf(mir, calculation.value.right.place)];
+      assert.deepEqual(selected.role, { kind: "capture", index: capture });
+      assert.deepEqual(selected.source, source);
+      assert.equal(selected.mode, mode);
+      const size = mir.locals.length + mir.places.length + mir.constants.length + mir.blocks.length
+        + mir.blocks.reduce((total, block) => total + block.statements.length, 0);
+      for (let maximumRecords = 0; maximumRecords <= size; maximumRecords += 1)
+        assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, []).kind,
+          maximumRecords === size ? "ok" : "refused");
+    }
+    for (const source of [{ body: program.tir.body, local: 99 }, { body: first.body, local: 99 },
+      { body: bodyId(`${name}.unselected`), local: 0 }]) {
+      expression.right.tsonic.resolution.local = source;
+      assert.throws(() => produced(deps, program.tir, []), notLoweredYet("a local that is not a parameter of the body"));
+    }
+  }
+});
+
+test("outer-qualified assignment and by-place arguments use the same actual capture lookup", () => {
+  for (const mode of ["captured-value", "captured-location"]) for (const form of ["assignment", "argument"]) {
+    const name = `capture.lookup.${mode}.${form}`;
+    const source = { body: bodyId(`${name}.outer`), local: 0 };
+    const targetName = `${name}.target`;
+    const target = signature(targetName, [["value", T.int32, "required", null, "byref-readwrite"]], T.int32);
+    const program = shaped(name, [["own", "required", T.int32]], T.int32, builder => {
+      const reference = { kind: "local", local: source };
+      const destination = { $: "capture-target", ...builder.target("saved", 1, T.int32) };
+      destination.tsonic.resolution = reference;
+      return builder.block(builder.returns(form === "assignment"
+        ? builder.assign(destination, "EqualsToken", builder.id("own", 0, T.int32), T.int32, T.int32)
+        : builder.call(builder.global("target", targetName, T.unknown), [{ $: "actual-capture", ...builder.id("saved", 1, T.int32,
+          { payload: { resolution: reference } }) }], T.int32,
+        at => ({ callee: callee(targetName, target, [mapped(0, 0, "byref-readwrite")], T.int32), receiver: null,
+          arguments: [{ kind: "provided", parameter: 0, expression: at("actual-capture") }] }))));
+    });
+    program.tir.locals.push({ id: 1, declaration: { kind: "body", value: program.nodeRef(form === "assignment" ? "capture-target" : "actual-capture") }, name: "saved", role: "capture",
+      capturedFrom: source, mutable: true, storage: T.int32 });
+    program.tir.captures = [{ local: source, capture: mode }];
+    const mir = lower(program);
+    const place = form === "assignment"
+      ? mir.blocks.flatMap(block => block.statements).find(row => row.kind === "assign").place
+      : mir.blocks.find(block => block.terminator.kind === "call").terminator.arguments[0].place;
+    const selected = mir.locals[rootLocalOf(mir, place)];
+    assert.deepEqual(selected.role, { kind: "capture", index: 0 });
+    assert.deepEqual(selected.source, source);
+    assert.equal(selected.mode, mode);
+  }
 });
 
 test("capture index setup refuses a known impossible local count before reading any capture row", () => {

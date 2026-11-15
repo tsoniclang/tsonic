@@ -430,6 +430,56 @@ test("real public Host analysis joins a named import to its actual selected call
   assert.equal(edges[0].target.execution.provided, 1);
 });
 
+for (const reexport of [false, true])
+test(`real public Host analysis preserves the actual ${reexport ? "three-module re-export" : "renamed import"} binding chain`, async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal");
+  const sourceFiles = reexport ? {
+    "main.ts": "import { forwarded as renamed } from './relay.js'; export function read(input: boolean): boolean { return renamed(!input); }\n",
+    "relay.ts": "export { value as forwarded } from './leaf.js';\n",
+    "leaf.ts": "export function value(input: boolean): boolean { return input; }\n",
+  } : {
+    "main.ts": "import { value as renamed } from './leaf.js'; export function read(input: boolean): boolean { return renamed(!input); }\n",
+    "leaf.ts": "export function value(input: boolean): boolean { return input; }\n",
+  };
+  input.snapshot = fixture.projectSnapshot({ sourceFiles,
+    libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok");
+  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  const moduleOf = name => fixture.moduleOf(fixture.packageOf("/project"), `src/${name}.ts`);
+  const main = result.value.modules.find(module => module.module === moduleOf("main"));
+  const leaf = result.value.modules.find(module => module.module === moduleOf("leaf"));
+  assert.equal(main !== undefined && leaf !== undefined, true);
+  const mainRecord = result.value.index.modules.find(module => module.module === main.module);
+  assert.equal(mainRecord !== undefined && mainRecord.bindings.length === 1, true);
+  const aliases = [mainRecord.bindings[0].occurrence];
+  if (reexport) {
+    const relay = result.value.index.modules.find(module => module.module === moduleOf("relay"));
+    assert.equal(relay !== undefined && relay.bindings.length === 1, true);
+    aliases.push(relay.bindings[0].occurrence);
+  }
+  const caller = main.bodies.find(body => body.kind === "selected" && body.mir.blocks.some(block => block.terminator.kind === "call"));
+  assert.equal(caller !== undefined, true);
+  const name = caller.tir.root.statements.nodes[0].expression.expression;
+  assert.equal(name.tsonic.resolution.kind, "definition");
+  assert.deepEqual(name.tsonic.resolution.aliases, aliases);
+  const call = caller.mir.blocks.find(block => block.terminator.kind === "call").terminator;
+  assert.equal(call.callee.kind, "direct");
+  assert.equal(leaf.bodies.some(body => body.kind === "selected" && body.instance.body === call.callee.resolution.activation.body), true);
+  assert.equal(main.bodies.some(body => body.instance.body === call.callee.resolution.activation.body), false);
+  const inventory = result.value.index.dependencyInventory;
+  assert.equal(inventory.operations.length, reexport ? 5 : 4);
+  assert.equal(result.value.index.summaries.length, inventory.operations.length);
+  const edges = inventory.dependencies.filter(edge => edge.reason === "call");
+  assert.equal(edges.length, 1);
+  assert.equal(edges[0].dependent.instance.body, caller.instance.body);
+  assert.equal(edges[0].target.kind, "body");
+  assert.equal(edges[0].target.execution.instance.body, call.callee.resolution.activation.body);
+  assert.equal(edges[0].target.execution.provided, 1);
+});
+
 test("actual named callable inference requires the supplied qualified B1 row rather than a checked type shortcut", async () => {
   const fixture = await loadFrontFixture();
   const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");

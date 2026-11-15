@@ -5,7 +5,7 @@ import type { MirClosureCapture } from "../ir-mir/contract.js";
 import type { TirNode, TypedPhase } from "../ir-tir/contract.js";
 import type { InternalBodyInput } from "./contract.js";
 import type { LocalScope, Lowering, Work } from "./model.js";
-import { callerDefect, failure, notLoweredYet, siteOf } from "./model.js";
+import { callerDefect, failure, localFromSource, notLoweredYet, siteOf } from "./model.js";
 import { exposeLocal, saveHandedOut } from "./operands.js";
 import { emitStatement, enterBlock, newBlock, newLocal, newPlace, placeOfLocal, terminate } from "./state.js";
 
@@ -164,8 +164,7 @@ function initializePlace(lowering: Lowering, node: NodeHeader, destination: Plac
     return callerDefect("an initializer signature differs from its selected destination", node.origin);
   const captures: MirClosureCapture[] = [];
   for (const capture of input.captures) {
-    const captured = capture.local.body === lowering.body.body ? lowering.localOf.get(capture.local.local)
-      : lowering.outerLocals.get(capture.local.body)?.get(capture.local.local);
+    const captured = localFromSource(lowering, capture.local);
     const sourceLocal = requirePresent(captured, failure("caller defect: an initializer capture has no selected caller storage", node.origin));
     const place = placeOfLocal(lowering.state, sourceLocal);
     if (place === null) return false;

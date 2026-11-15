@@ -1,14 +1,14 @@
 import type { Diagnostic, Result } from "../diag/contract.js";
 import { requirePresent, resourceLimitDiagnostic } from "../diag/index.js";
-import type { BodyId, LocalId, PlaceId } from "../ids/contract.js";
-import type { BinaryExpression, Expression, NodeHeader, ReturnStatement, Statement, ThrowStatement } from "../ir-hir/contract.js";
+import type { BodyId, LocalId, LocalRef, PlaceId } from "../ids/contract.js";
+import type { BinaryExpression, Expression, NodeHeader, ParameterDeclaration, ReturnStatement, Statement, ThrowStatement } from "../ir-hir/contract.js";
 import type { MirBody, MirLocalRole, MirUnwind } from "../ir-mir/contract.js";
 import { localOwnershipOfMir } from "../ir-mir/index.js";
 import type { TirBody, TirLocal, TypedBinary, TypedPhase, TypedUnary, TypedValue } from "../ir-tir/contract.js";
 import type { LiteralValue } from "../ir-types/contract.js";
 import type { InternalBodyInput, LowerMirDeps } from "./contract.js";
 import type { ControlScope, Lowering, Work } from "./model.js";
-import { callerDefect, failure, notLoweredYet, rawType, siteOf } from "./model.js";
+import { callerDefect, failure, localFromSource, notLoweredYet, rawType, siteOf } from "./model.js";
 import { held, popOperand, pushOperand, saveHandedOut, saveReads, temporary } from "./operands.js";
 import { breaks, continues, endConditionalFalse, endConditionalTrue, endDo, endElse, endFor, endLabel, endSelected, endShortCircuit, endThen, endWhile, enterConditional, enterDo, enterFor, enterIf, enterShortCircuit, enterWhile, loopCondition, nextFor } from "./control.js";
 import { argumentPlace, enterCall, finishCall } from "./calls.js";
@@ -65,6 +65,13 @@ function sizeLimit(deps: LowerMirDeps, body: TirBody): Diagnostic {
     site: { kind: "source", origin: body.root.origin }, unit: deps.unit });
 }
 
+function executionParameterLocal(header: ParameterDeclaration<TypedPhase>, body: BodyId): LocalRef {
+  const local = header.tsonic.local;
+  if (local === null || local.body !== body)
+    return callerDefect("a parameter requires its actual executing body local and passing", header.origin);
+  return local;
+}
+
 /** The locals present on entry, the first block and the entry. False: refused. */
 function enter(lowering: Lowering, root: TirBody["root"]): boolean {
   const { state, body } = lowering;
@@ -75,7 +82,8 @@ function enter(lowering: Lowering, root: TirBody["root"]): boolean {
   let parameters = 0;
   for (const header of body.params) {
     const row = header.tsonic;
-    if (row.local === null || row.passing === null || row.local.body !== body.body)
+    const parameterLocal = executionParameterLocal(header, body.body);
+    if (row.passing === null)
       return callerDefect("a parameter requires its actual executing body local and passing", header.origin);
     if (row.role === "rest") return notLoweredYet("a parameter of role rest", root.origin);
     if (header.initializer !== null && row.initializer === null)
@@ -83,11 +91,11 @@ function enter(lowering: Lowering, root: TirBody["root"]): boolean {
     if (row.role === "this" && lowering.receiver !== null) return callerDefect("two selected receiver parameter rows", root.origin);
     const role: MirLocalRole = row.role === "this" ? { kind: "receiver" } : { kind: "parameter", index: parameters };
     const local = newLocal(state, row.storage, role, row.passing,
-      row.local, header.origin);
+      parameterLocal, header.origin);
     if (local === null) return false;
     if (row.role !== "this") parameters += 1;
     else lowering.receiver = local;
-    lowering.localOf.set(row.local.local, local);
+    lowering.localOf.set(parameterLocal.local, local);
     // The local of a row not passed by value or moved is the caller's storage: handed out from entry.
     if (localOwnershipOfMir(row.passing) === "external") lowering.preservedLocals.add(local);
   }
@@ -203,7 +211,7 @@ function omittedEntries(lowering: Lowering): boolean {
   for (let position = body.params.length - 1; position >= 0; position -= 1) {
     const header = requirePresent(body.params[position], failure("a parameter vector has a hole", body.root.origin));
     const row = header.tsonic;
-    if (row.local === null) return callerDefect("an execution parameter requires its actual body local", header.origin);
+    const parameterLocal = executionParameterLocal(header, body.body);
     if (row.role === "this") continue;
     provided -= 1;
     const formal = requirePresent(signature.parameters[provided], failure("a parameter has no selected formal", header.origin));
@@ -212,7 +220,7 @@ function omittedEntries(lowering: Lowering): boolean {
     const entry = newBlock(state, site);
     if (entry === null) return false;
     enterBlock(state, entry);
-    const local = requirePresent(lowering.localOf.get(row.local.local), failure("an omitted parameter has no selected storage", header.origin));
+    const local = requirePresent(lowering.localOf.get(parameterLocal.local), failure("an omitted parameter has no selected storage", header.origin));
     if (row.initializer !== null) {
       if (!initializeLocal(lowering, header, local, row.storage, row.initializer)) return false;
     } else {
@@ -361,7 +369,7 @@ function expression(lowering: Lowering, node: Expression<TypedPhase>): boolean {
       const resolution = payload.resolution;
       if (resolution.kind === "error") return callerDefect("an error resolution", node.origin);
       if (resolution.kind !== "local") return notLoweredYet(`a name resolved to a ${resolution.kind}`, node.origin);
-      const local = resolution.local.body === body.body ? lowering.localOf.get(resolution.local.local) : undefined;
+      const local = localFromSource(lowering, resolution.local);
       if (local === undefined) return notLoweredYet("a local that is not a parameter of the body", node.origin);
       const place = placeOfLocal(state, local);
       if (place === null) return false;
@@ -436,7 +444,7 @@ function assignment(lowering: Lowering, node: BinaryExpression<TypedPhase>, payl
   if (selected.role !== "assignment-target") return callerDefect("an assignment without a selected target", target.origin);
   if (selected.resolution.kind === "error") return callerDefect("an error resolution", target.origin);
   if (selected.resolution.kind !== "local") return notLoweredYet(`an assignment resolved to a ${selected.resolution.kind}`, target.origin);
-  const local = selected.resolution.local.body === lowering.body.body ? lowering.localOf.get(selected.resolution.local.local) : undefined;
+  const local = localFromSource(lowering, selected.resolution.local);
   if (local === undefined) return notLoweredYet("an assignment to a local not placed in the body", target.origin);
   if (selected.access.storage !== payload.storage) return callerDefect("an assignment with inconsistent selected storage", target.origin);
   if (payload.calculation !== null && payload.calculation.kind !== "decided") return callerDefect("a deferred assignment operation", node.origin);

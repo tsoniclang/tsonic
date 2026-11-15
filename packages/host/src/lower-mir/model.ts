@@ -1,6 +1,6 @@
 import type { InvariantFailure } from "../diag/contract.js";
 import { throwInvariant } from "../diag/index.js";
-import type { BlockId, BodyId, LocalId, NodeId, Origin, PlaceId, TyId } from "../ids/contract.js";
+import type { BlockId, BodyId, LocalId, LocalRef, NodeId, Origin, PlaceId, TyId } from "../ids/contract.js";
 import type { BinaryExpression, Block, CallExpression, ConditionalExpression, DoStatement, Expression, ForStatement, IfStatement, LabeledStatement, NewExpression, NodeHeader, ReturnStatement, SourceFile, Statement, ThrowStatement, VariableDeclaration, VariableDeclarationList, WhileStatement } from "../ir-hir/contract.js";
 import type { MirOperand, MirSite } from "../ir-mir/contract.js";
 import type { TirApplication, TirBody, TirDemand, TypedOperation, TypedPhase, TypedValue } from "../ir-tir/contract.js";
@@ -102,6 +102,11 @@ export interface Lowering {
   readonly outerLocals: Map<BodyId, Map<LocalId, LocalId>>;
   scope: LocalScope | null;
   receiver: LocalId | null;
+}
+
+export function localFromSource(lowering: Lowering, source: LocalRef): LocalId | undefined {
+  return source.body === lowering.body.body ? lowering.localOf.get(source.local)
+    : lowering.outerLocals.get(source.body)?.get(source.local);
 }
 
 export const siteOf = (body: TirBody, node: NodeHeader): MirSite => ({ origin: node.origin, tir: { body: body.body, node: node.id } });
