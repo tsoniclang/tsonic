@@ -1,6 +1,6 @@
 import type { DataflowAccount, DataflowResult, ForwardProblem, Lattice } from "../../dataflow/contract.js";
 import { accountFailure, chargeResultEntries, chargeWork, solve } from "../../dataflow/index.js";
-import { requirePresent, throwInvariant } from "../../diag/index.js";
+import { requirePresent } from "../../diag/index.js";
 import type { BlockId, LocalId } from "../../ids/contract.js";
 import type { MirBody, MirOperand, MirStatement, MirTerminator } from "../../ir-mir/contract.js";
 import type { LogicalCellLifetime } from "../../ir-facts/contract.js";
@@ -8,12 +8,9 @@ import { localOwnershipOfMir } from "../../ir-mir/index.js";
 import type { BodyRoundDeps, BodyRoundInput } from "./contract.js";
 import type { CallError } from "./calls.js";
 import { callSummary, isCallError } from "./calls.js";
+import { bodyFrontier } from "./places.js";
 
 export type Assigned = ReadonlySet<LocalId> | CallError | null;
-
-export function bodyFrontier(message: string): never {
-  return throwInvariant({ owner: "analyses/initialization", query: null, origin: null, message });
-}
 
 export function localSlotLifetimes(input: BodyRoundInput, entries: readonly Assigned[],
   account: DataflowAccount): DataflowResult<ReadonlyMap<LocalId, readonly LogicalCellLifetime[]>> {
@@ -130,16 +127,6 @@ export function assignedEntry(entries: readonly Assigned[], block: BlockId): Rea
   if (entry === undefined || entry === null || isCallError(entry))
     return bodyFrontier("A reached block has its actual solved initialization entry.");
   return entry;
-}
-
-export function readLocal(body: MirBody, operand: Extract<MirOperand, { readonly kind: "place" }>): LocalId;
-export function readLocal(body: MirBody, operand: MirOperand): LocalId | null;
-export function readLocal(body: MirBody, operand: MirOperand): LocalId | null {
-  if (operand.kind === "constant") return null;
-  const place = requirePresent(body.places[operand.place], { owner: "analyses/initialization", query: null,
-    origin: null, message: "A verified operand retains its actual place." });
-  if (place.base.kind !== "local") return bodyFrontier("BodyAnalysis needs the actual selected logical-cell relation for this place.");
-  return place.base.local;
 }
 
 export function statementOperands(statement: MirStatement): readonly MirOperand[] {

@@ -10,7 +10,7 @@ test("actual declared and mapped indexes retain source origin and row key withou
   const captured = fixture.front.captureModule(opened.deps, opened.program, opened.module);
   assert.equal(captured.kind, "ok");
   const raw = captured.value;
-  const identified = fixture.front.lowerModuleDefinitions(raw);
+  const identified = fixture.front.lowerModuleDefinitions({ module: raw, componentRoots: raw.types.components.map(component => component.root).filter(root => root.module === raw.module) });
   assert.equal(identified.kind, "ok");
   assert.equal("bindingSources" in identified.value, false);
   const rows = identified.value.sourceOccurrences;

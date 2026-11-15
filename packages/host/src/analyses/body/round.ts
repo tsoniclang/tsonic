@@ -2,9 +2,9 @@ import type { DataflowStop } from "../../dataflow/contract.js";
 import { accountFailure, chargeResultEntries, chargeWork, refuseAccount } from "../../dataflow/index.js";
 import type { Diagnostic, DiagnosticIdentity, ErrorValue, UnitResult } from "../../diag/contract.js";
 import { hostDiagnosticCode, requirePresent, resourceLimitDiagnostic } from "../../diag/index.js";
-import type { BoundProducerId, LocalId, NodeId, OriginsId, PlaceId, ProducerId, SourceNodeRef } from "../../ids/contract.js";
+import type { LocalId, NodeId, OriginsId, PlaceId, ProducerId } from "../../ids/contract.js";
 import { boundProducerId, originsId, producerId, valueContextId } from "../../ids/index.js";
-import type { ArgumentTransport, BoundActivation, BoundProducer, CaptureLocation, EscapeFact, InitializationFact, InitializationPoint, InitializationRow, IntegerFact, InvocationFact, LogicalCellLifetime, LogicalCellRow, MirPoint, Origins, Producer, ReadOriginsFact, SubjectOriginsFact, Summary, SummaryApplicationInput, SummaryRetention, ValueContext, ValueEntryBinding, WriteFact } from "../../ir-facts/contract.js";
+import type { ArgumentTransport, BoundActivation, BoundProducer, CaptureLocation, EscapeFact, InitializationFact, InitializationPoint, InitializationRow, IntegerFact, InvocationFact, LogicalCellRow, MirPoint, Origins, Producer, ReadOriginsFact, SubjectOriginsFact, Summary, SummaryApplicationInput, SummaryRetention, ValueContext, ValueEntryBinding, WriteFact } from "../../ir-facts/contract.js";
 import { admitSummaryIdentity, summaryPositionKey } from "../../ir-facts/index.js";
 import type { MirLocal, MirOperand, MirSite } from "../../ir-mir/contract.js";
 import { localOwnershipOfMir } from "../../ir-mir/index.js";
@@ -14,9 +14,11 @@ import type { BodyRoundDeps, BodyRoundInput, BodyRoundResult, BodyRoundValue } f
 import type { CallError } from "./calls.js";
 import { applyScalarCall, callInstance, callSummary, isCallError, scalarArgument } from "./calls.js";
 import { orderedRows, sourceOccurrences } from "./source.js";
-import type { StorageLive } from "./storage.js";
-import { assignedEntry, bodyFrontier, localSlotLifetimes, readLocal, solveAssigned, solveStorageLive, statementOperands, terminatorOperands, transferAssigned } from "./storage.js";
-import { joinOrigins, valueKind } from "./values.js";
+import { assignedEntry, solveAssigned, statementOperands, terminatorOperands, transferAssigned } from "./storage.js";
+import { prepareCallCaptures } from "./captures.js";
+import { bodyFrontier, readLocal } from "./places.js";
+import { appliedOrigins, joinOrigins, valueKind, valueOrigins } from "./values.js";
+import { operandOrigins, solveValueOrigins, transferValue } from "./value-flow.js";
 
 function uninitialized(deps: BodyRoundDeps, site: MirSite): UnitResult<ErrorValue> {
   const code = hostDiagnosticCode("TSONIC_READ_BEFORE_INITIALIZATION");
@@ -68,7 +70,6 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
   const cells: LogicalCellRow[] = [];
   const boundProducers: BoundProducer[] = [];
   const captureLocations: CaptureLocation[] = [];
-  const callerCaptures = new Map<LocalId, CaptureLocation>();
   const cellLocals: LocalId[] = [];
   const empty = originsId(0);
   const absent = originsId(1);
@@ -78,6 +79,8 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
   const referenceEntries: { readonly local: LocalId; readonly role: Extract<MirLocal["role"], { readonly kind: "parameter" | "receiver" }> }[] = [];
   let receiverOrigins: OriginsId | null = null;
   let hasAbsence = false;
+  let hasReference = false;
+  let referenceCaptureCount = 0;
   for (const local of mir.locals) {
     if (local.role.kind === "capture") {
       const captureWork = chargeWork(account, 1) ?? chargeResultEntries(account, 2);
@@ -96,11 +99,11 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       return stop ?? bodyFrontier("BodyAnalysis requires the actual Origins reference/cell producer for this selected local.");
     }
     if (kind === "reference") {
-      if (local.role.kind !== "parameter" && local.role.kind !== "receiver")
-        return bodyFrontier("BodyAnalysis requires the actual Origins value-flow transport for this non-entry reference local.");
+      hasReference = true;
+      if (local.role.kind === "capture") referenceCaptureCount += 1;
       const entry = chargeWork(account, 1) ?? chargeResultEntries(account, 2);
       if (entry !== null) return entry;
-      referenceEntries.push({ local: local.id, role: local.role });
+      if (local.role.kind === "parameter" || local.role.kind === "receiver") referenceEntries.push({ local: local.id, role: local.role });
     }
     const origins = kind === "absence" ? absent : empty;
     hasAbsence ||= kind === "absence";
@@ -137,12 +140,12 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       resourceLimitDiagnostic({ owner: "analyses/origins", limit: `analysis.${limit}`, maximum: deps.limits[limit],
         site: { kind: "source", origin: tir.root.origin }, unit: { request: deps.unit, position: { kind: "result" } } })] });
   const formalCount = signature.parameters.length + (signature.receiver === null ? 0 : 1);
-  let contextReferences = formalCount + tir.captures.length * 5 + referenceEntries.length * 3;
+  let contextReferences = formalCount + tir.captures.length * 5 + referenceEntries.length * 3 + referenceCaptureCount;
   let lifetimeRecords = 0;
-  const bound = bounded("maximumRelationalRecordsPerBody", 2 + formalCount + tir.captures.length * 3 + (hasAbsence ? 1 : 0) + referenceEntries.length * 2)
+  const bound = bounded("maximumRelationalRecordsPerBody", 2 + formalCount + tir.captures.length * 3 + (hasAbsence ? 1 : 0) + referenceEntries.length * 2 + referenceCaptureCount)
     ?? bounded("maximumRelationalReferencesPerBody", contextReferences)
     ?? bounded("maximumConditionAlternatives", 1)
-    ?? (referenceEntries.length === 0 ? null : bounded("maximumOriginAlternatives", 1));
+    ?? (referenceEntries.length + referenceCaptureCount === 0 ? null : bounded("maximumOriginAlternatives", 1));
   if (bound !== null) return bound;
   const producers: Producer[] = [];
   if (signature.receiver !== null) {
@@ -157,6 +160,9 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
   }
   const originRows: Origins[] = [{ id: empty, kind: "complete", producers: [], includesAbsence: false }];
   if (hasAbsence) originRows.push({ id: absent, kind: "complete", producers: [], includesAbsence: true });
+  const initialWork = chargeWork(account, localOrigins.length) ?? chargeResultEntries(account, localOrigins.length);
+  if (initialWork !== null) return initialWork;
+  const initialOrigins = [...localOrigins];
   for (const local of referenceEntries) {
     const entry = chargeWork(account, 1) ?? chargeResultEntries(account, 5);
     if (entry !== null) return entry;
@@ -183,6 +189,17 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     producers.push({ id: producer, path: null, kind: "capture", index });
     boundProducers.push({ id: location, producer, bindings: tir.lexicalBindings, context: valueContextId(0) });
     captureLocations.push({ index, location, cell: index });
+    const kind = valueKind(deps, requirePresent(mir.locals[local], { owner: "analyses/body", query: null, origin: null,
+      message: "An actual capture retains its selected local storage." }).storage);
+    const classified = accountFailure(account);
+    if (classified !== null) return classified;
+    if (kind === "reference") {
+      const growth = chargeWork(account, 1) ?? chargeResultEntries(account, 2);
+      if (growth !== null) return growth;
+      const origins = originsId(originRows.length);
+      originRows.push({ id: origins, kind: "complete", producers: [location], includesAbsence: false });
+      localOrigins[local] = origins;
+    }
   }
   const entryBoundCount = boundProducers.length;
   const argumentWork = chargeWork(account, signature.parameters.length) ?? chargeResultEntries(account, hasAbsence ? 1 : 0);
@@ -193,15 +210,20 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       { owner: "analyses/body", query: null, origin: null, message: "Every actual selected formal retains its scalar origins." })), captures: captureLocations }];
   const arena = { cells, projections: [], producers, boundProducers, boundaries: [], contexts,
     origins: originRows } satisfies BodyRoundValue["facts"]["arena"];
+  const values = valueOrigins(deps, originRows);
+  if (values.kind !== "complete") return values;
   const source = sourceOccurrences(tir, account);
   if (source.kind !== "complete") return source;
   const solved = solveAssigned(deps, input);
   if (solved.kind !== "complete") return solved;
   if (solved.value.error !== null) return failedCall(deps, solved.value.error);
-  let localSlots: { readonly lifetimes: ReadonlyMap<LocalId, readonly LogicalCellLifetime[]>;
-    readonly live: readonly StorageLive[] } | null = null;
-  let callerLocalSubjects: Map<LocalId, BoundProducerId> | null = null;
+  const callLocations = prepareCallCaptures(deps, input, arena, source.value, solved.value.entry, solved.value.reachable,
+    capturedLocals, captureLocations, cellLocals, bounded, contextReferences);
+  if (callLocations.kind !== "complete") return callLocations;
+  contextReferences = callLocations.value.references;
+  lifetimeRecords = callLocations.value.lifetimes;
   const initialized = new Map<NodeId, Map<PlaceId, InitializationFact>>();
+  const readIndices = new Map<NodeId, Map<PlaceId, number>>();
   let initializedCount = 0;
   const reads: ReadOriginsFact[] = [];
   const subjects: SubjectOriginsFact[] = [];
@@ -212,9 +234,10 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
   const retention: { readonly key: string; readonly value: SummaryRetention }[] = [];
   let returns = false;
   let resultOrigins = empty;
-  const admitUnion = (count: number): DataflowStop | null => {
-    const bound = bounded("maximumOriginAlternatives", count)
-      ?? bounded("maximumRelationalRecordsPerBody", 1, arena.cells.length + arena.boundProducers.length
+  const admitUnion = (count: number, retain: boolean): DataflowStop | null => {
+    const alternatives = bounded("maximumOriginAlternatives", count);
+    if (alternatives !== null || !retain) return alternatives;
+    const bound = bounded("maximumRelationalRecordsPerBody", 1, arena.cells.length + arena.boundProducers.length
         + arena.producers.length + arena.contexts.length + arena.origins.length + lifetimeRecords)
       ?? bounded("maximumRelationalReferencesPerBody", count, contextReferences);
     if (bound !== null) return bound;
@@ -231,9 +254,11 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     initializationState.push({ point: position, cell: null, condition: 0 });
     return null;
   };
-  const originsOf = (operand: MirOperand): OriginsId => requirePresent(operand.kind === "constant" ? constantOrigins[operand.constant]
-    : localOrigins[readLocal(mir, operand)], { owner: "analyses/body", query: null, origin: null,
-      message: "A verified scalar operand retains its actual absence disposition." });
+  let currentOrigins: readonly OriginsId[] = localOrigins;
+  const originsOf = (operand: MirOperand): OriginsId => operandOrigins(input, constantOrigins, currentOrigins, operand);
+  const flow = hasReference ? solveValueOrigins(deps, input, arena, values.value, constantOrigins, initialOrigins,
+    localOrigins, solved.value.reachable, admitUnion, callLocations.value.calls) : null;
+  if (flow !== null && flow.kind !== "complete") return flow;
   const read = (operand: MirOperand, node: NodeId, assigned: ReadonlySet<number>, point: MirPoint): boolean => {
     if (chargeWork(account, 1) !== null || chargeResultEntries(account, 2) !== null) return false;
     if (operand.kind === "constant") return true;
@@ -247,9 +272,23 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     const previous = occurrences.get(operand.place);
     const present = assigned.has(local);
     if (previous === undefined) {
+      if (chargeResultEntries(account, 3) !== null) return false;
       initializedCount += 1;
       occurrences.set(operand.place, { node, place: operand.place, assigned: present });
+      let indices = readIndices.get(node);
+      if (indices === undefined) { indices = new Map(); readIndices.set(node, indices); }
+      indices.set(operand.place, reads.length);
       reads.push({ node, place: operand.place, origins: originsOf(operand) });
+    } else {
+      const index = requirePresent(readIndices.get(node)?.get(operand.place), { owner: "analyses/body", query: null, origin: null,
+        message: "A repeated actual read retains its existing source-and-place row." });
+      const previousRead = requirePresent(reads[index], { owner: "analyses/body", query: null, origin: null,
+        message: "A repeated actual read retains its actual Origins row." });
+      const joined = joinOrigins(deps, values.value, previousRead.origins, originsOf(operand), admitUnion);
+      if (typeof joined !== "number") return false;
+      if (chargeResultEntries(account, 2) !== null) return false;
+      reads[index] = { ...previousRead, origins: joined };
+      occurrences.set(operand.place, { node, place: operand.place, assigned: previous.assigned && present });
     }
     const cell = capturedLocals.get(local);
     if (!present && cell !== undefined) {
@@ -262,6 +301,8 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     if (blockWork !== null) return blockWork;
     if (solved.value.reachable[block.id] !== true) continue;
     if (solved.value.entry[block.id] === null) continue;
+    currentOrigins = flow === null ? localOrigins : requirePresent(flow.value.get(block.id), { owner: "analyses/body", query: null,
+      origin: block.origin, message: "A reached block retains its actual solved value-flow entry." });
     let assigned = assignedEntry(solved.value.entry, block.id);
     let position = 0;
     for (const row of block.statements) {
@@ -287,17 +328,21 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
           || value.operation.decision.kind !== "selected" || value.operation.decision.execution.kind !== "pure"))
           return bodyFrontier("BodyAnalysis requires the actual selected operation effect and Origins transport.");
         const local = readLocal(mir, { kind: "place", place: statement.place });
-        const origins = requirePresent(localOrigins[local], { owner: "analyses/body", query: null, origin: statement.origin,
-          message: "An executing assignment retains its actual local Origins." });
-        if (arena.origins[origins]?.producers.length !== 0)
-          return bodyFrontier("BodyAnalysis requires the actual Origins value-flow transport for this reference assignment.");
         if (capturedLocals.has(local))
           return bodyFrontier("BodyAnalysis requires the actual captured-cell content and exit-write transport for this assignment.");
+        const transferred = transferValue(deps, input, constantOrigins, initialOrigins, currentOrigins, statement);
+        if (transferred.kind !== "complete") return transferred;
+        currentOrigins = transferred.value;
         const storeWork = chargeResultEntries(account, 3);
         if (storeWork !== null) return storeWork;
         writes.push({ point: { block: block.id, statement: position }, node: statement.tir.node,
           operation: assigned.has(local) ? "mutation" : "initialization", destination: "binding", targets: [], owner: null,
           values: [{ source: statement.tir, origins: originsOf({ kind: "place", place: statement.place }), reason: null }], boundaries: [] });
+      }
+      if (statement.kind !== "assign" && hasReference) {
+        const transferred = transferValue(deps, input, constantOrigins, initialOrigins, currentOrigins, statement);
+        if (transferred.kind !== "complete") return transferred;
+        currentOrigins = transferred.value;
       }
       const next = transferAssigned(mir, statement, assigned, account);
       const transferStop = accountFailure(account);
@@ -309,13 +354,6 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     if (terminatorWork !== null) return terminatorWork;
     const terminator = block.terminator;
     if (terminator.kind === "call") {
-      if (terminator.destination !== null) {
-        const destination = readLocal(mir, { kind: "place", place: terminator.destination });
-        const origins = requirePresent(localOrigins[destination], { owner: "analyses/body", query: null, origin: terminator.origin,
-          message: "An executing call destination retains its actual local Origins." });
-        if (arena.origins[origins]?.producers.length !== 0)
-          return bodyFrontier("BodyAnalysis requires the actual Origins value-flow transport for this reference call result.");
-      }
       const selected = callSummary(deps, mir, terminator);
       if (selected.kind !== "complete") return selected;
       if (isCallError(selected.value)) return failedCall(deps, selected.value);
@@ -328,107 +366,10 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       if (growth !== null) return growth;
       const arguments_: OriginsId[] = [];
       const transports: ArgumentTransport[] = [];
-      const callCaptures: CaptureLocation[] = [];
+      const callCaptures = terminator.callee.kind !== "body" ? [] : requirePresent(callLocations.value.calls.get(block.id), {
+        owner: "analyses/body", query: null, origin: terminator.origin, message: "An executing body call retains its actual slot-location inventory." });
       const entryBindings: ValueEntryBinding[] = [];
       const cellBindings: (SummaryApplicationInput["cells"][number] & { readonly kind: "cell" })[] = [];
-      if (terminator.callee.kind === "body") {
-        for (let index = 0; index < terminator.callee.captures.length; index += 1) {
-          const captureWork = chargeWork(account, 1) ?? chargeResultEntries(account, 5);
-          if (captureWork !== null) return captureWork;
-          const capture = requirePresent(terminator.callee.captures[index], { owner: "analyses/body", query: null, origin: terminator.origin,
-            message: "A selected body call retains every actual capture transport." });
-          const local = readLocal(mir, { kind: "place", place: capture.place });
-          const incoming = capturedLocals.get(local);
-          const sourceWork = chargeWork(account, 2);
-          if (sourceWork !== null) return sourceWork;
-          const actual = requirePresent(mir.locals[local], { owner: "analyses/body", query: null, origin: terminator.origin,
-            message: "A verified capture retains its actual executing local." });
-          let lifetimes: readonly LogicalCellLifetime[] | undefined;
-          if (incoming === undefined && actual.role.kind === "user") {
-            if (localSlots === null) {
-              const evidence = localSlotLifetimes(input, solved.value.entry, account);
-              if (evidence.kind !== "complete") return evidence;
-              const live = solveStorageLive(input, solved.value.entry, account);
-              if (live.kind !== "complete") return live;
-              const retained = chargeResultEntries(account, 1);
-              if (retained !== null) return retained;
-              localSlots = { lifetimes: evidence.value, live: live.value };
-            }
-            const lookup = chargeWork(account, 2);
-            if (lookup !== null) return lookup;
-            const live = localSlots.live[block.id]?.has(local) === true;
-            lifetimes = localSlots.lifetimes.get(local);
-            if (!live || lifetimes === undefined)
-              return bodyFrontier("BodyAnalysis requires the actual must-live-at-call relation for this captured local slot.");
-          }
-          let binding = incoming !== undefined ? captureLocations[incoming] : callerCaptures.get(local);
-          if (binding === undefined) {
-            const growth = chargeWork(account, 2) ?? chargeResultEntries(account, 12);
-            if (growth !== null) return growth;
-            const callerLocal = actual;
-            if (callerLocal.role.kind !== "parameter" && callerLocal.role.kind !== "receiver" && callerLocal.role.kind !== "user")
-              return bodyFrontier("BodyAnalysis requires the actual local lifetime and value-subject binding for this captured slot.");
-            const declaration = callerLocal.source === null ? undefined : tir.locals[callerLocal.source.local];
-            if (callerLocal.source === null || callerLocal.source.body !== tir.body || declaration?.id !== callerLocal.source.local)
-              return bodyFrontier("A captured caller slot retains its actual qualified source local, not its formal value identity.");
-            let at: SourceNodeRef | null = null;
-            if (callerLocal.role.kind === "user") {
-              const projection = chargeWork(account, 3) ?? chargeResultEntries(account, 2);
-              if (projection !== null) return projection;
-              const reference = declaration.declaration;
-              const node = source.value.get(reference.value.node);
-              const annotation = node?.tsonic;
-              const target = annotation !== undefined && annotation !== null && "declaration" in annotation ? annotation.declaration : null;
-              if (node === undefined || reference.kind === "body" && reference.value.body !== tir.body
-                || typeof target !== "object" || target === null || !("kind" in target) || target.kind !== "local"
-                || target.local.body !== tir.body || !Object.is(target.local.local, declaration.id))
-                return bodyFrontier("A captured local declaration retains its actual executing occurrence and qualified local association.");
-              at = { kind: "body", value: { body: tir.body, node: node.id } };
-            }
-            const subject = callerLocalSubjects?.get(callerLocal.source.local);
-            const subjectRows = subject === undefined ? 2 : 0;
-            const subjectReferences = subject === undefined ? 5 : 3;
-            const bound = bounded("maximumRelationalRecordsPerBody", arena.cells.length + arena.boundProducers.length
-              + arena.producers.length + arena.contexts.length + arena.origins.length + lifetimeRecords + 2 + subjectRows)
-              ?? bounded("maximumRelationalReferencesPerBody", subjectReferences, contextReferences);
-            if (bound !== null) return bound;
-            const cell = cells.length;
-            const location = subject ?? boundProducerId(boundProducers.length);
-            const producer = producerId(producers.length);
-            if (lifetimes !== undefined) {
-              const markers = lifetimes.length;
-              const retained = arena.cells.length + arena.boundProducers.length + arena.producers.length
-                + arena.contexts.length + arena.origins.length + lifetimeRecords + 2 + subjectRows;
-              const markerBound = bounded("maximumRelationalRecordsPerBody", markers, retained)
-                ?? bounded("maximumRelationalReferencesPerBody", markers * 2, contextReferences + subjectReferences);
-              if (markerBound !== null) return markerBound;
-              lifetimeRecords += markers;
-              contextReferences += markers * 2;
-            }
-            cells.push({ id: cell, role: { kind: "local", local }, occurrence: at !== null
-              ? { kind: "declared", at: { kind: "node", node: at } }
-              : { kind: "entry", execution, local }, lifetimes: lifetimes ?? [] });
-            cellLocals.push(local);
-            if (subject === undefined) {
-              if (callerLocalSubjects === null) {
-                const retained = chargeResultEntries(account, 1);
-                if (retained !== null) return retained;
-                callerLocalSubjects = new Map();
-              }
-              producers.push({ id: producer, path: null, kind: "local", local: callerLocal.source });
-              boundProducers.push({ id: location, producer, bindings: tir.lexicalBindings, context: valueContextId(0) });
-              callerLocalSubjects.set(callerLocal.source.local, location);
-            }
-            binding = { index, location, cell };
-            callerCaptures.set(local, binding);
-            contextReferences += subjectReferences;
-          }
-          const references = bounded("maximumRelationalReferencesPerBody", 2, contextReferences);
-          if (references !== null) return references;
-          contextReferences += 2;
-          callCaptures.push({ index, location: binding.location, cell: binding.cell });
-        }
-      }
       for (const cell of selected.value.arena.cells) {
         const work = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
         if (work !== null) return work;
@@ -442,8 +383,12 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
         const producer = selected.value.arena.producers[bound.producer];
         const capture = producer?.kind === "capture" && producer.path === null && terminator.callee.kind === "body"
           ? terminator.callee.captures[producer.index] : undefined;
-        if (capture === undefined) return bodyFrontier("A selected callee entry value requires its actual root capture transport.");
-        entryBindings.push({ formal: bound.id, actual: originsOf({ kind: "place", place: capture.place }) });
+        if (capture !== undefined) entryBindings.push({ formal: bound.id, actual: originsOf({ kind: "place", place: capture.place }) });
+        else if (producer?.kind === "parameter" && producer.path === null && terminator.callee.kind === "direct") {
+          const argument = scalarArgument(deps, terminator, producer.index);
+          if (argument.kind !== "complete") return argument;
+          entryBindings.push({ formal: bound.id, actual: originsOf(argument.value) });
+        } else return bodyFrontier("A selected callee entry value requires its actual root argument or capture transport.");
       }
       if (terminator.callee.kind === "direct") {
         const setup = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
@@ -495,6 +440,19 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       const point = { block: block.id, statement: null };
       const applied = applyScalarCall(deps, input, terminator, point, selected.value, arena, context, entryBindings, cellBindings);
       if (applied.kind !== "complete") return applied;
+      let callResult = empty;
+      if (hasReference || applied.value.result.includesAbsence) {
+        const result = appliedOrigins(deps, values.value, applied.value.result, admitUnion);
+        if (typeof result !== "number") return result;
+        callResult = result;
+      }
+      if (terminator.destination !== null) {
+        const written = chargeWork(account, currentOrigins.length) ?? chargeResultEntries(account, currentOrigins.length);
+        if (written !== null) return written;
+        const next = [...currentOrigins];
+        next[readLocal(mir, { kind: "place", place: terminator.destination })] = callResult;
+        currentOrigins = next;
+      }
       let witnessRows: Map<InitializationPoint, number> | null = null;
       for (const row of applied.value.initialization) {
         const work = chargeWork(account, 1);
@@ -549,7 +507,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
         if (signatureStop !== null) return signatureStop;
         invocations.push({ node: terminator.tir.node, point, kind: signature.kind, alternatives: [{
           resolution: terminator.callee.resolution, context, arguments: transports,
-          result: terminator.destination === null ? empty : originsOf({ kind: "place", place: terminator.destination }),
+          result: callResult,
           thrown: empty, summary: selected.value.key }], boundaries: [] });
       }
       if (selected.value.returns && terminator.destination !== null) {
@@ -577,7 +535,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       returns = true;
       if (terminator.value !== null) {
         const origins = originsOf(terminator.value);
-        const joined = joinOrigins(deps, originRows, resultOrigins, origins, admitUnion);
+        const joined = joinOrigins(deps, values.value, resultOrigins, origins, admitUnion);
         if (typeof joined !== "number") return joined;
         resultOrigins = joined;
         subjects.push({ node: terminator.tir.node, role: "return", path: null, origins });

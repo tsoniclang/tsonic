@@ -14,7 +14,7 @@ test("actual generic declarations, composites and indexes retain their checked g
   const module = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
   const captured = fixture.front.captureModule(opened.deps, opened.program, module);
   assert.equal(captured.kind, "ok");
-  const definitions = fixture.front.lowerModuleDefinitions(captured.value);
+  const definitions = fixture.front.lowerModuleDefinitions({ module: captured.value, componentRoots: captured.value.types.components.map(component => component.root).filter(root => root.module === captured.value.module) });
   assert.equal(definitions.kind, "ok");
   const types = fixture.types.createTypeInterner();
   const deps = fixture.lowerDepsFor(definitions.value, types, source);
@@ -55,7 +55,7 @@ test("an index origin cannot borrow a same-numbered occurrence from another actu
     const module = fixture.moduleOf(fixture.packageOf("/project"), `src/${name}`);
     const captured = fixture.front.captureModule(opened.deps, opened.program, module);
     assert.equal(captured.kind, "ok");
-    const definitions = fixture.front.lowerModuleDefinitions(captured.value);
+    const definitions = fixture.front.lowerModuleDefinitions({ module: captured.value, componentRoots: captured.value.types.components.map(component => component.root).filter(root => root.module === captured.value.module) });
     assert.equal(definitions.kind, "ok");
     actual.push({ raw: captured.value, definitions: definitions.value,
       index: definitions.value.sourceOccurrences.find(row => row.kind === "IndexSignature") });

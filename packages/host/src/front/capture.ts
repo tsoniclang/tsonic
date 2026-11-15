@@ -1,5 +1,5 @@
 import type { ArgumentPassingFact, Diagnostic as CheckerDiagnostic, Node, ResolvedAliasTarget, Signature, SourceFile, Symbol as CheckerSymbol, Type, TypeCheckerQueries, TypeShapeQueries } from "@tsonic/tsts";
-import { argumentPassingFactKey, getDiagnosticRunMembers, providerVirtualDeclarationFactKey } from "@tsonic/tsts";
+import { argumentPassingFactKey, getDiagnosticRunMembers, providerVirtualDeclarationFactKey, TypeFlagsUniqueESSymbol } from "@tsonic/tsts";
 import type { CheckerDiagnosticRef, Diagnostic, InvariantFailure, Result } from "../diag/contract.js";
 import { resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
 import type { ModuleId, NodeId } from "../ids/contract.js";
@@ -648,21 +648,17 @@ function captureFacts(scope: CaptureScope): void {
         const string = scope.shape.getStringLiteralTypeValue(next.type);
         if (boolean !== undefined) literal = { kind: "boolean", value: boolean };
         else if (string !== undefined) literal = { kind: "string", value: string };
-        else if (scope.shape.isSymbolLike(next.type)) {
-          const base = scope.shape.getBaseTypeOfLiteralType(next.type);
-          if (base === undefined) return throwInvariant(invariant("A checked symbol requires its actual SDK base type."));
-          if (!scope.shape.isTypeIdenticalTo(base, next.type)) {
-            const symbol = scope.checker.getTypeSymbol(next.type);
-            const declarations = symbol === undefined ? [] : scope.checker.getSymbolDeclarations(symbol);
-            if (!admit(scope, "edges")) return;
-            const declaration = declarations[0];
-            if (declarations.length !== 1 || declaration === undefined)
-              return throwInvariant(invariant("A unique symbol must retain its one actual checked declaration."));
-            const source = referenceTo(scope, scope.program, declaration);
-            if (scope.meter.refusal !== null) return;
-            if (source === null) return throwInvariant(invariant("A unique symbol's declaration must belong to the admitted source domain."));
-            literal = { kind: "symbol", declaration: source };
-          }
+        else if ((next.type.flags & TypeFlagsUniqueESSymbol) !== 0) {
+          const symbol = scope.checker.getTypeSymbol(next.type);
+          const declarations = symbol === undefined ? [] : scope.checker.getSymbolDeclarations(symbol);
+          if (!admit(scope, "edges")) return;
+          const declaration = declarations[0];
+          if (declarations.length !== 1 || declaration === undefined)
+            return throwInvariant(invariant("A unique symbol must retain its one actual checked declaration."));
+          const source = referenceTo(scope, scope.program, declaration);
+          if (scope.meter.refusal !== null) return;
+          if (source === null) return throwInvariant(invariant("A unique symbol's declaration must belong to the admitted source domain."));
+          literal = { kind: "symbol", declaration: source };
         }
         const base = literal === null ? next.type : scope.shape.getBaseTypeOfLiteralType(next.type);
         if (base === undefined) return throwInvariant(invariant("A captured literal type requires its actual SDK base type."));

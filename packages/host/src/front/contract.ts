@@ -845,7 +845,12 @@ export interface ModuleDefinitions {
   readonly sourceOccurrences: readonly ModuleSourceOccurrence[];
 }
 
-export type LowerModuleDefinitions = (module: RawModule) => Result<ModuleDefinitions>;
+export interface ModuleDefinitionsInput {
+  readonly module: RawModule;
+  readonly componentRoots: readonly RawNodeRef[];
+}
+
+export type LowerModuleDefinitions = (input: ModuleDefinitionsInput) => Result<ModuleDefinitions>;
 
 /** The export entries of one module, in ascending order of name. */
 export interface ModuleExports {

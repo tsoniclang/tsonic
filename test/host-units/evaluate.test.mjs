@@ -40,7 +40,7 @@ function same(actual, expected, label) {
   assert.equal(isDeepStrictEqual(actual, expected), true, label);
 }
 
-function fixture(name, type = T.bool, makeRoot = b => b.block(b.returns(b.keyword("TrueKeyword", T.bool))), rows = []) {
+function fixture(name, type = T.bool, makeRoot = b => b.block(b.returns(b.keyword("TrueKeyword", T.bool))), rows = [], nativeFacts = nativeFactsFixture()) {
   const program = shaped(name, rows, type, makeRoot);
   program.tir = { ...program.tir, bindings: { kind: "instantiated", bindings: EMPTY_BINDINGS } };
   const interner = types.seedTypeInterner(TABLE);
@@ -51,10 +51,10 @@ function fixture(name, type = T.bool, makeRoot = b => b.block(b.returns(b.keywor
   assert.equal(produced.kind, "ok", "the real LowerMir producer completed");
   const parsed = mir.parseMir(mir.printMir(produced.value));
   assert.equal(parsed.kind, "parsed", "the actual MIR codec completed");
-  const checked = mir.verifyMir(parsed.value, verificationContext(program));
+  const checked = mir.verifyMir(parsed.value, { ...verificationContext(program), selectedNativeFacts: nativeFacts });
   same(checked, { kind: "complete", violations: [] }, "the actual selected typed-body/MIR barrier completed");
   const body = parsed.value;
-  const deps = { ...views, types: types.viewTypes(interner), selectedNativeFacts: nativeFactsFixture(), limits };
+  const deps = { ...views, types: types.viewTypes(interner), selectedNativeFacts: nativeFacts, limits };
   const entry = { body: body.body, bindings: body.bindings };
   return { body, deps, entry, unit, start: (selected = limits) => product.evaluate({ ...deps, limits: selected }, entry, body, [], "compile-time", unit) };
 }
@@ -304,6 +304,144 @@ function bitwiseFixture(name, carrier, type, operator, left, right = null, resul
   const deps = { ...value.deps, limits: { ...limits, maximumArithmeticWork: 100000 } };
   return { ...value, deps, run: (given = deps, body = value.body) => product.evaluate(given, value.entry, body, [], "compile-time", value.unit) };
 }
+
+function remainderFixture(name, carrier, type, left, right, sign = "dividend", zeroLaw = "unwind", result = type, nativeFacts = nativeFactsFixture()) {
+  const decision = selected({ kind: "native-operator", operator: "%", carrier }, [type, type], result,
+    { kind: "invocation", writesStorage: false, failure: zeroLaw });
+  const value = fixture(name, result, builder => builder.block(builder.returns(builder.arithmetic(
+    builder.num(String(left), type), "PercentToken", builder.num(String(right), type), result, decision))), [], nativeFacts);
+  const facts = { ...value.deps.selectedNativeFacts, remainderByZero: [{ carrier, law: zeroLaw }], remainderSign: [{ carrier, sign }] };
+  const deps = { ...value.deps, selectedNativeFacts: facts, limits: { ...limits, maximumArithmeticWork: 100000 } };
+  return { ...value, deps, run: (given = deps, body = value.body) => product.evaluate(given, value.entry, body, [], "compile-time", value.unit) };
+}
+
+test("integer remainder consumes its supplied sign law on actual lowered MIR", () => {
+  const [carrier, type] = comparisonTypes[0];
+  for (const [left, right, dividend, divisor, nonnegative] of [[7n, 3n, 1n, 1n, 1n], [-7n, 3n, -1n, 2n, 2n],
+    [7n, -3n, 1n, -2n, 1n], [-7n, -3n, -1n, -1n, 2n], [-128n, -1n, 0n, 0n, 0n], [0n, -128n, 0n, 0n, 0n],
+    [127n, -128n, 127n, -1n, 127n], [-1n, -128n, -1n, -1n, 127n]]) {
+    for (const [sign, expected] of [["dividend", dividend], ["divisor", divisor], ["nonnegative", nonnegative]]) {
+      const value = remainderFixture(`evaluate-remainder.${left}.${right}.${sign}`, carrier, type, left, right, sign);
+      same(value.run().value.value, { kind: "value", value: { kind: "number", type,
+        value: { numerator: expected, denominator: 1n, negativeZero: false } } }, "actual supplied native remainder sign");
+    }
+  }
+  for (const [carrier, type] of comparisonTypes.slice(1)) {
+    const value = remainderFixture(`evaluate-remainder.wide.${carrier}`, carrier, type, 9007199254740995n, 3n);
+    assert.equal(value.run().value.value.value.value.numerator, 2n);
+    if (carrier === "native-int" || carrier === "native-uint") {
+      const narrow = remainderFixture(`evaluate-remainder.supplied.${carrier}`, carrier, type, 255n, 7n);
+      assert.equal(narrow.run({ ...narrow.deps, selectedNativeFacts: { ...narrow.deps.selectedNativeFacts,
+        nativeIntegerWidths: [{ carrier, bits: 9 }] } }).value.value.value.value.numerator, 3n);
+      const wide = remainderFixture(`evaluate-remainder.supplied-wide.${carrier}`, carrier, type, (1n << 120n) + 3n, 7n,
+        "dividend", "unwind", type, { ...nativeFactsFixture(), nativeIntegerWidths: [{ carrier, bits: 137 }] });
+      assert.equal(wide.run().value.value.value.value.numerator, 4n);
+    }
+  }
+  const unsigned = comparisonTypes.find(row => row[0] === "uint64");
+  const maximum = remainderFixture("evaluate-remainder.unsigned-high", unsigned[0], unsigned[1], 18446744073709551615n, 7n);
+  assert.equal(maximum.run().value.value.value.value.numerator, 1n);
+  const native = comparisonTypes.find(row => row[0] === "native-int");
+  const oneBit = remainderFixture("evaluate-remainder.onebit", native[0], native[1], -1n, -1n);
+  assert.equal(oneBit.run({ ...oneBit.deps, selectedNativeFacts: { ...oneBit.deps.selectedNativeFacts,
+    nativeIntegerWidths: [{ carrier: native[0], bits: 1 }] } }).value.value.value.value.numerator, 0n);
+});
+
+test("integer remainder zero follows its own selected failure without borrowing a quotient or sign law", () => {
+  const [carrier, type] = comparisonTypes[0];
+  for (const law of ["unwind", "abort"]) {
+    const value = remainderFixture(`evaluate-remainder.zero.${law}`, carrier, type, 1n, 0n, "dividend", law);
+    const facts = { ...value.deps.selectedNativeFacts };
+    for (const field of ["remainderSign", "divisionByZero", "divisionRounding", "signedQuotientOverflow", "integerOverflow"])
+      Object.defineProperty(facts, field, { get() { assert.fail(`Remainder zero does not read ${field}.`); } });
+    const result = value.run({ ...value.deps, selectedNativeFacts: facts });
+    assert.equal(result.value.value.value.kind, "error");
+    assert.equal(result.value.diagnostics[0].message.includes("remainder by zero"), true);
+    assert.equal(result.value.diagnostics[0].code.name, "TSONIC_CONSTANT_EVALUATION_FAILED");
+    const malformed = structuredClone(value.body);
+    const operation = malformed.blocks.find(block => block.terminator.kind === "invoke").terminator;
+    operation.unwind = { kind: "none" };
+    assert.throws(() => value.run(value.deps, malformed), /marked unable to fail/u);
+    operation.unwind = { kind: law === "abort" ? "escape" : "abort" };
+    assert.throws(() => value.run(value.deps, malformed), /selected failure arm disagree/u);
+  }
+  const value = remainderFixture("evaluate-remainder.caught-value", carrier, type, 1n, 0n);
+  const body = structuredClone(value.body);
+  body.blocks.find(block => block.terminator.kind === "invoke").terminator.unwind = { kind: "handler", target: 0, exception: 0 };
+  assert.throws(() => value.run(value.deps, body), /actual selected remainder-by-zero fault value/u);
+});
+
+test("integer remainder admits every width-dependent operation before the original finite allowance", () => {
+  const [carrier, type] = comparisonTypes[0];
+  for (const [left, right, sign, needed] of [[-7n, 3n, "dividend", 134], [-6n, 3n, "divisor", 142],
+    [-6n, 3n, "nonnegative", 142], [7n, 3n, "divisor", 158], [-7n, 3n, "divisor", 166],
+    [7n, 3n, "nonnegative", 150], [-7n, 3n, "nonnegative", 166], [-7n, -3n, "nonnegative", 174]]) {
+    const value = remainderFixture(`evaluate-remainder.work.${left}.${right}.${sign}`, carrier, type, left, right, sign);
+    for (let maximum = 0; maximum <= needed; maximum += 1) {
+      const result = value.run({ ...value.deps, limits: { ...value.deps.limits, maximumArithmeticWork: maximum } });
+      assert.equal(result.value.kind, maximum < needed ? "refused" : "ok", `actual remainder work ${left}/${right}/${sign}/${maximum}`);
+      if (maximum < needed) same(result.value.diagnostics[0].arguments,
+        [{ kind: "text", value: "evaluation.maximumArithmeticWork" }, { kind: "number", value: maximum }], "original remainder allowance");
+    }
+  }
+  for (const [law, needed] of [["abort", 70], ["unwind", 71]]) {
+    const zero = remainderFixture(`evaluate-remainder.zero-work.${law}`, carrier, type, 1n, 0n, "dividend", law);
+    for (let maximum = 0; maximum <= needed; maximum += 1)
+      assert.equal(zero.run({ ...zero.deps, limits: { ...zero.deps.limits, maximumArithmeticWork: maximum } }).value.kind,
+        maximum < needed ? "refused" : "ok");
+  }
+  const value = remainderFixture("evaluate-remainder.bits", carrier, type, 7n, 3n);
+  for (const [dimension, needed] of [["maximumIntermediateBits", 8], ["maximumResultBits", 2]])
+    for (let maximum = 0; maximum <= needed; maximum += 1)
+      assert.equal(value.run({ ...value.deps, limits: { ...value.deps.limits, [dimension]: maximum } }).value.kind,
+        maximum < needed ? "refused" : "ok");
+  const unread = [];
+  unread.length = 10000;
+  Object.defineProperty(unread, 0, { get() { assert.fail("No unadmitted remainder row."); } });
+  for (const [right, field] of [[3n, "remainderSign"], [0n, "remainderByZero"]]) {
+    const guarded = remainderFixture(`evaluate-remainder.unread.${field}`, carrier, type, 7n, right);
+    assert.equal(guarded.run({ ...guarded.deps, selectedNativeFacts: { ...guarded.deps.selectedNativeFacts, [field]: unread },
+      limits: { ...guarded.deps.limits, maximumArithmeticWork: 69 } }).value.kind, "refused");
+  }
+  assert.equal(value.run({ ...value.deps, typeOf() { assert.fail("No type payload after original refusal."); },
+    limits: { ...value.deps.limits, maximumArithmeticWork: 0 } }).value.kind, "refused");
+  const native = comparisonTypes.find(row => row[0] === "native-int");
+  const huge = remainderFixture("evaluate-remainder.huge-width", native[0], native[1], 7n, 3n);
+  assert.equal(huge.run({ ...huge.deps, selectedNativeFacts: { ...huge.deps.selectedNativeFacts,
+    nativeIntegerWidths: [{ carrier: native[0], bits: Number.MAX_SAFE_INTEGER }] } }).value.kind, "refused");
+});
+
+test("integer remainder requires actual sign, zero and result association without unrelated numeric assumptions", () => {
+  const [carrier, type] = comparisonTypes[0];
+  const value = remainderFixture("evaluate-remainder.ready-inputs", carrier, type, -128n, -1n);
+  const facts = { ...value.deps.selectedNativeFacts };
+  for (const field of ["remainderByZero", "integerOverflow", "divisionByZero", "divisionRounding", "signedQuotientOverflow"])
+    Object.defineProperty(facts, field, { get() { assert.fail(`Nonzero remainder does not read ${field}.`); } });
+  assert.equal(value.run({ ...value.deps, selectedNativeFacts: facts }).value.value.value.value.numerator, 0n);
+  for (const rows of [[], [{ carrier: "uint8", sign: "dividend" }], [{ carrier, sign: "unselected" }]])
+    assert.throws(() => value.run({ ...value.deps, selectedNativeFacts: { ...value.deps.selectedNativeFacts, remainderSign: rows } }),
+      /actual selected integer remainder sign law/u);
+  assert.throws(() => value.run({ ...value.deps, selectedNativeFacts: { ...value.deps.selectedNativeFacts,
+    remainderSign: [undefined] } }), /complete selected integer remainder sign relation/u);
+  assert.equal(value.run({ ...value.deps, selectedNativeFacts: { ...value.deps.selectedNativeFacts,
+    remainderSign: [{ carrier: "uint8", sign: "nonnegative" }, { carrier, sign: "dividend" }] } }).value.value.value.value.numerator, 0n);
+  const zero = remainderFixture("evaluate-remainder.missing-zero", carrier, type, 1n, 0n);
+  for (const rows of [[], [{ carrier, law: "ieee754" }]])
+    assert.throws(() => zero.run({ ...zero.deps, selectedNativeFacts: { ...zero.deps.selectedNativeFacts, remainderByZero: rows } }),
+      /actual selected integer remainder-by-zero law/u);
+  const cross = remainderFixture("evaluate-remainder.unselected-result", carrier, type, 7n, 3n, "dividend", "unwind", T.int32);
+  assert.throws(() => cross.run(), /actual Rules-selected integer remainder result conversion association/u);
+  assert.throws(() => value.run({ ...value.deps, typeOf: () => ({ kind: "shape", members: [], indexes: [], calls: [], constructs: [] }) }),
+    /actual selected integer result carrier association/u);
+  const malformed = structuredClone(value.body);
+  const operation = malformed.blocks.find(block => block.terminator.kind === "invoke").terminator;
+  operation.operands.pop();
+  assert.throws(() => value.run(value.deps, malformed), /two actual operands/u);
+  operation.operands.push(structuredClone(value.body.blocks.find(block => block.terminator.kind === "invoke").terminator.operands[1]));
+  operation.operation.decision.operation.carrier = "bool";
+  operation.operation.decision.result = T.bool;
+  assert.throws(() => value.run(value.deps, malformed), /actual selected integer remainder geometry/u);
+});
 
 test("selected bitwise integer operations retain their full native carrier instead of host32 coercion", () => {
   const [carrier, type] = comparisonTypes[0];

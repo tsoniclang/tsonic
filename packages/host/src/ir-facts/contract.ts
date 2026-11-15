@@ -514,7 +514,7 @@ export type FactsRule =
   | "projection-id-dense" | "projection-parent-precedes" | "projection-unique" | "producer-unique" | "producer-resolves"
   | "local-producer-location-only"
   | "context-resolves" | "bound-producer-resolves" | "origins-resolves" | "boundary-resolves"
-  | "origin-alternatives-order" | "origin-alternatives-correlated"
+  | "origin-alternatives-order" | "origin-alternatives-correlated" | "origins-unique"
   | "capture-locations-exact" | "context-arguments-total" | "node-resolves" | "place-resolves"
   | "mir-point-resolves" | "stores-order" | "locals-order" | "captures-order" | "initialization-order"
   | "live-segments-order" | "live-segments-bounds" | "points-order" | "point-refs-resolve"

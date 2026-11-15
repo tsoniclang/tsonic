@@ -6,10 +6,12 @@ import type * as Hir from "../ir-hir/contract.js";
 import { iterateChildrenOfSyntax } from "../ir-hir/index.js";
 import type { MemberKey, MemberOrigin, TypePublicationStop } from "../ir-types/contract.js";
 import type { PassingMode } from "../ir-types/contract.js";
-import type { LowerDeps, ModuleDefinitions, ModuleExports, RawBindingTarget, RawCallSelection, RawCallableAssociation, RawCheckerViews, RawCoreCapture, RawFact, RawMemberUse, RawModule, RawModuleLink, RawPropertyName, RawStorageCapture } from "./contract.js";
-import { moduleIdentities } from "./identities.js";
+import type { LowerDeps, ModuleDefinitions, ModuleDefinitionsInput, ModuleExports, RawBindingTarget, RawCallSelection, RawCallableAssociation, RawCheckerViews, RawCoreCapture, RawFact, RawMemberUse, RawModule, RawModuleLink, RawPropertyName, RawStorageCapture } from "./contract.js";
+import { moduleIdentities, sourceIdentityName, sourcePropertyNames } from "./identities.js";
 import { bindingOccurrence, lowerBindingFact, lowerBindings, lowerMemberKey } from "./bindings.js";
 import { lowerExportDeclaration } from "./lower-exports.js";
+import { childSourceBody, enterSourceBody } from "./source-bodies.js";
+import type { SourceBodyScope, SourceBodyTransition } from "./source-bodies.js";
 import { lowerImportDeclaration } from "./lower-imports.js";
 import { convertRawType, createTypeConversion, signatureOf } from "./type-conversion.js";
 import type { ConversionResult, TypeConversion } from "./type-conversion.js";
@@ -137,8 +139,9 @@ function passingOf(lowering: Lowering, parameter: NodeId): PassingMode {
 
 
 /** The definition identities of one module, read from its raw tree alone. */
-export function lowerDefinitions(raw: RawModule): Result<ModuleDefinitions> {
-  return { kind: "ok", diagnostics: [], value: moduleIdentities(raw.module, raw.tree, raw.propertyNames) };
+export function lowerDefinitions(input: ModuleDefinitionsInput): Result<ModuleDefinitions> {
+  const raw = input.module;
+  return { kind: "ok", diagnostics: [], value: moduleIdentities(raw.module, raw.tree, raw.propertyNames, input.componentRoots) };
 }
 
 /** The export entries of one module: per exported name its declaration group, in canonical declaration order. */
@@ -147,6 +150,7 @@ export function lowerExports(deps: LowerDeps, raw: RawModule): Result<ModuleExpo
 }
 
 interface Lowering extends TypeConversion {
+  readonly bodyOf: ReadonlyMap<NodeId, BodyId>;
   readonly definitionAt: ReadonlyMap<NodeId, DefId>;
   readonly views: ReadonlyMap<NodeId, RawCheckerViews>;
   readonly references: ReadonlyMap<NodeId, RawFact<RawBindingTarget>>;
@@ -169,6 +173,7 @@ interface Lowering extends TypeConversion {
 }
 
 interface NodeBodies {
+  readonly definitions: ReadonlyMap<NodeId, DefId>;
   readonly bodyOf: ReadonlyMap<NodeId, BodyId>;
   readonly captureParent: ReadonlyMap<BodyId, BodyId>;
   /** The bodies each body directly encloses, in preorder of their roots. */
@@ -177,32 +182,32 @@ interface NodeBodies {
   readonly variables: readonly { readonly node: Hir.VariableDeclaration<Syntax>; readonly mutable: boolean; readonly local: LocalRef }[];
 }
 
-function nodeBodies(tree: Hir.SourceFile<Syntax>, moduleBody: BodyId, definitionAt: ReadonlyMap<NodeId, DefId>): NodeBodies {
+function nodeBodies(raw: RawModule, moduleBody: BodyId, moduleDefinition: DefId, deps: LowerDeps,
+  properties: ReadonlyMap<NodeId, RawPropertyName>): NodeBodies {
+  const definitionAt = new Map<NodeId, DefId>([[raw.tree.id, moduleDefinition]]);
   const bodies = new Map<NodeId, BodyId>();
   const captureParent = new Map<BodyId, BodyId>();
   const children = new Map<BodyId, BodyId[]>();
   const locals = new Map<NodeId, LocalRef>();
   const localCounts = new Map<BodyId, number>();
   const variables: NodeBodies["variables"][number][] = [];
-  type Frame = { readonly node: Hir.SyntaxNode<Syntax>; readonly body: BodyId; readonly callableBody: BodyId | null;
-    readonly children: Generator<Hir.SyntaxNode<Syntax>, void, undefined>; readonly inner: BodyId | null; readonly mutable: boolean };
-  const enter = (node: Hir.SyntaxNode<Syntax>, body: BodyId, callableBody: BodyId | null, mutable: boolean): Frame => {
+  type Frame = { readonly node: Hir.SyntaxNode<Syntax>; readonly context: SourceBodyTransition;
+    readonly children: Generator<Hir.SyntaxNode<Syntax>, void, undefined>; readonly mutable: boolean };
+  const enter = (node: Hir.SyntaxNode<Syntax>, scope: SourceBodyScope, mutable: boolean): Frame => {
+    if (!definitionAt.has(node.id) && sourceIdentityName(node, raw.module, properties, definitionAt) !== null)
+      definitionAt.set(node.id, deps.definitionOf({ module: raw.module, node: node.id }));
+    const body = scope.body;
     bodies.set(node.id, body);
-    let inner: BodyId | null = null;
-    if (node.kind === "FunctionDeclaration") {
-      const definition = definitionAt.get(node.id) ?? throwInvariant(invariant("A function has no checked definition identity."));
-      inner = encodeBodyId({ owner: definition, role: "function", ordinal: 0 });
-      for (const [index, parameter] of node.parameters.nodes.entries()) locals.set(parameter.id, { body: inner, local: localId(index) });
-      localCounts.set(inner, node.parameters.nodes.length);
-    } else if ((node.kind === "Parameter" || node.kind === "VariableDeclaration") && node.initializer !== null) {
-      const definition = definitionAt.get(node.id) ?? throwInvariant(invariant("A default parameter has no checked definition identity."));
-      if (node.kind === "Parameter" && callableBody === null) return throwInvariant(invariant("A default parameter has no enclosing callable execution."));
-      inner = encodeBodyId({ owner: definition, role: node.kind === "Parameter" ? "default-argument" : "initializer", ordinal: 0 });
-      captureParent.set(inner, node.kind === "Parameter" ? callableBody
-        ?? throwInvariant(invariant("A default parameter has no enclosing callable execution.")) : body);
-      const siblings = children.get(body) ?? [];
-      siblings.push(inner);
-      children.set(body, siblings);
+    const context = enterSourceBody(node, scope, definitionAt);
+    const boundary = context.boundary;
+    if (node.kind === "FunctionDeclaration" && boundary !== null) {
+      for (const [index, parameter] of node.parameters.nodes.entries()) locals.set(parameter.id, { body: boundary.body, local: localId(index) });
+      localCounts.set(boundary.body, node.parameters.nodes.length);
+    } else if (boundary?.kind === "initializer") {
+      captureParent.set(boundary.body, boundary.parent);
+      const siblings = children.get(context.lexicalBody) ?? [];
+      siblings.push(boundary.body);
+      children.set(context.lexicalBody, siblings);
     }
     if (node.kind === "VariableDeclaration" && body !== moduleBody) {
       const local = { body, local: localId(localCounts.get(body) ?? 0) };
@@ -210,32 +215,26 @@ function nodeBodies(tree: Hir.SourceFile<Syntax>, moduleBody: BodyId, definition
       localCounts.set(body, local.local + 1);
       variables.push({ node, mutable, local });
     }
-    return { node, body, callableBody, inner, children: iterateChildrenOfSyntax(node),
+    return { node, context, children: iterateChildrenOfSyntax(node),
       mutable: node.kind === "VariableDeclarationList" ? !node.flags.includes("Const") : mutable };
   };
-  const pending: Frame[] = [enter(tree, moduleBody, null, true)];
+  const pending: Frame[] = [enter(raw.tree, { body: moduleBody, lexicalBody: moduleBody, callableBody: null }, true)];
   for (let frame = pending.pop(); frame !== undefined; frame = pending.pop()) {
     const next = frame.children.next();
     if (next.done) continue;
     const child = next.value;
     pending.push(frame);
-    let body = frame.body;
-    let callableBody = frame.callableBody;
-    if (frame.node.kind === "FunctionDeclaration") {
-      if (frame.inner === null) return throwInvariant(invariant("A callable frame has no execution body."));
-      callableBody = frame.inner;
-      if (child === frame.node.body) {
-        body = frame.inner;
-        captureParent.set(body, frame.body);
-        const siblings = children.get(frame.body) ?? [];
-        siblings.push(body);
-        children.set(frame.body, siblings);
-      }
-    } else if ((frame.node.kind === "Parameter" || frame.node.kind === "VariableDeclaration")
-      && child === frame.node.initializer && frame.inner !== null) body = frame.inner;
-    pending.push(enter(child, body, callableBody, frame.mutable));
+    const scope = childSourceBody(frame.context, child);
+    const boundary = frame.context.boundary;
+    if (boundary?.kind === "function" && child === boundary.root) {
+      captureParent.set(boundary.body, boundary.parent);
+      const siblings = children.get(frame.context.lexicalBody) ?? [];
+      siblings.push(boundary.body);
+      children.set(frame.context.lexicalBody, siblings);
+    }
+    pending.push(enter(child, scope, frame.mutable));
   }
-  return { bodyOf: bodies, captureParent, children, locals, variables };
+  return { definitions: definitionAt, bodyOf: bodies, captureParent, children, locals, variables };
 }
 
 function headerOf<P extends Hir.Phase>(node: Hir.NodeHeader): Hir.NodeHeader & Record<never, P> {
@@ -756,19 +755,19 @@ export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<Hir.HirM
   const exported = deps.exportsOf(raw.module);
   if (exported === null || exported.module !== raw.module)
     return throwInvariant(invariant("Checked lowering requires the actual completed B1 module export and binding inventory."));
-  const rows = moduleIdentities(raw.module, raw.tree, raw.propertyNames).rows;
-  const definitionAt = new Map<NodeId, DefId>(rows.map(row => [row.node, deps.definitionOf({ module: raw.module, node: row.node })]));
-  const moduleDefinition = definitionAt.get(raw.tree.id) ?? throwInvariant(invariant("A module has no definition identity."));
+  const propertyNames = sourcePropertyNames(raw.module, raw.propertyNames);
+  const moduleDefinition = deps.definitionOf({ module: raw.module, node: raw.tree.id });
   const moduleBody: BodyId = encodeBodyId({ owner: moduleDefinition, role: "module", ordinal: 0 });
-  const structure = nodeBodies(raw.tree, moduleBody, definitionAt);
+  const structure = nodeBodies(raw, moduleBody, moduleDefinition, deps, propertyNames);
+  const definitionAt = structure.definitions;
   const variableLocals = new Map<BodyId, Hir.HirLocal[]>();
   const lowering: Lowering = {
-    ...createTypeConversion(deps, raw, structure.bodyOf), definitionAt, captureParent: structure.captureParent, captures: new Map(),
+    ...createTypeConversion(deps, raw), bodyOf: structure.bodyOf, definitionAt, captureParent: structure.captureParent, captures: new Map(),
     core: new Map(raw.core.filter(entry => entry.node.module === raw.module).map(entry => [entry.node.node, entry])),
     storage: new Map(raw.storage.filter(entry => entry.node.module === raw.module).map(entry => [entry.node.node, entry])),
     views: new Map(raw.checkerViews.filter(view => view.node.module === raw.module).map(view => [view.node.node, view])),
     references: referenceTargets(raw), links: moduleLinks(raw), memberUses: memberUsesOf(raw),
-    propertyNames: new Map(raw.propertyNames.filter(row => row.node.module === raw.module).map(row => [row.node.node, row])),
+    propertyNames,
     locals: new Map(structure.locals), variableLocals, bodies: [], expressions: new Map(), statements: new Map(),
     calls: new Map(raw.calls.filter(call => call.invocation.module === raw.module).map(call => [call.invocation.node, call])), candidateLists: new Map(),
     associations: new Map(raw.callableAssociations.filter(entry => entry.declaration.module === raw.module).map(entry => [entry.declaration.node, entry])),
@@ -807,7 +806,7 @@ export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<Hir.HirM
       return throwInvariant(invariant("A captured local requires its actual qualified source storage row."));
     return { ...source, id: localId(body.locals.length + index), role: "capture", capturedFrom: reference };
   })] })).sort((left, right) => left.body < right.body ? -1 : left.body > right.body ? 1 : 0);
-  const items = rows.filter(row => row.node !== raw.tree.id).map(row => ({ definition: definitionOf(lowering, row.node), node: row.node }))
+  const items = [...definitionAt].filter(([node]) => node !== raw.tree.id).map(([node, definition]) => ({ definition, node }))
     .sort((left, right) => left.definition < right.definition ? -1 : left.definition > right.definition ? 1 : 0);
   return { kind: "ok", diagnostics: [], value: { module: raw.module, tree, items, bodies, exports: exported.entries, bindings: exported.bindings, checkerDiagnostics: raw.checkerDiagnostics, obligations: [] } };
 }

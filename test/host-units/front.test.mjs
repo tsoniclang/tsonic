@@ -962,7 +962,7 @@ test("checkpoint 1: add is opened through the checker and the snapshot, captured
   assert.deepEqual(rawNodes.map(node => [node.kind, node.parent, node.origin.start, node.origin.length]), expectedNodes);
   assert.deepEqual(rawNodes.map(node => node.id), expectedNodes.map((unusedValue, position) => position), "identities are preorder positions");
   // Identities (K-3236): the module, add, and its two parameters.
-  const definitions = front.lowerModuleDefinitions(raw.value);
+  const definitions = front.lowerModuleDefinitions({ module: raw.value, componentRoots: raw.value.types.components.map(component => component.root).filter(root => root.module === raw.value.module) });
   assert.equal(definitions.kind, "ok");
   const definition = segments => ids.encodeDefId({ module, segments: segments.map(([name, ordinal]) => ({ name, ordinal })) });
   const moduleDefinition = definition([]);
@@ -1044,7 +1044,7 @@ test("checkpoint 1, the development frontier: a module holding a kind whose chec
   const { deps, program, module } = openedModule(sourceText);
   const raw = front.captureModule(deps, program, module);
   assert.equal(raw.kind, "ok", "capture covers every syntax kind");
-  const definitions = front.lowerModuleDefinitions(raw.value);
+  const definitions = front.lowerModuleDefinitions({ module: raw.value, componentRoots: raw.value.types.components.map(component => component.root).filter(root => root.module === raw.value.module) });
   assert.throws(() => lowerWithReadyExports(lowerDepsFor(definitions.value, types.createTypeInterner(), sourceText), raw.value),
     { name: "TypeError", message: "front: checked annotation not implemented: PrefixUnaryExpression MinusToken" });
 });
@@ -1105,7 +1105,7 @@ test("original checker roots render through the public SDK and survive raw and c
   assert.deepEqual(result.value.diagnosticCoverage, [
     { kind: "unavailable", root: { module: opened.module, index: 0 } },
     { kind: "unavailable", root: { module: opened.module, index: 1 } }]);
-  const definitions = front.lowerModuleDefinitions(result.value);
+  const definitions = front.lowerModuleDefinitions({ module: result.value, componentRoots: result.value.types.components.map(component => component.root).filter(root => root.module === result.value.module) });
   const interner = types.createTypeInterner();
   const lowered = lowerWithReadyExports(lowerDepsFor(definitions.value, interner, source), result.value);
   assert.equal(lowered.kind, "ok");
@@ -1390,7 +1390,7 @@ test("the frontier check names the first unwritten form in preorder (R3 L-2)", a
   const { deps, program, module } = openedModule(sourceText);
   const raw = front.captureModule(deps, program, module);
   assert.equal(raw.kind, "ok");
-  const definitions = front.lowerModuleDefinitions(raw.value);
+  const definitions = front.lowerModuleDefinitions({ module: raw.value, componentRoots: raw.value.types.components.map(component => component.root).filter(root => root.module === raw.value.module) });
   assert.throws(() => lowerWithReadyExports(lowerDepsFor(definitions.value, types.createTypeInterner(), sourceText), raw.value),
     { name: "TypeError", message: "front: checked annotation not implemented: AsteriskToken" });
 });
@@ -1529,7 +1529,7 @@ test("checked lowering and body ownership handle a constructed 20000-block domai
   const tree = { ...root, statements: { ...root.statements, nodes: [block] },
     endOfFileToken: { ...root.endOfFileToken, id: depth + 1 } };
   const raw = { ...source.raw, tree, core: [core, ...rows] };
-  const defs = front.lowerModuleDefinitions(raw);
+  const defs = front.lowerModuleDefinitions({ module: raw, componentRoots: raw.types.components.map(component => component.root).filter(root => root.module === raw.module) });
   assert.equal(defs.kind, "ok");
   const lowered = lowerWithReadyExports(lowerDepsFor(defs.value, types.createTypeInterner(), ""), raw);
   assert.equal(lowered.kind, "ok");
@@ -1593,7 +1593,7 @@ test("checked expression assembly consumes a constructed 20000-parenthesis domai
   const tree = { ...root, statements: { ...root.statements, nodes: [{ ...statement, expression }] },
     endOfFileToken: { ...root.endOfFileToken, id: depth + 3 } };
   const raw = { ...source.raw, tree, core, checkerViews: views };
-  const definitions = front.lowerModuleDefinitions(raw);
+  const definitions = front.lowerModuleDefinitions({ module: raw, componentRoots: raw.types.components.map(component => component.root).filter(root => root.module === raw.module) });
   assert.equal(definitions.kind, "ok");
   const lowered = lowerWithReadyExports(lowerDepsFor(definitions.value, types.createTypeInterner(), "true;"), raw);
   assert.equal(lowered.kind, "ok");
@@ -1613,7 +1613,7 @@ test("qualified capture membership keeps first-use order once across repeated re
       ...opened.deps.navigationCapture, maximumSyntaxDepth: 2048,
     } }, opened.program, opened.module);
     assert.equal(captured.kind, "ok");
-    const definitions = front.lowerModuleDefinitions(captured.value);
+    const definitions = front.lowerModuleDefinitions({ module: captured.value, componentRoots: captured.value.types.components.map(component => component.root).filter(root => root.module === captured.value.module) });
     assert.equal(definitions.kind, "ok");
     const lowered = lowerWithReadyExports(lowerDepsFor(definitions.value, types.createTypeInterner(), source), captured.value);
     assert.equal(lowered.kind, "ok");
@@ -1649,7 +1649,7 @@ test("K-3313.2 offered but not answered: a selected semantics module that offers
   assert.equal(raw.kind, "ok");
   assert.equal(raw.value.core.length, 18);
   assert.deepEqual([...new Set(raw.value.core.flatMap(row => Object.entries(row).filter(([name]) => name !== "node").map(([, fact]) => JSON.stringify(fact))))], [JSON.stringify(notProvided)]);
-  const definitions = front.lowerModuleDefinitions(raw.value);
+  const definitions = front.lowerModuleDefinitions({ module: raw.value, componentRoots: raw.value.types.components.map(component => component.root).filter(root => root.module === raw.value.module) });
   assert.throws(() => lowerWithReadyExports(lowerDepsFor(definitions.value, types.createTypeInterner(), addSource), raw.value),
     { name: "TypeError", message: "front: a parameter whose passing mode is not proven is not implemented (the selected inventory offers core facts that capture does not answer yet)" });
 });
@@ -1659,7 +1659,7 @@ test("K-3313.2 a positive declaration passing fact is consumed as captured: a by
   const types = await import("../../packages/host/dist/ir-types/index.js");
   const { deps, program, module } = openedModule(addSource);
   const raw = front.captureModule(deps, program, module);
-  const definitions = front.lowerModuleDefinitions(raw.value);
+  const definitions = front.lowerModuleDefinitions({ module: raw.value, componentRoots: raw.value.types.components.map(component => component.root).filter(root => root.module === raw.value.module) });
   const parameterNodes = definitions.value.rows.filter(row => row.kind === "Parameter").map(row => row.node);
   const declared = { role: "declaration", mode: "byref-readwrite" };
   const changed = { ...raw.value,
@@ -1731,7 +1731,7 @@ test("a real source analyzer's own facts cannot turn unavailable declaration mod
   assert.deepEqual(captured.value.types.signatures[0].parameters.map(parameter => parameter.passing),
     [{ kind: "unavailable", reason: "not-provided", causes: [] }, { kind: "unavailable", reason: "not-provided", causes: [] }]);
   assert.equal(captured.value.core[0].provider.kind, "unavailable", "a selected compiler extension is not an empty fact inventory");
-  const definitions = front.lowerModuleDefinitions(captured.value);
+  const definitions = front.lowerModuleDefinitions({ module: captured.value, componentRoots: captured.value.types.components.map(component => component.root).filter(root => root.module === captured.value.module) });
   const parameters = definitions.value.rows.filter(row => row.kind === "Parameter");
   assert.equal(parameters.length, 2);
   for (const parameter of parameters)
@@ -1788,7 +1788,7 @@ test("the identity inputs through the real producer: captureModule and lowerModu
         continue;
       }
       assert.equal(raw.kind, "ok", label);
-      const definitions = front.lowerModuleDefinitions(raw.value);
+      const definitions = front.lowerModuleDefinitions({ module: raw.value, componentRoots: raw.value.types.components.map(component => component.root).filter(root => root.module === raw.value.module) });
       assert.equal(definitions.kind, "ok", label);
       assert.deepEqual(definitions.value.rows.map(row => ({ kind: row.kind, path: row.segments.map(segment => [segment.name, segment.ordinal]) })), expected, label);
       outcomes.agreed.push(label);
@@ -1945,7 +1945,7 @@ test("K-3340: views, storage places, memory and layout observations keep present
   const types = await import("../../packages/host/dist/ir-types/index.js");
   const { deps, program, module } = openedModule(addSource);
   const raw = front.captureModule(deps, program, module).value;
-  const definitions = front.lowerModuleDefinitions(raw).value;
+  const definitions = front.lowerModuleDefinitions({ module: raw, componentRoots: raw.types.components.map(component => component.root).filter(root => root.module === raw.module) }).value;
   const lower = changed => {
     const interner = types.createTypeInterner();
     const lowered = lowerWithReadyExports(lowerDepsFor(definitions, interner, addSource), changed);
@@ -1999,7 +1999,7 @@ test("K-3361: a receiver is captured apart from the ordinary parameters and lowe
     const association = raw.callableAssociations[0];
     return { raw, signature: raw.types.signatures[association.advertised[0]], nodes: hir.indexSyntaxTree(raw.tree), module, sourceText };
   };
-  const refusalOf = ({ raw, sourceText }) => () => lowerWithReadyExports(lowerDepsFor(front.lowerModuleDefinitions(raw).value, types.createTypeInterner(), sourceText), raw);
+  const refusalOf = ({ raw, sourceText }) => () => lowerWithReadyExports(lowerDepsFor(front.lowerModuleDefinitions({ module: raw, componentRoots: raw.types.components.map(component => component.root).filter(root => root.module === raw.module) }).value, types.createTypeInterner(), sourceText), raw);
   const receiving = captured("export function f(this: number, x: number): number { return x; }\n");
   const parameterNodes = receiving.nodes.filter(node => node.kind === "Parameter").map(node => node.id);
   assert.equal(receiving.signature.receiver.kind, "available");
@@ -2061,7 +2061,7 @@ test("K-3343: names holding #, / and : never make two owners share a counter; ov
     }
     const tree = captureNode({ ast: checked.ast, file, module: base.module, displacement: 0,
       numbering: { nodes, ids: numbers, parents } }, file, null);
-    const definitions = front.lowerModuleDefinitions({ ...base, tree });
+    const definitions = front.lowerModuleDefinitions({ module: { ...base, tree }, componentRoots: [] });
     assert.equal(definitions.kind, "ok");
     return definitions.value.rows;
   };

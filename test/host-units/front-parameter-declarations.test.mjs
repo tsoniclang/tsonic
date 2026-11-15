@@ -11,7 +11,7 @@ async function capture(source) {
   const module = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
   const captured = fixture.front.captureModule(opened.deps, opened.program, module);
   assert.equal(captured.kind, "ok", "actual SDK capture completes");
-  const identified = fixture.front.lowerModuleDefinitions(captured.value);
+  const identified = fixture.front.lowerModuleDefinitions({ module: captured.value, componentRoots: captured.value.types.components.map(component => component.root).filter(root => root.module === captured.value.module) });
   assert.equal(identified.kind, "ok", "actual F1 declaration inventory completes");
   return { fixture, source, raw: captured.value, definitions: identified.value };
 }

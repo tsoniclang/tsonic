@@ -164,7 +164,7 @@ test("real B1 capture retains local aliases as binding occurrences without fabri
   const opened = fixture.openedModule(source);
   const captured = fixture.front.captureModule(opened.deps, opened.program, opened.module);
   assert.equal(captured.kind, "ok");
-  const definitions = fixture.front.lowerModuleDefinitions(captured.value);
+  const definitions = fixture.front.lowerModuleDefinitions({ module: captured.value, componentRoots: captured.value.types.components.map(component => component.root).filter(root => root.module === captured.value.module) });
   assert.equal(definitions.kind, "ok");
   assert.equal(definitions.value.sourceOccurrences.length, 2);
   const bindingNodes = new Set(definitions.value.sourceOccurrences.map(row => row.node));
@@ -226,7 +226,7 @@ test("real raw B1 direct overload inventory retains every declaration in canonic
   const opened = fixture.openedModule(source);
   const captured = fixture.front.captureModule(opened.deps, opened.program, opened.module);
   assert.equal(captured.kind, "ok");
-  const definitions = fixture.front.lowerModuleDefinitions(captured.value);
+  const definitions = fixture.front.lowerModuleDefinitions({ module: captured.value, componentRoots: captured.value.types.components.map(component => component.root).filter(root => root.module === captured.value.module) });
   assert.equal(definitions.kind, "ok");
   const expected = definitions.value.rows.filter(row => row.kind === "FunctionDeclaration").map(row => row.definition);
   assert.equal(expected.length, 3);
@@ -256,7 +256,7 @@ test("real B1 cross-module aliases retain every nearest binding hop and star/mod
     sourceModules.set(name, identity);
     const raw = fixture.front.captureModule(opened.deps, opened.program, identity);
     assert.equal(raw.kind, "ok");
-    const inventory = fixture.front.lowerModuleDefinitions(raw.value);
+    const inventory = fixture.front.lowerModuleDefinitions({ module: raw.value, componentRoots: raw.value.types.components.map(component => component.root).filter(root => root.module === raw.value.module) });
     assert.equal(inventory.kind, "ok");
     definitions.set(identity, new Map(inventory.value.rows.map(row => [row.node, row.definition])));
     bindings.set(identity, new Map(inventory.value.sourceOccurrences.map(row => [row.node, row])));

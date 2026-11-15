@@ -1,3 +1,4 @@
+import { typeParameterDeclaration as parameterDef } from "./type-parameter-declarations.mjs";
 import assert from "node:assert/strict";
 import { accountFailure, createAccount, refuseAccount } from "../../../packages/host/dist/dataflow/index.js";
 import { verifyFactBindings } from "../../../packages/host/dist/ir-facts/verify-bindings.js";
@@ -11,7 +12,7 @@ const body = encodeBodyId({ owner, role: "function", ordinal: 0 });
 const instance = { body, bindings: { kind: "parametric" } };
 const empty = () => ({ classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] });
 const scope = () => ({ classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] });
-const parameter = { owner: definition("generic"), index: 0 };
+const parameter = parameterDef(definition("generic"), 0);
 const genericScope = () => ({ ...scope(), classParameters: [parameter] });
 const genericVector = () => ({ ...empty(), classBindings: [{ kind: "bound", parameter, type: 0 }] });
 const target = provided => ({ kind: "body", execution: { instance, provided } });

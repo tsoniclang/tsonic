@@ -10,7 +10,7 @@ const readyPortSignatures = ({
   front: {
     CreateCheckerExtensions: ["readonly front.CheckerRegistration[]", "front.CheckerExtensions"],
     ExtensionReferencesOf: ["front.CheckerExtensions", "readonly snapshot.ExtensionReferenceEntry[]"],
-    LowerModuleDefinitions: ["front.RawModule", "diag.Result<front.ModuleDefinitions>"],
+    LowerModuleDefinitions: ["front.ModuleDefinitionsInput", "diag.Result<front.ModuleDefinitions>"],
   },
   decls: { DescribeDefinitions: ["decls.DeclsModule", "readonly decls.DefinitionExports[]", "decls.DefinitionTable"] },
   rules: { CreateRuleTable: ["rules.RulesDeps", "ir-infer.RuleTable"] },

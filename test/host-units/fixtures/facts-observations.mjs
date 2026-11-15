@@ -12,7 +12,7 @@ const expansion = () => ({ maximumDepth: 64, maximumVisits: 256, maximumUnionMem
 
 function observationFixture(selected = null) {
   const fixture = moduleFixture();
-  const parameter = { owner: fixture.definition, index: 0 };
+  const parameter = parameterDef(fixture.definition, 0);
   fixture.index.types.terms.push({ kind: "primitive", primitive: "int64" }, { kind: "primitive", primitive: "uint64" }, { kind: "param", parameter });
   const generic = selected !== null;
   const scope = generic ? { ...fixture.scope, classParameters: [parameter] } : fixture.scope;
@@ -134,7 +134,7 @@ await suite.test("the same generic checked occurrence is verified under each com
 await suite.test("metadata membership cannot replace the selected checked descriptor or its complete binding environment", () => {
   for (const amend of [
     value => { value.capture.layout = available({ kind: "item", value: { owner: value.fixture.definition, node: 4 } }); },
-    value => { value.descriptorNode.tsonic.value.memory.value.bindings.value.classBindings[0].parameter = { owner: value.fixture.definition, index: 1 }; },
+    value => { value.descriptorNode.tsonic.value.memory.value.bindings.value.classBindings[0].parameter = parameterDef(value.fixture.definition, 1); },
     value => { value.observations.rows[0].bindings = empty(); },
     value => { value.descriptorNode.tsonic.value.memory.value.kind = "array"; },
     value => { value.descriptorNode.tsonic.value.memory.value.occurrence = { ...value.descriptor, value: { ...value.descriptor.value, node: 4 } }; },
@@ -204,7 +204,7 @@ await suite.test("parametric descriptors preserve exact rigid owner and slot ide
   assert.equal(rules(value).includes("observation-field-exact"), true);
   value.input.facts.bindingScopeOf = () => scope;
   value.descriptorNode.tsonic.value.memory.value.bindings = available({ ...empty(), classBindings: [
-    { kind: "rigid", parameter: { owner: value.parameter.owner, index: 1 } },
+    { kind: "rigid", parameter: parameterDef(value.fixture.definition, 1) },
   ] });
   assert.equal(rules(value).includes("observation-field-exact"), true, "the actual descriptor binder slot must match its parametric metadata scope");
 });
@@ -371,3 +371,4 @@ await suite.test("unresolved selected field references retain both reference and
 });
 
 }
+import { typeParameterDeclaration as parameterDef } from "./type-parameter-declarations.mjs";

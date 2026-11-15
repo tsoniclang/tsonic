@@ -119,7 +119,7 @@ export async function loadFrontFixture() {
     const { deps, program, snapshot, module } = openedModule(sourceText);
     const raw = front.captureModule(deps, program, module);
     assert.equal(raw.kind, "ok", "captureModule");
-    const definitions = front.lowerModuleDefinitions(raw.value);
+    const definitions = front.lowerModuleDefinitions({ module: raw.value, componentRoots: raw.value.types.components.map(component => component.root).filter(root => root.module === raw.value.module) });
     assert.equal(definitions.kind, "ok", "lowerModuleDefinitions");
     const interner = types.createTypeInterner();
     const lowerDeps = lowerDepsFor(definitions.value, interner, sourceText);
@@ -134,13 +134,22 @@ export async function loadFrontFixture() {
     const snapshot = projectSnapshot({ sourceFiles, libraries: bundled() });
     const opened = openAndCapture(snapshot);
     const interner = types.createTypeInterner();
-    const captured = Object.entries(sourceFiles).map(([name, text]) => {
+    const captures = Object.entries(sourceFiles).map(([name, text]) => {
       const module = moduleOf(packageOf("/project"), "src/" + name);
       const raw = front.captureModule(opened.deps, opened.program, module);
       assert.equal(raw.kind, "ok");
-      const definitions = front.lowerModuleDefinitions(raw.value);
+      return { module, text, raw: raw.value };
+    });
+    const requests = new Map();
+    for (const entry of captures) for (const component of entry.raw.types.components) {
+      const roots = requests.get(component.root.module) ?? [];
+      roots.push(component.root);
+      requests.set(component.root.module, roots);
+    }
+    const captured = captures.map(entry => {
+      const definitions = front.lowerModuleDefinitions({ module: entry.raw, componentRoots: requests.get(entry.module) ?? [] });
       assert.equal(definitions.kind, "ok");
-      return { module, text, raw: raw.value, definitions: definitions.value };
+      return { ...entry, definitions: definitions.value };
     });
     const definitions = new Map(captured.map(entry => [entry.module, new Map(entry.definitions.rows.map(row => [row.node, row.definition]))]));
     const occurrences = new Map(captured.map(entry => [entry.module, new Map(entry.definitions.sourceOccurrences.map(row => [row.node, row]))]));

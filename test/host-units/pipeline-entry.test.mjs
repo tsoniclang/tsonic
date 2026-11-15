@@ -41,6 +41,56 @@ test(`public Host analysis source barrier captures the complete actual ${library
   assert.equal(result.value.modules.some(module => module.module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts")), true);
 });
 
+test("real public Host analysis retains an omitted initializer's actual captured boolean mutation", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", "export function choose(a:boolean,b:boolean=(a=true)):boolean{return a;}");
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok");
+  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  const main = result.value.modules.find(module => module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts"));
+  const caller = main.bodies.find(body => body.kind === "selected" && body.tir.params.length === 2);
+  assert.notEqual(caller, undefined);
+  const child = main.bodies.find(body => body.kind === "selected" && body.instance.body === caller.tir.params[1].tsonic.initializer);
+  assert.notEqual(child, undefined);
+  assert.equal(child.tir.root, caller.tir.params[1].initializer);
+  assert.deepEqual(child.tir.captures, [{ local: caller.tir.params[0].tsonic.local, capture: "captured-location" }]);
+  const summary = result.value.index.summaries.find(row => row.key.kind === "body" && row.key.execution.instance.body === child.instance.body);
+  assert.notEqual(summary, undefined);
+  assert.equal(summary.writes.length, 1);
+  assert.deepEqual(summary.contentsOnReturn, summary.writes);
+  assert.deepEqual(caller.facts.map(facts => facts.execution.provided), [1, 2]);
+});
+
+test("real public Host analysis preserves an imported generic declaration's actual constraint and default", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal");
+  input.snapshot = fixture.projectSnapshot({ sourceFiles: {
+    "main.ts": "import type { Box } from './foreign.js';export type Applied=Box;export function value(input:boolean):boolean{return input;}",
+    "foreign.ts": "export interface Box<T extends boolean=boolean>{(value:T):T;}",
+  }, libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok");
+  assert.equal(result.diagnostics.some(diagnostic => diagnostic.severity === "error"), false);
+  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  const main = result.value.modules.find(module => module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts"));
+  const foreign = result.value.modules.find(module => module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/foreign.ts"));
+  const box = foreign.tree.statements.nodes[0];
+  const parameter = box.typeParameters.nodes[0];
+  const applied = main.tree.statements.nodes[1];
+  const selected = result.value.index.types.terms[applied.tsonic.type];
+  assert.equal(selected.kind, "declared");
+  assert.equal(selected.definition, box.tsonic.definition);
+  assert.deepEqual(selected.arguments.map(type => result.value.index.types.terms[type]), [{ kind: "primitive", primitive: "bool" }]);
+  for (const type of [parameter.tsonic.parameter.constraint, parameter.tsonic.parameter.default])
+    assert.deepEqual(result.value.index.types.terms[type], { kind: "primitive", primitive: "bool" });
+  assert.equal(foreign.tree.tsonic.module, foreign.module);
+  assert.equal(main.tree.tsonic.module, main.module);
+  assert.notEqual(foreign.module, main.module);
+  assert.equal(main.bodies.some(body => body.kind === "selected" && body.tir.params.length === 1), true);
+});
+
 test("real public AnalyzeHostProgram closes the exported float64 add and every actual loaded declaration module", async () => {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true);
   const fixture = await loadFrontFixture();
@@ -284,6 +334,34 @@ test("real public Host analysis transports a string argument and return through 
   assert.equal(summary.retention.some(row => row.into.kind === "return"), true);
 });
 
+test("real public Host analysis returns the second actual string-call argument rather than a destination entry", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal",
+    "export function second(left: string, right: string): string { return right; } export function call(left: string, right: string): string { return second(left, right); }\n");
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok");
+  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  const main = result.value.modules.find(module => module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts"));
+  const caller = main.bodies.find(body => body.kind === "selected" && body.mir.blocks.some(block => block.terminator.kind === "call"));
+  assert.equal(caller !== undefined, true);
+  const facts = caller.facts[0];
+  const invocation = facts.origins.invocations[0].alternatives[0];
+  assert.deepEqual(invocation.arguments.map(argument => facts.arena.origins[argument.actual].producers), [[0], [1]]);
+  const returned = facts.origins.subjects.find(subject => subject.role === "return");
+  const origins = facts.arena.origins[returned.origins];
+  assert.deepEqual(origins.producers, [1]);
+  assert.deepEqual(facts.arena.origins[invocation.result].producers, [1]);
+  const bound = facts.arena.boundProducers[origins.producers[0]];
+  assert.equal(facts.arena.producers[bound.producer].kind, "parameter");
+  assert.equal(facts.arena.producers[bound.producer].index, 1);
+  const summary = result.value.index.summaries.find(row => row.key.kind === "body"
+    && fixture.types.executionKey(row.key.execution) === fixture.types.executionKey(facts.execution));
+  assert.deepEqual(summary.arena.origins[summary.result].producers, [1]);
+  assert.deepEqual(summary.retention.map(row => row.source), [1]);
+  assert.equal(summary.retention.every(row => row.into.kind === "return"), true);
+});
+
 test("real public Host analysis uses a selected native boolean negation as its branch condition", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
@@ -376,6 +454,40 @@ test("real public Host analysis retains the qualified outer parameter of a captu
   assert.equal(callerSummaries.every(summary => summary.initialization.points.every(point => point.kind !== "need")), true,
     "the actual provided a discharges the child's original read only at the omitted b entry");
   assert.equal(callerSummaries.every(summary => summary.arena.producers.every(row => row.kind !== "local")), true);
+});
+
+test("real public Host analysis transports a captured string default through its actual value and location relations", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", "export function select(a: string, b = a): string { return b; }\n");
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok");
+  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  const main = result.value.modules.find(module => module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts"));
+  const caller = main.bodies.find(body => body.kind === "selected" && body.tir.params.length === 2);
+  assert.notEqual(caller, undefined);
+  const header = caller.tir.params[1];
+  const child = main.bodies.find(body => body.kind === "selected" && body.instance.body === header.tsonic.initializer);
+  assert.notEqual(child, undefined);
+  assert.equal(child.tir.root, header.initializer);
+  assert.deepEqual(child.tir.captures, [{ local: caller.tir.params[0].tsonic.local, capture: "captured-location" }]);
+  const summaryOf = (body, provided) => result.value.index.summaries.find(summary => summary.key.kind === "body"
+    && summary.key.execution.instance.body === body && summary.key.execution.provided === provided);
+  const producersOf = summary => summary.arena.origins[summary.result].producers.map(bound =>
+    summary.arena.producers[summary.arena.boundProducers[bound].producer]);
+  const childSummary = summaryOf(child.instance.body, 0);
+  assert.notEqual(childSummary, undefined);
+  assert.deepEqual(producersOf(childSummary).map(producer => [producer.kind, producer.index]), [["capture", 0]]);
+  assert.equal(child.facts[0].initialization.reads.some(row => row.node === child.tir.root.id && !row.assigned), true);
+  assert.equal(childSummary.initialization.points.some(point => point.kind === "need"), true);
+  assert.deepEqual(caller.facts.map(facts => facts.execution.provided), [1, 2]);
+  for (const provided of [1, 2]) {
+    const summary = summaryOf(caller.instance.body, provided);
+    assert.notEqual(summary, undefined);
+    assert.deepEqual(producersOf(summary).map(producer => [producer.kind, producer.index]), [["parameter", provided - 1]]);
+    assert.equal(summary.initialization.points.every(point => point.kind !== "need"), true);
+    assert.equal(summary.retention.some(row => row.into.kind === "return"), true);
+  }
 });
 
 test("real public Host analysis discharges chained captured defaults against their actual preceding initializer results", async () => {

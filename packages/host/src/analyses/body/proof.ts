@@ -3,7 +3,7 @@ import { accountFailure, chargeResultEntries, chargeWork } from "../../dataflow/
 import { sameInstance } from "../../ir-types/index.js";
 import { admitSummaryIdentity } from "../../ir-facts/index.js";
 import type { InitializationProofDeps, InitializationProofInput, ProveInitialization } from "./contract.js";
-import { bodyFrontier } from "./storage.js";
+import { bodyFrontier } from "./places.js";
 
 export const proveModuleInitialization: ProveInitialization = (deps: InitializationProofDeps, input: InitializationProofInput) => {
   const initial = chargeWork(deps.account, 1);

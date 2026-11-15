@@ -14,7 +14,7 @@ async function captured(source) {
     maximumCapturedFactsPerModule: 512, maximumCapturedEdgesPerModule: 2048 } }, opened.program, module);
   assert.equal(captured.kind, "ok", "a finite declared recursion must not consume an unbounded captured component path");
   const raw = captured.value;
-  const definitions = fixture.front.lowerModuleDefinitions(raw);
+  const definitions = fixture.front.lowerModuleDefinitions({ module: raw, componentRoots: raw.types.components.map(component => component.root).filter(root => root.module === raw.module) });
   assert.equal(definitions.kind, "ok");
   return { fixture, source, module, raw, opened, definitions: definitions.value };
 }

@@ -473,8 +473,8 @@ test("signed construction and projection ports require exact canonical owner-qua
       signature: '(table: CheckerExtensions) => readonly ExtensionReferenceEntry[]',
       wrong: '(table: CheckerExtensions) => ExtensionReferenceEntry[]',
       extra: [["snapshot", 'export interface ExtensionReferenceEntry { readonly value: number; }']] },
-    { owner: "front", name: "LowerModuleDefinitions", declarations: 'import type { Result } from "../diag/contract.js";\nexport interface RawModule { readonly value: number; }\nexport interface ModuleDefinitions { readonly value: number; }',
-      signature: '(module: RawModule) => Result<ModuleDefinitions>', wrong: '(module: RawModule) => ModuleDefinitions',
+    { owner: "front", name: "LowerModuleDefinitions", declarations: 'import type { Result } from "../diag/contract.js";\nexport interface RawModule { readonly value: number; }\nexport interface ModuleDefinitionsInput { readonly module: RawModule; readonly componentRoots: readonly number[]; }\nexport interface ModuleDefinitions { readonly value: number; }',
+      signature: '(input: ModuleDefinitionsInput) => Result<ModuleDefinitions>', wrong: '(module: RawModule) => Result<ModuleDefinitions>',
       extra: [["diag", 'export interface Result<Value> { readonly value: Value; }']] },
     { owner: "decls", name: "DescribeDefinitions", declarations: 'export interface DeclsModule { readonly value: number; }\nexport interface DefinitionExports { readonly value: number; }\nexport interface DefinitionTable { readonly value: number; }',
       signature: '(module: DeclsModule, names: readonly DefinitionExports[]) => DefinitionTable',
@@ -499,11 +499,11 @@ test("signed construction and projection ports require exact canonical owner-qua
       ? [at("contract-shape", contract, sample.declarations.split("\n").length + 1), ...expected,
         ...(suffix === "d.ts" ? [at("contract-shape", entry), at("contract-shape", entry, 2)] : [])] : expected);
     expect(inspectSignature(sample.name, sample.signature.replace("(", "(padding: number, ")), expected);
-    expect(inspectSignature(sample.name, sample.signature.replace(/\b(registrations|table|module|deps):/u, "$1?:")), expected);
+    expect(inspectSignature(sample.name, sample.signature.replace(/\b(registrations|table|module|input|deps):/u, "$1?:")), expected);
     const ordinary = [entry, body[1].replaceAll(sample.name, "OrdinarySemanticOperation")];
     expect(inspectSignature("OrdinarySemanticOperation", sample.signature, ordinary), expected);
     const foreignName = sample.owner === "rules" ? "RulesDeps" : sample.owner === "decls" ? "DeclsModule"
-      : sample.name === "LowerModuleDefinitions" ? "RawModule" : sample.name === "ExtensionReferencesOf" ? "CheckerExtensions" : "CheckerRegistration";
+      : sample.name === "LowerModuleDefinitions" ? "ModuleDefinitionsInput" : sample.name === "ExtensionReferencesOf" ? "CheckerExtensions" : "CheckerRegistration";
     const foreign = file("ids", `contract.${suffix}`);
     expect([...extras, [foreign, `export interface ${foreignName} { readonly value: number; }`],
       [contract, `${sample.declarations}\nimport type { ${foreignName} as ForeignReady } from "../ids/contract.js";\nexport type ${sample.name} = ${sample.signature.replaceAll(foreignName, "ForeignReady")};`], body],

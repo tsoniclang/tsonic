@@ -1,13 +1,17 @@
 import type { CallerRefusal, DataflowResult } from "../../dataflow/contract.js";
 import { accountFailure, chargeResultEntries, chargeWork } from "../../dataflow/index.js";
 import type { UnitRef } from "../../diag/contract.js";
-import { resourceLimitDiagnostic, throwInvariant } from "../../diag/index.js";
-import type { AppliedOriginsValue, AppliedSummary, MirPoint, RelationalArena, Summary, SummaryApplicationInput, SummaryKey, ValueEntryBinding } from "../../ir-facts/contract.js";
+import { requirePresent, resourceLimitDiagnostic, throwInvariant } from "../../diag/index.js";
+import type { AppliedOriginsValue, AppliedSummary, CaptureLocation, MirPoint, RelationalArena, Summary, SummaryApplicationInput, SummaryKey, ValueEntryBinding } from "../../ir-facts/contract.js";
 import { admitSummaryIdentity, applySummary, summaryKey } from "../../ir-facts/index.js";
 import type { MirBody, MirOperand, MirTerminator } from "../../ir-mir/contract.js";
-import type { ValueContextId } from "../../ids/contract.js";
+import type { OriginsId, ValueContextId } from "../../ids/contract.js";
+import { valueContextId } from "../../ids/index.js";
 import type { BodyInstance } from "../../ir-types/contract.js";
 import type { BodyRoundDeps, BodyRoundInput } from "./contract.js";
+import { appliedOrigins, valueKind } from "./values.js";
+import type { AdmitOrigins, ValueOrigins } from "./values.js";
+import { readLocal } from "./places.js";
 
 export interface CallError {
   readonly kind: "error";
@@ -127,19 +131,35 @@ export function applyScalarCall(deps: BodyRoundDeps, input: BodyRoundInput,
   const value = applied.value;
   const inspection = chargeWork(deps.account, 16);
   if (inspection !== null) return inspection;
-  if (hasReferences(value.result) || hasReferences(value.thrown) || value.thrown.includesAbsence)
+  if (value.result.callee.length !== 0 || value.result.boundaries.length !== 0 || hasReferences(value.thrown) || value.thrown.includesAbsence)
     return frontier(operation, "BodyAnalysis requires the actual Origins result and thrown-value binding of this call.");
   const effects = value.events.length + value.writes.length + value.concurrentWrites.length
     + value.contentsOnReturn.length + value.contentsOnUnwind.length
-    + value.retention.length + value.callbacks.length + value.resultCells.length + value.backing.length;
+    + value.callbacks.length + value.resultCells.length + value.backing.length;
   if (effects !== 0)
     return frontier(operation, "BodyAnalysis requires the actual caller cell, event, callback or backing producer for these applied effects.");
   for (let index = 0; index < value.subjects.length; index += 1) {
     const work = chargeWork(deps.account, 1);
     if (work !== null) return work;
-    const bound = summary.arena.boundProducers[index];
-    if (bound === undefined || summary.arena.producers[bound.producer]?.kind !== "capture" || value.subjects[index]?.kind !== "caller")
+    const bound = requirePresent(summary.arena.boundProducers[index], { owner: "analyses/body", query: null, origin: operation.origin,
+      message: "Canonical application retains every actual source bound subject." });
+    const producer = summary.arena.producers[bound.producer];
+    if (producer === undefined || producer.path !== null || producer.kind !== "capture" && producer.kind !== "parameter"
+      || value.subjects[index]?.kind !== "caller")
       return frontier(operation, "BodyAnalysis requires the actual caller cell, event, callback or backing producer for these applied effects.");
+  }
+  for (const parameter of value.parameters) {
+    const work = chargeWork(deps.account, 1);
+    if (work !== null) return work;
+    if (parameter.source.reads.kind !== "complete" || parameter.source.reads.paths.length !== 0
+      || parameter.source.writes.kind !== "complete" || parameter.source.writes.paths.length !== 0)
+      return frontier(operation, "BodyAnalysis requires the actual parameter subobject read/write transport for these applied effects.");
+  }
+  for (const retained of value.retention) {
+    const work = chargeWork(deps.account, 1);
+    if (work !== null) return work;
+    if (retained.into.kind !== "return" || retained.value.kind !== "caller")
+      return frontier(operation, "BodyAnalysis requires the actual external retention transport for these applied effects.");
   }
   for (const capture of value.captures) {
     const work = chargeWork(deps.account, 1);
@@ -155,4 +175,60 @@ export function applyScalarCall(deps: BodyRoundDeps, input: BodyRoundInput,
       return frontier(operation, "BodyAnalysis requires the actual supplied cell and completion-event bindings of these initialization obligations.");
   }
   return applied;
+}
+
+export function referenceCallResult(deps: BodyRoundDeps, input: BodyRoundInput,
+  operation: Extract<MirTerminator, { readonly kind: "call" }>, point: MirPoint, summary: Summary,
+  arena: RelationalArena, state: readonly OriginsId[], constants: readonly OriginsId[], values: ValueOrigins,
+  admit: AdmitOrigins, fallback: OriginsId, captures: readonly CaptureLocation[]): DataflowResult<OriginsId> {
+  const read = chargeWork(deps.account, 1);
+  if (read !== null) return read;
+  const signature = deps.signatureOf(summary.signature);
+  const stopped = accountFailure(deps.account);
+  if (stopped !== null) return stopped;
+  const kind = valueKind(deps, signature.result);
+  const classified = accountFailure(deps.account);
+  if (classified !== null) return classified;
+  if (kind === null) return frontier(operation, "BodyAnalysis requires the actual selected call-result representation and Origins producer.");
+  if (kind !== "reference") return { kind: "complete", value: fallback };
+  const setup = chargeWork(deps.account, operation.arguments.length + arena.contexts.length)
+    ?? chargeResultEntries(deps.account, operation.arguments.length + arena.contexts.length + 3);
+  if (setup !== null) return setup;
+  const arguments_: OriginsId[] = [];
+  for (const argument of operation.arguments) {
+    if (argument.kind !== "value") return frontier(operation, "A selected by-value call retains its actual operand.");
+    const operand = argument.operand;
+    arguments_.push(requirePresent(operand.kind === "constant" ? constants[operand.constant] : state[Number(readLocal(input.mir, operand))],
+      { owner: "analyses/body", query: null, origin: operation.origin, message: "A selected argument retains its actual value-flow Origins." }));
+  }
+  const entries: ValueEntryBinding[] = [];
+  for (const bound of summary.arena.boundProducers) {
+    const work = chargeWork(deps.account, 1) ?? chargeResultEntries(deps.account, 1);
+    if (work !== null) return work;
+    const producer = summary.arena.producers[bound.producer];
+    const captured = producer?.kind === "capture" && producer.path === null && operation.callee.kind === "body"
+      ? operation.callee.captures[producer.index] : undefined;
+    if (captured !== undefined) {
+      const local = readLocal(input.mir, { kind: "place", place: captured.place });
+      entries.push({ formal: bound.id, actual: requirePresent(state[local], { owner: "analyses/body", query: null,
+        origin: operation.origin, message: "A selected capture retains its actual caller slot content at this call." }) });
+    } else if (producer?.kind === "parameter" && producer.path === null && operation.callee.kind === "direct")
+      entries.push({ formal: bound.id, actual: requirePresent(arguments_[producer.index], { owner: "analyses/body", query: null,
+        origin: operation.origin, message: "A selected callee formal retains its actual caller argument." }) });
+    else return frontier(operation, "BodyAnalysis requires the actual selected non-formal reference binding for this call.");
+  }
+  const cellWork = chargeWork(deps.account, summary.arena.cells.length) ?? chargeResultEntries(deps.account, summary.arena.cells.length);
+  if (cellWork !== null) return cellWork;
+  const cells: SummaryApplicationInput["cells"][number][] = [];
+  for (const cell of summary.arena.cells) {
+    const location = cell.role.kind === "capture" ? captures[cell.role.index] : undefined;
+    if (location === undefined) return frontier(operation, "A selected callee cell requires its actual capture or created-cell binding.");
+    cells.push({ kind: "cell", index: location.cell });
+  }
+  const context = valueContextId(arena.contexts.length);
+  const caller = { ...arena, contexts: [...arena.contexts, { id: context, receiver: null, arguments: arguments_, captures }] };
+  const applied = applyScalarCall(deps, input, operation, point, summary, caller, context, entries, cells);
+  if (applied.kind !== "complete") return applied;
+  const result = appliedOrigins(deps, values, applied.value.result, admit);
+  return typeof result === "number" ? { kind: "complete", value: result } : result;
 }

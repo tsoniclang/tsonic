@@ -64,6 +64,8 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
   await sourceScopeCases(suite);
   const { localProducerCases } = await import("./fixtures/facts-local-producers.mjs");
   await localProducerCases(suite);
+  const { originsUniqueCases } = await import("./fixtures/facts-origins-unique.mjs");
+  await originsUniqueCases(suite);
   const { conditionCases } = await import("./fixtures/facts-conditions.mjs");
   await conditionCases(suite);
   const { dependencyInventoryCases } = await import("./fixtures/facts-dependencies.mjs");
@@ -751,15 +753,15 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
     await arenaTextCase(`open boundary without invented owner ${kind}`, "boundaries", [row], [`${kind}(id=boundary:0, at=node(node=body(value=${nodeText(1)})), subject=producer:0, owner=null, bindings=${bindingsText}, context=context:0, detail="unknown")`]);
   }
   const fullBindings = {
-    classBindings: [{ kind: "bound", parameter: { owner: definitions.f, index: 0 }, type: 0 }, { kind: "rigid", parameter: { owner: definitions.f, index: 1 } }],
-    methodBindings: [{ kind: "bound", parameter: { owner: definitions.callee, index: 0 }, type: 1 }],
-    capturedBindings: [{ kind: "rigid", parameter: { owner: definitions.other, index: 0 } }],
+    classBindings: [{ kind: "bound", parameter: parameterDef(definitions.f, 0), type: 0 }, { kind: "rigid", parameter: parameterDef(definitions.f, 1) }],
+    methodBindings: [{ kind: "bound", parameter: parameterDef(definitions.callee, 0), type: 1 }],
+    capturedBindings: [{ kind: "rigid", parameter: parameterDef(definitions.other, 0) }],
     selfBindings: [{ kind: "bound", owner: definitions.f, type: 0 }, { kind: "rigid", owner: definitions.other }],
   };
   const fullBindingsText = `BindingVector(classBindings=${arrayText([
-    `bound(parameter=TypeParameterIdentity(owner=def:"${definitions.f}", index=0), type=t:0)`, `rigid(parameter=TypeParameterIdentity(owner=def:"${definitions.f}", index=1))`,
-  ])}, methodBindings=${arrayText([`bound(parameter=TypeParameterIdentity(owner=def:"${definitions.callee}", index=0), type=t:1)`])}, capturedBindings=${arrayText([
-    `rigid(parameter=TypeParameterIdentity(owner=def:"${definitions.other}", index=0))`,
+    `bound(parameter=def:"${parameterDef(definitions.f, 0)}", type=t:0)`, `rigid(parameter=def:"${parameterDef(definitions.f, 1)}")`,
+  ])}, methodBindings=${arrayText([`bound(parameter=def:"${parameterDef(definitions.callee, 0)}", type=t:1)`])}, capturedBindings=${arrayText([
+    `rigid(parameter=def:"${parameterDef(definitions.other, 0)}")`,
   ])}, selfBindings=${arrayText([`bound(owner=def:"${definitions.f}", type=t:0)`, `rigid(owner=def:"${definitions.other}")`])})`;
   await arenaTextCase("all four complete binding-vector families retain correlation", "boundProducers", [{ id: 0, producer: 1, bindings: fullBindings, context: 0 }],
     [`BoundProducer(id=bound:0, producer=producer:1, bindings=${fullBindingsText}, context=context:0)`]);
@@ -1827,7 +1829,7 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
     const checks = await import("../../packages/host/dist/ir-facts/verification.js");
     const vector = emptyBindings();
     for (const family of ["classBindings", "methodBindings", "capturedBindings"])
-      vector[family] = [undefined, { kind: "bound", parameter: { owner: definitions.f, index: 0 }, type: 0 }];
+      vector[family] = [undefined, { kind: "bound", parameter: parameterDef(definitions.f, 0), type: 0 }];
     vector.selfBindings = [undefined, { kind: "rigid", owner: definitions.f }];
     const callee = { activation: { body, bindings: { kind: "instantiated", bindings: vector } }, decision: {
       advertised: { declaration: definitions.f }, api: { declaration: definitions.callee },
@@ -2151,11 +2153,11 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
   }
   await factOpposite("bindings-complete complete lexical class family", (input, supplied) => {
     invocationFixture(input, supplied);
-    const scope = { ...emptyScope(), classParameters: [{ owner: definitions.callee, index: 0 }] };
+    const scope = { ...emptyScope(), classParameters: [parameterDef(definitions.callee, 0)] };
     supplied.context.bindingScopeOf = selected => selected === definitions.callee ? scope : emptyScope();
     supplied.scopeRows.body = [emptyScope(), emptyScope(), scope, scope];
-    input.origins.invocations[0].alternatives[0].resolution.decision.bindings.classBindings = [{ kind: "rigid", parameter: { owner: definitions.callee, index: 0 } }];
-    input.origins.invocations[0].alternatives[0].resolution.decision.implementationBindings.classBindings = [{ kind: "rigid", parameter: { owner: definitions.callee, index: 0 } }];
+    input.origins.invocations[0].alternatives[0].resolution.decision.bindings.classBindings = [{ kind: "rigid", parameter: parameterDef(definitions.callee, 0) }];
+    input.origins.invocations[0].alternatives[0].resolution.decision.implementationBindings.classBindings = [{ kind: "rigid", parameter: parameterDef(definitions.callee, 0) }];
   }, input => { input.origins.invocations[0].alternatives[0].resolution.decision.bindings.classBindings = []; },
     [violation("bindings-complete", nodeSite(1), "A binding vector retains every expected class, method, captured and self binding in canonical owner order.")]);
   await factOpposite("missing lexical scope is not an empty environment", (input, supplied) => {
@@ -2181,9 +2183,9 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
   const bodylessDependentInvocation = (input, supplied) => {
     invocationFixture(input, supplied);
     const alternative = input.origins.invocations[0].alternatives[0];
-    const identity = { owner: definitions.callee, index: 0 };
+    const identity = definitions.parameter;
     const environment = { ...emptyBindings(), methodBindings: [{ kind: "bound", parameter: identity, type: 0 }] };
-    supplied.types.signatures[1].typeParameters = [{ identity, declaration: definitions.parameter, constraint: null, default: null }];
+    supplied.types.signatures[1].typeParameters = [{ declaration: identity, constraint: null, default: null }];
     supplied.types.signatures.push(signature(2, [parameter(definitions.parameter), parameter(definitions.capture)], null, definitions.other));
     alternative.resolution.decision.advertised = { declaration: definitions.other, role: "advertised", signature: 2, body: null };
     alternative.resolution.decision.implementationBindings = environment;
@@ -2670,9 +2672,9 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
       if (kind === "optional") supplied.types.terms.push({ kind, value: 3 });
       if (kind === "union") supplied.types.terms.push({ kind, members: [1, 3] });
       if (kind === "param") {
-        const identity = { owner: definitions.f, index: 0 };
+        const identity = definitions.parameter;
         supplied.types.terms.push({ kind, parameter: identity });
-        supplied.types.signatures[0].typeParameters = [{ identity, declaration: definitions.parameter, constraint: 3, default: null }];
+        supplied.types.signatures[0].typeParameters = [{ declaration: identity, constraint: 3, default: null }];
       }
       supplied.types.signatures[0].parameters[0].type = 4;
       input.callbacks[0].constraint.inputs = [{ kind: "argument-element", parameterIndex: 0, sourceParameterIndex: 0 }];
@@ -2738,10 +2740,10 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
   for (const [field, prepare, amend] of [
     ["maximumProjectionDepth", input => { input.arena.projections = []; },
       input => { input.arena.projections = [{ id: 0, parent: null, projection: { kind: "deref" } }]; }],
-    ["maximumOriginAlternatives", input => { input.arena.origins[1].producers = []; },
+    ["maximumOriginAlternatives", input => { input.arena.origins[1].producers = []; input.arena.origins[1].includesAbsence = true; },
       input => { input.arena.origins[1].producers = [0]; }],
     ["maximumRelationalReferencesPerBody", input => { input.arena.projections = []; input.arena.boundProducers = []; input.arena.boundaries = [];
-      for (const origins of input.arena.origins) origins.producers = []; },
+      for (const origins of input.arena.origins) origins.producers = []; input.arena.origins[1].includesAbsence = true; },
     input => { input.arena.projections = [{ id: 0, parent: null, projection: { kind: "deref" } }, { id: 1, parent: 0, projection: { kind: "element" } }]; }],
   ]) {
     await summaryOpposite(`known zero published ${field} is not unknown`, (input, supplied) => { prepare(input); supplied.context.limits[field] = 0;
@@ -2750,7 +2752,7 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
   }
   await summaryOpposite("bindings-complete", (input, supplied) => {
     Object.assign(input, emptySummary()); supplied.scopeRows.summary = [];
-    supplied.context.bindingScopeOf = () => ({ ...emptyScope(), classParameters: [{ owner: definitions.f, index: 0 }] });
+    supplied.context.bindingScopeOf = () => ({ ...emptyScope(), classParameters: [parameterDef(definitions.f, 0)] });
   }, input => { input.key.execution.instance.bindings = { kind: "instantiated", bindings: emptyBindings() }; }, [
     violation("cross-owner-qualified", { kind: "summary", summary: { kind: "body", execution: { instance: { body, bindings: { kind: "instantiated", bindings: emptyBindings() } }, provided: 0 } } },
       "The actual relational owner must resolve to its canonical arena."), violation("bindings-complete",
@@ -2804,7 +2806,7 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
   const missingScopeMessage = "Every definition-null binding-vector occurrence retains its actual source scope in declared field order.";
   const extraScopeMessage = "The source-scope inventory has no extra definition-null binding-vector occurrence.";
   const scopedMember = (definition = definitions.other) => {
-    const identity = { owner: definition, index: 0 };
+    const identity = parameterDef(definition, 0);
     const scope = { ...emptyScope(), classParameters: [identity] };
     const selected = member(); selected.decision.primary = null; selected.decision.selectedDeclarations = [];
     selected.decision.origins = [{ kind: "mapped", owner: itemRef(definition), key: { kind: "text", value: "value" } }];
@@ -2918,14 +2920,14 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
     input => amend(input.arena.projections[2].projection.member.getter), [violation(rule, arenaSite("projection", "projection", 2), message)]);
   await factOpposite("bound member types fail at the type boundary rather than inventing a scope mismatch", (input, supplied) => {
     const { selected, scope } = scopedMember();
-    selected.decision.bindings.classBindings = [{ kind: "bound", parameter: { owner: definitions.other, index: 0 }, type: 0 }];
+    selected.decision.bindings.classBindings = [{ kind: "bound", parameter: parameterDef(definitions.other, 0), type: 0 }];
     input.arena.projections.push({ id: 2, parent: null, projection: { kind: "field", member: selected } });
     supplied.scopeRows.body = [scope];
   }, input => { input.arena.projections[2].projection.member.decision.bindings.classBindings[0].type = 99; },
   [violation("type-resolves", arenaSite("projection", "projection", 2), "Every bound type resolves in the actual supplied canonical type table.")]);
   await summaryOpposite("bound member type failures use the existing summary rule domain", (input, supplied) => {
     const { selected, scope } = scopedMember();
-    selected.decision.bindings.classBindings = [{ kind: "bound", parameter: { owner: definitions.other, index: 0 }, type: 0 }];
+    selected.decision.bindings.classBindings = [{ kind: "bound", parameter: parameterDef(definitions.other, 0), type: 0 }];
     input.arena.projections.push({ id: 2, parent: null, projection: { kind: "field", member: selected } });
     supplied.scopeRows.summary = [scope];
   }, input => { input.arena.projections[2].projection.member.decision.bindings.classBindings[0].type = 99; },
@@ -3016,28 +3018,28 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
         : kind === "empty" || kind === "missing" ? missingScopeMessage : inventoryMessage)]);
   }
   await factOpposite("an instantiated root uses its declaration scope, not an anonymous scope occurrence", (input, supplied) => {
-    const identity = { owner: definitions.f, index: 0 };
+    const identity = definitions.parameter;
     const scope = { ...emptyScope(), methodParameters: [identity] };
     const vector = { ...emptyBindings(), methodBindings: [{ kind: "bound", parameter: identity, type: 0 }] };
     input.execution.instance.bindings = { kind: "instantiated", bindings: clone(vector) };
     input.arena.boundProducers[0].bindings = clone(vector); input.arena.boundaries[0].bindings = clone(vector);
     supplied.tir.bindings = clone(input.execution.instance.bindings); supplied.mir.bindings = clone(input.execution.instance.bindings);
     supplied.tir.lexicalBindings = clone(vector); supplied.tir.dependence = "binding-dependent";
-    supplied.types.signatures[0].typeParameters = [{ identity, declaration: definitions.parameter, constraint: null, default: null }];
+    supplied.types.signatures[0].typeParameters = [{ declaration: identity, constraint: null, default: null }];
     supplied.context.bindingScopeOf = selected => selected === definitions.f ? scope : emptyScope();
     supplied.scopeRows.body = [scope, scope, scope];
   }, (input, supplied) => { supplyScopes(supplied, { kind: "body", execution: input.execution },
     [emptyScope(), supplied.scopeRows.body[1], supplied.scopeRows.body[2]]); },
   []);
   await factOpposite("a rigid binding is part of a bound producer's correlated alternative", (input, supplied) => {
-    const identity = { owner: definitions.f, index: 0 };
+    const identity = definitions.parameter;
     const scope = { ...emptyScope(), methodParameters: [identity] };
     const vector = { ...emptyBindings(), methodBindings: [{ kind: "rigid", parameter: identity }] };
     input.arena.boundProducers[0].bindings = clone(vector); input.arena.boundaries[0].bindings = clone(vector);
-    supplied.types.signatures[0].typeParameters = [{ identity, declaration: definitions.parameter, constraint: null, default: null }];
+    supplied.types.signatures[0].typeParameters = [{ declaration: identity, constraint: null, default: null }];
     supplied.context.bindingScopeOf = selected => selected === definitions.f ? scope : emptyScope();
     supplied.scopeRows.body = [scope, scope];
-  }, input => { input.arena.boundProducers[0].bindings = { ...emptyBindings(), methodBindings: [{ kind: "bound", parameter: { owner: definitions.f, index: 0 }, type: 0 }] }; },
+  }, input => { input.arena.boundProducers[0].bindings = { ...emptyBindings(), methodBindings: [{ kind: "bound", parameter: definitions.parameter, type: 0 }] }; },
   [violation("origin-alternatives-correlated", arenaSite("bound-producer", "producer", 0),
     "Producer, complete type bindings and value context remain one canonical correlated alternative.")]);
   const nestedMetadataReferences = (input, supplied) => {
@@ -3250,7 +3252,7 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
       violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence."),
     ]);
   await metadataOpposite("bindings-complete", (input, supplied) => {
-    supplied.context.bindingScopeOf = () => ({ ...emptyScope(), classParameters: [{ owner: definitions.layout, index: 0 }] });
+    supplied.context.bindingScopeOf = () => ({ ...emptyScope(), classParameters: [parameterDef(definitions.layout, 0)] });
   }, input => { input.key.bindings = { kind: "instantiated", bindings: emptyBindings() }; }, [
     violation("cross-owner-qualified", { kind: "metadata", metadata: { definition: definitions.layout, bindings: { kind: "instantiated", bindings: emptyBindings() } } },
       "The metadata kind must belong to the same declaration and complete binding environment."),
@@ -3757,7 +3759,7 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
   await factOpposite("bound member type lookup cannot confuse an in-range hole with a supplied term", (input, supplied) => {
     const { selected, scope } = scopedMember();
     supplied.types.terms.push({ kind: "primitive", primitive: "int32" });
-    selected.decision.bindings.classBindings = [{ kind: "bound", parameter: { owner: definitions.other, index: 0 }, type: 3 }];
+    selected.decision.bindings.classBindings = [{ kind: "bound", parameter: parameterDef(definitions.other, 0), type: 3 }];
     input.arena.projections.push({ id: 2, parent: null, projection: { kind: "field", member: selected } });
     supplied.scopeRows.body = [scope];
   }, (input, supplied) => { delete supplied.types.terms[3]; },
@@ -4857,3 +4859,4 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
     "every actual runtime product owner is nonempty 100/100/100; the eight actual type-only declarations are N/A");
   });
 });
+import { typeParameterDeclaration as parameterDef } from "./fixtures/type-parameter-declarations.mjs";

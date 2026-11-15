@@ -1,3 +1,4 @@
+import { typeParameterDeclaration as parameterDef } from "./type-parameter-declarations.mjs";
 import assert from "node:assert/strict";
 import { isDeepStrictEqual } from "node:util";
 import { encodeBodyId, encodeDefId, encodeModuleId, encodePackageId } from "../../../packages/host/dist/ids/index.js";
@@ -76,7 +77,7 @@ await suite.test("componentsOf schedules declared binding once and body dependen
 await suite.test("componentsOf retains complete bindings and provided counts instead of definition components", () => {
   const first = body("entry", 0), second = body("entry", 1);
   const bindings = { kind: "instantiated", bindings: { classBindings: [], methodBindings: [
-    { kind: "bound", parameter: { owner: definition("generic"), index: 0 }, type: 7 }], capturedBindings: [], selfBindings: [] } };
+    { kind: "bound", parameter: parameterDef(definition("generic"), 0), type: 7 }], capturedBindings: [], selfBindings: [] } };
   const third = body("entry", 0, bindings), fourth = declared(2, 0), fifth = declared(2, 1);
   const input = { operations: [first, second, third, fourth, fifth], dependencies: [edge(first, second), edge(second, first)] };
   const result = completed(componentsOf(resources(account(), 2), input));
@@ -231,7 +232,7 @@ await suite.test("dependency inventory verification retains all qualified closur
   missingDefinition.definitionExists = () => false;
   assert.equal(verified(original, missingDefinition).some(finding => finding.rule === "execution-resolves"), true);
   const instantiated = body("generic", 0, { kind: "instantiated", bindings: { classBindings: [], methodBindings: [
-    { kind: "bound", parameter: { owner: definition("generic"), index: 0 }, type: 0 }], capturedBindings: [], selfBindings: [] } });
+    { kind: "bound", parameter: parameterDef(definition("generic"), 0), type: 0 }], capturedBindings: [], selfBindings: [] } });
   const inventory = completed(componentsOf(resources(), { operations: [instantiated], dependencies: [] }));
   assert.equal(verified(inventory).some(finding => finding.rule === "bindings-complete"), true);
   assert.notEqual(summaryKey(first), summaryKey({ ...first, execution: { ...first.execution, provided: 1 } }));

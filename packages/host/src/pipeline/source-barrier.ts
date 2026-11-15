@@ -43,16 +43,26 @@ export function captureSourceBarrier(inputs: HostAnalysisInputs): Result<SourceB
     const module = entry.kind === "snapshot" ? entry.module : entry.document.module;
     const captured = front.captureModule(capture, opened.value, module);
     if (captured.kind === "refused") return captured;
-    const identified = front.lowerModuleDefinitions(captured.value);
-    if (identified.kind === "refused") return identified;
     if (raw.has(module)) return fail("The actual opened module inventory cannot repeat a module identity.");
     raw.set(module, captured.value);
-    definitions.set(module, identified.value);
-    for (const row of identified.value.rows) paths.set(row.definition, { module, segments: row.segments });
     const path = snapshotModules.get(module)?.path;
     const text = entry.kind === "session-document" ? entry.document.text : path === undefined ? undefined : fileText.get(path);
     if (text === undefined) return fail("Every captured module needs its actual snapshot or admitted session-document text.");
     names.set(module, text);
+  }
+  const componentRoots = new Map<ModuleId, RawNodeRef[]>();
+  for (const captured of raw.values()) for (const component of captured.types.components) {
+    const root = component.root;
+    if (!raw.has(root.module)) return fail("A captured component root must belong to the actual captured program module inventory.");
+    const requested = componentRoots.get(root.module) ?? [];
+    requested.push(root);
+    componentRoots.set(root.module, requested);
+  }
+  for (const [module, captured] of raw) {
+    const identified = front.lowerModuleDefinitions({ module: captured, componentRoots: componentRoots.get(module) ?? [] });
+    if (identified.kind === "refused") return identified;
+    definitions.set(module, identified.value);
+    for (const row of identified.value.rows) paths.set(row.definition, { module, segments: row.segments });
   }
   const defined = new Map<ModuleId, ReadonlyMap<NodeId, DefId>>();
   const occurrences = new Map<ModuleId, ReadonlyMap<NodeId, ModuleSourceOccurrence>>();

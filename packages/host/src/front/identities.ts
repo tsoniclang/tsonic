@@ -1,8 +1,10 @@
 import type { DefId, DefinitionSegment, ModuleId, NodeId } from "../ids/contract.js";
-import type { ModuleDefinitionRow, ModuleDefinitions, RawPropertyName } from "./contract.js";
-import { encodeDefId } from "../ids/index.js";
+import type { ModuleDefinitionRow, ModuleDefinitions, RawNodeRef, RawPropertyName } from "./contract.js";
+import { encodeBodyId, encodeDefId } from "../ids/index.js";
 import type * as Hir from "../ir-hir/contract.js";
 import { childrenOfSyntax, isModuleBindingKind } from "../ir-hir/index.js";
+import { childSourceBody, enterSourceBody } from "./source-bodies.js";
+import type { SourceBodyScope } from "./source-bodies.js";
 
 function nameText(name: Hir.SyntaxNode<Hir.SyntaxPhase>, module: ModuleId,
   properties: ReadonlyMap<NodeId, RawPropertyName>, definitions: ReadonlyMap<NodeId, DefId>): string | null {
@@ -34,7 +36,7 @@ function nameText(name: Hir.SyntaxNode<Hir.SyntaxPhase>, module: ModuleId,
  * pattern. Null when the node has no identity (a variable declaration or binding element that holds a pattern, and
  * every kind that is not a declaration).
  */
-function identityName(node: Hir.SyntaxNode<Hir.SyntaxPhase>, module: ModuleId,
+export function sourceIdentityName(node: Hir.SyntaxNode<Hir.SyntaxPhase>, module: ModuleId,
   properties: ReadonlyMap<NodeId, RawPropertyName>, definitions: ReadonlyMap<NodeId, DefId>): string | null {
   switch (node.kind) {
     case "SourceFile":
@@ -61,27 +63,40 @@ interface Owner {
   readonly segments: readonly DefinitionSegment[];
 }
 
+export function sourcePropertyNames(module: ModuleId, names: readonly RawPropertyName[]): ReadonlyMap<NodeId, RawPropertyName> {
+  const properties = new Map<NodeId, RawPropertyName>();
+  for (const property of names) {
+    if (property.node.module !== module || properties.has(property.node.node))
+      throw new TypeError("front: every computed property key belongs once to its actual captured module");
+    properties.set(property.node.node, property);
+  }
+  return properties;
+}
+
 /**
  * The definition identities of one module, in the syntax tree's preorder: each declaration's owner is the nearest
  * enclosing declaration that has an identity, and its ordinal counts the declarations of that name in that owner
  * before it, whatever their kind. The counters belong to the owner itself (its node), never to a spelling of its
  * path, so names holding `#`, `/` or `:` cannot make two owners share a counter (K-3343).
  */
-export function moduleIdentities(module: ModuleId, tree: Hir.SourceFile<Hir.SyntaxPhase>, propertyNames: readonly RawPropertyName[]): ModuleDefinitions {
+export function moduleIdentities(module: ModuleId, tree: Hir.SourceFile<Hir.SyntaxPhase>, propertyNames: readonly RawPropertyName[],
+  componentRoots: readonly RawNodeRef[]): ModuleDefinitions {
   const rows: ModuleDefinitionRow[] = [];
   const sourceOccurrences: ModuleDefinitions["sourceOccurrences"][number][] = [];
   const counts = new Map<NodeId, Map<string, number>>();
-  const properties = new Map<NodeId, RawPropertyName>();
+  const properties = sourcePropertyNames(module, propertyNames);
   const definitions = new Map<NodeId, DefId>();
-  for (const property of propertyNames) {
-    if (property.node.module !== module || properties.has(property.node.node))
-      throw new TypeError("front: every computed property key belongs once to its actual captured module");
-    properties.set(property.node.node, property);
+  const requested = new Set<NodeId>();
+  for (const root of componentRoots) {
+    if (root.module !== module) throw new TypeError("front: a component root request must retain its actual captured module");
+    requested.add(root.node);
   }
-  const pending: { readonly node: Hir.SyntaxNode<Hir.SyntaxPhase>; readonly owner: Owner | null }[] = [{ node: tree, owner: null }];
+  const moduleBody = encodeBodyId({ owner: encodeDefId({ module, segments: [] }), role: "module", ordinal: 0 });
+  const pending: { readonly node: Hir.SyntaxNode<Hir.SyntaxPhase>; readonly owner: Owner | null; readonly scope: SourceBodyScope }[] =
+    [{ node: tree, owner: null, scope: { body: moduleBody, lexicalBody: moduleBody, callableBody: null } }];
   for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
     const { node, owner } = next;
-    const name = identityName(node, module, properties, definitions);
+    const name = sourceIdentityName(node, module, properties, definitions);
     let inner = owner;
     if (name !== null) {
       let segments: readonly DefinitionSegment[] = [];
@@ -96,17 +111,22 @@ export function moduleIdentities(module: ModuleId, tree: Hir.SourceFile<Hir.Synt
       definitions.set(node.id, encodeDefId({ module, segments }));
       inner = { node: node.id, segments };
     }
+    const context = requested.size === 0 ? null : enterSourceBody(node, next.scope, definitions);
     if (isModuleBindingKind(node.kind, node.kind !== "ImportClause" || node.name !== null)
       || node.kind === "IndexSignature" || node.kind === "MappedType") {
       if (inner === null) throw new TypeError("front: a binding has no genuine enclosing declaration identity");
       sourceOccurrences.push({ node: node.id, kind: node.kind, occurrence: { kind: "item", value: {
         owner: encodeDefId({ module, segments: inner.segments }), node: node.id } } });
+    } else if (context !== null && requested.has(node.id)) {
+      sourceOccurrences.push({ node: node.id, kind: node.kind, occurrence: { kind: "body", value: { body: context.body, node: node.id } } });
     }
+    requested.delete(node.id);
     const children = childrenOfSyntax(node);
     for (let index = children.length - 1; index >= 0; index -= 1) {
       const child = children[index];
-      if (child !== undefined) pending.push({ node: child, owner: inner });
+      if (child !== undefined) pending.push({ node: child, owner: inner, scope: context === null ? next.scope : childSourceBody(context, child) });
     }
   }
+  if (requested.size !== 0) throw new TypeError("front: every requested component root must name its actual captured syntax node");
   return { module, rows, sourceOccurrences };
 }

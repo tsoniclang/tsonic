@@ -250,7 +250,7 @@ export const verifyRelationalArena = (
   context: FactsVerificationContext,
   account: DataflowAccount,
 ): FactsVerification<FactsRule> => {
-  const initial = chargeWork(account, 1) ?? chargeResultEntries(account, 5);
+  const initial = chargeWork(account, 1) ?? chargeResultEntries(account, 6);
   if (initial !== null) return initial;
   const admittedOwner = admitOwnerIdentity(owner, account);
   if (admittedOwner !== null) return admittedOwner;
@@ -466,6 +466,7 @@ export const verifyRelationalArena = (
     }
     alternatives.add(key);
   }
+  const originPayloads = new Set<string>();
   for (const [index, origins] of arena.origins.entries()) {
     const step = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
     if (step !== null) return step;
@@ -493,14 +494,32 @@ export const verifyRelationalArena = (
       previous = bound;
     }
     if (origins.kind === "open") {
+      if (origins.boundaries.length === 0) {
+        const stop = report("origin-alternatives-order", site, "Open Origins retain a nonempty canonical boundary set.");
+        if (stop !== null) return stop;
+      }
+      let previousBoundary: number | null = null;
       for (const boundary of origins.boundaries) {
     const step = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
     if (step !== null) return step;
         if (!validIndex(boundary, arena.boundaries.length) || !Object.is(arena.boundaries[boundary]?.id, boundary)) {
           { const stop = report("boundary-resolves", site, "Every open-origin boundary must resolve in its own arena."); if (stop !== null) return stop; }
         }
+        if (previousBoundary !== null && compareNumbers(previousBoundary, boundary) >= 0) {
+          const stop = report("origin-alternatives-order", site, "Open-origin boundaries must be distinct and ordered by canonical boundary identity.");
+          if (stop !== null) return stop;
+        }
+        previousBoundary = boundary;
       }
     }
+    const payloadWork = chargeWork(account, 3 + origins.producers.length + (origins.kind === "open" ? origins.boundaries.length : 0));
+    if (payloadWork !== null) return payloadWork;
+    const payload = encodeKey([origins.kind, origins.producers, origins.includesAbsence, origins.kind === "open" ? origins.boundaries : null]);
+    if (originPayloads.has(payload)) {
+      const stop = report("origins-unique", site, "An Origins payload identifies exactly one row within its relational arena.");
+      if (stop !== null) return stop;
+    }
+    originPayloads.add(payload);
   }
   for (const [index, boundary] of arena.boundaries.entries()) {
     const step = chargeWork(account, 1) ?? chargeResultEntries(account, 1);

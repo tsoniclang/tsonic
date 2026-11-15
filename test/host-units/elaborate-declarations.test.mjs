@@ -11,7 +11,7 @@ async function checked(source) {
   const module = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
   const captured = fixture.front.captureModule(opened.deps, opened.program, module);
   assert.equal(captured.kind, "ok");
-  const definitions = fixture.front.lowerModuleDefinitions(captured.value);
+  const definitions = fixture.front.lowerModuleDefinitions({ module: captured.value, componentRoots: captured.value.types.components.map(component => component.root).filter(root => root.module === captured.value.module) });
   assert.equal(definitions.kind, "ok");
   const interner = fixture.types.createTypeInterner();
   const deps = fixture.lowerDepsFor(definitions.value, interner, source);

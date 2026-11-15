@@ -59,7 +59,7 @@ test("actual declared structural members retain their genuine keys, origins and 
   const result = fixture.front.captureModule(opened.deps, opened.program, module);
   assert.equal(result.kind, "ok");
   const raw = result.value;
-  const definitions = fixture.front.lowerModuleDefinitions(raw);
+  const definitions = fixture.front.lowerModuleDefinitions({ module: raw, componentRoots: raw.types.components.map(component => component.root).filter(root => root.module === raw.module) });
   assert.equal(definitions.kind, "ok");
   const byNode = new Map(definitions.value.rows.map(row => [row.node, row]));
   const table = raw.types.members.find(table => table.members.length === 4);
@@ -106,7 +106,7 @@ test("actual overloaded, readonly and nonidentifier member keys retain every sel
   const result = fixture.front.captureModule(opened.deps, opened.program, module);
   assert.equal(result.kind, "ok");
   const raw = result.value;
-  const identified = fixture.front.lowerModuleDefinitions(raw);
+  const identified = fixture.front.lowerModuleDefinitions({ module: raw, componentRoots: raw.types.components.map(component => component.root).filter(root => root.module === raw.module) });
   assert.equal(identified.kind, "ok");
   const definitions = new Map(identified.value.rows.map(row => [row.node, row]));
   const table = raw.types.members.find(table => table.members.length === 5);
