@@ -349,6 +349,82 @@ test("real public Host analysis closes a twelve-call dependency chain with every
   }
 });
 
+test("real public Host analysis preserves every repeated callee occurrence across nested calls and branches", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal",
+    "export function value(input: boolean): boolean { return input; }\n"
+    + "export function choose(input: boolean): boolean { if (value(!input)) { return !value(input); } return value(value(input)); }\n");
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok");
+  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  const main = result.value.modules.find(module => module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts"));
+  assert.equal(main !== undefined, true);
+  const selected = main.bodies.filter(body => body.kind === "selected");
+  assert.equal(selected.length, 3);
+  assert.equal(main.bodies.filter(body => body.kind === "template").length, 3);
+  const caller = selected.find(body => body.mir.blocks.some(block => block.terminator.kind === "call"));
+  assert.equal(caller !== undefined, true);
+  const calls = caller.mir.blocks.filter(block => block.terminator.kind === "call").map(block => block.terminator);
+  assert.equal(calls.length, 4);
+  assert.equal(caller.mir.blocks.some(block => block.terminator.kind === "switch"), true);
+  assert.equal(caller.mir.blocks.filter(block => block.terminator.kind === "return").length, 2);
+  const targets = new Set();
+  for (const call of calls) {
+    assert.equal(call.callee.kind, "direct");
+    targets.add(call.callee.resolution.activation.body);
+    assert.equal(selected.some(body => body.instance.body === call.callee.resolution.activation.body), true);
+    assert.deepEqual(call.callee.resolution.decision.parameters,
+      [{ kind: "argument", parameter: 0, argument: 0, component: null, passing: "by-value" }]);
+  }
+  assert.equal(targets.size, 1, "four actual call occurrences share one completed callee operation");
+  const inventory = result.value.index.dependencyInventory;
+  const dependencies = inventory.dependencies.filter(edge => edge.reason === "call"
+    && edge.dependent.instance.body === caller.instance.body);
+  assert.equal(dependencies.length, 4);
+  assert.equal(new Set(dependencies.map(edge => edge.at.node)).size, 4);
+  assert.equal(dependencies.every(edge => edge.target.kind === "body"
+    && targets.has(edge.target.execution.instance.body) && edge.target.execution.provided === 1), true);
+  assert.equal(inventory.operations.length, 3);
+  assert.equal(result.value.index.summaries.length, 3);
+  assert.deepEqual(caller.facts.map(facts => facts.execution.provided), [1]);
+});
+
+test("real public Host analysis joins a named import to its actual selected callee in another loaded module", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal");
+  input.snapshot = fixture.projectSnapshot({
+    sourceFiles: {
+      "main.ts": "import { value } from './leaf.js'; export function read(input: boolean): boolean { return value(!input); }\n",
+      "leaf.ts": "export function value(input: boolean): boolean { return input; }\n",
+    },
+    libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
+  });
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok");
+  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  const main = result.value.modules.find(module => module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts"));
+  const leaf = result.value.modules.find(module => module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/leaf.ts"));
+  assert.equal(main !== undefined && leaf !== undefined, true);
+  assert.equal(main.bindings.length, 1);
+  const caller = main.bodies.find(body => body.kind === "selected" && body.mir.blocks.some(block => block.terminator.kind === "call"));
+  assert.equal(caller !== undefined, true);
+  const call = caller.mir.blocks.find(block => block.terminator.kind === "call").terminator;
+  assert.equal(call.callee.kind, "direct");
+  assert.equal(leaf.bodies.some(body => body.kind === "selected" && body.instance.body === call.callee.resolution.activation.body), true);
+  assert.equal(main.bodies.some(body => body.instance.body === call.callee.resolution.activation.body), false);
+  const inventory = result.value.index.dependencyInventory;
+  assert.equal(inventory.operations.length, 4);
+  assert.equal(result.value.index.summaries.length, 4);
+  const edges = inventory.dependencies.filter(edge => edge.reason === "call");
+  assert.equal(edges.length, 1);
+  assert.equal(edges[0].dependent.instance.body, caller.instance.body);
+  assert.equal(edges[0].target.kind, "body");
+  assert.equal(edges[0].target.execution.instance.body, call.callee.resolution.activation.body);
+  assert.equal(edges[0].target.execution.provided, 1);
+});
+
 test("the actual selected-call analysis admits its indices before growth and retains the original account refusal", async () => {
   const fixture = await loadFrontFixture();
   const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
