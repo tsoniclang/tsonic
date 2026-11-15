@@ -1,4 +1,4 @@
-import type { NativeFactsKey, FloatingBitsFit, FloatingFormatWidth, NativeCarrierOf, NativeIntegerGeometryOf, PlatformDeclarationKey, VerifyNativeFacts, MemberStorageData, CreateTypeInterner, SeedTypeInterner, InternType, InternSignature, ReadType, ReadSignature, ViewTypes,
+import type { NativeFactsKey, FloatingBitsFit, FloatingFormatWidth, NativeCarrierOf, LiteralCompatibilityOf, NativeIntegerGeometryOf, PlatformDeclarationKey, VerifyNativeFacts, MemberStorageData, CreateTypeInterner, SeedTypeInterner, InternType, InternSignature, ReadType, ReadSignature, ViewTypes,
   ExportTypes, Substitute, SubstituteSignature, PrintTypes, ParseTypes, VerifyTypes, EncodeSelectorPath, InstanceKey, SameInstance, ExecutionKey,
   DeclaredExecutionKey, BindingVectorKey, ArtifactBindingsKey, BindingVectorData, ArtifactBindingsData,
   SignatureRequestData, SignatureRequestKey, ConstantReferenceKey, SubstituteBindingValues, RigidBindings } from "./contract.js";
@@ -8,7 +8,9 @@ import { substitute as transform, substituteSignature as transformSignature, sub
 import { printTypes as print } from "./print.js";
 import { parseTypes as parse } from "./parse.js";
 import { verifyTypes as verify } from "./verify.js";
-import { nativeFactsKey as nativeKey, nativeCarrierOf as carrier, nativeIntegerGeometryOf as integerGeometry, floatingBitsFit as floatingFit, floatingFormatWidth as floatingWidth, platformDeclarationKey as platformKey, verifyNativeFacts as verifyNative } from "./native-facts.js";
+import { nativeFactsKey as nativeKey, nativeIntegerGeometryOf as integerGeometry, floatingBitsFit as floatingFit, floatingFormatWidth as floatingWidth, platformDeclarationKey as platformKey, verifyNativeFacts as verifyNative } from "./native-facts.js";
+import { nativeCarrierOf as carrier } from "./native-carrier.js";
+import { literalCompatibilityOf as literalCompatibility } from "./literal-compatibility.js";
 import { selectorPathKey } from "./selector-path.js";
 import { artifactBindingsData as projectArtifactBindings, artifactBindingsKeyOf, bindingVectorData as projectBindingVector,
   bindingVectorKeyOf, declaredExecutionKeyOf, executionKeyOf, instanceKeyOf, sameInstanceAs,
@@ -19,6 +21,7 @@ export const nativeFactsKey: NativeFactsKey = nativeKey;
 export const floatingBitsFit: FloatingBitsFit = floatingFit;
 export const floatingFormatWidth: FloatingFormatWidth = floatingWidth;
 export const nativeCarrierOf: NativeCarrierOf = carrier;
+export const literalCompatibilityOf: LiteralCompatibilityOf = literalCompatibility;
 export const nativeIntegerGeometryOf: NativeIntegerGeometryOf = integerGeometry;
 export const platformDeclarationKey: PlatformDeclarationKey = platformKey;
 export const verifyNativeFacts: VerifyNativeFacts = verifyNative;

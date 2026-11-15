@@ -1,6 +1,6 @@
 import type { TyId, SigId, DefId, KeyData, SourceNodeRef, LocalRef } from "../ids/contract.js";
 import type { TextParseResult, Violation } from "../diag/contract.js";
-import type { ArtifactBindings, BodyInstance, ConstantReference, Execution, MemberStorageSelection, NativePrimitive, ComponentSelector, TypeTerm, Signature, SignatureInput, TypeTable, BindingVector, TypeParameterIdentity, TypeEvidence } from "./data.js";
+import type { ArtifactBindings, BodyInstance, ConstantReference, Execution, LiteralTypeValue, MemberStorageSelection, NativePrimitive, ComponentSelector, TypeTerm, Signature, SignatureInput, TypeTable, BindingVector, TypeParameterIdentity, TypeEvidence } from "./data.js";
 import type { TypeArena } from "./arena.js";
 import type { NativeFactsRule, NativeFactsSite, NativeFloatingFormat, PlatformDeclaration, SelectedNativeFacts } from "./native-facts-data.js";
 export type * from "./data.js";
@@ -16,6 +16,18 @@ export type NativeCarrierResult =
   | { readonly kind: "resource-stop" };
 export type NativeCarrierOf = (table: TypeTable, type: TyId,
   typeOf: (type: TyId) => TypeTerm | null | undefined) => NativeCarrierResult;
+export interface LiteralCompatibilityReader {
+  readonly typeOf: (type: TyId) => TypeTerm | null | undefined;
+  readonly admit: (work: number, entries: number) => boolean;
+}
+export type LiteralCompatibilityResult =
+  | { readonly kind: "compatible" | "incompatible" }
+  | { readonly kind: "malformed-type"; readonly type: TyId }
+  | { readonly kind: "resource-stop" }
+  | { readonly kind: "needs-selected-evidence"; readonly type: TyId; readonly primitive: NativePrimitive | null;
+      readonly requirement: "representation" | "literal-conversion" | "checked-association" };
+export type LiteralCompatibilityOf = (table: TypeTable, type: TyId, value: LiteralTypeValue,
+  facts: SelectedNativeFacts, reader: LiteralCompatibilityReader) => LiteralCompatibilityResult;
 export type NativeIntegerGeometryResult =
   | { readonly kind: "integer"; readonly bits: number; readonly signed: boolean; readonly minimum: bigint; readonly maximum: bigint }
   | { readonly kind: "not-integer" }

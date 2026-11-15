@@ -14,10 +14,11 @@ import { compileIsolated, isolationDeps } from "../architecture/host/isolation.m
 import { checkCoverage } from "../architecture/host/coverage.mjs";
 import { parseSources } from "../architecture/host/import-graph.mjs";
 import { nativeFactsCases } from "./ir-types-native-facts.cases.mjs";
+import { literalCompatibilityCases } from "./fixtures/types-literal-compatibility.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const tooling = process.env.TSONIC_HOST_TOOLING_ROOT ?? repository;
-const productNames = ["index", "work", "value", "selector-path", "arena", "interner", "canonical", "copy", "normalize", "publication-fields", "publication-read", "substitute", "print", "parse", "text-readers", "text-values", "text-components", "text-records", "verify", "native-facts"];
+const productNames = ["index", "work", "value", "selector-path", "arena", "interner", "canonical", "copy", "normalize", "publication-fields", "publication-read", "substitute", "print", "parse", "text-readers", "text-values", "text-components", "text-records", "verify", "native-facts", "native-carrier", "literal-compatibility"];
 const runtimeFiles = productNames.map(name => resolve(repository, `packages/host/dist/ir-types/${name}.js`));
 const sourceFiles = [...productNames, "contract", "data", "native-facts-data"].map(name => resolve(repository, `packages/host/src/ir-types/${name}.ts`));
 const session = new Session();
@@ -46,6 +47,9 @@ const owner = definition("Owner");
 const other = definition("Other");
 test("selected native fact contract data has one exact canonical owner", async suite => {
   await nativeFactsCases(suite, await import("../../packages/host/dist/ir-types/index.js"));
+});
+test("selected literal compatibility is one charged structural relation", async suite => {
+  await literalCompatibilityCases(suite, await import("../../packages/host/dist/ir-types/index.js"));
 });
 const method = definition("method");
 const captured = definition("captured");
