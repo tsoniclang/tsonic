@@ -1078,7 +1078,7 @@ if (!context.definitionExists(selected)) { const stop = report("cross-owner-qual
  const stop = collectSelectionChecks(element, site, context, violations, account); if (stop !== null) return stop; }
     }
   }
-  const checkedBindings = verifyFactBindings(factBindingInputs(facts, context), { kind: "body", instance: facts.execution.instance }, bodySite, context, account);
+  const checkedBindings = verifyFactBindings(factBindingInputs(facts, context), { kind: "body", execution: facts.execution }, bodySite, context, account);
   if (checkedBindings.kind !== "complete") return checkedBindings;
   for (const violation of checkedBindings.violations) {
     const step = chargeWork(account, 1);

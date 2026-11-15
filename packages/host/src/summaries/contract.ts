@@ -3,7 +3,7 @@ import type { AnalyzeBodyRound, BodyRoundEnvironment, BodyRoundValue } from "../
 import type { AnalyzeStorageUse } from "../analyses/liveness/contract.js";
 import type { CallerRefusal, DataflowAccount, DataflowResult } from "../dataflow/contract.js";
 import type { BodyId, DefId, NodeRef, SigId, SourceNodeRef } from "../ids/contract.js";
-import type { BindingScope, BodyInstance, DeclaredExecution, Execution, Signature } from "../ir-types/contract.js";
+import type { BindingScope, BodyInstance, DeclaredExecution, Execution, Signature, SignatureOf } from "../ir-types/contract.js";
 import type { ResolvedCallee, TirBody, TypedOperation } from "../ir-tir/contract.js";
 import type { MirBody } from "../ir-mir/contract.js";
 import type { AdmittedNativeGuarantee, NativeExportAssociation } from "../libraries/contract.js";
@@ -44,6 +44,7 @@ export type ComponentsOf = (deps: ComponentDeps, input: RequiredOperations) => D
 
 export interface DependencyDeps {
   readonly account: DataflowAccount;
+  readonly signatureOf: SignatureOf;
   readonly callableEntriesAt: (at: NodeRef, definition: DefId) => readonly SummaryKey[] | null;
   readonly calleeAt: (at: NodeRef, callee: ResolvedCallee) => SummaryKey | null;
   readonly initializerAt: (at: NodeRef, initializer: BodyId | BodyInstance) => SummaryKey | null;

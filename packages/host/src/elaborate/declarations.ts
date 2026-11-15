@@ -126,7 +126,7 @@ function formal(node: Hir.ParameterDeclaration<Checked>, owner: DefId, parameter
   const checked = node.tsonic;
   if (checked.parent !== owner || checked.declaration.kind !== "definition" || checked.declaredType.kind !== "available"
     || checked.declaredType.value === null || checked.initializer !== null || node.initializer !== null
-    || node.name.kind !== "Identifier" || parameter.initializer !== null)
+    || node.name.kind !== "Identifier" || parameter.declaration !== checked.declaration.definition || parameter.initializer !== null)
     return fail("A bodyless formal requires its genuine checked definition and selected signature slot, without an execution local.");
   return { ...node, modifiers: declarationModifiers(node.modifiers),
     dotDotDotToken: node.dotDotDotToken === null ? null : { ...node.dotDotDotToken, tsonic: null },

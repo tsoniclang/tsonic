@@ -14,8 +14,8 @@ const unexpected = () => { throw new Error("This constructed scalar unit has no 
 const node = (kind, id, fields) => ({ kind, id, flags: [], parent: null, loc: { pos: 0, end: 0 }, ...fields });
 const root = statements => node("SourceFile", 0, { statements: { nodes: statements }, endOfFileToken: node("EndOfFile", 1, { tsonic: null }),
   tsonic: { module, template: null } });
-const tir = selectedRoot => ({ body: execution.instance.body, bindings, root: selectedRoot });
-const dependencyDeps = current => ({ account: current, callableEntriesAt: unexpected, calleeAt: unexpected,
+const tir = selectedRoot => ({ body: execution.instance.body, bindings, params: [], root: selectedRoot });
+const dependencyDeps = current => ({ account: current, signatureOf: unexpected, callableEntriesAt: unexpected, calleeAt: unexpected,
   initializerAt: unexpected, operationEntriesAt: unexpected, dispatchEntriesAt: unexpected });
 const refusal = { kind: "refused", diagnostics: [{ code: { kind: "checker", number: 1, rendered: "bound" }, severity: "error",
   site: { kind: "none" }, source: null, evidence: [], message: "bound", arguments: [], related: [], fix: null }] };

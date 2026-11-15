@@ -10,7 +10,8 @@ import type { HostAnalysisInputs } from "./contract.js";
 import type { TypedSourceBarrier } from "./typed-barrier.js";
 import type { AnalysisBarrier } from "./analysis-barrier.js";
 import { analysisStop } from "./analysis-barrier.js";
-import type { Summary } from "../ir-facts/contract.js";
+import type { BodyFacts, Summary } from "../ir-facts/contract.js";
+import { admitSummaryIdentity } from "../ir-facts/index.js";
 
 function fail(message: string): never {
   return throwInvariant({ owner: "pipeline", query: null, origin: null, message });
@@ -71,8 +72,20 @@ export function publishHostProgram(inputs: HostAnalysisInputs, typed: TypedSourc
         const observations = analysis.observations.get(instanceKey(instance));
         if (mir === undefined || observations === undefined)
           return fail("A selected publication requires its actual verified MIR and completed observations.");
-        const facts = mir.entries.map(entry => analysis.facts.get(executionKey({ instance, provided: entry.provided }))
-          ?? fail("A selected execution requires its actual verified stable Facts projection."));
+        const inventory = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
+        if (inventory !== null) return analysisStop(inventory, unit);
+        const facts: BodyFacts[] = [];
+        for (let position = mir.entries.length - 1; position >= 0; position -= 1) {
+          const row = chargeWork(account, 1) ?? chargeResultEntries(account, 3);
+          if (row !== null) return analysisStop(row, unit);
+          const entry = mir.entries[position];
+          if (entry === undefined) return fail("The verified selected entry inventory is dense.");
+          const execution = { instance, provided: entry.provided };
+          const identity = admitSummaryIdentity({ kind: "body", execution }, account);
+          if (identity !== null) return analysisStop(identity, unit);
+          facts.push(analysis.facts.get(executionKey(execution))
+            ?? fail("A selected execution requires its actual verified stable Facts projection."));
+        }
         bodies.push({ ...common, kind: "selected", mirLocalCount: mir.locals.length, mirConstantCount: mir.constants.length,
           mirPlaceCount: mir.places.length, mirBlockCount: mir.blocks.length });
         published.push({ kind: "selected", instance, tir, mir, observations, facts });

@@ -1,7 +1,7 @@
 import type { DataflowAccount } from "../dataflow/contract.js";
-import { chargeResultEntries, chargeWork } from "../dataflow/index.js";
+import { accountFailure, chargeResultEntries, chargeWork } from "../dataflow/index.js";
 import type { Violation } from "../diag/contract.js";
-import type { BindingVerificationInput } from "../ir-types/contract.js";
+import type { BindingScope, BindingVerificationInput } from "../ir-types/contract.js";
 import { verifyBindings } from "../ir-types/index.js";
 import type { BindingVerificationContext, FactsBindingTarget, FactsRule, FactsSite, FactsVerification } from "./contract.js";
 import type { BindingVisit } from "./binding-inputs.js";
@@ -20,12 +20,7 @@ export const verifyFactBindings = (
   const inputs: BindingVerificationInput[] = [];
   const checks: { readonly site: FactsSite; readonly first: number; readonly end: number }[] = [];
   const violations: Violation<FactsRule, FactsSite>[] = [];
-  const scopes = context.bindingScopesOf(target);
-  if (scopes === null) {
-    const stop = recordFinding(account, violations, "last", "bindings-complete", root,
-      "The complete binding-scope occurrence inventory must resolve for this exact verification root.");
-    if (stop !== null) return stop;
-  }
+  let scopes: readonly BindingScope[] | null = null;
   let index = 0;
   for (;;) {
     const step = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
@@ -49,18 +44,6 @@ export const verifyFactBindings = (
         "Every bound type resolves in the actual supplied canonical type table.");
       if (stop !== null) return stop;
     }
-    if (scopes !== null) {
-      const scope = scopes[index];
-      if (scope === undefined) {
-        const stop = recordFinding(account, violations, "last", "bindings-complete", entry.site,
-          "Every inline binding-vector occurrence retains its actual canonical scope in declared field order.");
-        if (stop !== null) return stop;
-      } else {
-        const stop = chargeResultEntries(account, 1);
-        if (stop !== null) return stop;
-        inputs.push({ vector: entry.vector, scope });
-      }
-    }
     if (entry.definition !== null) {
       const work = chargeWork(account, 1);
       if (work !== null) return work;
@@ -74,13 +57,38 @@ export const verifyFactBindings = (
         if (stop !== null) return stop;
         inputs.push({ vector: entry.vector, scope });
       }
+    } else {
+      const lookup = chargeWork(account, 1);
+      if (lookup !== null) return lookup;
+      if (index === 0) {
+        scopes = context.sourceBindingScopesOf(target);
+        const stopped = accountFailure(account);
+        if (stopped !== null) return stopped;
+        if (scopes === null) {
+          const stop = recordFinding(account, violations, "last", "bindings-complete", root,
+            "The source-scope occurrence inventory must resolve for actual definition-null binding vectors.");
+          if (stop !== null) return stop;
+        }
+      }
+      if (scopes !== null) {
+        const scope = scopes[index];
+        if (scope === undefined) {
+          const stop = recordFinding(account, violations, "last", "bindings-complete", entry.site,
+            "Every definition-null binding-vector occurrence retains its actual source scope in declared field order.");
+          if (stop !== null) return stop;
+        } else {
+          const stop = chargeResultEntries(account, 1);
+          if (stop !== null) return stop;
+          inputs.push({ vector: entry.vector, scope });
+        }
+      }
+      index += 1;
     }
     checks.push({ site: entry.site, first, end: inputs.length });
-    index += 1;
   }
   if (scopes !== null && scopes.length > index) {
     const stop = recordFinding(account, violations, "first", "bindings-complete", root,
-      "The canonical binding-scope inventory has no extra inline vector occurrence.");
+      "The source-scope inventory has no extra definition-null binding-vector occurrence.");
     if (stop !== null) return stop;
   }
   if (inputs.length !== 0) {

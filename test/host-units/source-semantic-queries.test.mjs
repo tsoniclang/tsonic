@@ -557,7 +557,34 @@ test("the production checked namespace retains exact body/item membership and de
   const parameter = module.tree.statements.nodes[0].parameters.nodes[0];
   const parameterSource = views.declarationSourceOf(module.items.find(item => item.node === parameter.id).definition);
   assert.equal(views.nodeOf(parameterSource) === parameter, true);
+  assert.equal(views.nodeOf({ kind: "body", value: { body: body.body, node: parameter.id } }) === parameter, true);
+  assert.equal(views.nodeOf({ kind: "body", value: { body: outer.body, node: parameter.id } }), null);
+  assert.equal(views.nodeOf({ kind: "body", value: { body: body.body, node: parameter.name.id } }) === parameter.name, true);
   assert.equal(views.nodeOf({ kind: "item", value: { owner: body.owner, node: parameter.id } }), null);
+});
+
+test("checked execution headers retain their genuine body/item join without absorbing the separately placed default", () => {
+  const program = ready("export function value(argument: boolean = true): boolean { return argument; }\n");
+  const modules = program.inputs.declarations.modules;
+  const module = program.checked;
+  const callable = module.tree.statements.nodes[0];
+  const header = callable.parameters.nodes[0];
+  const body = module.bodies.find(body => body.body === callable.tsonic.body);
+  const child = module.bodies.find(body => body.body === header.tsonic.initializer);
+  const views = checkedInputs.checkedSourceViews(modules);
+  assert.equal(views.nodeOf({ kind: "body", value: { body: body.body, node: header.id } }) === header, true);
+  assert.equal(views.nodeOf({ kind: "body", value: { body: child.body, node: child.root.id } }) === child.root, true);
+  assert.equal(views.nodeOf({ kind: "body", value: { body: body.body, node: child.root.id } }), null);
+  assert.equal(views.nodeOf({ kind: "body", value: { body: child.body, node: header.id } }), null);
+  const local = body.locals[body.params[0].local];
+  assert.equal(local.declaration.kind, "item");
+  assert.equal(views.nodeOf(local.declaration) === header, true);
+  for (const changes of [{ role: "binding" }, { declaration: { kind: "item", value: { owner: body.owner, node: header.id } } },
+    { declaration: { kind: "item", value: { owner: local.declaration.value.owner, node: child.root.id } } }]) {
+    const changed = { ...body, locals: body.locals.map(row => row === local ? { ...row, ...changes } : row) };
+    assert.throws(() => checkedInputs.checkedSourceViews(modules.map(entry => ({ ...entry, module: { ...entry.module,
+      bodies: entry.module.bodies.map(row => row === body ? changed : row) } }))), /checked parameter domain/u);
+  }
 });
 
 test("the checked namespace rejects duplicated identities and foreign/extra syntax rows rather than publishing a partial source view", () => {

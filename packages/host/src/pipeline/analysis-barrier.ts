@@ -17,6 +17,10 @@ import type { HostAnalysisInputs } from "./contract.js";
 import type { DeclaredSignatureErrorData } from "../decls/contract.js";
 import type { SourceSemanticInputs, SourceSemanticWitness } from "./semantic-queries.js";
 import type { TypedSourceBarrier } from "./typed-barrier.js";
+import type { InternalBodyInput } from "../lower-mir/contract.js";
+import type { NodeId } from "../ids/contract.js";
+import type { ParameterDeclaration } from "../ir-hir/contract.js";
+import type { TypedPhase } from "../ir-tir/contract.js";
 import { checkedSourceViews } from "./checked-inputs.js";
 import { lowerMirDeps, mirVerificationContext } from "./lower-mir-step.js";
 import { pipelineWiring } from "./wiring.js";
@@ -47,6 +51,7 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
   const table = viewTypes(source.types);
   const mir = new Map<string, MirBody>();
   const observations = new Map<string, BodyObservations>();
+  const parameterHeaders = new Map<string, ReadonlyMap<NodeId, ParameterDeclaration<TypedPhase>>>();
   const facts = new Map<string, BodyFacts>();
   const summaries = new Map<string, SummaryAnswer>();
   const operations: SummaryKey[] = [];
@@ -96,20 +101,44 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
       lowering: inputs.limits.lowering, verification: inputs.limits.mirVerification,
       declarationOf: typed.declarationOf, bodyOwner: (body: BodyId) => sources.bodies.get(body)?.owner ?? null,
       bodyOf: (instance: BodyInstance) => typed.bodies.get(instanceKey(instance)) ?? null };
-    const internal = body.nestedBodies.map(child => {
+    const internal: InternalBodyInput[] = [];
+    const included = new Set<BodyId>();
+    const headers = new Map<NodeId, ParameterDeclaration<TypedPhase>>();
+    const include = (child: BodyId): DataflowStop | null => {
+      const work = chargeWork(account, 1);
+      if (work !== null) return work;
+      if (included.has(child)) return null;
+      const growth = chargeResultEntries(account, 3);
+      if (growth !== null) return growth;
       const instance: BodyInstance = { body: child, bindings: body.bindings };
       const selected = readyBody(instance);
-      return { instance, signature: selected.signature, captures: selected.captures };
-    });
+      included.add(child);
+      internal.push({ instance, signature: selected.signature, captures: selected.captures });
+      return null;
+    };
+    for (const child of body.nestedBodies) {
+      const stop = include(child);
+      if (stop !== null) return analysisStop(stop, unit);
+    }
+    for (const header of body.params) {
+      const stop = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
+      if (stop !== null) return analysisStop(stop, unit);
+      headers.set(header.id, header);
+      if (header.tsonic.initializer !== null) {
+        const stop = include(header.tsonic.initializer);
+        if (stop !== null) return analysisStop(stop, unit);
+      }
+    }
     const lowered = pipelineWiring.lowerMir.lowerToMir(lowerMirDeps(run,
       { request: { query: "mirBody", key: identity }, position: { kind: "result" } }), body, internal);
     if (lowered.kind === "refused") return lowered;
     const verified = verifyMir(lowered.value, mirVerificationContext(run, body));
     if (verified.kind === "resource-limit") return analysisStop(verified, unit);
     if (verified.violations.length !== 0) return fail(`The actual LowerMir result violates ${verified.violations[0]?.rule}.`);
-    const growth = chargeResultEntries(account, 2);
+    const growth = chargeResultEntries(account, 3);
     if (growth !== null) return analysisStop(growth, unit);
     mir.set(identity, lowered.value);
+    parameterHeaders.set(identity, headers);
     const checked = sources.bodies.get(body.body);
     if (checked === undefined) return fail("An observation inventory requires its actual checked execution.");
     const original = source.modules.find(module => module.module.module === body.root.origin.module);
@@ -150,9 +179,33 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
     const operation = operations[index];
     if (operation === undefined || operation.kind !== "body")
       return fail("A declared required operation needs its actual selected native guarantee association and binder.");
+    const body = readyBody(operation.execution.instance);
+    const headers = parameterHeaders.get(instanceKey(operation.execution.instance));
+    if (headers === undefined) return fail("A selected execution retains its actual verified parameter-header inventory.");
+    const initializerAt = (at: NodeRef, initializer: BodyId | BodyInstance): SummaryKey | null => {
+      if (at.body !== body.body) return fail("An initializer occurrence must belong to the requesting actual selected execution.");
+      const header = headers.get(at.node);
+      const occurrence = header ?? sources.nodeOf({ kind: "body", value: at });
+      if (occurrence === null || occurrence.kind !== "Parameter" && occurrence.kind !== "VariableDeclaration"
+        && occurrence.kind !== "PropertyDeclaration" && occurrence.kind !== "EnumMember") return null;
+      if (occurrence.tsonic.initializer === null) return null;
+      const instance: BodyInstance = typeof initializer === "string"
+        ? { body: initializer, bindings: operation.execution.instance.bindings } : initializer;
+      if (instance.body !== occurrence.tsonic.initializer || instanceKey(instance) !== instanceKey({
+        body: occurrence.tsonic.initializer, bindings: operation.execution.instance.bindings })) return null;
+      const selected = readyBody(instance);
+      const graph = mir.get(instanceKey(instance));
+      const signature = readSignature(source.types, selected.signature);
+      const entry = graph?.entries[0];
+      if (graph === undefined || entry === undefined || graph.entries.length !== 1 || signature.receiver !== null
+        || signature.parameters.length !== 0 || entry.provided !== 0)
+        return fail("A placed initializer requires its actual selected parameterless entry and verified graph.");
+      return { kind: "body", execution: { instance, provided: entry.provided } };
+    };
     const discovered = pipelineWiring.summaries.dependenciesOf({ account, callableEntriesAt,
-      calleeAt: () => null, initializerAt: () => null, operationEntriesAt: () => null, dispatchEntriesAt: () => null },
-    { execution: operation.execution, tir: readyBody(operation.execution.instance) });
+      signatureOf: signature => readSignature(source.types, signature), calleeAt: () => null, initializerAt,
+      operationEntriesAt: () => null, dispatchEntriesAt: () => null },
+    { execution: operation.execution, tir: body });
     if (discovered.kind !== "complete") return analysisStop(discovered, unit);
     for (const key of discovered.value.operations) {
       const stop = add(key);
@@ -174,14 +227,7 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
   if (components.kind !== "complete") return analysisStop(components, unit);
   const verification: FactsVerificationContext = { types: table, limits: inputs.limits.analyses,
     bindingScopeOf: definition => source.descriptions.get(definition)?.generics ?? null,
-    bindingScopesOf: target => {
-      const instance = target.kind === "body" || target.kind === "observations" ? target.instance
-        : target.kind === "summary" && target.summary.kind === "body" ? target.summary.execution.instance : null;
-      if (instance === null) return null;
-      const body = typed.bodies.get(instanceKey(instance));
-      const scope = body === undefined ? undefined : source.descriptions.get(body.owner)?.generics;
-      return scope === undefined ? null : [scope];
-    },
+    sourceBindingScopesOf: () => null,
     nominalOf: source.nominalOf, nodeExists: node => sources.nodeOf(node) !== null, localExists: sources.localExists,
     definitionExists: definition => source.descriptions.has(definition), metadataOf: () => null,
     bodyOwner: body => sources.bodies.get(body)?.owner ?? null, tirBody: readyBody,

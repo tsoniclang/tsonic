@@ -9,7 +9,6 @@ import { parseSources } from "../architecture/host/import-graph.mjs";
 import { add, plus, shaped } from "./fixtures/lower-mir/programs/first.mjs";
 import { T, TABLE, bodyId, builders, declareType, def, native, seal, signature, typedBody, verificationContext } from "./fixtures/lower-mir/typed.mjs";
 import { executionKey, sameInstance } from "../../packages/host/dist/ir-types/index.js";
-import { factBindingInputs, summaryBindingInputs } from "../../packages/host/dist/ir-facts/binding-inputs.js";
 import { lowerToMir } from "../../packages/host/dist/lower-mir/index.js";
 import { verifyMir } from "../../packages/host/dist/ir-mir/index.js";
 import { analyzeStorageUse } from "../../packages/host/dist/analyses/liveness/index.js";
@@ -117,11 +116,7 @@ function checkedPair(current, result) {
     definitionExists: definition => readyOwner(definition) !== undefined,
     declarationSourceOf: definition => definition === current.program.tir.owner ? { kind: "body", value: current.program.nodeRef(0) } : null,
     bindingScopeOf: definition => readyOwner(definition) === undefined ? null : scope,
-    bindingScopesOf: target => [...(target.kind === "body" ? factBindingInputs(pair.facts, context)
-      : summaryBindingInputs(pair.summary, context))].filter(row => row !== null).map(row => {
-      assert.equal(readyOwner(row.definition) !== undefined, true, "each actual binding occurrence has its checked owner");
-      return scope;
-    }), nominalOf: () => null,
+    sourceBindingScopesOf: () => assert.fail("Each actual scalar binding occurrence has its checked definition."), nominalOf: () => null,
     nodeExists: selected => selected.kind === "body" ? selected.value.body === current.program.tir.body && nodes.has(selected.value.node)
       : current.program.tir.params.some(header => header.tsonic.declaration === selected.value.owner && nodes.has(selected.value.node)),
     localExists: local => local.body === current.program.tir.body && current.program.tir.locals[local.local]?.id === local.local,
@@ -151,7 +146,7 @@ const CALLER_SIGNATURE = signature("body-round.default", [["argument", T.bool, "
 function defaultProgram() {
   const builder = builders("body-round.default");
   const program = typedBody("body-round.default", { signature: CALLER_SIGNATURE, completion: T.bool,
-    locals: [["argument", "parameter", T.bool]], params: [[0, "default", T.bool, DEFAULT_BODY]], nestedBodies: [DEFAULT_BODY],
+    locals: [["argument", "parameter", T.bool]], params: [[0, "default", T.bool, DEFAULT_BODY]],
     root: builder.block(builder.returns(builder.id("argument", 0, T.bool))) });
   const childBuilder = builders("body-round.default.argument", "default-argument");
   const literal = childBuilder.keyword("TrueKeyword", TRUE_LITERAL);
@@ -211,8 +206,22 @@ test("an omitted actual boolean default calls its separately analyzed scalar ini
   assert.equal(sameInstance(pair.facts.origins.activations[0].activation, initializer.execution.instance), true);
   assert.equal(pair.facts.origins.invocations.length, 0, "a placed body call fabricates no surface invocation alternative");
   assert.equal(pair.facts.initialization.reads.every(row => row.assigned), true);
+  assert.equal(pair.facts.refinements.integers.some(row => row.node === child.tir.root.id), false,
+    "a separate default's value occurrence belongs only to its own executing body");
+  assert.equal(childPair.facts.refinements.integers.some(row => row.node === child.tir.root.id), true);
   const supplied = fixture(program, internal, 1);
   checkedPair(supplied, analyzeBodyRound(supplied.deps, supplied.input));
+});
+
+test("an actual placed header initializer outside the physical nested-callable inventory is not traversed", () => {
+  const { program, child } = defaultProgram();
+  assert.deepEqual(program.tir.nestedBodies, []);
+  Object.defineProperty(child.tir.root, "tsonic", { get() { throw new Error("a caller cannot read its separately executed initializer payload"); } });
+  const result = sourceOccurrences(program.tir, createAccount(limits));
+  assert.equal(result.kind, "complete");
+  assert.equal(result.value.has(program.tir.params[0].id), true);
+  assert.equal(result.value.has(child.tir.root.id), false);
+  assert.equal(result.value.has(program.tir.root.statements.nodes[0].expression.id), true);
 });
 
 test("every call-round allowance prefix preserves the original stop, and exact admission initializes only its actual destination", () => {
@@ -569,6 +578,43 @@ test("initialization proof pays each read and identity and rejects a genuinely d
     { ...input, entries: [other.execution] }), /exact selected execution/);
   assert.throws(() => proveInitialization({ account: createAccount(limits), unit: current.deps.unit, summaryOf },
     { ...input, storage: [{ owner: { kind: "body", execution: current.execution }, cell: 0 }] }), /exposed-storage cell binding/);
+});
+
+test("final initialization publication and callback refusal consume the same account before answer or output reads", () => {
+  const current = fixture(add("body-round.proof-publication", T.float64, plus("float64", T.float64)));
+  const pair = checkedPair(current, analyzeBodyRound(current.deps, current.input));
+  const unit = { request: current.deps.unit, position: { kind: "result" } };
+  const input = { modules: [], entries: [current.execution], storage: [] };
+  const refusal = { kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "analyses/initialization",
+    limit: "analysis.maximumConditionAlternatives", maximum: 0, site: { kind: "source", origin: current.input.tir.root.origin }, unit })] };
+  const account = createAccount(limits);
+  assert.equal(proveInitialization({ account, unit: current.deps.unit, summaryOf: () => {
+    refuseAccount(account, refusal);
+    return new Proxy({}, { get() { throw new Error("no answer payload read after original callback refusal"); } });
+  } }, input), refusal);
+  for (const value of [pair.summary, { kind: "error", causes: [{ kind: "unit", unit }] }]) {
+    const required = "kind" in value ? 8 : 2 * (2 + 3 + 1 + 5) + 8;
+    for (let maximumResultEntries = 0; maximumResultEntries <= required; maximumResultEntries += 1) {
+      const borrowed = createAccount({ ...limits, maximumResultEntries });
+      const result = proveInitialization({ account: borrowed, unit: current.deps.unit, summaryOf: () => ({ value, unit }) }, input);
+      if (maximumResultEntries < required) {
+        assert.equal(result, accountFailure(borrowed));
+        assert.equal(result.dimension, "result-entries");
+        assert.equal(proveInitialization({ account: borrowed, unit: current.deps.unit,
+          summaryOf: () => { throw new Error("no callback after stop"); } }, input), result);
+      } else {
+        assert.equal(result.kind, "complete");
+        assert.equal(result.value.positions[0].error === null, !("kind" in value));
+      }
+    }
+  }
+  for (const maximumWork of [0, 1, 2]) {
+    const borrowed = createAccount({ ...limits, maximumWork });
+    const result = proveInitialization({ account: borrowed, unit: current.deps.unit,
+      summaryOf: () => { throw new Error("an empty genuine execution inventory has no Summary demand"); } },
+    { modules: [], entries: [], storage: [] });
+    assert.equal(result.kind, maximumWork === 2 ? "complete" : "resource-limit");
+  }
 });
 
 test("actual conditional MIR intersects initialized locals at its real join", () => {

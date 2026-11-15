@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { loadFrontFixture, navigationCapture, preparation } from "./fixtures/front/checked-module.mjs";
 
-function analysisInput(fixture, library) {
+function analysisInput(fixture, library, source = "export function add(a: number, b: number): number { return a + b; }\n") {
   const snapshot = fixture.projectSnapshot({
-    sourceFiles: { "main.ts": "export function add(a: number, b: number): number { return a + b; }\n" },
+    sourceFiles: { "main.ts": source },
     libraries: library === "es2024" ? fixture.bundled()
       : [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
   });
@@ -71,6 +71,57 @@ test("real public AnalyzeHostProgram closes the exported float64 add and every a
     && statement.value.operation.decision.operation.operator === "+"
     && statement.value.operation.decision.operation.carrier === "float64")), true,
   "the selected native addition survives as the canonical MIR binary assignment");
+});
+
+test("real public AnalyzeHostProgram closes supplied and omitted boolean-default entries with their genuine initializer execution", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", "export function value(argument: boolean = true): boolean { return argument; }\n");
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok");
+  const main = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
+  const module = result.value.modules.find(module => module.module === main);
+  const selected = module.bodies.filter(body => body.kind === "selected");
+  const callable = selected.find(body => body.tir.params.length === 1);
+  assert.notEqual(callable, undefined);
+  assert.deepEqual(callable.mir.entries.map(entry => entry.provided), [1, 0]);
+  assert.equal(callable.facts.length, 2);
+  assert.deepEqual(callable.facts.map(facts => facts.execution.provided), [0, 1]);
+  const header = callable.tir.params[0];
+  const initializer = selected.find(body => body.instance.body === header.tsonic.initializer);
+  assert.notEqual(initializer, undefined);
+  assert.equal(initializer.tir.root === header.initializer, true);
+  assert.deepEqual(initializer.mir.entries.map(entry => entry.provided), [0]);
+  const calls = callable.mir.blocks.filter(block => block.terminator.kind === "call" && block.terminator.callee.kind === "body");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].terminator.callee.instance.body, initializer.instance.body);
+  assert.equal(calls[0].terminator.tir.node, header.id);
+  assert.equal(result.value.index.dependencyInventory.dependencies.some(edge => edge.dependent.instance.body === callable.instance.body
+    && edge.dependent.provided === 0 && edge.target.kind === "body" && edge.target.execution.instance.body === initializer.instance.body), true);
+  assert.equal(result.value.index.dependencyInventory.dependencies.some(edge => edge.dependent.instance.body === callable.instance.body
+    && edge.dependent.provided === 1 && edge.target.kind === "body" && edge.target.execution.instance.body === initializer.instance.body), false);
+});
+
+for (const count of [2, 12])
+test(`real public Host publication orders all ${count + 1} default entries numerically without changing their MIR prologues`, async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const parameters = Array.from({ length: count }, (_, index) => `argument${index}: boolean = true`).join(", ");
+  const input = analysisInput(fixture, "sdk-minimal", `export function value(${parameters}): boolean { return argument0; }\n`);
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok");
+  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  const main = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
+  const module = result.value.modules.find(module => module.module === main);
+  const callable = module.bodies.find(body => body.kind === "selected" && body.tir.params.length === count);
+  assert.notEqual(callable, undefined);
+  assert.deepEqual(callable.mir.entries.map(entry => entry.provided), Array.from({ length: count + 1 }, (_, index) => count - index));
+  assert.deepEqual(callable.facts.map(facts => facts.execution.provided), Array.from({ length: count + 1 }, (_, index) => index));
+  for (let provided = 0; provided <= count; provided += 1) {
+    const dependencies = result.value.index.dependencyInventory.dependencies.filter(edge => edge.reason === "initializer"
+      && edge.dependent.instance.body === callable.instance.body && edge.dependent.provided === provided);
+    assert.equal(dependencies.length, count - provided);
+  }
 });
 
 for (const limit of ["work", "result-entries", "query.maximumRecords"])

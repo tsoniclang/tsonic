@@ -43,7 +43,7 @@ const causeIdentity = (cause: Cause): string => cause.kind === "diagnostic"
 export const verifyDeclarationNames = (
   nodes: readonly TirNode[], originals: ReadonlyMap<NodeId, HirNode>, emit: TirOccurrenceEmit,
 ): void => {
-  const parents = new Map<NodeId, TirNode>();
+  const parents = new Map<NodeId, Extract<TirNode, { readonly kind: "PropertySignature" | "MethodSignature" }>>();
   const eligible = new Set<NodeId>();
   for (const node of nodes) if (node.kind === "PropertySignature" || node.kind === "MethodSignature") parents.set(node.id, node);
   for (const node of nodes) {
@@ -53,8 +53,7 @@ export const verifyDeclarationNames = (
     const parent = node.parent === null ? undefined : parents.get(node.parent);
     if (checked?.kind !== "ComputedPropertyName" || originalParent === undefined
       || originalParent.kind !== "PropertySignature" && originalParent.kind !== "MethodSignature"
-      || originalParent.name !== checked || parent === undefined
-      || parent.kind !== "PropertySignature" && parent.kind !== "MethodSignature" || parent.name !== node
+      || originalParent.name !== checked || parent === undefined || parent.name !== node
       || parent.id !== originalParent.id) {
       emit("occurrence-role", node, "nonexecuting names belong only to their actual checked declaration-only computed-name context");
       continue;
@@ -67,7 +66,8 @@ export const verifyDeclarationNames = (
       const right = expected.value;
       same = left.kind === right.kind && (left.kind === "text" ? right.kind === "text" && left.value === right.value
         : left.kind === "symbol" ? right.kind === "symbol" && left.declaration === right.declaration
-          : right.kind === "number" && left.value.numerator === right.value.numerator && left.value.denominator === right.value.denominator);
+          : right.kind === "number" && left.value.numerator === right.value.numerator && left.value.denominator === right.value.denominator
+            && left.value.negativeZero === right.value.negativeZero);
     } else if (actual.kind === "unavailable" && expected.kind === "unavailable") {
       same = actual.reason === expected.reason && actual.causes.length === expected.causes.length;
       for (let index = 0; index < actual.causes.length; index++) {
@@ -102,6 +102,7 @@ export const verifyBodylessParameters = (
     if (original === undefined || original.kind !== node.kind || original.tsonic.body !== null) continue;
     let valid = original.parameters.nodes.length === node.parameters.nodes.length && node.tsonic.definition === original.tsonic.definition;
     const signatures = original.tsonic.signatures.map(endpoint => input.types.signatures[endpoint.signature]);
+    if (node.kind !== "IndexSignature" && signatures.length === 0) valid = false;
     let ordinal = 0;
     for (const [position, parameter] of node.parameters.nodes.entries()) {
       const checked = original.parameters.nodes[position];
@@ -109,6 +110,7 @@ export const verifyBodylessParameters = (
       if (checked === undefined || checked.tsonic.declaration.kind !== "definition" || parameter.id !== checked.id
         || parameter.parent !== node.id || checked.parent !== original.id || checked.tsonic.parent !== original.tsonic.definition
         || selected.declaration !== checked.tsonic.declaration.definition || selected.local !== null
+        || node.kind !== "IndexSignature" && selected.passing === null
         || selected.initializer !== null || checked.tsonic.initializer !== null || parameter.initializer !== null
         || checked.tsonic.declaredType.kind !== "available" || checked.tsonic.declaredType.value === null) valid = false;
       for (const signature of signatures) {
@@ -117,7 +119,7 @@ export const verifyBodylessParameters = (
           if (position !== 0 || signature.receiver !== selected.storage) valid = false;
         } else {
           const formal = signature.parameters[ordinal];
-          if (formal === undefined || formal.type !== selected.storage || formal.passing !== selected.passing
+          if (formal === undefined || formal.declaration !== selected.declaration || formal.type !== selected.storage || formal.passing !== selected.passing
             || formal.kind !== selected.role || formal.initializer !== selected.initializer) valid = false;
         }
       }

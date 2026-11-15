@@ -570,7 +570,7 @@ export type FactsSite =
   | { readonly kind: "component"; readonly component: number };
 
 export type FactsBindingTarget =
-  | { readonly kind: "body"; readonly instance: BodyInstance }
+  | { readonly kind: "body"; readonly execution: Execution }
   | { readonly kind: "observations"; readonly instance: BodyInstance }
   | { readonly kind: "summary"; readonly summary: SummaryKey }
   | { readonly kind: "metadata"; readonly metadata: MetadataKey };
@@ -578,7 +578,7 @@ export type FactsBindingTarget =
 export interface BindingVerificationContext {
   readonly types: TypeTable;
   readonly bindingScopeOf: (definition: DefId) => BindingScope | null;
-  readonly bindingScopesOf: (target: FactsBindingTarget) => readonly BindingScope[] | null;
+  readonly sourceBindingScopesOf: (target: FactsBindingTarget) => readonly BindingScope[] | null;
   readonly nominalOf: (definition: DefId) => NominalDefinition | null;
   readonly nodeExists: (node: SourceNodeRef) => boolean;
   readonly localExists: (local: LocalRef) => boolean;

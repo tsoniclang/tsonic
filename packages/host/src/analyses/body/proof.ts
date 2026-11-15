@@ -1,5 +1,5 @@
 import type { ErrorValue } from "../../diag/contract.js";
-import { chargeWork } from "../../dataflow/index.js";
+import { accountFailure, chargeResultEntries, chargeWork } from "../../dataflow/index.js";
 import { sameInstance } from "../../ir-types/index.js";
 import { admitSummaryIdentity } from "../../ir-facts/index.js";
 import type { InitializationProofDeps, InitializationProofInput, ProveInitialization } from "./contract.js";
@@ -15,9 +15,11 @@ export const proveModuleInitialization: ProveInitialization = (deps: Initializat
       const step = chargeWork(deps.account, 1);
       if (step !== null) return step;
       const answer = deps.summaryOf({ kind: "body", execution });
+      const stopped = accountFailure(deps.account);
+      if (stopped !== null) return stopped;
       const summary = answer.value;
       if ("kind" in summary) {
-        const output = chargeWork(deps.account, 1);
+        const output = chargeWork(deps.account, 1) ?? chargeResultEntries(deps.account, 8);
         if (output !== null) return output;
         const error: ErrorValue = { kind: "error", causes: [{ kind: "unit", unit: answer.unit }] };
         return { kind: "complete", value: { kind: "ok", value: error, diagnostics: [], emissions: [],
@@ -39,6 +41,8 @@ export const proveModuleInitialization: ProveInitialization = (deps: Initializat
       }
     }
   }
+  const output = chargeWork(deps.account, 1) ?? chargeResultEntries(deps.account, 8);
+  if (output !== null) return output;
   return { kind: "complete", value: { kind: "ok", value: { modules: input.modules, entries: input.entries },
     diagnostics: [], emissions: [], positions: [{ position: { kind: "result" }, error: null }] } };
 };

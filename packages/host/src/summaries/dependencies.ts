@@ -188,6 +188,36 @@ export const dependenciesOf: DependenciesOf = (deps, input) => {
       default: return null;
     }
   };
+  if (input.tir.params.length !== 0) {
+    const lookup = chargeWork(account, 1);
+    if (lookup !== null) return lookup;
+    const signature = deps.signatureOf(input.tir.signature);
+    if (signature.id !== input.tir.signature)
+      throw new TypeError("Default discovery retains the actual selected signature.");
+    let parameterIndex = 0;
+    for (let position = 0; position < input.tir.params.length; position += 1) {
+      const headerRead = chargeWork(account, 1);
+      if (headerRead !== null) return headerRead;
+      const header = input.tir.params[position];
+      if (header === undefined) throw new TypeError("Ready execution parameter headers are dense.");
+      const parameter = header.tsonic;
+      if (parameter.role === "this") continue;
+      const formalRead = chargeWork(account, 1);
+      if (formalRead !== null) return formalRead;
+      const formal = signature.parameters[parameterIndex];
+      if (formal === undefined || formal.declaration !== parameter.declaration)
+        throw new TypeError("An execution header retains its actual selected formal position.");
+      if (parameterIndex >= input.execution.provided && parameter.initializer !== null) {
+        if (!formal.acceptsOmission)
+          throw new TypeError("An executed default requires the selected formal's actual omission capability.");
+        const stop = initializer({ body: input.tir.body, node: header.id }, parameter.initializer);
+        if (stop !== null) return stop;
+      }
+      parameterIndex += 1;
+    }
+    if (parameterIndex !== signature.parameters.length)
+      throw new TypeError("Execution headers retain every actual selected ordinary formal.");
+  }
   const stack: { readonly children: Generator<TirNode, void, undefined>; readonly skip: TirNode | null; readonly callable: boolean }[] = [];
   let currentNode: TirNode | null = input.tir.root;
   while (currentNode !== null || stack.length !== 0) {

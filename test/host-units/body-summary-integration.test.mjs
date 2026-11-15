@@ -44,7 +44,7 @@ function prepared(name) {
     declarationSourceOf: definition => definition === program.tir.owner
       ? { kind: "body", value: program.nodeRef(0) } : null,
     bindingScopeOf: definition => definition === program.tir.owner ? scope : null,
-    bindingScopesOf: () => [scope], nominalOf: () => null,
+    sourceBindingScopesOf: () => assert.fail("The actual scalar integration has no definition-null binding vector."), nominalOf: () => null,
     nodeExists: selected => selected.kind === "body"
       ? selected.value.body === program.tir.body && nodes.has(selected.value.node)
       : program.tir.params.some(header => header.tsonic.declaration === selected.value.owner && nodes.has(selected.value.node)),
@@ -60,7 +60,7 @@ function prepared(name) {
 test("real LowerMir output is discovered, scheduled, analyzed and handoff-verified in one runtime and account", () => {
   const current = prepared("integrated.scalar.add");
   const account = createAccount(flowLimits);
-  const required = dependenciesOf({ account, callableEntriesAt: unexpected, calleeAt: unexpected,
+  const required = dependenciesOf({ account, signatureOf: current.environment.signatureOf, callableEntriesAt: unexpected, calleeAt: unexpected,
     initializerAt: unexpected, operationEntriesAt: unexpected, dispatchEntriesAt: unexpected },
   { execution: current.execution, tir: current.program.tir });
   assert.equal(required.kind, "complete");

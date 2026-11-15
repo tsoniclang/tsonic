@@ -29,7 +29,7 @@ export function sourceOccurrences(tir: TirBody, account: DataflowAccount): Dataf
       : annotation !== null && "template" in annotation ? annotation.template : null;
     const body = template !== null && nested.has(template.body) && "body" in node && node.body !== null ? node.body.id : null;
     const initializer = annotation !== null && "initializer" in annotation && annotation.initializer !== null
-      && nested.has(annotation.initializer) && "initializer" in node && node.initializer !== null ? node.initializer.id : null;
+      && "initializer" in node && node.initializer !== null ? node.initializer.id : null;
     const children = iterateChildrenOfSyntax<TypedPhase>(node);
     for (;;) {
       const step = chargeWork(account, 1) ?? chargeResultEntries(account, 1);

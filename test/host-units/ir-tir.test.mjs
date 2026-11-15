@@ -110,6 +110,7 @@ before(async () => {
 
 const moduleId = "M[P[p];m]";
 await import("./source-add-composed.test.mjs");
+await import("./source-semantic-queries.test.mjs");
 const ownerId = "D[M[P[p];m]]";
 const bodyId = "B[D[M[P[p];m]];module;0]";
 const codecBinding = { kind: "item", value: { owner: ownerId, node: 4 } };
@@ -1289,8 +1290,190 @@ for (const path of [...functionCases, ...verifierCases]) {
     assert.equal(result.status, "passed", JSON.stringify(result.status === "failed" ? result : { path }));
   });
 }
-test("exact five annotated runtime ports, no parallel printer or private metadata API", () => {
-  assertCompleteValue(Object.keys(product).sort(), ["memberSelectionKey", "parseTir", "printTir", "verifyTir", "verifyTirModule"]);
+test("exact annotated runtime ports include the owning binding and operation projections, no parallel printer or private metadata API", () => {
+  assertCompleteValue(Object.keys(product).sort(), ["memberSelectionKey", "parseTir", "printTir", "tirBindingOwners", "tirOperationsOf", "verifyTir", "verifyTirModule"]);
+});
+
+test("binding and operation projections retain the actual ready body and module domains", () => {
+  const body = emptyModuleBody();
+  const input = emptyVerificationInput(body);
+  const instance = { body: body.body, bindings: body.bindings };
+  assertCompleteValue(product.tirOperationsOf(input, instance), []);
+  assert.equal(Array.isArray(product.tirBindingOwners(input, { kind: "body", instance })), true);
+  assert.equal(Array.isArray(product.tirBindingOwners(input, { kind: "module", module: moduleId })), true);
+  assert.throws(() => product.tirBindingOwners(input, { kind: "module", module: "M[P[other];module]" }), TypeError);
+  input.bodyOf = () => null;
+  assert.throws(() => product.tirBindingOwners(input, { kind: "body", instance }), TypeError);
+  assert.throws(() => product.tirOperationsOf(input, instance), TypeError);
+  const operation = operationScenario();
+  const rows = product.tirOperationsOf(operation.input, { body: operation.body.body, bindings: operation.body.bindings });
+  assert.equal(rows.length > 0, true);
+  assert.equal(rows.every(row => row.node.body === operation.body.body && row.origin.module === moduleId), true);
+});
+
+test("nonexecuting declaration-name payloads have one exact syntax-only codec across expression slots", () => {
+  const marker = { role: "declaration-name-expression" };
+  const wire = 'DeclarationNameExpression(role="declaration-name-expression")';
+  assertExpressionRoundTrip("Identifier", { text: "key" }, 'text="key"', marker, wire);
+  assertExpressionRoundTrip("StringLiteral", { text: "key", tokenFlags: [] }, 'text="key", tokenFlags=[]', marker, wire);
+  assertExpressionRoundTrip("NumericLiteral", { text: "1", tokenFlags: [] }, 'text="1", tokenFlags=[]', marker, wire);
+  const body = emptyModuleBody();
+  const expression = { ...header(1, 0), kind: "Identifier", text: "source", tsonic: marker };
+  const name = { ...header(2, 0), kind: "Identifier", text: "key", tsonic: marker };
+  body.root = { ...header(0), kind: "PropertyAccessExpression", expression, questionDotToken: null, name, tsonic: marker };
+  const expected = [readFileSync(resolve(repository, functionDirectory, "empty-module.input.tir"), "utf8").split("\n")[0],
+    `n:0=PropertyAccessExpression(${headerWire}, expression=n:1, questionDotToken=null, name=n:2, tsonic=${wire})`,
+    `n:1=Identifier(${syntaxHeaderWire(1, 0)}, text="source", tsonic=${wire})`,
+    `n:2=Identifier(${syntaxHeaderWire(2, 0)}, text="key", tsonic=${wire})`,
+  ].join("\n") + "\n";
+  assertBodyRoundTrip(body, expected, "one nonexecuting member-name payload");
+});
+
+test("the declaration-name owner compares the exact original key and cause relation without authorizing other contexts", async () => {
+  const { verifyDeclarationNames } = await import("../../packages/host/dist/ir-tir/verify-instances.js");
+  const fixture = key => {
+    const expression = { ...header(2, 1), kind: "Identifier", text: "key", tsonic: { role: "declaration-name-expression" } };
+    const name = { ...header(1, 0), kind: "ComputedPropertyName", expression, tsonic: { kind: "declaration", key } };
+    const parent = { ...header(0), kind: "PropertySignature", modifiers: null, name, postfixToken: null, type: null,
+      initializer: null, tsonic: { definition: ownerId, storage: 0, initializer: null, attributes: [] } };
+    const checkedExpression = { ...expression, tsonic: { core: emptyCore(), role: "value", value: checkedValue(),
+      resolution: { kind: "definition", definition: ownerId, aliases: [] } } };
+    const checkedName = { ...name, expression: checkedExpression, tsonic: { core: emptyCore(), key } };
+    const checkedParent = { ...parent, name: checkedName, tsonic: { core: emptyCore(), parent: null, attributes: [],
+      memory: available(null), declaration: { kind: "definition", definition: ownerId }, declaredType: available(0), initializer: null } };
+    const nodes = [parent, name, expression];
+    const originals = new Map([checkedParent, checkedName, checkedExpression].map(node => [node.id, node]));
+    const findings = [];
+    const verify = () => {
+      findings.length = 0;
+      verifyDeclarationNames(nodes, originals, (rule, node, detail) => findings.push({ rule, node: node.id, detail }));
+      return findings;
+    };
+    return { parent, name, expression, checkedParent, checkedName, nodes, originals, verify };
+  };
+  const number = { kind: "number", value: { numerator: 0n, denominator: 1n, negativeZero: false } };
+  const keys = [{ kind: "text", value: "" }, { kind: "symbol", declaration: ownerId }, number];
+  for (const key of keys) {
+    const current = fixture(available(key));
+    assert.deepEqual(current.verify(), []);
+    for (const other of keys.filter(candidate => candidate !== key)) {
+      current.name.tsonic.key = available(other);
+      assert.equal(current.verify().some(finding => finding.rule === "occurrence-role"), true);
+    }
+    current.name.tsonic.key = available(key.kind === "text" ? { ...key, value: "other" }
+      : key.kind === "symbol" ? { ...key, declaration: "D[M[P[p];m];other]" }
+        : { ...key, value: { ...key.value, negativeZero: true } });
+    assert.equal(current.verify().some(finding => finding.rule === "occurrence-role"), true);
+  }
+  const causes = capturedCauses(moduleId, ownerId, bodyId);
+  const original = { kind: "unavailable", reason: "checker-error", causes };
+  const unavailable = fixture(original);
+  assert.deepEqual(unavailable.verify(), []);
+  for (const changed of [
+    { ...original, reason: "not-provided" }, { ...original, causes: [] },
+    { ...original, causes: [...causes].reverse() }, { ...original, causes: new Array(causes.length) }, available(keys[0]),
+  ]) {
+    unavailable.name.tsonic.key = changed;
+    assert.equal(unavailable.verify().some(finding => finding.rule === "occurrence-role"), true);
+  }
+  for (const change of ["missing", "kind", "parent-null", "parent-missing", "parent-kind", "checked-name", "typed-name", "typed-parent", "id"]) {
+    const current = fixture(available(keys[0]));
+    if (change === "missing") current.originals.delete(current.name.id);
+    if (change === "kind") current.checkedName.kind = "Identifier";
+    if (change === "parent-null") current.checkedName.parent = null;
+    if (change === "parent-missing") current.originals.delete(current.checkedParent.id);
+    if (change === "parent-kind") current.checkedParent.kind = "PropertyDeclaration";
+    if (change === "checked-name") current.checkedParent.name = current.expression;
+    if (change === "typed-name") current.parent.name = current.expression;
+    if (change === "typed-parent") current.name.parent = null;
+    if (change === "id") current.checkedParent.id = 99;
+    assert.equal(current.verify().some(finding => finding.rule === "occurrence-role"), true, change);
+  }
+  for (const payload of [null, { type: 0 }, typedValue()]) {
+    const current = fixture(available(keys[0]));
+    current.expression.tsonic = payload;
+    assert.equal(current.verify().length !== 0, payload !== null);
+  }
+  const orphan = fixture(available(keys[0]));
+  orphan.name.tsonic = { kind: "constant", key: keys[0] };
+  assert.equal(orphan.verify().some(finding => finding.rule === "occurrence-role"), true);
+  const repeated = fixture(available(keys[0]));
+  const shared = { ...header(3, 2), kind: "Identifier", text: "key", tsonic: { role: "declaration-name-expression" } };
+  Object.assign(repeated.expression, { kind: "PropertyAccessExpression", expression: shared, name: shared, questionDotToken: null });
+  repeated.nodes.push(shared);
+  assert.deepEqual(repeated.verify(), [], "the key-role relation visits shared syntax once; structural identity remains the structure verifier's obligation");
+});
+
+test("an executing parameter never borrows the bodyless absence of a local or passing decision", () => {
+  for (const field of ["local", "passing"]) {
+    const fixture = genericFunctionScenario();
+    const body = fixture.functionTemplate;
+    const input = fixture.inputFor(body);
+    assertCompleteValue(product.verifyTir(input, body), []);
+    body.params[0].tsonic[field] = null;
+    assert.equal(product.verifyTir(input, body).some(finding => finding.rule === "parameter-order"), true, field);
+  }
+});
+
+test("bodyless parameter verification retains the exact checked formal, selected endpoint and separate receiver", async () => {
+  const { verifyBodylessParameters } = await import("../../packages/host/dist/ir-tir/verify-instances.js");
+  const fixture = () => {
+    const current = nestedDeclarationScenario(false);
+    const parent = current.body.root.statements.nodes[0];
+    const checked = current.input.source.tree.statements.nodes[0];
+    const parameter = parent.parameters.nodes[0];
+    const original = checked.parameters.nodes[0];
+    parent.body = null;
+    parent.tsonic.template = null;
+    checked.body = null;
+    checked.tsonic.body = null;
+    checked.tsonic.signatures = checked.tsonic.signatures.map(endpoint => ({ ...endpoint, body: null }));
+    parameter.tsonic.local = null;
+    original.tsonic.declaration = { kind: "definition", definition: parameter.tsonic.declaration };
+    const originals = new Map([[parent.id, checked], [parameter.id, original]]);
+    const findings = [];
+    const verify = () => {
+      findings.length = 0;
+      verifyBodylessParameters(current.input, [parent], originals, (rule, node, detail) => findings.push({ rule, node: node.id, detail }));
+      return findings;
+    };
+    return { ...current, parent, checked, parameter, original, originals, signature: current.input.types.signatures[1], verify };
+  };
+  assert.deepEqual(fixture().verify(), []);
+  for (const change of ["no-endpoint", "signature", "signature-owner", "formal-owner", "formal-type", "passing", "role", "formal-initializer",
+    "missing-header", "foreign-header", "checked-owner", "checked-local", "checked-initializer", "initializer", "unavailable-type", "null-type", "local", "null-passing", "extra-formal"]) {
+    const current = fixture();
+    if (change === "no-endpoint") current.checked.tsonic.signatures = [];
+    if (change === "signature") current.input.types.signatures[1] = undefined;
+    if (change === "signature-owner") current.signature.declaration = ownerId;
+    if (change === "formal-owner") current.signature.parameters[0].declaration = ownerId;
+    if (change === "formal-type") current.signature.parameters[0].type = 0;
+    if (change === "passing") current.signature.parameters[0].passing = "move";
+    if (change === "role") current.signature.parameters[0].kind = "optional";
+    if (change === "formal-initializer") current.signature.parameters[0].initializer = bodyId;
+    if (change === "missing-header") current.checked.parameters.nodes = [];
+    if (change === "foreign-header") current.parameter.id = 99;
+    if (change === "checked-owner") current.original.tsonic.parent = ownerId;
+    if (change === "checked-local") current.original.tsonic.declaration = { kind: "local", local: { body: bodyId, local: 0 } };
+    if (change === "checked-initializer") current.original.tsonic.initializer = bodyId;
+    if (change === "initializer") current.parameter.initializer = current.parameter.name;
+    if (change === "unavailable-type") current.original.tsonic.declaredType = { kind: "unavailable", reason: "not-provided", causes: [] };
+    if (change === "null-type") current.original.tsonic.declaredType = available(null);
+    if (change === "local") current.parameter.tsonic.local = { body: bodyId, local: 0 };
+    if (change === "null-passing") current.parameter.tsonic.passing = null;
+    if (change === "extra-formal") current.signature.parameters.push(current.signature.parameters[0]);
+    assert.equal(current.verify().some(finding => finding.rule === "parameter-order"), true, change);
+  }
+  const receiver = fixture();
+  receiver.parameter.tsonic.role = "this";
+  receiver.signature.receiver = receiver.parameter.tsonic.storage;
+  receiver.signature.parameters = [];
+  assert.deepEqual(receiver.verify(), []);
+  receiver.signature.receiver = 0;
+  assert.equal(receiver.verify().some(finding => finding.rule === "parameter-order"), true);
+  const uncomputed = fixture();
+  uncomputed.originals.delete(uncomputed.parent.id);
+  assert.deepEqual(uncomputed.verify(), []);
 });
 
 test("the member selection key separates two selections that differ in any one field, and is total over lists with holes", () => {
