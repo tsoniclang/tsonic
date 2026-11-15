@@ -6,7 +6,7 @@ import { cyclicSources, parseSources, quarantineReference, readImportGraph, sour
 import { sourceFindings } from "./source-rules.mjs";
 
 const limitOwners = ({ NavigationCaptureLimits: "front", LiteralCaptureLimits: "front", InferenceLimits: "infer",
-  EvaluatorLimits: "evaluate", DataflowLimits: "dataflow", SummaryLimits: "summaries", MetadataLimits: "metadata",
+  EvaluatorLimits: "evaluate", LowerMirLimits: "lower-mir", DataflowLimits: "dataflow", SummaryLimits: "summaries", MetadataLimits: "metadata",
   TypeExpansionLimits: "ir-types", QueryLimits: "query", InstantiationLimits: "ir-program" });
 
 export function createInspectionDeps(quarantineRoots) {

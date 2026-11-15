@@ -409,6 +409,10 @@ test("A7 through A13 genuine emitted contracts accept current forms and reject e
     const rows = [
       ["old-mir", [["ir-mir", "VerifyMir, MirBody"], ["ir-tir", "TirBody"], ["ir-types", "TypeOf, SignatureOf"]],
         "export function read(verify: VerifyMir, body: MirBody, source: TirBody, typeOf: TypeOf, signatureOf: SignatureOf) { return verify(body, source, typeOf, signatureOf); }", 2554],
+      ["removed-decls-inputs-name", [["decls", "DeclsInputs"]],
+        "export function read(deps: DeclsInputs) { return deps; }", 2305],
+      ["removed-pipeline-error-data-alias", [["pipeline", "SemanticCycleErrorData"]],
+        "export function read(data: SemanticCycleErrorData) { return data; }", 2305],
       ["old-mir-context", [["ir-mir", "MirVerificationContext"]],
         "export function read(context: MirVerificationContext) { const { bodyOwner, ...legacy } = context; void bodyOwner; const current: MirVerificationContext = legacy; return current; }", 2741],
       ["old-hir-body-path-context", [["ir-hir", "HirVerificationContext"]],
@@ -482,13 +486,15 @@ test("A7 through A13 genuine emitted contracts accept current forms and reject e
       '\nexport function current(context: ProgramVerificationContext, module: ModuleId, definition: DefId) { const rule: ProgramRule = "identity-path-exact"; return { module: context.modulePathOf(module), definition: context.definitionPathOf(definition), rule }; }\n');
     write("positive-tir-scopes.mts", imports([["ir-tir", "TirVerifierInput, TirBindingTarget"], ["ir-types", "BodyInstance"], ["ids", "ModuleId"]]) +
       '\nexport function current(input: TirVerifierInput, instance: BodyInstance, module: ModuleId) { const body: TirBindingTarget = { kind: "body", instance }; const outside: TirBindingTarget = { kind: "module", module }; return { body: input.bindingScopesOf(body), outside: input.bindingScopesOf(outside) }; }\n');
+    write("positive-decls-deps.mts", imports([["decls", "DeclsDeps"]]) +
+      '\nexport function current(deps: DeclsDeps) { return deps.modules; }\n');
     for (const [name, entries, text] of rows) write(name + ".mts", imports(entries) + "\n" + text + "\n");
     write("tsconfig.json", JSON.stringify({ compilerOptions: {
       strict: true, noUncheckedIndexedAccess: true, exactOptionalPropertyTypes: true, noUnusedLocals: true,
       noUnusedParameters: true, noImplicitReturns: true, noFallthroughCasesInSwitch: true, skipLibCheck: false,
       noEmit: true, target: "es2022", lib: ["es2022"], types: [], module: "nodenext", moduleResolution: "nodenext",
       verbatimModuleSyntax: true,
-    }, files: ["positive.mts", "positive-hir-paths.mts", "positive-program-paths.mts", "positive-tir-scopes.mts", ...rows.map(([name]) => name + ".mts")] }));
+    }, files: ["positive.mts", "positive-hir-paths.mts", "positive-program-paths.mts", "positive-tir-scopes.mts", "positive-decls-deps.mts", ...rows.map(([name]) => name + ".mts")] }));
     const result = spawnSync(process.execPath, [deps.compiler, "--project", resolve(root, "tsconfig.json"), "--pretty", "false"], {
       cwd: root, encoding: "utf8", maxBuffer: 4_194_304, timeout: 90_000,
     });

@@ -333,7 +333,7 @@ test("ambient execution escapes are refused outside the sole plugin-loading effe
 test("pipeline admits only genuine clean component Deps and exact owner limits beside function types", () => {
   const pipeline = file("pipeline", "contract.ts");
   for (const [owner, limit] of [["front", "NavigationCaptureLimits"], ["front", "LiteralCaptureLimits"], ["infer", "InferenceLimits"],
-    ["evaluate", "EvaluatorLimits"], ["summaries", "SummaryLimits"], ["metadata", "MetadataLimits"], ["analyses/liveness", "AnalysisLimits"]]) {
+    ["evaluate", "EvaluatorLimits"], ["lower-mir", "LowerMirLimits"], ["summaries", "SummaryLimits"], ["metadata", "MetadataLimits"], ["analyses/liveness", "AnalysisLimits"]]) {
     const contract = file(owner, "contract.ts");
     const prefix = posix.relative(posix.dirname(pipeline), contract).replace(/\.ts$/u, ".js");
     const source = `export interface ${limit} { readonly maximum: number; }\nexport interface StageDeps { readonly limit: ${limit}; }\nexport type Stage = (deps: StageDeps, input: number) => number;\nexport interface OtherDeps { readonly maximum: number; }\nexport interface OtherData { readonly maximum: number; }`;
@@ -343,6 +343,8 @@ test("pipeline admits only genuine clean component Deps and exact owner limits b
   }
   expect([[file("infer", "contract.ts"), 'export interface NavigationCaptureLimits { readonly maximum: number; }'],
     [pipeline, 'import type { NavigationCaptureLimits } from "../infer/contract.js";']], [at("forbidden-import", pipeline)]);
+  expect([[file("evaluate", "contract.ts"), 'export interface LowerMirLimits { readonly maximum: number; }'],
+    [pipeline, 'import type { LowerMirLimits } from "../evaluate/contract.js";']], [at("forbidden-import", pipeline)]);
   for (const [owner, limit] of [["dataflow", "DataflowLimits"], ["ir-types", "TypeExpansionLimits"], ["query", "QueryLimits"], ["ir-program", "InstantiationLimits"]])
     expect([[file(owner, "contract.ts"), `export interface ${limit} { readonly maximum: number; }`],
       [pipeline, `import type { ${limit} } from "../${owner}/contract.js"; export interface CompilerLimits { readonly owner: ${limit}; }`]], []);
