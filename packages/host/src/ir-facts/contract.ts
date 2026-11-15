@@ -14,6 +14,7 @@ import type { MirPoint, RelationalOwner, StoreEdge, SummaryKey } from "./relatio
 import type { EscapeTarget, PointerBackingOperation, Summary, SummaryWrite } from "./summary-data.js";
 import type { AppliedSummary, SummaryApplicationInput, SummaryApplicationLimits } from "./application-data.js";
 import type { DependencyInventory } from "./dependency-data.js";
+import type { SummaryPosition } from "./initialization-data.js";
 export type { AppliedCallback, AppliedCell, AppliedContext, AppliedOriginsValue, AppliedProducerValue, AppliedSubject,
   AppliedSummary, AppliedWrite, SummaryApplicationInput, SummaryApplicationLimits, ValueEntryBinding } from "./application-data.js";
 export type { CallbackExchange, CaptureEffect, EffectPaths, EscapeTarget, ParameterEffect, ParameterSlot, PointerBackingOperation,
@@ -203,6 +204,7 @@ export interface ArgumentTransport {
 }
 
 export type SummaryIdentity = (key: SummaryKey) => string;
+export type SummaryPositionKey = (at: SummaryPosition) => string;
 
 export interface InvocationAlternative {
   readonly resolution: ResolvedCallee;

@@ -1,7 +1,8 @@
 import type { TypeTable, TypePublication, TypeTerm, Signature } from "./contract.js";
+import type { TypePublicationStop } from "./contract.js";
 import type { TyId, SigId } from "../ids/contract.js";
 import type { GraphValue, TypePartition } from "./canonical.js";
-import type { PublicationWork, PublicationResult, PublicationStop } from "./work.js";
+import type { TypePublicationWork, PublicationResult } from "./work.js";
 import { chargeWork, chargeCreated, workLimit, createdLimit } from "./work.js";
 import { readTypeData, readSignatureData } from "./publication-read.js";
 import { inspectGraphValue, readGraphValue, normalizeType, orderedSignature, orderedTerm,
@@ -40,7 +41,7 @@ interface Job { readonly node: Class; propagate: boolean; next: Job | null }
 interface RepairJob { readonly node: Class; next: RepairJob | null }
 
 interface Normalization {
-  readonly work: PublicationWork;
+  readonly work: TypePublicationWork;
   readonly types: Map<number, Class>;
   readonly signatures: Map<number, Class>;
   readonly typeValues: Map<number, TypeTerm>;
@@ -156,7 +157,7 @@ function create(state: Normalization, data: GraphValue, identity: number): Class
   return node;
 }
 
-function merge(state: Normalization, left: Class, right: Class, preferred: Class): PublicationStop | null {
+function merge(state: Normalization, left: Class, right: Class, preferred: Class): TypePublicationStop | null {
   if (!chargeWork(state.work, 1)) return workLimit(state.work);
   const first = root(left);
   const second = root(right);
@@ -229,7 +230,7 @@ function equivalent(state: Normalization, left: Class, right: Class, leftView: V
   const refuse = (owner: Pair): void => {
     if (owner.valid) { owner.valid = false; dead.push(owner); }
   };
-  const requireMatches = (owner: Pair, sources: ReadonlyMap<number, Class>, targets: ReadonlyMap<number, Class>): PublicationStop | null => {
+  const requireMatches = (owner: Pair, sources: ReadonlyMap<number, Class>, targets: ReadonlyMap<number, Class>): TypePublicationStop | null => {
     for (const source of sources.values()) {
       const witnesses: Pair[] = [];
       let identity = false;
@@ -290,7 +291,7 @@ function emit(state: Normalization, owner: Class, current: View, value: TypeTerm
   return { kind: "complete", value: typeIdentifier(candidate.identity) };
 }
 
-function repair(state: Normalization, value: Class): PublicationStop | null {
+function repair(state: Normalization, value: Class): TypePublicationStop | null {
   if (!chargeWork(state.work, 1)) return workLimit(state.work);
   const node = root(value);
   if (state.repaired.get(node.serial) === state.epoch) return null;
@@ -318,7 +319,7 @@ function repair(state: Normalization, value: Class): PublicationStop | null {
   return null;
 }
 
-export function normalizePublication(input: TypeTable, partition: TypePartition, work: PublicationWork): PublicationResult<TypePublication> {
+export function normalizePublication(input: TypeTable, partition: TypePartition, work: TypePublicationWork): PublicationResult<TypePublication> {
   const state: Normalization = { work, types: new Map(), signatures: new Map(), typeValues: new Map(),
     classes: new Map(), labels: new Map(), views: new Map(), head: null, tail: null, queued: new Map(),
     repairHead: null, repairTail: null, repairQueued: new Set(),
@@ -350,7 +351,7 @@ export function normalizePublication(input: TypeTable, partition: TypePartition,
       const selected = view(state, node);
       if (selected.kind === "resource-limit") return selected;
       if (selected.value.data.kind === "type") {
-        const read = (type: TyId): TypeTerm | PublicationStop => {
+        const read = (type: TyId): TypeTerm | TypePublicationStop => {
           const target = root(required(state.types, type));
           const selected = view(state, target);
           return selected.kind === "resource-limit" ? selected : required(state.typeValues, target.serial);

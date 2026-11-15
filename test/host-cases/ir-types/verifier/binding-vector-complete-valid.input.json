@@ -14,10 +14,7 @@
         "classBindings": [
           {
             "kind": "rigid",
-            "parameter": {
-              "owner": "D[M[P[case];main.ts];field]",
-              "index": 0
-            }
+            "parameter": "D[M[P[case];main.ts];field/T0]"
           }
         ],
         "methodBindings": [],
@@ -26,10 +23,7 @@
       },
       "scope": {
         "classParameters": [
-          {
-            "owner": "D[M[P[case];main.ts];field]",
-            "index": 0
-          }
+          "D[M[P[case];main.ts];field/T0]"
         ],
         "methodParameters": [],
         "capturedParameters": [],

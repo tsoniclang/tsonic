@@ -54,6 +54,8 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
   await post("Profiler.startPreciseCoverage", { callCount: true, detailed: true });
   suite.after(async () => { await post("Profiler.stopPreciseCoverage"); inspector.disconnect(); });
   const product = await import("../../packages/host/dist/ir-facts/index.js");
+  const { summaryPositionCases } = await import("./fixtures/facts-summary-position.mjs");
+  await summaryPositionCases(suite);
   const { activationPointCases } = await import("./fixtures/facts-activation-point.mjs");
   await activationPointCases(suite);
   const { bodyDomainCases } = await import("./fixtures/facts-body-domain.mjs");
@@ -242,8 +244,8 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
       abiText(64).replace(`item(value=ItemNodeRef(owner=def:"${definitions.abi64}", node=n:0))`, `body(value=${nodeText(1)})`), product.printMetadata, product.parseMetadata);
   }
   await textCase("one real call component", graph(), graphText, product.printDependencyInventory, product.parseDependencyInventory);
-  await suite.test("every exported value is exactly the current twenty-three own-contract ports", () => {
-    assert.deepEqual(Object.keys(product).sort(), ["admitSummaryIdentity", "applySummary", "conditionAnd", "conditionEquals", "conditionOr", "conditionSubstitute", "parseDependencyInventory", "parseFacts", "parseMetadata", "parseObservations", "parseSummary", "printDependencyInventory", "printFacts", "printMetadata", "printObservations", "printSummary", "summaryEquals", "summaryKey", "verifyDependencyInventory", "verifyFacts", "verifyLiveness", "verifyMetadata", "verifyObservations", "verifySummary"]);
+  await suite.test("every exported value is exactly the current twenty-five own-contract ports", () => {
+    assert.deepEqual(Object.keys(product).sort(), ["admitSummaryIdentity", "applySummary", "conditionAnd", "conditionEquals", "conditionOr", "conditionSubstitute", "parseDependencyInventory", "parseFacts", "parseMetadata", "parseObservations", "parseSummary", "printDependencyInventory", "printFacts", "printMetadata", "printObservations", "printSummary", "summaryEquals", "summaryKey", "summaryPositionKey", "verifyDependencyInventory", "verifyFacts", "verifyLiveness", "verifyMetadata", "verifyObservations", "verifySummary"]);
   });
   await suite.test("required verifier accounts retain exact measured path budgets and the original first stop", async () => {
     const flow = await import("../../packages/host/dist/dataflow/index.js");

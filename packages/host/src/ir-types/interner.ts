@@ -1,7 +1,7 @@
 import type { TypeInterner, TypeTerm, Signature, CreateTypeInterner, SeedTypeInterner, InternType, InternSignature,
   ReadType, ReadSignature, ViewTypes, ExportTypes } from "./contract.js";
 import type { TyId, SigId } from "../ids/contract.js";
-import type { PublicationWork } from "./work.js";
+import { createTypePublicationWork, usedPublicationWork, usedPublicationRecords } from "./work.js";
 import { readTypeData, readSignatureRow } from "./publication-read.js";
 import { TypeArena } from "./arena.js";
 import { typeIdentifier, signatureIdentifier } from "./value.js";
@@ -84,10 +84,8 @@ export const readSignature: ReadSignature = (interner, signature) => storedSigna
 export const viewTypes: ViewTypes = interner => TypeArena.view(interner);
 
 export const exportTypes: ExportTypes = (interner, limits) => {
-  if (![limits.maximumWork, limits.maximumCreatedRecords].every(value => Number.isSafeInteger(value) && value >= 0))
-    throw new TypeError("ir-types: publication maxima must be nonnegative safe integers.");
   const storage = interner;
-  const work: PublicationWork = { ...limits, work: 0, createdRecords: 0 };
+  const work = createTypePublicationWork(limits);
   const terms: TypeTerm[] = [];
   const signatures: Signature[] = [];
   for (const row of TypeArena.terms(storage)) {
@@ -108,5 +106,5 @@ export const exportTypes: ExportTypes = (interner, limits) => {
   if (normalized.kind === "resource-limit") return normalized;
   const publication = canonicalTypes(normalized.value, work);
   if (publication.kind === "resource-limit") return publication;
-  return { ...publication, work: work.work, createdRecords: work.createdRecords };
+  return { ...publication, work: usedPublicationWork(work), createdRecords: usedPublicationRecords(work) };
 };

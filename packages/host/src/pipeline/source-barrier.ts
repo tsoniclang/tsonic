@@ -90,6 +90,8 @@ export function captureSourceBarrier(inputs: HostAnalysisInputs): Result<SourceB
     exportsOf: module => exported.get(module) ?? null,
     sourceTextOf: module => names.get(module) ?? fail("A source projection cannot borrow another module's text."),
     typeExpansion: inputs.limits.instantiation.typeExpansion,
+    typePublication: { maximumWork: inputs.limits.instantiation.maximumWork,
+      maximumCreatedRecords: inputs.limits.instantiation.maximumCreatedRecords },
     literalCapture: inputs.limits.evaluation,
   };
   for (const [module, captured] of raw) {

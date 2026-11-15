@@ -1,13 +1,16 @@
 import type { NativeFactsKey, FloatingBitsFit, FloatingFormatWidth, NativeCarrierOf, LiteralCompatibilityOf, NativeIntegerGeometryOf, PlatformDeclarationKey, VerifyNativeFacts, MemberStorageData, CreateTypeInterner, SeedTypeInterner, InternType, InternSignature, ReadType, ReadSignature, ViewTypes,
   ExportTypes, Substitute, SubstituteSignature, PrintTypes, ParseTypes, VerifyTypes, EncodeSelectorPath, CompareIndexSignatures, InstanceKey, SameInstance, ExecutionKey,
   DeclaredExecutionKey, BindingVectorKey, ArtifactBindingsKey, BindingVectorData, ArtifactBindingsData,
-  SignatureRequestData, SignatureRequestKey, ConstantReferenceKey, SubstituteBindingValues, RigidBindings } from "./contract.js";
+  SignatureRequestData, SignatureRequestKey, ConstantReferenceKey, SubstituteBindingValues, RigidBindings,
+  CreateTypePublicationWork, InternTypeGraph } from "./contract.js";
 import { createTypeInterner as create, seedTypeInterner as seed, internType as intern, internSignature as signature,
   readType as read, readSignature as readCallable, viewTypes as view, exportTypes as publish } from "./interner.js";
 import { substitute as transform, substituteSignature as transformSignature, substituteBindingValues as transformBindingValues } from "./substitute.js";
 import { printTypes as print } from "./print.js";
 import { parseTypes as parse } from "./parse.js";
 import { verifyTypes as verify } from "./verify.js";
+import { internTypeGraph as graph } from "./intern-graph.js";
+import { createTypePublicationWork as publicationWork } from "./work.js";
 import { verifyBindings as verifyBindingVectors } from "./verify-bindings.js";
 import type { VerifyBindings } from "./contract.js";
 import { nativeFactsKey as nativeKey, nativeIntegerGeometryOf as integerGeometry, floatingBitsFit as floatingFit, floatingFormatWidth as floatingWidth, platformDeclarationKey as platformKey, verifyNativeFacts as verifyNative } from "./native-facts.js";
@@ -19,6 +22,8 @@ import { compareIndexSignatures as compareIndexes, artifactBindingsData as proje
   signatureRequestData as projectSignatureRequest, signatureRequestKeyOf, constantReferenceKeyOf, rigidBindings as rigid, memberStorageData as projectMemberStorage } from "./value.js";
 
 export const createTypeInterner: CreateTypeInterner = create;
+export const createTypePublicationWork: CreateTypePublicationWork = publicationWork;
+export const internTypeGraph: InternTypeGraph = graph;
 export const nativeFactsKey: NativeFactsKey = nativeKey;
 export const floatingBitsFit: FloatingBitsFit = floatingFit;
 export const floatingFormatWidth: FloatingFormatWidth = floatingWidth;

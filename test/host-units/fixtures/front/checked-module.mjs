@@ -106,6 +106,7 @@ export async function loadFrontFixture() {
       definitionOfExport: () => assert.fail("no library export is named by this program"),
       sourceTextOf: () => sourceText, libraries: { sources: [] }, types: interner,
       typeExpansion: { maximumDepth: 64, maximumVisits: 10000, maximumUnionMembers: 1000, maximumIntersectionMembers: 1000 },
+      typePublication: { maximumWork: 100000, maximumCreatedRecords: 100000 },
       literalCapture: { maximumIntermediateBits: 4096, maximumResultBits: 4096, maximumArithmeticWork: 100000 },
     };
   }

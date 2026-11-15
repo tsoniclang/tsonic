@@ -15,11 +15,12 @@
         "kind": "call",
         "typeParameters": [
           {
-            "identity": {
-              "owner": "D[M[P[case];main.ts];field]",
-              "index": 1
-            },
-            "declaration": "D[M[P[case];main.ts];field]",
+            "declaration": "D[M[P[case];main.ts];field/T]",
+            "constraint": null,
+            "default": null
+          },
+          {
+            "declaration": "D[M[P[case];main.ts];field/T]",
             "constraint": null,
             "default": null
           }

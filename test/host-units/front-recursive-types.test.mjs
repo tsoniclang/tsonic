@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
+import { checkedDomain } from "./fixtures/front/checked-domain.mjs";
 
 async function captured(source) {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true);
@@ -71,6 +72,15 @@ test("a real recursive declared member lowers into the same populated canonical 
   assert.equal(fixture.types.viewTypes(interner) === existing, true);
   assert.equal(existing.terms[boolean] === booleanRow && existing.terms[string] === stringRow, true);
   assert.equal(fixture.verifyChecked(lowered.value, interner).length, 0);
+  const domain = checkedDomain(lowered.value, fixture.hir);
+  assert.equal(fixture.types.verifyTypes({ table: existing, bindings: [], evidence: [], nominalOf: () => null,
+    nodeExists: node => domain.nodeOf(node) !== null, localExists: domain.localExists }).length, 0);
+  const parsedTypes = fixture.types.parseTypes(fixture.types.printTypes(existing));
+  assert.equal(parsedTypes.kind, "parsed");
+  assert.deepEqual(parsedTypes.value, existing);
+  const parsedHir = fixture.hir.parseHir(fixture.hir.printHir(lowered.value));
+  assert.equal(parsedHir.kind, "parsed");
+  assert.deepEqual(parsedHir.value, lowered.value);
   const checked = lowered.value.tree.statements.nodes[0];
   const type = fixture.types.readType(interner, checked.type.tsonic.type.value);
   assert.equal(type.kind, "shape");
@@ -191,4 +201,61 @@ test("finite raw graph capture returns the original limit before a later actual 
   }
   assert.throws(() => run(28), error => error === original);
   assert.equal(reads, 1);
+});
+
+test("recursive lowering returns the original publication dimensions without changing the existing arena on its first stop", async () => {
+  const { fixture, raw, definitions, source, module } = await captured("export type Link={next:Link};\n");
+  const { resourceLimitDiagnostic } = await import("../../packages/host/dist/diag/index.js");
+  for (const dimension of ["maximumWork", "maximumCreatedRecords"]) {
+    const interner = fixture.types.createTypeInterner();
+    const boolean = fixture.types.internType(interner, { kind: "primitive", primitive: "bool" });
+    const string = fixture.types.internType(interner, { kind: "string" });
+    const table = fixture.types.viewTypes(interner);
+    const previous = [...table.terms];
+    const deps = fixture.lowerDepsFor(definitions, interner, source);
+    const exported = fixture.front.lowerModuleExports(deps, raw);
+    assert.equal(exported.kind, "ok");
+    const result = fixture.front.lowerModule({ ...deps,
+      exportsOf: owner => owner === module ? exported.value : null,
+      typePublication: { ...deps.typePublication, [dimension]: 0 } }, raw);
+    assert.deepEqual(result, { kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "front",
+      limit: `front.typePublication.${dimension}`, maximum: 0, site: { kind: "source", origin: raw.tree.origin },
+      unit: { request: { query: "lowerModule", key: module }, position: { kind: "result" } } })] });
+    assert.equal(fixture.types.viewTypes(interner) === table, true);
+    assert.equal(table.terms.length, previous.length);
+    assert.equal(table.terms[boolean] === previous[boolean] && table.terms[string] === previous[string], true);
+    assert.equal(table.signatures.length, 0);
+  }
+});
+
+test("all lazy type insertions in one actual module share the same publication allowance", async () => {
+  const single = await captured("export type First=boolean;\n");
+  const pair = await captured("type First=boolean;export type Later=string;\n");
+  const { resourceLimitDiagnostic } = await import("../../packages/host/dist/diag/index.js");
+  const run = (actual, dimension, maximum) => {
+    const interner = actual.fixture.types.createTypeInterner();
+    const deps = actual.fixture.lowerDepsFor(actual.definitions, interner, actual.source);
+    const exported = actual.fixture.front.lowerModuleExports(deps, actual.raw);
+    assert.equal(exported.kind, "ok");
+    return actual.fixture.front.lowerModule({ ...deps,
+      exportsOf: owner => owner === actual.module ? exported.value : null,
+      typePublication: { ...deps.typePublication, [dimension]: maximum } }, actual.raw);
+  };
+  for (const dimension of ["maximumWork", "maximumCreatedRecords"]) {
+    const exact = [];
+    for (const actual of [single, pair]) {
+      let maximum = 0;
+      for (; maximum <= actual.fixture.lowerDepsFor(actual.definitions, actual.fixture.types.createTypeInterner(), actual.source).typePublication[dimension]; maximum += 1) {
+        const result = run(actual, dimension, maximum);
+        if (result.kind === "ok") break;
+        assert.deepEqual(result, { kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "front",
+          limit: `front.typePublication.${dimension}`, maximum, site: { kind: "source", origin: actual.raw.tree.origin },
+          unit: { request: { query: "lowerModule", key: actual.module }, position: { kind: "result" } } })] });
+      }
+      assert.equal(run(actual, dimension, maximum).kind, "ok");
+      exact.push(maximum);
+    }
+    assert.equal(exact[1] > exact[0], true, "the second actual lazy graph must not receive a fresh allowance");
+    assert.equal(run(pair, dimension, exact[0]).kind, "refused");
+  }
 });

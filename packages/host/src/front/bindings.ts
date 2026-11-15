@@ -1,9 +1,10 @@
 import { throwInvariant } from "../diag/index.js";
 import type { CheckerDiagnosticRef } from "../diag/contract.js";
 import type { DefId, SourceNodeRef } from "../ids/contract.js";
+import { decodeBodyId, decodeDefId } from "../ids/index.js";
 import type { HirBindingTarget, HirExportTarget, HirModuleBinding, HirModuleExport, CapturedFact } from "../ir-hir/contract.js";
 import type { MemberKey, MemberOrigin } from "../ir-types/contract.js";
-import type { LowerDeps, ModuleExports, RawBinding, RawBindingTarget, RawFact, RawMemberKey, RawMemberOrigin, RawModule, RawNodeRef } from "./contract.js";
+import type { LowerDeps, ModuleExports, ModuleSourceOccurrence, RawBinding, RawBindingTarget, RawFact, RawMemberKey, RawMemberOrigin, RawModule, RawNodeRef } from "./contract.js";
 import { isModuleBindingKind } from "../ir-hir/index.js";
 
 function fail(message: string): never {
@@ -14,11 +15,27 @@ function fact<Value, Lowered>(raw: RawFact<Value>, convert: (value: Value) => Lo
   return raw.kind === "available" ? { kind: "available", value: convert(raw.value) } : { kind: "unavailable", reason: raw.reason, causes: raw.causes };
 }
 
-export function bindingOccurrence(deps: LowerDeps, reference: RawNodeRef): SourceNodeRef | null {
+export function sourceOccurrence(deps: LowerDeps, reference: RawNodeRef): ModuleSourceOccurrence | null {
   const source = deps.sourceOccurrenceOf(reference);
   if (source === null) return null;
   if (source.node !== reference.node || source.occurrence.value.node !== reference.node)
     return fail("A ready source occurrence must retain its exact captured syntax identity.");
+  let owner: DefId;
+  if (source.occurrence.kind === "item") owner = source.occurrence.value.owner;
+  else {
+    const body = decodeBodyId(source.occurrence.value.body);
+    if (body.kind !== "decoded") return fail("A ready source occurrence must retain its actual body identity.");
+    owner = body.value.owner;
+  }
+  const definition = decodeDefId(owner);
+  if (definition.kind !== "decoded" || definition.value.module !== reference.module)
+    return fail("A ready source occurrence must belong to its actual captured module.");
+  return source;
+}
+
+export function bindingOccurrence(deps: LowerDeps, reference: RawNodeRef): SourceNodeRef | null {
+  const source = sourceOccurrence(deps, reference);
+  if (source === null) return null;
   return isModuleBindingKind(source.kind, true) ? source.occurrence : null;
 }
 

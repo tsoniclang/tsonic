@@ -23,7 +23,7 @@ const analysisLimits = { maximumProjectionDepth: 64, maximumOriginAlternatives: 
   maximumRelationalRecordsPerBody: 100000, maximumRelationalReferencesPerBody: 100000 };
 const scope = { classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] };
 const repository = fileURLToPath(new URL("../../", import.meta.url));
-const runtimeFiles = ["index", "round", "storage", "source", "proof", "calls"].map(name => resolve(repository, `packages/host/dist/analyses/body/${name}.js`));
+const runtimeFiles = ["index", "round", "storage", "source", "proof", "calls", "values"].map(name => resolve(repository, `packages/host/dist/analyses/body/${name}.js`));
 const session = new Session();
 const post = (method, parameters = {}) => new Promise((done, reject) =>
   session.post(method, parameters, (error, value) => error === null ? done(value) : reject(error)));
@@ -44,6 +44,7 @@ let storageLiveLattice;
 let bodyNodes;
 let callSummary;
 let applyScalarCall;
+let joinOrigins;
 
 before(async () => {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true, "the aggregate owner guard admitted this process");
@@ -58,6 +59,7 @@ before(async () => {
   ({ sourceOccurrences, orderedRows } = await import("../../packages/host/dist/analyses/body/source.js"));
   ({ bodyNodes } = await import("../../packages/host/dist/ir-facts/verify-body-nodes.js"));
   ({ callSummary, applyScalarCall } = await import("../../packages/host/dist/analyses/body/calls.js"));
+  ({ joinOrigins } = await import("../../packages/host/dist/analyses/body/values.js"));
 });
 
 after(async () => {
@@ -90,14 +92,19 @@ function fixture(program, internal = [], provided = TABLE.signatures[program.tir
   const lowered = lowerToMir({ typeOf, signatureOf, limits: { maximumRecords: 10000 },
     defs: { completionSelector: T.int32, exceptionStorage: T.unknown }, unit: { request: unit, position: { kind: "result" } } }, program.tir, internal);
   assert.equal(lowered.kind, "ok", "the real LowerMir producer completes");
-  assert.deepEqual(verifyMir(lowered.value, verificationContext(program)), { kind: "complete", violations: [] });
+  const canonical = verificationContext(program);
+  const mirContext = program.bindingScope === undefined ? canonical : { ...canonical, declarationOf: definition => {
+    const declaration = canonical.declarationOf(definition);
+    return declaration !== null && definition === program.tir.owner ? { ...declaration, scope: program.bindingScope } : declaration;
+  } };
+  assert.deepEqual(verifyMir(lowered.value, mirContext), { kind: "complete", violations: [] });
   const account = createAccount(limits);
   const storage = analyzeStorageUse({ account }, { execution, body: lowered.value });
   assert.equal(storage.kind, "ok", "the actual MIR-only Liveness producer completes");
   const input = { execution, mir: lowered.value, tir: program.tir, liveness: storage.value };
   const deps = { types: TABLE, typeOf, signatureOf, summaryOf: () => { throw new Error("A call-free actual body has no Summary demand"); },
     account, limits: analysisLimits, unit };
-  return { program, execution, input, deps };
+  return { program, execution, input, deps, bindingScope: program.bindingScope };
 }
 
 function checkedPair(current, result) {
@@ -121,7 +128,7 @@ function checkedPair(current, result) {
     definitionExists: definition => readyOwner(definition) !== undefined || ready.some(row =>
       row.program.tir.params.some(header => header.tsonic.declaration === definition)),
     declarationSourceOf: definition => definition === current.program.tir.owner ? { kind: "body", value: current.program.nodeRef(0) } : null,
-    bindingScopeOf: definition => readyOwner(definition) === undefined ? null : scope,
+    bindingScopeOf: definition => readyOwner(definition) === undefined ? null : readyOwner(definition).bindingScope ?? scope,
     sourceBindingScopesOf: () => { assert.fail("These actual scalar rounds have no definition-null source binding vectors."); }, nominalOf: () => null,
     nodeExists: selected => selected.kind === "body" ? nodes.get(selected.value.body)?.has(selected.value.node) === true
       : ready.some(row => row.program.tir.params.some(header => header.tsonic.declaration === selected.value.owner
@@ -1717,13 +1724,268 @@ test("a real unwritten local produces one original initialization error and no f
   assert.deepEqual(proof.value.emissions, []);
 });
 
-test("returning actual string or enum storage requires Origins evidence, never empty backing facts", () => {
+test("actual string entries retain formal value Origins through reads, returns and the canonical handoff", () => {
+  const literal = declareType("bodyRoundEntryString", { kind: "literal", base: T.string, value: { kind: "string", value: "entry" } });
+  for (const [name, type] of [["body-round.string", T.string], ["body-round.literal-string", literal]]) {
+    const current = fixture(shaped(name, [["input", "required", type]], type,
+      builder => builder.block(builder.returns(builder.id("input", 0, type)))));
+    const pair = checkedPair(current, analyzeBodyRound(current.deps, current.input));
+    const arena = pair.summary.arena;
+    const returned = arena.origins[pair.summary.result];
+    assert.equal(returned.kind, "complete");
+    assert.equal(returned.includesAbsence, false);
+    assert.equal(returned.producers.length, 1, "a genuine reference entry never becomes empty Origins");
+    const bound = arena.boundProducers[returned.producers[0]];
+    assert.deepEqual(arena.producers[bound.producer], { id: 0, kind: "parameter", index: 0, path: null });
+    assert.equal(bound.bindings, current.execution.instance.bindings.bindings);
+    assert.equal(bound.context, arena.contexts[0].id);
+    assert.equal(arena.contexts[0].arguments[0], pair.summary.result);
+    assert.equal(pair.facts.origins.reads.every(row => row.origins === pair.summary.result), true);
+    assert.equal(pair.facts.origins.subjects.every(row => row.origins === pair.summary.result), true);
+    assert.deepEqual(arena.cells, [], "a formal value producer asserts no physical holding, logical cell or singleton");
+    assert.deepEqual(pair.summary.resultCells, []);
+    assert.equal(pair.facts.origins.escapes.length, 1);
+    const returnedAt = current.input.mir.blocks.find(block => block.terminator.kind === "return");
+    assert.deepEqual(pair.facts.origins.escapes[0], { point: { block: returnedAt.id, statement: null },
+      node: returnedAt.terminator.tir.node, producer: bound.producer, target: { kind: "return" } });
+    assert.deepEqual(pair.summary.retention, [{ source: bound.id, at: { kind: "body", execution: current.execution,
+      point: { block: returnedAt.id, statement: null }, edge: null }, into: { kind: "return" } }]);
+    const proof = proveInitialization({ ...current.deps, account: createAccount(limits),
+      summaryOf: () => ({ value: pair.summary, unit: { request: current.deps.unit, position: { kind: "result" } } }) },
+    { modules: [], entries: [current.execution], storage: [] });
+    assert.equal(proof.kind, "complete");
+    assert.equal(proof.value.value.kind, undefined);
+  }
+});
+
+test("distinct string return alternatives preserve actual formal ordinals and canonical union", () => {
+  for (const repeated of [false, true]) {
+    const current = fixture(shaped(`body-round.reference-choose.${repeated}`, [["flag", "required", T.bool],
+      ["left", "required", T.string], ["right", "required", T.string]], T.string, builder =>
+      builder.block(builder.ifElse(builder.id("flag", 0, T.bool), builder.returns(builder.id("left", 1, T.string)),
+        builder.returns(builder.id(repeated ? "left" : "right", repeated ? 1 : 2, T.string))))));
+    const pair = checkedPair(current, analyzeBodyRound(current.deps, current.input));
+    const arena = pair.summary.arena;
+    assert.deepEqual(arena.origins[pair.summary.result].producers.map(id => arena.producers[arena.boundProducers[id].producer].index),
+      repeated ? [1] : [1, 2], "the scalar formal is not a reference and does not shift authored parameter indices");
+    assert.equal(pair.facts.origins.subjects.length, 2);
+    assert.deepEqual(arena.origins[arena.contexts[0].arguments[0]].producers, []);
+    assert.deepEqual(arena.cells, []);
+    assert.deepEqual(arena.projections, []);
+    assert.equal(pair.summary.retention.length, 2);
+    assert.equal(pair.facts.origins.escapes.length, 2);
+  }
+});
+
+test("an unmodified reference entry survives boundary projection after a genuine scalar call", () => {
+  const targetName = "body-round.reference-projection.target";
+  const target = fixture(shaped(targetName, [], T.bool, builder => builder.block(builder.returns(builder.keyword("TrueKeyword", T.bool)))));
+  const targetPair = checkedPair(target, analyzeBodyRound(target.deps, target.input));
+  const selected = callee(targetName, target.program.tir.signature, [], T.bool);
+  const program = shaped("body-round.reference-projection.caller", [["input", "required", T.string]], T.string, builder =>
+    builder.block(builder.expressionStatement(builder.call(builder.global("target", targetName, T.unknown), [], T.bool,
+      () => ({ callee: selected, receiver: null, arguments: [] }))), builder.returns(builder.id("input", 0, T.string))));
+  const current = fixture(program);
+  current.related = [target];
+  current.deps.summaryOf = () => ({ value: targetPair.summary,
+    unit: { request: target.deps.unit, position: { kind: "result" } } });
+  const pair = checkedPair(current, analyzeBodyRound(current.deps, current.input));
+  assert.equal(pair.facts.arena.contexts.length, 2);
+  assert.equal(pair.summary.arena.contexts.length, 1);
+  assert.equal(pair.summary.arena.boundProducers.length, 1);
+  const result = pair.summary.arena.origins[pair.summary.result];
+  const entry = pair.summary.arena.boundProducers[result.producers[0]];
+  assert.equal(result.producers.length, 1);
+  assert.deepEqual(pair.summary.arena.producers[entry.producer], { id: 0, path: null, kind: "parameter", index: 0 });
+  assert.equal(pair.summary.retention[0].source, entry.id);
+  assert.equal(pair.facts.origins.activations.length, 1);
+  assert.deepEqual(pair.summary.arena.cells, []);
+});
+
+test("a reference receiver is a value entry separate from formal ordinals and missing signature subjects", () => {
+  const current = fixture(shaped("body-round.reference-receiver", [["this", "this", T.string], ["input", "required", T.string]], T.string,
+    builder => builder.block(builder.returns(builder.id("this", 0, T.string))), { receiver: T.string }));
+  const pair = checkedPair(current, analyzeBodyRound(current.deps, current.input));
+  const arena = pair.summary.arena;
+  assert.equal(pair.summary.result, arena.contexts[0].receiver);
+  assert.equal(arena.contexts[0].receiver === arena.contexts[0].arguments[0], false);
+  assert.deepEqual(arena.producers[arena.boundProducers[arena.origins[pair.summary.result].producers[0]].producer],
+    { id: 0, path: null, kind: "receiver" });
+  const parameter = arena.origins[arena.contexts[0].arguments[0]].producers[0];
+  assert.deepEqual(arena.producers[arena.boundProducers[parameter].producer], { id: 1, path: null, kind: "parameter", index: 0 });
+  const invalid = { ...current.input, mir: { ...current.input.mir, locals: current.input.mir.locals.map(local =>
+    local.role.kind === "parameter" ? { ...local, role: { kind: "parameter", index: 7 } } : local) } };
+  assert.throws(() => analyzeBodyRound({ ...current.deps, account: createAccount(limits) }, invalid), /actual signature formal or receiver producer/);
+});
+
+test("entry reference alternatives retain the complete selected execution vector, not only the creator environment", () => {
+  const program = shaped("body-round.reference-selected", [["input", "required", T.string]], T.string,
+    builder => builder.block(builder.returns(builder.id("input", 0, T.string))));
+  const declaration = def("body-round.reference-selected.T");
+  program.tir.bindings = { kind: "instantiated", bindings: { ...EMPTY_BINDINGS,
+    methodBindings: [{ kind: "bound", parameter: declaration, type: T.string }] } };
+  program.tir.dependence = "binding-dependent";
+  program.bindingScope = { ...scope, methodParameters: [declaration] };
+  const current = fixture(program);
+  const pair = checkedPair(current, analyzeBodyRound(current.deps, current.input));
+  const bound = pair.summary.arena.boundProducers[0];
+  assert.equal(bound.bindings, current.execution.instance.bindings.bindings);
+  assert.equal(bound.bindings === current.program.tir.lexicalBindings, false);
+  assert.deepEqual(bound.bindings.methodBindings, [{ kind: "bound", parameter: declaration, type: T.string }]);
+});
+
+test("reference ready-type refusal is sticky before either canonical carrier or final-category payload read", () => {
+  const current = fixture(shaped("body-round.reference-type-stop", [["input", "required", T.string]], T.string,
+    builder => builder.block(builder.returns(builder.id("input", 0, T.string)))));
+  for (const stopAt of [1, 2]) {
+    const account = createAccount(limits);
+    const refusal = { kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "analyses/origins",
+      limit: "analysis.maximumOriginAlternatives", maximum: 0, site: { kind: "source", origin: current.program.tir.root.origin },
+      unit: { request: current.deps.unit, position: { kind: "result" } } })] };
+    let count = 0;
+    const result = analyzeBodyRound({ ...current.deps, account, typeOf: type => {
+      assert.equal(accountFailure(account), null);
+      count += 1;
+      if (count !== stopAt) return current.deps.typeOf(type);
+      refuseAccount(account, refusal);
+      return new Proxy({}, { get() { assert.fail("No type payload after its original caller refusal"); } });
+    } }, current.input);
+    assert.equal(result, refusal);
+    assert.equal(count, stopAt);
+  }
+});
+
+test("reference mutation and unknown enum representation remain actual unfinished transport, not retained entry aliases", () => {
   const enumeration = declareType("bodyRoundReferenceEnum", { kind: "enum", definition: "D[M[P[p];m];bodyRoundEnum]" });
-  for (const [name, type] of [["body-round.string", T.string], ["body-round.enum", enumeration]]) {
+  for (const [name, type] of [["body-round.enum", enumeration]]) {
     const current = fixture(shaped(name, [["input", "required", type]], type,
       builder => builder.block(builder.returns(builder.id("input", 0, type)))));
     assert.throws(() => analyzeBodyRound(current.deps, current.input), /actual Origins reference\/cell producer/);
   }
+  const current = fixture(shaped("body-round.reference-mutation", [["input", "required", T.string]], T.string,
+    builder => builder.block(builder.expressionStatement(builder.assign(builder.target("input", 0, T.string), "EqualsToken",
+      builder.id("input", 0, T.string), T.string, T.string)), builder.returns(builder.id("input", 0, T.string)))));
+  assert.throws(() => analyzeBodyRound(current.deps, current.input), /actual Origins value-flow transport/);
+  const builder = builders("body-round.reference-slot");
+  const declaration = { $: "slot", ...builder.variable(builder.declName("slot", 0), 0, T.string) };
+  const slot = typedBody("body-round.reference-slot", { signature: signature("body-round.reference-slot", [], T.string),
+    completion: T.string, locals: [["slot", "binding", T.string, true]], root: builder.block(builder.declare([declaration]),
+      builder.returns(builder.id("slot", 0, T.string))) });
+  slot.tir.locals[0].declaration = { kind: "body", value: slot.nodeRef("slot") };
+  const local = fixture(slot);
+  assert.throws(() => analyzeBodyRound(local.deps, local.input), /non-entry reference local/);
+});
+
+test("returned Origins union preserves absence and shared alternatives without duplicate producers", () => {
+  const current = fixture(shaped("body-round.reference-union", [["input", "required", T.string]], T.string,
+    builder => builder.block(builder.returns(builder.id("input", 0, T.string)))));
+  const pair = checkedPair(current, analyzeBodyRound(current.deps, current.input));
+  const rows = pair.summary.arena.origins.map(row => ({ ...row }));
+  const absent = rows.length;
+  rows.push({ id: absent, kind: "complete", producers: [], includesAbsence: true });
+  const combined = joinOrigins(current.deps, rows, pair.summary.result, absent, () => null);
+  assert.equal(typeof combined, "number");
+  assert.equal(rows[combined].includesAbsence, true);
+  const again = joinOrigins(current.deps, rows, combined, pair.summary.result, () => null);
+  assert.equal(typeof again, "number");
+  assert.deepEqual(rows[again].producers, rows[pair.summary.result].producers);
+  const reverse = joinOrigins(current.deps, rows, absent, pair.summary.result, () => null);
+  assert.equal(rows[reverse].includesAbsence, true);
+  assert.deepEqual(rows[reverse].producers, rows[pair.summary.result].producers);
+});
+
+test("a genuine reference call destination cannot keep its old entry value after an unsupported write", () => {
+  const targetName = "body-round.reference-call.target";
+  const target = fixture(shaped(targetName, [["value", "required", T.string]], T.string,
+    builder => builder.block(builder.returns(builder.id("value", 0, T.string)))));
+  const targetPair = checkedPair(target, analyzeBodyRound(target.deps, target.input));
+  const selected = callee(targetName, target.program.tir.signature, [mapped(0, 0)], T.string);
+  const program = shaped("body-round.reference-call.caller", [["value", "required", T.string]], T.string, builder =>
+    builder.block(builder.expressionStatement(builder.call(builder.global("target", targetName, T.unknown),
+      [{ $: "argument", ...builder.id("value", 0, T.string) }], T.string,
+      at => ({ callee: selected, receiver: null, arguments: [{ kind: "provided", parameter: 0, expression: at("argument") }] }))),
+    builder.returns(builder.id("value", 0, T.string))));
+  const current = fixture(program);
+  const place = current.input.mir.places.find(row => row.base.kind === "local" && row.base.local === 0);
+  assert.equal(place.id, 0);
+  assert.equal(current.input.mir.locals[0].role.kind, "parameter");
+  for (const block of current.input.mir.blocks) for (const statement of block.statements) {
+    if (statement.kind === "storage-live" || statement.kind === "storage-dead") {
+      assert.notEqual(statement.local, 0);
+      continue;
+    }
+    assert.equal(statement.kind, "assign");
+    assert.equal(statement.value.kind, "use");
+    assert.deepEqual(statement.value.operand, { kind: "place", place: place.id });
+  }
+  const mir = { ...current.input.mir, locals: [current.input.mir.locals[0]], places: [place],
+    blocks: current.input.mir.blocks.map(block => ({ ...block, statements: [], terminator: block.terminator.kind !== "call" ? block.terminator
+      : { ...block.terminator, destination: place.id, arguments: block.terminator.arguments.map(argument => ({ ...argument,
+        operand: { kind: "place", place: place.id } })) } })) };
+  assert.deepEqual(verifyMir(mir, verificationContext(program)), { kind: "complete", violations: [] });
+  assert.throws(() => analyzeBodyRound({ ...current.deps, summaryOf: () => ({ value: targetPair.summary,
+    unit: { request: target.deps.unit, position: { kind: "result" } } }) }, { ...current.input, mir }), /reference call result/);
+});
+
+test("canonical row sorting stops immediately when its paid comparison installs the original refusal", () => {
+  const account = createAccount(limits);
+  const current = fixture(add("body-round.ordering-stop", T.int32, plus("int32", T.int32)));
+  const refusal = { kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "analyses/origins",
+    limit: "analysis.maximumOriginAlternatives", maximum: 0, site: { kind: "source", origin: current.program.tir.root.origin },
+    unit: { request: current.deps.unit, position: { kind: "result" } } })] };
+  let calls = 0;
+  const result = orderedRows([3, 2, 1], () => {
+    calls += 1;
+    assert.equal(calls, 1);
+    refuseAccount(account, refusal);
+    return 0;
+  }, account);
+  assert.equal(result, refusal);
+  assert.equal(calls, 1);
+});
+
+test("reference entry and return union admit every record and alternative with the same original account", () => {
+  const current = fixture(shaped("body-round.reference-allowances", [["flag", "required", T.bool],
+    ["left", "required", T.string], ["right", "required", T.string]], T.string, builder =>
+    builder.block(builder.ifElse(builder.id("flag", 0, T.bool), builder.returns(builder.id("right", 2, T.string)),
+      builder.returns(builder.id("left", 1, T.string))))));
+  const repeated = fixture(shaped("body-round.reference-sort-allowances", [["flag", "required", T.bool],
+    ["input", "required", T.string]], T.string, builder => builder.block(builder.ifElse(builder.id("flag", 0, T.bool),
+      builder.returns(builder.id("input", 1, T.string)), builder.returns(builder.id("input", 1, T.string))))));
+  for (const selected of [current, repeated]) for (const dimension of ["maximumWork", "maximumResultEntries"]) {
+    let completed = false;
+    for (let maximum = 0; maximum <= 2048; maximum += 1) {
+      const account = createAccount({ ...limits, [dimension]: maximum });
+      const result = analyzeBodyRound({ ...selected.deps, account }, selected.input);
+      if (result.kind === "complete") completed = true;
+      else {
+        assert.equal(completed, false);
+        assert.equal(result, accountFailure(account));
+        assert.equal(analyzeBodyRound({ ...selected.deps, account }, new Proxy({}, {
+          get() { assert.fail("No input is read after the original reference account stop"); },
+        })), result);
+      }
+    }
+    assert.equal(completed, true);
+  }
+  for (const [limit, maximum] of [["maximumOriginAlternatives", 0], ["maximumOriginAlternatives", 1],
+    ["maximumRelationalRecordsPerBody", 9], ["maximumRelationalReferencesPerBody", 8]]) {
+    const account = createAccount(limits);
+    const result = analyzeBodyRound({ ...current.deps, account, limits: { ...analysisLimits, [limit]: maximum } }, current.input);
+    assert.equal(result.kind, "refused");
+    assert.equal(result, accountFailure(account));
+  }
+});
+
+test("retention of the same returned entry obeys canonical position keys beyond single-digit block IDs", () => {
+  const program = shaped("body-round.reference-many-returns", [["flag", "required", T.bool], ["input", "required", T.string]], T.string,
+    builder => builder.block(...Array.from({ length: 12 }, () => builder.ifElse(builder.id("flag", 0, T.bool),
+      builder.returns(builder.id("input", 1, T.string)), builder.block())), builder.returns(builder.id("input", 1, T.string))));
+  const current = fixture(program);
+  const pair = checkedPair(current, analyzeBodyRound(current.deps, current.input));
+  assert.equal(pair.summary.retention.length, 13);
+  assert.equal(pair.facts.origins.escapes.length, 13);
+  assert.equal(pair.summary.retention.some(row => row.at.point.block >= 10), true);
 });
 
 test("every prefix of the actual round allowance keeps the same original stop and no partial publication", () => {

@@ -4,16 +4,16 @@ export async function bindingVerificationCases(suite, types) {
   const flow = await import("../../../packages/host/dist/dataflow/index.js");
   const empty = () => ({ vector: { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] },
     scope: { classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] } });
-  const own = { owner: "D[M[P[binding];main.ts];Own]", index: 0 };
-  const other = { owner: "D[M[P[binding];main.ts];Other]", index: 0 };
+  const own = "D[M[P[binding];main.ts];Own/T]";
+  const other = "D[M[P[binding];main.ts];Other/T]";
   const rich = () => {
     const entry = empty();
     for (const [family, scope] of [["classBindings", "classParameters"], ["methodBindings", "methodParameters"], ["capturedBindings", "capturedParameters"]]) {
       entry.vector[family] = [{ kind: "bound", parameter: own, type: 0 }, { kind: "rigid", parameter: other }];
       entry.scope[scope] = [own, other];
     }
-    entry.vector.selfBindings = [{ kind: "bound", owner: own.owner, type: 0 }, { kind: "rigid", owner: other.owner }];
-    entry.scope.selfOwners = [own.owner, other.owner];
+    entry.vector.selfBindings = [{ kind: "bound", owner: own, type: 0 }, { kind: "rigid", owner: other }];
+    entry.scope.selfOwners = [own, other];
     return entry;
   };
   const run = (inputs, maximumWork = 100000, maximumResultEntries = 100000, account = flow.createAccount({ maximumWork, maximumResultEntries })) => ({
@@ -29,13 +29,13 @@ export async function bindingVerificationCases(suite, types) {
     malformed.vector.methodBindings[0].type = -0;
     malformed.vector.capturedBindings = [undefined, { kind: "bound", parameter: other, type: 1 }, { kind: "rigid", parameter: own }];
     malformed.scope.methodParameters = [undefined, other];
-    malformed.vector.selfBindings = [undefined, { kind: "bound", owner: own.owner, type: 1 }, { kind: "rigid", owner: own.owner }];
+    malformed.vector.selfBindings = [undefined, { kind: "bound", owner: own, type: 1 }, { kind: "rigid", owner: own }];
     const found = run([undefined, malformed]).result;
     assert.equal(found.kind, "complete");
     assert.deepEqual(found.violations.map(row => row.rule), ["binding-vector-complete", "binding-vector-complete", "binding-vector-complete",
       "type-reference", "binding-vector-complete", "binding-vector-complete", "type-reference",
       "binding-vector-complete", "binding-vector-complete", "self-binding-order", "type-reference", "self-owner"]);
-    const unlisted = empty(); unlisted.vector.selfBindings = [{ kind: "rigid", owner: own.owner }];
+    const unlisted = empty(); unlisted.vector.selfBindings = [{ kind: "rigid", owner: own }];
     assert.deepEqual(run([unlisted]).result.violations.map(row => row.rule), ["binding-vector-complete", "self-owner"]);
     for (const count of [-1, -0, 0.5, NaN, Infinity, 9007199254740992])
       assert.throws(() => types.verifyBindings([], count, () => { throw new Error("no traversal before domain validation"); }), TypeError);
@@ -43,11 +43,11 @@ export async function bindingVerificationCases(suite, types) {
   });
 
   await suite.test("a sparse supplied self-owner scope retains real missing-owner findings instead of throwing or earning membership", () => {
-    for (const owners of [new Array(1), [own.owner, undefined], [undefined, other.owner]]) {
+    for (const owners of [new Array(1), [own, undefined], [undefined, other]]) {
       const value = empty();
       value.scope.selfOwners = owners;
-      value.vector.selfBindings = owners.length === 1 ? [{ kind: "rigid", owner: own.owner }]
-        : [{ kind: "rigid", owner: own.owner }, { kind: "rigid", owner: other.owner }];
+      value.vector.selfBindings = owners.length === 1 ? [{ kind: "rigid", owner: own }]
+        : [{ kind: "rigid", owner: own }, { kind: "rigid", owner: other }];
       const complete = run([value]);
       assert.equal(complete.result.kind, "complete");
       const expectedPosition = owners.length === 1 || owners[0] === undefined ? 0 : 1;
@@ -75,8 +75,8 @@ export async function bindingVerificationCases(suite, types) {
     missingBinding.vector.selfBindings = [];
     assert.deepEqual(run([missingBinding]).result.violations.map(row => row.rule), ["binding-vector-complete"]);
     const mixed = empty();
-    mixed.scope.selfOwners = [undefined, own.owner];
-    mixed.vector.selfBindings = [{ kind: "rigid", owner: own.owner }, { kind: "rigid", owner: other.owner }];
+    mixed.scope.selfOwners = [undefined, own];
+    mixed.vector.selfBindings = [{ kind: "rigid", owner: own }, { kind: "rigid", owner: other }];
     assert.deepEqual(run([mixed]).result.violations.map(row => [row.rule, row.site.position]),
       [["self-owner", 1], ["self-binding-order", 1]]);
   });
@@ -103,7 +103,7 @@ export async function bindingVerificationCases(suite, types) {
     const callerResult = types.verifyBindings(untouched, 1, () => caller);
     assert.equal(callerResult.stop, caller);
     const actual = rich();
-    const lengths = own.owner.length + other.owner.length;
+    const lengths = own.length + other.length;
     const work = 1 + 24 + 1 + 3 + 6 + 6 * lengths + 1 + 2 + lengths + 2 + 2 * lengths;
     for (const dimension of ["work", "result-entries"]) {
       const sufficient = dimension === "work" ? work : 25;

@@ -294,6 +294,86 @@ function divisionFixture(name, carrier, type, left, right, rounding = "toward-ze
   return { ...value, deps, run: (given = deps, body = value.body) => product.evaluate(given, value.entry, body, [], "compile-time", value.unit) };
 }
 
+function bitwiseFixture(name, carrier, type, operator, left, right = null, result = type) {
+  const unary = operator === "~";
+  const decision = selected({ kind: "native-operator", operator, carrier }, unary ? [type] : [type, type], result);
+  const value = fixture(name, result, builder => builder.block(builder.returns(unary
+    ? builder.prefix(builder.num(String(left), type), "TildeToken", result, decision)
+    : builder.arithmetic(builder.num(String(left), type),
+      { "&": "AmpersandToken", "|": "BarToken", "^": "CaretToken" }[operator], builder.num(String(right), type), result, decision))));
+  const deps = { ...value.deps, limits: { ...limits, maximumArithmeticWork: 100000 } };
+  return { ...value, deps, run: (given = deps, body = value.body) => product.evaluate(given, value.entry, body, [], "compile-time", value.unit) };
+}
+
+test("selected bitwise integer operations retain their full native carrier instead of host32 coercion", () => {
+  const [carrier, type] = comparisonTypes[0];
+  for (const [operator, left, right, expected] of [["&", 5n, 3n, 1n], ["|", 5n, 3n, 7n], ["^", 5n, 3n, 6n],
+    ["&", -128n, 127n, 0n], ["|", -128n, 127n, -1n], ["^", -128n, 127n, -1n],
+    ["&", -1n, 127n, 127n], ["^", -1n, -128n, 127n], ["~", 5n, null, -6n],
+    ["~", -128n, null, 127n], ["~", 127n, null, -128n]]) {
+    const value = bitwiseFixture(`evaluate-bitwise.${operator}.${left}.${right}`, carrier, type, operator, left, right);
+    same(value.run().value.value, { kind: "value", value: { kind: "number", type,
+      value: { numerator: expected, denominator: 1n, negativeZero: false } } }, "actual selected native bit pattern");
+  }
+  for (const [carrier, type] of comparisonTypes.slice(1)) {
+    for (const [operator, expected] of [["&", 9007199254740992n], ["|", 9007199254740993n], ["^", 1n]]) {
+      const value = bitwiseFixture(`evaluate-bitwise.wide.${carrier}.${operator}`, carrier, type, operator, 9007199254740993n, 9007199254740992n);
+      assert.equal(value.run().value.value.value.value.numerator, expected);
+    }
+    const unsigned = carrier === "uint64" || carrier === "native-uint";
+    const complement = bitwiseFixture(`evaluate-bitwise.complement.${carrier}`, carrier, type, "~", 9007199254740993n);
+    const width = carrier === "native-int" || carrier === "native-uint"
+      ? complement.deps.selectedNativeFacts.nativeIntegerWidths.find(row => row.carrier === carrier).bits : 64;
+    assert.equal(complement.run().value.value.value.value.numerator,
+      unsigned ? (1n << BigInt(width)) - 9007199254740994n : -9007199254740994n);
+    if (carrier === "native-int" || carrier === "native-uint") {
+      const narrow = bitwiseFixture(`evaluate-bitwise.supplied.${carrier}`, carrier, type, "~", 1n);
+      assert.equal(narrow.run({ ...narrow.deps, selectedNativeFacts: { ...narrow.deps.selectedNativeFacts,
+        nativeIntegerWidths: [{ carrier, bits: 9 }] } }).value.value.value.value.numerator, unsigned ? 510n : -2n);
+    }
+  }
+});
+
+test("integer bitwise operations pay each represented operand width before the original allowance boundary", () => {
+  const [carrier, type] = comparisonTypes[0];
+  for (const [operator, right, needed] of [["&", 3n, 77], ["|", 3n, 77], ["^", 3n, 77], ["~", null, 52]]) {
+    const value = bitwiseFixture(`evaluate-bitwise.work.${operator}`, carrier, type, operator, 5n, right);
+    for (let maximum = 0; maximum <= needed; maximum += 1) {
+      const result = value.run({ ...value.deps, limits: { ...value.deps.limits, maximumArithmeticWork: maximum } });
+      assert.equal(result.value.kind, maximum < needed ? "refused" : "ok", `actual bitwise work ${operator}/${maximum}`);
+      if (maximum < needed) same(result.value.diagnostics[0].arguments,
+        [{ kind: "text", value: "evaluation.maximumArithmeticWork" }, { kind: "number", value: maximum }], "original bitwise refusal");
+    }
+  }
+  const value = bitwiseFixture("evaluate-bitwise.bits", carrier, type, "^", 5n, 3n);
+  for (const [dimension, needed] of [["maximumIntermediateBits", 8], ["maximumResultBits", 4]])
+    for (let maximum = 0; maximum <= needed; maximum += 1)
+      assert.equal(value.run({ ...value.deps, limits: { ...value.deps.limits, [dimension]: maximum } }).value.kind,
+        maximum < needed ? "refused" : "ok");
+});
+
+test("integer bitwise operations do not borrow unrelated native policies or invent a result conversion", () => {
+  const [carrier, type] = comparisonTypes[0];
+  const value = bitwiseFixture("evaluate-bitwise.ready-inputs", carrier, type, "^", 5n, 3n);
+  const facts = { ...value.deps.selectedNativeFacts };
+  for (const field of ["integerOverflow", "divisionByZero", "divisionRounding", "signedQuotientOverflow"])
+    Object.defineProperty(facts, field, { get() { assert.fail(`No irrelevant ${field} row for a bitwise operation.`); } });
+  assert.equal(value.run({ ...value.deps, selectedNativeFacts: facts }).value.value.value.value.numerator, 6n);
+  const cross = bitwiseFixture("evaluate-bitwise.unselected-result", carrier, type, "^", 5n, 3n, T.int32);
+  assert.throws(() => cross.run(), /actual Rules-selected integer bitwise result conversion association/u);
+  assert.throws(() => value.run({ ...value.deps, typeOf: () => ({ kind: "shape", members: [], indexes: [], calls: [], constructs: [] }) }),
+    /actual selected integer result carrier association/u);
+  const malformed = structuredClone(value.body);
+  const operation = malformed.blocks.flatMap(block => block.statements).find(statement => statement.value?.kind === "binary").value;
+  operation.operation.decision.operation.carrier = "bool";
+  operation.operation.decision.result = T.bool;
+  assert.throws(() => value.run(value.deps, malformed), /actual selected integer bitwise geometry/u);
+  const wrongArity = bitwiseFixture("evaluate-bitwise.unary-arity", carrier, type, "~", 5n);
+  const body = structuredClone(wrongArity.body);
+  body.blocks.flatMap(block => block.statements).find(statement => statement.value?.kind === "unary").value.operation.decision.operation.operator = "^";
+  assert.throws(() => wrongArity.run(wrongArity.deps, body), /actual operand inventory/u);
+});
+
 test("selected integer division executes the actual supplied quotient law on genuine lowered MIR", () => {
   const [carrier, type] = comparisonTypes[0];
   const roundings = ["toward-zero", "floor", "ceiling", "nearest-even", "nearest-away"];
@@ -734,9 +814,9 @@ test("integer negation keeps absent or malformed selected inputs distinct from a
   const missing = negationFixture("evaluate-negation.native-width", native[0], native[1], 1n);
   assert.throws(() => missing.run({ ...missing.deps, selectedNativeFacts: { ...missing.deps.selectedNativeFacts, nativeIntegerWidths: [] } }),
     /actual selected integer negation geometry/u);
-  const exclusive = selected({ kind: "native-operator", operator: "^", carrier }, [type, type], type);
-  const pending = fixture("evaluate-negation.binary-bitwise-frontier", type, builder => builder.block(builder.returns(
-    builder.arithmetic(builder.num("2", type), "CaretToken", builder.num("1", type), type, exclusive))));
+  const shift = selected({ kind: "native-operator", operator: "<<", carrier }, [type, type], type);
+  const pending = fixture("evaluate-negation.binary-shift-frontier", type, builder => builder.block(builder.returns(
+    builder.arithmetic(builder.num("2", type), "LessThanLessThanToken", builder.num("1", type), type, shift))));
   assert.throws(() => pending.start(), /actual selected native operation law/u);
 });
 

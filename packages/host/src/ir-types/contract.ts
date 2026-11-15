@@ -2,11 +2,14 @@ import type { TyId, SigId, DefId, KeyData, SourceNodeRef, LocalRef } from "../id
 import type { TextParseResult, Violation } from "../diag/contract.js";
 import type { ArtifactBindings, BodyInstance, ConstantReference, Execution, IndexSignature, LiteralTypeValue, MemberStorageSelection, NativePrimitive, ComponentSelector, TypeTerm, Signature, SignatureInput, TypeTable, BindingVector, TypeEvidence } from "./data.js";
 import type { TypeArena } from "./arena.js";
+import type { PublicationAccount, TypePublicationLimits, TypePublicationStop } from "./work.js";
+export type { TypePublicationLimits, TypePublicationStop } from "./work.js";
 import type { NativeFactsRule, NativeFactsSite, NativeFloatingFormat, PlatformDeclaration, SelectedNativeFacts } from "./native-facts-data.js";
 export type * from "./data.js";
 export type * from "./native-facts-data.js";
 
 export type TypeInterner = TypeArena;
+export type TypePublicationWork = PublicationAccount;
 export type CompareIndexSignatures = (left: IndexSignature, right: IndexSignature) => number;
 export type NativeFactsKey = (facts: SelectedNativeFacts) => string;
 export type FloatingBitsFit = (bits: bigint, format: NativeFloatingFormat) => boolean;
@@ -109,13 +112,26 @@ export interface TypePublication {
   readonly types: readonly TyId[];
   readonly signatures: readonly SigId[];
 }
-export interface TypePublicationLimits {
-  readonly maximumWork: number;
-  readonly maximumCreatedRecords: number;
+export type CreateTypePublicationWork = (limits: TypePublicationLimits) => TypePublicationWork;
+export interface TypeGraphInput {
+  readonly typeBase: number;
+  readonly signatureBase: number;
+  readonly terms: readonly TypeTerm[];
+  readonly signatures: readonly SignatureInput[];
 }
+export interface TypeGraphMapping {
+  readonly types: readonly TyId[];
+  readonly signatures: readonly SigId[];
+}
+export interface TypeGraphDeps {
+  readonly types: TypeInterner;
+  readonly work: TypePublicationWork;
+}
+export type TypeGraphResult = { readonly kind: "complete"; readonly value: TypeGraphMapping } | TypePublicationStop;
+export type InternTypeGraph = (deps: TypeGraphDeps, input: TypeGraphInput) => TypeGraphResult;
 export type TypePublicationResult =
   | { readonly kind: "complete"; readonly value: TypePublication; readonly work: number; readonly createdRecords: number }
-  | { readonly kind: "resource-limit"; readonly dimension: "work" | "created-records"; readonly maximum: number };
+  | TypePublicationStop;
 export type ExportTypes = (interner: TypeInterner, limits: TypePublicationLimits) => TypePublicationResult;
 export type Substitute = (interner: TypeInterner, types: readonly TyId[], bindings: BindingVector, limits: TypeExpansionLimits) => TypeTransform<readonly TyId[]>;
 export interface BindingValues {

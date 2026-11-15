@@ -101,6 +101,40 @@ function quadraticWork(machine: Machine, width: number, site: MirSite): boolean 
   return arithmetic(machine, width * width, site.origin);
 }
 
+function bitwiseIntegers(machine: Machine, operation: IntegerOperation, result: ConstValue["type"], site: MirSite,
+  values: readonly ConstValue[]): ConstValue | null {
+  const unary = operation.operator === "~";
+  if (values.length !== (unary ? 1 : 2)) return fail("A selected integer bitwise operation requires its actual operand inventory.", site.origin);
+  const selected = nativeCarrierOf(machine.deps.types, result, type => {
+    if (!arithmetic(machine, 1, site.origin)) return null;
+    return machine.deps.typeOf(type);
+  });
+  if (selected.kind === "resource-stop") return null;
+  if (selected.kind !== "primitive") return fail("Evaluate needs the actual selected integer result carrier association.", site.origin);
+  if (selected.primitive !== operation.carrier)
+    return fail("Evaluate needs the actual Rules-selected integer bitwise result conversion association.", site.origin);
+  const input = nativeIntegerGeometryOf(operation.carrier, machine.deps.selectedNativeFacts, (work, bits) => {
+    if (!arithmetic(machine, work, site.origin)) return false;
+    return bits <= machine.deps.limits.maximumIntermediateBits || limit(machine, "maximumIntermediateBits", site.origin);
+  });
+  if (input.kind === "resource-stop") return null;
+  if (input.kind !== "integer") return fail("Evaluate needs the actual selected integer bitwise geometry.", site.origin);
+  const left = integerValue(machine, requirePresent(values[0], { owner: "evaluate", query: null, origin: site.origin,
+    message: "The bitwise integer operation has its actual first operand." }), operation.carrier, input, site);
+  if (left === null) return null;
+  let integer: bigint;
+  if (unary) {
+    if (!arithmetic(machine, input.bits, site.origin)) return null;
+    integer = input.signed ? ~left : input.maximum ^ left;
+  } else {
+    const right = integerValue(machine, requirePresent(values[1], { owner: "evaluate", query: null, origin: site.origin,
+      message: "The bitwise integer operation has its actual second operand." }), operation.carrier, input, site);
+    if (right === null || !arithmetic(machine, input.bits, site.origin) || !arithmetic(machine, input.bits, site.origin)) return null;
+    integer = operation.operator === "&" ? left & right : operation.operator === "|" ? left | right : left ^ right;
+  }
+  return { kind: "number", type: result, value: { numerator: integer, denominator: 1n, negativeZero: false } };
+}
+
 function roundQuotient(machine: Machine, quotient: bigint, left: bigint, right: bigint, width: number,
   rounding: NativeRounding, site: MirSite): bigint | null {
   switch (rounding) {
@@ -371,5 +405,7 @@ export function integerOperation(machine: Machine, operation: IntegerOperation, 
     : operation.operator === "+" || operation.operator === "-" || operation.operator === "*"
       ? binaryIntegers(machine, operation, result, site, unwind, values)
     : operation.operator === "/" ? divideIntegers(machine, operation, result, site, unwind, values)
+    : operation.operator === "&" || operation.operator === "|" || operation.operator === "^" || operation.operator === "~"
+      ? bitwiseIntegers(machine, operation, result, site, values)
     : compareIntegers(machine, operation, result, site, values);
 }

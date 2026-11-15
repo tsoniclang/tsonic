@@ -4,11 +4,10 @@ import type { Substitute, SubstituteSignature, SubstituteBindingValues, TypeInte
   SelfBinding, TypeExpansionLimits } from "./contract.js";
 import { storedType, storedSignature } from "./interner.js";
 import { TypeArena } from "./arena.js";
-import { remapTerm, remapSignature, normalizeType, orderedSignature, inspectGraphValue } from "./canonical.js";
-import { copyType, copySignature } from "./copy.js";
+import { remapTerm, remapSignature, orderedSignature, inspectGraphValue } from "./canonical.js";
+import { stageGraph } from "./graph-stage.js";
 import { bindingVectorKeyOf, typeIdentifier, signatureIdentifier, required } from "./value.js";
 import type { ExpansionResult, ExpansionStop } from "./work.js";
-import { typeText, signatureText } from "./print.js";
 
 interface ScopeNode { readonly id: number; readonly left: ScopeNode | null; readonly right: ScopeNode | null }
 interface Scope { readonly root: ScopeNode | null; readonly height: number }
@@ -30,17 +29,6 @@ type Plan = PlanBase & (
   | { readonly kind: "signature"; readonly identity: SigId; readonly value: Signature }
 );
 type Dimension = "depth" | "visits" | "union-members" | "intersection-members";
-interface StageBase {
-  readonly id: number;
-  readonly parents: Map<string, Stage>;
-  readonly children: Map<string, Stage>;
-  key: string | null;
-  queued: boolean;
-}
-interface TypeStage extends StageBase { readonly kind: "type"; value: TypeTerm }
-interface SignatureStage extends StageBase { readonly kind: "signature"; value: SignatureInput }
-type Stage = TypeStage | SignatureStage;
-
 interface SubstitutionEnvironment {
   readonly storage: TypeInterner;
   key: string;
@@ -62,10 +50,6 @@ function visitBindingValue(environment: SubstitutionEnvironment): ExpansionStop 
 const parameterFamilies: readonly ("classBindings" | "methodBindings" | "capturedBindings")[] = [
   "classBindings", "methodBindings", "capturedBindings",
 ];
-
-function stageKey(value: Stage): string {
-  return `${value.kind}:${value.id}`;
-}
 
 function parameterKey(value: DefId): string {
   return encodeKey([value]);
@@ -288,153 +272,20 @@ function transform(environment: SubstitutionEnvironment, kind: "type" | "signatu
     if (plan.kind === "type") typeRows.set(plan.output, remapTerm(plan.value, typeOf, signatureOf));
     else signatureRows.set(plan.output, orderedSignature(remapSignature(plan.value, typeOf, signatureOf)));
   }
-  const typeAliases = new Map<number, number>();
-  const signatureAliases = new Map<number, number>();
-  const resolve = (value: number, aliases: Map<number, number>): number => {
-    let selected = value;
-    for (let next = aliases.get(selected); next !== undefined; next = aliases.get(selected)) selected = next;
-    let current = value;
-    for (let next = aliases.get(current); next !== undefined && next !== selected; next = aliases.get(current)) {
-      aliases.set(current, selected); current = next;
-    }
-    return selected;
-  };
-  const resolveType = (value: TyId): TyId => typeIdentifier(resolve(value, typeAliases));
-  const resolveSignature = (value: SigId): SigId => signatureIdentifier(resolve(value, signatureAliases));
-  const types = new Map<number, TypeStage>();
-  const signatures = new Map<number, SignatureStage>();
-  for (const [id, value] of typeRows) types.set(id, { kind: "type", id, value, key: null,
-    parents: new Map(), children: new Map(), queued: false });
-  for (const [id, value] of signatureRows) signatures.set(id, { kind: "signature", id, value, key: null,
-    parents: new Map(), children: new Map(), queued: false });
-  const keys = new Map<string, number>();
-  const signatureKeys = new Map<string, number>();
-  const tasks: Stage[] = [];
-  const schedule = (stage: Stage): void => {
-    if (!stage.queued) { stage.queued = true; tasks.push(stage); }
-  };
-  const invalidate = (stage: Stage): void => {
-    const index = stage.kind === "type" ? keys : signatureKeys;
-    if (stage.key !== null && index.get(stage.key) === stage.id) index.delete(stage.key);
-  };
-  const notify = (stage: Stage): void => {
-    for (const parent of stage.parents.values()) { invalidate(parent); schedule(parent); }
-  };
-  const refresh = (stage: Stage): boolean => {
-    for (const child of stage.children.values()) child.parents.delete(stageKey(stage));
-    stage.children.clear();
-    const typeOf = (value: TyId): TyId => {
-      const selected = resolveType(value);
-      if (selected >= typeBase) {
-        const child = required(types, selected);
-        child.parents.set(stageKey(stage), stage); stage.children.set(stageKey(child), child);
-      }
-      return selected;
-    };
-    const signatureOf = (value: SigId): SigId => {
-      const selected = resolveSignature(value);
-      if (selected >= signatureBase) {
-        const child = required(signatures, selected);
-        child.parents.set(stageKey(stage), stage); stage.children.set(stageKey(child), child);
-      }
-      return selected;
-    };
-    const old = stage.key;
-    invalidate(stage);
-    if (stage.kind === "type") stage.value = remapTerm(stage.value, typeOf, signatureOf);
-    else stage.value = orderedSignature(remapSignature(stage.value, typeOf, signatureOf));
-    const key = stage.kind === "type" ? typeText(stage.value) : signatureText(stage.value);
-    const index = stage.kind === "type" ? keys : signatureKeys;
-    if (!index.has(key)) index.set(key, stage.id);
-    stage.key = key;
-    return old !== key;
-  };
-  const redirect = (stage: Stage, selected: number): void => {
-    invalidate(stage);
-    for (const child of stage.children.values()) child.parents.delete(stageKey(stage));
-    stage.children.clear();
-    const aliases = stage.kind === "type" ? typeAliases : signatureAliases;
-    aliases.set(stage.id, selected);
-    const target = stage.kind === "type" ? types.get(selected) : signatures.get(selected);
-    for (const parent of stage.parents.values()) {
-      if (target !== undefined) target.parents.set(stageKey(parent), parent);
-      invalidate(parent); schedule(parent);
-    }
-    stage.parents.clear();
-  };
-  const read = (value: TyId): TypeTerm => {
-    const selected = resolveType(value);
-    if (selected < typeBase) return storedType(storage, selected);
-    const staged = required(types, selected);
-    return remapTerm(staged.value, resolveType, resolveSignature);
-  };
-  for (const stage of types.values()) { refresh(stage); schedule(stage); }
-  for (const stage of signatures.values()) { refresh(stage); schedule(stage); }
-  for (const stage of tasks) {
-    stage.queued = false;
-    if (environment.visits >= limits.maximumVisits) return stop("visits", limits.maximumVisits);
-    environment.visits += 1;
-    const changed = refresh(stage);
-    if (stage.kind === "type") {
-      const emit = (value: TypeTerm): TyId => {
-        const key = typeText(value);
-        const existing = TypeArena.typeKeys(storage).get(key);
-        if (existing !== undefined) {
-          return typeIdentifier(existing);
-        }
-        const previous = keys.get(key);
-        if (previous !== undefined) return typeIdentifier(resolve(previous, typeAliases));
-        const id = typeIdentifier(nextType++);
-        const created: TypeStage = { kind: "type", id, value, key: null, parents: new Map(), children: new Map(), queued: false };
-        types.set(id, created); refresh(created); schedule(created);
-        return id;
-      };
-      const selected = normalizeType(stage.value, read, emit, beforeMember);
-      if (typeof selected !== "number") return selected;
-      if (selected !== stage.id) redirect(stage, selected);
-      else if (changed) notify(stage);
-    } else {
-      const mapped = stage.value;
-      const key = signatureText(mapped);
-      const existing = TypeArena.signatureKeys(storage).get(key);
-      let selected = stage.id;
-      if (existing !== undefined) {
-        selected = signatureIdentifier(existing);
-      } else {
-        const previous = signatureKeys.get(key);
-        if (previous !== undefined) selected = resolve(previous, signatureAliases);
-      }
-      signatureKeys.set(key, selected);
-      if (selected !== stage.id) redirect(stage, selected);
-      else if (changed) notify(stage);
-    }
-  }
-  const typeIds = new Map<number, TyId>();
-  const signatureIds = new Map<number, SigId>();
-  for (const id of types.keys()) if (!typeAliases.has(id)) typeIds.set(id, typeIdentifier(typeBase + typeIds.size));
-  for (const id of signatures.keys()) if (!signatureAliases.has(id)) signatureIds.set(id, signatureIdentifier(signatureBase + signatureIds.size));
-  const compactType = (value: TyId): TyId => {
-    const selected = resolveType(value);
-    if (selected < typeBase) return selected;
-    return required(typeIds, selected);
-  };
-  const compactSignature = (value: SigId): SigId => {
-    const selected = resolveSignature(value);
-    if (selected < signatureBase) return selected;
-    return required(signatureIds, selected);
-  };
-  const finalTypes: TypeTerm[] = [];
-  const finalSignatures: Signature[] = [];
-  for (const [id, stage] of types) if (!typeAliases.has(id)) finalTypes.push(copyType(remapTerm(stage.value, compactType, compactSignature)));
-  for (const [id, stage] of signatures) if (!signatureAliases.has(id)) finalSignatures.push(copySignature({
-    id: compactSignature(signatureIdentifier(id)), ...orderedSignature(remapSignature(stage.value, compactType, compactSignature)) }));
-  for (const value of finalTypes) {
-    const id = typeIdentifier(TypeArena.terms(storage).length);
-    TypeArena.terms(storage).push(value); TypeArena.typeKeys(storage).set(typeText(value), id);
-  }
-  for (const value of finalSignatures) {
-    TypeArena.signatures(storage).push(value); TypeArena.signatureKeys(storage).set(signatureText(remapSignature(value, type => type, signature => signature)), value.id);
-  }
+  const staged = stageGraph(storage, typeRows, signatureRows, {
+    step: () => {
+      if (environment.visits >= limits.maximumVisits) return stop("visits", limits.maximumVisits);
+      environment.visits += 1;
+      return null;
+    },
+    growth: () => null,
+    type: () => null,
+    signature: () => null,
+    beforeMember,
+  });
+  if (staged.kind === "resource-limit") return staged;
+  const compactType = (value: TyId): TyId => value < typeBase ? value : required(staged.value.types, value);
+  const compactSignature = (value: SigId): SigId => value < signatureBase ? value : required(staged.value.signatures, value);
   const value = kind === "type" ? compactType(typeIdentifier(target(root).output))
     : compactSignature(signatureIdentifier(target(root).output));
   for (const plan of work) if (plan.memoKey !== null)

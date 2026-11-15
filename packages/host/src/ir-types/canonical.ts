@@ -1,7 +1,7 @@
 import type { TypeTerm, Signature, SignatureInput, TypeTable, TypePublication, Member, IndexSignature, TypeComponent,
   ComponentSelector, SumFamily } from "./contract.js";
 import type { TyId, SigId } from "../ids/contract.js";
-import type { LimitStop, PublicationWork, PublicationResult } from "./work.js";
+import type { LimitStop, TypePublicationWork, PublicationResult } from "./work.js";
 import { chargeWork, workLimit } from "./work.js";
 import { typeIdentifier, signatureIdentifier, required, compareText, compareIndexSignatures } from "./value.js";
 import { typeText, signatureText, memberKeyText } from "./print.js";
@@ -45,7 +45,7 @@ function compound<Stop extends LimitStop>(kind: "union" | "intersection", initia
 export function normalizeType(term: TypeTerm, read: (type: TyId) => TypeTerm, emit: (value: TypeTerm) => TyId,
   beforeMember: null): TyId;
 export function normalizeType<Stop extends LimitStop>(term: TypeTerm, read: (type: TyId) => TypeTerm | Stop,
-  emit: (value: TypeTerm) => TyId | Stop, beforeMember: (kind: "union" | "intersection", count: number) => Stop | null): TyId | Stop;
+  emit: (value: TypeTerm) => TyId | Stop, beforeMember: ((kind: "union" | "intersection", count: number) => Stop | null) | null): TyId | Stop;
 export function normalizeType<Stop extends LimitStop>(term: TypeTerm, read: (type: TyId) => TypeTerm | Stop,
   emit: (value: TypeTerm) => TyId | Stop,
   beforeMember: ((kind: "union" | "intersection", count: number) => Stop | null) | null): TyId | Stop {
@@ -195,7 +195,7 @@ type Refinement = { readonly kind: "splitter"; readonly block: Block }
   | { readonly kind: "predicate"; readonly nodes: ReadonlyMap<number, GraphNode> };
 interface WorkLink { readonly value: Refinement; next: WorkLink | null }
 
-export function readGraphValue(data: GraphValue, work: PublicationWork): PublicationResult<GraphValue> {
+export function readGraphValue(data: GraphValue, work: TypePublicationWork): PublicationResult<GraphValue> {
   if (data.kind === "type") {
     const selected = readTypeData(data.value, work, "read");
     return selected.kind === "resource-limit" ? selected : { kind: "complete", value: { kind: "type", value: selected.value } };
@@ -250,7 +250,7 @@ function connect(source: GraphNode, target: GraphNode, role: number): void {
   target.incoming.push(edge);
 }
 
-function graph(table: TypeTable, work: PublicationWork): PublicationResult<{
+function graph(table: TypeTable, work: TypePublicationWork): PublicationResult<{
   readonly types: readonly GraphNode[]; readonly signatures: readonly GraphNode[];
 }> {
   const initial: Block = { id: 0, nodes: new Map() };
@@ -282,7 +282,7 @@ function orderedNumbers(values: Iterable<number>): readonly number[] {
   return [...values].sort((left, right) => left - right);
 }
 
-function refine(nodes: readonly GraphNode[], budget: PublicationWork): PublicationResult<readonly Block[]> {
+function refine(nodes: readonly GraphNode[], budget: TypePublicationWork): PublicationResult<readonly Block[]> {
   const blocks: Block[] = [];
   let current: Block | null = null;
   let label: string | null = null;
@@ -371,7 +371,7 @@ function refine(nodes: readonly GraphNode[], budget: PublicationWork): Publicati
   return { kind: "complete", value: blocks };
 }
 
-function structuralKey(node: GraphNode, work: PublicationWork): PublicationResult<string> {
+function structuralKey(node: GraphNode, work: TypePublicationWork): PublicationResult<string> {
   if (!chargeWork(work, 1)) return workLimit(work);
   const roles = new Map<number, number[]>();
   for (const edge of node.outgoing) {
@@ -388,7 +388,7 @@ function structuralKey(node: GraphNode, work: PublicationWork): PublicationResul
 
 export interface TypePartition { readonly types: readonly TyId[]; readonly signatures: readonly SigId[] }
 
-export function partitionTypes(table: TypeTable, work: PublicationWork): PublicationResult<TypePartition> {
+export function partitionTypes(table: TypeTable, work: TypePublicationWork): PublicationResult<TypePartition> {
   const selected = graph(table, work);
   if (selected.kind === "resource-limit") return selected;
   const arena = selected.value;
@@ -404,7 +404,7 @@ export function partitionTypes(table: TypeTable, work: PublicationWork): Publica
     signatures: arena.signatures.map(node => required(signatures, node.block.id)) } };
 }
 
-export function canonicalTypes(input: TypePublication, work: PublicationWork): PublicationResult<TypePublication> {
+export function canonicalTypes(input: TypePublication, work: TypePublicationWork): PublicationResult<TypePublication> {
   const selected = graph(input.table, work);
   if (selected.kind === "resource-limit") return selected;
   const arena = selected.value;

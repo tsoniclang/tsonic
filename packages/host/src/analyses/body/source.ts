@@ -1,5 +1,5 @@
 import type { DataflowAccount, DataflowResult } from "../../dataflow/contract.js";
-import { chargeResultEntries, chargeWork } from "../../dataflow/index.js";
+import { accountFailure, chargeResultEntries, chargeWork } from "../../dataflow/index.js";
 import type { NodeId } from "../../ids/contract.js";
 import { iterateChildrenOfSyntax } from "../../ir-hir/index.js";
 import type { TirBody, TirNode, TypedPhase } from "../../ir-tir/contract.js";
@@ -62,6 +62,8 @@ export function orderedRows<Value>(values: readonly Value[], compare: (left: Val
         const first = current[left];
         const second = current[right];
         const takeLeft = right === end || left < middle && first !== undefined && second !== undefined && compare(first, second) <= 0;
+        const stopped = accountFailure(account);
+        if (stopped !== null) return stopped;
         const value = current[takeLeft ? left++ : right++];
         if (value === undefined) throw new TypeError("A body-analysis ordering retains every admitted row.");
         buffer.push(value);

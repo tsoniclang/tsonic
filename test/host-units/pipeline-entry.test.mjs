@@ -184,6 +184,106 @@ test(`real public Host analysis retains ${form} boolean negation as its selected
   assert.deepEqual(callable.facts.map(facts => facts.execution.provided), [1]);
 });
 
+test("real public Host analysis publishes a recursive declared alias without unfolding its member graph", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal",
+    "export type Link = { next: Link }; export function identity(value: boolean): boolean { return value; }\n");
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok");
+  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  const main = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
+  const module = result.value.modules.find(module => module.module === main);
+  const root = module.bodies.find(body => body.kind === "selected" && body.tir.root.kind === "SourceFile");
+  const alias = root.tir.root.statements.nodes.find(node => node.kind === "TypeAliasDeclaration");
+  assert.equal(alias !== undefined, true);
+  const shape = result.value.index.types.terms[alias.tsonic.type];
+  assert.equal(shape.kind, "shape");
+  assert.equal(shape.members.length, 1);
+  assert.deepEqual(shape.members[0].key, { kind: "text", value: "next" });
+  assert.equal(shape.members[0].read, alias.tsonic.type);
+});
+
+test("real public Host analysis returns a string parameter with its actual entry origins", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", "export function echo(value: string): string { return value; }\n");
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok");
+  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  const main = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
+  const module = result.value.modules.find(module => module.module === main);
+  const callable = module.bodies.find(body => body.kind === "selected" && body.tir.params.length === 1);
+  assert.equal(callable !== undefined, true);
+  assert.deepEqual(callable.facts.map(facts => facts.execution.provided), [1]);
+  assert.equal(result.value.index.types.terms[callable.tir.params[0].type.tsonic.type].kind, "string");
+  const facts = callable.facts[0];
+  const returns = facts.origins.subjects.filter(subject => subject.role === "return");
+  assert.equal(returns.length, 1);
+  const returned = facts.arena.origins.find(origins => origins.id === returns[0].origins);
+  assert.equal(returned.kind, "complete");
+  assert.equal(returned.includesAbsence, false);
+  assert.equal(returned.producers.length, 1);
+  const bound = facts.arena.boundProducers.find(row => row.id === returned.producers[0]);
+  const producer = facts.arena.producers.find(row => row.id === bound.producer);
+  assert.equal(producer.kind, "parameter");
+  assert.equal(producer.index, 0);
+  assert.deepEqual(bound.bindings, callable.mir.bindings.bindings);
+  assert.equal(facts.arena.contexts.find(row => row.id === bound.context).arguments[0], returned.id);
+  const escapes = facts.origins.escapes.filter(escape => escape.target.kind === "return");
+  assert.equal(escapes.length, 1);
+  assert.equal(escapes[0].producer, producer.id);
+  const summary = result.value.index.summaries.find(summary => summary.key.kind === "body"
+    && fixture.types.executionKey(summary.key.execution) === fixture.types.executionKey(facts.execution));
+  assert.equal(summary !== undefined, true);
+  const resultOrigins = summary.arena.origins.find(origins => origins.id === summary.result);
+  assert.equal(resultOrigins.producers.length, 1);
+  assert.equal(summary.retention.length, 1);
+  assert.equal(summary.retention[0].source, resultOrigins.producers[0]);
+  assert.deepEqual(summary.retention[0].into, { kind: "return" });
+  assert.equal(summary.retention[0].at.kind, "body");
+  assert.deepEqual(summary.retention[0].at.execution, facts.execution);
+  assert.deepEqual(summary.retention[0].at.point, escapes[0].point);
+  assert.equal(summary.retention[0].at.edge, null);
+});
+
+test("real public Host analysis transports a string argument and return through the selected direct call", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal",
+    "export function pass(value: string): string { return value; } export function call(value: string): string { return pass(value); }\n");
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok");
+  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  const main = result.value.modules.find(module => module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts"));
+  const selected = main.bodies.filter(body => body.kind === "selected");
+  const caller = selected.find(body => body.mir.blocks.some(block => block.terminator.kind === "call"));
+  assert.equal(caller !== undefined, true);
+  const call = caller.mir.blocks.find(block => block.terminator.kind === "call").terminator;
+  assert.equal(call.callee.kind, "direct");
+  const callee = selected.find(body => fixture.types.sameInstance(body.instance, call.callee.resolution.activation));
+  assert.equal(callee !== undefined, true);
+  assert.deepEqual(call.arguments.map(argument => [argument.kind, argument.passing]), [["value", "by-value"]]);
+  assert.deepEqual(caller.facts.map(facts => facts.execution.provided), [1]);
+  const facts = caller.facts[0];
+  const returned = facts.origins.subjects.find(subject => subject.role === "return");
+  assert.equal(returned !== undefined, true);
+  const origins = facts.arena.origins.find(row => row.id === returned.origins);
+  assert.equal(origins.kind, "complete");
+  assert.equal(origins.includesAbsence, false);
+  assert.equal(origins.producers.length, 1);
+  const bound = facts.arena.boundProducers.find(row => row.id === origins.producers[0]);
+  const producer = facts.arena.producers.find(row => row.id === bound.producer);
+  assert.equal(producer.kind, "parameter");
+  assert.equal(producer.index, 0);
+  assert.deepEqual(bound.bindings, caller.mir.bindings.bindings);
+  const summary = result.value.index.summaries.find(row => row.key.kind === "body"
+    && fixture.types.executionKey(row.key.execution) === fixture.types.executionKey(facts.execution));
+  assert.equal(summary !== undefined, true);
+  assert.equal(summary.arena.origins.find(row => row.id === summary.result).producers.length, 1);
+  assert.equal(summary.retention.some(row => row.into.kind === "return"), true);
+});
+
 test("real public Host analysis uses a selected native boolean negation as its branch condition", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

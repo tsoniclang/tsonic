@@ -6,7 +6,7 @@ import { Session } from "node:inspector";
 import { basename, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { after, before, test } from "node:test";
-import { encodePackageId, encodeModuleId, encodeDefId, encodeBodyId, encodeGroupId, encodeKey } from "../../packages/host/dist/ids/index.js";
+import { encodePackageId, encodeModuleId, encodeDefId, decodeDefId, encodeBodyId, encodeGroupId, encodeKey } from "../../packages/host/dist/ids/index.js";
 import { runCase } from "../host-cases/case.mjs";
 import { compareCaseValues } from "../host-cases/compare.mjs";
 import { hostCatalogue } from "../architecture/host/catalogue.mjs";
@@ -15,11 +15,12 @@ import { checkCoverage } from "../architecture/host/coverage.mjs";
 import { parseSources } from "../architecture/host/import-graph.mjs";
 import { nativeFactsCases } from "./ir-types-native-facts.cases.mjs";
 import { bindingVerificationCases } from "./fixtures/types-binding-verification.mjs";
+import { graphInsertionCases } from "./fixtures/types-graph-insertion.mjs";
 import { literalCompatibilityCases } from "./fixtures/types-literal-compatibility.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const tooling = process.env.TSONIC_HOST_TOOLING_ROOT ?? repository;
-const productNames = ["index", "work", "value", "selector-path", "arena", "interner", "canonical", "copy", "normalize", "publication-fields", "publication-read", "substitute", "print", "parse", "text-readers", "text-values", "text-components", "text-records", "verify", "verify-bindings", "native-facts", "native-carrier", "literal-compatibility"];
+const productNames = ["index", "work", "value", "selector-path", "arena", "interner", "intern-graph", "graph-stage", "canonical", "copy", "normalize", "publication-fields", "publication-read", "substitute", "print", "parse", "text-readers", "text-values", "text-components", "text-records", "verify", "verify-bindings", "native-facts", "native-carrier", "literal-compatibility"];
 const runtimeFiles = productNames.map(name => resolve(repository, `packages/host/dist/ir-types/${name}.js`));
 const sourceFiles = [...productNames, "contract", "data", "native-facts-data"].map(name => resolve(repository, `packages/host/src/ir-types/${name}.ts`));
 const session = new Session();
@@ -38,19 +39,119 @@ before(async () => {
   await post("Profiler.enable");
   await post("Profiler.startPreciseCoverage", { callCount: true, detailed: true });
   ({ createTypeInterner, seedTypeInterner, internType, internSignature, readType, readSignature, viewTypes, exportTypes,
-    substitute, substituteSignature, substituteBindingValues, printTypes, parseTypes, verifyTypes: runTypeVerifier, encodeSelectorPath,
-    instanceKey, sameInstance, executionKey, declaredExecutionKey, bindingVectorKey, artifactBindingsKey, bindingVectorData,
-    artifactBindingsData, signatureRequestData, signatureRequestKey, rigidBindings } = await import("../../packages/host/dist/ir-types/index.js"));
+    substitute, substituteSignature, substituteBindingValues, printTypes, parseTypes, verifyTypes: runTypeVerifier, encodeSelectorPath, instanceKey, sameInstance, executionKey,
+    declaredExecutionKey, bindingVectorKey, artifactBindingsKey, bindingVectorData, artifactBindingsData,
+    signatureRequestData, signatureRequestKey, rigidBindings } = await import("../../packages/host/dist/ir-types/index.js"));
 });
 const moduleId = encodeModuleId({ package: encodePackageId("ir-types-tests"), path: "main.ts" });
 const definition = name => encodeDefId({ module: moduleId, segments: [{ name, ordinal: 0 }] });
+const parameterDeclaration = (owner, ordinal) => {
+  const decoded = decodeDefId(owner);
+  assert.equal(decoded.kind, "decoded");
+  return encodeDefId({ module: decoded.value.module, segments: [...decoded.value.segments, { name: `T${ordinal}`, ordinal: 0 }] });
+};
 const owner = definition("Owner");
 const other = definition("Other");
+test("atomic finite graph insertion shares the canonical Types owner", async suite =>
+  graphInsertionCases(suite, await import("../../packages/host/dist/ir-types/index.js")));
+test("the one selector-path encoding: each selector is one array beginning with its kind; equal paths are equal and every differing field differs", () => {
+  const body = encodeBodyId({ owner: definition("Selected"), role: "function", ordinal: 0 });
+  const otherBody = encodeBodyId({ owner: definition("Selected"), role: "function", ordinal: 1 });
+  const node = (in_, number) => ({ kind: "body", value: { body: in_, node: number } });
+  const item = (name, number) => ({ kind: "item", value: { owner: definition(name), node: number } });
+  const construction = (number, captures) => ({ occurrence: { body, node: number }, captures });
+  const family = (origin, path, extra = {}) => ({ origin, component: { root: node(body, 1), path },
+    parameters: [parameterDeclaration(definition("Sum"), 0)], roles: [{ authoredIndex: 0, component: item("Sum", 2), member: 5 }], ...extra });
+  assert.deepEqual(encodeSelectorPath([]), []);
+  const sparse = [];
+  sparse.length = 1;
+  assert.throws(() => encodeSelectorPath(sparse), TypeError, "a missing selector is not an empty path");
+  assert.deepEqual(encodeSelectorPath([{ kind: "tuple-element", index: 2 }, { kind: "awaited" }]), [["tuple-element", 2], ["awaited"]]);
+  assert.deepEqual(encodeSelectorPath([{ kind: "member", origin: { kind: "mapped", owner: node(body, 7), key: { kind: "text", value: "k" } } }]),
+    [["member", ["mapped", ["body", body, 7], ["text", "k"]]]]);
+  assert.deepEqual(encodeSelectorPath([{ kind: "construction-argument", definition: construction(3, [{ body, local: 4 }]), index: 1 }]),
+    [["construction-argument", [body, 3], [[body, 4]], 1]]);
+  assert.deepEqual(encodeSelectorPath([{ kind: "sum-arm", family: family("authored", [{ kind: "optional-value" }]), index: 1 }]),
+    [["sum-arm", "authored", ["body", body, 1], [["optional-value"]], [parameterDeclaration(definition("Sum"), 0)], [[0, ["item", definition("Sum"), 2], 5]], 1]]);
+  const selectors = [
+    ...["class-value", "optional-value", "array-element", "intersection-result", "projection-source", "awaited"].map(kind => ({ kind })),
+    ...["tuple-element", "union-member", "argument-place", "parameter-place", "intersection-member"].flatMap(kind => [{ kind, index: 0 }, { kind, index: 1 }]),
+    ...["argument-tail", "parameter-tail"].flatMap(kind => [{ kind, start: 0 }, { kind, start: 1 }]),
+    { kind: "construction-argument", definition: construction(3, []), index: 0 },
+    { kind: "construction-argument", definition: construction(3, []), index: 1 },
+    { kind: "construction-argument", definition: construction(4, []), index: 0 },
+    { kind: "construction-argument", definition: { occurrence: { body: otherBody, node: 3 }, captures: [] }, index: 0 },
+    { kind: "construction-argument", definition: construction(3, [{ body, local: 0 }]), index: 0 },
+    { kind: "construction-argument", definition: construction(3, [{ body, local: 1 }]), index: 0 },
+    { kind: "construction-argument", definition: construction(3, [{ body, local: 0 }, { body, local: 1 }]), index: 0 },
+    { kind: "member", origin: { kind: "declared", declaration: definition("A") } },
+    { kind: "member", origin: { kind: "declared", declaration: definition("B") } },
+    { kind: "member", origin: { kind: "class-prototype", owner: definition("A") } },
+    { kind: "member", origin: { kind: "mapped", owner: node(body, 7), key: { kind: "text", value: "k" } } },
+    { kind: "member", origin: { kind: "mapped", owner: node(body, 8), key: { kind: "text", value: "k" } } },
+    { kind: "member", origin: { kind: "mapped", owner: item("A", 7), key: { kind: "text", value: "k" } } },
+    { kind: "member", origin: { kind: "mapped", owner: node(body, 7), key: { kind: "text", value: "1" } } },
+    { kind: "member", origin: { kind: "mapped", owner: node(body, 7), key: { kind: "number", value: { numerator: 1n, denominator: 1n, negativeZero: false } } } },
+    { kind: "member", origin: { kind: "mapped", owner: node(body, 7), key: { kind: "number", value: { numerator: 0n, denominator: 1n, negativeZero: true } } } },
+    { kind: "member", origin: { kind: "mapped", owner: node(body, 7), key: { kind: "number", value: { numerator: 0n, denominator: 1n, negativeZero: false } } } },
+    { kind: "member", origin: { kind: "mapped", owner: node(body, 7), key: { kind: "number", value: { numerator: 1n, denominator: 2n, negativeZero: false } } } },
+    { kind: "member", origin: { kind: "mapped", owner: node(body, 7), key: { kind: "symbol", declaration: definition("A") } } },
+    ...["index-key", "index-value"].flatMap(kind => [{ kind, origin: item("A", 0), key: 0 },
+      { kind, origin: item("B", 0), key: 0 }, { kind, origin: item("A", 1), key: 0 },
+      { kind, origin: node(body, 0), key: 0 }, { kind, origin: item("A", 0), key: 1 }]),
+    { kind: "parameter", signature: 0, index: 0 }, { kind: "parameter", signature: 1, index: 0 }, { kind: "parameter", signature: 0, index: 1 },
+    ...["receiver", "result"].flatMap(kind => [{ kind, signature: 0 }, { kind, signature: 1 }]),
+    { kind: "signature-tail", signature: 0, start: 0, readonly: false }, { kind: "signature-tail", signature: 1, start: 0, readonly: false },
+    { kind: "signature-tail", signature: 0, start: 1, readonly: false }, { kind: "signature-tail", signature: 0, start: 0, readonly: true },
+    { kind: "tuple-slice", start: 0, endCount: 0, readonly: false }, { kind: "tuple-slice", start: 1, endCount: 0, readonly: false },
+    { kind: "tuple-slice", start: 0, endCount: 1, readonly: false }, { kind: "tuple-slice", start: 0, endCount: 0, readonly: true },
+    { kind: "type-argument", declaration: definition("A"), index: 0 }, { kind: "type-argument", declaration: definition("B"), index: 0 },
+    { kind: "type-argument", declaration: definition("A"), index: 1 },
+    { kind: "sum-arm", family: family("authored", []), index: 0 }, { kind: "sum-arm", family: family("authored", []), index: 1 },
+    { kind: "sum-arm", family: family("inferred", []), index: 0 },
+    { kind: "sum-arm", family: family("authored", [{ kind: "optional-value" }]), index: 0 },
+    { kind: "sum-arm", family: family("authored", [{ kind: "sum-arm", family: family("authored", [{ kind: "array-element" }]), index: 0 }]), index: 0 },
+    { kind: "sum-arm", family: family("authored", [{ kind: "sum-arm", family: family("authored", [{ kind: "class-value" }]), index: 0 }]), index: 0 },
+    { kind: "sum-arm", family: family("authored", [], { parameters: [] }), index: 0 },
+    { kind: "sum-arm", family: family("authored", [], { parameters: [parameterDeclaration(definition("Sum"), 1)] }), index: 0 },
+    { kind: "sum-arm", family: family("authored", [], { roles: [] }), index: 0 },
+    { kind: "sum-arm", family: family("authored", [], { roles: [{ authoredIndex: 1, component: item("Sum", 2), member: 5 }] }), index: 0 },
+    { kind: "sum-arm", family: family("authored", [], { roles: [{ authoredIndex: 0, component: item("Sum", 3), member: 5 }] }), index: 0 },
+    { kind: "sum-arm", family: family("authored", [], { roles: [{ authoredIndex: 0, component: item("Sum", 2), member: 6 }] }), index: 0 },
+    { kind: "sum-arm", family: { ...family("authored", []), component: { root: node(body, 2), path: [] } }, index: 0 },
+  ];
+  const keys = selectors.map(selected => encodeKey(encodeSelectorPath([selected])));
+  assert.equal(new Set(keys).size, selectors.length, "every differing field gives a different key");
+  assert.deepEqual(selectors.map(selected => encodeKey(encodeSelectorPath([structuredClone(selected)]))), keys, "an equal selector built again gives the same key");
+  const first = selectors[0];
+  const second = selectors[7];
+  assert.notEqual(encodeKey(encodeSelectorPath([first, second])), encodeKey(encodeSelectorPath([second, first])), "order is part of the path");
+  assert.notEqual(encodeKey(encodeSelectorPath([first])), encodeKey(encodeSelectorPath([first, first])), "length is part of the path");
+  assert.notEqual(encodeKey(encodeSelectorPath([{ kind: "sum-arm", family: family("authored", [first, second]), index: 0 }])),
+    encodeKey(encodeSelectorPath([{ kind: "sum-arm", family: family("authored", [first]), index: 0 }, second])),
+    "a selector of a family's own path is not a selector of the outer path");
+  const shared = [{ kind: "array-element" }];
+  assert.deepEqual(encodeSelectorPath([
+    { kind: "sum-arm", family: family("authored", shared), index: 0 },
+    { kind: "sum-arm", family: family("inferred", shared), index: 1 },
+  ]).map(selected => selected[3]), [[["array-element"]], [["array-element"]]],
+  "sharing a completed path is not a cycle");
+  const cyclic = [];
+  cyclic.push({ kind: "sum-arm", family: family("authored", cyclic), index: 0 });
+  assert.throws(() => encodeSelectorPath(cyclic), /acyclic/u, "a self cycle is a caller defect, not unbounded expansion");
+  const firstPath = [];
+  const secondPath = [{ kind: "sum-arm", family: family("authored", firstPath), index: 0 }];
+  firstPath.push({ kind: "sum-arm", family: family("authored", secondPath), index: 0 });
+  assert.throws(() => encodeSelectorPath(firstPath), /acyclic/u, "a cycle spanning paths is rejected at its actual repeated ancestor");
+  let deep = [];
+  for (let level = 0; level < 20000; level += 1) deep = [{ kind: "sum-arm", family: family("authored", deep), index: 0 }];
+  let depth = 0;
+  for (let current = encodeSelectorPath(deep); current.length === 1; current = current[0][3]) depth += 1;
+  assert.equal(depth, 20000, "a deeply nested family path is encoded without native recursion");
+});
+
 test("selected native fact contract data has one exact canonical owner", async suite => {
   await nativeFactsCases(suite, await import("../../packages/host/dist/ir-types/index.js"));
-});
-test("selected literal compatibility is one charged structural relation", async suite => {
-  await literalCompatibilityCases(suite, await import("../../packages/host/dist/ir-types/index.js"));
 });
 test("canonical binding-only verification has one admitted traversal", async suite => {
   await bindingVerificationCases(suite, await import("../../packages/host/dist/ir-types/index.js"));
@@ -221,7 +322,7 @@ test("physical member storage projects only the canonical qualified selection an
     assert.notEqual(encodeKey(memberStorageData({ ...selection, origins: [origin] })), original);
   }
   for (const change of [{ primary: null }, { selectedDeclarations: [other] },
-    { bindings: { ...bindings, classBindings: [{ kind: "bound", parameter: { owner, index: 0 }, type: 1 }] } }]) {
+    { bindings: { ...bindings, classBindings: [{ kind: "bound", parameter: parameterDeclaration(owner, 0), type: 1 }] } }]) {
     assert.notEqual(encodeKey(memberStorageData({ ...selection, ...change })), original);
   }
   const late = { ...selection, read: 1, write: 2, getter: null, setter: null, location: { kind: "accessor" } };
@@ -236,18 +337,18 @@ const limits = (changes = {}) => ({ maximumDepth: 128, maximumVisits: 131072,
 const publicationLimits = { maximumWork: 100000000, maximumCreatedRecords: 1000000 };
 
 test("rigid bindings preserve the complete admitted qualified scope without changing its family or slot", () => {
-  const scope = { classParameters: [{ owner, index: 1 }, { owner, index: 0 }],
-    methodParameters: [{ owner: method, index: 0 }], capturedParameters: [{ owner: other, index: 0 }],
+  const scope = { classParameters: [parameterDeclaration(owner, 1), parameterDeclaration(owner, 0)],
+    methodParameters: [parameterDeclaration(method, 0)], capturedParameters: [parameterDeclaration(other, 0)],
     selfOwners: [other, owner] };
   const vector = rigidBindings(scope);
   assert.deepEqual(vector, { classBindings: scope.classParameters.map(parameter => ({ kind: "rigid", parameter })),
-    methodBindings: [{ kind: "rigid", parameter: { owner: method, index: 0 } }],
-    capturedBindings: [{ kind: "rigid", parameter: { owner: other, index: 0 } }],
+    methodBindings: [{ kind: "rigid", parameter: parameterDeclaration(method, 0) }],
+    capturedBindings: [{ kind: "rigid", parameter: parameterDeclaration(other, 0) }],
     selfBindings: [{ kind: "rigid", owner: other }, { kind: "rigid", owner }] });
   assert.notEqual(bindingVectorKey(vector), bindingVectorKey(rigidBindings({ ...scope,
-    capturedParameters: [{ owner, index: 0 }] })));
+    capturedParameters: [parameterDeclaration(owner, 0)] })));
   assert.deepEqual(rigidBindings(emptyScope()), emptyBindings());
-  assert.deepEqual(scope.classParameters, [{ owner, index: 1 }, { owner, index: 0 }]);
+  assert.deepEqual(scope.classParameters, [parameterDeclaration(owner, 1), parameterDeclaration(owner, 0)]);
 });
 function completePublication(result) {
   assert.equal(result.kind, "complete", "the complete publication outcome is required");
@@ -266,7 +367,7 @@ test("selected omission capability is independent of required syntax and survive
   const interner = createTypeInterner();
   const voidType = internType(interner, { kind: "intrinsic", intrinsic: "void" });
   const absence = internType(interner, { kind: "intrinsic", intrinsic: "absence" });
-  const formal = internType(interner, { kind: "param", parameter: { owner, index: 0 } });
+  const formal = internType(interner, { kind: "param", parameter: parameterDeclaration(owner, 0) });
   const roots = [];
   for (const type of [voidType, absence, formal]) for (const acceptsOmission of [false, true]) {
     const parameter = { declaration: method, kind: "required", type, passing: "by-value", initializer: null, acceptsOmission };
@@ -283,7 +384,7 @@ test("selected omission capability is independent of required syntax and survive
   const copied = seedTypeInterner(table);
   const generic = roots.slice(-2);
   const substituted = substituteSignature(copied, generic,
-    { ...emptyBindings(), classBindings: [{ kind: "bound", parameter: { owner, index: 0 }, type: voidType }] }, limits());
+    { ...emptyBindings(), classBindings: [{ kind: "bound", parameter: parameterDeclaration(owner, 0), type: voidType }] }, limits());
   assert.equal(substituted.kind, "complete");
   assert.deepEqual(substituted.value.map(id => readSignature(copied, id).parameters[0].acceptsOmission), [false, true]);
   const published = completePublication(exportTypes(copied, publicationLimits));
@@ -312,7 +413,7 @@ test("constant reference keys retain producer context and the complete initializ
   assert.notEqual(constantReferenceKey({ initializer: { ...initializer, body: otherBody }, context: "compile-time" }), keys[2]);
   const families = ["classBindings", "methodBindings", "capturedBindings", "selfBindings"];
   for (const family of families) {
-    const binding = family === "selfBindings" ? { kind: "rigid", owner } : { kind: "rigid", parameter: { owner, index: 0 } };
+    const binding = family === "selfBindings" ? { kind: "rigid", owner } : { kind: "rigid", parameter: parameterDeclaration(owner, 0) };
     const reference = vector => ({ initializer: { body, bindings: { kind: "instantiated", bindings: { ...emptyBindings(), [family]: vector } } },
       context: "enum-member" });
     assert.notEqual(constantReferenceKey(reference([binding, undefined])), constantReferenceKey(reference([undefined, binding])));
@@ -354,7 +455,7 @@ test("seeded and substituted rows enter the same readonly run view with their ge
   assert.equal(seedView.terms[1] === readType(seeded, 1), true);
   assert.equal(seedView.signatures[0] === readSignature(seeded, 0), true);
   assert.equal(seedView.terms === input.terms || seedView.signatures === input.signatures, false);
-  const parameter = { owner, index: 0 };
+  const parameter = parameterDeclaration(owner, 0);
   const formal = internType(seeded, { kind: "param", parameter });
   const array = internType(seeded, { kind: "array", element: formal, readonly: false });
   const generic = internSignature(seeded, signature({ result: array }));
@@ -375,7 +476,7 @@ test("batched substitution preserves empty results and validates the one supplie
   for (const apply of [roots => substitute(interner, roots, emptyBindings(), limits({ maximumVisits: -1 })),
     roots => substituteSignature(interner, roots, emptyBindings(), limits({ maximumVisits: -1 }))])
     assert.throws(() => apply([]), { name: "TypeError", message: "ir-types: expansion maxima must be nonnegative safe integers." });
-  const binding = { kind: "rigid", parameter: { owner, index: 0 } };
+  const binding = { kind: "rigid", parameter: parameterDeclaration(owner, 0) };
   assert.throws(() => substitute(interner, [], { ...emptyBindings(), classBindings: [binding, binding] }, limits()),
     /contains each owner-qualified parameter once/u);
   const self = { kind: "rigid", owner };
@@ -384,7 +485,7 @@ test("batched substitution preserves empty results and validates the one supplie
 });
 
 test("one signature batch preserves root order, duplicate roots, exact rows and one cumulative visit allowance", () => {
-  const parameter = { owner, index: 0 };
+  const parameter = parameterDeclaration(owner, 0);
   const table = { terms: [primitive, { kind: "param", parameter }, { kind: "string" }], signatures: [0, 1, 2].map(id => ({
     id, ...signature({ declaration: definition(`batch-${id}`), result: 1 }),
   })) };
@@ -403,7 +504,7 @@ test("one signature batch preserves root order, duplicate roots, exact rows and 
 });
 
 test("a later refused batch root returns no partial vector and never publishes that root's incomplete graph", () => {
-  const parameter = { owner, index: 0 };
+  const parameter = parameterDeclaration(owner, 0);
   const table = { terms: [{ kind: "param", parameter }, { kind: "string" },
     { kind: "optional", value: 0 }, { kind: "array", element: 2, readonly: false }], signatures: [] };
   const interner = seedTypeInterner(table);
@@ -423,7 +524,7 @@ for (const [count, ownerBytes] of [[1, 0], [64, 4096], [4096, 4096]])
       id, ...signature({ declaration: definition(`short-${id}`) }),
     })) };
     const interner = seedTypeInterner(table);
-    const bindings = { ...emptyBindings(), capturedBindings: [{ kind: "rigid", parameter: { owner: longOwner, index: 0 } }] };
+    const bindings = { ...emptyBindings(), capturedBindings: [{ kind: "rigid", parameter: parameterDeclaration(longOwner, 0) }] };
     const roots = table.signatures.map(row => row.id).reverse();
     assert.deepEqual(substituteSignature(seedTypeInterner(table), roots, bindings, limits({ maximumVisits: 3 * count })),
       { kind: "resource-limit", dimension: "visits", maximum: 3 * count });
@@ -460,9 +561,9 @@ test("plain and binding-value root batches share exact cold, warm, duplicate and
 });
 
 test("binding-value substitution preserves four qualified families, genuine rigid slots, self and composite native types", () => {
-  const parameter = { owner, index: 0 };
-  const methodParameter = { owner: method, index: 0 };
-  const capturedParameter = { owner: captured, index: 0 };
+  const parameter = parameterDeclaration(owner, 0);
+  const methodParameter = parameterDeclaration(method, 0);
+  const capturedParameter = parameterDeclaration(captured, 0);
   const table = { terms: [{ kind: "param", parameter }, { kind: "self", owner }, { kind: "string" },
     { kind: "primitive", primitive: "bool" }, { kind: "array", element: 0, readonly: false }], signatures: [] };
   const outer = { classBindings: [{ kind: "bound", parameter, type: 2 }],
@@ -491,7 +592,7 @@ test("binding-value substitution preserves four qualified families, genuine rigi
 });
 test("substitution charges each binding traversal before reading later rows and rejects sparse caller inputs", () => {
   const table = { terms: [primitive], signatures: [] };
-  const parameter = { owner, index: 0 };
+  const parameter = parameterDeclaration(owner, 0);
   const empty = emptyBindings();
   const invoke = (values, bindings, maximumVisits) => substituteBindingValues(seedTypeInterner(table), values, bindings, limits({ maximumVisits }));
   for (const family of ["classBindings", "methodBindings", "capturedBindings", "selfBindings"]) {
@@ -596,7 +697,7 @@ test("seed copies shared inline values by value without freezing or retaining mu
 });
 
 test("seed continues substitution in the same arena and retains every original issued row", () => {
-  const parameter = { owner, index: 0 };
+  const parameter = parameterDeclaration(owner, 0);
   const table = { terms: [{ kind: "param", parameter }, primitive, { kind: "array", element: 0, readonly: false }],
     signatures: [{ id: 0, ...signature({ result: 2 }) }] };
   assert.deepEqual(verifyTypes({ table, bindings: [], evidence: [] }), []);
@@ -612,10 +713,10 @@ test("seed continues substitution in the same arena and retains every original i
 });
 
 test("signature-root identity and own-binder shadowing share no memo namespace with numeric type roots", () => {
-  const parameter = { owner, index: 0 };
+  const parameter = parameterDeclaration(owner, 0);
   const table = { terms: [{ kind: "param", parameter }, primitive], signatures: [
     { id: 0, ...signature({ result: 1 }) },
-    { id: 1, ...signature({ typeParameters: [{ identity: parameter, declaration: method, constraint: null, default: null }] }) },
+    { id: 1, ...signature({ typeParameters: [{ declaration: parameter, constraint: null, default: null }] }) },
   ] };
   const bindings = { ...emptyBindings(), classBindings: [{ kind: "bound", parameter, type: 1 }] };
   assert.deepEqual(verifyTypes({ table, bindings: [], evidence: [] }), []);
@@ -644,7 +745,7 @@ test("many signatures share a long unused binding environment without changing a
     const interner = seedTypeInterner(table);
     for (const parameterOwner of [longOwner, other]) {
       const bindings = { ...emptyBindings(), capturedBindings: [
-        { kind: "bound", parameter: { owner: parameterOwner, index: 0 }, type: 0 },
+        { kind: "bound", parameter: parameterDeclaration(parameterOwner, 0), type: 0 },
       ] };
       for (const capacity of [limits(), limits({ maximumVisits: 0 })]) {
         assert.deepEqual(substitute(interner, [1], bindings, capacity), capacity.maximumVisits === 0
@@ -663,7 +764,7 @@ test("many signatures share a long unused binding environment without changing a
 
 test("deep signature-root substitution emits its complete iterative staged chain without a callable wrapper", () => {
   const count = 10000;
-  const parameter = { owner, index: 0 };
+  const parameter = parameterDeclaration(owner, 0);
   const terms = [{ kind: "param", parameter }];
   for (let position = 1; position <= count; position += 1)
     terms.push({ kind: "array", element: position - 1, readonly: false });
@@ -689,7 +790,7 @@ test("deep signature-root substitution emits its complete iterative staged chain
 });
 
 test("signature-root substitution retains a genuine self-recursive signature and complete old rows", () => {
-  const parameter = { owner, index: 0 };
+  const parameter = parameterDeclaration(owner, 0);
   const table = { terms: [{ kind: "param", parameter }, primitive],
     signatures: [{ id: 0, ...signature({ composition: { kind: "union", signatures: [0] } }) }] };
   const interner = seedTypeInterner(table);
@@ -704,7 +805,7 @@ test("signature-root substitution retains a genuine self-recursive signature and
 });
 
 test("signature-root substitution emits both complete mutually recursive signatures in staged order", () => {
-  const parameter = { owner, index: 0 };
+  const parameter = parameterDeclaration(owner, 0);
   const table = { terms: [{ kind: "param", parameter }, primitive], signatures: [
     { id: 0, ...signature({ composition: { kind: "union", signatures: [1] } }) },
     { id: 1, ...signature({ composition: { kind: "intersection", signatures: [0] } }) },
@@ -723,7 +824,7 @@ test("signature-root substitution emits both complete mutually recursive signatu
 });
 
 test("signature-root substitution preserves a mixed callable and signature recursion without fabricating a root type", () => {
-  const parameter = { owner, index: 0 };
+  const parameter = parameterDeclaration(owner, 0);
   const table = { terms: [{ kind: "param", parameter }, primitive, { kind: "callable", calls: [0], constructs: [] }],
     signatures: [{ id: 0, ...signature({ parameters: [
       { declaration: method, kind: "required", type: 2, passing: "by-value", initializer: null, acceptsOmission: false }] }) }] };
@@ -741,7 +842,7 @@ test("signature-root substitution preserves a mixed callable and signature recur
 });
 
 test("two genuine type roots and a direct signature root share one substituted cyclic signature in both request orders", () => {
-  const parameter = { owner, index: 0 };
+  const parameter = parameterDeclaration(owner, 0);
   const shape = signature => ({ kind: "shape", members: [], indexes: [], calls: [signature], constructs: [] });
   const table = { terms: [{ kind: "param", parameter }, primitive,
     { kind: "callable", calls: [0], constructs: [] }, shape(0)],
@@ -768,10 +869,10 @@ test("two genuine type roots and a direct signature root share one substituted c
 });
 
 test("a completed signature-root memo is not reused under an additional outer binder scope", () => {
-  const parameter = { owner, index: 0 };
+  const parameter = parameterDeclaration(owner, 0);
   const table = { terms: [{ kind: "param", parameter }, primitive, { kind: "callable", calls: [1], constructs: [] }],
     signatures: [{ id: 0, ...signature({ result: 2, typeParameters: [
-      { identity: parameter, declaration: method, constraint: null, default: null }] }) }, { id: 1, ...signature() }] };
+      { declaration: parameter, constraint: null, default: null }] }) }, { id: 1, ...signature() }] };
   const interner = seedTypeInterner(table);
   const bindings = { ...emptyBindings(), classBindings: [{ kind: "bound", parameter, type: 1 }] };
   assert.deepEqual(verifyTypes({ table, bindings: [], evidence: [] }), []);
@@ -786,7 +887,7 @@ test("a completed signature-root memo is not reused under an additional outer bi
 });
 
 test("two child type roots in one transformation retain one shared self-recursive signature result", () => {
-  const parameter = { owner, index: 0 };
+  const parameter = parameterDeclaration(owner, 0);
   const shape = selected => ({ kind: "shape", members: [], indexes: [], calls: [selected], constructs: [] });
   const tuple = (left, right) => ({ kind: "tuple", elements: [
     { kind: "required", type: left, declaration: null }, { kind: "required", type: right, declaration: null }], readonly: false });
@@ -836,7 +937,7 @@ test("signature roots enforce every expansion limit exactly at and past the admi
 });
 
 test("signature-root environment, root, three plans and one stage charge before publishing rows", () => {
-  const parameter = { owner, index: 0 };
+  const parameter = parameterDeclaration(owner, 0);
   const simple = { terms: [{ kind: "param", parameter }, primitive], signatures: [{ id: 0, ...signature() }] };
   const bindings = { ...emptyBindings(), classBindings: [{ kind: "bound", parameter, type: 1 }] };
   const interner = seedTypeInterner(simple);
@@ -1355,7 +1456,7 @@ test("flattened members reuse an existing complete row after an intersection ali
   const fixed = (element, length) => ({ kind: "fixed-array", element, extent: { length, runtimeBase: "number" } });
   const terms = [fixed(1, 1n), fixed(0, 1n), fixed(3, 2n), fixed(2, 2n),
     { kind: "union", members: [0, 2] }, { kind: "union", members: [1, 3] }, { kind: "intersection", members: [4, 5] },
-    { kind: "param", parameter: { owner, index: 0 } }, { kind: "union", members: [6, 7] }, { kind: "union", members: [0, 2, 7] }];
+    { kind: "param", parameter: parameterDeclaration(owner, 0) }, { kind: "union", members: [6, 7] }, { kind: "union", members: [0, 2, 7] }];
   assert.deepEqual(terms.map(term => internType(interner, term)), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
   const issued = Array.from({ length: 10 }, (_, type) => readType(interner, type));
   assert.deepEqual(completePublication(exportTypes(interner, publicationLimits)), { table: { terms: [fixed(0, 1n), fixed(1, 2n), terms[7],
@@ -1376,10 +1477,10 @@ test("typed forward references expose shared intersection aliases whose required
     fixed-array(element=t:6, extent=FixedExtent(length=4n, runtimeBase="number")),
     union(members=[t:0, t:2, t:4, t:6]), union(members=[t:1, t:3, t:5, t:7]),
     intersection(members=[t:8, t:9]),
-    param(parameter=TypeParameterIdentity(owner=def:${JSON.stringify(owner)}, index=0)),
-    param(parameter=TypeParameterIdentity(owner=def:${JSON.stringify(owner)}, index=1)),
-    param(parameter=TypeParameterIdentity(owner=def:${JSON.stringify(owner)}, index=2)),
-    param(parameter=TypeParameterIdentity(owner=def:${JSON.stringify(owner)}, index=3)),
+    param(parameter=def:${JSON.stringify(parameterDeclaration(owner, 0))}),
+    param(parameter=def:${JSON.stringify(parameterDeclaration(owner, 1))}),
+    param(parameter=def:${JSON.stringify(parameterDeclaration(owner, 2))}),
+    param(parameter=def:${JSON.stringify(parameterDeclaration(owner, 3))}),
     union(members=[t:10, t:11]), union(members=[t:10, t:12]),
     union(members=[t:10, t:13]), union(members=[t:10, t:14])
   ], signatures=[])`;
@@ -1392,7 +1493,7 @@ test("typed forward references expose shared intersection aliases whose required
   const before = Array.from({ length: 19 }, (_, type) => readType(interner, type));
   const expected = { terms: [
     ...[0, 1, 2, 3].map(index => ({ kind: "fixed-array", element: index, extent: { length: BigInt(index + 1), runtimeBase: "number" } })),
-    ...[0, 1, 2, 3].map(index => ({ kind: "param", parameter: { owner, index } })),
+    ...[0, 1, 2, 3].map(index => ({ kind: "param", parameter: parameterDeclaration(owner, index) })),
     ...[4, 5, 6, 7].map(type => ({ kind: "union", members: [0, 1, 2, 3, type] })),
     { kind: "union", members: [0, 1, 2, 3] },
   ], signatures: [] };
@@ -1509,7 +1610,7 @@ test("all TypeTerm, literal, selector, origin, signature and passing arms round-
   const origins = [{ kind: "declared", declaration: owner }, { kind: "class-prototype", owner: other },
     { kind: "mapped", owner: itemSource, key: { kind: "symbol", declaration: other } }];
   const construction = { occurrence: source.value, captures: [{ body, local: 0 }, { body, local: 1 }] };
-  const family = { origin: "authored", component: { root: source, path: [] }, parameters: [{ owner, index: 0 }],
+  const family = { origin: "authored", component: { root: source, path: [] }, parameters: [parameterDeclaration(owner, 0)],
     roles: [{ authoredIndex: 0, component: source, member: 0 }, { authoredIndex: 1, component: itemSource, member: 1 }] };
   const selectors = [
     { kind: "class-value" }, { kind: "construction-argument", definition: construction, index: 0 }, { kind: "optional-value" },
@@ -1546,18 +1647,18 @@ test("all TypeTerm, literal, selector, origin, signature and passing arms round-
     { kind: "declared", definition: owner, arguments: [0, 1], facet: "instance", extent: null },
     { kind: "declared", definition: owner, arguments: [], facet: "value", extent: { length: 0n, runtimeBase: "number" } },
     { kind: "construction-reference", definition: construction, arguments: [0, 1] },
-    { kind: "enum", definition: definition("Enum") }, { kind: "param", parameter: { owner, index: -0 } },
+    { kind: "enum", definition: definition("Enum") }, { kind: "param", parameter: parameterDeclaration(owner, 0) },
     { kind: "self", owner }, { kind: "projection", source: 0, projection: { kind: "awaited" } },
     { kind: "projection", source: 1, projection: { kind: "component", component: { root: itemSource, path: selectors } } },
     { kind: "open", group: encodeGroupId([body, otherBody]), variable: -0 }, { kind: "error" },
   ];
   const table = { terms: records, signatures: [
     { id: 0, ...signature({ declaration: owner, owner: source, composition: { kind: "union", signatures: [0, 1] },
-      typeParameters: [{ identity: { owner, index: 0 }, declaration: method, constraint: 0, default: 1 }], receiver: 1,
+      typeParameters: [{ declaration: parameterDeclaration(owner, 0), constraint: 0, default: 1 }], receiver: 1,
       parameters: passing.map((mode, index) => ({ declaration: definition(`p${index}`), kind: index === 6 ? "rest" : "required",
         type: 0, passing: mode, initializer: null, acceptsOmission: index === 6 })) }) },
     { id: 1, ...signature({ kind: "construct", owner: itemSource, composition: { kind: "intersection", signatures: [0, 1] },
-      typeParameters: [{ identity: { owner: other, index: 0 }, declaration: other, constraint: null, default: null }],
+      typeParameters: [{ declaration: parameterDeclaration(other, 0), constraint: null, default: null }],
       parameters: [{ declaration: method, kind: "optional", type: 1, passing: "by-value", initializer: null, acceptsOmission: true },
         { declaration: captured, kind: "default", type: 0, passing: "move", initializer: body, acceptsOmission: true }] }) },
   ] };
@@ -1567,7 +1668,7 @@ test("all TypeTerm, literal, selector, origin, signature and passing arms round-
   const normalized = records.map(term => term.kind === "shape" ? { ...term,
     members: [term.members[1], term.members[2], term.members[0]], indexes: [term.indexes[1], term.indexes[0]] } : term);
   assert.deepEqual(ids.map(type => readType(interner, type)), normalized);
-  const verified = normalized.map(term => term.kind === "param" ? { ...term, parameter: { ...term.parameter, index: 0 } } : term);
+  const verified = normalized;
   assert.deepEqual(verifyTypes({ table: { terms: verified, signatures: table.signatures }, bindings: [], evidence: [] }), []);
   const seeded = seedTypeInterner({ terms: verified, signatures: table.signatures });
   assert.deepEqual(verified.map((_, position) => readType(seeded, position)), verified);
@@ -1585,14 +1686,14 @@ test("every reachable plain-number role retains exact special host numbers witho
     const expected = `TypeTable(terms=[open(group=group:${JSON.stringify(group)}, variable=${spelling})], signatures=[])\n`;
     assert.equal(printTypes(table), expected);
     assert.deepEqual(parseTypes(expected), { kind: "parsed", value: table });
-    const nested = { terms: [primitive, { kind: "param", parameter: { owner, index: value } },
+    const nested = { terms: [primitive, { kind: "param", parameter: parameterDeclaration(owner, 0) },
       { kind: "projection", source: 0, projection: { kind: "component", component: { root: source, path: [
         { kind: "tuple-element", index: value }, { kind: "argument-tail", start: value },
         { kind: "tuple-slice", start: value, endCount: value, readonly: false },
         { kind: "sum-arm", index: value, family: { origin: "authored", component: { root: itemSource, path: [] },
-          parameters: [{ owner, index: value }], roles: [{ authoredIndex: value, component: source, member: 0 }] } },
+          parameters: [parameterDeclaration(owner, 0)], roles: [{ authoredIndex: value, component: source, member: 0 }] } },
       ] } } }], signatures: [{ id: 0, ...signature({ typeParameters: [
-        { identity: { owner, index: value }, declaration: method, constraint: null, default: null }] }) }] };
+        { declaration: parameterDeclaration(owner, 0), constraint: null, default: null }] }) }] };
     assert.deepEqual(parseTypes(printTypes(nested)), { kind: "parsed", value: nested });
   }
 });
@@ -1621,8 +1722,8 @@ function invalidText(text, offset, expected) {
 {
   const cases = [
     { name: "boolean", prefix: "TypeTable(terms=[array(element=t:0, readonly=", suffix: ")], signatures=[])", expected: ["boolean"] },
-    { name: "number", prefix: `TypeTable(terms=[param(parameter=TypeParameterIdentity(owner=def:${JSON.stringify(owner)}, index=`,
-      suffix: "))], signatures=[])", expected: ["number"] },
+    { name: "number", prefix: `TypeTable(terms=[open(group=group:${JSON.stringify(encodeGroupId([body]))}, variable=`,
+      suffix: ")], signatures=[])", expected: ["number"] },
     { name: "native", prefix: "TypeTable(terms=[primitive(primitive=", suffix: ")], signatures=[])",
       expected: ["bool", "char", "int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64",
         "int128", "uint128", "native-int", "native-uint", "float16", "float32", "float64", "decimal"] },
@@ -1805,9 +1906,9 @@ test("inline component and category chains remain iterative at 100000 finite rec
 
 test("substitution uses the complete four-family environment and reuses independently interned complete results", () => {
   const interner = createTypeInterner();
-  const classParameter = { owner, index: 0 };
-  const methodParameter = { owner: method, index: 0 };
-  const capturedParameter = { owner: captured, index: 0 };
+  const classParameter = parameterDeclaration(owner, 0);
+  const methodParameter = parameterDeclaration(method, 0);
+  const capturedParameter = parameterDeclaration(captured, 0);
   const parameters = [classParameter, methodParameter, capturedParameter].map(parameter => internType(interner, { kind: "param", parameter }));
   const self = internType(interner, { kind: "self", owner });
   const integer = internType(interner, primitive);
@@ -1832,20 +1933,20 @@ test("substitution uses the complete four-family environment and reuses independ
     selfBindings: [{ kind: "rigid", owner }] };
   assert.deepEqual(substitute(interner, [input], rigid, limits()), { kind: "complete", value: [input] });
   assert.deepEqual(substitute(interner, [input], emptyBindings(), limits()), { kind: "complete", value: [input] });
-  const unrelated = { ...emptyBindings(), classBindings: [{ kind: "bound", parameter: { owner: other, index: 0 }, type: string }],
+  const unrelated = { ...emptyBindings(), classBindings: [{ kind: "bound", parameter: parameterDeclaration(other, 0), type: string }],
     selfBindings: [{ kind: "bound", owner: other, type: integer }] };
   assert.deepEqual(substitute(interner, [input], unrelated, limits()), { kind: "complete", value: [input] });
 });
 
 test("signature binders shadow the exact method identity while outer binders and all signature fields substitute", () => {
   const interner = createTypeInterner();
-  const outer = { owner, index: 0 };
-  const inner = { owner: method, index: 0 };
+  const outer = parameterDeclaration(owner, 0);
+  const inner = parameterDeclaration(method, 0);
   const outerType = internType(interner, { kind: "param", parameter: outer });
   const innerType = internType(interner, { kind: "param", parameter: inner });
   const string = internType(interner, { kind: "string" });
   const input = signature({ declaration: method, owner: source, typeParameters: [
-    { identity: inner, declaration: captured, constraint: outerType, default: outerType }], receiver: outerType,
+    { declaration: inner, constraint: outerType, default: outerType }], receiver: outerType,
     parameters: [{ declaration: owner, kind: "default", type: outerType, passing: "borrow-mut", initializer: body, acceptsOmission: true }], result: innerType });
   const selected = internSignature(interner, input);
   const callable = internType(interner, { kind: "callable", calls: [selected], constructs: [] });
@@ -1862,9 +1963,9 @@ test("signature binders shadow the exact method identity while outer binders and
 
 test("substitution composes exact class, captured and lexical self environments without changing issued inputs", () => {
   const interner = createTypeInterner();
-  const first = { owner, index: 0 };
-  const second = { owner, index: 1 };
-  const closure = { owner: captured, index: 0 };
+  const first = parameterDeclaration(owner, 0);
+  const second = parameterDeclaration(owner, 1);
+  const closure = parameterDeclaration(captured, 0);
   const tuple = types => ({ kind: "tuple", elements: types.map(type => ({ kind: "required", type, declaration: null })), readonly: false });
   const rows = [{ kind: "param", parameter: first }, { kind: "param", parameter: second },
     { kind: "param", parameter: closure }, { kind: "self", owner }, primitive, { kind: "string" },
@@ -1885,7 +1986,7 @@ test("substitution composes exact class, captured and lexical self environments 
 
 test("substitution distinguishes every complete term constructor and nested typed reference role", () => {
   const interner = createTypeInterner();
-  const parameter = { owner, index: 0 };
+  const parameter = parameterDeclaration(owner, 0);
   assert.equal(internType(interner, { kind: "param", parameter }), 0);
   assert.equal(internType(interner, { kind: "string" }), 1);
   assert.equal(internType(interner, primitive), 2);
@@ -1958,7 +2059,7 @@ test("substitution publishes new recursive rows once and leaves unchanged cycles
     kind: "property", read: type, write: null, optional: false, readonly: true });
   const shape = (next, value) => ({ kind: "shape", members: [member("next", next), member("value", value)], indexes: [], calls: [], constructs: [] });
   const input = internType(interner, shape(0, 1));
-  const parameter = { owner, index: 0 };
+  const parameter = parameterDeclaration(owner, 0);
   internType(interner, { kind: "param", parameter });
   const integer = internType(interner, primitive);
   const bindings = { ...emptyBindings(), classBindings: [{ kind: "bound", parameter, type: integer }] };
@@ -2005,7 +2106,7 @@ test("each substitution limit accepts its boundary and refuses one-past with the
     for (const value of [-1, 0.5, NaN, Infinity, -Infinity, 9007199254740992])
       assert.throws(() => substitute(interner, [array], emptyBindings(), limits({ [field]: value })),
         { name: "TypeError", message: "ir-types: expansion maxima must be nonnegative safe integers." });
-  const parameter = { owner, index: 0 };
+  const parameter = parameterDeclaration(owner, 0);
   assert.throws(() => substitute(interner, [array], { ...emptyBindings(), classBindings: [
     { kind: "rigid", parameter }, { kind: "bound", parameter, type: integer }], }, limits()), /each owner-qualified parameter once/u);
   assert.throws(() => substitute(interner, [array], { ...emptyBindings(), selfBindings: [
@@ -2015,7 +2116,7 @@ test("each substitution limit accepts its boundary and refuses one-past with the
 test("union and intersection expansion limits are checked on new flattened members before any row publishes", () => {
   for (const kind of ["union", "intersection"]) {
     const interner = createTypeInterner();
-    const parameter = { owner, index: 0 };
+    const parameter = parameterDeclaration(owner, 0);
     const free = internType(interner, { kind: "param", parameter });
     const string = internType(interner, { kind: "string" });
     const integer = internType(interner, primitive);
@@ -2039,7 +2140,7 @@ test("union and intersection expansion limits are checked on new flattened membe
 test("changed staged chains repair parents by events with exact total-visit boundaries and no intermediate publication", () => {
   const count = 10000;
   const interner = createTypeInterner();
-  const parameter = { owner, index: 0 };
+  const parameter = parameterDeclaration(owner, 0);
   let original = internType(interner, { kind: "param", parameter });
   for (let index = 1; index <= count; index += 1) {
     original = internType(interner, { kind: "array", element: original, readonly: false });
@@ -2069,7 +2170,7 @@ test("numeric session compound order survives later staged definitions and compa
     const meanings = [];
     for (const order of [["array", "fixed"], ["fixed", "array"]]) {
       const interner = createTypeInterner();
-      const parameter = { kind: "param", parameter: { owner, index: 0 } };
+      const parameter = { kind: "param", parameter: parameterDeclaration(owner, 0) };
       const free = internType(interner, parameter);
       const integer = internType(interner, primitive);
       const fixed = element => ({ kind: "fixed-array", element, extent: { length: 3n, runtimeBase: "number" } });
@@ -2113,7 +2214,7 @@ test("numeric session compound order survives later staged definitions and compa
 test("long qualified binder chains use persistent blocked scopes rather than copying every growing prefix", () => {
   const count = 10000;
   const interner = createTypeInterner();
-  const parameters = Array.from({ length: count }, (_, index) => ({ owner, index }));
+  const parameters = Array.from({ length: count }, (_, index) => (parameterDeclaration(owner, index)));
   assert.deepEqual(parameters.map(parameter => internType(interner, { kind: "param", parameter })),
     Array.from({ length: count }, (_, index) => index));
   const expected = internType(interner, primitive);
@@ -2131,7 +2232,7 @@ test("long qualified binder chains use persistent blocked scopes rather than cop
 
 test("a recursive bound replacement becomes rigid at its own exact owner without an invented parameter", () => {
   const interner = createTypeInterner();
-  const parameter = { owner, index: 0 };
+  const parameter = parameterDeclaration(owner, 0);
   const free = internType(interner, { kind: "param", parameter });
   const replacement = internType(interner, { kind: "array", element: free, readonly: false });
   assert.deepEqual(substitute(interner, [free], { ...emptyBindings(), classBindings: [
@@ -2161,7 +2262,7 @@ test("qualified occurrence, capture, projection, origin and signature sites use 
   const table = { terms: [primitive], signatures: [{ id: 0, ...signature({ owner: item }) }] };
   assert.deepEqual(verifyTypes({ table, bindings: [], evidence: [] }),
     [violation("cross-owner-qualified", signatureSite(0), "owner")]);
-  const family = { origin: "authored", component: { root: source, path: [] }, parameters: [{ owner, index: 0 }],
+  const family = { origin: "authored", component: { root: source, path: [] }, parameters: [parameterDeclaration(owner, 0)],
     roles: [{ authoredIndex: 1, component: source, member: 0 }] };
   const projection = { kind: "projection", source: 0, projection: { kind: "component", component: { root: source,
     path: [{ kind: "sum-arm", family, index: 0 }] } } };
@@ -2177,7 +2278,7 @@ test("typed sparse nested vectors report their genuine enclosing owner and actua
     [violation("evidence-type", { kind: "evidence", position: 0, source: null }, "evidence", 0)]);
   for (const [family, scopeField] of [["classBindings", "classParameters"], ["methodBindings", "methodParameters"],
     ["capturedBindings", "capturedParameters"]]) {
-    const scope = { ...emptyScope(), [scopeField]: [{ owner, index: 0 }] };
+    const scope = { ...emptyScope(), [scopeField]: [parameterDeclaration(owner, 0)] };
     const input = verification([primitive], { bindings: [{ vector: { ...emptyBindings(), [family]: hole() }, scope }] });
     assert.deepEqual(verifyTypes(input), [violation("binding-vector-complete",
       { kind: "binding", vector: 0, family, position: 0 }, "entry")]);
@@ -2257,9 +2358,9 @@ test("evidence retains all closed categories, producer and pointer arms with com
 });
 
 test("ordered binding inventories cover several entries in every family and preserve both vector positions", () => {
-  const scope = { classParameters: [{ owner, index: 0 }, { owner, index: 1 }],
-    methodParameters: [{ owner: method, index: 0 }, { owner: method, index: 1 }],
-    capturedParameters: [{ owner: captured, index: 0 }, { owner: captured, index: 1 }], selfOwners: [owner, other] };
+  const scope = { classParameters: [parameterDeclaration(owner, 0), parameterDeclaration(owner, 1)],
+    methodParameters: [parameterDeclaration(method, 0), parameterDeclaration(method, 1)],
+    capturedParameters: [parameterDeclaration(captured, 0), parameterDeclaration(captured, 1)], selfOwners: [owner, other] };
   const vector = { classBindings: [{ kind: "bound", parameter: scope.classParameters[0], type: 0 },
     { kind: "rigid", parameter: scope.classParameters[1] }],
     methodBindings: [{ kind: "rigid", parameter: scope.methodParameters[0] },
@@ -2334,11 +2435,11 @@ test("publication reserves every emitted row and every ordered or set reference 
   const selected = createTypeInterner();
   assert.equal(internType(selected, primitive), 0);
   assert.equal(internSignature(selected, signature({ receiver: 0, result: 0,
-    typeParameters: [{ identity: { owner, index: 0 }, declaration: method, constraint: 0, default: 0 }],
+    typeParameters: [{ declaration: parameterDeclaration(owner, 0), constraint: 0, default: 0 }],
     parameters: [{ declaration: method, kind: "required", type: 0, passing: "by-value", initializer: null, acceptsOmission: false }] })), 0);
   assert.equal(internType(selected, { kind: "callable", calls: [0], constructs: [] }), 1);
   const table = { terms: [{ kind: "callable", calls: [0], constructs: [] }, primitive], signatures: [{ id: 0,
-    ...signature({ receiver: 1, result: 1, typeParameters: [{ identity: { owner, index: 0 }, declaration: method,
+    ...signature({ receiver: 1, result: 1, typeParameters: [{ declaration: parameterDeclaration(owner, 0),
       constraint: 1, default: 1 }], parameters: [{ declaration: method, kind: "required", type: 1, passing: "by-value", initializer: null, acceptsOmission: false }] }) }] };
   assert.deepEqual(exportTypes(selected, { ...publicationLimits, maximumCreatedRecords: 8 }),
     { kind: "resource-limit", dimension: "created-records", maximum: 8 });
@@ -2407,11 +2508,11 @@ test("native owned arena reads reject invalid public references without acceptin
 
 test("new substituted signature rows retain every nested role before any expected row is interned", () => {
   const interner = createTypeInterner();
-  const parameter = { owner, index: 0 };
+  const parameter = parameterDeclaration(owner, 0);
   assert.deepEqual([internType(interner, { kind: "param", parameter }), internType(interner, primitive)], [0, 1]);
   const child = signature({ result: 0 });
   const parent = signature({ declaration: method, owner: source, composition: { kind: "union", signatures: [0] },
-    typeParameters: [{ identity: { owner: method, index: 0 }, declaration: method, constraint: 0, default: 0 }],
+    typeParameters: [{ declaration: parameterDeclaration(method, 0), constraint: 0, default: 0 }],
     receiver: 0, parameters: [{ declaration: method, kind: "required", type: 0, passing: "borrow-shared", initializer: null, acceptsOmission: false }], result: 0 });
   assert.deepEqual([internSignature(interner, child), internSignature(interner, parent)], [0, 1]);
   assert.equal(internType(interner, { kind: "callable", calls: [1], constructs: [] }), 2);
@@ -2419,7 +2520,7 @@ test("new substituted signature rows retain every nested role before any expecte
   assert.deepEqual(substitute(interner, [2], bindings, limits()), { kind: "complete", value: [3] });
   const expectedChild = { id: 3, ...signature({ result: 1 }) };
   const expectedParent = { id: 2, ...signature({ ...parent, composition: { kind: "union", signatures: [3] },
-    typeParameters: [{ identity: { owner: method, index: 0 }, declaration: method, constraint: 1, default: 1 }],
+    typeParameters: [{ declaration: parameterDeclaration(method, 0), constraint: 1, default: 1 }],
     receiver: 1, parameters: [{ declaration: method, kind: "required", type: 1, passing: "borrow-shared", initializer: null, acceptsOmission: false }], result: 1 }) };
   assert.deepEqual([readSignature(interner, 0), readSignature(interner, 1), readSignature(interner, 2), readSignature(interner, 3)],
     [{ id: 0, ...child }, { id: 1, ...parent }, expectedParent, expectedChild]);
@@ -2441,7 +2542,7 @@ test("new substituted signature rows retain every nested role before any expecte
   for (const [issued, type, composition] of [[1, published.types[0], published.signatures[0]], [2, published.types[1], published.signatures[3]]])
     signatures[published.signatures[issued]] = { id: published.signatures[issued], ...signature({ declaration: method, owner: source,
       composition: { kind: "union", signatures: [composition] },
-      typeParameters: [{ identity: { owner: method, index: 0 }, declaration: method, constraint: type, default: type }],
+      typeParameters: [{ declaration: parameterDeclaration(method, 0), constraint: type, default: type }],
       receiver: type, parameters: [{ declaration: method, kind: "required", type, passing: "borrow-shared", initializer: null, acceptsOmission: false }], result: type }) };
   assert.deepEqual(published.table, { terms, signatures });
 });
@@ -2461,10 +2562,10 @@ test("shared substitution paths enforce depth at both memoized and first depth-f
 
 test("nested signature binders share both trie branches and block a repeated qualified binder", () => {
   const interner = createTypeInterner();
-  const parameters = [{ owner, index: 0 }, { owner, index: 1 }];
+  const parameters = [parameterDeclaration(owner, 0), parameterDeclaration(owner, 1)];
   const rows = [...parameters.map(parameter => ({ kind: "param", parameter })), primitive];
   assert.deepEqual(rows.map(row => internType(interner, row)), [0, 1, 2]);
-  const typeParameters = parameters.map((identity, index) => ({ identity, declaration: index === 0 ? method : captured,
+  const typeParameters = parameters.map(declaration => ({ declaration,
     constraint: null, default: null }));
   const child = signature({ typeParameters: [typeParameters[0]], result: 0 });
   const parent = signature({ typeParameters, composition: { kind: "intersection", signatures: [0] }, receiver: 1, result: 1 });
@@ -2505,12 +2606,12 @@ test("balanced recursive equalities compress multi-level aliases without changin
     ['TypeTable(terms=[', '0', '], signatures=[])', ["identifier"]],
     ['TypeTable(terms=[', `NodeRef(body=body:${JSON.stringify(body)}, node=n:0)`, '], signatures=[])', ["type term"]],
     ['TypeTable(terms=[array(element=t:0, readonly=', 'flag:false', ')], signatures=[])', ["unqualified value"]],
-    ['TypeTable(terms=[param(parameter=TypeParameterIdentity(owner=def:' + JSON.stringify(owner) + ', index=', 'false', '))], signatures=[])', ["number"]],
+    ['TypeTable(terms=[open(group=group:' + JSON.stringify(encodeGroupId([body])) + ', variable=', 'false', ')], signatures=[])', ["number"]],
     [componentPrefix, 'foreign()', componentSuffix, ["body", "item"]],
     [componentPrefix + 'body(value=', `ItemNodeRef(body=body:${JSON.stringify(body)}, node=n:0)`, ')' + componentSuffix, ["NodeRef"]],
     ['TypeTable(terms=[], signatures=[', 'SignatureInput', '(id=sig:0, declaration=null, owner=null, composition=null, kind="call", typeParameters=[], receiver=null, parameters=[], result=t:0)])', ["Signature"]],
-    ['TypeTable(terms=[param(parameter=TypeParameterIdentity(owner=def:' + JSON.stringify(owner) + ', index=', '@', '))], signatures=[])', ["number"]],
-    ['TypeTable(terms=[param(parameter=TypeParameterIdentity(owner=def:' + JSON.stringify(owner) + ', index=', '1e999', '))], signatures=[])', ["finite number", "bigint"]],
+    ['TypeTable(terms=[open(group=group:' + JSON.stringify(encodeGroupId([body])) + ', variable=', '@', ')], signatures=[])', ["number"]],
+    ['TypeTable(terms=[open(group=group:' + JSON.stringify(encodeGroupId([body])) + ', variable=', '1e999', ')], signatures=[])', ["finite number", "bigint"]],
     [componentPrefix + 'body(value=NodeRef(body=', 'body:"invalid"', ', node=n:0))' + componentSuffix, ["canonical body identity"]],
     [componentPrefix + 'body(value=NodeRef(body=', 'body:0', ', node=n:0))' + componentSuffix, ["canonical body identity"]],
     [memberPrefix, 'foreign()', memberSuffix, ["text", "number", "symbol"]],
@@ -2551,7 +2652,7 @@ test("verifier covers all selector signature roles, mapped numeric origins and q
   const missing = { ...captures, captures: [{ body, local: 2 }] };
   assert.deepEqual(verifyTypes(verification([projection([{ kind: "construction-argument", definition: missing, index: 0 }])])),
     [violation("construction-captures-qualified", typeSite(0), "definition.captures", 0)]);
-  const family = { origin: "authored", component: { root: itemSource, path: [] }, parameters: [{ owner, index: 0 }],
+  const family = { origin: "authored", component: { root: itemSource, path: [] }, parameters: [parameterDeclaration(owner, 0)],
     roles: [{ authoredIndex: 0, component: source, member: 0 }] };
   const sum = selected => projection([{ kind: "sum-arm", family: selected, index: 0 }]);
   assert.deepEqual(verifyTypes(verification([sum(family)])), []);
@@ -2562,7 +2663,7 @@ test("verifier covers all selector signature roles, mapped numeric origins and q
   assert.deepEqual(verifyTypes(verification([sum({ ...family, roles: [{ authoredIndex: 0, component: badSource, member: 1 }] })])),
     [violation("cross-owner-qualified", typeSite(0), "family.roles.component"), violation("type-reference", typeSite(0), "reference", 1)]);
   for (const parameters of [[{ owner, index: -1 }], [{ owner, index: NaN }], [{ owner, index: -0 }],
-    [{ owner, index: 0 }, { owner, index: 0 }]])
+    [parameterDeclaration(owner, 0), parameterDeclaration(owner, 0)]])
     assert.deepEqual(verifyTypes(verification([sum({ ...family, parameters })])),
       [violation("parameter-identity", typeSite(0), "family.parameters", parameters.length - 1)]);
 });
@@ -2626,7 +2727,7 @@ test("publication repairs a shape's complete ordered payload after a compound ch
 });
 
 test("verifier reads complete signatures, writable indexes and optional/rest ordering without inferred fields", () => {
-  const typeParameters = [{ identity: { owner, index: 0 }, declaration: owner, constraint: 0, default: 0 }];
+  const typeParameters = [{ declaration: parameterDeclaration(owner, 0), constraint: 0, default: 0 }];
   const full = { id: 0, ...signature({ typeParameters, receiver: 0, composition: { kind: "intersection", signatures: [0] },
     parameters: [{ declaration: method, kind: "optional", type: 0, passing: "by-value", initializer: null, acceptsOmission: true },
       { declaration: captured, kind: "rest", type: 0, passing: "move", initializer: null, acceptsOmission: true }] }) };
@@ -2657,8 +2758,8 @@ test("verifier reads complete signatures, writable indexes and optional/rest ord
 
 test("binding and evidence minimal opposites preserve complete owner sites and invalid numeric identities", () => {
   for (const index of [-1, -0, NaN, Infinity, 0.5]) assert.deepEqual(verifyTypes(verification([{ kind: "param", parameter: { owner, index } }])),
-    [violation("parameter-identity", typeSite(0), "parameter.index", index)]);
-  const parameter = { owner, index: 0 };
+    [violation("parameter-identity", typeSite(0), "parameter")]);
+  const parameter = parameterDeclaration(owner, 0);
   for (const [family, scopeName] of [["classBindings", "classParameters"], ["methodBindings", "methodParameters"], ["capturedBindings", "capturedParameters"]]) {
     const input = { vector: { ...emptyBindings(), [family]: [{ kind: "bound", parameter, type: 1 }] },
       scope: { ...emptyScope(), [scopeName]: [parameter] } };
@@ -2706,7 +2807,7 @@ test("publication does not count signed bigint encoding as an algorithm event", 
 
 test("signature parent notifications follow a newly normalized compound rather than a prebuilt result", () => {
   const interner = createTypeInterner();
-  const parameters = [{ owner, index: 0 }, { owner, index: 1 }];
+  const parameters = [parameterDeclaration(owner, 0), parameterDeclaration(owner, 1)];
   const rows = [...parameters.map(parameter => ({ kind: "param", parameter })), primitive, { kind: "union", members: [0, 1] }];
   assert.deepEqual(rows.map(row => internType(interner, row)), [0, 1, 2, 3]);
   assert.equal(internSignature(interner, signature({ result: 3 })), 0);
@@ -2722,7 +2823,7 @@ test("signature parent notifications follow a newly normalized compound rather t
 
 test("alternating compound parents collapse complete staged aliases without publishing intermediates", () => {
   const interner = createTypeInterner();
-  const parameters = Array.from({ length: 4 }, (_, index) => ({ owner, index }));
+  const parameters = Array.from({ length: 4 }, (_, index) => (parameterDeclaration(owner, index)));
   const tuple = members => ({ kind: "tuple", elements: members.map(type => ({ kind: "required", type, declaration: null })), readonly: false });
   const rows = [...parameters.map(parameter => ({ kind: "param", parameter })), primitive,
     { kind: "intersection", members: [0, 1] }, { kind: "union", members: [2, 3] },
@@ -2772,7 +2873,7 @@ test("a seeded signature must retain its own arena position", () => {
 test("mixed staged compounds redirect through a live target and compress the resulting two-hop alias", () => {
   for (const kind of ["union", "intersection"]) {
     const interner = createTypeInterner();
-    const parameter = { owner, index: 0 };
+    const parameter = parameterDeclaration(owner, 0);
     const fixed = element => ({ kind: "fixed-array", element, extent: { length: 3n, runtimeBase: "number" } });
     const array = element => ({ kind: "array", element, readonly: false });
     const tuple = members => ({ kind: "tuple", elements: members.map(type => ({ kind: "required", type, declaration: null })), readonly: false });
@@ -2826,7 +2927,7 @@ for (const level of ["function", "verifier"]) {
 
 
 test("two genuinely new staged signatures collapse after substitution with complete per-order rows and publication maps", () => {
-  const parameters = [{ owner, index: 0 }, { owner, index: 1 }];
+  const parameters = [parameterDeclaration(owner, 0), parameterDeclaration(owner, 1)];
   for (const order of [[0, 1], [1, 0]]) {
     const interner = createTypeInterner();
     const originals = [...parameters.map(parameter => ({ kind: "param", parameter })), primitive,
@@ -2854,7 +2955,7 @@ test("two genuinely new staged signatures collapse after substitution with compl
 
 test("a changed callable compacts an unchanged existing signature alongside a genuinely new one", () => {
   const interner = createTypeInterner();
-  const parameter = { owner, index: 0 };
+  const parameter = parameterDeclaration(owner, 0);
   const parameterTerm = { kind: "param", parameter };
   const original = { kind: "callable", calls: [0, 1], constructs: [] };
   const retained = signature({ declaration: method, result: 1 });
@@ -3110,8 +3211,8 @@ test("a changed callable compacts an unchanged existing signature alongside a ge
   const numeric = 'TypeTable(terms=[literal(value=number(value=ExactRational(numerator=';
   const suffix = ", denominator=1n, negativeZero=false)), base=t:0)], signatures=[])";
   const scalarKinds = [
-    ["number", "TypeTable(terms=[param(parameter=TypeParameterIdentity(owner=def:" + JSON.stringify(owner) + ", index=",
-      "))], signatures=[])", ["number"]],
+    ["number", "TypeTable(terms=[open(group=group:" + JSON.stringify(encodeGroupId([body])) + ", variable=",
+      ")], signatures=[])", ["number"]],
     ["bigint", numeric, suffix, ["bigint"]],
     ["boolean", "TypeTable(terms=[array(element=t:0, readonly=", ")], signatures=[])", ["boolean"]],
   ];
@@ -3171,109 +3272,11 @@ test("a genuine typed component cycle is rejected before the owned arena changes
   assert.deepEqual(readType(interner, 0), primitive);
 });
 
-test("the one selector-path encoding: each selector is one array beginning with its kind; equal paths are equal and every differing field differs", () => {
-  const body = encodeBodyId({ owner: definition("Selected"), role: "function", ordinal: 0 });
-  const otherBody = encodeBodyId({ owner: definition("Selected"), role: "function", ordinal: 1 });
-  const node = (in_, number) => ({ kind: "body", value: { body: in_, node: number } });
-  const item = (name, number) => ({ kind: "item", value: { owner: definition(name), node: number } });
-  const construction = (number, captures) => ({ occurrence: { body, node: number }, captures });
-  const family = (origin, path, extra = {}) => ({ origin, component: { root: node(body, 1), path },
-    parameters: [{ owner: definition("Sum"), index: 0 }], roles: [{ authoredIndex: 0, component: item("Sum", 2), member: 5 }], ...extra });
-  assert.deepEqual(encodeSelectorPath([]), []);
-  const sparse = [];
-  sparse.length = 1;
-  assert.throws(() => encodeSelectorPath(sparse), TypeError, "a missing selector is not an empty path");
-  assert.deepEqual(encodeSelectorPath([{ kind: "tuple-element", index: 2 }, { kind: "awaited" }]), [["tuple-element", 2], ["awaited"]]);
-  assert.deepEqual(encodeSelectorPath([{ kind: "member", origin: { kind: "mapped", owner: node(body, 7), key: { kind: "text", value: "k" } } }]),
-    [["member", ["mapped", ["body", body, 7], ["text", "k"]]]]);
-  assert.deepEqual(encodeSelectorPath([{ kind: "construction-argument", definition: construction(3, [{ body, local: 4 }]), index: 1 }]),
-    [["construction-argument", [body, 3], [[body, 4]], 1]]);
-  assert.deepEqual(encodeSelectorPath([{ kind: "sum-arm", family: family("authored", [{ kind: "optional-value" }]), index: 1 }]),
-    [["sum-arm", "authored", ["body", body, 1], [["optional-value"]], [[definition("Sum"), 0]], [[0, ["item", definition("Sum"), 2], 5]], 1]]);
-  const selectors = [
-    ...["class-value", "optional-value", "array-element", "intersection-result", "projection-source", "awaited"].map(kind => ({ kind })),
-    ...["tuple-element", "union-member", "argument-place", "parameter-place", "intersection-member"].flatMap(kind => [{ kind, index: 0 }, { kind, index: 1 }]),
-    ...["argument-tail", "parameter-tail"].flatMap(kind => [{ kind, start: 0 }, { kind, start: 1 }]),
-    { kind: "construction-argument", definition: construction(3, []), index: 0 },
-    { kind: "construction-argument", definition: construction(3, []), index: 1 },
-    { kind: "construction-argument", definition: construction(4, []), index: 0 },
-    { kind: "construction-argument", definition: { occurrence: { body: otherBody, node: 3 }, captures: [] }, index: 0 },
-    { kind: "construction-argument", definition: construction(3, [{ body, local: 0 }]), index: 0 },
-    { kind: "construction-argument", definition: construction(3, [{ body, local: 1 }]), index: 0 },
-    { kind: "construction-argument", definition: construction(3, [{ body, local: 0 }, { body, local: 1 }]), index: 0 },
-    { kind: "member", origin: { kind: "declared", declaration: definition("A") } },
-    { kind: "member", origin: { kind: "declared", declaration: definition("B") } },
-    { kind: "member", origin: { kind: "class-prototype", owner: definition("A") } },
-    { kind: "member", origin: { kind: "mapped", owner: node(body, 7), key: { kind: "text", value: "k" } } },
-    { kind: "member", origin: { kind: "mapped", owner: node(body, 8), key: { kind: "text", value: "k" } } },
-    { kind: "member", origin: { kind: "mapped", owner: item("A", 7), key: { kind: "text", value: "k" } } },
-    { kind: "member", origin: { kind: "mapped", owner: node(body, 7), key: { kind: "text", value: "1" } } },
-    { kind: "member", origin: { kind: "mapped", owner: node(body, 7), key: { kind: "number", value: { numerator: 1n, denominator: 1n, negativeZero: false } } } },
-    { kind: "member", origin: { kind: "mapped", owner: node(body, 7), key: { kind: "number", value: { numerator: 0n, denominator: 1n, negativeZero: true } } } },
-    { kind: "member", origin: { kind: "mapped", owner: node(body, 7), key: { kind: "number", value: { numerator: 0n, denominator: 1n, negativeZero: false } } } },
-    { kind: "member", origin: { kind: "mapped", owner: node(body, 7), key: { kind: "number", value: { numerator: 1n, denominator: 2n, negativeZero: false } } } },
-    { kind: "member", origin: { kind: "mapped", owner: node(body, 7), key: { kind: "symbol", declaration: definition("A") } } },
-    ...["index-key", "index-value"].flatMap(kind => [
-      { kind, origin: item("A", 0), key: 0 }, { kind, origin: item("B", 0), key: 0 },
-      { kind, origin: item("A", 1), key: 0 }, { kind, origin: node(body, 0), key: 0 },
-      { kind, origin: node(otherBody, 0), key: 0 }, { kind, origin: item("A", 0), key: 1 },
-    ]),
-    { kind: "parameter", signature: 0, index: 0 }, { kind: "parameter", signature: 1, index: 0 }, { kind: "parameter", signature: 0, index: 1 },
-    ...["receiver", "result"].flatMap(kind => [{ kind, signature: 0 }, { kind, signature: 1 }]),
-    { kind: "signature-tail", signature: 0, start: 0, readonly: false }, { kind: "signature-tail", signature: 1, start: 0, readonly: false },
-    { kind: "signature-tail", signature: 0, start: 1, readonly: false }, { kind: "signature-tail", signature: 0, start: 0, readonly: true },
-    { kind: "tuple-slice", start: 0, endCount: 0, readonly: false }, { kind: "tuple-slice", start: 1, endCount: 0, readonly: false },
-    { kind: "tuple-slice", start: 0, endCount: 1, readonly: false }, { kind: "tuple-slice", start: 0, endCount: 0, readonly: true },
-    { kind: "type-argument", declaration: definition("A"), index: 0 }, { kind: "type-argument", declaration: definition("B"), index: 0 },
-    { kind: "type-argument", declaration: definition("A"), index: 1 },
-    { kind: "sum-arm", family: family("authored", []), index: 0 }, { kind: "sum-arm", family: family("authored", []), index: 1 },
-    { kind: "sum-arm", family: family("inferred", []), index: 0 },
-    { kind: "sum-arm", family: family("authored", [{ kind: "optional-value" }]), index: 0 },
-    { kind: "sum-arm", family: family("authored", [{ kind: "sum-arm", family: family("authored", [{ kind: "array-element" }]), index: 0 }]), index: 0 },
-    { kind: "sum-arm", family: family("authored", [{ kind: "sum-arm", family: family("authored", [{ kind: "class-value" }]), index: 0 }]), index: 0 },
-    { kind: "sum-arm", family: family("authored", [], { parameters: [] }), index: 0 },
-    { kind: "sum-arm", family: family("authored", [], { parameters: [{ owner: definition("Sum"), index: 1 }] }), index: 0 },
-    { kind: "sum-arm", family: family("authored", [], { roles: [] }), index: 0 },
-    { kind: "sum-arm", family: family("authored", [], { roles: [{ authoredIndex: 1, component: item("Sum", 2), member: 5 }] }), index: 0 },
-    { kind: "sum-arm", family: family("authored", [], { roles: [{ authoredIndex: 0, component: item("Sum", 3), member: 5 }] }), index: 0 },
-    { kind: "sum-arm", family: family("authored", [], { roles: [{ authoredIndex: 0, component: item("Sum", 2), member: 6 }] }), index: 0 },
-    { kind: "sum-arm", family: { ...family("authored", []), component: { root: node(body, 2), path: [] } }, index: 0 },
-  ];
-  const keys = selectors.map(selected => encodeKey(encodeSelectorPath([selected])));
-  assert.equal(new Set(keys).size, selectors.length, "every differing field gives a different key");
-  assert.deepEqual(selectors.map(selected => encodeKey(encodeSelectorPath([structuredClone(selected)]))), keys, "an equal selector built again gives the same key");
-  const first = selectors[0];
-  const second = selectors[7];
-  assert.notEqual(encodeKey(encodeSelectorPath([first, second])), encodeKey(encodeSelectorPath([second, first])), "order is part of the path");
-  assert.notEqual(encodeKey(encodeSelectorPath([first])), encodeKey(encodeSelectorPath([first, first])), "length is part of the path");
-  assert.notEqual(encodeKey(encodeSelectorPath([{ kind: "sum-arm", family: family("authored", [first, second]), index: 0 }])),
-    encodeKey(encodeSelectorPath([{ kind: "sum-arm", family: family("authored", [first]), index: 0 }, second])),
-    "a selector of a family's own path is not a selector of the outer path");
-  const shared = [{ kind: "array-element" }];
-  assert.deepEqual(encodeSelectorPath([
-    { kind: "sum-arm", family: family("authored", shared), index: 0 },
-    { kind: "sum-arm", family: family("inferred", shared), index: 1 },
-  ]).map(selected => selected[3]), [[["array-element"]], [["array-element"]]],
-  "sharing a completed path is not a cycle");
-  const cyclic = [];
-  cyclic.push({ kind: "sum-arm", family: family("authored", cyclic), index: 0 });
-  assert.throws(() => encodeSelectorPath(cyclic), /acyclic/u, "a self cycle is a caller defect, not unbounded expansion");
-  const firstPath = [];
-  const secondPath = [{ kind: "sum-arm", family: family("authored", firstPath), index: 0 }];
-  firstPath.push({ kind: "sum-arm", family: family("authored", secondPath), index: 0 });
-  assert.throws(() => encodeSelectorPath(firstPath), /acyclic/u, "a cycle spanning paths is rejected at its actual repeated ancestor");
-  let deep = [];
-  for (let level = 0; level < 20000; level += 1) deep = [{ kind: "sum-arm", family: family("authored", deep), index: 0 }];
-  let depth = 0;
-  for (let current = encodeSelectorPath(deep); current.length === 1; current = current[0][3]) depth += 1;
-  assert.equal(depth, 20000, "a deeply nested family path is encoded without native recursion");
-});
-
 // ---- Execution and DeclaredExecution keys (COMMON-DATA section 1; K-3367 D) -------------------------------------------
 const keyBody = encodeBodyId({ owner, role: "function", ordinal: 0 });
 const keySecondBody = encodeBodyId({ owner, role: "function", ordinal: 1 });
-const boundAt = (index, type) => ({ kind: "bound", parameter: { owner, index }, type });
-const rigidAt = index => ({ kind: "rigid", parameter: { owner, index } });
+const boundAt = (index, type) => ({ kind: "bound", parameter: parameterDeclaration(owner, index), type });
+const rigidAt = index => ({ kind: "rigid", parameter: parameterDeclaration(owner, index) });
 const vectorOf = (families = {}) => ({ classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [], ...families });
 const instantiated = families => ({ kind: "instantiated", bindings: vectorOf(families) });
 const instanceOf = (bindings, body = keyBody) => ({ body, bindings });
@@ -3328,7 +3331,7 @@ test("bindingVectorKey and artifactBindingsKey: keys of bare bindings on the sam
   assert.equal(artifactBindingsKey({ kind: "parametric" }), artifactBindingsKey({ kind: "parametric" }));
   assert.notEqual(artifactBindingsKey({ kind: "parametric" }), artifactBindingsKey(instantiated({})), "parametric is not the empty binding");
   assert.equal(artifactBindingsKey(instantiated(vector)), artifactBindingsKey(instantiated(structuredClone(vector))));
-  assert.deepEqual(bindingVectorData(vector), [[["bound", owner, 0, 1]], [["rigid", owner, 1]], [], [["rigid", owner]]]);
+  assert.deepEqual(bindingVectorData(vector), [[["bound", parameterDeclaration(owner, 0), 1]], [["rigid", parameterDeclaration(owner, 1)]], [], [["rigid", owner]]]);
   assert.deepEqual(artifactBindingsData({ kind: "parametric" }), ["parametric"]);
   assert.deepEqual(artifactBindingsData(instantiated(vector)), ["instantiated", bindingVectorData(vector)]);
   assert.equal(encodeKey(bindingVectorData(vector)), bindingVectorKey(vector));
@@ -3363,7 +3366,7 @@ test("signature request projection and key retain the complete endpoint and each
     capturedBindings: [boundAt(2, 3)], selfBindings: [{ kind: "bound", owner, type: 4 }] });
   const request = { definition: owner, endpoint: "api-body", ordinal: 2, bindings };
   const expected = [owner, "api-body", 2, ["instantiated", [
-    [["bound", owner, 0, 1]], [["rigid", owner, 1]], [["bound", owner, 2, 3]], [["bound", owner, 4]],
+    [["bound", parameterDeclaration(owner, 0), 1]], [["rigid", parameterDeclaration(owner, 1)]], [["bound", parameterDeclaration(owner, 2), 3]], [["bound", owner, 4]],
   ]]];
   assert.deepEqual(signatureRequestData(request), expected);
   assert.equal(signatureRequestKey(request), encodeKey(expected));
@@ -3435,6 +3438,15 @@ test("fresh public declarations admit real strict readers and reject the entire 
     types: [], rootDir: resolve(repository, "packages/host/src"), outDir: resolve(stage, "declarations") },
     files: [resolve(repository, "packages/host/src/ir-types/index.ts")], include: [] });
   assert.deepEqual(run(resolve(stage, "producer.json")), { status: 0, diagnostics: "" });
+  write("graph-reader.ts", 'import { createTypePublicationWork, internTypeGraph } from "./declarations/ir-types/index.js";\nimport type { TypeInterner, TypeGraphInput, TypeGraphResult, TypePublicationLimits, TypePublicationWork } from "./declarations/ir-types/contract.js";\nexport function insert(types: TypeInterner, input: TypeGraphInput, limits: TypePublicationLimits): TypeGraphResult { const work: TypePublicationWork = createTypePublicationWork(limits); return internTypeGraph({ types, work }, input); }\n');
+  write("graph-consumer.json", { extends: resolve(repository, "tsconfig.base.json"), compilerOptions: {
+    noEmit: true, types: [], skipLibCheck: false, strict: true, noUncheckedIndexedAccess: true, exactOptionalPropertyTypes: true },
+    files: [resolve(stage, "graph-reader.ts")], include: [] });
+  assert.deepEqual(run(resolve(stage, "graph-consumer.json")), { status: 0, diagnostics: "" });
+  write("graph-reader.ts", 'import { internTypeGraph } from "./declarations/ir-types/index.js";\nimport type { TypeInterner, TypeGraphInput, TypePublicationWork } from "./declarations/ir-types/contract.js";\nexport function forbidden(types: TypeInterner, input: TypeGraphInput, work: TypePublicationWork): void { const old: TypePublicationWork = { maximumWork: 1, maximumCreatedRecords: 1, work: 0, createdRecords: 0 }; internTypeGraph({ types }, input); work.work = 0; work.createdRecords = 0; work.maximumWork = 2; work.usedWork; void old; }\n');
+  const invalidGraph = run(resolve(stage, "graph-consumer.json"));
+  assert.equal(invalidGraph.status, 1, invalidGraph.diagnostics.slice(-8000));
+  assert.equal([...invalidGraph.diagnostics.matchAll(/error TS(\d+):/gu)].length, 6, invalidGraph.diagnostics.slice(-8000));
   write("index-reader.ts", 'import { compareIndexSignatures, encodeSelectorPath } from "./declarations/ir-types/index.js";\nimport type { CompareIndexSignatures, ComponentSelector, EncodeSelectorPath, IndexSignature } from "./declarations/ir-types/contract.js";\nexport const compare: CompareIndexSignatures = compareIndexSignatures;\nexport const encode: EncodeSelectorPath = encodeSelectorPath;\nexport function selector(index: IndexSignature): ComponentSelector { return { kind: "index-value", origin: index.origin, key: index.key }; }\n');
   write("index-consumer.json", { extends: resolve(repository, "tsconfig.base.json"), compilerOptions: {
     noEmit: true, types: [], skipLibCheck: false, strict: true, noUncheckedIndexedAccess: true, exactOptionalPropertyTypes: true },
@@ -3445,9 +3457,14 @@ test("fresh public declarations admit real strict readers and reject the entire 
   assert.equal(invalidIndex.status, 1, invalidIndex.diagnostics.slice(-8000));
   assert.deepEqual([...invalidIndex.diagnostics.matchAll(/error TS(\d+):/gu)].map(match => Number(match[1])),
     [2339, 2540, 2353], invalidIndex.diagnostics.slice(-8000));
+  write("index-reader.ts", 'import type { TypeParameter, TypeParameterIdentity } from "./declarations/ir-types/contract.js";\nexport type Removed = TypeParameterIdentity;\nexport function retired(parameter: TypeParameter): void { parameter.identity; parameter.declaration = parameter.declaration; }\n');
+  const invalidParameter = run(resolve(stage, "index-consumer.json"));
+  assert.equal(invalidParameter.status, 1, invalidParameter.diagnostics.slice(-8000));
+  assert.deepEqual([...invalidParameter.diagnostics.matchAll(/error TS(\d+):/gu)].map(match => Number(match[1])),
+    [2305, 2339, 2540], invalidParameter.diagnostics.slice(-8000));
   write("index-reader.ts", "export {};\n");
-  const imports = 'import type { TypeTable, TypePublication, TypePublicationLimits, TypePublicationResult, TypeInterner, ExportTypes, TypeExpansionLimits, BindingScope, BindingVector, Signature, TypeEvidence, TypeParameterIdentity, TypeVerificationInput, NominalDefinition } from "./declarations/ir-types/contract.js";\nimport type { DefId, TyId } from "./declarations/ids/contract.js";\n';
-  write("reader.ts", imports + 'export function read(table: TypeTable, publication: TypePublication, limits: TypeExpansionLimits, scope: BindingScope, bindings: BindingVector, signature: Signature, evidence: TypeEvidence, parameter: TypeParameterIdentity, definition: DefId, type: TyId, input: TypeVerificationInput, nominal: NominalDefinition): number { return table.terms.length + publication.table.terms.length + publication.types.length + publication.signatures.length + limits.maximumDepth + scope.selfOwners.length + bindings.classBindings.length + signature.parameters.length + evidence.type + parameter.index + definition.length + type + nominal.facets.length + (input.nominalOf(definition) === null ? 0 : 1); }\nexport function publish(operation: ExportTypes, interner: TypeInterner, limits: TypePublicationLimits): TypePublicationResult { return operation(interner, limits); }');
+  const imports = 'import type { TypeTable, TypePublication, TypePublicationLimits, TypePublicationResult, TypeInterner, ExportTypes, TypeExpansionLimits, BindingScope, BindingVector, Signature, TypeEvidence, TypeVerificationInput, NominalDefinition } from "./declarations/ir-types/contract.js";\nimport type { DefId, TyId } from "./declarations/ids/contract.js";\n';
+  write("reader.ts", imports + 'export function read(table: TypeTable, publication: TypePublication, limits: TypeExpansionLimits, scope: BindingScope, bindings: BindingVector, signature: Signature, evidence: TypeEvidence, parameter: DefId, definition: DefId, type: TyId, input: TypeVerificationInput, nominal: NominalDefinition): number { return table.terms.length + publication.table.terms.length + publication.types.length + publication.signatures.length + limits.maximumDepth + scope.selfOwners.length + bindings.classBindings.length + signature.parameters.length + evidence.type + parameter.length + definition.length + type + nominal.facets.length + (input.nominalOf(definition) === null ? 0 : 1); }\nexport function publish(operation: ExportTypes, interner: TypeInterner, limits: TypePublicationLimits): TypePublicationResult { return operation(interner, limits); }');
   write("inline-reader.ts", "import type { CategoryEvidence, TypeComponent, ComponentSelector, TypeInterner, TypeTerm, Signature, TypeTable, ReadType, ReadSignature } from \"./declarations/ir-types/contract.js\";\nimport type { SourceNodeRef, TyId, SigId } from \"./declarations/ids/contract.js\";\nexport function checkedBoundary(readType: ReadType, readSignature: ReadSignature, interner: TypeInterner, type: TyId, signature: SigId): void { readType(interner, type); readSignature(interner, signature); }\nexport function sparseTable(): TypeTable {\n  return { terms: new Array<TypeTerm>(1), signatures: new Array<Signature>(1) };\n}\nexport function sparseComponent(root: SourceNodeRef): TypeComponent {\n  return { root, path: new Array<ComponentSelector>(1) };\n}\nexport function categoryCycle(): CategoryEvidence { const alternatives: CategoryEvidence[] = []; const value: CategoryEvidence = { kind: \"choice\", alternatives }; alternatives.push(value); return value; }\nexport function componentCycle(root: SourceNodeRef): TypeComponent { const path: ComponentSelector[] = []; const component: TypeComponent = { root, path }; path.push({ kind: \"sum-arm\", family: { origin: \"authored\", component, parameters: [], roles: [] }, index: 0 }); return component; }\n");
   write("seed-reader.ts", 'import { seedTypeInterner, readType, readSignature, substitute, substituteSignature } from "./declarations/ir-types/index.js";\nimport type { SeedTypeInterner, TypeInterner, TypeTable, TypeTerm, Signature, Substitute, SubstituteSignature, TypeTransform, BindingVector, TypeExpansionLimits, TypePublicationResult } from "./declarations/ir-types/contract.js";\nimport type { TyId, SigId } from "./declarations/ids/contract.js";\nexport const seed: SeedTypeInterner = seedTypeInterner;\nexport const signatureRoot: SubstituteSignature = substituteSignature;\nexport const typeRoots: Substitute = substitute;\nexport function seeded(table: TypeTable, type: TyId, signature: SigId): readonly [TypeInterner, TypeTerm, Signature] { const interner = seed(table); return [interner, readType(interner, type), readSignature(interner, signature)]; }\nexport function transform(interner: TypeInterner, signatures: readonly SigId[], bindings: BindingVector, limits: TypeExpansionLimits): TypeTransform<readonly SigId[]> { return signatureRoot(interner, signatures, bindings, limits); }\nexport function transformTypes(interner: TypeInterner, types: readonly TyId[], bindings: BindingVector, limits: TypeExpansionLimits): TypeTransform<readonly TyId[]> { return typeRoots(interner, types, bindings, limits); }\nexport function usage(result: TypePublicationResult): readonly [number, number] | null { return result.kind === "complete" ? [result.work, result.createdRecords] : null; }\n');
   write("binding-reader.ts", 'import { verifyBindings } from "./declarations/ir-types/index.js";\nimport type { BindingVerificationInput } from "./declarations/ir-types/contract.js";\nexport function check(inputs: readonly BindingVerificationInput[], stop: { readonly kind: "original"; readonly cause: string }): string { const result = verifyBindings(inputs, 1, () => stop); return result.kind === "resource-stop" ? result.stop.cause : String(result.violations.length); }\n');
@@ -3455,7 +3472,7 @@ test("fresh public declarations admit real strict readers and reject the entire 
     noEmit: true, types: [], skipLibCheck: false, exactOptionalPropertyTypes: true },
     files: [resolve(stage, "reader.ts"), resolve(stage, "inline-reader.ts"), resolve(stage, "seed-reader.ts"), resolve(stage, "binding-reader.ts")], include: [] });
   assert.deepEqual(run(resolve(stage, "consumer.json")), { status: 0, diagnostics: "" });
-  write("reader.ts", imports + 'export function mutate(table: TypeTable, publication: TypePublication, limits: TypeExpansionLimits, scope: BindingScope, bindings: BindingVector, signature: Signature, evidence: TypeEvidence, parameter: TypeParameterIdentity, definition: DefId, type: TyId, input: TypeVerificationInput, nominal: NominalDefinition): void {\ntable.terms.push({ kind: "error" });\ntable.terms[0] = { kind: "error" };\ntable.signatures[0] = signature;\nlimits.maximumDepth = 1;\nscope.selfOwners.push(definition);\nbindings.classBindings[0] = { kind: "rigid", parameter };\nsignature.parameters.push({ declaration: definition, kind: "required", type, passing: "by-value", initializer: null, acceptsOmission: false });\nevidence.type = type;\nnominal.facets.push("instance");\ninput.nominalOf = () => null;\npublication.table = { terms: [], signatures: [] };\npublication.types.push(type);\npublication.signatures[0] = signature.id;\npublication.terms.push({ kind: "error" });\n}\nexport function removed(operation: ExportTypes, interner: TypeInterner, limits: TypePublicationLimits, result: TypePublicationResult, publication: TypePublication): void {\noperation(interner);\nresult.table;\nlimits.maximumWork = 1;\nlimits.maximumCreatedRecords = 1;\nif (result.kind === "complete") result.value = publication;\nelse { result.dimension = "work"; result.maximum = 1; }\nresult.kind = "complete";\n}');
+  write("reader.ts", imports + 'export function mutate(table: TypeTable, publication: TypePublication, limits: TypeExpansionLimits, scope: BindingScope, bindings: BindingVector, signature: Signature, evidence: TypeEvidence, parameter: DefId, definition: DefId, type: TyId, input: TypeVerificationInput, nominal: NominalDefinition): void {\ntable.terms.push({ kind: "error" });\ntable.terms[0] = { kind: "error" };\ntable.signatures[0] = signature;\nlimits.maximumDepth = 1;\nscope.selfOwners.push(definition);\nbindings.classBindings[0] = { kind: "rigid", parameter };\nsignature.parameters.push({ declaration: definition, kind: "required", type, passing: "by-value", initializer: null, acceptsOmission: false });\nevidence.type = type;\nnominal.facets.push("instance");\ninput.nominalOf = () => null;\npublication.table = { terms: [], signatures: [] };\npublication.types.push(type);\npublication.signatures[0] = signature.id;\npublication.terms.push({ kind: "error" });\n}\nexport function removed(operation: ExportTypes, interner: TypeInterner, limits: TypePublicationLimits, result: TypePublicationResult, publication: TypePublication): void {\noperation(interner);\nresult.table;\nlimits.maximumWork = 1;\nlimits.maximumCreatedRecords = 1;\nif (result.kind === "complete") result.value = publication;\nelse { result.dimension = "work"; result.maximum = 1; }\nresult.kind = "complete";\n}');
   write("binding-reader.ts", 'import { verifyBindings } from "./declarations/ir-types/index.js";\nimport type { BindingVerificationInput } from "./declarations/ir-types/contract.js";\nexport function removed(inputs: readonly BindingVerificationInput[]): void { verifyBindings(inputs, 1, () => true); verifyBindings(inputs, 1, () => false); verifyBindings(inputs, 1); }\n');
   const negative = run(resolve(stage, "consumer.json"));
   assert.equal(negative.status, 1, negative.diagnostics.slice(-8000));

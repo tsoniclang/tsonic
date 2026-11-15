@@ -545,7 +545,7 @@ test("non-owning opaque declarations retain their owner-qualified type-only bran
   expect([[file("ir-types", "contract.ts"), 'export type TypeInterner = object & { readonly identityKind: "type-interner" };']], [at("contract-shape", file("ir-types", "contract.ts"))]);
 });
 
-for (const [owner, capability] of [["ir-types", "TypeInterner"], ["ir-program", "ProgramVerificationWork"], ["evaluate", "EvaluationContinuation"], ["dataflow", "DataflowAccount"]]) {
+for (const [owner, capability] of [["ir-types", "TypeInterner"], ["ir-types", "TypePublicationWork"], ["ir-program", "ProgramVerificationWork"], ["evaluate", "EvaluationContinuation"], ["dataflow", "DataflowAccount"]]) {
   test(`native ${capability} has only private storage and a private constructor`, () => {
     const contract = file(owner, "contract.ts");
     const implementation = file(owner, "arena.ts");

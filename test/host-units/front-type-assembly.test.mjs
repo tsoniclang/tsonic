@@ -45,14 +45,15 @@ test("one iterative type/member assembly preserves twenty thousand nested ready 
       read.add(node);
       const type = types.get(node);
       assert.equal(type !== undefined, true);
-      return type;
+      return { kind: "complete", value: type };
     }, memory: () => ({ kind: "available", value: null }),
     resolution: () => assert.fail("no type name is selected in this constructed ready graph"),
     signature: () => assert.fail("no callable is selected in this constructed ready graph"),
     expression: () => assert.fail("no executable expression belongs to this type graph"),
     property: () => assert.fail("no computed member key belongs to this type graph") }, node, rootOwner);
   assert.equal(read.size, depth + 1);
-  let completed = result;
+  assert.equal(result.kind, "complete");
+  let completed = result.value;
   let owner = rootOwner;
   for (let index = 0; index < depth; index += 1) {
     assert.equal(completed.kind, "TypeLiteral");
@@ -90,6 +91,33 @@ test("a missing prepared type retains the original failure and never pulls a lat
     checkedType: node => { reads += 1; assert.equal(node, 3); throw original; },
     core: unused, resolution: unused, signature: unused, memory: unused, expression: unused, property: unused }, root, owner),
   error => error === original);
+  assert.equal(reads, 1);
+  assert.equal(laterReads, 0);
+});
+
+test("an expected publication stop remains the same result and prevents dependent member construction", async () => {
+  const fixture = await loadFrontFixture();
+  const actual = fixture.checkedModuleOf("export function identity(input: boolean): boolean { return input; }\n");
+  const { lowerCheckedType } = await import("../../packages/host/dist/front/checked-declarations.js");
+  const types = fixture.types.createTypeInterner();
+  const stop = fixture.types.internTypeGraph({ types,
+    work: fixture.types.createTypePublicationWork({ maximumWork: 0, maximumCreatedRecords: 100 }) },
+  new Proxy({}, { get() { assert.fail("the refused graph input is never read"); } }));
+  assert.equal(stop.kind, "resource-limit");
+  const owner = actual.checked.tree.tsonic.definition;
+  const header = (id, parent) => ({ id, parent, origin: actual.checked.tree.origin, loc: actual.checked.tree.loc, flags: [] });
+  let laterReads = 0;
+  const later = new Proxy({}, { get() { laterReads += 1; assert.fail("no later member follows the original publication stop"); } });
+  const root = { ...header(0, null), kind: "TypeLiteral", tsonic: null,
+    members: { loc: actual.checked.tree.loc, nodes: [{ ...header(1, 0), kind: "PropertySignature", modifiers: null,
+      name: { ...header(2, 1), kind: "Identifier", text: "first", tsonic: null }, postfixToken: null,
+      type: { ...header(3, 1), kind: "BooleanKeyword", tsonic: null }, initializer: null, tsonic: null }, later] } };
+  const unused = () => assert.fail("the original stop prevents dependent construction");
+  let reads = 0;
+  const result = lowerCheckedType({ definitions: new Map([[1, owner]]), checkedType: node => {
+    reads += 1; assert.equal(node, 3); return stop;
+  }, core: unused, resolution: unused, signature: unused, memory: unused, expression: unused, property: unused }, root, owner);
+  assert.equal(result === stop, true);
   assert.equal(reads, 1);
   assert.equal(laterReads, 0);
 });

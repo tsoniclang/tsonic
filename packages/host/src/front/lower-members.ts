@@ -1,18 +1,18 @@
 import type { RawTypeId, TyId } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import type { Member, MemberOrigin } from "../ir-types/contract.js";
-import type { ConvertedCheckedType, LowerDeps, RawFact, RawMember } from "./contract.js";
+import type { LowerDeps, RawFact, RawMember } from "./contract.js";
 import { lowerMemberKey, lowerMemberOrigin } from "./bindings.js";
 
 export function lowerMembers(deps: LowerDeps, members: readonly RawMember[],
-  converted: ReadonlyMap<RawTypeId, ConvertedCheckedType>): readonly Member[] {
+  converted: (type: RawTypeId) => TyId | undefined): readonly Member[] {
   const typeOf = (fact: RawFact<RawTypeId | null>): TyId | null => {
     if (fact.kind !== "available")
       throw new TypeError("front: a member requires its actual captured read/write type association (" + fact.reason + ")");
     if (fact.value === null) return null;
-    const result = converted.get(fact.value);
+    const result = converted(fact.value);
     if (result === undefined) throw new TypeError("front: a member type dependency must complete before its containing shape");
-    return result.type;
+    return result;
   };
   return members.map(member => {
     if (member.readKind !== "property" && member.readKind !== "method" && member.readKind !== "accessor")

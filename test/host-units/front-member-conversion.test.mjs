@@ -70,6 +70,7 @@ function fixture() {
     sourceTextOf: () => assert.fail("declared member conversion does not reparse authored source"),
     libraries: { sources: [] }, types: interner,
     typeExpansion: { maximumDepth: 64, maximumVisits: 4096, maximumUnionMembers: 64, maximumIntersectionMembers: 64 },
+    typePublication: { maximumWork: 100000, maximumCreatedRecords: 100000 },
     literalCapture: { maximumIntermediateBits: 4096, maximumResultBits: 4096, maximumArithmeticWork: 100000 } };
   const member = { key: { kind: "text", value: "member" }, name: "member", origins: [origin("read"), origin("write")],
     declarations: [reference], getters: [], setters: [], optional: false, readonly: false,
@@ -79,14 +80,14 @@ function fixture() {
 
 test("constructed declared member conversion retains type absence and unique origin access subsets without changing identities", () => {
   const actual = fixture();
-  assert.deepEqual(lowerMembers(actual.deps, [], actual.converted), []);
+  assert.deepEqual(lowerMembers(actual.deps, [], type => actual.converted.get(type)?.type), []);
   const members = lowerMembers(actual.deps, [actual.member,
     { ...actual.member, key: { kind: "text", value: "readonly" }, readKind: "accessor", readonly: true,
       origins: [actual.origin("read")], write: { kind: "available", value: null } },
     { ...actual.member, key: { kind: "text", value: "writeonly" }, readKind: "accessor",
       origins: [actual.origin("write")], read: { kind: "available", value: null } },
     { ...actual.member, key: { kind: "symbol", declaration: actual.reference, wellKnown: null }, readKind: "method", optional: true,
-      read: { kind: "available", value: actual.callable }, write: { kind: "available", value: actual.callable } }], actual.converted);
+      read: { kind: "available", value: actual.callable }, write: { kind: "available", value: actual.callable } }], type => actual.converted.get(type)?.type);
   assert.deepEqual(members[0].origins, [{ kind: "declared", declaration: actual.declaration }]);
   assert.deepEqual(members[0].readOrigins, members[0].origins);
   assert.deepEqual(members[0].writeOrigins, members[0].origins);
@@ -106,10 +107,10 @@ test("constructed declared member conversion retains type absence and unique ori
 
 test("constructed member conversion refuses missing type, kind and origin evidence rather than filling absent answers", () => {
   const actual = fixture();
-  const lower = changed => lowerMembers(actual.deps, [{ ...actual.member, ...changed }], actual.converted);
+  const lower = changed => lowerMembers(actual.deps, [{ ...actual.member, ...changed }], type => actual.converted.get(type)?.type);
   for (const access of ["read", "write"]) assert.throws(() => lower({ [access]:
     { kind: "unavailable", reason: "incomplete-association", causes: [] } }), /actual captured read\/write type association/u);
-  assert.throws(() => lowerMembers(actual.deps, [actual.member], new Map()), /must complete/u);
+  assert.throws(() => lowerMembers(actual.deps, [actual.member], () => undefined), /must complete/u);
   assert.throws(() => lower({ origins: [] }), /actual captured origins/u);
   for (const readKind of ["class-prototype", "mapped", "unavailable"])
     assert.throws(() => lower({ readKind }), /actual selected member kind/u);

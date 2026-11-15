@@ -1,7 +1,7 @@
 import type { Cause, Diagnostic, Result } from "../diag/contract.js";
 import type { DefId, DefinitionSegment, LibraryExportIdentity, LibraryModuleIdentity, ModuleId, NodeId, Origin, SourceNodeRef, RawCandidateListId, RawComponentId,
   RawDataLayoutId, RawMemberTableId, RawMemoryFieldId, RawMemoryLayoutId, RawSignatureId, RawSymbolId, RawTypeId, TyId } from "../ids/contract.js";
-import type { LiteralValue, NativePrimitive, PassingMode, TypeEvidence, TypeExpansionLimits, TypeInterner } from "../ir-types/contract.js";
+import type { LiteralValue, NativePrimitive, PassingMode, TypeEvidence, TypeExpansionLimits, TypeInterner, TypePublicationLimits } from "../ir-types/contract.js";
 import type { HirModule, HirModuleBinding, HirModuleExport, SourceFile, SyntaxKind, SyntaxPhase } from "../ir-hir/contract.js";
 import type { LibraryCatalogue, WellKnownSymbol } from "../libraries/contract.js";
 import type { ExtensionReferenceEntry, ImportPreparation, LibraryRoleEntry, PackageSnapshot, ProjectSnapshot } from "../snapshot/contract.js";
@@ -73,6 +73,7 @@ export interface LowerDeps {
   readonly libraries: LibraryCatalogue;
   readonly types: TypeInterner;
   readonly typeExpansion: TypeExpansionLimits;
+  readonly typePublication: TypePublicationLimits;
   readonly literalCapture: LiteralCaptureLimits;
 }
 
