@@ -42,6 +42,45 @@ export async function bindingVerificationCases(suite, types) {
     assert.deepEqual(types.verifyBindings([], 0, () => null), { kind: "complete", violations: [] });
   });
 
+  await suite.test("a sparse supplied self-owner scope retains real missing-owner findings instead of throwing or earning membership", () => {
+    for (const owners of [new Array(1), [own.owner, undefined], [undefined, other.owner]]) {
+      const value = empty();
+      value.scope.selfOwners = owners;
+      value.vector.selfBindings = owners.length === 1 ? [{ kind: "rigid", owner: own.owner }]
+        : [{ kind: "rigid", owner: own.owner }, { kind: "rigid", owner: other.owner }];
+      const complete = run([value]);
+      assert.equal(complete.result.kind, "complete");
+      const expectedPosition = owners.length === 1 || owners[0] === undefined ? 0 : 1;
+      assert.deepEqual(complete.result.violations, [{ rule: "self-owner", site: { kind: "binding", vector: 0,
+        family: "selfBindings", position: expectedPosition }, detail: [{ kind: "text", value: "owner" }] }]);
+      const neededWork = 100000 - flow.remainingWork(complete.account);
+      let neededEntries = 0;
+      types.verifyBindings([value], 1, (_work, entries) => { neededEntries += entries; return null; });
+      assert.deepEqual(run([value], neededWork, neededEntries).result, complete.result);
+      for (const [dimension, needed] of [["work", neededWork], ["result-entries", neededEntries]])
+        for (let maximum = 0; maximum < needed; maximum += 1) {
+          const stopped = dimension === "work" ? run([value], maximum, neededEntries) : run([value], neededWork, maximum);
+          assert.equal(stopped.result.kind, "resource-stop");
+          assert.equal(stopped.result.stop, flow.accountFailure(stopped.account));
+          assert.equal(stopped.result.stop.dimension, dimension);
+          const unread = new Proxy([], { get() { assert.fail("No scope is read after the original binding stop."); } });
+          assert.equal(types.verifyBindings(unread, 1, (work, entries) => flow.chargeWork(stopped.account, work)
+            ?? flow.chargeResultEntries(stopped.account, entries)).stop, stopped.result.stop);
+        }
+    }
+    const missingBinding = empty();
+    missingBinding.scope.selfOwners = new Array(1);
+    missingBinding.vector.selfBindings = new Array(1);
+    assert.deepEqual(run([missingBinding]).result.violations.map(row => row.rule), ["binding-vector-complete"]);
+    missingBinding.vector.selfBindings = [];
+    assert.deepEqual(run([missingBinding]).result.violations.map(row => row.rule), ["binding-vector-complete"]);
+    const mixed = empty();
+    mixed.scope.selfOwners = [undefined, own.owner];
+    mixed.vector.selfBindings = [{ kind: "rigid", owner: own.owner }, { kind: "rigid", owner: other.owner }];
+    assert.deepEqual(run([mixed]).result.violations.map(row => [row.rule, row.site.position]),
+      [["self-owner", 1], ["self-binding-order", 1]]);
+  });
+
   await suite.test("binding verification admits every cursor, scope row and finding on the same original account", () => {
     assert.equal(run([], 2, 2).result.kind, "complete", "initial cursor plus actual completion step");
     assert.equal(run([empty()], 12, 7).result.kind, "complete",

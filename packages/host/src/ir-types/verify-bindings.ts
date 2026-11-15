@@ -52,6 +52,7 @@ export function* bindingChecks(bindings: readonly BindingVerificationInput[], ty
       yield finding("binding-vector-complete", { kind: "binding", vector: vectorIndex, family, position: null }, "length", vector.selfBindings.length);
     const owners = new Set<string>();
     for (const owner of scope.selfOwners) {
+      if (owner === undefined) { yield { kind: "work", units: 1 }; continue; }
       yield { kind: "work", units: 1 + owner.length };
       owners.add(owner);
     }
