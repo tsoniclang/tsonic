@@ -227,6 +227,75 @@ test("real direct scalar call retains one authoritative candidate endpoint relat
   assert.equal(callee.request.bindings.kind, "instantiated");
 });
 
+test("a same-group call reads its actual finalized argument, preserves dependency errors and admits its exact solve footprint", () => {
+  const program = ready("export function value(input: boolean): boolean { return input; } export function read(input: boolean): boolean { return value(!input); }\n");
+  const scheme = program.deps.rules.constraints.call;
+  let actual;
+  const traced = { ...program, deps: { ...program.deps, rules: { ...program.deps.rules,
+    constraints: { ...program.deps.rules.constraints, call: { ...scheme, evaluate: input => {
+      actual = input;
+      return scheme.evaluate(input);
+    } } } } } };
+  const record = [...drive(traced).values()].find(record => record.constraints.some(set =>
+    set.constraints.some(constraint => constraint.kind === "call")));
+  const system = record.constraints.find(set => set.constraints.some(constraint => constraint.kind === "call"));
+  const argument = fixture.types.readType(program.interner, actual.constraint.application.arguments[0].type);
+  const result = fixture.types.readType(program.interner, actual.constraint.application.result);
+  assert.equal(argument.kind, "open");
+  assert.equal(result.kind, "open");
+  assert.equal(argument.group, record.group.id);
+  assert.deepEqual(actual.contribution.reads, [argument.variable]);
+  assert.deepEqual(actual.contribution.bounds, [result.variable]);
+  assert.equal(actual.reads[0], record.solution.variables[argument.variable]);
+  assert.equal(fixture.types.readType(program.interner, actual.reads[0].value.type).primitive, "bool");
+  assert.throws(() => scheme.evaluate({ ...actual, reads: [] }),
+    error => error.cause?.owner === "rules" && error.message.includes("actual final value of every declared variable read"));
+  const enumeration = { group: record.group.id, remainingContributions: LIMITS.maximumAtomicContributionsPerGroup,
+    constraint: actual.constraint, reference: actual.contribution.constraint, variables: system.variables,
+    candidates: actual.candidates, evidence: actual.evidence };
+  const repeated = { ...actual.constraint, application: { ...actual.constraint.application,
+    arguments: [{ ...actual.constraint.application.arguments[0], type: actual.constraint.application.result },
+      actual.constraint.application.arguments[0], actual.constraint.application.arguments[0]] } };
+  assert.deepEqual(scheme.enumerate({ ...enumeration, constraint: repeated }).value[0].reads,
+    [result.variable, argument.variable].sort((left, right) => left - right));
+  const foreign = fixture.types.internType(program.interner, { kind: "open",
+    group: program.groups.find(group => group.id !== record.group.id).id, variable: argument.variable });
+  assert.throws(() => scheme.enumerate({ ...enumeration, constraint: { ...actual.constraint,
+    application: { ...actual.constraint.application, arguments: [{ ...actual.constraint.application.arguments[0], type: foreign }] } } }),
+  error => error.cause?.owner === "rules" && error.message.includes("an open type of group"));
+  const errorType = fixture.types.internType(program.interner, { kind: "error" });
+  const error = { kind: "error", causes: [{ kind: "unit", unit: { request: { query: "solutionOf", key: record.group.id },
+    position: { kind: "inference-variable", group: record.group.id, variable: argument.variable } } }] };
+  const failed = scheme.evaluate({ ...actual, reads: [{ ...actual.reads[0], value: { ...actual.reads[0].value,
+    type: errorType, category: { kind: "dynamic" }, numeric: null, sum: null, nominal: null, pointer: null }, error }] });
+  assert.equal(failed.kind, "ok");
+  assert.deepEqual(failed.diagnostics, []);
+  assert.equal(failed.value.decision.kind, "error");
+  assert.equal(failed.value.decision.error, error);
+  assert.equal(failed.value.selectedCandidate, null);
+  assert.equal(failed.value.bounds.length, 1);
+  assert.equal(failed.value.bounds[0].variable, result.variable);
+  assert.equal(failed.value.bounds[0].value.type, errorType);
+  assert.equal(failed.value.bounds[0].error, error);
+  assert.deepEqual([system.variables.length, record.contributions.length,
+    record.contributions.reduce((count, contribution) => count + contribution.reads.length, 0),
+    record.contributions.reduce((count, contribution) => count + contribution.bounds.length, 0),
+    record.solution.constraints.length], [2, 3, 1, 3, 3]);
+  const generated = { constraints: record.constraints, outsideParts: [] };
+  const unit = { query: "solutionOf", key: record.group.id };
+  for (let maximumWork = 0; maximumWork < 14; maximumWork += 1) {
+    const under = wiring.infer.solveGroup({ ...program.deps, graph: { ...GRAPH, maximumWork },
+      hirBody: () => assert.fail("a refused solve cannot read a later signature body"),
+      itemOf: () => assert.fail("a refused solve cannot read a later signature declaration") }, record.group, generated, unit);
+    assert.equal(under.kind, "done", `maximum ${maximumWork}`);
+    assert.equal(under.value.kind, "refused", `maximum ${maximumWork}`);
+    assert.equal(under.value.diagnostics.length, 1);
+  }
+  const exact = wiring.infer.solveGroup({ ...program.deps, graph: { ...GRAPH, maximumWork: 14 } }, record.group, generated, unit);
+  assert.equal(exact.kind, "paused");
+  assert.equal(exact.paused.solved.length, 3);
+});
+
 test("constructed call result categories retain the selected native carrier without fabricating number evidence for char", () => {
   const program = ready("export function value(): boolean { return true; } export function read(): boolean { return value(); }\n");
   const record = [...drive(program).values()].find(record => record.constraints.some(set =>

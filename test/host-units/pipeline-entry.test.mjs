@@ -288,6 +288,67 @@ test(`real public Host analysis closes ${count} fixed by-value scalar call argum
     && edge.target.execution.provided === count), true);
 });
 
+for (const [position, expression] of [["argument", "value(!input)"], ["result", "!value(input)"]])
+test(`real public Host analysis composes native boolean negation with a scalar call ${position}`, async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal",
+    `export function value(input: boolean): boolean { return input; } export function read(input: boolean): boolean { return ${expression}; }\n`);
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok");
+  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  const main = result.value.modules.find(module => module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts"));
+  const caller = main.bodies.find(body => body.kind === "selected" && body.mir.blocks.some(block => block.terminator.kind === "call"));
+  assert.notEqual(caller, undefined);
+  const returned = caller.tir.root.statements.nodes[0].expression;
+  assert.equal(returned.kind, position === "argument" ? "CallExpression" : "PrefixUnaryExpression");
+  const unary = position === "argument" ? returned.arguments.nodes[0] : returned;
+  assert.equal(unary.kind, "PrefixUnaryExpression");
+  assert.equal(unary.operator, "ExclamationToken");
+  const call = caller.mir.blocks.find(block => block.terminator.kind === "call").terminator;
+  assert.equal(call.callee.kind, "direct");
+  assert.deepEqual(call.callee.resolution.decision.parameters,
+    [{ kind: "argument", parameter: 0, argument: 0, component: null, passing: "by-value" }]);
+  assert.equal(caller.mir.blocks.flatMap(block => block.statements).filter(statement => statement.kind === "assign"
+    && statement.value.kind === "unary" && statement.value.operation.decision.operation.kind === "native-operator"
+    && statement.value.operation.decision.operation.operator === "!"
+    && statement.value.operation.decision.operation.carrier === "bool").length, 1);
+  assert.equal(result.value.index.dependencyInventory.dependencies.some(edge => edge.reason === "call"
+    && edge.dependent.instance.body === caller.instance.body && edge.dependent.provided === 1
+    && edge.target.kind === "body" && edge.target.execution.instance.body === call.callee.resolution.activation.body
+    && edge.target.execution.provided === 1), true);
+});
+
+test("real public Host analysis closes a twelve-call dependency chain with every actual body and summary", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const links = 12;
+  const declarations = ["export function value0(input: boolean): boolean { return input; }"];
+  for (let index = 1; index <= links; index += 1)
+    declarations.push(`export function value${index}(input: boolean): boolean { return value${index - 1}(input); }`);
+  const input = analysisInput(fixture, "sdk-minimal", declarations.join("\n"));
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok");
+  assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+  const main = result.value.modules.find(module => module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts"));
+  const selected = main.bodies.filter(body => body.kind === "selected");
+  assert.equal(selected.length, links + 2);
+  assert.equal(main.bodies.filter(body => body.kind === "template").length, links + 2);
+  assert.equal(result.value.index.dependencyInventory.operations.length, links + 2);
+  assert.equal(result.value.index.summaries.length, links + 2);
+  assert.equal(result.value.index.dependencyInventory.dependencies.filter(edge => edge.reason === "call").length, links);
+  assert.equal(selected.reduce((count, body) => count + body.mir.blocks.filter(block => block.terminator.kind === "call").length, 0), links);
+  for (const body of selected) {
+    assert.equal(body.facts.length, 1);
+    assert.deepEqual(body.facts.map(facts => facts.execution.provided), [body.tir.params.length]);
+    for (const block of body.mir.blocks) if (block.terminator.kind === "call") {
+      const call = block.terminator;
+      assert.equal(call.callee.kind, "direct");
+      assert.equal(selected.some(target => target.instance.body === call.callee.resolution.activation.body), true);
+    }
+  }
+});
+
 test("the actual selected-call analysis admits its indices before growth and retains the original account refusal", async () => {
   const fixture = await loadFrontFixture();
   const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");

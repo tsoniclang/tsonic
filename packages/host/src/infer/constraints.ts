@@ -318,8 +318,8 @@ function leave(walk: Walk, node: HirNode): void {
       if (source === undefined || argument.kind !== "value" || argument.expression !== source.id)
         return notInferredYet(PORT, "the actual selected source transport of a spread call argument", node.origin);
       const type = typeAt(walk, source);
-      if (typeof type !== "number" || readType(walk.generation.deps.types, type).kind === "open")
-        return notInferredYet(PORT, "the actual finalized argument contribution footprint", source.origin);
+      if (typeof type !== "number")
+        return notInferredYet(PORT, "the actual argument inferred-part contribution", source.origin);
       return { occurrence: refOf(walk, source), kind: argument.kind, type, tuple: null, closure: null };
     });
     const result = present(walk.operators.get(node.id), "the actual application result position");

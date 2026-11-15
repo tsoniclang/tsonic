@@ -11,7 +11,7 @@ import { at as where, callerDefect, notDecidedYet } from "./frontier.js";
 import { decideOperator } from "./operators.js";
 import { mergeErrors, validateValue } from "./errors.js";
 
-function variableOf(deps: RulesDeps, type: TyId, occurrence: NodeRef, group: GroupId | null): number | null {
+export function variableOf(deps: RulesDeps, type: TyId, occurrence: NodeRef, group: GroupId | null): number | null {
   const term = readType(deps.types, type);
   if (term.kind !== "open") return null;
   if (group !== null && term.group !== group)
@@ -67,7 +67,8 @@ export function operatorScheme(deps: RulesDeps): ConstraintScheme<OperatorConstr
         if (variable !== null) reads.add(variable);
       }
       const result = variableOf(deps, value.result, value.occurrence, input.group);
-      return one({ node: value.occurrence, candidate: null, role: { kind: "operator" } }, [...reads], result === null ? [] : [result], input.reference);
+      return one({ node: value.occurrence, candidate: null, role: { kind: "operator" } }, [...reads].sort((left, right) => left - right),
+        result === null ? [] : [result], input.reference);
     },
     evaluate: input => {
       const value = input.constraint;
