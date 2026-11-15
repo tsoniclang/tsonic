@@ -4,8 +4,8 @@ import type { Diagnostic, DiagnosticIdentity, ErrorValue, UnitResult } from "../
 import { hostDiagnosticCode, requirePresent, resourceLimitDiagnostic } from "../../diag/index.js";
 import type { LocalId, NodeId, OriginsId, PlaceId, ProducerId } from "../../ids/contract.js";
 import { boundProducerId, originsId, producerId, valueContextId } from "../../ids/index.js";
-import type { ArgumentTransport, BoundActivation, BoundProducer, CaptureLocation, EscapeFact, InitializationFact, InitializationPoint, InitializationRow, IntegerFact, InvocationFact, LogicalCellRow, MirPoint, Origins, Producer, ReadOriginsFact, SubjectOriginsFact, Summary, SummaryApplicationInput, SummaryRetention, ValueContext, ValueEntryBinding, WriteFact } from "../../ir-facts/contract.js";
-import { admitSummaryIdentity, summaryPositionKey } from "../../ir-facts/index.js";
+import type { ArgumentTransport, BoundActivation, BoundProducer, CaptureLocation, EscapeFact, InitializationFact, InitializationPoint, InitializationRow, IntegerFact, InvocationFact, LogicalCellRow, MirPoint, Origins, Producer, ReadOriginsFact, SubjectOriginsFact, Summary, SummaryApplicationInput, ValueContext, ValueEntryBinding, WriteFact } from "../../ir-facts/contract.js";
+import { admitSummaryIdentity } from "../../ir-facts/index.js";
 import type { MirLocal, MirOperand, MirSite } from "../../ir-mir/contract.js";
 import { localOwnershipOfMir } from "../../ir-mir/index.js";
 import type { TirNode } from "../../ir-tir/contract.js";
@@ -21,6 +21,8 @@ import { appliedOrigins, joinOrigins, valueKind, valueOrigins } from "./values.j
 import { operandOrigins, solveValueOrigins, transferValue } from "./value-flow.js";
 import { captureMustAtExit, recordInitializationPoint, sourceNeedAssigned } from "./initialization.js";
 import { collectCellWrites, recordCaptureWrite } from "./writes.js";
+import { retainExitValue } from "./exits.js";
+import type { ExitRetention } from "./exits.js";
 
 function uninitialized(deps: BodyRoundDeps, site: MirSite): UnitResult<ErrorValue> {
   const code = hostDiagnosticCode("TSONIC_READ_BEFORE_INITIALIZATION");
@@ -40,6 +42,7 @@ function operandSite(node: TirNode | undefined, position: number, fallback: Node
   }
   if (node?.kind === "PrefixUnaryExpression" || node?.kind === "PostfixUnaryExpression") return node.operand.id;
   if (node?.kind === "ReturnStatement" && node.expression !== null) return node.expression.id;
+  if (node?.kind === "ThrowStatement") return node.expression.id;
   return fallback;
 }
 
@@ -233,12 +236,14 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
   const activations: BoundActivation[] = [];
   const invocations: InvocationFact[] = [];
   const escapes: EscapeFact[] = [];
-  const retention: { readonly key: string; readonly value: SummaryRetention }[] = [];
+  const retention: ExitRetention[] = [];
   let returnAssigned: ReadonlySet<LocalId> | null = null;
+  let unwindAssigned: ReadonlySet<LocalId> | null = null;
   const writeInventory = chargeResultEntries(account, 1);
   if (writeInventory !== null) return writeInventory;
   const cellWrites = new Map<number, OriginsId>();
   let resultOrigins = empty;
+  let thrownOrigins = empty;
   const admitUnion = (count: number, retain: boolean): DataflowStop | null => {
     const alternatives = bounded("maximumOriginAlternatives", count);
     if (alternatives !== null || !retain) return alternatives;
@@ -562,25 +567,21 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
         if (typeof joined !== "number") return joined;
         resultOrigins = joined;
         subjects.push({ node: terminator.tir.node, role: "return", path: null, origins });
-        const returned = requirePresent(originRows[origins], { owner: "analyses/body", query: null, origin: terminator.origin,
-          message: "A returned reference retains its actual bound Origins." });
-        if (returned.producers.length !== 0) {
-          const identity = admitSummaryIdentity({ kind: "body", execution }, account)
-            ?? chargeWork(account, 4) ?? chargeResultEntries(account, 2);
-          if (identity !== null) return identity;
-          const point = { block: block.id, statement: null };
-          const at = { kind: "body", execution, point, edge: null } satisfies SummaryRetention["at"];
-          const key = summaryPositionKey(at);
-          for (const source of returned.producers) {
-            const row = chargeWork(account, 1) ?? chargeResultEntries(account, 5);
-            if (row !== null) return row;
-            const bound = requirePresent(boundProducers[source], { owner: "analyses/body", query: null, origin: terminator.origin,
-              message: "A returned reference names its actual bound value producer." });
-            escapes.push({ point, node: terminator.tir.node, producer: bound.producer, target: { kind: "return" } });
-            retention.push({ key, value: { source, at, into: { kind: "return" } } });
-          }
-        }
+        const retained = retainExitValue(deps, execution, terminator, { block: block.id, statement: null },
+          "return", origins, arena, escapes, retention);
+        if (retained !== null) return retained;
       }
+    } else if (terminator.kind === "throw") {
+      const state = captureMustAtExit(deps, capturedEntries, assigned, unwindAssigned);
+      if (state.kind !== "complete") return state;
+      unwindAssigned = state.value;
+      const origins = originsOf(terminator.operand);
+      const joined = joinOrigins(deps, values.value, thrownOrigins, origins, admitUnion);
+      if (typeof joined !== "number") return joined;
+      thrownOrigins = joined;
+      const retained = retainExitValue(deps, execution, terminator, { block: block.id, statement: null },
+        "throw", origins, arena, escapes, retention);
+      if (retained !== null) return retained;
     }
   }
   const collection = chargeWork(account, initialized.size + initializedCount) ?? chargeResultEntries(account, initializedCount);
@@ -623,6 +624,10 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     const returned = recordInitializationPoint(deps, initializationPoints, initializationState, { kind: "return" }, capturedEntries, returnAssigned);
     if (returned !== null) return returned;
   }
+  if (unwindAssigned !== null) {
+    const unwound = recordInitializationPoint(deps, initializationPoints, initializationState, { kind: "unwind" }, capturedEntries, unwindAssigned);
+    if (unwound !== null) return unwound;
+  }
   const written = collectCellWrites(deps, cells.length, capturedEntries.length, cellWrites);
   if (written.kind !== "complete") return written;
   const projected = contexts.length === 1 ? null : chargeWork(account, formalCount + capturedEntries.length + entryBoundCount)
@@ -633,8 +638,9 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       { owner: "analyses/body", query: null, origin: null, message: "A scalar boundary projection retains its actual entry context." })] };
   const summary: Summary = { key: { kind: "body", execution }, signature: tir.signature, arena: summaryArena,
     parameters: [], captures: capturedEntries.map((_, index) => ({ index, reads: { kind: "complete", paths: [] }, writes: { kind: "complete", paths: [] } })),
-    result: resultOrigins, thrown: empty, writes: written.value.boundary, retention: retentionRows.value.map(row => row.value), callbacks: [],
-    concurrentWrites: [], contentsOnReturn: returns ? written.value.boundary : [], contentsOnUnwind: [], returns, unwinds: false,
+    result: resultOrigins, thrown: thrownOrigins, writes: written.value.boundary, retention: retentionRows.value.map(row => row.value), callbacks: [],
+    concurrentWrites: [], contentsOnReturn: returns ? written.value.boundary : [], contentsOnUnwind: unwindAssigned === null ? [] : written.value.boundary,
+    returns, unwinds: unwindAssigned !== null,
     initialization: { cells: capturedEntries.map((_, index) => index), events: [], conditions: [{ alternatives: [] }, { alternatives: [[]] }],
       points: initializationPoints, rows: initializationState },
     resultCells: [], backing: [], suspends: false, bindingDependent: tir.dependence === "binding-dependent" };
@@ -645,7 +651,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
   const value: BodyRoundValue = { facts: { execution, arena, liveness, initialization: { reads: initialization.value },
     refinements: { refinements: [], integers: integerRows.value, countedLoops: [] }, origins: { points: [], reads: readRows.value,
       subjects: subjectRows.value, writes, escapes: escapeRows.value, invocations, callbacks: [], activations, frontiers: [],
-      constructions: [], instanceRegions: [], exitContents: { onReturn: returns ? written.value.body : [], onUnwind: [] } },
+      constructions: [], instanceRegions: [], exitContents: { onReturn: returns ? written.value.body : [], onUnwind: unwindAssigned === null ? [] : written.value.body } },
     suspension: { suspensions: [] }, errorStorage: { errors: [] }, pointerBacking: { pointers: [] }, rawLocations: [],
     fieldBindings: [], recordBindings: [], memoryBindings: [], selectedMemoryDeclarations: [], closedArrays: [] },
     summary: { ...summary, parameters: effects } };

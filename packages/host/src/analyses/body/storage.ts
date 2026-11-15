@@ -143,6 +143,10 @@ export function statementOperands(statement: MirStatement): readonly MirOperand[
 export function terminatorOperands(terminator: MirTerminator): readonly MirOperand[] {
   switch (terminator.kind) {
     case "return": return terminator.value === null ? [] : [terminator.value];
+    case "throw":
+      if (terminator.unwind.kind !== "escape")
+        return bodyFrontier("BodyAnalysis requires the actual selected handler or process-ending throw transport.");
+      return [terminator.operand];
     case "switch": return [terminator.operand];
     case "goto": case "unreachable": return [];
     default: return bodyFrontier("BodyAnalysis needs the selected call, failure or suspension transport for this terminator.");

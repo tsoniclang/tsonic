@@ -23,7 +23,7 @@ const analysisLimits = { maximumProjectionDepth: 64, maximumOriginAlternatives: 
   maximumRelationalRecordsPerBody: 100000, maximumRelationalReferencesPerBody: 100000 };
 const scope = { classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] };
 const repository = fileURLToPath(new URL("../../", import.meta.url));
-const runtimeFiles = ["index", "round", "storage", "source", "proof", "calls", "values", "value-flow", "places", "captures", "initialization", "writes"].map(name => resolve(repository, `packages/host/dist/analyses/body/${name}.js`));
+const runtimeFiles = ["index", "round", "storage", "source", "proof", "calls", "values", "value-flow", "places", "captures", "initialization", "writes", "exits"].map(name => resolve(repository, `packages/host/dist/analyses/body/${name}.js`));
 const session = new Session();
 const post = (method, parameters = {}) => new Promise((done, reject) =>
   session.post(method, parameters, (error, value) => error === null ? done(value) : reject(error)));
@@ -1781,6 +1781,112 @@ test("captured reference writes remain an explicit value and exit-content produc
   program.bodyOf = instance => sameInstance(instance, { body: owner.tir.body, bindings: owner.tir.bindings }) ? owner.tir : null;
   const current = fixture(program);
   assert.throws(() => analyzeBodyRound(current.deps, current.input), /actual captured reference content and exit-write transport/);
+});
+
+test("an actual authored throw retains its entry reference and a separate finite unwind outcome", () => {
+  const program = shaped("body-round.authored-throw", [["value", "required", T.string]], T.bool,
+    builder => builder.block(builder.throws(builder.id("value", 0, T.string))));
+  const current = fixture(program);
+  const pair = checkedPair(current, analyzeBodyRound(current.deps, current.input));
+  assert.equal(pair.summary.returns, false);
+  assert.equal(pair.summary.unwinds, true);
+  assert.deepEqual(pair.summary.arena.origins[pair.summary.result].producers, []);
+  assert.deepEqual(pair.summary.arena.origins[pair.summary.thrown].producers, [0]);
+  assert.deepEqual(pair.summary.initialization.points, [{ kind: "unwind" }]);
+  const block = current.input.mir.blocks.find(block => block.terminator.kind === "throw");
+  assert.deepEqual(pair.facts.origins.escapes, [{ point: { block: block.id, statement: null },
+    node: block.terminator.tir.node, producer: 0, target: { kind: "throw" } }]);
+  assert.equal(pair.summary.retention.length, 1);
+  assert.deepEqual(pair.summary.retention[0], { source: 0, at: { kind: "body", execution: current.execution,
+    point: { block: block.id, statement: null }, edge: null }, into: { kind: "throw" } });
+  for (const dimension of ["maximumWork", "maximumResultEntries"]) {
+    let completed = false;
+    for (let maximum = 0; maximum < 10000; maximum += 1) {
+      const account = createAccount({ ...limits, [dimension]: maximum });
+      const result = analyzeBodyRound({ ...current.deps, account }, current.input);
+      if (result.kind === "complete") { checkedPair(current, result); completed = true; break; }
+      assert.equal(result, accountFailure(account));
+      assert.equal(analyzeBodyRound({ ...current.deps, account }, new Proxy({}, {
+        get() { assert.fail("An escaping throw's original stop precedes every later input read."); },
+      })), result);
+    }
+    assert.equal(completed, true);
+  }
+  for (const unwind of [{ kind: "abort" }, { kind: "none" }])
+    assert.throws(() => terminatorOperands({ ...block.terminator, unwind }), /actual selected handler or process-ending throw transport/);
+  const proof = proveInitialization({ account: createAccount(limits), unit: { query: "initializationProof", key: [] },
+    summaryOf: () => ({ value: pair.summary, unit: { request: current.deps.unit, position: { kind: "result" } } }) },
+  { modules: [], entries: [current.execution], storage: [] });
+  assert.equal(proof.kind, "complete");
+  assert.deepEqual(proof.value.value, { modules: [], entries: [current.execution] },
+    "an authored throw is ordinary program control, not a compiler error or a fabricated native fault value");
+});
+
+test("actual return and throw arms retain distinct value Origins and finite exit states", () => {
+  const program = shaped("body-round.mixed-exits", [["flag", "required", T.bool], ["left", "required", T.string],
+    ["right", "required", T.string]], T.string, builder => builder.block(builder.ifElse(builder.id("flag", 0, T.bool),
+      builder.block(builder.returns(builder.id("left", 1, T.string))), builder.block(builder.throws(builder.id("right", 2, T.string))))));
+  const current = fixture(program);
+  const pair = checkedPair(current, analyzeBodyRound(current.deps, current.input));
+  assert.equal(pair.summary.returns, true);
+  assert.equal(pair.summary.unwinds, true);
+  assert.deepEqual(pair.summary.arena.origins[pair.summary.result].producers, [0]);
+  assert.deepEqual(pair.summary.arena.origins[pair.summary.thrown].producers, [1]);
+  assert.deepEqual(pair.summary.retention.map(row => row.into), [{ kind: "return" }, { kind: "throw" }]);
+  assert.deepEqual(pair.summary.initialization.points, [{ kind: "return" }, { kind: "unwind" }]);
+});
+
+test("multiple actual throws union their value Origins without inventing a normal return", () => {
+  const program = shaped("body-round.two-throws", [["flag", "required", T.bool], ["left", "required", T.string],
+    ["right", "required", T.string]], T.string, builder => builder.block(builder.ifElse(builder.id("flag", 0, T.bool),
+      builder.block(builder.throws(builder.id("left", 1, T.string))), builder.block(builder.throws(builder.id("right", 2, T.string))))));
+  const current = fixture(program);
+  const pair = checkedPair(current, analyzeBodyRound(current.deps, current.input));
+  assert.equal(pair.summary.returns, false);
+  assert.deepEqual(pair.summary.arena.origins[pair.summary.thrown].producers, [0, 1]);
+  assert.deepEqual(pair.summary.initialization.points, [{ kind: "unwind" }]);
+  assert.deepEqual(pair.summary.retention.map(row => row.into), [{ kind: "throw" }, { kind: "throw" }]);
+});
+
+test("an authored throw of an uninitialized own local retains the original read error instead of a Summary", () => {
+  const name = "body-round.unwritten-throw";
+  const builder = builders(name);
+  const declaration = builder.variable(builder.declName("slot", 0), 0, T.bool);
+  declaration.$ = "slot";
+  const program = typedBody(name, { signature: signature(name, [], T.bool), completion: T.bool,
+    locals: [["slot", "binding", T.bool, true]],
+    root: builder.block(builder.declare([declaration]), builder.throws(builder.id("slot", 0, T.bool))) });
+  program.tir.locals[0].declaration = { kind: "body", value: program.nodeRef("slot") };
+  const current = fixture(program);
+  const result = analyzeBodyRound(current.deps, current.input);
+  assert.equal(result.kind, "complete");
+  assert.equal(result.value.value.kind, "error");
+  assert.equal(result.value.positions[0].error, result.value.value);
+  assert.equal(result.value.diagnostics[0].code.rendered, "TSONIC_READ_BEFORE_INITIALIZATION");
+  assert.equal("summary" in result.value.value, false);
+});
+
+test("an escaping primitive throw retains genuine capture writes and its own unwind initialization state", () => {
+  const owner = shaped("body-round.throw-capture.owner", [["value", "required", T.bool]], T.bool,
+    builder => builder.block(builder.returns(builder.id("value", 0, T.bool))));
+  const name = "body-round.throw-capture";
+  const builder = builders(name);
+  const source = { body: owner.tir.body, local: 0 };
+  const program = typedBody(name, { signature: signature(name, [], T.bool), completion: T.bool,
+    locals: [["value", "capture", T.bool, true, source]], captures: [{ local: source, capture: "captured-location" }],
+    root: builder.block(builder.expressionStatement(builder.assign(builder.target("value", 0, T.bool), "EqualsToken",
+      builder.keyword("TrueKeyword", T.bool), T.bool, T.bool)), builder.throws(builder.id("value", 0, T.bool))) });
+  program.bodyOf = instance => sameInstance(instance, { body: owner.tir.body, bindings: owner.tir.bindings }) ? owner.tir : null;
+  const current = fixture(program);
+  current.related = [fixture(owner)];
+  const pair = checkedPair(current, analyzeBodyRound(current.deps, current.input));
+  assert.equal(pair.summary.returns, false);
+  assert.equal(pair.summary.unwinds, true);
+  assert.deepEqual(pair.summary.contentsOnReturn, []);
+  assert.deepEqual(pair.summary.contentsOnUnwind, [{ target: 0, value: 0 }]);
+  assert.deepEqual(pair.facts.origins.exitContents.onUnwind, pair.summary.contentsOnUnwind);
+  assert.deepEqual(pair.summary.initialization.rows, [{ point: 0, cell: null, condition: 0 }, { point: 0, cell: 0, condition: 1 }]);
+  assert.deepEqual(pair.summary.retention, [], "the actual primitive throw has no invented reference producer");
 });
 
 test("an actual scalar call destination establishes its captured primitive cell", () => {

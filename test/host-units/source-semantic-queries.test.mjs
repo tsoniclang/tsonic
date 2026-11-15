@@ -431,9 +431,38 @@ test("actual plain local assignment retains the RHS embedding and writable targe
   assert.equal(actual.right.tsonic.conversion.kind, "convert");
   assert.equal(actual.right.tsonic.conversion.role, "assignment");
   const original = checked.left.tsonic;
-  checked.left.tsonic = { ...original, access: "read-write" };
-  assert.throws(() => wiring.elaborate.elaborate(deps, input), /actual qualified writable storage type/u);
+  const pending = wiring.infer.constraintsOf(program.inputs.inference, group);
+  assert.equal(pending.kind, "paused");
+  const answers = pending.requests.map(request => {
+    assert.equal(request.kind, "declaredSignatureOf");
+    const answer = program.database.run(program.queries.declaredSignatureOf, request.request);
+    assert.equal(answer.kind, "completed");
+    return { kind: request.kind, value: answer.value };
+  });
+  const place = original.place.value;
+  const foreign = program.checked.bodies.find(candidate => candidate.body !== body.body).body;
+  for (const changed of [
+    { ...original, access: "read-write" },
+    { ...original, place: { kind: "unavailable", reason: "not-provided", causes: [] } },
+    { ...original, place: { kind: "available", value: { ...place, write: { kind: "available", value: null } } } },
+    ...[{ ...original.resolution.local, body: foreign }, { ...original.resolution.local, local: original.resolution.local.local + 1 }]
+      .map(local => ({ ...original, place: { kind: "available", value: { ...place,
+        base: { kind: "root", resolution: { kind: "local", local } } } } })),
+  ]) {
+    checked.left.tsonic = changed;
+    assert.throws(() => wiring.infer.resumeConstraintsOf(program.inputs.inference, pending.paused, answers),
+      /actual qualified writable local storage/u);
+    assert.throws(() => wiring.elaborate.elaborate(deps, input), /actual qualified writable storage type/u);
+  }
   checked.left.tsonic = original;
+  const generated = wiring.infer.resumeConstraintsOf({ ...program.inputs.inference,
+    limits: { ...program.inputs.inference.limits, maximumVariablesPerGroup: 0 } }, pending.paused, answers);
+  assert.equal(generated.kind, "done");
+  assert.equal(generated.value.kind, "ok");
+  assert.equal(generated.value.value.constraints.every(set => set.variables.length === 0), true);
+  const retained = generated.value.value.constraints.find(set => set.body === body.body).constraints
+    .find(candidate => candidate.kind === "flow" && candidate.role === "assignment");
+  assert.deepEqual(retained, flow);
   assert.equal(wiring.elaborate.elaborate(deps, input).kind, "ok");
 });
 
