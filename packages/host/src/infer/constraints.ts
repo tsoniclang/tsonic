@@ -1,7 +1,7 @@
 import type { Diagnostic } from "../diag/contract.js";
 import type { BodyId, DefId, LocalId, LocalRef, NodeId, NodeRef, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { BindingVector, CategoryEvidence, Signature } from "../ir-types/contract.js";
-import type { Expression, HirBody, HirNode, CheckedPhase } from "../ir-hir/contract.js";
+import type { Expression, HirBody, HirNode, HirParam, CheckedPhase } from "../ir-hir/contract.js";
 import type { CallConstraint, FlowConstraint, InferenceCandidateList, InferenceGroup, InferenceValue, InferenceVariable, InferredPartType, InferredSignaturePart, OperatorConstraint } from "../ir-infer/contract.js";
 import type { ConstraintsOf, ConstraintsPaused, ConstraintsRequest, GroupConstraints, InferDeps, InferStep, ResumeConstraintsOf } from "./contract.js";
 import { requirePresent, resourceLimitDiagnostic } from "../diag/index.js";
@@ -18,6 +18,11 @@ const TEMPLATE: BindingVector = { classBindings: [], methodBindings: [], capture
 
 type Output = InferStep<GroupConstraints, ConstraintsRequest, ConstraintsPaused>;
 type Slot = TyId | { readonly part: InferredSignaturePart };
+interface ParameterPosition {
+  readonly parameter: HirParam;
+  readonly index: number;
+}
+type ParameterIndex = Map<BodyId, ReadonlyMap<LocalId, ParameterPosition>>;
 type DraftConstraint =
   | Omit<FlowConstraint, "from" | "to"> & { readonly from: Slot; readonly to: Slot }
   | Omit<OperatorConstraint, "operands" | "result"> & { readonly operands: readonly Slot[]; readonly result: Slot }
@@ -38,7 +43,7 @@ interface Generation {
   readonly ownParts: ReadonlySet<string>;
   readonly ownDefinitions: ReadonlySet<DefId>;
   readonly signatures: ReadonlyMap<string, Signature>;
-  readonly parameters: Map<BodyId, ReadonlyMap<LocalId, Slot>>;
+  readonly parameters: ParameterIndex;
   readonly outsideParts: ReadonlyMap<string, InferredPartType>;
   nextVariable: number;
 }
@@ -62,6 +67,7 @@ export const constraintsOf: ConstraintsOf = (deps, group) => {
   const ownParts = new Set(group.signatures.map(inferredPartKey));
   const requestedParts = new Set<string>();
   const requestedSignatures = new Set<string>();
+  const parameters: ParameterIndex = new Map();
   const signatureRequest = (body: BodyId, request: Extract<ConstraintsRequest, { readonly kind: "declaredSignatureOf" }>): void => {
     const key = signatureRequestKey(request.request);
     if (requestedSignatures.has(key)) return;
@@ -89,6 +95,22 @@ export const constraintsOf: ConstraintsOf = (deps, group) => {
       if (declared.kind !== "available") return notInferredYet(PORT, "the actual declaration type availability of a local", binding.declaration.origin);
       if (declared.value !== null) continue;
       const part: InferredSignaturePart = { definition: binding.definition, part: { kind: "variable" } };
+      const key = inferredPartKey(part);
+      if (!ownParts.has(key) && !requestedParts.has(key)) {
+        requestedParts.add(key);
+        requests.push({ kind: "inferred-part", part });
+        requestBodies.push(reference);
+      }
+    }
+    for (const capture of body.captures) {
+      const owner = deps.hirBody(capture.body);
+      const selected = parametersOf(parameters, owner).get(capture.local);
+      if (selected === undefined) continue;
+      const declaration = parameterDeclaration(deps, owner, selected.parameter);
+      const checked = declaration.tsonic.declaredType;
+      if (checked.kind !== "available") return notInferredYet(PORT, "the actual captured parameter type availability", declaration.origin);
+      if (checked.value !== null || selected.parameter.initializer === null) continue;
+      const part: InferredSignaturePart = { definition: owner.owner, part: { kind: "parameter-initializer", index: selected.index } };
       const key = inferredPartKey(part);
       if (!ownParts.has(key) && !requestedParts.has(key)) {
         requestedParts.add(key);
@@ -364,9 +386,9 @@ function localType(walk: Walk, node: Extract<HirNode, { readonly kind: "Identifi
   if (resolution.kind !== "local")
     return notInferredYet(PORT, "a value read that is not an actual local", node.origin);
   const reference = resolution.local;
-  const parameters = parametersOf(walk.generation, reference.body);
-  const parameter = parameters.get(reference.local);
-  if (parameter !== undefined) return parameter;
+  const owner = walk.generation.deps.hirBody(reference.body);
+  const parameter = parametersOf(walk.generation.parameters, owner).get(reference.local);
+  if (parameter !== undefined) return parameterType(walk.generation, owner, parameter);
   const { definition, declaration } = localBinding(walk.generation.deps, reference);
   const declared = declaration.tsonic.declaredType;
   if (declared.kind !== "available") return notInferredYet(PORT, "the actual declaration type availability of a local", node.origin);
@@ -391,26 +413,43 @@ function localBinding(deps: InferDeps, reference: LocalRef): {
   return { definition: local.declaration.value.owner, declaration };
 }
 
-function parametersOf(state: Generation, body: BodyId): ReadonlyMap<LocalId, Slot> {
-  const existing = state.parameters.get(body);
+function parametersOf(cache: ParameterIndex, owner: HirBody): ReadonlyMap<LocalId, ParameterPosition> {
+  const existing = cache.get(owner.body);
   if (existing !== undefined) return existing;
-  const owner = state.deps.hirBody(body);
-  const parameters = new Map<LocalId, Slot>();
+  const parameters = new Map<LocalId, ParameterPosition>();
   let index = 0;
   for (const parameter of owner.params) {
-    const declaration = state.deps.itemOf(parameter.declaration);
-    if (declaration.kind !== "Parameter") return callerDefect(PORT, "a parameter local has no actual parameter declaration");
-    const checked = declaration.tsonic.declaredType;
-    const part: InferredSignaturePart = { definition: owner.owner, part: { kind: "parameter-initializer", index } };
-    const type: Slot = checked.kind === "available" && checked.value !== null ? checked.value
-      : state.ownParts.has(inferredPartKey(part)) ? { part }
-      : state.outsideParts.has(inferredPartKey(part)) ? { part }
-      : present(present(ownReadySignature(state, owner), "the ready external parameter signature").parameters[index], "the actual parameter type").type;
-    parameters.set(parameter.local, type);
+    if (parameters.has(parameter.local)) return callerDefect(PORT, "a formal inventory repeats its actual qualified local");
+    parameters.set(parameter.local, { parameter, index });
     if (parameter.role !== "this") index += 1;
   }
-  state.parameters.set(body, parameters);
+  cache.set(owner.body, parameters);
   return parameters;
+}
+
+function parameterDeclaration(deps: InferDeps, owner: HirBody, parameter: HirParam): Extract<HirNode, { readonly kind: "Parameter" }> {
+  const local = owner.locals[parameter.local];
+  const declaration = deps.itemOf(parameter.declaration);
+  if (local === undefined || !Object.is(local.id, parameter.local) || local.declaration.kind !== "item"
+    || local.declaration.value.owner !== parameter.declaration || declaration.kind !== "Parameter"
+    || declaration.id !== local.declaration.value.node || declaration.tsonic.declaration.kind !== "local"
+    || declaration.tsonic.declaration.local.body !== owner.body
+    || !Object.is(declaration.tsonic.declaration.local.local, parameter.local))
+    return callerDefect(PORT, "a demanded parameter retains its actual qualified local and checked declaration");
+  return declaration;
+}
+
+function parameterType(state: Generation, owner: HirBody, selected: ParameterPosition): Slot {
+  const declaration = parameterDeclaration(state.deps, owner, selected.parameter);
+  const checked = declaration.tsonic.declaredType;
+  if (checked.kind !== "available") return notInferredYet(PORT, "the actual parameter type availability", declaration.origin);
+  if (checked.value !== null) return checked.value;
+  const part: InferredSignaturePart = { definition: owner.owner, part: { kind: "parameter-initializer", index: selected.index } };
+  const key = inferredPartKey(part);
+  if (state.ownParts.has(key) || state.outsideParts.has(key)) return { part };
+  const signature = present(ownReadySignature(state, owner), "the ready external parameter signature");
+  return selected.parameter.role === "this" ? signature.receiver ?? callerDefect(PORT, "a demanded receiver retains its actual signature type")
+    : present(signature.parameters[selected.index], "the actual parameter type").type;
 }
 
 function returnComponent(walk: Walk, type: Slot): SourceNodeRef {

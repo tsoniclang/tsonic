@@ -1,6 +1,6 @@
 import type { Diagnostic, Result } from "../diag/contract.js";
-import type { BodyId, BodyRole, DefId, NodeId, Origin, SourceNodeRef } from "../ids/contract.js";
-import type { Declaration, CheckedPhase, HirBody, HirNode, HirModuleBinding, HirResolution } from "../ir-hir/contract.js";
+import type { BodyId, BodyRole, DefId, LocalId, NodeId, Origin, SourceNodeRef } from "../ids/contract.js";
+import type { Declaration, CheckedPhase, HirBody, HirNode, HirParam, HirModuleBinding, HirResolution } from "../ir-hir/contract.js";
 import type { DataflowAccount, DataflowResult, DataflowStop, GraphComponents } from "../dataflow/contract.js";
 import type { InferenceGroup, InferredSignaturePart } from "../ir-infer/contract.js";
 import type { GroupDeps, GroupsOf } from "./contract.js";
@@ -111,7 +111,7 @@ export const partition: GroupsOf = (deps, bodies) => {
       if (!edge(declaration, target)) return stop();
     }
   }
-  const useResolution = bindingDependencies(deps, successors, definitions, take, edge);
+  const useResolution = bindingDependencies(deps, successors, definitions, index, take, edge);
   if (useResolution === null) return stop();
   for (const [position, body] of ready.entries()) {
     if (!take(1)) return stop();
@@ -177,10 +177,12 @@ interface BindingVertex {
 }
 
 function bindingDependencies(deps: GroupDeps, successors: Set<number>[], definitions: ReadonlyMap<DefId, number>,
+  bodyIndices: ReadonlyMap<BodyId, number>,
   take: (count: number) => boolean, edge: (from: number, to: number) => boolean):
   ((from: number, target: HirResolution, origin: Origin) => boolean) | null {
   const items = new Map<DefId, Map<NodeId, BindingVertex>>();
   const bodies = new Map<BodyId, Map<NodeId, BindingVertex>>();
+  const parameters = new Map<BodyId, ReadonlyMap<LocalId, HirParam>>();
   const ordinal = (reference: SourceNodeRef): NodeId => {
     const node = reference.value.node;
     if (!Number.isSafeInteger(node) || node < 0 || Object.is(node, -0))
@@ -248,12 +250,41 @@ function bindingDependencies(deps: GroupDeps, successors: Set<number>[], definit
           return notInferredYet(PORT, "a checked resolution whose actual dependency evidence is unavailable (" + actual.reason + ")", origin);
         case "local": {
           if (!take(1)) return false;
-          const local = deps.hirBody(actual.local.body).locals[actual.local.local];
+          const owner = deps.hirBody(actual.local.body);
+          const local = owner.locals[actual.local.local];
           if (local === undefined || !Object.is(local.id, actual.local.local))
             return callerDefect(PORT, "a local dependency retains its actual checked body and dense slot");
           if (local.role === "binding") {
             if (local.declaration.kind !== "item") return notInferredYet(PORT, "a local inferred-part declaration without its actual item association", origin);
             if (!declaration(next.from, local.declaration.value.owner)) return false;
+          } else if (local.role === "parameter") {
+            let rows = parameters.get(owner.body);
+            if (rows === undefined) {
+              if (!take(1 + owner.params.length * 3)) return false;
+              const indexed = new Map<LocalId, HirParam>();
+              for (const row of owner.params) {
+                if (indexed.has(row.local)) return callerDefect(PORT, "a formal dependency inventory repeats its actual local");
+                indexed.set(row.local, row);
+              }
+              rows = indexed;
+              parameters.set(owner.body, rows);
+            }
+            const parameter = rows.get(actual.local.local);
+            if (parameter !== undefined && parameter.initializer !== null) {
+              if (!take(1)) return false;
+              const source = deps.itemOf(parameter.declaration);
+              if (source.kind !== "Parameter" || local.declaration.kind !== "item"
+                || local.declaration.value.owner !== parameter.declaration || source.id !== local.declaration.value.node
+                || source.tsonic.initializer !== parameter.initializer)
+                return callerDefect(PORT, "a formal dependency retains its actual checked initializer declaration");
+              if (source.tsonic.declaredType.kind !== "available") return notInferredYet(PORT,
+                "a formal dependency whose actual annotation availability is missing", source.origin);
+              if (source.tsonic.declaredType.value === null) {
+                const target = bodyIndices.get(parameter.initializer);
+                if (target === undefined) return callerDefect(PORT, "a formal initializer dependency is outside the actual body inventory");
+                if (!edge(next.from, target)) return false;
+              }
+            }
           }
           break;
         }

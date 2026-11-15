@@ -399,6 +399,37 @@ test("real unannotated return solves its actual producer before one unmemoised s
   assert.deepEqual(fixture.types.readType(program.interner, signature.result), { kind: "primitive", primitive: "float64" });
 });
 
+test("actual chained defaults request only their demanded formal parts in initializer dependency order", () => {
+  const program = ready("export function chain(a: boolean, b = a, c = b): boolean { return c; }\n");
+  const owner = program.checked.tree.statements.nodes[0];
+  const callable = program.checked.bodies.find(body => body.body === owner.tsonic.body);
+  const initializer = index => program.groups.find(group => group.bodies.includes(callable.params[index].initializer));
+  const first = initializer(1);
+  const second = initializer(2);
+  assert.notEqual(first, undefined);
+  assert.notEqual(second, undefined);
+  assert.equal(program.groups.indexOf(first) < program.groups.indexOf(second), true);
+  const future = callable.params[2].declaration;
+  const deps = { ...program.deps, itemOf: definition => {
+    assert.notEqual(definition, future, "an initializer reading a never reads the future c declaration or type");
+    return program.deps.itemOf(definition);
+  } };
+  const initial = wiring.infer.constraintsOf(deps, first);
+  assert.equal(initial.kind, "done");
+  assert.equal(initial.value.kind, "ok");
+  const dependent = wiring.infer.constraintsOf(program.deps, second);
+  assert.equal(dependent.kind, "paused");
+  assert.deepEqual(dependent.requests, [{ kind: "inferred-part", part: {
+    definition: callable.owner, part: { kind: "parameter-initializer", index: 1 },
+  } }]);
+  const records = drive(program);
+  const completed = [...records.values()];
+  assert.equal(completed.findIndex(record => record.group.id === first.id)
+    < completed.findIndex(record => record.group.id === second.id), true);
+  for (const group of [first, second]) for (const body of records.get(group.id).solution.bodies)
+    assert.deepEqual(fixture.types.readType(program.interner, body.completion), { kind: "primitive", primitive: "bool" });
+});
+
 test("actual independent default initializer completes before the omitted return consumes its exact outside-group part", () => {
   const program = ready("export function select(a: number, b = a) { return b; }\n");
   const records = drive(program);
