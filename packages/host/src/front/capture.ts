@@ -56,6 +56,7 @@ interface CaptureTables {
   readonly symbols: RawSymbol[];
   readonly symbolIds: Map<CheckerSymbol, RawSymbolId>;
   readonly signatureIds: Map<Signature, RawSignatureId>;
+  readonly activeTypes: Map<Type, RawTypeId>;
   nextType: number;
   nextMember: number;
   readonly pending: CaptureTask[];
@@ -63,6 +64,7 @@ interface CaptureTables {
 
 type CaptureTask =
   | { readonly kind: "type"; readonly id: RawTypeId; readonly type: Type; readonly position: RawComponentId; readonly authoredTypeNode: RawNodeRef | null }
+  | { readonly kind: "leave-type"; readonly type: Type }
   | { readonly kind: "signature"; readonly id: RawSignatureId; readonly signature: Signature; readonly owner: RawNodeRef; readonly signatureKind: "call" | "construct" }
   | { readonly kind: "signature-parameter"; readonly draft: SignatureDraft; readonly index: number };
 
@@ -354,7 +356,8 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId): Ra
     if (!admit(scope, "edges")) return null;
     if (declaration === undefined) return throwInvariant(invariant("A type's declaration inventory cannot contain an absent row."));
     if (scope.checked.ast.kindName(declaration) !== "KindTypeParameter") continue;
-    if (declarations.length !== 1) return throwInvariant(invariant("A checked type parameter must retain its one actual declaration."));
+    if (declarations.length !== 1)
+      throw new TypeError("front: a merged type parameter requires its actual selected declaration association");
     const ast = scope.checked.ast;
     const parameter = referenceTo(scope, scope.program, declaration);
     if (scope.meter.refusal !== null) return null;
@@ -631,9 +634,12 @@ function captureFacts(scope: CaptureScope): void {
   while (scope.meter.refusal === null) {
     const next = scope.tables.pending.pop();
     if (next === undefined) return;
-    if (next.kind === "signature") captureSignature(scope, next.id, next.signature, next.owner, next.signatureKind);
+    if (next.kind === "leave-type") {
+      scope.tables.activeTypes.delete(next.type);
+    } else if (next.kind === "signature") captureSignature(scope, next.id, next.signature, next.owner, next.signatureKind);
     else if (next.kind === "signature-parameter") captureSignatureParameter(scope, next.draft, next.index);
     else {
+      const ancestor = scope.tables.activeTypes.get(next.type);
       let form: RawFact<RawTypeForm>;
       let literal: RawLiteral | null = null;
       if (scope.shape.isError(next.type)) form = { kind: "unavailable", reason: "missing-original-component", causes: [] };
@@ -660,7 +666,17 @@ function captureFacts(scope: CaptureScope): void {
         }
         const base = literal === null ? next.type : scope.shape.getBaseTypeOfLiteralType(next.type);
         if (base === undefined) return throwInvariant(invariant("A captured literal type requires its actual SDK base type."));
-        const captured = typeForm(scope, base, next.position);
+        let captured: RawTypeForm | null;
+        if (ancestor === undefined) {
+          scope.tables.activeTypes.set(next.type, next.id);
+          scope.tables.pending.push({ kind: "leave-type", type: next.type });
+          captured = typeForm(scope, base, next.position);
+        } else {
+          const original = scope.tables.types[ancestor];
+          if (original?.form.kind !== "available")
+            return throwInvariant(invariant("A native type backedge requires its actual available captured ancestor form."));
+          captured = original.form.value;
+        }
         if (captured === null) return;
         form = available(captured);
       }
@@ -931,7 +947,7 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
   const queries = checked.getSourceFileQueries(file);
   const scope: CaptureScope = { deps, program, path, meter: { facts: 0, edges: 0, refusal: null }, module, file, checked, checker: queries.checker,
     shape: queries.typeShape, ownNodes, emptyCoreInventory: closedInventoryEmpty(program), diagnosticRoots: new Map(),
-    tables: { types: [], components: [], signatures: [], members: [], candidates: [], symbols: [], symbolIds: new Map(), signatureIds: new Map(), nextType: 0, nextMember: 0, pending: [] } };
+    tables: { types: [], components: [], signatures: [], members: [], candidates: [], symbols: [], symbolIds: new Map(), signatureIds: new Map(), activeTypes: new Map(), nextType: 0, nextMember: 0, pending: [] } };
   const checkerDiagnostics: Diagnostic[] = [];
   const diagnosticCoverage: RawDiagnosticCoverage[] = [];
   for (const diagnostic of checked.diagnostics) {

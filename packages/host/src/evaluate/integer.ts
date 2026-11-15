@@ -1,7 +1,7 @@
 import type { Origin } from "../ids/contract.js";
 import type { MirSite, MirUnwind } from "../ir-mir/contract.js";
 import type { OperationIdentity } from "../ir-infer/contract.js";
-import type { ConstValue, NativeIntegerGeometryResult, NativeOverflowLaw, NativePrimitive } from "../ir-types/contract.js";
+import type { ConstValue, NativeIntegerGeometryResult, NativeOverflowLaw, NativePrimitive, NativeRounding } from "../ir-types/contract.js";
 import { nativeCarrierOf, nativeIntegerGeometryOf } from "../ir-types/index.js";
 import { requirePresent, throwInvariant } from "../diag/index.js";
 import type { EvaluateDeps } from "./contract.js";
@@ -60,29 +60,149 @@ function compareIntegers(
   return { kind: "boolean", type: result, value };
 }
 
-function overflowFault(machine: Machine, law: Exclude<NativeOverflowLaw, "wrap">, unwind: MirUnwind | null, site: MirSite): null {
-  if (unwind === null || unwind.kind === "none") return fail("An integer overflow reached an operation marked unable to fail.", site.origin);
-  if ((law === "abort") !== (unwind.kind === "abort")) return fail("The integer overflow and its selected failure arm disagree.", site.origin);
+function integerFault(machine: Machine, law: Exclude<NativeOverflowLaw, "wrap">, unwind: MirUnwind | null, site: MirSite,
+  reason: "overflow" | "division-by-zero"): null {
+  const fault = reason === "overflow" ? "integer overflow" : "integer division by zero";
+  if (unwind === null || unwind.kind === "none") return fail(`An ${fault} reached an operation marked unable to fail.`, site.origin);
+  if ((law === "abort") !== (unwind.kind === "abort")) return fail(`The ${fault} and its selected failure arm disagree.`, site.origin);
   if (law === "abort") {
-    evaluationFault(machine, site.origin, "A process-ending integer overflow occurred during constant evaluation.");
+    evaluationFault(machine, site.origin, `A process-ending ${fault} occurred during constant evaluation.`);
     return null;
   }
   let next: MirUnwind = unwind;
   for (let position = machine.frames.length - 1;; position -= 1) {
     if (!arithmetic(machine, 1, site.origin)) return null;
-    if (next.kind === "handler") return fail("Evaluate needs the actual selected overflow fault value for its handler.", site.origin);
-    if (next.kind !== "escape") return fail("A call's overflow continuation must retain its actual unwinding arm.", site.origin);
+    if (next.kind === "handler") return fail(`Evaluate needs the actual selected ${reason} fault value for its handler.`, site.origin);
+    if (next.kind !== "escape") return fail(`A call's ${reason} continuation must retain its actual unwinding arm.`, site.origin);
     const frame = requirePresent(machine.frames[position], { owner: "evaluate", query: null, origin: site.origin,
-      message: "An escaping overflow retains its actual caller frame." });
+      message: `An escaping ${reason} retains its actual caller frame.` });
     if (frame.caller === null) {
-      evaluationFault(machine, site.origin, "An integer overflow escaped constant evaluation.");
+      evaluationFault(machine, site.origin, `An ${fault} escaped constant evaluation.`);
       return null;
     }
     next = frame.caller.unwind;
   }
 }
 
-function overflowLaw(machine: Machine, carrier: NativePrimitive, result: NativePrimitive, operation: "add" | "subtract" | "negate",
+function carrierRow<Row extends { readonly carrier: NativePrimitive | "bigint" }>(machine: Machine, rows: readonly Row[],
+  carrier: NativePrimitive, name: string, site: MirSite): Row | null {
+  for (let position = 0; position < rows.length; position += 1) {
+    if (!arithmetic(machine, 1, site.origin)) return null;
+    const row = rows[position];
+    if (row === undefined) return fail(`Evaluate needs the complete selected ${name} relation.`, site.origin);
+    if (row.carrier === carrier) return row;
+  }
+  return fail(`Evaluate needs the actual selected ${name} law.`, site.origin);
+}
+
+function quadraticWork(machine: Machine, width: number, site: MirSite): boolean {
+  if (width > Math.floor((machine.deps.limits.maximumArithmeticWork - machine.arithmetic) / width))
+    return limit(machine, "maximumArithmeticWork", site.origin);
+  return arithmetic(machine, width * width, site.origin);
+}
+
+function roundQuotient(machine: Machine, quotient: bigint, left: bigint, right: bigint, width: number,
+  rounding: NativeRounding, site: MirSite): bigint | null {
+  switch (rounding) {
+    case "toward-zero": return quotient;
+    case "floor": case "ceiling": case "nearest-even": case "nearest-away": break;
+    default: return fail("Evaluate needs the actual selected integer division rounding law.", site.origin);
+  }
+  if (!quadraticWork(machine, width, site)) return null;
+  const remainder = left % right;
+  if (!arithmetic(machine, width, site.origin)) return null;
+  if (remainder === 0n) return quotient;
+  if (!arithmetic(machine, width, site.origin)) return null;
+  const leftNegative = left < 0n;
+  if (!arithmetic(machine, width, site.origin)) return null;
+  const rightNegative = right < 0n;
+  const negative = leftNegative !== rightNegative;
+  let away: boolean;
+  if (rounding === "floor") away = negative;
+  else if (rounding === "ceiling") away = !negative;
+  else {
+    let residual = remainder;
+    if (leftNegative) {
+      if (!arithmetic(machine, width, site.origin)) return null;
+      residual = -residual;
+    }
+    let divisor = right;
+    if (rightNegative) {
+      if (!arithmetic(machine, width, site.origin)) return null;
+      divisor = -divisor;
+    }
+    if (!arithmetic(machine, width, site.origin)) return null;
+    const complement = divisor - residual;
+    if (!arithmetic(machine, width, site.origin)) return null;
+    if (residual < complement) return quotient;
+    if (!arithmetic(machine, width, site.origin)) return null;
+    away = residual > complement;
+    if (!away) {
+      if (rounding === "nearest-away") away = true;
+      else {
+        if (!arithmetic(machine, width, site.origin)) return null;
+        const parity = quotient & 1n;
+        if (!arithmetic(machine, 1, site.origin)) return null;
+        away = parity !== 0n;
+      }
+    }
+  }
+  if (!away) return quotient;
+  if (!arithmetic(machine, width, site.origin)) return null;
+  return negative ? quotient - 1n : quotient + 1n;
+}
+
+function divideIntegers(machine: Machine, operation: IntegerOperation, result: ConstValue["type"], site: MirSite,
+  unwind: MirUnwind | null, values: readonly ConstValue[]): ConstValue | null {
+  if (values.length !== 2) return fail("A selected integer division requires its two actual operands.", site.origin);
+  const selected = nativeCarrierOf(machine.deps.types, result, type => {
+    if (!arithmetic(machine, 1, site.origin)) return null;
+    return machine.deps.typeOf(type);
+  });
+  if (selected.kind === "resource-stop") return null;
+  if (selected.kind !== "primitive") return fail("Evaluate needs the actual selected integer result carrier association.", site.origin);
+  if (selected.primitive !== operation.carrier)
+    return fail("Evaluate needs the actual Rules-selected integer quotient result conversion association.", site.origin);
+  const input = nativeIntegerGeometryOf(operation.carrier, machine.deps.selectedNativeFacts, (work, bits) => {
+    if (!arithmetic(machine, work, site.origin)) return false;
+    return bits <= machine.deps.limits.maximumIntermediateBits || limit(machine, "maximumIntermediateBits", site.origin);
+  });
+  if (input.kind === "resource-stop") return null;
+  if (input.kind !== "integer") return fail("Evaluate needs the actual selected integer division geometry.", site.origin);
+  const left = integerValue(machine, requirePresent(values[0], { owner: "evaluate", query: null, origin: site.origin,
+    message: "The integer division has its actual left operand." }), operation.carrier, input, site);
+  if (left === null) return null;
+  const right = integerValue(machine, requirePresent(values[1], { owner: "evaluate", query: null, origin: site.origin,
+    message: "The integer division has its actual right operand." }), operation.carrier, input, site);
+  if (right === null || !arithmetic(machine, input.bits, site.origin)) return null;
+  if (right === 0n) {
+    const zero = carrierRow(machine, machine.deps.selectedNativeFacts.divisionByZero, operation.carrier, "integer division-by-zero", site);
+    if (zero === null) return null;
+    if (zero.law === "ieee754") return fail("Evaluate needs the actual selected integer division-by-zero law.", site.origin);
+    return integerFault(machine, zero.law, unwind, site, "division-by-zero");
+  }
+  if (input.signed) {
+    if (!arithmetic(machine, input.bits, site.origin)) return null;
+    const minimum = left === input.minimum;
+    if (minimum) {
+      if (!arithmetic(machine, input.bits, site.origin)) return null;
+      if (right === -1n) {
+        const overflow = carrierRow(machine, machine.deps.selectedNativeFacts.signedQuotientOverflow,
+          operation.carrier, "signed integer quotient overflow", site);
+        if (overflow === null) return null;
+        if (overflow.law !== "wrap") return integerFault(machine, overflow.law, unwind, site, "overflow");
+        return { kind: "number", type: result, value: { numerator: input.minimum, denominator: 1n, negativeZero: false } };
+      }
+    }
+  }
+  const rounding = carrierRow(machine, machine.deps.selectedNativeFacts.divisionRounding, operation.carrier, "integer division rounding", site);
+  if (rounding === null || !quadraticWork(machine, input.bits, site)) return null;
+  const quotient = roundQuotient(machine, left / right, left, right, input.bits, rounding.rounding, site);
+  if (quotient === null) return null;
+  return { kind: "number", type: result, value: { numerator: quotient, denominator: 1n, negativeZero: false } };
+}
+
+function overflowLaw(machine: Machine, carrier: NativePrimitive, result: NativePrimitive, operation: "add" | "subtract" | "multiply" | "negate",
   site: MirSite): NativeOverflowLaw | null {
   const rows = machine.deps.selectedNativeFacts.integerOverflow;
   for (let position = 0; position < rows.length; position += 1) {
@@ -92,7 +212,7 @@ function overflowLaw(machine: Machine, carrier: NativePrimitive, result: NativeP
     if (row.carrier === carrier && row.operation === operation && row.result === result) return row.law;
   }
   return fail(`Evaluate needs the actual selected native operation law for integer ${operation === "add" ? "addition"
-    : operation === "subtract" ? "subtraction" : "negation"}.`, site.origin);
+    : operation === "subtract" ? "subtraction" : operation === "multiply" ? "multiplication" : "negation"}.`, site.origin);
 }
 
 function boundedInteger(machine: Machine, integer: bigint, width: number,
@@ -105,7 +225,7 @@ function boundedInteger(machine: Machine, integer: bigint, width: number,
     outside = integer > output.maximum;
   }
   if (outside) {
-    if (law !== "wrap") return overflowFault(machine, law, unwind, site);
+    if (law !== "wrap") return integerFault(machine, law, unwind, site, "overflow");
     if (!arithmetic(machine, output.bits, site.origin)) return null;
     integer = output.signed ? BigInt.asIntN(output.bits, integer) : BigInt.asUintN(output.bits, integer);
   }
@@ -143,13 +263,14 @@ function binaryIntegers(
   result: ConstValue["type"], site: MirSite, unwind: MirUnwind | null, values: readonly ConstValue[],
 ): ConstValue | null {
   const subtract = operation.operator === "-";
+  const multiply = operation.operator === "*";
   const selected = nativeCarrierOf(machine.deps.types, result, type => {
     if (!arithmetic(machine, 1, site.origin)) return null;
     return machine.deps.typeOf(type);
   });
   if (selected.kind === "resource-stop") return null;
   if (selected.kind !== "primitive") return fail("Evaluate needs the actual selected integer result carrier association.", site.origin);
-  const law = overflowLaw(machine, operation.carrier, selected.primitive, subtract ? "subtract" : "add", site);
+  const law = overflowLaw(machine, operation.carrier, selected.primitive, multiply ? "multiply" : subtract ? "subtract" : "add", site);
   if (law === null) return null;
   if (values.length !== 2) return fail("A selected binary integer operation requires its two actual operands.", site.origin);
   const geometryOf = (carrier: NativePrimitive): NativeIntegerGeometryResult => nativeIntegerGeometryOf(carrier, machine.deps.selectedNativeFacts, (work, bits) => {
@@ -158,7 +279,8 @@ function binaryIntegers(
   });
   const input = geometryOf(operation.carrier);
   if (input.kind === "resource-stop") return null;
-  if (input.kind !== "integer") return fail(`Evaluate needs the actual selected integer ${subtract ? "subtraction" : "addition"} geometry.`, site.origin);
+  if (input.kind !== "integer") return fail(`Evaluate needs the actual selected integer ${multiply ? "multiplication"
+    : subtract ? "subtraction" : "addition"} geometry.`, site.origin);
   let left = integerValue(machine, requirePresent(values[0], { owner: "evaluate", query: null, origin: site.origin,
     message: "The binary integer operation has its actual left operand." }), operation.carrier, input, site);
   if (left === null) return null;
@@ -168,6 +290,14 @@ function binaryIntegers(
   const output = selected.primitive === operation.carrier ? input : geometryOf(selected.primitive);
   if (output.kind === "resource-stop") return null;
   if (output.kind !== "integer") return fail("Evaluate needs the actual selected integer result geometry.", site.origin);
+  if (multiply) {
+    if (input.bits > Math.floor(machine.deps.limits.maximumIntermediateBits / 2)) {
+      limit(machine, "maximumIntermediateBits", site.origin);
+      return null;
+    }
+    if (!quadraticWork(machine, input.bits, site)) return null;
+    return boundedInteger(machine, left * right, Math.max(input.bits * 2, output.bits), output, result, law, site, unwind);
+  }
   if (subtract) {
     if (!arithmetic(machine, input.bits, site.origin)) return null;
     return boundedInteger(machine, left - right, Math.max(input.bits, output.bits), output, result, law, site, unwind);
@@ -196,17 +326,17 @@ function binaryIntegers(
           const integer = left + right;
           if (!arithmetic(machine, width, site.origin)) return null;
           const below = integer < output.minimum;
-          if (below) return overflowFault(machine, law, unwind, site);
+          if (below) return integerFault(machine, law, unwind, site, "overflow");
           if (!arithmetic(machine, width, site.origin)) return null;
-          if (integer > output.maximum) return overflowFault(machine, law, unwind, site);
+          if (integer > output.maximum) return integerFault(machine, law, unwind, site, "overflow");
           return { kind: "number", type: result, value: { numerator: integer, denominator: 1n, negativeZero: false } };
         }
         if (!arithmetic(machine, width, site.origin)) return null;
         const firstOutside = firstPositive ? left > output.maximum : left < output.minimum;
-        if (firstOutside) return overflowFault(machine, law, unwind, site);
+        if (firstOutside) return integerFault(machine, law, unwind, site, "overflow");
         if (!arithmetic(machine, width, site.origin)) return null;
         const secondOutside = secondPositive ? right > output.maximum : right < output.minimum;
-        if (secondOutside) return overflowFault(machine, law, unwind, site);
+        if (secondOutside) return integerFault(machine, law, unwind, site, "overflow");
       }
     }
   }
@@ -219,7 +349,7 @@ function binaryIntegers(
   const overflow = positive ? left > threshold : left < threshold;
   let integer: bigint;
   if (overflow) {
-    if (law !== "wrap") return overflowFault(machine, law, unwind, site);
+    if (law !== "wrap") return integerFault(machine, law, unwind, site, "overflow");
     if (!paid()) return null;
     const distance = positive ? left - threshold : threshold - left;
     if (!paid()) return null;
@@ -238,6 +368,8 @@ export function integerOperation(machine: Machine, operation: IntegerOperation, 
   return operation.operator === "-" && values.length === 1
     ? negateInteger(machine, operation, result, site, unwind, requirePresent(values[0], {
       owner: "evaluate", query: null, origin: site.origin, message: "The negation has its actual operand." }))
-    : operation.operator === "+" || operation.operator === "-" ? binaryIntegers(machine, operation, result, site, unwind, values)
+    : operation.operator === "+" || operation.operator === "-" || operation.operator === "*"
+      ? binaryIntegers(machine, operation, result, site, unwind, values)
+    : operation.operator === "/" ? divideIntegers(machine, operation, result, site, unwind, values)
     : compareIntegers(machine, operation, result, site, values);
 }

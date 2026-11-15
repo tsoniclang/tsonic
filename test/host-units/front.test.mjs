@@ -1762,6 +1762,7 @@ test("the identity inputs through the real producer: captureModule and lowerModu
     "front: a property without an actual source value declaration requires its original synthetic member association",
     "front: property origin transport for the actual KindPropertyAssignment declaration is not implemented",
     "front: mapped property origin transport requires its actual selected mapped component",
+    "front: a merged type parameter requires its actual selected declaration association",
   ]);
   const outcomes = { agreed: [], type: [] };
   for (const entry of cases) {

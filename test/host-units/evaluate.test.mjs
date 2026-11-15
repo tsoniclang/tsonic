@@ -272,6 +272,272 @@ function subtractionFixture(name, carrier, type, left, right, law = "wrap", resu
   return { ...value, deps, run: (given = deps, body = value.body) => product.evaluate(given, value.entry, body, [], "compile-time", value.unit) };
 }
 
+function multiplicationFixture(name, carrier, type, left, right, law = "wrap", result = type, resultCarrier = carrier) {
+  const execution = law === "wrap" ? { kind: "pure" } : { kind: "invocation", writesStorage: false, failure: law };
+  const decision = selected({ kind: "native-operator", operator: "*", carrier }, [type, type], result, execution);
+  const value = fixture(name, result, builder => builder.block(builder.returns(builder.arithmetic(
+    builder.num(String(left), type), "AsteriskToken", builder.num(String(right), type), result, decision))));
+  const facts = { ...value.deps.selectedNativeFacts, integerOverflow: [{ carrier, operation: "multiply", result: resultCarrier, law }] };
+  const deps = { ...value.deps, selectedNativeFacts: facts, limits: { ...limits, maximumArithmeticWork: 100000 } };
+  return { ...value, deps, run: (given = deps, body = value.body) => product.evaluate(given, value.entry, body, [], "compile-time", value.unit) };
+}
+
+function divisionFixture(name, carrier, type, left, right, rounding = "toward-zero", zeroLaw = "unwind", overflowLaw = "wrap", result = type) {
+  const decision = selected({ kind: "native-operator", operator: "/", carrier }, [type, type], result,
+    { kind: "invocation", writesStorage: false, failure: zeroLaw });
+  const value = fixture(name, result, builder => builder.block(builder.returns(builder.arithmetic(
+    builder.num(String(left), type), "SlashToken", builder.num(String(right), type), result, decision))));
+  const signed = ["int8", "int16", "int32", "int64", "int128", "native-int"].includes(carrier);
+  const facts = { ...value.deps.selectedNativeFacts, divisionByZero: [{ carrier, law: zeroLaw }],
+    divisionRounding: [{ carrier, rounding }], signedQuotientOverflow: signed ? [{ carrier, law: overflowLaw }] : [] };
+  const deps = { ...value.deps, selectedNativeFacts: facts, limits: { ...limits, maximumArithmeticWork: 100000 } };
+  return { ...value, deps, run: (given = deps, body = value.body) => product.evaluate(given, value.entry, body, [], "compile-time", value.unit) };
+}
+
+test("selected integer division executes the actual supplied quotient law on genuine lowered MIR", () => {
+  const [carrier, type] = comparisonTypes[0];
+  const roundings = ["toward-zero", "floor", "ceiling", "nearest-even", "nearest-away"];
+  const cases = [[7n, 3n, [2n, 2n, 3n, 2n, 2n], [-2n, -3n, -2n, -2n, -2n]],
+    [8n, 3n, [2n, 2n, 3n, 3n, 3n], [-2n, -3n, -2n, -3n, -3n]],
+    [1n, 2n, [0n, 0n, 1n, 0n, 1n], [0n, -1n, 0n, 0n, -1n]],
+    [3n, 2n, [1n, 1n, 2n, 2n, 2n], [-1n, -2n, -1n, -2n, -2n]],
+    [5n, 2n, [2n, 2n, 3n, 2n, 3n], [-2n, -3n, -2n, -2n, -3n]],
+    [6n, 3n, [2n, 2n, 2n, 2n, 2n], [-2n, -2n, -2n, -2n, -2n]],
+    [0n, 3n, [0n, 0n, 0n, 0n, 0n], [0n, 0n, 0n, 0n, 0n]]];
+  for (const [left, right, positive, negative] of cases)
+    for (const [leftSign, rightSign] of [[1n, 1n], [-1n, 1n], [1n, -1n], [-1n, -1n]])
+      for (const [index, rounding] of roundings.entries()) {
+        const value = divisionFixture(`evaluate-division.${left}.${right}.${leftSign}.${rightSign}.${rounding}`,
+          carrier, type, left * leftSign, right * rightSign, rounding);
+        same(value.run().value.value, { kind: "value", value: { kind: "number", type,
+          value: { numerator: (leftSign === rightSign ? positive : negative)[index], denominator: 1n, negativeZero: false } } },
+        "exact supplied rounding in both signs, including ties and native zero");
+      }
+  for (const [carrier, type] of comparisonTypes.slice(1)) {
+    const value = divisionFixture(`evaluate-division.wide.${carrier}`, carrier, type, 9007199254740993n, 2n, "nearest-away");
+    assert.equal(value.run().value.value.value.value.numerator, 4503599627370497n);
+    if (carrier === "native-int" || carrier === "native-uint") {
+      const narrow = divisionFixture(`evaluate-division.supplied.${carrier}`, carrier, type, 255n, 2n, "ceiling");
+      assert.equal(narrow.run({ ...narrow.deps, selectedNativeFacts: { ...narrow.deps.selectedNativeFacts,
+        nativeIntegerWidths: [{ carrier, bits: 9 }] } }).value.value.value.value.numerator, 128n);
+    }
+  }
+  const unsigned = comparisonTypes.find(row => row[0] === "uint64");
+  const high = divisionFixture("evaluate-division.unsigned-high", unsigned[0], unsigned[1], 18446744073709551615n, 2n, "nearest-even");
+  assert.equal(high.run().value.value.value.value.numerator, 9223372036854775808n);
+});
+
+test("integer division keeps zero and signed quotient overflow on their distinct supplied failure arms", () => {
+  const [carrier, type] = comparisonTypes[0];
+  for (const law of ["wrap", "unwind", "abort"]) {
+    const value = divisionFixture(`evaluate-division.minimum.${law}`, carrier, type, -128n, -1n,
+      "toward-zero", law === "wrap" ? "unwind" : law, law);
+    const result = value.run();
+    if (law === "wrap") assert.equal(result.value.value.value.value.numerator, -128n);
+    else {
+      assert.equal(result.value.value.value.kind, "error");
+      assert.equal(result.value.diagnostics[0].code.name, "TSONIC_CONSTANT_EVALUATION_FAILED");
+    }
+    const facts = { ...value.deps.selectedNativeFacts,
+      get divisionRounding() { assert.fail("Signed quotient overflow does not infer a rounding law."); } };
+    assert.equal(value.run({ ...value.deps, selectedNativeFacts: facts }).value.kind, "ok");
+  }
+  const exactMinimum = divisionFixture("evaluate-division.minimum-exact", carrier, type, -128n, 2n);
+  assert.equal(exactMinimum.run().value.value.value.value.numerator, -64n);
+  for (const law of ["unwind", "abort"]) {
+    const zero = divisionFixture(`evaluate-division.zero.${law}`, carrier, type, 1n, 0n, "toward-zero", law);
+    const facts = { ...zero.deps.selectedNativeFacts,
+      get divisionRounding() { assert.fail("Division by zero has no invented rounded value."); },
+      get signedQuotientOverflow() { assert.fail("Zero does not read the signed quotient-overflow relation."); } };
+    const result = zero.run({ ...zero.deps, selectedNativeFacts: facts });
+    assert.equal(result.value.value.value.kind, "error");
+    assert.equal(result.value.diagnostics[0].message.includes("division by zero"), true);
+    const malformed = structuredClone(zero.body);
+    const operation = malformed.blocks.find(block => block.terminator.kind === "invoke").terminator;
+    operation.unwind = { kind: "none" };
+    assert.throws(() => zero.run(zero.deps, malformed), /marked unable to fail/u);
+    operation.unwind = { kind: law === "abort" ? "escape" : "abort" };
+    assert.throws(() => zero.run(zero.deps, malformed), /selected failure arm disagree/u);
+  }
+  const zero = divisionFixture("evaluate-division.caught-value", carrier, type, 1n, 0n);
+  const body = structuredClone(zero.body);
+  body.blocks.find(block => block.terminator.kind === "invoke").terminator.unwind = { kind: "handler", target: 0, exception: 0 };
+  assert.throws(() => zero.run(zero.deps, body), /actual selected division-by-zero fault value/u);
+  const native = comparisonTypes.find(row => row[0] === "native-int");
+  const oneBit = divisionFixture("evaluate-division.onebit", native[0], native[1], -1n, -1n);
+  assert.equal(oneBit.run({ ...oneBit.deps, selectedNativeFacts: { ...oneBit.deps.selectedNativeFacts,
+    nativeIntegerWidths: [{ carrier: native[0], bits: 1 }] } }).value.value.value.value.numerator, -1n);
+});
+
+test("integer division precharges every quotient, residual, rounding and row read on the same finite allowance", () => {
+  const [carrier, type] = comparisonTypes[0];
+  for (const [left, right, rounding, needed] of [[8n, 2n, "toward-zero", 142], [6n, 3n, "floor", 214],
+    [-7n, 3n, "floor", 238], [7n, 3n, "floor", 230], [8n, 3n, "nearest-even", 262],
+    [-8n, 3n, "nearest-even", 270], [8n, -3n, "nearest-even", 270], [-8n, -3n, "nearest-even", 278],
+    [1n, 2n, "nearest-even", 263], [3n, 2n, "nearest-even", 271], [-128n, -1n, "toward-zero", 86]]) {
+    const value = divisionFixture(`evaluate-division.work.${left}.${right}.${rounding}`, carrier, type, left, right, rounding);
+    for (let maximum = 0; maximum <= needed; maximum += 1) {
+      const result = value.run({ ...value.deps, limits: { ...value.deps.limits, maximumArithmeticWork: maximum } });
+      assert.equal(result.value.kind, maximum < needed ? "refused" : "ok", `actual quotient work ${left}/${right}/${maximum}`);
+      if (maximum < needed) same(result.value.diagnostics[0].arguments,
+        [{ kind: "text", value: "evaluation.maximumArithmeticWork" }, { kind: "number", value: maximum }], "original quotient allowance");
+    }
+  }
+  for (const [law, needed] of [["abort", 70], ["unwind", 71]]) {
+    const zero = divisionFixture(`evaluate-division.zero-work.${law}`, carrier, type, 1n, 0n, "toward-zero", law);
+    for (let maximum = 0; maximum <= needed; maximum += 1)
+      assert.equal(zero.run({ ...zero.deps, limits: { ...zero.deps.limits, maximumArithmeticWork: maximum } }).value.kind,
+        maximum < needed ? "refused" : "ok");
+  }
+  const value = divisionFixture("evaluate-division.bits", carrier, type, 8n, 2n);
+  for (const [dimension, needed] of [["maximumIntermediateBits", 8], ["maximumResultBits", 4]])
+    for (let maximum = 0; maximum <= needed; maximum += 1)
+      assert.equal(value.run({ ...value.deps, limits: { ...value.deps.limits, [dimension]: maximum } }).value.kind,
+        maximum < needed ? "refused" : "ok");
+  const unread = [];
+  unread.length = 10000;
+  Object.defineProperty(unread, 0, { get() { assert.fail("No unadmitted selected quotient row."); } });
+  assert.equal(value.run({ ...value.deps, selectedNativeFacts: { ...value.deps.selectedNativeFacts, divisionRounding: unread },
+    limits: { ...value.deps.limits, maximumArithmeticWork: 77 } }).value.kind, "refused");
+  const row = { carrier, get rounding() { assert.fail("No rounding payload after division-work refusal."); } };
+  assert.equal(value.run({ ...value.deps, selectedNativeFacts: { ...value.deps.selectedNativeFacts, divisionRounding: [row] },
+    limits: { ...value.deps.limits, maximumArithmeticWork: 78 } }).value.kind, "refused");
+});
+
+test("integer division does not invent missing rounding, failure, representation or result-conversion evidence", () => {
+  const [carrier, type] = comparisonTypes[0];
+  const value = divisionFixture("evaluate-division.ready-inputs", carrier, type, 8n, 2n);
+  for (const rows of [[], [{ carrier: "uint8", rounding: "toward-zero" }]])
+    assert.throws(() => value.run({ ...value.deps, selectedNativeFacts: { ...value.deps.selectedNativeFacts, divisionRounding: rows } }),
+      /actual selected integer division rounding law/u);
+  assert.throws(() => value.run({ ...value.deps, selectedNativeFacts: { ...value.deps.selectedNativeFacts,
+    divisionRounding: [undefined] } }), /complete selected integer division rounding relation/u);
+  assert.throws(() => value.run({ ...value.deps, selectedNativeFacts: { ...value.deps.selectedNativeFacts,
+    divisionRounding: [{ carrier, rounding: "unselected-rounding" }] } }), /actual selected integer division rounding law/u);
+  assert.equal(value.run({ ...value.deps, selectedNativeFacts: { ...value.deps.selectedNativeFacts,
+    divisionByZero: [], signedQuotientOverflow: [], divisionRounding: [{ carrier: "uint8", rounding: "floor" },
+      { carrier, rounding: "toward-zero" }] } }).value.value.value.value.numerator, 4n);
+  const zero = divisionFixture("evaluate-division.missing-zero-law", carrier, type, 1n, 0n);
+  assert.throws(() => zero.run({ ...zero.deps, selectedNativeFacts: { ...zero.deps.selectedNativeFacts, divisionByZero: [] } }),
+    /actual selected integer division-by-zero law/u);
+  assert.throws(() => zero.run({ ...zero.deps, selectedNativeFacts: { ...zero.deps.selectedNativeFacts,
+    divisionByZero: [{ carrier, law: "ieee754" }] } }), /actual selected integer division-by-zero law/u);
+  const minimum = divisionFixture("evaluate-division.missing-overflow-law", carrier, type, -128n, -1n);
+  assert.throws(() => minimum.run({ ...minimum.deps, selectedNativeFacts: { ...minimum.deps.selectedNativeFacts, signedQuotientOverflow: [] } }),
+    /actual selected signed integer quotient overflow law/u);
+  const cross = divisionFixture("evaluate-division.missing-conversion", carrier, type, 8n, 2n, "toward-zero", "unwind", "wrap", T.int32);
+  assert.throws(() => cross.run(), /actual Rules-selected integer quotient result conversion association/u);
+  assert.throws(() => value.run({ ...value.deps, typeOf: () => ({ kind: "shape", members: [], indexes: [], calls: [], constructs: [] }) }),
+    /actual selected integer result carrier association/u);
+  const malformed = structuredClone(value.body);
+  const operation = malformed.blocks.find(block => block.terminator.kind === "invoke").terminator;
+  operation.operands.pop();
+  assert.throws(() => value.run(value.deps, malformed), /two actual operands/u);
+  operation.operands.push(structuredClone(value.body.blocks.find(block => block.terminator.kind === "invoke").terminator.operands[1]));
+  operation.operation.decision.operation.carrier = "bool";
+  operation.operation.decision.result = T.bool;
+  assert.throws(() => value.run(value.deps, malformed), /actual selected integer division geometry/u);
+});
+
+test("selected integer multiplication executes the actual supplied law on genuine lowered MIR", () => {
+  const [carrier, type] = comparisonTypes[0];
+  for (const [left, right, expected] of [[3n, 2n, 6n], [-3n, 2n, -6n], [-3n, -2n, 6n], [0n, -128n, 0n],
+    [-128n, -1n, -128n], [-128n, 2n, 0n], [127n, 2n, -2n], [-127n, 2n, 2n]]) {
+    const value = multiplicationFixture(`evaluate-multiplication.${left}.${right}`, carrier, type, left, right);
+    same(value.run().value.value, { kind: "value", value: { kind: "number", type,
+      value: { numerator: expected, denominator: 1n, negativeZero: false } } }, "actual selected native product");
+  }
+  for (const [carrier, type] of comparisonTypes.slice(1)) {
+    const value = multiplicationFixture(`evaluate-multiplication.wide.${carrier}`, carrier, type, 9007199254740993n, 2n);
+    assert.equal(value.run().value.value.value.value.numerator, 18014398509481986n);
+    if (carrier === "native-int" || carrier === "native-uint") {
+      const narrow = multiplicationFixture(`evaluate-multiplication.supplied.${carrier}`, carrier, type, 255n, 2n);
+      assert.equal(narrow.run({ ...narrow.deps, selectedNativeFacts: { ...narrow.deps.selectedNativeFacts,
+        nativeIntegerWidths: [{ carrier, bits: 9 }] } }).value.value.value.value.numerator,
+      carrier === "native-int" ? -2n : 510n);
+    }
+  }
+  const unsigned = comparisonTypes.find(row => row[0] === "uint64");
+  const high = multiplicationFixture("evaluate-multiplication.unsigned-high", unsigned[0], unsigned[1], 18446744073709551615n, 2n);
+  assert.equal(high.run().value.value.value.value.numerator, 18446744073709551614n);
+});
+
+test("integer multiplication applies the complete product's selected result and failure laws", () => {
+  const [carrier, type] = comparisonTypes[0];
+  const unsigned = comparisonTypes.find(row => row[0] === "uint64");
+  for (const law of ["wrap", "unwind", "abort"]) {
+    for (const [left, right] of [[127n, 2n], [-127n, 2n], [-128n, -1n]]) {
+      const value = multiplicationFixture(`evaluate-multiplication.overflow.${law}.${left}`, carrier, type, left, right, law);
+      const result = value.run();
+      if (law === "wrap") assert.equal(result.value.value.value.kind, "number");
+      else {
+        assert.equal(result.value.value.value.kind, "error");
+        assert.equal(result.value.diagnostics[0].code.name, "TSONIC_CONSTANT_EVALUATION_FAILED");
+      }
+    }
+    const widened = multiplicationFixture(`evaluate-multiplication.widen.${law}`, carrier, type, 127n, 127n, law, T.int32, "int32");
+    assert.equal(widened.run().value.value.value.value.numerator, 16129n);
+    const narrowed = multiplicationFixture(`evaluate-multiplication.cancel.${law}`, "int32", T.int32, 1000n, 0n, law, type, carrier);
+    assert.equal(narrowed.run().value.value.value.value.numerator, 0n);
+    const changedSign = multiplicationFixture(`evaluate-multiplication.changed-sign.${law}`, carrier, type, -3n, -2n, law, unsigned[1], unsigned[0]);
+    assert.equal(changedSign.run().value.value.value.value.numerator, 6n);
+    const signed = multiplicationFixture(`evaluate-multiplication.unsigned-to-signed.${law}`, unsigned[0], unsigned[1], 1n, 2n, law, type, carrier);
+    assert.equal(signed.run().value.value.value.value.numerator, 2n);
+  }
+  const narrowWrap = multiplicationFixture("evaluate-multiplication.narrow-wrap", "int32", T.int32, 1000n, 2n, "wrap", type, carrier);
+  assert.equal(narrowWrap.run().value.value.value.value.numerator, -48n);
+  const trapped = multiplicationFixture("evaluate-multiplication.caught-value", carrier, type, 127n, 2n, "unwind");
+  const body = structuredClone(trapped.body);
+  body.blocks.find(block => block.terminator.kind === "invoke").terminator.unwind = { kind: "handler", target: 0, exception: 0 };
+  assert.throws(() => trapped.run(trapped.deps, body), /actual selected overflow fault value/u);
+});
+
+test("integer multiplication admits quadratic work and temporary magnitude before building a product", () => {
+  const [carrier, type] = comparisonTypes[0];
+  for (const [left, right, needed] of [[3n, 2n, 158], [127n, 2n, 166], [-127n, 2n, 150]]) {
+    const value = multiplicationFixture(`evaluate-multiplication.work.${left}`, carrier, type, left, right);
+    for (let maximum = 0; maximum <= needed; maximum += 1) {
+      const result = value.run({ ...value.deps, limits: { ...value.deps.limits, maximumArithmeticWork: maximum } });
+      assert.equal(result.value.kind, maximum < needed ? "refused" : "ok", `actual multiplication work ${maximum}`);
+      if (maximum < needed) same(result.value.diagnostics[0].arguments,
+        [{ kind: "text", value: "evaluation.maximumArithmeticWork" }, { kind: "number", value: maximum }], "original multiplication refusal");
+    }
+  }
+  const value = multiplicationFixture("evaluate-multiplication.bits", carrier, type, 3n, 2n);
+  for (const [dimension, needed] of [["maximumIntermediateBits", 16], ["maximumResultBits", 4]])
+    for (let maximum = 0; maximum <= needed; maximum += 1)
+      assert.equal(value.run({ ...value.deps, limits: { ...value.deps.limits, [dimension]: maximum } }).value.kind,
+        maximum < needed ? "refused" : "ok");
+  const narrowed = multiplicationFixture("evaluate-multiplication.output-work", "int32", T.int32, 1000n, 0n, "unwind", type, carrier);
+  for (let maximum = 0; maximum <= 1408; maximum += 1)
+    assert.equal(narrowed.run({ ...narrowed.deps, limits: { ...narrowed.deps.limits, maximumArithmeticWork: maximum } }).value.kind,
+      maximum < 1408 ? "refused" : "ok");
+  const rows = [];
+  rows.length = 10000;
+  Object.defineProperty(rows, 0, { get() { assert.fail("No unadmitted multiplication law payload."); } });
+  assert.equal(value.run({ ...value.deps, selectedNativeFacts: { ...value.deps.selectedNativeFacts, integerOverflow: rows },
+    limits: { ...value.deps.limits, maximumArithmeticWork: 1 } }).value.kind, "refused");
+  const native = comparisonTypes.find(row => row[0] === "native-int");
+  const huge = multiplicationFixture("evaluate-multiplication.huge-width", native[0], native[1], 1n, 1n);
+  assert.equal(huge.run({ ...huge.deps, selectedNativeFacts: { ...huge.deps.selectedNativeFacts,
+    nativeIntegerWidths: [{ carrier: native[0], bits: Number.MAX_SAFE_INTEGER }] },
+  limits: { ...huge.deps.limits, maximumArithmeticWork: Number.MAX_SAFE_INTEGER } }).value.kind, "refused");
+});
+
+test("integer multiplication requires its own selected law and genuine carrier associations", () => {
+  const [carrier, type] = comparisonTypes[0];
+  const value = multiplicationFixture("evaluate-multiplication.ready-inputs", carrier, type, 3n, 2n);
+  for (const rows of [[], [{ carrier, operation: "add", result: carrier, law: "wrap" }],
+    [{ carrier, operation: "subtract", result: carrier, law: "wrap" }]])
+    assert.throws(() => value.run({ ...value.deps, selectedNativeFacts: { ...value.deps.selectedNativeFacts, integerOverflow: rows } }),
+      /actual selected native operation law for integer multiplication/u);
+  const malformed = structuredClone(value.body);
+  malformed.blocks.flatMap(block => block.statements).find(statement => statement.value?.kind === "binary").value.operation.decision.operation.carrier = "bool";
+  assert.throws(() => value.run({ ...value.deps, selectedNativeFacts: { ...value.deps.selectedNativeFacts,
+    integerOverflow: [{ carrier: "bool", operation: "multiply", result: carrier, law: "wrap" }] } }, malformed),
+  /actual selected integer multiplication geometry/u);
+});
+
 test("selected integer subtraction applies the actual supplied native law without negating its right operand", () => {
   const [carrier, type] = comparisonTypes[0];
   for (const [left, right, expected] of [[3n, 2n, 1n], [1n, -128n, -127n], [-128n, 1n, 127n], [127n, -1n, -128n], [-128n, -128n, 0n]]) {
@@ -468,9 +734,9 @@ test("integer negation keeps absent or malformed selected inputs distinct from a
   const missing = negationFixture("evaluate-negation.native-width", native[0], native[1], 1n);
   assert.throws(() => missing.run({ ...missing.deps, selectedNativeFacts: { ...missing.deps.selectedNativeFacts, nativeIntegerWidths: [] } }),
     /actual selected integer negation geometry/u);
-  const multiply = selected({ kind: "native-operator", operator: "*", carrier }, [type, type], type);
-  const pending = fixture("evaluate-negation.binary-multiplication-frontier", type, builder => builder.block(builder.returns(
-    builder.arithmetic(builder.num("2", type), "AsteriskToken", builder.num("1", type), type, multiply))));
+  const exclusive = selected({ kind: "native-operator", operator: "^", carrier }, [type, type], type);
+  const pending = fixture("evaluate-negation.binary-bitwise-frontier", type, builder => builder.block(builder.returns(
+    builder.arithmetic(builder.num("2", type), "CaretToken", builder.num("1", type), type, exclusive))));
   assert.throws(() => pending.start(), /actual selected native operation law/u);
 });
 
