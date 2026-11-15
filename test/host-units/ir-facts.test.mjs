@@ -54,6 +54,8 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
   await post("Profiler.startPreciseCoverage", { callCount: true, detailed: true });
   suite.after(async () => { await post("Profiler.stopPreciseCoverage"); inspector.disconnect(); });
   const product = await import("../../packages/host/dist/ir-facts/index.js");
+  const { bodyDomainCases } = await import("./fixtures/facts-body-domain.mjs");
+  await bodyDomainCases(suite);
   const { conditionCases } = await import("./fixtures/facts-conditions.mjs");
   await conditionCases(suite);
   const { applyValueCases } = await import("./fixtures/facts-apply-values.mjs");
