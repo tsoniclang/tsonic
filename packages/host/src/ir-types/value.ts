@@ -6,8 +6,8 @@ import type { IndexSignature, MemberKey, MemberOrigin, MemberStorageSelection } 
 export { tyId as typeIdentifier, sigId as signatureIdentifier } from "../ids/index.js";
 
 const typeBindingData = (binding: TypeBinding | undefined): KeyData => binding === undefined ? null : binding.kind === "rigid"
-  ? [binding.kind, binding.parameter.owner, binding.parameter.index]
-  : [binding.kind, binding.parameter.owner, binding.parameter.index, binding.type];
+  ? [binding.kind, binding.parameter]
+  : [binding.kind, binding.parameter, binding.type];
 
 const selfBindingData = (binding: SelfBinding | undefined): KeyData => binding === undefined ? null : binding.kind === "rigid"
   ? [binding.kind, binding.owner] : [binding.kind, binding.owner, binding.type];

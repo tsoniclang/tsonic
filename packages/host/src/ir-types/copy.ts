@@ -28,7 +28,7 @@ function copyComponent(value: TypeComponent): TypeComponent {
       const parent = frame.parent;
       if (parent === null) return component;
       const family: SumFamily = { origin: parent.family.origin, component,
-        parameters: parent.family.parameters.map(parameter => ({ ...parameter })),
+        parameters: [...parent.family.parameters],
         roles: parent.family.roles.map(role => ({ ...role, component: copySource(role.component) })) };
       frame = parent.frame;
       frame.path.push({ kind: "sum-arm", family, index: parent.index });
@@ -61,7 +61,7 @@ export function copyType(value: TypeTerm): TypeTerm {
     case "callable": return { ...value, calls: [...value.calls], constructs: [...value.constructs] };
     case "declared": return { ...value, arguments: [...value.arguments], extent: value.extent === null ? null : { ...value.extent } };
     case "construction-reference": return { ...value, definition: copyConstruction(value.definition), arguments: [...value.arguments] };
-    case "param": return { ...value, parameter: { ...value.parameter } };
+    case "param": return { ...value };
     case "projection": return { ...value, projection: value.projection.kind === "awaited"
       ? { ...value.projection } : { ...value.projection, component: copyComponent(value.projection.component) } };
   }
@@ -70,6 +70,6 @@ export function copyType(value: TypeTerm): TypeTerm {
 export const copySignature = (value: Signature): Signature => ({ ...value,
   owner: value.owner === null ? null : copySource(value.owner),
   composition: value.composition === null ? null : { ...value.composition, signatures: [...value.composition.signatures] },
-  typeParameters: value.typeParameters.map(parameter => ({ ...parameter, identity: { ...parameter.identity } })),
+  typeParameters: value.typeParameters.map(parameter => ({ ...parameter })),
   parameters: value.parameters.map(parameter => ({ ...parameter })),
 });

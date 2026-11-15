@@ -1,5 +1,6 @@
 import type { MessageArgument, Violation } from "../diag/contract.js";
-import type { BindingVerificationInput, TypeBinding, TypeParameterIdentity, TypeRule, TypeSite, VerifyBindings } from "./contract.js";
+import type { BindingVerificationInput, TypeBinding, TypeRule, TypeSite, VerifyBindings } from "./contract.js";
+import type { DefId } from "../ids/contract.js";
 
 type BindingStep = { readonly kind: "work"; readonly units: number }
   | { readonly kind: "violation"; readonly violation: Violation<TypeRule, TypeSite> };
@@ -23,7 +24,7 @@ export function* bindingChecks(bindings: readonly BindingVerificationInput[], ty
       continue;
     }
     const { vector, scope } = entry;
-    const families: readonly (readonly ["classBindings" | "methodBindings" | "capturedBindings", readonly TypeBinding[], readonly TypeParameterIdentity[]])[] = [
+    const families: readonly (readonly ["classBindings" | "methodBindings" | "capturedBindings", readonly TypeBinding[], readonly DefId[]])[] = [
       ["classBindings", vector.classBindings, scope.classParameters], ["methodBindings", vector.methodBindings, scope.methodParameters],
       ["capturedBindings", vector.capturedBindings, scope.capturedParameters],
     ];
@@ -38,8 +39,8 @@ export function* bindingChecks(bindings: readonly BindingVerificationInput[], ty
         const selected = expected[position];
         if (binding === undefined) { yield finding("binding-vector-complete", site, "entry"); continue; }
         if (position < expected.length) {
-          if (selected !== undefined) yield { kind: "work", units: binding.parameter.owner.length + selected.owner.length };
-          if (selected === undefined || binding.parameter.owner !== selected.owner || !Object.is(binding.parameter.index, selected.index))
+          if (selected !== undefined) yield { kind: "work", units: binding.parameter.length + selected.length };
+          if (selected === undefined || binding.parameter !== selected)
             yield finding("binding-vector-complete", site, "parameter");
         }
         if (binding.kind === "bound" && !validReference(binding.type, typeCount))

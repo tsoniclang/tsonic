@@ -12,7 +12,7 @@ export function createTypeComponentReaders(values: TypeTextValues) {
   const reader_family = recordReader<SumFamily>("SumFamily", read => {
       const field_origin = read("origin", lazyReader(() => values["sum-origin"]));
       const field_component = read("component", lazyReader(() => reader_component));
-      const field_parameters = read("parameters", arrayReader(() => values["parameter-identity"]));
+      const field_parameters = read("parameters", arrayReader(() => values["definition-id"]));
       const field_roles = read("roles", arrayReader(() => reader_arm));
       return { fields: [field_origin, field_component, field_parameters, field_roles], value: () => ({ origin: field_origin.value(), component: field_component.value(), parameters: field_parameters.value(), roles: field_roles.value() }) };
     });

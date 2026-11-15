@@ -276,7 +276,7 @@ export interface EvidenceSchemas {
 }
 
 export function createEvidenceSchemas(data: DataSchemas): EvidenceSchemas {
-  const { bindingVectorSchema, booleanSchema, defSchema, literalValueSchema, localRefSchema, memberOriginSchema, nodeRefSchema, numberSchema, sigSchema, sourceNodeRefSchema, stringSchema, tSchema, typeParameterIdentitySchema } = data;
+  const { bindingVectorSchema, booleanSchema, defSchema, literalValueSchema, localRefSchema, memberOriginSchema, nodeRefSchema, numberSchema, sigSchema, sourceNodeRefSchema, stringSchema, tSchema } = data;
   const typeEvidenceSchema = recordSchema<TypeEvidence>("TypeEvidence", "TypeEvidence", read => {
     const type = read("type", () => tSchema, value => value.type);
     const component = read("component", () => sourceNodeRefSchema, value => value.component);
@@ -590,7 +590,7 @@ export function createEvidenceSchemas(data: DataSchemas): EvidenceSchemas {
   const sumFamilySchema = recordSchema<SumFamily>("SumFamily", "SumFamily", read => {
     const origin = read("origin", () => sumOriginSchema, value => value.origin);
     const component = read("component", () => typeComponentSchema, value => value.component);
-    const parameters = read("parameters", () => arraySchema(typeParameterIdentitySchema), value => value.parameters);
+    const parameters = read("parameters", () => arraySchema(defSchema), value => value.parameters);
     const roles = read("roles", () => arraySchema(sumArmRoleSchema), value => value.roles);
     return { fields: [origin, component, parameters, roles], value: () => ({ origin: origin.value(), component: component.value(), parameters: parameters.value(), roles: roles.value() }) };
   });

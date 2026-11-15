@@ -111,7 +111,7 @@ export type HirSyntaxName = PlainTokenKind
   | "ObjectKeyword" | "StringKeyword" | "SymbolKeyword" | "UndefinedKeyword" | "UnknownKeyword" | "VoidKeyword";
 type HirSchemaName = HirSyntaxName | "ModuleId" | "BodyId" | "NodeId" | "TyId" | "CandidateListId" | "HostDiagnosticCode"
   | "DefId" | "ExpansionId" | "LocalId" | "SigId" | "TextRange" | "Origin" | "NodeRef"
-  | "ItemNodeRef" | "SourceNodeRef" | "LocalRef" | "LibraryModuleIdentity" | "TypeParameterIdentity"
+  | "ItemNodeRef" | "SourceNodeRef" | "LocalRef" | "LibraryModuleIdentity"
   | "TypeParameterData" | "TypeBinding" | "SelfBinding" | "BindingVector" | "ExactRational" | "LiteralValue"
   | "LiteralTypeValue" | "NonNumericLiteralValue" | "MemberKey" | "MemberOrigin" | "PassingMode"
   | "ConstructionDefinition" | "SumFamily" | "SumArmRole" | "ComponentSelector" | "TypeComponent"
@@ -557,7 +557,6 @@ export interface HirSchema extends HirSyntaxSchema {
   readonly SourceNodeRef: HirShapeBody;
   readonly LocalRef: HirShapeBody;
   readonly LibraryModuleIdentity: HirShapeBody;
-  readonly TypeParameterIdentity: HirShapeBody;
   readonly TypeParameterData: HirShapeBody;
   readonly TypeBinding: HirShapeBody;
   readonly SelfBinding: HirShapeBody;

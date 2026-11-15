@@ -7,7 +7,7 @@ import { encodeKey } from "../ids/index.js";
 import { artifactBindingsData, artifactBindingsKey, constantReferenceKey, executionKey, instanceKey } from "../ir-types/index.js";
 import type {
   ArtifactBindings, BindingVector, BodyInstance, Execution, ComponentSelector, PointerEvidence, SelfBinding, TypeBinding,
-  TypeComponent, TypeEvidence, TypeParameter, TypeParameterIdentity,
+  TypeComponent, TypeEvidence, TypeParameter,
 } from "../ir-types/contract.js";
 import type { HirCallableEndpoint } from "../ir-hir/contract.js";
 import type { BodyRecord, ConstantRecord, DefinitionNode, ModuleRecord, PackageRecord, ProgramIndex, ProgramRule, ProgramSite, SummaryArtifactReference } from "./contract.js";
@@ -48,7 +48,7 @@ export function admitBindingVector(meter: InstantiationMeter, distinctCount: num
 }
 
 export interface BindingLookup {
-  readonly parameterBinding: (value: { readonly kind: "rigid"; readonly parameter: TypeParameterIdentity }) => TypeBinding;
+  readonly parameterBinding: (value: { readonly kind: "rigid"; readonly parameter: DefId }) => TypeBinding;
   readonly selfBinding: (value: { readonly kind: "rigid"; readonly owner: DefId }) => SelfBinding;
 }
 
@@ -61,7 +61,7 @@ export function createBindingLookup(
     for (const binding of family) {
       const stop = chargeInstantiationWork(meter);
       if (stop !== null) return stop;
-      const key = encodeKey([binding.parameter.owner, binding.parameter.index]);
+      const key = binding.parameter;
       if (parameters.has(key)) throw new TypeError("Duplicate requested parameter binding");
       parameters.set(key, binding);
     }
@@ -75,7 +75,7 @@ export function createBindingLookup(
   return {
     kind: "complete",
     lookup: {
-      parameterBinding: value => parameters.get(encodeKey([value.parameter.owner, value.parameter.index])) ?? value,
+      parameterBinding: value => parameters.get(value.parameter) ?? value,
       selfBinding: value => selves.get(value.owner) ?? value,
     },
   };

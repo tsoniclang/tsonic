@@ -5,8 +5,8 @@ import type { ContributionsSchemas } from "./text-contributions.js";
 import { arraySchema, enumSchema, nullableSchema, recordSchema, unionSchema } from "./text-data.js";
 import type { DataSchemas } from "./text-data.js";
 import type { ErrorSchemas } from "./text-errors.js";
-import type { BodyId, LocalRef, NodeRef, TyId } from "../ids/contract.js";
-import type { BindingVector, LiteralValue, MemberKey, MemberOrigin, PassingMode, TypeParameterIdentity } from "../ir-types/contract.js";
+import type { BodyId, DefId, LocalRef, NodeRef, TyId } from "../ids/contract.js";
+import type { BindingVector, LiteralValue, MemberKey, MemberOrigin, PassingMode } from "../ir-types/contract.js";
 import type { RecordSchema } from "./text-data.js";
 import type { Schema } from "./text-data.js";
 
@@ -56,7 +56,7 @@ export interface BinderVariableRecord {
   readonly application: NodeRef;
   readonly candidate: number;
   readonly family: "class" | "method" | "captured";
-  readonly parameter: TypeParameterIdentity;
+  readonly parameter: DefId;
 }
 
 export interface LiteralVariableRecord {
@@ -287,7 +287,7 @@ export function createConstraintsSchemas(captureValues: CaptureValuesSchemas, ca
   const { hirCandidateListSchema } = captureValues;
   const { hirCoreCaptureSchema } = captures;
   const { constraintRefSchema } = contributions;
-  const { bindingVectorSchema, bodySchema, booleanSchema, candSchema, defSchema, groupSchema, literalValueSchema, localRefSchema, memberKeySchema, memberOriginSchema, nodeRefSchema, numberSchema, passingModeSchema, tSchema, typeParameterIdentitySchema } = data;
+  const { bindingVectorSchema, bodySchema, booleanSchema, candSchema, defSchema, groupSchema, literalValueSchema, localRefSchema, memberKeySchema, memberOriginSchema, nodeRefSchema, numberSchema, passingModeSchema, tSchema } = data;
   const constraintSetSchema = recordSchema<ConstraintSet>("ConstraintSet", "ConstraintSet", read => {
     const group = read("group", () => groupSchema, value => value.group);
     const body = read("body", () => bodySchema, value => value.body);
@@ -373,7 +373,7 @@ export function createConstraintsSchemas(captureValues: CaptureValuesSchemas, ca
     const application = read("application", () => nodeRefSchema, value => value.application);
     const candidate = read("candidate", () => numberSchema, value => value.candidate);
     const family = read("family", () => binderFamilySchema, value => value.family);
-    const parameter = read("parameter", () => typeParameterIdentitySchema, value => value.parameter);
+    const parameter = read("parameter", () => defSchema, value => value.parameter);
     return { fields: [id, occurrence, application, candidate, family, parameter], value: () => ({ kind: "binder", id: id.value(), occurrence: occurrence.value(), application: application.value(), candidate: candidate.value(), family: family.value(), parameter: parameter.value() }) };
   });
 

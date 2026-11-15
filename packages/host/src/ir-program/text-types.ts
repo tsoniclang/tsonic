@@ -1,4 +1,4 @@
-import type { BindingVector, BodyInstance, Execution, DeclaredExecution, ConstValue, TypeEvidence, TypeComponent, TypeParameter, TypeBinding, SelfBinding, ArtifactBindings, ExactRational, CategoryEvidence, NumericEvidence, SumEvidence, PointerEvidence, ComponentSelector, TypeParameterIdentity, MemberKey, MemberOrigin, LiteralValue, SumArmRole, ConstructionDefinition, SumFamily } from "../ir-types/contract.js";
+import type { BindingVector, BodyInstance, Execution, DeclaredExecution, ConstValue, TypeEvidence, TypeComponent, TypeParameter, TypeBinding, SelfBinding, ArtifactBindings, ExactRational, CategoryEvidence, NumericEvidence, SumEvidence, PointerEvidence, ComponentSelector, MemberKey, MemberOrigin, LiteralValue, SumArmRole, ConstructionDefinition, SumFamily } from "../ir-types/contract.js";
 import type { TextWork } from "./text-values.js";
 import type { ConstantReference } from "../ir-types/contract.js";
 import { token, text, numeric, numericIdentity, identity, field, record, sequence, deferred, boolean, integer, textSourceNodeRef, textNodeRef, textLocalRef } from "./text-values.js";
@@ -119,7 +119,6 @@ export function textTypeComponent(value: TypeComponent): TextWork {
 export function textTypeParameter(value: TypeParameter): TextWork {
   return deferred(value, () => {
     return record("TypeParameter", [
-      field("identity", textTypeParameterIdentity(value.identity)),
       field("declaration", identity("def", value.declaration)),
       field("constraint", (value.constraint === null ? token("null") : numericIdentity("t", value.constraint))),
       field("default", (value.default === null ? token("null") : numericIdentity("t", value.default))),
@@ -132,12 +131,12 @@ export function textTypeBinding(value: TypeBinding): TextWork {
     switch (value.kind) {
       case "bound":
         return record(value.kind, [
-      field("parameter", textTypeParameterIdentity(value.parameter)),
+      field("parameter", identity("def", value.parameter)),
       field("type", numericIdentity("t", value.type)),
     ]);
       case "rigid":
         return record(value.kind, [
-      field("parameter", textTypeParameterIdentity(value.parameter)),
+      field("parameter", identity("def", value.parameter)),
     ]);
     }
   });
@@ -335,15 +334,6 @@ export function textComponentSelector(value: ComponentSelector): TextWork {
   });
 }
 
-export function textTypeParameterIdentity(value: TypeParameterIdentity): TextWork {
-  return deferred(value, () => {
-    return record("TypeParameterIdentity", [
-      field("owner", identity("def", value.owner)),
-      field("index", numeric(value.index)),
-    ]);
-  });
-}
-
 export function textMemberKey(value: MemberKey): TextWork {
   return deferred(value, () => {
     switch (value.kind) {
@@ -438,7 +428,7 @@ export function textSumFamily(value: SumFamily): TextWork {
     return record("SumFamily", [
       field("origin", text(value.origin)),
       field("component", textTypeComponent(value.component)),
-      field("parameters", sequence(value.parameters, entry0 => textTypeParameterIdentity(entry0))),
+      field("parameters", sequence(value.parameters, entry0 => identity("def", entry0))),
       field("roles", sequence(value.roles, entry0 => textSumArmRole(entry0))),
     ]);
   });

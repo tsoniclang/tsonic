@@ -1,6 +1,6 @@
 import type { BodyId, BodyPath, CandidateListId, DefId, DefinitionPath, LocalId, LocalRef, LibraryModuleIdentity, ModuleId, NodeId, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { Diagnostic, TextParseResult, Violation } from "../diag/contract.js";
-import type { ArtifactBindings, BindingScope, BindingVector, LiteralTypeValue, LiteralValue, MemberKey, MemberOrigin, NominalDefinition, PassingMode, SignatureEndpoint, TypeComponent, TypeParameter, TypeParameterIdentity, TypeTable } from "../ir-types/contract.js";
+import type { ArtifactBindings, BindingScope, BindingVector, LiteralTypeValue, LiteralValue, MemberKey, MemberOrigin, NominalDefinition, PassingMode, SignatureEndpoint, TypeComponent, TypeParameter, TypeTable } from "../ir-types/contract.js";
 import type { HirBindingTarget, HirModuleBinding, HirModuleExport, HirBindingViews, HirExportViews, HirBindingResolution } from "./binding-data.js";
 export type * from "./binding-data.js";
 import type { CapturedFact } from "./capture-data.js";
@@ -3914,7 +3914,7 @@ export type HirArgument =
   | { readonly kind: "spread"; readonly expression: NodeId; readonly tuple: CapturedFact<readonly TyId[] | null> };
 
 export interface HirInferenceContribution {
-  readonly parameter: TypeParameterIdentity;
+  readonly parameter: DefId;
   readonly role: "argument" | "receiver" | "context" | "result" | "type-argument";
   readonly source: SourceNodeRef;
   readonly component: TypeComponent;

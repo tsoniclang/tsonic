@@ -11,7 +11,7 @@ import type {
   ArtifactBindings, BindingVector, BodyInstance, ComponentSelector, ConstantReference,
   ConstructionDefinition, ExactRational, LiteralValue, MemberKey, MemberOrigin,
   NativePrimitive, PassingMode, SelfBinding, SumArmRole, SumFamily, TypeBinding,
-  TypeComponent, TypeParameterIdentity,
+  TypeComponent,
 } from "../ir-types/contract.js";
 import type { HirBinaryOperator, HirCallableEndpoint, HirUnaryOperator } from "../ir-hir/contract.js";
 import type { ApplicationDecision, CompletionEndpoint, ConstructionPartDecision, CorrespondenceStep, AccessLocation, CheckRequirement, EmbeddingDecision, EmbeddingProof, FailureKind, MemberDecision, OperationDecision, OperationExecution, OperationIdentity, ParameterMapping, ProtocolKind, ProtocolStepDecision, ProtocolStepOperation } from "../ir-infer/contract.js";
@@ -117,16 +117,12 @@ export function createDecisionWires(scalars: ScalarWires): DecisionWires {
   const sourceWire: Wire<SourceNodeRef> = variants([choice("body", () => sourceBody), choice("item", () => sourceItem)],
     (value, path, next) => value.kind === "body" ? sourceBody.write(value, path, next) : sourceItem.write(value, path, next));
 
-  const parameterWire = record<TypeParameterIdentity>("TypeParameterIdentity", () =>
-    field("owner", () => definitionWire, value => value.owner, owner =>
-      field("index", () => numberWire, value => value.index, index => finish(() => ({ owner, index })))));
-
   const bound = record<TypeBinding & { readonly kind: "bound" }>("bound", () =>
-    field("parameter", () => parameterWire, value => value.parameter, parameter =>
+    field("parameter", () => definitionWire, value => value.parameter, parameter =>
       field("type", () => typeWire, value => value.type, type => finish(() => ({ kind: "bound", parameter, type })))));
 
   const rigid = record<TypeBinding & { readonly kind: "rigid" }>("rigid", () =>
-    field("parameter", () => parameterWire, value => value.parameter, parameter => finish(() => ({ kind: "rigid", parameter }))));
+    field("parameter", () => definitionWire, value => value.parameter, parameter => finish(() => ({ kind: "rigid", parameter }))));
 
   const bindingWire: Wire<TypeBinding> = variants([choice("bound", () => bound), choice("rigid", () => rigid)],
     (value, path, next) => value.kind === "bound" ? bound.write(value, path, next) : rigid.write(value, path, next));
@@ -253,7 +249,7 @@ export function createDecisionWires(scalars: ScalarWires): DecisionWires {
   const sumFamily = record<SumFamily>("SumFamily", () =>
     field("origin", () => literals(["authored", "inferred"]), value => value.origin, origin =>
       field("component", () => componentWire, value => value.component, component =>
-        field("parameters", () => vector(() => parameterWire), value => value.parameters, parameters =>
+        field("parameters", () => vector(() => definitionWire), value => value.parameters, parameters =>
           field("roles", () => vector(() => sumArm), value => value.roles, roles => finish(() => ({ origin, component, parameters, roles })))))));
 
   const classValue = record<ComponentSelector & { readonly kind: "class-value" }>("class-value", () => finish(() => ({ kind: "class-value" })));

@@ -242,22 +242,9 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId): Ra
     if (scope.checked.ast.kindName(declaration) !== "KindTypeParameter") continue;
     if (declarations.length !== 1) return throwInvariant(invariant("A checked type parameter must retain its one actual declaration."));
     const ast = scope.checked.ast;
-    const parent = ast.parent(declaration);
-    if (parent === undefined) return throwInvariant(invariant("A checked type parameter must retain its actual binder."));
     const parameter = referenceTo(scope, scope.program, declaration);
-    const owner = referenceTo(scope, scope.program, parent);
     if (scope.meter.refusal !== null) return null;
-    if (parameter === null || owner === null) return throwInvariant(invariant("A checked type parameter's binder must belong to the actual captured source domain."));
-    const parameters = ast.typeParameters(parent);
-    let index: number | null = null;
-    for (let candidate = 0; candidate < parameters.length; candidate += 1) {
-      if (!admit(scope, "edges")) return null;
-      if (parameters[candidate] === declaration) {
-        if (index !== null) return throwInvariant(invariant("A type parameter cannot occur twice in its actual binder inventory."));
-        index = candidate;
-      }
-    }
-    if (index === null) return throwInvariant(invariant("A checked type parameter must occur in its actual binder's ordered parameter vector."));
+    if (parameter === null) return throwInvariant(invariant("A checked type parameter declaration must belong to the actual captured source domain."));
     const selected = ast.as.AsTypeParameterDeclaration(declaration);
     if (selected === undefined) return throwInvariant(invariant("A checked type parameter must retain its actual syntax payload."));
     const read = (node: Node | undefined): RawTypeId | null => {
@@ -269,7 +256,7 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId): Ra
     if (scope.meter.refusal !== null) return null;
     const defaultType = read(selected.DefaultType);
     if (scope.meter.refusal !== null) return null;
-    return { kind: "parameter", parameter, owner, index, captures: notProvided(), constraint, default: defaultType };
+    return { kind: "parameter", parameter, constraint, default: defaultType };
   }
   const literal = shape.getNumericLiteralTypeValue(type) !== undefined || shape.getStringLiteralTypeValue(type) !== undefined ||
     shape.getBooleanLiteralTypeValue(type) !== undefined;

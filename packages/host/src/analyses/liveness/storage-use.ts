@@ -22,7 +22,7 @@ function instanceWork(account: DataflowAccount, execution: Execution): boolean {
   const bindings = instance.bindings.bindings;
   for (const rows of [bindings.classBindings, bindings.methodBindings, bindings.capturedBindings]) {
     if (chargeWork(account, 8 * rows.length) !== null) return false;
-    for (const row of rows) if (chargeWork(account, 1 + row.parameter.owner.length) !== null) return false;
+    for (const row of rows) if (chargeWork(account, 1 + row.parameter.length) !== null) return false;
   }
   if (chargeWork(account, 8 * bindings.selfBindings.length) !== null) return false;
   for (const row of bindings.selfBindings) if (chargeWork(account, 1 + row.owner.length) !== null) return false;

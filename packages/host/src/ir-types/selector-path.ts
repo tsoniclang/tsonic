@@ -47,7 +47,7 @@ function selectorKey(selected: ComponentSelector, work: SelectorPathWork[]): rea
       const nested: KeyData[] = [];
       work.push({ path: selected.family.component.path, into: nested, position: 0 });
       return [selected.kind, selected.family.origin, sourceKey(selected.family.component.root), nested,
-        selected.family.parameters.map(parameter => [parameter.owner, parameter.index]),
+        selected.family.parameters,
         selected.family.roles.map(role => [role.authoredIndex, sourceKey(role.component), role.member]), selected.index];
     }
   }

@@ -220,8 +220,7 @@ export interface RawTypeArgument {
 export type RawTypeForm =
   | { readonly kind: "scalar"; readonly scalar: "number" | "bigint" | "boolean" | "string" | "symbol"
       | "null" | "undefined" | "void" | "any" | "unknown" | "object" | "never" }
-  | { readonly kind: "parameter"; readonly parameter: RawNodeRef; readonly owner: RawNodeRef; readonly index: number;
-      readonly captures: RawFact<readonly RawNodeRef[]>; readonly constraint: RawTypeId | null; readonly default: RawTypeId | null }
+  | { readonly kind: "parameter"; readonly parameter: RawNodeRef; readonly constraint: RawTypeId | null; readonly default: RawTypeId | null }
   | { readonly kind: "self"; readonly owner: RawNodeRef }
   | { readonly kind: "enum"; readonly declaration: RawNodeRef }
   | { readonly kind: "declared"; readonly declaration: RawNodeRef; readonly facet: "instance" | "value";

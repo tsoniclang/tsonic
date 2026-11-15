@@ -20,7 +20,7 @@ function variants(name: string, field: string, arms: readonly (readonly [string 
 
 export function createHirSchema(): HirSchema {
   const range: readonly HirField[] = ([["pos", "number"], ["end", "number"]]);
-  const parameterIdentity: HirShape = "TypeParameterIdentity";
+  const parameterDeclaration: HirShape = "DefId";
   const origin: HirShape = "Origin";
   const sourceReference: HirShape = "SourceNodeRef";
   const core: readonly HirField[] = ([["core", "HirCoreCapture"]]);
@@ -87,11 +87,10 @@ export function createHirSchema(): HirSchema {
     LocalRef: hirRecord("LocalRef", [["body", "BodyId"], ["local", "LocalId"]]),
     LibraryModuleIdentity: hirRecord("LibraryModuleIdentity", [["providerId", "string"], ["providerVersion", "string"],
       ["packageName", hirNullable("string")], ["moduleSpecifier", "string"], ["providerModuleId", "string"]]),
-    TypeParameterIdentity: hirRecord("TypeParameterIdentity", [["owner", "DefId"], ["index", "number"]]),
-    TypeParameterData: hirRecord("TypeParameter", [["identity", parameterIdentity], ["declaration", "DefId"],
+    TypeParameterData: hirRecord("TypeParameter", [["declaration", "DefId"],
       ["constraint", hirNullable("TyId")], ["default", hirNullable("TyId")]]),
-    TypeBinding: hirChoice(hirVariant("bound", [["parameter", parameterIdentity], ["type", "TyId"]]),
-      hirVariant("rigid", [["parameter", parameterIdentity]])),
+    TypeBinding: hirChoice(hirVariant("bound", [["parameter", parameterDeclaration], ["type", "TyId"]]),
+      hirVariant("rigid", [["parameter", parameterDeclaration]])),
     SelfBinding: hirChoice(hirVariant("bound", [["owner", "DefId"], ["type", "TyId"]]), hirVariant("rigid", [["owner", "DefId"]])),
     BindingVector: hirRecord("BindingVector", [["classBindings", hirArray("TypeBinding")], ["methodBindings", hirArray("TypeBinding")],
       ["capturedBindings", hirArray("TypeBinding")], ["selfBindings", hirArray("SelfBinding")]]),
@@ -108,7 +107,7 @@ export function createHirSchema(): HirSchema {
     PassingMode: hirLiteral("by-value", "byref-readonly", "byref-readwrite", "byref-writeonly-must-init", "borrow-shared", "borrow-mut", "move"),
     ConstructionDefinition: hirRecord("ConstructionDefinition", [["occurrence", "NodeRef"], ["captures", hirArray("LocalRef")]]),
     SumFamily: hirRecord("SumFamily", [["origin", hirLiteral("authored", "inferred")], ["component", "TypeComponent"],
-      ["parameters", hirArray(parameterIdentity)], ["roles", hirArray("SumArmRole")]]),
+      ["parameters", hirArray(parameterDeclaration)], ["roles", hirArray("SumArmRole")]]),
     SumArmRole: hirRecord("SumArmRole", [["authoredIndex", "number"], ["component", sourceReference], ["member", "TyId"]]),
     ComponentSelector: variants("ComponentSelector", "kind", [
       ["class-value", []], ["construction-argument", [["definition", "ConstructionDefinition"], ["index", "number"]]],
@@ -148,7 +147,7 @@ export function createHirSchema(): HirSchema {
       hirVariant("unavailable", [["reason", hirLiteral("checker-error", "parameter-dependent", "not-provided", "missing-original-component", "incomplete-association", "unsupported-checked-structure")], ["causes", hirArray("Cause")]])),
     HirAttribute: hirRecord("HirAttribute", [["declaration", "DefId"], ["occurrence", sourceReference], ["arguments", hirArray(sourceReference)]]),
     HirArgument: hirChoice(hirVariant("value", [["expression", "NodeId"]]), hirVariant("spread", [["expression", "NodeId"], ["tuple", captured(hirNullable(hirArray("TyId")))]])),
-    HirInferenceContribution: hirRecord("HirInferenceContribution", [["parameter", parameterIdentity],
+    HirInferenceContribution: hirRecord("HirInferenceContribution", [["parameter", parameterDeclaration],
       ["role", hirLiteral("argument", "receiver", "context", "result", "type-argument")], ["source", sourceReference],
       ["component", "TypeComponent"], ["type", captured("TyId")]]),
     HirCallableEndpoint: hirRecord("HirCallableEndpoint", [["declaration", "DefId"], ["role", hirLiteral("advertised", "api-signature", "api-body")], ["signature", "SigId"], ["body", hirNullable("BodyId")]]),

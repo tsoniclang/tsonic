@@ -3,7 +3,7 @@ import { requirePresent, throwInvariant } from "../diag/index.js";
 import type { BodyId, DefId, NodeId } from "../ids/contract.js";
 import { decodeDefId } from "../ids/index.js";
 import type { CheckedPhase, HirNode, ModifierList, NodeList, ParameterDeclaration, TypeParameterDeclaration } from "../ir-hir/contract.js";
-import type { BindingScope, TypeParameterIdentity } from "../ir-types/contract.js";
+import type { BindingScope } from "../ir-types/contract.js";
 import type { DeclsModule, DefinitionDescription, DefinitionExport, DefinitionExports, DefinitionTable } from "./contract.js";
 
 const NO_EXPORTS: readonly DefinitionExport[] = [];
@@ -41,27 +41,22 @@ function visibilityOf(node: HirNode, nodes: readonly HirNode[]): Visibility {
 }
 
 interface Inherited {
-  readonly available: readonly TypeParameterIdentity[];
+  readonly available: readonly DefId[];
   readonly selfs: readonly DefId[];
-  readonly members: { readonly owner: DefId; readonly node: NodeId; readonly params: readonly TypeParameterIdentity[] } | null;
+  readonly members: { readonly owner: DefId; readonly node: NodeId; readonly params: readonly DefId[] } | null;
 }
 
 const NONE: Inherited = { available: [], selfs: [], members: null };
 const EMPTY_SCOPE: BindingScope = { classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] };
 const PARENT_FIRST: InvariantFailure = { owner: "decls", query: null, origin: null, message: "a node's parent is not before it in the node table" };
 
-function without(list: readonly TypeParameterIdentity[], removed: readonly TypeParameterIdentity[]): readonly TypeParameterIdentity[] {
-  const indices = new Map<DefId, Set<number>>();
-  for (const parameter of removed) {
-    const family = indices.get(parameter.owner);
-    if (family === undefined) indices.set(parameter.owner, new Set([parameter.index]));
-    else family.add(parameter.index);
-  }
-  return list.filter(parameter => indices.get(parameter.owner)?.has(parameter.index) !== true);
+function without(list: readonly DefId[], removed: readonly DefId[]): readonly DefId[] {
+  const excluded = new Set(removed);
+  return list.filter(parameter => !excluded.has(parameter));
 }
 
-function ownParameters(list: NodeList<TypeParameterDeclaration<CheckedPhase>> | null): readonly TypeParameterIdentity[] {
-  return list === null ? [] : list.nodes.map(node => node.tsonic.parameter.identity);
+function ownParameters(list: NodeList<TypeParameterDeclaration<CheckedPhase>> | null): readonly DefId[] {
+  return list === null ? [] : list.nodes.map(node => node.tsonic.parameter.declaration);
 }
 
 function staticMember(modifiers: ModifierList<CheckedPhase> | null): boolean {
@@ -73,13 +68,13 @@ function explicitThis(parameters: NodeList<ParameterDeclaration<CheckedPhase>>):
   return first !== undefined && first.name.kind === "Identifier" && first.name.text === "this";
 }
 
-function binder(inherited: Inherited, classFamily: readonly TypeParameterIdentity[], own: readonly TypeParameterIdentity[], selfs: readonly DefId[],
-  available: readonly TypeParameterIdentity[] = inherited.available): readonly [BindingScope, Inherited] {
+function binder(inherited: Inherited, classFamily: readonly DefId[], own: readonly DefId[], selfs: readonly DefId[],
+  available: readonly DefId[] = inherited.available): readonly [BindingScope, Inherited] {
   return [{ classParameters: classFamily, methodParameters: own, capturedParameters: without(available, classFamily), selfOwners: selfs },
     { available: [...available, ...own], selfs, members: null }];
 }
 
-function member(inherited: Inherited, isStatic: boolean, own: readonly TypeParameterIdentity[], ownThis: boolean,
+function member(inherited: Inherited, isStatic: boolean, own: readonly DefId[], ownThis: boolean,
   context: NonNullable<Inherited["members"]>): readonly [BindingScope, Inherited] {
   const available = isStatic ? without(inherited.available, context.params) : inherited.available;
   const selfs = ownThis ? [] : isStatic ? inherited.selfs.filter(owner => owner !== context.owner) : inherited.selfs;

@@ -1,7 +1,6 @@
-import { encodeKey } from "../ids/index.js";
 import type { TyId, SigId, SourceNodeRef } from "../ids/contract.js";
 import type { MessageArgument, Violation } from "../diag/contract.js";
-import type { VerifyTypes, TypeRule, TypeSite, ExactRational, TypeTerm, TypeParameterIdentity,
+import type { VerifyTypes, TypeRule, TypeSite, ExactRational, TypeTerm,
   MemberOrigin, TypeEvidence, TypeVerificationInput, TypeComponent, ConstructionDefinition, Signature,
   ComponentSelector, SumFamily, CategoryEvidence } from "./contract.js";
 import { bindingChecks } from "./verify-bindings.js";
@@ -12,10 +11,6 @@ type Add = (rule: TypeRule, site: TypeSite, field: string, value?: number) => vo
 
 function validReference(value: number, length: number): boolean {
   return Number.isSafeInteger(value) && value >= 0 && !Object.is(value, -0) && value < length;
-}
-
-function parameterKey(value: TypeParameterIdentity): string {
-  return encodeKey([value.owner, value.index]);
 }
 
 function rationalNormalized(value: ExactRational): boolean {
@@ -110,10 +105,9 @@ function component(root: TypeComponent, site: TypeSite, checks: Checks, path: In
       const identities = new Set<string>();
       for (const [index, parameter] of family.parameters.entries()) {
         if (parameter === undefined) { checks.add("parameter-identity", site, "family.parameters", index); continue; }
-        const key = parameterKey(parameter);
-        if (!Number.isSafeInteger(parameter.index) || parameter.index < 0 || Object.is(parameter.index, -0) || identities.has(key))
+        if (typeof parameter !== "string" || identities.has(parameter))
           checks.add("parameter-identity", site, "family.parameters", index);
-        identities.add(key);
+        identities.add(parameter);
       }
       for (const [index, role] of family.roles.entries()) {
         if (role === undefined) { checks.add("sum-arm-order", site, "family.roles", index); continue; }
@@ -289,8 +283,8 @@ export const verifyTypes: VerifyTypes = input => {
       if (nominal === null || nominal.kind !== value.kind || value.kind === "declared" && !nominal.facets.includes(value.facet))
         add("nominal-definition", site, "definition");
     }
-    if (value.kind === "param" && (!Number.isSafeInteger(value.parameter.index) || value.parameter.index < 0 || Object.is(value.parameter.index, -0)))
-      add("parameter-identity", site, "parameter.index", value.parameter.index);
+    if (value.kind === "param" && typeof value.parameter !== "string")
+      add("parameter-identity", site, "parameter");
     if (value.kind === "union" || value.kind === "intersection") {
       if (value.members.length < 2 || !increasing(value.members)
         || value.members.some(member => table.terms[member]?.kind === value.kind))
@@ -339,14 +333,12 @@ export const verifyTypes: VerifyTypes = input => {
     if (!Object.is(value.id, position)) add("signature-order", site, "id", value.id);
     if (value.composition !== null && !increasing(value.composition.signatures)) add("signature-order", site, "composition.signatures");
     signatureReferences(value, site, checks);
-    const owners = new Set<string>();
     const declarations = new Set<string>();
     for (const [index, parameter] of value.typeParameters.entries()) {
       if (parameter === undefined) { add("parameter-identity", site, "typeParameters", index); continue; }
-      const key = parameterKey(parameter.identity);
-      if (!Object.is(parameter.identity.index, index) || owners.has(key) || declarations.has(parameter.declaration))
+      if (typeof parameter.declaration !== "string" || declarations.has(parameter.declaration))
         add("parameter-identity", site, "typeParameters", index);
-      owners.add(key); declarations.add(parameter.declaration);
+      declarations.add(parameter.declaration);
     }
     let rest = false;
     let optional = false;

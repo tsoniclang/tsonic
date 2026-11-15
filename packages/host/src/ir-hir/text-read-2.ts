@@ -75,7 +75,7 @@ export function createReadGroup2(readers: () => HirTextReaders): HirReadGroup2 {
   const record_74 = recordReader<Types.SumFamily>("SumFamily", read => {
       const field_origin = read("origin", readers().literal_7);
       const field_component = read("component", readers().record_43);
-      const field_parameters = read("parameters", sequenceReader(readers().record_20));
+      const field_parameters = read("parameters", sequenceReader(readers().identity_def));
       const field_roles = read("roles", sequenceReader(readers().record_75));
       return { fields: [field_origin, field_component, field_parameters, field_roles], value: () => ({ origin: field_origin.value(), component: field_component.value(), parameters: field_parameters.value(), roles: field_roles.value() }) };
     });

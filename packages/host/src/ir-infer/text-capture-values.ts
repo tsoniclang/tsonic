@@ -128,7 +128,7 @@ export interface CaptureValuesSchemas {
 }
 
 export function createCaptureValuesSchemas(data: DataSchemas, evidence: EvidenceSchemas, errors: ErrorSchemas): CaptureValuesSchemas {
-  const { bigintSchema, bindingVectorSchema, bodySchema, candSchema, defSchema, hostCodeNameSchema, numberSchema, originSchema, sigSchema, sourceNodeRefSchema, stringSchema, tSchema, typeParameterIdentitySchema } = data;
+  const { bigintSchema, bindingVectorSchema, bodySchema, candSchema, defSchema, hostCodeNameSchema, numberSchema, originSchema, sigSchema, sourceNodeRefSchema, stringSchema, tSchema } = data;
   const { typeComponentSchema } = evidence;
   const hirCallableEndpointSchema = recordSchema<HirCallableEndpoint>("HirCallableEndpoint", "HirCallableEndpoint", read => {
     const declaration = read("declaration", () => defSchema, value => value.declaration);
@@ -171,7 +171,7 @@ export function createCaptureValuesSchemas(data: DataSchemas, evidence: Evidence
       ? availableCandidateEndpointsSchema.stage(value) : unavailableSchema.stage(value));
 
   const hirInferenceContributionSchema = recordSchema<HirInferenceContribution>("HirInferenceContribution", "HirInferenceContribution", read => {
-    const parameter = read("parameter", () => typeParameterIdentitySchema, value => value.parameter);
+    const parameter = read("parameter", () => defSchema, value => value.parameter);
     const role = read("role", () => hirContributionRoleSchema, value => value.role);
     const source = read("source", () => sourceNodeRefSchema, value => value.source);
     const component = read("component", () => typeComponentSchema, value => value.component);

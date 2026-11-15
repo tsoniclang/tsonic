@@ -36,9 +36,8 @@ export interface HirReadGroup0 {
   readonly record_16: HirReader<{ readonly kind: "available"; readonly value: Ids.SigId; }>;
   readonly record_17: HirReader<{ readonly kind: "available"; readonly value: Types.BindingVector; }>;
   readonly record_18: HirReader<Types.BindingVector>;
-  readonly record_19: HirReader<{ readonly kind: "bound"; readonly parameter: Types.TypeParameterIdentity; readonly type: Ids.TyId; }>;
-  readonly record_20: HirReader<Types.TypeParameterIdentity>;
-  readonly record_21: HirReader<{ readonly kind: "rigid"; readonly parameter: Types.TypeParameterIdentity; }>;
+  readonly record_19: HirReader<{ readonly kind: "bound"; readonly parameter: Ids.DefId; readonly type: Ids.TyId; }>;
+  readonly record_21: HirReader<{ readonly kind: "rigid"; readonly parameter: Ids.DefId; }>;
   readonly record_22: HirReader<{ readonly kind: "bound"; readonly owner: Ids.DefId; readonly type: Ids.TyId; }>;
   readonly record_23: HirReader<{ readonly kind: "rigid"; readonly owner: Ids.DefId; }>;
   readonly record_24: HirReader<{ readonly kind: "available"; readonly value: Diag.Diagnostic | null; }>;

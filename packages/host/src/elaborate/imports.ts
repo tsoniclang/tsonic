@@ -1,5 +1,5 @@
 import type { SourceNodeRef } from "../ids/contract.js";
-import type { CheckedPhase, Identifier, ImportDeclaration, ImportSpecifier, NamedImportBindings } from "../ir-hir/contract.js";
+import type { CheckedPhase, ExportDeclaration, Identifier, ImportDeclaration, ImportSpecifier, ModuleExportName, NamedExportBindings, NamedImportBindings } from "../ir-hir/contract.js";
 import type { TypedPhase } from "../ir-tir/contract.js";
 import { throwInvariant } from "../diag/index.js";
 
@@ -57,4 +57,46 @@ export function elaborateImport(node: ImportDeclaration<CheckedPhase>): ImportDe
       defaultBinding ?? fail("A default import requires its checked binding occurrence.")), namedBindings,
       tsonic: clause.name === null ? null : { binding: defaultBinding ?? fail("A default import requires its checked binding occurrence.") } },
     moduleSpecifier: { ...node.moduleSpecifier, tsonic: { role: "module-specifier", target } }, tsonic: { target } };
+}
+
+function exportName(node: ModuleExportName<CheckedPhase>, binding: SourceNodeRef): ModuleExportName<TypedPhase> {
+  if (node.kind === "Identifier") return identifier(node, binding);
+  if (node.tsonic.role !== "export-name" || !sameBinding(node.tsonic.binding, binding))
+    return fail("An export name retains its actual checked binding occurrence.");
+  return { ...node, tsonic: { role: "export-name", binding } };
+}
+
+export function elaborateExport(node: ExportDeclaration<CheckedPhase>): ExportDeclaration<TypedPhase> {
+  if (node.attributes !== null || node.tsonic.target.kind !== "available"
+    || node.moduleSpecifier !== null && node.moduleSpecifier.kind !== "StringLiteral")
+    return fail("An export requires its actual checked module target and supported original syntax.");
+  const target = node.tsonic.target.value;
+  if ((node.moduleSpecifier === null) !== (target === null))
+    return fail("An export module target is present exactly with its actual module specifier.");
+  const clause = node.exportClause;
+  let exportClause: NamedExportBindings<TypedPhase> | null = null;
+  if (clause?.kind === "NamedExports") exportClause = { ...clause, tsonic: null,
+    elements: { ...clause.elements, nodes: clause.elements.nodes.map(element => {
+      const binding = element.tsonic.binding;
+      return { ...element, name: exportName(element.name, binding),
+        propertyName: element.propertyName === null ? null : exportName(element.propertyName, binding), tsonic: { binding } };
+    }) } };
+  else if (clause !== null) {
+    const definition = clause.tsonic.definition;
+    const binding = clause.tsonic.binding;
+    const name = clause.name;
+    if (name.tsonic.role !== "declaration-name" || name.tsonic.declaration.kind !== "definition"
+      || name.tsonic.declaration.definition !== definition)
+      return fail("A namespace export retains its genuine checked same-node declaration.");
+    exportClause = { ...clause, name: name.kind === "Identifier"
+      ? { ...name, tsonic: { role: "declaration-name", declaration: name.tsonic.declaration, storage: null } }
+      : { ...name, tsonic: { role: "declaration-name", declaration: name.tsonic.declaration } }, tsonic: { definition, binding } };
+  }
+  return { ...node, modifiers: node.modifiers === null ? null : { ...node.modifiers, nodes: node.modifiers.nodes.map(modifier => {
+    if (modifier.kind !== "ExportKeyword") return fail("An export retains only its actual checked export modifiers.");
+    return { ...modifier, tsonic: null };
+  }) }, exportClause, attributes: null,
+    moduleSpecifier: node.moduleSpecifier === null ? null : { ...node.moduleSpecifier,
+      tsonic: { role: "module-specifier", target: target ?? fail("An external export requires its actual module target.") } },
+    tsonic: { target } };
 }

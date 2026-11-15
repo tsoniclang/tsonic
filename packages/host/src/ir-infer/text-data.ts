@@ -2,7 +2,7 @@ import { hostDiagnosticCode, requirePresent } from "../diag/index.js";
 import { candidateListId, decodeBodyId, decodeDefId, decodeGroupId, decodeModuleId, encodeBodyId, encodeDefId, encodeGroupId, encodeModuleId, expansionId, localId, nodeId, sigId, tyId } from "../ids/index.js";
 import type { HostDiagnosticCode, InvariantFailure } from "../diag/contract.js";
 import type { BodyId, CandidateListId, DefId, Derivation, ExpansionId, GroupId, ItemNodeRef, LocalId, LocalRef, ModuleId, NodeId, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
-import type { BindingVector, ExactRational, LiteralValue, MemberKey, MemberOrigin, SelfBinding, TypeBinding, TypeParameterIdentity } from "../ir-types/contract.js";
+import type { BindingVector, ExactRational, LiteralValue, MemberKey, MemberOrigin, SelfBinding, TypeBinding } from "../ir-types/contract.js";
 
 export interface Field {
   readonly name: string;
@@ -208,13 +208,13 @@ export interface ExpansionDerivationRecord {
 
 export interface BoundTypeRecord {
   readonly kind: "bound";
-  readonly parameter: TypeParameterIdentity;
+  readonly parameter: DefId;
   readonly type: TyId;
 }
 
 export interface RigidTypeRecord {
   readonly kind: "rigid";
-  readonly parameter: TypeParameterIdentity;
+  readonly parameter: DefId;
 }
 
 export interface BoundSelfRecord {
@@ -317,7 +317,6 @@ export interface DataSchemas {
   readonly loweringDerivationSchema: RecordSchema<LoweringDerivationRecord>;
   readonly expansionDerivationSchema: RecordSchema<ExpansionDerivationRecord>;
   readonly passNameSchema: Schema<"decls" | "elaborate" | "errorStorage" | "evaluate" | "front" | "infer" | "initialization" | "liveness" | "lower-mir" | "metadata" | "origins" | "pipeline" | "pointerBacking" | "refinements" | "summaries" | "suspension" | "validate">;
-  readonly typeParameterIdentitySchema: RecordSchema<TypeParameterIdentity>;
   readonly bindingVectorSchema: RecordSchema<BindingVector>;
   readonly typeBindingSchema: RecordSchema<TypeBinding>;
   readonly boundTypeSchema: RecordSchema<BoundTypeRecord>;
@@ -450,12 +449,6 @@ export function createDataSchemas(): DataSchemas {
 
   const passNameSchema = enumSchema("PassName", ["front","decls","infer","elaborate","validate","lower-mir","evaluate","metadata","liveness","initialization","refinements","origins","suspension","errorStorage","pointerBacking","summaries","pipeline"]);
 
-  const typeParameterIdentitySchema = recordSchema<TypeParameterIdentity>("TypeParameterIdentity", "TypeParameterIdentity", read => {
-    const owner = read("owner", () => defSchema, value => value.owner);
-    const index = read("index", () => numberSchema, value => value.index);
-    return { fields: [owner, index], value: () => ({ owner: owner.value(), index: index.value() }) };
-  });
-
   const bindingVectorSchema = recordSchema<BindingVector>("BindingVector", "BindingVector", read => {
     const classBindings = read("classBindings", () => arraySchema(typeBindingSchema), value => value.classBindings);
     const methodBindings = read("methodBindings", () => arraySchema(typeBindingSchema), value => value.methodBindings);
@@ -473,13 +466,13 @@ export function createDataSchemas(): DataSchemas {
   });
 
   const boundTypeSchema = recordSchema<BoundTypeRecord>("BoundType", "bound", read => {
-    const parameter = read("parameter", () => typeParameterIdentitySchema, value => value.parameter);
+    const parameter = read("parameter", () => defSchema, value => value.parameter);
     const type = read("type", () => tSchema, value => value.type);
     return { fields: [parameter, type], value: () => ({ kind: "bound", parameter: parameter.value(), type: type.value() }) };
   });
 
   const rigidTypeSchema = recordSchema<RigidTypeRecord>("RigidType", "rigid", read => {
-    const parameter = read("parameter", () => typeParameterIdentitySchema, value => value.parameter);
+    const parameter = read("parameter", () => defSchema, value => value.parameter);
     return { fields: [parameter], value: () => ({ kind: "rigid", parameter: parameter.value() }) };
   });
 
@@ -605,6 +598,6 @@ export function createDataSchemas(): DataSchemas {
 
   const hostCodeNameSchema = scalarSchema<HostDiagnosticCode>("string",
     value => typeof value === "string" ? hostDiagnosticCode(value) : undefined);
-  return { numberSchema, bigintSchema, stringSchema, booleanSchema, nSchema, lSchema, tSchema, sigSchema, candSchema, defSchema, bodySchema, groupSchema, modSchema, expSchema, nodeRefSchema, itemNodeRefSchema, sourceNodeRefSchema, bodySourceSchema, itemSourceSchema, localRefSchema, originSchema, derivationSchema, loweringDerivationSchema, expansionDerivationSchema, passNameSchema, typeParameterIdentitySchema, bindingVectorSchema, typeBindingSchema, boundTypeSchema, rigidTypeSchema, selfBindingSchema, boundSelfSchema, rigidSelfSchema, exactRationalSchema, literalValueSchema, numberLiteralSchema, bigintLiteralSchema, stringLiteralSchema, booleanLiteralSchema, absenceLiteralSchema, symbolLiteralSchema, memberKeySchema, textKeySchema, numberKeySchema, symbolKeySchema, memberOriginSchema, declaredOriginSchema, prototypeOriginSchema, mappedOriginSchema, passingModeSchema, hostCodeNameSchema };
+  return { numberSchema, bigintSchema, stringSchema, booleanSchema, nSchema, lSchema, tSchema, sigSchema, candSchema, defSchema, bodySchema, groupSchema, modSchema, expSchema, nodeRefSchema, itemNodeRefSchema, sourceNodeRefSchema, bodySourceSchema, itemSourceSchema, localRefSchema, originSchema, derivationSchema, loweringDerivationSchema, expansionDerivationSchema, passNameSchema, bindingVectorSchema, typeBindingSchema, boundTypeSchema, rigidTypeSchema, selfBindingSchema, boundSelfSchema, rigidSelfSchema, exactRationalSchema, literalValueSchema, numberLiteralSchema, bigintLiteralSchema, stringLiteralSchema, booleanLiteralSchema, absenceLiteralSchema, symbolLiteralSchema, memberKeySchema, textKeySchema, numberKeySchema, symbolKeySchema, memberOriginSchema, declaredOriginSchema, prototypeOriginSchema, mappedOriginSchema, passingModeSchema, hostCodeNameSchema };
 }
 

@@ -46,7 +46,7 @@ function descriptorAgrees(key: MetadataKey, expected: BindingVector | undefined,
     for (const parameter of parameters) {
     const step = chargeWork(account, 1);
     if (step !== null) return step;
-      const stop = chargeWork(account, 1 + parameter.owner.length) ?? chargeResultEntries(account, 2);
+      const stop = chargeWork(account, 1 + parameter.length) ?? chargeResultEntries(account, 1);
       if (stop !== null) return stop;
     }
   }

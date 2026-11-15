@@ -197,8 +197,7 @@ function vectorFits(vector: BindingVector, scope: BindingScope, meter: WorkMeter
     if (meter.exhausted) return false;
     for (const [position, binding] of bindings.entries()) {
       const parameter = parameters[position];
-      if (binding === undefined || parameter === undefined || binding.parameter.owner !== parameter.owner
-        || !Object.is(binding.parameter.index, parameter.index)) return false;
+      if (binding === undefined || parameter === undefined || binding.parameter !== parameter) return false;
     }
   }
   if (vector.selfBindings.length !== scope.selfOwners.length) return false;

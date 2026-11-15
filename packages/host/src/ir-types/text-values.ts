@@ -1,6 +1,6 @@
 import type { BodyId, DefId, GroupId, ItemNodeRef, LocalId, LocalRef, NodeId, NodeRef, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import { decodeBodyId, decodeDefId, decodeGroupId, encodeBodyId, encodeDefId, encodeGroupId, localId, nodeId, sigId, tyId } from "../ids/index.js";
-import type { ConstructionDefinition, ExactRational, FixedExtent, IndexSignature, Intrinsic, LiteralTypeValue, Member, MemberKey, MemberOrigin, NativePrimitive, PassingMode, Signature, SignatureParameter, TupleElement, TypeParameter, TypeParameterIdentity } from "./contract.js";
+import type { ConstructionDefinition, ExactRational, FixedExtent, IndexSignature, Intrinsic, LiteralTypeValue, Member, MemberKey, MemberOrigin, NativePrimitive, PassingMode, Signature, SignatureParameter, TupleElement, TypeParameter } from "./contract.js";
 import type { RecordReader, TextReader } from "./text-readers.js";
 import { arrayReader, bigintReader, booleanReader, enumReader, lazyReader, nullableReader, numberReader, recordReader, stringReader, unionReader } from "./text-readers.js";
 
@@ -34,7 +34,6 @@ export interface TypeTextValues {
   readonly "node": RecordReader<NodeRef>;
   readonly "item-node": RecordReader<ItemNodeRef>;
   readonly "local": RecordReader<LocalRef>;
-  readonly "parameter-identity": RecordReader<TypeParameterIdentity>;
   readonly "type-parameter": RecordReader<TypeParameter>;
   readonly "signature-parameter": RecordReader<SignatureParameter>;
   readonly "tuple-element": RecordReader<TupleElement>;
@@ -107,17 +106,11 @@ export function createTypeTextValues(): TypeTextValues {
       const field_local = read("local", lazyReader(() => reader_local_id));
       return { fields: [field_body, field_local], value: () => ({ body: field_body.value(), local: field_local.value() }) };
     });
-  const reader_parameter_identity = recordReader<TypeParameterIdentity>("TypeParameterIdentity", read => {
-      const field_owner = read("owner", lazyReader(() => reader_definition_id));
-      const field_index = read("index", lazyReader(() => reader_number));
-      return { fields: [field_owner, field_index], value: () => ({ owner: field_owner.value(), index: field_index.value() }) };
-    });
   const reader_type_parameter = recordReader<TypeParameter>("TypeParameter", read => {
-      const field_identity = read("identity", lazyReader(() => reader_parameter_identity));
       const field_declaration = read("declaration", lazyReader(() => reader_definition_id));
       const field_constraint = read("constraint", nullableReader(() => reader_type_id));
       const field_default = read("default", nullableReader(() => reader_type_id));
-      return { fields: [field_identity, field_declaration, field_constraint, field_default], value: () => ({ identity: field_identity.value(), declaration: field_declaration.value(), constraint: field_constraint.value(), default: field_default.value() }) };
+      return { fields: [field_declaration, field_constraint, field_default], value: () => ({ declaration: field_declaration.value(), constraint: field_constraint.value(), default: field_default.value() }) };
     });
   const reader_signature_parameter = recordReader<SignatureParameter>("SignatureParameter", read => {
       const field_declaration = read("declaration", lazyReader(() => reader_definition_id));
@@ -260,5 +253,5 @@ export function createTypeTextValues(): TypeTextValues {
     default: return null;
     }
   });
-  return { "number": reader_number, "bigint": reader_bigint, "string": reader_string, "boolean": reader_boolean, "type-id": reader_type_id, "signature-id": reader_signature_id, "own-signature-id": reader_own_signature_id, "node-id": reader_node_id, "local-id": reader_local_id, "definition-id": reader_definition_id, "body-id": reader_body_id, "group-id": reader_group_id, "native": reader_native, "intrinsic": reader_intrinsic, "member-kind": reader_member_kind, "signature-kind": reader_signature_kind, "parameter-kind": reader_parameter_kind, "tuple-kind": reader_tuple_kind, "passing": reader_passing, "runtime-base": reader_runtime_base, "facet": reader_facet, "sum-origin": reader_sum_origin, "rational": reader_rational, "extent": reader_extent, "node": reader_node, "item-node": reader_item_node, "local": reader_local, "parameter-identity": reader_parameter_identity, "type-parameter": reader_type_parameter, "signature-parameter": reader_signature_parameter, "tuple-element": reader_tuple_element, "construction": reader_construction, "member": reader_member, "index-signature": reader_index_signature, "signature": reader_signature, "source": reader_source, "member-key": reader_member_key, "origin": reader_origin, "composition": reader_composition, "literal": reader_literal };
+  return { "number": reader_number, "bigint": reader_bigint, "string": reader_string, "boolean": reader_boolean, "type-id": reader_type_id, "signature-id": reader_signature_id, "own-signature-id": reader_own_signature_id, "node-id": reader_node_id, "local-id": reader_local_id, "definition-id": reader_definition_id, "body-id": reader_body_id, "group-id": reader_group_id, "native": reader_native, "intrinsic": reader_intrinsic, "member-kind": reader_member_kind, "signature-kind": reader_signature_kind, "parameter-kind": reader_parameter_kind, "tuple-kind": reader_tuple_kind, "passing": reader_passing, "runtime-base": reader_runtime_base, "facet": reader_facet, "sum-origin": reader_sum_origin, "rational": reader_rational, "extent": reader_extent, "node": reader_node, "item-node": reader_item_node, "local": reader_local, "type-parameter": reader_type_parameter, "signature-parameter": reader_signature_parameter, "tuple-element": reader_tuple_element, "construction": reader_construction, "member": reader_member, "index-signature": reader_index_signature, "signature": reader_signature, "source": reader_source, "member-key": reader_member_key, "origin": reader_origin, "composition": reader_composition, "literal": reader_literal };
 }

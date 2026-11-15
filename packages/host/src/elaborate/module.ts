@@ -7,7 +7,7 @@ import type { TirBody, TypedBodyTemplate, TypedParameter, TypedPhase } from "../
 import type { ElaborateDeps, ElaborateInput } from "./contract.js";
 import { artifactBindingsKey } from "../ir-types/index.js";
 import { declarationAlias, declarationInterface, declarationModifiers as modifiers, declarationName as name, declarationType as annotation } from "./declarations.js";
-import { elaborateImport } from "./imports.js";
+import { elaborateExport, elaborateImport } from "./imports.js";
 
 function defect(message: string): never {
   return throwInvariant({ owner: "elaborate", query: null, origin: null, message });
@@ -102,6 +102,7 @@ export function elaborateModuleBody(deps: ElaborateDeps, input: ElaborateInput, 
     return defect("not elaborated yet: executable module values or storage.");
   const statements: Statement<TypedPhase>[] = root.statements.nodes.map(statement => {
     if (statement.kind === "ImportDeclaration") return elaborateImport(statement);
+    if (statement.kind === "ExportDeclaration") return elaborateExport(statement);
     if (statement.kind === "FunctionDeclaration") return callable(deps, statement, children);
     if (statement.kind === "InterfaceDeclaration") return declarationInterface(deps, statement);
     if (statement.kind === "TypeAliasDeclaration") return declarationAlias(statement);

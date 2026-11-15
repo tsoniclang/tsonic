@@ -1,7 +1,7 @@
 import type { BodyId, CandidateListId, DefId, GroupId, LocalRef, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { Diagnostic, ErrorValue, Result, TextParseResult, UnitRef, Violation } from "../diag/contract.js";
 import type { CheckFailure, HandleActivation, ReceiverAccess } from "../ir-types/contract.js";
-import type { BindingScope, BindingVector, BodyInstance, LiteralValue, MemberKey, MemberOrigin, MemberStorageSelection, NativePrimitive, NominalDefinition, PassingMode, SignatureRequest, TypeComponent, TypeEvidence, TypeParameterIdentity, TypeTable } from "../ir-types/contract.js";
+import type { BindingScope, BindingVector, BodyInstance, LiteralValue, MemberKey, MemberOrigin, MemberStorageSelection, NativePrimitive, NominalDefinition, PassingMode, SignatureRequest, TypeComponent, TypeEvidence, TypeTable } from "../ir-types/contract.js";
 import type { CapturedFact, HirBinaryOperator, HirCallableEndpoint, HirCandidate, HirCoreCapture, HirUnaryOperator, HirNode } from "../ir-hir/contract.js";
 
 export type InferredPart =
@@ -37,7 +37,7 @@ export type InferenceVariable = { readonly id: number; readonly occurrence: Node
   | { readonly kind: "signature"; readonly signature: InferredSignaturePart }
   | { readonly kind: "local"; readonly local: LocalRef | null }
   | { readonly kind: "binder"; readonly application: NodeRef; readonly candidate: number;
-      readonly family: "class" | "method" | "captured"; readonly parameter: TypeParameterIdentity }
+      readonly family: "class" | "method" | "captured"; readonly parameter: DefId }
   | { readonly kind: "literal"; readonly value: LiteralValue }
 );
 

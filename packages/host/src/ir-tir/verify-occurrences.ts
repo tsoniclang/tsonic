@@ -439,7 +439,7 @@ export const verifyDeferredParameters = (
   const parameters = new Set<string>();
   const owners = new Set<string>();
   for (const family of [context.bindings.classBindings, context.bindings.methodBindings, context.bindings.capturedBindings]) {
-    for (const binding of family) parameters.add(encodeKey([binding.parameter.owner, binding.parameter.index]));
+    for (const binding of family) parameters.add(binding.parameter);
   }
   for (const binding of context.bindings.selfBindings) owners.add(binding.owner);
   const support = encodeKey({ kind: "record", fields: [["parameters", [...parameters].sort()], ["owners", [...owners].sort()]] });
@@ -455,7 +455,7 @@ export const verifyDeferredParameters = (
         if (visited.has(selected)) continue;
         visited.add(selected);
         const term = selected < graph.signatureOffset ? table.terms[selected] : undefined;
-        if (term?.kind === "param" && !parameters.has(encodeKey([term.parameter.owner, term.parameter.index])) ||
+        if (term?.kind === "param" && !parameters.has(term.parameter) ||
           term?.kind === "self" && !owners.has(term.owner)) { supported = false; break; }
         for (const child of graph.children.get(selected) ?? []) pending.push(child);
       }

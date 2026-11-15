@@ -229,7 +229,7 @@ function finishType(lowering: Lowering, type: RawTypeId): void {
   const scalar = form.kind === "scalar" ? form.scalar : null;
   let term: TypeTerm;
   if (form.kind === "parameter") {
-    term = { kind: "param", parameter: { owner: deps.definitionOf(form.owner), index: form.index } };
+    term = { kind: "param", parameter: deps.definitionOf(form.parameter) };
   } else if (form.kind === "declared") {
     if (form.extent.kind !== "available" || form.extent.value !== null)
       throw new TypeError("front: declared type conversion requires its actual selected extent association");

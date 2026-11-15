@@ -80,6 +80,53 @@ test("actual import syntax retains qualified B1 occurrences without inventing a 
   }
 });
 
+test("actual named, quoted, local and namespace exports retain checked B1 names without runtime values", async () => {
+  const { modules } = fixture.checkedModulesOf({
+    "main.ts": "import { value } from './leaf.js'; export { value }; export { value as renamed, 'value' as 'quoted' } from './leaf.js'; export * as space from './leaf.js'; export * from './leaf.js';",
+    "leaf.ts": "export function value(input: boolean): boolean { return input; }",
+  });
+  const main = modules.find(module => module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts"));
+  const { elaborateExport } = await import("../../packages/host/dist/elaborate/imports.js");
+  const statements = main.tree.statements.nodes.filter(node => node.kind === "ExportDeclaration");
+  assert.equal(statements.length, 4);
+  for (const statement of statements) {
+    const typed = elaborateExport(statement);
+    assert.equal(typed.id, statement.id);
+    assert.equal(typed.tsonic.target, statement.tsonic.target.value);
+    assert.equal(typed.moduleSpecifier === null, statement.moduleSpecifier === null);
+    assert.throws(() => elaborateExport({ ...statement, tsonic: { ...statement.tsonic,
+      target: { kind: "unavailable", reason: "not-provided", causes: [] } } }), /actual checked module target/u);
+    if (statement.moduleSpecifier !== null)
+      assert.throws(() => elaborateExport({ ...statement, tsonic: { ...statement.tsonic,
+        target: { kind: "available", value: null } } }), /present exactly/u);
+    const clause = statement.exportClause;
+    if (clause === null) assert.equal(typed.exportClause, null);
+    else if (clause.kind === "NamespaceExport") {
+      assert.deepEqual(typed.exportClause.tsonic, { definition: clause.tsonic.definition, binding: clause.tsonic.binding });
+      assert.equal(typed.exportClause.name.tsonic.role, "declaration-name");
+      assert.throws(() => elaborateExport({ ...statement, exportClause: { ...clause, name: { ...clause.name,
+        tsonic: { ...clause.name.tsonic, declaration: { kind: "definition", definition: main.tree.tsonic.definition } } } } }),
+      /genuine checked same-node declaration/u);
+    } else {
+      for (const [index, original] of clause.elements.nodes.entries()) {
+        const selected = typed.exportClause.elements.nodes[index];
+        assert.equal(selected.tsonic.binding, original.tsonic.binding);
+        assert.equal(selected.name.tsonic.binding, original.tsonic.binding);
+        for (const field of ["name", "propertyName"]) {
+          const name = original[field];
+          if (name === null) continue;
+          assert.equal(selected[field].id, name.id);
+          const foreign = { ...original.tsonic.binding,
+            value: { ...original.tsonic.binding.value, node: original.id + 1 } };
+          const changed = { ...original, [field]: { ...name, tsonic: { ...name.tsonic, binding: foreign } } };
+          assert.throws(() => elaborateExport({ ...statement, exportClause: { ...clause,
+            elements: { ...clause.elements, nodes: [changed] } } }), /checked binding occurrence/u);
+        }
+      }
+    }
+  }
+});
+
 test("real bodyless call, method, construct and index formals retain definitions without execution locals", async () => {
   const program = ready('export function value(argument: boolean): boolean { return argument; } interface Callable { (value: number): number; method(value: boolean): boolean; new(value: string): Callable; [key: number]: number; [""]: number; [tag]: string; } declare const tag: symbol;');
   const { types } = fixture;

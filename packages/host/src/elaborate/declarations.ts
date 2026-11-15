@@ -192,7 +192,7 @@ export function declarationInterface(deps: ElaborateDeps, node: Hir.InterfaceDec
   if (node.heritageClauses !== null) return fail("Interface heritage requires its actual selected declared type projection.");
   const checked = node.tsonic;
   const type = internType(deps.types, { kind: "declared", definition: checked.definition, facet: "instance", extent: null,
-    arguments: checked.parameters.map(parameter => internType(deps.types, { kind: "param", parameter: parameter.identity })) });
+    arguments: checked.parameters.map(parameter => internType(deps.types, { kind: "param", parameter: parameter.declaration })) });
   const members: Hir.TypeElement<TypedPhase>[] = node.members.nodes.map(member => {
     if (member.kind === "PropertySignature") {
       const phase = member.tsonic;

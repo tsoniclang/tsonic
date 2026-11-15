@@ -189,7 +189,8 @@ function generate(deps: InferDeps, group: InferenceGroup, signatures: ReadonlyMa
     if (body.root.kind === "SourceFile") {
       for (const statement of body.root.statements.nodes)
         if (statement.kind !== "FunctionDeclaration" && statement.kind !== "VariableStatement"
-          && statement.kind !== "InterfaceDeclaration" && statement.kind !== "TypeAliasDeclaration" && statement.kind !== "ImportDeclaration")
+          && statement.kind !== "InterfaceDeclaration" && statement.kind !== "TypeAliasDeclaration"
+          && statement.kind !== "ImportDeclaration" && statement.kind !== "ExportDeclaration")
           return notInferredYet(PORT, `a ${statement.kind} in a module body`, statement.origin);
     } else {
       const pending: Frame[] = [{ kind: "enter", node: body.root }];

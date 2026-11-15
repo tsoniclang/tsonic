@@ -73,8 +73,7 @@ function origin(value: MemberOrigin): TextRecord {
 
 function family(value: SumFamily): TextRecord {
   return record("SumFamily", value, ["origin", value.origin], ["component", deferred(() => component(value.component))],
-    ["parameters", value.parameters.map(parameter => record("TypeParameterIdentity", parameter,
-      ["owner", reference("def", parameter.owner)], ["index", parameter.index]))],
+    ["parameters", value.parameters.map(parameter => reference("def", parameter))],
     ["roles", value.roles.map(role => record("SumArmRole", role, ["authoredIndex", role.authoredIndex],
       ["component", source(role.component)], ["member", reference("t", role.member)]))]);
 }
@@ -116,8 +115,7 @@ function index(value: IndexSignature): TextRecord {
 }
 
 function parameter(value: TypeParameter): TextRecord {
-  return record("TypeParameter", value, ["identity", record("TypeParameterIdentity", value.identity, ["owner", reference("def", value.identity.owner)],
-    ["index", value.identity.index])], ["declaration", reference("def", value.declaration)],
+  return record("TypeParameter", value, ["declaration", reference("def", value.declaration)],
     ["constraint", value.constraint === null ? null : reference("t", value.constraint)],
     ["default", value.default === null ? null : reference("t", value.default)]);
 }
@@ -163,8 +161,7 @@ function term(value: TypeTerm): TextRecord {
     case "construction-reference": return record(value.kind, value, ["definition", construction(value.definition)],
       ["arguments", value.arguments.map(selected => reference("t", selected))]);
     case "enum": return record(value.kind, value, ["definition", reference("def", value.definition)]);
-    case "param": return record(value.kind, value, ["parameter", record("TypeParameterIdentity", value.parameter,
-      ["owner", reference("def", value.parameter.owner)], ["index", value.parameter.index])]);
+    case "param": return record(value.kind, value, ["parameter", reference("def", value.parameter)]);
     case "self": return record(value.kind, value, ["owner", reference("def", value.owner)]);
     case "projection": {
       const projection = value.projection;

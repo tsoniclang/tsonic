@@ -4,7 +4,7 @@ import type { AccessLocation, CheckRequirement, ApplicationDecision, CompletionE
 import type { MemberSelection, ResolvedCallee } from "../ir-tir/contract.js";
 import type {
   ArtifactBindings, BindingVector, BodyInstance, DeclaredExecution, Execution, SignatureRequest, ExactRational, MemberKey, MemberOrigin, SelfBinding,
-  TypeBinding, TypeParameterIdentity, MemberStorageSelection,
+  TypeBinding, MemberStorageSelection,
 } from "../ir-types/contract.js";
 import type { CallbackInput, SummaryCallback } from "../snapshot/contract.js";
 import type {
@@ -148,11 +148,8 @@ const sourceRef = (writer: Writer, value: SourceNodeRef): void => record(writer,
     ["owner", () => identity(writer, "def", value.value.owner)], ["node", () => identity(writer, "n", value.value.node)],
   ])],
 ]);
-const parameterIdentity = (writer: Writer, value: TypeParameterIdentity): void => record(writer, "TypeParameterIdentity", [
-  ["owner", () => identity(writer, "def", value.owner)], ["index", () => scalar(writer, value.index)],
-]);
 const typeBinding = (writer: Writer, value: TypeBinding): void => {
-  const common: Field[] = [["parameter", () => parameterIdentity(writer, value.parameter)]];
+  const common: Field[] = [["parameter", () => identity(writer, "def", value.parameter)]];
   if (value.kind === "bound") common.push(["type", () => identity(writer, "t", value.type)]);
   record(writer, value.kind, common);
 };

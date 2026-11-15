@@ -84,7 +84,7 @@ export function createTypeTextReaders() {
       return { fields: [field_definition], value: () => ({ kind: "enum", definition: field_definition.value() }) };
     });
     case "param": return recordReader<TypeTerm>("param", read => {
-      const field_parameter = read("parameter", lazyReader(() => values["parameter-identity"]));
+      const field_parameter = read("parameter", lazyReader(() => values["definition-id"]));
       return { fields: [field_parameter], value: () => ({ kind: "param", parameter: field_parameter.value() }) };
     });
     case "self": return recordReader<TypeTerm>("self", read => {

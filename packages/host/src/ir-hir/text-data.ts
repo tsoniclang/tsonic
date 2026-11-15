@@ -19,20 +19,15 @@ function capturedData<Value>(value: Hir.CapturedFact<Value>, read: (value: Value
   }
 }
 
-function parameterIdentityData(value: Types.TypeParameterIdentity): HirDataWork {
-  return recordData("TypeParameterIdentity", value, () => [fieldData("owner", definitionData(value.owner)), fieldData("index", scalarData(value.index))]);
-}
-
 function parameterData(value: Types.TypeParameter): HirDataWork {
-  return recordData("TypeParameter", value, () => [fieldData("identity", parameterIdentityData(value.identity)),
-    fieldData("declaration", definitionData(value.declaration)), fieldData("constraint", nullableData(value.constraint, typeData)),
+  return recordData("TypeParameter", value, () => [fieldData("declaration", definitionData(value.declaration)), fieldData("constraint", nullableData(value.constraint, typeData)),
     fieldData("default", nullableData(value.default, typeData))]);
 }
 
 function typeBindingData(value: Types.TypeBinding): HirDataWork {
   switch (value.kind) {
-    case "bound": return recordData(value.kind, value, () => [fieldData("parameter", parameterIdentityData(value.parameter)), fieldData("type", typeData(value.type))]);
-    case "rigid": return recordData(value.kind, value, () => [fieldData("parameter", parameterIdentityData(value.parameter))]);
+    case "bound": return recordData(value.kind, value, () => [fieldData("parameter", definitionData(value.parameter)), fieldData("type", typeData(value.type))]);
+    case "rigid": return recordData(value.kind, value, () => [fieldData("parameter", definitionData(value.parameter))]);
   }
 }
 
@@ -93,7 +88,7 @@ function constructionData(value: Types.ConstructionDefinition): HirDataWork {
 
 function sumFamilyData(value: Types.SumFamily): HirDataWork {
   return recordData("SumFamily", value, () => [fieldData("origin", scalarData(value.origin)), fieldData("component", componentData(value.component)),
-    fieldData("parameters", arrayData(value.parameters, parameterIdentityData)), fieldData("roles", arrayData(value.roles, sumRoleData))]);
+    fieldData("parameters", arrayData(value.parameters, definitionData)), fieldData("roles", arrayData(value.roles, sumRoleData))]);
 }
 
 function sumRoleData(value: Types.SumArmRole): HirDataWork {
@@ -210,7 +205,7 @@ function argumentData(value: Hir.HirArgument): HirDataWork {
 }
 
 function contributionData(value: Hir.HirInferenceContribution): HirDataWork {
-  return recordData("HirInferenceContribution", value, () => [fieldData("parameter", parameterIdentityData(value.parameter)),
+  return recordData("HirInferenceContribution", value, () => [fieldData("parameter", definitionData(value.parameter)),
     fieldData("role", scalarData(value.role)), fieldData("source", sourceRefData(value.source)),
     fieldData("component", componentData(value.component)), fieldData("type", capturedData(value.type, typeData))]);
 }

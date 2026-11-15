@@ -61,7 +61,7 @@ export function createReadGroup1(readers: () => HirTextReaders): HirReadGroup1 {
       return { fields: [field_origin, field_replacement], value: () => ({ origin: field_origin.value(), replacement: field_replacement.value() }) };
     });
   const record_42 = recordReader<Hir.HirInferenceContribution>("HirInferenceContribution", read => {
-      const field_parameter = read("parameter", readers().record_20);
+      const field_parameter = read("parameter", readers().identity_def);
       const field_role = read("role", readers().literal_6);
       const field_source = read("source", unionReader<Ids.SourceNodeRef>(() => [readers().record_5, readers().record_7]));
       const field_component = read("component", readers().record_43);

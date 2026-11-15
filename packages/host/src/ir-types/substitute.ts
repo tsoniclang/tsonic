@@ -1,7 +1,7 @@
 import { encodeKey } from "../ids/index.js";
 import type { TyId, SigId, DefId } from "../ids/contract.js";
 import type { Substitute, SubstituteSignature, SubstituteBindingValues, TypeInterner, TypeTerm, Signature, SignatureInput, TypeBinding, BindingVector,
-  SelfBinding, TypeParameterIdentity, TypeExpansionLimits } from "./contract.js";
+  SelfBinding, TypeExpansionLimits } from "./contract.js";
 import { storedType, storedSignature } from "./interner.js";
 import { TypeArena } from "./arena.js";
 import { remapTerm, remapSignature, normalizeType, orderedSignature, inspectGraphValue } from "./canonical.js";
@@ -67,8 +67,8 @@ function stageKey(value: Stage): string {
   return `${value.kind}:${value.id}`;
 }
 
-function parameterKey(value: TypeParameterIdentity): string {
-  return encodeKey([value.owner, value.index]);
+function parameterKey(value: DefId): string {
+  return encodeKey([value]);
 }
 
 function admittedLimits(limits: TypeExpansionLimits): void {
@@ -186,7 +186,7 @@ function transform(environment: SubstitutionEnvironment, kind: "type" | "signatu
     let blocked = inherited;
     let rootScope = false;
     if (signature !== null) {
-      const keys = signature.typeParameters.map(parameter => parameterKey(parameter.identity));
+      const keys = signature.typeParameters.map(parameter => parameterKey(parameter.declaration));
       blocked = block(inherited, keys);
       rootScope = block(unblocked, keys).root === blocked.root;
     }

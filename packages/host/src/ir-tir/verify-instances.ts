@@ -23,7 +23,7 @@ export const sameBindingScope = (left: BindingScope, right: BindingScope): boole
     for (let position = 0; position < expected.length; position++) {
       const parameter = expected[position];
       const other = actual[position];
-      if (parameter === undefined || other === undefined || parameter.owner !== other.owner || !Object.is(parameter.index, other.index)) return false;
+      if (parameter === undefined || other === undefined || parameter !== other) return false;
     }
   }
   if (left.selfOwners.length !== right.selfOwners.length) return false;

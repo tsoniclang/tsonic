@@ -8,21 +8,15 @@ export type NativePrimitive = "bool" | "char" | NativeIntegerPrimitive | NativeB
 
 export type Intrinsic = "any" | "unknown" | "object" | "void" | "never" | "absence" | "bigint" | "symbol";
 
-export interface TypeParameterIdentity {
-  readonly owner: DefId;
-  readonly index: number;
-}
-
 export interface TypeParameter {
-  readonly identity: TypeParameterIdentity;
   readonly declaration: DefId;
   readonly constraint: TyId | null;
   readonly default: TyId | null;
 }
 
 export type TypeBinding =
-  | { readonly kind: "bound"; readonly parameter: TypeParameterIdentity; readonly type: TyId }
-  | { readonly kind: "rigid"; readonly parameter: TypeParameterIdentity };
+  | { readonly kind: "bound"; readonly parameter: DefId; readonly type: TyId }
+  | { readonly kind: "rigid"; readonly parameter: DefId };
 
 export type SelfBinding =
   | { readonly kind: "bound"; readonly owner: DefId; readonly type: TyId }
@@ -184,7 +178,7 @@ export interface ConstructionDefinition {
 export interface SumFamily {
   readonly origin: "authored" | "inferred";
   readonly component: TypeComponent;
-  readonly parameters: readonly TypeParameterIdentity[];
+  readonly parameters: readonly DefId[];
   readonly roles: readonly SumArmRole[];
 }
 
@@ -247,7 +241,7 @@ export type TypeTerm =
       readonly facet: "instance" | "value"; readonly extent: FixedExtent | null }
   | { readonly kind: "construction-reference"; readonly definition: ConstructionDefinition; readonly arguments: readonly TyId[] }
   | { readonly kind: "enum"; readonly definition: DefId }
-  | { readonly kind: "param"; readonly parameter: TypeParameterIdentity }
+  | { readonly kind: "param"; readonly parameter: DefId }
   | { readonly kind: "self"; readonly owner: DefId }
   | { readonly kind: "projection"; readonly source: TyId; readonly projection: TypeProjection }
   | { readonly kind: "open"; readonly group: GroupId; readonly variable: number }
@@ -330,7 +324,7 @@ export interface MemberTable {
 }
 
 export type MemberUnavailableReason =
-  | { readonly kind: "parameter"; readonly parameter: TypeParameterIdentity }
+  | { readonly kind: "parameter"; readonly parameter: DefId }
   | { readonly kind: "dynamic" }
   | { readonly kind: "missing-checker-inventory"; readonly owner: SourceNodeRef };
 

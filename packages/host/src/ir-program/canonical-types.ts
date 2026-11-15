@@ -129,7 +129,6 @@ export function rewriteConstant(rewrite: TypeReferenceRewrite, value: ConstValue
 
 export function rewriteParameter(rewrite: TypeReferenceRewrite, parameter: TypeParameter): TypeParameter {
   return {
-    identity: parameter.identity,
     declaration: parameter.declaration,
     constraint: parameter.constraint === null ? null : rewrite.type(parameter.constraint),
     default: parameter.default === null ? null : rewrite.type(parameter.default),

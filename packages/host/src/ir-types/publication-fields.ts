@@ -1,5 +1,5 @@
-import type { SourceNodeRef, NodeRef, ItemNodeRef, LocalRef, TyId, SigId } from "../ids/contract.js";
-import type { TypeTerm, Signature, SignatureInput, Member, MemberKey, MemberOrigin, ConstructionDefinition, TypeComponent, ComponentSelector, SumFamily, SumArmRole, TypeParameterIdentity, TypeParameter, SignatureParameter, TupleElement, ExactRational, LiteralTypeValue, FixedExtent, TypeProjection, IndexSignature } from "./data.js";
+import type { SourceNodeRef, NodeRef, ItemNodeRef, LocalRef, TyId, SigId, DefId } from "../ids/contract.js";
+import type { TypeTerm, Signature, SignatureInput, Member, MemberKey, MemberOrigin, ConstructionDefinition, TypeComponent, ComponentSelector, SumFamily, SumArmRole, TypeParameter, SignatureParameter, TupleElement, ExactRational, LiteralTypeValue, FixedExtent, TypeProjection, IndexSignature } from "./data.js";
 
 interface SignatureComposition { readonly kind: "union" | "intersection"; readonly signatures: readonly SigId[] }
 
@@ -19,7 +19,6 @@ export type PublicationRecord =
   | { readonly kind: "selector"; readonly value: ComponentSelector }
   | { readonly kind: "family"; readonly value: SumFamily }
   | { readonly kind: "arm"; readonly value: SumArmRole }
-  | { readonly kind: "parameter-identity"; readonly value: TypeParameterIdentity }
   | { readonly kind: "type-parameter"; readonly value: TypeParameter }
   | { readonly kind: "signature-parameter"; readonly value: SignatureParameter }
   | { readonly kind: "tuple-element"; readonly value: TupleElement }
@@ -43,7 +42,7 @@ export type PublicationArray =
   | { readonly kind: "origin-array"; readonly value: readonly MemberOrigin[] }
   | { readonly kind: "local-array"; readonly value: readonly LocalRef[] }
   | { readonly kind: "selector-array"; readonly value: readonly ComponentSelector[] }
-  | { readonly kind: "parameter-identity-array"; readonly value: readonly TypeParameterIdentity[] }
+  | { readonly kind: "definition-id-array"; readonly value: readonly DefId[] }
   | { readonly kind: "arm-array"; readonly value: readonly SumArmRole[] };
 
 export type PublicationNode = PublicationValue | PublicationArray;
@@ -71,7 +70,7 @@ export function publicationShape(selected: PublicationRecord): PublicationShape 
         case "declared": return { work: 5, references: 0, children: [{ kind: "type-id-array", value: value.arguments }, value.extent === null ? { kind: "scalar" } : { kind: "extent", value: value.extent }] };
         case "construction-reference": return { work: 3, references: 0, children: [{ kind: "construction", value: value.definition }, { kind: "type-id-array", value: value.arguments }] };
         case "enum": return { work: 2, references: 0, children: [] };
-        case "param": return { work: 2, references: 0, children: [{ kind: "parameter-identity", value: value.parameter }] };
+        case "param": return { work: 2, references: 0, children: [] };
         case "self": return { work: 2, references: 0, children: [] };
         case "projection": return { work: 3, references: 1, children: [{ kind: "projection", value: value.projection }] };
         case "open": return { work: 3, references: 0, children: [] };
@@ -161,18 +160,15 @@ export function publicationShape(selected: PublicationRecord): PublicationShape 
     }
     case "family": {
       const value = selected.value;
-      return { work: 4, references: 0, children: [{ kind: "component", value: value.component }, { kind: "parameter-identity-array", value: value.parameters }, { kind: "arm-array", value: value.roles }] };
+      return { work: 4, references: 0, children: [{ kind: "component", value: value.component }, { kind: "definition-id-array", value: value.parameters }, { kind: "arm-array", value: value.roles }] };
     }
     case "arm": {
       const value = selected.value;
       return { work: 3, references: 1, children: [{ kind: "source", value: value.component }] };
     }
-    case "parameter-identity": {
-      return { work: 2, references: 0, children: [] };
-    }
     case "type-parameter": {
       const value = selected.value;
-      return { work: 4, references: Number(value.constraint !== null) + Number(value.default !== null), children: [{ kind: "parameter-identity", value: value.identity }] };
+      return { work: 3, references: Number(value.constraint !== null) + Number(value.default !== null), children: [] };
     }
     case "signature-parameter": {
       return { work: 6, references: 1, children: [] };
@@ -258,9 +254,9 @@ export function publicationArrayElement(node: PublicationArray, position: number
       const value = requirePresent(node.value[position], ownedElementFailure);
       return { kind: "selector", value: value };
     }
-    case "parameter-identity-array": {
-      const value = requirePresent(node.value[position], ownedElementFailure);
-      return { kind: "parameter-identity", value: value };
+    case "definition-id-array": {
+      requirePresent(node.value[position], ownedElementFailure);
+      return { kind: "scalar" };
     }
     case "arm-array": {
       const value = requirePresent(node.value[position], ownedElementFailure);
@@ -281,7 +277,7 @@ export function isPublicationArray(node: PublicationNode): node is PublicationAr
     case "origin-array":
     case "local-array":
     case "selector-array":
-    case "parameter-identity-array":
+    case "definition-id-array":
     case "arm-array":
       return true;
     default: return false;

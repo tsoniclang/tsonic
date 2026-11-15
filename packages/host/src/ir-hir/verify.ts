@@ -362,7 +362,7 @@ function verifyProtocol(node: HirProtocolNode, site: HirSite, report: HirReport)
 
 function candidateViolations(inventory: HirInventory, context: HirVerificationContext,
   arenas: readonly HirCandidateArena[], requests: HirBindingRequest[], report: HirReport): void {
-  const memberships = new Map<DefId, Map<DefId, Set<number>>>();
+  const memberships = new Map<DefId, Set<DefId>>();
   for (const { body, lists } of arenas) {
     const site: HirSite = { kind: "body", body: body.body };
     for (const list of lists) for (const candidate of list.candidates) {
@@ -377,18 +377,13 @@ function candidateViolations(inventory: HirInventory, context: HirVerificationCo
       if (candidate.contributions.length > 0) {
         let allowed = memberships.get(candidate.declaration);
         if (allowed === undefined) {
-          allowed = new Map();
+          allowed = new Set();
           const scope = context.bindingScopeOf(candidate.declaration);
           if (scope !== null) for (const family of [scope.classParameters, scope.methodParameters, scope.capturedParameters])
-            for (const parameter of family) {
-              const previous = allowed.get(parameter.owner);
-              if (previous === undefined) allowed.set(parameter.owner, new Set([parameter.index]));
-              else previous.add(parameter.index);
-            }
+            for (const parameter of family) allowed.add(parameter);
           memberships.set(candidate.declaration, allowed);
         }
-        for (const contribution of candidate.contributions) if (!validHirIndex(contribution.parameter.index) ||
-          !allowed.get(contribution.parameter.owner)?.has(contribution.parameter.index))
+        for (const contribution of candidate.contributions) if (!allowed.has(contribution.parameter))
           report("contribution-parameter", site, "contribution must name an actual candidate type parameter");
       }
     }

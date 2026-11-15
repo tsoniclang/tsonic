@@ -118,10 +118,10 @@ function parameters(context: DeclarationLowering, source: Hir.ParameterList<Synt
 
 function typeParameters(context: DeclarationLowering, source: Hir.TypeParameterList<Syntax> | null,
   owner: DefId): Hir.TypeParameterList<Checked> | null {
-  return source === null ? null : { loc: source.loc, nodes: source.nodes.map((node, index) => {
+  return source === null ? null : { loc: source.loc, nodes: source.nodes.map(node => {
     if (node.expression !== null) return fail("a type parameter with an expression");
     const declaration = context.definition(node.id);
-    const parameter: TypeParameter = { identity: { owner, index }, declaration,
+    const parameter: TypeParameter = { declaration,
       constraint: node.constraint === null ? null : context.checkedType(node.constraint.id),
       default: node.defaultType === null ? null : context.checkedType(node.defaultType.id) };
     return { ...header(node), kind: "TypeParameter", modifiers: lowerCheckedModifiers(node.modifiers),

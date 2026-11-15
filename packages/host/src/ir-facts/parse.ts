@@ -14,7 +14,7 @@ import type { AccessLocation, CheckRequirement, ApplicationDecision, CompletionE
 import type { MemberSelection, ResolvedCallee } from "../ir-tir/contract.js";
 import type {
   ArtifactBindings, BindingVector, BodyInstance, DeclaredExecution, Execution, SignatureRequest, ExactRational, MemberKey, MemberOrigin, SelfBinding,
-  TypeBinding, TypeParameterIdentity, MemberStorageSelection,
+  TypeBinding, MemberStorageSelection,
 } from "../ir-types/contract.js";
 import type { CallbackInput, SummaryCallback } from "../snapshot/contract.js";
 import type { CreatedSlot, LogicalCell, LogicalCellLifetime, LogicalCellOccurrence, LogicalCellRow, StableReference } from "./cells-data.js";
@@ -335,10 +335,6 @@ const localRef: Decode<LocalRef> = (state, input) => then(fields(state, input, "
     then(readField(state, values, "body", body), bodyValue =>
     then(readField(state, values, "local", local), localValue =>
       finishRecord<LocalRef>(state, values, { body: bodyValue, local: localValue }))));
-const parameterIdentity: Decode<TypeParameterIdentity> = (state, input) => then(fields(state, input, "TypeParameterIdentity"), values =>
-    then(readField(state, values, "owner", definition), ownerValue =>
-    then(readField(state, values, "index", scalarNumber), indexValue =>
-      finishRecord<TypeParameterIdentity>(state, values, { owner: ownerValue, index: indexValue }))));
 const bindings: Decode<BindingVector> = (state, input) => then(fields(state, input, "BindingVector"), values =>
     then(readField(state, values, "classBindings", (state, input) => sequence(state, input, typeBinding)), classBindingsValue =>
     then(readField(state, values, "methodBindings", (state, input) => sequence(state, input, typeBinding)), methodBindingsValue =>
@@ -1067,11 +1063,11 @@ const sourceRef: Decode<SourceNodeRef> = (state, input) => then(label(input, ["b
 const typeBinding: Decode<TypeBinding> = (state, input) => then(label(input, ["bound","rigid"]), kind => {
   switch (kind) {
     case "bound": return then(fields(state, input, "bound"), values =>
-    then(readField(state, values, "parameter", parameterIdentity), parameterValue =>
+    then(readField(state, values, "parameter", definition), parameterValue =>
     then(readField(state, values, "type", typeIdentity), typeValue =>
       finishRecord<TypeBinding>(state, values, { kind: "bound", parameter: parameterValue, type: typeValue }))));
     case "rigid": return then(fields(state, input, "rigid"), values =>
-    then(readField(state, values, "parameter", parameterIdentity), parameterValue =>
+    then(readField(state, values, "parameter", definition), parameterValue =>
       finishRecord<TypeBinding>(state, values, { kind: "rigid", parameter: parameterValue })));
   }
 });

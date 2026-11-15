@@ -1,6 +1,6 @@
 import type { TyId, SigId, DefId, KeyData, SourceNodeRef, LocalRef } from "../ids/contract.js";
 import type { TextParseResult, Violation } from "../diag/contract.js";
-import type { ArtifactBindings, BodyInstance, ConstantReference, Execution, IndexSignature, LiteralTypeValue, MemberStorageSelection, NativePrimitive, ComponentSelector, TypeTerm, Signature, SignatureInput, TypeTable, BindingVector, TypeParameterIdentity, TypeEvidence } from "./data.js";
+import type { ArtifactBindings, BodyInstance, ConstantReference, Execution, IndexSignature, LiteralTypeValue, MemberStorageSelection, NativePrimitive, ComponentSelector, TypeTerm, Signature, SignatureInput, TypeTable, BindingVector, TypeEvidence } from "./data.js";
 import type { TypeArena } from "./arena.js";
 import type { NativeFactsRule, NativeFactsSite, NativeFloatingFormat, PlatformDeclaration, SelectedNativeFacts } from "./native-facts-data.js";
 export type * from "./data.js";
@@ -149,9 +149,9 @@ export type TypeSite =
   | { readonly kind: "evidence"; readonly position: number; readonly source: SourceNodeRef | null };
 
 export interface BindingScope {
-  readonly classParameters: readonly TypeParameterIdentity[];
-  readonly methodParameters: readonly TypeParameterIdentity[];
-  readonly capturedParameters: readonly TypeParameterIdentity[];
+  readonly classParameters: readonly DefId[];
+  readonly methodParameters: readonly DefId[];
+  readonly capturedParameters: readonly DefId[];
   readonly selfOwners: readonly DefId[];
 }
 

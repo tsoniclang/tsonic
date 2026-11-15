@@ -1,6 +1,6 @@
 import type { TextParseResult } from "../diag/contract.js";
 import type { ConstantReference } from "../ir-types/contract.js";
-import type { TypeEvidence, CategoryEvidence, NumericEvidence, SumEvidence, PointerEvidence, TypeComponent, ComponentSelector, TypeParameter, TypeParameterIdentity, SourceCategory, LiteralValue, BindingVector, SumArmRole, ConstructionDefinition, MemberOrigin, SumFamily, MemberKey, ExactRational, ArtifactBindings, BodyInstance, ConstValue, SelfBinding, TypeBinding, Execution, DeclaredExecution, SignatureRequest } from "../ir-types/contract.js";
+import type { TypeEvidence, CategoryEvidence, NumericEvidence, SumEvidence, PointerEvidence, TypeComponent, ComponentSelector, TypeParameter, SourceCategory, LiteralValue, BindingVector, SumArmRole, ConstructionDefinition, MemberOrigin, SumFamily, MemberKey, ExactRational, ArtifactBindings, BodyInstance, ConstValue, SelfBinding, TypeBinding, Execution, DeclaredExecution, SignatureRequest } from "../ir-types/contract.js";
 import type { TyId, SourceNodeRef, DefId, NodeRef, SigId, LocalRef } from "../ids/contract.js";
 import type { Cursor, RecordFields, TextStep } from "./parse-values.js";
 import { acceptText, atomicText, fieldText, arrayText, nullableText, readStringChoice } from "./parse-values.js";
@@ -30,12 +30,11 @@ export function readTypeComponentText<Root>(cursor: Cursor, finish: (value: Type
 
 export function readTypeParameterText<Root>(cursor: Cursor, finish: (value: TypeParameter) => TextStep<Root>): TextStep<Root> {
   return atomicText(cursor, next => openRecord(next, "TypeParameter"), fields =>
-    fieldText<TypeParameterIdentity, Root>(cursor, fields, "identity", (next, done) => atomicText(next, readParameterIdentity, done), identityValue =>
     fieldText<DefId, Root>(cursor, fields, "declaration", (next, done) => atomicText(next, readDefinitionId, done), declarationValue =>
       fieldText<TyId | null, Root>(cursor, fields, "constraint", (next, done) => nullableText(next, (next, done) => atomicText(next, readTypeId, done), done), constraintValue =>
         fieldText<TyId | null, Root>(cursor, fields, "default", (next, done) => nullableText(next, (next, done) => atomicText(next, readTypeId, done), done), defaultValue =>
           atomicText(cursor, next => closeRecord(next, fields), () =>
-              acceptText({ identity: identityValue, declaration: declarationValue, constraint: constraintValue, default: defaultValue }, finish)))))));
+              acceptText({ declaration: declarationValue, constraint: constraintValue, default: defaultValue }, finish))))));
 }
 
 export function readCategoryEvidenceText<Root>(cursor: Cursor, finish: (value: CategoryEvidence) => TextStep<Root>): TextStep<Root> {
@@ -289,7 +288,7 @@ export function readSumFamilyText<Root>(cursor: Cursor, finish: (value: SumFamil
   return atomicText(cursor, next => openRecord(next, "SumFamily"), fields =>
     fieldText<"authored" | "inferred", Root>(cursor, fields, "origin", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["authored","inferred"]), done), originValue =>
     fieldText<TypeComponent, Root>(cursor, fields, "component", readTypeComponentText, componentValue =>
-      fieldText<readonly (TypeParameterIdentity)[], Root>(cursor, fields, "parameters", (next, done) => arrayText(next, (next, done) => atomicText(next, readParameterIdentity, done), done), parametersValue =>
+      fieldText<readonly DefId[], Root>(cursor, fields, "parameters", (next, done) => arrayText(next, (next, done) => atomicText(next, readDefinitionId, done), done), parametersValue =>
         fieldText<readonly (SumArmRole)[], Root>(cursor, fields, "roles", (next, done) => arrayText(next, readSumArmRoleText, done), rolesValue =>
           atomicText(cursor, next => closeRecord(next, fields), () =>
               acceptText({ origin: originValue, component: componentValue, parameters: parametersValue, roles: rolesValue }, finish)))))));
@@ -399,24 +398,13 @@ export function readExactRational(cursor: Cursor): TextParseResult<ExactRational
   } };
 }
 
-export function readParameterIdentity(cursor: Cursor): TextParseResult<TypeParameterIdentity> {
-  const opened = openRecord(cursor, "TypeParameterIdentity");
-  if (opened.kind === "invalid-text") return opened;
-  const owner = readField(cursor, opened.value, "owner", readDefinitionId);
-  if (owner.kind === "invalid-text") return owner;
-  const index = readField(cursor, opened.value, "index", readNumber);
-  if (index.kind === "invalid-text") return index;
-  const closed = closeRecord(cursor, opened.value);
-  return closed.kind === "invalid-text" ? closed : { kind: "parsed", value: { owner: owner.value, index: index.value } };
-}
-
 export function readTypeBinding(cursor: Cursor): TextParseResult<TypeBinding> {
   const kind = choice(cursor, ["bound", "rigid"]);
   if (kind.kind === "invalid-text") return kind;
   const opened = delimiter(cursor, "(");
   if (opened.kind === "invalid-text") return opened;
   const fields: RecordFields = { given: new Set<string>() };
-  const parameter = readField(cursor, fields, "parameter", readParameterIdentity);
+  const parameter = readField(cursor, fields, "parameter", readDefinitionId);
   if (parameter.kind === "invalid-text") return parameter;
   switch (kind.value) {
     case "rigid": {

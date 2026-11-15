@@ -44,7 +44,7 @@ export function admitBindingIdentity(bindings: BindingVector, account: DataflowA
       const step = chargeWork(account, 1);
       if (step !== null) return step;
       if (binding === undefined) continue;
-      const stop = chargeWork(account, binding.parameter.owner.length) ?? chargeResultEntries(account, 2);
+      const stop = chargeWork(account, binding.parameter.length) ?? chargeResultEntries(account, 1);
       if (stop !== null) return stop;
     }
   }

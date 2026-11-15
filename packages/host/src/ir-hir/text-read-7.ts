@@ -126,11 +126,10 @@ export function createReadGroup7(readers: () => HirTextReaders): HirReadGroup7 {
       return { fields: [field_core, field_parent, field_attributes, field_memory, field_definition, field_parameters, field_signatures, field_body], value: () => ({ core: field_core.value(), parent: field_parent.value(), attributes: field_attributes.value(), memory: field_memory.value(), definition: field_definition.value(), parameters: field_parameters.value(), signatures: field_signatures.value(), body: field_body.value() }) };
     });
   const record_230 = recordReader<Types.TypeParameter>("TypeParameter", read => {
-      const field_identity = read("identity", readers().record_20);
       const field_declaration = read("declaration", readers().identity_def);
       const field_constraint = read("constraint", unionReader<Ids.TyId | null>(() => [readers().scalar_null, readers().identity_t]));
       const field_default = read("default", unionReader<Ids.TyId | null>(() => [readers().scalar_null, readers().identity_t]));
-      return { fields: [field_identity, field_declaration, field_constraint, field_default], value: () => ({ identity: field_identity.value(), declaration: field_declaration.value(), constraint: field_constraint.value(), default: field_default.value() }) };
+      return { fields: [field_declaration, field_constraint, field_default], value: () => ({ declaration: field_declaration.value(), constraint: field_constraint.value(), default: field_default.value() }) };
     });
   const record_231 = recordReader<Hir.HirCallableEndpoint>("HirCallableEndpoint", read => {
       const field_declaration = read("declaration", readers().identity_def);

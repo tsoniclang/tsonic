@@ -126,18 +126,13 @@ export function createReadGroup0(readers: () => HirTextReaders): HirReadGroup0 {
       const field_selfBindings = read("selfBindings", sequenceReader(unionReader<Types.SelfBinding>(() => [readers().record_22, readers().record_23])));
       return { fields: [field_classBindings, field_methodBindings, field_capturedBindings, field_selfBindings], value: () => ({ classBindings: field_classBindings.value(), methodBindings: field_methodBindings.value(), capturedBindings: field_capturedBindings.value(), selfBindings: field_selfBindings.value() }) };
     });
-  const record_19 = recordReader<{ readonly kind: "bound"; readonly parameter: Types.TypeParameterIdentity; readonly type: Ids.TyId; }>("bound", read => {
-      const field_parameter = read("parameter", readers().record_20);
+  const record_19 = recordReader<{ readonly kind: "bound"; readonly parameter: Ids.DefId; readonly type: Ids.TyId; }>("bound", read => {
+      const field_parameter = read("parameter", readers().identity_def);
       const field_type = read("type", readers().identity_t);
       return { fields: [field_parameter, field_type], value: () => ({ kind: "bound", parameter: field_parameter.value(), type: field_type.value() }) };
     });
-  const record_20 = recordReader<Types.TypeParameterIdentity>("TypeParameterIdentity", read => {
-      const field_owner = read("owner", readers().identity_def);
-      const field_index = read("index", readers().scalar_number);
-      return { fields: [field_owner, field_index], value: () => ({ owner: field_owner.value(), index: field_index.value() }) };
-    });
-  const record_21 = recordReader<{ readonly kind: "rigid"; readonly parameter: Types.TypeParameterIdentity; }>("rigid", read => {
-      const field_parameter = read("parameter", readers().record_20);
+  const record_21 = recordReader<{ readonly kind: "rigid"; readonly parameter: Ids.DefId; }>("rigid", read => {
+      const field_parameter = read("parameter", readers().identity_def);
       return { fields: [field_parameter], value: () => ({ kind: "rigid", parameter: field_parameter.value() }) };
     });
   const record_22 = recordReader<{ readonly kind: "bound"; readonly owner: Ids.DefId; readonly type: Ids.TyId; }>("bound", read => {
@@ -185,5 +180,5 @@ export function createReadGroup0(readers: () => HirTextReaders): HirReadGroup0 {
       const field_origin = read("origin", readers().record_30);
       return { fields: [field_origin], value: () => ({ kind: "source", origin: field_origin.value() }) };
     });
-  return { record_0, record_1, record_2, record_3, record_4, record_5, record_6, record_7, record_8, record_9, record_10, record_11, record_12, record_13, record_14, record_15, record_16, record_17, record_18, record_19, record_20, record_21, record_22, record_23, record_24, record_25, record_26, record_27, record_28, record_29 };
+  return { record_0, record_1, record_2, record_3, record_4, record_5, record_6, record_7, record_8, record_9, record_10, record_11, record_12, record_13, record_14, record_15, record_16, record_17, record_18, record_19, record_21, record_22, record_23, record_24, record_25, record_26, record_27, record_28, record_29 };
 }

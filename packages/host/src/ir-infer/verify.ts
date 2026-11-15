@@ -1,8 +1,8 @@
 import type { BodyId, DefId, GroupId, SigId, TyId } from "../ids/contract.js";
 import type { Violation } from "../diag/contract.js";
-import type { BindingScope, BindingVerificationInput, TypeEvidence, TypeParameterIdentity, TypeTable, TypeRule, TypeSite } from "../ir-types/contract.js";
+import type { BindingScope, BindingVerificationInput, TypeEvidence, TypeTable, TypeRule, TypeSite } from "../ir-types/contract.js";
 import type { CallConstraint, ConstructConstraint, InferredSignaturePart, InferRule, InferSite, InferVerificationInput, VerifyInference } from "./contract.js";
-import { encodeGroupId, encodeKey } from "../ids/index.js";
+import { encodeGroupId } from "../ids/index.js";
 import { verifyTypes } from "../ir-types/index.js";
 import { createDataVisitor } from "./print.js";
 import type { DataVisitor } from "./print.js";
@@ -168,12 +168,11 @@ export function typeClosure(table: TypeTable, group: GroupId, inventory: Invento
     signatures: new Map([...signatures].map(([index, node]) => [index, node.flags])) };
 }
 
-function sameScopeParameters(left: readonly TypeParameterIdentity[], right: readonly TypeParameterIdentity[]): boolean {
+function sameScopeParameters(left: readonly DefId[], right: readonly DefId[]): boolean {
   for (let index = 0; index < left.length; index += 1) {
     const expected = left[index];
     const actual = right[index];
-    if (expected === undefined || actual === undefined || expected.owner.length !== actual.owner.length || expected.owner !== actual.owner ||
-      !Object.is(expected.index, actual.index)) return false;
+    if (expected === undefined || actual === undefined || expected !== actual) return false;
   }
   return true;
 }
@@ -258,15 +257,14 @@ function verifyVariables(input: InferVerificationInput, inventory: Inventory, ou
     if (families === undefined) {
       const declaration = input.declarationOf(candidate.declaration);
       families = declaration === null ? null : {
-        class: new Set(declaration.scope.classParameters.map(parameter => encodeKey([parameter.owner, parameter.index]))),
-        method: new Set(declaration.scope.methodParameters.map(parameter => encodeKey([parameter.owner, parameter.index]))),
-        captured: new Set(declaration.scope.capturedParameters.map(parameter => encodeKey([parameter.owner, parameter.index]))),
+        class: new Set(declaration.scope.classParameters),
+        method: new Set(declaration.scope.methodParameters),
+        captured: new Set(declaration.scope.capturedParameters),
       };
       parametersByDeclaration.set(candidate.declaration, families);
     }
     if (families === null) { emit(output, "candidate-reference", site, "candidate"); continue; }
-    if (!ordinal(variable.parameter.index) ||
-      !families[variable.family].has(encodeKey([variable.parameter.owner, variable.parameter.index])))
+    if (!families[variable.family].has(variable.parameter))
       emit(output, "binding-vector-complete", site, "parameter");
   }
 }
