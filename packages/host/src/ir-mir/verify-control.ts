@@ -199,6 +199,7 @@ function bodyBoundaries(node: TirNode): ReadonlySet<NodeId> {
   }
   if ((node.kind === "PropertyDeclaration" || node.kind === "PropertySignature" || node.kind === "EnumMember")
     && node.initializer !== null) excluded.add(node.initializer.id);
+  if (node.kind === "Parameter" && node.initializer !== null) excluded.add(node.initializer.id);
   if (node.kind === "ClassStaticBlockDeclaration") excluded.add(node.body.id);
   if (node.kind === "ModuleDeclaration" && node.body !== null) excluded.add(node.body.id);
   return excluded;
@@ -207,7 +208,7 @@ function bodyBoundaries(node: TirNode): ReadonlySet<NodeId> {
 export function sourceNodes(source: TirBody, texts: WireTexts): ReadonlyMap<NodeId, SourceNode> {
   const visited = new Set<NodeId>();
   const boundaries = new Set<NodeId>();
-  const pending: TirNode[] = [source.root];
+  const pending: TirNode[] = [source.root, ...source.params];
   for (const node of pending) {
     if (visited.has(node.id)) continue;
     visited.add(node.id);
@@ -217,7 +218,12 @@ export function sourceNodes(source: TirBody, texts: WireTexts): ReadonlyMap<Node
     for (const child of children) if (!excluded.has(child.id)) pending.push(child);
   }
   const nodes = new Map<NodeId, SourceNode>();
-  for (const node of walkSyntaxTree(source.root, [...boundaries])) {
+  for (const root of [source.root, ...source.params]) for (const node of walkSyntaxTree(root, [...boundaries])) {
+    const previous = nodes.get(node.id);
+    if (previous !== undefined) {
+      if (previous.node !== node) throw new TypeError("The selected source roots contain conflicting syntax occurrences.");
+      continue;
+    }
     const operations = new Set<string>();
     const callees = new Set<string>();
     const protocols: TirProtocol[] = [];
@@ -279,7 +285,7 @@ export function verifySelections(
   const report = (rule: MirRule, site: MirViolationSite): void => { violations.push({ rule, site, detail: [] }); };
   const knownNode = (node: NodeId): boolean => findSourceNode(nodes, node) !== undefined;
   const parameterDefaults = new Set<BodyId>();
-  for (const parameter of context.source.params) if (parameter.initializer !== null) parameterDefaults.add(parameter.initializer);
+  for (const parameter of context.source.params) if (parameter.tsonic.initializer !== null) parameterDefaults.add(parameter.tsonic.initializer);
   const reference = (node: NodeRef, site: MirViolationSite): SourceNode | undefined => {
     if (node.body !== context.source.body) { report("cross-owner-qualified", site); return undefined; }
     const selected = findSourceNode(nodes, node.node);

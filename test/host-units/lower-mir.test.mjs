@@ -197,8 +197,8 @@ function expectedAdd(program, type, unwind) {
   const sum = site(program.at("a+b"));
   const returned = site(program.at("return"));
   const locals = [
-    { id: 0, storage: type, role: { kind: "parameter", index: 0 }, mode: program.tir.params[0].passing, source: { body, local: 0 }, origin: root.origin },
-    { id: 1, storage: type, role: { kind: "parameter", index: 1 }, mode: program.tir.params[1].passing, source: { body, local: 1 }, origin: root.origin },
+    { id: 0, storage: type, role: { kind: "parameter", index: 0 }, mode: program.tir.params[0].tsonic.passing, source: { body, local: 0 }, origin: program.tir.params[0].origin },
+    { id: 1, storage: type, role: { kind: "parameter", index: 1 }, mode: program.tir.params[1].tsonic.passing, source: { body, local: 1 }, origin: program.tir.params[1].origin },
     { id: 2, storage: type, role: { kind: "temporary" }, mode: "local", source: null, origin: sum.origin },
   ];
   const places = locals.map(local => ({ id: local.id, base: { kind: "local", local: local.id }, storage: type, origin: local.origin }));
@@ -658,6 +658,35 @@ test("selected local assignment writes once and returns the evaluated right oper
   assert.equal(produced({ ...deps, limits: { maximumRecords: size } }, program.tir, []).kind, "ok");
 });
 
+test("parenthesized assignment destinations preserve the actual selected local without evaluating a value wrapper", () => {
+  for (const calculation of [false, true]) {
+    const program = shaped(`assignment.parenthesized.${calculation}`, [["a", "required", T.int32], ["b", "required", T.int32]], T.int32,
+      b => b.block(b.returns({ $: "store", ...b.assign(b.paren(b.paren(b.target("a", 0, T.int32, calculation
+        ? { kind: "read-write", storage: T.int32, read: T.int32, narrowing: null, evidenceIndex: null }
+        : { kind: "write", storage: T.int32 }), T.int32), T.int32), calculation ? "PlusEqualsToken" : "EqualsToken",
+        b.id("b", 1, T.int32), T.int32, T.int32, calculation ? plus("int32", T.int32) : null) })));
+    const mir = lower(program);
+    const writes = mir.blocks[0].statements.filter(record => record.kind === "assign");
+    assert.deepEqual(writes.map(record => record.value.kind), calculation ? ["binary", "use"] : ["use"]);
+    assert.equal(rootLocalOf(mir, writes.at(-1).place), sourceLocal(mir, 0));
+    assert.equal(writes.at(-1).tir.node, program.at("store"));
+    assert.deepEqual(mir.blocks[0].terminator.value, writes.at(-1).value.operand);
+    const size = mir.locals.length + mir.places.length + mir.constants.length + mir.blocks.length + mir.blocks[0].statements.length;
+    for (let maximumRecords = 0; maximumRecords < size; maximumRecords += 1)
+      assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, []).kind, "refused", `parenthesized ${calculation} under ${maximumRecords}`);
+    assert.equal(produced({ ...deps, limits: { maximumRecords: size } }, program.tir, []).kind, "ok");
+    for (const alteration of ["conversion", "narrowing"]) {
+      const wrapper = program.tir.root.statements.nodes[0].expression.left;
+      const saved = wrapper.tsonic;
+      wrapper.tsonic = { ...saved, ...(alteration === "conversion" ? { conversion: { kind: "deferred", deferred: null } }
+        : { narrowing: { kind: "narrowed", source: T.int32, result: T.int32, failure: "abort", proof: { steps: [], conclusion: 0 } } }) };
+      assert.throws(() => produced(deps, program.tir, []), error => defectOfLowerMir(error)
+        && error.message === `${CALLER_DEFECT}an assignment target has a value conversion or narrowing`);
+      wrapper.tsonic = saved;
+    }
+  }
+});
+
 test("a named local write preserves every earlier evaluated read independently, even in private body storage", () => {
   for (const passing of ["by-value", "byref-readwrite"]) {
     const program = shaped(`assignment.saved.${passing}`, [["a", "required", T.int32, passing], ["b", "required", T.int32]], T.int32,
@@ -933,6 +962,54 @@ test("selected local place arguments preserve the location, passing and actual p
     }
 });
 
+test("a selected receiver passed by place denotes its actual incoming slot and preserves only necessary pending reads", () => {
+  for (const incoming of ["by-value", "byref-readwrite"]) for (const passing of ["borrow-shared", "borrow-mut"])
+    for (const wrapped of [false, true]) {
+      const name = `call.place.receiver.${incoming}.${passing}.${wrapped}`;
+      const program = shaped(name, [["self", "this", T.int32, incoming]], T.int32, b => {
+        const receiver = label => ({ $: label, ...b.keyword("ThisKeyword", T.int32, "receiver"),
+          tsonic: { ...value(T.int32), role: "receiver", owner: def(`${name}.class`) } });
+        const actual = receiver("argument");
+        const argument = wrapped ? { $: "wrapped", ...b.paren(actual, T.int32) } : actual;
+        return b.arithmetic(receiver("earlier"), "PlusToken", directApplication(b, `${name}.call`, [argument], T.int32, passing),
+          T.int32, plus("int32", T.int32));
+      }, { receiver: T.int32 });
+      const mir = lower(program);
+      const call = mir.blocks[0].terminator;
+      assert.equal(call.kind, "call");
+      assert.equal(call.arguments[0].kind, "place");
+      assert.equal(call.arguments[0].passing, passing);
+      assert.equal(rootLocalOf(mir, call.arguments[0].place), 0);
+      assert.equal(mir.locals[0].role.kind, "receiver");
+      assert.equal(mir.locals[0].mode, incoming);
+      const copies = mir.blocks.flatMap(block => block.statements)
+        .filter(statement => statement.kind === "assign" && statement.tir.node === program.at("earlier"));
+      assert.equal(copies.length, incoming === "byref-readwrite" || passing === "borrow-mut" ? 1 : 0);
+      assert.equal(mir.blocks.flatMap(block => block.statements).some(statement => statement.kind === "assign"
+        && statement.tir.node === program.at("argument")), false);
+      const size = mir.locals.length + mir.places.length + mir.constants.length + mir.blocks.length
+        + mir.blocks.reduce((total, block) => total + block.statements.length, 0);
+      for (let maximumRecords = 0; maximumRecords < size; maximumRecords += 1)
+        assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, []).kind, "refused", `${name} under ${maximumRecords}`);
+      assert.equal(produced({ ...deps, limits: { maximumRecords: size } }, program.tir, []).kind, "ok");
+      const callNode = program.tir.root.right;
+      const selected = wrapped ? callNode.arguments.nodes[0].expression : callNode.arguments.nodes[0];
+      const saved = selected.tsonic;
+      selected.tsonic = { ...saved, role: "value" };
+      assert.throws(() => produced(deps, program.tir, []), error => defectOfLowerMir(error)
+        && error.message === `${CALLER_DEFECT}a place argument without its selected receiver`);
+      selected.tsonic = saved;
+      program.tir.params = [];
+      const earlier = program.tir.root.left;
+      earlier.kind = "NumericLiteral";
+      earlier.text = "0";
+      earlier.tokenFlags = [];
+      earlier.tsonic = { ...value(T.int32), role: "value", value: { numerator: 0n, denominator: 1n, negativeZero: false } };
+      assert.throws(() => produced(deps, program.tir, []), error => defectOfLowerMir(error)
+        && error.message === `${CALLER_DEFECT}a place argument has no local storage in the body`);
+    }
+});
+
 test("a local actually handed to a writable call remains exposed for later calls, unlike a readonly borrow", () => {
   for (const mode of ["byref-readwrite", "borrow-shared"]) {
     const name = `call.place.later.${mode}`;
@@ -1127,9 +1204,13 @@ test("receiver lowering does not guess lexical captures, accept two receiver row
   duplicate.tir.params.push(duplicate.tir.params[0]);
   assert.throws(() => produced(deps, duplicate.tir, []), error => defectOfLowerMir(error)
     && error.message === `${CALLER_DEFECT}two selected receiver parameter rows`);
+  const foreign = make("receiver.parameter.foreign");
+  foreign.tir.params[0].tsonic.local.body = bodyId("receiver.another-body");
+  assert.throws(() => produced(deps, foreign.tir, []), error => defectOfLowerMir(error)
+    && error.message === `${CALLER_DEFECT}a parameter names another body`);
 });
 
-function initializedBinding(name, keyword = "let", mode = "captured-value", outer = false, repeat = false) {
+function initializedBinding(name, keyword = "let", mode = "captured-value", outer = false, repeat = false, rootOf = null) {
   const b = builders(name);
   const initializerName = `${name}.slot`;
   const initializer = bodyId(initializerName, "initializer");
@@ -1148,7 +1229,7 @@ function initializedBinding(name, keyword = "let", mode = "captured-value", oute
   const program = typedBody(name, { signature: signature(name, outer ? [] : [["input", T.int32]], T.int32), completion: T.int32,
     locals: [["input", outer ? "capture" : "parameter", T.int32, false, outer ? source : null], ["slot", "binding", T.int32, true]],
     params: outer ? [] : [[0, "required", T.int32]], captures: outer ? [capture] : [], nestedBodies: [initializer],
-    root: b.block(...statements, b.returns(b.id("slot", 1, T.int32))) });
+    root: rootOf === null ? b.block(...statements, b.returns(b.id("slot", 1, T.int32))) : rootOf(b, statements) });
   program.tir.locals[1].declaration = { kind: "body", value: program.nodeRef("declaration") };
   const input = { instance: { body: initializer, bindings: PARAMETRIC }, captures: [capture], signature: child.tir.signature };
   program.bodyOf = instance => instanceKey(instance) === instanceKey(input.instance) ? child.tir : null;
@@ -1215,6 +1296,32 @@ test("lexical slot lifetimes end at actual normal and break exits while function
   const slot = mir.locals.find(local => local.role.kind === "user");
   assert.equal(mir.blocks.flatMap(block => block.statements).filter(statement => statement.kind === "storage-live" && statement.local === slot.id).length, 1);
   assert.equal(mir.blocks.filter(block => block.terminator.kind === "call").length, 2);
+});
+
+test("for var initialization executes its placed body once before the condition and retains function-scoped storage", () => {
+  for (const transfer of ["normal", "break", "continue"]) {
+    const name = `binding.for.var.${transfer}`;
+    const { program, input } = initializedBinding(name, "var", "captured-value", false, false, (b, statements) =>
+      b.block({ $: "loop", ...b.forLoop(statements[0].declarationList,
+        b.keyword(transfer === "normal" ? "FalseKeyword" : "TrueKeyword", transfer === "normal" ? literalFalse : literalTrue), null,
+        transfer === "normal" ? b.block() : b.block(transfer === "break" ? selectedBreak(b, "loop") : selectedContinue(b, "loop", false))) },
+      b.returns(b.id("slot", 1, T.int32))));
+    const mir = lower(program, [input]);
+    const call = mir.blocks[0].terminator;
+    assert.equal(call.kind, "call");
+    assert.deepEqual(call.callee.instance, input.instance);
+    assert.equal(mir.blocks.filter(block => block.terminator.kind === "call").length, 1);
+    const slot = mir.locals.find(local => local.role.kind === "user");
+    const markers = mir.blocks.flatMap(block => block.statements).filter(statement => statement.local === slot.id
+      && (statement.kind === "storage-live" || statement.kind === "storage-dead"));
+    assert.deepEqual(markers.map(marker => marker.kind), ["storage-live"]);
+    assert.equal(mir.blocks[0].statements[0].kind, "storage-live");
+    const size = mir.locals.length + mir.places.length + mir.constants.length + mir.blocks.length
+      + mir.blocks.reduce((total, block) => total + block.statements.length, 0);
+    for (let maximumRecords = 0; maximumRecords < size; maximumRecords += 1)
+      assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, [input]).kind, "refused", `${name} under ${maximumRecords}`);
+    assert.equal(produced({ ...deps, limits: { maximumRecords: size } }, program.tir, [input]).kind, "ok");
+  }
 });
 
 test("declarations keep actual missing initializer, destination and qualified capture inputs as defects, not inline defaults", () => {
@@ -1875,9 +1982,15 @@ test("selected boolean for conditions repeat after the actual update and skip it
 });
 
 test("declaration for frontiers and invalid selected continue owners remain explicit", () => {
-  const declaration = shaped("for.frontier.declaration", [], T.void,
+  for (const flag of ["Let", "Const"]) {
+    const declaration = shaped(`for.frontier.declaration.${flag}`, [], T.void,
+      b => b.block(unconditionalFor("loop", b.block(), { ...b.declarationList([]), flags: [flag] })));
+    assert.throws(() => produced(deps, declaration.tir, []), notLoweredYet("for initialization by declarations"));
+  }
+  const empty = shaped("for.empty.declaration", [], T.void,
     b => b.block(unconditionalFor("loop", b.block(), b.declarationList([]))));
-  assert.throws(() => produced(deps, declaration.tir, []), notLoweredYet("for initialization by declarations"));
+  assert.throws(() => produced(deps, empty.tir, []), error => defectOfLowerMir(error)
+    && error.message === `${CALLER_DEFECT}an empty variable declaration list`);
   const missing = shaped("for.missing-initializer", [], T.void,
     b => b.block(unconditionalFor("loop", b.block(), { kind: "MissingDeclaration", modifiers: null, tsonic: null })));
   assert.throws(() => produced(deps, missing.tir, []), error => defectOfLowerMir(error) && error.message.includes("missing declaration in for initialization"));

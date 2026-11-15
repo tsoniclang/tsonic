@@ -2136,7 +2136,10 @@ test("ir-program complete local, parameter, yield and lexical-environment record
   const body = fixture.module.bodies[0].tir;
   body.yielded = 0;
   body.sent = 0;
-  body.params = [{ local: 0, declaration: fixture.definition, role: "default", passing: "by-value", initializer: fixture.bodyId, storage: 0 }];
+  const parameter = structuredClone(syntaxExamples.get("Parameter").node);
+  parameter.tsonic = { local: { body: fixture.bodyId, local: 0 }, declaration: fixture.definition,
+    role: "default", passing: "by-value", initializer: fixture.bodyId, storage: 0 };
+  body.params = [parameter];
   body.locals = [{ id: 0, declaration: { kind: "body", value: { body: fixture.bodyId, node: 0 } }, name: "value",
     role: "capture", capturedFrom: { body: fixture.bodyId, local: 0 }, mutable: false, storage: 0 }];
   body.captures = [{ local: { body: fixture.bodyId, local: 0 }, capture: "captured-location" }];

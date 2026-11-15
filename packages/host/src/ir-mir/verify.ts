@@ -248,10 +248,11 @@ export function verifyRows(
     : receiverCount !== 1 || !Object.is(receiverStorage, signature.receiver)))
     violations.push({ rule: "body-receiver-exact", site: bodySite, detail: [] });
   const parameterModes = new Map<LocalId, PassingMode>();
-  let receiverRow: TirBody["params"][number] | undefined;
-  const parameterRows: TirBody["params"][number][] = [];
-  for (const parameter of source.params) {
-    parameterModes.set(parameter.local, parameter.passing);
+  let receiverRow: TirBody["params"][number]["tsonic"] | undefined;
+  const parameterRows: TirBody["params"][number]["tsonic"][] = [];
+  for (const header of source.params) {
+    const parameter = header.tsonic;
+    parameterModes.set(parameter.local.local, parameter.passing);
     if (parameter.role === "this") receiverRow = parameter;
     else parameterRows.push(parameter);
   }
@@ -290,7 +291,7 @@ export function verifyRows(
     if (local === undefined || local.role.kind !== "receiver" && local.role.kind !== "parameter") continue;
     const row = local.role.kind === "receiver" ? receiverRow
       : densePosition(local.role.index, parameterRows.length) ? parameterRows[local.role.index] : undefined;
-    if (row === undefined || local.source === null || local.source.body !== source.body || !Object.is(local.source.local, row.local))
+    if (row === undefined || local.source === null || local.source.body !== source.body || !Object.is(local.source.local, row.local.local))
       violations.push({ rule: "parameter-source-exact", site: { kind: "local", body: body.body, local: local.id }, detail: [] });
   }
   const constants = new Set<string>();

@@ -1,7 +1,7 @@
 import type { BodyId, DefId, KeyData, LocalId, LocalRef, ModuleId, NodeId, NodeRef, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { Diagnostic, TextParseResult, Violation } from "../diag/contract.js";
 import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, ExactRational, MemberKey, MemberTable, NominalDefinition, PassingMode, TypeComponent, TypeEvidence, TypeParameter, TypeTable } from "../ir-types/contract.js";
-import type { BodyRoot, DeclarationTarget, HirAttribute, HirCallableEndpoint, HirLexicalScope, HirModule, HirNode, ImportTarget, Phase, SourceFile, SyntaxNode } from "../ir-hir/contract.js";
+import type { BodyRoot, DeclarationTarget, HirAttribute, HirCallableEndpoint, HirLexicalScope, HirModule, HirNode, ImportTarget, ParameterDeclaration, Phase, SourceFile, SyntaxNode } from "../ir-hir/contract.js";
 import type { ApplicationDecision, BodyCaptureRow, ClosureDecision, ConstructionPartDecision, DeferredDecision, EmbeddingDecision, FlowRole, InferenceDeclaration, MemberDecision, OperationDecision, OperationIdentity, RefinementDecision, RuleOutcome } from "../ir-infer/contract.js";
 
 export interface TypedOperation {
@@ -247,6 +247,7 @@ export interface TypedParameter {
   readonly storage: TyId;
   readonly passing: PassingMode;
   readonly initializer: BodyId | null;
+  readonly role: "required" | "optional" | "default" | "rest" | "this";
 }
 
 export type TypedVariableList =
@@ -593,15 +594,6 @@ export interface TirLocal {
   readonly storage: TyId;
 }
 
-export interface TirParam {
-  readonly local: LocalId;
-  readonly declaration: DefId;
-  readonly role: "required" | "optional" | "default" | "rest" | "this";
-  readonly passing: PassingMode;
-  readonly initializer: BodyId | null;
-  readonly storage: TyId;
-}
-
 export interface TirBody {
   readonly body: BodyId;
   readonly owner: DefId;
@@ -612,7 +604,7 @@ export interface TirBody {
   readonly completion: TyId;
   readonly yielded: TyId | null;
   readonly sent: TyId | null;
-  readonly params: readonly TirParam[];
+  readonly params: readonly ParameterDeclaration<TypedPhase>[];
   readonly locals: readonly TirLocal[];
   readonly root: BodyRoot<TypedPhase>;
   readonly nestedBodies: readonly BodyId[];

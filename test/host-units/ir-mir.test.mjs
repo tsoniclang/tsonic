@@ -606,6 +606,40 @@ function sourceContext(body = parsedBody()) {
 }
 
 /** The findings of a verification that ran to its end. A refusal for resources is not a list of findings and fails the case. */
+function selectedParameter(source, selection) {
+  const identity = identities.nodeId(10000);
+  return { id: identity, origin: source.root.origin, parent: null, flags: [], loc: source.root.loc,
+    kind: "Parameter", modifiers: null, dotDotDotToken: null, questionToken: null, type: null, initializer: null,
+    name: { id: identities.nodeId(10001), origin: source.root.origin, parent: identity, flags: [], loc: source.root.loc,
+      kind: "Identifier", text: selection.role === "this" ? "this" : "value",
+      tsonic: { role: "declaration-name", declaration: { kind: "local", local: selection.local }, storage: selection.storage } },
+    tsonic: selection };
+}
+
+test("MIR selected header roots retain their occurrence and exclude separately-owned default syntax", async () => {
+  const control = await import("../../packages/host/dist/ir-mir/verify-control.js");
+  const text = await import("../../packages/host/dist/ir-mir/text.js");
+  const decisions = await import("../../packages/host/dist/ir-mir/text-decisions.js");
+  const texts = control.createWireTexts(decisions.createDecisionWires(text.createScalarWires()));
+  const context = sourceContext();
+  const initializer = "B[D[M[P[p];m];default];default-argument;0]";
+  const parameter = selectedParameter(context.source, { local: { body: context.source.body, local: identities.localId(0) },
+    declaration: context.source.owner, role: "default", passing: "by-value", initializer, storage: identities.tyId(1) });
+  parameter.initializer = { id: identities.nodeId(10002), origin: parameter.origin, parent: parameter.id,
+    flags: [], loc: parameter.loc, kind: "FalseKeyword", tsonic: { type: identities.tyId(1), convertedType: identities.tyId(1),
+      conversion: { kind: "identity" }, narrowing: null, evidenceIndex: null, demand: { kind: "always" }, role: "value" } };
+  const source = { ...context.source, params: [parameter] };
+  const nodes = control.sourceNodes(source, texts);
+  assert.equal(nodes.get(parameter.id).node, parameter, "the selected original parameter is an eligible MIR occurrence");
+  assert.equal(nodes.get(parameter.name.id).node, parameter.name, "the header's eligible child is retained");
+  assert.equal(nodes.has(parameter.initializer.id), false, "the separate initializer body is not callable execution");
+  assert.equal(nodes.get(parameter.id).bodies.has(initializer), true, "the actual placed initializer identity stays on its header");
+  assert.equal(control.sourceNodes({ ...source, params: [parameter, parameter] }, texts).size, nodes.size,
+    "the same canonical object can be reached twice without a second occurrence");
+  assert.throws(() => control.sourceNodes({ ...source, params: [parameter, structuredClone(parameter)] }, texts),
+    /conflicting syntax occurrences/);
+});
+
 function verified(body, context) {
   const outcome = product.verifyMir(body, context);
   assert.equal(outcome.kind, "complete", "the body was verified to the end, not refused for resources");
@@ -619,7 +653,8 @@ test("MIR entries use the selected required omission capability without changing
   const declaration = identities.decodeBodyId(body.body).value.owner;
   const parameter = { declaration, kind: "required", type: identities.tyId(0), passing: "by-value", initializer: null, acceptsOmission: true };
   context.types.signatures[0].parameters = [parameter];
-  context.source.params = [{ local: identities.localId(0), declaration, role: "required", passing: "by-value", initializer: null, storage: identities.tyId(0) }];
+  context.source.params = [selectedParameter(context.source, { local: { body: body.body, local: identities.localId(0) }, declaration,
+    role: "required", passing: "by-value", initializer: null, storage: identities.tyId(0) })];
   context.source.locals = [{ id: identities.localId(0), declaration: { kind: "item", value: { owner: declaration, node: identities.nodeId(0) } },
     name: "value", role: "parameter", capturedFrom: null, mutable: false, storage: identities.tyId(0) }];
   context.declarations.get(declaration).parameterCount = 1;
@@ -1345,7 +1380,7 @@ for (const write of [false, true]) test(`MIR preserves the exact selected ${writ
     right: { ...header(7, 2), kind: "TrueKeyword", tsonic: { ...value(1), role: "value" } },
     tsonic: { ...value(1), role: "assignment", storage: identities.tyId(1), calculation: null, selection: null } } : access;
   const returnNode = write ? 8 : 5;
-  const source = { ...context.source, params: [{ local: identities.localId(0), declaration: parameterDefinition, role: "required", passing: "by-value", initializer: null, storage: identities.tyId(5) }],
+  const source = { ...context.source, params: [selectedParameter(context.source, { local: { body: base.body, local: identities.localId(0) }, declaration: parameterDefinition, role: "required", passing: "by-value", initializer: null, storage: identities.tyId(5) })],
     locals: [{ id: identities.localId(0), declaration: { kind: "item", value: { owner: parameterDefinition, node: identities.nodeId(0) } }, name: "receiver", role: "parameter", capturedFrom: null, mutable: false, storage: identities.tyId(5) }],
     root: { ...context.source.root, statements: { loc: { pos: 0, end: 0 }, nodes: [
       { ...header(1, 0), kind: "ExpressionStatement", expression, tsonic: null },
@@ -1834,8 +1869,8 @@ test("MIR compound Boolean assignment retains its actual selected calculation", 
     right: { ...header(5, 2), kind: "FalseKeyword", tsonic: { ...value, role: "value" } },
     tsonic: { ...value, role: "assignment", storage: identities.tyId(1), calculation: { kind: "decided", decision: selected }, selection: null } };
   const parameter = identities.encodeDefId({ module: base.blocks[0].origin.module, segments: [{ name: "value", ordinal: 0 }] });
-  const source = { ...context.source, params: [{ local: identities.localId(0), declaration: parameter, role: "required",
-    passing: "by-value", initializer: null, storage: identities.tyId(1) }], locals: [{ id: identities.localId(0),
+  const source = { ...context.source, params: [selectedParameter(context.source, { local: { body: base.body, local: identities.localId(0) }, declaration: parameter, role: "required",
+    passing: "by-value", initializer: null, storage: identities.tyId(1) })], locals: [{ id: identities.localId(0),
     declaration: { kind: "item", value: { owner: parameter, node: identities.nodeId(0) } }, name: "value", role: "parameter",
     capturedFrom: null, mutable: true, storage: identities.tyId(1) }], root: { ...context.source.root, statements: { loc: { pos: 0, end: 0 }, nodes: [
     { ...header(1, 0), kind: "ExpressionStatement", expression, tsonic: null },
@@ -2043,7 +2078,7 @@ test("MIR body receiver presence and exact storage are decided by its genuine so
   const receiverDefinition = identities.encodeDefId({ module: body.blocks[0].origin.module, segments: [{ name: "this", ordinal: 0 }] });
   const receiverContext = { ...context, types: { ...context.types, signatures: [{ ...context.types.signatures[0], receiver: identities.tyId(1) }] },
     source: { ...context.source,
-      params: [{ local: identities.localId(0), declaration: receiverDefinition, role: "this", passing: "by-value", initializer: null, storage: identities.tyId(1) }],
+      params: [selectedParameter(context.source, { local: { body: body.body, local: identities.localId(0) }, declaration: receiverDefinition, role: "this", passing: "by-value", initializer: null, storage: identities.tyId(1) })],
       locals: [{ id: identities.localId(0), declaration: { kind: "item", value: { owner: receiverDefinition, node: identities.nodeId(0) } }, name: "this",
         role: "parameter", capturedFrom: null, mutable: false, storage: identities.tyId(1) }] } };
   same(verified(body, receiverContext), [expectedViolation("body-receiver-exact", { kind: "body" })], "missing receiver complete vector");

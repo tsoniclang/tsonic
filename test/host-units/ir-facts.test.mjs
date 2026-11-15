@@ -103,6 +103,15 @@ test("ir-facts: all twenty-one actual emitted ports, full closed logic and fresh
     root: { ...header(0), kind: "Block", statements: { loc: { pos: 0, end: 32 }, nodes: Array.from({ length: 31 }, (_, index) =>
       ({ ...header(index + 1), kind: "EmptyStatement", tsonic: null })) }, tsonic: null },
     nestedBodies: [], captures: [], scopes: [], evidence: [], asynchronous: false, generator: false });
+  const parameterSyntax = (selected, local, formal) => {
+    const id = 32 + local * 2;
+    const reference = { body: selected.body, local };
+    return { ...header(id), kind: "Parameter", modifiers: null, dotDotDotToken: null, questionToken: null,
+      type: null, initializer: null, name: { ...header(id + 1, id), kind: "Identifier", text: `parameter${local}`,
+        tsonic: { role: "declaration-name", declaration: { kind: "local", local: reference }, storage: formal.type } },
+      tsonic: { declaration: formal.declaration, local: reference, storage: formal.type, passing: formal.passing,
+        initializer: formal.initializer, role: formal.kind } };
+  };
   const mir = () => ({ body, bindings: parametric(), entries: [{ provided: 0, block: 0 }],
     locals: [{ id: 0, storage: 0, role: { kind: "user" }, mode: "local", source: { body, local: 0 }, origin: sourceOrigin() }], constants: [],
     places: [{ id: 0, base: { kind: "local", local: 0 }, storage: 0, origin: sourceOrigin() }],
@@ -1740,10 +1749,9 @@ test("ir-facts: all twenty-one actual emitted ports, full closed logic and fresh
     const actual = tir(); actual.body = calleeBody; actual.owner = definitions.callee; actual.signature = 1;
     actual.bindings = clone(alternative.summary.execution.request.bindings); actual.lexicalBindings = clone(alternative.resolution.decision.implementationBindings);
     actual.dependence = "binding-dependent";
-    actual.params = supplied.types.signatures[1].parameters.map((formal, local) => ({ local, declaration: formal.declaration,
-      role: formal.kind, passing: formal.passing, initializer: formal.initializer, storage: formal.type }));
-    actual.locals = actual.params.map(parameter => ({ id: parameter.local, declaration: itemRef(parameter.declaration), name: `parameter${parameter.local}`,
-      role: "parameter", capturedFrom: null, mutable: true, storage: parameter.storage }));
+    actual.params = supplied.types.signatures[1].parameters.map((formal, local) => parameterSyntax(actual, local, formal));
+    actual.locals = actual.params.map(header => ({ id: header.tsonic.local.local, declaration: itemRef(header.tsonic.declaration), name: `parameter${header.tsonic.local.local}`,
+      role: "parameter", capturedFrom: null, mutable: true, storage: header.tsonic.storage }));
     supplied.bodyRows.set(calleeBody, actual);
     supplied.bodyOwners.set(calleeBody, definitions.callee);
     supplied.scopeRows.body.splice(4, 0, supplied.scopeRows.body[3]);
@@ -1773,7 +1781,7 @@ test("ir-facts: all twenty-one actual emitted ports, full closed logic and fresh
       : { id: 0, path: null, kind, index: 0 };
     if (kind === "parameter") {
       supplied.types.signatures[0].parameters = [parameter()];
-      supplied.tir.params = [{ local: 0, declaration: definitions.parameter, role: "required", passing: "by-value", initializer: null, storage: 0 }];
+      supplied.tir.params = [parameterSyntax(supplied.tir, 0, parameter())];
       supplied.tir.locals = [{ id: 0, declaration: itemRef(definitions.parameter), name: "argument", role: "parameter", capturedFrom: null, mutable: true, storage: 0 }];
       input.arena.contexts[0].arguments = [1];
     } else if (kind === "capture") {
@@ -1877,7 +1885,7 @@ test("ir-facts: all twenty-one actual emitted ports, full closed logic and fresh
   const targetInventory = (kind, input, supplied, isSummary) => {
     if (kind === "parameter") {
       supplied.types.signatures[0].parameters = [parameter()];
-      supplied.tir.params = [{ local: 0, declaration: definitions.parameter, role: "required", passing: "by-value", initializer: null, storage: 0 }];
+      supplied.tir.params = [parameterSyntax(supplied.tir, 0, parameter())];
       if (isSummary) input.parameters = [{ slot: { kind: "parameter", index: 0 }, reads: completePaths(), writes: completePaths() }];
     }
     if (kind === "capture") {
@@ -3639,11 +3647,10 @@ test("ir-facts: all twenty-one actual emitted ports, full closed logic and fresh
     input.origins.invocations[0].alternatives.push(second);
     for (const [bodyId, definitionId, signatureId, captured] of [[selectedBody, definitions.callee, 1, [locations[0], locations[1]]], [otherBody, definitions.other, 2, [locations[1]]]]) {
       const actual = tir(); actual.body = bodyId; actual.owner = definitionId; actual.signature = signatureId;
-      actual.params = [definitions.parameter, definitions.capture].map((declaration, local) => ({ local, declaration,
-        role: "required", passing: "by-value", initializer: null, storage: 0 }));
+      actual.params = [definitions.parameter, definitions.capture].map((declaration, local) => parameterSyntax(actual, local, parameter(declaration)));
       actual.captures = rowsOf(captured);
-      actual.locals = actual.params.map(parameter => ({ id: parameter.local, declaration: itemRef(parameter.declaration),
-        name: `parameter${parameter.local}`, role: "parameter", capturedFrom: null, mutable: true, storage: 0 }));
+      actual.locals = actual.params.map(header => ({ id: header.tsonic.local.local, declaration: itemRef(header.tsonic.declaration),
+        name: `parameter${header.tsonic.local.local}`, role: "parameter", capturedFrom: null, mutable: true, storage: 0 }));
       for (const [index, capturedFrom] of captured.entries()) actual.locals.push({ id: index + 2,
         declaration: { kind: "body", value: { body: capturedFrom.body, node: 1 } }, name: `capture${index}`,
         role: "capture", capturedFrom: clone(capturedFrom), mutable: true, storage: 0 });
@@ -3668,7 +3675,7 @@ test("ir-facts: all twenty-one actual emitted ports, full closed logic and fresh
     const captures = reversed ? [locations[1], locations[0]] : [locations[0], locations[1]];
     const selectedBody = ids.encodeBodyId({ owner: definitions.callee, role: "function", ordinal: 0 });
     const actual = tir(); actual.body = selectedBody; actual.owner = definitions.callee; actual.signature = 1;
-    actual.params = [{ local: 0, declaration: definitions.parameter, role: "optional", passing: "by-value", initializer: null, storage: 0 }];
+    actual.params = [parameterSyntax(actual, 0, { ...parameter(), kind: "optional" })];
     actual.locals = [{ id: 0, declaration: itemRef(definitions.parameter), name: "argument", role: "parameter", capturedFrom: null, mutable: true, storage: 0 },
       ...captures.map((capturedFrom, index) => ({ id: index + 1, declaration: { kind: "body", value: { body: capturedFrom.body, node: 1 } },
         name: `capture${index}`, role: "capture", capturedFrom: clone(capturedFrom), mutable: true, storage: 0 }))];
@@ -3972,7 +3979,7 @@ test("ir-facts: all twenty-one actual emitted ports, full closed logic and fresh
     const selected = { kind: "body", execution: { instance: { body: otherBody, bindings: { kind: "instantiated", bindings: emptyBindings() } }, provided: 1 } };
     const actual = tir(); actual.body = otherBody; actual.owner = definitions.other; actual.bindings = clone(selected.execution.instance.bindings);
     actual.signature = 1;
-    actual.params = [{ local: 0, declaration: definitions.parameter, role: "required", passing: "by-value", initializer: null, storage: 0 }];
+    actual.params = [parameterSyntax(actual, 0, parameter())];
     actual.locals = [{ id: 0, declaration: itemRef(definitions.parameter), name: "argument", role: "parameter", capturedFrom: null, mutable: true, storage: 0 }];
     supplied.types.signatures.push(signature(1, [parameter()], null, definitions.other));
     supplied.bodyRows.set(otherBody, actual);
@@ -4347,9 +4354,8 @@ test("ir-facts: all twenty-one actual emitted ports, full closed logic and fresh
       const supplied = setup(input, []);
       const parameters = [definitions.parameter, definitions.capture].map(declaration => ({ declaration, kind: "optional", type: 0, passing: "by-value", initializer: null, acceptsOmission: true }));
       supplied.types.signatures[0].parameters = parameters;
-      supplied.tir.params = parameters.map((parameter, local) => ({ local, declaration: parameter.declaration, role: parameter.kind,
-        passing: parameter.passing, initializer: null, storage: 0 }));
-      supplied.tir.locals = supplied.tir.params.map(parameter => ({ id: parameter.local, declaration: itemRef(parameter.declaration),
+      supplied.tir.params = parameters.map((formal, local) => parameterSyntax(supplied.tir, local, formal));
+      supplied.tir.locals = supplied.tir.params.map(header => ({ id: header.tsonic.local.local, declaration: itemRef(header.tsonic.declaration),
         name: "parameter", role: "parameter", capturedFrom: null, mutable: true, storage: 0 }));
       supplied.mir.locals = parameters.map((parameter, id) => ({ id, storage: parameter.type, role: { kind: "parameter", index: id }, mode: parameter.passing,
         source: { body, local: id }, origin: sourceOrigin(id) }));
@@ -4512,7 +4518,7 @@ test("ir-facts: all twenty-one actual emitted ports, full closed logic and fresh
       ].join("\n"), []], ["sparse-verifier-peer-rows", [
         'import type { TypeTerm, Signature } from "./packages/host/src/ir-types/contract.js";',
         'import type { BodyCaptureRow } from "./packages/host/src/ir-infer/contract.js";',
-        'import type { TirBody, TirParam } from "./packages/host/src/ir-tir/contract.js";',
+        'import type { TirBody } from "./packages/host/src/ir-tir/contract.js";',
         'import type { MirBlock, MirLocal, MirStatement } from "./packages/host/src/ir-mir/contract.js";',
         "declare const actualBlock: MirBlock; declare const actualTir: TirBody;",
         "const terms: readonly TypeTerm[] = new Array<TypeTerm>(1);",
@@ -4521,7 +4527,7 @@ test("ir-facts: all twenty-one actual emitted ports, full closed logic and fresh
         "const locals: readonly MirLocal[] = new Array<MirLocal>(1);",
         "const statements: readonly MirStatement[] = new Array<MirStatement>(1);",
         "const peerBlock: MirBlock = { ...actualBlock, statements };",
-        "const peerTir: TirBody = { ...actualTir, params: new Array<TirParam>(1), captures: new Array<BodyCaptureRow>(2) };",
+        'const peerTir: TirBody = { ...actualTir, params: new Array<TirBody["params"][number]>(1), captures: new Array<BodyCaptureRow>(2) };',
         "verifyFacts(facts, { ...mir, blocks: [peerBlock], locals }, { ...context, types: { ...context.types, terms, signatures }, tirBody: () => peerTir });",
         "verifyFacts(facts, { ...mir, blocks }, context);",
       ].join("\n"), []], ["facts-readonly", "facts.execution.instance.body = facts.execution.instance.body;", [2540]],

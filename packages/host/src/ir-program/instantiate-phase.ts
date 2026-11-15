@@ -520,7 +520,7 @@ export function inventoryIteration(scan: ProjectionInventory, value: TypedIterat
 }
 
 export function inventoryTypedParameter(scan: ProjectionInventory, value: TypedParameter): InstantiationStop | null {
-  return inventoryRecord(scan, 5) ?? inventoryType(scan, value.storage);
+  return inventoryRecord(scan, 6) ?? inventoryType(scan, value.storage);
 }
 
 export function inventoryClassValue(scan: ProjectionInventory, value: TypedClassValue): InstantiationStop | null {

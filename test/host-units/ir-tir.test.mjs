@@ -376,7 +376,7 @@ function genericFunctionScenario(nodes = { callable: 2, typeParameter: 3, typeNa
   const bound = type => ({ ...emptyBindings(), methodBindings: [{ kind: "bound", parameter: identity, type }] });
   const local = { body: functionBody, local: 0 };
   const declaration = { kind: "local", local };
-  const localSource = { kind: "body", value: { body: functionBody, node: nodes.parameter } };
+  const localSource = { kind: "item", value: { owner: valueDefinition, node: nodes.parameter } };
   const endpoint = { declaration: definition, role: "api-body", signature: 1, body: functionBody };
   const template = () => ({ body: functionBody, lexicalBindings: rigid(), dependence: "binding-dependent" });
   const typedFunction = storage => {
@@ -388,7 +388,7 @@ function genericFunctionScenario(nodes = { callable: 2, typeParameter: 3, typeNa
       tsonic: { role: "declaration-name", declaration, storage } };
     const valueParameter = { ...header(nodes.parameter, nodes.callable), kind: "Parameter", modifiers: null, dotDotDotToken: null,
       name: valueName, questionToken: null, type: null, initializer: null,
-      tsonic: { declaration: valueDefinition, local, storage, passing: "by-value", initializer: null } };
+      tsonic: { declaration: valueDefinition, local, storage, passing: "by-value", initializer: null, role: "required" } };
     const value = { ...header(nodes.value, nodes.return), kind: "Identifier", text: "v",
       tsonic: { ...typedValue(storage), role: "value", resolution: { kind: "local", local } } };
     const statement = { ...header(nodes.return, nodes.block), kind: "ReturnStatement", expression: value, tsonic: null };
@@ -420,11 +420,15 @@ function genericFunctionScenario(nodes = { callable: 2, typeParameter: 3, typeNa
   const outer = emptyModuleBody();
   const functionTemplate = { ...emptyModuleBody(), body: functionBody, owner: definition, lexicalBindings: rigid(),
     dependence: "binding-dependent", signature: 1, completion: 1, root: typedFunction(1),
-    params: [{ local: 0, declaration: valueDefinition, role: "required", passing: "by-value", initializer: null, storage: 1 }],
+    params: [],
     locals: [{ id: 0, declaration: localSource, name: "v", role: "parameter", storage: 1, capturedFrom: null, mutable: true }] };
-  const instances = [2, 3].map(storage => ({ ...functionTemplate, bindings: { kind: "instantiated", bindings: bound(storage) },
-    lexicalBindings: bound(storage), signature: storage, completion: storage, root: typedFunction(storage),
-    params: [{ ...functionTemplate.params[0], storage }], locals: [{ ...functionTemplate.locals[0], storage }] }));
+  functionTemplate.params = functionTemplate.root.parameters.nodes;
+  const instances = [2, 3].map(storage => {
+    const root = typedFunction(storage);
+    return { ...functionTemplate, bindings: { kind: "instantiated", bindings: bound(storage) },
+      lexicalBindings: bound(storage), signature: storage, completion: storage, root,
+      params: root.parameters.nodes, locals: [{ ...functionTemplate.locals[0], storage }] };
+  });
   outer.root.statements = nodeList([{ ...header(1, 0), kind: "ExpressionStatement", expression: functionTemplate.root, tsonic: null }]);
   outer.root.endOfFileToken = { ...header(nodes.end, 0), kind: "EndOfFile", tsonic: null };
   outer.nestedBodies = [functionBody];
@@ -509,7 +513,7 @@ function bindingPatternScenario(includeHole) {
   parameter.tsonic.storage = 5;
   sourceParameter.name = sourcePattern;
   sourceParameter.tsonic.declaredType = available(5);
-  body.params[0].storage = 5;
+  body.params[0].tsonic.storage = 5;
   body.locals[0].storage = 5;
   fixture.originalFunction.locals[0].checkerSlot = available(5);
   const occurrence = { kind: "body", value: { body: fixture.functionBody, node: nameId } };
@@ -575,7 +579,7 @@ function twoParameterScenario() {
   const definition = "D[M[P[p];m];f/w]";
   const local = { body: fixture.functionBody, local: 1 };
   const declaration = { kind: "local", local };
-  const source = { kind: "body", value: { body: fixture.functionBody, node: 7 } };
+  const source = { kind: "item", value: { owner: definition, node: 7 } };
   const first = fixture.checkedFunction.parameters.nodes[0];
   const name = { ...first.name, id: 8, parent: 7, text: "w", tsonic: { ...first.name.tsonic, declaration } };
   const parameter = { ...first, id: 7, name, tsonic: { ...first.tsonic, declaration } };
@@ -588,7 +592,6 @@ function twoParameterScenario() {
     const storage = first.tsonic.storage;
     const name = { ...first.name, id: 8, parent: 7, text: "w", tsonic: { ...first.name.tsonic, declaration } };
     body.root.parameters.nodes.push({ ...first, id: 7, name, tsonic: { ...first.tsonic, declaration: definition, local } });
-    body.params.push({ local: 1, declaration: definition, role: "required", passing: "by-value", initializer: null, storage });
     body.locals.push({ id: 1, declaration: source, name: "w", role: "parameter", storage, capturedFrom: null, mutable: true });
   }
   for (const signature of fixture.types.signatures.slice(1)) signature.parameters.push({ declaration: definition,
@@ -1907,14 +1910,14 @@ function codecParameter(identity, parent) {
     dotDotDotToken: { ...header(identity + 1, identity), kind: "DotDotDotToken", tsonic: null },
     name: codecName(identity + 2, identity), questionToken: { ...header(identity + 3, identity), kind: "QuestionToken", tsonic: null },
     type: codecType(identity + 4, identity), initializer: codecName(identity + 5, identity),
-    tsonic: { declaration: ownerId, local: { body: bodyId, local: 0 }, storage: 0, passing: "by-value", initializer: bodyId } };
+    tsonic: { declaration: ownerId, local: { body: bodyId, local: 0 }, storage: 0, passing: "by-value", initializer: bodyId, role: "default" } };
 }
 
 function codecParameterDefinitions(identity, parent) {
   return [
     `Parameter(${syntaxHeaderWire(identity, parent)}, modifiers=ModifierList(loc=TextRange(pos=0, end=0), nodes=[]), dotDotDotToken=n:${identity + 1}, name=n:${identity + 2}, ` +
       `questionToken=n:${identity + 3}, type=n:${identity + 4}, initializer=n:${identity + 5}, ` +
-      `tsonic=TypedParameter(declaration=def:"${ownerId}", local=${localWire}, storage=t:0, passing="by-value", initializer=body:"${bodyId}"))`,
+      `tsonic=TypedParameter(declaration=def:"${ownerId}", local=${localWire}, storage=t:0, passing="by-value", initializer=body:"${bodyId}", role="default"))`,
     `DotDotDotToken(${syntaxHeaderWire(identity + 1, identity)}, tsonic=null)`, codecNameWire(identity + 2, identity),
     `QuestionToken(${syntaxHeaderWire(identity + 3, identity)}, tsonic=null)`, codecTypeWire(identity + 4, identity),
     codecNameWire(identity + 5, identity),
@@ -4296,14 +4299,21 @@ for (const selected of ["outer", "template", "string", "int32"]) {
 test("several finalized formals cannot be reordered while their actual parameter nodes retain declared order", () => {
   const fixture = twoParameterScenario();
   const body = fixture.functionTemplate;
-  body.params.reverse();
-  assertCompleteValue(product.verifyTir(fixture.inputFor(body), body), [bodyViolation("parameter-order",
-    "parameter records do not retain the actual declared formal order", fixture.functionBody)]);
+  body.params = [...body.params].reverse();
+  assertCompleteValue(product.verifyTir(fixture.inputFor(body), body), [
+    ...[5, 7].flatMap(node => [
+      nodeViolation("authored-node-ids-preserved", node, "typed node identity differs from the actual authored node at this position"),
+      nodeViolation("authored-node-ids-preserved", node + 1, "typed node identity differs from the actual authored node at this position"),
+      nodeViolation("kind-children-shape", node + 1, "typed syntax does not retain the authored kind, fields and child presence"),
+      nodeViolation("parent-reference", node + 1, "typed node parent differs from the real authored parent"),
+    ]),
+    bodyViolation("parameter-order", "parameter records do not retain the actual declared formal order", fixture.functionBody),
+  ]);
 });
 test("omitting a second real formal preserves both inventory and actual occurrence findings", () => {
   const fixture = twoParameterScenario();
   const body = fixture.functionTemplate;
-  body.params.pop();
+  body.params = body.params.slice(0, 1);
   assertCompleteValue(product.verifyTir(fixture.inputFor(body), body), [
     bodyViolation("parameter-order", "parameter records do not retain the actual declared formal order", fixture.functionBody),
     nodeViolation("parameter-order", 7, "parameter occurrence does not retain its actual declared formal and local association"),
@@ -4817,25 +4827,114 @@ test("local dense identity and actual local-slot existence remain distinct full-
 test("a formal's actual finalized storage cannot disagree with its genuine local slot", () => {
   const fixture = genericFunctionScenario();
   const body = fixture.functionTemplate;
-  body.params[0].storage = 2;
-  assertCompleteValue(product.verifyTir(fixture.inputFor(body), body), [bodyViolation("local-storage",
-    "parameter storage does not retain its real local slot", fixture.functionBody)]);
+  body.params[0].tsonic.storage = 2;
+  assertCompleteValue(product.verifyTir(fixture.inputFor(body), body), [
+    bodyViolation("local-storage", "parameter storage does not retain its real local slot", fixture.functionBody),
+    nodeViolation("binding-storage", 5, "binding occurrence does not retain its actual qualified local storage slot"),
+  ]);
 });
 
 test("the authored Parameter occurrence must retain the actual body-local storage association", () => {
   const fixture = genericFunctionScenario();
   const body = fixture.functionTemplate;
   body.root.parameters.nodes[0].tsonic.storage = 2;
-  assertCompleteValue(product.verifyTir(fixture.inputFor(body), body), [nodeViolation("binding-storage", 5,
-    "binding occurrence does not retain its actual qualified local storage slot")]);
+  assertCompleteValue(product.verifyTir(fixture.inputFor(body), body), [
+    bodyViolation("local-storage", "parameter storage does not retain its real local slot", fixture.functionBody),
+    nodeViolation("binding-storage", 5, "binding occurrence does not retain its actual qualified local storage slot"),
+  ]);
 });
 
 test("a type-correct formal role change does not retain the original parameter inventory", () => {
   const fixture = genericFunctionScenario();
   const body = fixture.functionTemplate;
-  body.params[0].role = "optional";
-  assertCompleteValue(product.verifyTir(fixture.inputFor(body), body), [bodyViolation("parameter-order",
-    "parameter records do not retain the actual declared formal order", fixture.functionBody)]);
+  body.params[0].tsonic.role = "optional";
+  assertCompleteValue(product.verifyTir(fixture.inputFor(body), body), [
+    bodyViolation("parameter-order", "parameter records do not retain the actual declared formal order", fixture.functionBody),
+    nodeViolation("parameter-order", 5, "parameter occurrence does not retain its actual declared formal and local association"),
+  ]);
+});
+
+for (const defect of ["missing", "foreign-kind", "foreign-node", "foreign-owner", "foreign-parent", "missing-local"]) {
+  test(`selected formal headers require the genuine checked item association: ${defect}`, () => {
+    const fixture = genericFunctionScenario();
+    const body = fixture.functionTemplate;
+    const input = fixture.inputFor(body);
+    const original = input.nodeOf;
+    const source = fixture.originalFunction.locals[0].declaration;
+    const checked = original(source);
+    if (defect === "foreign-owner") source.value.owner = fixture.definition;
+    else if (defect === "missing-local") fixture.originalFunction.locals = [];
+    else input.nodeOf = reference => reference.kind === "item" && reference.value.owner === fixture.valueDefinition
+      ? defect === "missing" ? null : defect === "foreign-kind" ? fixture.checkedFunction
+        : defect === "foreign-node" ? { ...checked, id: checked.id + 100 }
+          : { ...checked, tsonic: { ...checked.tsonic, parent: fixture.valueDefinition } }
+      : original(reference);
+    const findings = product.verifyTir(input, body);
+    assert.equal(findings.some(value => value.rule === "parameter-order"), true, defect);
+  });
+}
+
+test("a duplicate selected header has no invented second checked formal", () => {
+  const fixture = genericFunctionScenario();
+  const body = fixture.functionTemplate;
+  body.params = [body.params[0], body.params[0]];
+  assert.equal(product.verifyTir(fixture.inputFor(body), body).some(value => value.rule === "parameter-order"), true);
+});
+
+test("a genuine default initializer retains syntax but not callable-body semantic ownership", () => {
+  const fixture = genericFunctionScenario({ callable: 2, typeParameter: 3, typeName: 4, parameter: 5,
+    parameterName: 6, block: 8, return: 9, value: 10, end: 11 });
+  const body = fixture.functionTemplate;
+  const input = fixture.inputFor(body);
+  const defaultBody = `B[${fixture.valueDefinition};default-argument;0]`;
+  const storage = fixture.types.terms.length;
+  fixture.types.terms.push({ kind: "primitive", primitive: "bool" });
+  const checked = { ...header(7, 5), kind: "TrueKeyword",
+    tsonic: { core: emptyCore(), role: "value", value: checkedValue(storage) } };
+  const selected = { ...header(7, 5), kind: "TrueKeyword",
+    tsonic: { ...typedValue(storage), role: "value" } };
+  fixture.checkedFunction.parameters.nodes[0].initializer = checked;
+  fixture.checkedFunction.parameters.nodes[0].tsonic.declaredType = available(storage);
+  fixture.checkedFunction.parameters.nodes[0].tsonic.initializer = defaultBody;
+  fixture.checkedFunction.body.statements.nodes[0].expression.tsonic.value = checkedValue(storage);
+  fixture.originalFunction.params[0].role = "default";
+  fixture.originalFunction.params[0].initializer = defaultBody;
+  fixture.originalFunction.locals[0].checkerSlot = available(storage);
+  fixture.itemNodes.get(fixture.valueDefinition).set(7, checked);
+  for (const callable of [body, ...fixture.instances]) {
+    const parameter = callable.params[0];
+    parameter.initializer = callable === body ? selected : structuredClone(selected);
+    parameter.tsonic.role = "default";
+    parameter.tsonic.initializer = defaultBody;
+    parameter.tsonic.storage = storage;
+    parameter.name.tsonic.storage = storage;
+    callable.locals[0].storage = storage;
+    callable.completion = storage;
+    Object.assign(callable.root.body.statements.nodes[0].expression.tsonic, typedValue(storage));
+  }
+  for (const signature of fixture.types.signatures.slice(1)) {
+    signature.parameters[0] = { ...signature.parameters[0], kind: "default", type: storage,
+      initializer: defaultBody, acceptsOmission: true };
+    signature.result = storage;
+  }
+  const signature = fixture.types.signatures.length;
+  fixture.types.signatures.push({ id: signature, declaration: fixture.valueDefinition,
+    owner: { kind: "item", value: { owner: fixture.valueDefinition, node: 5 } }, composition: null,
+    kind: "call", typeParameters: [], receiver: null, parameters: [], result: storage });
+  const sourceDefault = { ...fixture.originalFunction, body: defaultBody, owner: fixture.valueDefinition,
+    params: [], locals: [], root: checked };
+  const typedDefault = { ...body, body: defaultBody, owner: fixture.valueDefinition, params: [], locals: [],
+    signature, root: selected };
+  input.source.bodies.splice(1, 0, sourceDefault);
+  input.module.bodies.splice(1, 0, typedDefault);
+  const nodeOf = input.nodeOf;
+  input.nodeOf = reference => reference.kind === "body" && reference.value.body === defaultBody
+    ? reference.value.node === 7 ? checked : null : nodeOf(reference);
+  assertCompleteValue(product.verifyTir(input, body), []);
+  body.evidence.push({ type: storage, component: { kind: "body", value: { body: body.body, node: 7 } },
+    category: { kind: "known", category: "boolean" }, numeric: null, sum: null, nominal: null, pointer: null });
+  assert.equal(product.verifyTir(input, body).some(value => value.rule === "nested-boundary"), true,
+    "the separately owned initializer occurrence cannot be claimed as callable execution evidence");
 });
 
 test("same-body capture invention retains both qualification and original-order failures", () => {
@@ -4898,6 +4997,37 @@ test("overloaded zero-argument calls retain the actual optional, default and emp
   }
 });
 
+function parameterCodecFixture(passing, role, initializer, localRecord) {
+  const body = emptyModuleBody();
+  const local = { body: bodyId, local: 0 };
+  const name = role === "this" ? "this" : "formal";
+  const value = { ...header(4, 2), kind: "NullKeyword", tsonic: { ...typedValue(), role: "value" } };
+  body.params = [{ ...header(2, 99), kind: "Parameter", modifiers: null, dotDotDotToken: null,
+    name: { ...header(3, 2), kind: "Identifier", text: name,
+      tsonic: { role: "declaration-name", declaration: { kind: "local", local }, storage: 0 } },
+    questionToken: null, type: null, initializer: initializer === null ? null : value,
+    tsonic: { local, declaration: ownerId, role, passing, initializer, storage: 0 } }];
+  const shift = initializer === null ? 2 : 3;
+  const lines = readFileSync(resolve(repository, functionDirectory, "empty-module.input.tir"), "utf8").trimEnd().split("\n");
+  lines[0] = lines[0].replace("params=[]", "params=[n:0]").replace("root=n:0", `root=n:${shift}`);
+  lines[1] = lines[1].replace(/^n:0=/u, `n:${shift}=`).replace("endOfFileToken=n:1", `endOfFileToken=n:${shift + 1}`);
+  lines[2] = lines[2].replace(/^n:1=/u, `n:${shift + 1}=`);
+  if (localRecord) {
+    body.locals = [{ id: 0, declaration: { kind: "item", value: { owner: ownerId, node: 2 } },
+      name, role: "parameter", capturedFrom: null, mutable: true, storage: 0 }];
+    lines[0] = lines[0].replace("locals=[]", `locals=[TirLocal(id=l:0, declaration=item(value=ItemNodeRef(owner=def:"${ownerId}", node=n:2)), ` +
+      `name="${name}", role="parameter", capturedFrom=null, mutable=true, storage=t:0)]`);
+  }
+  const definitions = [
+    `n:0=Parameter(${syntaxHeaderWire(2, 99)}, modifiers=null, dotDotDotToken=null, name=n:1, questionToken=null, type=null, ` +
+      `initializer=${initializer === null ? "null" : "n:2"}, tsonic=TypedParameter(declaration=def:"${ownerId}", local=${localWire}, storage=t:0, ` +
+      `passing="${passing}", initializer=${initializer === null ? "null" : `body:"${initializer}"`}, role="${role}"))`,
+    `n:1=Identifier(${syntaxHeaderWire(3, 2)}, text="${name}", tsonic=TypedName(role="declaration-name", declaration=local(local=${localWire}), storage=t:0))`,
+  ];
+  if (initializer !== null) definitions.push(`n:2=NullKeyword(${syntaxHeaderWire(4, 2)}, tsonic=TypedKeyword(${valueWire}, role="value"))`);
+  return { body, expected: [lines[0], ...definitions, ...lines.slice(1)].join("\n") + "\n" };
+}
+
 for (const passing of ["by-value", "byref-readonly", "byref-readwrite", "byref-writeonly-must-init", "borrow-shared", "borrow-mut", "move"]) {
   test(`closed API/formal/actual argument transport retains ${passing} without a passing-mode guess`, () => {
     const fixture = argumentScenario("unknown", passing);
@@ -4906,27 +5036,15 @@ for (const passing of ["by-value", "byref-readonly", "byref-readwrite", "byref-w
     assert.equal(fixture.parameters[0].passing, passing);
   });
   test(`the complete formal/storage codec retains passing mode ${passing}`, () => {
-    const body = emptyModuleBody();
-    body.params = [{ local: 0, declaration: ownerId, role: "required", passing, initializer: null, storage: 0 }];
-    body.locals = [{ id: 0, declaration: { kind: "body", value: { body: bodyId, node: 0 } },
-      name: "formal", role: "parameter", capturedFrom: null, mutable: true, storage: 0 }];
-    const expected = readFileSync(resolve(repository, functionDirectory, "empty-module.input.tir"), "utf8")
-      .replace("params=[], locals=[]", `params=[TirParam(local=l:0, declaration=def:"${ownerId}", role="required", ` +
-        `passing="${passing}", initializer=null, storage=t:0)], locals=[TirLocal(id=l:0, ` +
-        `declaration=body(value=NodeRef(body=body:"${bodyId}", node=n:0)), name="formal", role="parameter", ` +
-        'capturedFrom=null, mutable=true, storage=t:0)]');
+    const { body, expected } = parameterCodecFixture(passing, "required", null, true);
     assertBodyRoundTrip(body, expected, passing);
   });
 }
 
 for (const role of ["required", "optional", "default", "rest", "this"]) {
   test(`every formal record role ${role} has an independently framed complete codec value`, () => {
-    const body = emptyModuleBody();
     const initializer = role === "default" ? "B[D[M[P[p];m];formal];default-argument;0]" : null;
-    body.params = [{ local: 0, declaration: ownerId, role, passing: "by-value", initializer, storage: 0 }];
-    const expected = readFileSync(resolve(repository, functionDirectory, "empty-module.input.tir"), "utf8")
-      .replace("params=[]", `params=[TirParam(local=l:0, declaration=def:"${ownerId}", role="${role}", ` +
-        `passing="by-value", initializer=${initializer === null ? "null" : `body:"${initializer}"`}, storage=t:0)]`);
+    const { body, expected } = parameterCodecFixture("by-value", role, initializer, false);
     assertBodyRoundTrip(body, expected, role);
   });
 }
@@ -5592,7 +5710,7 @@ for (const [name, text, offset, expected, found] of [
   test(`F4 exact complete lexical/framing result ${name}`, () => assertInvalidText(text, offset, expected, found));
 }
 const beforeParams = beforeSignature + '0, completion=t:0, yielded=null, sent=null, params=';
-const completeParameter = `TirParam(local=l:0, declaration=def:"${ownerId}", role="required", passing="by-value", initializer=null, storage=t:0)`;
+const completeParameter = "n:1";
 const firstPositionCases = [
   ["empty", "", 0, ["value"], null],
   ["missing-first-field", "TirBody(", 8, ["body"], null],
@@ -5623,9 +5741,9 @@ const firstPositionCases = [
   ["earlier-type-later-missing-comma", "TirBody(body=null owner=null)", 13, ["body"], "null"],
   ["earlier-type-later-empty-field", "TirBody(body=null,)", 13, ["body"], "null"],
   ["array-eof", beforeParams + '[', beforeParams.length + 1, ["value", "]"], null],
-  ["array-element-before-eof", beforeParams + '[null', beforeParams.length + 1, ["TirParam"], "null"],
+  ["array-element-before-eof", beforeParams + '[null', beforeParams.length + 1, ["$ParameterDeclaration"], "null"],
   ["array-closed-record-before-eof", beforeParams + '[' + completeParameter, beforeParams.length + completeParameter.length + 1, [",", "]"], null],
-  ["array-trailing-comma", beforeParams + '[' + completeParameter + ',])', beforeParams.length + completeParameter.length + 2, ["TirParam"], "]"],
+  ["array-trailing-comma", beforeParams + '[' + completeParameter + ',])', beforeParams.length + completeParameter.length + 2, ["$ParameterDeclaration"], "]"],
 ];
 for (const [name, text, offset, expected, found] of firstPositionCases) {
   test(`first actual lexical/frame/typed error: ${name}`, () => {
@@ -6449,10 +6567,12 @@ for (const [position, role] of [[1, "this"], [0, "rest"]]) {
     const fixture = twoParameterScenario();
     const body = fixture.functionTemplate;
     const input = fixture.inputFor(body);
-    body.params[position].role = role;
-    assertCompleteValue(product.verifyTir(input, body), [bodyViolation("parameter-order",
-      "parameter records do not retain the actual declared formal order", fixture.functionBody)]);
-    body.params[position].role = "required";
+    body.params[position].tsonic.role = role;
+    assertCompleteValue(product.verifyTir(input, body), [
+      bodyViolation("parameter-order", "parameter records do not retain the actual declared formal order", fixture.functionBody),
+      nodeViolation("parameter-order", body.params[position].id, "parameter occurrence does not retain its actual declared formal and local association"),
+    ]);
+    body.params[position].tsonic.role = "required";
     assertCompleteValue(product.verifyTir(input, body), []);
   });
 }
@@ -7611,4 +7731,148 @@ after(async () => {
       assert.equal(file.functions, 100, basename(file.path));
     }
   } finally { profiler.disconnect(); }
+});
+test("header binding verification reads only its actual owning checked and published parameter inventories", async () => {
+  const { verifyBindingSlots } = await import("../../packages/host/dist/ir-tir/verify-instances.js");
+  const { walkSyntaxTree } = await import("../../packages/host/dist/ir-hir/index.js");
+  const fixture = genericFunctionScenario();
+  const body = fixture.functionTemplate;
+  const input = fixture.inputFor(body);
+  const sources = new Map(input.source.bodies.map(source => [source.body, source]));
+  for (const source of sources.values()) if (source !== fixture.originalFunction)
+    Object.defineProperty(source, "params", { get: () => assert.fail("an unrelated checked formal inventory was read") });
+  for (const published of input.module.bodies) if (published !== body)
+    Object.defineProperty(published, "params", { get: () => assert.fail("an unrelated published header inventory was read") });
+  const actual = fixture.originalFunction.params;
+  let reads = 0;
+  Object.defineProperty(fixture.originalFunction, "params", { get: () => { reads++; return actual; } });
+  const findings = [];
+  const emit = (rule, node, detail) => findings.push({ rule, node: node?.id ?? null, detail });
+  const nodes = walkSyntaxTree(body.root, []);
+  verifyBindingSlots(body, nodes, fixture.functionNodes, sources, input.module.bodies, input.bodyOf, emit);
+  assert.deepEqual(findings, []);
+  assert.equal(reads, 1, "the actual owning formal inventory is indexed once");
+  sources.delete(body.body);
+  verifyBindingSlots(body, nodes, fixture.functionNodes, sources, input.module.bodies, input.bodyOf, emit);
+  assert.equal(findings.some(value => value.rule === "parameter-order"), true,
+    "a missing owning inventory is not silently accepted");
+});
+
+test("nested header ownership reads only the exact parametric callable publication", async () => {
+  const { verifyBindingSlots } = await import("../../packages/host/dist/ir-tir/verify-instances.js");
+  const { walkSyntaxTree } = await import("../../packages/host/dist/ir-hir/index.js");
+  for (const kind of ["FunctionExpression", "FunctionDeclaration"]) {
+    const fixture = genericFunctionScenario();
+    const body = fixture.outer;
+    const nested = fixture.functionTemplate;
+    const input = fixture.inputFor(body);
+    const callable = kind === "FunctionExpression" ? nested.root
+      : { ...nested.root, kind, tsonic: nested.root.tsonic.callable };
+    const nodes = [callable, ...walkSyntaxTree(nested.params[0], [])];
+    const sources = new Map(input.source.bodies.map(source => [source.body, source]));
+    const findings = [];
+    const emit = (rule, node) => findings.push({ rule, node: node?.id ?? null });
+    const queries = [];
+    let publication = nested;
+    const bodyOf = instance => { queries.push(instance); return publication; };
+    const verify = () => verifyBindingSlots(body, nodes, fixture.functionNodes, sources, input.module.bodies, bodyOf, emit);
+    verify();
+    assert.deepEqual(findings, [], kind);
+    assert.deepEqual(queries, [{ body: nested.body, bindings: { kind: "parametric" } }]);
+    for (const wrong of [null, { ...nested, body: body.body }, { ...nested, owner: body.owner }, fixture.instances[0]]) {
+      publication = wrong;
+      findings.length = 0;
+      verify();
+      assert.equal(findings.some(value => value.rule === "parameter-order"), true,
+        `${kind}: an absent, foreign or instantiated row cannot own this parametric header`);
+      assert.equal(findings.some(value => value.rule === "binding-storage"), true,
+        `${kind}: nested header names cannot borrow the enclosing callable's locals`);
+    }
+    const selected = kind === "FunctionExpression" ? callable.tsonic.callable : callable.tsonic;
+    const template = selected.template;
+    selected.template = null;
+    queries.length = 0;
+    verify();
+    assert.equal(queries.length, 0, "a genuinely bodyless callable demands no publication");
+    selected.template = { ...template, body: body.body };
+    publication = nested;
+    verify();
+    assert.deepEqual(queries, [{ body: body.body, bindings: { kind: "parametric" } }],
+      "a foreign occurrence cannot become the current root merely by claiming its body key");
+  }
+});
+
+test("capture binding verification indexes each demanded owner's formal local relation once", async () => {
+  const { verifyBindingSlots } = await import("../../packages/host/dist/ir-tir/verify-instances.js");
+  const { encodeDefId } = await import("../../packages/host/dist/ids/index.js");
+  for (const count of [8, 64, 256]) {
+    const fixture = genericFunctionScenario();
+    const body = fixture.functionTemplate;
+    const input = fixture.inputFor(body);
+    const outer = input.source.bodies.find(source => source.body === bodyId);
+    let localReads = 0;
+    let inventoryReads = 0;
+    const formals = Array.from({ length: count }, (_, index) => ({
+      get local() { localReads++; return index; }, declaration: encodeDefId({ module: moduleId,
+        segments: [{ name: `formal${index}`, ordinal: 0 }] }), role: "required",
+      passing: index % 2 === 0 ? "borrow-mut" : "by-value", initializer: null,
+    }));
+    outer.locals = Array.from({ length: count + 2 }, (_, index) => ({ id: index,
+      declaration: { kind: "body", value: { body: bodyId, node: 0 } }, name: `p${index}`,
+      role: index === count + 1 ? "capture" : "parameter", checkerSlot: available(0), capturedFrom: null, mutable: false }));
+    Object.defineProperty(outer, "params", { get: () => { inventoryReads++; return formals; } });
+    const captures = outer.locals.map(local => ({ body: bodyId, local: local.id }));
+    fixture.checkedFunction.tsonic.captures = captures;
+    const evidence = { type: 3, component: { kind: "body", value: { body: body.body, node: body.root.id } },
+      category: { kind: "known", category: "number" }, numeric: null, sum: null, nominal: null, pointer: null };
+    const saved = captures.map((local, index) => ({ local, value: evidence, reassignable: false,
+      incoming: index < count ? { kind: "parameter", passing: formals[index].passing }
+        : index === count ? { kind: "binding" } : { kind: "parameter", passing: "move" } }));
+    const deferred = captures => ({ kind: "deferred", deferred: { result: 4, invocation: { rule: "closure", input: {
+      context: { occurrence: { body: body.body, node: body.root.id }, origin: origin(), bindings: body.lexicalBindings },
+      callable: { ...evidence, type: 4, category: { kind: "known", category: "callable" } }, captures } } } });
+    body.root.tsonic.closure = deferred(saved);
+    const findings = [];
+    const emit = (rule, node) => findings.push({ rule, node: node?.id ?? null });
+    const sources = new Map(input.source.bodies.map(source => [source.body, source]));
+    const verify = () => verifyBindingSlots(body, [body.root], fixture.functionNodes, sources, input.module.bodies, input.bodyOf, emit);
+    verify();
+    assert.deepEqual(findings, []);
+    assert.equal(inventoryReads, 1, "all captured formals borrow the same actual demanded-owner inventory");
+    assert.equal(localReads, count * 2, "one formal index read and one exact local match per captured formal");
+    for (const index of [count - 1, count]) {
+      findings.length = 0;
+      body.root.tsonic.closure = deferred(saved.map((capture, position) => position === index
+        ? { ...capture, incoming: position === count ? { kind: "parameter", passing: "by-value" } : { kind: "binding" } } : capture));
+      verify();
+      assert.equal(findings.some(finding => finding.rule === "closure-capture-binding"), true,
+        "a pattern-bound child remains its own binding and a real formal retains its exact passing evidence");
+    }
+    findings.length = 0;
+    body.root.tsonic.closure = deferred(saved.map((capture, index) => index === 0
+      ? { ...capture, local: { ...capture.local, local: -0 }, incoming: { kind: "parameter", passing: "move" } } : capture));
+    verify();
+    assert.equal(findings.some(finding => finding.rule === "capture-qualified"), true);
+    assert.equal(findings.some(finding => finding.rule === "closure-capture-binding"), false,
+      "a nonidentical local index cannot borrow another formal's passing evidence");
+  }
+});
+
+test("a parametric body reuses its exact canonical selected header rather than a detached equal copy", () => {
+  const fixture = genericFunctionScenario();
+  const body = fixture.functionTemplate;
+  assertCompleteValue(product.verifyTir(fixture.inputFor(body), body), []);
+  const canonical = body.params[0];
+  body.params = [structuredClone(canonical)];
+  assert.equal(product.verifyTir(fixture.inputFor(body), body).some(value => value.rule === "module-node-identity"), true);
+  body.params = [canonical];
+  assertCompleteValue(product.verifyTir(fixture.inputFor(body), body), []);
+});
+
+test("the removed scalar TirParam record is not a selected parameter occurrence", () => {
+  const retired = `TirParam(local=l:0, declaration=def:"${ownerId}", role="required", passing="by-value", initializer=null, storage=t:0)`;
+  const text = completeEmptyWire.replace("params=[]", `params=[${retired}]`);
+  const offset = text.indexOf("TirParam(");
+  assertCompleteValue(product.parseTir(text), { kind: "invalid-text", offset, line: 1, column: offset + 1,
+    expected: ["$ParameterDeclaration"], found: "TirParam" });
 });

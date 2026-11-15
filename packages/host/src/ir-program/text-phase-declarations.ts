@@ -45,6 +45,7 @@ export function textTypedParameter(value: TypedParameter): TextWork {
       field("storage", numericIdentity("t", value.storage)),
       field("passing", text(value.passing)),
       field("initializer", (value.initializer === null ? token("null") : identity("body", value.initializer))),
+      field("role", text(value.role)),
     ]);
   });
 }

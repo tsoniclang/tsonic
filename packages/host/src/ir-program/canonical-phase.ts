@@ -270,7 +270,7 @@ export function rewriteIteration(rewrite: TypeRewrite, value: TypedIteration, at
 export function rewriteTypedParameter(rewrite: TypeRewrite, value: TypedParameter): TypedParameter {
   return {
     declaration: value.declaration, local: value.local, storage: rewrite.type(value.storage),
-    passing: value.passing, initializer: value.initializer,
+    passing: value.passing, initializer: value.initializer, role: value.role,
   };
 }
 

@@ -46,6 +46,7 @@ interface TirWireUse {
   readonly bindings: readonly TirWireBinding[];
   readonly token: TirLexeme;
   readonly target: TirWireRecord;
+  readonly owner: TirWireRecord | null;
 }
 
 interface TirReadState {
@@ -462,7 +463,7 @@ const readSchemaValue = (state: TirReadState, initial: TirValueRead): TirComplet
           }
           if (bindings.length > 0) {
             const target = wireRecord(state, value.value);
-            const use: TirWireUse = { position: state.references.length, ordinal: value.value, target, bindings,
+            const use: TirWireUse = { position: state.references.length, ordinal: value.value, target, bindings, owner: current.arena,
               token: { ...token, text: token.text + ":" + value.text, end: value.end } };
             if (current.arena !== null) current.arena.children.push(use);
             state.references.push(use);
@@ -620,7 +621,11 @@ const verifyWireReferences = (state: TirReadState): void => {
     }
   }
   const visited = new Set<number>();
-  const pending = state.references.slice(0, 1).map(use => use.target);
+  const pending: TirWireRecord[] = [];
+  for (let index = state.references.length - 1; index >= 0; index--) {
+    const use = state.references[index];
+    if (use !== undefined && use.owner === null) pending.push(use.target);
+  }
   for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
     if (visited.has(node.ordinal) || node.declaration === null) continue;
     const position = visited.size;

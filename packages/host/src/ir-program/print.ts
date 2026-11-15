@@ -86,12 +86,7 @@ function tirBodyRecord(value: TirBody, context: SyntaxTextContext): TextWork {
     field("completion", numericIdentity("t", value.completion)),
     field("yielded", nullable(value.yielded, type => numericIdentity("t", type))),
     field("sent", nullable(value.sent, type => numericIdentity("t", type))),
-    field("params", sequence(value.params, parameter => deferred(parameter, () => record("TirParam", [
-      field("local", numericIdentity("l", parameter.local)), field("declaration", identity("def", parameter.declaration)),
-      field("role", text(parameter.role)), field("passing", text(parameter.passing)),
-      field("initializer", nullable(parameter.initializer, body => identity("body", body))),
-      field("storage", numericIdentity("t", parameter.storage)),
-    ])))),
+    field("params", sequence(value.params, parameter => context.reference(parameter))),
     field("locals", sequence(value.locals, local => deferred(local, () => record("TirLocal", [
       field("id", numericIdentity("l", local.id)), field("declaration", textSourceNodeRef(local.declaration)),
       field("name", text(local.name)), field("role", text(local.role)),

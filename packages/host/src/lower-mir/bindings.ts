@@ -1,6 +1,6 @@
 import { requirePresent } from "../diag/index.js";
 import type { BodyId, LocalRef } from "../ids/contract.js";
-import type { Block, NodeHeader, VariableDeclaration, VariableStatement } from "../ir-hir/contract.js";
+import type { Block, NodeHeader, VariableDeclaration, VariableDeclarationList } from "../ir-hir/contract.js";
 import type { MirClosureCapture } from "../ir-mir/contract.js";
 import type { TirNode, TypedPhase } from "../ir-tir/contract.js";
 import type { InternalBodyInput } from "./contract.js";
@@ -35,13 +35,12 @@ export function endLocalBlock(lowering: Lowering, node: Block<TypedPhase>, scope
   return true;
 }
 
-export function declarations(lowering: Lowering, node: VariableStatement<TypedPhase>): boolean {
-  const list = node.declarationList;
-  if (list.tsonic.role !== "ordinary") return notLoweredYet("a using declaration", node.origin);
-  if (list.declarations.nodes.length === 0) return callerDefect("an empty variable declaration list", node.origin);
+export function declarations(lowering: Lowering, list: VariableDeclarationList<TypedPhase>): boolean {
+  if (list.tsonic.role !== "ordinary") return notLoweredYet("a using declaration", list.origin);
+  if (list.declarations.nodes.length === 0) return callerDefect("an empty variable declaration list", list.origin);
   const lexical = list.flags.includes("Let") || list.flags.includes("Const");
   for (let index = list.declarations.nodes.length - 1; index >= 0; index -= 1) {
-    const declaration = requirePresent(list.declarations.nodes[index], failure("a variable declaration list has a hole", node.origin));
+    const declaration = requirePresent(list.declarations.nodes[index], failure("a variable declaration list has a hole", list.origin));
     if (declaration.kind !== "VariableDeclaration") return callerDefect("a missing variable declaration", declaration.origin);
     lowering.work.push({ kind: "declaration", node: declaration, lexical });
   }

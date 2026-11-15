@@ -214,11 +214,11 @@ const isNode = value => value !== null && typeof value === "object" && typeof va
 const isList = value => value !== null && typeof value === "object" && value.$list === true;
 
 /** Assigns node identities in pre-order. Returns the sealed root and the label table. */
-export function seal(name, root, role = "function") {
+export function seal(name, root, role = "function", first = 0) {
   const body = bodyId(name, role);
   const labels = new Map();
   const pending = [];
-  let next = 0;
+  let next = first;
   const visit = (node, parent) => {
     const id = next;
     next += 1;
@@ -249,15 +249,31 @@ export function typedBody(name, { signature: signatureId, completion, params = [
   nestedBodies = [], asynchronous = false, generator = false, yielded = null, sent = null, role = "function", extra = {} }) {
   const body = bodyId(name, role);
   const sealed = seal(name, root, role);
+  const b = builders(name, role);
+  let count = sealed.count;
+  const parameters = params.map(([local, parameterRole, storage, initializer = null, passing = "by-value"]) => {
+    const syntax = seal(name, { kind: "Parameter", modifiers: null,
+      dotDotDotToken: parameterRole === "rest" ? token("DotDotDotToken") : null,
+      name: b.declName(locals[local][0], local), questionToken: parameterRole === "optional" ? token("QuestionToken") : null,
+      type: null, initializer: null,
+      tsonic: { declaration: def(`${name}.${locals[local][0]}`), local: { body, local }, storage, passing, initializer, role: parameterRole },
+    }, role, count);
+    count = syntax.count;
+    return syntax.root;
+  });
+  const parameterLocals = new Map(parameters.map(parameter => [parameter.tsonic.local.local, parameter]));
   return {
-    labels: sealed.labels, at: sealed.at, nodeRef: sealed.nodeRef, nodeCount: sealed.count,
+    labels: sealed.labels, at: sealed.at, nodeRef: sealed.nodeRef, nodeCount: count,
     tir: {
       body, owner: def(name), bindings: PARAMETRIC, lexicalBindings: EMPTY_BINDINGS, dependence: "parametric",
       signature: signatureId, completion, yielded, sent,
-      params: params.map(([local, role, storage, initializer = null, passing = "by-value"]) =>
-        ({ local, declaration: def(`${name}.${locals[local][0]}`), role, passing, initializer, storage })),
-      locals: locals.map(([localName, role, storage, mutable = false, capturedFrom = null], id) =>
-        ({ id, declaration: { kind: "body", value: { body, node: 0 } }, name: localName, role, capturedFrom, mutable, storage })),
+      params: parameters,
+      locals: locals.map(([localName, role, storage, mutable = false, capturedFrom = null], id) => {
+        const parameter = parameterLocals.get(id);
+        return { id, declaration: parameter === undefined ? { kind: "body", value: { body, node: 0 } }
+          : { kind: "item", value: { owner: parameter.tsonic.declaration, node: parameter.id } },
+        name: localName, role, capturedFrom, mutable, storage };
+      }),
       root: sealed.root, nestedBodies, captures, scopes: [], evidence: [], asynchronous, generator, ...extra,
     },
   };

@@ -1,7 +1,8 @@
 import { requirePresent } from "../diag/index.js";
+import type { LocalId } from "../ids/contract.js";
 import type { CallExpression, Expression } from "../ir-hir/contract.js";
 import type { MirCallArgument } from "../ir-mir/contract.js";
-import type { TypedPhase } from "../ir-tir/contract.js";
+import type { TypedPhase, TypedValue } from "../ir-tir/contract.js";
 import type { Lowering, Work } from "./model.js";
 import { callerDefect, failure, notLoweredYet, siteOf } from "./model.js";
 import { exposeLocal, held, popOperand, pushOperand, saveHandedOut, temporary } from "./operands.js";
@@ -36,13 +37,20 @@ export function argumentPlace(lowering: Lowering, node: Expression<TypedPhase>):
       return callerDefect("a place argument has a value conversion or narrowing", target.origin);
     target = target.expression;
   }
-  if (target.kind !== "Identifier") return notLoweredYet(`a place argument of kind ${target.kind}`, target.origin);
-  const selected = target.tsonic;
-  if (selected.role !== "value") return callerDefect("a place argument without its selected value", target.origin);
+  let selected: TypedValue;
+  let local: LocalId | undefined;
+  if (target.kind === "Identifier") {
+    if (target.tsonic.role !== "value") return callerDefect("a place argument without its selected value", target.origin);
+    selected = target.tsonic;
+    if (target.tsonic.resolution.kind !== "local") return notLoweredYet(`a place argument resolved to a ${target.tsonic.resolution.kind}`, target.origin);
+    local = target.tsonic.resolution.local.body === lowering.body.body ? lowering.localOf.get(target.tsonic.resolution.local.local) : undefined;
+  } else if (target.kind === "ThisKeyword") {
+    if (target.tsonic.role !== "receiver") return callerDefect("a place argument without its selected receiver", target.origin);
+    selected = target.tsonic;
+    local = lowering.receiver ?? undefined;
+  } else return notLoweredYet(`a place argument of kind ${target.kind}`, target.origin);
   if (selected.conversion.kind !== "identity" || selected.narrowing !== null)
     return callerDefect("a place argument has a value conversion or narrowing", target.origin);
-  if (selected.resolution.kind !== "local") return notLoweredYet(`a place argument resolved to a ${selected.resolution.kind}`, target.origin);
-  const local = selected.resolution.local.body === lowering.body.body ? lowering.localOf.get(selected.resolution.local.local) : undefined;
   if (local === undefined) return callerDefect("a place argument has no local storage in the body", target.origin);
   const place = placeOfLocal(lowering.state, local);
   if (place === null) return false;

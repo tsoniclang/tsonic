@@ -1,7 +1,6 @@
-import type { BodyRoot } from "../ir-hir/contract.js";
 import type { SyntaxInventory } from "./syntax-arena.js";
 import { inventorySyntax, moduleSyntaxRoots } from "./syntax-arena.js";
-import type { TypedPhase } from "../ir-tir/contract.js";
+import type { TirBody } from "../ir-tir/contract.js";
 import type { ModuleBodies } from "./contract.js";
 import type { TypeRewrite } from "./canonical-types.js";
 import { rewriteArtifactBindings, rewriteExecution, rewriteInstance } from "./canonical-types.js";
@@ -435,9 +434,10 @@ function materializedSyntax(rewrite: TypeRewrite, syntax: SyntaxInventory, at: s
 }
 
 export function rewriteBodySyntax(
-  rewrite: TypeRewrite, root: BodyRoot<TypedPhase>, syntax: SyntaxInventory, at: string,
-): BodyRoot<TypedPhase> {
-  return materializedSyntax(rewrite, syntax, at).BodyRoot(root)();
+  rewrite: TypeRewrite, body: TirBody, syntax: SyntaxInventory, at: string,
+): Pick<TirBody, "root" | "params"> {
+  const ports = materializedSyntax(rewrite, syntax, at);
+  return { root: ports.BodyRoot(body.root)(), params: body.params.map(parameter => ports.ParameterDeclaration(parameter)()) };
 }
 
 export function rewriteModuleSyntax(rewrite: TypeRewrite, module: ModuleBodies, at: string): ModuleBodies {
@@ -447,7 +447,8 @@ export function rewriteModuleSyntax(rewrite: TypeRewrite, module: ModuleBodies, 
     tree: ports.SourceFile(module.tree)(),
     bodies: module.bodies.map((body, position) => ({
       instance: rewriteInstance(rewrite, body.instance),
-      tir: rewriteTirBody(rewrite, body.tir, ports.BodyRoot(body.tir.root)(), rewriteArtifactBindings(rewrite, body.tir.bindings)),
+      tir: rewriteTirBody(rewrite, body.tir, ports.BodyRoot(body.tir.root)(), rewriteArtifactBindings(rewrite, body.tir.bindings),
+        body.tir.params.map(parameter => ports.ParameterDeclaration(parameter)())),
       mir: rewriteMirBody(rewrite, body.mir, at + ".bodies[" + position + "].mir", rewriteArtifactBindings(rewrite, body.mir.bindings)),
       facts: body.facts.map(facts => rewriteBodyFacts(rewrite, facts, rewriteExecution(rewrite, facts.execution))),
       observations: rewriteObservations(rewrite, body.observations),

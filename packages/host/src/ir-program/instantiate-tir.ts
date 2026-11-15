@@ -8,7 +8,7 @@ import { inventoryArtifactBindings, inventoryBindings, inventoryEach, inventoryE
 import { inventoryCallee, inventorySelection, inventoryTypedOperation } from "./instantiate-phase.js";
 
 export function inventoryTirBody(scan: ProjectionInventory, value: TirBody): InstantiationStop | null {
-  inventoryEach(scan, value.params, parameter => inventoryRecord(scan, 6) ?? inventoryType(scan, parameter.storage));
+  inventoryEach(scan, value.params, () => inventoryFields(scan, 1));
   inventoryEach(scan, value.locals, local => inventoryRecord(scan, 7) ?? inventoryType(scan, local.storage));
   inventoryEach(scan, value.evidence, evidence => inventoryEvidence(scan, evidence));
   return inventoryRecord(scan, 18) ?? inventoryBindings(scan, value.lexicalBindings)

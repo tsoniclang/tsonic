@@ -1,8 +1,8 @@
 import type { DefId, BodyId, NodeId, LocalId, TyId, SigId, SourceNodeRef, LocalRef } from "../ids/contract.js";
-import type { BindingVector, ArtifactBindings, BodyInstance, PassingMode, TypeEvidence } from "../ir-types/contract.js";
-import type { BodyRoot, ImportTarget, HirLexicalScope } from "../ir-hir/contract.js";
+import type { BindingVector, ArtifactBindings, BodyInstance, TypeEvidence } from "../ir-types/contract.js";
+import type { BodyRoot, ImportTarget, HirLexicalScope, ParameterDeclaration } from "../ir-hir/contract.js";
 import type { BodyCaptureRow, FlowRole, EmbeddingDecision, MemberDecision, ApplicationDecision, OperationDecision, OperationIdentity, DeferredDecision, RefinementDecision } from "../ir-infer/contract.js";
-import type { BackedConversionIdentity, ConversionIdentity, TypedOperationOf, TypedOperation, TirResolution, ResolvedCallee, MemberSelection, TirArgument, TirRestPart, TirApplication, TirProtocolStep, TirProtocol, TirSelection, TirDemand, ConversionDecision, TypedValue, TargetAccess, TypedPhase, TirLocal, TirParam, TirBody } from "../ir-tir/contract.js";
+import type { BackedConversionIdentity, ConversionIdentity, TypedOperationOf, TypedOperation, TirResolution, ResolvedCallee, MemberSelection, TirArgument, TirRestPart, TirApplication, TirProtocolStep, TirProtocol, TirSelection, TirDemand, ConversionDecision, TypedValue, TargetAccess, TypedPhase, TirLocal, TirBody } from "../ir-tir/contract.js";
 import type { Cursor, RecordFields, TextReader, TextStep } from "./parse-values.js";
 import type { SyntaxValue, SyntaxReadPorts } from "./parse-syntax-values.js";
 import { delimiter, readString, readNumber, choice, readBoolean, readStringChoice, readSignatureId, openRecord, closeRecord, readDefinitionId, readBodyId, readTypeId, readNodeId, readLocalId, acceptText, atomicText, fieldText, nullableText, arrayText } from "./parse-values.js";
@@ -260,18 +260,6 @@ export function readTypedValueText<Root>(cursor: Cursor, finish: (value: TypedVa
                   acceptText({ type: typeValue, convertedType: convertedTypeValue, conversion: conversionValue, narrowing: narrowingValue, evidenceIndex: evidenceIndexValue, demand: demandValue }, finish)))))))));
 }
 
-export function readTirParamText<Root>(cursor: Cursor, finish: (value: TirParam) => TextStep<Root>): TextStep<Root> {
-  return atomicText(cursor, next => openRecord(next, "TirParam"), fields =>
-    fieldText<LocalId, Root>(cursor, fields, "local", (next, done) => atomicText(next, readLocalId, done), localValue =>
-    fieldText<DefId, Root>(cursor, fields, "declaration", (next, done) => atomicText(next, readDefinitionId, done), declarationValue =>
-      fieldText<"required" | "optional" | "default" | "rest" | "this", Root>(cursor, fields, "role", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["required","optional","default","rest","this"]), done), roleValue =>
-        fieldText<PassingMode, Root>(cursor, fields, "passing", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["by-value","byref-readonly","byref-readwrite","byref-writeonly-must-init","borrow-shared","borrow-mut","move"]), done), passingValue =>
-          fieldText<BodyId | null, Root>(cursor, fields, "initializer", (next, done) => nullableText(next, (next, done) => atomicText(next, readBodyId, done), done), initializerValue =>
-            fieldText<TyId, Root>(cursor, fields, "storage", (next, done) => atomicText(next, readTypeId, done), storageValue =>
-              atomicText(cursor, next => closeRecord(next, fields), () =>
-                  acceptText({ local: localValue, declaration: declarationValue, role: roleValue, passing: passingValue, initializer: initializerValue, storage: storageValue }, finish)))))))));
-}
-
 export function readTirLocalText<Root>(cursor: Cursor, finish: (value: TirLocal) => TextStep<Root>): TextStep<Root> {
   return atomicText(cursor, next => openRecord(next, "TirLocal"), fields =>
     fieldText<LocalId, Root>(cursor, fields, "id", (next, done) => atomicText(next, readLocalId, done), idValue =>
@@ -296,7 +284,7 @@ export function readTirBodyText<Root>(cursor: Cursor, ports: SyntaxReadPorts, fi
     fieldText<TyId, Root>(cursor, fields, "completion", (next, done) => atomicText(next, readTypeId, done), completionValue =>
     fieldText<TyId | null, Root>(cursor, fields, "yielded", (next, done) => nullableText(next, (next, done) => atomicText(next, readTypeId, done), done), yieldedValue =>
     fieldText<TyId | null, Root>(cursor, fields, "sent", (next, done) => nullableText(next, (next, done) => atomicText(next, readTypeId, done), done), sentValue =>
-    fieldText<readonly (TirParam)[], Root>(cursor, fields, "params", (next, done) => arrayText(next, readTirParamText, done), paramsValue =>
+    fieldText<readonly SyntaxValue<ParameterDeclaration<TypedPhase>>[], Root>(cursor, fields, "params", (next, done) => arrayText(next, (current, accept) => readSyntaxReference(current, ports.ParameterDeclaration, accept), done), paramsValue =>
     fieldText<readonly (TirLocal)[], Root>(cursor, fields, "locals", (next, done) => arrayText(next, readTirLocalText, done), localsValue =>
     fieldText<SyntaxValue<BodyRoot<TypedPhase>>, Root>(cursor, fields, "root", (next, done) => readSyntaxReference(next, ports.BodyRoot, done), rootValue =>
     fieldText<readonly (BodyId)[], Root>(cursor, fields, "nestedBodies", (next, done) => arrayText(next, (next, done) => atomicText(next, readBodyId, done), done), nestedBodiesValue =>
@@ -306,6 +294,6 @@ export function readTirBodyText<Root>(cursor: Cursor, ports: SyntaxReadPorts, fi
     fieldText<boolean, Root>(cursor, fields, "asynchronous", (next, done) => atomicText(next, readBoolean, done), asynchronousValue =>
     fieldText<boolean, Root>(cursor, fields, "generator", (next, done) => atomicText(next, readBoolean, done), generatorValue =>
     finishSyntaxRecord<TirBody, Root>(cursor, fields, {
-      resolve: () => resolveSyntaxValue(rootValue, root => ({ body: bodyValue, owner: ownerValue, bindings: bindingsValue, lexicalBindings: lexicalBindingsValue, dependence: dependenceValue, signature: signatureValue, completion: completionValue, yielded: yieldedValue, sent: sentValue, params: paramsValue, locals: localsValue, root: root, nestedBodies: nestedBodiesValue, captures: capturesValue, scopes: scopesValue, evidence: evidenceValue, asynchronous: asynchronousValue, generator: generatorValue })),
+      resolve: () => resolveSyntaxValue(rootValue, root => ({ body: bodyValue, owner: ownerValue, bindings: bindingsValue, lexicalBindings: lexicalBindingsValue, dependence: dependenceValue, signature: signatureValue, completion: completionValue, yielded: yieldedValue, sent: sentValue, params: paramsValue.map(parameter => parameter.resolve()), locals: localsValue, root: root, nestedBodies: nestedBodiesValue, captures: capturesValue, scopes: scopesValue, evidence: evidenceValue, asynchronous: asynchronousValue, generator: generatorValue })),
     }, finish))))))))))))))))))));
 }

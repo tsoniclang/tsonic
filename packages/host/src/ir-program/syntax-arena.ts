@@ -63,44 +63,51 @@ export interface SyntaxInventory {
   readonly firstRootSize: number;
 }
 
-export function moduleSyntaxRoots(module: ModuleBodies, at: string): readonly SyntaxRoot[] {
-  return [
-    { node: module.tree, path: at + ".tree" },
-    ...module.bodies.map((body, position) => ({ node: body.tir.root, path: at + ".bodies[" + position + "].tir.root" })),
-  ];
+export function* moduleSyntaxRoots(module: ModuleBodies, at: string): Generator<SyntaxRoot> {
+  yield { node: module.tree, path: at + ".tree" };
+  for (const [position, body] of module.bodies.entries()) {
+    yield { node: body.tir.root, path: at + ".bodies[" + position + "].tir.root" };
+    for (const [index, parameter] of body.tir.params.entries())
+      yield { node: parameter, path: at + ".bodies[" + position + "].tir.params[" + index + "]" };
+  }
 }
 
 export type SyntaxVisit =
   | { readonly kind: "node"; readonly node: SyntaxNode<TypedPhase> }
   | { readonly kind: "edge"; readonly node: SyntaxNode<TypedPhase> };
 
-export function inventorySyntax(roots: readonly SyntaxRoot[]): SyntaxInventory {
+export function inventorySyntax(roots: Iterable<SyntaxRoot>): SyntaxInventory {
   const traversal = walkSyntax(roots);
   let step = traversal.next();
   while (!step.done) step = traversal.next();
   return step.value;
 }
 
-export function* walkSyntax(roots: readonly SyntaxRoot[]): Generator<SyntaxVisit, SyntaxInventory> {
+export function* walkSyntax(roots: Iterable<SyntaxRoot>): Generator<SyntaxVisit, SyntaxInventory> {
   interface Path { readonly parent: Path | null; readonly segment: string }
   type Work = { readonly kind: "enter"; readonly node: SyntaxNode<TypedPhase>; readonly path: Path }
     | { readonly kind: "leave"; readonly node: SyntaxNode<TypedPhase> }
     | { readonly kind: "children"; readonly iterator: Iterator<SyntaxEdge>; readonly path: Path }
-    | { readonly kind: "first-root-end" };
+    | { readonly kind: "first-root-end" }
+    | { readonly kind: "root"; readonly iterator: Iterator<SyntaxRoot>; readonly first: boolean };
   const wire = new Map<SyntaxNode<TypedPhase>, number>();
   const active = new Set<SyntaxNode<TypedPhase>>();
   const nodes: SyntaxNode<TypedPhase>[] = [];
   const postorder: SyntaxNode<TypedPhase>[] = [];
-  const pending: Work[] = [];
+  const pending: Work[] = [{ kind: "root", iterator: roots[Symbol.iterator](), first: true }];
   let firstRootSize = 0;
-  for (const [position, root] of roots.entries()) {
-    pending.push({ kind: "enter", node: root.node, path: { parent: null, segment: root.path } });
-    if (position === 0) pending.push({ kind: "first-root-end" });
-  }
-  pending.reverse();
   let task = pending.pop();
   while (task !== undefined) {
     switch (task.kind) {
+      case "root": {
+        const selected = task.iterator.next();
+        if (!selected.done) {
+          pending.push({ ...task, first: false });
+          if (task.first) pending.push({ kind: "first-root-end" });
+          pending.push({ kind: "enter", node: selected.value.node, path: { parent: null, segment: selected.value.path } });
+        }
+        break;
+      }
       case "first-root-end": firstRootSize = nodes.length; break;
       case "leave": active.delete(task.node); postorder.push(task.node); break;
       case "children": {

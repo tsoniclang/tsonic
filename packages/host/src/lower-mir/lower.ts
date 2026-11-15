@@ -71,18 +71,20 @@ function enter(lowering: Lowering, root: Block<TypedPhase> | Expression<TypedPha
   const capturedLocals = body.captures.length === 0 ? null : captureIndex(body, root);
   let parameters = 0;
   const signature = lowering.signatureOf(body.signature);
-  for (const row of body.params) {
+  for (const header of body.params) {
+    const row = header.tsonic;
+    if (row.local.body !== body.body) return callerDefect("a parameter names another body", header.origin);
     if (row.role !== "required" && row.role !== "this") return notLoweredYet(`a parameter of role ${row.role}`, root.origin);
     if (row.role !== "this" && signature.parameters[parameters]?.acceptsOmission)
       return notLoweredYet("an omitted entry without its selected parameter occurrence", root.origin);
     if (row.role === "this" && lowering.receiver !== null) return callerDefect("two selected receiver parameter rows", root.origin);
     const role: MirLocalRole = row.role === "this" ? { kind: "receiver" } : { kind: "parameter", index: parameters };
     const local = newLocal(state, row.storage, role, row.passing,
-      { body: body.body, local: row.local }, root.origin);
+      row.local, header.origin);
     if (local === null) return false;
     if (row.role !== "this") parameters += 1;
     else lowering.receiver = local;
-    lowering.localOf.set(row.local, local);
+    lowering.localOf.set(row.local.local, local);
     // The local of a row not passed by value or moved is the caller's storage: handed out from entry.
     if (localOwnershipOfMir(row.passing) === "external") lowering.preservedLocals.add(local);
   }
@@ -192,9 +194,12 @@ function statement(lowering: Lowering, node: Statement<TypedPhase>): boolean {
     case "ContinueStatement": return continues(lowering, node);
     case "DoStatement": return enterDo(lowering, node);
     case "ForStatement":
-      if (node.initializer !== null && node.initializer.kind === "VariableDeclarationList") return notLoweredYet("for initialization by declarations", node.origin);
       if (node.initializer !== null && node.initializer.kind === "MissingDeclaration") return callerDefect("a missing declaration in for initialization", node.origin);
+      if (node.initializer?.kind === "VariableDeclarationList"
+        && (node.initializer.flags.includes("Let") || node.initializer.flags.includes("Const")))
+        return notLoweredYet("for initialization by declarations", node.origin);
       lowering.work.push({ kind: "for", node });
+      if (node.initializer?.kind === "VariableDeclarationList") return declarations(lowering, node.initializer);
       if (node.initializer !== null) lowering.work.push({ kind: "discard", node }, { kind: "expression", node: node.initializer });
       return true;
     case "IfStatement":
@@ -205,7 +210,7 @@ function statement(lowering: Lowering, node: Statement<TypedPhase>): boolean {
     case "ExpressionStatement":
       lowering.work.push({ kind: "discard", node }, { kind: "expression", node: node.expression });
       return true;
-    case "VariableStatement": return declarations(lowering, node);
+    case "VariableStatement": return declarations(lowering, node.declarationList);
     case "Block": return enterLocalBlock(lowering, node);
     case "ReturnStatement":
       if (node.expression === null) {
@@ -345,7 +350,12 @@ function unary(lowering: Lowering, node: NodeHeader, operand: Expression<TypedPh
 
 function assignment(lowering: Lowering, node: BinaryExpression<TypedPhase>, payload: Extract<TypedBinary, { readonly role: "assignment" }>): boolean {
   if (payload.selection !== null) return notLoweredYet("a conditional assignment", node.origin);
-  const target = node.left;
+  let target = node.left;
+  while (target.kind === "ParenthesizedExpression") {
+    if (target.tsonic.conversion.kind !== "identity" || target.tsonic.narrowing !== null)
+      return callerDefect("an assignment target has a value conversion or narrowing", target.origin);
+    target = target.expression;
+  }
   if (target.kind !== "Identifier") return notLoweredYet(`an assignment target of kind ${target.kind}`, target.origin);
   const selected = target.tsonic;
   if (selected.role !== "assignment-target") return callerDefect("an assignment without a selected target", target.origin);

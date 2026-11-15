@@ -255,7 +255,7 @@ export function nullableSyntaxCases(node, definition, body) {
   const parameter = parent => {
     const own = header(parent);
     return { ...own, kind: "Parameter", modifiers: null, dotDotDotToken: null, name: name(own.id), questionToken: null,
-      type: null, initializer: null, tsonic: { declaration: definition, local: { body, local: 0 }, storage: 0, passing: "by-value", initializer: null } };
+      type: null, initializer: null, tsonic: { declaration: definition, local: { body, local: 0 }, storage: 0, passing: "by-value", initializer: null, role: "required" } };
   };
   const typeParameter = parent => {
     const own = header(parent);

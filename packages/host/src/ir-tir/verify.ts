@@ -1,6 +1,6 @@
 import type { BodyId, CandidateListId, DefId, NodeId, SourceNodeRef } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
-import type { CheckedPhase, HirApplication, HirBody, HirCandidate, HirModule, HirNode } from "../ir-hir/contract.js";
+import type { CheckedPhase, HirApplication, HirBody, HirCandidate, HirModule, HirNode, ParameterDeclaration } from "../ir-hir/contract.js";
 import type { Diagnostic, Violation } from "../diag/contract.js";
 import { childrenOfSyntax, hasOverloadEndpoints, indexSyntaxTree, walkSyntaxTree } from "../ir-hir/index.js";
 import type { BindingVerificationInput, BodyInstance, TypeEvidence, TypeRule, TypeTable } from "../ir-types/contract.js";
@@ -10,7 +10,7 @@ import type { TirOccurrenceEmit, TirStructure, TirTypeGraph } from "./verify-occ
 import { collectTirSemantics, inspectTirStructure, sameLocalReference, sameSourceReference, typedValueOf, verifyDeferredParameters, verifyOccurrenceOperation, verifyOccurrenceRole, verifyOperationShape, verifyValueEndpoints } from "./verify-occurrences.js";
 import type { TirDeclarationInventory, TirMemberInventory } from "./verify-applications.js";
 import { applicationOf, declarationEndpoints, indexMembers, verifyActivation, verifyArgumentTransport, verifyCallEndpoints, verifyMemberDecision, verifyMemberSelection, verifyProtocolOperation, verifyProtocolRecord } from "./verify-applications.js";
-import { sameBindingScope, verifyBindingSlots, verifyControlledContexts, verifyNestedPublication, verifyPublicationInventory, verifyPublishedInstance, verifyQualifiedReferences } from "./verify-instances.js";
+import { sameBindingScope, sameParameterSelection, verifyBindingSlots, verifyControlledContexts, verifyNestedPublication, verifyPublicationInventory, verifyPublishedInstance, verifyQualifiedReferences } from "./verify-instances.js";
 import { sameSyntaxFields } from "./syntax-compare.js";
 import { createTirLayouts } from "./text-model.js";
 
@@ -28,7 +28,9 @@ const validRange = (start: number, length: number): boolean =>
 
 interface TirSourceBoundary {
   readonly original: HirBody | undefined;
+  readonly bodies: ReadonlyMap<BodyId, HirBody>;
   readonly nestedRoots: ReadonlySet<NodeId>;
+  readonly headers: readonly (ParameterDeclaration<CheckedPhase> | null)[];
 }
 
 interface IndexedTypeViolation {
@@ -49,7 +51,7 @@ const indexTypeViolation = (
   else findings.push(violation);
 };
 
-const readSourceBoundary = (body: BodyId, source: HirModule): TirSourceBoundary => {
+const readSourceBoundary = (body: BodyId, source: HirModule, nodeOf: TirVerifierInput["nodeOf"]): TirSourceBoundary => {
   const sourceBodies = new Map<BodyId, HirBody>();
   for (const candidate of source.bodies) if (candidate !== undefined) sourceBodies.set(candidate.body, candidate);
   const original = sourceBodies.get(body);
@@ -58,13 +60,26 @@ const readSourceBoundary = (body: BodyId, source: HirModule): TirSourceBoundary 
     const candidate = sourceBodies.get(nested);
     if (candidate !== undefined) nestedRoots.add(candidate.root.id);
   }
-  return { original, nestedRoots };
+  const headers: (ParameterDeclaration<CheckedPhase> | null)[] = [];
+  if (original !== undefined) for (const parameter of original.params) {
+    const local = original.locals[parameter.local];
+    const header = local === undefined ? null : nodeOf(local.declaration);
+    if (header?.kind !== "Parameter" || local?.declaration.kind !== "item"
+      || local.declaration.value.owner !== parameter.declaration || header.id !== local.declaration.value.node
+      || header.tsonic.parent !== original.owner) {
+      headers.push(null);
+      continue;
+    }
+    headers.push(header);
+    if (header.initializer !== null) nestedRoots.add(header.initializer.id);
+  }
+  return { original, bodies: sourceBodies, nestedRoots, headers };
 };
 
 export const verifySourcePreservation = (
   body: TirBody, source: HirModule, module: TirModule, boundary: TirSourceBoundary, emit: TirOccurrenceEmit,
 ): TirSourceInventory => {
-  const { original, nestedRoots } = boundary;
+  const { original, nestedRoots, headers } = boundary;
   const sourceNodes = new Map<NodeId, HirNode>();
   const typedNodes = new Map<NodeId, TirNode>();
   for (const node of indexSyntaxTree<CheckedPhase>(source.tree)) {
@@ -74,7 +89,7 @@ export const verifySourcePreservation = (
     typedNodes.set(node.id, node);
   }
   const ownNodes: TirNode[] = [];
-  const pendingNodes: TirNode[] = [body.root];
+  const pendingNodes: TirNode[] = [body.root, ...body.params];
   const ownObjects = new Set<object>();
   for (let node = pendingNodes.pop(); node !== undefined; node = pendingNodes.pop()) {
     if (ownObjects.has(node)) continue;
@@ -87,6 +102,8 @@ export const verifySourcePreservation = (
     }
   }
   const bodyNodes = new Set(original === undefined ? [] : walkSyntaxTree<CheckedPhase>(original.root, []).map((node: HirNode) => node.id));
+  for (const header of headers) if (header !== null)
+    for (const node of walkSyntaxTree<CheckedPhase>(header, [])) bodyNodes.add(node.id);
   if (original === undefined || original.owner !== body.owner) {
     emit("body-owner", null, "body identity and owner do not retain the actual original body");
   }
@@ -95,6 +112,14 @@ export const verifySourcePreservation = (
     emit("module-node-identity", body.root, "body does not retain its module identity and canonical parametric subtree");
   }
   const paired: { node: TirNode; original: HirNode }[] = original === undefined ? [] : [{ node: body.root, original: original.root }];
+  for (const [index, parameter] of body.params.entries()) {
+    const checked = headers[index];
+    if (checked === undefined || checked === null)
+      emit("parameter-order", parameter, "selected header has no actual checked parameter item and owning callable association");
+    else paired.push({ node: parameter, original: checked });
+    if (body.bindings.kind === "parametric" && typedNodes.get(parameter.id) !== parameter)
+      emit("module-node-identity", parameter, "selected parameter is not the canonical header occurrence of its callable");
+  }
   const sourceOfTyped = new Map<TirNode, HirNode>();
   const typedOfSource = new Map<HirNode, TirNode>();
   for (let pair = paired.pop(); pair !== undefined; pair = paired.pop()) {
@@ -168,14 +193,14 @@ export const verifyBodyRecords = (body: TirBody, original: HirBody | undefined, 
   }
   let parameterOrder = original === undefined || body.params.length === original.params.length;
   for (const [position, parameter] of body.params.entries()) {
+    const selected = parameter.tsonic;
     const checked = original?.params[position];
-    if (checked !== undefined && (!Object.is(parameter.local, checked.local) || parameter.declaration !== checked.declaration ||
-      parameter.role !== checked.role || parameter.passing !== checked.passing || parameter.initializer !== checked.initializer)) parameterOrder = false;
-    const local = body.locals[parameter.local];
-    if (local === undefined || local.role !== "parameter" || !Object.is(local.storage, parameter.storage)) {
+    if (checked !== undefined && !sameParameterSelection(selected, checked, body.body)) parameterOrder = false;
+    const local = body.locals[selected.local.local];
+    if (local === undefined || local.role !== "parameter" || !Object.is(local.storage, selected.storage)) {
       emit("local-storage", null, "parameter storage does not retain its real local slot");
     }
-    if (parameter.role === "this" && position !== 0 || parameter.role === "rest" && position !== body.params.length - 1) parameterOrder = false;
+    if (selected.role === "this" && position !== 0 || selected.role === "rest" && position !== body.params.length - 1) parameterOrder = false;
   }
   if (!parameterOrder) emit("parameter-order", null, "parameter records do not retain the actual declared formal order");
   let stable = original === undefined || body.captures.length === original.captures.length && body.nestedBodies.length === original.nestedBodies.length;
@@ -421,7 +446,7 @@ export const verifyTypedBody: VerifyTir = (input, body) => {
       appendViolation(rule, node, message);
     }
   };
-  const boundary = readSourceBoundary(body.body, input.source);
+  const boundary = readSourceBoundary(body.body, input.source, input.nodeOf);
   const structure = inspectTirStructure(body, createTirLayouts(), boundary.nestedRoots);
   const inventory = verifySourcePreservation(body, input.source, input.module, boundary, emit);
   const semantics = collectTirSemantics(structure.nodes);
@@ -429,9 +454,9 @@ export const verifyTypedBody: VerifyTir = (input, body) => {
   const typeGraph = verifyClosedReferences(body.root, structure, input.types, input.diagnostics, emit);
   verifyQualifiedReferences(input, body, structure, emit);
   verifyPublicationInventory(input.module, body, emit);
-  const ownNodeIds = verifyNestedPublication(input, body, semantics, inventory.original, inventory.typedNodes, inventory.ownNodes, emit);
+  const ownNodeIds = verifyNestedPublication(input, body, semantics, inventory.original, inventory.typedNodes, inventory.ownNodes, boundary.headers, emit);
   verifyControlledContexts(body, inventory.original, structure, semantics, emit);
-  verifyBindingSlots(body, structure.nodes, inventory.sourceNodes, input.source.bodies, input.module.bodies, emit);
+  verifyBindingSlots(body, structure.nodes, inventory.sourceNodes, boundary.bodies, input.module.bodies, input.bodyOf, emit);
   const declarationOf = declarationInventory(input);
   verifyScalarReferences(structure, inventory.sourceNodes, declarationOf, emit);
   const instance: BodyInstance = { body: body.body, bindings: body.bindings };

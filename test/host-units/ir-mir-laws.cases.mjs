@@ -76,8 +76,14 @@ const fixedSource = typed({ ...ITERATE, steps: [{ ...ITERATE.steps[0], operation
 const BODY = bodyId("laws");
 const site = label => ({ origin: { module: "M[P[p];m]", start: source.at(label), length: 1, derived: [] }, tir: { body: BODY, node: source.at(label) } });
 const local = (id, storage, role, sourceLocal = null, mode = sourceLocal === null ? "local"
-  : source.tir.params.find(row => row.local === sourceLocal)?.passing ?? "local") => ({ id, storage, role, mode, source: sourceLocal === null ? null : { body: BODY, local: sourceLocal },
+  : source.tir.params.find(header => header.tsonic.local.local === sourceLocal)?.tsonic.passing ?? "local") => ({ id, storage, role, mode, source: sourceLocal === null ? null : { body: BODY, local: sourceLocal },
   origin: site("for").origin });
+function additionalParameter(header, selection) {
+  const id = header.id + 10000;
+  const selected = { ...header.tsonic, ...selection };
+  return { ...header, id, name: { ...header.name, id: id + 1, parent: id,
+    tsonic: { ...header.name.tsonic, declaration: { kind: "local", local: selected.local } } }, tsonic: selected };
+}
 const place = (id, base, storage) => ({ id, base, storage, origin: site("for").origin });
 const p = id => ({ kind: "place", place: id });
 const step = index => ({ protocol: 0, step: index });
@@ -87,7 +93,7 @@ const selectedModes = (body, given) => ({ ...body, locals: body.locals.map(local
     assert.equal(row !== undefined, true, "the selected capture row exists in this fixture");
     return { ...local, mode: row.capture };
   }
-  const parameter = local.source?.body === given.source.body ? given.source.params.find(row => row.local === local.source.local) : undefined;
+  const parameter = local.source?.body === given.source.body ? given.source.params.find(header => header.tsonic.local.local === local.source.local)?.tsonic : undefined;
   return { ...local, mode: parameter === undefined ? "local" : parameter.passing };
 }) });
 
@@ -295,7 +301,7 @@ test("laws 1 and 4: a view is checked exactly where its decision requires, and a
   assert.deepEqual(laws(changed(body => { body.places[10].base.place = 0; })), []);
   // Indexed directly through `a` when `a` is passed by reference: the receiver is held in the caller's storage, which
   // other code writes. The lowering saves it first, as the satisfying graph does.
-  const byReference = { ...context, source: { ...context.source, params: context.source.params.map((row, position) => position === 0 ? { ...row, passing: "byref-readwrite" } : row) } };
+  const byReference = { ...context, source: { ...context.source, params: context.source.params.map((row, position) => position === 0 ? { ...row, tsonic: { ...row.tsonic, passing: "byref-readwrite" } } : row) } };
   assert.deepEqual(found(selectedModes(changed(body => { body.places[10].base.place = 0; }), byReference), byReference).filter(violation => LAW_RULES.has(violation.rule)).map(violation => violation.rule),
     ["receiver-stable"]);
   // The saved receiver written a second time.
@@ -1075,13 +1081,13 @@ test("malformed bodies: a record that names a row the body does not have is repo
   // A call at the loop's node that names no step and whose callee is no step's: nothing of law 6.
   assert.deepEqual(laws(changed(body => { body.blocks[5].terminator.tir = site("for").tir; })), []);
   // A rest parameter is not a fixed argument: the entries stay those of the three fixed parameters.
-  const withRest = { ...context, source: { ...context.source, params: [...context.source.params, { ...context.source.params[2], role: "rest" }] } };
+  const withRest = { ...context, source: { ...context.source, params: [...context.source.params, additionalParameter(context.source.params[2], { role: "rest" })] } };
   assert.deepEqual(found(good(), withRest).filter(violation => LAW_RULES.has(violation.rule)), []);
 });
 
 test("the local of a by-reference parameter is the caller's storage: never stable, never an index (R1 N-1, K-3271)", () => {
   const passed = (parameter, passing) => ({ ...context, source: { ...context.source,
-    params: context.source.params.map((row, position) => position === parameter ? { ...row, passing } : row) } });
+    params: context.source.params.map((row, position) => position === parameter ? { ...row, tsonic: { ...row.tsonic, passing } } : row) } });
   const lawRules = (body, given) => found(selectedModes(body, given), given).filter(violation => LAW_RULES.has(violation.rule)).map(violation => violation.rule);
   // R1 (a): the narrowed view of a parameter's own cell is checked, `bump` is called, the view is read. The view here
   // is of `a` (the fixture has no narrowing node of that type; the type finding is not a law rule).
@@ -1119,7 +1125,7 @@ test("the local of a by-reference parameter is the caller's storage: never stabl
   });
   const receiving = passing => ({ ...context, source: { ...context.source,
     locals: [...context.source.locals, { ...context.source.locals[2], id: 4, name: "this" }],
-    params: [{ ...context.source.params[2], local: 4, role: "this", passing }, ...context.source.params] } });
+    params: [additionalParameter(context.source.params[2], { local: { body: BODY, local: 4 }, role: "this", passing }), ...context.source.params] } });
   assert.deepEqual(lawRules(viewOfReceiver, receiving("by-value")), []);
   assert.deepEqual(lawRules(viewOfReceiver, receiving("byref-readwrite")), ["checked-place-available"]);
   assert.deepEqual(lawRules(viewOfReceiver, receiving("borrow-shared")), ["checked-place-available"]);
@@ -1130,7 +1136,7 @@ test("the local of a by-reference parameter is the caller's storage: never stabl
 
 test("law 8: a storage marker is about a slot the body owns (K-3278)", () => {
   const passed = (parameter, passing) => ({ ...context, source: { ...context.source,
-    params: context.source.params.map((row, position) => position === parameter ? { ...row, passing } : row) } });
+    params: context.source.params.map((row, position) => position === parameter ? { ...row, tsonic: { ...row.tsonic, passing } } : row) } });
   const rules = (body, given) => found(selectedModes(body, given), given).map(violation => violation.rule);
   // The slot of `a` ends after its last use, before the return.
   const ended = changed(body => { body.blocks[7].statements.push({ ...site("return"), kind: "storage-dead", local: 0 }); });
@@ -1147,7 +1153,7 @@ test("law 8: a storage marker is about a slot the body owns (K-3278)", () => {
   // A local that names the source local of a row passed by reference is the caller's storage whatever its role:
   // the satisfying graph begins local 3, and here a row passed by reference has that source local.
   const named = { ...context, source: { ...context.source,
-    params: [...context.source.params, { ...context.source.params[1], local: 3, role: "rest", passing: "byref-readwrite" }] } };
+    params: [...context.source.params, additionalParameter(context.source.params[1], { local: { body: BODY, local: 3 }, role: "rest", passing: "byref-readwrite" })] } };
   assert.deepEqual(found(selectedModes(good(), named), named).filter(violation => violation.rule === "storage-marker-exact").map(violation => violation.site.statement), [0]);
   // The receiver, whose local names the source local of the row of role `this`: its slot may end when its row is passed by value, and may not when it is passed by reference.
   const receiverEnded = changed(body => {
@@ -1156,7 +1162,7 @@ test("law 8: a storage marker is about a slot the body owns (K-3278)", () => {
   });
   const receiving = passing => ({ ...context, source: { ...context.source,
     locals: [...context.source.locals, { ...context.source.locals[2], id: 4, name: "this" }],
-    params: [{ ...context.source.params[2], local: 4, role: "this", passing }, ...context.source.params] } });
+    params: [additionalParameter(context.source.params[2], { local: { body: BODY, local: 4 }, role: "this", passing }), ...context.source.params] } });
   const markerRules = (body, given) => found(selectedModes(body, given), given).filter(violation => violation.rule === "storage-marker-exact").map(violation => violation.rule);
   assert.deepEqual(markerRules(receiverEnded, receiving("by-value")), []);
   assert.deepEqual(markerRules(receiverEnded, receiving("byref-readwrite")), ["storage-marker-exact"]);
@@ -1182,7 +1188,7 @@ test("a local of role receiver or parameter names the source local of its row", 
   // The receiver names the local of the row of role `this` (source local 4 here); the other rows are counted without it.
   const receiving = { ...context, source: { ...context.source,
     locals: [...context.source.locals, { ...context.source.locals[2], id: 4, name: "this" }],
-    params: [{ ...context.source.params[2], local: 4, role: "this" }, ...context.source.params] } };
+    params: [additionalParameter(context.source.params[2], { local: { body: BODY, local: 4 }, role: "this" }), ...context.source.params] } };
   const withReceiver = named => changed(body => { body.locals.push(local(10, T.optInt32, { kind: "receiver" }, named)); });
   assert.deepEqual(rule(withReceiver(4), receiving), []);
   assert.deepEqual(rule(withReceiver(null), receiving), [10]);
@@ -1258,7 +1264,7 @@ test("a call of an internal body stands at the node that names the body, or is t
       destination: 2, next: 0, unwind: { kind: "escape" }, step: null } };
   });
   const withDefault = { ...context, bodyOf: () => ({ ...source.tir, body: DEFAULT, captures: [] }), source: { ...context.source, params: context.source.params.map((parameter, position) =>
-    position === 2 ? { ...parameter, role: "default", initializer: DEFAULT } : parameter) } };
+    position === 2 ? { ...parameter, tsonic: { ...parameter.tsonic, role: "default", initializer: DEFAULT } } : parameter) } };
   const rules = (body, given) => found(body, given).map(violation => violation.rule);
   // The body is the default of the parameter: the call is not refused as unselected.
   assert.equal(rules(prologue(null), withDefault).includes("operation-selected"), false);

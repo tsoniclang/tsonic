@@ -1,11 +1,11 @@
-import type { BodyId, LocalRef, NodeId } from "../ids/contract.js";
+import type { BodyId, DefId, LocalId, LocalRef, NodeId } from "../ids/contract.js";
 import type { BindingScope } from "../ir-types/contract.js";
 import { bindingVectorKey, instanceKey } from "../ir-types/index.js";
-import type { CheckedPhase, HirBody, HirNode } from "../ir-hir/contract.js";
+import type { CheckedPhase, HirBody, HirNode, HirParam, ParameterDeclaration } from "../ir-hir/contract.js";
 import { childrenOfSyntax } from "../ir-hir/index.js";
 import type { CaptureSource, LogicalCapture } from "../ir-infer/contract.js";
 import { captureRequiresLocation, sameCaptureSource } from "../ir-infer/index.js";
-import type { TirBody, TirModule, TirNode, TirSelection, TirVerifierInput, TypedBinding, TypedPhase } from "./contract.js";
+import type { TirBody, TirModule, TirNode, TirSelection, TirVerifierInput, TypedBinding, TypedParameter, TypedPhase } from "./contract.js";
 import type { TirOccurrenceEmit } from "./verify-occurrences.js";
 import type { TirSemanticInventory, TirStructure } from "./verify-occurrences.js";
 import { sameLocalReference, sameSourceReference, typedValueOf } from "./verify-occurrences.js";
@@ -32,6 +32,11 @@ export const sameBindingScope = (left: BindingScope, right: BindingScope): boole
 
 const validIdentity = (value: number): boolean =>
   Number.isSafeInteger(value) && value >= 0 && !Object.is(value, -0);
+
+export const sameParameterSelection = (selected: TypedParameter, checked: HirParam, body: BodyId): boolean =>
+  selected.local.body === body && Object.is(selected.local.local, checked.local)
+  && selected.declaration === checked.declaration && selected.role === checked.role
+  && selected.passing === checked.passing && selected.initializer === checked.initializer;
 
 export const verifyQualifiedReferences = (
   input: TirVerifierInput, body: TirBody | null, structure: TirStructure, emit: TirOccurrenceEmit,
@@ -71,7 +76,8 @@ export const verifyQualifiedReferences = (
 
 export const verifyNestedPublication = (
   input: TirVerifierInput, body: TirBody, semantics: TirSemanticInventory, original: HirBody | undefined,
-  moduleNodes: ReadonlyMap<NodeId, TirNode>, actualNodes: readonly TirNode[], emit: TirOccurrenceEmit,
+  moduleNodes: ReadonlyMap<NodeId, TirNode>, actualNodes: readonly TirNode[],
+  headers: readonly (ParameterDeclaration<CheckedPhase> | null)[], emit: TirOccurrenceEmit,
 ): ReadonlySet<NodeId> => {
   const originals = new Map<BodyId, HirBody>();
   const order = new Map<BodyId, number>();
@@ -118,6 +124,10 @@ export const verifyNestedPublication = (
   const owned = new Set<NodeId>();
   if (original !== undefined) {
     const pending: HirNode[] = [original.root];
+    for (const header of headers) if (header !== null) {
+      pending.push(header);
+      if (header.initializer !== null) stops.add(header.initializer.id);
+    }
     const visited = new Set<object>();
     for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
       if (visited.has(node) || node !== original.root && stops.has(node.id)) continue;
@@ -263,12 +273,29 @@ export const verifyControlledContexts = (
 };
 
 export const verifyBindingSlots = (
-  body: TirBody, nodes: readonly TirNode[], originals: ReadonlyMap<NodeId, HirNode>, sources: readonly (HirBody | undefined)[],
-  published: readonly (TirBody | undefined)[], emit: TirOccurrenceEmit,
+  body: TirBody, nodes: readonly TirNode[], originals: ReadonlyMap<NodeId, HirNode>, sources: ReadonlyMap<BodyId, HirBody>,
+  published: readonly (TirBody | undefined)[], bodyOf: TirVerifierInput["bodyOf"], emit: TirOccurrenceEmit,
 ): void => {
+  const checkedParameters = new Map<BodyId, { readonly declarations: ReadonlyMap<DefId, HirParam>;
+    readonly locals: ReadonlyMap<LocalId, HirParam> }>();
+  const checkedParameterRows = (owner: BodyId) => {
+    let parameters = checkedParameters.get(owner);
+    if (parameters === undefined) {
+      const source = sources.get(owner);
+      if (source === undefined) return undefined;
+      const declarations = new Map<DefId, HirParam>();
+      const locals = new Map<LocalId, HirParam>();
+      for (const parameter of source.params) {
+        declarations.set(parameter.declaration, parameter);
+        locals.set(parameter.local, parameter);
+      }
+      parameters = { declarations, locals };
+      checkedParameters.set(owner, parameters);
+    }
+    return parameters;
+  };
   const reassignable = (reference: LocalRef): boolean | null => {
-    for (const source of sources) if (source !== undefined && source.body === reference.body) return source.locals[reference.local]?.mutable ?? null;
-    return null;
+    return sources.get(reference.body)?.locals[reference.local]?.mutable ?? null;
   };
   // Where the storage of a captured local comes from in the body that declares it, or null when nothing here says. The
   // declaration facts are read from the checked body. A name bound under a parameter pattern has the parameter role and
@@ -309,22 +336,44 @@ export const verifyBindingSlots = (
   const enclosingRow = (creating: BodyId, from: LocalRef): LogicalCapture | null =>
     creatorOf(creating)?.captures.find(row => sameLocalReference(row.local, from))?.capture ?? null;
   const incomingOf = (reference: LocalRef): CaptureSource | null => {
-    for (const source of sources) if (source !== undefined && source.body === reference.body) {
+    const source = sources.get(reference.body);
+    if (source !== undefined) {
       const local = source.locals[reference.local];
       if (local === undefined) return null;
       if (local.role === "capture") {
         const capture = local.capturedFrom === null ? null : enclosingRow(reference.body, local.capturedFrom);
         return capture === null ? null : { kind: "capture", capture };
       }
-      const parameter = local.role === "parameter" ? source.params.find(candidate => candidate.local === reference.local) : undefined;
+      const parameter = local.role === "parameter" ? checkedParameterRows(reference.body)?.locals.get(reference.local) : undefined;
+      if (parameter !== undefined && !Object.is(parameter.local, reference.local)) return null;
       return parameter === undefined ? { kind: "binding" } : { kind: "parameter", passing: parameter.passing };
     }
     return null;
   };
-  const parameters = new Map(body.params.map(parameter => [parameter.declaration, parameter]));
+  const parameterOwners = new Map<TirNode, TirBody>();
+  const registerParameter = (parameter: ParameterDeclaration<TypedPhase>, owner: TirBody): void => {
+    parameterOwners.set(parameter, owner);
+    const pending: TirNode[] = [parameter.name];
+    for (let name = pending.pop(); name !== undefined; name = pending.pop()) {
+      parameterOwners.set(name, owner);
+      for (const child of childrenOfSyntax<TypedPhase>(name)) pending.push(child);
+    }
+  };
+  for (const parameter of body.params) registerParameter(parameter, body);
+  for (const node of nodes) {
+    if (node.kind !== "FunctionDeclaration" && node.kind !== "MethodDeclaration" && node.kind !== "Constructor"
+      && node.kind !== "GetAccessor" && node.kind !== "SetAccessor" && node.kind !== "ArrowFunction" && node.kind !== "FunctionExpression") continue;
+    const callable = node.kind === "ArrowFunction" || node.kind === "FunctionExpression" ? node.tsonic.callable : node.tsonic;
+    if (callable.template === null || callable.template.body === body.body && node === body.root) continue;
+    const nested = bodyOf({ body: callable.template.body, bindings: { kind: "parametric" } });
+    if (nested === null || nested.body !== callable.template.body || nested.owner !== callable.definition
+      || nested.bindings.kind !== "parametric") continue;
+    for (const parameter of nested.params) registerParameter(parameter, nested);
+  }
   const storage = (reference: LocalRef, type: number | null, node: TirNode): void => {
-    const local = body.locals[reference.local];
-    if (reference.body !== body.body || local === undefined || type === null || !Object.is(local.storage, type)) {
+    const owner = parameterOwners.get(node) ?? body;
+    const local = owner.locals[reference.local];
+    if (reference.body !== owner.body || local === undefined || type === null || !Object.is(local.storage, type)) {
       emit("binding-storage", node, "binding occurrence does not retain its actual qualified local storage slot");
     }
   };
@@ -339,9 +388,10 @@ export const verifyBindingSlots = (
       if (phase.role === "binding") binding(phase, node);
     } else if (node.kind === "Parameter") {
       storage(node.tsonic.local, node.tsonic.storage, node);
-      const parameter = parameters.get(node.tsonic.declaration);
-      if (parameter === undefined || parameter.local !== node.tsonic.local.local || parameter.passing !== node.tsonic.passing ||
-        parameter.initializer !== node.tsonic.initializer) emit("parameter-order", node, "parameter occurrence does not retain its actual declared formal and local association");
+      const owner = parameterOwners.get(node);
+      const checked = owner === undefined ? undefined : checkedParameterRows(owner.body)?.declarations.get(node.tsonic.declaration);
+      if (owner === undefined || checked === undefined || !sameParameterSelection(node.tsonic, checked, owner.body))
+        emit("parameter-order", node, "parameter occurrence does not retain its actual declared formal and local association");
     }
     else if ((node.kind === "Identifier" || node.kind === "PrivateIdentifier" || node.kind === "QualifiedName") &&
       node.tsonic.role === "declaration-name" && node.tsonic.declaration.kind === "local") {

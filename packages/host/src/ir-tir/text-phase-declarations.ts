@@ -117,9 +117,10 @@ export const createPhaseDeclarationsText = (kernel: TirTextKernel, read: PhaseDe
     .field("storage", "t", value => referenceWork("t", value.storage), typeReader)
     .field("passing", "PassingMode", value => scalarWork("PassingMode", value.passing), literalReader<(TypedParameter)["passing"]>("PassingMode", ["by-value","byref-readonly","byref-readwrite","byref-writeonly-must-init","borrow-shared","borrow-mut","move"]))
     .field("initializer", "?body", value => nullableWork(value.initializer, actual => scalarWork("body", actual)), nullableReader(bodyReader))
-    .finish((field_declaration, field_local, field_storage, field_passing, field_initializer) => ({
+    .field("role", "ParameterRole", value => scalarWork("ParameterRole", value.role), literalReader<TypedParameter["role"]>("ParameterRole", ["required","optional","default","rest","this"]))
+    .finish((field_declaration, field_local, field_storage, field_passing, field_initializer, field_role) => ({
       declaration: field_declaration, local: field_local, storage: field_storage, passing: field_passing,
-      initializer: field_initializer,
+      initializer: field_initializer, role: field_role,
     })));
   const work_TypedVariableList_ordinary: TirRecordCodec<TypedVariableList & { readonly role: "ordinary" }> = defineRecord<TypedVariableList & { readonly role: "ordinary" }>("TypedVariableList@ordinary", "TypedVariableList", { field: "role", value: "ordinary" }, "TypedVariableList", null, null, fields => fields
     .field("role", "'ordinary", value => scalarWork("'ordinary", value.role), literalReader<(TypedVariableList & { readonly role: "ordinary" })["role"]>("'ordinary", ["ordinary"]))

@@ -1,5 +1,5 @@
-import type { BodyRoot, SyntaxNode } from "../ir-hir/contract.js";
-import type { TypedPhase } from "../ir-tir/contract.js";
+import type { SyntaxNode } from "../ir-hir/contract.js";
+import type { TirBody, TypedPhase } from "../ir-tir/contract.js";
 import type { ProjectionInventory } from "./program-values.js";
 import type { InstantiationStop } from "./work.js";
 import { drainProjectionInventory, inventoryFields, inventoryRecord } from "./program-values.js";
@@ -631,9 +631,12 @@ function inventoryNode(scan: ProjectionInventory, node: SyntaxNode<TypedPhase>):
 }
 
 export function inventoryBodySyntax(
-  scan: ProjectionInventory, root: BodyRoot<TypedPhase>,
+  scan: ProjectionInventory, body: TirBody,
 ): { readonly kind: "complete"; readonly syntax: SyntaxInventory } | InstantiationStop {
-  const traversal = walkSyntax([{ node: root, path: "Instantiation.root" }]);
+  const traversal = walkSyntax((function* () {
+    yield { node: body.root, path: "Instantiation.root" };
+    for (const [index, parameter] of body.params.entries()) yield { node: parameter, path: `Instantiation.params[${index}]` };
+  })());
   let step = traversal.next();
   while (!step.done) {
     const stop = step.value.kind === "edge" ? chargeInstantiationWork(scan.meter) : inventoryNode(scan, step.value.node);

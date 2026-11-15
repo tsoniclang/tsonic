@@ -1,4 +1,4 @@
-import type { BodyRoot } from "../ir-hir/contract.js";
+import type { BodyRoot, ParameterDeclaration } from "../ir-hir/contract.js";
 import type {
   MirAggregate, MirBody, MirCallee, MirConstantValue, MirPlaceBase, MirRvalue, MirStatement, MirTerminator,
 } from "../ir-mir/contract.js";
@@ -105,17 +105,14 @@ export function rewriteValue(rewrite: TypeRewrite, value: TypedValue, at: string
 }
 
 export function rewriteTirBody(
-  rewrite: TypeRewrite, body: TirBody, root: BodyRoot<TypedPhase>, bindings: ArtifactBindings,
+  rewrite: TypeRewrite, body: TirBody, root: BodyRoot<TypedPhase>, bindings: ArtifactBindings, params: readonly ParameterDeclaration<TypedPhase>[],
 ): TirBody {
   return {
     body: body.body, owner: body.owner, bindings,
     lexicalBindings: rewriteBindings(rewrite, body.lexicalBindings), dependence: body.dependence,
     signature: rewrite.signature(body.signature), completion: rewrite.type(body.completion),
     yielded: body.yielded === null ? null : rewrite.type(body.yielded), sent: body.sent === null ? null : rewrite.type(body.sent),
-    params: body.params.map(parameter => ({
-      local: parameter.local, declaration: parameter.declaration, role: parameter.role, passing: parameter.passing,
-      initializer: parameter.initializer, storage: rewrite.type(parameter.storage),
-    })),
+    params,
     locals: body.locals.map(local => ({
       id: local.id, declaration: local.declaration, name: local.name, role: local.role,
       capturedFrom: local.capturedFrom, mutable: local.mutable, storage: rewrite.type(local.storage),

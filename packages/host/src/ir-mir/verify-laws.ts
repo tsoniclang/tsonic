@@ -36,7 +36,8 @@ export function verifyLaws(
     let fixed = 0;
     let omissible = 0;
     let exact = true;
-    for (const parameter of context.source.params) {
+    for (const header of context.source.params) {
+      const parameter = header.tsonic;
       if (parameter.role === "rest" || parameter.role === "this") continue;
       const selected = signature.parameters[fixed];
       if (selected === undefined || typeof selected.acceptsOmission !== "boolean") exact = false;

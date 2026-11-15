@@ -2,7 +2,7 @@ import { lazyReader, literalReader, nullableReader, sequenceReader } from "./tex
 import { unionRecord } from "./text-layouts.js";
 import type { TirRecordCodec } from "./text-layouts.js";
 import type {
-  BackedConversionIdentity, ConversionDecision, ConversionIdentity, MemberSelection, ModuleBindingTarget, ResolvedCallee, TargetAccess, TirApplication, TirArgument, TirBody, TirDemand, TirLocal, TirParam, TirProtocol, TirProtocolStep, TirResolution, TirRestPart, TirSelection, TypedCallable, TypedClosure, TypedOperation, TypedOperationOf, TypedPhase, TypedSourceFile, TypedStaticBlock
+  BackedConversionIdentity, ConversionDecision, ConversionIdentity, MemberSelection, ModuleBindingTarget, ResolvedCallee, TargetAccess, TirApplication, TirArgument, TirBody, TirDemand, TirLocal, TirProtocol, TirProtocolStep, TirResolution, TirRestPart, TirSelection, TypedCallable, TypedClosure, TypedOperation, TypedOperationOf, TypedPhase, TypedSourceFile, TypedStaticBlock
 } from "./contract.js";
 import type {
   ArtifactBindings, BindingVector, BodyInstance, TypeEvidence
@@ -54,7 +54,6 @@ export interface BodyTextReads {
 
 export interface BodyTextModel {
   readonly work_TirBody: TirRecordCodec<TirBody>;
-  readonly work_TirParam: TirRecordCodec<TirParam>;
   readonly work_TirLocal: TirRecordCodec<TirLocal>;
   readonly work_TirResolution_local: TirRecordCodec<TirResolution & { readonly kind: "local" }>;
   readonly work_TirResolution_definition: TirRecordCodec<TirResolution & { readonly kind: "definition" }>;
@@ -135,7 +134,7 @@ export const createBodyText = (kernel: TirTextKernel, read: BodyTextReads): Body
     .field("completion", "t", value => referenceWork("t", value.completion), typeReader)
     .field("yielded", "?t", value => nullableWork(value.yielded, actual => referenceWork("t", actual)), nullableReader(typeReader))
     .field("sent", "?t", value => nullableWork(value.sent, actual => referenceWork("t", actual)), nullableReader(typeReader))
-    .field("params", "[TirParam]", value => sequenceWork("[TirParam]", value.params, actual => work_TirParam.write(actual)), sequenceReader("[TirParam]", lazyReader(() => work_TirParam.reader)))
+    .field("params", "[$ParameterDeclaration]", value => sequenceWork("[$ParameterDeclaration]", value.params, actual => syntaxReference("$ParameterDeclaration", actual)), sequenceReader("[$ParameterDeclaration]", syntaxReads.ParameterDeclaration))
     .field("locals", "[TirLocal]", value => sequenceWork("[TirLocal]", value.locals, actual => work_TirLocal.write(actual)), sequenceReader("[TirLocal]", lazyReader(() => work_TirLocal.reader)))
     .field("root", "$BodyRoot", value => syntaxReference("$BodyRoot", value.root), syntaxReads.BodyRoot)
     .field("nestedBodies", "[body]", value => sequenceWork("[body]", value.nestedBodies, actual => scalarWork("body", actual)), sequenceReader("[body]", bodyReader))
@@ -149,17 +148,6 @@ export const createBodyText = (kernel: TirTextKernel, read: BodyTextReads): Body
       dependence: field_dependence, signature: field_signature, completion: field_completion, yielded: field_yielded, sent: field_sent,
       params: field_params, locals: field_locals, root: field_root, nestedBodies: field_nestedBodies, captures: field_captures,
       scopes: field_scopes, evidence: field_evidence, asynchronous: field_asynchronous, generator: field_generator,
-    })));
-  const work_TirParam: TirRecordCodec<TirParam> = defineRecord<TirParam>("TirParam", "TirParam", null, "TirParam", null, null, fields => fields
-    .field("local", "l", value => referenceWork("l", value.local), localReader)
-    .field("declaration", "def", value => referenceWork("def", value.declaration), definitionReader)
-    .field("role", "ParameterRole", value => scalarWork("ParameterRole", value.role), literalReader<(TirParam)["role"]>("ParameterRole", ["required","optional","default","rest","this"]))
-    .field("passing", "PassingMode", value => scalarWork("PassingMode", value.passing), literalReader<(TirParam)["passing"]>("PassingMode", ["by-value","byref-readonly","byref-readwrite","byref-writeonly-must-init","borrow-shared","borrow-mut","move"]))
-    .field("initializer", "?body", value => nullableWork(value.initializer, actual => scalarWork("body", actual)), nullableReader(bodyReader))
-    .field("storage", "t", value => referenceWork("t", value.storage), typeReader)
-    .finish((field_local, field_declaration, field_role, field_passing, field_initializer, field_storage) => ({
-      local: field_local, declaration: field_declaration, role: field_role, passing: field_passing, initializer: field_initializer,
-      storage: field_storage,
     })));
   const work_TirLocal: TirRecordCodec<TirLocal> = defineRecord<TirLocal>("TirLocal", "TirLocal", null, "TirLocal", null, null, fields => fields
     .field("id", "l", value => referenceWork("l", value.id), localReader)
@@ -583,5 +571,5 @@ export const createBodyText = (kernel: TirTextKernel, read: BodyTextReads): Body
       case "deferred": return work_O_ApplicationDecision__deferred.write(value);
     }
   }, () => [work_O_ApplicationDecision__decided.reader, work_O_ApplicationDecision__deferred.reader]);
-  return { work_TirBody, work_TirParam, work_TirLocal, work_TirResolution_local, work_TirResolution_definition, work_TirResolution_module, work_TirResolution_error, work_ResolvedCallee, work_MemberSelection, work_TirArgument_provided, work_TirArgument_omitted, work_TirArgument_rest, work_OmissionValue_absence, work_OmissionValue_initializer, work_OmissionValue_empty_rest, work_TirRestPart_value, work_TirRestPart_spread, work_TirApplication, work_TirProtocolStep, work_TirProtocol, work_TirSelection_conditional, work_TirSelection_and, work_TirSelection_or, work_TirSelection_coalesce, work_TirDemand_always, work_TirDemand_selected, work_TirDemand_never, work_ConversionDecision_identity, work_ConversionDecision_convert, work_ConversionDecision_deferred, work_TargetAccess_write, work_TargetAccess_read_write, work_ModuleBindingTarget_definition, work_ModuleBindingTarget_module, work_Block, work_FunctionDeclaration, work_ConstructorDeclaration, work_GetAccessorDeclaration, work_SetAccessorDeclaration, work_MethodDeclaration, work_ClassStaticBlockDeclaration, work_ArrowFunction, work_FunctionExpression, work_SourceFile, work_TirResolution, work_TirArgument, work_OmissionValue, work_TirRestPart, work_TirSelection, work_TirDemand, work_ConversionDecision, work_TargetAccess, work_ModuleBindingTarget, work_O_TypedOperation__decided, work_O_TypedOperation__deferred, work_O_TypedOperation_, work_O_MemberSelection__decided, work_O_MemberSelection__deferred, work_O_MemberSelection_, work_O_TirApplication__decided, work_O_TirApplication__deferred, work_O_TirApplication_, work_O_TirProtocol__decided, work_O_TirProtocol__deferred, work_O_TirProtocol_, work_O_ApplicationDecision__decided, work_O_ApplicationDecision__deferred, work_O_ApplicationDecision_ };
+  return { work_TirBody, work_TirLocal, work_TirResolution_local, work_TirResolution_definition, work_TirResolution_module, work_TirResolution_error, work_ResolvedCallee, work_MemberSelection, work_TirArgument_provided, work_TirArgument_omitted, work_TirArgument_rest, work_OmissionValue_absence, work_OmissionValue_initializer, work_OmissionValue_empty_rest, work_TirRestPart_value, work_TirRestPart_spread, work_TirApplication, work_TirProtocolStep, work_TirProtocol, work_TirSelection_conditional, work_TirSelection_and, work_TirSelection_or, work_TirSelection_coalesce, work_TirDemand_always, work_TirDemand_selected, work_TirDemand_never, work_ConversionDecision_identity, work_ConversionDecision_convert, work_ConversionDecision_deferred, work_TargetAccess_write, work_TargetAccess_read_write, work_ModuleBindingTarget_definition, work_ModuleBindingTarget_module, work_Block, work_FunctionDeclaration, work_ConstructorDeclaration, work_GetAccessorDeclaration, work_SetAccessorDeclaration, work_MethodDeclaration, work_ClassStaticBlockDeclaration, work_ArrowFunction, work_FunctionExpression, work_SourceFile, work_TirResolution, work_TirArgument, work_OmissionValue, work_TirRestPart, work_TirSelection, work_TirDemand, work_ConversionDecision, work_TargetAccess, work_ModuleBindingTarget, work_O_TypedOperation__decided, work_O_TypedOperation__deferred, work_O_TypedOperation_, work_O_MemberSelection__decided, work_O_MemberSelection__deferred, work_O_MemberSelection_, work_O_TirApplication__decided, work_O_TirApplication__deferred, work_O_TirApplication_, work_O_TirProtocol__decided, work_O_TirProtocol__deferred, work_O_TirProtocol_, work_O_ApplicationDecision__decided, work_O_ApplicationDecision__deferred, work_O_ApplicationDecision_ };
 };

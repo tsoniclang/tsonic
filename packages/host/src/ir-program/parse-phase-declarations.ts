@@ -50,8 +50,11 @@ export function readTypedParameterText<Root>(cursor: Cursor, finish: (value: Typ
       fieldText<TyId, Root>(cursor, fields, "storage", (next, done) => atomicText(next, readTypeId, done), storageValue =>
         fieldText<PassingMode, Root>(cursor, fields, "passing", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["by-value","byref-readonly","byref-readwrite","byref-writeonly-must-init","borrow-shared","borrow-mut","move"]), done), passingValue =>
           fieldText<BodyId | null, Root>(cursor, fields, "initializer", (next, done) => nullableText(next, (next, done) => atomicText(next, readBodyId, done), done), initializerValue =>
-            atomicText(cursor, next => closeRecord(next, fields), () =>
-                acceptText({ declaration: declarationValue, local: localValue, storage: storageValue, passing: passingValue, initializer: initializerValue }, finish))))))));
+            fieldText<TypedParameter["role"], Root>(cursor, fields, "role", (next, done) =>
+              atomicText(next, current => readStringChoice(current, ["required","optional","default","rest","this"]), done), roleValue =>
+              atomicText(cursor, next => closeRecord(next, fields), () =>
+                acceptText({ declaration: declarationValue, local: localValue, storage: storageValue, passing: passingValue,
+                  initializer: initializerValue, role: roleValue }, finish)))))))));
 }
 
 export function readTypedCallableText<Root>(cursor: Cursor, finish: (value: TypedCallable) => TextStep<Root>): TextStep<Root> {

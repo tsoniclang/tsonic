@@ -162,13 +162,14 @@ function prepareArtifact(scan: ProjectionInventory, artifact: StructuralArtifact
     case "tir": {
       const body = inventoryTirBody(scan, artifact.body) ?? drainProjectionInventory(scan);
       if (body !== null) return body;
-      const syntax = inventoryBodySyntax(scan, artifact.body.root);
+      const syntax = inventoryBodySyntax(scan, artifact.body);
       if (syntax.kind !== "complete") return syntax;
       return {
         kind: "complete",
-        project: (rewrite, bindings) => ({ kind: "tir", body: rewriteTirBody(
-          rewrite, artifact.body, rewriteBodySyntax(rewrite, artifact.body.root, syntax.syntax, "Instantiation.root"), bindings,
-        ) }),
+        project: (rewrite, bindings) => {
+          const selected = rewriteBodySyntax(rewrite, artifact.body, syntax.syntax, "Instantiation.root");
+          return { kind: "tir", body: rewriteTirBody(rewrite, artifact.body, selected.root, bindings, selected.params) };
+        },
       };
     }
     case "mir": {
