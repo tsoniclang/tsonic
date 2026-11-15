@@ -7,7 +7,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { checkCoverage } from "../architecture/host/coverage.mjs";
 import { parseSources } from "../architecture/host/import-graph.mjs";
 import { add, plus, shaped } from "./fixtures/lower-mir/programs/first.mjs";
-import { T, TABLE, builders, declareType, native, signature, typedBody, verificationContext } from "./fixtures/lower-mir/typed.mjs";
+import { T, TABLE, bodyId, builders, declareType, def, native, seal, signature, typedBody, verificationContext } from "./fixtures/lower-mir/typed.mjs";
+import { executionKey, sameInstance } from "../../packages/host/dist/ir-types/index.js";
+import { factBindingInputs, summaryBindingInputs } from "../../packages/host/dist/ir-facts/binding-inputs.js";
 import { lowerToMir } from "../../packages/host/dist/lower-mir/index.js";
 import { verifyMir } from "../../packages/host/dist/ir-mir/index.js";
 import { analyzeStorageUse } from "../../packages/host/dist/analyses/liveness/index.js";
@@ -21,7 +23,7 @@ const analysisLimits = { maximumProjectionDepth: 64, maximumOriginAlternatives: 
   maximumRelationalRecordsPerBody: 100000, maximumRelationalReferencesPerBody: 100000 };
 const scope = { classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] };
 const repository = fileURLToPath(new URL("../../", import.meta.url));
-const runtimeFiles = ["index", "round", "storage", "source", "proof"].map(name => resolve(repository, `packages/host/dist/analyses/body/${name}.js`));
+const runtimeFiles = ["index", "round", "storage", "source", "proof", "calls"].map(name => resolve(repository, `packages/host/dist/analyses/body/${name}.js`));
 const session = new Session();
 const post = (method, parameters = {}) => new Promise((done, reject) =>
   session.post(method, parameters, (error, value) => error === null ? done(value) : reject(error)));
@@ -36,6 +38,9 @@ let terminatorOperands;
 let readLocal;
 let assignedLattice;
 let assignedEntry;
+let bodyNodes;
+let callSummary;
+let applyScalarCall;
 
 before(async () => {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true, "the aggregate owner guard admitted this process");
@@ -47,6 +52,8 @@ before(async () => {
   ({ solveAssigned, transferAssigned, statementOperands, terminatorOperands, readLocal, assignedLattice, assignedEntry } =
     await import("../../packages/host/dist/analyses/body/storage.js"));
   ({ sourceOccurrences, orderedRows } = await import("../../packages/host/dist/analyses/body/source.js"));
+  ({ bodyNodes } = await import("../../packages/host/dist/ir-facts/verify-body-nodes.js"));
+  ({ callSummary, applyScalarCall } = await import("../../packages/host/dist/analyses/body/calls.js"));
 });
 
 after(async () => {
@@ -70,17 +77,16 @@ after(async () => {
   }
 });
 
-function fixture(program) {
+function fixture(program, internal = [], provided = TABLE.signatures[program.tir.signature].parameters.length) {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true, "the real aggregate guard admitted this test");
   const typeOf = type => TABLE.terms[type];
   const signatureOf = selected => TABLE.signatures[selected];
-  const unit = { query: "bodyRound", key: [program.tir.body] };
+  const execution = { instance: { body: program.tir.body, bindings: program.tir.bindings }, provided };
+  const unit = { query: "bodyRound", key: executionKey(execution) };
   const lowered = lowerToMir({ typeOf, signatureOf, limits: { maximumRecords: 10000 },
-    defs: { completionSelector: T.int32, exceptionStorage: T.unknown }, unit: { request: unit, position: { kind: "result" } } }, program.tir, []);
+    defs: { completionSelector: T.int32, exceptionStorage: T.unknown }, unit: { request: unit, position: { kind: "result" } } }, program.tir, internal);
   assert.equal(lowered.kind, "ok", "the real LowerMir producer completes");
   assert.deepEqual(verifyMir(lowered.value, verificationContext(program)), { kind: "complete", violations: [] });
-  const execution = { instance: { body: program.tir.body, bindings: program.tir.bindings },
-    provided: program.tir.params.filter(header => header.tsonic.role !== "this").length };
   const account = createAccount(limits);
   const storage = analyzeStorageUse({ account }, { execution, body: lowered.value });
   assert.equal(storage.kind, "ok", "the actual MIR-only Liveness producer completes");
@@ -101,32 +107,292 @@ function checkedPair(current, result) {
     nodes.set(node.id, node);
     for (const child of iterateChildrenOfSyntax(node)) pending.push(child);
   }
-  const context = { types: TABLE, limits: analysisLimits, diagnostics: [],
-    tirBody: instance => instance.body === current.program.tir.body ? current.program.tir : null,
-    mirBody: instance => instance.body === current.input.mir.body ? current.input.mir : null,
-    bodyOwner: body => body === current.program.tir.body ? current.program.tir.owner : null,
-    definitionExists: definition => definition === current.program.tir.owner,
+  const ready = [current, ...(current.related ?? [])];
+  const readyBody = instance => ready.find(row => sameInstance(row.execution.instance, instance));
+  const readyOwner = definition => ready.find(row => row.program.tir.owner === definition);
+  const context = { types: TABLE, limits: current.deps.limits, diagnostics: [],
+    tirBody: instance => readyBody(instance)?.program.tir ?? null,
+    mirBody: instance => readyBody(instance)?.input.mir ?? null,
+    bodyOwner: body => ready.find(row => row.program.tir.body === body)?.program.tir.owner ?? null,
+    definitionExists: definition => readyOwner(definition) !== undefined,
     declarationSourceOf: definition => definition === current.program.tir.owner ? { kind: "body", value: current.program.nodeRef(0) } : null,
-    bindingScopeOf: definition => definition === current.program.tir.owner ? scope : null,
-    bindingScopesOf: () => [scope], nominalOf: () => null,
+    bindingScopeOf: definition => readyOwner(definition) === undefined ? null : scope,
+    bindingScopesOf: target => [...(target.kind === "body" ? factBindingInputs(pair.facts, context)
+      : summaryBindingInputs(pair.summary, context))].filter(row => row !== null).map(row => {
+      assert.equal(readyOwner(row.definition) !== undefined, true, "each actual binding occurrence has its checked owner");
+      return scope;
+    }), nominalOf: () => null,
     nodeExists: selected => selected.kind === "body" ? selected.value.body === current.program.tir.body && nodes.has(selected.value.node)
       : current.program.tir.params.some(header => header.tsonic.declaration === selected.value.owner && nodes.has(selected.value.node)),
     localExists: local => local.body === current.program.tir.body && current.program.tir.locals[local.local]?.id === local.local,
-    signatureIdOf: () => null, bindingDependentOf: definition => definition === current.program.tir.owner ? current.program.tir.dependence === "binding-dependent" : null,
-    captureCount: key => key.kind === "body" && key.execution.instance.body === current.program.tir.body ? current.program.tir.captures.length : null,
+    signatureIdOf: () => null, bindingDependentOf: definition => readyOwner(definition)?.program.tir.dependence === "binding-dependent",
+    captureCount: key => key.kind === "body" ? readyBody(key.execution.instance)?.program.tir.captures.length ?? null : null,
     callbackSignaturesOf: () => null, metadataOf: () => null, libraryExportExists: () => false, declaredSiteCount: () => null,
     arenaOf: () => pair.facts.arena, summaryOf: () => pair.summary };
   const account = createAccount(limits);
   assert.deepEqual(verifyFacts(pair.facts, current.input.mir, context, account), { kind: "complete", violations: [] }, "the real Facts barrier accepts producer output");
   const conditionRefusal = { kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "analyses/initialization",
-    limit: "analysis.maximumConditionAlternatives", maximum: analysisLimits.maximumConditionAlternatives,
+    limit: "analysis.maximumConditionAlternatives", maximum: current.deps.limits.maximumConditionAlternatives,
     site: { kind: "source", origin: current.program.tir.root.origin }, unit: { request: current.deps.unit, position: { kind: "result" } } })] };
   assert.deepEqual(verifySummary(pair.summary, context, { account, conditionRefusal }),
     { kind: "complete", violations: [] }, "the real complete Summary barrier accepts the same projection");
-  assert.equal(parseFacts(printFacts(pair.facts)).kind, "parsed");
-  assert.equal(parseSummary(printSummary(pair.summary)).kind, "parsed");
+  const factsText = parseFacts(printFacts(pair.facts));
+  const summaryText = parseSummary(printSummary(pair.summary));
+  assert.equal(factsText.kind, "parsed", factsText.kind === "parsed" ? "canonical Facts text" : JSON.stringify(factsText));
+  assert.equal(summaryText.kind, "parsed", summaryText.kind === "parsed" ? "canonical Summary text" : JSON.stringify(summaryText));
   return pair;
 }
+
+const TRUE_LITERAL = declareType("body-round.true", { kind: "literal", value: { kind: "boolean", value: true }, base: T.bool });
+const DEFAULT_BODY = bodyId("body-round.default.argument", "default-argument");
+const DEFAULT_SIGNATURE = signature("body-round.default.argument", [], T.bool);
+const CALLER_SIGNATURE = signature("body-round.default", [["argument", T.bool, "default", DEFAULT_BODY]], T.bool);
+
+function defaultProgram() {
+  const builder = builders("body-round.default");
+  const program = typedBody("body-round.default", { signature: CALLER_SIGNATURE, completion: T.bool,
+    locals: [["argument", "parameter", T.bool]], params: [[0, "default", T.bool, DEFAULT_BODY]], nestedBodies: [DEFAULT_BODY],
+    root: builder.block(builder.returns(builder.id("argument", 0, T.bool))) });
+  const childBuilder = builders("body-round.default.argument", "default-argument");
+  const literal = childBuilder.keyword("TrueKeyword", TRUE_LITERAL);
+  const child = typedBody("body-round.default.argument", { role: "default-argument", signature: DEFAULT_SIGNATURE, completion: T.bool, root: literal });
+  child.tir.root = seal("body-round.default.argument", literal, "default-argument", program.nodeCount).root;
+  const header = program.tir.params[0];
+  child.tir.root.parent = header.id;
+  const embedding = { kind: "conversion", conversion: "literal-fit", check: { kind: "none" }, proof: {
+    steps: [{ from: { root: { kind: "body", value: { body: child.tir.body, node: child.tir.root.id } }, path: [] },
+      to: { root: { kind: "item", value: { owner: header.tsonic.declaration, node: header.id } }, path: [] },
+      rule: "literal-fit", premises: [] }], conclusion: 0 } };
+  child.tir.root.tsonic.convertedType = T.bool;
+  child.tir.root.tsonic.conversion = { kind: "convert", role: "initialization", operation: { permissionScope: null, decision: {
+    kind: "selected", operation: { kind: "conversion", from: TRUE_LITERAL, to: T.bool, embedding },
+    operands: [TRUE_LITERAL], result: T.bool, execution: { kind: "pure" } } } };
+  header.initializer = child.tir.root;
+  const internal = [{ instance: { body: child.tir.body, bindings: child.tir.bindings }, signature: child.tir.signature, captures: [] }];
+  program.bodyOf = instance => sameInstance(instance, internal[0].instance) ? child.tir : null;
+  return { program, child, internal };
+}
+
+function defaultRound() {
+  const { program, child, internal } = defaultProgram();
+  const initializer = fixture(child);
+  const completed = analyzeBodyRound(initializer.deps, initializer.input);
+  const childPair = checkedPair(initializer, completed);
+  const current = fixture(program, internal, 0);
+  current.related = [initializer];
+  const unit = { request: initializer.deps.unit, position: { kind: "result" } };
+  current.deps.summaryOf = key => {
+    assert.equal(executionKey(key.execution), executionKey(initializer.execution));
+    return { value: childPair.summary, unit };
+  };
+  const block = current.input.mir.blocks.find(row => row.terminator.kind === "call");
+  return { current, initializer, childPair, unit, operation: block.terminator, point: { block: block.id, statement: null } };
+}
+
+test("an omitted actual boolean default calls its separately analyzed scalar initializer at the exact MIR occurrence", () => {
+  const { program, child, internal } = defaultProgram();
+  const initializer = fixture(child);
+  const completed = analyzeBodyRound(initializer.deps, initializer.input);
+  const childPair = checkedPair(initializer, completed);
+  assert.equal(initializer.input.mir.blocks.some(block => block.statements.some(row => row.kind === "assign" && row.value.kind === "convert")), true);
+  const current = fixture(program, internal, 0);
+  current.related = [initializer];
+  let demands = 0;
+  current.deps.summaryOf = key => {
+    demands += 1;
+    assert.equal(executionKey(key.execution), executionKey(initializer.execution));
+    return { value: childPair.summary, unit: { request: initializer.deps.unit, position: { kind: "result" } } };
+  };
+  const pair = checkedPair(current, analyzeBodyRound(current.deps, current.input));
+  assert.equal(demands > 0, true);
+  const calls = current.input.mir.blocks.filter(block => block.terminator.kind === "call");
+  assert.equal(calls.length, 1);
+  assert.deepEqual(pair.facts.origins.activations[0].point, { block: calls[0].id, statement: null });
+  assert.equal(sameInstance(pair.facts.origins.activations[0].activation, initializer.execution.instance), true);
+  assert.equal(pair.facts.origins.invocations.length, 0, "a placed body call fabricates no surface invocation alternative");
+  assert.equal(pair.facts.initialization.reads.every(row => row.assigned), true);
+  const supplied = fixture(program, internal, 1);
+  checkedPair(supplied, analyzeBodyRound(supplied.deps, supplied.input));
+});
+
+test("every call-round allowance prefix preserves the original stop, and exact admission initializes only its actual destination", () => {
+  const { current } = defaultRound();
+  for (const dimension of ["maximumWork", "maximumResultEntries"]) {
+    let required = null;
+    for (let maximum = 0; maximum < 10000; maximum += 1) {
+      const account = createAccount({ ...limits, [dimension]: maximum });
+      const result = analyzeBodyRound({ ...current.deps, account }, current.input);
+      if (result.kind === "complete") {
+        assert.equal(result.value.value.facts.initialization.reads.every(row => row.assigned), true);
+        required = maximum;
+        break;
+      }
+      assert.equal(result, accountFailure(account));
+      assert.equal(analyzeBodyRound({ ...current.deps, account }, new Proxy({}, { get() { throw new Error("no input read after stop"); } })), result);
+    }
+    assert.equal(required !== null && required > 0, true, "the complete same traversal has a finite exact allowance");
+  }
+});
+
+test("a called semantic error keeps its actual completed UnitRef through the solved lattice and result position", () => {
+  const { current, unit, operation } = defaultRound();
+  const error = { kind: "error", causes: [] };
+  const read = () => ({ value: error, unit });
+  const deps = { ...current.deps, account: createAccount(limits), summaryOf: read };
+  const result = analyzeBodyRound(deps, current.input);
+  assert.equal(result.kind, "complete");
+  assert.deepEqual(result.value.value.causes, [{ kind: "unit", unit }]);
+  assert.equal(result.value.value.causes[0].unit, unit);
+  assert.equal(result.value.positions[0].error, result.value.value);
+  assert.deepEqual(result.value.emissions, []);
+  assert.deepEqual(result.value.diagnostics, []);
+  for (const dimension of ["maximumWork", "maximumResultEntries"]) {
+    let complete = false;
+    for (let maximum = 0; maximum < 10000; maximum += 1) {
+      const account = createAccount({ ...limits, [dimension]: maximum });
+      const response = analyzeBodyRound({ ...deps, account }, current.input);
+      if (response.kind === "complete") { complete = true; break; }
+      assert.equal(response, accountFailure(account));
+    }
+    assert.equal(complete, true);
+  }
+  const stopped = createAccount(limits);
+  const refused = { kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "analyses/origins", limit: "analysis.maximumOriginAlternatives",
+    maximum: 0, site: { kind: "source", origin: operation.origin }, unit })] };
+  const response = callSummary({ ...deps, account: stopped, summaryOf: () => {
+    refuseAccount(stopped, refused);
+    return new Proxy({}, { get() { throw new Error("a stopped callback answer is never read"); } });
+  } }, current.input.mir, operation);
+  assert.equal(response, refused);
+});
+
+test("call identity, selected storage and missing effect relations are checked before any invented success", () => {
+  const { current, childPair, unit, operation, point } = defaultRound();
+  const summary = childPair.summary;
+  const run = (selected = operation, answer = summary, overrides = {}) => callSummary({ ...current.deps,
+    account: createAccount(limits), summaryOf: () => ({ value: answer, unit }), ...overrides }, current.input.mir, selected);
+  for (const callee of [{ kind: "direct" }, { ...operation.callee, captures: [0] }])
+    assert.throws(() => run({ ...operation, callee }), /actual selected argument, receiver and capture transport/);
+  assert.throws(() => run({ ...operation, receiver: { kind: "constant", constant: 0 } }), /actual selected argument/);
+  assert.throws(() => run({ ...operation, arguments: [{}] }), /actual selected argument/);
+  assert.throws(() => run(operation, { ...summary, key: { ...summary.key,
+    execution: { ...summary.key.execution, provided: 1 } } }), /exact complete selected execution/);
+  for (const selected of [{ ...TABLE.signatures[summary.signature], receiver: T.bool },
+    { ...TABLE.signatures[summary.signature], parameters: TABLE.signatures[CALLER_SIGNATURE].parameters }])
+    assert.throws(() => run(operation, summary, { signatureOf: () => selected }), /actual selected argument mapping/);
+  assert.throws(() => run({ ...operation, destination: 9999 }), /actual selected destination storage/);
+  assert.equal(run({ ...operation, destination: null }).kind, "complete");
+  for (const flag of ["unwinds", "suspends"])
+    assert.throws(() => run(operation, { ...summary, [flag]: true }), /actual unwind or suspension/);
+  const arena = analyzeBodyRound({ ...current.deps, account: createAccount(limits) }, current.input).value.value.facts.arena;
+  const apply = (answer, overrides = {}) => applyScalarCall({ ...current.deps, account: createAccount(limits), ...overrides },
+    current.input, operation, point, answer, arena, 1);
+  assert.throws(() => apply({ ...summary, arena: { ...summary.arena, cells: [{}] } }), /actual caller-cell bindings/);
+  const absent = { ...summary.arena.origins[0], id: 1, includesAbsence: true };
+  const absentArena = { ...summary.arena, origins: [...summary.arena.origins, absent] };
+  for (const field of ["result", "thrown"])
+    assert.throws(() => apply({ ...summary, arena: absentArena, [field]: 1 }), /actual Origins result and thrown-value binding/);
+  assert.throws(() => apply({ ...summary, parameters: [{ slot: { kind: "parameter", index: 0 },
+    reads: { kind: "complete", paths: [] }, writes: { kind: "complete", paths: [] } }] }), /actual caller cell, event, callback or backing producer/);
+  const pending = { ...summary, initialization: { ...summary.initialization,
+    points: [{ kind: "unwind" }], rows: [{ point: 0, cell: null, condition: 0 }] } };
+  assert.throws(() => apply(pending), /actual supplied cell and completion-event bindings/);
+  for (const dimension of ["maximumWork", "maximumResultEntries"]) {
+    for (const operationOf of [account => run(operation, summary, { account }), account => apply(summary, { account })]) {
+      let complete = false;
+      for (let maximum = 0; maximum < 10000; maximum += 1) {
+        const account = createAccount({ ...limits, [dimension]: maximum });
+        const response = operationOf(account);
+        if (response.kind === "complete") { complete = true; break; }
+        assert.equal(response, accountFailure(account));
+        assert.equal(operationOf(account), response);
+      }
+      assert.equal(complete, true);
+    }
+  }
+});
+
+test("called errors are monotone definite-state lattice members, not copied diagnostics or resource stops", () => {
+  const { current, unit, operation } = defaultRound();
+  const first = { kind: "error", key: "a", unit };
+  const later = { kind: "error", key: "z", unit: { request: current.deps.unit, position: { kind: "result" } } };
+  const assigned = new Set([0]);
+  const lattice = assignedLattice(4);
+  assert.equal(lattice.join(first, assigned, createAccount(limits)), first);
+  assert.equal(lattice.join(assigned, first, createAccount(limits)), first);
+  assert.equal(lattice.join(first, later, createAccount(limits)), first);
+  assert.equal(lattice.join(later, first, createAccount(limits)), first);
+  assert.equal(lattice.equals(first, later, createAccount(limits)), false);
+  assert.equal(lattice.equals(first, assigned, createAccount(limits)), false);
+  assert.equal(lattice.equals(assigned, first, createAccount(limits)), false);
+  assert.equal(lattice.equals(first, { ...first }, createAccount(limits)), true);
+  for (const maximumWork of [0, 1]) {
+    const account = createAccount({ ...limits, maximumWork });
+    assert.equal(lattice.join(later, first, account), later);
+    assert.equal(lattice.equals(first, { ...first }, account), true);
+    assert.equal(accountFailure(account).kind, "resource-limit");
+  }
+  assert.throws(() => assignedEntry([first], 0), /actual solved initialization entry/);
+  assert.equal(transferAssigned(current.input.mir, { kind: "storage-live", local: 0 }, first, createAccount(limits)), first);
+  const callBlock = current.input.mir.blocks.find(block => block.terminator === operation);
+  const next = current.input.mir.blocks[operation.next];
+  const blocks = current.input.mir.blocks.map(block => block === next ? { ...block, statements: [], terminator: operation } : block);
+  const response = solveAssigned({ ...current.deps, account: createAccount(limits),
+    summaryOf: () => ({ value: { kind: "error", causes: [] }, unit }) }, { ...current.input, mir: { ...current.input.mir, blocks } });
+  assert.equal(response.kind, "complete");
+  assert.equal(response.value.error.unit, unit);
+  assert.equal(response.value.entry[callBlock.id] instanceof Set, true);
+});
+
+test("actual call continuations honor no-return, existing local writes and relational growth refusal", () => {
+  const { current, childPair, operation, unit } = defaultRound();
+  const summary = childPair.summary;
+  const noReturn = { ...current.deps, account: createAccount(limits),
+    summaryOf: () => ({ value: { ...summary, returns: false, initialization: { ...summary.initialization, points: [], rows: [] } }, unit }) };
+  const result = analyzeBodyRound(noReturn, current.input);
+  assert.equal(result.kind, "complete");
+  assert.equal(result.value.value.summary.returns, false, "a structurally reachable continuation is not reached after a non-returning selected callee");
+  assert.equal(result.value.value.facts.origins.subjects.length, 0);
+  const next = current.input.mir.blocks[operation.next];
+  const blocks = current.input.mir.blocks.map(block => block === next ? { ...block, statements: [], terminator: operation } : block);
+  const stopped = solveAssigned({ ...noReturn, account: createAccount(limits) }, { ...current.input, mir: { ...current.input.mir, blocks } });
+  assert.equal(stopped.kind, "complete");
+  assert.equal(stopped.value.entry[next.id], null);
+  const callBlock = current.input.mir.blocks.find(block => block.terminator === operation);
+  const constant = { id: current.input.mir.constants.length, type: T.bool, value: { kind: "literal", value: { kind: "boolean", value: true } } };
+  const assign = { kind: "assign", origin: operation.origin, tir: operation.tir, step: null, place: operation.destination,
+    value: { kind: "use", operand: { kind: "constant", constant: constant.id } } };
+  const initialized = { ...current.input, mir: { ...current.input.mir, constants: [...current.input.mir.constants, constant],
+    blocks: current.input.mir.blocks.map(block => block === callBlock ? { ...block, statements: [...block.statements, assign] } : block) } };
+  assert.deepEqual(verifyMir(initialized.mir, verificationContext(current.program)), { kind: "complete", violations: [] });
+  const mutated = analyzeBodyRound({ ...current.deps, account: createAccount(limits) }, initialized);
+  assert.equal(mutated.kind, "complete");
+  assert.equal(mutated.value.value.facts.origins.writes.some(row => row.point.block === callBlock.id
+    && row.point.statement === null && row.operation === "mutation"), true);
+  const badDestination = { ...current.input, mir: { ...current.input.mir,
+    places: current.input.mir.places.map(place => place.id === operation.destination ? { ...place,
+      base: { kind: "static", definition: current.program.tir.owner, bindings: current.program.tir.bindings } } : place) } };
+  assert.throws(() => solveAssigned({ ...current.deps, account: createAccount(limits) }, badDestination), /actual selected logical-cell binding/);
+  const capAccount = createAccount(limits);
+  const capped = analyzeBodyRound({ ...current.deps, account: capAccount,
+    limits: { ...analysisLimits, maximumRelationalRecordsPerBody: 3 } }, current.input);
+  assert.equal(capped.kind, "refused");
+  assert.equal(capped, accountFailure(capAccount));
+  assert.equal(capped.diagnostics.length, 1);
+  let reads = 0;
+  const solved = solveAssigned({ ...current.deps, account: createAccount(limits), summaryOf: key => {
+    reads += 1;
+    return current.deps.summaryOf(key);
+  } }, current.input);
+  assert.equal(solved.kind, "complete");
+  let rereads = 0;
+  const late = analyzeBodyRound({ ...current.deps, account: createAccount(limits), summaryOf: key => {
+    rereads += 1;
+    return rereads <= reads ? current.deps.summaryOf(key) : { value: { kind: "error", causes: [] }, unit };
+  } }, current.input);
+  assert.equal(late.kind, "complete");
+  assert.equal(late.value.value.causes[0].unit, unit, "a reread error cannot become a partial successful projection");
+});
 
 test("a real selected float64 add produces complete BodyFacts and its whole stable Summary projection", () => {
   const current = fixture(add("body-round.float-add", T.float64, plus("float64", T.float64)));
@@ -134,6 +400,10 @@ test("a real selected float64 add produces complete BodyFacts and its whole stab
   assert.equal(pair.facts.liveness, current.input.liveness, "the round borrows the once-produced actual Liveness family");
   assert.equal(pair.summary.arena, pair.facts.arena);
   assert.equal(pair.summary.parameters.length, 2);
+  assert.deepEqual(pair.summary.arena.producers, [
+    { id: 0, path: null, kind: "parameter", index: 0 }, { id: 1, path: null, kind: "parameter", index: 1 }]);
+  assert.deepEqual(pair.summary.arena.boundProducers, [], "a scalar formal symbol alone supplies no reference or alias proof");
+  assert.deepEqual(pair.summary.arena.origins[0].producers, [], "actual scalar reference provenance remains empty");
   assert.equal(pair.summary.returns, true);
   assert.equal(pair.summary.unwinds, false);
   assert.equal(pair.facts.origins.writes.length > 0, true, "actual lowered assignments produce write observations");
@@ -164,6 +434,15 @@ test("an actual empty module traverses its MIR return and proves no storage or c
 });
 
 test("zero and every smaller supplied account refuse without partial successful facts or a second allowance", () => {
+  const unread = new Proxy({}, { get() { throw new Error("no source input read without entry admission"); } });
+  const sourceAccount = createAccount({ ...limits, maximumWork: 0 });
+  const sourceStop = sourceOccurrences(unread, sourceAccount);
+  assert.equal(sourceStop.kind, "resource-limit");
+  assert.equal(sourceOccurrences(unread, sourceAccount), sourceStop);
+  const factsAccount = createAccount({ ...limits, maximumWork: 0 });
+  const factsStop = bodyNodes(unread, factsAccount);
+  assert.equal(factsStop.kind, "resource-limit");
+  assert.equal(bodyNodes(unread, factsAccount), factsStop);
   const current = fixture(add("body-round.shared-account", T.float64, plus("float64", T.float64)));
   for (const maximumWork of [0, 1, 5, 30, 100]) {
     const account = createAccount({ ...limits, maximumWork });
@@ -186,7 +465,8 @@ test("selected provided entries initialize only supplied formals and actual omis
   for (const provided of [0, 1]) {
     const entry = current.input.mir.entries.find(row => row.provided === provided);
     assert.equal(entry !== undefined, true, "the actual LowerMir producer offers this selected entry");
-    const result = solveAssigned(current.input.mir, provided, createAccount(limits));
+    const result = solveAssigned({ ...current.deps, account: createAccount(limits) },
+      { ...current.input, execution: { ...current.execution, provided } });
     assert.equal(result.kind, "complete");
     assert.equal(result.value.entry[entry.block].has(0), provided === 1, "omitted storage is not prematurely initialized at entry");
     assert.equal(result.value.entry[0].has(0), true, "the actual omission prologue assignment establishes initialization before the full body");
@@ -326,7 +606,7 @@ test("real branch joins and loop backedges retain only definite initialization",
     assert.equal(pair.facts.origins.writes.some(row => row.operation === "mutation"), loop);
     for (let maximumWork = 0; maximumWork <= 1024; maximumWork += 1) {
       const account = createAccount({ ...limits, maximumWork });
-      const result = solveAssigned(current.input.mir, current.execution.provided, account);
+      const result = solveAssigned({ ...current.deps, account }, current.input);
       assert.equal(result.kind === "complete" || result === accountFailure(account), true);
     }
   }
@@ -384,9 +664,16 @@ test("canonical source ordering and separated initializer boundaries borrow actu
   assert.equal(result.kind, "complete");
   assert.equal(result.value.get(header.id), selected);
   assert.equal([...result.value.values()].includes(initializer.root), false, "default execution is not callable semantic traversal");
+  const syntax = bodyNodes({ ...current.program.tir, params: [selected], nestedBodies: [initializer.body] }, createAccount(limits));
+  assert.equal(syntax.kind, "complete");
+  assert.equal(syntax.value.nodes.get(header.id), selected, "the canonical Facts domain retains actual owning selected headers");
+  assert.equal(syntax.value.nodes.get(selected.name.id), selected.name);
+  assert.equal([...syntax.value.nodes.values()].includes(initializer.root), false);
   const repeated = sourceOccurrences({ ...current.program.tir, params: [header, header] }, createAccount(limits));
   assert.equal(repeated.kind, "complete");
   assert.equal(repeated.value.get(header.id), header);
+  assert.throws(() => sourceOccurrences({ ...current.program.tir, params: new Array(1) }, createAccount(limits)),
+    /every actual selected parameter header/, "a sparse header cannot silently end the pending walk before its execution root");
 });
 
 test("proof preserves original error origins and names genuine supplied cell-event obligations", () => {
@@ -466,7 +753,7 @@ test("ready relation frontiers never fabricate projection, capture, absence or g
   const selected = current.input.mir.blocks.flatMap(block => block.statements).find(statement => statement.kind === "assign");
   const blocks = current.input.mir.blocks.map(block => ({ ...block, statements: block.statements.map(statement =>
     statement === selected ? { ...statement, value: { ...statement.value, operation: { decision: {
-      ...statement.value.operation.decision, operation: { kind: "core", declaration: current.program.tir.owner, bindings: {} } } } } }
+      ...statement.value.operation.decision, execution: { kind: "invocation", writesStorage: true, failure: "none" } } } } }
       : statement) }));
   assert.throws(() => run({ ...current.input, mir: { ...current.input.mir, blocks } }), /selected operation effect and Origins transport/);
   const converting = current.input.mir.blocks.map(block => ({ ...block, statements: block.statements.map(statement =>
@@ -515,9 +802,17 @@ test("actual scalar receiver storage keeps receiver context distinct from the fo
   assert.equal(pair.facts.arena.contexts[0].receiver, 0);
   assert.equal(pair.facts.arena.contexts[0].arguments.length, 0);
   assert.equal(pair.summary.parameters[0].slot.kind, "receiver");
+  assert.deepEqual(pair.summary.arena.producers, [{ id: 0, path: null, kind: "receiver" }]);
   const result = analyzeBodyRound({ ...current.deps, account: createAccount(limits),
     limits: { ...analysisLimits, maximumRelationalReferencesPerBody: 0 } }, current.input);
   assert.equal(result.kind, "refused");
+  for (const dimension of ["maximumWork", "maximumResultEntries"]) {
+    for (let maximum = 0; maximum <= 1024; maximum += 1) {
+      const account = createAccount({ ...limits, [dimension]: maximum });
+      const bounded = analyzeBodyRound({ ...current.deps, account }, current.input);
+      assert.equal(bounded.kind === "complete" || bounded === accountFailure(account), true);
+    }
+  }
 });
 
 test("explicit MIR reachability and finite exits, not all syntax, decide the scalar projection", () => {
@@ -526,7 +821,7 @@ test("explicit MIR reachability and finite exits, not all syntax, decide the sca
   const unreachable = { ...block, id: current.input.mir.blocks.length, statements: [], terminator: { ...block.terminator,
     kind: "unreachable" } };
   const input = { ...current.input, mir: { ...current.input.mir, blocks: [...current.input.mir.blocks, unreachable] } };
-  const solution = solveAssigned(input.mir, current.execution.provided, createAccount(limits));
+  const solution = solveAssigned({ ...current.deps, account: createAccount(limits) }, input);
   assert.equal(solution.kind, "complete");
   assert.equal(assignedEntry(solution.value.entry, 0).has(0), true);
   assert.throws(() => assignedEntry(solution.value.entry, unreachable.id), /actual solved initialization entry/);
@@ -575,6 +870,46 @@ test("actual nested callable source roots never traverse a separately owned body
   assert.equal([...open.value.values()].includes(child.root), true, "only an actual separate-body boundary excludes child syntax");
 });
 
+test("a module owns neither its nested callable headers nor their separately executing defaults", () => {
+  const name = "body-round.nested-header";
+  const childName = `${name}.function`;
+  const child = builders(childName);
+  const declaration = def(`${childName}.flag`);
+  const initializer = bodyId(`${childName}.flag`, "default");
+  const parameter = { kind: "Parameter", modifiers: null, dotDotDotToken: null,
+    name: child.declName("flag", 0), questionToken: null, type: null,
+    initializer: child.keyword("TrueKeyword", T.bool),
+    tsonic: { declaration, local: child.localRef(0), storage: T.bool, passing: "by-value", initializer, role: "default" } };
+  const callable = { kind: "FunctionDeclaration", modifiers: null, typeParameters: null,
+    parameters: { $list: true, nodes: [parameter] }, type: null, fullSignature: null, asteriskToken: null,
+    name: null, body: child.block(child.returns(child.id("flag", 0, T.bool))),
+    tsonic: { definition: def(childName), parameters: [], signatures: [], attributes: [],
+      template: { body: child.body, lexicalBindings: { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] },
+        dependence: "parametric" } } };
+  const program = typedBody(name, { role: "module", signature: signature(name, [], T.void), completion: T.void,
+    nestedBodies: [child.body],
+    root: { kind: "SourceFile", statements: { $list: true, nodes: [callable] },
+      endOfFileToken: { kind: "EndOfFile", tsonic: null }, languageVariant: "Standard", scriptKind: "TS",
+      commentDirectives: [], pragmas: [], checkJsDirective: null, tsonic: { module: "M[P[p];m]", template: null } } });
+  const selected = program.tir.root.statements.nodes[0];
+  const header = selected.parameters.nodes[0];
+  const current = fixture(program);
+  const pair = checkedPair(current, analyzeBodyRound(current.deps, current.input));
+  assert.deepEqual(pair.facts.refinements.integers, [], "only the callee's unexecuted subtree contains values");
+  assert.equal(pair.summary.returns, true, "the actual module returns without running a nested function/default");
+  Object.defineProperty(header, "initializer", { get() { throw new Error("the outer module cannot read a child's default syntax"); } });
+  const result = sourceOccurrences(program.tir, createAccount(limits));
+  assert.equal(result.kind, "complete");
+  assert.equal(result.value.get(selected.id), selected);
+  assert.equal(result.value.has(header.id), false);
+  assert.equal(result.value.has(header.name.id), false);
+  assert.equal(result.value.has(selected.body.id), false);
+  const syntax = bodyNodes(program.tir, createAccount(limits));
+  assert.equal(syntax.kind, "complete");
+  assert.equal(syntax.value.nodes.has(header.id), false);
+  assert.equal(syntax.value.valueNodes.size, 0);
+});
+
 test("complete binding identity is paid before canonical serialization and no huge binding row follows refusal", () => {
   const current = fixture(add("body-round.binding-budget", T.float64, plus("float64", T.float64)));
   const vector = { ...current.execution.instance.bindings.bindings, classBindings: new Array(10000) };
@@ -591,5 +926,23 @@ test("actual arena and condition dimensions refuse rather than publishing an ove
     const result = analyzeBodyRound({ ...current.deps, account: createAccount(limits), limits: { ...analysisLimits, [field]: maximum } }, current.input);
     assert.equal(result.kind, "refused");
     assert.equal(result.diagnostics[0].code.rendered, "TSONIC_COMPILER_RESOURCE_LIMIT");
+  }
+});
+
+test("scalar formal inventory reserves actual producer rows before growth without manufacturing cell identity", () => {
+  const current = fixture(add("body-round.formal-inventory", T.float64, plus("float64", T.float64)));
+  for (const maximumRelationalRecordsPerBody of [0, 1, 2, 3, 4]) {
+    const deps = { ...current.deps, account: createAccount(limits), limits: { ...analysisLimits,
+      maximumRelationalRecordsPerBody, maximumRelationalReferencesPerBody: 2, maximumOriginAlternatives: 0 } };
+    const result = analyzeBodyRound(deps, current.input);
+    assert.equal(result.kind, maximumRelationalRecordsPerBody === 4 ? "complete" : "refused");
+    if (result.kind === "complete") {
+      const pair = checkedPair({ ...current, deps }, result);
+      assert.equal(pair.summary.arena, pair.facts.arena);
+      assert.equal(pair.facts.arena.cells.length, 0);
+      assert.equal(pair.facts.arena.producers.length, 2);
+      assert.equal(pair.facts.arena.boundProducers.length, 0);
+      assert.deepEqual(pair.facts.arena.contexts[0].arguments, [0, 0]);
+    }
   }
 });

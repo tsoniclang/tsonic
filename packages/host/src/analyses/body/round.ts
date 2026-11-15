@@ -3,14 +3,16 @@ import { accountFailure, chargeResultEntries, chargeWork, refuseAccount } from "
 import type { Diagnostic, DiagnosticIdentity, ErrorValue, UnitResult } from "../../diag/contract.js";
 import { hostDiagnosticCode, requirePresent, resourceLimitDiagnostic } from "../../diag/index.js";
 import type { NodeId, TyId } from "../../ids/contract.js";
-import { originsId, valueContextId } from "../../ids/index.js";
-import type { InitializationFact, IntegerFact, ReadOriginsFact, SubjectOriginsFact, Summary, WriteFact } from "../../ir-facts/contract.js";
+import { originsId, producerId, valueContextId } from "../../ids/index.js";
+import type { BoundActivation, InitializationFact, IntegerFact, Producer, ReadOriginsFact, SubjectOriginsFact, Summary, ValueContext, WriteFact } from "../../ir-facts/contract.js";
 import { admitSummaryIdentity } from "../../ir-facts/index.js";
 import type { MirOperand, MirSite } from "../../ir-mir/contract.js";
 import { localOwnershipOfMir } from "../../ir-mir/index.js";
 import type { TirNode } from "../../ir-tir/contract.js";
 import { nativeCarrierOf, sameInstance } from "../../ir-types/index.js";
 import type { BodyRoundDeps, BodyRoundInput, BodyRoundResult, BodyRoundValue } from "./contract.js";
+import type { CallError } from "./calls.js";
+import { applyScalarCall, callSummary, initializerCallee, isCallError } from "./calls.js";
 import { orderedRows, sourceOccurrences } from "./source.js";
 import { assignedEntry, bodyFrontier, readLocal, solveAssigned, statementOperands, terminatorOperands, transferAssigned } from "./storage.js";
 
@@ -37,6 +39,14 @@ function operandSite(node: TirNode | undefined, position: number, fallback: Node
   if (node?.kind === "PrefixUnaryExpression" || node?.kind === "PostfixUnaryExpression") return node.operand.id;
   if (node?.kind === "ReturnStatement" && node.expression !== null) return node.expression.id;
   return fallback;
+}
+
+function failedCall(deps: BodyRoundDeps, failure: CallError): BodyRoundResult {
+  const admission = chargeWork(deps.account, 2) ?? chargeResultEntries(deps.account, 8);
+  if (admission !== null) return admission;
+  const error: ErrorValue = { kind: "error", causes: [{ kind: "unit", unit: failure.unit }] };
+  return { kind: "complete", value: { kind: "ok", value: error, diagnostics: [], emissions: [],
+    positions: [{ position: { kind: "result" }, error }] } };
 }
 
 export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRoundResult {
@@ -72,16 +82,47 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       return stop ?? bodyFrontier("BodyAnalysis requires the actual selected non-scalar constant relation.");
     }
   }
+  const empty = originsId(0);
+  const signatureWork = chargeWork(account, 1);
+  if (signatureWork !== null) return signatureWork;
+  const signature = deps.signatureOf(tir.signature);
+  const summaryWork = chargeResultEntries(account, 40 + signature.parameters.length * 4);
+  if (summaryWork !== null) return summaryWork;
+  const bounded = (limit: "maximumRelationalRecordsPerBody" | "maximumRelationalReferencesPerBody" | "maximumConditionAlternatives", size: number): DataflowStop | null =>
+    size <= deps.limits[limit] ? null : refuseAccount(account, { kind: "refused", diagnostics: [
+      resourceLimitDiagnostic({ owner: "analyses/origins", limit: `analysis.${limit}`, maximum: deps.limits[limit],
+        site: { kind: "source", origin: tir.root.origin }, unit: { request: deps.unit, position: { kind: "result" } } })] });
+  const formalCount = signature.parameters.length + (signature.receiver === null ? 0 : 1);
+  const bound = bounded("maximumRelationalRecordsPerBody", 2 + formalCount)
+    ?? bounded("maximumRelationalReferencesPerBody", signature.parameters.length + (signature.receiver === null ? 0 : 1))
+    ?? bounded("maximumConditionAlternatives", 1);
+  if (bound !== null) return bound;
+  const producers: Producer[] = [];
+  if (signature.receiver !== null) {
+    const receiverWork = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
+    if (receiverWork !== null) return receiverWork;
+    producers.push({ id: producerId(0), path: null, kind: "receiver" });
+  }
+  for (let index = 0; index < signature.parameters.length; index += 1) {
+    const formalWork = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
+    if (formalWork !== null) return formalWork;
+    producers.push({ id: producerId(producers.length), path: null, kind: "parameter", index });
+  }
+  const contexts: ValueContext[] = [{ id: valueContextId(0), receiver: signature.receiver === null ? null : empty,
+    arguments: signature.parameters.map(() => empty), captures: [] }];
+  const arena = { cells: [], projections: [], producers, boundProducers: [], boundaries: [], contexts,
+    origins: [{ id: empty, kind: "complete", producers: [], includesAbsence: false }] } satisfies BodyRoundValue["facts"]["arena"];
   const source = sourceOccurrences(tir, account);
   if (source.kind !== "complete") return source;
-  const solved = solveAssigned(mir, execution.provided, account);
+  const solved = solveAssigned(deps, input);
   if (solved.kind !== "complete") return solved;
+  if (solved.value.error !== null) return failedCall(deps, solved.value.error);
   const initialized = new Map<NodeId, InitializationFact>();
   const reads: ReadOriginsFact[] = [];
   const subjects: SubjectOriginsFact[] = [];
   const writes: WriteFact[] = [];
+  const activations: BoundActivation[] = [];
   let returns = false;
-  const empty = originsId(0);
   const read = (operand: MirOperand, node: NodeId, assigned: ReadonlySet<number>): boolean => {
     if (chargeWork(account, 1) !== null || chargeResultEntries(account, 2) !== null) return false;
     if (operand.kind === "constant") return true;
@@ -98,6 +139,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     const blockWork = chargeWork(account, 1);
     if (blockWork !== null) return blockWork;
     if (solved.value.reachable[block.id] !== true) continue;
+    if (solved.value.entry[block.id] === null) continue;
     let assigned = assignedEntry(solved.value.entry, block.id);
     let position = 0;
     for (const row of block.statements) {
@@ -119,7 +161,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       if (statement.kind === "assign") {
         const value = statement.value;
         if (value.kind !== "use" && (value.kind !== "unary" && value.kind !== "binary" && value.kind !== "convert"
-          || value.operation.decision.kind !== "selected" || value.operation.decision.operation.kind !== "native-operator"))
+          || value.operation.decision.kind !== "selected" || value.operation.decision.execution.kind !== "pure"))
           return bodyFrontier("BodyAnalysis requires the actual selected operation effect and Origins transport.");
         const local = readLocal(mir, { kind: "place", place: statement.place });
         const storeWork = chargeResultEntries(account, 3);
@@ -137,6 +179,31 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     const terminatorWork = chargeWork(account, 3) ?? chargeResultEntries(account, 2);
     if (terminatorWork !== null) return terminatorWork;
     const terminator = block.terminator;
+    if (terminator.kind === "call") {
+      const selected = callSummary(deps, mir, terminator);
+      if (selected.kind !== "complete") return selected;
+      if (isCallError(selected.value)) return failedCall(deps, selected.value);
+      const bound = bounded("maximumRelationalRecordsPerBody", arena.producers.length + arena.contexts.length + arena.origins.length + 1);
+      if (bound !== null) return bound;
+      const growth = chargeWork(account, 1) ?? chargeResultEntries(account, 5);
+      if (growth !== null) return growth;
+      const context = valueContextId(contexts.length);
+      contexts.push({ id: context, receiver: null, arguments: [], captures: [] });
+      const point = { block: block.id, statement: null };
+      const applied = applyScalarCall(deps, input, terminator, point, selected.value, arena, context);
+      if (applied.kind !== "complete") return applied;
+      activations.push({ node: terminator.tir.node, point, activation: initializerCallee(terminator).instance, context,
+        caller: valueContextId(0), entry: null });
+      if (selected.value.returns && terminator.destination !== null) {
+        const local = readLocal(mir, { kind: "place", place: terminator.destination });
+        const write = chargeResultEntries(account, 3);
+        if (write !== null) return write;
+        writes.push({ point, node: terminator.tir.node, operation: assigned.has(local) ? "mutation" : "initialization",
+          destination: "binding", targets: [], owner: null,
+          values: [{ source: terminator.tir, origins: empty, reason: null }], boundaries: [] });
+      }
+      continue;
+    }
     for (const operand of terminatorOperands(terminator)) {
       if (!read(operand, operandSite(source.value.get(terminator.tir.node), 0, terminator.tir.node), assigned)) {
         const stop = accountFailure(account);
@@ -172,23 +239,6 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
   }
   const integerRows = orderedRows(integers, (left, right) => left.node - right.node, account);
   if (integerRows.kind !== "complete") return integerRows;
-  const signatureWork = chargeWork(account, 1);
-  if (signatureWork !== null) return signatureWork;
-  const signature = deps.signatureOf(tir.signature);
-  const summaryWork = chargeResultEntries(account, 40 + signature.parameters.length * 4);
-  if (summaryWork !== null) return summaryWork;
-  const bounded = (limit: "maximumRelationalRecordsPerBody" | "maximumRelationalReferencesPerBody" | "maximumConditionAlternatives", size: number): DataflowStop | null =>
-    size <= deps.limits[limit] ? null : refuseAccount(account, { kind: "refused", diagnostics: [
-      resourceLimitDiagnostic({ owner: "analyses/origins", limit: `analysis.${limit}`, maximum: deps.limits[limit],
-        site: { kind: "source", origin: tir.root.origin }, unit: { request: deps.unit, position: { kind: "result" } } })] });
-  const bound = bounded("maximumRelationalRecordsPerBody", 2)
-    ?? bounded("maximumRelationalReferencesPerBody", signature.parameters.length + (signature.receiver === null ? 0 : 1))
-    ?? bounded("maximumConditionAlternatives", 1);
-  if (bound !== null) return bound;
-  const arena = { cells: [], projections: [], producers: [], boundProducers: [], boundaries: [],
-    contexts: [{ id: valueContextId(0), receiver: signature.receiver === null ? null : empty,
-      arguments: signature.parameters.map(() => empty), captures: [] }],
-    origins: [{ id: empty, kind: "complete", producers: [], includesAbsence: false }] } satisfies BodyRoundValue["facts"]["arena"];
   const summary: Summary = { key: { kind: "body", execution }, signature: tir.signature, arena,
     parameters: [], captures: [], result: empty, thrown: empty, writes: [], retention: [], callbacks: [],
     concurrentWrites: [], contentsOnReturn: [], contentsOnUnwind: [], returns, unwinds: false,
@@ -201,7 +251,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     reads: { kind: "complete", paths: [] }, writes: { kind: "complete", paths: [] } });
   const value: BodyRoundValue = { facts: { execution, arena, liveness, initialization: { reads: initialization.value },
     refinements: { refinements: [], integers: integerRows.value, countedLoops: [] }, origins: { points: [], reads: readRows.value,
-      subjects: subjectRows.value, writes, escapes: [], invocations: [], callbacks: [], activations: [], frontiers: [],
+      subjects: subjectRows.value, writes, escapes: [], invocations: [], callbacks: [], activations, frontiers: [],
       constructions: [], instanceRegions: [], exitContents: { onReturn: [], onUnwind: [] } },
     suspension: { suspensions: [] }, errorStorage: { errors: [] }, pointerBacking: { pointers: [] }, rawLocations: [],
     fieldBindings: [], recordBindings: [], memoryBindings: [], selectedMemoryDeclarations: [], closedArrays: [] },

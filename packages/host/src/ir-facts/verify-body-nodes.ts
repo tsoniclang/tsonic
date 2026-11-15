@@ -35,10 +35,9 @@ export function bodyNodes(tir: TirBody, account: DataflowAccount): DataflowResul
     const template = annotation !== null && "callable" in annotation ? annotation.callable.template
       : annotation !== null && "template" in annotation ? annotation.template : null;
     const bodyRoot = template !== null && nestedBodies.has(template.body) && "body" in node && node.body !== null ? node.body.id : null;
-    const callable = node.kind === "FunctionDeclaration" || node.kind === "FunctionExpression" || node.kind === "ArrowFunction"
-      || node.kind === "Constructor" || node.kind === "MethodDeclaration" || node.kind === "GetAccessor" || node.kind === "SetAccessor";
+    const callable = "parameters" in node && "body" in node;
     const initializerRoot = annotation !== null && "initializer" in annotation && annotation.initializer !== null &&
-      nestedBodies.has(annotation.initializer) && "initializer" in node && node.initializer !== null ? node.initializer.id : null;
+      "initializer" in node && node.initializer !== null ? node.initializer.id : null;
     const children = iterateChildrenOfSyntax<TypedPhase>(node);
     for (;;) {
       const step = chargeWork(account, 1) ?? chargeResultEntries(account, 1);

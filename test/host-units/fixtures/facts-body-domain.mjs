@@ -39,6 +39,36 @@ await suite.test("Facts source domain excludes each nested callable's parameters
   }
 });
 
+await suite.test("a signature without an implementation body does not hide its source parameter", () => {
+  const input = body("FunctionDeclaration");
+  input.root.statements.nodes[0] = { kind: "MethodSignature", id: 2, tsonic: null, modifiers: null, name: null,
+    postfixToken: null, typeParameters: null, type: null, fullSignature: null,
+    parameters: { nodes: [{ kind: "Parameter", id: 3, tsonic: null, modifiers: null,
+      dotDotDotToken: null, name: null, questionToken: null, type: null, initializer: null }] } };
+  const result = bodyNodes(input, account());
+  assert.equal(result.kind, "complete");
+  assert.equal(result.value.nodes.has(3), true);
+});
+
+await suite.test("a semantic initializer is separately owned even when it is not a nested block body", () => {
+  for (const listed of [false, true]) {
+    const initializer = { kind: "TrueKeyword", id: 1 };
+    Object.defineProperty(initializer, "tsonic", { get() { assert.fail("The placed initializer is not the caller's value occurrence."); } });
+    const root = { kind: "Parameter", id: 0, tsonic: { initializer: nested }, modifiers: null,
+      dotDotDotToken: null, name: null, questionToken: null, type: null, initializer };
+    const result = bodyNodes({ root, params: [], nestedBodies: listed ? [nested] : [] }, account());
+    assert.equal(result.kind, "complete");
+    assert.equal(result.value.nodes.has(0), true);
+    assert.equal(result.value.nodes.has(1), false);
+  }
+  const initializer = { kind: "TrueKeyword", id: 1, tsonic: { convertedType: 0 } };
+  const root = { kind: "Parameter", id: 0, tsonic: { initializer: null }, modifiers: null,
+    dotDotDotToken: null, name: null, questionToken: null, type: null, initializer };
+  const result = bodyNodes({ root, params: [], nestedBodies: [] }, account());
+  assert.equal(result.kind, "complete");
+  assert.deepEqual([...result.value.valueNodes], [1]);
+});
+
 await suite.test("Facts source domain preserves original refusal before syntax, with cumulative work and row bounds", () => {
   const stopped = account();
   const refusal = { kind: "refused", diagnostics: [] };

@@ -5,12 +5,18 @@ import { iterateChildrenOfSyntax } from "../../ir-hir/index.js";
 import type { TirBody, TirNode, TypedPhase } from "../../ir-tir/contract.js";
 
 export function sourceOccurrences(tir: TirBody, account: DataflowAccount): DataflowResult<ReadonlyMap<NodeId, TirNode>> {
-  const initial = chargeWork(account, 1 + tir.nestedBodies.length + tir.params.length)
+  const entry = chargeWork(account, 1);
+  if (entry !== null) return entry;
+  const initial = chargeWork(account, tir.nestedBodies.length + tir.params.length)
     ?? chargeResultEntries(account, 2 + tir.nestedBodies.length + tir.params.length);
   if (initial !== null) return initial;
   const nested = new Set(tir.nestedBodies);
   const nodes = new Map<NodeId, TirNode>();
-  const pending: TirNode[] = [tir.root, ...tir.params];
+  const pending: TirNode[] = [tir.root];
+  for (const header of tir.params) {
+    if (header === undefined) throw new TypeError("BodyAnalysis retains every actual selected parameter header.");
+    pending.push(header);
+  }
   for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
     const read = chargeWork(account, 1);
     if (read !== null) return read;
@@ -30,6 +36,7 @@ export function sourceOccurrences(tir: TirBody, account: DataflowAccount): Dataf
       if (step !== null) return step;
       const child = children.next();
       if (child.done) break;
+      if ("parameters" in node && "body" in node && child.value.kind === "Parameter") continue;
       if (child.value.id !== body && child.value.id !== initializer) pending.push(child.value);
     }
   }
