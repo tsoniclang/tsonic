@@ -1,5 +1,5 @@
-import type { CheckFailure, HandleActivation, ReceiverAccess } from "../ir-types/contract.js";
 import type { AccessLocation, ApplicationDecision, CheckRequirement, CompletionEndpoint, CorrespondenceStep, DischargeObligationProof, DischargeProof, EmbeddingDecision, EmbeddingProof, FailureKind, MemberDecision, ParameterMapping, RefinementDecision } from "./contract.js";
+import type { CheckFailure, HandleActivation, ReceiverAccess } from "../ir-types/contract.js";
 import type { CaptureValuesSchemas } from "./text-capture-values.js";
 import type { ConstraintsSchemas } from "./text-constraints.js";
 import { arraySchema, enumSchema, nullableSchema, recordSchema, unionSchema } from "./text-data.js";

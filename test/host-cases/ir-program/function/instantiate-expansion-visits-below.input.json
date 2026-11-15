@@ -23,7 +23,9 @@
             "node": 0
           }
         ],
-        "exports": []
+        "exports": [],
+        "bindings": [],
+        "checkerDiagnostics": []
       }
     ],
     "types": {

@@ -11,6 +11,15 @@ import {
 } from "./identity.js";
 import { encodeCanonicalKey } from "./key.js";
 import type {
+  RawTypeId, RawTypeIdConstructor,
+  RawSymbolId, RawSymbolIdConstructor,
+  RawSignatureId, RawSignatureIdConstructor,
+  RawComponentId, RawComponentIdConstructor,
+  RawMemberTableId, RawMemberTableIdConstructor,
+  RawCandidateListId, RawCandidateListIdConstructor,
+  RawDataLayoutId, RawDataLayoutIdConstructor,
+  RawMemoryLayoutId, RawMemoryLayoutIdConstructor,
+  RawMemoryFieldId, RawMemoryFieldIdConstructor,
   NodeId, NodeIdConstructor,
   LocalId, LocalIdConstructor,
   BlockId, BlockIdConstructor,
@@ -46,6 +55,15 @@ export const encodeComponentId: EncodeComponentId = encodeComponentIdentity;
 export const decodeComponentId: DecodeComponentId = decodeComponentIdentity;
 
 export const nodeId: NodeIdConstructor = value => value as NodeId;
+export const rawTypeId: RawTypeIdConstructor = value => value as RawTypeId;
+export const rawSymbolId: RawSymbolIdConstructor = value => value as RawSymbolId;
+export const rawSignatureId: RawSignatureIdConstructor = value => value as RawSignatureId;
+export const rawComponentId: RawComponentIdConstructor = value => value as RawComponentId;
+export const rawMemberTableId: RawMemberTableIdConstructor = value => value as RawMemberTableId;
+export const rawCandidateListId: RawCandidateListIdConstructor = value => value as RawCandidateListId;
+export const rawDataLayoutId: RawDataLayoutIdConstructor = value => value as RawDataLayoutId;
+export const rawMemoryLayoutId: RawMemoryLayoutIdConstructor = value => value as RawMemoryLayoutId;
+export const rawMemoryFieldId: RawMemoryFieldIdConstructor = value => value as RawMemoryFieldId;
 export const localId: LocalIdConstructor = value => value as LocalId;
 export const blockId: BlockIdConstructor = value => value as BlockId;
 export const placeId: PlaceIdConstructor = value => value as PlaceId;

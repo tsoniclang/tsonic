@@ -5,6 +5,8 @@ import type { Cursor, RecordFields, TextStep, TextReader } from "./parse-values.
 import { delimiter, readString, choice, readBoolean, readStringChoice, readSignatureId, readNumberChoice, openRecord, closeRecord, readModuleId, readDefinitionId, readBodyId, readTypeId, readNodeId, acceptText, atomicText, fieldText, nullableText, arrayText } from "./parse-values.js";
 import { readBindings, readTypeComponentText } from "./parse-types.js";
 import { readNodeRef, readSourceNodeRef, readLocalRef, readLibraryModuleIdentity } from "./parse-diagnostics.js";
+import type { Cause } from "../diag/contract.js";
+import { readCauseText } from "./text-causes.js";
 
 export function readHirCallableEndpointText<Root>(cursor: Cursor, finish: (value: HirCallableEndpoint) => TextStep<Root>): TextStep<Root> {
   return atomicText(cursor, next => openRecord(next, "HirCallableEndpoint"), fields =>
@@ -93,9 +95,10 @@ export function readCapturedFactText<Value, Root>(cursor: Cursor, readValue: Tex
     atomicText(cursor, next => closeRecord(next, fields), () =>
         acceptText({ kind: label, value: valueValue }, finish)));
         case "unavailable":
-          return fieldText<"checker-error" | "parameter-dependent" | "not-provided", Root>(cursor, fields, "reason", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["checker-error","parameter-dependent","not-provided"]), done), reasonValue =>
+          return fieldText<"checker-error" | "parameter-dependent" | "not-provided" | "missing-original-component" | "incomplete-association" | "unsupported-checked-structure", Root>(cursor, fields, "reason", (next, done) => atomicText(next, cursor => readStringChoice(cursor, ["checker-error","parameter-dependent","not-provided","missing-original-component","incomplete-association","unsupported-checked-structure"]), done), reasonValue =>
+          fieldText<readonly Cause[], Root>(cursor, fields, "causes", (next, done) => arrayText(next, readCauseText, done), causes =>
     atomicText(cursor, next => closeRecord(next, fields), () =>
-        acceptText({ kind: label, reason: reasonValue }, finish)));
+        acceptText({ kind: label, reason: reasonValue, causes }, finish))));
       }
     }));
 }

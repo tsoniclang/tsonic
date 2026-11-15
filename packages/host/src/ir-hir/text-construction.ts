@@ -436,6 +436,7 @@ export interface HirReader<Value> {
 
 export interface HirSequenceConstruction {
   readonly requests: () => readonly HirValueRequest[];
+  readonly complete: () => boolean;
   readonly publish: () => void;
 }
 
@@ -491,7 +492,18 @@ export const sequenceReader = <Value>(read: HirReader<Value>): HirReader<readonl
   ({ requests: accept => [{ kind: "sequence", sequence: () => {
     const values: HirConstruction<Value>[] = [];
     return { requests: () => read.requests(value => { values.push(value); }),
+      complete: () => true,
       publish: () => accept(sequenceConstruction(values)) };
+  } }] });
+
+export const nonemptySequenceReader = <Value>(read: HirReader<Value>): HirReader<readonly [Value, ...Value[]]> =>
+  ({ requests: accept => [{ kind: "sequence", sequence: () => {
+    const values: HirConstruction<Value>[] = [];
+    return { requests: () => read.requests(value => { values.push(value); }), complete: () => values.length > 0,
+      publish: () => accept(mapConstruction(sequenceConstruction(values), actual => {
+        const first = requirePresent(actual[0], constructionFailure);
+        return [first, ...actual.slice(1)];
+      })) };
   } }] });
 
 export const unionReader = <Value>(reads: () => readonly HirReader<Value>[]): HirReader<Value> =>

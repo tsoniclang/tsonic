@@ -169,26 +169,17 @@ export function createReadGroup4(readers: () => HirTextReaders): HirReadGroup4 {
       return { fields: [field_base, field_step, field_read, field_write], value: () => ({ base: field_base.value(), step: field_step.value(), read: field_read.value(), write: field_write.value() }) };
     });
   const record_145 = recordReader<{ readonly kind: "root"; readonly resolution: Hir.HirResolution; }>("root", read => {
-      const field_resolution = read("resolution", unionReader<Hir.HirResolution>(() => [readers().record_146, readers().record_147, readers().record_148, readers().record_152]));
+      const field_resolution = read("resolution", readers().resolution);
       return { fields: [field_resolution], value: () => ({ kind: "root", resolution: field_resolution.value() }) };
     });
   const record_146 = recordReader<{ readonly kind: "local"; readonly local: Ids.LocalRef; }>("local", read => {
       const field_local = read("local", readers().record_11);
       return { fields: [field_local], value: () => ({ kind: "local", local: field_local.value() }) };
     });
-  const record_147 = recordReader<{ readonly kind: "definition"; readonly definition: Ids.DefId; readonly aliases: readonly Ids.DefId[]; }>("definition", read => {
-      const field_definition = read("definition", readers().identity_def);
-      const field_aliases = read("aliases", sequenceReader(readers().identity_def));
-      return { fields: [field_definition, field_aliases], value: () => ({ kind: "definition", definition: field_definition.value(), aliases: field_aliases.value() }) };
-    });
-  const record_148 = recordReader<{ readonly kind: "module"; readonly target: Hir.ImportTarget; }>("module", read => {
-      const field_target = read("target", unionReader<Hir.ImportTarget>(() => [readers().record_149, readers().record_150]));
-      return { fields: [field_target], value: () => ({ kind: "module", target: field_target.value() }) };
-    });
   const record_149 = recordReader<{ readonly target: "project"; readonly module: Ids.ModuleId; }>("ImportTarget", read => {
       const field_target = read("target", readers().literal_94);
       const field_module = read("module", readers().identity_mod);
       return { fields: [field_target, field_module], value: () => ({ target: field_target.value(), module: field_module.value() }) };
     });
-  return { record_120, record_121, record_122, record_123, record_124, record_125, record_126, record_127, record_128, record_129, record_130, record_131, record_132, record_133, record_134, record_135, record_136, record_137, record_138, record_139, record_140, record_141, record_142, record_143, record_144, record_145, record_146, record_147, record_148, record_149 };
+  return { record_120, record_121, record_122, record_123, record_124, record_125, record_126, record_127, record_128, record_129, record_130, record_131, record_132, record_133, record_134, record_135, record_136, record_137, record_138, record_139, record_140, record_141, record_142, record_143, record_144, record_145, record_146, record_149 };
 }

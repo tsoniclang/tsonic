@@ -1,7 +1,7 @@
 import type { Violation } from "../diag/contract.js";
-import type { BodyId, DefId, KeyData, LocalId, LocalRef, SigId, TyId } from "../ids/contract.js";
+import type { BodyId, DefId, KeyData, LocalId, LocalRef, TyId } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
-import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, LiteralValue, PassingMode, TypeComponent, TypeTable, TypeTerm } from "../ir-types/contract.js";
+import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, LiteralValue, PassingMode, TypeComponent, TypeTable } from "../ir-types/contract.js";
 import { artifactBindingsData, artifactBindingsKey, constantReferenceKey, instanceKey } from "../ir-types/index.js";
 import type { ApplicationDecision, EmbeddingDecision, InferenceDeclaration } from "../ir-infer/contract.js";
 import type { MemberSelection, ResolvedCallee, TirBody, TypedOperation } from "../ir-tir/contract.js";
@@ -10,172 +10,12 @@ import { chargeWork, createWireTexts, densePosition, sourceNodes, validOrigin, v
 import type { WorkMeter } from "./verify-control.js";
 import { placeLocations, verifyStorage, verifyValues } from "./verify-storage.js";
 import { verifyLaws } from "./verify-laws.js";
-import type { SignatureReference } from "./verify-storage.js";
-import { childPath, createScalarWires, rootPath, showPath } from "./text.js";
+import { componentReferences, verifyTypeReferences } from "./verify-types.js";
+import type { SignatureReference, TypeReference } from "./verify-types.js";
+import { childPath, createScalarWires, rootPath } from "./text.js";
 import { createDecisionWires } from "./text-decisions.js";
 import type { TextPath } from "./text.js";
 
-export interface TypeReference {
-  readonly type: TyId;
-  readonly site: MirViolationSite;
-}
-
-type GraphReference =
-  | { readonly kind: "type"; readonly value: TyId }
-  | { readonly kind: "signature"; readonly value: SigId };
-
-interface TypeGraphNode {
-  readonly reference: GraphReference;
-  readonly parents: TypeGraphNode[];
-  unresolved: boolean;
-  open: boolean;
-}
-
-function componentReferences(component: TypeComponent, at: TextPath): readonly GraphReference[] {
-  const references: GraphReference[] = [];
-  const active = new Set<TypeComponent>();
-  const pending: { readonly component: TypeComponent; readonly path: TextPath; readonly leave: boolean }[] =
-    [{ component, path: at, leave: false }];
-  for (let current = pending.pop(); current !== undefined; current = pending.pop()) {
-      if (current.leave) { active.delete(current.component); continue; }
-      if (active.has(current.component)) throw new TypeError(`Cyclic MIR value at ${showPath(current.path)}`);
-      active.add(current.component);
-      pending.push({ ...current, leave: true });
-      for (let index = current.component.path.length - 1; index >= 0; index -= 1) {
-        const selector = current.component.path[index];
-        if (selector === undefined) throw new TypeError(`Sparse MIR value at ${showPath(current.path)}.path[${index}]`);
-        switch (selector.kind) {
-          case "sum-arm":
-            for (const role of selector.family.roles) references.push({ kind: "type", value: role.member });
-            pending.push({ component: selector.family.component,
-              path: childPath(childPath(current.path, `.path[${index}]`), ".family.component"), leave: false });
-            break;
-          case "parameter": case "receiver": case "signature-tail": case "result":
-            references.push({ kind: "signature", value: selector.signature });
-            break;
-          case "class-value": case "construction-argument": case "optional-value": case "array-element":
-          case "tuple-element": case "union-member": case "argument-place": case "parameter-place":
-          case "intersection-member": case "intersection-result": case "argument-tail": case "parameter-tail":
-          case "member": case "index-key": case "index-value": case "projection-source": case "tuple-slice":
-          case "type-argument": case "awaited": break;
-        }
-      }
-  }
-  return references;
-}
-
-function termReferences(term: TypeTerm, path: TextPath): readonly GraphReference[] {
-  const references: GraphReference[] = [];
-  const append = (values: readonly TyId[]): void => { for (const value of values) references.push({ kind: "type", value }); };
-  switch (term.kind) {
-    case "literal": append([term.base]); break;
-    case "union": case "intersection": append(term.members); break;
-    case "optional": append([term.value]); break;
-    case "array": case "fixed-array": append([term.element]); break;
-    case "tuple": for (const element of term.elements) append([element.type]); break;
-    case "shape":
-      for (const member of term.members) {
-        if (member.read !== null) append([member.read]);
-        if (member.write !== null) append([member.write]);
-      }
-      for (const index of term.indexes) {
-        append([index.key, index.read]);
-        if (index.write !== null) append([index.write]);
-      }
-      for (const signature of term.calls) references.push({ kind: "signature", value: signature });
-      for (const signature of term.constructs) references.push({ kind: "signature", value: signature });
-      break;
-    case "callable":
-      for (const signature of term.calls) references.push({ kind: "signature", value: signature });
-      for (const signature of term.constructs) references.push({ kind: "signature", value: signature });
-      break;
-    case "declared": case "construction-reference": append(term.arguments); break;
-    case "projection":
-      append([term.source]);
-      if (term.projection.kind === "component") for (const reference of componentReferences(term.projection.component, childPath(path, ".projection.component")))
-        references.push(reference);
-      break;
-    case "primitive": case "string": case "intrinsic": case "enum": case "param": case "self": case "open": case "error": break;
-  }
-  return references;
-}
-
-export function verifyTypeReferences(
-  types: TypeTable, references: readonly TypeReference[], signatures: readonly SignatureReference[],
-): readonly Violation<MirRule, MirViolationSite>[] {
-  const nodes = new Map<string, TypeGraphNode>();
-  const pending: TypeGraphNode[] = [];
-  const ensure = (reference: GraphReference): TypeGraphNode => {
-    const key = encodeKey([reference.kind, reference.value]);
-    const known = nodes.get(key);
-    if (known !== undefined) return known;
-    const node: TypeGraphNode = { reference, parents: [], unresolved: false, open: false };
-    nodes.set(key, node);
-    pending.push(node);
-    return node;
-  };
-  const roots: { readonly site: MirViolationSite; readonly value: number; readonly node: TypeGraphNode }[] = [];
-  const rootKeys = new Set<string>();
-  const root = (reference: GraphReference, site: MirViolationSite): void => {
-    const fields: KeyData[] = [site.kind, site.body];
-    if ("local" in site) fields.push(site.local);
-    if ("constant" in site) fields.push(site.constant);
-    if ("place" in site) fields.push(site.place);
-    if ("block" in site) fields.push(site.block);
-    if ("statement" in site) fields.push(site.statement);
-    fields.push(reference.kind, reference.value);
-    const key = encodeKey(fields);
-    if (rootKeys.has(key)) return;
-    rootKeys.add(key);
-    roots.push({ site, value: reference.value, node: ensure(reference) });
-  };
-  for (const reference of references) root({ kind: "type", value: reference.type }, reference.site);
-  for (const reference of signatures) root({ kind: "signature", value: reference.signature }, reference.site);
-  for (const node of pending) {
-    const reference = node.reference;
-    const children: GraphReference[] = [];
-    if (reference.kind === "type") {
-      const term = densePosition(reference.value, types.terms.length) ? types.terms[reference.value] : undefined;
-      if (term === undefined) { node.unresolved = true; continue; }
-      node.open = term.kind === "open" || term.kind === "error";
-      for (const child of termReferences(term, childPath(rootPath, `.types.terms[${reference.value}]`))) children.push(child);
-    } else {
-      const signature = densePosition(reference.value, types.signatures.length) ? types.signatures[reference.value] : undefined;
-      if (signature === undefined || !Object.is(signature.id, reference.value)) { node.unresolved = true; continue; }
-      if (signature.receiver !== null) children.push({ kind: "type", value: signature.receiver });
-      children.push({ kind: "type", value: signature.result });
-      for (const parameter of signature.parameters) {
-        if (parameter === undefined) { node.unresolved = true; continue; }
-        children.push({ kind: "type", value: parameter.type });
-      }
-      for (const parameter of signature.typeParameters) {
-        if (parameter === undefined) { node.unresolved = true; continue; }
-        if (parameter.constraint !== null) children.push({ kind: "type", value: parameter.constraint });
-        if (parameter.default !== null) children.push({ kind: "type", value: parameter.default });
-      }
-      if (signature.composition !== null) for (const composed of signature.composition.signatures)
-        children.push({ kind: "signature", value: composed });
-    }
-    for (const child of children) ensure(child).parents.push(node);
-  }
-  for (const flag of ["unresolved", "open"]) {
-    const waiting = Array.from(nodes.values()).filter(node => flag === "unresolved" ? node.unresolved : node.open);
-    for (const node of waiting) {
-      for (const parent of node.parents) {
-        if (flag === "unresolved" ? parent.unresolved : parent.open) continue;
-        if (flag === "unresolved") parent.unresolved = true;
-        else parent.open = true;
-        waiting.push(parent);
-      }
-    }
-  }
-  const violations: Violation<MirRule, MirViolationSite>[] = [];
-  for (const { site, value, node } of roots) {
-    if (node.unresolved) violations.push({ rule: "type-resolves", site, detail: [{ kind: "number", value }] });
-    if (node.open) violations.push({ rule: "type-closed", site, detail: [{ kind: "number", value }] });
-  }
-  return violations;
-}
 
 function bindingsPresent(bindings: ArtifactBindings): boolean {
   if (bindings.kind === "parametric") return true;
@@ -341,7 +181,7 @@ export function verifyRows(
   return violations;
 }
 
-function vectorFits(vector: BindingVector, scope: BindingScope): boolean {
+function vectorFits(vector: BindingVector, scope: BindingScope, meter: WorkMeter): boolean {
   for (const family of [
     { bindings: vector.classBindings, parameters: scope.classParameters },
     { bindings: vector.methodBindings, parameters: scope.methodParameters },
@@ -349,6 +189,8 @@ function vectorFits(vector: BindingVector, scope: BindingScope): boolean {
   ]) {
     const { bindings, parameters } = family;
     if (bindings.length !== parameters.length) return false;
+    chargeWork(meter, bindings.length);
+    if (meter.exhausted) return false;
     for (const [position, binding] of bindings.entries()) {
       const parameter = parameters[position];
       if (binding === undefined || parameter === undefined || binding.parameter.owner !== parameter.owner
@@ -356,50 +198,73 @@ function vectorFits(vector: BindingVector, scope: BindingScope): boolean {
     }
   }
   if (vector.selfBindings.length !== scope.selfOwners.length) return false;
+  chargeWork(meter, vector.selfBindings.length);
+  if (meter.exhausted) return false;
   for (const [position, binding] of vector.selfBindings.entries()) {
     if (binding === undefined || binding.owner !== scope.selfOwners[position]) return false;
   }
   return true;
 }
 
-function decisionReferences(
-  body: MirBody, context: MirVerificationContext, types: TypeReference[], signatures: SignatureReference[],
+export function decisionReferences(
+  body: MirBody, context: MirVerificationContext, types: TypeReference[], signatures: SignatureReference[], meter: WorkMeter,
 ): readonly Violation<MirRule, MirViolationSite>[] {
   const violations: Violation<MirRule, MirViolationSite>[] = [];
+  if (meter.exhausted) return violations;
+  const admit = (count: number): boolean => { chargeWork(meter, count); return !meter.exhausted; };
   const vector = (value: BindingVector, owner: DefId | null, site: MirViolationSite): void => {
-    for (const family of [value.classBindings, value.methodBindings, value.capturedBindings])
+    for (const family of [value.classBindings, value.methodBindings, value.capturedBindings]) {
+      if (!admit(family.length)) return;
       for (const binding of family) if (binding !== undefined && binding.kind === "bound") types.push({ type: binding.type, site });
+    }
+    if (!admit(value.selfBindings.length)) return;
     for (const binding of value.selfBindings) if (binding !== undefined && binding.kind === "bound") types.push({ type: binding.type, site });
     if (owner !== null) {
+      if (!admit(1)) return;
       const declaration = context.declarationOf(owner);
-      if (declaration !== null && !vectorFits(value, declaration.scope)) violations.push({ rule: "bindings-complete", site, detail: [] });
+      if (declaration !== null) {
+        const fits = vectorFits(value, declaration.scope, meter);
+        if (meter.exhausted) return;
+        if (!fits) violations.push({ rule: "bindings-complete", site, detail: [] });
+      }
     }
   };
   const artifact = (value: ArtifactBindings, owner: DefId | null, site: MirViolationSite): void => {
     if (value.kind === "instantiated") vector(value.bindings, owner, site);
   };
   const instance = (value: BodyInstance, site: MirViolationSite): void => {
+    if (!admit(1)) return;
     const owner = context.bodyOwner(value.body);
     if (owner === null || context.declarationOf(owner) === null)
       violations.push({ rule: "definition-resolves", site, detail: [] });
     artifact(value.bindings, owner, site);
   };
   const component = (value: TypeComponent, site: MirViolationSite, path: TextPath): void => {
-    for (const reference of componentReferences(value, path)) {
+    const references = componentReferences(value, path, meter, []);
+    if (!admit(references.length)) return;
+    for (const reference of references) {
       if (reference.kind === "type") types.push({ type: reference.value, site });
       else signatures.push({ signature: reference.value, site });
     }
   };
   const embedding = (value: EmbeddingDecision, site: MirViolationSite, path: TextPath): void => {
-    if (value.kind === "conversion") for (const [position, step] of value.proof.steps.entries()) {
+    if (value.kind === "conversion") {
+      if (!admit(value.proof.steps.length)) return;
+      for (const [position, step] of value.proof.steps.entries()) {
       const stepPath = childPath(path, `.proof.steps[${position}]`);
       component(step.from, site, childPath(stepPath, ".from"));
+      if (meter.exhausted) return;
       component(step.to, site, childPath(stepPath, ".to"));
+      if (meter.exhausted) return;
+      }
     }
   };
   const application = (value: ApplicationDecision, site: MirViolationSite): void => {
+    if (!admit(7 + value.parameters.length)) return;
     vector(value.bindings, value.advertised.declaration, site);
+    if (meter.exhausted) return;
     vector(value.implementationBindings, value.api.declaration, site);
+    if (meter.exhausted) return;
     for (const endpoint of [value.advertised, value.api, value.completion]) signatures.push({ signature: endpoint.signature, site });
     types.push({ type: value.result, site }, { type: value.completion.completion, site });
     if (value.completion.yielded !== null) types.push({ type: value.completion.yielded, site });
@@ -408,19 +273,24 @@ function decisionReferences(
   };
   const callee = (value: ResolvedCallee, site: MirViolationSite): void => {
     application(value.decision, site);
+    if (meter.exhausted) return;
     if (value.activation !== null) instance(value.activation, site);
   };
   const member = (value: MemberSelection, site: MirViolationSite): void => {
+    if (!admit(4)) return;
     const decision = value.decision;
     vector(decision.bindings, decision.primary, site);
+    if (meter.exhausted) return;
     if (decision.read !== null) types.push({ type: decision.read, site });
     if (decision.write !== null) types.push({ type: decision.write, site });
     if (decision.getter !== null) signatures.push({ signature: decision.getter.signature, site });
     if (decision.setter !== null) signatures.push({ signature: decision.setter.signature, site });
     if (value.getter !== null) callee(value.getter, site);
+    if (meter.exhausted) return;
     if (value.setter !== null) callee(value.setter, site);
   };
   const operation = (value: TypedOperation, site: MirViolationSite, path: TextPath): void => {
+    if (!admit(value.decision.operands.length + 1)) return;
     for (const type of value.decision.operands) types.push({ type, site });
     types.push({ type: value.decision.result, site });
     const selected = value.decision.operation;
@@ -428,26 +298,33 @@ function decisionReferences(
     switch (selected.kind) {
       case "library": case "core": vector(selected.bindings, selected.declaration, site); break;
       case "conversion":
+        if (!admit(2)) return;
         types.push({ type: selected.from, site }, { type: selected.to, site });
         embedding(selected.embedding, site, childPath(identityPath, ".embedding"));
         break;
       case "object-construction": case "array-construction":
+        if (!admit(selected.parts.length)) return;
         for (const [position, part] of selected.parts.entries()) {
           const partPath = childPath(identityPath, `.parts[${position}]`);
           component(part.destination, site, childPath(partPath, ".destination"));
+          if (meter.exhausted) return;
           embedding(part.embedding, site, childPath(partPath, ".embedding"));
+          if (meter.exhausted) return;
           if (part.member !== null) {
             vector(part.member.bindings, part.member.primary, site);
+            if (!admit(2)) return;
             if (part.member.read !== null) types.push({ type: part.member.read, site });
             if (part.member.write !== null) types.push({ type: part.member.write, site });
           }
         }
         break;
       case "protocol":
+        if (!admit(5 + selected.steps.length)) return;
         types.push({ type: selected.value, site }, { type: selected.completion, site }, { type: selected.thrown, site });
         if (selected.yielded !== null) types.push({ type: selected.yielded, site });
         if (selected.sent !== null) types.push({ type: selected.sent, site });
         for (const step of selected.steps) {
+          if (!admit(step.operands.length + 1)) return;
           for (const type of step.operands) types.push({ type, site });
           types.push({ type: step.result, site });
           switch (step.operation.kind) {
@@ -455,6 +332,7 @@ function decisionReferences(
             case "core": vector(step.operation.bindings, step.operation.declaration, site); break;
             case "completion": break;
           }
+          if (meter.exhausted) return;
         }
         break;
       case "native-operator": case "bigint-operator": case "string-operator": case "boolean-operator": case "absence-test":
@@ -462,27 +340,44 @@ function decisionReferences(
     }
   };
   artifact(body.bindings, context.source.owner, { kind: "body", body: body.body });
+  if (meter.exhausted) return [];
+  if (!admit(body.constants.length)) return [];
   for (const constant of body.constants) {
     if (constant === undefined) continue;
     const site: MirViolationSite = { kind: "constant", body: body.body, constant: constant.id };
     const value = constant.value;
     if (value.kind === "definition" || value.kind === "metadata") artifact(value.bindings, value.definition, site);
+    if (meter.exhausted) return [];
     if (value.kind === "constant") instance(value.reference.initializer, site);
+    if (meter.exhausted) return [];
   }
-  for (const place of body.places) if (place !== undefined && (place.base.kind === "place" || place.base.kind === "checked") && place.base.projection.kind === "field")
-    member(place.base.projection.member, { kind: "place", body: body.body, place: place.id });
+  if (!admit(body.places.length)) return [];
+  for (const place of body.places) {
+    if (place !== undefined && (place.base.kind === "place" || place.base.kind === "checked") && place.base.projection.kind === "field")
+      member(place.base.projection.member, { kind: "place", body: body.body, place: place.id });
+    if (meter.exhausted) return [];
+  }
+  if (!admit(body.blocks.length)) return [];
   for (const [blockPosition, block] of body.blocks.entries()) {
     if (block === undefined) continue;
     const blockPath = childPath(rootPath, `.blocks[${blockPosition}]`);
+    if (!admit(block.statements.length + 1)) return [];
     for (const [position, statement] of block.statements.entries()) {
       if (statement.kind !== "assign") continue;
       const site: MirViolationSite = { kind: "instruction", body: body.body, block: block.id, statement: position };
       const value = statement.value;
       if (value.kind === "unary" || value.kind === "binary" || value.kind === "convert")
         operation(value.operation, site, childPath(blockPath, `.statements[${position}].value.operation`));
-      if (value.kind === "aggregate" && (value.aggregate.kind === "object" || value.aggregate.kind === "record"))
-        for (const field of value.aggregate.fields) member(field.member, site);
+      if (meter.exhausted) return [];
+      if (value.kind === "aggregate" && (value.aggregate.kind === "object" || value.aggregate.kind === "record")) {
+        if (!admit(value.aggregate.fields.length)) return [];
+        for (const field of value.aggregate.fields) {
+          member(field.member, site);
+          if (meter.exhausted) return [];
+        }
+      }
       if (value.kind === "closure") instance(value.instance, site);
+      if (meter.exhausted) return [];
     }
     const site: MirViolationSite = { kind: "instruction", body: body.body, block: block.id, statement: null };
     if (block.terminator.kind === "call") {
@@ -490,6 +385,7 @@ function decisionReferences(
       else callee(block.terminator.callee.resolution, site);
     }
     if (block.terminator.kind === "invoke") operation(block.terminator.operation, site, childPath(blockPath, ".terminator.operation"));
+    if (meter.exhausted) return [];
   }
   return violations;
 }
@@ -526,9 +422,10 @@ export function verifyBody(body: MirBody, context: MirVerificationContext): MirV
   const places = placeLocations(body);
   const values = verifyValues(body, input, nodes, places, meter);
   if (meter.exhausted) return refusal;
-  const types: TypeReference[] = [...values.types];
-  const signatures: SignatureReference[] = [...values.signatures];
-  const decisions = decisionReferences(body, input, types, signatures);
+  const types = values.types;
+  const signatures = values.signatures;
+  const decisions = decisionReferences(body, input, types, signatures, meter);
+  if (meter.exhausted) return refusal;
   const edges = verifyEdges(body);
   const keyOf = (selected: BodyInstance): string | null => {
     const bindings = selected.bindings;
@@ -560,8 +457,10 @@ export function verifyBody(body: MirBody, context: MirVerificationContext): MirV
   // Past the limit the body is neither accepted nor found invalid: the findings gathered so far are not an answer,
   // and the remaining passes are not run.
   if (meter.exhausted) return refusal;
+  const references = verifyTypeReferences(input.types, types, signatures, meter);
+  if (meter.exhausted) return refusal;
   const violations: Violation<MirRule, MirViolationSite>[] = [];
   for (const family of [rows, values.violations, edges, selections, storage, laws, decisions,
-    verifyTypeReferences(input.types, types, signatures)]) for (const violation of family) violations.push(violation);
+    references]) for (const violation of family) violations.push(violation);
   return { kind: "complete", violations };
 }

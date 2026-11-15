@@ -328,7 +328,7 @@ function operationTypes(input: InferVerificationInput, finals: ReadonlyMap<numbe
 }
 
 function decisionMatches(decision: ConstraintDecision, constraint: OwnedConstraint): boolean {
-  return decision.kind === "deferred" || decision.kind === constraint.value.kind;
+  return decision.kind === "error" || decision.kind === "deferred" || decision.kind === constraint.value.kind;
 }
 
 export function verifySolution(input: InferVerificationInput, inventory: Inventory,
@@ -446,7 +446,7 @@ export function visitBindings(input: InferVerificationInput,
       if (candidate.bindings.kind === "available") roots.push({ kind: "vector", value: candidate.bindings.value,
         definition: candidate.declaration, site: bodySite });
     }
-    for (const evidence of set.evidence) roots.push({ kind: "evidence", value: evidence, site: bodySite });
+    for (const evidence of set.evidence) roots.push({ kind: "evidence", value: evidence.value, site: bodySite });
     for (const [index, constraint] of set.constraints.entries()) {
       if (constraint.kind === "flow" || constraint.kind === "member" || constraint.kind === "index" || constraint.kind === "protocol" ||
         constraint.kind === "closure")

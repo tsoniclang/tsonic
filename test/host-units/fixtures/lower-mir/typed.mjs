@@ -18,7 +18,8 @@ export const bodyId = (name, role = "function", ordinal = 0) => {
 };
 export const PARAMETRIC = { kind: "parametric" };
 export const EMPTY_BINDINGS = { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] };
-export const instanceOf = (name, role = "function") => ({ body: bodyId(name, role), bindings: PARAMETRIC });
+export const SELECTED_BINDINGS = { kind: "instantiated", bindings: EMPTY_BINDINGS };
+export const instanceOf = (name, role = "function") => ({ body: bodyId(name, role), bindings: SELECTED_BINDINGS });
 const LOC = { pos: 0, end: 512 };
 
 // ---- type table -------------------------------------------------------------------------
@@ -269,7 +270,7 @@ export function typedBody(name, { signature: signatureId, completion, params = [
   return {
     labels: sealed.labels, at: sealed.at, nodeRef: sealed.nodeRef, nodeCount: count,
     tir: {
-      body, owner: def(name), bindings: PARAMETRIC, lexicalBindings: EMPTY_BINDINGS, dependence: "parametric",
+      body, owner: def(name), bindings: SELECTED_BINDINGS, lexicalBindings: EMPTY_BINDINGS, dependence: "parametric",
       signature: signatureId, completion, yielded, sent,
       params: parameters,
       locals: locals.map(([localName, role, storage, mutable = false, capturedFrom = null], id) => {

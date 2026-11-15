@@ -45,6 +45,7 @@ export function lowerBody(deps: LowerMirDeps, body: TirBody, internal: readonly 
   if (!Number.isSafeInteger(maximumRecords) || maximumRecords < 0 || Object.is(maximumRecords, -0))
     throw new TypeError("lower-mir: maximumRecords must be a safe nonnegative count");
   const root = body.root;
+  if (body.bindings.kind !== "instantiated") callerDefect("LowerMir requires the selected complete body instance, not its parametric template", root.origin);
   if (root.kind === "SourceFile") return notLoweredYet("a module initializer body", root.origin);
   if (body.asynchronous || body.generator) return notLoweredYet("an asynchronous body or a generator", root.origin);
   const lowering: Lowering = { state: createState(body.body, body.bindings, body.completion, deps.limits), typeOf: deps.typeOf,

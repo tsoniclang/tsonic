@@ -2,7 +2,7 @@ import type { ImportDeclaration, ExternalModuleReference, NamespaceImport, Named
 import type { TypedPhase } from "../ir-tir/contract.js";
 import type { SyntaxTextContext, TextWork } from "./text-values.js";
 import { textSyntaxHeader, field, record, sequence, token, text, boolean, textNodeList, textCommentDirective, textPragma, textCheckJsDirective } from "./text-values.js";
-import { textTypedImport, textTypedModuleReference, textTypedImportBinding, textTypedExportAssignment, textTypedExportBinding, textTypedSourceFile, textTypedNamespace, textTypedExport, textTypedType } from "./text-phase-declarations.js";
+import { textTypedImport, textTypedModuleReference, textTypedImportBinding, textTypedExportAssignment, textTypedExportBinding, textTypedNamespaceExport, textTypedSourceFile, textTypedNamespace, textTypedExport, textTypedType } from "./text-phase-declarations.js";
 
 export function printImportDeclaration(node: ImportDeclaration<TypedPhase>, context: SyntaxTextContext): TextWork {
   return record(node.kind, [
@@ -63,7 +63,7 @@ export function printNamespaceExport(node: NamespaceExport<TypedPhase>, context:
   return record(node.kind, [
     ...textSyntaxHeader(node),
     field("name", context.reference(node.name)),
-    field("tsonic", textTypedExportBinding(node.tsonic)),
+    field("tsonic", textTypedNamespaceExport(node.tsonic)),
   ]);
 }
 
@@ -548,7 +548,7 @@ export function printImportClause(node: ImportClause<TypedPhase>, context: Synta
     field("phaseModifier", (node.phaseModifier === null ? token("null") : text(node.phaseModifier))),
     field("name", (node.name === null ? token("null") : context.reference(node.name))),
     field("namedBindings", (node.namedBindings === null ? token("null") : context.reference(node.namedBindings))),
-    field("tsonic", textTypedImportBinding(node.tsonic)),
+    field("tsonic", node.tsonic === null ? token("null") : textTypedImportBinding(node.tsonic)),
   ]);
 }
 

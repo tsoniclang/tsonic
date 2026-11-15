@@ -1,6 +1,15 @@
 import type { BodyId, BodyPath, CandidateListId, DefId, DefinitionPath, LocalId, LocalRef, LibraryModuleIdentity, ModuleId, NodeId, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { Diagnostic, TextParseResult, Violation } from "../diag/contract.js";
 import type { ArtifactBindings, BindingScope, BindingVector, LiteralTypeValue, LiteralValue, MemberKey, MemberOrigin, NominalDefinition, PassingMode, SignatureEndpoint, TypeComponent, TypeParameter, TypeParameterIdentity, TypeTable } from "../ir-types/contract.js";
+import type { HirBindingTarget, HirModuleBinding, HirModuleExport, HirBindingViews, HirExportViews, HirBindingResolution } from "./binding-data.js";
+export type * from "./binding-data.js";
+import type { CapturedFact } from "./capture-data.js";
+export type { CapturedFact } from "./capture-data.js";
+
+export type IsModuleBindingKind = (kind: string, hasName: boolean) => boolean;
+export type ResolveModuleBinding = (views: HirBindingViews, occurrence: SourceNodeRef) => HirBindingResolution;
+export type CreateModuleBindingViews = (tables: readonly (readonly HirModuleBinding[])[]) => HirBindingViews;
+export type ProjectExportDeclarations = (views: HirExportViews, entry: HirModuleExport) => HirBindingResolution;
 
 export interface TextRange {
   readonly pos: number;
@@ -3870,10 +3879,6 @@ export type SyntaxNode<P extends Phase> =
 
 export type BodyRoot<P extends Phase> = SourceFile<P> | Block<P> | Expression<P>;
 
-export type CapturedFact<Value> =
-  | { readonly kind: "available"; readonly value: Value }
-  | { readonly kind: "unavailable"; readonly reason: "checker-error" | "parameter-dependent" | "not-provided" };
-
 export interface HirCheckerViews {
   readonly read: CapturedFact<TyId>;
   readonly declared: CapturedFact<TyId | null>;
@@ -3886,9 +3891,8 @@ export type ImportTarget =
 
 export type HirResolution =
   | { readonly kind: "local"; readonly local: LocalRef }
-  | { readonly kind: "definition"; readonly definition: DefId; readonly aliases: readonly DefId[] }
-  | { readonly kind: "module"; readonly target: ImportTarget }
-  | { readonly kind: "unresolved"; readonly checkerDiagnostic: number | null };
+  | HirBindingTarget
+  | Extract<CapturedFact<never>, { readonly kind: "unavailable" }>;
 
 export type HirModifier = "export" | "default" | "declare" | "abstract" | "static" | "readonly"
   | "public" | "protected" | "private" | "override" | "async" | "generator" | "const";
@@ -4204,7 +4208,7 @@ export type CheckedLiteral = HirCoreCarrier & (
   | { readonly role: "declaration-name"; readonly declaration: DeclarationTarget }
   | { readonly role: "type-literal"; readonly type: CapturedFact<TyId>; readonly literal: LiteralTypeValue }
   | { readonly role: "module-specifier"; readonly target: CapturedFact<ImportTarget> }
-  | { readonly role: "export-name"; readonly definition: CapturedFact<DefId> }
+  | { readonly role: "export-name"; readonly binding: SourceNodeRef }
   | { readonly role: "attribute-value"; readonly literal: LiteralValue }
 );
 
@@ -4214,6 +4218,7 @@ export type CheckedName = HirCoreCarrier & (
       readonly views: HirCheckerViews; readonly place: CapturedFact<HirStoragePlace>;
       readonly access: "write" | "read-write" }
   | { readonly role: "declaration-name"; readonly declaration: DeclarationTarget }
+  | { readonly role: "binding-name"; readonly binding: SourceNodeRef }
   | { readonly role: "property-name"; readonly key: CapturedFact<MemberKey>;
       readonly origins: CapturedFact<readonly MemberOrigin[]> }
   | { readonly role: "type-name"; readonly resolution: HirResolution }
@@ -4329,25 +4334,22 @@ export interface CheckedNamespace extends CheckedDeclaration {
   readonly members: readonly DefId[];
 }
 
-export interface HirImportBinding {
-  readonly local: DefId;
-  readonly imported: CapturedFact<DefId>;
-}
-
-export interface CheckedImport extends CheckedDeclaration {
+export interface CheckedImport extends HirCoreCarrier {
   readonly target: CapturedFact<ImportTarget>;
-  readonly bindings: readonly HirImportBinding[];
+  readonly bindings: readonly SourceNodeRef[];
 }
 
-export interface HirExportBinding {
-  readonly name: string;
-  readonly definition: CapturedFact<DefId>;
-}
-
-export interface CheckedExport extends CheckedDeclaration {
-  readonly exports: readonly HirExportBinding[];
+export interface CheckedExport extends HirCoreCarrier {
   readonly target: CapturedFact<ImportTarget | null>;
 }
+
+export interface CheckedExportBinding extends HirCoreCarrier {
+  readonly binding: SourceNodeRef;
+}
+
+export interface CheckedNamespaceExport extends CheckedExportBinding, CheckedDeclaration {}
+
+export interface CheckedExportAssignment extends CheckedDeclaration {}
 
 export interface CheckedStaticBlock extends CheckedDeclaration {
   readonly body: BodyId;
@@ -4428,11 +4430,11 @@ export interface CheckedPhase extends Phase {
   readonly ExternalModuleReference: null;
   readonly NamespaceImport: CheckedImport;
   readonly NamedImports: null;
-  readonly ExportAssignment: CheckedExport;
-  readonly NamespaceExportDeclaration: CheckedExport;
-  readonly NamespaceExport: CheckedExport;
+  readonly ExportAssignment: CheckedExportAssignment;
+  readonly NamespaceExportDeclaration: CheckedExportBinding;
+  readonly NamespaceExport: CheckedNamespaceExport;
   readonly NamedExports: null;
-  readonly ExportSpecifier: CheckedExport;
+  readonly ExportSpecifier: CheckedExportBinding;
   readonly CallSignatureDeclaration: CheckedCallable;
   readonly ConstructSignatureDeclaration: CheckedCallable;
   readonly ConstructorDeclaration: CheckedCallable;
@@ -4638,6 +4640,8 @@ export interface HirModule {
   readonly tree: SourceFile<CheckedPhase>;
   readonly items: readonly HirDeclarationEntry[];
   readonly bodies: readonly HirBody[];
+  readonly exports: readonly HirModuleExport[];
+  readonly bindings: readonly HirModuleBinding[];
   readonly checkerDiagnostics: readonly Diagnostic[];
   readonly obligations: readonly HirDiagnosticRoot[];
 }
@@ -4661,6 +4665,7 @@ export type HirSite =
 export type PrintHir = (module: HirModule) => string;
 export type ParseHir = (text: string) => TextParseResult<HirModule>;
 export interface HirVerificationContext {
+  readonly moduleOf: (module: ModuleId) => HirModule | null;
   readonly types: TypeTable;
   readonly bodyPathOf: (body: BodyId) => BodyPath | null;
   readonly definitionPathOf: (definition: DefId) => DefinitionPath | null;
@@ -4683,3 +4688,7 @@ export type IndexSyntaxTree = <P extends Phase>(
 export type ChildrenOfSyntax = <P extends Phase>(
   node: SyntaxNode<P>,
 ) => readonly SyntaxNode<P>[];
+
+export type IterateChildrenOfSyntax = <P extends Phase>(
+  node: SyntaxNode<P>,
+) => Generator<SyntaxNode<P>, void, undefined>;

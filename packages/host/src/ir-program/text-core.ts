@@ -2,6 +2,7 @@ import type { HirCallableEndpoint, HirCoreCapture, HirAttribute, HirLexicalScope
 import type { TextWork } from "./text-values.js";
 import { token, text, numeric, numericIdentity, identity, field, record, sequence, deferred, boolean, textNodeRef, textSourceNodeRef, textLocalRef, textLibraryModuleIdentity } from "./text-values.js";
 import { textBindingVector, textTypeComponent } from "./text-types.js";
+import { textCause } from "./text-causes.js";
 
 export function textHirCallableEndpoint(value: HirCallableEndpoint): TextWork {
   return deferred(value, () => {
@@ -91,6 +92,7 @@ export function textCapturedFact<Value>(value: CapturedFact<Value>, projectValue
       case "unavailable":
         return record(value.kind, [
       field("reason", text(value.reason)),
+      field("causes", sequence(value.causes, textCause)),
     ]);
     }
   });

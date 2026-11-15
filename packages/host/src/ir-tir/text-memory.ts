@@ -1,3 +1,4 @@
+import type { Cause } from "../diag/contract.js";
 import { lazyReader, literalReader, nullableReader, sequenceReader } from "./text-construction.js";
 import { unionRecord } from "./text-layouts.js";
 import type { TirRecordCodec } from "./text-layouts.js";
@@ -11,6 +12,7 @@ import type { TirTextKernel, TirTypedRecordWork } from "./text-layouts.js";
 import { referenceWork, scalarWork, nullableWork, sequenceWork } from "./text-layouts.js";
 
 export interface MemoryTextReads {
+  readonly work_Cause: TirRecordCodec<Cause>;
   readonly work_HirCapturedType: TirRecordCodec<HirCapturedType>;
   readonly work_SourceNodeRef: TirRecordCodec<SourceNodeRef>;
 }
@@ -222,8 +224,9 @@ export const createMemoryText = (kernel: TirTextKernel, read: MemoryTextReads): 
     .field("value", "?HirPointerTypeCapture", value => nullableWork(value.value, actual => work_HirPointerTypeCapture.write(actual)), nullableReader(lazyReader(() => work_HirPointerTypeCapture.reader)))
     .finish((field_value) => ({ kind: "available", value: field_value })));
   const work_C__HirPointerTypeCapture__unavailable: TirRecordCodec<CapturedFact<HirPointerTypeCapture | null> & { readonly kind: "unavailable" }> = defineRecord<CapturedFact<HirPointerTypeCapture | null> & { readonly kind: "unavailable" }>("C<?HirPointerTypeCapture>#unavailable", "C<?HirPointerTypeCapture>", { field: "kind", value: "unavailable" }, "unavailable", null, null, fields => fields
-    .field("reason", "CaptureUnavailable", value => scalarWork("CaptureUnavailable", value.reason), literalReader<(CapturedFact<HirPointerTypeCapture | null> & { readonly kind: "unavailable" })["reason"]>("CaptureUnavailable", ["checker-error","parameter-dependent","not-provided"]))
-    .finish((field_reason) => ({ kind: "unavailable", reason: field_reason })));
+    .field("reason", "CaptureUnavailable", value => scalarWork("CaptureUnavailable", value.reason), literalReader<(CapturedFact<HirPointerTypeCapture | null> & { readonly kind: "unavailable" })["reason"]>("CaptureUnavailable", ["checker-error","parameter-dependent","not-provided","missing-original-component","incomplete-association","unsupported-checked-structure"]))
+    .field("causes", "[Cause]", value => sequenceWork("[Cause]", value.causes, actual => read.work_Cause.write(actual)), sequenceReader("[Cause]", lazyReader(() => read.work_Cause.reader)))
+    .finish((field_reason, causes) => ({ kind: "unavailable", reason: field_reason, causes })));
   const work_C__HirPointerTypeCapture_: TirRecordCodec<CapturedFact<HirPointerTypeCapture | null>> = unionRecord<CapturedFact<HirPointerTypeCapture | null>>("C<?HirPointerTypeCapture>", (value: CapturedFact<HirPointerTypeCapture | null>): TirTypedRecordWork => {
     switch (value.kind) {
       case "available": return work_C__HirPointerTypeCapture__available.write(value);
@@ -234,8 +237,9 @@ export const createMemoryText = (kernel: TirTextKernel, read: MemoryTextReads): 
     .field("value", "?HirPointerOperationCapture", value => nullableWork(value.value, actual => work_HirPointerOperationCapture.write(actual)), nullableReader(lazyReader(() => work_HirPointerOperationCapture.reader)))
     .finish((field_value) => ({ kind: "available", value: field_value })));
   const work_C__HirPointerOperationCapture__unavailable: TirRecordCodec<CapturedFact<HirPointerOperationCapture | null> & { readonly kind: "unavailable" }> = defineRecord<CapturedFact<HirPointerOperationCapture | null> & { readonly kind: "unavailable" }>("C<?HirPointerOperationCapture>#unavailable", "C<?HirPointerOperationCapture>", { field: "kind", value: "unavailable" }, "unavailable", null, null, fields => fields
-    .field("reason", "CaptureUnavailable", value => scalarWork("CaptureUnavailable", value.reason), literalReader<(CapturedFact<HirPointerOperationCapture | null> & { readonly kind: "unavailable" })["reason"]>("CaptureUnavailable", ["checker-error","parameter-dependent","not-provided"]))
-    .finish((field_reason) => ({ kind: "unavailable", reason: field_reason })));
+    .field("reason", "CaptureUnavailable", value => scalarWork("CaptureUnavailable", value.reason), literalReader<(CapturedFact<HirPointerOperationCapture | null> & { readonly kind: "unavailable" })["reason"]>("CaptureUnavailable", ["checker-error","parameter-dependent","not-provided","missing-original-component","incomplete-association","unsupported-checked-structure"]))
+    .field("causes", "[Cause]", value => sequenceWork("[Cause]", value.causes, actual => read.work_Cause.write(actual)), sequenceReader("[Cause]", lazyReader(() => read.work_Cause.reader)))
+    .finish((field_reason, causes) => ({ kind: "unavailable", reason: field_reason, causes })));
   const work_C__HirPointerOperationCapture_: TirRecordCodec<CapturedFact<HirPointerOperationCapture | null>> = unionRecord<CapturedFact<HirPointerOperationCapture | null>>("C<?HirPointerOperationCapture>", (value: CapturedFact<HirPointerOperationCapture | null>): TirTypedRecordWork => {
     switch (value.kind) {
       case "available": return work_C__HirPointerOperationCapture__available.write(value);

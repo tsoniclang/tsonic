@@ -73,7 +73,7 @@ export function readTirResolutionText<Root>(cursor: Cursor, finish: (value: TirR
         acceptText({ kind: label, local: localValue }, finish)));
         case "definition":
           return fieldText<DefId, Root>(cursor, fields, "definition", (next, done) => atomicText(next, readDefinitionId, done), definitionValue =>
-    fieldText<readonly (DefId)[], Root>(cursor, fields, "aliases", (next, done) => arrayText(next, (next, done) => atomicText(next, readDefinitionId, done), done), aliasesValue =>
+    fieldText<readonly SourceNodeRef[], Root>(cursor, fields, "aliases", (next, done) => arrayText(next, (next, done) => atomicText(next, readSourceNodeRef, done), done), aliasesValue =>
       atomicText(cursor, next => closeRecord(next, fields), () =>
           acceptText({ kind: label, definition: definitionValue, aliases: aliasesValue }, finish))));
         case "module":

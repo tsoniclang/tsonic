@@ -273,13 +273,7 @@ export function verifyHirReferences(roots: readonly HirDataRoot[], module: HirMo
     const reference = data.reference;
     switch (reference.kind) {
       case "plain": case "SourceNodeRef": case "MemberKey": break;
-      case "HirResolution": {
-        const value = reference.value;
-        if (value.kind === "unresolved" && value.checkerDiagnostic !== null &&
-          (!validHirIndex(value.checkerDiagnostic) || module.checkerDiagnostics[value.checkerDiagnostic] === undefined))
-          report("diagnostic-reference", data.site, "unresolved resolution must name an existing checker diagnostic");
-        break;
-      }
+      case "HirResolution": case "HirBindingTarget": case "CheckerDiagnosticRef": break;
       case "NodeRef":
         if (!sourceNodeExists({ kind: "body", value: reference.value }, module, inventory, context, paths))
           report("cross-owner-qualified", data.site, "qualified body node must exist in its named owner");

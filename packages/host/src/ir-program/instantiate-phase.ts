@@ -252,7 +252,7 @@ function captured<Value>(
   scan: ProjectionInventory, value: CapturedFact<Value>, visit: (value: Value) => InstantiationStop | null,
 ): InstantiationStop | null {
   switch (value.kind) {
-    case "unavailable": return inventoryFields(scan, 1);
+    case "unavailable": return inventoryFields(scan, 2);
     case "available": return inventoryRecord(scan, 2) ?? visit(value.value);
   }
 }
@@ -330,6 +330,7 @@ export function inventoryName(scan: ProjectionInventory, value: TypedName): Inst
     case "type-name": return inventoryRecord(scan, 3) ?? inventoryType(scan, value.type);
     case "property-name":
     case "label":
+    case "binding-name":
     case "private-name": return inventoryFields(scan, 1);
   }
 }

@@ -8,6 +8,7 @@ import { createRuleDecisionsText } from "./text-rule-decisions.js";
 import { createRuleInputsText } from "./text-rule-inputs.js";
 import { createCapturesText } from "./text-captures.js";
 import { createMemoryText } from "./text-memory.js";
+import { createCausesText } from "./text-causes.js";
 import { createSyntaxValuesText } from "./text-syntax-values.js";
 import { createSyntaxStatementsText } from "./text-syntax-statements.js";
 import { createSyntaxTypesText } from "./text-syntax-types.js";
@@ -57,6 +58,7 @@ export const createTirLayouts = (): TirLayouts => {
     work_ImportTarget: lazyRecord(() => type_values.work_ImportTarget),
     work_MemberKey: lazyRecord(() => type_values.work_MemberKey),
     work_NodeRef: lazyRecord(() => type_values.work_NodeRef),
+    work_SourceNodeRef: lazyRecord(() => type_values.work_SourceNodeRef),
     work_O_ApplicationDecision_: lazyRecord(() => body.work_O_ApplicationDecision_),
     work_O_MemberSelection_: lazyRecord(() => body.work_O_MemberSelection_),
     work_O_TirApplication_: lazyRecord(() => body.work_O_TirApplication_),
@@ -88,7 +90,7 @@ export const createTirLayouts = (): TirLayouts => {
     work_L_TypeParameterDeclaration_: lazyRecord(() => syntax_types.work_L_TypeParameterDeclaration_),
     work_LocalRef: lazyRecord(() => type_values.work_LocalRef),
     work_ModifierList: lazyRecord(() => type_values.work_ModifierList),
-    work_ModuleBindingTarget: lazyRecord(() => body.work_ModuleBindingTarget),
+    work_SourceNodeRef: lazyRecord(() => type_values.work_SourceNodeRef),
     work_O_TirProtocol_: lazyRecord(() => body.work_O_TirProtocol_),
     work_Origin: lazyRecord(() => type_values.work_Origin),
     work_RefinementDecision: lazyRecord(() => rule_decisions.work_RefinementDecision),
@@ -130,7 +132,9 @@ export const createTirLayouts = (): TirLayouts => {
     work_TypeComponent: lazyRecord(() => type_values.work_TypeComponent),
     work_TypeEvidence: lazyRecord(() => type_values.work_TypeEvidence)
   });
+  const causes = createCausesText(kernel, lazyRecord(() => type_values.work_SourceNodeRef));
   const captures = createCapturesText(kernel, {
+    work_Cause: causes,
     work_BindingVector: lazyRecord(() => type_values.work_BindingVector),
     work_NodeRef: lazyRecord(() => type_values.work_NodeRef),
     work_C__HirPointerOperationCapture_: lazyRecord(() => memory.work_C__HirPointerOperationCapture_),
@@ -139,6 +143,7 @@ export const createTirLayouts = (): TirLayouts => {
     work_TypeComponent: lazyRecord(() => type_values.work_TypeComponent)
   });
   const memory = createMemoryText(kernel, {
+    work_Cause: causes,
     work_HirCapturedType: lazyRecord(() => captures.work_HirCapturedType),
     work_SourceNodeRef: lazyRecord(() => type_values.work_SourceNodeRef)
   });
@@ -188,6 +193,7 @@ export const createTirLayouts = (): TirLayouts => {
     work_TypedExport: lazyRecord(() => phase_declarations.work_TypedExport),
     work_TypedExportAssignment: lazyRecord(() => phase_declarations.work_TypedExportAssignment),
     work_TypedExportBinding: lazyRecord(() => phase_declarations.work_TypedExportBinding),
+    work_TypedNamespaceExport: lazyRecord(() => phase_declarations.work_TypedNamespaceExport),
     work_TypedImport: lazyRecord(() => phase_declarations.work_TypedImport),
     work_TypedImportBinding: lazyRecord(() => phase_declarations.work_TypedImportBinding),
     work_TypedIteration: lazyRecord(() => phase_values.work_TypedIteration),

@@ -36,13 +36,12 @@ export function verifyLaws(
     let fixed = 0;
     let omissible = 0;
     let exact = true;
-    for (const header of context.source.params) {
-      const parameter = header.tsonic;
-      if (parameter.role === "rest" || parameter.role === "this") continue;
-      const selected = signature.parameters[fixed];
-      if (selected === undefined || typeof selected.acceptsOmission !== "boolean") exact = false;
+    for (const parameter of signature.parameters) {
+      if (parameter === undefined) { exact = false; continue; }
+      if (parameter.kind === "rest") continue;
+      if (typeof parameter.acceptsOmission !== "boolean") exact = false;
       fixed += 1;
-      omissible = selected?.acceptsOmission === true ? omissible + 1 : 0;
+      omissible = parameter.acceptsOmission === true ? omissible + 1 : 0;
     }
     exact &&= body.entries.length === omissible + 1;
     for (const [position, entry] of body.entries.entries()) {

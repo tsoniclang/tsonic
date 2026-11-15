@@ -1,7 +1,8 @@
 import { arraySchema, enumSchema, nullableSchema, recordSchema, unionSchema } from "./text-data.js";
 import type { DataSchemas } from "./text-data.js";
 import type { EvidenceSchemas } from "./text-evidence.js";
-import type { Diagnostic, DiagnosticCode, DiagnosticFix, DiagnosticSite, HostDiagnosticCode, MessageArgument, RelatedDiagnostic, TextEdit } from "../diag/contract.js";
+import type { Cause, Diagnostic, DiagnosticCode, DiagnosticFix, DiagnosticSite, HostDiagnosticCode, MessageArgument, RelatedDiagnostic, TextEdit } from "../diag/contract.js";
+import type { ErrorSchemas } from "./text-errors.js";
 import type { Origin, SigId, TyId } from "../ids/contract.js";
 import type { HirCallableEndpoint, HirCandidate, HirCandidateList, HirInferenceContribution } from "../ir-hir/contract.js";
 import type { BindingVector } from "../ir-types/contract.js";
@@ -10,7 +11,8 @@ import type { Schema } from "./text-data.js";
 
 export interface UnavailableRecord {
   readonly kind: "unavailable";
-  readonly reason: "checker-error" | "parameter-dependent" | "not-provided";
+  readonly reason: "checker-error" | "parameter-dependent" | "not-provided" | "missing-original-component" | "incomplete-association" | "unsupported-checked-structure";
+  readonly causes: readonly Cause[];
 }
 
 export interface AvailableSignatureRecord {
@@ -95,7 +97,7 @@ export interface CaptureValuesSchemas {
   readonly hirInferenceContributionSchema: RecordSchema<HirInferenceContribution>;
   readonly hirContributionRoleSchema: Schema<"argument" | "context" | "receiver" | "result" | "type-argument">;
   readonly unavailableSchema: RecordSchema<UnavailableRecord>;
-  readonly unavailableReasonSchema: Schema<"checker-error" | "not-provided" | "parameter-dependent">;
+  readonly unavailableReasonSchema: Schema<"checker-error" | "not-provided" | "parameter-dependent" | "missing-original-component" | "incomplete-association" | "unsupported-checked-structure">;
   readonly capturedSignatureSchema: RecordSchema<AvailableSignatureRecord | UnavailableRecord>;
   readonly availableSignatureSchema: RecordSchema<AvailableSignatureRecord>;
   readonly capturedBindingsSchema: RecordSchema<AvailableBindingsRecord | UnavailableRecord>;
@@ -124,7 +126,7 @@ export interface CaptureValuesSchemas {
   readonly textEditSchema: RecordSchema<TextEdit>;
 }
 
-export function createCaptureValuesSchemas(data: DataSchemas, evidence: EvidenceSchemas): CaptureValuesSchemas {
+export function createCaptureValuesSchemas(data: DataSchemas, evidence: EvidenceSchemas, errors: ErrorSchemas): CaptureValuesSchemas {
   const { bigintSchema, bindingVectorSchema, bodySchema, candSchema, defSchema, hostCodeNameSchema, numberSchema, originSchema, sigSchema, sourceNodeRefSchema, stringSchema, tSchema, typeParameterIdentitySchema } = data;
   const { typeComponentSchema } = evidence;
   const hirCallableEndpointSchema = recordSchema<HirCallableEndpoint>("HirCallableEndpoint", "HirCallableEndpoint", read => {
@@ -166,10 +168,11 @@ export function createCaptureValuesSchemas(data: DataSchemas, evidence: Evidence
 
   const unavailableSchema = recordSchema<UnavailableRecord>("Unavailable", "unavailable", read => {
     const reason = read("reason", () => unavailableReasonSchema, value => value.reason);
-    return { fields: [reason], value: () => ({ kind: "unavailable", reason: reason.value() }) };
+    const causes = read("causes", () => arraySchema(errors.causeSchema), value => value.causes);
+    return { fields: [reason, causes], value: () => ({ kind: "unavailable", reason: reason.value(), causes: causes.value() }) };
   });
 
-  const unavailableReasonSchema = enumSchema("UnavailableReason", ["checker-error","parameter-dependent","not-provided"]);
+  const unavailableReasonSchema = enumSchema("UnavailableReason", ["checker-error","parameter-dependent","not-provided","missing-original-component","incomplete-association","unsupported-checked-structure"]);
 
   const capturedSignatureSchema: RecordSchema<AvailableSignatureRecord | UnavailableRecord> = unionSchema<AvailableSignatureRecord | UnavailableRecord>("CapturedSignature",
     () => [availableSignatureSchema, unavailableSchema], value => {

@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import { before, test } from "node:test";
 import { nativeFactsFixture } from "./fixtures/native-facts.mjs";
-import { EMPTY_BINDINGS, PARAMETRIC, T, TABLE, bodyId, builders, def, narrowed, signature, typedBody, value } from "./fixtures/lower-mir/typed.mjs";
+import { EMPTY_BINDINGS, PARAMETRIC, SELECTED_BINDINGS, T, TABLE, bodyId, builders, def, narrowed, signature, typedBody, value } from "./fixtures/lower-mir/typed.mjs";
 
 const SIG_LAWS = signature("laws", [["a", T.int32Array], ["i", T.int32], ["o", T.optInt32, "optional"]], T.int32);
 const SIG_FIXED = signature("laws.fixed", [["a", T.int32Fixed4], ["i", T.int32], ["o", T.optInt32, "optional"]], T.int32);
@@ -104,7 +104,7 @@ const selectedModes = (body, given) => ({ ...body, locals: body.locals.map(local
  */
 function good() {
   return {
-    body: BODY, bindings: PARAMETRIC,
+    body: BODY, bindings: SELECTED_BINDINGS,
     entries: [{ provided: 3, block: 0 }, { provided: 2, block: 8 }],
     locals: [
       local(0, T.int32Array, { kind: "parameter", index: 0 }, 0), local(1, T.int32, { kind: "parameter", index: 1 }, 1),
@@ -513,7 +513,7 @@ test("law 3: fixed inner bounds retain the actual enclosing checked-location dep
     const own = bodyId(name);
     const origin = { module: "M[P[p];m]", start: 0, length: 1, derived: [] };
     const at = label => ({ origin, tir: { body: own, node: program.at(label) } });
-    const body = { body: own, bindings: PARAMETRIC, entries: [{ provided: 3, block: 0 }], result: T.int32,
+    const body = { body: own, bindings: SELECTED_BINDINGS, entries: [{ provided: 3, block: 0 }], result: T.int32,
       locals: [storage, T.int32, T.int32, T.int32].map((type, id) => ({ id, storage: type, mode: id < 3 ? "by-value" : "local",
         role: id < 3 ? { kind: "parameter", index: id } : { kind: "temporary" }, source: id < 3 ? { body: own, local: id } : null, origin })),
       constants: [{ id: 0, type: T.int32, value: { kind: "literal", value: { kind: "number", token: "0", value: { numerator: 0n, denominator: 1n, negativeZero: false } } } }],
@@ -708,7 +708,24 @@ test("law 3 at a merge: a block reads only the part of a shared list that its ow
   })), []);
 });
 
-test("the work limit: a body is verified up to its limit and refused past it, never accepted and never found invalid", () => {
+async function referenceWorkOf(body, context) {
+  const { verifyValues, placeLocations } = await import("../../packages/host/dist/ir-mir/verify-storage.js");
+  const { decisionReferences } = await import("../../packages/host/dist/ir-mir/verify.js");
+  const { verifyTypeReferences } = await import("../../packages/host/dist/ir-mir/verify-types.js");
+  const { createWireTexts, sourceNodes } = await import("../../packages/host/dist/ir-mir/verify-control.js");
+  const { createDecisionWires } = await import("../../packages/host/dist/ir-mir/text-decisions.js");
+  const { createScalarWires } = await import("../../packages/host/dist/ir-mir/text.js");
+  const meter = { spent: 0, maximum: 1000000, exhausted: false };
+  const nodes = sourceNodes(context.source, createWireTexts(createDecisionWires(createScalarWires())));
+  const values = verifyValues(body, context, nodes, placeLocations(body), meter);
+  const types = values.types, signatures = values.signatures;
+  decisionReferences(body, context, types, signatures, meter);
+  verifyTypeReferences(context.types, types, signatures, meter);
+  assert.equal(meter.exhausted, false);
+  return meter.spent;
+}
+
+test("the work limit: a body is verified up to its limit and refused past it, never accepted and never found invalid", async () => {
   const under = maximumWork => verifyMir(body, { ...context, limits: { maximumWork } });
   const refusal = maximumWork => ({ kind: "resource-limit", body: BODY, dimension: "work", maximum: maximumWork });
   // One diamond under a stable place. The contract's units: one for each incoming edge of a block that is not
@@ -719,8 +736,9 @@ test("the work limit: a body is verified up to its limit and refused past it, ne
   // the place pass 16 visits, 13 roots and 1 union, and 64 units of the operands enumerated at uses; NEEDS-W4.md has
   // the count by category). So the body needs 141.
   let body = staged(graph => { checkedThenDiamond(graph, { atMerge: [readView()] }); });
-  assert.deepEqual(under(141), { kind: "complete", violations: [] });
-  assert.deepEqual(under(140), refusal(140));
+  const oneNeed = 141 + await referenceWorkOf(body, context);
+  assert.deepEqual(under(oneNeed), { kind: "complete", violations: [] });
+  assert.deepEqual(under(oneNeed - 1), refusal(oneNeed - 1));
   assert.deepEqual(under(0), refusal(0));
   // A refusal is not a finding: the same body with a defect is refused in the same way under the limit, and its
   // defect is reported only by a verification that ran to its end.
@@ -735,18 +753,20 @@ test("the work limit: a body is verified up to its limit and refused past it, ne
     graph.blocks[13].terminator = branch(14, 15);
     graph.blocks.push(blockOf(14, [], jump(16)), blockOf(15, [], jump(16)), blockOf(16, [readView()], returns(p(9))));
   });
-  assert.deepEqual(under(154), { kind: "complete", violations: [] });
-  assert.deepEqual(under(153), refusal(153));
-  assert.deepEqual(under(141), refusal(141));
+  const twoNeed = 154 + await referenceWorkOf(body, context);
+  assert.deepEqual(under(twoNeed), { kind: "complete", violations: [] });
+  assert.deepEqual(under(twoNeed - 1), refusal(twoNeed - 1));
+  assert.deepEqual(under(oneNeed), refusal(oneNeed));
   // The account is the body's: verifying two bodies one after the other under the limit of one charges each from zero.
   const one = staged(graph => { checkedThenDiamond(graph, { atMerge: [readView()] }); });
-  for (const turn of [1, 2]) assert.deepEqual(verifyMir(one, { ...context, limits: { maximumWork: 141 } }), { kind: "complete", violations: [] }, `body ${turn}`);
+  for (const turn of [1, 2]) assert.deepEqual(verifyMir(one, { ...context, limits: { maximumWork: oneNeed } }), { kind: "complete", violations: [] }, `body ${turn}`);
   // The satisfying graph has no stable place. Law 3 charges it 2: the two arms of the loop's branch (blocks 4 and 9)
   // each receive the empty set on their one edge. The storage pass charges it 93 (3 for the entry set, 7 markers,
   // 18 lookups; the empty set 1, the place pass 11 visits, 10 roots and 1 union, 42 units of enumerated operands).
   // So it needs 95.
-  assert.equal(verifyMir(good(), { ...context, limits: { maximumWork: 95 } }).kind, "complete");
-  assert.deepEqual(verifyMir(good(), { ...context, limits: { maximumWork: 94 } }), refusal(94));
+  const goodNeed = 95 + await referenceWorkOf(good(), context);
+  assert.equal(verifyMir(good(), { ...context, limits: { maximumWork: goodNeed } }).kind, "complete");
+  assert.deepEqual(verifyMir(good(), { ...context, limits: { maximumWork: goodNeed - 1 } }), refusal(goodNeed - 1));
 });
 
 test("law 3: a value delivered on a suspension's return edge into the local a stable place views ends it on that edge", () => {
@@ -836,7 +856,7 @@ const boundaryBodies = () => [
 ];
 const fixedBoundaryBodies = () => boundaryBodies().map(fixed);
 
-test("the work limit is one boundary for every body: below it a refusal, from it on the complete answer", () => {
+test("the work limit is one boundary for every body: below it a refusal, from it on the complete answer", async () => {
   // Each limit below the boundary exhausts the account at a different charge: an incoming edge, a place counted, a
   // list copied. None of them yields an answer other than the refusal.
   // The need of each body is derived from the two charging rules. Blocks are read in reverse postorder, in which
@@ -857,7 +877,7 @@ test("the work limit is one boundary for every body: below it a refusal, from it
   const bodies = [...boundaryBodies(), ...fixedBoundaryBodies()];
   for (const [position, body] of bodies.entries()) {
     const given = position < 2 ? context : fixedContext;
-    const need = needs[position];
+    const need = needs[position] + await referenceWorkOf(body, given);
     const kinds = [];
     for (let maximumWork = 0; maximumWork <= need + 10; maximumWork += 1) {
       const outcome = verifyMir(body, { ...given, limits: { maximumWork } });
@@ -1482,6 +1502,29 @@ test("law 7: a call may omit only what the callee's signature lets be omitted", 
   assert.deepEqual(laws(two(supplied, { kind: "omitted" })), []);
   assert.deepEqual(laws(two({ kind: "omitted" }, { kind: "omitted" })), []);
   assert.deepEqual(laws(two({ kind: "omitted" }, supplied)), ["omission-admitted"]);
+});
+
+test("law 7 uses selected omission capability independently of required or optional parameter syntax", () => {
+  const original = context.types.signatures[SIG_LAWS];
+  for (const kind of ["required", "optional"]) for (const acceptsOmission of [false, true]) {
+    const signatures = [...context.types.signatures];
+    signatures[SIG_LAWS] = { ...original, parameters: original.parameters.map((parameter, index) =>
+      index === 2 ? { ...parameter, kind, acceptsOmission } : parameter) };
+    const selected = { ...context, types: { ...context.types, signatures } };
+    const graph = good();
+    if (!acceptsOmission) graph.entries.pop();
+    assert.equal(found(graph, selected).some(finding => finding.rule === "entries-exact"), false);
+    if (acceptsOmission) graph.entries.pop();
+    else graph.entries.push({ provided: 2, block: 8 });
+    assert.equal(found(graph, selected).some(finding => finding.rule === "entries-exact"), true);
+  }
+  const signatures = [...context.types.signatures];
+  signatures[SIG_LAWS] = { ...original, parameters: original.parameters.map((parameter, index) =>
+    index === 2 ? { ...parameter, kind: "rest", acceptsOmission: true } : parameter) };
+  const graph = good();
+  graph.entries = [{ provided: 2, block: 0 }];
+  assert.equal(found(graph, { ...context, types: { ...context.types, signatures } })
+    .some(finding => finding.rule === "entries-exact"), false);
 });
 
 test("law 8: a local that is present on entry carries no begin marker", () => {

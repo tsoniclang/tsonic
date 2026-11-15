@@ -24,7 +24,7 @@ export interface HirScalarReaders {
   readonly literal_0: HirReader<"default" | "optional" | "required" | "rest" | "this">;
   readonly literal_1: HirReader<Types.PassingMode>;
   readonly literal_2: HirReader<"binding" | "capture" | "catch" | "parameter">;
-  readonly literal_3: HirReader<"checker-error" | "not-provided" | "parameter-dependent">;
+  readonly literal_3: HirReader<"checker-error" | "not-provided" | "parameter-dependent" | "missing-original-component" | "incomplete-association" | "unsupported-checked-structure">;
   readonly literal_4: HirReader<Diag.Severity>;
   readonly literal_5: HirReader<Ids.PassName>;
   readonly literal_6: HirReader<"argument" | "context" | "receiver" | "result" | "type-argument">;
@@ -175,7 +175,7 @@ export function createHirScalarReaders(): HirScalarReaders {
     literal_0: literalReader<"default" | "optional" | "required" | "rest" | "this">(["required","optional","default","rest","this"]),
     literal_1: literalReader<Types.PassingMode>(["by-value","byref-readonly","byref-readwrite","byref-writeonly-must-init","borrow-shared","borrow-mut","move"]),
     literal_2: literalReader<"binding" | "capture" | "catch" | "parameter">(["parameter","binding","capture","catch"]),
-    literal_3: literalReader<"checker-error" | "not-provided" | "parameter-dependent">(["checker-error","parameter-dependent","not-provided"]),
+    literal_3: literalReader<"checker-error" | "not-provided" | "parameter-dependent" | "missing-original-component" | "incomplete-association" | "unsupported-checked-structure">(["checker-error","parameter-dependent","not-provided","missing-original-component","incomplete-association","unsupported-checked-structure"]),
     literal_4: literalReader<Diag.Severity>(["error","warning","suggestion"]),
     literal_5: literalReader<Ids.PassName>(["front","decls","infer","elaborate","validate","lower-mir","evaluate","metadata","liveness","initialization","refinements","origins","suspension","errorStorage","pointerBacking","summaries","pipeline"]),
     literal_6: literalReader<"argument" | "context" | "receiver" | "result" | "type-argument">(["argument","receiver","context","result","type-argument"]),

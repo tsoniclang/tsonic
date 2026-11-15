@@ -17,7 +17,7 @@
 import assert from "node:assert/strict";
 import { before, test } from "node:test";
 import { nativeFactsFixture } from "./fixtures/native-facts.mjs";
-import { PARAMETRIC, T, TABLE, bodyId, builders, def, signature, typedBody } from "./fixtures/lower-mir/typed.mjs";
+import { PARAMETRIC, SELECTED_BINDINGS, T, TABLE, bodyId, builders, def, signature, typedBody } from "./fixtures/lower-mir/typed.mjs";
 
 const SIG = signature("storage", [["p", T.int32], ["o", T.optInt32, "optional"]], T.void);
 const b = builders("storage");
@@ -58,7 +58,7 @@ function graph(temporaries, blocks, prologue = [[], null]) {
   for (let id = 2; id < temporaries + 2; id += 1) locals.push(temporary(id));
   const all = [...blocks, [[{ ...AT, kind: "assign", place: 1, value: { kind: "use", operand: { kind: "constant", constant: 0 } }, step: null }, ...prologue[0]],
     prologue[1] ?? goto(0)]];
-  return { body: BODY, bindings: PARAMETRIC, entries: [{ provided: 2, block: 0 }, { provided: 1, block: blocks.length }], locals,
+  return { body: BODY, bindings: SELECTED_BINDINGS, entries: [{ provided: 2, block: 0 }, { provided: 1, block: blocks.length }], locals,
     constants: [{ id: 0, type: T.optInt32, value: { kind: "literal", value: { kind: "absence" } } },
       { id: 1, type: T.bool, value: { kind: "literal", value: { kind: "boolean", value: true } } }],
     places: placesOf(locals), blocks: all.map(([statements, terminator], id) => ({ ...AT, id, statements, terminator })), result: T.void };
@@ -242,12 +242,30 @@ test("storage work: a set of three levels costs three units for each change and 
   exactly(graph(100, [[[live(40)], either(1, 2)], [[live(100)], goto(3)], [[], goto(3)], [[use(40)], done()]]), 444, [], "a meet in a wide body");
 });
 
-test("storage work: the verifier returns the refusal for a body whose storage pass runs out, and never a finding with it", () => {
+async function referenceWorkOf(body, context) {
+  const { verifyValues, placeLocations } = await import("../../packages/host/dist/ir-mir/verify-storage.js");
+  const { decisionReferences } = await import("../../packages/host/dist/ir-mir/verify.js");
+  const { verifyTypeReferences } = await import("../../packages/host/dist/ir-mir/verify-types.js");
+  const { createWireTexts, sourceNodes } = await import("../../packages/host/dist/ir-mir/verify-control.js");
+  const { createDecisionWires } = await import("../../packages/host/dist/ir-mir/text-decisions.js");
+  const { createScalarWires } = await import("../../packages/host/dist/ir-mir/text.js");
+  const meter = { spent: 0, maximum: 1000000, exhausted: false };
+  const nodes = sourceNodes(context.source, createWireTexts(createDecisionWires(createScalarWires())));
+  const values = verifyValues(body, context, nodes, placeLocations(body), meter);
+  const types = values.types, signatures = values.signatures;
+  decisionReferences(body, context, types, signatures, meter);
+  verifyTypeReferences(context.types, types, signatures, meter);
+  assert.equal(meter.exhausted, false);
+  return meter.spent;
+}
+
+test("storage work: the verifier returns the refusal for a body whose storage pass runs out, and never a finding with it", async () => {
   // The body with a finding needs 17 units of this pass (above) and none of the other laws.
   const body = graph(1, [[[use(2)], done()]]);
-  for (let maximumWork = 0; maximumWork < 17; maximumWork += 1)
+  const required = 17 + await referenceWorkOf(body, contextOf(1000000));
+  for (let maximumWork = 0; maximumWork < required; maximumWork += 1)
     assert.deepEqual(verifyMir(body, contextOf(maximumWork)), { kind: "resource-limit", body: BODY, dimension: "work", maximum: maximumWork });
-  assert.deepEqual(verifyMir(body, contextOf(17)), { kind: "complete", violations: [finding(0, 0, 2)] });
+  assert.deepEqual(verifyMir(body, contextOf(required)), { kind: "complete", violations: [finding(0, 0, 2)] });
 });
 
 // ---- the locals a place reaches (K-3293, K-3294) ----------------------------------------------------------------
@@ -433,7 +451,7 @@ test("storage sets: a meet that runs out answers null, keeps what it had paid fo
 // The cases below give the pass bodies with defects that other rules report (a block that does not stand at its own
 // position, an edge or an entry to a block the body does not have, a marker that names no local) and edges of the
 // kinds a typed source of this file does not produce (unwind, resume, suspension return). Only this pass is asked.
-const record = (locals, blocks, entries = [{ provided: 0, block: 0 }]) => ({ body: BODY, bindings: PARAMETRIC, entries, locals, constants: [],
+const record = (locals, blocks, entries = [{ provided: 0, block: 0 }]) => ({ body: BODY, bindings: SELECTED_BINDINGS, entries, locals, constants: [],
   places: placesOf(locals), blocks: blocks.map(([statements, terminator, id], position) => ({ ...AT, id: id ?? position, statements, terminator })), result: T.void });
 
 test("storage: a block that does not stand at its own position is not read, and what only it reaches is not judged", () => {

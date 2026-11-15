@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { capturedCauses } from "./fixtures/captured-causes.mjs";
 import { createHash } from "node:crypto";
 import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { Session } from "node:inspector";
@@ -18,7 +19,7 @@ import { compileIsolated, isolationDeps } from "../architecture/host/isolation.m
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const tooling = process.env.TSONIC_HOST_TOOLING_ROOT ?? repository;
 const productNames = ["index", "print", "parse", "text-layouts", "text-construction", "text-syntax-construction", "text-model", "text-body", "text-phase-values",
-  "text-phase-declarations", "text-type-values", "text-rule-decisions", "text-rule-inputs", "text-captures", "text-memory",
+  "text-phase-declarations", "text-type-values", "text-rule-decisions", "text-rule-inputs", "text-causes", "text-captures", "text-memory",
   "text-syntax-values", "text-syntax-statements", "text-syntax-types", "text-syntax-jsx", "text-syntax-docs",
   "verify", "verify-occurrences", "verify-applications", "verify-instances", "selection-key", "syntax-compare", "syntax-compare-common",
   "syntax-compare-values", "syntax-compare-statements", "syntax-compare-types", "syntax-compare-jsx", "syntax-compare-docs"];
@@ -108,8 +109,11 @@ before(async () => {
 });
 
 const moduleId = "M[P[p];m]";
+await import("./source-add-composed.test.mjs");
 const ownerId = "D[M[P[p];m]]";
 const bodyId = "B[D[M[P[p];m]];module;0]";
+const codecBinding = { kind: "item", value: { owner: ownerId, node: 4 } };
+const codecBindingWire = `item(value=ItemNodeRef(owner=def:"${ownerId}", node=n:4))`;
 const emptyBindings = () => ({ classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] });
 const origin = (start = 0, length = 0) => ({ module: moduleId, start, length, derived: [] });
 const header = (id, parent = null) => ({ id, origin: origin(), parent, flags: [], loc: { pos: 0, end: 0 } });
@@ -158,7 +162,7 @@ function emptyVerificationInput(body, authoredNodes = [], scopeCount = 2) {
   const original = { body: bodyId, owner: ownerId, params: [], locals: [], root, captures: [], scopes: [],
     asynchronous: false, generator: false, candidateLists: [], nestedBodies: [] };
   const source = { module: moduleId, tree: root, items: [{ definition: ownerId, node: 0 }], bodies: [original],
-    checkerDiagnostics: [], obligations: [] };
+    exports: [], bindings: [], checkerDiagnostics: [], obligations: [] };
   const module = { module: moduleId, tree: body.root, bodies: [body] };
   const types = { terms: [{ kind: "intrinsic", intrinsic: "unknown" }], signatures: [{ id: 0, declaration: ownerId,
     owner: { kind: "body", value: { body: bodyId, node: 0 } }, composition: null, kind: "call", typeParameters: [],
@@ -203,7 +207,7 @@ function bodylessModuleScenario() {
     tsonic: { core: emptyCore(), parent: null, attributes: [], memory: available(null), definition: ownerId, body: bodyId } };
   const source = { module: moduleId, tree: sourceTree,
     bodies: [{ body: bodyId, owner: ownerId, params: [], locals: [], root: sourceTree, captures: [], scopes: [],
-      asynchronous: false, generator: false, candidateLists: [], nestedBodies: [] }], checkerDiagnostics: [], obligations: [],
+      asynchronous: false, generator: false, candidateLists: [], nestedBodies: [] }], exports: [], bindings: [], checkerDiagnostics: [], obligations: [],
     items: [{ definition: ownerId, node: 0 }, { definition, node: 1 }] };
   const module = { module: moduleId, tree, bodies: [] };
   const nodes = new Map([sourceTree, sourceAlias, sourceName, sourceKeyword, sourceEnd].map(node => [node.id, node]));
@@ -251,7 +255,7 @@ function memberScenario(holder, duplicatedPart = false) {
   const name = (id, parent, role) => pair("Identifier", id, parent, { text: "x" }, { text: "x" },
     role === "property-name"
       ? { core: emptyCore(), role, key: available({ kind: "text", value: "x" }), origins: available([provenance]) }
-      : { core: emptyCore(), role, value: checkedValue(), resolution: { kind: "definition", definition: ownerId, aliases: [] },
+      : { core: emptyCore(), role, value: checkedValue(), resolution: { kind: "declarations", definitions: [ownerId] },
         ...(role === "shorthand-value" ? { key: available({ kind: "text", value: "x" }) } : {}) },
     role === "property-name" ? { role, key: { kind: "text", value: "x" } }
       : { ...typedValue(), role, resolution: { kind: "definition", definition: ownerId, aliases: [] },
@@ -262,7 +266,7 @@ function memberScenario(holder, duplicatedPart = false) {
   let expectedOccurrence;
   if (holder === "property-access" || holder === "element-access") {
     const receiver = pair("Identifier", 3, 2, { text: "object" }, { text: "object" },
-      { core: emptyCore(), role: "value", value: checkedValue(1), resolution: { kind: "definition", definition: ownerId, aliases: [] } },
+      { core: emptyCore(), role: "value", value: checkedValue(1), resolution: { kind: "declarations", definitions: [ownerId] } },
       { ...typedValue(1), role: "value", resolution: { kind: "definition", definition: ownerId, aliases: [] } });
     const target = holder === "property-access" ? name(4, 2, "property-name")
       : pair("StringLiteral", 4, 2, { text: "x", tokenFlags: [] }, { text: "x", tokenFlags: [] },
@@ -399,7 +403,7 @@ function genericFunctionScenario(nodes = { callable: 2, typeParameter: 3, typeNa
         template: template(), attributes: [] }, closure: closureDecisionOf(4, []) } };
   };
   const checkedTypeName = { ...header(nodes.typeName, nodes.typeParameter), kind: "Identifier", text: "T",
-    tsonic: { core: emptyCore(), role: "type-name", resolution: { kind: "definition", definition: typeDefinition, aliases: [] } } };
+    tsonic: { core: emptyCore(), role: "type-name", resolution: { kind: "declarations", definitions: [typeDefinition] } } };
   const checkedType = { ...header(nodes.typeParameter, nodes.callable), kind: "TypeParameter", modifiers: null, name: checkedTypeName,
     constraint: null, expression: null, defaultType: null, tsonic: { core: emptyCore(), parent: definition,
       attributes: [], memory: available(null), definition: typeDefinition, parameter } };
@@ -536,6 +540,111 @@ function bindingPatternScenario(includeHole) {
   input.localExists = reference => reference.body === fixture.functionBody && fixture.originalFunction.locals[reference.local] !== undefined;
   return { ...fixture, body, input, binding, hole: includeHole ? hole : null };
 }
+
+function nestedDeclarationScenario(bodyless) {
+  const body = emptyModuleBody();
+  const definition = "D[M[P[p];m];declared]";
+  const parameterDefinition = "D[M[P[p];m];declared/input]";
+  const nestedBody = "B[D[M[P[p];m];declared];function;0]";
+  const local = index => ({ body: nestedBody, local: index });
+  const endpoint = { declaration: definition, role: bodyless ? "advertised" : "api-body", signature: 1,
+    body: bodyless ? null : nestedBody };
+  const valueName = { ...header(6, 5), kind: "Identifier", text: "value",
+    tsonic: { role: "declaration-name", declaration: { kind: "local", local: local(1) }, storage: 1 } };
+  const element = { ...header(5, 4), kind: "BindingElement", dotDotDotToken: null, propertyName: null,
+    name: valueName, initializer: null, tsonic: { role: "binding", declaration: { kind: "local", local: local(1) }, storage: 1, initializer: null } };
+  const pattern = { ...header(4, 3), kind: "ArrayBindingPattern", elements: nodeList([element]), tsonic: { storage: 2 } };
+  const parameter = { ...header(3, 1), kind: "Parameter", modifiers: null, dotDotDotToken: null, name: pattern,
+    questionToken: null, type: null, initializer: null, tsonic: { declaration: parameterDefinition, local: local(0),
+      storage: 2, passing: "by-value", initializer: null, role: "required" } };
+  const returned = { ...header(10, 9), kind: "Identifier", text: "value",
+    tsonic: { ...typedValue(1), role: "value", resolution: { kind: "local", local: local(1) } } };
+  const block = { ...header(8, 1), kind: "Block", statements: nodeList([
+    { ...header(9, 8), kind: "ReturnStatement", expression: returned, tsonic: null }]), multiLine: false, tsonic: null };
+  const named = { ...header(2, 1), kind: "Identifier", text: "declared",
+    tsonic: { role: "declaration-name", declaration: { kind: "definition", definition }, storage: null } };
+  const type = { ...header(bodyless ? 3 : 7, 1), kind: "NumberKeyword", tsonic: { type: 1, declarations: [] } };
+  const declaration = { ...header(1, 0), kind: "FunctionDeclaration", modifiers: null, typeParameters: null,
+    parameters: nodeList(bodyless ? [] : [parameter]), type, fullSignature: null, asteriskToken: null,
+    body: bodyless ? null : block, name: named,
+    tsonic: { definition, parameters: [], signatures: [endpoint], attributes: [],
+      template: bodyless ? null : { body: nestedBody, lexicalBindings: emptyBindings(), dependence: "parametric" } } };
+  const end = { ...header(bodyless ? 4 : 11, 0), kind: "EndOfFile", tsonic: null };
+  body.root.statements = nodeList([declaration]);
+  body.root.endOfFileToken = end;
+  body.nestedBodies = bodyless ? [] : [nestedBody];
+  const input = emptyVerificationInput(body);
+  const sourceDeclaration = structuredClone(declaration);
+  sourceDeclaration.name.tsonic = { core: emptyCore(), role: "declaration-name", declaration: { kind: "definition", definition } };
+  sourceDeclaration.type.tsonic = { core: emptyCore(), type: available(1), referencedDefinitions: [] };
+  sourceDeclaration.tsonic = { core: emptyCore(), parent: ownerId, definition, parameters: [], signatures: [endpoint],
+    attributes: [], memory: available(null), body: bodyless ? null : nestedBody };
+  const originalNodes = new Map();
+  const collect = node => {
+    originalNodes.set(node.id, node);
+    for (const child of hirChildren(node)) collect(child);
+  };
+  if (!bodyless) {
+    const sourceParameter = sourceDeclaration.parameters.nodes[0];
+    sourceParameter.tsonic = { core: emptyCore(), parent: definition, attributes: [], memory: available(null),
+      declaration: { kind: "local", local: local(0) }, declaredType: available(2), initializer: null };
+    sourceParameter.name.tsonic = { core: emptyCore(), declaration: null, declaredType: available(2) };
+    const sourceElement = sourceParameter.name.elements.nodes[0];
+    sourceElement.tsonic = { core: emptyCore(), declaration: { kind: "local", local: local(1) }, declaredType: available(1) };
+    sourceElement.name.tsonic = { core: emptyCore(), role: "declaration-name", declaration: { kind: "local", local: local(1) } };
+    sourceDeclaration.body.statements.nodes[0].expression.tsonic = { core: emptyCore(), ...checkedValue(1),
+      role: "value", resolution: { kind: "local", local: local(1) } };
+    const params = [parameter];
+    const locals = [0, 1].map(index => ({ id: index, declaration: { kind: "item", value: { owner: parameterDefinition, node: index === 0 ? 3 : 6 } },
+      name: index === 0 ? "input" : "value", role: index === 0 ? "parameter" : "binding", storage: index === 0 ? 2 : 1, capturedFrom: null, mutable: true }));
+    const typed = { body: nestedBody, owner: definition, bindings: { kind: "parametric" }, lexicalBindings: emptyBindings(),
+      dependence: "parametric", signature: 1, completion: 1, yielded: null, sent: null, params, locals, root: block,
+      nestedBodies: [], captures: [], scopes: [], evidence: [], asynchronous: false, generator: false };
+    input.module.bodies.push(typed);
+    input.source.bodies.push({ ...typed, root: sourceDeclaration.body,
+      params: [{ local: 0, declaration: parameterDefinition, role: "required", passing: "by-value", initializer: null }],
+      locals: locals.map(({ storage, ...row }) => ({ ...row, checkerSlot: available(storage) })), candidateLists: [] });
+  }
+  input.source.tree.statements = nodeList([sourceDeclaration]);
+  input.source.tree.endOfFileToken = { ...end };
+  input.source.bodies[0].nestedBodies = body.nestedBodies;
+  input.source.items.push({ definition, node: 1 });
+  if (!bodyless) input.source.items.push({ definition: parameterDefinition, node: 3 });
+  collect(input.source.tree);
+  input.types.terms.push({ kind: "primitive", primitive: "float64" },
+    { kind: "tuple", elements: [{ kind: "required", type: 1, declaration: null }], readonly: false });
+  input.types.signatures.push({ id: 1, declaration: definition, owner: null, composition: null, kind: "call", typeParameters: [],
+    receiver: null, parameters: bodyless ? [] : [{ declaration: parameterDefinition, kind: "required", type: 2, passing: "by-value", initializer: null , acceptsOmission: false }], result: 1 });
+  const baseDeclaration = input.declarationOf;
+  input.declarationOf = requested => requested === definition || requested === parameterDefinition
+    ? { scope: emptyScope(), parameterCount: requested === definition ? bodyless ? 0 : 1 : null, endpoints: requested === definition ? [endpoint] : [] }
+    : baseDeclaration(requested);
+  input.localExists = reference => reference.body === nestedBody && !bodyless && (reference.local === 0 || reference.local === 1);
+  input.nodeOf = reference => {
+    const node = originalNodes.get(reference.value.node);
+    if (reference.kind === "body") return reference.value.body === bodyId && (reference.value.node < 8 || bodyless || reference.value.node === 11)
+      || reference.value.body === nestedBody && reference.value.node >= 8 && reference.value.node <= 10 ? node ?? null : null;
+    return reference.value.owner === ownerId || reference.value.owner === definition && reference.value.node >= 1 && reference.value.node <= (bodyless ? 3 : 7)
+      || reference.value.owner === parameterDefinition && reference.value.node >= 3 && reference.value.node <= 6 ? node ?? null : null;
+  };
+  replaceScopeInventory(input, Array.from({ length: bodyless ? 2 : 3 }, emptyScope));
+  return { body, input, parameter, pattern };
+}
+
+let hirChildren;
+before(async () => { ({ childrenOfSyntax: hirChildren } = await import("../../packages/host/dist/ir-hir/index.js")); });
+
+test("a genuine bodyless callable has no invented execution parameter namespace", () => {
+  const fixture = nestedDeclarationScenario(true);
+  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+});
+
+test("nested callable parameter patterns retain actual nested local storage, not the enclosing module's", () => {
+  const fixture = nestedDeclarationScenario(false);
+  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  fixture.pattern.elements.nodes[0].name.tsonic.storage = 0;
+  assert.equal(product.verifyTir(fixture.input, fixture.body).some(violation => violation.rule === "binding-storage"), true);
+});
 
 function siblingIdentityScenario(sourceShared, typedShared) {
   const body = emptyModuleBody();
@@ -880,7 +989,7 @@ function argumentScenario(form = "whole", passing = "by-value") {
     core.argumentPassing = available({ role: "argument", mode: passing,
       storageExpression: { kind: "body", value: { body: bodyId, node: expression } } });
     const operand = pair("Identifier", expression, expression - 1, { text: "items" },
-      { core, role: "value", value: checkedValue(5), resolution: { kind: "definition", definition: items, aliases: [] } },
+      { core, role: "value", value: checkedValue(5), resolution: { kind: "declarations", definitions: [items] } },
       { ...typedValue(5), role: "value", resolution: { kind: "definition", definition: items, aliases: [] } });
     const protocol = { kind: "decided", decision: { kind: "spread", asynchronous: false, steps: [],
       value: 2, completion: 0, sent: 0, thrown: 0 } };
@@ -1045,7 +1154,7 @@ function binaryScenario(role = "arithmetic", token = "PlusToken") {
   const checked = { ...header(2, 1), kind: "BinaryExpression", modifiers: null, left: checkedLeft, type: null,
     operatorToken: operator, right: checkedRight,
     tsonic: { core: emptyCore(), value: checkedValue(1), role,
-      ...(role === "assignment" ? { target: { kind: "unavailable", reason: "not-provided" } } : {}) } };
+      ...(role === "assignment" ? { target: { kind: "unavailable", reason: "not-provided", causes: [] } } : {}) } };
   return expressionScenario(checked, typed, [checkedLeft, operator, checkedRight], 6, [{ kind: "primitive", primitive: "int32" }]);
 }
 
@@ -2059,21 +2168,87 @@ function assertCoreField(field, value, expectedField, name) {
   ], name);
 }
 
-for (const field of ["provider", "markers", "pointerType", "pointerOperation", "fieldBinding", "recordBinding", "attribute", "safety", "argumentPassing", "flowState"]) {
-  test(`a real unavailable ${field} capture retains its reason instead of inventing data`, () => {
-    assertCoreField(field, { kind: "unavailable", reason: "parameter-dependent" }, 'unavailable(reason="parameter-dependent")', field);
+test("TIR captured facts preserve all original cause positions without substituting or emitting a diagnostic", () => {
+  const fixture = operationScenario();
+  const causes = capturedCauses(fixture.body.root.origin.module, ownerId, bodyId);
+  const captured = { ...emptyCore(), provider: { kind: "unavailable", reason: "checker-error", causes } };
+  const input = { context: codecContext, captured, declaration: ownerId,
+    operands: [codecEvidence], result: codecEvidence, permissionScope: codecReference };
+  fixture.typed.tsonic.operation = { kind: "deferred", deferred: { invocation: { rule: "core", input }, result: 1 } };
+  const text = product.printTir(fixture.body);
+  const parsed = product.parseTir(text);
+  assert.equal(parsed.kind, "parsed", parsed.kind === "parsed" ? undefined
+    : JSON.stringify({ ...parsed, near: text.slice(Math.max(0, parsed.offset - 70), parsed.offset + 70) }));
+  assert.deepEqual(parsed.value.root.statements.nodes[0].expression.tsonic.operation.deferred.invocation.input.captured.provider.causes, causes);
+  assert.equal(product.parseTir(text.replace("causes=[diagnostic(", "removedCauses=[diagnostic(")).kind, "invalid-text");
+  const group = causes.find(cause => cause.kind === "unit" && cause.unit.position.kind === "inference-variable").unit.position.group;
+  for (const malformed of ["7", "null", "true", JSON.stringify("not-a-group")])
+    assert.equal(product.parseTir(text.replace(`group=${JSON.stringify(group)}`, `group=${malformed}`)).kind, "invalid-text");
+});
+
+for (const captureKind of ["core", "markers", "field-binding", "record-binding"]) {
+  test(`TIR ${captureKind} unavailable facts retain each supplied original nonempty cause vector`, () => {
+    const fixture = operationScenario();
+    const causes = capturedCauses(fixture.body.root.origin.module, ownerId, bodyId);
+    const unavailable = { kind: "unavailable", reason: "checker-error", causes };
+    let captured = emptyCore();
+    switch (captureKind) {
+      case "core":
+        captured = Object.fromEntries(Object.keys(captured).map(field => [field, unavailable]));
+        break;
+      case "markers":
+        captured.markers = available({ struct: { valueType: false, fields: unavailable },
+          field: { name: "field", typeNode: codecSource, type: unavailable, readonly: false },
+          defaultValue: null, jsString: false });
+        break;
+      case "field-binding":
+        captured.fieldBinding = available({ occurrence: codecReference, bindings: unavailable,
+          owner: unavailable, pointee: unavailable, fieldExpression: codecReference,
+          field: unavailable, pointerExpression: codecReference });
+        break;
+      case "record-binding":
+        captured.recordBinding = available({ occurrence: codecReference, bindings: unavailable,
+          source: unavailable, layoutExpression: codecReference, layout: unavailable,
+          fields: [{ expression: codecReference, binding: codecReference }] });
+        break;
+    }
+    const input = { context: codecContext, captured, declaration: ownerId,
+      operands: [codecEvidence], result: codecEvidence, permissionScope: codecReference };
+    fixture.typed.tsonic.operation = { kind: "deferred", deferred: { invocation: { rule: "core", input }, result: 1 } };
+    const parsed = product.parseTir(product.printTir(fixture.body));
+    assert.equal(parsed.kind, "parsed");
+    assert.deepEqual(parsed.value.root.statements.nodes[0].expression.tsonic.operation.deferred.invocation.input.captured, captured);
   });
 }
 
+for (const field of ["provider", "markers", "pointerType", "pointerOperation", "fieldBinding", "recordBinding", "attribute", "safety", "argumentPassing", "flowState"]) {
+  test(`a real unavailable ${field} capture retains its reason instead of inventing data`, () => {
+    assertCoreField(field, { kind: "unavailable", reason: "parameter-dependent", causes: [] }, 'unavailable(reason="parameter-dependent", causes=[])', field);
+  });
+}
+
+// The reasons of missing evidence have their own arms in HIR's captured fact; TIR's text keeps each one.
+for (const field of ["provider", "markers", "pointerType", "pointerOperation", "fieldBinding", "recordBinding", "attribute", "safety", "argumentPassing", "flowState"])
+  for (const reason of ["missing-original-component", "incomplete-association", "unsupported-checked-structure"])
+    test(`a real unavailable ${field} capture retains the reason ${reason}`, () => {
+      assertCoreField(field, { kind: "unavailable", reason, causes: [] }, `unavailable(reason="${reason}", causes=[])`, `${field}/${reason}`);
+    });
+
 // Binding captures (SCHEMA-MIGRATION.md 5.2, TB1): the saved text of each record, with every inner fact available and unavailable.
 const emptyBindingsWire = "BindingVector(classBindings=[], methodBindings=[], capturedBindings=[], selfBindings=[])";
-const unavailableWire = reason => `unavailable(reason="${reason}")`;
+const unavailableWire = reason => `unavailable(reason="${reason}", causes=[])`;
 for (const [name, changes, wires] of [
   ["complete", {}, {}],
-  ["bindings unavailable", { bindings: { kind: "unavailable", reason: "parameter-dependent" } }, { bindings: unavailableWire("parameter-dependent") }],
-  ["owner unavailable", { owner: { kind: "unavailable", reason: "checker-error" } }, { owner: unavailableWire("checker-error") }],
-  ["pointee unavailable", { pointee: { kind: "unavailable", reason: "not-provided" } }, { pointee: unavailableWire("not-provided") }],
-  ["field unavailable", { field: { kind: "unavailable", reason: "not-provided" } }, { field: unavailableWire("not-provided") }],
+  ["bindings unavailable", { bindings: { kind: "unavailable", reason: "parameter-dependent", causes: [] } }, { bindings: unavailableWire("parameter-dependent") }],
+  ["owner unavailable", { owner: { kind: "unavailable", reason: "checker-error", causes: [] } }, { owner: unavailableWire("checker-error") }],
+  ["pointee unavailable", { pointee: { kind: "unavailable", reason: "not-provided", causes: [] } }, { pointee: unavailableWire("not-provided") }],
+  ["field unavailable", { field: { kind: "unavailable", reason: "not-provided", causes: [] } }, { field: unavailableWire("not-provided") }],
+  ...["missing-original-component", "incomplete-association", "unsupported-checked-structure"].map(reason => [
+    `all inner facts unavailable/${reason}`,
+    { bindings: { kind: "unavailable", reason, causes: [] }, owner: { kind: "unavailable", reason, causes: [] },
+      pointee: { kind: "unavailable", reason, causes: [] }, field: { kind: "unavailable", reason, causes: [] } },
+    { bindings: unavailableWire(reason), owner: unavailableWire(reason), pointee: unavailableWire(reason), field: unavailableWire(reason) },
+  ]),
 ]) test(`a saved field binding capture retains its occurrence, types, binding vector and field descriptor: ${name}`, () => {
   const value = { occurrence: codecReference, bindings: available(emptyBindings()), owner: available(0), pointee: available(0),
     fieldExpression: codecReference, field: available(codecSource), pointerExpression: codecReference, ...changes };
@@ -2086,9 +2261,14 @@ for (const [name, changes, wires] of [
 for (const [name, changes, wires] of [
   ["complete", {}, {}],
   ["no field entries", { fields: [] }, { fields: "[]" }],
-  ["bindings unavailable", { bindings: { kind: "unavailable", reason: "parameter-dependent" } }, { bindings: unavailableWire("parameter-dependent") }],
-  ["source unavailable", { source: { kind: "unavailable", reason: "checker-error" } }, { source: unavailableWire("checker-error") }],
-  ["layout unavailable", { layout: { kind: "unavailable", reason: "not-provided" } }, { layout: unavailableWire("not-provided") }],
+  ["bindings unavailable", { bindings: { kind: "unavailable", reason: "parameter-dependent", causes: [] } }, { bindings: unavailableWire("parameter-dependent") }],
+  ["source unavailable", { source: { kind: "unavailable", reason: "checker-error", causes: [] } }, { source: unavailableWire("checker-error") }],
+  ["layout unavailable", { layout: { kind: "unavailable", reason: "not-provided", causes: [] } }, { layout: unavailableWire("not-provided") }],
+  ...["missing-original-component", "incomplete-association", "unsupported-checked-structure"].map(reason => [
+    `all inner facts unavailable/${reason}`,
+    { bindings: { kind: "unavailable", reason, causes: [] }, source: { kind: "unavailable", reason, causes: [] }, layout: { kind: "unavailable", reason, causes: [] } },
+    { bindings: unavailableWire(reason), source: unavailableWire(reason), layout: unavailableWire(reason) },
+  ]),
 ]) test(`a saved record binding capture retains its source, layout descriptor and field entries: ${name}`, () => {
   const value = { occurrence: codecReference, bindings: available(emptyBindings()), source: available(0), layoutExpression: codecReference,
     layout: available(codecSource), fields: [{ expression: codecReference, binding: codecReference }], ...changes };
@@ -2110,12 +2290,12 @@ test("nonempty struct/field/default markers retain actual saved type and source 
 });
 
 test("unavailable marker fields and captured types remain distinct genuine capture arms", () => {
-  const markers = { struct: { valueType: false, fields: { kind: "unavailable", reason: "checker-error" } },
-    field: { name: "field", typeNode: codecSource, type: { kind: "unavailable", reason: "not-provided" }, readonly: false },
+  const markers = { struct: { valueType: false, fields: { kind: "unavailable", reason: "checker-error", causes: [] } },
+    field: { name: "field", typeNode: codecSource, type: { kind: "unavailable", reason: "not-provided", causes: [] }, readonly: false },
     defaultValue: null, jsString: false };
   assertCoreField("markers", available(markers), 'available(value=HirMarkersCapture(struct=Record(valueType=false, ' +
-    'fields=unavailable(reason="checker-error")), field=HirFieldMarkerCapture(name="field", ' +
-    `typeNode=${codecSourceWire}, type=unavailable(reason="not-provided"), readonly=false), defaultValue=null, jsString=false))`,
+    'fields=unavailable(reason="checker-error", causes=[])), field=HirFieldMarkerCapture(name="field", ' +
+    `typeNode=${codecSourceWire}, type=unavailable(reason="not-provided", causes=[]), readonly=false), defaultValue=null, jsString=false))`,
     "unavailable marker data");
 });
 
@@ -2846,10 +3026,12 @@ for (const kind of ["PropertySignature", "PropertyDeclaration"]) {
 }
 const codecProjectTarget = { target: "project", module: moduleId };
 const codecProjectTargetWire = `ImportTarget(target="project", module=mod:"${moduleId}")`;
-const codecImported = { definition: ownerId, imported: { kind: "definition", definition: ownerId } };
-const codecImportedWire = `TypedImportBinding(definition=def:"${ownerId}", imported=definition(definition=def:"${ownerId}"))`;
-const codecExported = { definition: ownerId, exported: { kind: "module", target: codecProjectTarget } };
-const codecExportedWire = `TypedExportBinding(definition=def:"${ownerId}", exported=module(target=${codecProjectTargetWire}))`;
+const codecImported = { binding: codecBinding };
+const codecImportedWire = `TypedImportBinding(binding=${codecBindingWire})`;
+const codecExported = { binding: codecBinding };
+const codecExportedWire = `TypedExportBinding(binding=${codecBindingWire})`;
+const codecNamespace = { definition: ownerId, binding: codecBinding };
+const codecNamespaceWire = `TypedNamespaceExport(definition=def:"${ownerId}", binding=${codecBindingWire})`;
 for (const packageName of [null, "library-package"]) {
   test(`actual external library module identity retains ${packageName === null ? "no" : "its"} package name`, () => {
     const target = { target: "library", module: { providerId: "provider", providerVersion: "1.0.0", packageName,
@@ -2865,9 +3047,9 @@ for (const kind of ["NamespaceImport", "NamespaceExport", "NamespaceExportDeclar
   test(`actual ${kind} retains its specific module-binding port`, () => {
     const exported = kind !== "NamespaceImport";
     const extra = kind === "NamespaceExportDeclaration" ? { modifiers: nodeList() } : {};
-    assertSyntaxPayload({ ...header(4, 2), kind, ...extra, name: codecName(5, 4), tsonic: exported ? codecExported : codecImported }, [
+    assertSyntaxPayload({ ...header(4, 2), kind, ...extra, name: codecName(5, 4), tsonic: kind === "NamespaceExport" ? codecNamespace : exported ? codecExported : codecImported }, [
       `${kind}(${syntaxHeaderWire(4, 2)}, ${kind === "NamespaceExportDeclaration" ? "modifiers=ModifierList(loc=TextRange(pos=0, end=0), nodes=[]), " : ""}` +
-        `name=n:5, tsonic=${exported ? codecExportedWire : codecImportedWire})`, codecNameWire(5, 4),
+        `name=n:5, tsonic=${kind === "NamespaceExport" ? codecNamespaceWire : exported ? codecExportedWire : codecImportedWire})`, codecNameWire(5, 4),
     ], kind);
   });
 }
@@ -2905,9 +3087,9 @@ for (const kind of ["ImportDeclaration", "JSImportDeclaration"]) {
       const attribute = { ...header(8, 7), kind: "ImportAttribute", name: codecName(9, 8), value: codecName(10, 8), tsonic: null };
       const attributes = present ? { ...header(7, 4), kind: "ImportAttributes", token: "WithKeyword", attributes: nodeList([attribute]), multiLine: true, tsonic: null } : null;
       assertSyntaxPayload({ ...header(4, 2), kind, modifiers: nodeList(), importClause: clause, moduleSpecifier: codecName(specifier, 4), attributes,
-        tsonic: { definition: ownerId, target: codecProjectTarget } }, [
+        tsonic: { target: codecProjectTarget } }, [
         `${kind}(${syntaxHeaderWire(4, 2)}, modifiers=ModifierList(loc=TextRange(pos=0, end=0), nodes=[]), importClause=${present ? "n:5" : "null"}, moduleSpecifier=n:${specifier}, ` +
-          `attributes=${present ? "n:7" : "null"}, tsonic=TypedImport(definition=def:"${ownerId}", target=${codecProjectTargetWire}))`,
+          `attributes=${present ? "n:7" : "null"}, tsonic=TypedImport(target=${codecProjectTargetWire}))`,
         ...(present ? [`ImportClause(${syntaxHeaderWire(5, 4)}, phaseModifier=null, name=null, namedBindings=null, tsonic=${codecImportedWire})`] : []),
         codecNameWire(specifier, 4), ...(present ? [
           `ImportAttributes(${syntaxHeaderWire(7, 4)}, token="WithKeyword", attributes=NodeList(loc=TextRange(pos=0, end=0), nodes=[n:8]), multiLine=true, tsonic=null)`,
@@ -2928,14 +3110,14 @@ test("actual import-equals retains its qualified module reference and binding de
 });
 for (const present of [false, true]) {
   test(`actual export declaration keeps ${present ? "its target and export clause" : "the absent target and clause"}`, () => {
-    const exportClause = present ? { ...header(5, 4), kind: "NamespaceExport", name: codecName(6, 5), tsonic: codecExported } : null;
+    const exportClause = present ? { ...header(5, 4), kind: "NamespaceExport", name: codecName(6, 5), tsonic: codecNamespace } : null;
     assertSyntaxPayload({ ...header(4, 2), kind: "ExportDeclaration", modifiers: nodeList(), isTypeOnly: true, exportClause,
       moduleSpecifier: present ? codecName(7, 4) : null, attributes: null,
-      tsonic: { definition: ownerId, target: present ? codecProjectTarget : null } }, [
+      tsonic: { target: present ? codecProjectTarget : null } }, [
       `ExportDeclaration(${syntaxHeaderWire(4, 2)}, modifiers=ModifierList(loc=TextRange(pos=0, end=0), nodes=[]), isTypeOnly=true, exportClause=${present ? "n:5" : "null"}, ` +
-        `moduleSpecifier=${present ? "n:7" : "null"}, attributes=null, tsonic=TypedExport(definition=def:"${ownerId}", ` +
+        `moduleSpecifier=${present ? "n:7" : "null"}, attributes=null, tsonic=TypedExport(` +
         `target=${present ? codecProjectTargetWire : "null"}))`,
-      ...(present ? [`NamespaceExport(${syntaxHeaderWire(5, 4)}, name=n:6, tsonic=${codecExportedWire})`, codecNameWire(6, 5), codecNameWire(7, 4)] : []),
+      ...(present ? [`NamespaceExport(${syntaxHeaderWire(5, 4)}, name=n:6, tsonic=${codecNamespaceWire})`, codecNameWire(6, 5), codecNameWire(7, 4)] : []),
     ], "export declaration");
     assertSyntaxPayload({ ...header(4, 2), kind: "ExportAssignment", modifiers: nodeList(), isExportEquals: true,
       type: present ? codecType(5, 4) : null, expression: codecName(present ? 6 : 5, 4), tsonic: { definition: ownerId, type: 0 } }, [
@@ -3752,9 +3934,9 @@ test("F4 body capture and lexical scope records retain complete foreign identiti
 test("F4 a complete export retains its present ImportAttributes syntax", () => {
   assertSyntaxPayload({ ...header(4, 2), kind: "ExportDeclaration", modifiers: null, isTypeOnly: false,
     exportClause: null, moduleSpecifier: null, attributes: { ...header(5, 4), kind: "ImportAttributes", token: "WithKeyword",
-      attributes: nodeList(), multiLine: false, tsonic: null }, tsonic: { definition: ownerId, target: null } }, [
+      attributes: nodeList(), multiLine: false, tsonic: null }, tsonic: { target: null } }, [
     `ExportDeclaration(${syntaxHeaderWire(4, 2)}, modifiers=null, isTypeOnly=false, exportClause=null, moduleSpecifier=null, ` +
-      `attributes=n:5, tsonic=TypedExport(definition=def:"${ownerId}", target=null))`,
+      `attributes=n:5, tsonic=TypedExport(target=null))`,
     `ImportAttributes(${syntaxHeaderWire(5, 4)}, token="WithKeyword", attributes=NodeList(loc=TextRange(pos=0, end=0), nodes=[]), multiLine=false, tsonic=null)`,
   ], "export attributes");
 });
@@ -4242,24 +4424,66 @@ for (const resolution of ["local", "definition", "known-aliases", "missing-defin
     const missing = encodeDefId({ module: moduleId, segments: [{ name: "missing", ordinal: 0 }] });
     if (resolution !== "local") value.tsonic.resolution = { kind: "definition",
       definition: resolution === "missing-definition" ? missing : fixture.valueDefinition,
-      aliases: resolution === "known-aliases" ? [fixture.definition, fixture.typeDefinition]
-        : resolution === "missing-alias" ? [missing] : resolution === "repeated-missing-aliases" ? [missing, missing] : [] };
-    const expected = resolution === "missing-definition" || resolution === "missing-alias" || resolution === "repeated-missing-aliases"
-      ? [nodeViolation("cross-owner-qualified", 9, "definition reference does not name an actual declaration")] : [];
+      aliases: resolution === "known-aliases" ? [{ kind: "body", value: { body: body.body, node: value.id } },
+        { kind: "item", value: { owner: fixture.definition, node: value.id } }]
+        : resolution === "missing-alias" ? [{ kind: "item", value: { owner: missing, node: value.id } }]
+          : resolution === "repeated-missing-aliases" ? [0, 1].map(() => ({ kind: "item", value: { owner: missing, node: value.id } })) : [] };
+    const expected = resolution === "missing-definition"
+      ? [nodeViolation("cross-owner-qualified", 9, "definition reference does not name an actual declaration")]
+      : resolution === "missing-alias" || resolution === "repeated-missing-aliases" ? [
+        nodeViolation("cross-owner-qualified", 9, "source reference does not name an actual node in its declared owner"),
+        nodeViolation("cross-owner-qualified", 9, "definition reference does not name an actual declaration"),
+      ] : [];
     assertCompleteValue(product.verifyTir(input, body), expected);
     value.tsonic.resolution = original;
     assertCompleteValue(product.verifyTir(input, body), []);
   });
 }
 
-test("body scalar definitions and aliases share the real nullable declaration cache only within one invocation", async () => {
+test("binding occurrence roles preserve exact qualification and genuine namespace identities", async () => {
+  const { verifyOccurrenceRole } = await import("../../packages/host/dist/ir-tir/verify-occurrences.js");
+  const occurrence = { kind: "item", value: { owner: ownerId, node: 4 } };
+  const target = { ...header(4), kind: "Identifier", text: "binding", tsonic: { role: "binding-name", binding: occurrence } };
+  const source = { ...target, tsonic: { core: emptyCore(), ...target.tsonic } };
+  const check = (actual, checked) => {
+    const findings = [];
+    verifyOccurrenceRole(actual, checked, (rule, node, detail) => findings.push({ rule, node: node.id, detail }));
+    return findings;
+  };
+  assert.deepStrictEqual(check(target, source), []);
+  for (const checked of [undefined, { ...source, tsonic: null }]) assert.deepStrictEqual(check(target, checked), []);
+  for (const [actual, checked] of [
+    [{ ...target, tsonic: { role: "binding-name" } }, source],
+    [target, { ...source, tsonic: { core: emptyCore(), role: "binding-name" } }],
+    [{ ...target, tsonic: { ...target.tsonic, binding: { kind: "body", value: { body: bodyId, node: 4 } } } }, source],
+  ]) assert.deepStrictEqual(check(actual, checked), [{ rule: "binding-capture-owner", node: 4,
+    detail: "typed binding syntax must retain its actual checked qualified occurrence" }]);
+  const namespace = { ...target, kind: "NamespaceExport", name: target,
+    tsonic: { definition: ownerId, binding: occurrence } };
+  const checkedNamespace = { ...namespace, tsonic: { ...namespace.tsonic, core: emptyCore() } };
+  assert.deepStrictEqual(check(namespace, checkedNamespace), []);
+  assert.deepStrictEqual(check(namespace, { ...checkedNamespace, tsonic: { ...checkedNamespace.tsonic, definition: "other" } }), [
+    { rule: "binding-capture-owner", node: 4, detail: "a namespace export must retain its genuine same-node F1 declaration" },
+  ]);
+  const clause = { ...header(4), kind: "ImportClause", phaseModifier: null, name: null, namedBindings: null, tsonic: null };
+  const checkedClause = { ...clause, tsonic: { core: emptyCore(), target: { kind: "available", value: { target: "project", module: moduleId } }, bindings: [occurrence] } };
+  assert.deepStrictEqual(check(clause, checkedClause), []);
+  assert.equal(check({ ...clause, tsonic: { binding: occurrence } }, checkedClause)[0].rule, "binding-capture-owner");
+  assert.deepStrictEqual(check({ ...clause, name: target, tsonic: { binding: occurrence } }, checkedClause), []);
+  for (const [actual, checked] of [[{ ...clause, name: target }, checkedClause],
+    [{ ...clause, name: target, tsonic: { binding: occurrence } }, { ...checkedClause, tsonic: { ...checkedClause.tsonic, bindings: [] } }],
+    [{ ...clause, name: target, tsonic: { binding: { ...occurrence, value: { ...occurrence.value, node: 5 } } } }, checkedClause]])
+    assert.equal(check(actual, checked)[0].rule, "binding-capture-owner");
+});
+
+test("body scalar definitions share the real nullable declaration cache only within one invocation", async () => {
   const { encodeDefId } = await import("../../packages/host/dist/ids/index.js");
   const fixture = genericFunctionScenario();
   const body = fixture.functionTemplate;
   const input = fixture.inputFor(body);
   const value = body.root.body.statements.nodes[0].expression;
   const missing = encodeDefId({ module: moduleId, segments: [{ name: "missing", ordinal: 0 }] });
-  value.tsonic.resolution = { kind: "definition", definition: missing, aliases: [missing, missing] };
+  value.tsonic.resolution = { kind: "definition", definition: missing, aliases: [] };
   const actual = input.declarationOf;
   const queries = [];
   input.declarationOf = definition => { queries.push(definition); return actual(definition); };
@@ -4879,6 +5103,102 @@ test("a duplicate selected header has no invented second checked formal", () => 
   const body = fixture.functionTemplate;
   body.params = [body.params[0], body.params[0]];
   assert.equal(product.verifyTir(fixture.inputFor(body), body).some(value => value.rule === "parameter-order"), true);
+});
+
+test("a parametric body reuses its exact canonical selected header rather than a detached equal copy", () => {
+  const fixture = genericFunctionScenario();
+  const body = fixture.functionTemplate;
+  assertCompleteValue(product.verifyTir(fixture.inputFor(body), body), []);
+  const canonical = body.params[0];
+  body.params = [structuredClone(canonical)];
+  assert.equal(product.verifyTir(fixture.inputFor(body), body).some(value => value.rule === "module-node-identity"), true);
+  body.params = [canonical];
+  assertCompleteValue(product.verifyTir(fixture.inputFor(body), body), []);
+});
+
+test("binding verification reads only the actual owning formal inventory, not unrelated checked bodies", async () => {
+  const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
+  const { verifyBindingSlots } = await import("../../packages/host/dist/ir-tir/verify-instances.js");
+  const { walkSyntaxTree } = await import("../../packages/host/dist/ir-hir/index.js");
+  const producer = await loadFrontFixture();
+  const unrelated = producer.checkedModuleOf(Array.from({ length: 16 }, (_, index) =>
+    `export function unrelated${index}(value: number): number { return value; }`).join("\n")).checked;
+  const fixture = genericFunctionScenario();
+  const body = fixture.functionTemplate;
+  const input = fixture.inputFor(body);
+  const sources = new Map(input.source.bodies.map(source => [source.body, source]));
+  for (const source of unrelated.bodies) {
+    sources.set(source.body, source);
+    Object.defineProperty(source, "params", { get: () => assert.fail("an unrelated checked formal inventory was read") });
+  }
+  const actual = fixture.originalFunction.params;
+  let reads = 0;
+  Object.defineProperty(fixture.originalFunction, "params", { get: () => { reads++; return actual; } });
+  const findings = [];
+  const emit = (rule, node, detail) => findings.push({ rule, node: node?.id ?? null, detail });
+  const nodes = walkSyntaxTree(body.root, []);
+  verifyBindingSlots(body, nodes, fixture.functionNodes, sources, input.module.bodies, input.bodyOf, emit);
+  assert.deepEqual(findings, []);
+  assert.equal(reads, 1, "the same ready owning parameter row inventory is indexed once");
+  sources.delete(body.body);
+  verifyBindingSlots(body, nodes, fixture.functionNodes, sources, input.module.bodies, input.bodyOf, emit);
+  assert.equal(findings.some(value => value.rule === "parameter-order"), true,
+    "a missing owning inventory is not silently accepted as a parameter match");
+});
+
+test("capture binding verification indexes each demanded owner's formal local relation once", async () => {
+  const { verifyBindingSlots } = await import("../../packages/host/dist/ir-tir/verify-instances.js");
+  const { encodeDefId } = await import("../../packages/host/dist/ids/index.js");
+  for (const count of [8, 64, 256]) {
+    const fixture = genericFunctionScenario();
+    const body = fixture.functionTemplate;
+    const input = fixture.inputFor(body);
+    const outer = input.source.bodies.find(source => source.body === bodyId);
+    let localReads = 0;
+    let inventoryReads = 0;
+    const formals = Array.from({ length: count }, (_, index) => ({
+      get local() { localReads++; return index; }, declaration: encodeDefId({ module: moduleId,
+        segments: [{ name: `formal${index}`, ordinal: 0 }] }), role: "required",
+      passing: index % 2 === 0 ? "borrow-mut" : "by-value", initializer: null,
+    }));
+    outer.locals = Array.from({ length: count + 2 }, (_, index) => ({ id: index,
+      declaration: { kind: "body", value: { body: bodyId, node: 0 } }, name: `p${index}`,
+      role: index === count + 1 ? "capture" : "parameter", checkerSlot: available(0), capturedFrom: null, mutable: false }));
+    Object.defineProperty(outer, "params", { get: () => { inventoryReads++; return formals; } });
+    const captures = outer.locals.map(local => ({ body: bodyId, local: local.id }));
+    fixture.checkedFunction.tsonic.captures = captures;
+    const evidence = { type: 3, component: { kind: "body", value: { body: body.body, node: body.root.id } },
+      category: { kind: "known", category: "number" }, numeric: null, sum: null, nominal: null, pointer: null };
+    const saved = captures.map((local, index) => ({ local, value: evidence, reassignable: false,
+      incoming: index < count ? { kind: "parameter", passing: formals[index].passing }
+        : index === count ? { kind: "binding" } : { kind: "parameter", passing: "move" } }));
+    const deferred = captures => ({ kind: "deferred", deferred: { result: 4, invocation: { rule: "closure", input: {
+      context: { occurrence: { body: body.body, node: body.root.id }, origin: origin(), bindings: body.lexicalBindings },
+      callable: { ...evidence, type: 4, category: { kind: "known", category: "callable" } }, captures } } } });
+    body.root.tsonic.closure = deferred(saved);
+    const findings = [];
+    const emit = (rule, node) => findings.push({ rule, node: node?.id ?? null });
+    const sources = new Map(input.source.bodies.map(source => [source.body, source]));
+    verifyBindingSlots(body, [body.root], fixture.functionNodes, sources, input.module.bodies, input.bodyOf, emit);
+    assert.deepEqual(findings, []);
+    assert.equal(inventoryReads, 1, "all captured formals borrow the same actual demanded-owner inventory");
+    assert.equal(localReads, count * 2, "one formal index read and one exact local match per captured formal");
+    for (const index of [count - 1, count]) {
+      findings.length = 0;
+      body.root.tsonic.closure = deferred(saved.map((capture, position) => position === index
+        ? { ...capture, incoming: position === count ? { kind: "parameter", passing: "by-value" } : { kind: "binding" } } : capture));
+      verifyBindingSlots(body, [body.root], fixture.functionNodes, sources, input.module.bodies, input.bodyOf, emit);
+      assert.equal(findings.some(finding => finding.rule === "closure-capture-binding"), true,
+        "a pattern-bound child remains its own binding and a real formal retains its exact passing evidence");
+    }
+    findings.length = 0;
+    body.root.tsonic.closure = deferred(saved.map((capture, index) => index === 0
+      ? { ...capture, local: { ...capture.local, local: -0 }, incoming: { kind: "parameter", passing: "move" } } : capture));
+    verifyBindingSlots(body, [body.root], fixture.functionNodes, sources, input.module.bodies, input.bodyOf, emit);
+    assert.equal(findings.some(finding => finding.rule === "capture-qualified"), true);
+    assert.equal(findings.some(finding => finding.rule === "closure-capture-binding"), false,
+      "a nonidentical local index cannot borrow another formal's passing evidence");
+  }
 });
 
 test("a genuine default initializer retains syntax but not callable-body semantic ownership", () => {
@@ -5751,6 +6071,14 @@ for (const [name, text, offset, expected, found] of firstPositionCases) {
   });
 }
 
+test("the removed scalar TirParam record is not a selected parameter occurrence", () => {
+  const retired = `TirParam(local=l:0, declaration=def:"${ownerId}", role="required", passing="by-value", initializer=null, storage=t:0)`;
+  const text = completeEmptyWire.replace("params=[]", `params=[${retired}]`);
+  const offset = text.indexOf("TirParam(");
+  assertCompleteValue(product.parseTir(text), { kind: "invalid-text", offset, line: 1, column: offset + 1,
+    expected: ["$ParameterDeclaration"], found: "TirParam" });
+});
+
 const beforeArtifact = `TirBody(body=body:"${bodyId}", owner=def:"${ownerId}", `;
 const beforeVector = beforeArtifact + 'bindings=instantiated(bindings=BindingVector(classBindings=[], ';
 const afterVectorFields = beforeVector + 'methodBindings=[], capturedBindings=[], selfBindings=[], ';
@@ -5985,7 +6313,7 @@ test("every TypedString role retains the full closed record and exact UTF16/lone
     [{ role: "type-literal", type: 0 }, 'TypedString(role="type-literal", type=t:0)'],
     [{ role: "module-specifier", target: { target: "project", module: moduleId } },
       `TypedString(role="module-specifier", target=ImportTarget(target="project", module=mod:"${moduleId}"))`],
-    [{ role: "export-name", definition: ownerId }, `TypedString(role="export-name", definition=def:"${ownerId}")`],
+    [{ role: "export-name", binding: codecBinding }, `TypedString(role="export-name", binding=${codecBindingWire})`],
     [{ role: "attribute-value", value: text }, `TypedString(role="attribute-value", value=${JSON.stringify(text)})`],
   ]) assertExpressionRoundTrip("StringLiteral", fields, fieldsWire, phase, wire);
 });
@@ -5994,7 +6322,7 @@ test("every TypedName arm and every resolution discriminant is distinct and full
   const fields = { text: "name" };
   for (const [resolution, wire] of [
     [{ kind: "local", local: { body: bodyId, local: 0 } }, `local(local=${localWire})`],
-    [{ kind: "definition", definition: ownerId, aliases: [ownerId] }, `definition(definition=def:"${ownerId}", aliases=[def:"${ownerId}"])`],
+    [{ kind: "definition", definition: ownerId, aliases: [codecBinding] }, `definition(definition=def:"${ownerId}", aliases=[${codecBindingWire}])`],
     [{ kind: "module", target: { target: "project", module: moduleId } }, `module(target=ImportTarget(target="project", module=mod:"${moduleId}"))`],
     [{ kind: "error", diagnostic: 0 }, "error(diagnostic=0)"],
   ]) assertExpressionRoundTrip("Identifier", fields, 'text="name"', { ...valueFact(), role: "value", resolution },
@@ -6014,6 +6342,7 @@ test("every TypedName arm and every resolution discriminant is distinct and full
     [{ role: "type-name", type: 0, declarations: [ownerId] }, `TypedName(role="type-name", type=t:0, declarations=[def:"${ownerId}"])`],
     [{ role: "label", target: { body: bodyId, node: 0 } }, `TypedName(role="label", target=NodeRef(body=body:"${bodyId}", node=n:0))`],
     [{ role: "private-name", declaration: ownerId }, `TypedName(role="private-name", declaration=def:"${ownerId}")`],
+    [{ role: "binding-name", binding: codecBinding }, `TypedName(role="binding-name", binding=${codecBindingWire})`],
   ]) assertExpressionRoundTrip("Identifier", fields, 'text="name"', phase, wire);
 });
 
@@ -6085,7 +6414,7 @@ function attachActualGetter(fixture) {
   bodyScopes(fixture.input, fixture.body).push(emptyScope(), emptyScope());
   const source = fixture.input.source.tree.statements.nodes[0].expression.tsonic;
   if ("accessor" in source) source.accessor = available({ kind: "accessor-get", receiver: 3, arguments: [], typeArguments: [],
-    candidates: { kind: "unavailable", reason: "not-provided" }, resolvedSignature: available(1) });
+    candidates: { kind: "unavailable", reason: "not-provided", causes: [] }, resolvedSignature: available(1) });
 }
 
 function assignmentMemberScenario(access) {
@@ -6098,7 +6427,7 @@ function assignmentMemberScenario(access) {
     access: access === "write" ? { kind: "write", storage: 0 } : { kind: "read-write", storage: 0,
       read: 0, narrowing: null, evidenceIndex: null } };
   sourceMember.tsonic = { core: emptyCore(), role: "assignment-target", views: checkerViews(0),
-    place: { kind: "unavailable", reason: "not-provided" }, access, origins: sourceMember.tsonic.origins, accessor: available(null) };
+    place: { kind: "unavailable", reason: "not-provided", causes: [] }, access, origins: sourceMember.tsonic.origins, accessor: available(null) };
   const value = { ...header(12, 10), kind: "StringLiteral", text: "assigned", tokenFlags: [],
     tsonic: { ...typedValue(), role: "value", value: "assigned" } };
   const sourceValue = { ...header(12, 10), kind: "StringLiteral", text: "assigned", tokenFlags: [],
@@ -6109,7 +6438,7 @@ function assignmentMemberScenario(access) {
     operatorToken: operator, right: value, tsonic: { ...typedValue(), role: "assignment", storage: 0, calculation: null, selection: null } };
   const original = { ...header(10, 1), kind: "BinaryExpression", modifiers: null, left: sourceMember, type: null,
     operatorToken: sourceOperator, right: sourceValue, tsonic: { core: emptyCore(), role: "assignment", value: checkedValue(),
-      target: { kind: "unavailable", reason: "not-provided" } } };
+      target: { kind: "unavailable", reason: "not-provided", causes: [] } } };
   fixture.body.root.statements.nodes[0].expression = typed;
   fixture.input.source.tree.statements.nodes[0].expression = original;
   const nodeOf = fixture.input.nodeOf;
@@ -6147,7 +6476,7 @@ function attachActualSetter(fixture) {
   fixture.table.accessors = [{ origin: fixture.decision.origins[0], getter: fixture.decision.getter?.declaration ?? null, setter: definition }];
   fixture.sourceMember.tsonic.accessor = available({ kind: "accessor-set", receiver: 3,
     arguments: [{ kind: "value", expression: 12 }], typeArguments: [],
-    candidates: { kind: "unavailable", reason: "not-provided" }, resolvedSignature: available(signature) });
+    candidates: { kind: "unavailable", reason: "not-provided", causes: [] }, resolvedSignature: available(signature) });
   bodyScopes(fixture.input, fixture.body).push(emptyScope(), emptyScope());
 }
 
@@ -7177,12 +7506,12 @@ for (const kind of ["ThisKeyword", "SuperKeyword"]) {
 for (const kind of ["PrivateIdentifier"]) {
   test(`F4 actual ${kind} loses neither name-position nor value cofindings`, () => {
     const sourceName = (identity, text, parent) => ({ ...header(identity, parent), kind: "Identifier", text,
-      tsonic: { core: emptyCore(), role: "type-name", resolution: { kind: "definition", definition: ownerId, aliases: [] } } });
+      tsonic: { core: emptyCore(), role: "type-name", resolution: { kind: "declarations", definitions: [ownerId] } } });
     const typedName = (identity, text, parent) => ({ ...header(identity, parent), kind: "Identifier", text,
       tsonic: { role: "type-name", type: 0, declarations: [ownerId] } });
     const checked = { ...header(2, 1), kind, ...(kind === "PrivateIdentifier" ? { text: "name" } :
       { left: sourceName(3, "Left", 2), right: sourceName(4, "Right", 2) }),
-      tsonic: { core: emptyCore(), role: "type-name", resolution: { kind: "definition", definition: ownerId, aliases: [] } } };
+      tsonic: { core: emptyCore(), role: "type-name", resolution: { kind: "declarations", definitions: [ownerId] } } };
     const typed = { ...header(2, 1), kind, ...(kind === "PrivateIdentifier" ? { text: "name" } :
       { left: typedName(3, "Left", 2), right: typedName(4, "Right", 2) }),
       tsonic: { role: "declaration-name", declaration: { kind: "definition", definition: ownerId }, storage: null } };
@@ -7204,7 +7533,7 @@ test("F4 QualifiedName uses its genuine EntityName slot and complete module-site
   const name = (id, text) => ({ ...header(id, 4), kind: "Identifier", text,
     tsonic: { role: "type-name", type: 0, declarations: [fixture.definition] } });
   const source = { ...header(4, 3), kind: "QualifiedName", left: sourceName(5, "Left"), right: sourceName(6, "Right"),
-    tsonic: { core: emptyCore(), role: "type-name", resolution: { kind: "definition", definition: fixture.definition, aliases: [] } } };
+    tsonic: { core: emptyCore(), role: "type-name", resolution: { kind: "declarations", definitions: [fixture.definition] } } };
   const typed = { ...header(4, 3), kind: "QualifiedName", left: name(5, "Left"), right: name(6, "Right"),
     tsonic: { role: "declaration-name", declaration: { kind: "definition", definition: fixture.definition }, storage: null } };
   sourceAlias.type = { ...header(3, 1), kind: "TypeReference", typeArguments: null, typeName: source,
@@ -7383,7 +7712,7 @@ test("F4 an actual symbol member key uses its real declaration and authored iden
     ...typedValue(symbolType), role: "value", resolution: { kind: "definition", definition: fixture.fieldDefinition, aliases: [] } } });
   delete member.argumentExpression.tokenFlags;
   Object.assign(sourceMember.argumentExpression, { kind: "Identifier", text: "key", tsonic: { core: emptyCore(),
-    role: "value", value: checkedValue(symbolType), resolution: { kind: "definition", definition: fixture.fieldDefinition, aliases: [] } } });
+    role: "value", value: checkedValue(symbolType), resolution: { kind: "declarations", definitions: [fixture.fieldDefinition] } } });
   delete sourceMember.argumentExpression.tokenFlags;
   fixture.decision.key = key;
   fixture.table.members[0].key = key;
@@ -7695,7 +8024,7 @@ test("fresh strict whole-owner isolation includes every current executable TIR m
     interfaceSources, declarationSources: [...closure].sort(), outputDirectory: ".temp/ir-tir-isolation" });
   writeFileSync(resolve(repository, ".temp/ir-tir-isolation-report.json"), `${JSON.stringify(report, null, 2)}\n`);
   assert.equal(report.status, "passed", JSON.stringify(report.findings).slice(0, 5000));
-  assert.equal(report.sourceInventory.filter(item => item.path.includes("/src/ir-tir/")).length, 33);
+  assert.equal(report.sourceInventory.filter(item => item.path.includes("/src/ir-tir/")).length, sourceFiles.length);
   assert.equal(report.provenance.length > 0, true, "real dependency declarations were freshly produced from their actual source closure");
   assert.equal(report.loadedInventory.every(path => report.expectedInventory.includes(path)), true);
 });
@@ -7721,9 +8050,9 @@ after(async () => {
     writeFileSync(resolve(directory, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
     writeFileSync(resolve(directory, "source-inputs.json"), `${JSON.stringify(sourceFiles.map(path => ({ path,
       hash: createHash("sha256").update(readFileSync(resolve(repository, path))).digest("hex") })), null, 2)}\n`);
-    assert.equal(result.length, 32, "all current actual runtime owners have nonempty source-identified raw V8 evidence");
+    assert.equal(result.length, productNames.length, "all current actual runtime owners have nonempty source-identified raw V8 evidence");
     assert.equal(report.status, "passed", JSON.stringify(report.findings).slice(0, 6000));
-    assert.equal(report.files.filter(file => file.status === "covered").length, 32);
+    assert.equal(report.files.filter(file => file.status === "covered").length, productNames.length);
     assert.equal(report.files.filter(file => file.status === "not-applicable").length, 1);
     for (const file of report.files.filter(file => file.status === "covered")) {
       assert.equal(file.lines, 100, basename(file.path));

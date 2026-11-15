@@ -1,6 +1,6 @@
-import type { CheckFailure, HandleActivation, ReceiverAccess } from "../ir-types/contract.js";
 import type { DefId, BodyId, TyId, SigId, LocalRef, NodeRef, Origin } from "../ids/contract.js";
 import type { Diagnostic } from "../diag/contract.js";
+import type { CheckFailure, HandleActivation, ReceiverAccess } from "../ir-types/contract.js";
 import type { NativePrimitive, BindingVector, LiteralValue, MemberKey, MemberOrigin, PassingMode, TypeComponent, TypeEvidence } from "../ir-types/contract.js";
 import type { HirCallableEndpoint, HirUnaryOperator, HirBinaryOperator, HirCoreCapture } from "../ir-hir/contract.js";
 import type { AccessLocation, BodyCaptureRow, CaptureRow, CaptureSource, LogicalCapture, CheckRequirement, ClosureCaptureEvidence, ClosureDecision, ClosureInput, FailureKind, OperationExecution, FlowRole, AccessRole, ProtocolKind, RuleContext, EmbedInput, DomainFitInput, MemoryEquivalentInput, MemberInput, IndexInput, LiteralConstructionPart, LiteralConstructionInput, CandidateArgument, CandidateEndpoint, CandidateInput, OperatorInput, LiteralFitInput, ProtocolInput, RefinementInput, LibraryInput, CoreInput, ConversionKind, CorrespondenceStep, EmbeddingProof, EmbeddingDecision, MemberDecision, ParameterMapping, CompletionEndpoint, ApplicationDecision, ConstructionPartDecision, ProtocolStepDecision, ProtocolStepOperation, OperationIdentity, OperationDecision, DeferredInvocation, DeferredDecision, RuleOutcome, RefinementDecision } from "../ir-infer/contract.js";

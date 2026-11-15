@@ -222,13 +222,13 @@ function syntaxParentCarrier(node, family, definition, first) {
       tsonic: { parameter: definition, narrowed: null, asserts: false } };
     case "ImportAttributeName": return { ...own, kind: "ImportAttribute", name: node, value: literal(own.id), tsonic: null };
     case "ModuleReference": return { ...own, kind: "ImportEqualsDeclaration", modifiers: null, isTypeOnly: false, name: name(own.id),
-      moduleReference: node, tsonic: { definition, imported: { kind: "definition", definition } } };
+      moduleReference: node, tsonic: { binding: { kind: "item", value: { owner: definition, node: own.id } } } };
     case "ModuleExportName": return { ...own, kind: "ExportSpecifier", isTypeOnly: false, propertyName: null, name: node,
-      tsonic: { definition, exported: { kind: "definition", definition } } };
+      tsonic: { binding: { kind: "item", value: { owner: definition, node: own.id } } } };
     case "NamedImportBindings": return { ...own, kind: "ImportClause", phaseModifier: null, name: null, namedBindings: node,
-      tsonic: { definition, imported: { kind: "definition", definition } } };
+      tsonic: { binding: { kind: "item", value: { owner: definition, node: own.id } } } };
     case "NamedExportBindings": return { ...own, kind: "ExportDeclaration", modifiers: null, isTypeOnly: false, exportClause: node,
-      moduleSpecifier: null, attributes: null, tsonic: { definition, target: null } };
+      moduleSpecifier: null, attributes: null, tsonic: { target: null } };
     case "TemplateLiteral": return { ...own, kind: "TaggedTemplateExpression", tag: { ...name(own.id), tsonic: {
       ...value, role: "value", resolution: { kind: "definition", definition, aliases: [] } } }, questionDotToken: null, typeArguments: null,
       template: node, tsonic: { ...value, application: { kind: "decided", decision: application }, operation: null } };
@@ -293,7 +293,7 @@ export function nullableSyntaxCases(node, definition, body) {
     }],
     ["tags", () => list([])],
     ["importClause", () => ({ ...header(node.id), kind: "ImportClause", phaseModifier: null, name: null, namedBindings: null,
-      tsonic: { definition, imported: { kind: "definition", definition } } })],
+      tsonic: null })],
     ["jsDocPropertyTags", () => []],
     ["attributes", () => ({ ...header(node.id), kind: "ImportAttributes", token: "WithKeyword", attributes: list([]), multiLine: false, tsonic: null })],
     ["exportClause", () => ({ ...header(node.id), kind: "NamedExports", elements: list([]), tsonic: null })],

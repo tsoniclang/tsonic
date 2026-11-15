@@ -19,7 +19,7 @@ import { nativeFactsFixture } from "./fixtures/native-facts.mjs";
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const tooling = process.env.TSONIC_HOST_TOOLING_ROOT ?? repository;
 const quarantineRoots = JSON.parse(readFileSync(resolve(repository, "test/architecture/quarantine/areas.json"), "utf8")).areas.map(area => area.directory);
-const names = ["index", "print", "parse", "verify", "verify-control", "verify-laws", "verify-storage", "local-ownership", "text", "text-decisions"];
+const names = ["index", "print", "parse", "verify", "verify-control", "verify-laws", "verify-storage", "verify-types", "local-ownership", "text", "text-decisions"];
 const runtimeFiles = names.map(name => resolve(repository, `packages/host/dist/ir-mir/${name}.js`));
 const sourceFiles = [...names, "contract"].map(name => `packages/host/src/ir-mir/${name}.ts`);
 const evidenceDirectory = resolve(repository, ".analysis/20261111-f-ir-mir/unit-proof");
@@ -191,7 +191,7 @@ test("internal capture lookup spends the same verifier account and stops before 
   const call = { ...base.blocks[0].terminator, kind: "call", callee: { kind: "body", instance, captures: [] },
     receiver: null, arguments: [], destination: null, next: 1, unwind: { kind: "escape" }, step: null };
   const body = { ...base, blocks: [{ ...base.blocks[0], terminator: call }, { ...base.blocks[0], id: 1 }] };
-  for (const [maximumWork, expectedQueries] of [[0, 0], [1, 1], [2, 1]]) {
+  for (const [maximumWork, expectedQueries] of [[0, 0], [11, 0], [12, 1], [13, 1]]) {
     let queries = 0;
     const context = { ...input, limits: { maximumWork }, bodyOf: () => { queries += 1; return input.source; } };
     same(product.verifyMir(body, context), { kind: "resource-limit", body: base.body, dimension: "work", maximum: maximumWork },
@@ -396,7 +396,10 @@ test("MIR verification refuses a limit that is not a count as its caller's defec
   const context = sourceContext(body);
   for (const maximumWork of [NaN, Infinity, -Infinity, -0, -1, 0.5, -0.5, Number.MAX_SAFE_INTEGER + 1]) assert.throws(() => product.verifyMir(body, { ...context, limits: { maximumWork } }),
     { name: "TypeError", message: "ir-mir: maximumWork must be a safe nonnegative count" });
-  same([product.verifyMir(body, { ...context, limits: { maximumWork: 0 } }), product.verifyMir(body, { ...context, limits: { maximumWork: 1 } })], [{ kind: "resource-limit", body: body.body, dimension: "work", maximum: 0 }, { kind: "complete", violations: [] }], "zero is a count: the body's empty set costs one unit, so it is refused at 0 and complete at 1");
+  for (let maximumWork = 0; maximumWork < 18; maximumWork += 1)
+    same(product.verifyMir(body, { ...context, limits: { maximumWork } }), { kind: "resource-limit", body: body.body, dimension: "work", maximum: maximumWork },
+      "four value/root units, two decision visits, one empty storage set and eleven type-graph units share the original account");
+  same(product.verifyMir(body, { ...context, limits: { maximumWork: 18 } }), { kind: "complete", violations: [] }, "exact admitted empty-body work is eighteen");
 });
 
 test("MIR decision fields of an operation refuse an unknown value at the value and a missing field at the record's end", () => {
@@ -850,7 +853,8 @@ test("borrowed signature parameter holes report the complete unresolved referenc
     }
 });
 
-test("MIR type closure walks every declared term relation and all signature child families exactly once", () => {
+test("MIR type closure walks every declared term relation and all signature child families exactly once", async () => {
+  const { verifyTypeReferences } = await import("../../packages/host/dist/ir-mir/verify-types.js");
   const body = parsedBody();
   const context = sourceContext(body);
   const owner = context.source.owner;
@@ -893,6 +897,21 @@ test("MIR type closure walks every declared term relation and all signature chil
   for (const term of shapes) {
     const input = { ...context, types: { terms: [...context.types.terms, term], signatures: [...context.types.signatures, signature, construct] } };
     same(verified({ ...body, locals: [local] }, input), [], `complete type/signature closure for ${term.kind}`);
+    const roots = [{ type: local.storage, site: { kind: "local", body: body.body, local: local.id } }];
+    const signatures = [{ signature: signature.id, site: { kind: "body", body: body.body } },
+      { signature: construct.id, site: { kind: "body", body: body.body } }];
+    const complete = { spent: 0, maximum: 100000, exhausted: false };
+    same(verifyTypeReferences(input.types, roots, signatures, complete), [], "the actual whole child inventory is closed");
+    for (let maximum = 0; maximum <= complete.spent; maximum += 1) {
+      const meter = { spent: 0, maximum, exhausted: false };
+      const checkReads = target => new Proxy(target, { get(rows, key) {
+        assert.equal(meter.exhausted, false, "no row or vector read follows refusal");
+        return Reflect.get(rows, key);
+      } });
+      const table = { terms: checkReads(input.types.terms), signatures: checkReads(input.types.signatures) };
+      same(verifyTypeReferences(table, checkReads(roots), checkReads(signatures), meter), [], "no partial graph finding on any under-limit path");
+      assert.equal(meter.exhausted, maximum < complete.spent, `every ${term.kind} child/root/vector admission is bounded`);
+    }
   }
   const broken = { ...context, types: { ...context.types, terms: [...context.types.terms,
     { kind: "union", members: [identities.tyId(6), identities.tyId(99)] }, { kind: "open", group: identities.encodeGroupId([body.body]), variable: 0 }] } };
@@ -902,6 +921,130 @@ test("MIR type closure walks every declared term relation and all signature chil
   ], "both independent flags propagate through the same root without suppressing one another");
   const error = { ...context, types: { ...context.types, terms: [...context.types.terms, { kind: "error" }] } };
   same(verified({ ...body, locals: [local] }, error), [expectedViolation("type-closed", { kind: "local", local: 0 }, [{ kind: "number", value: 5 }])], "error term is not a closed executable type");
+  for (const table of [broken.types, error.types]) {
+    const roots = [{ type: local.storage, site: { kind: "local", body: body.body, local: local.id } }];
+    const complete = { spent: 0, maximum: 100000, exhausted: false };
+    const expected = verifyTypeReferences(table, roots, [], complete);
+    for (let maximum = 0; maximum <= complete.spent; maximum += 1) {
+      const meter = { spent: 0, maximum, exhausted: false };
+      same(verifyTypeReferences(table, roots, [], meter), maximum < complete.spent ? [] : expected,
+        "both propagation flags, queue growth and finding publication stop at every charged boundary");
+      assert.equal(meter.exhausted, maximum < complete.spent);
+    }
+  }
+});
+
+test("MIR decision-root collection shares admission across bindings, components and selected nested calls", async () => {
+  const { decisionReferences } = await import("../../packages/host/dist/ir-mir/verify.js");
+  const base = parsedBody();
+  const context = sourceContext(base);
+  const ref = { kind: "body", value: { body: base.body, node: 0 } };
+  const empty = { root: ref, path: [] };
+  const parameter = { owner: context.source.owner, index: 0 };
+  const vector = { classBindings: [{ kind: "bound", parameter, type: 1 }], methodBindings: [{ kind: "bound", parameter, type: 1 }],
+    capturedBindings: [{ kind: "bound", parameter, type: 1 }], selfBindings: [{ kind: "bound", owner: parameter.owner, type: 1 }] };
+  const scope = { classParameters: [parameter], methodParameters: [parameter], capturedParameters: [parameter], selfOwners: [parameter.owner] };
+  const receiving = { ...context, declarationOf: definition => {
+    const declared = context.declarationOf(definition);
+    return declared === null ? null : { ...declared, scope };
+  } };
+  const component = { root: ref, path: [{ kind: "parameter", signature: 0, index: 0 },
+    { kind: "sum-arm", index: 0, family: { origin: "inferred", component: empty, parameters: [],
+      roles: [{ authoredIndex: 0, component: ref, member: 1 }] } }] };
+  const proof = { kind: "conversion", proof: { steps: [{ from: component, to: empty }] } };
+  const applied = { ...application, bindings: vector, implementationBindings: vector, completion: { ...application.completion, yielded: 1, sent: 1 },
+    parameters: [{ kind: "omitted", type: 1 }] };
+  const callable = { decision: applied, activation: instance };
+  const selectedMember = { decision: { ...member.decision, bindings: vector, getter: endpoint, setter: apiEndpoint }, getter: callable, setter: callable };
+  const decisions = [
+    { kind: "library", declaration: endpoint.declaration, bindings: vector },
+    { kind: "conversion", from: 1, to: 1, embedding: proof },
+    ...["object-construction", "array-construction"].map(kind => ({ kind, parts: [
+      { destination: component, embedding: proof, member: selectedMember.decision },
+      { destination: empty, embedding: { kind: "identity" }, member: null }] })),
+    { kind: "protocol", value: 1, completion: 1, thrown: 1, yielded: 1, sent: 1, steps: [
+      { operands: [1], result: 1, operation: { kind: "call", application: applied } },
+      { operands: [1], result: 1, operation: { kind: "core", declaration: endpoint.declaration, bindings: vector } },
+      { operands: [], result: 1, operation: { kind: "completion" } }] },
+  ];
+  const statements = decisions.map(operation => ({ ...site, kind: "assign", place: 0, step: null,
+    value: { kind: "unary", operand: constantOperand, operation: { ...operationFor(operation) } } }));
+  function operationFor(operation) { return { decision: { kind: "selected", operation, operands: [1], result: 1, execution: { kind: "pure" } }, permissionScope: null }; }
+  statements.push({ ...site, kind: "assign", place: 0, step: null, value: { kind: "aggregate", aggregate: {
+    kind: "record", fields: [{ member: selectedMember, value: constantOperand }] }, type: 1 } });
+  statements.push({ ...site, kind: "assign", place: 0, step: null, value: { kind: "closure", instance, captures: [] } });
+  statements.push({ ...site, kind: "assign", place: 0, step: null, value: { kind: "address-of", place: 0, type: 1 } });
+  statements.push({ ...site, kind: "assign", place: 0, step: null, value: { kind: "convert", operation: operationFor(decisions[1]), operand: constantOperand, to: 1 } });
+  const body = { ...base, bindings: { kind: "instantiated", bindings: vector }, constants: [{ id: 0, type: 1, value: { kind: "constant", reference: { initializer: instance, context: "compile-time" } } },
+    { id: 1, type: 1, value: { kind: "definition", definition: endpoint.declaration, bindings: { kind: "instantiated", bindings: vector } } }],
+    places: [{ id: 0, storage: 1, base: { kind: "place", place: 0, projection: { kind: "field", member: selectedMember } } }],
+    blocks: [{ ...base.blocks[0], statements, terminator: { ...site, kind: "call", callee: { kind: "direct", resolution: callable },
+      receiver: null, arguments: [], destination: null, next: 1, unwind: { kind: "escape" }, step: null } },
+      { ...base.blocks[0], id: 1, statements: [], terminator: { ...site, kind: "invoke", operation: operationFor(decisions[1]),
+        operands: [constantOperand], destination: null, next: 0, unwind: { kind: "escape" }, step: null } }] };
+  const complete = { spent: 0, maximum: 100000, exhausted: false };
+  const expectedTypes = [], expectedSignatures = [];
+  same(decisionReferences(body, receiving, expectedTypes, expectedSignatures, complete), [], "all actual ready binding families agree");
+  assert.equal(expectedTypes.length > 0 && expectedSignatures.length > 0, true);
+  for (let maximum = 0; maximum <= complete.spent; maximum += 1) {
+    const meter = { spent: 0, maximum, exhausted: false };
+    const input = { ...receiving, declarationOf: definition => { assert.equal(meter.exhausted, false); return receiving.declarationOf(definition); },
+      bodyOwner: body => { assert.equal(meter.exhausted, false); return context.bodyOwner(body); } };
+    const types = [], signatures = [];
+    same(decisionReferences(body, input, types, signatures, meter), [], "root collection has no findings or later callbacks after its original stop");
+    assert.equal(meter.exhausted, maximum < complete.spent);
+    if (!meter.exhausted) { same(types, expectedTypes, "all actual root types retained"); same(signatures, expectedSignatures, "all actual signature roots retained"); }
+  }
+  const { verifyValues } = await import("../../packages/host/dist/ir-mir/verify-storage.js");
+  const stopped = { spent: 0, maximum: 0, exhausted: true };
+  const unread = new Proxy({}, { get() { assert.fail("stopped root collection must not read any later input"); } });
+  same(decisionReferences(unread, unread, [], [], stopped), [], "already-refused decision roots have no later read");
+  same(verifyValues(unread, unread, unread, unread, stopped), { violations: [], types: [], signatures: [] }, "already-refused value roots have no later read");
+  const valueMeter = { spent: 0, maximum: 100000, exhausted: false };
+  const expectedValues = verifyValues(body, context, new Map(), new Map(), valueMeter);
+  for (let maximum = 0; maximum <= valueMeter.spent; maximum += 1) {
+    const meter = { spent: 0, maximum, exhausted: false };
+    const guarded = values => new Proxy(values, { get(target, key) {
+      assert.equal(meter.exhausted, false, "no later root/vector read after the original stop");
+      return Reflect.get(target, key);
+    } });
+    const input = { ...body, constants: guarded(body.constants), places: guarded(body.places), blocks: guarded(body.blocks) };
+    const result = verifyValues(input, context, new Map(), new Map(), meter);
+    assert.equal(meter.exhausted, maximum < valueMeter.spent);
+    if (!meter.exhausted) same(result, expectedValues, "value/type/signature roots preserve actual order at exact admission");
+  }
+  const sparse = { ...base, blocks: [undefined, { ...base.blocks[0], statements: [undefined,
+    { ...site, kind: "assign", place: 0, step: null, value: { kind: "unary", operand: constantOperand,
+      operation: { ...operation, decision: { ...operation.decision, operands: [undefined] } } } }] }] };
+  const malformed = verifyValues(sparse, context, new Map(), new Map(), { spent: 0, maximum: 100000, exhausted: false });
+  assert.equal(malformed.violations.some(finding => finding.rule === "operand-resolves"), true, "sparse semantic input never manufactures an operand");
+});
+
+test("MIR root collectors pre-admit sparse and huge root vectors before any unpaid getter or record", async () => {
+  const { verifyValues } = await import("../../packages/host/dist/ir-mir/verify-storage.js");
+  const base = parsedBody(), context = sourceContext(base);
+  const local = { id: 0, storage: 1, role: { kind: "temporary" }, mode: "local", source: null, origin: base.blocks[0].origin };
+  for (let maximum = 0; maximum <= 5; maximum += 1) {
+    const meter = { spent: 0, maximum, exhausted: false };
+    let reads = 0;
+    const locals = new Proxy([], { get(target, key) {
+      assert.equal(meter.exhausted, false);
+      if (key === "length") return 10000000;
+      if (typeof key === "string" && /^\d+$/.test(key)) { reads += 1; return { ...local, id: Number(key) }; }
+      return Reflect.get(target, key);
+    } });
+    const result = verifyValues({ ...base, locals }, context, new Map(), new Map(), meter);
+    assert.equal(meter.exhausted, true);
+    assert.equal(reads, Math.ceil(maximum / 2), "one admitted row read and one admitted root record, no bulk prebuild");
+    assert.equal(result.types.length, Math.floor(maximum / 2));
+    assert.equal(meter.spent, maximum);
+  }
+  const meter = { spent: 0, maximum: 1, exhausted: false };
+  const locals = [undefined];
+  Object.defineProperty(locals, 1, { get() { assert.fail("sparse roots do not authorize an unpaid later getter"); } });
+  const result = verifyValues({ ...base, locals }, context, new Map(), new Map(), meter);
+  assert.equal(meter.exhausted, true);
+  same(result.types, [], "the admitted sparse slot creates no root");
 });
 
 test("MIR literal constant types compare every exact declared value family without authored-token normalization", () => {
@@ -913,11 +1056,11 @@ test("MIR literal constant types compare every exact declared value family witho
   const rational = { kind: "number", token: "0.5", value: { numerator: 1n, denominator: 2n, negativeZero: false } };
   const negativeZero = { kind: "number", token: "-0", value: { numerator: 0n, denominator: 1n, negativeZero: true } };
   const values = [
-    [{ kind: "primitive", primitive: "float64" }, rational, [
+    [{ kind: "intrinsic", intrinsic: "unknown" }, rational, [
       { kind: "number", token: "1.5", value: { numerator: 3n, denominator: 2n, negativeZero: false } },
       { kind: "number", token: "0.25", value: { numerator: 1n, denominator: 4n, negativeZero: false } },
     ]],
-    [{ kind: "primitive", primitive: "float64" }, negativeZero, [
+    [{ kind: "intrinsic", intrinsic: "unknown" }, negativeZero, [
       { kind: "number", token: "0", value: { numerator: 0n, denominator: 1n, negativeZero: false } },
     ]],
     [{ kind: "intrinsic", intrinsic: "bigint" }, { kind: "bigint", token: "9007199254740993n", value: 9007199254740993n },
@@ -944,6 +1087,220 @@ test("MIR literal constant types compare every exact declared value family witho
     for (const opposite of [differentKind, ...opposites]) same(verified(constant(opposite), input),
       [expectedViolation("constant-type", { kind: "constant", constant: 0 })], `complete ${value.kind} literal mismatch vector`);
   }
+});
+
+test("MIR reachable type graphs admit roots, nodes, edges and publication at exact shared costs", async () => {
+  const { verifyTypeReferences } = await import("../../packages/host/dist/ir-mir/verify-types.js");
+  const site = { kind: "body", body: bodyIdentity };
+  const root = { type: identities.tyId(0), site };
+  const cases = [
+    { terms: [{ kind: "primitive", primitive: "bool" }], roots: [root], required: 11, violations: [] },
+    { terms: [{ kind: "primitive", primitive: "bool" }], roots: [root, root], required: 13, violations: [] },
+    { terms: [{ kind: "optional", value: identities.tyId(1) }, { kind: "primitive", primitive: "bool" }],
+      roots: [root], required: 20, violations: [] },
+    { terms: [{ kind: "union", members: [identities.tyId(1), identities.tyId(1)] }, { kind: "primitive", primitive: "bool" }],
+      roots: [root], required: 25, violations: [] },
+    { terms: [{ kind: "optional", value: identities.tyId(0) }], roots: [root], required: 14, violations: [] },
+    { terms: [], roots: [root], required: 14,
+      violations: [{ rule: "type-resolves", site, detail: [{ kind: "number", value: 0 }] }] },
+    { terms: [{ kind: "error" }], roots: [root], required: 14,
+      violations: [{ rule: "type-closed", site, detail: [{ kind: "number", value: 0 }] }] },
+  ];
+  for (const { terms, roots, required, violations } of cases) {
+    for (let maximum = 0; maximum <= required; maximum += 1) {
+      const meter = { maximum: maximum + 7, spent: 7, exhausted: false };
+      const table = { terms: new Proxy(terms, { get(target, key) {
+        assert.equal(meter.exhausted, false, "no type domain access follows the original stop");
+        return Reflect.get(target, key);
+      } }), signatures: [] };
+      const result = verifyTypeReferences(table, roots, [], meter);
+      assert.equal(meter.exhausted, maximum < required, `exact graph cost ${required}, allowance ${maximum}`);
+      assert.equal(meter.spent <= meter.maximum, true);
+      same(result, maximum < required ? [] : violations, "no provisional finding survives graph refusal");
+      if (maximum === required) assert.equal(meter.spent, required + 7, "the enclosing account is borrowed, not reset");
+      if (meter.exhausted) {
+        const unread = new Proxy({}, { get() { assert.fail("an already-stopped graph must not read any input"); } });
+        same(verifyTypeReferences(unread, unread, unread, meter), [], "sticky stop has no later graph pass");
+      }
+    }
+  }
+});
+
+test("MIR reachable graphs preserve malformed-edge laws, shared cycles and independent propagation", async () => {
+  const { verifyTypeReferences } = await import("../../packages/host/dist/ir-mir/verify-types.js");
+  const base = parsedBody(), context = sourceContext(base);
+  const site = { kind: "body", body: base.body };
+  const roots = [{ type: 0, site }];
+  const meter = () => ({ spent: 0, maximum: 100000, exhausted: false });
+  const missing = [{ rule: "type-resolves", site, detail: [{ kind: "number", value: 0 }] }];
+  for (const term of [{ kind: "union", members: [undefined] }, { kind: "declared", arguments: [undefined] },
+    { kind: "callable", calls: [undefined], constructs: [] }])
+    same(verifyTypeReferences({ terms: [term], signatures: [] }, roots, [], meter()), missing,
+      "a sparse actual dependency is unresolved, not silently dropped or accepted");
+  const malformedSignature = { ...context.types.signatures[0], composition: { kind: "union", signatures: [undefined] } };
+  same(verifyTypeReferences({ terms: context.types.terms, signatures: [malformedSignature] }, [], [{ signature: 0, site }], meter()), missing,
+    "a sparse composition retains its original signature-root finding");
+  assert.throws(() => verifyTypeReferences(context.types, [undefined], [], meter()), /Sparse MIR type roots/);
+  assert.throws(() => verifyTypeReferences(context.types, [], [undefined], meter()), /Sparse MIR signature roots/);
+  const component = { root: { kind: "body", value: { body: base.body, node: 0 } }, path: [] };
+  const malformed = [
+    { kind: "tuple", elements: [undefined] },
+    { kind: "shape", members: [undefined], indexes: [], calls: [], constructs: [] },
+    { kind: "shape", members: [], indexes: [undefined], calls: [], constructs: [] },
+    { kind: "projection", source: 1, projection: { kind: "component", component: { ...component, path: [
+      { kind: "sum-arm", index: 0, family: { origin: "inferred", component, parameters: [], roles: [undefined] } }] } } },
+  ];
+  for (const term of malformed) assert.throws(() => verifyTypeReferences({ terms: [term, context.types.terms[1]], signatures: [] }, roots, [], meter()),
+    /Sparse MIR/, "an absent structured incoming row remains a caller defect, not an invented relation");
+  const table = { terms: [{ kind: "union", members: [1, 2, 3, 1] },
+    { kind: "open", group: identities.encodeGroupId([base.body]), variable: 0 }, { kind: "optional", value: 0 }], signatures: [] };
+  const high = meter();
+  const expected = [...missing, { rule: "type-closed", site, detail: [{ kind: "number", value: 0 }] }];
+  same(verifyTypeReferences(table, roots, [], high), expected, "one shared cycle propagates both flags in the original order");
+  for (let maximum = 0; maximum <= high.spent; maximum += 1) {
+    const account = { spent: 0, maximum, exhausted: false };
+    same(verifyTypeReferences(table, roots, [], account), maximum < high.spent ? [] : expected,
+      "no propagation/queue/publication work continues past the first refused admission");
+    assert.equal(account.exhausted, maximum < high.spent);
+  }
+  const unbound = { ...context, types: { ...context.types, terms: [...context.types.terms,
+    { kind: "declared", definition: context.source.owner, arguments: [], facet: "instance", extent: null }] } };
+  assert.throws(() => product.verifyMir({ ...base, constants: [{ id: 0, type: context.types.terms.length,
+    value: { kind: "literal", value: { kind: "boolean", value: true } } }] }, unbound),
+    /missing selected literal checked-association evidence.*checked association/, "declared association is a named input frontier, not guessed from type spelling");
+  const unresolved = { ...base, result: identities.tyId(99) };
+  same(verified(unresolved, { ...context, source: { ...context.source, result: unresolved.result, completion: unresolved.result } }),
+    [{ rule: "type-resolves", site, detail: [{ kind: "number", value: 99 }] }], "missing semantic result row retains the actual type-reference law");
+  const sparse = [...context.types.terms];
+  delete sparse[0];
+  same(verified(base, { ...context, types: { ...context.types, terms: sparse } }),
+    [{ rule: "type-resolves", site, detail: [{ kind: "number", value: 0 }] }], "an in-domain sparse semantic row is unresolved, not a successful comparison");
+});
+
+test("MIR a small body's reachable type graph is bounded independently of body record count", async () => {
+  const { verifyTypeReferences } = await import("../../packages/host/dist/ir-mir/verify-types.js");
+  const base = parsedBody();
+  const context = sourceContext(base);
+  for (const depth of [2, 2000]) {
+    const terms = [{ kind: "primitive", primitive: "bool" }];
+    for (let position = 0; position < depth; position += 1) terms.push({ kind: "optional", value: identities.tyId(position) });
+    const type = identities.tyId(depth);
+    const required = 11 + 9 * depth;
+    for (const maximum of [0, 5, 6, required - 1, required]) {
+      const meter = { maximum, spent: 0, exhausted: false };
+      let reads = 0;
+      const borrowed = new Proxy(terms, { get(target, key) {
+        assert.equal(meter.exhausted, false);
+        if (typeof key === "string" && /^\d+$/.test(key)) reads += 1;
+        return Reflect.get(target, key);
+      } });
+      same(verifyTypeReferences({ terms: borrowed, signatures: [] }, [{ type, site: { kind: "body", body: base.body } }], [], meter), [],
+        "a closed chain has no violations, including no partial result on refusal");
+      assert.equal(meter.exhausted, maximum < required);
+      if (maximum === required) assert.equal(reads, depth + 1, "each actual reachable row is read once");
+      if (maximum <= 6) assert.equal(reads, 0, "root admission precedes even the first row read");
+    }
+    const table = { ...context.types, terms: [...context.types.terms, ...terms.map(term => term.kind === "optional"
+      ? { ...term, value: identities.tyId(term.value + context.types.terms.length) } : term)] };
+    const result = identities.tyId(context.types.terms.length + depth);
+    const body = { ...base, locals: [{ id: identities.localId(0), storage: result, role: { kind: "temporary" }, mode: "local", source: null,
+      origin: base.blocks[0].origin }] };
+    const input = { ...context, types: table };
+    same(product.verifyMir(body, { ...input, limits: { maximumWork: 10 } }),
+      { kind: "resource-limit", body: body.body, dimension: "work", maximum: 10 }, "small MIR cannot hide a large unpaid type graph");
+    same(verified(body, input), [], "the same graph is valid with the actual enclosing allowance");
+  }
+});
+
+test("MIR literal-base chains retain payload identity and actual underlying selected integer bounds", () => {
+  const base = parsedBody();
+  const context = sourceContext(base);
+  const selectedNativeFacts = { ...context.selectedNativeFacts,
+    nativeIntegerWidths: [{ carrier: "native-int", bits: 41 }, { carrier: "native-uint", bits: 97 }] };
+  for (const [primitive, integer, fits] of [["int8", -128n, true], ["int8", 128n, false],
+    ["uint64", 2n ** 64n - 1n, true], ["uint64", 2n ** 64n, false],
+    ["native-int", 2n ** 40n - 1n, true], ["native-int", 2n ** 40n, false],
+    ["native-uint", 2n ** 97n - 1n, true], ["native-uint", 2n ** 97n, false]]) {
+    for (const depth of [1, 2, 17]) {
+      const terms = [...context.types.terms, { kind: "primitive", primitive }];
+      for (let link = 0; link < depth; link += 1) terms.push({ kind: "literal", base: identities.tyId(terms.length - 1),
+        value: { kind: "bigint", value: integer } });
+      const type = identities.tyId(terms.length - 1);
+      const input = { ...context, selectedNativeFacts, types: { ...context.types, terms } };
+      const body = { ...base, constants: [{ id: identities.constId(0), type,
+        value: { kind: "literal", value: { kind: "bigint", token: "authored", value: integer } } }] };
+      same(verified(body, input), fits ? [] : [expectedViolation("constant-type", { kind: "constant", constant: 0 })],
+        `${primitive} literal depth ${depth} retains the actual selected range`);
+      terms[terms.length - 1] = { ...terms.at(-1), value: { kind: "bigint", value: integer + 1n } };
+      same(verified(body, input), [expectedViolation("constant-type", { kind: "constant", constant: 0 })], "outer exact payload mismatch is still rejected");
+      if (depth > 1) {
+        terms[terms.length - 1] = { ...terms.at(-1), value: { kind: "bigint", value: integer } };
+        terms[terms.length - 2] = { ...terms.at(-2), value: { kind: "bigint", value: integer + 1n } };
+        same(verified(body, input), [expectedViolation("constant-type", { kind: "constant", constant: 0 })],
+          "an intermediate literal must retain the same actual payload relation");
+      }
+    }
+  }
+});
+
+test("MIR literal-base row reads use the same exact account and stop before any unpaid lookup", async () => {
+  const { verifyValues } = await import("../../packages/host/dist/ir-mir/verify-storage.js");
+  const base = parsedBody();
+  const context = sourceContext(base);
+  for (const depth of [1, 4, 1024]) {
+    const terms = [...context.types.terms];
+    let selected = identities.tyId(1);
+    for (let link = 0; link < depth; link += 1) {
+      terms.push({ kind: "literal", base: selected, value: { kind: "boolean", value: true } });
+      selected = identities.tyId(terms.length - 1);
+    }
+    const body = { ...base, locals: [], places: [], blocks: [], constants: [{ id: identities.constId(0), type: selected,
+      value: { kind: "literal", value: { kind: "boolean", value: true } } }] };
+    const required = 10 + 4 * depth;
+    const caps = depth === 1024 ? [0, 1, required - 1, required] : Array.from({ length: required + 1 }, (_, maximum) => maximum);
+    for (const maximum of caps) {
+      const meter = { spent: 0, maximum, exhausted: false };
+      let reads = 0;
+      const borrowed = new Proxy(terms, { get(target, key) {
+        if (typeof key === "string" && /^\d+$/.test(key)) {
+          assert.equal(meter.exhausted, false, "no type row is read after the account stops");
+          reads += 1;
+        }
+        return Reflect.get(target, key);
+      } });
+      const result = verifyValues(body, { ...context, types: { ...context.types, terms: borrowed } }, new Map(), new Map(), meter);
+      assert.deepEqual(result.violations, []);
+      assert.equal(meter.exhausted, maximum < required);
+      assert.equal(meter.spent <= maximum, true);
+      assert.equal(reads, maximum < 8 ? 0 : Math.min(depth + 1, 1 + Math.floor((maximum - 8) / 4)),
+        "every payload and actual base row follows its original admitted operation");
+    }
+    const input = { ...context, types: { ...context.types, terms } };
+    same(verified({ ...base, constants: body.constants }, input), [], "the complete verifier accepts the same deep actual relation");
+  }
+});
+
+test("MIR literal native fitting retains malformed-domain and missing-selected-association input frontiers", () => {
+  const base = parsedBody();
+  const context = sourceContext(base);
+  const literal = { kind: "literal", base: identities.tyId(4), value: { kind: "boolean", value: true } };
+  const type = identities.tyId(context.types.terms.length);
+  const body = { ...base, constants: [{ id: identities.constId(0), type,
+    value: { kind: "literal", value: { kind: "boolean", value: true } } }] };
+  const terms = [...context.types.terms, literal];
+  const input = { ...context, types: { ...context.types, terms } };
+  same(verified(body, input), [], "actual unknown remains a legitimate broad literal base");
+  terms[4] = { kind: "shape", members: [], indexes: [], calls: [], constructs: [] };
+  same(verified(body, input), [expectedViolation("constant-type", { kind: "constant", constant: 0 })], "a scalar cannot inhabit the actual shape base");
+  literal.base = type;
+  assert.throws(() => product.verifyMir(body, input), /literal-base relation must be acyclic/);
+  literal.base = identities.tyId(terms.length + 1);
+  same(verified(body, input), [expectedViolation("type-resolves", { kind: "constant", constant: 0 }, [{ kind: "number", value: type }])],
+    "malformed literal-base reference is independently rejected by the same reachable graph, never called compatible");
+  literal.base = identities.tyId(4);
+  delete terms[4];
+  same(verified(body, input), [expectedViolation("type-resolves", { kind: "constant", constant: 0 }, [{ kind: "number", value: type }])],
+    "a sparse actual base row cannot become a successful verified body");
 });
 
 test("MIR duplicate constants and canonical storage projections produce only their complete owned vectors", () => {
@@ -1982,29 +2339,31 @@ test("MIR constant-type: a literal is a value its declared native carrier holds 
     ["uint128", { kind: "bigint", token: "b", value: 2n ** 128n - 1n }, true], ["uint128", { kind: "bigint", token: "b", value: 2n ** 128n }, false],
     ["native-int", number(2n ** 63n), true], ["native-int", number(-(2n ** 63n)), true], ["native-int", number(1n, 2n), false],
     ["native-uint", number(2n ** 64n), false], ["native-uint", number(-1n), false], ["native-uint", { kind: "bigint", token: "b", value: 5n }, true],
-    ["char", number(65535n), true], ["char", number(65536n), false], ["char", number(1n, 2n), false], ["char", { kind: "string", value: "a" }, false],
-    // Binary floating carriers: any number that rounds to a finite value; negative zero and fractions are values.
-    ["float64", number(1n, 10n), true], ["float64", number(0n, 1n, true), true], ["float64", number(2n ** 1024n - 2n ** 971n), true],
-    ["float64", number(2n ** 1024n - 2n ** 970n - 1n), true], ["float64", number(2n ** 1024n - 2n ** 970n), false], ["float64", number(-(2n ** 1024n)), false], ["float64", { kind: "bigint", token: "b", value: 1n }, false],
-    ["float32", number(2n ** 128n - 2n ** 104n), true], ["float32", number(2n ** 128n - 2n ** 103n - 1n), true], ["float32", number(2n ** 128n - 2n ** 103n), false],
-    ["float16", number(65504n), true], ["float16", number(65519n), true], ["float16", number(65520n), false], ["float16", number(131039n, 2n), true], ["float16", number(131040n, 2n), false],
-    // decimal: a finite decimal expansion within 2^96 - 1.
-    // decimal: a coefficient below 2^96 at a scale of at most 28.
-    ["decimal", number(1n, 10n), true], ["decimal", number(1n, 3n), false], ["decimal", number(2n ** 96n - 1n), true], ["decimal", number(2n ** 96n), false],
-    ["decimal", number(7n, 10n ** 28n), true], ["decimal", number(1n, 10n ** 29n), false], ["decimal", number(1n, 2n ** 100n), false],
-    ["decimal", number(2n ** 68n, 5n ** 28n), false], ["decimal", number(2n ** 68n - 2n, 5n ** 28n), true],
-    ["decimal", number(2n ** 68n - 1n, 5n ** 28n), false],
     // Canonical form, whatever the type: a zero or negative denominator, a common factor, negative zero of a non-zero.
     ["decimal", number(1n, 0n), false], ["int32", number(1n, 0n), false], ["unknown", number(1n, 0n), false], ["float64", number(1n, -2n), false],
     ["int32", number(2n, 2n), false], ["float64", number(2n, 4n), false], ["float64", number(1n, 1n, true), false],
     // Intrinsics and the optional type.
     ["absence", { kind: "absence" }, true], ["absence", number(0n), false], ["bigint", { kind: "bigint", token: "b", value: 1n }, true], ["bigint", number(1n), false],
     ["optional-int32", { kind: "absence" }, true], ["optional-int32", number(5n), true], ["optional-int32", number(1n, 2n), false],
-    // An optional nested in an optional is not compared; nor are declared types other than these.
-    ["optional-optional", number(5n), true], ["optional-optional", { kind: "string", value: "x" }, true],
-    ["unknown", { kind: "string", value: "anything" }, true], ["array", { kind: "string", value: "anything" }, true],
+    ["optional-optional", number(5n), true], ["optional-optional", { kind: "string", value: "x" }, false],
+    ["unknown", { kind: "string", value: "anything" }, true], ["array", { kind: "string", value: "anything" }, false],
   ];
   assert.equal(ty["optional-int32"], 17);
+  const unproven = [
+    ["char", number(65535n)], ["char", number(65536n)], ["char", number(1n, 2n)], ["char", { kind: "string", value: "a" }],
+    ["float64", number(1n, 10n)], ["float64", number(0n, 1n, true)], ["float64", number(2n ** 1024n - 2n ** 971n)],
+    ["float64", number(2n ** 1024n - 2n ** 970n - 1n)], ["float64", number(2n ** 1024n - 2n ** 970n)], ["float64", number(-(2n ** 1024n))], ["float64", { kind: "bigint", token: "b", value: 1n }],
+    ["float32", number(2n ** 128n - 2n ** 104n)], ["float32", number(2n ** 128n - 2n ** 103n - 1n)], ["float32", number(2n ** 128n - 2n ** 103n)],
+    ["float16", number(65504n)], ["float16", number(65519n)], ["float16", number(65520n)], ["float16", number(131039n, 2n)],
+    ["decimal", number(1n, 10n)], ["decimal", number(1n, 3n)], ["decimal", number(2n ** 96n - 1n)], ["decimal", number(2n ** 96n)],
+    ["decimal", number(7n, 10n ** 28n)], ["decimal", number(1n, 10n ** 29n)], ["decimal", number(1n, 2n ** 100n)],
+    ["decimal", number(2n ** 68n, 5n ** 28n)], ["decimal", number(2n ** 68n - 2n, 5n ** 28n)],
+  ];
+  for (const [type, value] of unproven) assert.throws(() => held(type, value),
+    new RegExp(`missing selected literal ${type === "char" || type === "decimal" ? "representation" : "literal-conversion"} evidence`),
+    "missing actual selected representation is an explicit compiler-input frontier, never a fit certificate or false value");
+  for (const [type, value] of [["float16", number(131040n, 2n)], ["decimal", number(2n ** 68n - 1n, 5n ** 28n)]])
+    assert.equal(held(type, value), false, "an unreduced rational fails integrity before a missing conversion can be consumed");
   // A type the table does not have: its reference is the type rule's finding, and the literal is not compared.
   const unresolved = verified({ ...base, constants: [{ id: identities.constId(0), type: identities.tyId(99), value: { kind: "literal", value: { kind: "absence" } } }] }, input);
   assert.equal(unresolved.some(violation => violation.rule === "constant-type"), false);
@@ -2057,10 +2416,8 @@ test("MIR work admission preserves exact safe counts and first refusal without p
 test("MIR literal validation shares one invocation work account with the remaining verifier", () => {
   const base = parsedBody();
   const context = sourceContext(base);
-  const float = identities.tyId(context.types.terms.length);
-  const decimal = identities.tyId(context.types.terms.length + 1);
-  const input = { ...context, types: { ...context.types, terms: [...context.types.terms,
-    { kind: "primitive", primitive: "float64" }, { kind: "primitive", primitive: "decimal" }] } };
+  const broad = identities.tyId(4);
+  const input = context;
   const constant = (position, type, numerator, denominator) => ({ id: identities.constId(position), type,
     value: { kind: "literal", value: { kind: "number", token: "n", value: { numerator, denominator, negativeZero: false } } } });
   const boundary = (constants, required, violations = []) => {
@@ -2073,14 +2430,14 @@ test("MIR literal validation shares one invocation work account with the remaini
     same(product.verifyMir(body, { ...input, limits: { maximumWork: required } }),
       { kind: "complete", violations }, `literal validation completes at its exact shared cost ${required}`);
   };
-  boundary([constant(0, float, 7n, 1n)], 2);
-  boundary([constant(0, float, 1n, 2n)], 4);
-  boundary([constant(0, float, -1n, 2n)], 4);
-  boundary([constant(0, float, 1n, 2n), constant(1, float, 1n, 3n)], 7);
-  boundary([constant(0, decimal, 1n, 10n)], 7);
-  boundary([constant(0, decimal, 1n, 0n)], 1,
+  boundary([constant(0, broad, 7n, 1n)], 38);
+  boundary([constant(0, broad, 1n, 2n)], 40);
+  boundary([constant(0, broad, -1n, 2n)], 40);
+  boundary([constant(0, broad, 1n, 2n), constant(1, broad, 1n, 3n)], 56);
+  boundary([constant(0, broad, 1n, 10n)], 40);
+  boundary([constant(0, broad, 1n, 0n)], 32,
     [expectedViolation("constant-type", { kind: "constant", constant: 0 })]);
-  boundary([constant(0, float, 2n, 4n)], 3,
+  boundary([constant(0, broad, 2n, 4n)], 34,
     [expectedViolation("constant-type", { kind: "constant", constant: 0 })]);
 });
 
@@ -2129,13 +2486,13 @@ test("MIR native integer constant fitting uses actual selected widths and one in
     for (const [value, fits] of [[minimum, true], [maximum, true], [minimum - 1n, false], [maximum + 1n, false]]) {
       const body = { ...base, constants: [constant(value)] };
       const violations = fits ? [] : [expectedViolation("constant-type", { kind: "constant", constant: 0 })];
-      const required = 3 * bits + 4;
+      const required = 6 * bits + 41;
       for (let maximumWork = 0; maximumWork < required; maximumWork += 1)
         same(product.verifyMir(body, { ...input, limits: { maximumWork } }),
           { kind: "resource-limit", body: body.body, dimension: "work", maximum: maximumWork },
           `${primitive}/${bits} refuses before any partial integer-fit result at ${maximumWork}`);
       same(product.verifyMir(body, { ...input, limits: { maximumWork: required } }), { kind: "complete", violations },
-        `${primitive}/${bits} uses dispatch, row, three width operations, output and the existing body unit`);
+        `${primitive}/${bits} pays arithmetic and storage for all three geometry operations, literal/decision roots and the whole type graph`);
     }
   }
   const input = { ...context, types: { ...context.types, terms: [...context.types.terms,
@@ -2143,7 +2500,7 @@ test("MIR native integer constant fitting uses actual selected widths and one in
   const body = { ...base, constants: [constant(0n)] };
   assert.throws(() => product.verifyMir(body, { ...input,
     selectedNativeFacts: { ...input.selectedNativeFacts, nativeIntegerWidths: [] } }),
-    { name: "TypeError", message: "MIR integer constants require their actual selected native width" });
+    new RegExp(`missing selected literal representation evidence for type ${selected} \\(native-int\\)`));
   let laterReads = 0;
   const widths = [{ carrier: "native-int", bits: Number.MAX_SAFE_INTEGER }];
   Object.defineProperty(widths, 1, { get() { laterReads += 1; throw new Error("read after the actual selected row"); } });
@@ -3362,9 +3719,9 @@ after(async () => {
     writeFileSync(resolve(evidenceDirectory, "coverage.json"), `${JSON.stringify(report, null, 2)}\n`);
     writeFileSync(resolve(evidenceDirectory, "source-inputs.json"), `${JSON.stringify(sourceFiles.map(path => ({ path,
       hash: createHash("sha256").update(readFileSync(resolve(repository, path))).digest("hex") })), null, 2)}\n`);
-    assert.equal(result.length, 10, "all ten genuine runtime owners need nonempty source-identified raw evidence");
+    assert.equal(result.length, 11, "all eleven genuine runtime owners need nonempty source-identified raw evidence");
     assert.equal(report.status, "passed", JSON.stringify(report.findings).slice(0, 6000));
-    assert.equal(report.files.filter(file => file.status === "covered").length, 10);
+    assert.equal(report.files.filter(file => file.status === "covered").length, 11);
     assert.equal(report.files.filter(file => file.status === "not-applicable").length, 1, "only the actual type-only contract is N/A");
     for (const file of report.files.filter(file => file.status === "covered")) {
       assert.equal(file.lines, 100, basename(file.path));

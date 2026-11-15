@@ -9,14 +9,11 @@ import type { DataVisitor } from "./print.js";
 import type { TextRoot } from "./text-decisions.js";
 import { candidateKey, compareNumber, compareText, constraintKey, emit, makeInventory, nodeKey, ordinal, signatureReferences, termReferences, verifyContributions } from "./verify-contributions.js";
 import type { Inventory } from "./verify-contributions.js";
+import { inferredPartKey } from "./inferred-parts.js";
 import { verifySolution, visitBindings } from "./verify-solution.js";
 
 const parts: readonly string[] = ["return", "yield", "variable", "field", "parameter-initializer"];
 const kinds: readonly string[] = ["signature", "local", "binder", "literal"];
-
-export function signaturePartKey(value: InferredSignaturePart): string {
-  return encodeKey([value.definition, value.part.kind, value.part.kind === "parameter-initializer" ? value.part.index : null]);
-}
 
 function comparePart(left: InferredSignaturePart, right: InferredSignaturePart): number {
   return compareText(left.definition, right.definition) || compareNumber(parts.indexOf(left.part.kind), parts.indexOf(right.part.kind)) ||
@@ -40,7 +37,7 @@ export function verifyGroup(input: InferVerificationInput, output: Violation<Inf
   const signatures = new Set<string>();
   let previousPart: InferredSignaturePart | null = null;
   for (const signature of input.group.signatures) {
-    const key = signaturePartKey(signature);
+    const key = inferredPartKey(signature);
     if (previousPart !== null && comparePart(previousPart, signature) >= 0 || signatures.has(key) ||
       signature.part.kind === "parameter-initializer" && !ordinal(signature.part.index))
       emit(output, "inferred-part-identity", groupSite, "signatures");
@@ -69,7 +66,7 @@ export function verifyGroup(input: InferVerificationInput, output: Violation<Inf
         emit(output, "variable-order", site, "variables");
       previousNode = variable.occurrence.node; previousKind = kind; previousVariable = variable.id;
       if (variable.occurrence.body !== set.body) emit(output, "group-ownership", site, "occurrence");
-      if (variable.kind === "signature" && !signatures.has(signaturePartKey(variable.signature)))
+      if (variable.kind === "signature" && !signatures.has(inferredPartKey(variable.signature)))
         emit(output, "inferred-part-identity", site, "signature");
     }
     const candidateIds = new Set<number>();
@@ -310,7 +307,7 @@ export const verifyInput: VerifyInference = input => {
     for (const [index, candidate] of set.candidates.entries())
       verifyDocument(visitData, input, flags, { kind: "HirCandidateList", value: candidate }, bodySite, false, output, `${path}.candidates[${index}]`);
     for (const [index, evidence] of set.evidence.entries())
-      verifyDocument(visitData, input, flags, { kind: "TypeEvidence", value: evidence }, bodySite, false, output, `${path}.evidence[${index}]`);
+      verifyDocument(visitData, input, flags, { kind: "TypeEvidence", value: evidence.value }, bodySite, false, output, `${path}.evidence[${index}].value`);
     for (const [index, constraint] of set.constraints.entries()) verifyDocument(visitData, input, flags, { kind: "Constraint", value: constraint },
       { kind: "constraint", constraint: { body: set.body, index } }, false, output, `${path}.constraints[${index}]`);
   }

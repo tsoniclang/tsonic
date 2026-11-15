@@ -1,6 +1,6 @@
 import type { TypedName, TypedPropertyKey, TypedDecorator, TypedIteration, TypedControlTransfer, TypedVariableList, TypedClassValue, TypedOmission, TypedKeyword, TypedString, TypedNumber, TypedBigInt, TypedBinary, TypedPrefix, TypedUpdate, TypedProtocolValue, TypedClosure, TypedConditional, TypedMember, TypedApplication, TypedSpread, TypedTemplate, TypedConstruction, TypedObjectSpread, TypedProperty, TypedShorthand, TypedUnary, TypedInstantiation } from "../ir-tir/contract.js";
 import type { TextWork } from "./text-values.js";
-import { token, text, numeric, numericIdentity, identity, field, record, sequence, deferred, boolean, integer, textNodeRef } from "./text-values.js";
+import { token, text, numeric, numericIdentity, identity, field, record, sequence, deferred, boolean, integer, textNodeRef, textSourceNodeRef } from "./text-values.js";
 import { textConversionDecision, textTirDemand, textTirResolution, textTargetAccess, textTirApplication, textTirProtocol, textTypedOperation, textTirSelection, textMemberSelection } from "./text-tir.js";
 import { textRefinementDecision, textRuleOutcome, textConstructionPartDecision, textApplicationDecision, textClosureDecision } from "./text-inference.js";
 import { textMemberKey, textExactRational, textBindingVector } from "./text-types.js";
@@ -45,6 +45,8 @@ export function textTypedName(value: TypedName): TextWork {
       field("declaration", textDeclarationTarget(value.declaration)),
       field("storage", (value.storage === null ? token("null") : numericIdentity("t", value.storage))),
     ]);
+      case "binding-name":
+        return record("TypedName", [field("role", text(value.role)), field("binding", textSourceNodeRef(value.binding))]);
       case "property-name":
         return record("TypedName", [
       field("role", text(value.role)),
@@ -230,7 +232,7 @@ export function textTypedString(value: TypedString): TextWork {
       case "export-name":
         return record("TypedString", [
       field("role", text(value.role)),
-      field("definition", identity("def", value.definition)),
+      field("binding", textSourceNodeRef(value.binding)),
     ]);
       case "attribute-value":
         return record("TypedString", [

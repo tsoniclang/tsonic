@@ -223,7 +223,7 @@ export function createSyntaxGroup5(readers: () => HirTextReaders): ReadonlyMap<s
       const field_flags = read("flags", sequenceReader(readers().literal_35));
       const field_loc = read("loc", readers().record_81);
       const field_name = read("name", readers().syntax_30);
-      const field_tsonic = read("tsonic", readers().record_246);
+      const field_tsonic = read("tsonic", readers().namespaceExport);
       return { fields: [field_id, field_origin, field_parent, field_flags, field_loc, field_name, field_tsonic], value: () => ({ kind: "NamespaceExport", id: field_id.value(), origin: field_origin.value(), parent: field_parent.value(), flags: field_flags.value(), loc: field_loc.value(), name: field_name.value(), tsonic: field_tsonic.value() }) };
     }, value => ({ kind: "NamespaceExport", value }), accept)],
     ["NamespaceExportDeclaration", accept => syntaxRecord<Hir.NamespaceExportDeclaration<Hir.CheckedPhase>>(read => {
@@ -234,7 +234,7 @@ export function createSyntaxGroup5(readers: () => HirTextReaders): ReadonlyMap<s
       const field_loc = read("loc", readers().record_81);
       const field_modifiers = read("modifiers", unionReader<Hir.ModifierList<Hir.CheckedPhase> | null>(() => [readers().scalar_null, readers().record_179]));
       const field_name = read("name", readers().syntax_16);
-      const field_tsonic = read("tsonic", readers().record_246);
+      const field_tsonic = read("tsonic", readers().exportBinding);
       return { fields: [field_id, field_origin, field_parent, field_flags, field_loc, field_modifiers, field_name, field_tsonic], value: () => ({ kind: "NamespaceExportDeclaration", id: field_id.value(), origin: field_origin.value(), parent: field_parent.value(), flags: field_flags.value(), loc: field_loc.value(), modifiers: field_modifiers.value(), name: field_name.value(), tsonic: field_tsonic.value() }) };
     }, value => ({ kind: "NamespaceExportDeclaration", value }), accept)],
     ["NamespaceImport", accept => syntaxRecord<Hir.NamespaceImport<Hir.CheckedPhase>>(read => {

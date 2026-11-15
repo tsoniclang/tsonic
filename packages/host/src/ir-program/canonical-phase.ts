@@ -36,6 +36,7 @@ export function rewriteName(rewrite: TypeRewrite, name: TypedName, at: string): 
     case "type-name": return { role: "type-name", type: rewrite.type(name.type), declarations: name.declarations };
     case "property-name":
     case "label":
+    case "binding-name":
     case "private-name": return name;
   }
 }

@@ -1,11 +1,12 @@
 import type { Violation } from "../diag/contract.js";
 import type { LocalId, NodeId, PlaceId, SigId, TyId } from "../ids/contract.js";
 import { localId, placeId } from "../ids/index.js";
-import type { ExactRational, LiteralTypeValue, LiteralValue, NativePrimitive, SelectedNativeFacts, TypeTerm } from "../ir-types/contract.js";
-import { nativeIntegerGeometryOf } from "../ir-types/index.js";
+import type { ExactRational, LiteralValue, TypeTerm } from "../ir-types/contract.js";
+import { literalCompatibilityOf } from "../ir-types/index.js";
 import type { MirBlock, MirBody, MirLocal, MirOperand, MirRule, MirRvalue, MirTerminator, MirVerificationContext, MirViolationSite } from "./contract.js";
 import { chargeWork, controlEdges, densePosition, findSourceNode, read, reversePostorder } from "./verify-control.js";
 import type { ControlEdge, SourceNode, WorkMeter } from "./verify-control.js";
+import type { SignatureReference, TypeReference } from "./verify-types.js";
 import { ownershipOfMode } from "./local-ownership.js";
 
 export function rvalueOperands(value: MirRvalue): readonly MirOperand[] {
@@ -517,45 +518,10 @@ export function verifyStorage(
   return violations;
 }
 
-export interface StorageReference {
-  readonly type: TyId;
-  readonly site: MirViolationSite;
-}
-
-export interface SignatureReference {
-  readonly signature: SigId;
-  readonly site: MirViolationSite;
-}
-
 export interface ValueVerification {
   readonly violations: readonly Violation<MirRule, MirViolationSite>[];
-  readonly types: readonly StorageReference[];
-  readonly signatures: readonly SignatureReference[];
-}
-
-// What a literal constant holds against a native primitive carrier (`constant-type`). The ranges and thresholds are
-// properties of the carriers; Rules' literal fit needs the same facts, and one owner for both is asked of the
-// carrier vocabulary's owner (NEEDS-W2, NEEDS-W5, W4's entries of 2026-11-14). Exact arithmetic only (bigint).
-//   bool        a boolean.
-//   int8 … uint128   an integral number or bigint in the carrier's range; no negative zero.
-//   char        a number naming one UTF-16 code unit. Which literal a char constant carries is not stated by any
-//               record yet (open); this is what every target admits.
-//   float16, float32, float64   a number that rounds to a finite value under round-to-nearest-even: its magnitude
-//               is below 2^(emax+1) - 2^(emax-p-1), the largest finite value plus half its unit in the last place.
-//   decimal     the target's literal conversion: a coefficient below 2^96 at a scale of at most 28, so the value's
-//               denominator divides 10^28 and |value| * 10^scale < 2^96 at the least such scale.
-// Before any of this, a number literal's rational is in canonical form: a positive denominator, coprime to the
-// numerator, negative zero only for zero (as the HIR verifier requires of checked literals). The constants loop checks
-// it once, whatever the declared type; no loop above runs on a denominator that is not positive.
-const DECIMAL_MAXIMUM_SCALE = 28n;
-
-function floatingOverflow(primitive: NativePrimitive): bigint | null {
-  switch (primitive) {
-    case "float16": return 2n ** 16n - 2n ** 4n;
-    case "float32": return 2n ** 128n - 2n ** 103n;
-    case "float64": return 2n ** 1024n - 2n ** 970n;
-    default: return null;
-  }
+  readonly types: TypeReference[];
+  readonly signatures: SignatureReference[];
 }
 
 /** Whether a rational is in canonical form: a positive denominator coprime to the numerator; negative zero only for zero. */
@@ -574,81 +540,26 @@ function canonicalRational(value: ExactRational, meter: WorkMeter): boolean {
   return left === 1n;
 }
 
-/** The integer a literal states, or null: a bigint, or a number whose canonical rational is integral and not negative zero. */
-function integerOf(value: LiteralValue): bigint | null {
-  return value.kind === "bigint" ? value.value
-    : value.kind === "number" && value.value.denominator === 1n && !value.value.negativeZero ? value.value.numerator : null;
-}
-
-/** The scale at which a positive denominator divides 10^scale, or null when it has another prime factor. */
-function decimalScale(denominator: bigint, meter: WorkMeter): bigint | null {
-  let twos = 0n;
-  let fives = 0n;
-  let rest = denominator;
-  while (rest !== 1n) {
-    chargeWork(meter, 1);
-    if (meter.exhausted) return null;
-    if (rest % 2n !== 0n) break;
-    rest /= 2n;
-    twos += 1n;
-  }
-  while (rest !== 1n) {
-    chargeWork(meter, 1);
-    if (meter.exhausted) return null;
-    if (rest % 5n !== 0n) break;
-    rest /= 5n;
-    fives += 1n;
-  }
-  return rest === 1n ? (twos > fives ? twos : fives) : null;
-}
-
-/** Whether a literal is a value the primitive carrier holds as stated (the table above). */
-function primitiveHolds(value: LiteralValue, primitive: NativePrimitive, facts: SelectedNativeFacts, meter: WorkMeter): boolean {
-  if (primitive === "bool") return value.kind === "boolean";
-  const geometry = nativeIntegerGeometryOf(primitive, facts, work => {
-    chargeWork(meter, work);
-    return !meter.exhausted;
-  });
-  if (geometry.kind === "resource-stop") return false;
-  if (geometry.kind === "missing-native-width") throw new TypeError("MIR integer constants require their actual selected native width");
-  if (geometry.kind === "integer") {
-    const integer = integerOf(value);
-    return integer !== null && integer >= geometry.minimum && integer <= geometry.maximum;
-  }
-  if (primitive === "char") {
-    if (value.kind !== "number") return false;
-    const integer = integerOf(value);
-    if (integer === null) return false;
-    return integer >= 0n && integer < 2n ** 16n;
-  }
-  if (value.kind !== "number") return false;
-  const magnitude = value.value.numerator < 0n ? -value.value.numerator : value.value.numerator;
-  const overflow = floatingOverflow(primitive);
-  if (overflow !== null) return magnitude < overflow * value.value.denominator;
-  // decimal
-  const scale = decimalScale(value.value.denominator, meter);
-  return scale !== null && scale <= DECIMAL_MAXIMUM_SCALE && magnitude * 10n ** scale / value.value.denominator < 2n ** 96n;
-}
-
-function literalMatches(value: LiteralValue, selected: LiteralTypeValue): boolean {
-  switch (value.kind) {
-    case "absence": return selected.kind === "absence";
-    case "number": return selected.kind === "number" && value.value.numerator === selected.value.numerator
-      && value.value.denominator === selected.value.denominator && value.value.negativeZero === selected.value.negativeZero;
-    case "bigint": return selected.kind === "bigint" && value.value === selected.value;
-    case "string": return selected.kind === "string" && value.value === selected.value;
-    case "boolean": return selected.kind === "boolean" && value.value === selected.value;
-    case "unique-symbol": return selected.kind === "unique-symbol" && value.declaration === selected.declaration;
-  }
-}
-
 export function verifyValues(
   body: MirBody, context: MirVerificationContext, nodes: ReadonlyMap<NodeId, SourceNode>,
   places: ReadonlyMap<PlaceId, PlaceLocation>, meter: WorkMeter,
 ): ValueVerification {
   const violations: Violation<MirRule, MirViolationSite>[] = [];
-  const types: StorageReference[] = [];
+  const types: TypeReference[] = [];
   const signatures: SignatureReference[] = [];
+  if (meter.exhausted) return { violations, types, signatures };
+  const reference = (type: TyId, site: MirViolationSite): boolean => {
+    chargeWork(meter, 1);
+    if (meter.exhausted) return false;
+    types.push({ type, site });
+    return true;
+  };
+  const signatureReference = (signature: SigId, site: MirViolationSite): boolean => {
+    chargeWork(meter, 1);
+    if (meter.exhausted) return false;
+    signatures.push({ signature, site });
+    return true;
+  };
   const report = (rule: MirRule, site: MirViolationSite): void => { violations.push({ rule, site, detail: [] }); };
   const term = (type: TyId): TypeTerm | null => densePosition(type, context.types.terms.length) ? context.types.terms[type] ?? null : null;
   const placeType = (place: PlaceId, site: MirViolationSite): TyId | null => {
@@ -670,19 +581,24 @@ export function verifyValues(
     const payload = node.node.tsonic;
     return payload !== null && "convertedType" in payload ? payload.type : null;
   };
-  const operationResult = (value: MirRvalue & { readonly kind: "unary" | "binary" | "convert" }, site: MirViolationSite): TyId => {
+  const operationResult = (value: MirRvalue & { readonly kind: "unary" | "binary" | "convert" }, site: MirViolationSite): TyId | null => {
     const decision = value.operation.decision;
     const operands = rvalueOperands(value);
-    for (const type of decision.operands) types.push({ type, site });
+    for (let position = 0; position < decision.operands.length; position += 1) {
+      chargeWork(meter, 1);
+      if (meter.exhausted) return null;
+      const type = decision.operands[position];
+      if (type !== undefined && !reference(type, site)) return null;
+    }
     if (decision.operands.length !== operands.length) report("operation-selected", site);
     for (const [position, operand] of operands.entries()) {
       const actual = operandType(operand, site);
       const expected = decision.operands[position];
       if (expected !== undefined) match(actual, expected, "operation-selected", site);
     }
-    types.push({ type: decision.result, site });
+    if (!reference(decision.result, site)) return null;
     if (value.kind === "convert") {
-      types.push({ type: value.to, site });
+      if (!reference(value.to, site)) return null;
       match(decision.result, value.to, "operation-selected", site);
     }
     return decision.result;
@@ -739,12 +655,12 @@ export function verifyValues(
             }
             break;
         }
-        types.push({ type: value.type, site });
+        if (!reference(value.type, site)) return null;
         return value.type;
       }
       case "address-of": {
         placeType(value.place, site);
-        types.push({ type: value.type, site });
+        if (!reference(value.type, site)) return null;
         const expected = selectedType(node);
         if (expected !== null) match(value.type, expected, "operation-selected", site);
         return value.type;
@@ -761,44 +677,60 @@ export function verifyValues(
         return selectedType(node);
     }
   };
-  for (const local of body.locals) {
+  for (let position = 0; position < body.locals.length; position += 1) {
+    chargeWork(meter, 1);
+    if (meter.exhausted) return { violations, types, signatures };
+    const local = body.locals[position];
     if (local === undefined) continue;
     const site: MirViolationSite = { kind: "local", body: body.body, local: local.id };
-    types.push({ type: local.storage, site });
+    if (!reference(local.storage, site)) return { violations, types, signatures };
     if (local.role.kind === "completion") {
       const selected = term(local.storage);
       if (selected !== null && !(selected.kind === "primitive" && selected.primitive === "int32")) report("completion-selector-total", site);
     }
   }
   // A literal constant is a value of its declared type: `literalHolds` below states what each declared type holds.
-  // An optional type is looked through once: an optional nested in it is not compared.
-  const literalHeld = (value: LiteralValue, type: TyId, nested: boolean): boolean => {
-    const selected = term(type);
-    if (selected === null) return true;
-    switch (selected.kind) {
-      case "literal": return literalMatches(value, selected.value);
-      case "string": return value.kind === "string";
-      case "optional": return nested || value.kind === "absence" || literalHeld(value, selected.value, true);
-      case "intrinsic": return selected.intrinsic === "bigint" ? value.kind === "bigint" : selected.intrinsic === "absence" ? value.kind === "absence" : true;
-      case "primitive": return primitiveHolds(value, selected.primitive, context.selectedNativeFacts, meter);
-      default: return true;
+  const literalHeld = (value: LiteralValue, type: TyId): boolean => {
+    const result = literalCompatibilityOf(context.types, type, value, context.selectedNativeFacts, {
+      typeOf: selected => {
+        chargeWork(meter, 1);
+        return meter.exhausted ? null : context.types.terms[selected];
+      },
+      admit: (work, entries) => {
+        chargeWork(meter, work);
+        if (meter.exhausted) return false;
+        chargeWork(meter, entries);
+        return !meter.exhausted;
+      },
+    });
+    switch (result.kind) {
+      case "compatible": case "malformed-type": return true;
+      case "incompatible": case "resource-stop": return false;
+      case "needs-selected-evidence":
+        throw new TypeError(`ir-mir: missing selected literal ${result.requirement} evidence for type ${result.type} (${result.primitive ?? "checked association"})`);
     }
   };
-  for (const constant of body.constants) {
+  for (let position = 0; position < body.constants.length; position += 1) {
+    chargeWork(meter, 1);
+    if (meter.exhausted) return { violations, types, signatures };
+    const constant = body.constants[position];
     if (constant === undefined) continue;
     const site: MirViolationSite = { kind: "constant", body: body.body, constant: constant.id };
-    types.push({ type: constant.type, site });
+    if (!reference(constant.type, site)) return { violations, types, signatures };
     // A number literal's rational is checked for canonical form first, once, whatever the declared type.
     const literal = constant.value.kind === "literal" ? constant.value.value : null;
     const invalid = literal !== null && (literal.kind === "number" && !canonicalRational(literal.value, meter)
-      || !literalHeld(literal, constant.type, false));
+      || !literalHeld(literal, constant.type));
     if (meter.exhausted) return { violations, types, signatures };
     if (invalid) report("constant-type", site);
   }
-  for (const [position, place] of body.places.entries()) {
+  for (let position = 0; position < body.places.length; position += 1) {
+    chargeWork(meter, 1);
+    if (meter.exhausted) return { violations, types, signatures };
+    const place = body.places[position];
     if (place === undefined) continue;
     const site: MirViolationSite = { kind: "place", body: body.body, place: place.id };
-    types.push({ type: place.storage, site });
+    if (!reference(place.storage, site)) return { violations, types, signatures };
     if (place.base.kind !== "place" && place.base.kind !== "checked" || !densePosition(place.base.place, position)) continue;
     const parent = body.places[place.base.place];
     if (parent === undefined || !Object.is(parent.id, place.base.place)) continue;
@@ -846,13 +778,21 @@ export function verifyValues(
     }
     if (projected !== null) match(place.storage, projected, "projection-type", site);
   }
-  for (const block of body.blocks) {
+  for (let blockPosition = 0; blockPosition < body.blocks.length; blockPosition += 1) {
+    chargeWork(meter, 1);
+    if (meter.exhausted) return { violations, types, signatures };
+    const block = body.blocks[blockPosition];
     if (block === undefined) continue;
-    for (const [position, statement] of block.statements.entries()) {
+    for (let position = 0; position < block.statements.length; position += 1) {
+      chargeWork(meter, 1);
+      if (meter.exhausted) return { violations, types, signatures };
+      const statement = block.statements[position];
+      if (statement === undefined) continue;
       const site: MirViolationSite = { kind: "instruction", body: body.body, block: block.id, statement: position };
       if (statement.kind === "assign") {
         const source = statement.tir.body === context.source.body ? findSourceNode(nodes, statement.tir.node) : undefined;
         const actual = rvalueType(statement.value, source, site);
+        if (meter.exhausted) return { violations, types, signatures };
         const expected = placeType(statement.place, site);
         if (expected !== null) match(actual, expected, "assignment-type", site);
       } else {
@@ -860,6 +800,8 @@ export function verifyValues(
         if (local === undefined || !Object.is(local.id, statement.local)) report("operand-resolves", site);
       }
     }
+    chargeWork(meter, 1);
+    if (meter.exhausted) return { violations, types, signatures };
     const site: MirViolationSite = { kind: "instruction", body: body.body, block: block.id, statement: null };
     const terminator = block.terminator;
     const sourceNode = terminator.tir.body === context.source.body ? findSourceNode(nodes, terminator.tir.node) : undefined;
@@ -893,9 +835,8 @@ export function verifyValues(
           break;
         }
         const decision = terminator.callee.resolution.decision;
-        signatures.push({ signature: decision.api.signature, site });
-        signatures.push({ signature: decision.advertised.signature, site });
-        signatures.push({ signature: decision.completion.signature, site });
+        if (!signatureReference(decision.api.signature, site) || !signatureReference(decision.advertised.signature, site)
+          || !signatureReference(decision.completion.signature, site)) return { violations, types, signatures };
         const signature = densePosition(decision.api.signature, context.types.signatures.length) ? context.types.signatures[decision.api.signature] : undefined;
         if (terminator.callee.kind === "indirect") {
           const actual = operandType(terminator.callee.operand, site);
@@ -941,19 +882,24 @@ export function verifyValues(
             else if (argument.kind === "place") placeType(argument.place, site);
           }
         }
-        types.push({ type: decision.result, site });
+        if (!reference(decision.result, site)) return { violations, types, signatures };
         if (terminator.destination !== null) match(placeType(terminator.destination, site), decision.result, "call-destination-type", site);
         break;
       }
       case "invoke":
-        for (const type of terminator.operation.decision.operands) types.push({ type, site });
+        for (let position = 0; position < terminator.operation.decision.operands.length; position += 1) {
+          chargeWork(meter, 1);
+          if (meter.exhausted) return { violations, types, signatures };
+          const type = terminator.operation.decision.operands[position];
+          if (type !== undefined && !reference(type, site)) return { violations, types, signatures };
+        }
         if (terminator.operands.length !== terminator.operation.decision.operands.length) report("operation-selected", site);
         for (const [position, operand] of terminator.operands.entries()) {
           const actual = operandType(operand, site);
           const expected = terminator.operation.decision.operands[position];
           if (expected !== undefined) match(actual, expected, "operation-selected", site);
         }
-        types.push({ type: terminator.operation.decision.result, site });
+        if (!reference(terminator.operation.decision.result, site)) return { violations, types, signatures };
         if (terminator.destination !== null) match(placeType(terminator.destination, site), terminator.operation.decision.result, "call-destination-type", site);
         break;
       case "await": case "yield": case "delegate": {
@@ -976,8 +922,10 @@ export function verifyValues(
       }
     }
   }
+  chargeWork(meter, 1);
+  if (meter.exhausted) return { violations, types, signatures };
   const bodySite: MirViolationSite = { kind: "body", body: body.body };
   match(body.result, context.source.completion, "assignment-type", bodySite);
-  types.push({ type: body.result, site: bodySite });
+  reference(body.result, bodySite);
   return { violations, types, signatures };
 }

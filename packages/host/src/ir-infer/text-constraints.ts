@@ -4,7 +4,7 @@ import type { CapturesSchemas } from "./text-captures.js";
 import type { ContributionsSchemas } from "./text-contributions.js";
 import { arraySchema, enumSchema, nullableSchema, recordSchema, unionSchema } from "./text-data.js";
 import type { DataSchemas } from "./text-data.js";
-import type { EvidenceSchemas } from "./text-evidence.js";
+import type { ErrorSchemas } from "./text-errors.js";
 import type { BodyId, LocalRef, NodeRef, TyId } from "../ids/contract.js";
 import type { BindingVector, LiteralValue, MemberKey, MemberOrigin, PassingMode, TypeParameterIdentity } from "../ir-types/contract.js";
 import type { RecordSchema } from "./text-data.js";
@@ -283,18 +283,17 @@ export interface ConstraintsSchemas {
   readonly operatorSchema: Schema<"!" | "!=" | "!==" | "%" | "&" | "*" | "**" | "+" | "-" | "/" | "<" | "<<" | "<=" | "==" | "===" | ">" | ">=" | ">>" | ">>>" | "^" | "delete" | "in" | "instanceof" | "typeof" | "void" | "|" | "~">;
 }
 
-export function createConstraintsSchemas(captureValues: CaptureValuesSchemas, captures: CapturesSchemas, contributions: ContributionsSchemas, data: DataSchemas, evidence: EvidenceSchemas): ConstraintsSchemas {
+export function createConstraintsSchemas(captureValues: CaptureValuesSchemas, captures: CapturesSchemas, contributions: ContributionsSchemas, data: DataSchemas, errors: ErrorSchemas): ConstraintsSchemas {
   const { hirCandidateListSchema } = captureValues;
   const { hirCoreCaptureSchema } = captures;
   const { constraintRefSchema } = contributions;
   const { bindingVectorSchema, bodySchema, booleanSchema, candSchema, defSchema, groupSchema, literalValueSchema, localRefSchema, memberKeySchema, memberOriginSchema, nodeRefSchema, numberSchema, passingModeSchema, tSchema, typeParameterIdentitySchema } = data;
-  const { typeEvidenceSchema } = evidence;
   const constraintSetSchema = recordSchema<ConstraintSet>("ConstraintSet", "ConstraintSet", read => {
     const group = read("group", () => groupSchema, value => value.group);
     const body = read("body", () => bodySchema, value => value.body);
     const variables = read("variables", () => arraySchema(inferenceVariableSchema), value => value.variables);
     const candidates = read("candidates", () => arraySchema(hirCandidateListSchema), value => value.candidates);
-    const evidence = read("evidence", () => arraySchema(typeEvidenceSchema), value => value.evidence);
+    const evidence = read("evidence", () => arraySchema(errors.inferenceValueSchema), value => value.evidence);
     const constraints = read("constraints", () => arraySchema(constraintSchema), value => value.constraints);
     return { fields: [group, body, variables, candidates, evidence, constraints], value: () => ({ group: group.value(), body: body.value(), variables: variables.value(), candidates: candidates.value(), evidence: evidence.value(), constraints: constraints.value() }) };
   });

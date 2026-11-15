@@ -2,6 +2,8 @@ import type { HirNode, IndexSyntaxTree, Phase, SyntaxNode, WalkSyntaxTree } from
 import type { BodyId, CandidateListId, DefId, Derivation, ItemNodeRef, LocalId, LocalRef, NodeId, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { HirResolution } from "./contract.js";
 import type { MemberKey } from "../ir-types/contract.js";
+import type { CheckerDiagnosticRef } from "../diag/contract.js";
+import type { HirBindingTarget } from "./contract.js";
 import { syntaxChildEdges } from "./children.js";
 
 type PendingNode<PhaseType extends Phase> = (
@@ -62,6 +64,8 @@ export type HirDataReference =
   | { readonly kind: "SourceNodeRef"; readonly value: SourceNodeRef }
   | { readonly kind: "LocalRef"; readonly value: LocalRef }
   | { readonly kind: "HirResolution"; readonly value: HirResolution }
+  | { readonly kind: "HirBindingTarget"; readonly value: HirBindingTarget }
+  | { readonly kind: "CheckerDiagnosticRef"; readonly value: CheckerDiagnosticRef }
   | { readonly kind: "MemberKey"; readonly value: MemberKey };
 
 export type HirScalar = string | number | bigint | boolean | null;
@@ -94,7 +98,7 @@ export interface HirRecordWork extends HirDataWork {
   readonly read: () => HirRecordView;
 }
 
-const plainReference: HirDataReference = ({ kind: "plain" });
+const plainReference: { readonly kind: "plain" } = ({ kind: "plain" });
 
 export function hirScalarData(value: HirScalar): HirDataWork {
   return { reference: plainReference, read: () => ({ kind: "scalar", value }) };

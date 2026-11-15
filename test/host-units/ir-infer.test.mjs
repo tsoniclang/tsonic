@@ -19,7 +19,7 @@ const owner = "packages/host/src/ir-infer";
 const emitted = resolve(repository, "packages/host/dist/ir-infer");
 const runtimeNames = ["index", "print", "parse", "text-data", "text-decisions", "text-evidence", "text-capture-values", "text-pointers",
   "text-captures", "text-constraints", "text-contributions", "text-decision-values", "text-rule-inputs", "text-invocations", "text-operations",
-  "verify", "verify-contributions", "verify-solution", "capture-law"];
+  "verify", "verify-contributions", "verify-solution", "inferred-parts", "capture-law", "text-errors"];
 const runtimeFiles = runtimeNames.map(name => resolve(emitted, `${name}.js`));
 const ownedSources = ["contract", ...runtimeNames].map(name => `${owner}/${name}.ts`).sort();
 const dependencies = ["ids", "diag", "ir-types", "ir-hir"];
@@ -72,10 +72,10 @@ after(async () => {
     writeFileSync(resolve(evidenceDirectory, "coverage.json"), `${JSON.stringify(report, null, 2)}\n`);
     writeFileSync(resolve(evidenceDirectory, "source-inputs.json"), `${JSON.stringify(inputs, null, 2)}\n`);
     console.log(`F.ir-infer actual product coverage: ${evidenceDirectory}`);
-    assert.equal(result.length, 19, "all nineteen actual runtime owners have nonempty source-identified raw V8 evidence");
+    assert.equal(result.length, runtimeFiles.length, "every actual runtime owner has nonempty source-identified raw V8 evidence");
     assert.equal(report.status, "passed", JSON.stringify(report.findings));
     deepEqual(report.findings, []);
-    assert.equal(report.files.length, 19);
+    assert.equal(report.files.length, runtimeFiles.length);
     for (const file of report.files) {
       assert.equal(file.status, "covered", file.path);
       assert.equal(file.lines, 100, file.path);
@@ -88,6 +88,10 @@ after(async () => {
 function evidence(type = 0) {
   return { type, component: source, category: { kind: "known", category: "number" }, numeric: null,
     sum: null, nominal: null, pointer: null };
+}
+
+function inferenceValue(type = 0) {
+  return { value: evidence(type), error: null };
 }
 
 function constraintSet(constraints = [], variables = []) {
@@ -165,7 +169,7 @@ test("group ownership, stable variable namespaces and final record totality have
     { constraints: [constraintSet([], [localVariable(1), localVariable(0)])] },
     [violation("variable-order", variableSite(0), "variables"), violation("variable-order", variableSite(0), "groupVariables")]);
   const variable = localVariable(0);
-  const final = { variable: 0, value: evidence() };
+  const final = { variable: 0, value: evidence(), error: null };
   const completed = { ...completeSolution(), variables: [final] };
   ruleCase("one-publication-per-variable", { constraints: [constraintSet([], [variable])], solution: completed },
     { constraints: [constraintSet([], [variable])], solution: { ...completed, variables: [final, final] } },
@@ -173,16 +177,16 @@ test("group ownership, stable variable namespaces and final record totality have
   ruleCase("solution-total", { constraints: [constraintSet([], [variable])], solution: completed },
     { constraints: [constraintSet([], [variable])], solution: completeSolution() }, [violation("solution-total", variableSite(0), "variables")]);
   ruleCase("solution-order", { constraints: [constraintSet([], [localVariable(0), localVariable(1)])],
-    solution: { ...completeSolution(), variables: [final, { variable: 1, value: evidence() }] } },
+    solution: { ...completeSolution(), variables: [final, { variable: 1, value: evidence(), error: null }] } },
   { constraints: [constraintSet([], [localVariable(0), localVariable(1)])],
-    solution: { ...completeSolution(), variables: [{ variable: 1, value: evidence() }, final] } },
+    solution: { ...completeSolution(), variables: [{ variable: 1, value: evidence(), error: null }, final] } },
   [violation("solution-order", variableSite(0), "variables")]);
 });
 
 test("duplicate inventories and each stable group ordering retain their complete positional findings", () => {
   const equality = { kind: "eq", occurrence, left: 0, right: 0 };
   const candidate = { ordinal: 0, declaration: definition, appliedSignature: { kind: "available", value: 0 },
-    bindings: { kind: "unavailable", reason: "not-provided" }, conditionalFailure: { kind: "available", value: null }, contributions: [] };
+    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [] };
   const set = { ...constraintSet([equality], [localVariable(0)]), candidates: [{ id: 0, candidates: [candidate] }] };
   ruleCase("group-ownership", { constraints: [set] }, { constraints: [set, set] }, [
     violation("group-ownership", bodySite, "constraints"),
@@ -257,7 +261,7 @@ test("constraint, candidate and contribution references are qualified complete r
   ruleCase("contribution-reads-bounds-declared", original, { ...original, contributions: [{ ...contribution, reads: [0] }] },
     [violation("contribution-reads-bounds-declared", { kind: "contribution", key }, "reads")]);
   const candidate = { ordinal: 0, declaration: definition, appliedSignature: { kind: "available", value: 0 },
-    bindings: { kind: "unavailable", reason: "not-provided" }, conditionalFailure: { kind: "available", value: null }, contributions: [] };
+    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [] };
   const application = { captured: captureGolden.value, permissionScope: null, callee: 0, receiver: null, typeArguments: [], arguments: [], candidates: 0, result: 0 };
   const set = { ...constraintSet([{ kind: "call", occurrence, application }]), candidates: [{ id: 0, candidates: [candidate] }] };
   ruleCase("candidate-reference", { constraints: [set] }, { constraints: [{ ...set, candidates: [] }] },
@@ -268,7 +272,7 @@ test("constraint, candidate and contribution references are qualified complete r
 
 test("candidate inventories retain HIR original ordinals instead of dense list positions", () => {
   const candidate = { declaration: definition, appliedSignature: { kind: "available", value: 0 },
-    bindings: { kind: "unavailable", reason: "not-provided" }, conditionalFailure: { kind: "available", value: null }, contributions: [] };
+    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [] };
   const input = ordinals => verificationInput({ constraints: [{ ...constraintSet(),
     candidates: [{ id: 0, candidates: ordinals.map(ordinal => ({ ...candidate, ordinal })) }] }] });
   for (const ordinals of [[1], [2, 4], [0, 3, 6, 9]])
@@ -290,7 +294,7 @@ test("open terms are resolved and owned transitively but never published as fina
   ruleCase("open-term-owner", { constraints: [constraintSet([equality], [variable])], types: closed },
     { constraints: [constraintSet([equality], [variable])], types: { ...closed, terms: [closed.terms[0], { kind: "open", group: foreignGroup, variable: 0 }] } },
     [violation("open-term-owner", constraintSite(0), "types")]);
-  const completed = { ...completeSolution(), variables: [{ variable: 0, value: evidence(1) }] };
+  const completed = { ...completeSolution(), variables: [{ variable: 0, value: evidence(1), error: null }] };
   ruleCase("no-open-in-solution", { constraints: [constraintSet([], [variable])], types: closed, solution: completed },
     { constraints: [constraintSet([], [variable])], types: { ...closed, terms: [closed.terms[0], { kind: "open", group, variable: 0 }] }, solution: completed },
     [violation("no-open-in-solution", variableSite(0), "types")]);
@@ -329,7 +333,7 @@ test("ordinary peer arena holes retain missing rows through the one canonical ve
   check({ terms: [primitive, array], signatures: [] }, [], [constraintSet([{ ...equality, left: 1, right: 1 }])]);
   check({ terms: indirectType, signatures: [] }, [missingRoot, missingType], [constraintSet([{ ...equality, left: 1, right: 1 }])]);
   const candidate = { ordinal: 0, declaration: definition, appliedSignature: { kind: "available", value: 0 },
-    bindings: { kind: "unavailable", reason: "not-provided" }, conditionalFailure: { kind: "available", value: null }, contributions: [] };
+    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [] };
   const candidateSet = { ...constraintSet(), candidates: [{ id: 0, candidates: [candidate] }] };
   check({ terms: [primitive], signatures: [signature] }, [], [candidateSet]);
   check({ terms: [primitive], signatures: new Array(1) },
@@ -382,7 +386,7 @@ test("open variable references keep their numeric domain through actual type and
   const variable = localVariable(0);
   const equality = root => ({ kind: "eq", occurrence, left: root, right: 0 });
   const candidate = { ordinal: 0, declaration: definition, appliedSignature: { kind: "available", value: 0 },
-    bindings: { kind: "unavailable", reason: "not-provided" }, conditionalFailure: { kind: "available", value: null }, contributions: [] };
+    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [] };
   const rows = value => {
     const open = { kind: "open", group, variable: value };
     const terms = [primitive, open];
@@ -426,7 +430,7 @@ test("open variable references keep their numeric domain through actual type and
 test("all actual declaration occurrences use the same genuine reference reader even before selection", () => {
   const missing = `D[${moduleIdentity};absent]`;
   const candidate = { ordinal: 0, declaration: definition, appliedSignature: { kind: "available", value: 0 },
-    bindings: { kind: "unavailable", reason: "not-provided" }, conditionalFailure: { kind: "available", value: null }, contributions: [] };
+    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [] };
   const set = { ...constraintSet(), candidates: [{ id: 0, candidates: [candidate] }] };
   ruleCase("qualified-reference", { constraints: [set] }, { constraints: [{ ...set,
     candidates: [{ id: 0, candidates: [{ ...candidate, declaration: missing }] }] }] },
@@ -440,9 +444,9 @@ test("all actual declaration occurrences use the same genuine reference reader e
 
 test("qualified item, local and signature occurrences use their actual reader and numeric domains", () => {
   const item = { kind: "item", value: { owner: definition, node: 0 } };
-  const valid = { constraints: [{ ...constraintSet(), evidence: [{ ...evidence(), component: item }] }] };
+  const valid = { constraints: [{ ...constraintSet(), evidence: [{ value: { ...evidence(), component: item }, error: null }] }] };
   for (const node of [-0, 1]) ruleCase("qualified-reference", valid,
-    { constraints: [{ ...constraintSet(), evidence: [{ ...evidence(), component: { ...item, value: { owner: definition, node } } }] }] }, [
+    { constraints: [{ ...constraintSet(), evidence: [{ value: { ...evidence(), component: { ...item, value: { owner: definition, node } } }, error: null }] }] }, [
       violation("qualified-reference", bodySite, "nodes"),
       violation("qualified-reference", bodySite, "cross-owner-qualified"),
     ], "item references retain both their owning occurrence and canonical evidence reader result");
@@ -456,7 +460,7 @@ test("qualified item, local and signature occurrences use their actual reader an
     ], "signature negative zero is retained until the actual endpoint/reference verifier");
 });
 
-test("the seven final-record footprint kinds require bounds independently of declared reads", () => {
+test("the seven final-record footprint kinds retain every dependency and explicit default writes remain bounds", () => {
   const types = { terms: [{ kind: "primitive", primitive: "int32" }, { kind: "open", group, variable: 0 },
     { kind: "open", group, variable: 1 }, { kind: "array", element: 1, readonly: false },
     { kind: "callable", calls: [1], constructs: [] }],
@@ -477,7 +481,7 @@ test("the seven final-record footprint kinds require bounds independently of dec
     const input = { constraints: [constraintSet([constraint], variables)], contributions: [contribution], types,
       bindingScopes: constraint.kind === "flow" ? [emptyScope] : [] };
     ruleCase("contribution-footprint-complete", input, { ...input, contributions: [{ ...contribution,
-      reads: [bounds.at(-1)], bounds: bounds.slice(0, -1) }] },
+      reads: [], bounds: bounds.slice(0, -1) }] },
     [violation("contribution-footprint-complete", { kind: "contribution", key }, "bounds")], `${constraint.kind} declared-type footprint`);
   }
   const flow = { kind: "flow", occurrence, from: 3, to: 4, role: "initialization", bindings: emptyBindings };
@@ -486,7 +490,7 @@ test("the seven final-record footprint kinds require bounds independently of dec
   const contribution = { key, reads: [], bounds: [0, 1], constraint: { body, index: 1 } };
   const input = { constraints: [constraintSet([flow, discharge], variables)], contributions: [contribution], types, bindingScopes: [emptyScope] };
   ruleCase("contribution-footprint-complete", input, { ...input,
-    contributions: [{ ...contribution, reads: [1], bounds: [0] }] },
+    contributions: [{ ...contribution, reads: [], bounds: [0] }] },
   [violation("contribution-footprint-complete", { kind: "contribution", key }, "bounds")], "transitive discharge with a real reference cycle");
   const cyclicTypes = { terms: [{ kind: "primitive", primitive: "int32" }, { kind: "array", element: 1, readonly: false }], signatures: [signature] };
   const closed = { kind: "eq", occurrence, left: 1, right: 0 };
@@ -722,7 +726,7 @@ test("canonical type findings retain their original order and every actual bindi
     capturedBindings: [{ kind: "rigid", parameter: capturedParameter }] } };
   const second = { ...first, occurrence: { body, node: 1 } };
   const third = { ...first, occurrence: { body, node: 2 } };
-  const set = { ...constraintSet([first, second, third]), evidence: [evidence(), evidence()] };
+  const set = { ...constraintSet([first, second, third]), evidence: [inferenceValue(), inferenceValue()] };
   const valid = { constraints: [set], bindingScopes: [scope, scope, scope], nodes: [{ owner: source, ids: [0, 1, 2] }], declarations: [
     [definition, { ...declarationFacts, scope }],
     [classOwner, { scope: { ...emptyScope, classParameters: [classParameter] }, parameterCount: null, endpoints: [] }],
@@ -731,7 +735,7 @@ test("canonical type findings retain their original order and every actual bindi
     declaration: `D[${moduleIdentity};run/T]`, constraint: null, default: null }] }] } };
   const invalid = { ...valid, constraints: [{ ...set, constraints: [{ ...flow(0), bindings: { ...emptyBindings,
     capturedBindings: [{ kind: "rigid", parameter: capturedParameter }] } }, { ...second, bindings: { ...first.bindings,
-    capturedBindings: [{ kind: "rigid", parameter: { owner: capturedOwner, index: 1 } }] } }, third], evidence: [evidence(9), evidence()] }],
+    capturedBindings: [{ kind: "rigid", parameter: { owner: capturedOwner, index: 1 } }] } }, third], evidence: [inferenceValue(9), inferenceValue()] }],
   types: { terms: [{ kind: "primitive", primitive: "int32" }], signatures: [{ ...valid.types.signatures[0], result: 9 }] } };
   ruleCase("binding-vector-complete", valid, invalid, [
     violation("qualified-reference", bodySite, "types"),
@@ -745,11 +749,11 @@ test("canonical type findings retain their original order and every actual bindi
   const otherBody = `B[${otherDefinition};function;0]`;
   const secondOccurrence = { body: otherBody, node: 0 };
   const paired = { group: { id: group, bodies: [body, otherBody], signatures: [] }, constraints: [
-    { ...constraintSet(), evidence: [evidence()] },
-    { ...constraintSet(), body: otherBody, evidence: [{ ...evidence(), component: { kind: "body", value: secondOccurrence } }] },
+    { ...constraintSet(), evidence: [inferenceValue()] },
+    { ...constraintSet(), body: otherBody, evidence: [{ value: { ...evidence(), component: { kind: "body", value: secondOccurrence } }, error: null }] },
   ], nodes: [{ owner: source, ids: [0] }, { owner: { kind: "body", value: secondOccurrence }, ids: [0] }] };
   ruleCase("qualified-reference", paired, { ...paired, constraints: paired.constraints.map(set => ({ ...set,
-    evidence: set.evidence.map(value => ({ ...value, type: 9 })) })) }, [
+    evidence: set.evidence.map(value => ({ ...value, value: { ...value.value, type: 9 } })) })) }, [
     violation("qualified-reference", bodySite, "types"),
     violation("qualified-reference", { kind: "body", body: otherBody }, "types"),
     violation("qualified-reference", bodySite, "type-reference"),
@@ -867,7 +871,7 @@ test("final publications, solved constraints and body inventories retain complet
     [violation("constraint-reference", constraintSite(1), "constraint")], "extra solved record cannot create an input constraint");
   ruleCase("solution-order", input, { ...input, solution: { ...solution, bodies: [bodyTyping, bodyTyping] } },
     [violation("solution-order", bodySite, "bodies")], "duplicate body publication retains the actual endpoint");
-  ruleCase("solution-total", {}, { solution: { ...completeSolution(), variables: [{ variable: 0, value: evidence() }] } },
+  ruleCase("solution-total", {}, { solution: { ...completeSolution(), variables: [{ variable: 0, value: evidence(), error: null }] } },
     [violation("solution-total", variableSite(0), "variables")], "an undeclared variable cannot be published");
   ruleCase("group-ownership", {}, { solution: { ...completeSolution(), group: `G[B[D[${moduleIdentity};z];function;0]]` } },
     [violation("group-ownership", groupSite, "solution")], "a complete solution still names its actual group");
@@ -940,9 +944,9 @@ test("recorded checks correlate actual final variables and bound keys, not unkno
   const constraint = { kind: "default", occurrence, variable: 0, rule: "local-producers", type: 0 };
   const key = { node: occurrence, candidate: null, role: { kind: "default" } };
   const contribution = { key, reads: [], bounds: [0], constraint: { body, index: 0 } };
-  const check = { variable: 0, contribution: key, bound: { contribution: key, variable: 0, kind: "producer", value: evidence() },
+  const check = { variable: 0, contribution: key, bound: { contribution: key, variable: 0, kind: "producer", value: evidence(), error: null },
     outcome: { kind: "satisfied", embedding: { kind: "identity" } } };
-  const solution = { ...completeSolution(), variables: [{ variable: 0, value: evidence() }],
+  const solution = { ...completeSolution(), variables: [{ variable: 0, value: evidence(), error: null }],
     constraints: [{ constraint: { body, index: 0 }, decision: { kind: "default", type: 0 } }], checks: [check] };
   const input = { constraints: [constraintSet([constraint], [localVariable(0)])], contributions: [contribution], solution };
   // the check names variable 1: it is not the check of bound 0, which then has none
@@ -1033,7 +1037,7 @@ test("discharge obligation references preserve every original missing or nonordi
 
 test("actual formal tables and canonical endpoint associations are independent of endpoint spelling", () => {
   const candidate = { ordinal: 0, declaration: definition, appliedSignature: { kind: "available", value: 0 },
-    bindings: { kind: "unavailable", reason: "not-provided" }, conditionalFailure: { kind: "available", value: null }, contributions: [] };
+    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [] };
   const argument = { occurrence: { body, node: 1 }, kind: "value", type: 0, tuple: null, closure: null };
   const application = { captured: captureGolden.value, permissionScope: null, callee: 0, receiver: null, typeArguments: [], arguments: [argument], candidates: 0, result: 0 };
   const set = { ...constraintSet([{ kind: "call", occurrence, application }]), candidates: [{ id: 0, candidates: [candidate] }] };
@@ -1118,7 +1122,7 @@ test("actual formal tables and canonical endpoint associations are independent o
 test("overloads map optional, default and rest implementation formals rather than the advertised empty signature", () => {
   const initializer = `B[D[${moduleIdentity};run/defaulted];default-argument;0]`;
   const candidate = { ordinal: 0, declaration: definition, appliedSignature: { kind: "available", value: 0 },
-    bindings: { kind: "unavailable", reason: "not-provided" }, conditionalFailure: { kind: "available", value: null }, contributions: [] };
+    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [] };
   const application = { captured: captureGolden.value, permissionScope: null, callee: 0, receiver: null,
     typeArguments: [], arguments: [], candidates: 0, result: 0 };
   const constraints = [{ ...constraintSet([{ kind: "call", occurrence, application }]), candidates: [{ id: 0, candidates: [candidate] }] }];
@@ -1149,7 +1153,7 @@ test("overloads map optional, default and rest implementation formals rather tha
 
 test("every binder family is checked against the genuine original candidate declaration scope", () => {
   const candidate = { ordinal: 0, declaration: definition, appliedSignature: { kind: "available", value: 0 },
-    bindings: { kind: "unavailable", reason: "not-provided" }, conditionalFailure: { kind: "available", value: null }, contributions: [] };
+    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [] };
   const application = { captured: captureGolden.value, permissionScope: null, callee: 0, receiver: null,
     typeArguments: [], arguments: [], candidates: 0, result: 0 };
   const constraint = { kind: "call", occurrence, application };
@@ -1195,7 +1199,7 @@ test("selected endpoint roles follow the endpoint family of the selected declara
   const endpoint = { declaration: ordinary, role: "api-body", signature: 1, body: `B[${ordinary};function;0]` };
   const declared = { declaration: bodiless, role: "api-signature", signature: 2, body: null };
   const candidateOf = declaration => ({ ordinal: 0, declaration, appliedSignature: { kind: "available", value: 0 },
-    bindings: { kind: "unavailable", reason: "not-provided" }, conditionalFailure: { kind: "available", value: null }, contributions: [] });
+    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [] });
   const raw = { captured: captureGolden.value, permissionScope: null, callee: 0, receiver: null,
     typeArguments: [], arguments: [], candidates: 0, result: 0 };
   const setOf = declaration => ({ ...constraintSet([{ kind: "call", occurrence, application: raw }]),
@@ -1256,7 +1260,7 @@ test("bodyless APIs retain their own complete generic environment independently 
   const advertised = { declaration: definition, role: "advertised", signature: 0, body: null };
   const api = { declaration: apiDefinition, role: "api-signature", signature: 1, body: null };
   const candidate = { ordinal: 0, declaration: definition, appliedSignature: { kind: "available", value: 0 },
-    bindings: { kind: "unavailable", reason: "not-provided" }, conditionalFailure: { kind: "available", value: null }, contributions: [] };
+    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [] };
   const raw = { captured: captureGolden.value, permissionScope: null, callee: 0, receiver: null,
     typeArguments: [], arguments: [], candidates: 0, result: 0 };
   const set = { ...constraintSet([{ kind: "call", occurrence, application: raw }]), candidates: [{ id: 0, candidates: [candidate] }] };
@@ -1312,7 +1316,7 @@ test("all four formal mapping dispositions use the real signature and authored a
     { occurrence: { body, node: 3 }, kind: "spread", type: 0, tuple: [0], closure: null },
   ];
   const candidate = { ordinal: 0, declaration: definition, appliedSignature: { kind: "available", value: 0 },
-    bindings: { kind: "unavailable", reason: "not-provided" }, conditionalFailure: { kind: "available", value: null }, contributions: [] };
+    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [] };
   const raw = { captured: captureGolden.value, permissionScope: null, callee: 0, receiver: null,
     typeArguments: [], arguments: arguments_, candidates: 0, result: 0 };
   const set = { ...constraintSet([{ kind: "call", occurrence, application: raw }]), candidates: [{ id: 0, candidates: [candidate] }] };
@@ -1428,7 +1432,7 @@ test("raw-to-final type instantiation is not approximated by saved ID equality",
     const flow = { kind: "flow", occurrence, from: raw, to: saved, role: "initialization", bindings: emptyBindings };
     const value = { ...evidence(saved), category: { kind: "known", category } };
     const invocation = { rule: "embed", input: { context: contextGolden.value, from: value, to: value, role: "initialization" } };
-    const solution = { ...completeSolution(), variables: [{ variable: 0, value: evidence() }], constraints: [
+    const solution = { ...completeSolution(), variables: [{ variable: 0, value: evidence(), error: null }], constraints: [
       { constraint: { body, index: 0 }, decision: { kind: "deferred", deferred: { invocation, result: saved } } },
     ] };
     const input = { constraints: [constraintSet([flow], [localVariable(0)])], types,
@@ -1445,7 +1449,7 @@ test("raw-to-final type instantiation is not approximated by saved ID equality",
   const operation = { kind: "selected", operation: { kind: "protocol", protocol: "iterate", asynchronous: false,
     steps: [], value: 0, completion: 0, yielded: null, sent: null, thrown: 0 }, operands: [], result: 0, execution: { kind: "pure" } };
   fullEqual(product.verifyInference(verificationInput({ constraints: [constraintSet([protocol], [localVariable(0)])], types,
-    bindingScopes: [emptyScope], solution: { ...completeSolution(), variables: [{ variable: 0, value: evidence() }],
+    bindingScopes: [emptyScope], solution: { ...completeSolution(), variables: [{ variable: 0, value: evidence(), error: null }],
       constraints: [{ constraint: { body, index: 0 }, decision: { kind: "protocol", operation } }] } })), [],
   "protocol channel structure does not compare a raw open result ID with the saved finalized type ID");
 });
@@ -1461,7 +1465,7 @@ test("all thirteen deferred rule families retain their independently observable 
   const construction = { kind: "construct-literal", occurrence, construction: "object",
     parts: [{ kind: "property", occurrence: { body, node: 1 }, key, type: 0 }], destination: null, result: 0 };
   const candidate = { ordinal: 0, declaration: definition, appliedSignature: { kind: "available", value: 0 },
-    bindings: { kind: "unavailable", reason: "not-provided" }, conditionalFailure: { kind: "available", value: null }, contributions: [] };
+    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [] };
   const application = { captured: captureGolden.value, permissionScope: occurrence, callee: 0, receiver: null,
     typeArguments: [], arguments: [], candidates: 0, result: 0 };
   const call = { kind: "call", occurrence, application };
@@ -1725,7 +1729,7 @@ const evidenceGolden = recordGolden("TypeEvidence", { type: typeGolden, componen
 const originGolden = recordGolden("Origin", { module: scalarGolden(moduleIdentity, "mod"), start: scalarGolden(0),
   length: scalarGolden(1), derived: emptyGolden });
 const contextGolden = recordGolden("RuleContext", { occurrence: nodeGolden, origin: originGolden, bindings: bindingGolden });
-const unavailableGolden = recordGolden("unavailable", { reason: scalarGolden("not-provided") }, "unavailable");
+const unavailableGolden = recordGolden("unavailable", { reason: scalarGolden("not-provided"), causes: arrayGolden([]) }, "unavailable");
 const captureGolden = recordGolden("HirCoreCapture", { provider: unavailableGolden, markers: unavailableGolden,
   pointerType: unavailableGolden, pointerOperation: unavailableGolden, fieldBinding: unavailableGolden, recordBinding: unavailableGolden, attribute: unavailableGolden,
   safety: unavailableGolden, argumentPassing: unavailableGolden, flowState: unavailableGolden });
@@ -1745,7 +1749,7 @@ function endpointGolden(role = "advertised", endpointBody = nullGolden) {
 
 function constraintsGolden(constraints, variables = [], candidates = [], evidenceValues = []) {
   return recordGolden("ConstraintSet", { group: groupGolden, body: bodyGolden, variables: arrayGolden(variables),
-    candidates: arrayGolden(candidates), evidence: arrayGolden(evidenceValues), constraints: arrayGolden(constraints) });
+    candidates: arrayGolden(candidates), evidence: arrayGolden(evidenceValues.map(value => recordGolden("InferenceValue", { value, error: nullGolden }))), constraints: arrayGolden(constraints) });
 }
 
 function solutionGolden(decisions, variables = [], checks = [], bodies = []) {
@@ -1804,13 +1808,13 @@ test("final values, both bound directions, all check outcomes and body channels 
   for (const direction of ["producer", "demand"])
     for (const outcome of outcomes) checks.push(recordGolden("RecordedCheck", {
       variable: scalarGolden(0), contribution,
-      bound: recordGolden(direction, { contribution, variable: scalarGolden(0), value: evidenceGolden }, direction),
+      bound: recordGolden(direction, { contribution, variable: scalarGolden(0), value: evidenceGolden, error: nullGolden }, direction),
       outcome,
     }));
   const bodies = [nullGolden, typeGolden].map(channel => recordGolden("BodyTyping", {
     body: bodyGolden, signature: signatureGolden, completion: typeGolden, yielded: channel, sent: channel,
   }));
-  const golden = solutionGolden([], [recordGolden("FinalVariable", { variable: scalarGolden(0), value: evidenceGolden })],
+  const golden = solutionGolden([], [recordGolden("FinalVariable", { variable: scalarGolden(0), value: evidenceGolden, error: nullGolden })],
     checks, bodies);
   assertRoundTrip("Solution", golden.value, golden.text, "complete final variable/check/body records");
 });
@@ -1884,7 +1888,7 @@ test("all contribution role ranks and numeric payload columns have complete adja
       { kind: "spread", occurrence, type: 0, tuple: null, closure: body },
     ], candidates: 0, result: 0 };
   const candidate = { ordinal: 0, declaration: definition, appliedSignature: { kind: "available", value: 0 },
-    bindings: { kind: "unavailable", reason: "not-provided" }, conditionalFailure: { kind: "available", value: null }, contributions: [] };
+    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [] };
   const constraints = [
     { kind: "eq", occurrence, left: 0, right: 0 },
     { kind: "flow", occurrence, from: 0, to: 0, role: "assignment", bindings: emptyBindings },
@@ -1940,7 +1944,7 @@ test("all contribution role ranks and numeric payload columns have complete adja
 
 test("application contribution roles retain actual arguments, closures, receivers and original candidates", () => {
   const candidate = { ordinal: 0, declaration: definition, appliedSignature: { kind: "available", value: 0 },
-    bindings: { kind: "unavailable", reason: "not-provided" }, conditionalFailure: { kind: "available", value: null }, contributions: [] };
+    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [] };
   const application = { captured: captureGolden.value, permissionScope: null, callee: 0, receiver: 0, typeArguments: [], arguments: [
     { kind: "value", occurrence, type: 0, tuple: null, closure: null },
     { kind: "spread", occurrence, type: 0, tuple: [0, 0], closure: body },
@@ -2369,8 +2373,8 @@ test("original candidate order, captured availability and complete diagnostic pa
   const candidates = [recordGolden("HirCandidate", { ordinal: scalarGolden(0), declaration: definitionGolden,
     appliedSignature: captured(signatureGolden), bindings: captured(bindingGolden), conditionalFailure: captured(diagnostic),
     contributions: arrayGolden(["argument", "receiver", "context", "result", "type-argument"].map(role => contribution(role))) }),
-  ...["checker-error", "parameter-dependent", "not-provided"].map((reason, index) => {
-    const unavailable = recordGolden("unavailable", { reason: scalarGolden(reason) }, "unavailable");
+  ...["checker-error", "parameter-dependent", "not-provided", "missing-original-component", "incomplete-association", "unsupported-checked-structure"].map((reason, index) => {
+    const unavailable = recordGolden("unavailable", { reason: scalarGolden(reason), causes: arrayGolden([]) }, "unavailable");
     return recordGolden("HirCandidate", { ordinal: scalarGolden(index + 1), declaration: definitionGolden,
       appliedSignature: unavailable, bindings: unavailable, conditionalFailure: unavailable,
       contributions: arrayGolden([contribution("argument", unavailable)]) });
@@ -3168,9 +3172,9 @@ test("schema-valid nesting of one hundred thousand levels prints, parses and ver
   let category = { kind: "dynamic" };
   for (let index = 0; index < depth; index += 1) category = { kind: "choice", alternatives: [category] };
   const value = { ...evidence(), category };
-  const constraints = { ...constraintSet(), evidence: [value] };
+  const constraints = { ...constraintSet(), evidence: [{ value, error: null }] };
   const categoryText = `${"choice(alternatives=[".repeat(depth)}dynamic()${"])".repeat(depth)}`;
-  const text = `ConstraintSet(group=group:${JSON.stringify(group)}, body=body:${JSON.stringify(body)}, variables=[], candidates=[], evidence=[TypeEvidence(type=t:0, component=${sourceGolden.text}, category=${categoryText}, numeric=null, sum=null, nominal=null, pointer=null)], constraints=[])`;
+  const text = `ConstraintSet(group=group:${JSON.stringify(group)}, body=body:${JSON.stringify(body)}, variables=[], candidates=[], evidence=[InferenceValue(value=TypeEvidence(type=t:0, component=${sourceGolden.text}, category=${categoryText}, numeric=null, sum=null, nominal=null, pointer=null), error=null)], constraints=[])`;
   assertRoundTrip("Constraints", constraints, text, "actual recursive CategoryEvidence, not invented syntax nesting");
   fullEqual(product.verifyInference(verificationInput({ constraints: [constraints] })), [], "deep actual verifier input remains valid");
 });
@@ -3190,22 +3194,22 @@ test("typed sparse arrays and array-to-record cycles report the exact caller-def
   });
   const alternatives = [];
   alternatives.length = 1;
-  const constraints = { ...constraintSet(), evidence: [{ ...evidence(), category: { kind: "choice", alternatives } }] };
+  const constraints = { ...constraintSet(), evidence: [{ value: { ...evidence(), category: { kind: "choice", alternatives } }, error: null }] };
   assert.throws(() => product.printConstraints(constraints), {
-    name: "TypeError", message: "Missing inline value at $.evidence[0].category.alternatives[0].",
+    name: "TypeError", message: "Missing inline value at $.evidence[0].value.category.alternatives[0].",
   });
   assert.throws(() => product.verifyInference(verificationInput({ constraints: [constraints] })), {
-    name: "TypeError", message: "Missing inline value at $.constraints[0].evidence[0].category.alternatives[0].",
+    name: "TypeError", message: "Missing inline value at $.constraints[0].evidence[0].value.category.alternatives[0].",
   });
   const recursive = [];
   const category = { kind: "choice", alternatives: recursive };
   recursive.push({ kind: "choice", alternatives: recursive });
-  const cycle = { ...constraintSet(), evidence: [{ ...evidence(), category }] };
+  const cycle = { ...constraintSet(), evidence: [{ value: { ...evidence(), category }, error: null }] };
   assert.throws(() => product.printConstraints(cycle), {
-    name: "TypeError", message: "Inline cycle at $.evidence[0].category.alternatives[0].alternatives.",
+    name: "TypeError", message: "Inline cycle at $.evidence[0].value.category.alternatives[0].alternatives.",
   });
   assert.throws(() => product.verifyInference(verificationInput({ constraints: [cycle] })), {
-    name: "TypeError", message: "Inline cycle at $.constraints[0].evidence[0].category.alternatives[0].alternatives.",
+    name: "TypeError", message: "Inline cycle at $.constraints[0].evidence[0].value.category.alternatives[0].alternatives.",
   });
 });
 
@@ -3230,12 +3234,12 @@ test("actual inline cycles are caller defects while a shared inline subtree is e
   const alternatives = [];
   const category = { kind: "choice", alternatives };
   alternatives.push(category);
-  const constraints = { ...constraintSet(), evidence: [{ ...evidence(), category }] };
+  const constraints = { ...constraintSet(), evidence: [{ value: { ...evidence(), category }, error: null }] };
   assert.throws(() => product.printConstraints(constraints), {
-    name: "TypeError", message: "Inline cycle at $.evidence[0].category.alternatives[0].",
+    name: "TypeError", message: "Inline cycle at $.evidence[0].value.category.alternatives[0].",
   });
   assert.throws(() => product.verifyInference(verificationInput({ constraints: [constraints] })), {
-    name: "TypeError", message: "Inline cycle at $.constraints[0].evidence[0].category.alternatives[0].",
+    name: "TypeError", message: "Inline cycle at $.constraints[0].evidence[0].value.category.alternatives[0].",
   });
   const shared = recordGolden("choice", { alternatives: arrayGolden([categoryGolden, categoryGolden]) }, "choice");
   assert.equal(shared.value.alternatives[0] === shared.value.alternatives[1], true, "the authored input genuinely shares an object");
@@ -3245,7 +3249,7 @@ test("actual inline cycles are caller defects while a shared inline subtree is e
   assertRoundTrip("Constraints", golden.value, golden.text, "the shared finite subtree is emitted twice, not rejected or arena-interned");
   const parsed = product.parseConstraints(golden.text);
   assert.equal(parsed.kind, "parsed");
-  assert.equal(parsed.value.evidence[0].category.alternatives[0] === parsed.value.evidence[0].category.alternatives[1], false,
+  assert.equal(parsed.value.evidence[0].value.category.alternatives[0] === parsed.value.evidence[0].value.category.alternatives[1], false,
     "inline object identity is not part of the value");
   fullEqual(product.verifyInference(verificationInput({ constraints: [golden.value] })), [], "sharing is not an inline cycle");
 });
@@ -3287,7 +3291,8 @@ test("fresh emitted declarations admit all nine ports and reject exact readonly,
   for (const module of ["ir-infer", ...dependencies]) {
     mkdirSync(resolve(stage, module));
     for (const name of module === "ir-infer" ? ["contract.d.ts", "index.d.ts"]
-      : module === "ir-types" ? ["contract.d.ts", "arena.d.ts", "data.d.ts", "native-facts-data.d.ts"] : ["contract.d.ts"])
+      : module === "ir-types" ? ["contract.d.ts", "arena.d.ts", "data.d.ts", "native-facts-data.d.ts"]
+        : module === "ir-hir" ? ["contract.d.ts", "binding-data.d.ts", "capture-data.d.ts"] : ["contract.d.ts"])
       writeFileSync(resolve(stage, module, name), readFileSync(resolve(repository, `packages/host/dist/${module}/${name}`)));
   }
   writeFileSync(resolve(stage, "package.json"), JSON.stringify({ type: "module", private: true }));
@@ -3339,8 +3344,12 @@ export function consume(input: InferVerificationInput, constraints: ConstraintSe
   assert.equal(accepted.status, 0, accepted.text);
   deepEqual(accepted.text.split(/\r?\n/u).filter(path => path.startsWith(stage)).map(path => relative(stage, path).split(sep).join("/")).sort(),
     ["consumer.ts", "diag/contract.d.ts", "ids/contract.d.ts", "ir-hir/contract.d.ts", "ir-infer/contract.d.ts", "ir-infer/index.d.ts",
-      "ir-types/contract.d.ts", "ir-types/arena.d.ts", "ir-types/data.d.ts", "ir-types/native-facts-data.d.ts"].sort());
+      "ir-hir/binding-data.d.ts", "ir-hir/capture-data.d.ts", "ir-types/contract.d.ts", "ir-types/arena.d.ts",
+      "ir-types/data.d.ts", "ir-types/native-facts-data.d.ts"].sort());
   const negatives = [
+    ["removed-check-failure-owner.ts", 'import type { CheckFailure } from "./ir-infer/contract.js"; export type Old = CheckFailure;', 2459],
+    ["removed-receiver-access-owner.ts", 'import type { ReceiverAccess } from "./ir-infer/contract.js"; export type Old = ReceiverAccess;', 2459],
+    ["removed-handle-activation-owner.ts", 'import type { HandleActivation } from "./ir-infer/contract.js"; export type Old = HandleActivation;', 2459],
     ["readonly-bodies.ts", 'import type { InferenceGroup } from "./ir-infer/contract.js"; export function change(value: InferenceGroup) { value.bodies.push(); }', 2339],
     ["readonly-owner.ts", 'import type { ConstraintSet } from "./ir-infer/contract.js"; export function change(value: ConstraintSet) { value.body = value.body; }', 2540],
     ["wrong-text.ts", 'import { parseConstraints } from "./ir-infer/index.js"; parseConstraints(1);', 2345],
@@ -3365,9 +3374,10 @@ export function consume(input: InferVerificationInput, constraints: ConstraintSe
   deepEqual(actual, negatives.map(([name, , code]) => [name, code]).sort(([left], [right]) => left.localeCompare(right)), refused.text);
 });
 
-test("the public runtime index contains exactly the eleven own-contract ports", () => {
-  deepEqual(Object.keys(product).sort(), ["captureRequiresLocation", "parseConstraints", "parseContributions", "parseInferenceGroup", "parseSolution",
-    "printConstraints", "printContributions", "printInferenceGroup", "printSolution", "sameCaptureSource", "verifyInference"].sort());
+test("the public runtime index contains exactly its approved canonical own-contract ports", () => {
+  deepEqual(Object.keys(product).sort(), ["parseConstraints", "parseContributions", "parseInferenceGroup", "parseSolution",
+    "printConstraints", "printContributions", "printInferenceGroup", "printSolution", "verifyInference", "inferredPartsOf", "inferredPartKey",
+    "compareContributionKeys", "captureRequiresLocation", "sameCaptureSource"].sort());
   deepEqual(readdirSync(resolve(repository, owner)).filter(name => name.endsWith(".ts")).sort(),
     ["contract.ts", ...runtimeNames.map(name => `${name}.ts`)].sort());
 });
@@ -3415,7 +3425,7 @@ test("shared genuine declaration scopes and final bounds retain complete members
   const count = 4096;
   const parameters = Array.from({ length: count }, (_, index) => ({ owner: definition, index }));
   const candidate = { ordinal: 0, declaration: definition, appliedSignature: { kind: "available", value: 0 },
-    bindings: { kind: "unavailable", reason: "not-provided" }, conditionalFailure: { kind: "available", value: null }, contributions: [] };
+    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [] };
   const application = { captured: captureGolden.value, permissionScope: null, callee: 0, receiver: null,
     typeArguments: [], arguments: [], candidates: 0, result: 0 };
   for (const [family, field] of [["class", "classParameters"], ["method", "methodParameters"], ["captured", "capturedParameters"]]) {
@@ -3442,9 +3452,9 @@ test("shared genuine declaration scopes and final bounds retain complete members
   const key = { node: occurrence, candidate: null, role: { kind: "default" } };
   const contribution = { key, reads: [], bounds: parameters.map(parameter => parameter.index), constraint: { body, index: 0 } };
   const checks = parameters.map(parameter => ({ variable: parameter.index, contribution: key,
-    bound: { contribution: key, variable: parameter.index, kind: "producer", value: evidence() },
+    bound: { contribution: key, variable: parameter.index, kind: "producer", value: evidence(), error: null },
     outcome: { kind: "satisfied", embedding: { kind: "identity" } } }));
-  const solution = { ...completeSolution(), variables: parameters.map(parameter => ({ variable: parameter.index, value: evidence() })),
+  const solution = { ...completeSolution(), variables: parameters.map(parameter => ({ variable: parameter.index, value: evidence(), error: null })),
     constraints: [{ constraint: { body, index: 0 }, decision: { kind: "default", type: 0 } }], checks };
   const input = { constraints: [constraintSet([constraint], parameters.map(parameter => localVariable(parameter.index)))], contributions: [contribution], solution };
   ruleCase("check-recorded", input, { ...input, contributions: [{ ...contribution, bounds: contribution.bounds.slice(0, -1) }] },
@@ -3472,7 +3482,7 @@ test("canonical declaration scope equality charges actual occurrence rows in eve
   const selfOwners = parameters.map((_, index) => `D[${moduleIdentity};scope${index}]`);
   const owners = selfOwners.map(owner => [owner, { scope: emptyScope, parameterCount: null, endpoints: [] }]);
   const candidate = ordinal => ({ ordinal, declaration: definition,
-    appliedSignature: { kind: "unavailable", reason: "not-provided" },
+    appliedSignature: { kind: "unavailable", reason: "not-provided", causes: [] },
     bindings: { kind: "available", value: emptyBindings },
     conditionalFailure: { kind: "available", value: null }, contributions: [] });
   for (const [field, rows] of [["classParameters", parameters], ["methodParameters", parameters],
@@ -3526,7 +3536,7 @@ test("canonical scope equality never copies a borrowed long owner per short occu
   const facts = { scope: emptyScope, parameterCount: null, endpoints: [] };
   const candidatesFor = (length, oneList, bindings) => {
     const candidate = ordinal => ({ ordinal, declaration: definition,
-      appliedSignature: { kind: "unavailable", reason: "not-provided" },
+      appliedSignature: { kind: "unavailable", reason: "not-provided", causes: [] },
       bindings: { kind: "available", value: bindings }, conditionalFailure: { kind: "available", value: null }, contributions: [] });
     return oneList ? [{ id: 0, candidates: Array.from({ length }, (_, index) => candidate(index)) }]
       : Array.from({ length }, (_, id) => ({ id, candidates: [candidate(0)] }));
@@ -3591,7 +3601,7 @@ test("paired caller scope holes retain their exact canonical and lower-owner fin
       for (const [index, value] of denseRows.entries()) if (!holes.includes(index)) sparseRows[index] = value;
       const denseBindings = { ...bindings, [bindingField]: bindings[bindingField].slice(0, length) };
       const candidate = ordinal => ({ ordinal, declaration: definition,
-        appliedSignature: { kind: "unavailable", reason: "not-provided" },
+        appliedSignature: { kind: "unavailable", reason: "not-provided", causes: [] },
         bindings: { kind: "available", value: denseBindings }, conditionalFailure: { kind: "available", value: null }, contributions: [] });
       for (const count of [1, 2]) {
         const input = (canonical, supplied) => verificationInput({
@@ -3698,7 +3708,7 @@ test("final publication predecessors preserve total order without suppressing in
   ];
   for (const [ids, rows] of cases) fullEqual(product.verifyInference(verificationInput({
     constraints: [constraintSet([], [localVariable(0)])],
-    solution: { ...completeSolution(), variables: ids.map(variable => ({ variable, value: evidence() })) },
+    solution: { ...completeSolution(), variables: ids.map(variable => ({ variable, value: evidence(), error: null })) },
   })), rows.map(([rule, id]) => violation(rule, variableSite(id), "variables")),
   "publication id refusals, duplicate publications and total ordering are independent complete outcomes");
 });
@@ -3735,7 +3745,7 @@ test("transported numbers have exact total public key ordering before domain ref
     }
   }
   const candidate = { ordinal: 0, declaration: definition, appliedSignature: { kind: "available", value: 0 },
-    bindings: { kind: "unavailable", reason: "not-provided" }, conditionalFailure: { kind: "available", value: null }, contributions: [] };
+    bindings: { kind: "unavailable", reason: "not-provided", causes: [] }, conditionalFailure: { kind: "available", value: null }, contributions: [] };
   const application = { captured: captureGolden.value, permissionScope: null, callee: 0, receiver: null,
     typeArguments: [], arguments: [], candidates: 0, result: 0 };
   const set = { ...constraintSet([{ kind: "call", occurrence, application }]), candidates: [{ id: 0,
@@ -3799,7 +3809,7 @@ test("nested string Boolean symbol-key and known category arms have complete ind
     const value = recordGolden("TypeEvidence", { type: typeGolden, component: sourceGolden, category: categoryValue,
       numeric: nullGolden, sum: nullGolden, nominal: nullGolden, pointer: nullGolden });
     const document = recordGolden("ConstraintSet", { group: groupGolden, body: bodyGolden, variables: emptyGolden,
-      candidates: emptyGolden, evidence: arrayGolden([value]), constraints: emptyGolden });
+      candidates: emptyGolden, evidence: arrayGolden([recordGolden("InferenceValue", { value, error: nullGolden })]), constraints: emptyGolden });
     assertRoundTrip("Constraints", document.value, document.text, `known ${category} complete evidence`);
     const categoryStart = document.text.indexOf(`category="${category}"`) + "category=".length;
     fieldParseCase("Constraints", document.text.slice(0, categoryStart) + '"not-a-category")', categoryStart,
@@ -3825,7 +3835,7 @@ test("the shared number order reaches inferred parts and final constraint and ch
       "final constraint indexes retain complete reference and exact-order results");
     const key = { node: occurrence, candidate: null, role: { kind: "default" } };
     const checks = values.map(variable => ({ variable, contribution: key,
-      bound: { contribution: key, variable, kind: "producer", value: evidence() },
+      bound: { contribution: key, variable, kind: "producer", value: evidence(), error: null },
       outcome: { kind: "satisfied", embedding: { kind: "identity" } } }));
     const checkExpected = checks.flatMap((_, position) => [violation("check-recorded", { kind: "check", index: position }, "bound"),
       ...(position === 1 && reversed ? [violation("solution-order", { kind: "check", index: position }, "checks")] : [])]);
@@ -3865,21 +3875,149 @@ test("complete two-body solutions retain order, originating sets and independent
 test("sum evidence retains its own complete binding occurrence in the public verifier", () => {
   const sum = { ...evidence(), sum: { kind: "authored", component: source, bindings: emptyBindings,
     arms: [{ authoredIndex: 0, component: source, member: 0 }] } };
-  const input = { constraints: [{ ...constraintSet(), evidence: [sum] }], bindingScopes: [emptyScope] };
+  const input = { constraints: [{ ...constraintSet(), evidence: [{ value: sum, error: null }] }], bindingScopes: [emptyScope] };
   ruleCase("binding-vector-complete", input, { ...input, bindingScopes: [] },
     [violation("binding-vector-complete", bodySite, "bindingScopes[0]")],
     "the nested sum's binding is paired once rather than erased or inferred from its own contents");
 });
 
+test("the shared inferred-part inventory retains authored roles, default offsets and qualified identity", () => {
+  exercisedPorts.add("inferredPartsOf"); exercisedPorts.add("inferredPartKey");
+  const parameter = (name, type, initializer) => ({ name: { kind: "Identifier", text: name }, type, initializer });
+  const parameters = { nodes: [parameter("this", 0, null), parameter("first", null, {}), parameter("known", 0, {}), parameter("last", null, null)] };
+  const callable = { body: {}, type: null, asteriskToken: null, parameters };
+  const part = kind => ({ definition, part: { kind } });
+  const defaultPart = { definition, part: { kind: "parameter-initializer", index: 0 } };
+  for (const kind of ["FunctionDeclaration", "FunctionExpression", "ArrowFunction", "MethodDeclaration", "GetAccessor"]) {
+    fullEqual(product.inferredPartsOf(definition, { ...callable, kind }), [part("return"), defaultPart], kind);
+    fullEqual(product.inferredPartsOf(definition, { ...callable, kind, asteriskToken: {} }), [part("return"), part("yield"), defaultPart], `${kind} generator`);
+    fullEqual(product.inferredPartsOf(definition, { ...callable, kind, type: {} }), [defaultPart], `${kind} annotated`);
+    fullEqual(product.inferredPartsOf(definition, { ...callable, kind, body: null }), [], `${kind} bodyless`);
+  }
+  for (const kind of ["Constructor", "SetAccessor"]) {
+    fullEqual(product.inferredPartsOf(definition, { ...callable, kind }), [defaultPart], kind);
+    fullEqual(product.inferredPartsOf(definition, { ...callable, kind, body: null }), [], `${kind} bodyless`);
+  }
+  for (const [kind, role] of [["VariableDeclaration", "variable"], ["PropertyDeclaration", "field"]]) {
+    fullEqual(product.inferredPartsOf(definition, { kind, type: null, initializer: {} }), [part(role)], kind);
+    fullEqual(product.inferredPartsOf(definition, { kind, type: {}, initializer: {} }), [], `${kind} annotated`);
+    fullEqual(product.inferredPartsOf(definition, { kind, type: null, initializer: null }), [], `${kind} uninitialized`);
+  }
+  fullEqual(product.inferredPartsOf(definition, { ...callable, kind: "FunctionDeclaration", parameters: { nodes: [] } }), [part("return")], "no receiver");
+  fullEqual(product.inferredPartsOf(definition, { ...callable, kind: "FunctionDeclaration", parameters: { nodes: [parameter("value", null, {})] } }),
+    [part("return"), defaultPart], "ordinary first parameter");
+  fullEqual(product.inferredPartsOf(definition, { ...callable, kind: "FunctionDeclaration", parameters: { nodes: [{ name: { kind: "ObjectBindingPattern" }, type: null, initializer: {} }] } }),
+    [part("return"), defaultPart], "pattern is not a receiver");
+  fullEqual(product.inferredPartsOf(definition, { kind: "SourceFile" }), [], "module is not an inferred signature part");
+  const inventory = [part("return"), part("yield"), part("variable"), part("field"), defaultPart,
+    { ...defaultPart, part: { kind: "parameter-initializer", index: 1 } }, { definition: `${definition}/other`, part: { kind: "return" } }];
+  assert.equal(new Set(inventory.map(product.inferredPartKey)).size, inventory.length, "kind, definition and ordinal each retain identity");
+  assert.equal(product.inferredPartKey({ ...defaultPart }), product.inferredPartKey(defaultPart));
+});
+
+test("the shared closure-source law retains actual storage identity and all codec arms", () => {
+  exercisedPorts.add("captureRequiresLocation"); exercisedPorts.add("sameCaptureSource");
+  const incoming = [recordGolden("binding", {}, "binding"),
+    ...["by-value", "byref-readonly", "byref-readwrite", "byref-writeonly-must-init", "borrow-shared", "borrow-mut", "move"].map(passing =>
+      recordGolden("parameter", { passing: scalarGolden(passing) }, "parameter")),
+    ...["captured-value", "captured-location"].map(capture => recordGolden("capture", { capture: scalarGolden(capture) }, "capture"))];
+  for (const [index, source] of incoming.entries()) {
+    const location = [2, 3, 4, 5, 6, 9].includes(index);
+    assert.equal(product.captureRequiresLocation(false, source.value), location, `incoming ${source.text}`);
+    assert.equal(product.captureRequiresLocation(true, source.value), true, "a reassignable binding always retains its location");
+    for (const [otherIndex, other] of incoming.entries())
+      assert.equal(product.sameCaptureSource(source.value, other.value), index === otherIndex, "source arm and exact passing/capture mode are identity");
+  }
+  const rows = incoming.map((source, local) => recordGolden("ClosureCapture", {
+    local: recordGolden("LocalRef", { body: bodyGolden, local: scalarGolden(local, "l") }), type: typeGolden,
+    reassignable: scalarGolden(local % 2 === 0), incoming: source }));
+  const constraint = recordGolden("closure", { occurrence: nodeGolden, created: bodyGolden, captures: arrayGolden(rows), result: typeGolden, bindings: bindingGolden }, "closure");
+  const golden = constraintsGolden([constraint]);
+  assertRoundTrip("Constraints", golden.value, golden.text, "all actual incoming storage arms survive the canonical text boundary");
+});
+
+test("public contribution ordering uses the same complete qualified comparison", () => {
+  exercisedPorts.add("compareContributionKeys");
+  const key = { node: occurrence, candidate: null, role: { kind: "flow" } };
+  const variants = [{ ...key, node: { ...occurrence, body: `${body}z` } }, { ...key, node: { ...occurrence, node: 1 } },
+    { ...key, candidate: 0 }, { ...key, role: { kind: "selection" } }];
+  assert.equal(product.compareContributionKeys(key, key), 0);
+  for (const variant of variants) {
+    assert.equal(product.compareContributionKeys(key, variant) < 0, true);
+    assert.equal(product.compareContributionKeys(variant, key) > 0, true);
+  }
+});
+
+test("semantic inference values retain every original cause and position through the single current codec", () => {
+  const key = value => {
+    if (value === null) return { value, text: "KeyNull()" };
+    if (typeof value !== "object") {
+      const label = { number: "KeyNumber", bigint: "KeyBigint", boolean: "KeyBoolean", string: "KeyString" }[typeof value];
+      return { value, text: recordGolden(label, { value: scalarGolden(value) }).text };
+    }
+    if (Array.isArray(value)) return { value, text: recordGolden("KeyArray", { values: arrayGolden(value.map(key)) }).text };
+    const fields = value.fields.map(([name, value]) => recordGolden("KeyField", { name: scalarGolden(name), value: key(value) }));
+    return { value, text: recordGolden("KeyRecord", { fields: arrayGolden(fields) }).text };
+  };
+  const keys = [null, -0, NaN, Infinity, -Infinity, 4n, false, "typed", [definition, 0, null, false, 7n],
+    { kind: "record", fields: [["actual", [body, group]], ["empty", []]] }];
+  const positions = [
+    recordGolden("result", {}, "result"),
+    recordGolden("module-node", { module: scalarGolden(moduleIdentity, "mod"), node: scalarGolden(0, "n") }, "module-node"),
+    recordGolden("source-node", { node: sourceGolden }, "source-node"),
+    recordGolden("source-node", { node: recordGolden("item", { value: recordGolden("ItemNodeRef", {
+      owner: definitionGolden, node: scalarGolden(0, "n") }) }, "item") }, "source-node"),
+    recordGolden("inference-variable", { group: groupGolden, variable: scalarGolden(1) }, "inference-variable"),
+    recordGolden("component", { path: arrayGolden(keys.map(key)) }, "component"),
+  ];
+  const checker = recordGolden("checker", { module: scalarGolden(moduleIdentity, "mod"), index: scalarGolden(2) }, "checker");
+  checker.value = { kind: "checker", diagnostic: { module: moduleIdentity, index: 2 } };
+  const causes = [recordGolden("diagnostic", { diagnostic: checker }, "diagnostic")];
+  for (const [index, actualKey] of keys.entries()) {
+    const unit = recordGolden("UnitRef", { request: recordGolden("UnitRequest", {
+      query: scalarGolden("actualSemanticRow"), key: key(actualKey) }), position: positions[index % positions.length] });
+    causes.push(recordGolden("unit", { unit }, "unit"));
+    causes.push(recordGolden("diagnostic", { diagnostic: recordGolden("host", {
+      unit, code: scalarGolden("ACTUAL_SEMANTIC_CYCLE") }, "host") }, "diagnostic"));
+  }
+  const error = { value: { kind: "error", causes: causes.map(cause => cause.value) },
+    text: `ErrorValue(first=${causes[0].text}, rest=${arrayGolden(causes.slice(1)).text})` };
+  const value = recordGolden("InferenceValue", { value: evidenceGolden, error });
+  const constraints = recordGolden("ConstraintSet", { group: groupGolden, body: bodyGolden, variables: emptyGolden,
+    candidates: emptyGolden, evidence: arrayGolden([value]), constraints: emptyGolden });
+  assertRoundTrip("Constraints", constraints.value, constraints.text, "nonempty original error algebra is not flattened to code or type");
+  const contribution = recordGolden("ContributionKey", { node: nodeGolden, candidate: nullGolden,
+    role: recordGolden("flow", {}, "flow") });
+  const solution = solutionGolden([recordGolden("error", { error }, "error")],
+    [recordGolden("FinalVariable", { variable: scalarGolden(0), value: evidenceGolden, error })],
+    ["producer", "demand"].map(direction => recordGolden("RecordedCheck", {
+      variable: scalarGolden(0), contribution, bound: recordGolden(direction, {
+        contribution, variable: scalarGolden(0), value: evidenceGolden, error }, direction),
+      outcome: recordGolden("error", { error }, "error"),
+    })));
+  assertRoundTrip("Solution", solution.value, solution.text, "actual finalization, bounds and error decisions retain all original causes");
+  const legacy = constraintsGolden([], [], [], [evidenceGolden]);
+  assert.equal(product.parseConstraints(legacy.text.replace(", error=null", "")).kind, "invalid-text",
+    "a missing required semantic error field is not interpreted as known-null");
+  assert.equal(product.parseConstraints(constraints.text.replace("first=diagnostic", "missing=diagnostic")).kind, "invalid-text",
+    "the canonical error vector has a required actual first cause");
+  const sparse = [causes[0].value];
+  sparse.length = 2;
+  assert.throws(() => product.printConstraints({ ...constraints.value,
+    evidence: [{ value: evidence(), error: { kind: "error", causes: sparse } }] }), {
+    name: "TypeError", message: "Missing inline value at $.evidence[0].error.rest[0].",
+  });
+});
+
 test("the independent logic inventory includes every approved port and every named final-record rule", () => {
-  assert.equal(exercisedPorts.size, 9);
+  assert.equal(exercisedPorts.size, 14);
   deepEqual([...inputArms.constraints].sort(), ["eq", "flow", "literal", "op", "member", "index", "call", "construct",
     "construct-literal", "protocol", "refine", "discharge", "default", "closure"].sort());
   deepEqual([...inputArms.variables].sort(), ["signature", "local", "binder", "literal"].sort());
   deepEqual([...inputArms.contributions].sort(), ["equality", "flow", "selection", "argument-flow", "receiver-flow", "context-flow",
     "closure-result-flow", "application-result", "member", "index", "operator", "literal", "protocol", "refinement", "discharge", "default", "construction-part"].sort());
   deepEqual([...resultArms.decisions].sort(), ["eq", "flow", "literal", "member", "index", "call", "construct", "op", "construct-literal",
-    "protocol", "refine", "discharge", "default", "closure", "deferred"].sort());
+    "protocol", "refine", "discharge", "default", "closure", "deferred", "error"].sort());
   assert.equal(resultArms.operations.size, 17);
   assert.equal(resultArms.deferred.size, 14);
   assert.equal(resultArms.public.size, 10);
@@ -3898,5 +4036,5 @@ test("the independent logic inventory includes every approved port and every nam
     "no-open-in-solution", "check-recorded", "decision-kind", "binding-vector-complete", "parameter-mapping-total", "endpoint-agreement", "proof-reference",
     "proof-order", "qualified-reference", "body-completion-endpoints", "construction-part-total", "protocol-channels", "api-endpoint-role", "deferred-invocation",
     "access-location", "closure-capture-total", "closure-capture-binding"].sort());
-  console.log("F.ir-infer logic ports9/9 input-outer-arms35/35 result-outer-arms56/56 rules35/35 limits0/0 nested-string9/9 boolean7/7 native27/27 bigint27/27 carriers18/18 member-key3/3 known-category8/8 (no runtime certificate from authored inventory)");
+  console.log("F.ir-infer logic ports14/14 input-outer-arms35/35 result-outer-arms56/56 rules35/35 limits0/0 nested-string9/9 boolean7/7 native27/27 bigint27/27 carriers18/18 member-key3/3 known-category8/8 (no runtime certificate from authored inventory)");
 });

@@ -211,7 +211,7 @@ function expectedAdd(program, type, unwind) {
     : [{ ...root, id: 0, statements: [begun], terminator: { ...sum, kind: "invoke", operation: program.decision, operands: [a, b],
       destination: 2, next: 1, unwind: { kind: unwind }, step: null } },
     { ...returned, id: 1, statements: [], terminator: { ...returned, kind: "return", value: result } }];
-  return { body, bindings: PARAMETRIC, entries: [{ provided: 2, block: 0 }], locals, constants: [], places, blocks, result: type };
+  return { body, bindings: { kind: "instantiated", bindings: EMPTY_BINDINGS }, entries: [{ provided: 2, block: 0 }], locals, constants: [], places, blocks, result: type };
 }
 
 // The checkpoint program is over `number`, which is float64 (K-3291); the unit program of WT-1 is over int32. Lowering
@@ -286,6 +286,12 @@ test("first producer: the receiver's row and a body that completes with no value
   const twice = nested("first.twice", T.int32, ({ leaf }) => leaf("a"), { statements: ({ b, leaf }, tree) => [b.returns(tree), b.returns(leaf("b"))] });
   mir = lower(twice);
   assert.deepEqual([mir.blocks.length, mir.places.length, mir.blocks[0].terminator.value], [1, 1, { kind: "place", place: 0 }]);
+});
+
+test("production lowering requires the selected complete instance instead of its schema-level template", () => {
+  const program = add("selected.complete", T.int32, plus("int32", T.int32));
+  assert.throws(() => produced(deps, { ...program.tir, bindings: PARAMETRIC }, []), /selected complete body instance/u);
+  assert.equal(produced(deps, program.tir, []).kind, "ok");
 });
 
 test("first producer: below the size of its graph a body is refused with one diagnostic at its origin; at that size it is lowered", () => {

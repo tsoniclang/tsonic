@@ -136,7 +136,7 @@ export function createSyntaxGroup1(readers: () => HirTextReaders): ReadonlyMap<s
       const field_isExportEquals = read("isExportEquals", readers().scalar_boolean);
       const field_type = read("type", unionReader<Hir.TypeNode<Hir.CheckedPhase> | null>(() => [readers().scalar_null, readers().syntax_3]));
       const field_expression = read("expression", readers().syntax_2);
-      const field_tsonic = read("tsonic", readers().record_246);
+      const field_tsonic = read("tsonic", readers().exportAssignment);
       return { fields: [field_id, field_origin, field_parent, field_flags, field_loc, field_modifiers, field_isExportEquals, field_type, field_expression, field_tsonic], value: () => ({ kind: "ExportAssignment", id: field_id.value(), origin: field_origin.value(), parent: field_parent.value(), flags: field_flags.value(), loc: field_loc.value(), modifiers: field_modifiers.value(), isExportEquals: field_isExportEquals.value(), type: field_type.value(), expression: field_expression.value(), tsonic: field_tsonic.value() }) };
     }, value => ({ kind: "ExportAssignment", value }), accept)],
     ["ExportDeclaration", accept => syntaxRecord<Hir.ExportDeclaration<Hir.CheckedPhase>>(read => {
@@ -162,7 +162,7 @@ export function createSyntaxGroup1(readers: () => HirTextReaders): ReadonlyMap<s
       const field_isTypeOnly = read("isTypeOnly", readers().scalar_boolean);
       const field_propertyName = read("propertyName", unionReader<Hir.ModuleExportName<Hir.CheckedPhase> | null>(() => [readers().scalar_null, readers().syntax_30]));
       const field_name = read("name", readers().syntax_30);
-      const field_tsonic = read("tsonic", readers().record_246);
+      const field_tsonic = read("tsonic", readers().exportBinding);
       return { fields: [field_id, field_origin, field_parent, field_flags, field_loc, field_isTypeOnly, field_propertyName, field_name, field_tsonic], value: () => ({ kind: "ExportSpecifier", id: field_id.value(), origin: field_origin.value(), parent: field_parent.value(), flags: field_flags.value(), loc: field_loc.value(), isTypeOnly: field_isTypeOnly.value(), propertyName: field_propertyName.value(), name: field_name.value(), tsonic: field_tsonic.value() }) };
     }, value => ({ kind: "ExportSpecifier", value }), accept)],
     ["ExpressionStatement", accept => syntaxRecord<Hir.ExpressionStatement<Hir.CheckedPhase>>(read => {

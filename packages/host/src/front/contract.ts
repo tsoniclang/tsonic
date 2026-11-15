@@ -1,14 +1,16 @@
-import type { Diagnostic, Result } from "../diag/contract.js";
-import type { DefId, LibraryExportIdentity, LibraryModuleIdentity, ModuleId, NodeId, Origin, TyId } from "../ids/contract.js";
+import type { Cause, Diagnostic, Result } from "../diag/contract.js";
+import type { DefId, DefinitionSegment, LibraryExportIdentity, LibraryModuleIdentity, ModuleId, NodeId, Origin, PackageId, SourceNodeRef, RawCandidateListId, RawComponentId,
+  RawDataLayoutId, RawMemberTableId, RawMemoryFieldId, RawMemoryLayoutId, RawSignatureId, RawSymbolId, RawTypeId, TyId } from "../ids/contract.js";
 import type { LiteralValue, NativePrimitive, PassingMode, TypeEvidence, TypeExpansionLimits, TypeInterner } from "../ir-types/contract.js";
-import type { HirModule, SourceFile, SyntaxPhase } from "../ir-hir/contract.js";
+import type { HirModule, HirModuleBinding, HirModuleExport, SourceFile, SyntaxPhase } from "../ir-hir/contract.js";
 import type { LibraryCatalogue, WellKnownSymbol } from "../libraries/contract.js";
 import type { ExtensionReferenceEntry, ImportPreparation, LibraryRoleEntry, PackageSnapshot, ProjectSnapshot } from "../snapshot/contract.js";
+import type { ExtensionTable, OpenedProgram } from "./handles.js";
 import type { ExtensionReference } from "../snapshot/contract.js";
 import type { CompilerExtension, SourceDeclarationProvider, SourceSemanticsModule } from "@tsonic/tsts";
 
-export type CheckerExtensions = object & { readonly identityKind: "checker-extensions" };
-export type CheckedProgram = object & { readonly identityKind: "checked-program" };
+export type CheckerExtensions = ExtensionTable;
+export type CheckedProgram = OpenedProgram;
 
 export type CheckerExtensionValue =
   | { readonly kind: "compiler-extension"; readonly value: CompilerExtension }
@@ -17,6 +19,15 @@ export type CheckerExtensionValue =
   | { readonly kind: "semantics-module"; readonly value: SourceSemanticsModule };
 
 export type ExtensionOf = (table: CheckerExtensions, reference: ExtensionReference) => CheckerExtensionValue;
+
+/** One loaded registration: the value an extension reference of the snapshot was loaded to. */
+export interface CheckerRegistration {
+  readonly reference: ExtensionReference;
+  readonly value: CheckerExtensionValue;
+}
+
+/** The ordered loaded registrations of one analysis as one opaque table. A registration given twice is a caller defect. */
+export type CreateCheckerExtensions = (registrations: readonly CheckerRegistration[]) => CheckerExtensions;
 export type ExtensionReferencesOf = (table: CheckerExtensions) => readonly ExtensionReferenceEntry[];
 
 export interface NavigationCaptureLimits {
@@ -52,7 +63,9 @@ export interface CaptureDeps {
 }
 
 export interface LowerDeps {
+  readonly exportsOf: (module: ModuleId) => ModuleExports | null;
   readonly definitionOf: (reference: RawNodeRef) => DefId;
+  readonly bindingOccurrenceOf: (reference: RawNodeRef) => SourceNodeRef | null;
   readonly definitionOfExport: (identity: LibraryExportIdentity) => DefId;
   readonly sourceTextOf: (module: ModuleId) => string;
   readonly libraries: LibraryCatalogue;
@@ -61,17 +74,6 @@ export interface LowerDeps {
   readonly literalCapture: LiteralCaptureLimits;
 }
 
-type RawIdentity<Kind extends string> = number & { readonly rawIdentityKind: Kind };
-
-export type RawTypeId = RawIdentity<"type">;
-export type RawSymbolId = RawIdentity<"symbol">;
-export type RawSignatureId = RawIdentity<"signature">;
-export type RawComponentId = RawIdentity<"component">;
-export type RawMemberTableId = RawIdentity<"member-table">;
-export type RawCandidateListId = RawIdentity<"candidate-list">;
-export type RawDataLayoutId = RawIdentity<"data-layout">;
-export type RawMemoryLayoutId = RawIdentity<"memory-layout">;
-export type RawMemoryFieldId = RawIdentity<"memory-field">;
 
 export interface RawNodeRef {
   readonly module: ModuleId;
@@ -88,7 +90,7 @@ export type RawFact<Value> =
   | { readonly kind: "unavailable";
       readonly reason: "checker-error" | "parameter-dependent" | "not-provided"
         | "missing-original-component" | "incomplete-association" | "unsupported-checked-structure";
-      readonly diagnostics: readonly RawDiagnosticReference[] };
+      readonly causes: readonly Cause[] };
 
 export interface RawNumericLiteral {
   readonly token: string;
@@ -140,14 +142,7 @@ export interface RawComponent {
 export interface RawSymbol {
   readonly id: RawSymbolId;
   readonly name: string;
-  readonly declarations: readonly RawNodeRef[];
-  readonly aliasTarget: RawFact<RawSymbolId | null>;
-  readonly exports: RawFact<readonly RawSymbolExport[]>;
-}
-
-export interface RawSymbolExport {
-  readonly name: string;
-  readonly symbol: RawSymbolId;
+  readonly target: RawFact<RawBindingTarget>;
 }
 
 export interface RawParameter {
@@ -384,9 +379,7 @@ export interface RawProviderDeclaration {
 export interface RawReference {
   readonly occurrence: RawNodeRef;
   readonly meaning: "value" | "type" | "namespace";
-  readonly declaration: RawNodeRef;
-  readonly module: ModuleId;
-  readonly project: boolean;
+  readonly target: RawFact<RawBindingTarget>;
 }
 
 export interface RawModuleLink {
@@ -403,6 +396,19 @@ export interface RawModuleExport {
   readonly name: string;
   readonly declaration: RawNodeRef;
   readonly module: ModuleId;
+}
+
+export type RawBindingTarget =
+  | { readonly kind: "declarations"; readonly declarations: readonly [RawNodeRef, ...RawNodeRef[]] }
+  | { readonly kind: "binding"; readonly occurrence: RawNodeRef }
+  | { readonly kind: "module"; readonly module: ModuleId }
+  | { readonly kind: "member"; readonly through: readonly [RawNodeRef, ...RawNodeRef[]];
+      readonly member: RawFact<RawSymbolId>; readonly key: RawFact<RawMemberKey>;
+      readonly origins: RawFact<readonly RawMemberOrigin[]> };
+
+export interface RawBinding {
+  readonly binding: RawNodeRef;
+  readonly target: RawFact<RawBindingTarget>;
 }
 
 export interface RawImplementation {
@@ -773,6 +779,7 @@ export interface RawModule {
   readonly references: readonly RawReference[];
   readonly links: readonly RawModuleLink[];
   readonly exports: readonly RawModuleExport[];
+  readonly bindings: readonly RawBinding[];
   readonly implementations: readonly RawImplementation[];
   readonly heritage: readonly RawHeritageEdge[];
   readonly constructors: readonly RawConstructor[];
@@ -808,16 +815,61 @@ export type CaptureModule = (
   module: ModuleId,
 ) => Result<RawModule>;
 
-export type CaptureLibraryCatalogue = (
-  deps: CaptureDeps,
-  program: CheckedProgram,
-  roles: readonly LibraryRoleEntry[],
-) => Result<LibraryCatalogue>;
+/**
+ * A provider declaration document that the session created. `package` is the package of the one loaded registration
+ * whose declaration provider produced it; `provider` is the logical provider module, with the package name read
+ * from that package's entry in the snapshot. Nothing here is taken from a file name or a specifier.
+ */
+export interface SessionDocument {
+  readonly module: ModuleId;
+  readonly package: PackageId;
+  readonly provider: LibraryModuleIdentity;
+  readonly artifact: "public" | "canonical-export-owner";
+  readonly text: string;
+}
+
+/** A module of the opened program: a module of the snapshot (its text is its captured file's), or a session document. */
+export type ProgramModule =
+  | { readonly kind: "snapshot"; readonly module: ModuleId }
+  | { readonly kind: "session-document"; readonly document: SessionDocument };
+
+/** Every module of the opened program, once, in ascending order of module identity. */
+export interface ProgramModuleSet {
+  readonly modules: readonly ProgramModule[];
+}
+
+export type CaptureProgramModules = (deps: CaptureDeps, program: CheckedProgram) => ProgramModuleSet;
 
 export type LowerModule = (
   deps: LowerDeps,
   module: RawModule,
 ) => Result<HirModule>;
+
+/** The definition identity of one declaration node of a module (F-1 with K-3236, K-3250, K-3268, K-3273). */
+export interface ModuleDefinitionRow {
+  readonly node: NodeId;
+  readonly kind: string;
+  readonly segments: readonly DefinitionSegment[];
+  readonly definition: DefId;
+}
+
+/** Every definition identity of one module, in the syntax tree's preorder; the module's own row first. */
+export interface ModuleDefinitions {
+  readonly module: ModuleId;
+  readonly rows: readonly ModuleDefinitionRow[];
+  readonly bindingSources: readonly { readonly node: NodeId; readonly occurrence: SourceNodeRef }[];
+}
+
+export type LowerModuleDefinitions = (module: RawModule) => Result<ModuleDefinitions>;
+
+/** The export entries of one module, in ascending order of name. */
+export interface ModuleExports {
+  readonly module: ModuleId;
+  readonly entries: readonly HirModuleExport[];
+  readonly bindings: readonly HirModuleBinding[];
+}
+
+export type LowerModuleExports = (deps: LowerDeps, module: RawModule) => Result<ModuleExports>;
 
 export type ConvertCheckedType = (
   deps: LowerDeps,

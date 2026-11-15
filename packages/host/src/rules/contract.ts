@@ -81,7 +81,6 @@ export type Core = (
   input: CoreInput,
 ) => Result<RuleOutcome<OperationDecision>>;
 
-// The fourteenth decision operation (COMPONENTS §3 part 1): the logical captures and the creation of a closure value.
 export type DecideClosure = (
   deps: RulesDeps,
   input: ClosureInput,

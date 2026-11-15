@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { capturedCauses } from "./fixtures/captured-causes.mjs";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
@@ -20,9 +21,9 @@ const runtimeNames = [
   "index", "canonical", "canonical-types", "canonical-inference", "canonical-tir",
   "canonical-facts", "canonical-syntax", "print", "parse", "verify-index", "verify-module", "instantiate",
   "canonical-phase", "syntax-arena", "syntax-statements", "syntax-expressions", "syntax-types", "syntax-auxiliary",
-  "text-values", "text-types", "text-inference", "text-phase", "print-syntax-statements",
+  "text-module-bindings", "verify-module-bindings", "text-values", "text-types", "text-inference", "text-phase", "print-syntax-statements",
   "print-syntax-expressions", "print-syntax-types", "print-syntax-auxiliary",
-  "text-core", "text-tir", "text-phase-declarations", "print-syntax",
+  "text-core", "text-causes", "text-tir", "text-phase-declarations", "print-syntax",
   "parse-values", "parse-types", "parse-diagnostics",
   "syntax-edges", "program-values", "verify-structure", "parse-core", "parse-inference",
   "parse-tir", "parse-phase-declarations", "parse-phase",
@@ -130,8 +131,8 @@ function evaluate(input) {
       const modules = [first.module, second.module];
       first.index.packages[0].exports = [{ specifier: "./main", module: first.module.module }];
       first.index.packages[1].exports = [{ specifier: "./other", module: second.module.module }];
-      first.index.modules[0].exports = [{ name: "main", definition: first.definition }];
-      first.index.modules[1].exports = [{ name: "other", definition: second.definition }];
+      first.index.modules[0].exports = [{ name: "main", target: { kind: "declarations", definitions: [first.definition] } }];
+      first.index.modules[1].exports = [{ name: "other", target: { kind: "declarations", definitions: [second.definition] } }];
       const voidType = input.reverse ? 1 : 0;
       const firstSignature = input.reverse ? 1 : 0;
       const secondSignature = input.reverse ? 0 : 1;
@@ -275,10 +276,11 @@ function evaluate(input) {
         case "module-package": index.modules[0].package = second.index.rootPackage; break;
         case "items-duplicate": index.modules[0].items.push({ ...index.modules[0].items[0] }); break;
         case "exports-order": index.modules[0].exports = [
-          { name: "z", definition: first.definition }, { name: "a", definition: first.definition },
+          { name: "z", target: { kind: "declarations", definitions: [first.definition] } },
+          { name: "a", target: { kind: "declarations", definitions: [first.definition] } },
         ]; break;
         case "export-definition-missing": index.modules[0].exports = [
-          { name: "missing", definition: encodeDefId({ module: first.module.module, segments: [{ name: "missing", ordinal: 0 }] }) },
+          { name: "missing", target: { kind: "declarations", definitions: [encodeDefId({ module: first.module.module, segments: [{ name: "missing", ordinal: 0 }] })] } },
         ]; break;
         case "body-order": index.bodies.reverse(); break;
         default: throw new Error("Unlisted authored package/module pair change");
@@ -507,6 +509,97 @@ for (const path of casePaths) {
   });
 }
 
+test("ir-program binding inventories retain real checked aliases and closed targets through their owning barrier", async () => {
+  const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
+  const { checkedSourceViews } = await import("../../packages/host/dist/pipeline/checked-inputs.js");
+  const { programLookup } = await import("../../packages/host/dist/ir-program/program-values.js");
+  const { verifyModuleBindings } = await import("../../packages/host/dist/ir-program/verify-module-bindings.js");
+  const source = await loadFrontFixture();
+  const actual = source.checkedModuleOf("function add(a:number,b:number):number { return a+b; } export { add, add as sum };");
+  assert.deepStrictEqual(source.verifyChecked(actual.checked, actual.interner), []);
+  const domain = checkedSourceViews([{ module: actual.checked, nodes: source.hir.indexSyntaxTree(actual.checked.tree) }]);
+  const fixture = moduleFixture();
+  const record = { module: actual.module, package: fixture.index.rootPackage,
+    items: [{ definition: actual.checked.tree.tsonic.definition, node: actual.checked.tree.id }, ...actual.checked.items],
+    exports: actual.checked.exports, bindings: actual.checked.bindings, checkerDiagnostics: actual.checked.checkerDiagnostics };
+  const bodies = new Map(actual.checked.bodies.map(body => [body.body, body.owner]));
+  const context = { ...fixture.context, facts: { ...fixture.context.facts, bodyOwner: body => bodies.get(body) ?? null } };
+  const ready = new Map([[actual.module, { nodeOf: domain.nodeOf }]]);
+  const verify = records => {
+    const index = { ...fixture.index, modules: records };
+    return verifyModuleBindings(programLookup(index), index, context, ready);
+  };
+  const violation = (rule, detail) => ({ rule, site: { kind: "module", module: actual.module }, detail: [{ kind: "text", value: detail }] });
+  assert.deepStrictEqual(verify([record]), []);
+  const first = record.bindings[0];
+  const replacing = value => ({ ...record, bindings: [{ ...first, target: { kind: "available", value } }, ...record.bindings.slice(1)] });
+  const roundtrip = changed => {
+    const index = { ...fixture.index, modules: [changed] };
+    assert.deepStrictEqual(product.parseProgramIndex(product.printProgramIndex(index)), { kind: "parsed", value: index });
+  };
+  roundtrip(record);
+  for (const value of [{ kind: "binding", occurrence: record.bindings[1].occurrence }, { kind: "module", module: actual.module },
+    { kind: "member", through: { kind: "declarations", definitions: [record.items[0].definition] },
+      key: { kind: "available", value: { kind: "text", value: "member" } }, origins: { kind: "available", value: [] } }]) {
+    const changed = replacing(value);
+    assert.deepStrictEqual(verify([changed]), []);
+    roundtrip(changed);
+  }
+  const diagnostic = { severity: "error", code: { kind: "checker", number: 2304, rendered: "TS2304" }, arguments: [],
+    site: { kind: "none" }, source: null, evidence: [], message: "name is not defined", related: [], fix: null };
+  const diagnosed = { ...replacing({ kind: "unresolved", diagnostics: [{ module: actual.module, index: 0 }] }), checkerDiagnostics: [diagnostic] };
+  assert.deepStrictEqual(verify([diagnosed]), []);
+  roundtrip(diagnosed);
+  for (const reason of ["not-provided", "checker-error", "parameter-dependent", "missing-original-component", "incomplete-association", "unsupported-checked-structure"]) {
+    const changed = { ...record, bindings: [{ ...first, target: { kind: "unavailable", reason, causes: [] } }, ...record.bindings.slice(1)] };
+    assert.deepStrictEqual(verify([changed]), []);
+    roundtrip(changed);
+  }
+  const missing = { ...first.occurrence, value: { ...first.occurrence.value, node: actual.checked.tree.endOfFileToken.id } };
+  assert.deepStrictEqual(verify([replacing({ kind: "binding", occurrence: missing })]), [
+    violation("binding-target-resolves", "a binding edge must retain its actual nearest-target row"),
+  ]);
+  assert.deepStrictEqual(verify([replacing({ kind: "module", module: encodeModuleId({ package: fixture.index.rootPackage, path: "absent.ts" }) })]), [
+    violation("binding-target-resolves", "a module target must retain an actual module"),
+  ]);
+  for (const index of [-0, -1, 0, 0.5, NaN]) assert.deepStrictEqual(verify([replacing({ kind: "unresolved", diagnostics: [{ module: actual.module, index }] })]), [
+    violation("binding-diagnostic-resolves", "a checker root must resolve in its actual module diagnostic inventory"),
+  ]);
+  const reversed = { ...record, exports: [{ name: "invalid", target: { kind: "declarations", definitions: [record.items[1].definition, record.items[0].definition] } }] };
+  assert.deepStrictEqual(verify([reversed]), [violation("export-target-resolves", "a declaration group must retain distinct source inventory order")]);
+  const empty = { ...record, exports: [{ name: "invalid", target: { kind: "declarations", definitions: [] } }] };
+  assert.deepStrictEqual(verify([empty]), [violation("export-target-resolves", "a declaration group must be nonempty")]);
+  assert.equal(product.parseProgramIndex(product.printProgramIndex({ ...fixture.index, modules: [empty] })).kind, "invalid-text");
+  const noRoots = replacing({ kind: "unresolved", diagnostics: [] });
+  assert.deepStrictEqual(verify([noRoots]), [violation("binding-diagnostic-resolves", "an unresolved target requires its original checker diagnostic roots")]);
+  assert.equal(product.parseProgramIndex(product.printProgramIndex({ ...fixture.index, modules: [noRoots] })).kind, "invalid-text");
+  const missingRows = [violation("binding-capture-owner", "binding rows require distinct preorder syntax and their exact qualified owner"),
+    ...record.exports.map(() => violation("binding-target-resolves", "a binding edge must retain its actual nearest-target row"))];
+  const badOwner = encodeDefId({ module: actual.module, segments: [{ name: "missing", ordinal: 0 }] });
+  for (const occurrence of [{ ...first.occurrence, value: { ...first.occurrence.value, node: -0 } },
+    { ...first.occurrence, value: { ...first.occurrence.value, node: actual.checked.tree.endOfFileToken.id } },
+    { kind: "item", value: { owner: badOwner, node: first.occurrence.value.node } },
+    { kind: "body", value: { body: fixture.bodyId, node: first.occurrence.value.node } }]) {
+    assert.deepStrictEqual(verify([{ ...record, bindings: [{ ...first, occurrence }, ...record.bindings.slice(1)] }]), missingRows);
+  }
+  assert.deepStrictEqual(verify([{ ...record, bindings: [...record.bindings, first] }]), missingRows);
+  const executing = actual.checked.bodies.find(body => body.root === actual.checked.tree);
+  assert.notEqual(executing, undefined);
+  const bodyRows = record.bindings.map(row => ({ ...row, occurrence: { kind: "body", value: { body: executing.body, node: row.occurrence.value.node } } }));
+  assert.deepStrictEqual(verify([{ ...record, bindings: bodyRows,
+    exports: record.exports.map((entry, index) => ({ ...entry, target: { kind: "binding", occurrence: bodyRows[index].occurrence } })) }]), []);
+  const emptyRecord = { ...record, bindings: [], exports: [] };
+  assert.deepStrictEqual(verify([emptyRecord, emptyRecord]), [
+    violation("binding-capture-owner", "a binding table must have exactly one module owner"),
+  ]);
+  const noDefault = new Map([[actual.module, { nodeOf: reference => {
+    const node = domain.nodeOf(reference);
+    return reference.value.node === first.occurrence.value.node ? { ...node, kind: "ImportClause", name: null } : node;
+  } }]]);
+  const index = { ...fixture.index, modules: [record] };
+  assert.deepStrictEqual(verifyModuleBindings(programLookup(index), index, context, noDefault), missingRows);
+});
+
 test("ir-program public values are exactly the eight locked ports", () => {
   assert.deepEqual(Object.keys(product).sort(), [
     "canonicalizeProgram", "createProgramVerificationWork", "instantiate", "parseModuleBodies", "parseProgramIndex",
@@ -619,6 +712,25 @@ test("constant publication receipts retain each selected producer context", asyn
   fixture.index.constants = fixture.index.constants.filter(row => row.reference.context !== "enum-member");
   assert.equal(moduleViolations(fixture.index, fixture.module, fixture.context).some(row => row.rule === "binding-artifact-present"), true,
     "a receipt for another context never answers this reference");
+});
+
+test("ir-program retains one actual selected-native identity at its ready and publication boundaries", () => {
+  const fixture = moduleFixture();
+  assert.deepEqual(product.verifyProgramIndex(fixture.index, fixture.context), { kind: "complete", violations: [] });
+  for (const key of [undefined, null, "", 1]) assert.throws(() =>
+    product.verifyProgramIndex(fixture.index, { ...fixture.context, nativeFactsKey: key }),
+    { name: "TypeError", message: "Program verification requires the selected native facts identity" });
+  assert.throws(() => product.verifyProgramIndex(fixture.index, { ...fixture.context, nativeFactsKey: "different" }),
+    { name: "TypeError", message: "Program verification requires the matching selected native facts record" });
+  assert.throws(() => product.verifyProgramIndex(fixture.index, { ...fixture.context,
+    selectedNativeFacts: { ...fixture.context.selectedNativeFacts, nativeIntegerWidths: [{ carrier: "native-int", bits: 0 }] } }),
+    { name: "TypeError", message: "Program verification requires the matching selected native facts record" });
+  for (const key of [undefined, null, "", "different"]) assert.deepEqual(
+    product.verifyProgramIndex({ ...fixture.index, nativeFactsKey: key }, fixture.context),
+    { kind: "complete", violations: [{ rule: "native-facts-identity", site: { kind: "index" }, detail: [] }] });
+  const printed = product.printProgramIndex(fixture.index);
+  const without = printed.slice(0, printed.lastIndexOf(", nativeFactsKey=")) + ")\n";
+  assert.equal(product.parseProgramIndex(without).kind, "invalid-text", "removed identity-free index grammar is rejected");
 });
 
 test("ir-program negative-zero binding maximum is the inherited zero budget", () => {
@@ -874,7 +986,7 @@ const punctuationFaults = new Map();
 const recordFaults = new Map();
 const extraFieldFaults = new Map();
 const recordChoices = new Map([
-  ...["ProgramIndex", "PackageRecord", "PackageExport", "ModuleRecord", "DefinitionNode", "ModuleExport", "BodyRecord", "ConstantRecord", "ConstantReference",
+  ...["ProgramIndex", "PackageRecord", "PackageExport", "ModuleRecord", "DefinitionNode", "HirModuleExport", "HirModuleBinding", "CheckerDiagnosticRef", "BodyRecord", "ConstantRecord", "ConstantReference",
     "Diagnostic", "RelatedDiagnostic", "DiagnosticFix", "TextEdit", "LocalRef", "NodeRef", "ItemNodeRef", "LibraryModuleIdentity",
     "CommentDirective", "HirAttribute", "BindingVector", "TypeParameterIdentity"].map(name => [name, [name]]),
   ...["advertised", "api-signature", "api-body"].map(name => [name, ["advertised", "api-signature", "api-body"]]),
@@ -899,6 +1011,23 @@ for (const path of casePaths.filter(path => path.includes("/function/"))) {
   for (const text of documents) authoredDocuments.push({ text, index: expected.value?.program?.index ?? input.index });
 }
 const signatureFixture = moduleFixture();
+
+test("Program binding facts retain the same complete original cause relation through the required schema", () => {
+  const fixture = moduleFixture();
+  const causes = capturedCauses(fixture.module.module, fixture.definition, fixture.bodyId);
+  const target = { kind: "unavailable", reason: "checker-error", causes };
+  const index = { ...fixture.index, modules: [{ ...fixture.index.modules[0], bindings: [
+    { occurrence: { kind: "item", value: { owner: fixture.definition, node: 0 } }, target },
+  ] }] };
+  const text = product.printProgramIndex(index);
+  const parsed = product.parseProgramIndex(text);
+  assert.equal(parsed.kind, "parsed", parsed.kind === "parsed" ? undefined : JSON.stringify(parsed));
+  assert.deepEqual(parsed.value.modules[0].bindings[0].target, target);
+  assert.equal(product.parseProgramIndex(text.replace("causes=[diagnostic(", "removedCauses=[diagnostic(")).kind, "invalid-text");
+  const group = causes.find(cause => cause.kind === "unit" && cause.unit.position.kind === "inference-variable").unit.position.group;
+  for (const malformed of ["7", JSON.stringify("not-a-group")])
+    assert.equal(product.parseProgramIndex(text.replace(`group=${JSON.stringify(group)}`, `group=${malformed}`)).kind, "invalid-text");
+});
 const emptyWireIndex = { schema: 1, nativeFactsKey: signatureFixture.index.nativeFactsKey, rootPackage: signatureFixture.index.rootPackage, packages: [], modules: [],
   types: { terms: [], signatures: [] }, signatures: [], bodies: [], executions: [], metadata: [], summaries: [], constants: [], diagnostics: [] };
 for (const kind of ["advertised", "api-signature", "api-body"]) for (const body of kind === "api-body" ? [null, signatureFixture.bodyId] : [undefined]) {
@@ -947,7 +1076,7 @@ for (const kind of ["advertised", "api-signature", "api-body"]) for (const body 
   const ref = { kind: "item", value: { owner: definition, node: 2 } };
   const bodyRef = { body, node: 2 };
   const empty = { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] };
-  const unavailable = { kind: "unavailable", reason: "not-provided" };
+  const unavailable = { kind: "unavailable", reason: "not-provided", causes: [] };
   const captured = Object.fromEntries(["provider", "markers", "pointerType", "pointerOperation", "fieldBinding", "recordBinding", "attribute", "safety", "argumentPassing", "flowState"].map(name => [name, unavailable]));
   captured.pointerOperation = { kind: "available", value: { family: "raw-memory", operation: "raw-to-address-integer", raw: ref,
     integer: { width: 32, runtimeBase: "number", signedness: "unsigned" }, dataLayout: ref } };
@@ -960,7 +1089,7 @@ for (const kind of ["advertised", "api-signature", "api-body"]) for (const body 
   const nodeRef = `NodeRef(body=body:${JSON.stringify(body)}, node=n:2)`;
   const origin = `Origin(module=mod:${JSON.stringify(node.origin.module)}, start=0, length=0, derived=[])`;
   const pointer = `available(value=HirPointerOperationCapture(family="raw-memory", operation="raw-to-address-integer", raw=${sourceRef}, integer=HirAddressIntegerCapture(width=32, runtimeBase="number", signedness="unsigned"), dataLayout=${sourceRef}))`;
-  const core = `HirCoreCapture(provider=unavailable(reason="not-provided"), markers=unavailable(reason="not-provided"), pointerType=unavailable(reason="not-provided"), pointerOperation=${pointer}, fieldBinding=unavailable(reason="not-provided"), recordBinding=unavailable(reason="not-provided"), attribute=unavailable(reason="not-provided"), safety=unavailable(reason="not-provided"), argumentPassing=unavailable(reason="not-provided"), flowState=unavailable(reason="not-provided"))`;
+  const core = `HirCoreCapture(provider=unavailable(reason="not-provided", causes=[]), markers=unavailable(reason="not-provided", causes=[]), pointerType=unavailable(reason="not-provided", causes=[]), pointerOperation=${pointer}, fieldBinding=unavailable(reason="not-provided", causes=[]), recordBinding=unavailable(reason="not-provided", causes=[]), attribute=unavailable(reason="not-provided", causes=[]), safety=unavailable(reason="not-provided", causes=[]), argumentPassing=unavailable(reason="not-provided", causes=[]), flowState=unavailable(reason="not-provided", causes=[]))`;
   const result = `TypeEvidence(type=t:0, component=body(value=${nodeRef}), category=known(category="number"), numeric=null, sum=null, nominal=null, pointer=null)`;
   const decision = `DeferredDecision(invocation=DeferredInvocation(rule="core", input=CoreInput(context=RuleContext(occurrence=${nodeRef}, origin=${origin}, bindings=${parameterless}), captured=${core}, declaration=def:${JSON.stringify(definition)}, operands=[], result=${result}, permissionScope=${nodeRef})), result=t:0)`;
   const phase = `TypedNumber(type=t:0, convertedType=t:0, conversion=deferred(deferred=${decision}), narrowing=null, evidenceIndex=null, demand=always(), role="value", value=ExactRational(numerator=1n, denominator=1n, negativeZero=false))`;
@@ -977,6 +1106,64 @@ for (const kind of ["advertised", "api-signature", "api-body"]) for (const body 
     completeTextFault(input.index, text.slice(0, offset) + "7" + text.slice(offset + 2), offset, ["32", "64"], false);
   });
 }
+{
+  const definition = signatureFixture.definition;
+  const module = signatureFixture.module.module;
+  const owner = `def:${JSON.stringify(definition)}`;
+  const moduleText = `mod:${JSON.stringify(module)}`;
+  const item = node => `item(value=ItemNodeRef(owner=${owner}, node=n:${node}))`;
+  const body = node => `body(value=NodeRef(body=body:${JSON.stringify(signatureFixture.bodyId)}, node=n:${node}))`;
+  const occurrence = node => node === 1 ? { kind: "body", value: { body: signatureFixture.bodyId, node } }
+    : { kind: "item", value: { owner: definition, node } };
+  const values = [
+    [{ kind: "available", value: { kind: "declarations", definitions: [definition] } }, `available(value=declarations(definitions=[${owner}]))`],
+    [{ kind: "available", value: { kind: "binding", occurrence: occurrence(0) } }, `available(value=binding(occurrence=${item(0)}))`],
+    [{ kind: "available", value: { kind: "module", module } }, `available(value=module(module=${moduleText}))`],
+    [{ kind: "available", value: { kind: "member", through: { kind: "binding", occurrence: occurrence(0) },
+      key: { kind: "available", value: { kind: "text", value: "field" } }, origins: { kind: "available", value: [{ kind: "declared", declaration: definition }] } } },
+      `available(value=member(through=binding(occurrence=${item(0)}), key=available(value=text(value="field")), origins=available(value=[declared(declaration=${owner})])))`],
+    [{ kind: "available", value: { kind: "unresolved", diagnostics: [{ module, index: 0 }] } },
+      `available(value=unresolved(diagnostics=[CheckerDiagnosticRef(module=${moduleText}, index=0)]))`],
+    [{ kind: "unavailable", reason: "incomplete-association", causes: [] }, 'unavailable(reason="incomplete-association", causes=[])'],
+  ];
+  const bindings = values.map(([target], node) => ({ occurrence: occurrence(node), target }));
+  const exports = [{ name: "direct", target: { kind: "declarations", definitions: [definition] } },
+    { name: "alias", target: { kind: "binding", occurrence: occurrence(0) } }];
+  const moduleRecord = `ModuleRecord(module=${moduleText}, package=pkg:${JSON.stringify(emptyWireIndex.rootPackage)}, items=[DefinitionNode(definition=${owner}, node=n:0)], exports=[HirModuleExport(name="direct", target=declarations(definitions=[${owner}])), HirModuleExport(name="alias", target=binding(occurrence=${item(0)}))], bindings=[${values.map(([, target], node) => `HirModuleBinding(occurrence=${node === 1 ? body(node) : item(node)}, target=${target})`).join(", ")}], checkerDiagnostics=[])`;
+  const text = `ProgramIndex(schema=1, rootPackage=pkg:${JSON.stringify(emptyWireIndex.rootPackage)}, packages=[], modules=[${moduleRecord}], types=TypeTable(terms=[], signatures=[]), signatures=[], bodies=[], metadata=[], summaries=[], constants=[], diagnostics=[], nativeFactsKey=${JSON.stringify(emptyWireIndex.nativeFactsKey)})`;
+  const index = { ...emptyWireIndex, modules: [{ module, package: emptyWireIndex.rootPackage, items: [{ definition, node: 0 }], exports, bindings, checkerDiagnostics: [] }] };
+  authoredDocuments.push({ text, index });
+  test("ir-program independently authored binding grammar retains every closed target without claiming semantic verification", () => {
+    completeProgramValue(product.parseProgramIndex(text), { kind: "parsed", value: index }, "the complete independently authored structural binding grammar");
+    assert.equal(product.printProgramIndex(index), text + "\n");
+    for (const [needle, choices] of [["target=declarations(", ["declarations", "binding"]],
+      ["value=declarations(", ["declarations", "binding", "module", "member", "unresolved"]]]) {
+      const offset = text.indexOf(needle) + needle.indexOf("=") + 1;
+      const changed = text.slice(0, offset) + "wrong" + text.slice(offset + "declarations".length);
+      completeTextFault(index, changed, offset, choices);
+    }
+  });
+}
+
+{
+  const path = "test/host-cases/ir-program/function/phase-name-value";
+  const input = decodeFixtureJson(readFileSync(resolve(repository, `${path}.input.json`), "utf8"));
+  const prior = decodeFixtureJson(readFileSync(resolve(repository, `${path}.expected.json`), "utf8")).value.printed;
+  const node = input.module.tree.statements.nodes[0].expression;
+  const body = input.module.tree.tsonic.template.body;
+  const binding = { kind: "body", value: { body, node: node.id } };
+  const start = prior.lastIndexOf("tsonic=TypedName(");
+  const end = prior.indexOf("\n", start);
+  const phase = `tsonic=TypedName(role="binding-name", binding=body(value=NodeRef(body=body:${JSON.stringify(body)}, node=n:${node.id}))))`;
+  const text = prior.slice(0, start) + phase + prior.slice(end);
+  node.tsonic = { role: "binding-name", binding };
+  authoredDocuments.push({ text, index: input.index });
+  test("ir-program independently authored binding-name wire retains its qualified occurrence without a fake definition", () => {
+    completeProgramValue(product.parseModuleBodies(input.index, text), { kind: "parsed", value: input.module }, "structural binding-name transport, not semantic source verification");
+    assert.equal(product.printModuleBodies(input.index, input.module), text);
+  });
+}
+
 for (const { text, index } of authoredDocuments) {
     const records = [];
     const tokens = /"(?:[^"\\]|\\.)*"|([A-Za-z_$][A-Za-z0-9_$-]*)([=(])|([()[\]])/g;
@@ -1471,11 +1658,14 @@ for (const capture of ["attribute", "application-attribute", "root", "placement"
 });
 
 // Binding captures (SCHEMA-MIGRATION.md 5.2, PB1-PB5): each record through the canonical copy, the text and Instantiate.
-const bindingUnavailable = reason => ({ kind: "unavailable", reason });
+const bindingUnavailable = reason => ({ kind: "unavailable", reason, causes: [] });
 for (const [name, select] of [
   ["complete field binding", records => ({ fieldBinding: records.field })],
   ["field binding with every inner fact unavailable", records => ({ fieldBinding: { ...records.field, bindings: bindingUnavailable("parameter-dependent"),
     owner: bindingUnavailable("checker-error"), pointee: bindingUnavailable("not-provided"), field: bindingUnavailable("not-provided") } })],
+  ["field binding whose inner facts carry the reasons of missing evidence", records => ({ fieldBinding: { ...records.field,
+    bindings: bindingUnavailable("missing-original-component"), owner: bindingUnavailable("incomplete-association"),
+    pointee: bindingUnavailable("unsupported-checked-structure"), field: bindingUnavailable("missing-original-component") } })],
   ["complete record binding", records => ({ recordBinding: records.record })],
   ["record binding without field entries", records => ({ recordBinding: { ...records.record, fields: [] } })],
   ["record binding with every inner fact unavailable", records => ({ recordBinding: { ...records.record, bindings: bindingUnavailable("parameter-dependent"),
@@ -1574,7 +1764,7 @@ test("ir-program binding capture records move the Instantiate work and created-r
   const fixture = moduleFixture();
   const input = decodeFixtureJson(readFileSync(resolve(repository, "test/host-cases/ir-program/function/six-core-safety-1.input.json"), "utf8"));
   const available = value => ({ kind: "available", value });
-  const unavailable = { kind: "unavailable", reason: "not-provided" };
+  const unavailable = { kind: "unavailable", reason: "not-provided", causes: [] };
   const empty = { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] };
   const occurrence = { body: fixture.bodyId, node: 0 };
   const moduleOf = (fieldBinding, recordBinding) => {
@@ -2097,6 +2287,8 @@ for (const kind of ["goto", "unreachable", "switch", "await", "yield", "yield-ab
         destination: null, next: 0, unwind, step: null };
     }
     block.terminator = { ...site, ...terminator };
+    // The body is neither asynchronous nor a generator: a suspension in it is refused by the MIR law that a
+    // suspension stands only in a body that can suspend (S2-18, law 5), after the findings of its values.
     const rules = kind === "return" ? ["assignment-type"] : kind === "indirect-call"
       ? ["call-receiver-exact", "call-arguments-total", "operation-selected"] : ["yield", "yield-absent", "delegate"].includes(kind)
         ? ["call-destination-type", "suspension-admitted"] : kind === "await" ? ["suspension-admitted"]
@@ -2227,6 +2419,34 @@ for (const name of mirTransportCases(moduleFixture()).map(value => value.name)) 
       types: fixture.index.types }, "the entire MIR template projection preserves all independent fields and original table rows");
 });
 
+test("ir-program conversion carriers retain native versus backed identity and reject the retired refinement value", () => {
+  const fixture = moduleFixture();
+  const header = { id: 2, origin: fixture.module.tree.origin, parent: 1, flags: [], loc: fixture.module.tree.loc };
+  const bindings = { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] };
+  const value = { type: 0, convertedType: 0, conversion: { kind: "identity" }, narrowing: null, evidenceIndex: null, demand: { kind: "always" } };
+  const literal = { ...header, kind: "NumericLiteral", text: "0", tokenFlags: [], tsonic: { ...value, role: "value",
+    value: { numerator: 0n, denominator: 1n, negativeZero: false } } };
+  for (const kind of ["library", "core"]) {
+    const operation = { permissionScope: null, decision: { kind: "selected", operation: { kind, declaration: fixture.definition, bindings },
+      operands: [0], result: 0, execution: { kind: "pure" } } };
+    const node = { ...literal, tsonic: { ...literal.tsonic, conversion: { kind: "backed-convert", role: "argument", embedding: { kind: "identity" }, operation } } };
+    completeSyntaxTransport(fixture, syntaxTransportModule({ module: fixture.module }, node, "Expression"));
+  }
+  const prefix = { ...header, kind: "PrefixUnaryExpression", operator: "PlusToken", operand: { ...literal, id: 3, parent: 2 },
+    tsonic: { ...value, role: "value", operation: { kind: "decided", decision: { permissionScope: null, decision: { kind: "selected",
+      operation: { kind: "conversion", from: 0, to: 0, embedding: { kind: "identity" } }, operands: [0], result: 0, execution: { kind: "pure" } } } } } };
+  completeSyntaxTransport(fixture, syntaxTransportModule({ module: fixture.module }, prefix, "Expression"));
+  const mir = mirTransportCases(fixture).find(entry => entry.name === "rvalue-0-use").body;
+  fixture.module.bodies[0].mir = mir;
+  const text = product.printModuleBodies(fixture.index, fixture.module);
+  const old = "value=use(operand=constant(constant=c:0))";
+  assert.equal(text.includes(old), true);
+  const replaced = text.replace(old, "value=refine(operand=constant(constant=c:0), to=t:0)");
+  const refused = product.parseModuleBodies(fixture.index, replaced);
+  assert.equal(refused.kind, "invalid-text");
+  assert.equal(refused.offset, replaced.indexOf("refine("));
+});
+
 for (const kind of ["tir", "mir", "facts", "summary"]) test(`ir-program ${kind} retains every typed relational carrier through its public document and artifact transport`, () => {
   const { first } = metadataBindingFixture("record", "field");
   const relational = relationalTransportArtifacts(first);
@@ -2352,7 +2572,7 @@ test("ir-program every signature record role and actual constant payload retains
 });
 
 test("ir-program metadata authorization retains exact selected field and record descriptor evidence", () => {
-  const unavailable = { kind: "unavailable", reason: "not-provided" };
+  const unavailable = { kind: "unavailable", reason: "not-provided", causes: [] };
   const mutations = [
     ["foreign field owner", (fixture, field) => { field.occurrence.body = fixture.second.bodyId; }],
     ["missing selected field", (_fixture, field) => { field.field = unavailable; }],
@@ -2427,7 +2647,7 @@ test("ir-program metadata witness kernel preserves selected descriptor opposites
   const { programLookup } = await import("../../packages/host/dist/ir-program/program-values.js");
   const { verificationTypes } = await import("../../packages/host/dist/ir-program/verification-work.js");
   const available = value => ({ kind: "available", value });
-  const unavailable = { kind: "unavailable", reason: "not-provided" };
+  const unavailable = { kind: "unavailable", reason: "not-provided", causes: [] };
   const check = fixture => {
     const { first } = fixture;
     const prepared = verificationTypes(first.index, first.context.resources);

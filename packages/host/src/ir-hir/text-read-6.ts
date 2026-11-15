@@ -165,11 +165,11 @@ export function createReadGroup6(readers: () => HirTextReaders): HirReadGroup6 {
       const field_value = read("value", unionReader<Hir.ImportTarget>(() => [readers().record_149, readers().record_150]));
       return { fields: [field_value], value: () => ({ kind: "available", value: field_value.value() }) };
     });
-  const record_206 = recordReader<Hir.HirCoreCarrier & { readonly role: "export-name"; readonly definition: Hir.CapturedFact<Ids.DefId>; }>("CheckedLiteral", read => {
+  const record_206 = recordReader<Hir.HirCoreCarrier & { readonly role: "export-name"; readonly binding: Ids.SourceNodeRef; }>("CheckedLiteral", read => {
       const field_core = read("core", readers().record_84);
       const field_role = read("role", readers().literal_105);
-      const field_definition = read("definition", unionReader<Hir.CapturedFact<Ids.DefId>>(() => [readers().record_165, readers().record_10]));
-      return { fields: [field_core, field_role, field_definition], value: () => ({ core: field_core.value(), role: field_role.value(), definition: field_definition.value() }) };
+      const field_binding = read("binding", readers().bindingSource);
+      return { fields: [field_core, field_role, field_binding], value: () => ({ core: field_core.value(), role: field_role.value(), binding: field_binding.value() }) };
     });
   const record_207 = recordReader<Hir.HirCoreCarrier & { readonly role: "attribute-value"; readonly literal: Types.LiteralValue; }>("CheckedLiteral", read => {
       const field_core = read("core", readers().record_84);

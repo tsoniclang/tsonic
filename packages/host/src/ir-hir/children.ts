@@ -1,4 +1,4 @@
-import type { ChildrenOfSyntax, Phase, SyntaxNode, NodeList } from "./contract.js";
+import type { ChildrenOfSyntax, IterateChildrenOfSyntax, Phase, SyntaxNode, NodeList } from "./contract.js";
 
 const emptyChildren: readonly never[] = ([]);
 
@@ -11,37 +11,41 @@ type ChildProjection<PhaseType extends Phase, Value> = (
   node: SyntaxNode<PhaseType>, field: string, index: number | null, list: boolean,
 ) => Value;
 
-function children<PhaseType extends Phase, Value>(
+function* children<PhaseType extends Phase, Value>(
   project: ChildProjection<PhaseType, Value>,
   ...parts: readonly (readonly [string, SyntaxNode<PhaseType> | NodeList<SyntaxNode<PhaseType>> | readonly SyntaxNode<PhaseType>[] | null])[]
-): readonly Value[] {
-  const result: Value[] = [];
+): Generator<Value, void, undefined> {
   for (const [field, part] of parts) {
     if (part === null) continue;
-    if ("kind" in part) result.push(project(part, field, null, false));
+    if ("kind" in part) yield project(part, field, null, false);
     else if ("nodes" in part) {
-      for (const [index, node] of part.nodes.entries()) result.push(project(node, field, index, true));
+      for (const [index, node] of part.nodes.entries()) yield project(node, field, index, true);
     } else {
-      for (const [index, node] of part.entries()) result.push(project(node, field, index, false));
+      for (const [index, node] of part.entries()) yield project(node, field, index, false);
     }
   }
-  return (result);
 }
+
+export const iterateChildrenOfSyntax: IterateChildrenOfSyntax = function* <PhaseType extends Phase>(
+  node: SyntaxNode<PhaseType>,
+): Generator<SyntaxNode<PhaseType>, void, undefined> {
+  yield* projectSyntax(node, child => child);
+};
 
 export const childrenOfSyntax: ChildrenOfSyntax = <PhaseType extends Phase>(
   node: SyntaxNode<PhaseType>,
-): readonly SyntaxNode<PhaseType>[] => projectSyntax(node, child => child);
+): readonly SyntaxNode<PhaseType>[] => [...iterateChildrenOfSyntax(node)];
 
 export function syntaxChildEdges<PhaseType extends Phase>(
   node: SyntaxNode<PhaseType>,
 ): readonly SyntaxChild<PhaseType>[] {
-  return projectSyntax(node, (child, field, index, list) => ({ node: child,
-    fields: index === null ? [field] : list ? [field, "nodes", index] : [field, index] }));
+  return [...projectSyntax(node, (child, field, index, list) => ({ node: child,
+    fields: index === null ? [field] : list ? [field, "nodes", index] : [field, index] }))];
 }
 
 function projectSyntax<PhaseType extends Phase, Value>(
   node: SyntaxNode<PhaseType>, project: ChildProjection<PhaseType, Value>,
-): readonly Value[] {
+): Iterable<Value> {
   switch (node.kind) {
     case "QualifiedName":
       return children<PhaseType, Value>(project, ["left", node.left], ["right", node.right]);
