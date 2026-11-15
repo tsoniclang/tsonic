@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { before, test } from "node:test";
+import { isDeepStrictEqual } from "node:util";
 import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
 import { checkedDomain } from "./fixtures/front/checked-domain.mjs";
 
@@ -464,6 +465,39 @@ test("actual plain local assignment retains the RHS embedding and writable targe
     .find(candidate => candidate.kind === "flow" && candidate.role === "assignment");
   assert.deepEqual(retained, flow);
   assert.equal(wiring.elaborate.elaborate(deps, input).kind, "ok");
+});
+
+test("throwing an actual string formal retains the value channel without a return flow to never", async () => {
+  const program = ready("export function escape(value:string):never{throw value;}");
+  const body = program.checked.bodies.find(candidate => candidate.root.kind === "Block");
+  const group = program.inputs.groups.find(candidate => candidate.bodies.includes(body.body));
+  const completed = program.database.run(program.queries.solutionOf, group.id);
+  assert.equal(completed.kind, "completed");
+  assert.equal(completed.diagnostics.length, 0);
+  const constraints = completed.value.constraints.constraints.find(candidate => candidate.body === body.body);
+  assert.deepEqual(constraints.variables, []);
+  assert.deepEqual(constraints.constraints, []);
+  const deps = { types: program.interner, rules: program.inputs.inference.rules, nodeOf: program.domain.nodeOf,
+    bindingOf: program.inputs.inference.bindingOf, typeOf: type => fixture.types.readType(program.interner, type),
+    signatureOf: signature => fixture.types.readSignature(program.interner, signature), checkerDiagnosticsOf: () => program.checked.checkerDiagnostics };
+  const input = { instance: { body: body.body, bindings: { kind: "parametric" } }, scope: program.descriptions.get(body.owner).generics,
+    body, constraints, solution: completed.value.solution, template: null, nestedBodies: [], initializers: [] };
+  const result = wiring.elaborate.elaborate(deps, input);
+  assert.equal(result.kind, "ok");
+  const statement = result.value.root.statements.nodes[0];
+  const checked = body.root.statements.nodes[0];
+  assert.equal(statement.kind, "ThrowStatement");
+  assert.equal(statement.id, checked.id);
+  assert.deepEqual(statement.origin, checked.origin);
+  assert.equal(statement.tsonic, null);
+  assert.equal(statement.expression.id, checked.expression.id);
+  assert.deepEqual(statement.expression.tsonic.resolution, { kind: "local", local: result.value.params[0].tsonic.local });
+  assert.deepEqual(fixture.types.readType(program.interner, statement.expression.tsonic.type), { kind: "string" });
+  assert.equal(statement.expression.tsonic.convertedType, statement.expression.tsonic.type);
+  assert.deepEqual(statement.expression.tsonic.conversion, { kind: "identity" });
+  assert.deepEqual(fixture.types.readType(program.interner, result.value.completion), { kind: "intrinsic", intrinsic: "never" });
+  const tir = await import("../../packages/host/dist/ir-tir/index.js");
+  assert.equal(isDeepStrictEqual(tir.parseTir(tir.printTir(result.value)), { kind: "parsed", value: result.value }), true);
 });
 
 for (const [authored, annotation, kind, expected] of [

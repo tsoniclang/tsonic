@@ -31,7 +31,7 @@ const invariant = (message: string): InvariantFailure => ({ owner: "front", quer
  */
 const writtenKinds: readonly string[] = ["SourceFile", "EndOfFile", "ExportKeyword", "FunctionDeclaration", "Parameter",
   "Identifier", "NumberKeyword", "StringKeyword", "BooleanKeyword", "BigIntKeyword", "AnyKeyword", "UnknownKeyword", "NeverKeyword", "ObjectKeyword", "UndefinedKeyword", "VoidKeyword",
-  "Block", "ReturnStatement", "IfStatement", "BinaryExpression", "PrefixUnaryExpression", "PlusToken", "EqualsToken", "CallExpression", "ExpressionStatement", "ParenthesizedExpression",
+  "Block", "ReturnStatement", "ThrowStatement", "IfStatement", "BinaryExpression", "PrefixUnaryExpression", "PlusToken", "EqualsToken", "CallExpression", "ExpressionStatement", "ParenthesizedExpression",
   "ExportDeclaration", "NamedExports", "ExportSpecifier", "NamespaceExport", "StringLiteral", "TrueKeyword", "FalseKeyword", "NullKeyword",
   "ImportDeclaration", "ImportClause", "NamedImports", "ImportSpecifier", "NamespaceImport",
   "VariableStatement", "VariableDeclarationList", "VariableDeclaration", "InterfaceDeclaration", "TypeAliasDeclaration", "TypeLiteral", "TypeParameter", "PropertySignature",
@@ -564,6 +564,8 @@ function buildStatement(lowering: Lowering, node: Hir.Statement<Syntax>, owner: 
     }
     case "ReturnStatement":
       return { kind: "complete", value: { ...headerOf(node), kind: "ReturnStatement", expression: node.expression === null ? null : expression(lowering, node.expression), tsonic: null } };
+    case "ThrowStatement":
+      return { kind: "complete", value: { ...headerOf(node), kind: "ThrowStatement", expression: expression(lowering, node.expression), tsonic: null } };
     case "IfStatement":
       return { kind: "complete", value: { ...headerOf(node), kind: "IfStatement", expression: expression(lowering, node.expression),
         thenStatement: statement(lowering, node.thenStatement),
@@ -640,7 +642,7 @@ function* checkedChildren(work: CheckedWork): Generator<CheckedWork, void, undef
       const statement = node.statements.nodes[statementIndex++];
       if (statement === undefined || statement !== child) return throwInvariant(invariant("A block child is not its canonical statement occurrence."));
       yield { kind: "statement", node: statement, owner };
-    } else if (node.kind === "ReturnStatement" || node.kind === "ExpressionStatement") {
+    } else if (node.kind === "ReturnStatement" || node.kind === "ThrowStatement" || node.kind === "ExpressionStatement") {
       if (child === node.expression && node.expression !== null) yield { kind: "expression", node: node.expression, owner };
     } else if (node.kind === "IfStatement") {
       if (child === node.expression) yield { kind: "expression", node: node.expression, owner };

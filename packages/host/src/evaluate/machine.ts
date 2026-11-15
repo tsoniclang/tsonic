@@ -1,12 +1,12 @@
 import type { ErrorValue, UnitRef } from "../diag/contract.js";
 import { requirePresent, throwInvariant, unitPositionData } from "../diag/index.js";
-import type { BlockId, BodyId, LocalId, Origin, PlaceId } from "../ids/contract.js";
+import type { BlockId, BodyId, LocalId, Origin, PlaceId, TyId } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import type { MirBody, MirOperand, MirSite, MirTerminator, MirUnwind } from "../ir-mir/contract.js";
 import { localOwnershipOfMir } from "../ir-mir/index.js";
 import type { OperationIdentity } from "../ir-infer/contract.js";
 import type { BodyInstance, ConstValue } from "../ir-types/contract.js";
-import { sameInstance } from "../ir-types/index.js";
+import { nativeCarrierOf, sameInstance } from "../ir-types/index.js";
 import type { Evaluate, EvaluateDeps, EvaluationStep, ResumeEvaluate } from "./contract.js";
 import type { EvaluationResult } from "./data.js";
 import type { Cell, Frame, Machine as EvaluationMachine, ReadyCall, Task } from "./pause.js";
@@ -367,6 +367,17 @@ function stringOperation(
 }
 
 
+function nativeBooleanCarrier(machine: Machine, type: TyId, site: MirSite): boolean {
+  const selected = nativeCarrierOf(machine.deps.types, type, current => {
+    if (!arithmetic(machine, 1, site.origin)) return null;
+    return machine.deps.typeOf(current);
+  });
+  if (selected.kind === "resource-stop") return false;
+  if (selected.kind !== "primitive" || selected.primitive !== "bool")
+    return fail("Evaluate needs the actual selected native boolean carrier association.", site.origin);
+  return true;
+}
+
 function apply(machine: Machine, selected: Extract<Task, { readonly kind: "apply" }>["operation"], site: MirSite, unwind: MirUnwind | null): void {
   const operation = selected.decision.operation;
   if (operation.kind === "library" || operation.kind === "core") {
@@ -377,7 +388,8 @@ function apply(machine: Machine, selected: Extract<Task, { readonly kind: "apply
     put(machine, { kind: "absence", type: selected.decision.result }, site);
     return;
   }
-  if (operation.kind === "native-operator") {
+  const nativeBoolean = operation.kind === "native-operator" && operation.carrier === "bool" && operation.operator === "!";
+  if (operation.kind === "native-operator" && !nativeBoolean) {
     const value = integerOperation(machine, operation, selected.decision.result, site, unwind, current(machine).values);
     if (value !== null) put(machine, value, site);
     return;
@@ -386,7 +398,7 @@ function apply(machine: Machine, selected: Extract<Task, { readonly kind: "apply
     stringOperation(machine, operation, selected.decision.result, site);
     return;
   }
-  if (operation.kind !== "boolean-operator" && operation.kind !== "absence-test") return fail("Evaluate needs the actual selected native operation law.", site.origin);
+  if (!nativeBoolean && operation.kind !== "boolean-operator" && operation.kind !== "absence-test") return fail("Evaluate needs the actual selected native operation law.", site.origin);
   const first = current(machine).values[0];
   if (first === undefined) return fail("A selected boolean operation must have its actual operand.", site.origin);
   if (machine.deps.limits.maximumIntermediateBits < 1) { limit(machine, "maximumIntermediateBits", site.origin); return; }
@@ -395,6 +407,7 @@ function apply(machine: Machine, selected: Extract<Task, { readonly kind: "apply
   if (operation.kind === "absence-test") value = operation.negated ? first.kind !== "absence" : first.kind === "absence";
   else {
     if (first.kind !== "boolean") return fail("A selected boolean operation must receive its verified boolean value.", site.origin);
+    if (nativeBoolean && (!nativeBooleanCarrier(machine, selected.decision.result, site) || !nativeBooleanCarrier(machine, first.type, site))) return;
     if (operation.operator === "!") value = !first.value;
     else {
       const second = current(machine).values[1];

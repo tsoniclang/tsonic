@@ -127,6 +127,52 @@ test("selected boolean work refuses at every under-limit allowance and completes
   }
 });
 
+test("actual Rules-selected native boolean negation shares the Boolean evaluator", () => {
+  for (const input of [false, true]) {
+    const decision = selected({ kind: "native-operator", operator: "!", carrier: "bool" }, [T.bool], T.bool);
+    const value = fixture(`evaluate-native-boolean.${input}`, T.bool, builder => builder.block(builder.returns(
+      builder.prefix(builder.keyword(input ? "TrueKeyword" : "FalseKeyword", T.bool), "ExclamationToken", T.bool, decision))));
+    const result = value.start();
+    same(result.value.value, { kind: "value", value: { kind: "boolean", type: T.bool, value: !input } },
+      "the retained native bool decision executes directly, without an integer or source-spelling surrogate");
+  }
+});
+
+test("selected native boolean negation pays actual carrier reads and retains first refusal without policy reads", () => {
+  const decision = selected({ kind: "native-operator", operator: "!", carrier: "bool" }, [T.bool], T.bool);
+  const value = fixture("evaluate-native-boolean.work", T.bool, builder => builder.block(builder.returns(
+    builder.prefix(builder.keyword("TrueKeyword", T.bool), "ExclamationToken", T.bool, decision))));
+  for (let maximum = 0; maximum <= 3; maximum += 1) {
+    let reads = 0;
+    const result = product.evaluate({ ...value.deps, limits: { ...limits, maximumArithmeticWork: maximum },
+      typeOf: type => { reads += 1; return value.deps.typeOf(type); } }, value.entry, value.body, [], "compile-time", value.unit);
+    assert.equal(result.value.kind, maximum < 3 ? "refused" : "ok", `native bool work:${maximum}`);
+    assert.equal(reads, Math.max(0, maximum - 1), "the operand work and each actual type lookup are admitted before any next read");
+    if (maximum < 3) same(result.value.diagnostics[0].arguments,
+      [{ kind: "text", value: "evaluation.maximumArithmeticWork" }, { kind: "number", value: maximum }], "same original arithmetic stop");
+  }
+  const unread = new Proxy({}, { get() { assert.fail("A native Boolean negation has no numeric policy lookup."); } });
+  const result = product.evaluate({ ...value.deps, selectedNativeFacts: unread }, value.entry, value.body, [], "compile-time", value.unit);
+  assert.equal(result.value.value.value.value, false);
+  for (const field of ["maximumIntermediateBits", "maximumResultBits"])
+    for (let maximum = 0; maximum <= 1; maximum += 1)
+      assert.equal(value.start({ ...limits, [field]: maximum }).value.kind, maximum === 0 ? "refused" : "ok");
+});
+
+test("native boolean operands retain their canonical literal base and malformed association frontier", () => {
+  const literal = declareType("evaluation.nativeBoolLiteral", { kind: "literal", value: { kind: "boolean", value: true }, base: T.bool });
+  const decision = selected({ kind: "native-operator", operator: "!", carrier: "bool" }, [literal], T.bool);
+  const value = fixture("evaluate-native-boolean.literal", T.bool, builder => builder.block(builder.returns(
+    builder.prefix(builder.keyword("TrueKeyword", literal), "ExclamationToken", T.bool, decision))));
+  assert.equal(value.start().value.value.value.value, false);
+  const invoke = (deps = value.deps, body = value.body) => product.evaluate(deps, value.entry, body, [], "compile-time", value.unit);
+  const changed = structuredClone(value.body);
+  changed.blocks.flatMap(block => block.statements).find(row => row.value?.kind === "unary").value.operation.decision.result = T.unknown;
+  assert.throws(() => invoke(value.deps, changed), /actual selected native boolean carrier association/u);
+  assert.throws(() => invoke({ ...value.deps, typeOf: type => type === literal ? { kind: "shape", members: [], indexes: [], calls: [], constructs: [] }
+    : value.deps.typeOf(type) }), /actual selected native boolean carrier association/u);
+});
+
 test("selected exact string equality preserves payloads and charges both operands before comparison", () => {
   for (const [index, [left, right]] of [["", ""], ["λ", "λ"], ["\u0000\n", "\u0000\n"], ["e\u0301", "é"], ["a", "b"]].entries()) {
     for (const operator of ["==", "===", "!=", "!=="]) {

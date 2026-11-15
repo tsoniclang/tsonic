@@ -411,6 +411,10 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
         if (building) statements[position] = { ...header(node), kind: "ExpressionStatement", expression: expressionOf(node.expression), tsonic: null };
         else visit(node.expression);
         return;
+      case "ThrowStatement":
+        if (building) statements[position] = { ...header(node), kind: "ThrowStatement", expression: expressionOf(node.expression), tsonic: null };
+        else visit(node.expression);
+        return;
       case "IfStatement":
         if (building) statements[position] = { ...header(node), kind: "IfStatement", expression: expressionOf(node.expression),
           thenStatement: statementOf(node.thenStatement), elseStatement: node.elseStatement === null ? null : statementOf(node.elseStatement), tsonic: null };
