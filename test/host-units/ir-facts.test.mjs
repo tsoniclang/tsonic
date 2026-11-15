@@ -3929,7 +3929,8 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
     input.arena.boundProducers.push({ id: 1, producer: 1, bindings: emptyBindings(), context: 0 });
     input.arena.cells = [cell(0)]; input.arena.contexts[0].captures = [{ index: 0, location: 0, cell: 0 }, { index: 1, location: 1, cell: 0 }];
     input.arena.contexts.push({ id: 1, receiver: null, arguments: [0, 0], captures: [{ index: 0, location: 1, cell: 0 }] });
-    first.resolution.activation = { body: selectedBody, bindings: parametric() }; first.resolution.decision.api.body = selectedBody;
+    first.resolution.activation = { body: selectedBody, bindings: { kind: "instantiated",
+      bindings: clone(first.resolution.decision.implementationBindings) } }; first.resolution.decision.api.body = selectedBody;
     const second = clone(first); second.context = 1; second.summary.execution.request.definition = definitions.other;
     second.resolution.activation.body = otherBody; second.resolution.decision.advertised.declaration = definitions.other;
     second.resolution.decision.advertised.signature = 2; second.resolution.decision.api.declaration = definitions.other;
@@ -3939,6 +3940,7 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
     input.origins.invocations[0].alternatives.push(second);
     for (const [bodyId, definitionId, signatureId, captured] of [[selectedBody, definitions.callee, 1, [locations[0], locations[1]]], [otherBody, definitions.other, 2, [locations[1]]]]) {
       const actual = tir(); actual.body = bodyId; actual.owner = definitionId; actual.signature = signatureId;
+      actual.bindings = clone(first.resolution.activation.bindings);
       actual.params = [definitions.parameter, definitions.capture].map((declaration, local) => parameterSyntax(actual, local, parameter(declaration)));
       actual.captures = rowsOf(captured);
       actual.locals = actual.params.map(parameter => ({ id: parameter.local, declaration: itemRef(parameter.declaration),

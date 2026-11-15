@@ -326,7 +326,8 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
     captureCount: key => key.kind === "body" ? readyBody(key.execution.instance).captures.length : null,
     callbackSignaturesOf: () => null,
     arenaOf: owner => {
-      const answer = summaries.get(summaryKey(owner.kind === "body" ? { kind: "body", execution: owner.execution } : owner.key));
+      if (owner.kind === "body") return facts.get(executionKey(owner.execution))?.arena ?? null;
+      const answer = summaries.get(summaryKey(owner.key));
       return answer !== undefined && !("kind" in answer.value) ? answer.value.arena : null;
     },
     summaryOf: key => {

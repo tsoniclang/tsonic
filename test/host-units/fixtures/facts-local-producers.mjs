@@ -44,6 +44,9 @@ export async function localProducerCases(suite) {
       const text = printFacts(input.facts);
       assert.deepEqual(parseFacts(text), { kind: "parsed", value: input.facts });
       assert.equal(parseFacts(text.replace("local=LocalRef(", "slot=LocalRef(")).kind, "invalid-text");
+      input.owner = { kind: "summary", key: { kind: "body", execution: input.facts.execution } };
+      input.context.arenaOf = () => input.facts.arena;
+      assert.deepEqual(checked(input), { kind: "complete", violations: [] }, "a body Summary retains the actual same selected source-local authority");
     }
   });
 
@@ -61,6 +64,7 @@ export async function localProducerCases(suite) {
       const result = checked(input);
       assert.equal(result.kind, "complete");
       assert.equal(result.violations.some(row => row.rule === "producer-resolves"), true, change);
+      verificationStops(account => checked(input, account));
     }
   });
 

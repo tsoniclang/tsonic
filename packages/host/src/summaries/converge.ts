@@ -118,7 +118,9 @@ export const convergeComponent: ConvergeComponent = (deps, input) => {
       summaries.set(key, { value: pair.summary, unit: { request: member.unit, position: { kind: "result" } } });
       const context = { ...deps.verification,
         arenaOf: (owner: RelationalOwner) => {
-          const selected = summaries.get(summaryKey(owner.kind === "body" ? { kind: "body", execution: owner.execution } : owner.key));
+          const requested = summaryKey(owner.kind === "body" ? { kind: "body", execution: owner.execution } : owner.key);
+          if (owner.kind === "body") return requested === key ? pair.facts.arena : deps.verification.arenaOf(owner);
+          const selected = summaries.get(requested);
           return selected !== undefined && !("kind" in selected.value) ? selected.value.arena : deps.verification.arenaOf(owner);
         },
         summaryOf: (requested: SummaryKey) => {

@@ -3,6 +3,7 @@ import { accountFailure, chargeResultEntries, chargeWork, solve } from "../../da
 import { requirePresent, throwInvariant } from "../../diag/index.js";
 import type { BlockId, LocalId } from "../../ids/contract.js";
 import type { MirBody, MirOperand, MirStatement, MirTerminator } from "../../ir-mir/contract.js";
+import { localOwnershipOfMir } from "../../ir-mir/index.js";
 import type { BodyRoundDeps, BodyRoundInput } from "./contract.js";
 import type { CallError } from "./calls.js";
 import { callSummary, isCallError } from "./calls.js";
@@ -116,7 +117,8 @@ export function solveAssigned(deps: BodyRoundDeps, input: Pick<BodyRoundInput, "
   const boundary = new Set<LocalId>();
   for (const local of body.locals) {
     if (local.role.kind === "parameter" && local.role.index < provided
-      || local.role.kind === "receiver" || local.role.kind === "capture") boundary.add(local.id);
+      || local.role.kind === "receiver"
+      || local.role.kind === "capture" && localOwnershipOfMir(local.mode) === "body") boundary.add(local.id);
   }
   const problem: ForwardProblem<Assigned> = {
     direction: "forward", boundary,
