@@ -350,9 +350,19 @@ export function elaborateBody(deps: ElaborateDeps, input: ElaborateInput): Resul
     if (node.modifiers !== null || node.type !== null) notElaboratedYet("a binary expression with modifiers or a type", node.origin);
     const role = node.tsonic.role;
     if (role !== "arithmetic" && role !== "comparison" && role !== "assignment") return notElaboratedYet(`a binary expression of role ${role}`, node.origin);
-    if (role === "assignment" && (node.operatorToken.kind !== "EqualsToken" || node.left.kind !== "Identifier"
-      || node.left.tsonic.role !== "assignment-target" || node.tsonic.target.kind !== "available"))
-      return notElaboratedYet("a plain assignment without its checked local target", node.origin);
+    if (role === "assignment") {
+      const target = node.tsonic.target;
+      if (node.operatorToken.kind !== "EqualsToken" || node.left.kind !== "Identifier"
+        || node.left.tsonic.role !== "assignment-target" || node.left.tsonic.access !== "write"
+        || node.left.tsonic.resolution.kind !== "local" || node.left.tsonic.place.kind !== "available"
+        || node.left.tsonic.place.value.write.kind !== "available"
+        || target.kind !== "available" || target.value.base.kind !== "root" || target.value.base.resolution.kind !== "local"
+        || target.value.base.resolution.local.body !== node.left.tsonic.resolution.local.body
+        || target.value.base.resolution.local.local !== node.left.tsonic.resolution.local.local
+        || target.value.step !== null || target.value.write.kind !== "available" || target.value.write.value === null
+        || target.value.write.value !== node.left.tsonic.place.value.write.value)
+        return notElaboratedYet("a plain assignment without its checked local target", node.origin);
+    }
     binaryRoles[position] = role;
   };
 

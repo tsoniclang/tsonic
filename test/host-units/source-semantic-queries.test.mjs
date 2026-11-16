@@ -402,7 +402,7 @@ for (const annotation of ["boolean", null]) test(`real ${annotation ?? "inferred
 });
 
 test("actual plain local assignment retains the RHS embedding and writable target without a fabricated operator decision", () => {
-  const program = ready("export function store(a:boolean):boolean{a=true;return a;}");
+  const program = ready("export function store(a:boolean,b:boolean):boolean{a=true;return a;}");
   const body = program.checked.bodies.find(candidate => candidate.root.kind === "Block");
   const group = program.inputs.groups.find(candidate => candidate.bodies.includes(body.body));
   const completed = program.database.run(program.queries.solutionOf, group.id);
@@ -442,20 +442,40 @@ test("actual plain local assignment retains the RHS embedding and writable targe
   });
   const place = original.place.value;
   const foreign = program.checked.bodies.find(candidate => candidate.body !== body.body).body;
-  for (const changed of [
-    { ...original, access: "read-write" },
-    { ...original, place: { kind: "unavailable", reason: "not-provided", causes: [] } },
-    { ...original, place: { kind: "available", value: { ...place, write: { kind: "available", value: null } } } },
+  for (const [changed, expected] of [
+    [{ ...original, access: "read-write" }, /plain assignment without its checked local target/u],
+    [{ ...original, place: { kind: "unavailable", reason: "not-provided", causes: [] } }, /plain assignment without its checked local target/u],
+    [{ ...original, place: { kind: "available", value: { ...place, write: { kind: "available", value: null } } } }, /plain assignment without its checked local target/u],
     ...[{ ...original.resolution.local, body: foreign }, { ...original.resolution.local, local: original.resolution.local.local + 1 }]
-      .map(local => ({ ...original, place: { kind: "available", value: { ...place,
-        base: { kind: "root", resolution: { kind: "local", local } } } } })),
+      .map(local => [{ ...original, place: { kind: "available", value: { ...place,
+        base: { kind: "root", resolution: { kind: "local", local } } } } }, /actual qualified writable storage type/u]),
   ]) {
     checked.left.tsonic = changed;
     assert.throws(() => wiring.infer.resumeConstraintsOf(program.inputs.inference, pending.paused, answers),
       /actual qualified writable local storage/u);
-    assert.throws(() => wiring.elaborate.elaborate(deps, input), /actual qualified writable storage type/u);
+    assert.throws(() => wiring.elaborate.elaborate(deps, input), expected);
   }
   checked.left.tsonic = original;
+  const binary = checked.tsonic;
+  const other = { body: body.body, local: body.params[1].local };
+  for (const changed of [
+    { ...place, base: { kind: "root", resolution: { kind: "local", local: other } } },
+    { ...place, base: { kind: "root", resolution: { kind: "local", local: { ...other, body: foreign } } } },
+    { ...place, base: { kind: "place", node: checked.left.id } },
+    { ...place, step: { kind: "deref" } },
+    { ...place, write: { kind: "available", value: null } },
+    { ...place, write: { kind: "available", value: flow.from } },
+    { ...place, write: { kind: "unavailable", reason: "not-provided", causes: [] } },
+  ]) {
+    checked.tsonic = { ...binary, target: { kind: "available", value: changed } };
+    assert.throws(() => wiring.infer.resumeConstraintsOf(program.inputs.inference, pending.paused, answers),
+      /actual writable local assignment target/u);
+    assert.throws(() => wiring.elaborate.elaborate(deps, input), /plain assignment without its checked local target/u);
+  }
+  checked.tsonic = { ...binary, target: structuredClone(binary.target) };
+  assert.equal(wiring.infer.resumeConstraintsOf(program.inputs.inference, pending.paused, answers).value.kind, "ok");
+  assert.equal(wiring.elaborate.elaborate(deps, input).kind, "ok");
+  checked.tsonic = binary;
   const generated = wiring.infer.resumeConstraintsOf({ ...program.inputs.inference,
     limits: { ...program.inputs.inference.limits, maximumVariablesPerGroup: 0 } }, pending.paused, answers);
   assert.equal(generated.kind, "done");

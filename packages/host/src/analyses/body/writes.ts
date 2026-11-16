@@ -17,6 +17,21 @@ function hasReferences(value: AppliedOriginsValue): boolean {
   return value.caller.length + value.callee.length + value.boundaries.length !== 0;
 }
 
+function primitiveLocal(deps: BodyRoundDeps, input: BodyRoundInput,
+  operation: Extract<MirTerminator, { readonly kind: "call" }>, summary: Summary, cell: number): DataflowResult<LocalId> {
+  const local = captureLocalAtCall(deps, input.mir, operation, summary, cell);
+  if (local.kind !== "complete") return local;
+  const read = chargeWork(deps.account, 1);
+  if (read !== null) return read;
+  const storage = requirePresent(input.mir.locals[local.value], { owner: "analyses/body", query: null, origin: operation.origin,
+    message: "An applied captured write retains its actual caller storage." }).storage;
+  const kind = valueKind(deps, storage);
+  const stopped = accountFailure(deps.account);
+  if (stopped !== null) return stopped;
+  if (kind !== "primitive") return frontier(operation, "BodyAnalysis requires the actual non-primitive caller-cell write transport.");
+  return local;
+}
+
 export function primitiveWrites(deps: BodyRoundDeps, input: BodyRoundInput,
   operation: Extract<MirTerminator, { readonly kind: "call" }>, summary: Summary,
   source: readonly SummaryWrite[], applied: readonly AppliedWrite[]): DataflowStop | null {
@@ -31,18 +46,33 @@ export function primitiveWrites(deps: BodyRoundDeps, input: BodyRoundInput,
       message: "An applied write retains its actual source row." });
     if (write.target.same === null || write.target.targets.length !== 1 || hasReferences(write.value) || write.value.includesAbsence)
       return frontier(operation, "BodyAnalysis requires the actual non-primitive or unresolved caller-cell write transport.");
-    const local = captureLocalAtCall(deps, input.mir, operation, summary, selected.target);
+    const local = primitiveLocal(deps, input, operation, summary, selected.target);
     if (local.kind !== "complete") return local;
-    const storageWork = chargeWork(deps.account, 1);
-    if (storageWork !== null) return storageWork;
-    const storage = requirePresent(input.mir.locals[local.value], { owner: "analyses/body", query: null, origin: operation.origin,
-      message: "An applied captured write retains its actual caller storage." }).storage;
-    const kind = valueKind(deps, storage);
-    const stopped = accountFailure(deps.account);
-    if (stopped !== null) return stopped;
-    if (kind !== "primitive") return frontier(operation, "BodyAnalysis requires the actual non-primitive caller-cell write transport.");
   }
   return null;
+}
+
+export function primitiveExitLocals(deps: BodyRoundDeps, input: BodyRoundInput,
+  operation: Extract<MirTerminator, { readonly kind: "call" }>, summary: Summary): DataflowResult<readonly LocalId[]> {
+  const start = chargeWork(deps.account, 1) ?? chargeResultEntries(deps.account, 1);
+  if (start !== null) return start;
+  const locals: LocalId[] = [];
+  for (let index = 0; index < summary.contentsOnReturn.length; index += 1) {
+    const read = chargeWork(deps.account, 2);
+    if (read !== null) return read;
+    const row = requirePresent(summary.contentsOnReturn[index], { owner: "analyses/body", query: null, origin: operation.origin,
+      message: "A finite content vector retains each actual source row." });
+    const value = requirePresent(summary.arena.origins[row.value], { owner: "analyses/body", query: null, origin: operation.origin,
+      message: "A finite content row retains its actual source Origins." });
+    if (value.kind !== "complete" || value.producers.length !== 0 || value.includesAbsence)
+      return frontier(operation, "BodyAnalysis requires the actual non-primitive finite caller-cell content transport.");
+    const local = primitiveLocal(deps, input, operation, summary, row.target);
+    if (local.kind !== "complete") return local;
+    const growth = chargeResultEntries(deps.account, 1);
+    if (growth !== null) return growth;
+    locals.push(local.value);
+  }
+  return { kind: "complete", value: locals };
 }
 
 export function recordCaptureWrite(deps: BodyRoundDeps, input: BodyRoundInput, local: LocalId, cell: number,

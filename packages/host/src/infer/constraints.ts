@@ -337,9 +337,15 @@ function leave(walk: Walk, node: HirNode): void {
   }
   else if (node.kind === "BinaryExpression") {
     if (node.operatorToken.kind === "EqualsToken" && node.tsonic.role === "assignment") {
+      const target = node.tsonic.target;
       if (node.left.kind !== "Identifier" || node.left.tsonic.role !== "assignment-target" || node.left.tsonic.access !== "write"
-        || node.tsonic.target.kind !== "available" || node.tsonic.target.value.write.kind !== "available"
-        || node.tsonic.target.value.write.value === null)
+        || node.left.tsonic.resolution.kind !== "local" || node.left.tsonic.place.kind !== "available"
+        || node.left.tsonic.place.value.write.kind !== "available"
+        || target.kind !== "available" || target.value.base.kind !== "root" || target.value.base.resolution.kind !== "local"
+        || target.value.base.resolution.local.body !== node.left.tsonic.resolution.local.body
+        || target.value.base.resolution.local.local !== node.left.tsonic.resolution.local.local
+        || target.value.step !== null || target.value.write.kind !== "available" || target.value.write.value === null
+        || target.value.write.value !== node.left.tsonic.place.value.write.value)
         return notInferredYet(PORT, "the actual writable local assignment target", node.origin);
       const storage = typeAt(walk, node.left);
       flow(walk, node.right, typeAt(walk, node.right), storage, "assignment", { kind: "body", value: refOf(walk, node.left) });

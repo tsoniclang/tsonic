@@ -18,7 +18,7 @@ import { assignedEntry, solveAssigned, statementOperands, terminatorOperands, tr
 import { prepareCallCaptures } from "./captures.js";
 import { bodyFrontier, readLocal } from "./places.js";
 import { appliedOrigins, joinOrigins, valueKind, valueOrigins } from "./values.js";
-import { operandOrigins, solveValueOrigins, transferValue } from "./value-flow.js";
+import { collectExitContents, operandOrigins, solveValueOrigins, transferValue } from "./value-flow.js";
 import { captureMustAtExit, recordInitializationPoint, sourceNeedAssigned } from "./initialization.js";
 import { collectCellWrites, recordCaptureWrite } from "./writes.js";
 import { retainExitValue } from "./exits.js";
@@ -239,9 +239,11 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
   const retention: ExitRetention[] = [];
   let returnAssigned: ReadonlySet<LocalId> | null = null;
   let unwindAssigned: ReadonlySet<LocalId> | null = null;
-  const writeInventory = chargeResultEntries(account, 1);
+  const writeInventory = chargeResultEntries(account, 3);
   if (writeInventory !== null) return writeInventory;
   const cellWrites = new Map<number, OriginsId>();
+  const normalContents = new Map<number, OriginsId>();
+  const unwindContents = new Map<number, OriginsId>();
   let resultOrigins = empty;
   let thrownOrigins = empty;
   const admitUnion = (count: number, retain: boolean): DataflowStop | null => {
@@ -261,8 +263,8 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       { kind: "need", at: { kind: "body", execution, point, edge: null }, cell, witness }, capturedEntries, assigned);
   let currentOrigins: readonly OriginsId[] = localOrigins;
   const originsOf = (operand: MirOperand): OriginsId => operandOrigins(input, constantOrigins, currentOrigins, operand);
-  const flow = hasReference ? solveValueOrigins(deps, input, arena, values.value, constantOrigins, initialOrigins,
-    localOrigins, solved.value.reachable, admitUnion, callLocations.value.calls) : null;
+  const flow = hasReference || cellLocals.length !== 0 ? solveValueOrigins(deps, input, arena, values.value, constantOrigins, initialOrigins,
+    localOrigins, solved.value.reachable, admitUnion, callLocations.value.calls, cellLocals) : null;
   if (flow !== null && flow.kind !== "complete") return flow;
   const read = (operand: MirOperand, node: NodeId, assigned: ReadonlySet<LocalId>, point: MirPoint): boolean => {
     if (chargeWork(account, 1) !== null || chargeResultEntries(account, 2) !== null) return false;
@@ -306,7 +308,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     if (blockWork !== null) return blockWork;
     if (solved.value.reachable[block.id] !== true) continue;
     if (solved.value.entry[block.id] === null) continue;
-    currentOrigins = flow === null ? localOrigins : requirePresent(flow.value.get(block.id), { owner: "analyses/body", query: null,
+    currentOrigins = flow === null ? localOrigins : requirePresent(flow.value.entry[block.id]?.origins, { owner: "analyses/body", query: null,
       origin: block.origin, message: "A reached block retains its actual solved value-flow entry." });
     let assigned = assignedEntry(solved.value.entry, block.id);
     let position = 0;
@@ -557,6 +559,16 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
         return failure ?? { kind: "complete", value: uninitialized(deps, terminator) };
       }
     }
+    if (flow !== null && (terminator.kind === "return" || terminator.kind === "throw")) {
+      const state = flow.value.exit[block.id];
+      const origins = requirePresent(state?.origins, { owner: "analyses/body", query: null, origin: terminator.origin,
+        message: "An actual finite exit retains its solved current cell values." });
+      const contents = requirePresent(state?.contents, { owner: "analyses/body", query: null, origin: terminator.origin,
+        message: "An actual finite exit retains its solved current cell contents." });
+      const collected = collectExitContents(deps, origins, contents, cellLocals,
+        terminator.kind === "return" ? normalContents : unwindContents, values.value, admitUnion);
+      if (collected !== null) return collected;
+    }
     if (terminator.kind === "return") {
       const state = captureMustAtExit(deps, capturedEntries, assigned, returnAssigned);
       if (state.kind !== "complete") return state;
@@ -630,6 +642,10 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
   }
   const written = collectCellWrites(deps, cells.length, capturedEntries.length, cellWrites);
   if (written.kind !== "complete") return written;
+  const normal = collectCellWrites(deps, cells.length, capturedEntries.length, normalContents);
+  if (normal.kind !== "complete") return normal;
+  const unwound = collectCellWrites(deps, cells.length, capturedEntries.length, unwindContents);
+  if (unwound.kind !== "complete") return unwound;
   const projected = contexts.length === 1 ? null : chargeWork(account, formalCount + capturedEntries.length + entryBoundCount)
     ?? chargeResultEntries(account, formalCount + capturedEntries.length + entryBoundCount + 1);
   if (projected !== null) return projected;
@@ -639,7 +655,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
   const summary: Summary = { key: { kind: "body", execution }, signature: tir.signature, arena: summaryArena,
     parameters: [], captures: capturedEntries.map((_, index) => ({ index, reads: { kind: "complete", paths: [] }, writes: { kind: "complete", paths: [] } })),
     result: resultOrigins, thrown: thrownOrigins, writes: written.value.boundary, retention: retentionRows.value.map(row => row.value), callbacks: [],
-    concurrentWrites: [], contentsOnReturn: returns ? written.value.boundary : [], contentsOnUnwind: unwindAssigned === null ? [] : written.value.boundary,
+    concurrentWrites: [], contentsOnReturn: normal.value.boundary, contentsOnUnwind: unwound.value.boundary,
     returns, unwinds: unwindAssigned !== null,
     initialization: { cells: capturedEntries.map((_, index) => index), events: [], conditions: [{ alternatives: [] }, { alternatives: [[]] }],
       points: initializationPoints, rows: initializationState },
@@ -651,7 +667,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
   const value: BodyRoundValue = { facts: { execution, arena, liveness, initialization: { reads: initialization.value },
     refinements: { refinements: [], integers: integerRows.value, countedLoops: [] }, origins: { points: [], reads: readRows.value,
       subjects: subjectRows.value, writes, escapes: escapeRows.value, invocations, callbacks: [], activations, frontiers: [],
-      constructions: [], instanceRegions: [], exitContents: { onReturn: returns ? written.value.body : [], onUnwind: unwindAssigned === null ? [] : written.value.body } },
+      constructions: [], instanceRegions: [], exitContents: { onReturn: normal.value.body, onUnwind: unwound.value.body } },
     suspension: { suspensions: [] }, errorStorage: { errors: [] }, pointerBacking: { pointers: [] }, rawLocations: [],
     fieldBindings: [], recordBindings: [], memoryBindings: [], selectedMemoryDeclarations: [], closedArrays: [] },
     summary: { ...summary, parameters: effects } };
