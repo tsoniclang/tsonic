@@ -8,7 +8,7 @@ import { localOwnershipOfMir } from "../../ir-mir/index.js";
 import type { BodyRoundDeps, BodyRoundInput } from "./contract.js";
 import type { CallError } from "./calls.js";
 import { callSummary, isCallError } from "./calls.js";
-import { callReturnAssigned } from "./initialization.js";
+import { callExitAssigned } from "./initialization.js";
 import { bodyFrontier } from "./places.js";
 
 export type Assigned = ReadonlySet<LocalId> | CallError | null;
@@ -237,7 +237,7 @@ export function solveAssigned(deps: BodyRoundDeps, input: Pick<BodyRoundInput, "
           if (isCallError(selected.value)) next = selected.value;
           else {
             if (!selected.value.returns) return [];
-            const initialized = callReturnAssigned(deps, body, terminator, selected.value, state);
+            const initialized = callExitAssigned(deps, body, terminator, selected.value, state, "return");
             if (initialized.kind !== "complete") return [];
             next = initialized.value;
             if (terminator.destination !== null) {

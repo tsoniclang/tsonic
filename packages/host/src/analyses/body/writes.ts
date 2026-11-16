@@ -53,14 +53,16 @@ export function primitiveWrites(deps: BodyRoundDeps, input: BodyRoundInput,
 }
 
 export function primitiveExitLocals(deps: BodyRoundDeps, input: BodyRoundInput,
-  operation: Extract<MirTerminator, { readonly kind: "call" }>, summary: Summary): DataflowResult<readonly LocalId[]> {
+  operation: Extract<MirTerminator, { readonly kind: "call" }>, summary: Summary,
+  kind: "return" | "unwind"): DataflowResult<readonly LocalId[]> {
   const start = chargeWork(deps.account, 1) ?? chargeResultEntries(deps.account, 1);
   if (start !== null) return start;
   const locals: LocalId[] = [];
-  for (let index = 0; index < summary.contentsOnReturn.length; index += 1) {
+  const contents = kind === "return" ? summary.contentsOnReturn : summary.contentsOnUnwind;
+  for (let index = 0; index < contents.length; index += 1) {
     const read = chargeWork(deps.account, 2);
     if (read !== null) return read;
-    const row = requirePresent(summary.contentsOnReturn[index], { owner: "analyses/body", query: null, origin: operation.origin,
+    const row = requirePresent(contents[index], { owner: "analyses/body", query: null, origin: operation.origin,
       message: "A finite content vector retains each actual source row." });
     const value = requirePresent(summary.arena.origins[row.value], { owner: "analyses/body", query: null, origin: operation.origin,
       message: "A finite content row retains its actual source Origins." });

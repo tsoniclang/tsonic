@@ -2,7 +2,7 @@ import type { CallerRefusal, DataflowResult } from "../../dataflow/contract.js";
 import { accountFailure, chargeResultEntries, chargeWork } from "../../dataflow/index.js";
 import type { UnitRef } from "../../diag/contract.js";
 import { requirePresent, resourceLimitDiagnostic, throwInvariant } from "../../diag/index.js";
-import type { AppliedOriginsValue, AppliedSummary, CaptureLocation, MirPoint, RelationalArena, Summary, SummaryApplicationInput, SummaryKey, ValueEntryBinding } from "../../ir-facts/contract.js";
+import type { AppliedSummary, CaptureLocation, MirPoint, RelationalArena, Summary, SummaryApplicationInput, SummaryKey, ValueEntryBinding } from "../../ir-facts/contract.js";
 import { admitSummaryIdentity, applySummary, summaryKey } from "../../ir-facts/index.js";
 import type { MirBody, MirOperand, MirTerminator } from "../../ir-mir/contract.js";
 import type { OriginsId, ValueContextId } from "../../ids/contract.js";
@@ -101,15 +101,12 @@ export function callSummary(deps: BodyRoundDeps, body: MirBody,
   }
   if (operation.destination !== null && body.places[operation.destination]?.storage !== signature.result)
     return frontier(operation, "A placed initializer retains its actual selected destination storage and result type.");
-  if (summary.unwinds || summary.suspends)
-    return frontier(operation, "BodyAnalysis requires the actual unwind or suspension transport of this selected callee.");
+  if (summary.suspends)
+    return frontier(operation, "BodyAnalysis requires the actual suspension transport of this selected callee.");
+  if (summary.unwinds && operation.unwind.kind !== "escape")
+    return frontier(operation, "BodyAnalysis requires the actual selected callee failure continuation and its handled state transport.");
   return { kind: "complete", value: summary };
 }
-
-function hasReferences(value: AppliedOriginsValue): boolean {
-  return value.caller.length + value.callee.length + value.boundaries.length !== 0;
-}
-
 
 export function applyScalarCall(deps: BodyRoundDeps, input: BodyRoundInput,
   operation: Extract<MirTerminator, { readonly kind: "call" }>, point: MirPoint,
@@ -133,14 +130,16 @@ export function applyScalarCall(deps: BodyRoundDeps, input: BodyRoundInput,
   const value = applied.value;
   const inspection = chargeWork(deps.account, 16);
   if (inspection !== null) return inspection;
-  if (value.result.callee.length !== 0 || value.result.boundaries.length !== 0 || hasReferences(value.thrown) || value.thrown.includesAbsence)
+  if (value.result.callee.length !== 0 || value.result.boundaries.length !== 0
+    || value.thrown.callee.length !== 0 || value.thrown.boundaries.length !== 0)
     return frontier(operation, "BodyAnalysis requires the actual Origins result and thrown-value binding of this call.");
-  const effects = value.events.length + value.concurrentWrites.length + value.contentsOnUnwind.length
+  const effects = value.events.length + value.concurrentWrites.length
     + value.callbacks.length + value.resultCells.length + value.backing.length;
   if (effects !== 0)
     return frontier(operation, "BodyAnalysis requires the actual caller cell, event, callback or backing producer for these applied effects.");
   const written = primitiveWrites(deps, input, operation, summary, summary.writes, value.writes)
-    ?? primitiveWrites(deps, input, operation, summary, summary.contentsOnReturn, value.contentsOnReturn);
+    ?? primitiveWrites(deps, input, operation, summary, summary.contentsOnReturn, value.contentsOnReturn)
+    ?? primitiveWrites(deps, input, operation, summary, summary.contentsOnUnwind, value.contentsOnUnwind);
   if (written !== null) return written;
   for (let index = 0; index < value.subjects.length; index += 1) {
     const work = chargeWork(deps.account, 1);
@@ -162,7 +161,7 @@ export function applyScalarCall(deps: BodyRoundDeps, input: BodyRoundInput,
   for (const retained of value.retention) {
     const work = chargeWork(deps.account, 1);
     if (work !== null) return work;
-    if (retained.into.kind !== "return" || retained.value.kind !== "caller")
+    if (retained.into.kind !== "return" && retained.into.kind !== "throw" || retained.value.kind !== "caller")
       return frontier(operation, "BodyAnalysis requires the actual external retention transport for these applied effects.");
   }
   for (const capture of value.captures) {
@@ -176,7 +175,7 @@ export function applyScalarCall(deps: BodyRoundDeps, input: BodyRoundInput,
     const read = chargeWork(deps.account, 1);
     if (read !== null) return read;
     if (row.point.kind === "need" ? row.cell?.kind !== "cell"
-      : row.point.kind !== "return" || row.cell !== null && row.cell.kind !== "cell")
+      : row.point.kind !== "return" && row.point.kind !== "unwind" || row.cell !== null && row.cell.kind !== "cell")
       return frontier(operation, "BodyAnalysis requires the actual supplied cell and completion-event bindings of these initialization obligations.");
   }
   return applied;

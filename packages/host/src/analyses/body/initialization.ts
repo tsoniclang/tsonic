@@ -45,9 +45,9 @@ export function captureLocalAtCall(deps: BodyRoundDeps, mir: MirBody,
   return { kind: "complete", value: readLocal(mir, { kind: "place", place: capture.place }) };
 }
 
-export function callReturnAssigned(deps: BodyRoundDeps, mir: MirBody,
+export function callExitAssigned(deps: BodyRoundDeps, mir: MirBody,
   operation: Extract<MirTerminator, { readonly kind: "call" }>, summary: Summary,
-  assigned: ReadonlySet<LocalId>): DataflowResult<ReadonlySet<LocalId>> {
+  assigned: ReadonlySet<LocalId>, kind: "return" | "unwind"): DataflowResult<ReadonlySet<LocalId>> {
   const read = chargeWork(deps.account, 1);
   if (read !== null) return read;
   const table = summary.initialization;
@@ -57,10 +57,10 @@ export function callReturnAssigned(deps: BodyRoundDeps, mir: MirBody,
     const read = chargeWork(deps.account, 2);
     if (read !== null) return read;
     const row = requirePresent(table.rows[index], { owner: "analyses/body", query: null, origin: null,
-      message: "A returning callee retains its actual initialization table rows." });
-    if (row.cell === null && table.points[row.point]?.kind === "return") { first = index; break; }
+      message: "A finite callee exit retains its actual initialization table rows." });
+    if (row.cell === null && table.points[row.point]?.kind === kind) { first = index; break; }
   }
-  if (first === null) return bodyFrontier("Initialization requires the actual finite-return point state for this callee.");
+  if (first === null) return bodyFrontier(`Initialization requires the actual finite-${kind} point state for this callee.`);
   const state = constantPointState(deps, table, first);
   if (state.kind !== "complete") return state;
   let next: Set<LocalId> | null = null;
@@ -69,7 +69,7 @@ export function callReturnAssigned(deps: BodyRoundDeps, mir: MirBody,
     if (read !== null) return read;
     if (!(state.value.cells.get(formal) ?? state.value.otherwise)) continue;
     const source = requirePresent(table.cells[formal], { owner: "analyses/body", query: null, origin: null,
-      message: "A guaranteed return state retains its actual source cell." });
+      message: "A guaranteed finite exit state retains its actual source cell." });
     const local = captureLocalAtCall(deps, mir, operation, summary, source);
     if (local.kind !== "complete") return local;
     if ((next ?? assigned).has(local.value)) continue;

@@ -52,7 +52,7 @@ let transferValue;
 let referenceCallResult;
 let prepareCallCaptures;
 let captureMustAtExit;
-let callReturnAssigned;
+let callExitAssigned;
 let sourceNeedAssigned;
 let captureLocalAtCall;
 let primitiveWrites;
@@ -77,7 +77,7 @@ before(async () => {
   ({ joinOrigins, appliedOrigins, valueOrigins } = await import("../../packages/host/dist/analyses/body/values.js"));
   ({ valueProblem, transferValue, collectExitContents } = await import("../../packages/host/dist/analyses/body/value-flow.js"));
   ({ prepareCallCaptures } = await import("../../packages/host/dist/analyses/body/captures.js"));
-  ({ captureMustAtExit, callReturnAssigned, sourceNeedAssigned, captureLocalAtCall } =
+  ({ captureMustAtExit, callExitAssigned, sourceNeedAssigned, captureLocalAtCall } =
     await import("../../packages/host/dist/analyses/body/initialization.js"));
   ({ primitiveWrites, collectCellWrites, primitiveExitLocals } = await import("../../packages/host/dist/analyses/body/writes.js"));
 });
@@ -1416,22 +1416,30 @@ test("call identity, selected storage and missing effect relations are checked b
     assert.throws(() => run(operation, summary, { signatureOf: () => selected }), /actual selected argument mapping/);
   assert.throws(() => run({ ...operation, destination: 9999 }), /actual selected destination storage/);
   assert.equal(run({ ...operation, destination: null }).kind, "complete");
-  for (const flag of ["unwinds", "suspends"])
-    assert.throws(() => run(operation, { ...summary, [flag]: true }), /actual unwind or suspension/);
+  assert.throws(() => run(operation, { ...summary, suspends: true }), /actual suspension transport/);
+  assert.equal(run(operation, { ...summary, unwinds: true }).kind, "complete");
+  for (const unwind of [{ kind: "none" }, { kind: "abort" }, { kind: "handler", target: 0, exception: 0 }])
+    assert.throws(() => run({ ...operation, unwind }, { ...summary, unwinds: true }), /actual selected callee failure continuation/u);
   const arena = analyzeBodyRound({ ...current.deps, account: createAccount(limits) }, current.input).value.value.facts.arena;
   const apply = (answer, overrides = {}) => applyScalarCall({ ...current.deps, account: createAccount(limits), ...overrides },
     current.input, operation, point, answer, arena, 1, [], []);
   assert.throws(() => apply({ ...summary, arena: { ...summary.arena, cells: [{}] } }), /actual caller-cell bindings/);
   const absent = { ...summary.arena.origins[0], id: 1, includesAbsence: true };
   const absentArena = { ...summary.arena, origins: [...summary.arena.origins, absent] };
-  assert.throws(() => apply({ ...summary, arena: absentArena, thrown: 1 }), /actual Origins result and thrown-value binding/);
+  assert.equal(apply({ ...summary, arena: absentArena, thrown: 1 }).value.thrown.includesAbsence, true,
+    "the one native absence is a genuine transported thrown value, not a fabricated fault");
   assert.throws(() => apply({ ...summary, arena: { ...summary.arena,
     producers: [{ id: 0, path: null, kind: "call-result", at: operation.tir, callee: { kind: "indirect" } }],
     boundProducers: [{ id: 0, producer: 0, bindings: EMPTY_BINDINGS, context: 0 }] } }),
   /actual caller cell, event, callback or backing producer/);
+  assert.throws(() => apply({ ...summary, thrown: 1, arena: { ...summary.arena,
+    producers: [{ id: 0, path: null, kind: "call-result", at: operation.tir, callee: { kind: "indirect" } }],
+    boundProducers: [{ id: 0, producer: 0, bindings: EMPTY_BINDINGS, context: 0 }],
+    origins: [...summary.arena.origins, { id: 1, kind: "complete", producers: [0], includesAbsence: false }] } }),
+  /actual Origins result and thrown-value binding/);
   const pending = { ...summary, initialization: { ...summary.initialization,
-    points: [{ kind: "unwind" }], rows: [{ point: 0, cell: null, condition: 0 }] } };
-  assert.throws(() => apply(pending), /actual supplied cell and completion-event bindings/);
+    points: [{ kind: "need", cell: 0 }], rows: [{ point: 0, cell: null, condition: 0 }] } };
+  assert.throws(() => apply(pending), /actual required source-cell formal/);
   for (const dimension of ["maximumWork", "maximumResultEntries"]) {
     for (const operationOf of [account => run(operation, summary, { account }), account => apply(summary, { account })]) {
       let complete = false;
@@ -1891,6 +1899,131 @@ test("an escaping primitive throw retains genuine capture writes and its own unw
   assert.deepEqual(pair.summary.retention, [], "the actual primitive throw has no invented reference producer");
 });
 
+test("an actual escaping authored callee throw binds its value and retention to the caller's real argument and call point", () => {
+  const targetName = "body-round.called-throw.target";
+  const target = fixture(shaped(targetName, [["value", "required", T.string]], T.string,
+    builder => builder.block(builder.throws(builder.id("value", 0, T.string)))));
+  const summary = checkedPair(target, analyzeBodyRound(target.deps, target.input)).summary;
+  const current = fixture(shaped("body-round.called-throw.caller", [["value", "required", T.string]], T.string, builder =>
+    builder.block(builder.returns(builder.call(builder.global("target", targetName, T.unknown),
+      [{ $: "argument", ...builder.id("value", 0, T.string) }], T.string, at => ({
+        callee: callee(targetName, target.program.tir.signature, [mapped(0, 0)], T.string), receiver: null,
+        arguments: [{ kind: "provided", parameter: 0, expression: at("argument") }],
+      }))))));
+  current.related = [target];
+  current.deps.summaryOf = () => ({ value: summary, unit: { request: target.deps.unit, position: { kind: "result" } } });
+  const pair = checkedPair(current, analyzeBodyRound(current.deps, current.input));
+  const call = current.input.mir.blocks.find(row => row.terminator.kind === "call");
+  const argument = pair.facts.arena.contexts[0].arguments[0];
+  assert.equal(pair.summary.returns, false);
+  assert.equal(pair.summary.unwinds, true);
+  assert.equal(pair.summary.thrown, argument);
+  assert.equal(pair.summary.result, 0);
+  assert.equal(pair.facts.origins.invocations[0].alternatives[0].thrown, argument);
+  assert.deepEqual(pair.facts.origins.escapes, [{ point: { block: call.id, statement: null }, node: call.terminator.tir.node,
+    producer: pair.facts.arena.boundProducers[pair.facts.arena.origins[argument].producers[0]].producer, target: { kind: "throw" } }]);
+  assert.deepEqual(pair.summary.retention.map(row => ({ at: row.at, into: row.into })), [{
+    at: { kind: "body", execution: current.execution, point: { block: call.id, statement: null }, edge: null }, into: { kind: "throw" },
+  }]);
+  assert.equal(pair.facts.origins.writes.some(row => row.point.block === call.id && row.destination === "binding"), false,
+    "the non-returning call never initializes its normal destination");
+  checkSignatureStops(current);
+  for (const dimension of ["maximumWork", "maximumResultEntries"]) {
+    let complete = false;
+    for (let maximum = 0; maximum < 20000; maximum += 1) {
+      const account = createAccount({ ...limits, [dimension]: maximum });
+      const result = analyzeBodyRound({ ...current.deps, account }, current.input);
+      if (result.kind === "complete") { checkedPair(current, result); complete = true; break; }
+      assert.equal(result, accountFailure(account));
+      assert.equal(analyzeBodyRound({ ...current.deps, account }, new Proxy({}, {
+        get() { assert.fail("No reference throw binding or exit is read after its original stop."); },
+      })), result);
+    }
+    assert.equal(complete, true);
+  }
+});
+
+test("actual placed calls keep both finite exits, sibling needs and normal/unwind-only captured writes distinct", () => {
+  for (const [normalWrites, unwindWrites] of [[true, false], [false, true], [true, true], [false, false]]) {
+    const name = `body-round.called-exits.${normalWrites}.${unwindWrites}`;
+    const outer = fixture(shaped(`${name}.outer`, [["a", "required", T.bool], ["flag", "required", T.bool]], T.bool,
+      builder => builder.block(builder.returns(builder.id("a", 0, T.bool)))));
+    const failName = `${name}.fail`;
+    const failed = fixture(shaped(failName, [], T.bool, builder => builder.block(builder.throws(builder.keyword("FalseKeyword", T.bool)))));
+    const failure = checkedPair(failed, analyzeBodyRound(failed.deps, failed.input)).summary;
+    const childName = `${name}.b`;
+    const childBody = bodyId(childName, "default-argument");
+    const captures = [0, 1].map(local => ({ local: { body: outer.program.tir.body, local }, capture: "captured-location" }));
+    const builder = builders(name);
+    const program = typedBody(name, { signature: signature(name, [["b", T.bool, "default", childBody]], T.bool), completion: T.bool,
+      params: [[2, "default", T.bool, childBody]], locals: [["a", "capture", T.bool, true, captures[0].local],
+        ["flag", "capture", T.bool, false, captures[1].local], ["b", "parameter", T.bool]], captures,
+      root: builder.block(builder.returns(builder.id("b", 2, T.bool))) });
+    const childBuilder = builders(childName, "default-argument");
+    const root = () => {
+      const branch = (writes, expression) => writes ? childBuilder.sequence(childBuilder.assign(childBuilder.target("a", 0, T.bool),
+        "EqualsToken", childBuilder.keyword("TrueKeyword", T.bool), T.bool, T.bool), expression, T.bool) : expression;
+      const normal = branch(normalWrites, childBuilder.keyword("FalseKeyword", T.bool));
+      const unwind = branch(unwindWrites, childBuilder.call(childBuilder.global("fail", failName, T.unknown), [], T.bool,
+        () => ({ callee: callee(failName, failed.program.tir.signature, [], T.bool), receiver: null, arguments: [] })));
+      const arm = (node, when) => ({ ...node, $: when, tsonic: at => ({
+        ...(typeof node.tsonic === "function" ? node.tsonic(at) : node.tsonic), demand: { kind: "selected", control: at("flag"), when },
+      }) });
+      const choice = { kind: "ConditionalExpression", condition: { $: "flag", ...childBuilder.id("flag", 1, T.bool) },
+        questionToken: { kind: "QuestionToken", tsonic: null }, whenTrue: arm(normal, "true"),
+        colonToken: { kind: "ColonToken", tsonic: null }, whenFalse: arm(unwind, "false"), tsonic: at => ({
+          type: T.bool, convertedType: T.bool, conversion: { kind: "identity" }, narrowing: null, evidenceIndex: null, demand: { kind: "always" },
+          selection: { kind: "conditional", control: at("flag"), whenTrue: at("true"), whenFalse: at("false"), disposition: "dynamic" },
+        }) };
+      return childBuilder.sequence(childBuilder.prefix(childBuilder.id("a", 0, T.bool), "ExclamationToken", T.bool,
+        native("!", "bool", [T.bool], T.bool)), choice, T.bool);
+    };
+    const childProgram = typedBody(childName, { role: "default-argument", signature: signature(childName, [], T.bool), completion: T.bool,
+      locals: [["a", "capture", T.bool, true, captures[0].local], ["flag", "capture", T.bool, false, captures[1].local]], captures, root: root() });
+    childProgram.tir.root = seal(childName, root(), "default-argument", program.nodeCount).root;
+    childProgram.tir.root.parent = program.tir.params[0].id;
+    program.tir.params[0].initializer = childProgram.tir.root;
+    const bodies = [program.tir, childProgram.tir, outer.program.tir, failed.program.tir];
+    const bodyOf = instance => bodies.find(tir => sameInstance(instance, { body: tir.body, bindings: tir.bindings })) ?? null;
+    program.bodyOf = childProgram.bodyOf = bodyOf;
+    const current = fixture(program, [{ instance: { body: childBody, bindings: childProgram.tir.bindings }, captures,
+      signature: childProgram.tir.signature }], 0);
+    const child = fixture(childProgram);
+    child.related = [outer, failed, current];
+    child.deps.summaryOf = () => ({ value: failure, unit: { request: failed.deps.unit, position: { kind: "result" } } });
+    const summary = checkedPair(child, analyzeBodyRound(child.deps, child.input)).summary;
+    assert.equal(summary.returns && summary.unwinds, true);
+    current.related = [outer, child, failed];
+    current.deps.summaryOf = () => ({ value: summary, unit: { request: child.deps.unit, position: { kind: "result" } } });
+    const pair = checkedPair(current, analyzeBodyRound(current.deps, current.input));
+    const write = [{ target: 0, value: 0 }];
+    assert.equal(pair.summary.returns && pair.summary.unwinds, true);
+    assert.deepEqual(pair.summary.writes, normalWrites || unwindWrites ? write : []);
+    assert.deepEqual(pair.summary.contentsOnReturn, normalWrites ? write : []);
+    assert.deepEqual(pair.summary.contentsOnUnwind, unwindWrites ? write : []);
+    assert.deepEqual(pair.facts.origins.exitContents, { onReturn: pair.summary.contentsOnReturn, onUnwind: pair.summary.contentsOnUnwind });
+    for (const [kind, assigned] of [["return", normalWrites], ["unwind", unwindWrites]]) {
+      const point = pair.summary.initialization.points.findIndex(row => row.kind === kind);
+      assert.notEqual(point, -1);
+      assert.equal(pair.summary.initialization.rows.some(row => row.point === point && row.cell === 0 && row.condition === 1), assigned,
+        `the actual ${kind} must state does not borrow the opposite exit's write`);
+    }
+    assert.deepEqual(pair.summary.initialization.points.filter(row => row.kind === "need").map(row => row.cell), [0, 1]);
+    if (normalWrites && unwindWrites) for (const dimension of ["maximumWork", "maximumResultEntries"]) {
+      let complete = false;
+      for (let maximum = 0; maximum < 20000; maximum += 1) {
+        const account = createAccount({ ...limits, [dimension]: maximum });
+        const result = analyzeBodyRound({ ...current.deps, account }, current.input);
+        if (result.kind === "complete") { checkedPair(current, result); complete = true; break; }
+        assert.equal(result, accountFailure(account));
+        const unread = new Proxy({}, { get() { assert.fail("No call exit or need state is read after original refusal."); } });
+        assert.equal(analyzeBodyRound({ ...current.deps, account }, unread), result);
+      }
+      assert.equal(complete, true);
+    }
+  }
+});
+
 test("actual finite return and unwind contents do not borrow the other exit's reachable write history", () => {
   const owner = shaped("body-round.exit-partition.owner", [["value", "required", T.bool]], T.bool,
     builder => builder.block(builder.returns(builder.id("value", 0, T.bool))));
@@ -2036,7 +2169,7 @@ test("primitive applied-write admission retains precise value, location and orig
     { kind: "complete", producers: [0], includesAbsence: false },
     { kind: "complete", producers: [], includesAbsence: true }])
     assert.throws(() => primitiveExitLocals({ ...caller.deps, account: createAccount(limits) }, caller.input, call,
-      { ...summary, arena: { ...summary.arena, origins: [value] } }), /actual non-primitive finite caller-cell content transport/);
+      { ...summary, arena: { ...summary.arena, origins: [value] } }, "return"), /actual non-primitive finite caller-cell content transport/);
   for (const changed of [{ ...write, target: { ...target, same: null } }, { ...write, target: { ...target, targets: [cell, cell] } },
     ...["caller", "callee", "boundaries"].map(key => ({ ...write, value: { ...empty, [key]: [0] } })),
     { ...write, value: { ...empty, includesAbsence: true } }])
@@ -2066,8 +2199,8 @@ test("constant call-point state uses original bindings and rejects unprovided ev
   const summary = checkedPair(child, analyzeBodyRound(child.deps, child.input)).summary;
   const call = caller.input.mir.blocks.find(row => row.terminator.kind === "call").terminator;
   const local = caller.input.mir.places[call.callee.captures[0].place].base.local;
-  const run = (changed = summary, assigned = new Set()) => callReturnAssigned({ ...caller.deps, account: createAccount(limits) },
-    caller.input.mir, call, changed, assigned);
+  const run = (changed = summary, assigned = new Set()) => callExitAssigned({ ...caller.deps, account: createAccount(limits) },
+    caller.input.mir, call, changed, assigned, "return");
   assert.deepEqual(run(), { kind: "complete", value: new Set([local]) });
   for (const table of [{ ...summary.initialization, events: [{}] },
     ...[0, 1].map(index => ({ ...summary.initialization, rows: summary.initialization.rows.map((row, at) =>
@@ -2084,7 +2217,7 @@ test("constant call-point state uses original bindings and rejects unprovided ev
   const failed = createAccount(limits);
   const original = refuseAccount(failed, { kind: "refused", diagnostics: [] });
   const unread = new Proxy({}, { get() { assert.fail("No point-state input after original refusal."); } });
-  assert.equal(callReturnAssigned({ ...caller.deps, account: failed }, unread, unread, unread, unread), original);
+  assert.equal(callExitAssigned({ ...caller.deps, account: failed }, unread, unread, unread, unread, "return"), original);
   assert.equal(sourceNeedAssigned({ ...caller.deps, account: failed }, unread, 0, unread, unread, unread), original);
 });
 
@@ -2744,8 +2877,11 @@ test("nonempty parameter footprints and external retention remain genuine unimpl
     arena: { ...summary.arena, projections: [{ id: 0, parent: null, projection: { kind: "element" } }] },
     parameters: summary.parameters.map(row => ({ ...row, [field]: { kind: "complete", paths: [0] } })),
   }), /parameter subobject read\/write transport/);
-  assert.throws(() => apply({ ...summary, retention: summary.retention.map(row => ({ ...row, into: { kind: "throw" } })) }),
+  assert.throws(() => apply({ ...summary, retention: summary.retention.map(row => ({ ...row, into: { kind: "parameter", index: 0, path: null } })) }),
     /external retention transport/);
+  assert.throws(() => apply({ ...summary, initialization: { ...summary.initialization,
+    points: [{ kind: "before", at: summary.retention[0].at, subject: { owner: { kind: "summary", key: summary.key }, producer: 0 } }],
+    rows: [{ point: 0, cell: null, condition: 0 }] } }), /actual supplied cell and completion-event bindings/);
 });
 
 test("selected reference-call helpers keep genuine unsupported inputs explicit and stop before reader payloads", () => {

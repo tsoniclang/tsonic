@@ -18,9 +18,9 @@ import { assignedEntry, solveAssigned, statementOperands, terminatorOperands, tr
 import { prepareCallCaptures } from "./captures.js";
 import { bodyFrontier, readLocal } from "./places.js";
 import { appliedOrigins, joinOrigins, valueKind, valueOrigins } from "./values.js";
-import { collectExitContents, operandOrigins, solveValueOrigins, transferValue } from "./value-flow.js";
-import { captureMustAtExit, recordInitializationPoint, sourceNeedAssigned } from "./initialization.js";
-import { collectCellWrites, recordCaptureWrite } from "./writes.js";
+import { collectExitContents, mergeContents, operandOrigins, solveValueOrigins, transferValue } from "./value-flow.js";
+import { callExitAssigned, captureMustAtExit, recordInitializationPoint, sourceNeedAssigned } from "./initialization.js";
+import { collectCellWrites, primitiveExitLocals, recordCaptureWrite } from "./writes.js";
 import { retainExitValue } from "./exits.js";
 import type { ExitRetention } from "./exits.js";
 
@@ -452,6 +452,32 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       const point = { block: block.id, statement: null };
       const applied = applyScalarCall(deps, input, terminator, point, selected.value, arena, context, entryBindings, cellBindings);
       if (applied.kind !== "complete") return applied;
+      let callThrown = empty;
+      if (selected.value.unwinds) {
+        const value = appliedOrigins(deps, values.value, applied.value.thrown, admitUnion);
+        if (typeof value !== "number") return value;
+        callThrown = value;
+        const joined = joinOrigins(deps, values.value, thrownOrigins, callThrown, admitUnion);
+        if (typeof joined !== "number") return joined;
+        thrownOrigins = joined;
+        const exited = callExitAssigned(deps, mir, terminator, selected.value, assigned, "unwind");
+        if (exited.kind !== "complete") return exited;
+        const initialized = captureMustAtExit(deps, capturedEntries, exited.value, unwindAssigned);
+        if (initialized.kind !== "complete") return initialized;
+        unwindAssigned = initialized.value;
+        if (cellLocals.length !== 0) {
+          const before = requirePresent(flow?.value.exit[block.id]?.contents, { owner: "analyses/body", query: null, origin: terminator.origin,
+            message: "An unwinding call retains its actual solved pre-call cell contents." });
+          const changed = primitiveExitLocals(deps, input, terminator, selected.value, "unwind");
+          if (changed.kind !== "complete") return changed;
+          const contents = mergeContents(deps, before, changed.value, null);
+          if (contents.kind !== "complete") return contents;
+          const collected = collectExitContents(deps, currentOrigins, contents.value, cellLocals, unwindContents, values.value, admitUnion);
+          if (collected !== null) return collected;
+        }
+        const retained = retainExitValue(deps, execution, terminator, point, "throw", callThrown, arena, escapes, retention);
+        if (retained !== null) return retained;
+      }
       for (const write of applied.value.writes) {
         const read = chargeWork(account, 1);
         if (read !== null) return read;
@@ -468,7 +494,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
         if (typeof result !== "number") return result;
         callResult = result;
       }
-      if (terminator.destination !== null) {
+      if (selected.value.returns && terminator.destination !== null) {
         const written = chargeWork(account, currentOrigins.length) ?? chargeResultEntries(account, currentOrigins.length);
         if (written !== null) return written;
         const next = [...currentOrigins];
@@ -532,7 +558,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
         invocations.push({ node: terminator.tir.node, point, kind: signature.kind, alternatives: [{
           resolution: terminator.callee.resolution, context, arguments: transports,
           result: callResult,
-          thrown: empty, summary: selected.value.key }], boundaries: [] });
+          thrown: callThrown, summary: selected.value.key }], boundaries: [] });
       }
       if (selected.value.returns && terminator.destination !== null) {
         const local = readLocal(mir, { kind: "place", place: terminator.destination });

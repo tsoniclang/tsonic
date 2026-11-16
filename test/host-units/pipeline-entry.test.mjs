@@ -379,6 +379,44 @@ test("real public Host analysis separates actual returned and thrown string form
   assert.notEqual(summary.arena.origins[summary.result].producers[0], summary.arena.origins[summary.thrown].producers[0]);
 });
 
+test("real public Host analysis retains an authored callee throw at its actual caller argument and unwind point", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal",
+    "export function fail(value:string):string{throw value;}export function call(value:string):string{return fail(value);}");
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok");
+  const main = result.value.modules.find(module => module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts"));
+  const caller = main.bodies.find(body => body.kind === "selected" && body.mir.blocks.some(block => block.terminator.kind === "call"));
+  assert.equal(caller !== undefined, true);
+  const call = caller.mir.blocks.find(block => block.terminator.kind === "call");
+  assert.equal(call.terminator.callee.kind, "direct");
+  assert.deepEqual(call.terminator.unwind, { kind: "escape" });
+  const facts = caller.facts[0];
+  const invocation = facts.origins.invocations[0].alternatives[0];
+  const argument = facts.arena.contexts[0].arguments[0];
+  assert.equal(invocation.thrown, argument);
+  const summary = result.value.index.summaries.find(row => row.key.kind === "body"
+    && fixture.types.executionKey(row.key.execution) === fixture.types.executionKey(facts.execution));
+  assert.equal(summary !== undefined, true);
+  assert.equal(summary.returns, false);
+  assert.equal(summary.unwinds, true);
+  assert.deepEqual(summary.initialization.points, [{ kind: "unwind" }]);
+  const thrown = summary.arena.origins[summary.thrown];
+  assert.equal(thrown.kind, "complete");
+  assert.equal(thrown.includesAbsence, false);
+  assert.equal(thrown.producers.length, 1);
+  const bound = summary.arena.boundProducers[thrown.producers[0]];
+  assert.deepEqual(summary.arena.producers[bound.producer], { id: bound.producer, kind: "parameter", index: 0, path: null });
+  assert.deepEqual(bound.bindings, caller.mir.bindings.bindings);
+  assert.deepEqual(summary.retention.map(row => ({ source: row.source, at: row.at, into: row.into })), [{
+    source: bound.id, at: { kind: "body", execution: facts.execution,
+      point: { block: call.id, statement: null }, edge: null }, into: { kind: "throw" },
+  }]);
+  assert.equal(facts.origins.escapes.some(row => row.point.block === call.id && row.point.statement === null
+    && row.target.kind === "throw"), true);
+});
+
 test("real public Host analysis transports a string argument and return through the selected direct call", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

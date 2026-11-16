@@ -29,7 +29,7 @@ function currentContent(deps: BodyRoundDeps, state: ReadonlySet<LocalId>, local:
   return { kind: "complete", value: next };
 }
 
-function mergeContents(deps: BodyRoundDeps, state: ReadonlySet<LocalId>, locals: Iterable<LocalId>,
+export function mergeContents(deps: BodyRoundDeps, state: ReadonlySet<LocalId>, locals: Iterable<LocalId>,
   destination: LocalId | null): DataflowResult<ReadonlySet<LocalId>> {
   const setup = chargeWork(deps.account, 1) ?? chargeResultEntries(deps.account, 2);
   if (setup !== null) return setup;
@@ -199,7 +199,7 @@ export function valueProblem(deps: BodyRoundDeps, input: BodyRoundInput, arena: 
           writtenLocal = tracked.has(destination) ? destination : null;
           next = { origins: written, contents: state.contents };
         }
-        const returned = primitiveExitLocals(deps, input, terminator, selected.value);
+        const returned = primitiveExitLocals(deps, input, terminator, selected.value, "return");
         if (returned.kind !== "complete") return outgoing;
         const contents = mergeContents(deps, next.contents, returned.value, writtenLocal);
         if (contents.kind !== "complete") return outgoing;

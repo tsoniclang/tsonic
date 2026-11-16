@@ -64,7 +64,14 @@ export function valueFits(machine: Machine, value: ConstValue, field: "maximumIn
       if (selected.kind !== "primitive" || (selected.primitive !== "float16" && selected.primitive !== "float32" && selected.primitive !== "float64")) {
         throw new TypeError("Evaluate floating values require their actual selected native carrier");
       }
-      const format = machine.deps.selectedNativeFacts.floatingFormats.find(row => row.carrier === selected.primitive);
+      const formats = machine.deps.selectedNativeFacts.floatingFormats;
+      let format: EvaluateDeps["selectedNativeFacts"]["floatingFormats"][number] | undefined;
+      for (let index = 0; index < formats.length; index += 1) {
+        if (!arithmetic(machine, 1, origin)) return false;
+        const row = formats[index];
+        if (row === undefined) throw new TypeError("Evaluate floating values require the complete selected carrier format relation");
+        if (row.carrier === selected.primitive) { format = row; break; }
+      }
       if (format === undefined) throw new TypeError("Evaluate floating values require the selected carrier format");
       const width = floatingFormatWidth(format);
       if (width === null || !floatingBitsFit(value.bits, format)) throw new TypeError("Evaluate floating values require a valid selected encoding");
