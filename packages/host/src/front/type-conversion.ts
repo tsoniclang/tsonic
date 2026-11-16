@@ -169,9 +169,16 @@ function prepareType(graph: TypeGraph, handle: TypeHandle): PreparedType {
         }).sort(compareIndexSignatures) };
     scheduleDependencies(graph, memberDependencies);
   } else if (form.kind === "declared") {
+    if (form.arguments.length !== form.parameters.length)
+      throw new TypeError("front: declared arguments must retain their actual ordered parameter associations");
     const argumentsOf: TyId[] = [];
-    for (const selected of form.arguments) {
-      const argument = selected?.argument;
+    for (let index = 0; index < form.arguments.length; index += 1) {
+      const selected = form.arguments[index];
+      const parameter = form.parameters[index];
+      if (selected === undefined || parameter === undefined
+        || selected.parameter.module !== parameter.module || selected.parameter.node !== parameter.node)
+        throw new TypeError("front: declared arguments must retain their actual ordered parameter associations");
+      const argument = selected.argument;
       if (argument?.kind !== "available") throw new TypeError("front: declared type conversion requires its actual selected checked argument");
       argumentsOf.push(reference(argument.value));
     }

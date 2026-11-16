@@ -1,14 +1,14 @@
 import { summaryDefinition, summaryPositionKey } from "./summary-key.js";
 import type { DataflowStop } from "../dataflow/contract.js";
 import { chargeResultEntries, chargeWork } from "../dataflow/index.js";
-import { admitEscapeIdentity, admitOwnerIdentity, recordFinding } from "./verification.js";
+import { admitOwnerIdentity, recordFinding } from "./verification.js";
+import { escapeTargetKey } from "./escape-key.js";
 import { summaryPositionExists } from "./verify-position.js";
 import { verifyInitialization } from "./verify-initialization.js";
 import type { Violation } from "../diag/contract.js";
-import { encodeKey } from "../ids/index.js";
 import type { Signature } from "../ir-types/contract.js";
-import type { EffectPaths, EscapeTarget, FactsSite, RelationalOwner, SummaryRule, VerifySummary } from "./contract.js";
-import { compareNumbers, escapeData, nodeOwnedBy, ownerKey, relationalUsage, validIndex, verifyRelationalArena } from "./verify-relations.js";
+import type { EffectPaths, FactsSite, RelationalOwner, SummaryRule, VerifySummary } from "./contract.js";
+import { compareNumbers, nodeOwnedBy, ownerKey, relationalUsage, validIndex, verifyRelationalArena } from "./verify-relations.js";
 import { summaryBindingInputs } from "./binding-inputs.js";
 import { verifyFactBindings } from "./verify-bindings.js";
 import { verifyCells } from "./verify-cells.js";
@@ -19,8 +19,6 @@ interface CallbackFormals {
   readonly byId: ReadonlyMap<number, Signature>;
   readonly slots: Map<number, boolean>;
 }
-
-const targetKey = (target: EscapeTarget): string => encodeKey(escapeData(target));
 
 export const verifySummary: VerifySummary = (summary, context, resources) => {
   const { account } = resources;
@@ -177,9 +175,9 @@ export const verifySummary: VerifySummary = (summary, context, resources) => {
     const position = summaryPositionExists(retention.at, summary.key, context, account);
     if (position.kind !== "complete") return position;
     if (!position.value) { const stop = report("relational-site-resolves", "Retention retains the actual selected execution position."); if (stop !== null) return stop; }
-    const identity = admitEscapeIdentity(target, account);
-    if (identity !== null) return identity;
-    const key = targetKey(target);
+    const identity = escapeTargetKey(target, account);
+    if (identity.kind !== "complete") return identity;
+    const key = identity.value;
     const point = summaryPositionKey(retention.at);
     if (previousRetention !== null && (compareNumbers(previousRetention[0], retention.source) > 0 ||
       compareNumbers(previousRetention[0], retention.source) === 0 && (previousRetention[1] > point

@@ -205,6 +205,7 @@ export interface ArgumentTransport {
 
 export type SummaryIdentity = (key: SummaryKey) => string;
 export type SummaryPositionKey = (at: SummaryPosition) => string;
+export type EscapeTargetKey = (target: EscapeTarget, account: DataflowAccount) => DataflowResult<string>;
 
 export interface InvocationAlternative {
   readonly resolution: ResolvedCallee;

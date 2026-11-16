@@ -2,7 +2,8 @@ import type { DataflowResult, DataflowStop } from "../dataflow/contract.js";
 import { chargeResultEntries, chargeWork } from "../dataflow/index.js";
 import type { ParameterMapping } from "../ir-infer/contract.js";
 import type { TirArgument } from "../ir-tir/contract.js";
-import { admitArtifactIdentity, admitEscapeIdentity, admitOwnerIdentity, recordFinding } from "./verification.js";
+import { admitArtifactIdentity, admitOwnerIdentity, recordFinding } from "./verification.js";
+import { escapeTargetKey } from "./escape-key.js";
 import { summaryBindings, summaryDefinition, summaryKey } from "./summary-key.js";
 import type { Violation } from "../diag/contract.js";
 import type { NodeId, NodeRef } from "../ids/contract.js";
@@ -16,7 +17,7 @@ import type {
   ArgumentTransport, BoundActivation, ConstructionAlternative, EscapeFact, EscapeTarget, FactsRule, FactsSite, MemoryField, MemoryLayout, MetadataFieldRef, MetadataLayoutRef, MirPoint, RelationalOwner,
   RetentionFact, VerifyFacts,
 } from "./contract.js";
-import { collectSelectionChecks, compareNumbers, escapeData, ownerKey, relationalUsage, sameBindings, validIndex, verifyRelationalArena } from "./verify-relations.js";
+import { collectSelectionChecks, compareNumbers, ownerKey, relationalUsage, sameBindings, validIndex, verifyRelationalArena } from "./verify-relations.js";
 import { factBindingInputs } from "./binding-inputs.js";
 import { verifyFactBindings } from "./verify-bindings.js";
 import { bodyNodes } from "./verify-body-nodes.js";
@@ -382,9 +383,9 @@ if (!integerNodes.has(id)) sameIntegerDomain = false;
   for (const escape of facts.origins.escapes) {
     const step = chargeWork(account, 1);
     if (step !== null) return step;
-    const identity = admitEscapeIdentity(escape.target, account);
-    if (identity !== null) return identity;
-    const key = encodeKey(escapeData(escape.target));
+    const identity = escapeTargetKey(escape.target, account);
+    if (identity.kind !== "complete") return identity;
+    const key = identity.value;
     const comparison = chargeWork(account, previousEscapeKey.length + key.length);
     if (comparison !== null) return comparison;
     if (previousEscape !== null && (comparePoints(previousEscape.point, escape.point)

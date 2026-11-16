@@ -74,6 +74,45 @@ test("real public Host analysis retains an omitted initializer's actual captured
   assert.equal(caller.facts[1].origins.exitContents.onReturn.length, 0);
 });
 
+test("real public Host analysis transports a captured string replacement through its actual omitted initializer", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal",
+    "export function choose(a:string,replacement:string,b:string=(a=replacement)):string{return a;}");
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok");
+  const main = result.value.modules.find(module => module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts"));
+  const caller = main.bodies.find(body => body.kind === "selected" && body.tir.params.length === 3);
+  assert.equal(caller !== undefined, true);
+  const child = main.bodies.find(body => body.kind === "selected" && body.instance.body === caller.tir.params[2].tsonic.initializer);
+  assert.equal(child !== undefined, true);
+  const source = caller.tir.params[1].tsonic.local;
+  const replacement = child.tir.captures.findIndex(row => row.local.body === source.body && row.local.local === source.local);
+  assert.equal(replacement >= 0, true);
+  const childSummary = result.value.index.summaries.find(row => row.key.kind === "body"
+    && row.key.execution.instance.body === child.instance.body);
+  assert.equal(childSummary !== undefined, true);
+  assert.equal(childSummary.writes.length, 1);
+  assert.deepEqual(childSummary.contentsOnReturn, childSummary.writes);
+  const written = childSummary.arena.origins[childSummary.writes[0].value];
+  assert.equal(written.kind, "complete");
+  assert.equal(written.producers.length, 1);
+  const bound = childSummary.arena.boundProducers[written.producers[0]];
+  assert.deepEqual(childSummary.arena.producers[bound.producer], { id: bound.producer, kind: "capture", index: replacement, path: null });
+  assert.deepEqual(caller.facts.map(facts => facts.execution.provided), [2, 3]);
+  for (const facts of caller.facts) {
+    const returned = facts.origins.subjects.find(row => row.role === "return");
+    assert.equal(returned !== undefined, true);
+    const origins = facts.arena.origins[returned.origins];
+    assert.equal(origins.kind, "complete");
+    assert.equal(origins.producers.length, 1);
+    const value = facts.arena.boundProducers[origins.producers[0]];
+    assert.equal(facts.arena.producers[value.producer].kind, "parameter");
+    assert.equal(facts.arena.producers[value.producer].index, facts.execution.provided === 2 ? 1 : 0);
+    assert.deepEqual(value.bindings, caller.mir.bindings.bindings);
+  }
+});
+
 test("real public Host analysis preserves an imported generic declaration's actual constraint and default", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

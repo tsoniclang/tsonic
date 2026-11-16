@@ -29,7 +29,7 @@ export type PublicationRecord =
   | { readonly kind: "composition"; readonly value: SignatureComposition }
   | { readonly kind: "index-signature"; readonly value: IndexSignature };
 
-export type PublicationValue = PublicationRecord | { readonly kind: "scalar" } | { readonly kind: "reference" };
+export type PublicationValue = PublicationRecord | { readonly kind: "scalar" };
 
 export type PublicationArray =
   | { readonly kind: "type-id-array"; readonly value: readonly TyId[] }
@@ -46,170 +46,230 @@ export type PublicationArray =
   | { readonly kind: "arm-array"; readonly value: readonly SumArmRole[] };
 
 export type PublicationNode = PublicationValue | PublicationArray;
-export interface PublicationShape { readonly work: number; readonly references: number; readonly children: readonly PublicationNode[] }
-const ownedElementFailure: InvariantFailure = { owner: "ir-types", query: null, origin: null,
-  message: "An owned TypeArena vector must retain every validated element." };
+export interface PublicationShape { readonly children: readonly PublicationNode[] }
+
+export function publicationWork(selected: PublicationRecord): number {
+  switch (selected.kind) {
+    case "type":
+      switch (selected.value.kind) {
+        case "primitive": case "intrinsic": case "union": case "intersection": case "optional":
+        case "enum": case "param": case "self": return 2;
+        case "string": case "error": return 1;
+        case "literal": case "array": case "tuple": case "fixed-array": case "callable":
+        case "construction-reference": case "projection": case "open": return 3;
+        case "shape": case "declared": return 5;
+      }
+    case "member-key": return 2;
+    case "origin": return selected.value.kind === "mapped" ? 3 : 2;
+    case "source": case "node": case "item-node": case "local": case "construction":
+    case "component": case "extent": case "composition": return 2;
+    case "selector":
+      switch (selected.value.kind) {
+        case "class-value": case "optional-value": case "array-element": case "intersection-result":
+        case "projection-source": case "awaited": return 1;
+        case "tuple-element": case "union-member": case "argument-place": case "parameter-place":
+        case "intersection-member": case "argument-tail": case "parameter-tail": case "member":
+        case "receiver": case "result": return 2;
+        case "construction-argument": case "index-key": case "index-value": case "parameter":
+        case "type-argument": case "sum-arm": return 3;
+        case "signature-tail": case "tuple-slice": return 4;
+      }
+    case "signature": case "member": return 9;
+    case "signature-input": return 8;
+    case "family": return 4;
+    case "arm": case "type-parameter": case "tuple-element": case "rational": return 3;
+    case "signature-parameter": return 6;
+    case "literal": return selected.value.kind === "absence" ? 1 : 2;
+    case "projection": return selected.value.kind === "awaited" ? 1 : 2;
+    case "index-signature": return 5;
+  }
+}
+
+export function publicationReferences(selected: PublicationRecord): number {
+  switch (selected.kind) {
+    case "type":
+      switch (selected.value.kind) {
+        case "literal": case "optional": case "array": case "fixed-array": case "projection": return 1;
+        default: return 0;
+      }
+    case "signature": case "signature-input": return 1 + Number(selected.value.receiver !== null);
+    case "member": return Number(selected.value.read !== null) + Number(selected.value.write !== null);
+    case "type-parameter": return Number(selected.value.constraint !== null) + Number(selected.value.default !== null);
+    case "index-signature": return 2 + Number(selected.value.write !== null);
+    case "arm": case "signature-parameter": case "tuple-element": return 1;
+    case "selector":
+      switch (selected.value.kind) {
+        case "index-key": case "index-value": case "parameter": case "receiver": case "result": case "signature-tail": return 1;
+        default: return 0;
+      }
+    default: return 0;
+  }
+}
+
+function arrayElement<Value>(value: Value | undefined): Value {
+  if (value === undefined) throw new TypeError("ir-types: a graph input vector must be dense.");
+  return value;
+}
 
 export function publicationShape(selected: PublicationRecord): PublicationShape {
   switch (selected.kind) {
     case "type": {
       const value = selected.value;
       switch (value.kind) {
-        case "primitive": return { work: 2, references: 0, children: [] };
-        case "intrinsic": return { work: 2, references: 0, children: [] };
-        case "string": return { work: 1, references: 0, children: [] };
-        case "literal": return { work: 3, references: 1, children: [{ kind: "literal", value: value.value }] };
-        case "union": return { work: 2, references: 0, children: [{ kind: "type-id-array", value: value.members }] };
-        case "intersection": return { work: 2, references: 0, children: [{ kind: "type-id-array", value: value.members }] };
-        case "optional": return { work: 2, references: 1, children: [] };
-        case "array": return { work: 3, references: 1, children: [] };
-        case "tuple": return { work: 3, references: 0, children: [{ kind: "tuple-element-array", value: value.elements }] };
-        case "fixed-array": return { work: 3, references: 1, children: [{ kind: "extent", value: value.extent }] };
-        case "shape": return { work: 5, references: 0, children: [{ kind: "member-array", value: value.members }, { kind: "index-signature-array", value: value.indexes }, { kind: "signature-id-array", value: value.calls }, { kind: "signature-id-array", value: value.constructs }] };
-        case "callable": return { work: 3, references: 0, children: [{ kind: "signature-id-array", value: value.calls }, { kind: "signature-id-array", value: value.constructs }] };
-        case "declared": return { work: 5, references: 0, children: [{ kind: "type-id-array", value: value.arguments }, value.extent === null ? { kind: "scalar" } : { kind: "extent", value: value.extent }] };
-        case "construction-reference": return { work: 3, references: 0, children: [{ kind: "construction", value: value.definition }, { kind: "type-id-array", value: value.arguments }] };
-        case "enum": return { work: 2, references: 0, children: [] };
-        case "param": return { work: 2, references: 0, children: [] };
-        case "self": return { work: 2, references: 0, children: [] };
-        case "projection": return { work: 3, references: 1, children: [{ kind: "projection", value: value.projection }] };
-        case "open": return { work: 3, references: 0, children: [] };
-        case "error": return { work: 1, references: 0, children: [] };
+        case "primitive": return { children: [] };
+        case "intrinsic": return { children: [] };
+        case "string": return { children: [] };
+        case "literal": return { children: [{ kind: "literal", value: value.value }] };
+        case "union": return { children: [{ kind: "type-id-array", value: value.members }] };
+        case "intersection": return { children: [{ kind: "type-id-array", value: value.members }] };
+        case "optional": return { children: [] };
+        case "array": return { children: [] };
+        case "tuple": return { children: [{ kind: "tuple-element-array", value: value.elements }] };
+        case "fixed-array": return { children: [{ kind: "extent", value: value.extent }] };
+        case "shape": return { children: [{ kind: "member-array", value: value.members }, { kind: "index-signature-array", value: value.indexes }, { kind: "signature-id-array", value: value.calls }, { kind: "signature-id-array", value: value.constructs }] };
+        case "callable": return { children: [{ kind: "signature-id-array", value: value.calls }, { kind: "signature-id-array", value: value.constructs }] };
+        case "declared": return { children: [{ kind: "type-id-array", value: value.arguments }, value.extent === null ? { kind: "scalar" } : { kind: "extent", value: value.extent }] };
+        case "construction-reference": return { children: [{ kind: "construction", value: value.definition }, { kind: "type-id-array", value: value.arguments }] };
+        case "enum": return { children: [] };
+        case "param": return { children: [] };
+        case "self": return { children: [] };
+        case "projection": return { children: [{ kind: "projection", value: value.projection }] };
+        case "open": return { children: [] };
+        case "error": return { children: [] };
       }
     }
     case "signature": {
       const value = selected.value;
-      return { work: 9, references: 1 + Number(value.receiver !== null), children: [value.owner === null ? { kind: "scalar" } : { kind: "source", value: value.owner }, value.composition === null ? { kind: "scalar" } : { kind: "composition", value: value.composition }, { kind: "type-parameter-array", value: value.typeParameters }, { kind: "signature-parameter-array", value: value.parameters }] };
+      return { children: [value.owner === null ? { kind: "scalar" } : { kind: "source", value: value.owner }, value.composition === null ? { kind: "scalar" } : { kind: "composition", value: value.composition }, { kind: "type-parameter-array", value: value.typeParameters }, { kind: "signature-parameter-array", value: value.parameters }] };
     }
     case "signature-input": {
       const value = selected.value;
-      return { work: 8, references: 1 + Number(value.receiver !== null), children: [value.owner === null ? { kind: "scalar" } : { kind: "source", value: value.owner }, value.composition === null ? { kind: "scalar" } : { kind: "composition", value: value.composition }, { kind: "type-parameter-array", value: value.typeParameters }, { kind: "signature-parameter-array", value: value.parameters }] };
+      return { children: [value.owner === null ? { kind: "scalar" } : { kind: "source", value: value.owner }, value.composition === null ? { kind: "scalar" } : { kind: "composition", value: value.composition }, { kind: "type-parameter-array", value: value.typeParameters }, { kind: "signature-parameter-array", value: value.parameters }] };
     }
     case "member": {
       const value = selected.value;
-      return { work: 9, references: Number(value.read !== null) + Number(value.write !== null), children: [{ kind: "member-key", value: value.key }, { kind: "origin-array", value: value.origins }, { kind: "origin-array", value: value.readOrigins }, { kind: "origin-array", value: value.writeOrigins }] };
+      return { children: [{ kind: "member-key", value: value.key }, { kind: "origin-array", value: value.origins }, { kind: "origin-array", value: value.readOrigins }, { kind: "origin-array", value: value.writeOrigins }] };
     }
     case "member-key": {
       const value = selected.value;
       switch (value.kind) {
-        case "text": return { work: 2, references: 0, children: [] };
-        case "number": return { work: 2, references: 0, children: [{ kind: "rational", value: value.value }] };
-        case "symbol": return { work: 2, references: 0, children: [] };
+        case "text": return { children: [] };
+        case "number": return { children: [{ kind: "rational", value: value.value }] };
+        case "symbol": return { children: [] };
       }
     }
     case "origin": {
       const value = selected.value;
       switch (value.kind) {
-        case "declared": return { work: 2, references: 0, children: [] };
-        case "class-prototype": return { work: 2, references: 0, children: [] };
-        case "mapped": return { work: 3, references: 0, children: [{ kind: "source", value: value.owner }, { kind: "member-key", value: value.key }] };
+        case "declared": return { children: [] };
+        case "class-prototype": return { children: [] };
+        case "mapped": return { children: [{ kind: "source", value: value.owner }, { kind: "member-key", value: value.key }] };
       }
     }
     case "source": {
       const value = selected.value;
       switch (value.kind) {
-        case "body": return { work: 2, references: 0, children: [{ kind: "node", value: value.value }] };
-        case "item": return { work: 2, references: 0, children: [{ kind: "item-node", value: value.value }] };
+        case "body": return { children: [{ kind: "node", value: value.value }] };
+        case "item": return { children: [{ kind: "item-node", value: value.value }] };
       }
     }
     case "node": {
-      return { work: 2, references: 0, children: [] };
+      return { children: [] };
     }
     case "item-node": {
-      return { work: 2, references: 0, children: [] };
+      return { children: [] };
     }
     case "local": {
-      return { work: 2, references: 0, children: [] };
+      return { children: [] };
     }
     case "construction": {
       const value = selected.value;
-      return { work: 2, references: 0, children: [{ kind: "node", value: value.occurrence }, { kind: "local-array", value: value.captures }] };
+      return { children: [{ kind: "node", value: value.occurrence }, { kind: "local-array", value: value.captures }] };
     }
     case "component": {
       const value = selected.value;
-      return { work: 2, references: 0, children: [{ kind: "source", value: value.root }, { kind: "selector-array", value: value.path }] };
+      return { children: [{ kind: "source", value: value.root }, { kind: "selector-array", value: value.path }] };
     }
     case "selector": {
       const value = selected.value;
       switch (value.kind) {
-        case "class-value": return { work: 1, references: 0, children: [] };
-        case "optional-value": return { work: 1, references: 0, children: [] };
-        case "array-element": return { work: 1, references: 0, children: [] };
-        case "intersection-result": return { work: 1, references: 0, children: [] };
-        case "projection-source": return { work: 1, references: 0, children: [] };
-        case "awaited": return { work: 1, references: 0, children: [] };
-        case "tuple-element": return { work: 2, references: 0, children: [] };
-        case "union-member": return { work: 2, references: 0, children: [] };
-        case "argument-place": return { work: 2, references: 0, children: [] };
-        case "parameter-place": return { work: 2, references: 0, children: [] };
-        case "intersection-member": return { work: 2, references: 0, children: [] };
-        case "construction-argument": return { work: 3, references: 0, children: [{ kind: "construction", value: value.definition }] };
-        case "argument-tail": return { work: 2, references: 0, children: [] };
-        case "parameter-tail": return { work: 2, references: 0, children: [] };
-        case "member": return { work: 2, references: 0, children: [{ kind: "origin", value: value.origin }] };
-        case "index-key": return { work: 3, references: 1, children: [{ kind: "source", value: value.origin }] };
-        case "index-value": return { work: 3, references: 1, children: [{ kind: "source", value: value.origin }] };
-        case "parameter": return { work: 3, references: 1, children: [] };
-        case "receiver": return { work: 2, references: 1, children: [] };
-        case "result": return { work: 2, references: 1, children: [] };
-        case "signature-tail": return { work: 4, references: 1, children: [] };
-        case "tuple-slice": return { work: 4, references: 0, children: [] };
-        case "type-argument": return { work: 3, references: 0, children: [] };
-        case "sum-arm": return { work: 3, references: 0, children: [{ kind: "family", value: value.family }] };
+        case "class-value": return { children: [] };
+        case "optional-value": return { children: [] };
+        case "array-element": return { children: [] };
+        case "intersection-result": return { children: [] };
+        case "projection-source": return { children: [] };
+        case "awaited": return { children: [] };
+        case "tuple-element": return { children: [] };
+        case "union-member": return { children: [] };
+        case "argument-place": return { children: [] };
+        case "parameter-place": return { children: [] };
+        case "intersection-member": return { children: [] };
+        case "construction-argument": return { children: [{ kind: "construction", value: value.definition }] };
+        case "argument-tail": return { children: [] };
+        case "parameter-tail": return { children: [] };
+        case "member": return { children: [{ kind: "origin", value: value.origin }] };
+        case "index-key": return { children: [{ kind: "source", value: value.origin }] };
+        case "index-value": return { children: [{ kind: "source", value: value.origin }] };
+        case "parameter": return { children: [] };
+        case "receiver": return { children: [] };
+        case "result": return { children: [] };
+        case "signature-tail": return { children: [] };
+        case "tuple-slice": return { children: [] };
+        case "type-argument": return { children: [] };
+        case "sum-arm": return { children: [{ kind: "family", value: value.family }] };
       }
     }
     case "family": {
       const value = selected.value;
-      return { work: 4, references: 0, children: [{ kind: "component", value: value.component }, { kind: "definition-id-array", value: value.parameters }, { kind: "arm-array", value: value.roles }] };
+      return { children: [{ kind: "component", value: value.component }, { kind: "definition-id-array", value: value.parameters }, { kind: "arm-array", value: value.roles }] };
     }
     case "arm": {
       const value = selected.value;
-      return { work: 3, references: 1, children: [{ kind: "source", value: value.component }] };
+      return { children: [{ kind: "source", value: value.component }] };
     }
     case "type-parameter": {
-      const value = selected.value;
-      return { work: 3, references: Number(value.constraint !== null) + Number(value.default !== null), children: [] };
+      return { children: [] };
     }
     case "signature-parameter": {
-      return { work: 6, references: 1, children: [] };
+      return { children: [] };
     }
     case "tuple-element": {
-      return { work: 3, references: 1, children: [] };
+      return { children: [] };
     }
     case "rational": {
-      return { work: 3, references: 0, children: [] };
+      return { children: [] };
     }
     case "literal": {
       const value = selected.value;
       switch (value.kind) {
-        case "number": return { work: 2, references: 0, children: [{ kind: "rational", value: value.value }] };
-        case "bigint": return { work: 2, references: 0, children: [] };
-        case "string": return { work: 2, references: 0, children: [] };
-        case "boolean": return { work: 2, references: 0, children: [] };
-        case "absence": return { work: 1, references: 0, children: [] };
-        case "unique-symbol": return { work: 2, references: 0, children: [] };
+        case "number": return { children: [{ kind: "rational", value: value.value }] };
+        case "bigint": return { children: [] };
+        case "string": return { children: [] };
+        case "boolean": return { children: [] };
+        case "absence": return { children: [] };
+        case "unique-symbol": return { children: [] };
       }
     }
     case "extent": {
-      return { work: 2, references: 0, children: [] };
+      return { children: [] };
     }
     case "projection": {
       const value = selected.value;
       switch (value.kind) {
-        case "awaited": return { work: 1, references: 0, children: [] };
-        case "component": return { work: 2, references: 0, children: [{ kind: "component", value: value.component }] };
+        case "awaited": return { children: [] };
+        case "component": return { children: [{ kind: "component", value: value.component }] };
       }
     }
     case "composition": {
       const value = selected.value;
       switch (value.kind) {
-        case "union": return { work: 2, references: 0, children: [{ kind: "signature-id-array", value: value.signatures }] };
-        case "intersection": return { work: 2, references: 0, children: [{ kind: "signature-id-array", value: value.signatures }] };
+        case "union": return { children: [{ kind: "signature-id-array", value: value.signatures }] };
+        case "intersection": return { children: [{ kind: "signature-id-array", value: value.signatures }] };
       }
     }
     case "index-signature": {
       const value = selected.value;
-      return { work: 5, references: 2 + Number(value.write !== null), children: [{ kind: "source", value: value.origin }] };
+      return { children: [{ kind: "source", value: value.origin }] };
     }
   }
 }
@@ -217,49 +277,51 @@ export function publicationShape(selected: PublicationRecord): PublicationShape 
 export function publicationArrayElement(node: PublicationArray, position: number): PublicationValue {
   switch (node.kind) {
     case "type-id-array": {
-      return { kind: "reference" };
+      arrayElement(node.value[position]);
+      return { kind: "scalar" };
     }
     case "tuple-element-array": {
-      const value = requirePresent(node.value[position], ownedElementFailure);
+      const value = arrayElement(node.value[position]);
       return { kind: "tuple-element", value: value };
     }
     case "member-array": {
-      const value = requirePresent(node.value[position], ownedElementFailure);
+      const value = arrayElement(node.value[position]);
       return { kind: "member", value: value };
     }
     case "index-signature-array": {
-      const value = requirePresent(node.value[position], ownedElementFailure);
+      const value = arrayElement(node.value[position]);
       return { kind: "index-signature", value: value };
     }
     case "signature-id-array": {
-      return { kind: "reference" };
+      arrayElement(node.value[position]);
+      return { kind: "scalar" };
     }
     case "type-parameter-array": {
-      const value = requirePresent(node.value[position], ownedElementFailure);
+      const value = arrayElement(node.value[position]);
       return { kind: "type-parameter", value: value };
     }
     case "signature-parameter-array": {
-      const value = requirePresent(node.value[position], ownedElementFailure);
+      const value = arrayElement(node.value[position]);
       return { kind: "signature-parameter", value: value };
     }
     case "origin-array": {
-      const value = requirePresent(node.value[position], ownedElementFailure);
+      const value = arrayElement(node.value[position]);
       return { kind: "origin", value: value };
     }
     case "local-array": {
-      const value = requirePresent(node.value[position], ownedElementFailure);
+      const value = arrayElement(node.value[position]);
       return { kind: "local", value: value };
     }
     case "selector-array": {
-      const value = requirePresent(node.value[position], ownedElementFailure);
+      const value = arrayElement(node.value[position]);
       return { kind: "selector", value: value };
     }
     case "definition-id-array": {
-      requirePresent(node.value[position], ownedElementFailure);
+      arrayElement(node.value[position]);
       return { kind: "scalar" };
     }
     case "arm-array": {
-      const value = requirePresent(node.value[position], ownedElementFailure);
+      const value = arrayElement(node.value[position]);
       return { kind: "arm", value: value };
     }
   }
@@ -283,5 +345,3 @@ export function isPublicationArray(node: PublicationNode): node is PublicationAr
     default: return false;
   }
 }
-import { requirePresent } from "../diag/index.js";
-import type { InvariantFailure } from "../diag/contract.js";

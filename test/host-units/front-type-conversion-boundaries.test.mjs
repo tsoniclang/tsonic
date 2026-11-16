@@ -254,7 +254,7 @@ test("declared arguments and extents require actual available associations befor
   assert.equal(form.arguments.length, 1);
   const unavailable = { kind: "unavailable", reason: "not-provided", causes: [] };
   for (const [replacement, pattern] of [
-    [{ ...form, arguments: [undefined] }, /actual selected checked argument/u],
+    [{ ...form, arguments: [undefined] }, /actual ordered parameter associations/u],
     [{ ...form, arguments: [{ ...form.arguments[0], argument: unavailable }] }, /actual selected checked argument/u],
     [{ ...form, extent: unavailable }, /actual selected extent association/u],
     [{ ...form, extent: { kind: "available", value: { length: 1n, runtimeBase: "number" } } }, /actual selected extent association/u],
@@ -263,6 +263,36 @@ test("declared arguments and extents require actual available associations befor
     types[row.id] = { ...row, form: { kind: "available", value: replacement } };
     rejects(actual, { ...actual.raw, types: { ...actual.raw.types, types } }, { kind: "type", id: row.id }, pattern);
   }
+});
+
+test("declared arguments retain ordered qualified parameter associations before publication", async () => {
+  const actual = await captured("export interface Pair<First,Second>{first:First;second:Second;}export type Current=Pair<boolean,string>;");
+  const node = actual.raw.tree.statements.nodes[1].type;
+  const row = actual.raw.types.types.find(candidate => candidate.authoredTypeNode?.node === node.id);
+  assert.equal(row.form.value.kind, "declared");
+  const form = row.form.value;
+  assert.equal(form.parameters.length, 2);
+  const replace = value => {
+    const types = [...actual.raw.types.types];
+    types[row.id] = { ...row, form: { kind: "available", value } };
+    return { ...actual.raw, types: { ...actual.raw.types, types } };
+  };
+  const arena = actual.fixture.types.createTypeInterner();
+  const equivalent = replace({ ...form, parameters: form.parameters.map(parameter => ({ ...parameter })),
+    arguments: form.arguments.map(argument => ({ ...argument, parameter: { ...argument.parameter } })) });
+  const conversion = actual.conversion.createTypeConversion(
+    actual.fixture.lowerDepsFor(actual.definitions, arena, actual.source), equivalent);
+  assert.equal(actual.conversion.convertRawType(conversion, row.id).kind, "complete");
+  for (const value of [
+    { ...form, arguments: form.arguments.slice(1) },
+    { ...form, parameters: [...form.parameters, form.parameters[0]] },
+    { ...form, parameters: [undefined, form.parameters[1]] },
+    { ...form, arguments: [{ ...form.arguments[0], parameter: form.parameters[1] }, form.arguments[1]] },
+    { ...form, arguments: [form.arguments[1], form.arguments[0]] },
+    { ...form, arguments: [{ ...form.arguments[0], parameter: {
+      ...form.parameters[0], module: actual.fixture.moduleOf(actual.fixture.packageOf("/project"), "src/foreign.ts"),
+    } }, form.arguments[1]] },
+  ]) rejects(actual, replace(value), { kind: "type", id: row.id }, /actual ordered parameter associations/u);
 });
 
 test("a missing or non-index source occurrence cannot become an index origin", async () => {

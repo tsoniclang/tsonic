@@ -112,6 +112,43 @@ export async function graphInsertionCases(suite, types) {
     }
   });
 
+  await suite.test("graph fields and vector elements remain unread until their own work and retention are admitted", () => {
+    const original = new Error("an unadmitted graph payload was read");
+    for (let maximum = 0; maximum < 16; maximum += 1) {
+      const current = create();
+      let reads = 0;
+      const term = { kind: "union", get members() { reads += 1; throw original; } };
+      const work = types.createTypePublicationWork({ ...limits, maximumWork: maximum });
+      const result = run(current.arena, [term], [], work).result;
+      assert.deepEqual(result, { kind: "resource-limit", dimension: "work", maximum });
+      assert.equal(reads, 0);
+      assert.equal(current.table.terms.length, 2);
+    }
+    for (const dimension of ["work", "created-records"]) {
+      const current = create();
+      let elements = 0;
+      const members = [current.bool];
+      Object.defineProperty(members, 0, { get() { elements += 1; throw original; } });
+      const work = types.createTypePublicationWork({ maximumWork: dimension === "work" ? 16 : limits.maximumWork,
+        maximumCreatedRecords: dimension === "created-records" ? 4 : limits.maximumCreatedRecords });
+      const result = run(current.arena, [{ kind: "union", members }], [], work).result;
+      assert.deepEqual(result, { kind: "resource-limit", dimension, maximum: dimension === "work" ? 16 : 4 });
+      assert.equal(elements, 0);
+      assert.equal(current.table.terms.length, 2);
+    }
+    for (let maximum = 14; maximum <= 22; maximum += 1) {
+      const current = create();
+      let reads = 0;
+      const signature = { declaration: null, owner: null, composition: null, kind: "call", typeParameters: [],
+        receiver: null, get parameters() { reads += 1; throw original; }, result: current.bool };
+      const result = run(current.arena, [], [signature],
+        types.createTypePublicationWork({ ...limits, maximumWork: maximum })).result;
+      assert.deepEqual(result, { kind: "resource-limit", dimension: "work", maximum });
+      assert.equal(reads, 0);
+      assert.equal(current.table.signatures.length, 0);
+    }
+  });
+
   await suite.test("one borrowed budget accumulates across actual lazy graph insertions without retargeting its maximum", () => {
     const reference = create();
     const first = run(reference.arena, [{ kind: "array", element: reference.bool, readonly: false }]);

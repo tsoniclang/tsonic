@@ -14,7 +14,8 @@ import { verifyObservations as checkObservations } from "./verify-observations.j
 import { conditionAnd as andConditions, conditionOr as orConditions, conditionEquals as equalConditions, conditionSubstitute as substituteConditions } from "./conditions.js";
 import type { ConditionAnd, ConditionOr, ConditionEquals, ConditionSubstitute } from "./contract.js";
 import type { ApplySummary, SummaryEquals } from "./contract.js";
-import type { AdmitSummaryIdentity, SummaryPositionKey } from "./contract.js";
+import type { AdmitSummaryIdentity, EscapeTargetKey, SummaryPositionKey } from "./contract.js";
+import { escapeTargetKey as identifyEscapeTarget } from "./escape-key.js";
 import { applySummary as apply } from "./apply-summary.js";
 import { summaryEquals as equalSummaries } from "./summary-equals.js";
 
@@ -35,6 +36,7 @@ export const parseSummary: ParseSummary = readSummary;
 export const verifySummary: VerifySummary = checkSummary;
 export const summaryKey: SummaryIdentity = identifySummary;
 export const summaryPositionKey: SummaryPositionKey = identifyPosition;
+export const escapeTargetKey: EscapeTargetKey = identifyEscapeTarget;
 export const admitSummaryIdentity: AdmitSummaryIdentity = admitIdentity;
 export const applySummary: ApplySummary = apply;
 export const summaryEquals: SummaryEquals = equalSummaries;
