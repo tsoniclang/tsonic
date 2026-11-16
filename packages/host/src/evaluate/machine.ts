@@ -6,7 +6,7 @@ import type { MirBody, MirOperand, MirSite, MirTerminator, MirUnwind } from "../
 import { localOwnershipOfMir } from "../ir-mir/index.js";
 import type { OperationIdentity } from "../ir-infer/contract.js";
 import type { BodyInstance, ConstValue } from "../ir-types/contract.js";
-import { nativeCarrierOf, sameInstance } from "../ir-types/index.js";
+import { literalCompatibilityOf, nativeCarrierOf, sameInstance } from "../ir-types/index.js";
 import type { Evaluate, EvaluateDeps, EvaluationStep, ResumeEvaluate } from "./contract.js";
 import type { EvaluationResult } from "./data.js";
 import type { Cell, Frame, Machine as EvaluationMachine, ReadyCall, Task } from "./pause.js";
@@ -378,6 +378,39 @@ function nativeBooleanCarrier(machine: Machine, type: TyId, site: MirSite): bool
   return true;
 }
 
+function literalConversion(machine: Machine, operation: Extract<OperationIdentity, { readonly kind: "conversion" }>,
+  result: TyId, site: MirSite): ConstValue | null {
+  if (!arithmetic(machine, 1, site.origin)) return null;
+  const operands = current(machine).values;
+  const value = operands[0];
+  if (operands.length !== 1 || value?.type !== operation.from || result !== operation.to)
+    return fail("A selected conversion retains its actual source value and destination type.", site.origin);
+  const embedding = operation.embedding;
+  if (embedding.kind === "identity") {
+    if (operation.from !== operation.to) return fail("An identity embedding retains the same selected type.", site.origin);
+    return value;
+  }
+  if (embedding.kind !== "conversion" || embedding.check.kind !== "none")
+    return fail("Evaluate requires the actual selected conversion check and its failure execution.", site.origin);
+  if (embedding.conversion !== "literal-fit" || value.kind === "floating" || value.kind === "error")
+    return fail("Evaluate requires the actual selected representation transformation for this conversion.", site.origin);
+  const reader = {
+    typeOf: (type: TyId) => arithmetic(machine, 1, site.origin) ? machine.deps.typeOf(type) : null,
+    admit: (work: number, entries: number) => arithmetic(machine, work, site.origin) && arithmetic(machine, entries, site.origin),
+  };
+  const held = (type: TyId): boolean => {
+    const selected = literalCompatibilityOf(machine.deps.types, type, value, machine.deps.selectedNativeFacts, reader);
+    if (selected.kind === "resource-stop") return false;
+    if (selected.kind === "needs-selected-evidence")
+      return fail(`Evaluate requires actual selected ${selected.requirement} evidence for literal conversion at type ${selected.type}.`, site.origin);
+    if (selected.kind !== "compatible")
+      return fail("A selected literal-fit conversion retains its exact payload and resolved source/destination domains.", site.origin);
+    return true;
+  };
+  if (!held(operation.from) || !held(operation.to)) return null;
+  return { ...value, type: result };
+}
+
 function apply(machine: Machine, selected: Extract<Task, { readonly kind: "apply" }>["operation"], site: MirSite, unwind: MirUnwind | null): void {
   const operation = selected.decision.operation;
   if (operation.kind === "library" || operation.kind === "core") {
@@ -386,6 +419,11 @@ function apply(machine: Machine, selected: Extract<Task, { readonly kind: "apply
   }
   if (operation.kind === "discard") {
     put(machine, { kind: "absence", type: selected.decision.result }, site);
+    return;
+  }
+  if (operation.kind === "conversion") {
+    const value = literalConversion(machine, operation, selected.decision.result, site);
+    if (value !== null) put(machine, value, site);
     return;
   }
   const nativeBoolean = operation.kind === "native-operator" && operation.carrier === "bool" && operation.operator === "!";

@@ -724,6 +724,21 @@ test(`real public Host analysis executes an ${annotation === "" ? "inferred" : "
   assert.equal(result.value.index.dependencyInventory.dependencies.some(edge => edge.reason === "initializer"
     && edge.dependent.instance.body === callable.instance.body && edge.target.kind === "body"
     && edge.target.execution.instance.body === initializer.instance.body), true);
+  if (annotation !== "") {
+    const conversions = initializer.mir.blocks.flatMap(block => block.statements)
+      .filter(statement => statement.kind === "assign" && statement.value.kind === "convert");
+    assert.equal(conversions.some(statement => statement.value.operation.decision.operation.kind === "conversion"
+      && statement.value.operation.decision.operation.embedding.kind === "conversion"
+      && statement.value.operation.decision.operation.embedding.conversion === "literal-fit"), true);
+  }
+  const { evaluate } = await import("../../packages/host/dist/evaluate/index.js");
+  const table = result.value.index.types;
+  const evaluated = evaluate({ types: table, typeOf: type => table.terms[type], signatureOf: signature => table.signatures[signature],
+    selectedNativeFacts: input.snapshot.nativeFacts, limits: input.limits.evaluation }, initializer.instance, initializer.mir, [],
+  "compile-time", { query: "constValue", key: [initializer.instance, "compile-time"] });
+  assert.equal(evaluated.kind, "done");
+  assert.equal(evaluated.value.kind, "ok");
+  assert.deepEqual(evaluated.value.value, { kind: "value", value: { kind: "boolean", value: true, type: initializer.tir.completion } });
 });
 
 test("real public Host analysis discharges a body-local captured initializer through its actual storage lifetime", async () => {

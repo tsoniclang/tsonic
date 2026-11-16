@@ -65,6 +65,97 @@ test("real lowered and verified literal returns the exact typed value", () => {
     diagnostics: [], positions: [{ position: { kind: "result" }, error: null }], emissions: [] } }, "exact native boolean and semantic result position");
 });
 
+function literalWidening(name, source, target, literal, embeddingKind = "conversion") {
+  return fixture(name, target, builder => {
+    const node = literal.kind === "boolean" ? builder.keyword(literal.value ? "TrueKeyword" : "FalseKeyword", source)
+      : { kind: "StringLiteral", text: literal.value, tokenFlags: [], tsonic: { type: source, convertedType: source,
+        conversion: { kind: "identity" }, narrowing: null, evidenceIndex: null, demand: { kind: "always" }, role: "value", value: literal.value } };
+    return builder.block(builder.returns({ ...node, $: "widening", tsonic: at => {
+      const from = { root: { kind: "body", value: builder.nodeRef(at("widening")) }, path: [] };
+      const to = { root: { kind: "body", value: builder.nodeRef(0) }, path: [{ kind: "result", signature: SIG[name] }] };
+      const embedding = embeddingKind === "identity" ? { kind: "identity" } : { kind: "conversion", conversion: "literal-fit", check: { kind: "none" },
+        proof: { steps: [{ from, to, rule: "literal-fit", premises: [] }], conclusion: 0 } };
+      const decision = selected({ kind: "conversion", from: source, to: target, embedding }, [source], target);
+      return { ...node.tsonic, convertedType: target,
+        conversion: { kind: "convert", role: "return", operation: { decision, permissionScope: null } } };
+    } }));
+  });
+}
+
+test("the actual pure literal-fit conversion preserves its boolean payload at the wider selected type", () => {
+  const source = declareType("evaluation.literalWidening.true", { kind: "literal", value: { kind: "boolean", value: true }, base: T.bool });
+  const value = literalWidening("evaluate-literal-widening.true", source, T.bool, { kind: "boolean", value: true });
+  same(value.start().value.value, { kind: "value", value: { kind: "boolean", type: T.bool, value: true } },
+    "the real Source-selected pure embedding needs no fabricated native conversion or default context");
+});
+
+test("selected literal widening preserves exact false and Unicode payloads under every smaller original allowance", () => {
+  const literals = [{ kind: "boolean", value: false }, { kind: "string", value: "" }, { kind: "string", value: "e\u0301\u0000λ" }];
+  for (const [index, literal] of literals.entries()) {
+    const target = literal.kind === "boolean" ? T.bool : T.string;
+    const source = declareType(`evaluation.literalWidening.${index}`, { kind: "literal", value: literal, base: target });
+    const value = literalWidening(`evaluate-literal-widening.${index}`, source, target, literal);
+    const required = literal.kind === "boolean" ? 17 : 15 + 2 * literal.value.length;
+    for (let maximum = 0; maximum <= required; maximum += 1) {
+      const answer = value.start({ ...limits, maximumArithmeticWork: maximum });
+      assert.equal(answer.kind, "done");
+      assert.equal(answer.value.kind, maximum < required ? "refused" : "ok", `canonical conversion work ${index}/${maximum}`);
+      if (maximum === required) same(answer.value.value, { kind: "value", value: { ...literal, type: target } }, "the payload is not normalized or converted by a host numeric policy");
+      else assert.equal(answer.value.diagnostics[0].arguments[0].value, "evaluation.maximumArithmeticWork");
+    }
+    const bits = literal.kind === "boolean" ? 1 : 16 * literal.value.length;
+    for (const dimension of ["maximumIntermediateBits", "maximumResultBits"]) for (const maximum of new Set([0, Math.max(0, bits - 1), bits])) {
+      const answer = value.start({ ...limits, [dimension]: maximum });
+      assert.equal(answer.value.kind, maximum < bits ? "refused" : "ok", `${index}/${dimension}/${maximum}`);
+    }
+    const unread = new Proxy({}, { get() { assert.fail("Literal widening reads no unrelated numeric policy row."); } });
+    same(product.evaluate({ ...value.deps, selectedNativeFacts: unread }, value.entry, value.body, [], "compile-time", value.unit).value.value,
+      { kind: "value", value: { ...literal, type: target } }, "boolean and string widening need no target-name or numeric representation guess");
+  }
+});
+
+test("conversion identity and nested literal-base evidence retain the actual selected payload and original read stop", () => {
+  const identity = literalWidening("evaluate-literal-widening.identity", T.bool, T.bool, { kind: "boolean", value: true }, "identity");
+  same(identity.start({ ...limits, maximumArithmeticWork: 1 }).value.value,
+    { kind: "value", value: { kind: "boolean", type: T.bool, value: true } }, "a genuine identity embedding borrows the same value");
+  const inner = declareType("evaluation.literalWidening.inner", { kind: "literal", value: { kind: "boolean", value: true }, base: T.bool });
+  const outer = declareType("evaluation.literalWidening.outer", { kind: "literal", value: { kind: "boolean", value: true }, base: inner });
+  const value = literalWidening("evaluate-literal-widening.nested", outer, T.bool, { kind: "boolean", value: true });
+  for (let maximum = 0; maximum <= 21; maximum += 1) {
+    const reads = [];
+    const answer = product.evaluate({ ...value.deps, limits: { ...limits, maximumArithmeticWork: maximum }, typeOf: type => {
+      reads.push(type);
+      return value.deps.typeOf(type);
+    } }, value.entry, value.body, [], "compile-time", value.unit);
+    assert.equal(answer.value.kind, maximum < 21 ? "refused" : "ok");
+    const expectedReads = [outer, inner, T.bool, T.bool];
+    assert.deepEqual(reads, expectedReads.slice(0, reads.length), "no later source hop or target lookup follows refusal");
+    if (maximum === 0) assert.deepEqual(reads, []);
+    if (maximum === 21) assert.deepEqual(reads, expectedReads);
+  }
+});
+
+test("a conversion never substitutes missing selected transformation, payload, check or native evidence", () => {
+  const source = declareType("evaluation.literalWidening.frontier", { kind: "literal", value: { kind: "boolean", value: true }, base: T.bool });
+  const value = literalWidening("evaluate-literal-widening.frontier", source, T.bool, { kind: "boolean", value: true });
+  const changed = replace => ({ ...value.body, blocks: value.body.blocks.map(block => ({ ...block, statements: block.statements.map(statement =>
+    statement.kind !== "assign" || statement.value.kind !== "convert" ? statement : { ...statement, value: { ...statement.value,
+      operation: { ...statement.value.operation, decision: { ...statement.value.operation.decision,
+        operation: replace(statement.value.operation.decision.operation) } } } }) })) });
+  const run = (body = value.body, overrides = {}) => product.evaluate({ ...value.deps, ...overrides }, value.entry, body, [], "compile-time", value.unit);
+  for (const replace of [operation => ({ ...operation, from: T.string }), operation => ({ ...operation, to: T.string })])
+    assert.throws(() => run(changed(replace)), /actual source value and destination type/u);
+  assert.throws(() => run(changed(operation => ({ ...operation, embedding: { kind: "identity" } }))), /same selected type/u);
+  assert.throws(() => run(changed(operation => ({ ...operation, embedding: { kind: "refused", reason: "missing-correspondence" } }))), /actual selected conversion check/u);
+  assert.throws(() => run(changed(operation => ({ ...operation, embedding: { ...operation.embedding, conversion: "numeric" } }))), /actual selected representation transformation/u);
+  assert.throws(() => run(value.body, { typeOf: type => type === source ? undefined : value.deps.typeOf(type) }), /exact payload and resolved source\/destination domains/u);
+  assert.throws(() => run(value.body, { typeOf: type => type === source ? { ...value.deps.typeOf(type), value: { kind: "boolean", value: false } }
+    : value.deps.typeOf(type) }), /exact payload and resolved source\/destination domains/u);
+  for (const [primitive, requirement] of [["char", "representation"], ["decimal", "representation"], ["float64", "literal-conversion"]])
+    assert.throws(() => run(value.body, { typeOf: type => type === T.bool ? { kind: "primitive", primitive } : value.deps.typeOf(type) }),
+      new RegExp(`actual selected ${requirement} evidence for literal conversion`, "u"));
+});
+
 test("every limit rejects malformed counts, including negative zero, before an input body is read", () => {
   for (const field of Object.keys(limits)) {
     for (const malformed of [-0, -1, 0.5, NaN, Infinity, -Infinity, Number.MAX_SAFE_INTEGER + 1]) {
