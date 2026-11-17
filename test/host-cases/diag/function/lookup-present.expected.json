@@ -1,0 +1,10 @@
+{
+  "kind": "accepted",
+  "value": {
+    "code": "HOST_Z",
+    "severity": "error",
+    "stage": "analysis",
+    "template": "last {0}\r\n\ud800"
+  },
+  "diagnostics": []
+}

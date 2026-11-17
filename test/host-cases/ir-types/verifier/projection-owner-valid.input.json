@@ -1,0 +1,26 @@
+{
+  "table": {
+    "terms": [
+      {
+        "kind": "projection",
+        "source": 0,
+        "projection": {
+          "kind": "component",
+          "component": {
+            "root": {
+              "kind": "body",
+              "value": {
+                "body": "B[D[M[P[case];main.ts];field];function;0]",
+                "node": 0
+              }
+            },
+            "path": []
+          }
+        }
+      }
+    ],
+    "signatures": []
+  },
+  "bindings": [],
+  "evidence": []
+}

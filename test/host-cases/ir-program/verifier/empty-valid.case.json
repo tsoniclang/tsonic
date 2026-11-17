@@ -1,0 +1,7 @@
+{
+  "name": "empty-valid",
+  "level": "verifier",
+  "rule": "empty-valid",
+  "input": "test/host-cases/ir-program/verifier/empty-valid.input.json",
+  "expected": "test/host-cases/ir-program/verifier/empty-valid.expected.json"
+}

@@ -1,0 +1,1 @@
+{"name":"codec-diagnostic-invalid-code","level":"function","rule":"One cursor rejects the exact invalid closed diagnostic family at its actual source token","input":"test/host-cases/ir-program/function/codec-diagnostic-invalid-code.input.json","expected":"test/host-cases/ir-program/function/codec-diagnostic-invalid-code.expected.json"}

@@ -1,0 +1,7 @@
+{
+  "name": "components-disconnected",
+  "level": "function",
+  "rule": "dataflow.complete-components",
+  "input": "test/host-cases/dataflow/function/components-disconnected.input.json",
+  "expected": "test/host-cases/dataflow/function/components-disconnected.expected.json"
+}

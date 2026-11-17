@@ -50,6 +50,14 @@ Providers must not attach target-specific fields to closed TSTS values. They
 publish only through the C# target's public relation, type, policy, and runtime
 contribution contracts.
 
+Binary execution drivers own startup before any selected asynchronous work is
+created. `runMethodName` names a parameterless pump; the method selected by
+`runWithEntrypointMethodName` accepts an entry factory (`Action` for synchronous
+initialization or `Func<Task>` for asynchronous initialization), not an eagerly
+started `Task`. The generated entrypoint invokes the factory inside the driver's
+native execution context. JS Promise continuations and Node handles select this
+driver through their operation or provider contract; native-only Tasks do not.
+
 Ownership optimization has the same evidence boundary as every other target:
 use checked source uses and native compiler-understood types, signatures and
 qualifiers. An exact provider mapping does not authorize an invented wrapper
@@ -100,18 +108,32 @@ export function createTsonicPlugin() {
 | `virtualDeclarationFileName` | Virtual source filename for a public specifier |
 | `moduleDiagnostic` | Unowned or missing-module diagnostic |
 | `resolutionEvidence`, `declarationEvidence` | Optional source-provider evidence |
-| `createPolicy(selectedSurfaceIds)` | Exact C# type/member relations, rejections and execution driver for the selected source profiles |
+| `policy` | One `static` or `runtime-project` policy with exact C# type/member relations, rejections and execution driver |
 | `runtime` | Declared native artifact requirements |
 
-The factory snapshots package metadata and registers one source provider.
-It does not reflect native assemblies or infer target mappings. Those remain
-the producer's declared inputs, validated through the existing C# contracts.
+The factory snapshots package metadata and registers one source provider before
+Source checking. The old top-level `createPolicy` field is rejected.
 
-`createPolicy` receives the same immutable surface IDs as each module's
-`getExports`. Its result is validated and frozen once per selection. Use this
-when native and JavaScript declarations have different native carriers, such
-as `T[]` and `JSArray<T>`. A source-profile change cannot silently reuse the
-other profile's member signatures.
+A `static` policy provides `create(selectedSurfaceIds)` and returns a complete
+policy from declared, validated Native metadata. A `runtime-project` policy
+provides `nativeDomain: { source, namespaces }` and
+`create({ selectedSurfaceIds, domain })`. Its `source` is the same immutable
+runtime project source supplied by the package's runtime contributions. Native
+preparation acquires the actual generated or user-owned project's selected
+reference image before calling this producer. A deferred domain request is not
+an empty or complete policy.
+
+The acquired `domain.declarations` retains each original declaration together
+with its canonical binding and complete definition. Runtime-project policies
+map to these authenticated originals; they do not invent or rebind assembly,
+class, member or generic-parameter identities. Explicit closed Native
+applications are validated against the same open definitions.
+
+Both policy kinds receive the same immutable surface IDs as each module's
+`getExports`. The completed result is validated and frozen before Native
+resolver and execution-driver composition. When native and JavaScript profiles
+use different carriers, such as `T[]` and `JSArray<T>`, each selection supplies
+its exact member signatures rather than reusing the other profile's policy.
 
 For example, a module can have a public alias without changing its native
 member identity:

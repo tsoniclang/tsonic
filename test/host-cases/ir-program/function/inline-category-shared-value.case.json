@@ -1,0 +1,1 @@
+{"name":"inline-category-shared-value","level":"function","rule":"C2931 finite shared CategoryEvidence is serialized by value, not rejected as a cycle; exact document/full parsed and canonical values","input":"test/host-cases/ir-program/function/inline-category-shared-value.input.json","expected":"test/host-cases/ir-program/function/inline-category-shared-value.expected.json"}

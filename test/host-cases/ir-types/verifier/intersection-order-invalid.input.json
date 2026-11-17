@@ -1,0 +1,23 @@
+{
+  "table": {
+    "terms": [
+      {
+        "kind": "primitive",
+        "primitive": "int32"
+      },
+      {
+        "kind": "string"
+      },
+      {
+        "kind": "intersection",
+        "members": [
+          1,
+          0
+        ]
+      }
+    ],
+    "signatures": []
+  },
+  "bindings": [],
+  "evidence": []
+}

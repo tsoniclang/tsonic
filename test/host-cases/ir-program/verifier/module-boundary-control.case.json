@@ -1,0 +1,1 @@
+{"name":"module-boundary-control","level":"verifier","rule":"actual checked SourceFile and shared parametric publication; complete opposite","input":"test/host-cases/ir-program/verifier/module-boundary-control.input.json","expected":"test/host-cases/ir-program/verifier/module-boundary-control.expected.json"}

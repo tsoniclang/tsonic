@@ -1,0 +1,1 @@
+{"name":"six-graph-header-before-target","level":"function","rule":"Clean EOF journal selects the earliest independently declared reference fault, before constructing any child","input":"test/host-cases/ir-program/function/six-graph-header-before-target.input.json","expected":"test/host-cases/ir-program/function/six-graph-header-before-target.expected.json"}

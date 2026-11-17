@@ -1,0 +1,181 @@
+{
+  "operation": "order",
+  "diagnostics": [
+    {
+      "code": {
+        "kind": "extension",
+        "number": 0,
+        "extensionCode": "ZERO",
+        "rendered": "TS0"
+      },
+      "severity": "suggestion",
+      "site": {
+        "kind": "none"
+      },
+      "source": "extension",
+      "evidence": [
+        "zero"
+      ],
+      "message": "no source site",
+      "arguments": [],
+      "related": [],
+      "fix": null
+    },
+    {
+      "code": {
+        "kind": "host",
+        "name": "HOST_Z",
+        "rendered": "HOST_Z"
+      },
+      "severity": "error",
+      "site": {
+        "kind": "file",
+        "path": "z/file.ts"
+      },
+      "source": null,
+      "evidence": [],
+      "message": "file z",
+      "arguments": [],
+      "related": [],
+      "fix": null
+    },
+    {
+      "code": {
+        "kind": "checker",
+        "number": 2,
+        "rendered": "TS2"
+      },
+      "severity": "suggestion",
+      "site": {
+        "kind": "source",
+        "origin": {
+          "module": "M[P[project];b.ts]",
+          "start": 0,
+          "length": 1,
+          "derived": []
+        }
+      },
+      "source": "checker",
+      "evidence": [
+        "TS2"
+      ],
+      "message": "source b",
+      "arguments": [
+        {
+          "kind": "number",
+          "value": 2
+        }
+      ],
+      "related": [],
+      "fix": null
+    },
+    {
+      "code": {
+        "kind": "host",
+        "name": "HOST_A",
+        "rendered": "HOST_A"
+      },
+      "severity": "error",
+      "site": {
+        "kind": "source",
+        "origin": {
+          "module": "M[P[project];a.ts]",
+          "start": 7,
+          "length": 0,
+          "derived": []
+        }
+      },
+      "source": null,
+      "evidence": [],
+      "message": "source a later",
+      "arguments": [],
+      "related": [],
+      "fix": null
+    },
+    {
+      "code": {
+        "kind": "checker",
+        "number": 0,
+        "rendered": "TS0"
+      },
+      "severity": "warning",
+      "site": {
+        "kind": "file",
+        "path": "A\\file.ts"
+      },
+      "source": "checker",
+      "evidence": [],
+      "message": "file A",
+      "arguments": [],
+      "related": [],
+      "fix": null
+    },
+    {
+      "code": {
+        "kind": "extension",
+        "number": 7,
+        "extensionCode": "OWNER_EXTENSION",
+        "rendered": "PUBLIC_EXT"
+      },
+      "severity": "warning",
+      "site": {
+        "kind": "source",
+        "origin": {
+          "module": "M[P[project];a.ts]",
+          "start": 0,
+          "length": 3,
+          "derived": [
+            {
+              "kind": "lowering",
+              "pass": "front"
+            }
+          ]
+        }
+      },
+      "source": "owner.extension",
+      "evidence": [
+        "exact",
+        "exact"
+      ],
+      "message": "extension\r\n\ud800",
+      "arguments": [
+        {
+          "kind": "text",
+          "value": "authored"
+        }
+      ],
+      "related": [
+        {
+          "site": {
+            "kind": "none"
+          },
+          "code": {
+            "kind": "checker",
+            "number": 0,
+            "rendered": "TS0"
+          },
+          "message": "related"
+        }
+      ],
+      "fix": {
+        "description": "supplied edit",
+        "edits": [
+          {
+            "origin": {
+              "module": "M[P[project];a.ts]",
+              "start": 0,
+              "length": 3,
+              "derived": [
+                {
+                  "kind": "lowering",
+                  "pass": "front"
+                }
+              ]
+            },
+            "replacement": "fixed\udfff"
+          }
+        ]
+      }
+    }
+  ]
+}

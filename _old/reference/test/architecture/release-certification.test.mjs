@@ -1,0 +1,312 @@
+import assert from "node:assert/strict";
+import { execFileSync, spawnSync } from "node:child_process";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
+import test from "node:test";
+import { readCertificationOptions, validateCertificationEntry } from "../../scripts/certification/contract.mjs";
+import { parallelReportCounts, parseCargoBankCounts, nodeReportCounts } from "../../scripts/certification/counts.mjs";
+import { snapshotCertificationInputs, sameCertificationInputs } from "../../scripts/certification/inputs.mjs";
+import { describeEvidence, latestCertification, validateCertification, writeImmutableJson } from "../../scripts/certification/records.mjs";
+import { selectCertification } from "../../scripts/certification/select.mjs";
+import { hostRoot, loadNpmWave, resolveWaveLayout } from "../../scripts/release/npm-wave.mjs";
+import { createTestWorkspace } from "../scripts/test-workspaces.mjs";
+import { keelWorkspaceRepositories } from "./tooling/keel-contract.mjs";
+
+const entry = validateCertificationEntry({
+  repository: "tsonic", command: ["npm", "test"], worker: ["node", "test.mjs"],
+  inputs: ["tsonic"], tools: ["node"], profile: "host", banks: ["node"], skipped: 0,
+});
+const count = { total: 2, passed: 2, failed: 0, skipped: 0, todo: 0, cancelled: 0, filtered: 0 };
+
+test("certification options cannot bypass tests or disguise manifest validation", () => {
+  assert.deepEqual(readCertificationOptions([]), { check: false, validate: false, suites: [] });
+  assert.equal(readCertificationOptions(["--check"]).check, true);
+  assert.equal(readCertificationOptions(["--validate"], { publisher: true }).validate, true);
+  assert.deepEqual(readCertificationOptions(["--suite", "rust-js"]).suites, ["rust-js"]);
+  for (const args of [["--force"], ["--reuse-certification"], ["--verify-only"], ["--skip-tests"], ["--suite"],
+    ["--check", "--check"], ["--suite", "a", "--suite", "a"]]) {
+    assert.throws(() => readCertificationOptions(args));
+  }
+  assert.throws(() => readCertificationOptions(["--validate", "--check"], { publisher: true }));
+  assert.throws(() => readCertificationOptions(["--check"], { publisher: true }));
+  assert.throws(() => readCertificationOptions(["--suite", "rust-js"], { publisher: true }));
+});
+
+test("all release banks explicitly close over their real sibling dependencies", () => {
+  const entries = loadNpmWave().certification;
+  for (const suite of entries) assert.doesNotThrow(() => validateCertificationEntry(suite));
+  assert.deepEqual(entries.find(suite => suite.repository === "tsonic").inputs,
+    keelWorkspaceRepositories);
+  assert.deepEqual(entries.find(suite => suite.repository === "tsonic-rust").inputs,
+    ["tsonic", "tsonic-rust", "rust-runtime", "rust-js", "rust-nodejs", "tsonic-csharp"]);
+  assert.deepEqual(entries.find(suite => suite.repository === "rust-nodejs").inputs,
+    ["tsonic", "tsonic-rust", "rust-runtime", "rust-js", "rust-nodejs"]);
+  for (const invalid of [{ ...entry, inputs: [] }, { ...entry, inputs: ["../outside"] },
+    { ...entry, tools: ["guess"] }, { ...entry, command: [] }, { ...entry, skipped: -1 },
+    { ...entry, banks: ["node", "node"] }, { ...entry, extra: true }]) {
+    assert.throws(() => validateCertificationEntry(invalid));
+  }
+});
+
+test("verification preserves explicit checkout roots without relaxing publisher coherence", () => {
+  const workspaceRoot = createTestWorkspace(resolve(hostRoot, ".temp"), "certification-layout-");
+  const root = resolve(workspaceRoot, "selected-target");
+  const layout = resolveWaveLayout(loadNpmWave(), { workspaceRoot, repositoryRoots: new Map([["tsonic-rust", root]]) });
+  assert.equal(layout.repositoryRoots.get("tsonic"), hostRoot);
+  assert.equal(layout.repositoryRoots.get("tsonic-rust"), root);
+  assert.equal(layout.repositoryRoots.get("rust-runtime"), resolve(workspaceRoot, "rust-runtime"));
+  assert.throws(() => resolveWaveLayout(loadNpmWave(), { repositoryRoots: new Map([["unknown", root]]) }));
+  assert.throws(() => resolveWaveLayout(loadNpmWave(), { repositoryRoots: new Map([["tsonic-rust", "relative"]]) }));
+});
+
+test("reuse is automatic and only invalid banks run; check mode never starts tests", () => {
+  const entries = [entry, { ...entry, repository: "rust-js" }];
+  const inspect = selected => {
+    if (selected.repository === "rust-js") throw new Error("stale");
+    return { passed: true };
+  };
+  assert.throws(() => selectCertification(entries, { check: true }, inspect), /rust-js: stale/u);
+  assert.deepEqual(selectCertification(entries, readCertificationOptions([]), inspect).map(item => item.action), ["reuse", "run"]);
+  assert.deepEqual(selectCertification(entries, {}, () => ({ passed: true })).map(item => item.action), ["reuse", "reuse"]);
+});
+
+test("exact clean trees survive a different commit but not source, dependency or tool changes", () => {
+  const fixture = makeFixture();
+  assert.deepEqual(validate(fixture), { total: 2, passed: 2, skipped: 0 });
+  const merged = structuredClone(fixture.current);
+  merged.repositories[0].head = "b".repeat(40);
+  assert.doesNotThrow(() => validate(fixture, fixture.record, merged));
+  for (const mutate of [
+    current => { current.repositories[0].tree = "c".repeat(40); },
+    current => { current.repositories[0].dirty = true; },
+    current => { current.repositories[0].installedLock = "d".repeat(64); },
+    current => { current.tools.node = "different"; },
+    current => { current.environment = { RUSTFLAGS: "different" }; },
+    current => { current.architecture = "different"; },
+    current => { current.repositories.pop(); },
+  ]) {
+    const current = structuredClone(fixture.current);
+    mutate(current);
+    assert.throws(() => validate(fixture, fixture.record, current));
+  }
+});
+
+test("every incomplete, unsafe, malformed and mutated certification is rejected", () => {
+  const fixture = makeFixture();
+  for (const mutate of [
+    record => { record.schemaVersion = 2; },
+    record => { record.suite.command.push("--filter"); },
+    record => { record.before.repositories[0].dirty = true; },
+    record => { record.before.repositories[0].tree = "f".repeat(40); },
+    record => { record.after.repositories[0].dirty = true; },
+    record => { record.exitCode = 137; },
+    record => { record.complete = false; },
+    record => { record.finishedAt = "tomorrow"; },
+    record => { record.finishedAt = "2999-01-01T00:00:00.000Z"; },
+    record => { record.startedAt = "2026-01-02T00:00:00.000Z"; },
+    record => { record.counts = []; },
+    record => { record.counts[0].total = 3; },
+    record => { record.counts[0].filtered = 1; },
+    record => { record.counts[0].todo = 1; },
+    record => { record.counts[0].cancelled = 1; },
+    record => { record.counts[0].failed = 1; },
+    record => { record.counts[0].passed = NaN; },
+    record => { record.guard.oomAfter = 1; },
+    record => { record.guard.oomBefore = null; },
+    record => { record.guard.scopeResult = "oom-kill"; },
+    record => { record.guard.calibration = true; },
+    record => { record.guard.swapMax = 1024; },
+    record => { record.guard.memoryMiB = 0; },
+    record => { record.guard.timeoutSeconds = Infinity; },
+    record => { record.evidence.pop(); },
+    record => { record.evidence.push(record.evidence[0]); },
+    record => { record.evidence[0].sha256 = "0".repeat(64); },
+    record => { record.evidence[0].path = resolve(fixture.root, "..", "guard.json"); },
+  ]) {
+    const record = structuredClone(fixture.record);
+    mutate(record);
+    assert.throws(() => validate(fixture, record));
+    assert.throws(() => validateCertification(record, entry, fixture.current, fixture.root, Date.now(),
+      [{ repository: "tsonic", path: "docs/" }]));
+  }
+  writeFileSync(fixture.record.guard.log, "changed\n");
+  assert.throws(() => validate(fixture), /evidence changed/u);
+});
+
+test("count adapters reject truncation and retain ignored or filtered native tests", () => {
+  const named = { summary: { completed: true }, tests: [
+    { type: "test", status: "passed", exitCode: null, signal: null },
+    { type: "test", status: "passed", exitCode: null, signal: null },
+    { type: "suite", status: "passed", exitCode: null, signal: null },
+  ] };
+  assert.deepEqual(nodeReportCounts(named), [count]);
+  assert.throws(() => nodeReportCounts({ ...named, summary: { completed: false } }), /complete/u);
+  assert.throws(() => nodeReportCounts({ ...named, summary: undefined }), /complete/u);
+  const cargo = parseCargoBankCounts("test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 3 filtered out; finished in 0.00s\n");
+  assert.deepEqual(cargo, [{ ...count, total: 3, skipped: 1, filtered: 3 }]);
+  assert.deepEqual(parseCargoBankCounts("running 3 tests\n"), []);
+  assert.throws(() => parallelReportCounts({ taskCounts: { total: 2, passed: 2, failed: 0 } }), /incomplete/u);
+});
+
+test("certification requires the drained admitted cgroup and never substitutes user-slice counters", () => {
+  const fixture = makeFixture({ userSliceOomDiagnostic: { before: 7, after: 8, authoritative: false } });
+  assert.doesNotThrow(() => validate(fixture), "a foreign user-slice kill is diagnostic only");
+  for (const changed of [
+    { measurement: undefined }, { admission: undefined }, { scopeDrained: undefined }, { scopeDrained: false },
+    { measurement: { ...fixture.record.guard.measurement, oomAfter: 1 } },
+    { measurement: { ...fixture.record.guard.measurement, swapBytes: 1 } },
+    { measurement: { ...fixture.record.guard.measurement, controlGroup: "/user.slice/other.scope" } },
+    { admission: { ...fixture.record.guard.admission, requestedMiB: 8192 } },
+    { budget: { ...fixture.record.guard.budget, memoryMiB: 8192 } },
+    { oomBefore: 1, oomAfter: 1 },
+  ]) {
+    const invalid = makeFixture(changed);
+    assert.throws(() => validate(invalid), /owned resource guard/u, Object.keys(changed).join(","));
+  }
+});
+
+test("parallel runner evidence is canonical and the superseded host evidence role is rejected", () => {
+  const fixture = makeFixture();
+  const path = resolve(fixture.root, "suite.json");
+  writeImmutableJson(path, { bank: "node", selection: { complete: true },
+    taskCounts: { total: 1, passed: 1, failed: 0 }, testCountReporting: { missing: 0, reported: 1 },
+    preRuns: [], testCounts: { ...count },
+    results: [{ status: 0, signal: null, resultError: null, summary: { completed: true, success: true }, tests: [
+      { type: "test", status: "passed", exitCode: null, signal: null },
+      { type: "test", status: "passed", exitCode: null, signal: null },
+    ] }] });
+  const record = structuredClone(fixture.record);
+  record.evidence[2] = describeEvidence(path, "parallel");
+  assert.doesNotThrow(() => validate(fixture, record), "the same complete report proves the declared Node bank");
+  record.evidence[2] = describeEvidence(path, "host");
+  assert.throws(() => validate(fixture, record), /Unknown certification evidence role/u,
+    "there is no legacy Host report route alongside the current parallel contract");
+});
+
+test("a newer incomplete or malformed run never falls back to an older success", () => {
+  const root = createTestWorkspace(resolve(hostRoot, ".temp"), "certification-latest-");
+  assert.throws(() => latestCertification(root), /No certification/u);
+  const older = resolve(root, "20260101T000000000Z-00000000-0000-0000-0000-000000000000");
+  mkdirSync(older);
+  writeImmutableJson(resolve(older, "record.json"), { success: true });
+  assert.equal(latestCertification(root).record.success, true);
+  assert.throws(() => writeImmutableJson(resolve(older, "record.json"), {}), /EEXIST/u);
+  const newer = resolve(root, "20260101T000000001Z-00000000-0000-0000-0000-000000000000");
+  mkdirSync(newer);
+  assert.throws(() => latestCertification(root), /did not finish/u);
+  writeFileSync(resolve(newer, "record.json"), "not JSON");
+  assert.throws(() => latestCertification(root), /JSON/u);
+});
+
+test("certification rejects inner process failure even inside an otherwise successful count wrapper", () => {
+  const ordinary = { type: "test", status: "passed", exitCode: null, signal: null };
+  for (const changed of [
+    { exitCode: 23 }, { exitCode: 137 }, { signal: "SIGTERM" }, { signal: "SIGABRT" },
+    { exitCode: undefined }, { signal: undefined }, { exitCode: 1 },
+  ]) {
+    const fixture = makeFixture({}, { tests: [{ ...ordinary, ...changed }, ordinary] });
+    assert.throws(() => validate(fixture), /execution|process/u,
+      "counts, outer exit, guard and assertion identities cannot excuse inner termination");
+  }
+  for (const changed of [
+    { resultError: "Inner test process ended by signal SIGTERM." }, { resultError: undefined },
+    { signal: "SIGTERM" }, { summary: { completed: false, success: true } },
+  ]) {
+    assert.throws(() => validate(makeFixture({}, changed)), /execution/u,
+      "the direct bank reader uses the same execution evidence as the queue");
+  }
+});
+
+test("real repository snapshots identify merges, dirty inputs and dependency mutations", () => {
+  const root = createTestWorkspace(resolve(hostRoot, ".temp"), "certification-inputs-");
+  const git = args => execFileSync("git", args, { cwd: root, stdio: "pipe" });
+  git(["init", "--quiet", "-b", "certification-fixture"]);
+  writeFileSync(resolve(root, ".gitignore"), "node_modules/\n");
+  writeFileSync(resolve(root, "source.ts"), "export {};\n");
+  git(["add", "."]);
+  const commit = ["-c", "user.name=Certification Test", "-c", "user.email=certification@example.invalid", "commit", "--quiet", "--allow-empty", "-m", "Fixture"];
+  git(commit);
+  const layout = { repositoryRoots: new Map([["tsonic", root]]) };
+  const before = snapshotCertificationInputs(entry, layout);
+  git(commit);
+  const merged = snapshotCertificationInputs(entry, layout);
+  assert.notEqual(before.repositories[0].head, merged.repositories[0].head);
+  assert(sameCertificationInputs(before, merged));
+  mkdirSync(resolve(root, "node_modules"));
+  writeFileSync(resolve(root, "node_modules/.package-lock.json"), "{}\n");
+  assert(!sameCertificationInputs(before, snapshotCertificationInputs(entry, layout)));
+  writeFileSync(resolve(root, "source.ts"), "export const changed = 1;\n");
+  assert(snapshotCertificationInputs(entry, layout).repositories[0].dirty);
+});
+
+test("new test captures produce structured counts and preserve failure status", () => {
+  const root = createTestWorkspace(resolve(hostRoot, ".temp"), "certification-capture-");
+  const environment = { ...process.env, TSONIC_TEST_COUNT_DIRECTORY: resolve(root, "counts") };
+  delete environment.NODE_TEST_CONTEXT;
+  for (const passes of [true, false]) {
+    const path = resolve(root, `${passes}.test.mjs`);
+    writeFileSync(path, `import test from 'node:test'; import assert from 'node:assert/strict'; test('case', () => assert.equal(${passes}, true));\n`);
+    const result = spawnSync(process.execPath, ["scripts/certification/capture-tests.mjs", "node", process.execPath,
+      "--test", path], { cwd: hostRoot, env: environment, encoding: "utf8", timeout: 30_000 });
+    assert.equal(result.status, passes ? 0 : 1, result.stdout + result.stderr);
+  }
+  const removed = spawnSync(process.execPath, ["scripts/certification/capture-tests.mjs", "node", process.execPath,
+    "--test", "--test-reporter=tap", resolve(root, "true.test.mjs")],
+  { cwd: hostRoot, env: environment, encoding: "utf8", timeout: 30_000 });
+  assert.equal(removed.status !== 0, true);
+  assert.match(removed.stderr, /without reporter options/u, "the removed independently counted TAP capture form is refused");
+});
+
+test("certification resource gates share exact no-OOM and passing half-width recovery rules", () => {
+  const noOom = makeFixture();
+  assert.doesNotThrow(() => validate(noOom), "no-OOM exit, counts and immutable evidence remain required");
+  const incident = { task: "fixture", first: { drained: true, oomKills: 1 }, retry: { drained: true, oomKills: 0 },
+    retryStatus: 0, retryCompleted: true, retryTests: 2, firstWidth: 4, retryWidth: 2, retryResultPath: "/evidence/retry.jsonl" };
+  const recovery = { verified: true, issue: null, accountedKills: 1, incidents: [incident], victimTaskIds: ["fixture"],
+    evidencePath: "/evidence/recovery.jsonl" };
+  const measurement = { ...noOom.record.guard.measurement, oomAfter: 1, oomRecovery: recovery };
+  const recovered = makeFixture({ scopeResult: "oom-kill", oomAfter: 1, measurement });
+  assert.doesNotThrow(() => validate(recovered), "a proved retry retains the exact original incident and raw counters");
+  const unproven = makeFixture({ scopeResult: "oom-kill", oomAfter: 1,
+    measurement: { ...measurement, oomRecovery: { ...recovery, verified: false } } });
+  assert.throws(() => validate(unproven), /owned resource guard/u);
+  const failedRetry = makeFixture({ scopeResult: "oom-kill", oomAfter: 1,
+    measurement: { ...measurement, oomRecovery: { ...recovery, incidents: [{ ...incident, retryStatus: 1 }] } } });
+  assert.throws(() => validate(failedRetry), /owned resource guard/u);
+});
+
+function makeFixture(guardOverrides = {}, bankOverrides = {}) {
+  const workspace = createTestWorkspace(resolve(hostRoot, ".temp"), "certification-record-");
+  const root = resolve(workspace, "record");
+  mkdirSync(resolve(root, "counts"), { recursive: true });
+  mkdirSync(resolve(workspace, ".temp/test-runs"), { recursive: true });
+  const log = resolve(workspace, ".temp/test-runs/20260101T000000Z-1.log");
+  writeFileSync(log, "completed tests\n");
+  const current = { repositories: [{ repository: "tsonic", root: workspace, head: "a".repeat(40), tree: "a".repeat(40), dirty: false, installedLock: null }],
+    tools: { node: "test" }, environment: {}, platform: "linux", architecture: "x64" };
+  const guard = { log, exitCode: 0, calibration: false, swapMax: 0, oomBefore: 0, oomAfter: 0,
+    oomScope: "owned-cgroup", scopeDrained: true,
+    measurement: { controlGroup: "/user.slice/fixture.scope", swapBytes: 0, oomBefore: 0, oomAfter: 0, exitCode: 0 },
+    admission: { admitted: true, unit: "fixture.scope", requestedMiB: 4096 },
+    scopeResult: "success", memoryMiB: 4096, tasksMax: 2048, timeoutSeconds: 60, logMaxBytes: 65536,
+    budget: { availableCpus: 2, cpuBudget: 2, memoryMiB: 4096, childJobs: 1, workers: 2, heapMiB: 1536, memoryRequestSource: "explicit" },
+    ...guardOverrides };
+  const guardPath = resolve(root, "guard.json");
+  const countsPath = resolve(root, "counts/node-00000000-0000-0000-0000-000000000000.json");
+  writeFileSync(guardPath, JSON.stringify(guard));
+  const bank = { kind: "node", exitCode: 0, signal: null, resultError: null, counts: [count],
+    summary: { completed: true, success: true }, tests: [
+      { type: "test", status: "passed", exitCode: null, signal: null },
+      { type: "test", status: "passed", exitCode: null, signal: null },
+    ], ...bankOverrides };
+  writeFileSync(countsPath, JSON.stringify(bank));
+  const record = { schemaVersion: 1, suite: entry, before: current, after: current,
+    startedAt: "2026-01-01T00:00:00.000Z", finishedAt: "2026-01-01T00:00:01.000Z",
+    exitCode: 0, complete: true, counts: [count], guard,
+    evidence: [describeEvidence(guardPath, "guard"), describeEvidence(log, "log"), describeEvidence(countsPath, "counts")] };
+  return { root, record, current };
+}
+
+function validate(fixture, record = fixture.record, current = fixture.current) {
+  return validateCertification(record, entry, current, fixture.root);
+}

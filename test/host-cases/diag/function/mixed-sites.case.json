@@ -1,0 +1,7 @@
+{
+  "name": "mixed-sites",
+  "level": "function",
+  "rule": "diag.order-module-start-code-site-domain",
+  "input": "test/host-cases/diag/function/mixed-sites.input.json",
+  "expected": "test/host-cases/diag/function/mixed-sites.expected.json"
+}

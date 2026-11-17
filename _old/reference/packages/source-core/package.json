@@ -1,0 +1,51 @@
+{
+  "name": "@tsonic/source-core",
+  "version": "0.1.2",
+  "description": "Target-neutral Tsonic source semantics for TSTS",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tsoniclang/tsonic.git",
+    "directory": "packages/source-core"
+  },
+  "type": "module",
+  "main": "./dist/public/index.js",
+  "types": "./dist/public/index.d.ts",
+  "files": [
+    "dist",
+    "!dist/**/*.tsbuildinfo",
+    "!dist/**/*.test.*",
+    "!dist/**/*fixtures*"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/public/index.d.ts",
+      "default": "./dist/public/index.js"
+    },
+    "./extension": {
+      "types": "./dist/public/extension.d.ts",
+      "default": "./dist/public/extension.js"
+    },
+    "./facts": {
+      "types": "./dist/public/facts.d.ts",
+      "default": "./dist/public/facts.js"
+    },
+    "./host": {
+      "types": "./dist/public/host.d.ts",
+      "default": "./dist/public/host.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "bash ../../scripts/build/tsgo-project.sh ./tsconfig.json --pretty false",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "test": "node --test \"dist/**/*.test.js\""
+  },
+  "dependencies": {
+    "@tsonic/target-api": "0.1.2",
+    "@tsonic/tsts": "0.1.2"
+  },
+  "engines": {
+    "node": ">=22.18.0"
+  }
+}

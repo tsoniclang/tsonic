@@ -1,17 +1,15 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "outDir": "./dist",
-    "rootDir": "./src",
-    "composite": true,
-    "declaration": true,
-    "declarationMap": true,
-    "tsBuildInfoFile": "./dist/.tsbuildinfo"
+    "noEmit": false,
+    "rootDir": "src",
+    "outDir": "dist",
+    "skipLibCheck": false,
+    "exactOptionalPropertyTypes": true,
+    "verbatimModuleSyntax": true,
+    "paths": { "@tsonic/tsts": ["../tsts/dist/src/index.d.ts"] }
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist"],
-  "references": [
-    { "path": "../source-core" },
-    { "path": "../target-api" }
-  ]
+  "references": [],
+  "exclude": ["node_modules", "dist"]
 }

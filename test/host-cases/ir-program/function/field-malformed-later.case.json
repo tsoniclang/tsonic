@@ -1,0 +1,7 @@
+{
+  "name": "field-malformed-later",
+  "level": "function",
+  "rule": "text-first-position",
+  "input": "test/host-cases/ir-program/function/field-malformed-later.input.json",
+  "expected": "test/host-cases/ir-program/function/field-malformed-later.expected.json"
+}

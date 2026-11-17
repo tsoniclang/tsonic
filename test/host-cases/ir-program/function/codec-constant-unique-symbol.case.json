@@ -1,0 +1,1 @@
+{"name":"codec-constant-unique-symbol","level":"function","rule":"Complete ConstValue wire arms retain exact values, escapes and order; unresolved references are a verifier concern","input":"test/host-cases/ir-program/function/codec-constant-unique-symbol.input.json","expected":"test/host-cases/ir-program/function/codec-constant-unique-symbol.expected.json"}

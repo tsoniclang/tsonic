@@ -1,4 +1,6 @@
 import { NewGoStructMap } from "../../../go/compat.js";
+import { GetNodeId } from "../../ast/utilities.js";
+import { LiteralCreation } from "./literal-creation.js";
 import * as xxh3 from "../../../go/github.com/zeebo/xxh3.js";
 import { Uint32, Uint64 } from "../../../go/sync/atomic.js";
 import * as strconv from "../../../go/strconv.js";
@@ -587,6 +589,15 @@ export const IterationUseCacheFlags = IterationUseAllowsSyncIterablesFlag | Iter
 export const IterationTypeKindYield = 0;
 export const IterationTypeKindReturn = 1;
 export const IterationTypeKindNext = 2;
+export function contextWideningKey(root, path, source) {
+    let original = source;
+    while (original.derivation?.kind === "regular-of" || original.derivation?.kind === "widened-from")
+        original = original.derivation.source;
+    const literal = LiteralCreation.read(original);
+    if (literal === undefined)
+        return undefined;
+    return JSON.stringify([String(root.id), path, String(GetNodeId(literal.node)), literal.mode]);
+}
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::varGroup::nextCheckerID","kind":"varGroup","status":"implemented","sigHash":"dbc1c6e027cb16b6fd2215b971d28a64a490ef784d68d5d95e42b3041fdabe51","bodyHash":"691c9b3b86cfec456bb8ca016c01f0d098694586e0f4d0db67dc01e307680fb9"}
  *
@@ -846,8 +857,7 @@ function newDiagnosticsCollection() {
  */
 export function NewChecker(program, tracer) {
     program.BindSourceFiles();
-    const checker = {};
-    checker.id = nextCheckerID.Add(1);
+    const checker = { id: nextCheckerID.Add(1) };
     checker.TypeCount = 0;
     checker.SymbolCount = 0;
     checker.TotalInstantiationCount = 0;
@@ -929,8 +939,6 @@ export function NewChecker(program, tracer) {
     checker.reverseHomomorphicMappedCache = NewGoStructMap();
     checker.iterationTypesCache = NewGoStructMap();
     checker.markerTypes = newCheckerSet();
-    checker.symbolArena = newArena();
-    checker.signatureArena = newArena();
     checker.indexInfoArena = newArena();
     checker.undefinedSymbol = Checker_newSymbol(checker, SymbolFlagsProperty, "undefined");
     checker.argumentsSymbol = Checker_newSymbol(checker, SymbolFlagsProperty, "arguments");
@@ -1051,10 +1059,10 @@ export function NewChecker(program, tracer) {
     checker.markerSubTypeForCheck = Checker_newTypeParameter(checker, undefined);
     Type_AsTypeParameter(checker.markerSubTypeForCheck).constraint = checker.markerSuperTypeForCheck;
     checker.noTypePredicate = { kind: TypePredicateKindIdentifier, parameterIndex: 0, parameterName: "<<unresolved>>", t: checker.anyType };
-    checker.anySignature = Checker_newSignature(checker, SignatureFlagsNone, undefined, [], undefined, [], checker.anyType, undefined, 0);
-    checker.unknownSignature = Checker_newSignature(checker, SignatureFlagsNone, undefined, [], undefined, [], checker.errorType, undefined, 0);
-    checker.resolvingSignature = Checker_newSignature(checker, SignatureFlagsNone, undefined, [], undefined, [], checker.anyType, undefined, 0);
-    checker.silentNeverSignature = Checker_newSignature(checker, SignatureFlagsNone, undefined, [], undefined, [], checker.silentNeverType, undefined, 0);
+    checker.anySignature = Checker_newSignature(checker, SignatureFlagsNone, undefined, [], undefined, [], checker.anyType, undefined, 0, undefined);
+    checker.unknownSignature = Checker_newSignature(checker, SignatureFlagsNone, undefined, [], undefined, [], checker.errorType, undefined, 0, undefined);
+    checker.resolvingSignature = Checker_newSignature(checker, SignatureFlagsNone, undefined, [], undefined, [], checker.anyType, undefined, 0, undefined);
+    checker.silentNeverSignature = Checker_newSignature(checker, SignatureFlagsNone, undefined, [], undefined, [], checker.silentNeverType, undefined, 0, undefined);
     checker.cachedArgumentsReferenced = new globalThis.Map();
     checker.enumNumberIndexInfo = { keyType: checker.numberType, valueType: checker.stringType, isReadonly: true, declaration: undefined, indexSymbol: undefined, components: [] };
     checker.anyBaseTypeIndexInfo = { keyType: checker.stringType, valueType: checker.anyType, isReadonly: false, declaration: undefined, indexSymbol: undefined, components: [] };

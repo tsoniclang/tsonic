@@ -1,0 +1,1 @@
+{"name":"instantiate-bound-facts-work-one","level":"function","rule":"Exact bound artifact reuses the complete published payload/table; row and complete-vector admission below/at/above limits","input":"test/host-cases/ir-program/function/instantiate-bound-facts-work-one.input.json","expected":"test/host-cases/ir-program/function/instantiate-bound-facts-work-one.expected.json"}

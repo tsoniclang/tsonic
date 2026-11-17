@@ -1,0 +1,1 @@
+{"kind":"accepted","value":{"kind":"invalid-text","offset":2340,"line":2,"column":2258,"expected":["pragma key in UTF-16 order"],"found":"0"},"diagnostics":[]}

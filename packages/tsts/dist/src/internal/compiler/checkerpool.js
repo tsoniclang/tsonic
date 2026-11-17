@@ -15,7 +15,16 @@ export let __34031131_0 = checkerPool_as_compiler_CheckerPool(undefined);
 export function checkerPool_as_compiler_CheckerPool(receiver) {
     return {
         GetChecker: (ctx, file) => checkerPool_GetChecker(receiver, ctx, file),
+        GetCheckerById: (ctx, checkerId) => checkerPool_getCheckerById(receiver, ctx, checkerId),
     };
+}
+export function checkerPool_getCheckerById(receiver, _ctx, checkerId) {
+    checkerPool_createCheckers(receiver);
+    const index = receiver.checkers.findIndex(checker => checker?.id === checkerId);
+    if (index < 0)
+        return [undefined, noop];
+    receiver.locks[index].Lock();
+    return [receiver.checkers[index], OnceFunc(() => receiver.locks[index].Unlock())];
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/checkerpool.go::func::newCheckerPool","kind":"func","status":"implemented","sigHash":"166e4959543a17d547b22ee4264d922ed4cabd9adeaa8a75759e6f7392883bdf","bodyHash":"8889d04f05490b17ee812701674dde250bb3c02bd6bc663f542f2fd7033faf19"}
@@ -30,6 +39,7 @@ export function newCheckerPool(program) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/checkerpool.go::func::newCheckerPoolWithTracing","kind":"func","status":"implemented","sigHash":"9953910d49bd820792eabe9a00a2ed76d566e8c7b5bc474574cc454fed7a1624","bodyHash":"5a3ab48b396da0cd3ede9420f73f5db5e323d26d874b7024eb2f69fb43dd3c03"}
+ * @tsgo-override {"category":"embedding-host","allow":["body"],"reason":"The SDK work group executes checker construction and checking synchronously, so its ordinary native pool defaults to one checker rather than allocating four copies without parallel work. Explicit checker counts and the existing SingleThreaded precedence remain authoritative; custom pools and already-created Programs are unchanged."}
  *
  * Go source:
  * func newCheckerPoolWithTracing(program *Program, tr *tracing.Tracing) *checkerPool {
@@ -53,7 +63,7 @@ export function newCheckerPool(program) {
  * }
  */
 export function newCheckerPoolWithTracing(program, tr) {
-    let checkerCount = 4;
+    let checkerCount = 1;
     if (Program_SingleThreaded(program)) {
         checkerCount = 1;
     }

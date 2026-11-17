@@ -1,0 +1,9 @@
+{
+  "operation": "verify-index-fixture",
+  "change": {
+    "kind": "body-root",
+    "value": {
+      "$number": "-0"
+    }
+  }
+}

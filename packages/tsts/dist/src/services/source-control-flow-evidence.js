@@ -1,16 +1,18 @@
 import { Node_Body, Node_Expression, Node_Initializer, } from "../internal/ast/ast.js";
 import { FunctionFlagsAsync, FunctionFlagsGenerator, GetFunctionFlags, } from "../internal/ast/functionflags.js";
 import { NodeFlagsAwaitUsing, NodeFlagsBlockScoped, NodeFlagsUsing, } from "../internal/ast/generated/flags.js";
-import { IsBlock, IsComputedPropertyName, IsForOfStatement, IsVariableDeclaration, IsVariableDeclarationList, IsYieldExpression, } from "../internal/ast/generated/predicates.js";
+import { IsBlock, IsComputedPropertyName, IsForOfStatement, IsTypeParameterDeclaration, IsVariableDeclaration, IsVariableDeclarationList, IsYieldExpression, } from "../internal/ast/generated/predicates.js";
 import { AsYieldExpression } from "../internal/ast/generated/casts.js";
 import { GetContainingFunction, IsFunctionLikeDeclaration, } from "../internal/ast/utilities.js";
 import { Checker_GetReturnTypeOfSignature, } from "../internal/checker/exports.js";
-import { Checker_getIterationTypesOfGeneratorFunctionReturnType, Checker_getSignatureFromDeclaration, } from "../internal/checker/checker/signatures.js";
+import { Checker_getIterationTypesOfGeneratorFunctionReturnType, Checker_getSignaturesOfType, Checker_getSignatureFromDeclaration, } from "../internal/checker/checker/signatures.js";
 import { Checker_checkExpressionCached, Checker_checkYieldExpression, Checker_getCombinedNodeFlagsCached, Checker_getResolvedSourceIterationInfo, Checker_functionHasImplicitReturn, } from "../internal/checker/checker/syntax-checking.js";
-import { Checker_checkYieldStarWithExtensionSelection, Checker_GetTypeAtLocation, Checker_getYieldedTypeOfYieldExpression, } from "../internal/checker/checker/types.js";
+import { Checker_checkYieldStarWithExtensionSelection, Checker_GetTypeAtLocation, Checker_getYieldedTypeOfYieldExpression, Checker_getTypeWithFacts, getKnownIteratorMethodTypeParameterBindings, } from "../internal/checker/checker/types.js";
 import { Checker_getPropertyOfType, Checker_getResolvedSymbolOrNil, Checker_getTypeOfSymbol, Checker_widenTypeForVariableLikeDeclaration, } from "../internal/checker/checker/symbols.js";
-import { TypeFlagsAny, TypeFlagsNever, TypeFlagsNull, TypeFlagsUndefined, TypeFlagsUnion, Type_Types, } from "../internal/checker/types.js";
+import { SignatureKindCall, TypeFlagsAny, TypeFlagsNever, TypeFlagsNull, TypeFlagsUndefined, TypeFlagsUnion, TypeFlagsTypeParameter, Type_Types, } from "../internal/checker/types.js";
 import { getPropertyNameFromType } from "../internal/checker/utilities.js";
+import { TypeFactsNEUndefinedOrNull } from "../internal/checker/checker/state.js";
+import { TypeMapper_Map } from "../internal/checker/mapper.js";
 export function resolveSourceCallableCompletionInfo(checker, declaration) {
     if (checker === undefined || declaration === undefined ||
         !IsFunctionLikeDeclaration(declaration) || Node_Body(declaration) === undefined) {
@@ -47,12 +49,35 @@ export function resolveSourceGeneratorInfo(checker, declaration) {
         || nextType === undefined) {
         return undefined;
     }
+    const returnTypeBinding = resolveGeneratorReturnTypeBinding(checker, sourceReturnType, asynchronous, returnType);
     return Object.freeze({
         declaration,
         generatorKind: asynchronous ? "async" : "sync",
         sourceReturnType,
         iterationTypes: Object.freeze({ yieldType, returnType, nextType }),
+        ...(returnTypeBinding === undefined ? {} : { returnTypeBinding }),
     });
+}
+function resolveGeneratorReturnTypeBinding(checker, sourceReturnType, asynchronous, returnType) {
+    const method = Checker_getPropertyOfType(checker, sourceReturnType, "return");
+    if (method === undefined)
+        return undefined;
+    const methodType = Checker_getTypeWithFacts(checker, Checker_getTypeOfSymbol(checker, method), TypeFactsNEUndefinedOrNull);
+    if (methodType === undefined)
+        return undefined;
+    const resolver = asynchronous ? checker.asyncIterationTypesResolver : checker.syncIterationTypesResolver;
+    if (resolver === undefined)
+        return undefined;
+    const bindings = getKnownIteratorMethodTypeParameterBindings(methodType, resolver, "return", Checker_getSignaturesOfType(checker, methodType, SignatureKindCall));
+    const parameterType = bindings?.returnParameter;
+    if (parameterType === undefined || (parameterType.flags & TypeFlagsTypeParameter) === 0)
+        return undefined;
+    const argumentType = TypeMapper_Map(bindings.mapper, parameterType);
+    const declarations = parameterType.symbol?.Declarations?.filter(IsTypeParameterDeclaration) ?? [];
+    if (argumentType === undefined || (resolver.resolveIterationType(argumentType, undefined) ?? argumentType) !== returnType ||
+        declarations.length !== 1)
+        return undefined;
+    return Object.freeze({ declaration: declarations[0], parameterType, argumentType });
 }
 export function resolveSourceYieldInfo(checker, yieldExpression, generator) {
     if (checker === undefined

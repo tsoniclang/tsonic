@@ -1448,6 +1448,7 @@ export function Checker_checkApplicableSignatureForJsxCallLikeElement(receiver, 
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/jsx.go::method::Checker.createJsxAttributesTypeFromAttributesProperty","kind":"method","status":"implemented","sigHash":"7d0913e9a7b6a76d1c36bd936c78f6bc486c9d896cb991a3f02a52dea850cc94","bodyHash":"36cc949a1bd0733901e68380c392d08b1634c465ea17f1b09f192e6ebef40c6d"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Pass explicit absence to R5-20 spread occurrence inputs because JSX attribute construction is not a normal object-literal question; native JSX spread behavior is unchanged."}
  *
  * Go source:
  * func (c *Checker) createJsxAttributesTypeFromAttributesProperty(openingLikeElement *ast.Node, checkMode CheckMode) *Type {
@@ -1676,7 +1677,7 @@ export function Checker_createJsxAttributesTypeFromAttributesProperty(receiver, 
             }
             else {
                 if (attributesTable.size !== 0) {
-                    spread = Checker_getSpreadType(receiver, spread, createJsxAttributesType(), attributesSymbol, objectFlags, false);
+                    spread = Checker_getSpreadType(receiver, spread, createJsxAttributesType(), attributesSymbol, objectFlags, false, null);
                     attributesTable = new globalThis.Map();
                 }
                 const exprType = Checker_getReducedType(receiver, Checker_checkExpressionEx(receiver, Node_Expression(attributeDecl), (checkMode & CheckModeInferential)));
@@ -1684,7 +1685,7 @@ export function Checker_createJsxAttributesTypeFromAttributesProperty(receiver, 
                     hasSpreadAnyType = true;
                 }
                 if (Checker_isValidSpreadType(receiver, exprType)) {
-                    spread = Checker_getSpreadType(receiver, spread, exprType, attributesSymbol, objectFlags, false);
+                    spread = Checker_getSpreadType(receiver, spread, exprType, attributesSymbol, objectFlags, false, null);
                     if (allAttributesTable !== undefined) {
                         Checker_checkSpreadPropOverrides(receiver, exprType, allAttributesTable, attributeDecl);
                     }
@@ -1701,7 +1702,7 @@ export function Checker_createJsxAttributesTypeFromAttributesProperty(receiver, 
             }
         }
         if (!hasSpreadAnyType && attributesTable.size !== 0) {
-            spread = Checker_getSpreadType(receiver, spread, createJsxAttributesType(), attributesSymbol, objectFlags, false);
+            spread = Checker_getSpreadType(receiver, spread, createJsxAttributesType(), attributesSymbol, objectFlags, false, null);
         }
     }
     const parentHasSemanticJsxChildren = (element) => {
@@ -1751,7 +1752,7 @@ export function Checker_createJsxAttributesTypeFromAttributesProperty(receiver, 
             Node_DeclarationData(childrenPropSymbol.ValueDeclaration).Symbol = childrenPropSymbol;
             const childPropMap = new globalThis.Map();
             childPropMap.set(jsxChildrenPropertyName, childrenPropSymbol);
-            spread = Checker_getSpreadType(receiver, spread, Checker_newAnonymousType(receiver, attributesSymbol, childPropMap, [], [], []), attributesSymbol, (objectFlags | Checker_getPropagatingFlagsOfTypes(receiver, childTypes, TypeFlagsNone)), false);
+            spread = Checker_getSpreadType(receiver, spread, Checker_newAnonymousType(receiver, attributesSymbol, childPropMap, [], [], []), attributesSymbol, (objectFlags | Checker_getPropagatingFlagsOfTypes(receiver, childTypes, TypeFlagsNone)), false, null);
         }
     }
     if (hasSpreadAnyType) {
@@ -2421,7 +2422,7 @@ export function Checker_createSignatureForJSXIntrinsic(receiver, node, result) {
     // declaration := factory.createFunctionTypeNode(...)
     const parameterSymbol = Checker_newSymbol(receiver, SymbolFlagsFunctionScopedVariable, "props");
     LinkStore_Get(receiver.valueSymbolLinks, parameterSymbol).resolvedType = result;
-    return Checker_newSignature(receiver, SignatureFlagsNone, undefined, [], undefined, [parameterSymbol], elementType, undefined, 1);
+    return Checker_newSignature(receiver, SignatureFlagsNone, undefined, [], undefined, [parameterSymbol], elementType, undefined, 1, undefined);
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/jsx.go::method::Checker.getIntrinsicAttributesTypeFromJsxOpeningLikeElement","kind":"method","status":"implemented","sigHash":"29e3be6469930ce3ba51c0f4958a577be88e4bba16d0fbb71a3817b6bbc1866e","bodyHash":"3d074b6b267651537229248017388a13cef0d42cadb68f5a7c2e5ec1004ed5a5"}

@@ -1,0 +1,7 @@
+{
+  "name": "local-id-dense",
+  "level": "verifier",
+  "rule": "local-id-dense",
+  "input": "test/host-cases/ir-mir/verifier/local-id-dense.input.json",
+  "expected": "test/host-cases/ir-mir/verifier/local-id-dense.expected.json"
+}

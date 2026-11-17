@@ -1,0 +1,25 @@
+{
+  "table": {
+    "terms": [
+      {
+        "kind": "primitive",
+        "primitive": "int32"
+      }
+    ],
+    "signatures": [
+      {
+        "id": 1,
+        "declaration": null,
+        "owner": null,
+        "composition": null,
+        "kind": "call",
+        "typeParameters": [],
+        "receiver": null,
+        "parameters": [],
+        "result": 0
+      }
+    ]
+  },
+  "bindings": [],
+  "evidence": []
+}

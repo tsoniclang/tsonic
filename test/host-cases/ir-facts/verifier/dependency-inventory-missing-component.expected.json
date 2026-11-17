@@ -1,0 +1,24 @@
+{
+  "kind": "refused",
+  "diagnostics": [
+    {
+      "code": "component-membership-exact",
+      "message": "Every required operation belongs to exactly one component.",
+      "site": {
+        "kind": "summary",
+        "summary": {
+          "kind": "body",
+          "execution": {
+            "instance": {
+              "body": "B[D[M[P[facts];main.ts];f];function;0]",
+              "bindings": {
+                "kind": "parametric"
+              }
+            },
+            "provided": 0
+          }
+        }
+      }
+    }
+  ]
+}

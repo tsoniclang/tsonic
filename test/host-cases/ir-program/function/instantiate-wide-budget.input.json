@@ -1,0 +1,1 @@
+{"operation":"instantiate-wide-fixture","children":100000,"limits":{"maximumWork":100,"maximumCreatedRecords":100000,"maximumBindingVectorsPerArtifact":8,"typeExpansion":{"maximumDepth":128,"maximumVisits":100000,"maximumUnionMembers":128,"maximumIntersectionMembers":128}}}

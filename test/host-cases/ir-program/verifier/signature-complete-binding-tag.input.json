@@ -1,0 +1,36 @@
+{
+  "operation": "verify-signature-fixture",
+  "ordinal": 1,
+  "signature": 0,
+  "bindings": {
+    "kind": "instantiated",
+    "bindings": {
+      "classBindings": [],
+      "methodBindings": [],
+      "capturedBindings": [],
+      "selfBindings": []
+    }
+  },
+  "answers": [
+    {
+      "ordinal": 1,
+      "bindings": {
+        "kind": "parametric"
+      },
+      "signature": 0
+    },
+    {
+      "ordinal": 1,
+      "bindings": {
+        "kind": "instantiated",
+        "bindings": {
+          "classBindings": [],
+          "methodBindings": [],
+          "capturedBindings": [],
+          "selfBindings": []
+        }
+      },
+      "signature": null
+    }
+  ]
+}

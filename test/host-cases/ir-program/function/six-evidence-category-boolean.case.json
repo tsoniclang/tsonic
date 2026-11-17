@@ -1,0 +1,1 @@
+{"name":"six-evidence-category-boolean","level":"function","rule":"Complete admitted public typed codec value; independent publication maps only type/signature holders, never node IDs or literal data","input":"test/host-cases/ir-program/function/six-evidence-category-boolean.input.json","expected":"test/host-cases/ir-program/function/six-evidence-category-boolean.expected.json"}

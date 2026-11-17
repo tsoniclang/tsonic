@@ -1,3 +1,4 @@
+import { sourceTypeAnswer } from "./source-type-answers.js";
 import * as slices from "../../../go/slices.js";
 import { AppendIfUnique, Every, IfElse, LastOrNil, OrElse } from "../../core/core.js";
 import { A_default_export_can_only_be_used_in_an_ECMAScript_style_module, A_default_export_must_be_at_the_top_level_of_a_file_or_module_declaration, A_rest_element_cannot_have_an_initializer, A_rest_element_must_be_last_in_a_destructuring_pattern, A_rest_parameter_or_binding_pattern_may_not_have_a_trailing_comma, An_export_declaration_must_reference_a_real_value_when_verbatimModuleSyntax_is_enabled_but_0_resolves_to_a_type_only_declaration, An_export_declaration_must_reference_a_value_when_verbatimModuleSyntax_is_enabled_but_0_only_refers_to_a_type, An_export_assignment_cannot_be_used_in_a_namespace, An_export_assignment_cannot_have_modifiers, An_export_assignment_must_be_at_the_top_level_of_a_file_or_module_declaration, An_export_default_must_reference_a_real_value_when_verbatimModuleSyntax_is_enabled_but_0_resolves_to_a_type_only_declaration, An_export_default_must_reference_a_value_when_verbatimModuleSyntax_is_enabled_but_0_only_refers_to_a_type, Export_assignment_cannot_be_used_when_targeting_ECMAScript_modules_Consider_using_export_default_or_another_module_format_instead, Export_assignment_is_not_supported_when_module_flag_is_system, Expression_produces_a_union_type_that_is_too_complex_to_represent, Interface_0_cannot_simultaneously_extend_types_1_and_2, Named_property_0_of_types_1_and_2_are_not_identical, Property_assignment_expected, The_expression_of_an_export_assignment_must_be_an_identifier_or_qualified_name_in_an_ambient_context, The_left_hand_side_of_an_assignment_expression_may_not_be_an_optional_property_access, The_left_hand_side_of_an_assignment_expression_must_be_a_variable_or_a_property_access, The_target_of_an_object_rest_assignment_may_not_be_an_optional_property_access, The_target_of_an_object_rest_assignment_must_be_a_variable_or_a_property_access, This_syntax_is_not_allowed_when_erasableSyntaxOnly_is_enabled, Type_0_does_not_satisfy_the_expected_type_1, Type_0_is_not_assignable_to_type_1_with_exactOptionalPropertyTypes_Colon_true_Consider_adding_undefined_to_the_type_of_the_target, X_0_resolves_to_a_type_and_must_be_marked_type_only_in_this_file_before_re_exporting_when_1_is_enabled_Consider_using_export_type_0_as_default, X_0_resolves_to_a_type_and_must_be_marked_type_only_in_this_file_before_re_exporting_when_1_is_enabled_Consider_using_import_type_where_0_is_imported, X_0_resolves_to_a_type_only_declaration_and_must_be_marked_type_only_in_this_file_before_re_exporting_when_1_is_enabled_Consider_using_export_type_0_as_default, X_0_resolves_to_a_type_only_declaration_and_must_be_marked_type_only_in_this_file_before_re_exporting_when_1_is_enabled_Consider_using_import_type_where_0_is_imported, } from "../../diagnostics/generated/messages.js";
@@ -355,6 +356,7 @@ export function Checker_areDeclarationFlagsIdentical(receiver, left, right) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkSatisfiesExpression","kind":"method","status":"implemented","sigHash":"698f7d11a65d816ba71672b34da4fef21a1681e3749a6afe9a1939a6bfbb09a0","bodyHash":"851aecb383dd4806760e762a140c1a0c11d846a9f1d9ecedad6fb4191d55dad1"}
+ * @tsgo-override {"category":"extension-host","allow":["signature"],"reason":"R5-23 retains the explicit native result-construction publication owner without changing native checking or caching decisions.","goSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>","tsSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,?packages/tsts/src/internal/checker/checker/literal-creation.ts::LiteralConstructionOwner)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>"}
  *
  * Go source:
  * func (c *Checker) checkSatisfiesExpression(node *ast.Node) *Type {
@@ -369,10 +371,10 @@ export function Checker_areDeclarationFlagsIdentical(receiver, left, right) {
  * 	return exprType
  * }
  */
-export function Checker_checkSatisfiesExpression(receiver, node) {
+export function Checker_checkSatisfiesExpression(receiver, node, constructionOwner) {
     const typeNode = Node_Type(node);
     Checker_checkSourceElement(receiver, typeNode);
-    const exprType = Checker_checkExpression(receiver, Node_Expression(node));
+    const exprType = Checker_checkExpression(receiver, Node_Expression(node), constructionOwner);
     const targetType = Checker_getTypeFromTypeNode(receiver, typeNode);
     if (Checker_isErrorType(receiver, targetType)) {
         return targetType;
@@ -788,6 +790,7 @@ export function Checker_isTypeEqualityComparableTo(receiver, source, target) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkPropertyAssignment","kind":"method","status":"implemented","sigHash":"a3504e96a98cf3397d1be4e128613d4e14706bc5154bd1f364219518c0fc4e8c","bodyHash":"4088ea691e500ff97b4199823bc7973c0871a2f802d81d24478afa18858eea93"}
+ * @tsgo-override {"category":"extension-host","allow":["signature"],"reason":"R5-23 retains the explicit native result-construction publication owner without changing native checking or caching decisions.","goSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,packages/tsts/src/internal/checker/checker/state.ts::CheckMode)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>","tsSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,packages/tsts/src/internal/checker/checker/state.ts::CheckMode,?packages/tsts/src/internal/checker/checker/literal-creation.ts::LiteralConstructionOwner)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>"}
  *
  * Go source:
  * func (c *Checker) checkPropertyAssignment(node *ast.Node, checkMode CheckMode) *Type {
@@ -806,11 +809,11 @@ export function Checker_isTypeEqualityComparableTo(receiver, source, target) {
  * 	return initializerType
  * }
  */
-export function Checker_checkPropertyAssignment(receiver, node, checkMode) {
+export function Checker_checkPropertyAssignment(receiver, node, checkMode, constructionOwner) {
     if (IsComputedPropertyName(Node_Name(node))) {
         Checker_checkComputedPropertyName(receiver, Node_Name(node));
     }
-    const initializerType = Checker_checkExpressionForMutableLocation(receiver, Node_Initializer(node), checkMode);
+    const initializerType = Checker_checkExpressionForMutableLocation(receiver, Node_Initializer(node), checkMode, constructionOwner);
     const typeNode = Node_Type(node);
     if (typeNode !== undefined) {
         const t = Checker_getTypeFromTypeNode(receiver, typeNode);
@@ -1583,6 +1586,7 @@ export function Checker_markExportAssignmentAliasReferenced(receiver, location) 
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getContextualTypeForAssignmentExpression","kind":"method","status":"implemented","sigHash":"6008ce5b08bcc3f3256b840ffb2da40c6d808c728e0e86b54e91e6022ec0ee0d","bodyHash":"f7df81578e0daebc6032371b6f6cb942bca67bc0befb1a423a72a57f25f9f399"}
+ * @tsgo-override {"category":"extension-host","allow":["body","signature"],"reason":"R5-21 transports the actual completed input type/cause pair only through its native contextual delegation; no diagnostic query, lookup heuristic, cache or native checking decision is added.","goSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/generated/data.ts::BinaryExpression>)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>","tsSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/generated/data.ts::BinaryExpression>,?packages/tsts/src/internal/checker/checker/source-type-answers.ts::SourceTypeAnswerOutput)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>"}
  *
  * Go source:
  * func (c *Checker) getContextualTypeForAssignmentExpression(binary *ast.BinaryExpression) *Type {
@@ -1662,7 +1666,7 @@ export function Checker_markExportAssignmentAliasReferenced(receiver, location) 
  * 	return c.getTypeOfExpression(left)
  * }
  */
-export function Checker_getContextualTypeForAssignmentExpression(receiver, binary) {
+export function Checker_getContextualTypeForAssignmentExpression(receiver, binary, output) {
     const left = binary.Left;
     const binarySymbol = binary.Symbol;
     if (IsAccessExpression(left)) {
@@ -1684,7 +1688,10 @@ export function Checker_getContextualTypeForAssignmentExpression(receiver, binar
                             if (isTypeUsableAsPropertyName(nameType)) {
                                 return Checker_getTypeOfPropertyOfContextualTypeEx(receiver, Checker_getTypeFromTypeNode(receiver, typeNode), getPropertyNameFromType(nameType), nameType);
                             }
-                            return Checker_getTypeOfExpression(receiver, left);
+                            const type = Checker_getTypeOfExpression(receiver, left);
+                            if (output !== undefined)
+                                output.value = sourceTypeAnswer(receiver, left, type);
+                            return type;
                         }
                     }
                     return undefined;
@@ -1737,6 +1744,9 @@ export function Checker_getContextualTypeForAssignmentExpression(receiver, binar
             }
         }
     }
-    return Checker_getTypeOfExpression(receiver, left);
+    const type = Checker_getTypeOfExpression(receiver, left);
+    if (output !== undefined)
+        output.value = sourceTypeAnswer(receiver, left, type);
+    return type;
 }
 //# sourceMappingURL=relations.js.map

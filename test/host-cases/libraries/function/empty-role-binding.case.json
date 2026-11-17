@@ -1,0 +1,7 @@
+{
+  "name": "empty-role-binding",
+  "level": "function",
+  "rule": "libraries.empty-role-binding",
+  "input": "test/host-cases/libraries/function/empty-role-binding.input.json",
+  "expected": "test/host-cases/libraries/function/empty-role-binding.expected.json"
+}

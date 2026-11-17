@@ -1,0 +1,37 @@
+{
+  "name": "@tsonic/host",
+  "version": "0.1.2",
+  "description": "Source-to-source compiler host for Tsonic",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tsoniclang/tsonic.git",
+    "directory": "packages/host"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "!dist/**/*.tsbuildinfo"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "bash ../../scripts/build/tsgo-project.sh ./tsconfig.json --pretty false",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "test": "node --test \"dist/**/*.test.js\""
+  },
+  "dependencies": {
+    "@tsonic/source-core": "0.1.2",
+    "@tsonic/target-api": "0.1.2",
+    "@tsonic/tsts": "0.1.2"
+  },
+  "engines": {
+    "node": ">=22.18.0"
+  }
+}

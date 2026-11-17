@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "owners": [
+    { "scope": "tsonic", "source": "test/scripts/quarantine.mjs", "tests": ["test/architecture/quarantine.test.mjs"] }
+  ],
+  "smoke": [{ "scope": "tsonic", "file": "test/architecture/quarantine.test.mjs" }]
+}

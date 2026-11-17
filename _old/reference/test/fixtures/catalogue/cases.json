@@ -1,0 +1,3027 @@
+{
+  "schemaVersion": 1,
+  "sources": [
+    {
+      "path": "bench/compile/cases.mjs",
+      "exported": "cases",
+      "sha256": "19dd61611ab088e24bed5cdd248f043d8ee06c1650d5919280cd887dba9d9b9a"
+    },
+    {
+      "path": "bench/compile/promise-probe.mjs",
+      "exported": "cases",
+      "sha256": "10025627e248e9a6eda0065f3b5a6e968747027ba96f6b98ef51a9129f3ae809"
+    },
+    {
+      "path": "bench/compile/int32-promise-probe.mjs",
+      "exported": "cases",
+      "sha256": "1d216f492db82f80f5922874eca3098c2bc7e80e88b6c78f5d5bcbf1ccb6aa99"
+    },
+    {
+      "path": "bench/compile/all-probes.mjs",
+      "exported": "overrideCases",
+      "sha256": "f3fdd40abec17983b2874d203ad9c6dbd9ec582f2787d59863194775c7e7e97d"
+    },
+    {
+      "path": "bench/compile/override-cases.mjs",
+      "exported": "overrideCases",
+      "sha256": "7de5421cabc38fbf505fc398e4ddab20435e970a2fb7e63544c9f55102ed4392"
+    },
+    {
+      "path": "bench/compile/cs-override.mjs",
+      "exported": "cases",
+      "sha256": "b7d69db3cde3e1b415daa0964f7a2551a076e03a5edc3b46d9907927870c2b9c"
+    }
+  ],
+  "cases": [
+    {
+      "id": "cases-asyncChain",
+      "file": "cases.mjs",
+      "name": "asyncChain",
+      "source": "import type { int32 } from \"@tsonic/core/types.js\";\n\nasync function step(value: int32): Promise<int32> { return value + 1; }\nexport async function asyncChain(value: int32): Promise<int32> {\n  const a = await step(value);\n  const b = await step(a);\n  return await step(b);\n}",
+      "sha256": "69fa73322b61124ad1c25498135d60071384a960784ff19f75b24737d1b5ee81",
+      "targets": [
+        "csharp",
+        "rust"
+      ],
+      "surfaces": [
+        "native",
+        "js"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/csharp/native/cases-asyncChain",
+          "target": "csharp",
+          "surface": "native",
+          "caseId": "cases-asyncChain",
+          "sourceSha256": "69fa73322b61124ad1c25498135d60071384a960784ff19f75b24737d1b5ee81",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/csharp/js/cases-asyncChain",
+          "target": "csharp",
+          "surface": "js",
+          "caseId": "cases-asyncChain",
+          "sourceSha256": "69fa73322b61124ad1c25498135d60071384a960784ff19f75b24737d1b5ee81",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/native/cases-asyncChain",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "cases-asyncChain",
+          "sourceSha256": "69fa73322b61124ad1c25498135d60071384a960784ff19f75b24737d1b5ee81",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/js/cases-asyncChain",
+          "target": "rust",
+          "surface": "js",
+          "caseId": "cases-asyncChain",
+          "sourceSha256": "69fa73322b61124ad1c25498135d60071384a960784ff19f75b24737d1b5ee81",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "cases-numberLoop",
+      "file": "cases.mjs",
+      "name": "numberLoop",
+      "source": "import type { int32 } from \"@tsonic/core/types.js\";\n\nexport function numberLoop(n: int32): number {\n  let total = 0;\n  for (let i: int32 = 0; i < n; i++) { total += i * 0.5; }\n  return total;\n}",
+      "sha256": "8e8932aefb40c973ba70731f778e9112c355b2b8fe28828ae0044a43d2e8f0b8",
+      "targets": [
+        "csharp",
+        "rust"
+      ],
+      "surfaces": [
+        "native",
+        "js"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/csharp/native/cases-numberLoop",
+          "target": "csharp",
+          "surface": "native",
+          "caseId": "cases-numberLoop",
+          "sourceSha256": "8e8932aefb40c973ba70731f778e9112c355b2b8fe28828ae0044a43d2e8f0b8",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/csharp/js/cases-numberLoop",
+          "target": "csharp",
+          "surface": "js",
+          "caseId": "cases-numberLoop",
+          "sourceSha256": "8e8932aefb40c973ba70731f778e9112c355b2b8fe28828ae0044a43d2e8f0b8",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/native/cases-numberLoop",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "cases-numberLoop",
+          "sourceSha256": "8e8932aefb40c973ba70731f778e9112c355b2b8fe28828ae0044a43d2e8f0b8",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/js/cases-numberLoop",
+          "target": "rust",
+          "surface": "js",
+          "caseId": "cases-numberLoop",
+          "sourceSha256": "8e8932aefb40c973ba70731f778e9112c355b2b8fe28828ae0044a43d2e8f0b8",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "cases-intLoop",
+      "file": "cases.mjs",
+      "name": "intLoop",
+      "source": "import type { int32 } from \"@tsonic/core/types.js\";\n\nexport function intLoop(n: int32): int32 {\n  let total: int32 = 0;\n  for (let i: int32 = 0; i < n; i++) { total = total + (i & 7); }\n  return total;\n}",
+      "sha256": "8ea1da78032d8207cad5af67e791542b564d73da29fb5b8f0d2a1fe419289a77",
+      "targets": [
+        "csharp",
+        "rust"
+      ],
+      "surfaces": [
+        "native",
+        "js"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/csharp/native/cases-intLoop",
+          "target": "csharp",
+          "surface": "native",
+          "caseId": "cases-intLoop",
+          "sourceSha256": "8ea1da78032d8207cad5af67e791542b564d73da29fb5b8f0d2a1fe419289a77",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/csharp/js/cases-intLoop",
+          "target": "csharp",
+          "surface": "js",
+          "caseId": "cases-intLoop",
+          "sourceSha256": "8ea1da78032d8207cad5af67e791542b564d73da29fb5b8f0d2a1fe419289a77",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/native/cases-intLoop",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "cases-intLoop",
+          "sourceSha256": "8ea1da78032d8207cad5af67e791542b564d73da29fb5b8f0d2a1fe419289a77",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/js/cases-intLoop",
+          "target": "rust",
+          "surface": "js",
+          "caseId": "cases-intLoop",
+          "sourceSha256": "8ea1da78032d8207cad5af67e791542b564d73da29fb5b8f0d2a1fe419289a77",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "cases-arrayPushSum",
+      "file": "cases.mjs",
+      "name": "arrayPushSum",
+      "source": "import type { int32 } from \"@tsonic/core/types.js\";\n\nexport function arrayPushSum(n: int32): int32 {\n  const values: int32[] = [];\n  for (let i: int32 = 0; i < n; i++) { values.push(i & 7); }\n  let total: int32 = 0;\n  for (const value of values) { total = total + value; }\n  return total;\n}",
+      "sha256": "32eef52600dbbf8c25883d4d98d5d6e8b60666da87acc0d71973ebe85bac44c0",
+      "targets": [
+        "csharp",
+        "rust"
+      ],
+      "surfaces": [
+        "native",
+        "js"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/csharp/native/cases-arrayPushSum",
+          "target": "csharp",
+          "surface": "native",
+          "caseId": "cases-arrayPushSum",
+          "sourceSha256": "32eef52600dbbf8c25883d4d98d5d6e8b60666da87acc0d71973ebe85bac44c0",
+          "kind": "source-rejected",
+          "diagnosticCodes": [
+            "TS2339"
+          ],
+          "sourceSelection": {
+            "target": "csharp",
+            "surfaces": [],
+            "apiUses": [
+              "Array.push"
+            ],
+            "reason": "Authored JS API is absent from the explicitly selected native source profile."
+          },
+          "historicalEvidence": {
+            "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/bench/compile/gen-csharp-summary.json",
+            "sha256": "25759f42ff702749fd385b8ce27e34ea322eb707bf2e9917a5a377d6b7cc28e7",
+            "rowIndex": 6,
+            "status": "rejected",
+            "diagnostics": [
+              "TSTS_DIAGNOSTIC: index.ts(5,47): error TS2339: Property 'push' does not exist on type 'number[]'."
+            ],
+            "maximumCapturedDiagnosticCharacters": 300,
+            "native": "not invoked by this frontend driver; no separate native result recorded for rejected source",
+            "noPublication": "historical writer skips rejected rows; actual compiler artifact count was not recorded",
+            "script": {
+              "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/bench/compile/compile-csharp.mjs",
+              "sha256": "b7b49d5bb28ff2ee4ff8d7cb15ed9edf8fde93530ef9e4754087d703e80ed14c"
+            },
+            "pins": {
+              "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/snapshot.json",
+              "sha256": "d85187e2931e79e51c2197df31dd1eac134ee4d70eff97a80182b55006c7e7c5"
+            }
+          },
+          "capabilityMapping": [
+            {
+              "id": "J01",
+              "path": "/home/gorge/repos/tsoniclang/tsonic/.analysis/pr-closure-plan-20261013-065534/01-capability-list.md",
+              "line": 32,
+              "sha256": "40b5a230c894f387130fb8aa0ca63f4a38d55bd07accc6c18a1eaaa7d94fe530",
+              "approval": "| J01 | Dense Array storage, views, callbacks and native numeric elements | 2026-10-13 task §1 D6 signs reviewer §4.4: retain, no expansion; task §2 fixes R/A regardless of freeze | R1–R5; array banks; Express router | approved | Existing shared/native array carriers; Q3 deferred | Existing JSArray/native carriers; no weakening |",
+              "scope": "The JS capability remains retained; its absent native-profile spelling is only a negative control."
+            }
+          ],
+          "noPublication": {
+            "outputRoot": "absent before and after each attempt, including links or temporary publication artifacts",
+            "targetArtifacts": "zero actual compiler artifacts, not receipt files presented as native output",
+            "diagnostics": "nonempty actual compiler API diagnostic slots; exact code set and repeated full scalar diagnostic identity",
+            "phase": "source checking rejected before target analysis/sealing",
+            "nativeProgramCompiler": "never invoked for this scope; legitimate native metadata preparation remains allowed"
+          }
+        },
+        {
+          "id": "catalogue/csharp/js/cases-arrayPushSum",
+          "target": "csharp",
+          "surface": "js",
+          "caseId": "cases-arrayPushSum",
+          "sourceSha256": "32eef52600dbbf8c25883d4d98d5d6e8b60666da87acc0d71973ebe85bac44c0",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/native/cases-arrayPushSum",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "cases-arrayPushSum",
+          "sourceSha256": "32eef52600dbbf8c25883d4d98d5d6e8b60666da87acc0d71973ebe85bac44c0",
+          "kind": "source-rejected",
+          "diagnosticCodes": [
+            "TS2339"
+          ],
+          "sourceSelection": {
+            "target": "rust",
+            "surfaces": [],
+            "apiUses": [
+              "Array.push"
+            ],
+            "reason": "Authored JS API is absent from the explicitly selected native source profile."
+          },
+          "historicalEvidence": {
+            "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/bench/compile/gen-rust-summary.json",
+            "sha256": "9c05472facd6f49bce392097d135dd2aea22f26a789f11322301fdd1a65a8295",
+            "rowIndex": 6,
+            "status": "error",
+            "diagnostics": [
+              "/src/index.ts(5,47): error TS2339: Property 'push' does not exist on type 'number[]'."
+            ],
+            "error": "TypeScript diagnostics:\n/src/index.ts(5,47): error TS2339: Property 'push' does not exist on type 'number[]'.\n",
+            "maximumCapturedDiagnosticCharacters": 600,
+            "native": "not invoked by this frontend driver; no separate native result recorded for rejected source",
+            "noPublication": "historical writer skips rejected rows; actual compiler artifact count was not recorded",
+            "script": {
+              "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/bench/compile/compile-rust.mjs",
+              "sha256": "86fb9014a3310fbb761435ea62fe8afe9a727f0d173967de8803b78b726e264f"
+            },
+            "pins": {
+              "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/snapshot.json",
+              "sha256": "d85187e2931e79e51c2197df31dd1eac134ee4d70eff97a80182b55006c7e7c5"
+            }
+          },
+          "capabilityMapping": [
+            {
+              "id": "J01",
+              "path": "/home/gorge/repos/tsoniclang/tsonic/.analysis/pr-closure-plan-20261013-065534/01-capability-list.md",
+              "line": 32,
+              "sha256": "40b5a230c894f387130fb8aa0ca63f4a38d55bd07accc6c18a1eaaa7d94fe530",
+              "approval": "| J01 | Dense Array storage, views, callbacks and native numeric elements | 2026-10-13 task §1 D6 signs reviewer §4.4: retain, no expansion; task §2 fixes R/A regardless of freeze | R1–R5; array banks; Express router | approved | Existing shared/native array carriers; Q3 deferred | Existing JSArray/native carriers; no weakening |",
+              "scope": "The JS capability remains retained; its absent native-profile spelling is only a negative control."
+            }
+          ],
+          "noPublication": {
+            "outputRoot": "absent before and after each attempt, including links or temporary publication artifacts",
+            "targetArtifacts": "zero actual compiler artifacts, not receipt files presented as native output",
+            "diagnostics": "nonempty actual compiler API diagnostic slots; exact code set and repeated full scalar diagnostic identity",
+            "phase": "source checking rejected before target analysis/sealing",
+            "nativeProgramCompiler": "never invoked for this scope; legitimate native metadata preparation remains allowed"
+          }
+        },
+        {
+          "id": "catalogue/rust/js/cases-arrayPushSum",
+          "target": "rust",
+          "surface": "js",
+          "caseId": "cases-arrayPushSum",
+          "sourceSha256": "32eef52600dbbf8c25883d4d98d5d6e8b60666da87acc0d71973ebe85bac44c0",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "cases-arrayIndexSum",
+      "file": "cases.mjs",
+      "name": "arrayIndexSum",
+      "source": "import type { int32 } from \"@tsonic/core/types.js\";\n\nexport function arrayIndexSum(n: int32): int32 {\n  const values: int32[] = [];\n  for (let i: int32 = 0; i < n; i++) { values.push(i & 7); }\n  let total: int32 = 0;\n  for (let i: int32 = 0; i < values.length; i++) { total = total + values[i]; }\n  return total;\n}",
+      "sha256": "ea5089a0c080f06e8fe14aa84e7ed0e3126ba31dad59871b36b3bf6e629411e0",
+      "targets": [
+        "csharp",
+        "rust"
+      ],
+      "surfaces": [
+        "native",
+        "js"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/csharp/native/cases-arrayIndexSum",
+          "target": "csharp",
+          "surface": "native",
+          "caseId": "cases-arrayIndexSum",
+          "sourceSha256": "ea5089a0c080f06e8fe14aa84e7ed0e3126ba31dad59871b36b3bf6e629411e0",
+          "kind": "source-rejected",
+          "diagnosticCodes": [
+            "TS2339",
+            "TS2551"
+          ],
+          "sourceSelection": {
+            "target": "csharp",
+            "surfaces": [],
+            "apiUses": [
+              "Array.push",
+              "Array.length"
+            ],
+            "reason": "Authored JS API is absent from the explicitly selected native source profile."
+          },
+          "historicalEvidence": {
+            "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/bench/compile/gen-csharp-summary.json",
+            "sha256": "25759f42ff702749fd385b8ce27e34ea322eb707bf2e9917a5a377d6b7cc28e7",
+            "rowIndex": 8,
+            "status": "rejected",
+            "diagnostics": [
+              "TSTS_DIAGNOSTIC: index.ts(5,47): error TS2339: Property 'push' does not exist on type 'number[]'.",
+              "TSTS_DIAGNOSTIC: index.ts(7,37): error TS2551: Property 'length' does not exist on type 'number[]'. Did you mean 'Length'?"
+            ],
+            "maximumCapturedDiagnosticCharacters": 300,
+            "native": "not invoked by this frontend driver; no separate native result recorded for rejected source",
+            "noPublication": "historical writer skips rejected rows; actual compiler artifact count was not recorded",
+            "script": {
+              "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/bench/compile/compile-csharp.mjs",
+              "sha256": "b7b49d5bb28ff2ee4ff8d7cb15ed9edf8fde93530ef9e4754087d703e80ed14c"
+            },
+            "pins": {
+              "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/snapshot.json",
+              "sha256": "d85187e2931e79e51c2197df31dd1eac134ee4d70eff97a80182b55006c7e7c5"
+            }
+          },
+          "capabilityMapping": [
+            {
+              "id": "J01",
+              "path": "/home/gorge/repos/tsoniclang/tsonic/.analysis/pr-closure-plan-20261013-065534/01-capability-list.md",
+              "line": 32,
+              "sha256": "40b5a230c894f387130fb8aa0ca63f4a38d55bd07accc6c18a1eaaa7d94fe530",
+              "approval": "| J01 | Dense Array storage, views, callbacks and native numeric elements | 2026-10-13 task §1 D6 signs reviewer §4.4: retain, no expansion; task §2 fixes R/A regardless of freeze | R1–R5; array banks; Express router | approved | Existing shared/native array carriers; Q3 deferred | Existing JSArray/native carriers; no weakening |",
+              "scope": "The JS capability remains retained; its absent native-profile spelling is only a negative control."
+            }
+          ],
+          "noPublication": {
+            "outputRoot": "absent before and after each attempt, including links or temporary publication artifacts",
+            "targetArtifacts": "zero actual compiler artifacts, not receipt files presented as native output",
+            "diagnostics": "nonempty actual compiler API diagnostic slots; exact code set and repeated full scalar diagnostic identity",
+            "phase": "source checking rejected before target analysis/sealing",
+            "nativeProgramCompiler": "never invoked for this scope; legitimate native metadata preparation remains allowed"
+          }
+        },
+        {
+          "id": "catalogue/csharp/js/cases-arrayIndexSum",
+          "target": "csharp",
+          "surface": "js",
+          "caseId": "cases-arrayIndexSum",
+          "sourceSha256": "ea5089a0c080f06e8fe14aa84e7ed0e3126ba31dad59871b36b3bf6e629411e0",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/native/cases-arrayIndexSum",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "cases-arrayIndexSum",
+          "sourceSha256": "ea5089a0c080f06e8fe14aa84e7ed0e3126ba31dad59871b36b3bf6e629411e0",
+          "kind": "source-rejected",
+          "diagnosticCodes": [
+            "TS2339"
+          ],
+          "sourceSelection": {
+            "target": "rust",
+            "surfaces": [],
+            "apiUses": [
+              "Array.push",
+              "Array.length"
+            ],
+            "reason": "Authored JS API is absent from the explicitly selected native source profile."
+          },
+          "historicalEvidence": {
+            "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/bench/compile/gen-rust-summary.json",
+            "sha256": "9c05472facd6f49bce392097d135dd2aea22f26a789f11322301fdd1a65a8295",
+            "rowIndex": 8,
+            "status": "error",
+            "diagnostics": [
+              "/src/index.ts(5,47): error TS2339: Property 'push' does not exist on type 'number[]'.",
+              "/src/index.ts(7,37): error TS2339: Property 'length' does not exist on type 'number[]'."
+            ],
+            "error": "TypeScript diagnostics:\n/src/index.ts(5,47): error TS2339: Property 'push' does not exist on type 'number[]'.\n/src/index.ts(7,37): error TS2339: Property 'length' does not exist on type 'number[]'.\n",
+            "maximumCapturedDiagnosticCharacters": 600,
+            "native": "not invoked by this frontend driver; no separate native result recorded for rejected source",
+            "noPublication": "historical writer skips rejected rows; actual compiler artifact count was not recorded",
+            "script": {
+              "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/bench/compile/compile-rust.mjs",
+              "sha256": "86fb9014a3310fbb761435ea62fe8afe9a727f0d173967de8803b78b726e264f"
+            },
+            "pins": {
+              "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/snapshot.json",
+              "sha256": "d85187e2931e79e51c2197df31dd1eac134ee4d70eff97a80182b55006c7e7c5"
+            }
+          },
+          "capabilityMapping": [
+            {
+              "id": "J01",
+              "path": "/home/gorge/repos/tsoniclang/tsonic/.analysis/pr-closure-plan-20261013-065534/01-capability-list.md",
+              "line": 32,
+              "sha256": "40b5a230c894f387130fb8aa0ca63f4a38d55bd07accc6c18a1eaaa7d94fe530",
+              "approval": "| J01 | Dense Array storage, views, callbacks and native numeric elements | 2026-10-13 task §1 D6 signs reviewer §4.4: retain, no expansion; task §2 fixes R/A regardless of freeze | R1–R5; array banks; Express router | approved | Existing shared/native array carriers; Q3 deferred | Existing JSArray/native carriers; no weakening |",
+              "scope": "The JS capability remains retained; its absent native-profile spelling is only a negative control."
+            }
+          ],
+          "noPublication": {
+            "outputRoot": "absent before and after each attempt, including links or temporary publication artifacts",
+            "targetArtifacts": "zero actual compiler artifacts, not receipt files presented as native output",
+            "diagnostics": "nonempty actual compiler API diagnostic slots; exact code set and repeated full scalar diagnostic identity",
+            "phase": "source checking rejected before target analysis/sealing",
+            "nativeProgramCompiler": "never invoked for this scope; legitimate native metadata preparation remains allowed"
+          }
+        },
+        {
+          "id": "catalogue/rust/js/cases-arrayIndexSum",
+          "target": "rust",
+          "surface": "js",
+          "caseId": "cases-arrayIndexSum",
+          "sourceSha256": "ea5089a0c080f06e8fe14aa84e7ed0e3126ba31dad59871b36b3bf6e629411e0",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "cases-arrayPipeline",
+      "file": "cases.mjs",
+      "name": "arrayPipeline",
+      "source": "import type { int32 } from \"@tsonic/core/types.js\";\n\nexport function arrayPipeline(n: int32): int32 {\n  const values: int32[] = [];\n  for (let i: int32 = 0; i < n; i++) { values.push(i & 7); }\n  return values.map((v) => v * 2).filter((v) => v > 4).reduce((a, v) => a + v, 0);\n}",
+      "sha256": "bf864fcca45c83da185a2af93c48c55d921bd9cd5010148b2faf906d70beefdd",
+      "targets": [
+        "csharp",
+        "rust"
+      ],
+      "surfaces": [
+        "native",
+        "js"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/csharp/native/cases-arrayPipeline",
+          "target": "csharp",
+          "surface": "native",
+          "caseId": "cases-arrayPipeline",
+          "sourceSha256": "bf864fcca45c83da185a2af93c48c55d921bd9cd5010148b2faf906d70beefdd",
+          "kind": "source-rejected",
+          "diagnosticCodes": [
+            "TS2339",
+            "TS7006"
+          ],
+          "sourceSelection": {
+            "target": "csharp",
+            "surfaces": [],
+            "apiUses": [
+              "Array.push",
+              "Array.map",
+              "Array.filter",
+              "Array.reduce"
+            ],
+            "reason": "Authored JS API is absent from the explicitly selected native source profile."
+          },
+          "historicalEvidence": {
+            "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/bench/compile/gen-csharp-summary.json",
+            "sha256": "25759f42ff702749fd385b8ce27e34ea322eb707bf2e9917a5a377d6b7cc28e7",
+            "rowIndex": 10,
+            "status": "rejected",
+            "diagnostics": [
+              "TSTS_DIAGNOSTIC: index.ts(5,47): error TS2339: Property 'push' does not exist on type 'number[]'.",
+              "TSTS_DIAGNOSTIC: index.ts(6,17): error TS2339: Property 'map' does not exist on type 'number[]'.",
+              "TSTS_DIAGNOSTIC: index.ts(6,22): error TS7006: Parameter 'v' implicitly has an 'any' type.",
+              "TSTS_DIAGNOSTIC: index.ts(6,43): error TS7006: Parameter 'v' implicitly has an 'any' type.",
+              "TSTS_DIAGNOSTIC: index.ts(6,64): error TS7006: Parameter 'a' implicitly has an 'any' type.",
+              "TSTS_DIAGNOSTIC: index.ts(6,67): error TS7006: Parameter 'v' implicitly has an 'any' type."
+            ],
+            "maximumCapturedDiagnosticCharacters": 300,
+            "native": "not invoked by this frontend driver; no separate native result recorded for rejected source",
+            "noPublication": "historical writer skips rejected rows; actual compiler artifact count was not recorded",
+            "script": {
+              "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/bench/compile/compile-csharp.mjs",
+              "sha256": "b7b49d5bb28ff2ee4ff8d7cb15ed9edf8fde93530ef9e4754087d703e80ed14c"
+            },
+            "pins": {
+              "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/snapshot.json",
+              "sha256": "d85187e2931e79e51c2197df31dd1eac134ee4d70eff97a80182b55006c7e7c5"
+            }
+          },
+          "capabilityMapping": [
+            {
+              "id": "J01",
+              "path": "/home/gorge/repos/tsoniclang/tsonic/.analysis/pr-closure-plan-20261013-065534/01-capability-list.md",
+              "line": 32,
+              "sha256": "40b5a230c894f387130fb8aa0ca63f4a38d55bd07accc6c18a1eaaa7d94fe530",
+              "approval": "| J01 | Dense Array storage, views, callbacks and native numeric elements | 2026-10-13 task §1 D6 signs reviewer §4.4: retain, no expansion; task §2 fixes R/A regardless of freeze | R1–R5; array banks; Express router | approved | Existing shared/native array carriers; Q3 deferred | Existing JSArray/native carriers; no weakening |",
+              "scope": "The JS capability remains retained; its absent native-profile spelling is only a negative control."
+            }
+          ],
+          "noPublication": {
+            "outputRoot": "absent before and after each attempt, including links or temporary publication artifacts",
+            "targetArtifacts": "zero actual compiler artifacts, not receipt files presented as native output",
+            "diagnostics": "nonempty actual compiler API diagnostic slots; exact code set and repeated full scalar diagnostic identity",
+            "phase": "source checking rejected before target analysis/sealing",
+            "nativeProgramCompiler": "never invoked for this scope; legitimate native metadata preparation remains allowed"
+          }
+        },
+        {
+          "id": "catalogue/csharp/js/cases-arrayPipeline",
+          "target": "csharp",
+          "surface": "js",
+          "caseId": "cases-arrayPipeline",
+          "sourceSha256": "bf864fcca45c83da185a2af93c48c55d921bd9cd5010148b2faf906d70beefdd",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/native/cases-arrayPipeline",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "cases-arrayPipeline",
+          "sourceSha256": "bf864fcca45c83da185a2af93c48c55d921bd9cd5010148b2faf906d70beefdd",
+          "kind": "source-rejected",
+          "diagnosticCodes": [
+            "TS2339",
+            "TS7006"
+          ],
+          "sourceSelection": {
+            "target": "rust",
+            "surfaces": [],
+            "apiUses": [
+              "Array.push",
+              "Array.map",
+              "Array.filter",
+              "Array.reduce"
+            ],
+            "reason": "Authored JS API is absent from the explicitly selected native source profile."
+          },
+          "historicalEvidence": {
+            "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/bench/compile/gen-rust-summary.json",
+            "sha256": "9c05472facd6f49bce392097d135dd2aea22f26a789f11322301fdd1a65a8295",
+            "rowIndex": 10,
+            "status": "error",
+            "diagnostics": [
+              "/src/index.ts(5,47): error TS2339: Property 'push' does not exist on type 'number[]'.",
+              "/src/index.ts(6,17): error TS2339: Property 'map' does not exist on type 'number[]'.",
+              "/src/index.ts(6,22): error TS7006: Parameter 'v' implicitly has an 'any' type.",
+              "/src/index.ts(6,43): error TS7006: Parameter 'v' implicitly has an 'any' type.",
+              "/src/index.ts(6,64): error TS7006: Parameter 'a' implicitly has an 'any' type.",
+              "/src/index.ts(6,67): error TS7006: Parameter 'v' implicitly has an 'any' type."
+            ],
+            "error": "TypeScript diagnostics:\n/src/index.ts(5,47): error TS2339: Property 'push' does not exist on type 'number[]'.\n/src/index.ts(6,17): error TS2339: Property 'map' does not exist on type 'number[]'.\n/src/index.ts(6,22): error TS7006: Parameter 'v' implicitly has an 'any' type.\n/src/index.ts(6,43): error TS7006: Parameter 'v' implicitly has an 'any' type.\n/src/index.ts(6,64): error TS7006: Parameter 'a' implicitly has an 'any' type.\n/src/index.ts(6,67): error TS7006: Parameter 'v' implicitly has an 'any' type.\n",
+            "maximumCapturedDiagnosticCharacters": 600,
+            "native": "not invoked by this frontend driver; no separate native result recorded for rejected source",
+            "noPublication": "historical writer skips rejected rows; actual compiler artifact count was not recorded",
+            "script": {
+              "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/bench/compile/compile-rust.mjs",
+              "sha256": "86fb9014a3310fbb761435ea62fe8afe9a727f0d173967de8803b78b726e264f"
+            },
+            "pins": {
+              "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/snapshot.json",
+              "sha256": "d85187e2931e79e51c2197df31dd1eac134ee4d70eff97a80182b55006c7e7c5"
+            }
+          },
+          "capabilityMapping": [
+            {
+              "id": "J01",
+              "path": "/home/gorge/repos/tsoniclang/tsonic/.analysis/pr-closure-plan-20261013-065534/01-capability-list.md",
+              "line": 32,
+              "sha256": "40b5a230c894f387130fb8aa0ca63f4a38d55bd07accc6c18a1eaaa7d94fe530",
+              "approval": "| J01 | Dense Array storage, views, callbacks and native numeric elements | 2026-10-13 task §1 D6 signs reviewer §4.4: retain, no expansion; task §2 fixes R/A regardless of freeze | R1–R5; array banks; Express router | approved | Existing shared/native array carriers; Q3 deferred | Existing JSArray/native carriers; no weakening |",
+              "scope": "The JS capability remains retained; its absent native-profile spelling is only a negative control."
+            }
+          ],
+          "noPublication": {
+            "outputRoot": "absent before and after each attempt, including links or temporary publication artifacts",
+            "targetArtifacts": "zero actual compiler artifacts, not receipt files presented as native output",
+            "diagnostics": "nonempty actual compiler API diagnostic slots; exact code set and repeated full scalar diagnostic identity",
+            "phase": "source checking rejected before target analysis/sealing",
+            "nativeProgramCompiler": "never invoked for this scope; legitimate native metadata preparation remains allowed"
+          }
+        },
+        {
+          "id": "catalogue/rust/js/cases-arrayPipeline",
+          "target": "rust",
+          "surface": "js",
+          "caseId": "cases-arrayPipeline",
+          "sourceSha256": "bf864fcca45c83da185a2af93c48c55d921bd9cd5010148b2faf906d70beefdd",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "cases-stringBuild",
+      "file": "cases.mjs",
+      "name": "stringBuild",
+      "source": "import type { int32 } from \"@tsonic/core/types.js\";\n\nexport function stringBuild(n: int32): number {\n  let out = \"\";\n  for (let i: int32 = 0; i < n; i++) { out = out + \"/seg\"; }\n  return out.length;\n}",
+      "sha256": "3e30eb0420e2e6aaa43a594917c1060d3d629a6cb6b8b57bb678ffc152e9d04d",
+      "targets": [
+        "csharp",
+        "rust"
+      ],
+      "surfaces": [
+        "native",
+        "js"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/csharp/native/cases-stringBuild",
+          "target": "csharp",
+          "surface": "native",
+          "caseId": "cases-stringBuild",
+          "sourceSha256": "3e30eb0420e2e6aaa43a594917c1060d3d629a6cb6b8b57bb678ffc152e9d04d",
+          "kind": "source-rejected",
+          "diagnosticCodes": [
+            "TS2551"
+          ],
+          "sourceSelection": {
+            "target": "csharp",
+            "surfaces": [],
+            "apiUses": [
+              "String.length"
+            ],
+            "reason": "Authored JS API is absent from the explicitly selected native source profile."
+          },
+          "historicalEvidence": {
+            "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/bench/compile/gen-csharp-summary.json",
+            "sha256": "25759f42ff702749fd385b8ce27e34ea322eb707bf2e9917a5a377d6b7cc28e7",
+            "rowIndex": 12,
+            "status": "rejected",
+            "diagnostics": [
+              "TSTS_DIAGNOSTIC: index.ts(6,14): error TS2551: Property 'length' does not exist on type 'string'. Did you mean 'Length'?"
+            ],
+            "maximumCapturedDiagnosticCharacters": 300,
+            "native": "not invoked by this frontend driver; no separate native result recorded for rejected source",
+            "noPublication": "historical writer skips rejected rows; actual compiler artifact count was not recorded",
+            "script": {
+              "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/bench/compile/compile-csharp.mjs",
+              "sha256": "b7b49d5bb28ff2ee4ff8d7cb15ed9edf8fde93530ef9e4754087d703e80ed14c"
+            },
+            "pins": {
+              "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/snapshot.json",
+              "sha256": "d85187e2931e79e51c2197df31dd1eac134ee4d70eff97a80182b55006c7e7c5"
+            }
+          },
+          "capabilityMapping": [
+            {
+              "id": "J02",
+              "path": "/home/gorge/repos/tsoniclang/tsonic/.analysis/pr-closure-plan-20261013-065534/01-capability-list.md",
+              "line": 33,
+              "sha256": "40b5a230c894f387130fb8aa0ca63f4a38d55bd07accc6c18a1eaaa7d94fe530",
+              "approval": "| J02 | Native strings and explicit JS string API operations | 2026-10-13 task §1 D6 signs reviewer §4.4: retain, no expansion; task §2 fixes R/A regardless of freeze | S1–S3; string/regexp banks; Express routing | approved | UTF-8 default; Q4/Q5 deferred | UTF-16 native storage; Q4/Q5 deferred |",
+              "scope": "The JS capability remains retained; its absent native-profile spelling is only a negative control."
+            }
+          ],
+          "noPublication": {
+            "outputRoot": "absent before and after each attempt, including links or temporary publication artifacts",
+            "targetArtifacts": "zero actual compiler artifacts, not receipt files presented as native output",
+            "diagnostics": "nonempty actual compiler API diagnostic slots; exact code set and repeated full scalar diagnostic identity",
+            "phase": "source checking rejected before target analysis/sealing",
+            "nativeProgramCompiler": "never invoked for this scope; legitimate native metadata preparation remains allowed"
+          }
+        },
+        {
+          "id": "catalogue/csharp/js/cases-stringBuild",
+          "target": "csharp",
+          "surface": "js",
+          "caseId": "cases-stringBuild",
+          "sourceSha256": "3e30eb0420e2e6aaa43a594917c1060d3d629a6cb6b8b57bb678ffc152e9d04d",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/native/cases-stringBuild",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "cases-stringBuild",
+          "sourceSha256": "3e30eb0420e2e6aaa43a594917c1060d3d629a6cb6b8b57bb678ffc152e9d04d",
+          "kind": "source-rejected",
+          "diagnosticCodes": [
+            "TS2339"
+          ],
+          "sourceSelection": {
+            "target": "rust",
+            "surfaces": [],
+            "apiUses": [
+              "String.length"
+            ],
+            "reason": "Authored JS API is absent from the explicitly selected native source profile."
+          },
+          "historicalEvidence": {
+            "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/bench/compile/gen-rust-summary.json",
+            "sha256": "9c05472facd6f49bce392097d135dd2aea22f26a789f11322301fdd1a65a8295",
+            "rowIndex": 12,
+            "status": "error",
+            "diagnostics": [
+              "/src/index.ts(6,14): error TS2339: Property 'length' does not exist on type 'string'."
+            ],
+            "error": "TypeScript diagnostics:\n/src/index.ts(6,14): error TS2339: Property 'length' does not exist on type 'string'.\n",
+            "maximumCapturedDiagnosticCharacters": 600,
+            "native": "not invoked by this frontend driver; no separate native result recorded for rejected source",
+            "noPublication": "historical writer skips rejected rows; actual compiler artifact count was not recorded",
+            "script": {
+              "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/bench/compile/compile-rust.mjs",
+              "sha256": "86fb9014a3310fbb761435ea62fe8afe9a727f0d173967de8803b78b726e264f"
+            },
+            "pins": {
+              "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/snapshot.json",
+              "sha256": "d85187e2931e79e51c2197df31dd1eac134ee4d70eff97a80182b55006c7e7c5"
+            }
+          },
+          "capabilityMapping": [
+            {
+              "id": "J02",
+              "path": "/home/gorge/repos/tsoniclang/tsonic/.analysis/pr-closure-plan-20261013-065534/01-capability-list.md",
+              "line": 33,
+              "sha256": "40b5a230c894f387130fb8aa0ca63f4a38d55bd07accc6c18a1eaaa7d94fe530",
+              "approval": "| J02 | Native strings and explicit JS string API operations | 2026-10-13 task §1 D6 signs reviewer §4.4: retain, no expansion; task §2 fixes R/A regardless of freeze | S1–S3; string/regexp banks; Express routing | approved | UTF-8 default; Q4/Q5 deferred | UTF-16 native storage; Q4/Q5 deferred |",
+              "scope": "The JS capability remains retained; its absent native-profile spelling is only a negative control."
+            }
+          ],
+          "noPublication": {
+            "outputRoot": "absent before and after each attempt, including links or temporary publication artifacts",
+            "targetArtifacts": "zero actual compiler artifacts, not receipt files presented as native output",
+            "diagnostics": "nonempty actual compiler API diagnostic slots; exact code set and repeated full scalar diagnostic identity",
+            "phase": "source checking rejected before target analysis/sealing",
+            "nativeProgramCompiler": "never invoked for this scope; legitimate native metadata preparation remains allowed"
+          }
+        },
+        {
+          "id": "catalogue/rust/js/cases-stringBuild",
+          "target": "rust",
+          "surface": "js",
+          "caseId": "cases-stringBuild",
+          "sourceSha256": "3e30eb0420e2e6aaa43a594917c1060d3d629a6cb6b8b57bb678ffc152e9d04d",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "cases-stringOps",
+      "file": "cases.mjs",
+      "name": "stringOps",
+      "source": "import type { int32 } from \"@tsonic/core/types.js\";\n\nexport function stringOps(path: string, n: int32): int32 {\n  let hits: int32 = 0;\n  for (let i: int32 = 0; i < n; i++) {\n    if (path.startsWith(\"/api/\") && path.split(\"/\").length > 2) { hits = hits + 1; }\n  }\n  return hits;\n}",
+      "sha256": "858290fc9660601ce11575ef18ddbc3aae75aebff3a3bc3c6c8b80fcf106cab9",
+      "targets": [
+        "csharp",
+        "rust"
+      ],
+      "surfaces": [
+        "native",
+        "js"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/csharp/native/cases-stringOps",
+          "target": "csharp",
+          "surface": "native",
+          "caseId": "cases-stringOps",
+          "sourceSha256": "858290fc9660601ce11575ef18ddbc3aae75aebff3a3bc3c6c8b80fcf106cab9",
+          "kind": "source-rejected",
+          "diagnosticCodes": [
+            "TS2550",
+            "TS2551"
+          ],
+          "sourceSelection": {
+            "target": "csharp",
+            "surfaces": [],
+            "apiUses": [
+              "String.startsWith",
+              "String.split",
+              "Array.length"
+            ],
+            "reason": "Authored JS API is absent from the explicitly selected native source profile."
+          },
+          "historicalEvidence": {
+            "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/bench/compile/gen-csharp-summary.json",
+            "sha256": "25759f42ff702749fd385b8ce27e34ea322eb707bf2e9917a5a377d6b7cc28e7",
+            "rowIndex": 14,
+            "status": "rejected",
+            "diagnostics": [
+              "TSTS_DIAGNOSTIC: index.ts(6,14): error TS2550: Property 'startsWith' does not exist on type 'string'. Do you need to change your target library? Try changing the 'lib' compiler option to 'es2015' or later.",
+              "TSTS_DIAGNOSTIC: index.ts(6,42): error TS2551: Property 'split' does not exist on type 'string'. Did you mean 'Split'?"
+            ],
+            "maximumCapturedDiagnosticCharacters": 300,
+            "native": "not invoked by this frontend driver; no separate native result recorded for rejected source",
+            "noPublication": "historical writer skips rejected rows; actual compiler artifact count was not recorded",
+            "script": {
+              "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/bench/compile/compile-csharp.mjs",
+              "sha256": "b7b49d5bb28ff2ee4ff8d7cb15ed9edf8fde93530ef9e4754087d703e80ed14c"
+            },
+            "pins": {
+              "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/snapshot.json",
+              "sha256": "d85187e2931e79e51c2197df31dd1eac134ee4d70eff97a80182b55006c7e7c5"
+            }
+          },
+          "capabilityMapping": [
+            {
+              "id": "J01",
+              "path": "/home/gorge/repos/tsoniclang/tsonic/.analysis/pr-closure-plan-20261013-065534/01-capability-list.md",
+              "line": 32,
+              "sha256": "40b5a230c894f387130fb8aa0ca63f4a38d55bd07accc6c18a1eaaa7d94fe530",
+              "approval": "| J01 | Dense Array storage, views, callbacks and native numeric elements | 2026-10-13 task §1 D6 signs reviewer §4.4: retain, no expansion; task §2 fixes R/A regardless of freeze | R1–R5; array banks; Express router | approved | Existing shared/native array carriers; Q3 deferred | Existing JSArray/native carriers; no weakening |",
+              "scope": "The JS capability remains retained; its absent native-profile spelling is only a negative control."
+            },
+            {
+              "id": "J02",
+              "path": "/home/gorge/repos/tsoniclang/tsonic/.analysis/pr-closure-plan-20261013-065534/01-capability-list.md",
+              "line": 33,
+              "sha256": "40b5a230c894f387130fb8aa0ca63f4a38d55bd07accc6c18a1eaaa7d94fe530",
+              "approval": "| J02 | Native strings and explicit JS string API operations | 2026-10-13 task §1 D6 signs reviewer §4.4: retain, no expansion; task §2 fixes R/A regardless of freeze | S1–S3; string/regexp banks; Express routing | approved | UTF-8 default; Q4/Q5 deferred | UTF-16 native storage; Q4/Q5 deferred |",
+              "scope": "The JS capability remains retained; its absent native-profile spelling is only a negative control."
+            }
+          ],
+          "noPublication": {
+            "outputRoot": "absent before and after each attempt, including links or temporary publication artifacts",
+            "targetArtifacts": "zero actual compiler artifacts, not receipt files presented as native output",
+            "diagnostics": "nonempty actual compiler API diagnostic slots; exact code set and repeated full scalar diagnostic identity",
+            "phase": "source checking rejected before target analysis/sealing",
+            "nativeProgramCompiler": "never invoked for this scope; legitimate native metadata preparation remains allowed"
+          }
+        },
+        {
+          "id": "catalogue/csharp/js/cases-stringOps",
+          "target": "csharp",
+          "surface": "js",
+          "caseId": "cases-stringOps",
+          "sourceSha256": "858290fc9660601ce11575ef18ddbc3aae75aebff3a3bc3c6c8b80fcf106cab9",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/native/cases-stringOps",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "cases-stringOps",
+          "sourceSha256": "858290fc9660601ce11575ef18ddbc3aae75aebff3a3bc3c6c8b80fcf106cab9",
+          "kind": "source-rejected",
+          "diagnosticCodes": [
+            "TS2339",
+            "TS2550"
+          ],
+          "sourceSelection": {
+            "target": "rust",
+            "surfaces": [],
+            "apiUses": [
+              "String.startsWith",
+              "String.split",
+              "Array.length"
+            ],
+            "reason": "Authored JS API is absent from the explicitly selected native source profile."
+          },
+          "historicalEvidence": {
+            "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/bench/compile/gen-rust-summary.json",
+            "sha256": "9c05472facd6f49bce392097d135dd2aea22f26a789f11322301fdd1a65a8295",
+            "rowIndex": 14,
+            "status": "error",
+            "diagnostics": [
+              "/src/index.ts(6,14): error TS2550: Property 'startsWith' does not exist on type 'string'. Do you need to change your target library? Try changing the 'lib' compiler option to 'es2015' or later.",
+              "/src/index.ts(6,42): error TS2339: Property 'split' does not exist on type 'string'."
+            ],
+            "error": "TypeScript diagnostics:\n/src/index.ts(6,14): error TS2550: Property 'startsWith' does not exist on type 'string'. Do you need to change your target library? Try changing the 'lib' compiler option to 'es2015' or later.\n/src/index.ts(6,42): error TS2339: Property 'split' does not exist on type 'string'.\n",
+            "maximumCapturedDiagnosticCharacters": 600,
+            "native": "not invoked by this frontend driver; no separate native result recorded for rejected source",
+            "noPublication": "historical writer skips rejected rows; actual compiler artifact count was not recorded",
+            "script": {
+              "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/bench/compile/compile-rust.mjs",
+              "sha256": "86fb9014a3310fbb761435ea62fe8afe9a727f0d173967de8803b78b726e264f"
+            },
+            "pins": {
+              "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/snapshot.json",
+              "sha256": "d85187e2931e79e51c2197df31dd1eac134ee4d70eff97a80182b55006c7e7c5"
+            }
+          },
+          "capabilityMapping": [
+            {
+              "id": "J01",
+              "path": "/home/gorge/repos/tsoniclang/tsonic/.analysis/pr-closure-plan-20261013-065534/01-capability-list.md",
+              "line": 32,
+              "sha256": "40b5a230c894f387130fb8aa0ca63f4a38d55bd07accc6c18a1eaaa7d94fe530",
+              "approval": "| J01 | Dense Array storage, views, callbacks and native numeric elements | 2026-10-13 task §1 D6 signs reviewer §4.4: retain, no expansion; task §2 fixes R/A regardless of freeze | R1–R5; array banks; Express router | approved | Existing shared/native array carriers; Q3 deferred | Existing JSArray/native carriers; no weakening |",
+              "scope": "The JS capability remains retained; its absent native-profile spelling is only a negative control."
+            },
+            {
+              "id": "J02",
+              "path": "/home/gorge/repos/tsoniclang/tsonic/.analysis/pr-closure-plan-20261013-065534/01-capability-list.md",
+              "line": 33,
+              "sha256": "40b5a230c894f387130fb8aa0ca63f4a38d55bd07accc6c18a1eaaa7d94fe530",
+              "approval": "| J02 | Native strings and explicit JS string API operations | 2026-10-13 task §1 D6 signs reviewer §4.4: retain, no expansion; task §2 fixes R/A regardless of freeze | S1–S3; string/regexp banks; Express routing | approved | UTF-8 default; Q4/Q5 deferred | UTF-16 native storage; Q4/Q5 deferred |",
+              "scope": "The JS capability remains retained; its absent native-profile spelling is only a negative control."
+            }
+          ],
+          "noPublication": {
+            "outputRoot": "absent before and after each attempt, including links or temporary publication artifacts",
+            "targetArtifacts": "zero actual compiler artifacts, not receipt files presented as native output",
+            "diagnostics": "nonempty actual compiler API diagnostic slots; exact code set and repeated full scalar diagnostic identity",
+            "phase": "source checking rejected before target analysis/sealing",
+            "nativeProgramCompiler": "never invoked for this scope; legitimate native metadata preparation remains allowed"
+          }
+        },
+        {
+          "id": "catalogue/rust/js/cases-stringOps",
+          "target": "rust",
+          "surface": "js",
+          "caseId": "cases-stringOps",
+          "sourceSha256": "858290fc9660601ce11575ef18ddbc3aae75aebff3a3bc3c6c8b80fcf106cab9",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "cases-stringTemplate",
+      "file": "cases.mjs",
+      "name": "stringTemplate",
+      "source": "import type { int32 } from \"@tsonic/core/types.js\";\n\nexport function stringTemplate(name: string, n: int32): int32 {\n  let total: int32 = 0;\n  for (let i: int32 = 0; i < n; i++) {\n    const text = `user:${name}:${i}`;\n    if (text.length > 5) { total = total + 1; }\n  }\n  return total;\n}",
+      "sha256": "15936453c6d8d0c5bb2a126469ab7bf295f2093f70643ae7db07895fa5715fdf",
+      "targets": [
+        "csharp",
+        "rust"
+      ],
+      "surfaces": [
+        "native",
+        "js"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/csharp/native/cases-stringTemplate",
+          "target": "csharp",
+          "surface": "native",
+          "caseId": "cases-stringTemplate",
+          "sourceSha256": "15936453c6d8d0c5bb2a126469ab7bf295f2093f70643ae7db07895fa5715fdf",
+          "kind": "source-rejected",
+          "diagnosticCodes": [
+            "TS2551"
+          ],
+          "sourceSelection": {
+            "target": "csharp",
+            "surfaces": [],
+            "apiUses": [
+              "String.length"
+            ],
+            "reason": "Authored JS API is absent from the explicitly selected native source profile."
+          },
+          "historicalEvidence": {
+            "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/bench/compile/gen-csharp-summary.json",
+            "sha256": "25759f42ff702749fd385b8ce27e34ea322eb707bf2e9917a5a377d6b7cc28e7",
+            "rowIndex": 16,
+            "status": "rejected",
+            "diagnostics": [
+              "TSTS_DIAGNOSTIC: index.ts(7,14): error TS2551: Property 'length' does not exist on type 'string'. Did you mean 'Length'?"
+            ],
+            "maximumCapturedDiagnosticCharacters": 300,
+            "native": "not invoked by this frontend driver; no separate native result recorded for rejected source",
+            "noPublication": "historical writer skips rejected rows; actual compiler artifact count was not recorded",
+            "script": {
+              "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/bench/compile/compile-csharp.mjs",
+              "sha256": "b7b49d5bb28ff2ee4ff8d7cb15ed9edf8fde93530ef9e4754087d703e80ed14c"
+            },
+            "pins": {
+              "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/snapshot.json",
+              "sha256": "d85187e2931e79e51c2197df31dd1eac134ee4d70eff97a80182b55006c7e7c5"
+            }
+          },
+          "capabilityMapping": [
+            {
+              "id": "J02",
+              "path": "/home/gorge/repos/tsoniclang/tsonic/.analysis/pr-closure-plan-20261013-065534/01-capability-list.md",
+              "line": 33,
+              "sha256": "40b5a230c894f387130fb8aa0ca63f4a38d55bd07accc6c18a1eaaa7d94fe530",
+              "approval": "| J02 | Native strings and explicit JS string API operations | 2026-10-13 task §1 D6 signs reviewer §4.4: retain, no expansion; task §2 fixes R/A regardless of freeze | S1–S3; string/regexp banks; Express routing | approved | UTF-8 default; Q4/Q5 deferred | UTF-16 native storage; Q4/Q5 deferred |",
+              "scope": "The JS capability remains retained; its absent native-profile spelling is only a negative control."
+            }
+          ],
+          "noPublication": {
+            "outputRoot": "absent before and after each attempt, including links or temporary publication artifacts",
+            "targetArtifacts": "zero actual compiler artifacts, not receipt files presented as native output",
+            "diagnostics": "nonempty actual compiler API diagnostic slots; exact code set and repeated full scalar diagnostic identity",
+            "phase": "source checking rejected before target analysis/sealing",
+            "nativeProgramCompiler": "never invoked for this scope; legitimate native metadata preparation remains allowed"
+          }
+        },
+        {
+          "id": "catalogue/csharp/js/cases-stringTemplate",
+          "target": "csharp",
+          "surface": "js",
+          "caseId": "cases-stringTemplate",
+          "sourceSha256": "15936453c6d8d0c5bb2a126469ab7bf295f2093f70643ae7db07895fa5715fdf",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/native/cases-stringTemplate",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "cases-stringTemplate",
+          "sourceSha256": "15936453c6d8d0c5bb2a126469ab7bf295f2093f70643ae7db07895fa5715fdf",
+          "kind": "source-rejected",
+          "diagnosticCodes": [
+            "TS2339"
+          ],
+          "sourceSelection": {
+            "target": "rust",
+            "surfaces": [],
+            "apiUses": [
+              "String.length"
+            ],
+            "reason": "Authored JS API is absent from the explicitly selected native source profile."
+          },
+          "historicalEvidence": {
+            "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/bench/compile/gen-rust-summary.json",
+            "sha256": "9c05472facd6f49bce392097d135dd2aea22f26a789f11322301fdd1a65a8295",
+            "rowIndex": 16,
+            "status": "error",
+            "diagnostics": [
+              "/src/index.ts(7,14): error TS2339: Property 'length' does not exist on type 'string'."
+            ],
+            "error": "TypeScript diagnostics:\n/src/index.ts(7,14): error TS2339: Property 'length' does not exist on type 'string'.\n",
+            "maximumCapturedDiagnosticCharacters": 600,
+            "native": "not invoked by this frontend driver; no separate native result recorded for rejected source",
+            "noPublication": "historical writer skips rejected rows; actual compiler artifact count was not recorded",
+            "script": {
+              "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/bench/compile/compile-rust.mjs",
+              "sha256": "86fb9014a3310fbb761435ea62fe8afe9a727f0d173967de8803b78b726e264f"
+            },
+            "pins": {
+              "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/snapshot.json",
+              "sha256": "d85187e2931e79e51c2197df31dd1eac134ee4d70eff97a80182b55006c7e7c5"
+            }
+          },
+          "capabilityMapping": [
+            {
+              "id": "J02",
+              "path": "/home/gorge/repos/tsoniclang/tsonic/.analysis/pr-closure-plan-20261013-065534/01-capability-list.md",
+              "line": 33,
+              "sha256": "40b5a230c894f387130fb8aa0ca63f4a38d55bd07accc6c18a1eaaa7d94fe530",
+              "approval": "| J02 | Native strings and explicit JS string API operations | 2026-10-13 task §1 D6 signs reviewer §4.4: retain, no expansion; task §2 fixes R/A regardless of freeze | S1–S3; string/regexp banks; Express routing | approved | UTF-8 default; Q4/Q5 deferred | UTF-16 native storage; Q4/Q5 deferred |",
+              "scope": "The JS capability remains retained; its absent native-profile spelling is only a negative control."
+            }
+          ],
+          "noPublication": {
+            "outputRoot": "absent before and after each attempt, including links or temporary publication artifacts",
+            "targetArtifacts": "zero actual compiler artifacts, not receipt files presented as native output",
+            "diagnostics": "nonempty actual compiler API diagnostic slots; exact code set and repeated full scalar diagnostic identity",
+            "phase": "source checking rejected before target analysis/sealing",
+            "nativeProgramCompiler": "never invoked for this scope; legitimate native metadata preparation remains allowed"
+          }
+        },
+        {
+          "id": "catalogue/rust/js/cases-stringTemplate",
+          "target": "rust",
+          "surface": "js",
+          "caseId": "cases-stringTemplate",
+          "sourceSha256": "15936453c6d8d0c5bb2a126469ab7bf295f2093f70643ae7db07895fa5715fdf",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "cases-classAdd",
+      "file": "cases.mjs",
+      "name": "classAdd",
+      "source": "import type { int32 } from \"@tsonic/core/types.js\";\n\nclass Point {\n  x: number;\n  y: number;\n  constructor(x: number, y: number) { this.x = x; this.y = y; }\n  add(other: Point): Point { return new Point(this.x + other.x, this.y + other.y); }\n}\nexport function classAdd(n: int32): number {\n  let point = new Point(0, 0);\n  const delta = new Point(1, 2);\n  for (let i: int32 = 0; i < n; i++) { point = point.add(delta); }\n  return point.x + point.y;\n}",
+      "sha256": "099c4c577815adbf47889fa1612aff01eee0da7a945c26d07f457a42e8c545eb",
+      "targets": [
+        "csharp",
+        "rust"
+      ],
+      "surfaces": [
+        "native",
+        "js"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/csharp/native/cases-classAdd",
+          "target": "csharp",
+          "surface": "native",
+          "caseId": "cases-classAdd",
+          "sourceSha256": "099c4c577815adbf47889fa1612aff01eee0da7a945c26d07f457a42e8c545eb",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/csharp/js/cases-classAdd",
+          "target": "csharp",
+          "surface": "js",
+          "caseId": "cases-classAdd",
+          "sourceSha256": "099c4c577815adbf47889fa1612aff01eee0da7a945c26d07f457a42e8c545eb",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/native/cases-classAdd",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "cases-classAdd",
+          "sourceSha256": "099c4c577815adbf47889fa1612aff01eee0da7a945c26d07f457a42e8c545eb",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/js/cases-classAdd",
+          "target": "rust",
+          "surface": "js",
+          "caseId": "cases-classAdd",
+          "sourceSha256": "099c4c577815adbf47889fa1612aff01eee0da7a945c26d07f457a42e8c545eb",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "cases-recordUpdate",
+      "file": "cases.mjs",
+      "name": "recordUpdate",
+      "source": "import type { int32 } from \"@tsonic/core/types.js\";\n\ntype Counter = { name: string; count: int32 };\nexport function recordUpdate(n: int32): int32 {\n  const counter: Counter = { name: \"c\", count: 0 };\n  for (let i: int32 = 0; i < n; i++) { counter.count = counter.count + 1; }\n  return counter.count;\n}",
+      "sha256": "253a0c4e4045b18c3a16556f26a34c28b25050ea67daf851c0b33b4bb8ae49e1",
+      "targets": [
+        "csharp",
+        "rust"
+      ],
+      "surfaces": [
+        "native",
+        "js"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/csharp/native/cases-recordUpdate",
+          "target": "csharp",
+          "surface": "native",
+          "caseId": "cases-recordUpdate",
+          "sourceSha256": "253a0c4e4045b18c3a16556f26a34c28b25050ea67daf851c0b33b4bb8ae49e1",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/csharp/js/cases-recordUpdate",
+          "target": "csharp",
+          "surface": "js",
+          "caseId": "cases-recordUpdate",
+          "sourceSha256": "253a0c4e4045b18c3a16556f26a34c28b25050ea67daf851c0b33b4bb8ae49e1",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/native/cases-recordUpdate",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "cases-recordUpdate",
+          "sourceSha256": "253a0c4e4045b18c3a16556f26a34c28b25050ea67daf851c0b33b4bb8ae49e1",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/js/cases-recordUpdate",
+          "target": "rust",
+          "surface": "js",
+          "caseId": "cases-recordUpdate",
+          "sourceSha256": "253a0c4e4045b18c3a16556f26a34c28b25050ea67daf851c0b33b4bb8ae49e1",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "cases-mapCount",
+      "file": "cases.mjs",
+      "name": "mapCount",
+      "source": "import type { int32 } from \"@tsonic/core/types.js\";\n\nexport function mapCount(n: int32): number {\n  const counts = new Map<int32, int32>();\n  for (let i: int32 = 0; i < n; i++) {\n    const key: int32 = i & 63;\n    counts.set(key, (counts.get(key) ?? 0) + 1);\n  }\n  return counts.size;\n}",
+      "sha256": "e6f7efb7280c9a6bffc6a9e69bf8d03369bf21ea771888c0cdbe8d64547766a8",
+      "targets": [
+        "csharp",
+        "rust"
+      ],
+      "surfaces": [
+        "native",
+        "js"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/csharp/native/cases-mapCount",
+          "target": "csharp",
+          "surface": "native",
+          "caseId": "cases-mapCount",
+          "sourceSha256": "e6f7efb7280c9a6bffc6a9e69bf8d03369bf21ea771888c0cdbe8d64547766a8",
+          "kind": "source-rejected",
+          "diagnosticCodes": [
+            "TS2583"
+          ],
+          "sourceSelection": {
+            "target": "csharp",
+            "surfaces": [],
+            "apiUses": [
+              "Map"
+            ],
+            "reason": "Authored JS API is absent from the explicitly selected native source profile."
+          },
+          "historicalEvidence": {
+            "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/bench/compile/gen-csharp-summary.json",
+            "sha256": "25759f42ff702749fd385b8ce27e34ea322eb707bf2e9917a5a377d6b7cc28e7",
+            "rowIndex": 22,
+            "status": "rejected",
+            "diagnostics": [
+              "TSTS_DIAGNOSTIC: index.ts(4,22): error TS2583: Cannot find name 'Map'. Do you need to change your target library? Try changing the 'lib' compiler option to 'es2015' or later."
+            ],
+            "maximumCapturedDiagnosticCharacters": 300,
+            "native": "not invoked by this frontend driver; no separate native result recorded for rejected source",
+            "noPublication": "historical writer skips rejected rows; actual compiler artifact count was not recorded",
+            "script": {
+              "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/bench/compile/compile-csharp.mjs",
+              "sha256": "b7b49d5bb28ff2ee4ff8d7cb15ed9edf8fde93530ef9e4754087d703e80ed14c"
+            },
+            "pins": {
+              "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/snapshot.json",
+              "sha256": "d85187e2931e79e51c2197df31dd1eac134ee4d70eff97a80182b55006c7e7c5"
+            }
+          },
+          "capabilityMapping": [
+            {
+              "id": "J03",
+              "path": "/home/gorge/repos/tsoniclang/tsonic/.analysis/pr-closure-plan-20261013-065534/01-capability-list.md",
+              "line": 34,
+              "sha256": "40b5a230c894f387130fb8aa0ca63f4a38d55bd07accc6c18a1eaaa7d94fe530",
+              "approval": "| J03 | Map/Set and identity collections | 2026-10-13 task §1 D6 signs reviewer §4.4: retain, no expansion; task §2 fixes R/A regardless of freeze | M1 and collection banks | approved | Existing native/JS carriers; Q8 deferred | Existing native/JS carriers |",
+              "scope": "The JS capability remains retained; its absent native-profile spelling is only a negative control."
+            }
+          ],
+          "noPublication": {
+            "outputRoot": "absent before and after each attempt, including links or temporary publication artifacts",
+            "targetArtifacts": "zero actual compiler artifacts, not receipt files presented as native output",
+            "diagnostics": "nonempty actual compiler API diagnostic slots; exact code set and repeated full scalar diagnostic identity",
+            "phase": "source checking rejected before target analysis/sealing",
+            "nativeProgramCompiler": "never invoked for this scope; legitimate native metadata preparation remains allowed"
+          }
+        },
+        {
+          "id": "catalogue/csharp/js/cases-mapCount",
+          "target": "csharp",
+          "surface": "js",
+          "caseId": "cases-mapCount",
+          "sourceSha256": "e6f7efb7280c9a6bffc6a9e69bf8d03369bf21ea771888c0cdbe8d64547766a8",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/native/cases-mapCount",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "cases-mapCount",
+          "sourceSha256": "e6f7efb7280c9a6bffc6a9e69bf8d03369bf21ea771888c0cdbe8d64547766a8",
+          "kind": "source-rejected",
+          "diagnosticCodes": [
+            "TS2583"
+          ],
+          "sourceSelection": {
+            "target": "rust",
+            "surfaces": [],
+            "apiUses": [
+              "Map"
+            ],
+            "reason": "Authored JS API is absent from the explicitly selected native source profile."
+          },
+          "historicalEvidence": {
+            "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/bench/compile/gen-rust-summary.json",
+            "sha256": "9c05472facd6f49bce392097d135dd2aea22f26a789f11322301fdd1a65a8295",
+            "rowIndex": 22,
+            "status": "error",
+            "diagnostics": [
+              "/src/index.ts(4,22): error TS2583: Cannot find name 'Map'. Do you need to change your target library? Try changing the 'lib' compiler option to 'es2015' or later."
+            ],
+            "error": "TypeScript diagnostics:\n/src/index.ts(4,22): error TS2583: Cannot find name 'Map'. Do you need to change your target library? Try changing the 'lib' compiler option to 'es2015' or later.\n",
+            "maximumCapturedDiagnosticCharacters": 600,
+            "native": "not invoked by this frontend driver; no separate native result recorded for rejected source",
+            "noPublication": "historical writer skips rejected rows; actual compiler artifact count was not recorded",
+            "script": {
+              "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/bench/compile/compile-rust.mjs",
+              "sha256": "86fb9014a3310fbb761435ea62fe8afe9a727f0d173967de8803b78b726e264f"
+            },
+            "pins": {
+              "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/snapshot.json",
+              "sha256": "d85187e2931e79e51c2197df31dd1eac134ee4d70eff97a80182b55006c7e7c5"
+            }
+          },
+          "capabilityMapping": [
+            {
+              "id": "J03",
+              "path": "/home/gorge/repos/tsoniclang/tsonic/.analysis/pr-closure-plan-20261013-065534/01-capability-list.md",
+              "line": 34,
+              "sha256": "40b5a230c894f387130fb8aa0ca63f4a38d55bd07accc6c18a1eaaa7d94fe530",
+              "approval": "| J03 | Map/Set and identity collections | 2026-10-13 task §1 D6 signs reviewer §4.4: retain, no expansion; task §2 fixes R/A regardless of freeze | M1 and collection banks | approved | Existing native/JS carriers; Q8 deferred | Existing native/JS carriers |",
+              "scope": "The JS capability remains retained; its absent native-profile spelling is only a negative control."
+            }
+          ],
+          "noPublication": {
+            "outputRoot": "absent before and after each attempt, including links or temporary publication artifacts",
+            "targetArtifacts": "zero actual compiler artifacts, not receipt files presented as native output",
+            "diagnostics": "nonempty actual compiler API diagnostic slots; exact code set and repeated full scalar diagnostic identity",
+            "phase": "source checking rejected before target analysis/sealing",
+            "nativeProgramCompiler": "never invoked for this scope; legitimate native metadata preparation remains allowed"
+          }
+        },
+        {
+          "id": "catalogue/rust/js/cases-mapCount",
+          "target": "rust",
+          "surface": "js",
+          "caseId": "cases-mapCount",
+          "sourceSha256": "e6f7efb7280c9a6bffc6a9e69bf8d03369bf21ea771888c0cdbe8d64547766a8",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "cases-closureCall",
+      "file": "cases.mjs",
+      "name": "closureCall",
+      "source": "import type { int32 } from \"@tsonic/core/types.js\";\n\nfunction apply(f: (value: int32) => int32, value: int32): int32 { return f(value); }\nexport function closureCall(n: int32): int32 {\n  let total: int32 = 0;\n  const k: int32 = 3;\n  for (let i: int32 = 0; i < n; i++) { total = total + apply((v) => v + k, i); }\n  return total;\n}",
+      "sha256": "35495619b14ee22036673ab11d782f71093e752aab810c90c94cfada15704133",
+      "targets": [
+        "csharp",
+        "rust"
+      ],
+      "surfaces": [
+        "native",
+        "js"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/csharp/native/cases-closureCall",
+          "target": "csharp",
+          "surface": "native",
+          "caseId": "cases-closureCall",
+          "sourceSha256": "35495619b14ee22036673ab11d782f71093e752aab810c90c94cfada15704133",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/csharp/js/cases-closureCall",
+          "target": "csharp",
+          "surface": "js",
+          "caseId": "cases-closureCall",
+          "sourceSha256": "35495619b14ee22036673ab11d782f71093e752aab810c90c94cfada15704133",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/native/cases-closureCall",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "cases-closureCall",
+          "sourceSha256": "35495619b14ee22036673ab11d782f71093e752aab810c90c94cfada15704133",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/js/cases-closureCall",
+          "target": "rust",
+          "surface": "js",
+          "caseId": "cases-closureCall",
+          "sourceSha256": "35495619b14ee22036673ab11d782f71093e752aab810c90c94cfada15704133",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "cases-tryLoop",
+      "file": "cases.mjs",
+      "name": "tryLoop",
+      "source": "import type { int32 } from \"@tsonic/core/types.js\";\n\nfunction checked(value: int32): int32 {\n  if (value < 0) { throw new Error(\"negative\"); }\n  return value * 2;\n}\nexport function tryLoop(n: int32): int32 {\n  let total: int32 = 0;\n  for (let i: int32 = 0; i < n; i++) {\n    try { total = total + checked(i); } catch { total = total - 1; }\n  }\n  return total;\n}",
+      "sha256": "6a4a3eb9d000e79bd408218d08ef88221efbe0d75f1a3b366529d5953299d102",
+      "targets": [
+        "csharp",
+        "rust"
+      ],
+      "surfaces": [
+        "native",
+        "js"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/csharp/native/cases-tryLoop",
+          "target": "csharp",
+          "surface": "native",
+          "caseId": "cases-tryLoop",
+          "sourceSha256": "6a4a3eb9d000e79bd408218d08ef88221efbe0d75f1a3b366529d5953299d102",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/csharp/js/cases-tryLoop",
+          "target": "csharp",
+          "surface": "js",
+          "caseId": "cases-tryLoop",
+          "sourceSha256": "6a4a3eb9d000e79bd408218d08ef88221efbe0d75f1a3b366529d5953299d102",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/native/cases-tryLoop",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "cases-tryLoop",
+          "sourceSha256": "6a4a3eb9d000e79bd408218d08ef88221efbe0d75f1a3b366529d5953299d102",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/js/cases-tryLoop",
+          "target": "rust",
+          "surface": "js",
+          "caseId": "cases-tryLoop",
+          "sourceSha256": "6a4a3eb9d000e79bd408218d08ef88221efbe0d75f1a3b366529d5953299d102",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "cases-jsonStringify",
+      "file": "cases.mjs",
+      "name": "jsonStringify",
+      "source": "import type { int32 } from \"@tsonic/core/types.js\";\n\nexport function jsonStringify(name: string, n: int32): number {\n  let total = 0;\n  for (let i: int32 = 0; i < n; i++) {\n    const text = JSON.stringify({ name: name, id: i });\n    total = total + (text ?? \"\").length;\n  }\n  return total;\n}",
+      "sha256": "f32dd8762a14bc58a857a85c660fdaf437bb5b78288633850cdcb70719d60262",
+      "targets": [
+        "csharp",
+        "rust"
+      ],
+      "surfaces": [
+        "native",
+        "js"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/csharp/native/cases-jsonStringify",
+          "target": "csharp",
+          "surface": "native",
+          "caseId": "cases-jsonStringify",
+          "sourceSha256": "f32dd8762a14bc58a857a85c660fdaf437bb5b78288633850cdcb70719d60262",
+          "kind": "source-rejected",
+          "diagnosticCodes": [
+            "TS2304"
+          ],
+          "sourceSelection": {
+            "target": "csharp",
+            "surfaces": [],
+            "apiUses": [
+              "JSON.stringify",
+              "String.length"
+            ],
+            "reason": "Authored JS API is absent from the explicitly selected native source profile."
+          },
+          "historicalEvidence": {
+            "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/bench/compile/gen-csharp-summary.json",
+            "sha256": "25759f42ff702749fd385b8ce27e34ea322eb707bf2e9917a5a377d6b7cc28e7",
+            "rowIndex": 28,
+            "status": "rejected",
+            "diagnostics": [
+              "TSTS_DIAGNOSTIC: index.ts(6,18): error TS2304: Cannot find name 'JSON'."
+            ],
+            "maximumCapturedDiagnosticCharacters": 300,
+            "native": "not invoked by this frontend driver; no separate native result recorded for rejected source",
+            "noPublication": "historical writer skips rejected rows; actual compiler artifact count was not recorded",
+            "script": {
+              "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/bench/compile/compile-csharp.mjs",
+              "sha256": "b7b49d5bb28ff2ee4ff8d7cb15ed9edf8fde93530ef9e4754087d703e80ed14c"
+            },
+            "pins": {
+              "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/snapshot.json",
+              "sha256": "d85187e2931e79e51c2197df31dd1eac134ee4d70eff97a80182b55006c7e7c5"
+            }
+          },
+          "capabilityMapping": [
+            {
+              "id": "J02",
+              "path": "/home/gorge/repos/tsoniclang/tsonic/.analysis/pr-closure-plan-20261013-065534/01-capability-list.md",
+              "line": 33,
+              "sha256": "40b5a230c894f387130fb8aa0ca63f4a38d55bd07accc6c18a1eaaa7d94fe530",
+              "approval": "| J02 | Native strings and explicit JS string API operations | 2026-10-13 task §1 D6 signs reviewer §4.4: retain, no expansion; task §2 fixes R/A regardless of freeze | S1–S3; string/regexp banks; Express routing | approved | UTF-8 default; Q4/Q5 deferred | UTF-16 native storage; Q4/Q5 deferred |",
+              "scope": "The JS capability remains retained; its absent native-profile spelling is only a negative control."
+            },
+            {
+              "id": "J04",
+              "path": "/home/gorge/repos/tsoniclang/tsonic/.analysis/pr-closure-plan-20261013-065534/01-capability-list.md",
+              "line": 35,
+              "sha256": "40b5a230c894f387130fb8aa0ca63f4a38d55bd07accc6c18a1eaaa7d94fe530",
+              "approval": "| J04 | JSON, closed records, freeze/readonly observation | 2026-10-13 task §1 D6 signs reviewer §4.4: retain, no expansion; task §2 fixes R/A regardless of freeze | J1/O2; JSON banks; Express response | approved | Q9 cost remains un-certified | Existing direct writer still has cost defect; Q9 deferred |",
+              "scope": "The JS capability remains retained; its absent native-profile spelling is only a negative control."
+            }
+          ],
+          "noPublication": {
+            "outputRoot": "absent before and after each attempt, including links or temporary publication artifacts",
+            "targetArtifacts": "zero actual compiler artifacts, not receipt files presented as native output",
+            "diagnostics": "nonempty actual compiler API diagnostic slots; exact code set and repeated full scalar diagnostic identity",
+            "phase": "source checking rejected before target analysis/sealing",
+            "nativeProgramCompiler": "never invoked for this scope; legitimate native metadata preparation remains allowed"
+          }
+        },
+        {
+          "id": "catalogue/csharp/js/cases-jsonStringify",
+          "target": "csharp",
+          "surface": "js",
+          "caseId": "cases-jsonStringify",
+          "sourceSha256": "f32dd8762a14bc58a857a85c660fdaf437bb5b78288633850cdcb70719d60262",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/native/cases-jsonStringify",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "cases-jsonStringify",
+          "sourceSha256": "f32dd8762a14bc58a857a85c660fdaf437bb5b78288633850cdcb70719d60262",
+          "kind": "source-rejected",
+          "diagnosticCodes": [
+            "TS2304"
+          ],
+          "sourceSelection": {
+            "target": "rust",
+            "surfaces": [],
+            "apiUses": [
+              "JSON.stringify",
+              "String.length"
+            ],
+            "reason": "Authored JS API is absent from the explicitly selected native source profile."
+          },
+          "historicalEvidence": {
+            "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/bench/compile/gen-rust-summary.json",
+            "sha256": "9c05472facd6f49bce392097d135dd2aea22f26a789f11322301fdd1a65a8295",
+            "rowIndex": 28,
+            "status": "error",
+            "diagnostics": [
+              "/src/index.ts(6,18): error TS2304: Cannot find name 'JSON'."
+            ],
+            "error": "TypeScript diagnostics:\n/src/index.ts(6,18): error TS2304: Cannot find name 'JSON'.\n",
+            "maximumCapturedDiagnosticCharacters": 600,
+            "native": "not invoked by this frontend driver; no separate native result recorded for rejected source",
+            "noPublication": "historical writer skips rejected rows; actual compiler artifact count was not recorded",
+            "script": {
+              "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/bench/compile/compile-rust.mjs",
+              "sha256": "86fb9014a3310fbb761435ea62fe8afe9a727f0d173967de8803b78b726e264f"
+            },
+            "pins": {
+              "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/snapshot.json",
+              "sha256": "d85187e2931e79e51c2197df31dd1eac134ee4d70eff97a80182b55006c7e7c5"
+            }
+          },
+          "capabilityMapping": [
+            {
+              "id": "J02",
+              "path": "/home/gorge/repos/tsoniclang/tsonic/.analysis/pr-closure-plan-20261013-065534/01-capability-list.md",
+              "line": 33,
+              "sha256": "40b5a230c894f387130fb8aa0ca63f4a38d55bd07accc6c18a1eaaa7d94fe530",
+              "approval": "| J02 | Native strings and explicit JS string API operations | 2026-10-13 task §1 D6 signs reviewer §4.4: retain, no expansion; task §2 fixes R/A regardless of freeze | S1–S3; string/regexp banks; Express routing | approved | UTF-8 default; Q4/Q5 deferred | UTF-16 native storage; Q4/Q5 deferred |",
+              "scope": "The JS capability remains retained; its absent native-profile spelling is only a negative control."
+            },
+            {
+              "id": "J04",
+              "path": "/home/gorge/repos/tsoniclang/tsonic/.analysis/pr-closure-plan-20261013-065534/01-capability-list.md",
+              "line": 35,
+              "sha256": "40b5a230c894f387130fb8aa0ca63f4a38d55bd07accc6c18a1eaaa7d94fe530",
+              "approval": "| J04 | JSON, closed records, freeze/readonly observation | 2026-10-13 task §1 D6 signs reviewer §4.4: retain, no expansion; task §2 fixes R/A regardless of freeze | J1/O2; JSON banks; Express response | approved | Q9 cost remains un-certified | Existing direct writer still has cost defect; Q9 deferred |",
+              "scope": "The JS capability remains retained; its absent native-profile spelling is only a negative control."
+            }
+          ],
+          "noPublication": {
+            "outputRoot": "absent before and after each attempt, including links or temporary publication artifacts",
+            "targetArtifacts": "zero actual compiler artifacts, not receipt files presented as native output",
+            "diagnostics": "nonempty actual compiler API diagnostic slots; exact code set and repeated full scalar diagnostic identity",
+            "phase": "source checking rejected before target analysis/sealing",
+            "nativeProgramCompiler": "never invoked for this scope; legitimate native metadata preparation remains allowed"
+          }
+        },
+        {
+          "id": "catalogue/rust/js/cases-jsonStringify",
+          "target": "rust",
+          "surface": "js",
+          "caseId": "cases-jsonStringify",
+          "sourceSha256": "f32dd8762a14bc58a857a85c660fdaf437bb5b78288633850cdcb70719d60262",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "cases-unionArea",
+      "file": "cases.mjs",
+      "name": "unionArea",
+      "source": "import type { int32 } from \"@tsonic/core/types.js\";\n\ntype Shape = { kind: \"circle\"; r: number } | { kind: \"square\"; s: number };\nexport function unionArea(n: int32): number {\n  const shapes: Shape[] = [];\n  for (let i: int32 = 0; i < n; i++) {\n    shapes.push(i % 2 === 0 ? { kind: \"circle\", r: 1 } : { kind: \"square\", s: 2 });\n  }\n  let area = 0;\n  for (const shape of shapes) {\n    area += shape.kind === \"circle\" ? 3 * shape.r * shape.r : shape.s * shape.s;\n  }\n  return area;\n}",
+      "sha256": "63fa0cbe843ce8307bbc6c69710bce729b7f916b84c9ec0a14f2d5447bd03ac1",
+      "targets": [
+        "csharp",
+        "rust"
+      ],
+      "surfaces": [
+        "native",
+        "js"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/csharp/native/cases-unionArea",
+          "target": "csharp",
+          "surface": "native",
+          "caseId": "cases-unionArea",
+          "sourceSha256": "63fa0cbe843ce8307bbc6c69710bce729b7f916b84c9ec0a14f2d5447bd03ac1",
+          "kind": "source-rejected",
+          "diagnosticCodes": [
+            "TS2339"
+          ],
+          "sourceSelection": {
+            "target": "csharp",
+            "surfaces": [],
+            "apiUses": [
+              "Array.push"
+            ],
+            "reason": "Authored JS API is absent from the explicitly selected native source profile."
+          },
+          "historicalEvidence": {
+            "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/bench/compile/gen-csharp-summary.json",
+            "sha256": "25759f42ff702749fd385b8ce27e34ea322eb707bf2e9917a5a377d6b7cc28e7",
+            "rowIndex": 30,
+            "status": "rejected",
+            "diagnostics": [
+              "TSTS_DIAGNOSTIC: index.ts(7,12): error TS2339: Property 'push' does not exist on type 'Shape[]'."
+            ],
+            "maximumCapturedDiagnosticCharacters": 300,
+            "native": "not invoked by this frontend driver; no separate native result recorded for rejected source",
+            "noPublication": "historical writer skips rejected rows; actual compiler artifact count was not recorded",
+            "script": {
+              "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/bench/compile/compile-csharp.mjs",
+              "sha256": "b7b49d5bb28ff2ee4ff8d7cb15ed9edf8fde93530ef9e4754087d703e80ed14c"
+            },
+            "pins": {
+              "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/snapshot.json",
+              "sha256": "d85187e2931e79e51c2197df31dd1eac134ee4d70eff97a80182b55006c7e7c5"
+            }
+          },
+          "capabilityMapping": [
+            {
+              "id": "J01",
+              "path": "/home/gorge/repos/tsoniclang/tsonic/.analysis/pr-closure-plan-20261013-065534/01-capability-list.md",
+              "line": 32,
+              "sha256": "40b5a230c894f387130fb8aa0ca63f4a38d55bd07accc6c18a1eaaa7d94fe530",
+              "approval": "| J01 | Dense Array storage, views, callbacks and native numeric elements | 2026-10-13 task §1 D6 signs reviewer §4.4: retain, no expansion; task §2 fixes R/A regardless of freeze | R1–R5; array banks; Express router | approved | Existing shared/native array carriers; Q3 deferred | Existing JSArray/native carriers; no weakening |",
+              "scope": "The JS capability remains retained; its absent native-profile spelling is only a negative control."
+            },
+            {
+              "id": "C06",
+              "path": "/home/gorge/repos/tsoniclang/tsonic/.analysis/pr-closure-plan-20261013-065534/01-capability-list.md",
+              "line": 14,
+              "sha256": "40b5a230c894f387130fb8aa0ca63f4a38d55bd07accc6c18a1eaaa7d94fe530",
+              "approval": "| C06 | Narrowed value-struct union member access | 2026-10-13 task §1 D6 signs reviewer §4.4: approved; task §2 fixes R/A regardless of freeze | `structUnionLocal`, conditional/local/switch controls | approved | Accepted output fails E0609 | Corresponding program compiles |",
+              "scope": "The JS capability remains retained; its absent native-profile spelling is only a negative control."
+            }
+          ],
+          "noPublication": {
+            "outputRoot": "absent before and after each attempt, including links or temporary publication artifacts",
+            "targetArtifacts": "zero actual compiler artifacts, not receipt files presented as native output",
+            "diagnostics": "nonempty actual compiler API diagnostic slots; exact code set and repeated full scalar diagnostic identity",
+            "phase": "source checking rejected before target analysis/sealing",
+            "nativeProgramCompiler": "never invoked for this scope; legitimate native metadata preparation remains allowed"
+          }
+        },
+        {
+          "id": "catalogue/csharp/js/cases-unionArea",
+          "target": "csharp",
+          "surface": "js",
+          "caseId": "cases-unionArea",
+          "sourceSha256": "63fa0cbe843ce8307bbc6c69710bce729b7f916b84c9ec0a14f2d5447bd03ac1",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/native/cases-unionArea",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "cases-unionArea",
+          "sourceSha256": "63fa0cbe843ce8307bbc6c69710bce729b7f916b84c9ec0a14f2d5447bd03ac1",
+          "kind": "source-rejected",
+          "diagnosticCodes": [
+            "TS2339"
+          ],
+          "sourceSelection": {
+            "target": "rust",
+            "surfaces": [],
+            "apiUses": [
+              "Array.push"
+            ],
+            "reason": "Authored JS API is absent from the explicitly selected native source profile."
+          },
+          "historicalEvidence": {
+            "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/bench/compile/gen-rust-summary.json",
+            "sha256": "9c05472facd6f49bce392097d135dd2aea22f26a789f11322301fdd1a65a8295",
+            "rowIndex": 30,
+            "status": "error",
+            "diagnostics": [
+              "/src/index.ts(7,12): error TS2339: Property 'push' does not exist on type 'Shape[]'."
+            ],
+            "error": "TypeScript diagnostics:\n/src/index.ts(7,12): error TS2339: Property 'push' does not exist on type 'Shape[]'.\n",
+            "maximumCapturedDiagnosticCharacters": 600,
+            "native": "not invoked by this frontend driver; no separate native result recorded for rejected source",
+            "noPublication": "historical writer skips rejected rows; actual compiler artifact count was not recorded",
+            "script": {
+              "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/bench/compile/compile-rust.mjs",
+              "sha256": "86fb9014a3310fbb761435ea62fe8afe9a727f0d173967de8803b78b726e264f"
+            },
+            "pins": {
+              "path": "/home/gorge/workspace/tsonic/.analysis/pr-spec-and-performance-20261013-034102/snapshot.json",
+              "sha256": "d85187e2931e79e51c2197df31dd1eac134ee4d70eff97a80182b55006c7e7c5"
+            }
+          },
+          "capabilityMapping": [
+            {
+              "id": "J01",
+              "path": "/home/gorge/repos/tsoniclang/tsonic/.analysis/pr-closure-plan-20261013-065534/01-capability-list.md",
+              "line": 32,
+              "sha256": "40b5a230c894f387130fb8aa0ca63f4a38d55bd07accc6c18a1eaaa7d94fe530",
+              "approval": "| J01 | Dense Array storage, views, callbacks and native numeric elements | 2026-10-13 task §1 D6 signs reviewer §4.4: retain, no expansion; task §2 fixes R/A regardless of freeze | R1–R5; array banks; Express router | approved | Existing shared/native array carriers; Q3 deferred | Existing JSArray/native carriers; no weakening |",
+              "scope": "The JS capability remains retained; its absent native-profile spelling is only a negative control."
+            },
+            {
+              "id": "C06",
+              "path": "/home/gorge/repos/tsoniclang/tsonic/.analysis/pr-closure-plan-20261013-065534/01-capability-list.md",
+              "line": 14,
+              "sha256": "40b5a230c894f387130fb8aa0ca63f4a38d55bd07accc6c18a1eaaa7d94fe530",
+              "approval": "| C06 | Narrowed value-struct union member access | 2026-10-13 task §1 D6 signs reviewer §4.4: approved; task §2 fixes R/A regardless of freeze | `structUnionLocal`, conditional/local/switch controls | approved | Accepted output fails E0609 | Corresponding program compiles |",
+              "scope": "The JS capability remains retained; its absent native-profile spelling is only a negative control."
+            }
+          ],
+          "noPublication": {
+            "outputRoot": "absent before and after each attempt, including links or temporary publication artifacts",
+            "targetArtifacts": "zero actual compiler artifacts, not receipt files presented as native output",
+            "diagnostics": "nonempty actual compiler API diagnostic slots; exact code set and repeated full scalar diagnostic identity",
+            "phase": "source checking rejected before target analysis/sealing",
+            "nativeProgramCompiler": "never invoked for this scope; legitimate native metadata preparation remains allowed"
+          }
+        },
+        {
+          "id": "catalogue/rust/js/cases-unionArea",
+          "target": "rust",
+          "surface": "js",
+          "caseId": "cases-unionArea",
+          "sourceSha256": "63fa0cbe843ce8307bbc6c69710bce729b7f916b84c9ec0a14f2d5447bd03ac1",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "cases-promiseThen",
+      "file": "cases.mjs",
+      "name": "promiseThen",
+      "source": "import type { int32 } from \"@tsonic/core/types.js\";\n\nasync function step(value: int32): Promise<int32> { return value + 1; }\nexport async function promiseThen(value: int32): Promise<int32> {\n  return await step(value).then((v) => v * 2);\n}",
+      "sha256": "9f35a0b0c9be6fc89ca79ebab90620b92e9e31fe151eec4ea55e72804e52a82c",
+      "targets": [
+        "csharp",
+        "rust"
+      ],
+      "surfaces": [
+        "native",
+        "js"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/csharp/native/cases-promiseThen",
+          "target": "csharp",
+          "surface": "native",
+          "caseId": "cases-promiseThen",
+          "sourceSha256": "9f35a0b0c9be6fc89ca79ebab90620b92e9e31fe151eec4ea55e72804e52a82c",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/csharp/js/cases-promiseThen",
+          "target": "csharp",
+          "surface": "js",
+          "caseId": "cases-promiseThen",
+          "sourceSha256": "9f35a0b0c9be6fc89ca79ebab90620b92e9e31fe151eec4ea55e72804e52a82c",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/native/cases-promiseThen",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "cases-promiseThen",
+          "sourceSha256": "9f35a0b0c9be6fc89ca79ebab90620b92e9e31fe151eec4ea55e72804e52a82c",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/js/cases-promiseThen",
+          "target": "rust",
+          "surface": "js",
+          "caseId": "cases-promiseThen",
+          "sourceSha256": "9f35a0b0c9be6fc89ca79ebab90620b92e9e31fe151eec4ea55e72804e52a82c",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "cases-promiseAll",
+      "file": "cases.mjs",
+      "name": "promiseAll",
+      "source": "import type { int32 } from \"@tsonic/core/types.js\";\n\nasync function step(value: int32): Promise<int32> { return value + 1; }\nexport async function promiseAll(value: int32): Promise<int32> {\n  const [a, b] = await Promise.all([step(value), step(value + 1)]);\n  return a + b;\n}",
+      "sha256": "b965b01e5fc22a0e2fc712046c71325a531b77db0ed59ecf3b68b1f3b59828f5",
+      "targets": [
+        "csharp",
+        "rust"
+      ],
+      "surfaces": [
+        "native",
+        "js"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/csharp/native/cases-promiseAll",
+          "target": "csharp",
+          "surface": "native",
+          "caseId": "cases-promiseAll",
+          "sourceSha256": "b965b01e5fc22a0e2fc712046c71325a531b77db0ed59ecf3b68b1f3b59828f5",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/csharp/js/cases-promiseAll",
+          "target": "csharp",
+          "surface": "js",
+          "caseId": "cases-promiseAll",
+          "sourceSha256": "b965b01e5fc22a0e2fc712046c71325a531b77db0ed59ecf3b68b1f3b59828f5",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/native/cases-promiseAll",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "cases-promiseAll",
+          "sourceSha256": "b965b01e5fc22a0e2fc712046c71325a531b77db0ed59ecf3b68b1f3b59828f5",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/js/cases-promiseAll",
+          "target": "rust",
+          "surface": "js",
+          "caseId": "cases-promiseAll",
+          "sourceSha256": "b965b01e5fc22a0e2fc712046c71325a531b77db0ed59ecf3b68b1f3b59828f5",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "cases-storedPromise",
+      "file": "cases.mjs",
+      "name": "storedPromise",
+      "source": "import type { int32 } from \"@tsonic/core/types.js\";\n\nasync function step(value: int32): Promise<int32> { return value + 1; }\nexport async function storedPromise(value: int32): Promise<int32> {\n  const pending = step(value);\n  const other = step(value + 1);\n  return (await pending) + (await other);\n}",
+      "sha256": "baa01cc207a8c100d62420bc71b3c18bc0455c113cfe666d43ec7361aa32a591",
+      "targets": [
+        "csharp",
+        "rust"
+      ],
+      "surfaces": [
+        "native",
+        "js"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/csharp/native/cases-storedPromise",
+          "target": "csharp",
+          "surface": "native",
+          "caseId": "cases-storedPromise",
+          "sourceSha256": "baa01cc207a8c100d62420bc71b3c18bc0455c113cfe666d43ec7361aa32a591",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/csharp/js/cases-storedPromise",
+          "target": "csharp",
+          "surface": "js",
+          "caseId": "cases-storedPromise",
+          "sourceSha256": "baa01cc207a8c100d62420bc71b3c18bc0455c113cfe666d43ec7361aa32a591",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/native/cases-storedPromise",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "cases-storedPromise",
+          "sourceSha256": "baa01cc207a8c100d62420bc71b3c18bc0455c113cfe666d43ec7361aa32a591",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/js/cases-storedPromise",
+          "target": "rust",
+          "surface": "js",
+          "caseId": "cases-storedPromise",
+          "sourceSha256": "baa01cc207a8c100d62420bc71b3c18bc0455c113cfe666d43ec7361aa32a591",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "promise-probe-numThenNoAwait",
+      "file": "promise-probe.mjs",
+      "name": "numThenNoAwait",
+      "source": "async function step(value: number): Promise<number> { return value + 1; }\nexport function numThenNoAwait(value: number): Promise<number> {\n  return step(value).then((v) => v * 2);\n}",
+      "sha256": "bf5cc6c74a194846b8fde8c89c5cfaed57469597c6aaee8c3605f8a495f7366d",
+      "targets": [
+        "csharp",
+        "rust"
+      ],
+      "surfaces": [
+        "native",
+        "js"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/csharp/native/promise-probe-numThenNoAwait",
+          "target": "csharp",
+          "surface": "native",
+          "caseId": "promise-probe-numThenNoAwait",
+          "sourceSha256": "bf5cc6c74a194846b8fde8c89c5cfaed57469597c6aaee8c3605f8a495f7366d",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/csharp/js/promise-probe-numThenNoAwait",
+          "target": "csharp",
+          "surface": "js",
+          "caseId": "promise-probe-numThenNoAwait",
+          "sourceSha256": "bf5cc6c74a194846b8fde8c89c5cfaed57469597c6aaee8c3605f8a495f7366d",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/native/promise-probe-numThenNoAwait",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "promise-probe-numThenNoAwait",
+          "sourceSha256": "bf5cc6c74a194846b8fde8c89c5cfaed57469597c6aaee8c3605f8a495f7366d",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/js/promise-probe-numThenNoAwait",
+          "target": "rust",
+          "surface": "js",
+          "caseId": "promise-probe-numThenNoAwait",
+          "sourceSha256": "bf5cc6c74a194846b8fde8c89c5cfaed57469597c6aaee8c3605f8a495f7366d",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "promise-probe-numThenAwait",
+      "file": "promise-probe.mjs",
+      "name": "numThenAwait",
+      "source": "async function step(value: number): Promise<number> { return value + 1; }\nexport async function numThenAwait(value: number): Promise<number> {\n  return await step(value).then((v) => v * 2);\n}",
+      "sha256": "6d21f0479c528f14b24ff88167e526d22a3610a6c909b6a614f3c9e8b567f95b",
+      "targets": [
+        "csharp",
+        "rust"
+      ],
+      "surfaces": [
+        "native",
+        "js"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/csharp/native/promise-probe-numThenAwait",
+          "target": "csharp",
+          "surface": "native",
+          "caseId": "promise-probe-numThenAwait",
+          "sourceSha256": "6d21f0479c528f14b24ff88167e526d22a3610a6c909b6a614f3c9e8b567f95b",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/csharp/js/promise-probe-numThenAwait",
+          "target": "csharp",
+          "surface": "js",
+          "caseId": "promise-probe-numThenAwait",
+          "sourceSha256": "6d21f0479c528f14b24ff88167e526d22a3610a6c909b6a614f3c9e8b567f95b",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/native/promise-probe-numThenAwait",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "promise-probe-numThenAwait",
+          "sourceSha256": "6d21f0479c528f14b24ff88167e526d22a3610a6c909b6a614f3c9e8b567f95b",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/js/promise-probe-numThenAwait",
+          "target": "rust",
+          "surface": "js",
+          "caseId": "promise-probe-numThenAwait",
+          "sourceSha256": "6d21f0479c528f14b24ff88167e526d22a3610a6c909b6a614f3c9e8b567f95b",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "promise-probe-numAll",
+      "file": "promise-probe.mjs",
+      "name": "numAll",
+      "source": "async function step(value: number): Promise<number> { return value + 1; }\nexport async function numAll(value: number): Promise<number> {\n  const [a, b] = await Promise.all([step(value), step(value)]);\n  return a + b;\n}",
+      "sha256": "1a3d1e678c6bcebaad1759de397df524e7abedfadef458fd24ca9c967a89539c",
+      "targets": [
+        "csharp",
+        "rust"
+      ],
+      "surfaces": [
+        "native",
+        "js"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/csharp/native/promise-probe-numAll",
+          "target": "csharp",
+          "surface": "native",
+          "caseId": "promise-probe-numAll",
+          "sourceSha256": "1a3d1e678c6bcebaad1759de397df524e7abedfadef458fd24ca9c967a89539c",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/csharp/js/promise-probe-numAll",
+          "target": "csharp",
+          "surface": "js",
+          "caseId": "promise-probe-numAll",
+          "sourceSha256": "1a3d1e678c6bcebaad1759de397df524e7abedfadef458fd24ca9c967a89539c",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/native/promise-probe-numAll",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "promise-probe-numAll",
+          "sourceSha256": "1a3d1e678c6bcebaad1759de397df524e7abedfadef458fd24ca9c967a89539c",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/js/promise-probe-numAll",
+          "target": "rust",
+          "surface": "js",
+          "caseId": "promise-probe-numAll",
+          "sourceSha256": "1a3d1e678c6bcebaad1759de397df524e7abedfadef458fd24ca9c967a89539c",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "promise-probe-numCatch",
+      "file": "promise-probe.mjs",
+      "name": "numCatch",
+      "source": "async function step(value: number): Promise<number> { return value + 1; }\nexport async function numCatch(value: number): Promise<number> {\n  return await step(value).catch(() => 0);\n}",
+      "sha256": "a5c43613375be766d5cbf9adcf6aeddfad61a898da9c05483563cf6c98ef8f74",
+      "targets": [
+        "csharp",
+        "rust"
+      ],
+      "surfaces": [
+        "native",
+        "js"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/csharp/native/promise-probe-numCatch",
+          "target": "csharp",
+          "surface": "native",
+          "caseId": "promise-probe-numCatch",
+          "sourceSha256": "a5c43613375be766d5cbf9adcf6aeddfad61a898da9c05483563cf6c98ef8f74",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/csharp/js/promise-probe-numCatch",
+          "target": "csharp",
+          "surface": "js",
+          "caseId": "promise-probe-numCatch",
+          "sourceSha256": "a5c43613375be766d5cbf9adcf6aeddfad61a898da9c05483563cf6c98ef8f74",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/native/promise-probe-numCatch",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "promise-probe-numCatch",
+          "sourceSha256": "a5c43613375be766d5cbf9adcf6aeddfad61a898da9c05483563cf6c98ef8f74",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/js/promise-probe-numCatch",
+          "target": "rust",
+          "surface": "js",
+          "caseId": "promise-probe-numCatch",
+          "sourceSha256": "a5c43613375be766d5cbf9adcf6aeddfad61a898da9c05483563cf6c98ef8f74",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "promise-probe-numFinally",
+      "file": "promise-probe.mjs",
+      "name": "numFinally",
+      "source": "async function step(value: number): Promise<number> { return value + 1; }\nexport async function numFinally(value: number): Promise<number> {\n  return await step(value).finally(() => {});\n}",
+      "sha256": "d5b58778785277c3f51c7f9f8c7fedfae680385d7a9e571be790e6eae0414bb8",
+      "targets": [
+        "csharp",
+        "rust"
+      ],
+      "surfaces": [
+        "native",
+        "js"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/csharp/native/promise-probe-numFinally",
+          "target": "csharp",
+          "surface": "native",
+          "caseId": "promise-probe-numFinally",
+          "sourceSha256": "d5b58778785277c3f51c7f9f8c7fedfae680385d7a9e571be790e6eae0414bb8",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/csharp/js/promise-probe-numFinally",
+          "target": "csharp",
+          "surface": "js",
+          "caseId": "promise-probe-numFinally",
+          "sourceSha256": "d5b58778785277c3f51c7f9f8c7fedfae680385d7a9e571be790e6eae0414bb8",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/native/promise-probe-numFinally",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "promise-probe-numFinally",
+          "sourceSha256": "d5b58778785277c3f51c7f9f8c7fedfae680385d7a9e571be790e6eae0414bb8",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/js/promise-probe-numFinally",
+          "target": "rust",
+          "surface": "js",
+          "caseId": "promise-probe-numFinally",
+          "sourceSha256": "d5b58778785277c3f51c7f9f8c7fedfae680385d7a9e571be790e6eae0414bb8",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "promise-probe-numResolve",
+      "file": "promise-probe.mjs",
+      "name": "numResolve",
+      "source": "export async function numResolve(value: number): Promise<number> {\n  return await Promise.resolve(value);\n}",
+      "sha256": "061a8ebd8c80acbcecd90c8f649734a72d278ca7a59d515730de4455e0291e07",
+      "targets": [
+        "csharp",
+        "rust"
+      ],
+      "surfaces": [
+        "native",
+        "js"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/csharp/native/promise-probe-numResolve",
+          "target": "csharp",
+          "surface": "native",
+          "caseId": "promise-probe-numResolve",
+          "sourceSha256": "061a8ebd8c80acbcecd90c8f649734a72d278ca7a59d515730de4455e0291e07",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/csharp/js/promise-probe-numResolve",
+          "target": "csharp",
+          "surface": "js",
+          "caseId": "promise-probe-numResolve",
+          "sourceSha256": "061a8ebd8c80acbcecd90c8f649734a72d278ca7a59d515730de4455e0291e07",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/native/promise-probe-numResolve",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "promise-probe-numResolve",
+          "sourceSha256": "061a8ebd8c80acbcecd90c8f649734a72d278ca7a59d515730de4455e0291e07",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/js/promise-probe-numResolve",
+          "target": "rust",
+          "surface": "js",
+          "caseId": "promise-probe-numResolve",
+          "sourceSha256": "061a8ebd8c80acbcecd90c8f649734a72d278ca7a59d515730de4455e0291e07",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "int32-promise-probe-int32Catch",
+      "file": "int32-promise-probe.mjs",
+      "name": "int32Catch",
+      "source": "import type { int32 } from \"@tsonic/core/types.js\";\nasync function step(value: int32): Promise<int32> { return value + 1; }\nexport async function int32Catch(value: int32): Promise<int32> {\n  return await step(value).catch((): int32 => 0);\n}",
+      "sha256": "e896734a4f5fed9fc1a5c78426664ac98ed8287f0d0b15921fd3607c638e3b7c",
+      "targets": [
+        "csharp",
+        "rust"
+      ],
+      "surfaces": [
+        "native",
+        "js"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/csharp/native/int32-promise-probe-int32Catch",
+          "target": "csharp",
+          "surface": "native",
+          "caseId": "int32-promise-probe-int32Catch",
+          "sourceSha256": "e896734a4f5fed9fc1a5c78426664ac98ed8287f0d0b15921fd3607c638e3b7c",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/csharp/js/int32-promise-probe-int32Catch",
+          "target": "csharp",
+          "surface": "js",
+          "caseId": "int32-promise-probe-int32Catch",
+          "sourceSha256": "e896734a4f5fed9fc1a5c78426664ac98ed8287f0d0b15921fd3607c638e3b7c",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/native/int32-promise-probe-int32Catch",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "int32-promise-probe-int32Catch",
+          "sourceSha256": "e896734a4f5fed9fc1a5c78426664ac98ed8287f0d0b15921fd3607c638e3b7c",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/js/int32-promise-probe-int32Catch",
+          "target": "rust",
+          "surface": "js",
+          "caseId": "int32-promise-probe-int32Catch",
+          "sourceSha256": "e896734a4f5fed9fc1a5c78426664ac98ed8287f0d0b15921fd3607c638e3b7c",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "int32-promise-probe-int32AllTuple",
+      "file": "int32-promise-probe.mjs",
+      "name": "int32AllTuple",
+      "source": "import type { int32 } from \"@tsonic/core/types.js\";\nasync function step(value: int32): Promise<int32> { return value + 1; }\nexport async function int32AllTuple(value: int32): Promise<int32> {\n  const [a, b] = await Promise.all([step(value), step(value)]);\n  return a + b;\n}",
+      "sha256": "6eca5eea6920ff894236a79dc7d3c287f6a87749c892286ddc9716d04c20893d",
+      "targets": [
+        "csharp",
+        "rust"
+      ],
+      "surfaces": [
+        "native",
+        "js"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/csharp/native/int32-promise-probe-int32AllTuple",
+          "target": "csharp",
+          "surface": "native",
+          "caseId": "int32-promise-probe-int32AllTuple",
+          "sourceSha256": "6eca5eea6920ff894236a79dc7d3c287f6a87749c892286ddc9716d04c20893d",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/csharp/js/int32-promise-probe-int32AllTuple",
+          "target": "csharp",
+          "surface": "js",
+          "caseId": "int32-promise-probe-int32AllTuple",
+          "sourceSha256": "6eca5eea6920ff894236a79dc7d3c287f6a87749c892286ddc9716d04c20893d",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/native/int32-promise-probe-int32AllTuple",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "int32-promise-probe-int32AllTuple",
+          "sourceSha256": "6eca5eea6920ff894236a79dc7d3c287f6a87749c892286ddc9716d04c20893d",
+          "kind": "accepted"
+        },
+        {
+          "id": "catalogue/rust/js/int32-promise-probe-int32AllTuple",
+          "target": "rust",
+          "surface": "js",
+          "caseId": "int32-promise-probe-int32AllTuple",
+          "sourceSha256": "6eca5eea6920ff894236a79dc7d3c287f6a87749c892286ddc9716d04c20893d",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "all-probes-sliceForOfNoLoad",
+      "file": "all-probes.mjs",
+      "name": "sliceForOfNoLoad",
+      "source": "import type { int32, nativeUint } from \"@tsonic/core/types.js\";\nimport { Vec } from \"@tsonic/rust/std/vec.js\";\nexport function f(n: int32): int32 {\n  const values = new Vec<int32>();\n  for (let i: int32 = 0; i < n; i++) { values.push(i & 7); }\n  let total: int32 = 0;\n  for (const value of values.as_slice()) { total = total + value; }\n  return total;\n}",
+      "sha256": "4288c5df5d3ff4f4f11e8597e7ba1d3e40be6f7a917ed65678ab502d787885ea",
+      "targets": [
+        "rust"
+      ],
+      "surfaces": [
+        "native"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/rust/native/all-probes-sliceForOfNoLoad",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "all-probes-sliceForOfNoLoad",
+          "sourceSha256": "4288c5df5d3ff4f4f11e8597e7ba1d3e40be6f7a917ed65678ab502d787885ea",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "all-probes-sliceIndex",
+      "file": "all-probes.mjs",
+      "name": "sliceIndex",
+      "source": "import type { int32, nativeUint } from \"@tsonic/core/types.js\";\nimport { Vec } from \"@tsonic/rust/std/vec.js\";\nexport function f(n: int32): int32 {\n  const values = new Vec<int32>();\n  for (let i: int32 = 0; i < n; i++) { values.push(i & 7); }\n  let total: int32 = 0;\n  const view = values.as_slice();\n  for (let i: nativeUint = 0; i < values.len(); i++) { total = total + view[i]; }\n  return total;\n}",
+      "sha256": "617caefc0f4dac7b5d689e87219a6ef6033f5123928374cce2766c133919cdad",
+      "targets": [
+        "rust"
+      ],
+      "surfaces": [
+        "native"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/rust/native/all-probes-sliceIndex",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "all-probes-sliceIndex",
+          "sourceSha256": "617caefc0f4dac7b5d689e87219a6ef6033f5123928374cce2766c133919cdad",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "all-probes-intoIterSum",
+      "file": "all-probes.mjs",
+      "name": "intoIterSum",
+      "source": "import type { int32, nativeUint } from \"@tsonic/core/types.js\";\nimport { Vec } from \"@tsonic/rust/std/vec.js\";\nexport function f(n: int32): int32 {\n  const values = new Vec<int32>();\n  for (let i: int32 = 0; i < n; i++) { values.push(i & 7); }\n  let total: int32 = 0;\n  return values.into_iter().sum<int32>();\n}",
+      "sha256": "806d704759659ef8eeb6e751784be0d4e517439c8278f1dcd9f5887600ffd7e8",
+      "targets": [
+        "rust"
+      ],
+      "surfaces": [
+        "native"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/rust/native/all-probes-intoIterSum",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "all-probes-intoIterSum",
+          "sourceSha256": "806d704759659ef8eeb6e751784be0d4e517439c8278f1dcd9f5887600ffd7e8",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "all-probes-vecForOf",
+      "file": "all-probes.mjs",
+      "name": "vecForOf",
+      "source": "import type { int32, nativeUint } from \"@tsonic/core/types.js\";\nimport { Vec } from \"@tsonic/rust/std/vec.js\";\nexport function f(n: int32): int32 {\n  const values = new Vec<int32>();\n  for (let i: int32 = 0; i < n; i++) { values.push(i & 7); }\n  let total: int32 = 0;\n  for (const value of values) { total = total + value; }\n  return total;\n}",
+      "sha256": "ae88bcea6edac593a8b6034e081a23bb3ce19ba2d713d12fb47ab263eae0de33",
+      "targets": [
+        "rust"
+      ],
+      "surfaces": [
+        "native"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/rust/native/all-probes-vecForOf",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "all-probes-vecForOf",
+          "sourceSha256": "ae88bcea6edac593a8b6034e081a23bb3ce19ba2d713d12fb47ab263eae0de33",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "all-probes-vecIndex",
+      "file": "all-probes.mjs",
+      "name": "vecIndex",
+      "source": "import type { int32, nativeUint } from \"@tsonic/core/types.js\";\nimport { Vec } from \"@tsonic/rust/std/vec.js\";\nexport function f(n: int32): int32 {\n  const values = new Vec<int32>();\n  for (let i: int32 = 0; i < n; i++) { values.push(i & 7); }\n  let total: int32 = 0;\n  for (let i: nativeUint = 0; i < values.len(); i++) { total = total + values[i]; }\n  return total;\n}",
+      "sha256": "36476e77d9d68568e0edb1e99ee167bde24658c3c747ad1cb3cd0710a606dac3",
+      "targets": [
+        "rust"
+      ],
+      "surfaces": [
+        "native"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/rust/native/all-probes-vecIndex",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "all-probes-vecIndex",
+          "sourceSha256": "36476e77d9d68568e0edb1e99ee167bde24658c3c747ad1cb3cd0710a606dac3",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "all-probes-vecGet",
+      "file": "all-probes.mjs",
+      "name": "vecGet",
+      "source": "import type { int32, nativeUint } from \"@tsonic/core/types.js\";\nimport { Vec } from \"@tsonic/rust/std/vec.js\";\nexport function f(n: int32): int32 {\n  const values = new Vec<int32>();\n  for (let i: int32 = 0; i < n; i++) { values.push(i & 7); }\n  let total: int32 = 0;\n  for (let i: nativeUint = 0; i < values.len(); i++) { total = total + (values.get(i) ?? 0); }\n  return total;\n}",
+      "sha256": "e7c172ce1be95ef6d1caca7764387156031fee09d89020eeaf68dbfabf19949a",
+      "targets": [
+        "rust"
+      ],
+      "surfaces": [
+        "native"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/rust/native/all-probes-vecGet",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "all-probes-vecGet",
+          "sourceSha256": "e7c172ce1be95ef6d1caca7764387156031fee09d89020eeaf68dbfabf19949a",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "all-probes-vecFold",
+      "file": "all-probes.mjs",
+      "name": "vecFold",
+      "source": "import type { int32, nativeUint } from \"@tsonic/core/types.js\";\nimport { Vec } from \"@tsonic/rust/std/vec.js\";\nexport function f(n: int32): int32 {\n  const values = new Vec<int32>();\n  for (let i: int32 = 0; i < n; i++) { values.push(i & 7); }\n  let total: int32 = 0;\n  return values.into_iter().fold(0, (a: int32, v: int32) => a + v);\n}",
+      "sha256": "4de0248dd905df10954354439da0d42e8bbc87bb75c9dc4e2a1a75482e6b0db2",
+      "targets": [
+        "rust"
+      ],
+      "surfaces": [
+        "native"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/rust/native/all-probes-vecFold",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "all-probes-vecFold",
+          "sourceSha256": "4de0248dd905df10954354439da0d42e8bbc87bb75c9dc4e2a1a75482e6b0db2",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "all-probes-vecToArray",
+      "file": "all-probes.mjs",
+      "name": "vecToArray",
+      "source": "import type { int32, nativeUint } from \"@tsonic/core/types.js\";\nimport { Vec } from \"@tsonic/rust/std/vec.js\";\nexport function f(n: int32): int32[] {\n  const values = new Vec<int32>();\n  for (let i: int32 = 0; i < n; i++) { values.push(i & 7); }\n  return values;\n}",
+      "sha256": "41dfdf457944ac0676686989cabb293600d37411c9c01d2a2d45e664c7324834",
+      "targets": [
+        "rust"
+      ],
+      "surfaces": [
+        "native"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/rust/native/all-probes-vecToArray",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "all-probes-vecToArray",
+          "sourceSha256": "41dfdf457944ac0676686989cabb293600d37411c9c01d2a2d45e664c7324834",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "all-probes-nativeArrayForOf",
+      "file": "all-probes.mjs",
+      "name": "nativeArrayForOf",
+      "source": "import type { int32 } from \"@tsonic/core/types.js\";\nexport function f(values: int32[]): int32 {\n  let total: int32 = 0;\n  for (const value of values) { total = total + value; }\n  return total;\n}",
+      "sha256": "39daf4bd038747051f87ad27066db9c9d9c4e14b0a12a0f66ff6c92154f5c10c",
+      "targets": [
+        "rust"
+      ],
+      "surfaces": [
+        "native"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/rust/native/all-probes-nativeArrayForOf",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "all-probes-nativeArrayForOf",
+          "sourceSha256": "39daf4bd038747051f87ad27066db9c9d9c4e14b0a12a0f66ff6c92154f5c10c",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "all-probes-nativeArrayIndex",
+      "file": "all-probes.mjs",
+      "name": "nativeArrayIndex",
+      "source": "import type { int32, nativeUint } from \"@tsonic/core/types.js\";\nexport function f(values: int32[], count: nativeUint): int32 {\n  let total: int32 = 0;\n  for (let i: nativeUint = 0; i < count; i++) { total = total + values[i]; }\n  return total;\n}",
+      "sha256": "2e8ab1d3f03bc1c5fc361dd79a10ed42ffc639297cc13a4513941dd34191b7d6",
+      "targets": [
+        "rust"
+      ],
+      "surfaces": [
+        "native"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/rust/native/all-probes-nativeArrayIndex",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "all-probes-nativeArrayIndex",
+          "sourceSha256": "2e8ab1d3f03bc1c5fc361dd79a10ed42ffc639297cc13a4513941dd34191b7d6",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "all-probes-literalArrayLoop",
+      "file": "all-probes.mjs",
+      "name": "literalArrayLoop",
+      "source": "import type { int32 } from \"@tsonic/core/types.js\";\nexport function f(n: int32): int32 {\n  const values: int32[] = [1, 2, 3, 4, 5, 6, 7, 8];\n  let total: int32 = 0;\n  for (let r: int32 = 0; r < n; r++) { for (const value of values) { total = total + value; } }\n  return total;\n}",
+      "sha256": "f7261ca7f5122c856df103a0a0cb7fa9f9a709250c9d5ad126a92327b2f789d8",
+      "targets": [
+        "rust"
+      ],
+      "surfaces": [
+        "native"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/rust/native/all-probes-literalArrayLoop",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "all-probes-literalArrayLoop",
+          "sourceSha256": "f7261ca7f5122c856df103a0a0cb7fa9f9a709250c9d5ad126a92327b2f789d8",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "all-probes-stringPushStr",
+      "file": "all-probes.mjs",
+      "name": "stringPushStr",
+      "source": "import type { int32, nativeUint } from \"@tsonic/core/types.js\";\nexport function f(n: int32): nativeUint {\n  let out = \"\";\n  for (let i: int32 = 0; i < n; i++) { out.push_str(\"/seg\"); }\n  return out.len();\n}",
+      "sha256": "f4dc8a644605a4359a7274a0c277a3a560b821551f9c78a35b1bf4e7a45f9947",
+      "targets": [
+        "rust"
+      ],
+      "surfaces": [
+        "native"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/rust/native/all-probes-stringPushStr",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "all-probes-stringPushStr",
+          "sourceSha256": "f4dc8a644605a4359a7274a0c277a3a560b821551f9c78a35b1bf4e7a45f9947",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "all-probes-stringSplitCount",
+      "file": "all-probes.mjs",
+      "name": "stringSplitCount",
+      "source": "import type { int32 } from \"@tsonic/core/types.js\";\nexport function f(path: string, n: int32): int32 {\n  let hits: int32 = 0;\n  for (let i: int32 = 0; i < n; i++) { if (path.starts_with(\"/api/\") && path.split(\"/\").count() > 2) { hits = hits + 1; } }\n  return hits;\n}",
+      "sha256": "0959103053b79c2efa292ac0bbfb63dd3f0a8a44374642d09c8ab4c489de95ae",
+      "targets": [
+        "rust"
+      ],
+      "surfaces": [
+        "native"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/rust/native/all-probes-stringSplitCount",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "all-probes-stringSplitCount",
+          "sourceSha256": "0959103053b79c2efa292ac0bbfb63dd3f0a8a44374642d09c8ab4c489de95ae",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "all-probes-unionSlice",
+      "file": "all-probes.mjs",
+      "name": "unionSlice",
+      "source": "import type { int32, nativeUint } from \"@tsonic/core/types.js\";\nimport { Vec } from \"@tsonic/rust/std/vec.js\";\ntype Shape = { kind: \"circle\"; r: number } | { kind: \"square\"; s: number };\nexport function f(n: int32): number {\n  const shapes = new Vec<Shape>();\n  for (let i: int32 = 0; i < n; i++) {\n    shapes.push(i % 2 === 0 ? { kind: \"circle\", r: 1 } : { kind: \"square\", s: 2 });\n  }\n  let area = 0;\n  for (const shape of shapes.as_slice()) {\n    area += shape.kind === \"circle\" ? 3 * shape.r * shape.r : shape.s * shape.s;\n  }\n  return area;\n}",
+      "sha256": "e2c9d92464b958d761363b0bebb6b4ff2cb9ee928f4a4189b31e5a708f9e93b8",
+      "targets": [
+        "rust"
+      ],
+      "surfaces": [
+        "native"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/rust/native/all-probes-unionSlice",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "all-probes-unionSlice",
+          "sourceSha256": "e2c9d92464b958d761363b0bebb6b4ff2cb9ee928f4a4189b31e5a708f9e93b8",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "all-probes-structAdd",
+      "file": "all-probes.mjs",
+      "name": "structAdd",
+      "source": "import type { int32 } from \"@tsonic/core/types.js\";\nimport { field, struct } from \"@tsonic/core/lang.js\";\nexport const Point = struct({ x: field<number>(), y: field<number>() });\nexport type Point = typeof Point;\nfunction add(a: Point, b: Point): Point { return { x: a.x + b.x, y: a.y + b.y }; }\nexport function structAdd(n: int32): number {\n  let point: Point = { x: 0, y: 0 };\n  const delta: Point = { x: 1, y: 2 };\n  for (let i: int32 = 0; i < n; i++) { point = add(point, delta); }\n  return point.x + point.y;\n}",
+      "sha256": "d29ef882c0a3c7688885e730099b4b030956069572f0883da4b183bb1f976c54",
+      "targets": [
+        "rust"
+      ],
+      "surfaces": [
+        "native"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/rust/native/all-probes-structAdd",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "all-probes-structAdd",
+          "sourceSha256": "d29ef882c0a3c7688885e730099b4b030956069572f0883da4b183bb1f976c54",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "all-probes-structUpdate",
+      "file": "all-probes.mjs",
+      "name": "structUpdate",
+      "source": "import type { int32 } from \"@tsonic/core/types.js\";\nimport { field, struct } from \"@tsonic/core/lang.js\";\nexport const Counter = struct({ count: field<int32>() });\nexport type Counter = typeof Counter;\nexport function structUpdate(n: int32): int32 {\n  let counter: Counter = { count: 0 };\n  for (let i: int32 = 0; i < n; i++) { counter.count = counter.count + 1; }\n  return counter.count;\n}",
+      "sha256": "d1b51a1b263644fb5f58282752c8a53211d6f75fe9cb0239792268d4d340a8ce",
+      "targets": [
+        "rust"
+      ],
+      "surfaces": [
+        "native"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/rust/native/all-probes-structUpdate",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "all-probes-structUpdate",
+          "sourceSha256": "d1b51a1b263644fb5f58282752c8a53211d6f75fe9cb0239792268d4d340a8ce",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "all-probes-structUnionIf",
+      "file": "all-probes.mjs",
+      "name": "structUnionIf",
+      "source": "import type { int32 } from \"@tsonic/core/types.js\";\nimport { field, struct } from \"@tsonic/core/lang.js\";\nimport { Vec } from \"@tsonic/rust/std/vec.js\";\nexport const Circle = struct({ kind: field<\"circle\">(), r: field<number>() });\nexport type Circle = typeof Circle;\nexport const Square = struct({ kind: field<\"square\">(), s: field<number>() });\nexport type Square = typeof Square;\ntype Shape = Circle | Square;\nexport function structUnionIf(n: int32): number {\n  const shapes = new Vec<Shape>();\n  for (let i: int32 = 0; i < n; i++) {\n    if (i % 2 === 0) { const c: Circle = { kind: \"circle\", r: 1 }; shapes.push(c); }\n    else { const q: Square = { kind: \"square\", s: 2 }; shapes.push(q); }\n  }\n  let area = 0;\n  for (const shape of shapes.as_slice()) {\n    area += shape.kind === \"circle\" ? 3 * shape.r * shape.r : shape.s * shape.s;\n  }\n  return area;\n}",
+      "sha256": "655b49926da1d89c67812bd37e46bc89e7b37a321c550afdd8f466c7f3088f68",
+      "targets": [
+        "rust"
+      ],
+      "surfaces": [
+        "native"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/rust/native/all-probes-structUnionIf",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "all-probes-structUnionIf",
+          "sourceSha256": "655b49926da1d89c67812bd37e46bc89e7b37a321c550afdd8f466c7f3088f68",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "all-probes-structUnionLocal",
+      "file": "all-probes.mjs",
+      "name": "structUnionLocal",
+      "source": "import type { int32 } from \"@tsonic/core/types.js\";\nimport { field, struct } from \"@tsonic/core/lang.js\";\nexport const Circle = struct({ kind: field<\"circle\">(), r: field<number>() });\nexport type Circle = typeof Circle;\nexport const Square = struct({ kind: field<\"square\">(), s: field<number>() });\nexport type Square = typeof Square;\ntype Shape = Circle | Square;\nfunction area(shape: Shape): number {\n  return shape.kind === \"circle\" ? 3 * shape.r * shape.r : shape.s * shape.s;\n}\nexport function structUnionLocal(n: int32): number {\n  let total = 0;\n  for (let i: int32 = 0; i < n; i++) {\n    const c: Circle = { kind: \"circle\", r: 1 };\n    const q: Square = { kind: \"square\", s: 2 };\n    total += area(i % 2 === 0 ? c : q);\n  }\n  return total;\n}",
+      "sha256": "f58a6a777ee9263f9717f52c666bc506e3add5adad6e8f1f0dc99176c9d101d7",
+      "targets": [
+        "rust"
+      ],
+      "surfaces": [
+        "native"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/rust/native/all-probes-structUnionLocal",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "all-probes-structUnionLocal",
+          "sourceSha256": "f58a6a777ee9263f9717f52c666bc506e3add5adad6e8f1f0dc99176c9d101d7",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "override-cases-arrayPushSum",
+      "file": "override-cases.mjs",
+      "name": "arrayPushSum",
+      "source": "import type { int32, nativeUint } from \"@tsonic/core/types.js\";\nimport { Vec } from \"@tsonic/rust/std/vec.js\";\n\nexport function arrayPushSum(n: int32): int32 {\n  const values = new Vec<int32>();\n  for (let i: int32 = 0; i < n; i++) { values.push(i & 7); }\n  let total: int32 = 0;\n  for (const value of values) { total = total + value; }\n  return total;\n}",
+      "sha256": "055425a5714369a3dc95ce3e2bbe2b26b483055ad3efb529b828106fdea25210",
+      "targets": [
+        "rust"
+      ],
+      "surfaces": [
+        "native"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/rust/native/override-cases-arrayPushSum",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "override-cases-arrayPushSum",
+          "sourceSha256": "055425a5714369a3dc95ce3e2bbe2b26b483055ad3efb529b828106fdea25210",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "override-cases-arrayIndexSum",
+      "file": "override-cases.mjs",
+      "name": "arrayIndexSum",
+      "source": "import type { int32, nativeUint } from \"@tsonic/core/types.js\";\nimport { Vec } from \"@tsonic/rust/std/vec.js\";\n\nexport function arrayIndexSum(n: int32): int32 {\n  const values = new Vec<int32>();\n  for (let i: int32 = 0; i < n; i++) { values.push(i & 7); }\n  let total: int32 = 0;\n  for (let i: nativeUint = 0; i < values.len(); i++) { total = total + values[i]; }\n  return total;\n}",
+      "sha256": "8cd8850068f70d28b9dc64ab34b48f4a5a6d4cbdda45a99b7b927e0b889776b6",
+      "targets": [
+        "rust"
+      ],
+      "surfaces": [
+        "native"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/rust/native/override-cases-arrayIndexSum",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "override-cases-arrayIndexSum",
+          "sourceSha256": "8cd8850068f70d28b9dc64ab34b48f4a5a6d4cbdda45a99b7b927e0b889776b6",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "override-cases-arrayPipeline",
+      "file": "override-cases.mjs",
+      "name": "arrayPipeline",
+      "source": "import type { int32, nativeUint } from \"@tsonic/core/types.js\";\nimport { Vec } from \"@tsonic/rust/std/vec.js\";\nimport { load } from \"@tsonic/rust/lang.js\";\n\nexport function arrayPipeline(n: int32): int32 {\n  const values = new Vec<int32>();\n  for (let i: int32 = 0; i < n; i++) { values.push(i & 7); }\n  return values.iter().map((v) => load(v) * 2).filter((v) => load(v) > 4).fold(0, (a: int32, v: int32) => a + v);\n}",
+      "sha256": "c3f8b56d5f385e46ba07f4ce1456872cde51dbcc0763cccb8f6c1ad4c1961f18",
+      "targets": [
+        "rust"
+      ],
+      "surfaces": [
+        "native"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/rust/native/override-cases-arrayPipeline",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "override-cases-arrayPipeline",
+          "sourceSha256": "c3f8b56d5f385e46ba07f4ce1456872cde51dbcc0763cccb8f6c1ad4c1961f18",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "override-cases-stringBuild",
+      "file": "override-cases.mjs",
+      "name": "stringBuild",
+      "source": "import type { int32, nativeUint } from \"@tsonic/core/types.js\";\n\nexport function stringBuild(n: int32): nativeUint {\n  let out = \"\";\n  for (let i: int32 = 0; i < n; i++) { out = out + \"/seg\"; }\n  return out.len();\n}",
+      "sha256": "54a8dd320e6d3d424e7c73e9225117445ab20820aa405cbc537118649f9749b8",
+      "targets": [
+        "rust"
+      ],
+      "surfaces": [
+        "native"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/rust/native/override-cases-stringBuild",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "override-cases-stringBuild",
+          "sourceSha256": "54a8dd320e6d3d424e7c73e9225117445ab20820aa405cbc537118649f9749b8",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "override-cases-stringOps",
+      "file": "override-cases.mjs",
+      "name": "stringOps",
+      "source": "import type { int32, nativeUint } from \"@tsonic/core/types.js\";\n\nexport function stringOps(path: string, n: int32): int32 {\n  let hits: int32 = 0;\n  for (let i: int32 = 0; i < n; i++) {\n    if (path.starts_with(\"/api/\") && path.split(\"/\").count() > 2) { hits = hits + 1; }\n  }\n  return hits;\n}",
+      "sha256": "ecae4c1fe48bd59bf07e17d598aaebbfb74383c59585818375e319d3a30a3766",
+      "targets": [
+        "rust"
+      ],
+      "surfaces": [
+        "native"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/rust/native/override-cases-stringOps",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "override-cases-stringOps",
+          "sourceSha256": "ecae4c1fe48bd59bf07e17d598aaebbfb74383c59585818375e319d3a30a3766",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "override-cases-stringTemplate",
+      "file": "override-cases.mjs",
+      "name": "stringTemplate",
+      "source": "import type { int32, nativeUint } from \"@tsonic/core/types.js\";\n\nexport function stringTemplate(name: string, n: int32): int32 {\n  let total: int32 = 0;\n  for (let i: int32 = 0; i < n; i++) {\n    const text = `user:${name}:${i}`;\n    if (text.len() > 5) { total = total + 1; }\n  }\n  return total;\n}",
+      "sha256": "d746f84e5920cff85dff37f4daca178df7ad5f91382c681557c02f11ad10ec37",
+      "targets": [
+        "rust"
+      ],
+      "surfaces": [
+        "native"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/rust/native/override-cases-stringTemplate",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "override-cases-stringTemplate",
+          "sourceSha256": "d746f84e5920cff85dff37f4daca178df7ad5f91382c681557c02f11ad10ec37",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "override-cases-mapCount",
+      "file": "override-cases.mjs",
+      "name": "mapCount",
+      "source": "import type { int32, nativeUint } from \"@tsonic/core/types.js\";\nimport { HashMap } from \"@tsonic/rust/std/collections.js\";\n\nexport function mapCount(n: int32): nativeUint {\n  const counts = new HashMap<int32, int32>();\n  for (let i: int32 = 0; i < n; i++) {\n    const key: int32 = i & 63;\n    counts.insert(key, (counts.get(key) ?? 0) + 1);\n  }\n  return counts.len();\n}",
+      "sha256": "19291226c571abc05b52d3246488035617c1e2891d6e444312f24471c77b5100",
+      "targets": [
+        "rust"
+      ],
+      "surfaces": [
+        "native"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/rust/native/override-cases-mapCount",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "override-cases-mapCount",
+          "sourceSha256": "19291226c571abc05b52d3246488035617c1e2891d6e444312f24471c77b5100",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "override-cases-unionArea",
+      "file": "override-cases.mjs",
+      "name": "unionArea",
+      "source": "import type { int32, nativeUint } from \"@tsonic/core/types.js\";\nimport { Vec } from \"@tsonic/rust/std/vec.js\";\n\ntype Shape = { kind: \"circle\"; r: number } | { kind: \"square\"; s: number };\nexport function unionArea(n: int32): number {\n  const shapes = new Vec<Shape>();\n  for (let i: int32 = 0; i < n; i++) {\n    shapes.push(i % 2 === 0 ? { kind: \"circle\", r: 1 } : { kind: \"square\", s: 2 });\n  }\n  let area = 0;\n  for (const shape of shapes) {\n    area += shape.kind === \"circle\" ? 3 * shape.r * shape.r : shape.s * shape.s;\n  }\n  return area;\n}",
+      "sha256": "7c42dde790451522791e0b7a4a31b984ff0676d96d77a4b701140edb2fc3bfcf",
+      "targets": [
+        "rust"
+      ],
+      "surfaces": [
+        "native"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/rust/native/override-cases-unionArea",
+          "target": "rust",
+          "surface": "native",
+          "caseId": "override-cases-unionArea",
+          "sourceSha256": "7c42dde790451522791e0b7a4a31b984ff0676d96d77a4b701140edb2fc3bfcf",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "cs-override-csListIndex",
+      "file": "cs-override.mjs",
+      "name": "csListIndex",
+      "source": "import type { int32 } from \"@tsonic/core/types.js\";\nimport { List } from \"@tsonic/dotnet/System.Collections.Generic.js\";\nexport function csListIndex(n: int32): int32 {\n  const values = new List<int32>();\n  for (let i: int32 = 0; i < n; i++) { values.Add(i & 7); }\n  let total: int32 = 0;\n  for (let i: int32 = 0; i < values.Count; i++) { total = total + values.get_Item(i); }\n  return total;\n}",
+      "sha256": "cbdecadac0b46ff1da0600b9ae769fefd53d948d369310a9418877817337ecc9",
+      "targets": [
+        "csharp"
+      ],
+      "surfaces": [
+        "native"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/csharp/native/cs-override-csListIndex",
+          "target": "csharp",
+          "surface": "native",
+          "caseId": "cs-override-csListIndex",
+          "sourceSha256": "cbdecadac0b46ff1da0600b9ae769fefd53d948d369310a9418877817337ecc9",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "cs-override-csListToArray",
+      "file": "cs-override.mjs",
+      "name": "csListToArray",
+      "source": "import type { int32 } from \"@tsonic/core/types.js\";\nimport { List } from \"@tsonic/dotnet/System.Collections.Generic.js\";\nexport function csListToArray(n: int32): int32 {\n  const values = new List<int32>();\n  for (let i: int32 = 0; i < n; i++) { values.Add(i & 7); }\n  let total: int32 = 0;\n  for (const value of values.ToArray()) { total = total + value; }\n  return total;\n}",
+      "sha256": "3ff6473c59534828661ce615779bafdfba528cbf8e4f06c9a2c43bf7f2469364",
+      "targets": [
+        "csharp"
+      ],
+      "surfaces": [
+        "native"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/csharp/native/cs-override-csListToArray",
+          "target": "csharp",
+          "surface": "native",
+          "caseId": "cs-override-csListToArray",
+          "sourceSha256": "3ff6473c59534828661ce615779bafdfba528cbf8e4f06c9a2c43bf7f2469364",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "cs-override-csDictionary",
+      "file": "cs-override.mjs",
+      "name": "csDictionary",
+      "source": "import type { int32 } from \"@tsonic/core/types.js\";\nimport { Dictionary } from \"@tsonic/dotnet/System.Collections.Generic.js\";\nimport { defaultof, out } from \"@tsonic/csharp/lang.js\";\nexport function csDictionary(n: int32): int32 {\n  const counts = new Dictionary<int32, int32>();\n  for (let i: int32 = 0; i < n; i++) {\n    const key: int32 = i & 63;\n    let current = defaultof<int32>();\n    counts.TryGetValue(key, out(current));\n    counts.Remove(key);\n    counts.Add(key, current + 1);\n  }\n  return counts.Count;\n}",
+      "sha256": "4bcaffe566418650c5f69be49542fa112085d89055e186686549840e8235f4a9",
+      "targets": [
+        "csharp"
+      ],
+      "surfaces": [
+        "native"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/csharp/native/cs-override-csDictionary",
+          "target": "csharp",
+          "surface": "native",
+          "caseId": "cs-override-csDictionary",
+          "sourceSha256": "4bcaffe566418650c5f69be49542fa112085d89055e186686549840e8235f4a9",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "cs-override-csStringBuilder",
+      "file": "cs-override.mjs",
+      "name": "csStringBuilder",
+      "source": "import type { int32 } from \"@tsonic/core/types.js\";\nimport { StringBuilder } from \"@tsonic/dotnet/System.Text.js\";\nexport function csStringBuilder(n: int32): int32 {\n  const out = new StringBuilder();\n  for (let i: int32 = 0; i < n; i++) { out.Append(\"/seg\"); }\n  return out.Length;\n}",
+      "sha256": "9101ef8b4bf5df919d683980716292c80e88eded3ed59966c059c73e592a1f6d",
+      "targets": [
+        "csharp"
+      ],
+      "surfaces": [
+        "native"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/csharp/native/cs-override-csStringBuilder",
+          "target": "csharp",
+          "surface": "native",
+          "caseId": "cs-override-csStringBuilder",
+          "sourceSha256": "9101ef8b4bf5df919d683980716292c80e88eded3ed59966c059c73e592a1f6d",
+          "kind": "accepted"
+        }
+      ]
+    },
+    {
+      "id": "cs-override-csStruct",
+      "file": "cs-override.mjs",
+      "name": "csStruct",
+      "source": "import type { int32 } from \"@tsonic/core/types.js\";\nimport { field, struct } from \"@tsonic/core/lang.js\";\nexport const Point = struct({ x: field<number>(), y: field<number>() });\nexport type Point = typeof Point;\nfunction add(a: Point, b: Point): Point { return { x: a.x + b.x, y: a.y + b.y }; }\nexport function csStruct(n: int32): number {\n  let point: Point = { x: 0, y: 0 };\n  const delta: Point = { x: 1, y: 2 };\n  for (let i: int32 = 0; i < n; i++) { point = add(point, delta); }\n  return point.x + point.y;\n}",
+      "sha256": "b8be3cb6fbd6c618466aea7d557735e5559a2f8688fc6f56a843853a86ca27fe",
+      "targets": [
+        "csharp"
+      ],
+      "surfaces": [
+        "native"
+      ],
+      "expectations": [
+        {
+          "id": "catalogue/csharp/native/cs-override-csStruct",
+          "target": "csharp",
+          "surface": "native",
+          "caseId": "cs-override-csStruct",
+          "sourceSha256": "b8be3cb6fbd6c618466aea7d557735e5559a2f8688fc6f56a843853a86ca27fe",
+          "kind": "accepted"
+        }
+      ]
+    }
+  ]
+}

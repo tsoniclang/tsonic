@@ -1,0 +1,1 @@
+{"name":"instantiate-wide-budget","level":"function","rule":"100000 authored child references sharing one EmptyStatement obey the existing exact work refusal before the next node/edge action; no eager edge vector","input":"test/host-cases/ir-program/function/instantiate-wide-budget.input.json","expected":"test/host-cases/ir-program/function/instantiate-wide-budget.expected.json"}

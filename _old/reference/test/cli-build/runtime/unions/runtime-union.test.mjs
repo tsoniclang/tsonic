@@ -1,0 +1,183 @@
+import { assert, cliPath, csharpProjectPath, readFile, resolve, run, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+
+async function readGeneratedModuleSource(projectDirectory) {
+  return readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+}
+
+async function readGeneratedObjectShapeSource(projectDirectory) {
+  return readFile(
+    resolve(projectDirectory, "out/csharp/generated/TsonicObjectShapes.cs"),
+    "utf8",
+  );
+}
+
+test("CLI emits runtime-union arm tests and projections from finalized facts", async () => {
+  const projectDirectory = resolve(tempRoot, "runtime-union-arm-projection");
+  const assemblyName = "SmokeGeneratedRuntimeUnionArmProjection";
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+            outputType: "Exe",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
+      "",
+      "export function choose(flag: boolean): number | string {",
+      "  const value: number | string = flag ? 1 : \"ready\";",
+      "  return value;",
+      "}",
+      "",
+      "export function read(value: number | string): string {",
+      "  if (typeof value === \"string\") {",
+      "    return value;",
+      "  }",
+      "  return \"fallback\";",
+      "}",
+      "",
+      "Console.WriteLine(`${read(choose(false))}|${read(choose(true))}`);",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readGeneratedModuleSource(projectDirectory);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Runtime\.Union<double, string> value = flag \? Tsonic\.CSharp\.Runtime\.Union<double, string>\.From1\(1\) : Tsonic\.CSharp\.Runtime\.Union<double, string>\.From2\("ready"\);/);
+  assert.match(generatedSource, /if \(\(value\) switch \{ var (?<first>__tsonic_value\d+) when \k<first>\.Is1\(\) => false, var (?<second>__tsonic_value\d+) when \k<second>\.Is2\(\) => true, _ => throw new System\.InvalidOperationException\("Invalid native union variant"\) \}\)/);
+  assert.match(generatedSource, /return value\.As2\(\);/);
+  assert.doesNotMatch(generatedSource, /value is string|return value;\s*}\s*return "fallback"/);
+  assert.doesNotMatch(generatedSource, /dynamic|System\.Reflection|GetProperty|GetMethod|MethodInfo\.Invoke|Activator\.CreateInstance|Assembly\.Load|__unsupported/);
+
+  const dotnet = run("dotnet", ["build", csharpProjectPath(projectDirectory, assemblyName), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+
+  const executed = run("dotnet", ["run", "--project", csharpProjectPath(projectDirectory, assemblyName), "--no-build", "--no-restore"]);
+  assert.equal(executed.status, 0, executed.stdout + executed.stderr);
+  assert.equal(executed.stdout.replace(/\r\n/g, "\n"), "ready|fallback\n");
+});
+
+test("CLI emits native nullable runtime unions from finalized facts", async () => {
+  const projectDirectory = resolve(tempRoot, "runtime-union-nullish-arm");
+  const assemblyName = "SmokeGeneratedRuntimeUnionNullishArm";
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+            outputType: "Exe",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
+      "",
+      "export function choose(flag: number): number | string | undefined {",
+      "  return flag === 0 ? undefined : flag === 1 ? 1 : \"ready\";",
+      "}",
+      "",
+      "Console.WriteLine(`${choose(0)}|${choose(1)}|${choose(2)}`);",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readGeneratedModuleSource(projectDirectory);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Runtime\.Union<double, string>\?/);
+  assert.match(generatedSource, /flag == 0 \? default\(Tsonic\.CSharp\.Runtime\.Union<double, string>\?\)/);
+  assert.doesNotMatch(generatedSource, /Runtime\.(?:Null|Undefined)|Union<double, string,/);
+  assert.doesNotMatch(generatedSource, /dynamic|System\.Reflection|GetProperty|GetMethod|MethodInfo\.Invoke|Activator\.CreateInstance|Assembly\.Load|__unsupported/);
+
+  const dotnet = run("dotnet", ["build", csharpProjectPath(projectDirectory, assemblyName), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+
+  const executed = run("dotnet", ["run", "--project", csharpProjectPath(projectDirectory, assemblyName), "--no-build", "--no-restore"]);
+  assert.equal(executed.status, 0, executed.stdout + executed.stderr);
+  assert.equal(executed.stdout.replace(/\r\n/g, "\n"), "|1|ready\n");
+});
+
+test("CLI emits object-shape runtime-union declarations and member projections from finalized facts", async () => {
+  const projectDirectory = resolve(tempRoot, "runtime-union-object-shape-projection");
+  const assemblyName = "SmokeGeneratedRuntimeUnionObjectShapeProjection";
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [
+        {
+          id: "csharp",
+          options: {
+            namespace: "Smoke.Generated",
+            assemblyName,
+            outputType: "Exe",
+          },
+        },
+      ],
+    }, null, 2),
+    "src/index.ts": [
+      "import { Console } from \"@tsonic/dotnet/System.js\";",
+      "",
+      "type Circle = { kind: \"circle\"; radius: number };",
+      "type Square = { kind: \"square\"; size: number };",
+      "type Shape = Circle | Square;",
+      "",
+      "export function describe(shape: Shape): string {",
+      "  if (shape.kind === \"circle\") {",
+      "    return `circle:${shape.radius}`;",
+      "  }",
+      "  return `square:${shape.size}`;",
+      "}",
+      "",
+      "Console.WriteLine(describe({ kind: \"circle\", radius: 4 }));",
+      "Console.WriteLine(describe({ kind: \"square\", size: 7 }));",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+
+  const generatedSource = await readGeneratedModuleSource(projectDirectory);
+  const generatedShapes = await readGeneratedObjectShapeSource(projectDirectory);
+  const shapeDeclarations = generatedShapes.match(/public class [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}/g) ?? [];
+  assert.equal(shapeDeclarations.length, 2);
+  assert.equal((generatedShapes.match(/public interface [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}/g) ?? []).length, 2);
+  assert.match(generatedSource, /Tsonic\.CSharp\.Runtime\.Union<[A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<string, double>, [A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}<string, double>> shape/);
+  assert.match(generatedSource, /if \(\(shape\) switch \{ var (?<first>__tsonic_union_\d+_\d+_0) when \k<first>\.Is1\(\) => \k<first>\.As1\(\)\.kind, var (?<second>__tsonic_union_\d+_\d+_1) when \k<second>\.Is2\(\) => \k<second>\.As2\(\)\.kind, _ => throw new System\.InvalidOperationException\("Excluded native union variant"\) \} == "circle"\)/);
+  assert.match(generatedSource, /return \$"circle:\{shape\.As1\(\)\.radius\}";/);
+  assert.match(generatedSource, /return \$"square:\{shape\.As2\(\)\.size\}";/);
+  assert.doesNotMatch(generatedSource, /shape\.Match\(/);
+  assert.match(generatedShapes, /public required string kind\s*\{\s*get;\s*set;\s*\}/);
+  assert.match(generatedShapes, /public required double radius\s*\{\s*get;\s*set;\s*\}/);
+  assert.match(generatedShapes, /public required double size\s*\{\s*get;\s*set;\s*\}/);
+  assert.doesNotMatch(generatedSource, /\([A-Za-z][A-Za-z0-9_]*Shape_[a-f0-9]{12}(?:<string, double>)?\)shape/);
+  assert.doesNotMatch(generatedSource, /shape\.radius|shape\.size|dynamic|System\.Reflection|GetProperty|GetMethod|MethodInfo\.Invoke|Activator\.CreateInstance|Assembly\.Load|__unsupported/);
+
+  const dotnet = run("dotnet", ["build", csharpProjectPath(projectDirectory, assemblyName), "--nologo", "--v:minimal"]);
+  assert.equal(dotnet.status, 0, dotnet.stdout + dotnet.stderr);
+
+  const executed = run("dotnet", ["run", "--project", csharpProjectPath(projectDirectory, assemblyName), "--no-build", "--no-restore"]);
+  assert.equal(executed.status, 0, executed.stdout + executed.stderr);
+  assert.equal(executed.stdout.replace(/\r\n/g, "\n"), "circle:4\nsquare:7\n");
+});

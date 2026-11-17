@@ -1,0 +1,7 @@
+{
+  "name": "binding-vector-complete-valid",
+  "level": "verifier",
+  "rule": "binding-vector-complete",
+  "input": "test/host-cases/ir-types/verifier/binding-vector-complete-valid.input.json",
+  "expected": "test/host-cases/ir-types/verifier/binding-vector-complete-valid.expected.json"
+}

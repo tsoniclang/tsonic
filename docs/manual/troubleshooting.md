@@ -87,14 +87,14 @@ surface:
 If a `node:*` import is missing, install the target's Node capability package.
 Installing Node does not select the JS surface.
 
-## A C# executable does nothing
+## An executable exports main without calling it
 
-C# applications run top-level entry-module code. This only declares a
-function:
+Both targets run top-level entry-module code. This only declares a function
+and rejects with `TSONIC_UNCALLED_BINARY_ENTRY_MAIN` in executable mode:
 
 ```ts
 export function main(): void {
-  // Not called automatically by the C# target.
+  // Not called automatically by either target.
 }
 ```
 
@@ -104,15 +104,9 @@ Call it, or put startup work at top level:
 main();
 ```
 
-## A Rust binary has no entrypoint
-
-The entry module must contain:
-
-```ts
-export function main(): void {}
-```
-
-The function must be exported and return `void`.
+The entry module must be included in the compiled source graph. A program
+containing top-level operations needs no named `main` function. Library mode
+does not impose executable startup requirements on its exports.
 
 ## Cargo rejects `--locked`
 

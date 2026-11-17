@@ -1,0 +1,1 @@
+{"name":"phase-name-shorthand-value","level":"function","rule":"TypedName closed role/holder survives exact module text, complete typed parse and explicit publication-ID swap without semantic-role repair","input":"test/host-cases/ir-program/function/phase-name-shorthand-value.input.json","expected":"test/host-cases/ir-program/function/phase-name-shorthand-value.expected.json"}

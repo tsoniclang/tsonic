@@ -29,7 +29,7 @@ import { NewSpecMatcher, SpecMatcher_MatchString, SpecMatcher_MatchIndex, ReadDi
 import { CommandLineOptionTypeBoolean, CommandLineOptionTypeList, CommandLineOptionTypeListOrElement, CommandLineOptionTypeObject, CommandLineOptionTypeString, CommandLineOptionTypeEnum, commandLineOptionsToMap as commandLineOptionsToMapImpl, extraValidationLocale, extraValidationNone, extraValidationSpec, newCommandLineOption, CommandLineOption_DisallowNullOrUndefined, CommandLineOption_Elements, CommandLineOption_EnumMap, } from "./commandlineoption.js";
 import { OptionsDeclarations } from "./declscompiler.js";
 import { typeAcquisitionDeclaration } from "./declstypeacquisition.js";
-import { CreateDiagnosticForNodeInSourceFile, CreateDiagnosticForNodeInSourceFileOrCompilerDiagnostic, getCompilerOptionValueTypeString, createUnknownOptionError, extraKeyDiagnostics, extraKeyDidYouMeanDiagnostics, } from "./errors.js";
+import { CreateDiagnosticForNodeInSourceFile, CreateDiagnosticForNodeInSourceFileOrCompilerDiagnostic, createDiagnosticForInvalidEnumType, getCompilerOptionValueTypeString, createUnknownOptionError, extraKeyDiagnostics, extraKeyDidYouMeanDiagnostics, } from "./errors.js";
 import { convertJsonOptionOfEnumType, tryReadFile, } from "./commandlineparser.js";
 import { parseJsonToStringKey, parseProjectReference, mergeCompilerOptions, compilerOptionsParser_as_optionParser, typeAcquisitionParser_as_optionParser, ParseCompilerOptions, ParseTypeAcquisition, } from "./parsinghelpers.js";
 import { NewParsedCommandLine } from "./parsedcommandline.js";
@@ -1147,6 +1147,7 @@ export function convertMapToOptions(compilerOptions, result) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/tsoptions/tsconfigparsing.go::func::convertOptionsFromJson","kind":"func","status":"implemented","sigHash":"4f41de962d1396420c47dc1c4dd23cd671c33c016d893f1c2df5ece23d645d12","bodyHash":"87036e39c8678d8142a5ed6a2ab2ef32d3ba7f20e943ac4f30eaacd1d5f49356"}
+ * @tsgo-override {"category":"runtime-correctness","allow":["body"],"reason":"Two deviations from the Go body, both in the branch for an option with enumerated values given as a string. (1) A value that is not one of the option's values is reported (Argument for option must be ...), as convertJsonOptionOfEnumType reports it on the source-text path; the Go body reports nothing and sets nothing, so a rejected value disappears silently. (2) The diagnostics of ParseOption are appended; the Go body assigns them to the error list, which erases every error collected before a valid enumerated option. (2) has been in this port since it was written (commit 40d8c7bd, 2026-06-13) without a record; (1) is added with this record."}
  *
  * Go source:
  * func convertOptionsFromJson[O optionParser](optionsNameMap CommandLineOptionNameMap, jsonOptions any, basePath string, result O) (O, []*ast.Diagnostic) {
@@ -1222,6 +1223,9 @@ export function convertOptionsFromJson(optionsNameMap, jsonOptions, basePath, re
                 if (ok) {
                     const compilerOptionsErr = result.ParseOption(key, val);
                     errors.push(...(compilerOptionsErr ?? []));
+                }
+                else {
+                    errors.push(createDiagnosticForInvalidEnumType(opt, undefined, undefined));
                 }
             }
             else {

@@ -1,0 +1,1 @@
+{"name":"component-identities","level":"function","rule":"Components retain every distinct definition in canonical UTF16 ID order","input":"test/host-cases/ids/function/component-identities.input.json","expected":"test/host-cases/ids/function/component-identities.expected.json"}

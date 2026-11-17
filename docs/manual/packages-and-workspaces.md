@@ -75,6 +75,8 @@ export function main(): void {
     throw new Error("unexpected user");
   }
 }
+
+main();
 ```
 
 Tsonic follows the installed package export to its TypeScript source. It does

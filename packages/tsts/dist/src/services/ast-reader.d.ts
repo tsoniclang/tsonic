@@ -16,6 +16,13 @@ export type AstAuthoredRange = {
 } | {
     readonly kind: "synthetic";
 };
+export type AstSourceRange = {
+    readonly kind: "source";
+    readonly start: number;
+    readonly end: number;
+} | {
+    readonly kind: "unavailable";
+};
 export interface AstReader {
     readonly kind: (node: GoPtr<Node>) => Kind | undefined;
     readonly kindName: (node: GoPtr<Node>) => string;
@@ -25,6 +32,7 @@ export interface AstReader {
     readonly parent: (node: GoPtr<Node>) => GoPtr<Node>;
     readonly children: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
     readonly forEachChild: (node: GoPtr<Node>, callback: (child: GoPtr<Node>) => void) => void;
+    readonly forEachChildUntil: (node: GoPtr<Node>, stop: (child: GoPtr<Node>) => boolean) => boolean;
     readonly statements: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
     readonly members: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
     readonly parameters: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
@@ -39,6 +47,7 @@ export interface AstReader {
     readonly questionToken: (node: GoPtr<Node>) => GoPtr<Node>;
     /** Returns the exact operator kind name for binary, update, and type-operator syntax. */
     readonly operatorKindName: (node: GoPtr<Node>) => string | undefined;
+    readonly moduleKeywordKindName: (node: GoPtr<Node>) => string | undefined;
     readonly modifiers: (node: GoPtr<Node>) => readonly GoPtr<Node>[];
     readonly modifierFlags: (node: GoPtr<Node>) => number;
     readonly hasModifier: (node: GoPtr<Node>, flags: number) => boolean;
@@ -59,6 +68,13 @@ export interface AstReader {
     readonly end: (node: GoPtr<Node>) => number;
     /** Returns trivia-free UTF-16 offsets into the exact checked source text. */
     readonly authoredRange: (node: GoPtr<Node>) => AstAuthoredRange;
+    /**
+     * Converts a UTF-8 byte range of the exact checked source text to UTF-16 offsets into that text.
+     * Returns `unavailable` when there is no source file. Throws RangeError for an offset that is not a
+     * non-negative safe integer, for a start past the end, for an end past the text, and for an endpoint
+     * inside a UTF-8 character.
+     */
+    readonly sourceRange: (sourceFile: GoPtr<SourceFile>, startByte: number, endByte: number) => AstSourceRange;
     readonly getSourceFile: (node: GoPtr<Node>) => GoPtr<SourceFile>;
     readonly getFileName: (sourceFile: GoPtr<SourceFile>) => string;
     readonly getPath: (sourceFile: GoPtr<SourceFile>) => string;

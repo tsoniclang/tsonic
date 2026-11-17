@@ -1,0 +1,7 @@
+{
+  "name": "syntax-reference-wrong-kind-before-later-field-acyclic",
+  "level": "function",
+  "rule": "syntax-reference-wrong-kind-before-later-field-acyclic",
+  "input": "test/host-cases/ir-program/function/syntax-reference-wrong-kind-before-later-field-acyclic.input.json",
+  "expected": "test/host-cases/ir-program/function/syntax-reference-wrong-kind-before-later-field-acyclic.expected.json"
+}

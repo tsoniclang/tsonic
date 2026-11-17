@@ -1,0 +1,7 @@
+{
+  "name": "shared-recursive-table",
+  "level": "function",
+  "rule": "text-roundtrip",
+  "input": "test/host-cases/ir-types/function/shared-recursive-table.input.json",
+  "expected": "test/host-cases/ir-types/function/shared-recursive-table.expected.json"
+}

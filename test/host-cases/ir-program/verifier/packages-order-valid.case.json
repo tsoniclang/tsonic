@@ -1,0 +1,7 @@
+{
+  "name": "packages-order-valid",
+  "level": "verifier",
+  "rule": "packages-order-valid",
+  "input": "test/host-cases/ir-program/verifier/packages-order-valid.input.json",
+  "expected": "test/host-cases/ir-program/verifier/packages-order-valid.expected.json"
+}

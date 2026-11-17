@@ -1,0 +1,32 @@
+{
+  "operation": "intern",
+  "limits": {
+    "maximumWork": 100000,
+    "maximumCreatedRecords": 4
+  },
+  "terms": [
+    {
+      "kind": "primitive",
+      "primitive": "int32"
+    },
+    {
+      "kind": "string"
+    },
+    {
+      "kind": "primitive",
+      "primitive": "int32"
+    }
+  ],
+  "signatures": [
+    {
+      "declaration": null,
+      "owner": null,
+      "composition": null,
+      "kind": "call",
+      "typeParameters": [],
+      "receiver": null,
+      "parameters": [],
+      "result": 0
+    }
+  ]
+}

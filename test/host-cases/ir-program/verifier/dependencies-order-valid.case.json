@@ -1,0 +1,7 @@
+{
+  "name": "dependencies-order-valid",
+  "level": "verifier",
+  "rule": "dependencies-order-valid",
+  "input": "test/host-cases/ir-program/verifier/dependencies-order-valid.input.json",
+  "expected": "test/host-cases/ir-program/verifier/dependencies-order-valid.expected.json"
+}

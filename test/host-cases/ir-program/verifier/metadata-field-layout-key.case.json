@@ -1,0 +1,1 @@
+{"name":"metadata-field-layout-key","level":"verifier","rule":"C2966 field-offset admits its exact layout metadata key","input":"test/host-cases/ir-program/verifier/metadata-field-layout-key.input.json","expected":"test/host-cases/ir-program/verifier/metadata-field-layout-key.expected.json"}

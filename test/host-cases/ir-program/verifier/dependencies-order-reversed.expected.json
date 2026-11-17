@@ -1,0 +1,26 @@
+{
+  "kind": "accepted",
+  "value": {
+    "kind": "complete",
+    "violations": [
+      {
+        "rule": "package-dependencies-order",
+        "site": {
+          "kind": "package",
+          "package": "P[%002Fprogram]"
+        },
+        "detail": [
+          {
+            "kind": "text",
+            "value": "P[%002Fb]"
+          },
+          {
+            "kind": "text",
+            "value": "P[%002Fa]"
+          }
+        ]
+      }
+    ]
+  },
+  "diagnostics": []
+}

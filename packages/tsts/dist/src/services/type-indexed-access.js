@@ -3,8 +3,8 @@ import { Checker_getIndexedAccessTypeOrUndefined, Checker_getPropertyOfType, } f
 import { Checker_getReducedApparentType } from "../internal/checker/checker/types.js";
 import { Checker_getApplicableIndexInfo } from "../internal/checker/checker/signatures.js";
 import { getPropertyNameFromType, isTypeUsableAsPropertyName } from "../internal/checker/utilities.js";
-import { getExtensionHost } from "../extensions/host.js";
 import { readTypeIndexInfo, readTypePropertyInfo } from "./type-members.js";
+import { createTypeNormalization } from "./type-normalization.js";
 export function readTypeIndexedAccessComponents(query, type) {
     if (query === undefined || type?.checker === undefined || !ownsChecker(query, type.checker) ||
         (type.flags & TypeFlagsIndexedAccess) === 0)
@@ -17,9 +17,12 @@ export function readTypeIndexedAccessComponents(query, type) {
 export function selectTypeIndexedAccess(query, objectType, indexType) {
     const checker = objectType?.checker;
     if (query === undefined || checker === undefined || objectType === undefined || indexType === undefined ||
-        !ownsChecker(query, checker) || indexType.checker !== checker ||
-        objectType === checker.errorType || indexType === checker.errorType)
+        !ownsChecker(query, checker) || indexType.checker === undefined ||
+        indexType.checker.program.SourceFiles() !== checker.program.SourceFiles() ||
+        objectType === checker.errorType || indexType === indexType.checker.errorType)
         return undefined;
+    if (indexType.checker !== checker)
+        indexType = createTypeNormalization(checker).type(indexType);
     const readType = Checker_getIndexedAccessTypeOrUndefined(checker, objectType, indexType, AccessFlagsNone, undefined, undefined);
     const writeType = Checker_getIndexedAccessTypeOrUndefined(checker, objectType, indexType, AccessFlagsWriting, undefined, undefined);
     if (readType === undefined || writeType === undefined || readType === checker.errorType || writeType === checker.errorType)
@@ -59,9 +62,6 @@ export function selectTypeIndexedAccess(query, objectType, indexType) {
     return Object.freeze({ kind: "resolved", objectType, indexType, readType, writeType, members: Object.freeze(members) });
 }
 function ownsChecker(query, checker) {
-    if (query === checker || query.program === checker.program)
-        return true;
-    const owner = getExtensionHost(query.program);
-    return owner !== undefined && owner === getExtensionHost(checker.program);
+    return query.program.SourceFiles() === checker.program.SourceFiles();
 }
 //# sourceMappingURL=type-indexed-access.js.map

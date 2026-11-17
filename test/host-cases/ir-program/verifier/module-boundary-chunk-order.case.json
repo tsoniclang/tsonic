@@ -1,0 +1,1 @@
+{"name":"module-boundary-chunk-order","level":"verifier","rule":"chunk-bodies-order; full composed vector retains zero actual child findings","input":"test/host-cases/ir-program/verifier/module-boundary-chunk-order.input.json","expected":"test/host-cases/ir-program/verifier/module-boundary-chunk-order.expected.json"}

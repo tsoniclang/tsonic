@@ -1,0 +1,7 @@
+{
+  "name": "member-order-valid",
+  "level": "verifier",
+  "rule": "member-order",
+  "input": "test/host-cases/ir-types/verifier/member-order-valid.input.json",
+  "expected": "test/host-cases/ir-types/verifier/member-order-valid.expected.json"
+}

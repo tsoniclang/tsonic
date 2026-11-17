@@ -1,0 +1,7 @@
+{
+  "name": "syntax-name-complete-duplicate",
+  "level": "function",
+  "rule": "syntax-name-complete-duplicate",
+  "input": "test/host-cases/ir-program/function/syntax-name-complete-duplicate.input.json",
+  "expected": "test/host-cases/ir-program/function/syntax-name-complete-duplicate.expected.json"
+}

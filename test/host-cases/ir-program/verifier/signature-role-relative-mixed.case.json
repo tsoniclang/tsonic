@@ -1,0 +1,7 @@
+{
+  "name": "signature-role-relative-mixed",
+  "level": "verifier",
+  "rule": "signature-role-relative-mixed",
+  "input": "test/host-cases/ir-program/verifier/signature-role-relative-mixed.input.json",
+  "expected": "test/host-cases/ir-program/verifier/signature-role-relative-mixed.expected.json"
+}

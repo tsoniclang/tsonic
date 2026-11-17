@@ -1,3 +1,4 @@
+import { observeBackingDiagnostic, observePublishedDiagnostic } from "./checker/backing-constraint-evidence.js";
 import * as core from "../core/core.js";
 import { Node_ForEachChild, Node_Name } from "../ast/spine.js";
 import { Node_Decorators, Node_Members, Node_Type, SourceFile_FileName, SourceFile_Path, AsSourceFile } from "../ast/ast.js";
@@ -13,7 +14,7 @@ import { ModuleKindCommonJS } from "../core/compileroptions.js";
 import { CompilerOptions_GetUseDefineForClassFields } from "../core/compileroptions.js";
 import { Tristate_IsTrue } from "../core/tristate.js";
 import { Static_property_0_conflicts_with_built_in_property_Function_0_of_constructor_function_1, Duplicate_identifier_0_Compiler_reserves_name_1_in_top_level_scope_of_a_module, This_syntax_requires_an_imported_helper_named_1_which_does_not_exist_in_0_Consider_upgrading_your_version_of_0, This_syntax_requires_an_imported_helper_named_1_with_2_parameters_which_is_not_compatible_with_the_one_in_0_Consider_upgrading_your_version_of_0, This_syntax_requires_an_imported_helper_but_module_0_cannot_be_found, } from "../diagnostics/generated/messages.js";
-import { ObjectFlagsReference, TypeFlagsNone, TypeFlagsNever, TypeFlagsUnion, TypeFlagsInstantiable, TypeFlagsNumberLike, TypeFlagsNumber, ElementFlagsNonRequired, ElementFlagsVariadic, externalHelpersModuleNameText, ExternalEmitHelpersFirstEmitHelper, ExternalEmitHelpersLastEmitHelper, ExternalEmitHelpersRest, ExternalEmitHelpersDecorate, ExternalEmitHelpersMetadata, ExternalEmitHelpersParam, ExternalEmitHelpersAwaiter, ExternalEmitHelpersAwait, ExternalEmitHelpersAsyncGenerator, ExternalEmitHelpersAsyncDelegator, ExternalEmitHelpersAsyncValues, ExternalEmitHelpersExportStar, ExternalEmitHelpersImportStar, ExternalEmitHelpersImportDefault, ExternalEmitHelpersMakeTemplateObject, ExternalEmitHelpersClassPrivateFieldGet, ExternalEmitHelpersClassPrivateFieldSet, ExternalEmitHelpersClassPrivateFieldIn, ExternalEmitHelpersSetFunctionName, ExternalEmitHelpersPropKey, ExternalEmitHelpersAddDisposableResourceAndDisposeResources, ExternalEmitHelpersRewriteRelativeImportExtension, LanguageFeatureMinimumTarget, Type_AsTupleType, Type_AsObjectType, Type_AsTypeReference, Type_AsIndexedAccessType, Type_TargetTupleType, } from "./types.js";
+import { ObjectFlagsReference, TypeFlagsObject, TypeFlagsNone, TypeFlagsNever, TypeFlagsUnion, TypeFlagsInstantiable, TypeFlagsNumberLike, TypeFlagsNumber, ElementFlagsNonRequired, ElementFlagsVariadic, externalHelpersModuleNameText, ExternalEmitHelpersFirstEmitHelper, ExternalEmitHelpersLastEmitHelper, ExternalEmitHelpersRest, ExternalEmitHelpersDecorate, ExternalEmitHelpersMetadata, ExternalEmitHelpersParam, ExternalEmitHelpersAwaiter, ExternalEmitHelpersAwait, ExternalEmitHelpersAsyncGenerator, ExternalEmitHelpersAsyncDelegator, ExternalEmitHelpersAsyncValues, ExternalEmitHelpersExportStar, ExternalEmitHelpersImportStar, ExternalEmitHelpersImportDefault, ExternalEmitHelpersMakeTemplateObject, ExternalEmitHelpersClassPrivateFieldGet, ExternalEmitHelpersClassPrivateFieldSet, ExternalEmitHelpersClassPrivateFieldIn, ExternalEmitHelpersSetFunctionName, ExternalEmitHelpersPropKey, ExternalEmitHelpersAddDisposableResourceAndDisposeResources, ExternalEmitHelpersRewriteRelativeImportExtension, LanguageFeatureMinimumTarget, Type_AsTupleType, Type_AsObjectType, Type_AsTypeReference, Type_Target, Type_AsIndexedAccessType, Type_TargetTupleType, } from "./types.js";
 import { walkUpOuterExpressions } from "./utilities.js";
 import { Checker_mergeSymbol, Checker_getMergedSymbol, Checker_getSymbolOfDeclaration, Checker_getEffectivePropertyNameForPropertyNameNode, Checker_getSymbolOfNode, Checker_needCollisionCheckForIdentifier, Checker_distributeObjectOverIndexType, Checker_distributeIndexOverObjectType, Checker_getMappedTypeNameTypeKind, Checker_substituteIndexedMappedType, Checker_resolveSymbol, Checker_getExportsOfModule, Checker_getSymbol, } from "./checker/symbols.js";
 import { Checker_isMatchingReference } from "./flow.js";
@@ -259,6 +260,7 @@ export function Checker_checkCollisionWithGlobalObjectInGeneratedCode(receiver, 
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.addDiagnostic","kind":"method","status":"implemented","sigHash":"c245f83ad6b1b61ff59661705c0c44e5d9f6ba820211ac05481f23f348039643","bodyHash":"509c27d0820361e19284d0e8ddf566cb737624a6de87e5387aef246b02dfbe6e"}
+ * @tsgo-override {"category":"extension-host","allow":["signature"],"reason":"Return the same original Diagnostic only from the existing actual publication arm so an answer producer cannot retain a suppressed diagnostic as a cause.","goSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/diagnostic.ts::Diagnostic>)=>void","tsSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/diagnostic.ts::Diagnostic>)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/diagnostic.ts::Diagnostic>"}
  *
  * Go source:
  * func (c *Checker) addDiagnostic(diagnostic *ast.Diagnostic) {
@@ -271,8 +273,12 @@ export function Checker_checkCollisionWithGlobalObjectInGeneratedCode(receiver, 
 export function Checker_addDiagnostic(receiver, diagnostic) {
     // Discard diagnostics created while at the maximum number of recursive TypeToString invocations.
     if (receiver.serializationLevel < maxSerializationLevel) {
+        observeBackingDiagnostic(receiver, diagnostic);
+        observePublishedDiagnostic(receiver, diagnostic);
         DiagnosticsCollection_Add(receiver.diagnostics, diagnostic);
+        return diagnostic;
     }
+    return undefined;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.addSuggestionDiagnostic","kind":"method","status":"implemented","sigHash":"3b7aac864c2b84d4e6837b964c2b22550ee15aae0a53cbb1e0ad70d85bbe1cdb","bodyHash":"63a5a0d649622d211888b45d908b7b9cc6c1dbb53686ca7c5eb22dd048253618"}
@@ -464,6 +470,18 @@ export function Checker_createTypeReferenceEx(receiver, target, typeArguments, o
     Type_AsTypeReference(t).resolvedTypeArguments = typeArguments;
     intf.instantiations.set(id, t);
     return t;
+}
+export function cachedReferenceInputs(checker, type) {
+    if (type.checker !== checker || (type.flags & TypeFlagsObject) === 0 || (type.objectFlags & ObjectFlagsReference) === 0)
+        return undefined;
+    const target = Type_Target(type);
+    const inputs = Type_AsTypeReference(type)?.resolvedTypeArguments;
+    if (target?.checker !== checker || inputs === undefined)
+        return undefined;
+    for (const input of inputs)
+        if (input?.checker !== checker)
+            return undefined;
+    return Type_AsObjectType(target)?.instantiations.get(getTypeListKey(inputs)) === type ? inputs : undefined;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getSimplifiedIndexedAccessTypeWorker","kind":"method","status":"implemented","sigHash":"3b9a57400da8c44daf0aff8604ba01e99a5a90ae6d3a0a5f9d0a417e9540349c","bodyHash":"a21b38b13a94cd1d10a988859946161df9025cb6a2f65791a68ebd41b36b5ffb"}

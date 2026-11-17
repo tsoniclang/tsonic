@@ -1,0 +1,14 @@
+{
+  "table": {
+    "terms": [
+      {
+        "kind": "array",
+        "element": 9,
+        "readonly": false
+      }
+    ],
+    "signatures": []
+  },
+  "bindings": [],
+  "evidence": []
+}

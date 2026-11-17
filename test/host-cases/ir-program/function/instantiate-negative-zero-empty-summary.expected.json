@@ -1,0 +1,9 @@
+{
+  "kind": "accepted",
+  "value": {
+    "kind": "caller-defect",
+    "name": "TypeError",
+    "message": "Invalid InstantiationLimits.maximumWork"
+  },
+  "diagnostics": []
+}

@@ -1,4 +1,6 @@
+import type { LiteralConstructionOwner } from "./literal-creation.js";
 import type { bool } from "../../../go/scalars.js";
+import type { ResolvedCallApplicationEvidence } from "../types.js";
 import type { GoPtr, GoSlice } from "../../../go/compat.js";
 import type { Context } from "../../../go/context.js";
 import type { Node, SourceFile } from "../../ast/ast.js";
@@ -554,6 +556,7 @@ export declare function Checker_addDeprecatedSuggestionWithSignature(receiver: G
 export declare function Checker_getDiagnosticHeadMessageForDecoratorResolution(receiver: GoPtr<Checker>, node: GoPtr<Node>): GoPtr<Message>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.reportCallResolutionErrors","kind":"method","status":"implemented","sigHash":"b53e1df31b2b460a4600844bf3e882cae56f028872e89dd7ef8a480d9ee5748a","bodyHash":"437b02d32034811e1876ce1d3b383c0ea77ceaac1f48bc703e360a90ff002840"}
+ * @tsgo-override {"category":"extension-host","allow":["body","signature"],"reason":"Takes the original application evidence of the candidates as a sixth, optional parameter. When the candidate being reported has such evidence, its applicability check or type-argument check runs with that candidate pushed as the backing-constraint candidate, and the diagnostic chains and notes built for the last overload, and the diagnostic for the call node, are recorded in the checker's backing-constraint evidence state. The calls that build, chain, annotate and add each diagnostic are those of the TS-Go body, in the same order. R5-23 retains the explicit native result-construction publication owner without changing native checking or caching decisions.","goSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::CallState>,packages/tsts/src/go/compat.ts::GoSlice<packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/diagnostics/diagnostics.ts::Message>)=>void","tsSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::CallState>,packages/tsts/src/go/compat.ts::GoSlice<packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/diagnostics/diagnostics.ts::Message>,?raw(readonly ResolvedCallApplicationEvidence[]),?packages/tsts/src/internal/checker/checker/literal-creation.ts::LiteralConstructionOwner)=>void"}
  *
  * Go source:
  * func (c *Checker) reportCallResolutionErrors(node *ast.Node, s *CallState, signatures []*Signature, headMessage *diagnostics.Message) {
@@ -592,7 +595,7 @@ export declare function Checker_getDiagnosticHeadMessageForDecoratorResolution(r
  * 	}
  * }
  */
-export declare function Checker_reportCallResolutionErrors(receiver: GoPtr<Checker>, node: GoPtr<Node>, s: GoPtr<CallState>, signatures: GoSlice<GoPtr<Signature>>, headMessage: GoPtr<Message>): void;
+export declare function Checker_reportCallResolutionErrors(receiver: GoPtr<Checker>, node: GoPtr<Node>, s: GoPtr<CallState>, signatures: GoSlice<GoPtr<Signature>>, headMessage: GoPtr<Message>, applications?: readonly ResolvedCallApplicationEvidence[], constructionOwner?: LiteralConstructionOwner): void;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getArgumentArityError","kind":"method","status":"implemented","sigHash":"9e7ce0219f8b08877783ae7a37fe95f4e5e7be8d5dc6f7b0b397f6a1b8469a09","bodyHash":"36e6c5b4c20539e0755113da7a5c81a0082a31f2b905e8ed9c7b54b2f91ad008"}
  *
@@ -802,6 +805,7 @@ export declare function Checker_getTypeArgumentArityError(receiver: GoPtr<Checke
 export declare function Checker_reportCannotInvokePossiblyNullOrUndefinedError(receiver: GoPtr<Checker>, node: GoPtr<Node>, facts: TypeFacts): void;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.resolveErrorCall","kind":"method","status":"implemented","sigHash":"dedaeb289deb864b8e3babca1046d72be978d2b689f931b473d5015f31f5ea9b","bodyHash":"19157ce534c80d3694cc276eb280e77f41312491fa3b874f891f87ea9b468805"}
+ * @tsgo-override {"category":"extension-host","allow":["signature"],"reason":"R5-23 retains the explicit native result-construction publication owner without changing native checking or caching decisions.","goSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>","tsSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,?packages/tsts/src/internal/checker/checker/literal-creation.ts::LiteralConstructionOwner)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>"}
  *
  * Go source:
  * func (c *Checker) resolveErrorCall(node *ast.Node) *Signature {
@@ -809,7 +813,7 @@ export declare function Checker_reportCannotInvokePossiblyNullOrUndefinedError(r
  * 	return c.unknownSignature
  * }
  */
-export declare function Checker_resolveErrorCall(receiver: GoPtr<Checker>, node: GoPtr<Node>): GoPtr<Signature>;
+export declare function Checker_resolveErrorCall(receiver: GoPtr<Checker>, node: GoPtr<Node>, constructionOwner?: LiteralConstructionOwner): GoPtr<Signature>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.invocationErrorDetails","kind":"method","status":"implemented","sigHash":"e14bdbd2367a35c1e0a6a8e0a77018ec595c0dc4182b927b4f94904e034e6d32","bodyHash":"fefc7dcc6be3ddfb689d0b6b5536543216623bcd6c3604d8454b38b67dbac654"}
  *
@@ -1066,6 +1070,7 @@ export declare function Checker_addDeferredDiagnostic(receiver: GoPtr<Checker>, 
 export declare function Checker_produceDeferredDiagnostics(receiver: GoPtr<Checker>): void;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.addErrorOrSuggestion","kind":"method","status":"implemented","sigHash":"3a4023d03174daef90494da78c235989d9c89eb87726ac6c3715a9f78a03fa5f","bodyHash":"51824774258eba7a3a28e813e5f4b33fc3b86049b9d680d9e4629b7cd004e1d7"}
+ * @tsgo-override {"category":"extension-host","allow":["signature"],"reason":"Transport only the same actually emitted original error Diagnostic through the existing native helper; a suggestion, suppressed error or absent producer returns no cause.","goSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/scalars.ts::bool,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/diagnostic.ts::Diagnostic>)=>void","tsSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/scalars.ts::bool,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/diagnostic.ts::Diagnostic>)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/diagnostic.ts::Diagnostic>"}
  *
  * Go source:
  * func (c *Checker) addErrorOrSuggestion(isError bool, diagnostic *ast.Diagnostic) {
@@ -1078,7 +1083,7 @@ export declare function Checker_produceDeferredDiagnostics(receiver: GoPtr<Check
  * 	}
  * }
  */
-export declare function Checker_addErrorOrSuggestion(receiver: GoPtr<Checker>, isError: bool, diagnostic: GoPtr<Diagnostic>): void;
+export declare function Checker_addErrorOrSuggestion(receiver: GoPtr<Checker>, isError: bool, diagnostic: GoPtr<Diagnostic>): GoPtr<Diagnostic>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.IsDeprecatedDeclaration","kind":"method","status":"implemented","sigHash":"94562f9123e66d313b2ba9a744ea610a748e3134a7922768e3c19b59884b52b2","bodyHash":"8b50399655ffcbf8af2cb56769d1e4b0f6bd78f6201cd915dc26516045d81c4b"}
  *

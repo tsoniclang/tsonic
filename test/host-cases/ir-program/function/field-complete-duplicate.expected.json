@@ -1,0 +1,14 @@
+{
+  "kind": "accepted",
+  "value": {
+    "kind": "invalid-text",
+    "offset": 23,
+    "line": 1,
+    "column": 24,
+    "expected": [
+      "unique record field"
+    ],
+    "found": "s"
+  },
+  "diagnostics": []
+}

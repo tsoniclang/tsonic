@@ -1,0 +1,7 @@
+{
+  "name": "dependencies-order-reversed",
+  "level": "verifier",
+  "rule": "dependencies-order-reversed",
+  "input": "test/host-cases/ir-program/verifier/dependencies-order-reversed.input.json",
+  "expected": "test/host-cases/ir-program/verifier/dependencies-order-reversed.expected.json"
+}

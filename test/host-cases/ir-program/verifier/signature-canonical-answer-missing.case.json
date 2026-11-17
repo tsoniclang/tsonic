@@ -1,0 +1,7 @@
+{
+  "name": "signature-canonical-answer-missing",
+  "level": "verifier",
+  "rule": "signature-canonical-answer-missing",
+  "input": "test/host-cases/ir-program/verifier/signature-canonical-answer-missing.input.json",
+  "expected": "test/host-cases/ir-program/verifier/signature-canonical-answer-missing.expected.json"
+}

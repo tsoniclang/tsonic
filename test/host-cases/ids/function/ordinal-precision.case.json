@@ -1,0 +1,1 @@
+{"name":"ordinal-precision","level":"function","rule":"C2922 total ordinal transport preserves numbers beyond safe integers using canonical general host-number spelling","input":"test/host-cases/ids/function/ordinal-precision.input.json","expected":"test/host-cases/ids/function/ordinal-precision.expected.json"}

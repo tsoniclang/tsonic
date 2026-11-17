@@ -1,0 +1,7 @@
+{
+  "name": "evidence-type-invalid",
+  "level": "verifier",
+  "rule": "evidence-type",
+  "input": "test/host-cases/ir-types/verifier/evidence-type-invalid.input.json",
+  "expected": "test/host-cases/ir-types/verifier/evidence-type-invalid.expected.json"
+}

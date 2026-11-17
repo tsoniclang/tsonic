@@ -7,6 +7,11 @@ policy.
 
 ## Engineering Standard
 
+- Status and progress requests do not pause an active authorized task. Report
+  the verified state and continue immediately through completion. An interim
+  report is not a handoff or a stopping point. Stop only on an explicit user
+  stop/pause instruction or a concrete external dependency after exhausting
+  independently achievable authorized work.
 - This workspace is airplane-grade: correctness and sound architecture take
   precedence over speed, while iteration should remain deliberate and bounded.
 - WCBUBWHB means “What Can Be, Unburdened By What Has Been.” Design the final
@@ -20,6 +25,20 @@ policy.
 - Modify only repositories and product scopes the maintainer assigned to the
   task. Read-only inspection may establish a contract; it does not grant change
   ownership.
+- Until the maintainer suspends the policy set on 2026-09-30, park only fixes
+  requiring exceptionally large, deep lower-layer architectural rewrites whose
+  extraordinary scope warrants a decision. Record the demonstrated root cause,
+  correct design, affected layers, dependencies and expected effort; finish
+  independent work, then ask for the maintainer's opinion. Small, medium and
+  ordinary large owner-layer corrections remain automatically approved. This
+  threshold is deliberately exceptional, not a general restriction on rewrites.
+  This is a sequencing rule, never permission to add a workaround, weaken a
+  contract or claim the parked capability complete.
+- When the maintainer suspends that sequencing policy, continue the correct
+  in-scope fix at its owning layer regardless of size or architectural disruption.
+  Size alone must not trigger a pause, parked work or another approval request.
+  Scope, correctness, safety, shared-work protection and complete verification
+  remain mandatory; suspension does not authorize unrelated changes.
 
 ### Direct Solutions, Not Patch Accumulation
 
@@ -116,6 +135,9 @@ policy.
 - Do not start parallel agents or delegate new work to subagents unless the
   maintainer explicitly requests it. General task approval or an instruction
   to continue does not authorize agent delegation.
+- Every authorized subagent inherits the full parent context. Always use
+  `fork_context: true`; fresh-context or reduced-context delegation is forbidden.
+  A scoped assignment supplements, never replaces, that inherited context.
 - The coordinating assistant retains full responsibility for integrating,
   reviewing, correcting, and verifying all delegated work. Responsibility is
   not transferred to a worker when a task is assigned or reported complete.
@@ -164,6 +186,19 @@ policy.
   process, timeout and log guards. Explicitly designated throughput calibration
   runs may be aborted when utilization targets are unmet; they never substitute
   for complete certification or justify weakening tests.
+- Apply the existing process-group memory, swap, task, timeout and log guards
+  to every build and test invocation, including focused pure owner tests and
+  delegated work. JavaScript heap limits and Go runtime limits are not aggregate
+  process-group protection. Never run an unguarded test inside the coordinating
+  Codex process group merely because the fixture is small. The coordinator
+  checks aggregate resource headroom before authorizing concurrent native runs.
+- Keep failure diagnostics bounded without weakening assertions. For AST or
+  Node-bearing proof objects, assert the exact Boolean absence or identity
+  relation and use scalar case labels instead of asking the assertion formatter
+  to render the complete object graph. For example, use
+  `assert.equal(selection === undefined, true, caseName)`, not
+  `assert.equal(selection, undefined)`. Preserve the original assertion's
+  acceptance criterion and fix the demonstrated semantic failure at its owner.
 
 ### Expectation-Only Rerun Exception
 
@@ -194,6 +229,52 @@ policy.
 - Prove operations statically and emit closed generated code, source-generated
   metadata, or closed runtime carriers. If proof is unavailable, emit a
   deterministic diagnostic.
+- All Tsonic implementation data and algorithms must remain representable as
+  efficient, statically typed native C# and Rust. JavaScript object-model
+  mechanisms are forbidden: runtime freezing/sealing/extensibility flags,
+  property descriptors or dynamic property definition, prototype discovery or
+  mutation, reflective member discovery/invocation, proxies, and weak-reference
+  or finalization behavior used as an implementation dependency. This includes
+  `Object.freeze`, `Object.defineProperty`, and equivalent renamed wrappers;
+  replacing the spelling without replacing the mechanism is not a fix.
+- Fixed-schema records use direct typed fields and constructors. Genuinely
+  variable named data uses an explicitly typed native collection rather than
+  adding properties to arbitrary objects. Select records, vectors and maps by
+  actual access patterns and native ownership/allocation cost; never turn fixed
+  records into generic dictionaries to avoid writing typed construction code.
+  Migrate affected contracts, producers, consumers, fixtures and tests together,
+  keeping one representation and preserving required canonical wire formats.
+- Native IR inputs are fixed-schema records, not arbitrary extensible
+  JavaScript objects. Their constructors and parsers must materialize only the
+  declared fields; text with any undeclared field is rejected, including nested
+  fields. Verification checks declared data and relationships rather than
+  discovering extra JavaScript properties. TypeScript's structural assignment
+  rules alone do not prove exact records: an unchecked JavaScript extension is
+  not an admitted native IR representation, and must never be presented as
+  equivalent to checked native construction.
+- Opaque mutable capabilities own typed storage privately. Expose their instance
+  type and functional operations, not fabricated structural storage records or
+  runtime property probes. A native owner-private class/struct with private
+  construction and fields is valid; it must not expose a public constructor,
+  instance payload, prototype protocol or mutable module singleton. Architecture
+  checks must follow the opaque boundary without hiding actual public data.
+- Closed JSON-like data uses a declared scalar/array/record carrier, not an open
+  JavaScript object index signature. JSON operations on statically closed data
+  require schema-known native implementations; scalar escaping is not permission
+  for arbitrary-object reflection. Source-level portability is not evidence that
+  both native backends have executed or met their performance budget.
+- Native concepts such as arrays, maps, exact integers, floating-point special
+  values and required source-coordinate encodings are not JavaScript object
+  model emulation. Preserve their specified native semantics and costs. Static
+  readonly contracts and compiler-understood ownership replace runtime freezing;
+  do not simulate JavaScript extensibility or unchecked mutation behavior.
+- Do not attempt capabilities genuinely incompatible with this native, statically
+  closed architecture. Full dynamic JavaScript `Proxy` interception is not a
+  reason to introduce arbitrary member reflection, hidden emulation or an
+  approximate fallback. Report the unsupported capability explicitly. Establish
+  the architectural conflict before declaring a capability impossible: an absent
+  compiler implementation or incorrect phase boundary is still an owning-layer
+  defect to fix, not an architectural limitation.
 - Open-ended target toolchain settings belong in native target configuration,
   not generic Tsonic configuration. Tsonic configuration is limited to compiler
   semantic input, source/profile/provider selection, and deterministic codegen
@@ -264,6 +345,17 @@ policy.
   identifier's semantic name, such as Rust `r#type` or C# `@event`. Exact imported
   native names remain provider-owned. Compiler-generated helpers require their
   own collision-safe names; they do not authorize renaming authored APIs.
+- The registered C# native type/value-name collision is a narrow exception:
+  only a method type parameter that conflicts with an actually emitted value
+  name receives a deterministic, capture-free suffix. The existing pre-seal
+  name plan owns that selection and preserves declaration identity in every
+  constraint, bound use, implementing member and forwarding member. Value
+  names, unrelated authored names and nonconflicting type parameters retain
+  their spelling. Generated protocol parameter names, nested bindings and
+  local bindings must be included in the actual emitted-name decision; source
+  spelling alone does not establish a collision. See S11-13 in
+  `csharp-rust-structure.md`. This exception adds no runtime representation,
+  allocation, boxing, copy or compatibility path.
 - Audit declaration, member, reference, import/export and module/file pathways
   together. An actual target naming or collision constraint needs an explicit
   supported policy or a precise diagnostic, not an unannounced casing rewrite.
@@ -444,6 +536,14 @@ policy.
   do not authorize hidden copying, conversion, storage, bookkeeping or a slower
   emulation path. Document native differences; do not simulate another runtime
   merely to avoid those differences.
+- A bare-metal-speed native option with the selected target's native semantics
+  is mandatory for supported common operations, including when a JS or Node
+  surface is selected. Compatibility must never introduce a performance
+  regression on retained paths. Explicit JS/Node compatibility may cost at most
+  3x an equivalent idiomatic handwritten native implementation with the same
+  supported behavior. This is an absolute ceiling, not an optimization target
+  or permission for avoidable overhead. Anything above it requires a measured,
+  explicitly approved exception and must never be a hot or common path.
 - This applies across generated code, analysis-selected representations,
   provider adapters, call boundaries, runtimes and benchmark dispatchers, not
   only individual runtime functions. Audit implicit copies, allocations,
@@ -520,9 +620,13 @@ policy.
 - Product TypeScript is a type-annotation layer over standard modern
   JavaScript. Do not use TypeScript-only runtime-shape features as compiler
   signals or implementation mechanisms.
-- In particular, do not use explicit `public`, parameter properties,
-  namespaces, decorators, or non-ECMAScript class modifiers as compiler
-  signals, test aids, or source-package workarounds.
+- Checked class visibility, `override`, abstract declarations, readonly fields
+  and constructor parameter properties describe native members through the
+  existing declaration contracts. Preserve checker access restrictions and
+  native dispatch; do not infer runtime representations from modifier spelling.
+  Namespaces, decorators, auto-accessors and ambient runtime declarations remain
+  outside the supported runtime-shape subset; never use them as compiler signals,
+  test aids or source-package workarounds.
 - Type-only annotations, interfaces, imports, and deterministic assertions
   remain checked source evidence. Generated runtime behavior follows the
   selected target's semantics under the target-native contract above; source

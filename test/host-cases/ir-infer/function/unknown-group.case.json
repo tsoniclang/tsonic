@@ -1,0 +1,7 @@
+{
+  "name": "unknown-group",
+  "level": "function",
+  "rule": "unknown-record-is-invalid-text",
+  "input": "test/host-cases/ir-infer/function/unknown-group.input.json",
+  "expected": "test/host-cases/ir-infer/function/unknown-group.expected.json"
+}

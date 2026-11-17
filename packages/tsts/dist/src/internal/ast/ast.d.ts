@@ -3480,6 +3480,7 @@ export declare function SourceFile_GetNameTable(receiver: GoPtr<SourceFile>): Go
 export declare function SourceFile_IsBound(receiver: GoPtr<SourceFile>): bool;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/ast.go::method::SourceFile.GetPositionMap","kind":"method","status":"implemented","sigHash":"7a37e4f7ef341ef4db949d8ecd688078936938df9edc481082cfa83671f5523d","bodyHash":"e93fb10115ea853e3720e776ca00fb52b79e76efcc83b1d4fa41517166868a0d"}
+ * @tsgo-override {"category":"runtime-correctness","allow":["body"],"reason":"Always build the map from the whole text. The pinned Go body returns an ASCII-only map when ContainsNonASCII is false, but the scanner sets that flag only for characters it decodes: non-ASCII text inside string, template and regular expression literals leaves it false, and the ASCII-only map then converts every byte offset after such a literal wrongly (in `export const s = \"é\";\\nexport const t = 1;` byte 23 is UTF-16 unit 22, not 23)."}
  *
  * Go source:
  * func (file *SourceFile) GetPositionMap() *PositionMap {

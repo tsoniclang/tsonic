@@ -1,0 +1,7 @@
+{
+  "name": "complete-index-valid",
+  "level": "verifier",
+  "rule": "complete-index-valid",
+  "input": "test/host-cases/ir-program/verifier/complete-index-valid.input.json",
+  "expected": "test/host-cases/ir-program/verifier/complete-index-valid.expected.json"
+}

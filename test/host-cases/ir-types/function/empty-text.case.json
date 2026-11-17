@@ -1,0 +1,7 @@
+{
+  "name": "empty-text",
+  "level": "function",
+  "rule": "text-roundtrip",
+  "input": "test/host-cases/ir-types/function/empty-text.input.json",
+  "expected": "test/host-cases/ir-types/function/empty-text.expected.json"
+}

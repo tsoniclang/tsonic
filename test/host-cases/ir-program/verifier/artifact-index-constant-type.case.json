@@ -1,0 +1,1 @@
+{"name":"artifact-index-constant-type","level":"verifier","rule":"Complete real artifact inventories preserve exact order/uniqueness/type links and unfiltered genuine child violations","input":"test/host-cases/ir-program/verifier/artifact-index-constant-type.input.json","expected":"test/host-cases/ir-program/verifier/artifact-index-constant-type.expected.json"}

@@ -1,0 +1,5 @@
+{
+  "kind": "accepted",
+  "value": { "walk": [0, 1, 2, 3], "stop": [0, 3] },
+  "diagnostics": []
+}

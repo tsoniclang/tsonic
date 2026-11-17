@@ -1,0 +1,7 @@
+{
+  "name": "predecessors-repeated",
+  "level": "function",
+  "rule": "dataflow.predecessors-canonical",
+  "input": "test/host-cases/dataflow/function/predecessors-repeated.input.json",
+  "expected": "test/host-cases/dataflow/function/predecessors-repeated.expected.json"
+}

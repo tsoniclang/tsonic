@@ -303,7 +303,7 @@ export function Common_WalkDir(receiver, root, walkFn) {
  *
  * 	return decodeBytes(s)
  * }
- * @tsgo-override {"category":"runtime-performance","allow":["body"],"reason":"Decode bytes returned by the JS FS helper directly instead of materializing Go's unsafe.String intermediate as a binary JS string; observable BOM and UTF-8/UTF-16 decoding semantics remain TS-Go exact."}
+ * @tsgo-override {"category":"runtime-performance","allow":["body"],"reason":"Decode bytes returned by the JS FS helper directly instead of materializing Go's unsafe.String intermediate as a binary JS string. As in the Go body, exactly one leading UTF-8 byte-order mark is removed and input with a UTF-16 mark is decoded as UTF-16; any further U+FEFF stays in the text. Unlike a Go string, the result cannot hold ill-formed UTF-8: the decoder replaces it by U+FFFD."}
  */
 export function Common_ReadFile(receiver, path) {
     const [fsys, , rest] = Common_RootAndPath(receiver, path);
@@ -323,6 +323,7 @@ export function Common_ReadFile(receiver, path) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/vfs/internal/internal.go::func::decodeBytes","kind":"func","status":"implemented","sigHash":"9af05afe32155426111b5e882975ba3b71cad643d996fdd1a70e42a2c2c650e4","bodyHash":"8da55d6ba04e2489956add989d5912f09dd7a416d6ecd40259d9a0982b569827"}
+ * @tsgo-override {"category":"runtime-correctness","allow":["body"],"reason":"The result is a JavaScript string decoded from the bytes, not Go's byte string. One leading UTF-8 byte-order mark is removed, as the Go body does, and the decoder is constructed with ignoreBOM so that it removes no second one: a decoder with default options drops one more leading U+FEFF, which made two marks disappear where Go removes one."}
  *
  * Go source:
  * func decodeBytes(s string) (contents string, ok bool) {
@@ -360,7 +361,7 @@ function decodeBytesFromBytes(bytes) {
     if (bytes.length >= 3 && bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF) {
         bytes = bytes.subarray(3);
     }
-    return [new TextDecoder("utf-8").decode(bytes), true];
+    return [new TextDecoder("utf-8", { ignoreBOM: true }).decode(bytes), true];
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/vfs/internal/internal.go::func::decodeUtf16","kind":"func","status":"implemented","sigHash":"9a2464e1ae656956db538b4fe310ed91a6ef82b2f3ac7783eca09717f4a3ab84","bodyHash":"bef28f3056dc277d3a4a5ae1f0199ff9987f5779cb4aee263ffe30cb2ef1cc51"}

@@ -1,0 +1,1 @@
+{"name":"binding-value-outer-root","level":"function","rule":"C2962 exact binding value transport; declaration and nested ownership identities remain authored","input":"test/host-cases/ir-program/function/binding-value-outer-root.input.json","expected":"test/host-cases/ir-program/function/binding-value-outer-root.expected.json"}

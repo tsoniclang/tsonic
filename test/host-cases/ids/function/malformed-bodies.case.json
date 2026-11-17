@@ -1,0 +1,1 @@
+{"name":"malformed-bodies","level":"function","rule":"Exact nested definition, closed role and canonical ordinal framing errors","input":"test/host-cases/ids/function/malformed-bodies.input.json","expected":"test/host-cases/ids/function/malformed-bodies.expected.json"}

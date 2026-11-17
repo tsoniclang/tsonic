@@ -1,0 +1,7 @@
+{
+  "name": "body-module-unresolved",
+  "level": "verifier",
+  "rule": "body-module-unresolved",
+  "input": "test/host-cases/ir-program/verifier/body-module-unresolved.input.json",
+  "expected": "test/host-cases/ir-program/verifier/body-module-unresolved.expected.json"
+}

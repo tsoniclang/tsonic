@@ -1,0 +1,7 @@
+{
+  "name": "field-quoted-earlier",
+  "level": "function",
+  "rule": "text-first-position",
+  "input": "test/host-cases/ir-program/function/field-quoted-earlier.input.json",
+  "expected": "test/host-cases/ir-program/function/field-quoted-earlier.expected.json"
+}

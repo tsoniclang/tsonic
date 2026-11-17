@@ -1,0 +1,7 @@
+{
+  "name": "sum-arm-order-valid",
+  "level": "verifier",
+  "rule": "sum-arm-order",
+  "input": "test/host-cases/ir-types/verifier/sum-arm-order-valid.input.json",
+  "expected": "test/host-cases/ir-types/verifier/sum-arm-order-valid.expected.json"
+}

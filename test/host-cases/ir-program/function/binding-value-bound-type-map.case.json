@@ -1,0 +1,1 @@
+{"name":"binding-value-bound-type-map","level":"function","rule":"C2962 exact binding value transport; declaration and nested ownership identities remain authored","input":"test/host-cases/ir-program/function/binding-value-bound-type-map.input.json","expected":"test/host-cases/ir-program/function/binding-value-bound-type-map.expected.json"}

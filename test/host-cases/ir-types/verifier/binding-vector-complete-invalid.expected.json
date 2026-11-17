@@ -1,0 +1,25 @@
+{
+  "kind": "accepted",
+  "value": [
+    {
+      "rule": "binding-vector-complete",
+      "site": {
+        "kind": "binding",
+        "vector": 0,
+        "family": "classBindings",
+        "position": null
+      },
+      "detail": [
+        {
+          "kind": "text",
+          "value": "length"
+        },
+        {
+          "kind": "number",
+          "value": 0
+        }
+      ]
+    }
+  ],
+  "diagnostics": []
+}

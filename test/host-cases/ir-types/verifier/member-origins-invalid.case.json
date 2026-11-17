@@ -1,0 +1,7 @@
+{
+  "name": "member-origins-invalid",
+  "level": "verifier",
+  "rule": "member-origins",
+  "input": "test/host-cases/ir-types/verifier/member-origins-invalid.input.json",
+  "expected": "test/host-cases/ir-types/verifier/member-origins-invalid.expected.json"
+}

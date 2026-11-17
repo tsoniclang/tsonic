@@ -1,0 +1,7 @@
+{
+  "name": "parameter-identity-invalid",
+  "level": "verifier",
+  "rule": "parameter-identity",
+  "input": "test/host-cases/ir-types/verifier/parameter-identity-invalid.input.json",
+  "expected": "test/host-cases/ir-types/verifier/parameter-identity-invalid.expected.json"
+}

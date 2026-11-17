@@ -1,0 +1,23 @@
+{
+  "kind": "accepted",
+  "value": [
+    {
+      "rule": "member-origins",
+      "site": {
+        "kind": "type",
+        "type": 0
+      },
+      "detail": [
+        {
+          "kind": "text",
+          "value": "members.origins"
+        },
+        {
+          "kind": "number",
+          "value": 0
+        }
+      ]
+    }
+  ],
+  "diagnostics": []
+}

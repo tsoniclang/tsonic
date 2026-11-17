@@ -1,0 +1,7 @@
+{
+  "name": "index-order-valid",
+  "level": "verifier",
+  "rule": "index-order",
+  "input": "test/host-cases/ir-types/verifier/index-order-valid.input.json",
+  "expected": "test/host-cases/ir-types/verifier/index-order-valid.expected.json"
+}

@@ -1,0 +1,7 @@
+{
+  "name": "entry-block-zero",
+  "level": "verifier",
+  "rule": "entry-block-zero",
+  "input": "test/host-cases/ir-mir/verifier/entry-block-zero.input.json",
+  "expected": "test/host-cases/ir-mir/verifier/entry-block-zero.expected.json"
+}

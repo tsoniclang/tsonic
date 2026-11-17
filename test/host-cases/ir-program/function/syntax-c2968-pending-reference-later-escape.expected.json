@@ -1,0 +1,1 @@
+{"kind":"accepted","value":{"kind":"invalid-text","offset":377,"line":2,"column":295,"expected":["JSON escape"],"found":"\\"},"diagnostics":[]}

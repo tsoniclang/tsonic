@@ -9,49 +9,44 @@ export function testResourceBudget(machine, environment = {}, profile = "host") 
   if (!["host", "rust", "native"].includes(profile)) throw new Error("Unknown test resource profile.");
   const availableCpus = positiveInteger(machine.cpus, "available CPUs");
   const cpuBudget = configuredInteger(environment.TSONIC_TEST_CPUS, "TSONIC_TEST_CPUS")
-    ?? Math.max(1, Math.floor(availableCpus * 0.85));
-  if (cpuBudget > availableCpus) throw new Error("TSONIC_TEST_CPUS exceeds available CPUs.");
+    ?? availableCpus;
+  if (cpuBudget !== availableCpus) throw new Error("TSONIC_TEST_CPUS must equal available CPUs; CPU caps are not supported.");
   const totalMemoryMiB = positiveInteger(machine.totalMemoryMiB, "total memory");
   const availableMemoryMiB = positiveInteger(machine.availableMemoryMiB, "available memory");
   if (availableMemoryMiB > totalMemoryMiB) throw new Error("Available memory exceeds total memory.");
-  const reserveMiB = Math.min(12_288, Math.max(512, Math.floor(totalMemoryMiB / 5)));
-  const memoryMiB = configuredInteger(environment.TSONIC_TEST_MEMORY_MIB, "TSONIC_TEST_MEMORY_MIB")
-    ?? Math.min(40_960, availableMemoryMiB - reserveMiB);
-  if (memoryMiB <= 0 || memoryMiB > availableMemoryMiB) {
-    throw new Error("The test memory budget must fit currently available memory.");
+  const workers = configuredInteger(environment.TSONIC_TEST_WORKERS, "TSONIC_TEST_WORKERS") ?? availableCpus;
+  const requestedMemoryMiB = configuredInteger(environment.TSONIC_TEST_MEMORY_MIB, "TSONIC_TEST_MEMORY_MIB");
+  const memoryMiB = requestedMemoryMiB ?? Math.min(24_576, workers * 2048 + 2048);
+  if (memoryMiB <= 0 || memoryMiB > totalMemoryMiB) {
+    throw new Error("The test memory budget must fit physical memory; admission waits for available memory.");
   }
-  const workerMemoryMiB = configuredInteger(environment.TSONIC_TEST_WORKER_MEMORY_MIB, "TSONIC_TEST_WORKER_MEMORY_MIB")
-    ?? (profile === "host" ? 2048 : 4096);
   const childJobs = configuredInteger(environment.TSONIC_TEST_CHILD_JOBS, "TSONIC_TEST_CHILD_JOBS")
-    ?? (profile === "native" ? cpuBudget : profile === "rust" ? Math.min(2, cpuBudget) : 1);
-  const capacity = Math.min(Math.floor(cpuBudget / childJobs), Math.floor(memoryMiB / workerMemoryMiB));
-  if (capacity < 1) throw new Error("The CPU/memory budget cannot admit one test worker.");
-  const workers = configuredInteger(environment.TSONIC_TEST_WORKERS, "TSONIC_TEST_WORKERS") ?? capacity;
-  if (workers > capacity) throw new Error(`Requested ${workers} test workers exceed the CPU/memory capacity ${capacity}.`);
+    ?? (profile === "rust" ? 2 : 1);
   const heapMiB = configuredInteger(environment.TSONIC_TEST_HEAP_MIB, "TSONIC_TEST_HEAP_MIB")
-    ?? Math.min(4096, Math.floor(workerMemoryMiB * 0.75));
-  if (heapMiB >= workerMemoryMiB) throw new Error("The worker heap must leave room for native memory.");
-  return Object.freeze({ availableCpus, cpuBudget, memoryMiB, workerMemoryMiB, childJobs, workers, heapMiB });
+    ?? Math.min(3072, Math.floor(memoryMiB * 0.75));
+  return checkedResourceBudget({ availableCpus, cpuBudget, memoryMiB, childJobs, workers, heapMiB,
+    memoryRequestSource: requestedMemoryMiB === undefined ? "formula" : "explicit" });
 }
 
-export function readTestMachineResources() {
-  let cpus = availableParallelism();
+export function readTestHostResources() {
+  const cpus = availableParallelism();
   let availableMemoryBytes = freemem();
   if (existsSync("/proc/meminfo")) {
     const available = readFileSync("/proc/meminfo", "utf8").match(/^MemAvailable:\s+(\d+) kB$/mu);
     if (available !== null) availableMemoryBytes = Number(available[1]) * 1024;
   }
+  return { cpus, availableMemoryMiB: Math.floor(availableMemoryBytes / mebibyte), totalMemoryMiB: Math.floor(totalmem() / mebibyte) };
+}
+
+export function readTestMachineResources() {
+  const host = readTestHostResources();
+  let availableMemoryBytes = host.availableMemoryMiB * mebibyte;
   if (existsSync("/proc/self/cgroup")) {
     const membership = readFileSync("/proc/self/cgroup", "utf8").match(/^0::(.+)$/mu);
     if (membership !== null) {
       const root = "/sys/fs/cgroup";
       let directory = resolve(root, `.${membership[1]}`);
       while (directory === root || directory.startsWith(`${root}/`)) {
-        const quotaFile = resolve(directory, "cpu.max");
-        if (existsSync(quotaFile)) {
-          const [quota, period] = readFileSync(quotaFile, "utf8").trim().split(/\s+/u);
-          if (quota !== "max") cpus = Math.min(cpus, Math.max(1, Math.floor(Number(quota) / Number(period))));
-        }
         const limitFile = resolve(directory, "memory.max");
         if (existsSync(limitFile)) {
           const limit = readFileSync(limitFile, "utf8").trim();
@@ -66,27 +61,51 @@ export function readTestMachineResources() {
       }
     }
   }
-  return { cpus, availableMemoryMiB: Math.floor(availableMemoryBytes / mebibyte), totalMemoryMiB: Math.floor(totalmem() / mebibyte) };
+  return { ...host, availableMemoryMiB: Math.floor(availableMemoryBytes / mebibyte) };
 }
 
 export function readTestResourceBudget(environment = process.env, profile = "host") {
+  if (!["host", "rust", "native"].includes(profile)) throw new Error("Unknown test resource profile.");
   if (environment.TSONIC_TEST_RESOURCE_BUDGET === undefined) {
     return testResourceBudget(readTestMachineResources(), environment, profile);
   }
   const selected = JSON.parse(environment.TSONIC_TEST_RESOURCE_BUDGET);
-  const fields = ["availableCpus", "cpuBudget", "memoryMiB", "workerMemoryMiB", "childJobs", "workers", "heapMiB"];
-  if (selected === null || typeof selected !== "object" || Object.keys(selected).length !== fields.length) {
+  return checkedResourceBudget({ ...selected,
+    workers: configuredInteger(environment.TSONIC_TEST_WORKERS, "TSONIC_TEST_WORKERS") ?? selected?.workers });
+}
+
+export function testTaskEnvironment(environment, budget, task) {
+  const heapMiB = task.heapMiB ?? budget.heapMiB;
+  const childJobs = task.childJobs ?? budget.childJobs;
+  const selected = checkedResourceBudget({ ...budget, childJobs, workers: 1, heapMiB });
+  const inherited = environment.NODE_OPTIONS ?? "";
+  const ownedHeap = `--max-old-space-size=${budget.heapMiB}`;
+  if (!inherited.endsWith(ownedHeap)) throw new Error("Task resources require the final guard-owned Node heap option.");
+  const childEnvironment = {
+    ...environment,
+    TSONIC_TEST_RESOURCE_BUDGET: JSON.stringify(selected),
+    TSONIC_TEST_CPUS: String(selected.cpuBudget), TSONIC_TEST_MEMORY_MIB: String(selected.memoryMiB),
+    TSONIC_TEST_HEAP_MIB: String(selected.heapMiB),
+    TSONIC_TEST_CHILD_JOBS: String(selected.childJobs),
+    CARGO_BUILD_JOBS: String(selected.childJobs), RUST_TEST_THREADS: String(selected.childJobs),
+    DOTNET_PROCESSOR_COUNT: String(selected.childJobs),
+    TSONIC_TEST_WORKERS: "1",
+    NODE_OPTIONS: `${inherited.slice(0, -ownedHeap.length)}--max-old-space-size=${selected.heapMiB}`,
+  };
+  delete childEnvironment.NODE_TEST_CONTEXT;
+  return childEnvironment;
+}
+
+function checkedResourceBudget(selected) {
+  const fields = ["availableCpus", "cpuBudget", "memoryMiB", "childJobs", "workers", "heapMiB", "memoryRequestSource"];
+  if (selected === null || typeof selected !== "object" || Object.keys(selected).length !== fields.length ||
+      Object.keys(selected).some(field => !fields.includes(field)) || !["explicit", "formula"].includes(selected.memoryRequestSource)) {
     throw new Error("Invalid inherited test resource budget.");
   }
-  for (const field of fields) positiveInteger(selected[field], field);
-  return testResourceBudget({ cpus: selected.availableCpus, totalMemoryMiB: selected.memoryMiB, availableMemoryMiB: selected.memoryMiB }, {
-    TSONIC_TEST_CPUS: String(selected.cpuBudget),
-    TSONIC_TEST_MEMORY_MIB: String(selected.memoryMiB),
-    TSONIC_TEST_WORKER_MEMORY_MIB: String(selected.workerMemoryMiB),
-    TSONIC_TEST_CHILD_JOBS: String(selected.childJobs),
-    TSONIC_TEST_WORKERS: environment.TSONIC_TEST_WORKERS ?? String(selected.workers),
-    TSONIC_TEST_HEAP_MIB: String(selected.heapMiB),
-  }, profile);
+  for (const field of fields.filter(field => field !== "memoryRequestSource")) positiveInteger(selected[field], field);
+  if (selected.cpuBudget !== selected.availableCpus) throw new Error("CPU caps are not supported.");
+  if (selected.heapMiB >= selected.memoryMiB) throw new Error("The heap cap must leave room in the outer group for native memory.");
+  return ({ ...selected });
 }
 
 function configuredInteger(value, name) {
@@ -101,6 +120,6 @@ function positiveInteger(value, name) {
 }
 
 if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const budget = testResourceBudget(readTestMachineResources(), process.env, process.argv[2] ?? "host");
+  const budget = testResourceBudget(readTestHostResources(), process.env, process.argv[2] ?? "host");
   console.log(JSON.stringify(budget));
 }

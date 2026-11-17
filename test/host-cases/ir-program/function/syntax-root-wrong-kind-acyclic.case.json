@@ -1,0 +1,7 @@
+{
+  "name": "syntax-root-wrong-kind-acyclic",
+  "level": "function",
+  "rule": "syntax-root-wrong-kind-acyclic",
+  "input": "test/host-cases/ir-program/function/syntax-root-wrong-kind-acyclic.input.json",
+  "expected": "test/host-cases/ir-program/function/syntax-root-wrong-kind-acyclic.expected.json"
+}

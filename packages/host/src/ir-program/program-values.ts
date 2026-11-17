@@ -1,0 +1,338 @@
+import type { InstantiationMeter, InstantiationStop } from "./work.js";
+import { chargeInstantiationWork, emitInstantiationRecord } from "./work.js";
+import { summaryKey } from "../ir-facts/index.js";
+import type { MessageArgument, Violation } from "../diag/contract.js";
+import type { BodyId, DefId, ModuleId, PackageId, SigId, TyId } from "../ids/contract.js";
+import { encodeKey } from "../ids/index.js";
+import { artifactBindingsData, artifactBindingsKey, constantReferenceKey, executionKey, instanceKey } from "../ir-types/index.js";
+import type {
+  ArtifactBindings, BindingVector, BodyInstance, Execution, ComponentSelector, PointerEvidence, SelfBinding, TypeBinding,
+  TypeComponent, TypeEvidence, TypeParameter,
+} from "../ir-types/contract.js";
+import type { HirCallableEndpoint } from "../ir-hir/contract.js";
+import type { BodyRecord, ConstantRecord, DefinitionNode, ModuleRecord, PackageRecord, ProgramIndex, ProgramRule, ProgramSite, SummaryArtifactReference } from "./contract.js";
+import type { MetadataRecord, Summary, SummaryKey } from "../ir-facts/contract.js";
+
+export interface DefinitionLocation {
+  readonly module: ModuleId;
+  readonly entry: DefinitionNode;
+}
+
+export interface ProgramLookup {
+  readonly packages: ReadonlyMap<PackageId, PackageRecord | null>;
+  readonly modules: ReadonlyMap<ModuleId, ModuleRecord | null>;
+  readonly definitions: ReadonlyMap<DefId, DefinitionLocation | null>;
+  readonly bodies: ReadonlyMap<BodyId, readonly BodyRecord[]>;
+  readonly instances: ReadonlyMap<string, BodyRecord | null>;
+  readonly executions: ReadonlyMap<string, Execution | null>;
+  readonly executionsByInstance: ReadonlyMap<string, readonly Execution[]>;
+  readonly metadata: ReadonlyMap<string, MetadataRecord | null>;
+  readonly summaries: ReadonlyMap<string, Summary | null>;
+  readonly constants: ReadonlyMap<string, ConstantRecord | null>;
+}
+
+export type ProgramViolation = Violation<ProgramRule, ProgramSite>;
+
+export function programChildRule(
+  group: "tir-valid" | "mir-valid" | "facts-valid" | "metadata-valid" | "summary-valid" | "dependency-inventory-valid", child: string,
+): ProgramRule {
+  return child === "cross-owner-qualified" ? "cross-owner-qualified" : group;
+}
+
+export function admitBindingVector(meter: InstantiationMeter, distinctCount: number): InstantiationStop | null {
+  const limits = meter.limits;
+  if (distinctCount >= limits.maximumBindingVectorsPerArtifact) {
+    return { kind: "resource-limit", dimension: "binding-vectors", maximum: limits.maximumBindingVectorsPerArtifact };
+  }
+  return null;
+}
+
+export interface BindingLookup {
+  readonly parameterBinding: (value: { readonly kind: "rigid"; readonly parameter: DefId }) => TypeBinding;
+  readonly selfBinding: (value: { readonly kind: "rigid"; readonly owner: DefId }) => SelfBinding;
+}
+
+export function createBindingLookup(
+  meter: InstantiationMeter, bindings: BindingVector,
+): { readonly kind: "complete"; readonly lookup: BindingLookup } | InstantiationStop {
+  const parameters = new Map<string, TypeBinding>();
+  const selves = new Map<DefId, SelfBinding>();
+  for (const family of [bindings.classBindings, bindings.methodBindings, bindings.capturedBindings]) {
+    for (const binding of family) {
+      const stop = chargeInstantiationWork(meter);
+      if (stop !== null) return stop;
+      const key = binding.parameter;
+      if (parameters.has(key)) throw new TypeError("Duplicate requested parameter binding");
+      parameters.set(key, binding);
+    }
+  }
+  for (const binding of bindings.selfBindings) {
+    const stop = chargeInstantiationWork(meter);
+    if (stop !== null) return stop;
+    if (selves.has(binding.owner)) throw new TypeError("Duplicate requested self binding");
+    selves.set(binding.owner, binding);
+  }
+  return {
+    kind: "complete",
+    lookup: {
+      parameterBinding: value => parameters.get(value.parameter) ?? value,
+      selfBinding: value => selves.get(value.owner) ?? value,
+    },
+  };
+}
+
+export interface ProjectionInventory extends BindingLookup {
+  readonly meter: InstantiationMeter;
+  readonly pending: (() => InstantiationStop | null)[];
+  readonly types: Set<TyId>;
+  readonly signatures: Set<SigId>;
+  readonly components: Set<TypeComponent>;
+}
+
+export function createProjectionInventory(meter: InstantiationMeter, bindings: BindingLookup): ProjectionInventory {
+  return { ...bindings, meter, pending: [], types: new Set(), signatures: new Set(), components: new Set() };
+}
+
+export function inventoryFields(scan: ProjectionInventory, count: number): InstantiationStop | null {
+  for (let position = 0; position < count; position += 1) {
+    const stop = chargeInstantiationWork(scan.meter);
+    if (stop !== null) return stop;
+  }
+  return null;
+}
+
+export function inventoryRecord(scan: ProjectionInventory, fields: number): InstantiationStop | null {
+  return emitInstantiationRecord(scan.meter) ?? inventoryFields(scan, fields);
+}
+
+export function inventoryType(scan: ProjectionInventory, value: TyId | null): InstantiationStop | null {
+  if (value === null) return null;
+  const stop = chargeInstantiationWork(scan.meter);
+  if (stop !== null) return stop;
+  scan.types.add(value);
+  return null;
+}
+
+export function inventorySignature(scan: ProjectionInventory, value: SigId): InstantiationStop | null {
+  const stop = chargeInstantiationWork(scan.meter);
+  if (stop !== null) return stop;
+  scan.signatures.add(value);
+  return null;
+}
+
+export function inventoryEach<Value>(
+  scan: ProjectionInventory, values: readonly Value[], visit: (value: Value) => InstantiationStop | null,
+): void {
+  const iterator = values.values();
+  const next = (): InstantiationStop | null => {
+    const entry = iterator.next();
+    if (entry.done) return null;
+    scan.pending.push(next);
+    return visit(entry.value);
+  };
+  scan.pending.push(next);
+}
+
+export function drainProjectionInventory(scan: ProjectionInventory): InstantiationStop | null {
+  let next = scan.pending.pop();
+  while (next !== undefined) {
+    const stop = next();
+    if (stop !== null) return stop;
+    next = scan.pending.pop();
+  }
+  return null;
+}
+
+export function inventoryBindings(scan: ProjectionInventory, value: BindingVector): InstantiationStop | null {
+  for (const family of [value.classBindings, value.methodBindings, value.capturedBindings]) {
+    inventoryEach(scan, family, original => {
+      const binding = original.kind === "rigid" ? scan.parameterBinding(original) : original;
+      switch (binding.kind) {
+        case "rigid": return inventoryFields(scan, 1);
+        case "bound": return inventoryRecord(scan, 3) ?? inventoryType(scan, binding.type);
+      }
+    });
+  }
+  inventoryEach(scan, value.selfBindings, original => {
+    const binding = original.kind === "rigid" ? scan.selfBinding(original) : original;
+    switch (binding.kind) {
+      case "rigid": return inventoryFields(scan, 1);
+      case "bound": return inventoryRecord(scan, 3) ?? inventoryType(scan, binding.type);
+    }
+  });
+  return inventoryRecord(scan, 4);
+}
+
+export function inventoryArtifactBindings(scan: ProjectionInventory, value: ArtifactBindings): InstantiationStop | null {
+  switch (value.kind) {
+    case "parametric": return inventoryFields(scan, 1);
+    case "instantiated": return inventoryRecord(scan, 2) ?? inventoryBindings(scan, value.bindings);
+  }
+}
+
+export function inventoryInstance(scan: ProjectionInventory, value: BodyInstance): InstantiationStop | null {
+  return inventoryRecord(scan, 2) ?? inventoryArtifactBindings(scan, value.bindings);
+}
+
+export function inventoryParameter(scan: ProjectionInventory, value: TypeParameter): InstantiationStop | null {
+  return inventoryRecord(scan, 4) ?? inventoryType(scan, value.constraint) ?? inventoryType(scan, value.default);
+}
+
+export function inventoryEndpoint(scan: ProjectionInventory, value: HirCallableEndpoint): InstantiationStop | null {
+  return inventoryRecord(scan, 4) ?? inventorySignature(scan, value.signature);
+}
+
+function inventorySelector(scan: ProjectionInventory, value: ComponentSelector): InstantiationStop | null {
+  const step = chargeInstantiationWork(scan.meter);
+  if (step !== null) return step;
+  switch (value.kind) {
+    case "index-key": case "index-value": return inventoryRecord(scan, 3) ?? inventoryType(scan, value.key);
+    case "parameter": return inventoryRecord(scan, 3) ?? inventorySignature(scan, value.signature);
+    case "receiver":
+    case "result": return inventoryRecord(scan, 2) ?? inventorySignature(scan, value.signature);
+    case "signature-tail": return inventoryRecord(scan, 4) ?? inventorySignature(scan, value.signature);
+    case "sum-arm": {
+      inventoryEach(scan, value.family.roles, role => inventoryRecord(scan, 3) ?? inventoryType(scan, role.member));
+      scan.pending.push(() => inventoryComponent(scan, value.family.component));
+      return inventoryRecord(scan, 3) ?? inventoryRecord(scan, 4);
+    }
+    case "class-value":
+    case "construction-argument":
+    case "optional-value":
+    case "array-element":
+    case "tuple-element":
+    case "union-member":
+    case "argument-place":
+    case "parameter-place":
+    case "intersection-member":
+    case "intersection-result":
+    case "argument-tail":
+    case "parameter-tail":
+    case "member":
+    case "projection-source":
+    case "tuple-slice":
+    case "type-argument":
+    case "awaited": return inventoryFields(scan, 1);
+  }
+}
+
+export function inventoryComponent(scan: ProjectionInventory, value: TypeComponent): InstantiationStop | null {
+  scan.pending.push(() => {
+    if (scan.components.has(value)) throw new TypeError("Inline cycle in instantiation TypeComponent");
+    scan.components.add(value);
+    scan.pending.push(() => { scan.components.delete(value); return null; });
+    inventoryEach(scan, value.path, selector => inventorySelector(scan, selector));
+    return inventoryRecord(scan, 2);
+  });
+  return null;
+}
+
+function inventoryPointer(scan: ProjectionInventory, value: PointerEvidence): InstantiationStop | null {
+  switch (value.kind) {
+    case "raw-address":
+    case "native-pointer": return inventoryFields(scan, 1);
+    case "typed-location": return inventoryRecord(scan, 3) ?? inventoryType(scan, value.pointee);
+    case "function-pointer":
+      inventoryEach(scan, value.parameters, type => inventoryType(scan, type));
+      return inventoryRecord(scan, 5) ?? inventoryType(scan, value.result);
+  }
+}
+
+export function inventoryEvidence(scan: ProjectionInventory, value: TypeEvidence): InstantiationStop | null {
+  if (value.sum !== null) {
+    const sum = value.sum;
+    inventoryEach(scan, sum.arms, arm => inventoryRecord(scan, 3) ?? inventoryType(scan, arm.member));
+    scan.pending.push(() => inventoryRecord(scan, 4) ?? inventoryBindings(scan, sum.bindings));
+  }
+  if (value.pointer !== null) {
+    const pointer = value.pointer;
+    scan.pending.push(() => inventoryPointer(scan, pointer));
+  }
+  return inventoryRecord(scan, 7) ?? inventoryType(scan, value.type);
+}
+
+export function artifactEnvironmentKey(definition: DefId, bindings: ArtifactBindings): string {
+  return encodeKey([definition, artifactBindingsData(bindings)]);
+}
+
+export const summaryBindingsOf = (key: SummaryKey): ArtifactBindings => key.kind === "body"
+  ? key.execution.instance.bindings : key.execution.request.bindings;
+
+export const summaryReferenceOf = (key: SummaryKey): SummaryArtifactReference => key.kind === "body"
+  ? { kind: "summary", target: "body", body: key.execution.instance.body, provided: key.execution.provided }
+  : { kind: "summary", target: "declared", definition: key.execution.request.definition,
+      endpoint: key.execution.request.endpoint, ordinal: key.execution.request.ordinal, provided: key.execution.provided };
+
+export const summaryReferenceKey = (reference: SummaryArtifactReference): string => encodeKey(reference.target === "body"
+  ? [reference.target, reference.body, reference.provided]
+  : [reference.target, reference.definition, reference.endpoint, reference.ordinal, reference.provided]);
+
+export function uniqueRows<Identity, Value>(
+  rows: readonly Value[],
+  identityOf: (row: Value) => Identity,
+): ReadonlyMap<Identity, Value | null> {
+  const result = new Map<Identity, Value | null>();
+  for (const row of rows) {
+    const identity = identityOf(row);
+    result.set(identity, result.has(identity) ? null : row);
+  }
+  return result;
+}
+
+export function programLookup(index: ProgramIndex): ProgramLookup {
+  const definitions: DefinitionLocation[] = [];
+  for (const module of index.modules) {
+    for (const entry of module.items) definitions.push({ module: module.module, entry });
+  }
+  const bodies = new Map<BodyId, BodyRecord[]>();
+  for (const record of index.bodies) {
+    const previous = bodies.get(record.instance.body);
+    if (previous === undefined) bodies.set(record.instance.body, [record]);
+    else previous.push(record);
+  }
+  const executionsByInstance = new Map<string, Execution[]>();
+  const executions = new Map<string, Execution | null>();
+  for (const operation of index.dependencyInventory.operations) {
+    if (operation.kind !== "body") continue;
+    const execution = operation.execution;
+    const selected = executionKey(execution);
+    executions.set(selected, executions.has(selected) ? null : execution);
+    const key = instanceKey(execution.instance);
+    const previous = executionsByInstance.get(key);
+    if (previous === undefined) executionsByInstance.set(key, [execution]);
+    else previous.push(execution);
+  }
+  return {
+    packages: uniqueRows(index.packages, record => record.id),
+    modules: uniqueRows(index.modules, record => record.module),
+    definitions: uniqueRows(definitions, location => location.entry.definition),
+    bodies,
+    instances: uniqueRows(index.bodies, record => instanceKey(record.instance)),
+    executions,
+    executionsByInstance,
+    metadata: uniqueRows(index.metadata, record => artifactEnvironmentKey(record.key.definition, record.key.bindings)),
+    summaries: uniqueRows(index.summaries, record => summaryKey(record.key)),
+    constants: uniqueRows(index.constants, record => constantReferenceKey(record.reference)),
+  };
+}
+
+export function textDetail(value: string): MessageArgument {
+  return { kind: "text", value };
+}
+
+export function numberDetail(value: number): MessageArgument {
+  return { kind: "number", value };
+}
+
+export function compareText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+export function compareInstances(left: BodyInstance, right: BodyInstance): number {
+  return compareText(left.body, right.body)
+    || compareText(artifactBindingsKey(left.bindings), artifactBindingsKey(right.bindings));
+}
+
+export function compareExecutions(left: Execution, right: Execution): number {
+  return compareInstances(left.instance, right.instance) || left.provided - right.provided;
+}

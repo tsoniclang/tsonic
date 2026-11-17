@@ -1404,6 +1404,7 @@ export declare function Checker_createEmptyObjectTypeFromStringLiteral(receiver:
 export declare function Checker_newInferenceContext(receiver: GoPtr<Checker>, typeParameters: GoSlice<GoPtr<Type>>, signature: GoPtr<Signature>, flags: InferenceFlags, compareTypes: TypeComparer | undefined): GoPtr<InferenceContext>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/inference.go::method::Checker.cloneInferenceContext","kind":"method","status":"implemented","sigHash":"b528c8557efc41276497cfd0a0ece81df38ffc94e84beb7e3bce2cd5ff238da8","bodyHash":"f6e00d8c073892864f75139c1caa233e8ef774e4d4a50f84b0a1ad50c7a6a090"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Retains only the exact copied selected-default contribution in the existing bounded call-evidence frame; native inference caches and signatures are unchanged."}
  *
  * Go source:
  * func (c *Checker) cloneInferenceContext(n *InferenceContext, extraFlags InferenceFlags) *InferenceContext {
@@ -1416,6 +1417,7 @@ export declare function Checker_newInferenceContext(receiver: GoPtr<Checker>, ty
 export declare function Checker_cloneInferenceContext(receiver: GoPtr<Checker>, n: GoPtr<InferenceContext>, extraFlags: InferenceFlags): GoPtr<InferenceContext>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/inference.go::method::Checker.cloneInferredPartOfContext","kind":"method","status":"implemented","sigHash":"5494df88169cd173775b5f3ee1adbec489ccace52f60371081cfcdf04a80d9fd","bodyHash":"4556cd82622a921a32b3e5f484e133d41af729c94b5a93e5c31432d7c9394628"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Retains only the exact copied selected-default contribution in the existing bounded call-evidence frame; native inference caches and signatures are unchanged."}
  *
  * Go source:
  * func (c *Checker) cloneInferredPartOfContext(n *InferenceContext) *InferenceContext {
@@ -1475,6 +1477,7 @@ export declare function Checker_addIntraExpressionInferenceSite(receiver: GoPtr<
 export declare function Checker_inferFromIntraExpressionSites(receiver: GoPtr<Checker>, n: GoPtr<InferenceContext>): void;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/inference.go::method::Checker.getInferredType","kind":"method","status":"implemented","sigHash":"436a997c39ab435c05948be5e6daf128288aeec093ec139ffeb8092f98b82931","bodyHash":"93777b5af3ccc033fc95ecbba08bb7460666f77b99316c7a4447ed1d127cc4ac"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Retains authored-default origin only when the native branch selects it and clears it on native recomputation or constraint replacement; the existing bounded selected-call journal owns evidence."}
  *
  * Go source:
  * func (c *Checker) getInferredType(n *InferenceContext, index int) *Type {

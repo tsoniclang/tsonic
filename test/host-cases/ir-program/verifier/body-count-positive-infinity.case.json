@@ -1,0 +1,7 @@
+{
+  "name": "body-count-positive-infinity",
+  "level": "verifier",
+  "rule": "body-count-positive-infinity",
+  "input": "test/host-cases/ir-program/verifier/body-count-positive-infinity.input.json",
+  "expected": "test/host-cases/ir-program/verifier/body-count-positive-infinity.expected.json"
+}

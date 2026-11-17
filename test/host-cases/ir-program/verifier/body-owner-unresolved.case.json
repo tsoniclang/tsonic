@@ -1,0 +1,7 @@
+{
+  "name": "body-owner-unresolved",
+  "level": "verifier",
+  "rule": "body-owner-unresolved",
+  "input": "test/host-cases/ir-program/verifier/body-owner-unresolved.input.json",
+  "expected": "test/host-cases/ir-program/verifier/body-owner-unresolved.expected.json"
+}

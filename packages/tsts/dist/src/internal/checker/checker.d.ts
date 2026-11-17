@@ -146,6 +146,7 @@ export declare function Checker_checkClassExpressionExternalHelpers(receiver: Go
 export declare function Checker_checkCollisionWithGlobalObjectInGeneratedCode(receiver: GoPtr<Checker>, node: GoPtr<Node>, name: GoPtr<Node>): void;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.addDiagnostic","kind":"method","status":"implemented","sigHash":"c245f83ad6b1b61ff59661705c0c44e5d9f6ba820211ac05481f23f348039643","bodyHash":"509c27d0820361e19284d0e8ddf566cb737624a6de87e5387aef246b02dfbe6e"}
+ * @tsgo-override {"category":"extension-host","allow":["signature"],"reason":"Return the same original Diagnostic only from the existing actual publication arm so an answer producer cannot retain a suppressed diagnostic as a cause.","goSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/diagnostic.ts::Diagnostic>)=>void","tsSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/diagnostic.ts::Diagnostic>)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/diagnostic.ts::Diagnostic>"}
  *
  * Go source:
  * func (c *Checker) addDiagnostic(diagnostic *ast.Diagnostic) {
@@ -155,7 +156,7 @@ export declare function Checker_checkCollisionWithGlobalObjectInGeneratedCode(re
  * 	}
  * }
  */
-export declare function Checker_addDiagnostic(receiver: GoPtr<Checker>, diagnostic: GoPtr<Diagnostic>): void;
+export declare function Checker_addDiagnostic(receiver: GoPtr<Checker>, diagnostic: GoPtr<Diagnostic>): GoPtr<Diagnostic>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.addSuggestionDiagnostic","kind":"method","status":"implemented","sigHash":"3b7aac864c2b84d4e6837b964c2b22550ee15aae0a53cbb1e0ad70d85bbe1cdb","bodyHash":"63a5a0d649622d211888b45d908b7b9cc6c1dbb53686ca7c5eb22dd048253618"}
  *
@@ -266,6 +267,7 @@ export declare function Checker_createNormalizedTupleTypeEx(receiver: GoPtr<Chec
  * }
  */
 export declare function Checker_createTypeReferenceEx(receiver: GoPtr<Checker>, target: GoPtr<Type>, typeArguments: GoSlice<GoPtr<Type>>, objectFlags: ObjectFlags): GoPtr<Type>;
+export declare function cachedReferenceInputs(checker: Checker, type: Type): readonly GoPtr<Type>[] | undefined;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getSimplifiedIndexedAccessTypeWorker","kind":"method","status":"implemented","sigHash":"3b9a57400da8c44daf0aff8604ba01e99a5a90ae6d3a0a5f9d0a417e9540349c","bodyHash":"a21b38b13a94cd1d10a988859946161df9025cb6a2f65791a68ebd41b36b5ffb"}
  *

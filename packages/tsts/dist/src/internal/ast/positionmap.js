@@ -1,11 +1,7 @@
-import { DecodeRuneInStringAt, RuneSelf, StringByteAt, StringByteLen } from "../../go/unicode/utf8.js";
-// Go strings are immutable UTF-8 byte sequences; `len(s)` is a byte length,
-// `s[i]` reads a byte, and slices like `s[i:]` operate on byte offsets. We
-// mirror that contract by operating over the UTF-8 byte view of the JS string.
-const byteLen = StringByteLen;
-const byteAt = StringByteAt;
+import { DecodeRuneInStringViewAt, GetStringByteView, RuneSelf, StringByteViewAt, StringByteViewLen } from "../../go/unicode/utf8.js";
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/ast/positionmap.go::func::ComputePositionMap","kind":"func","status":"implemented","sigHash":"fff86f76341e89022ab461dc09de223a2c9e92843e134094017d124b9fd2c221","bodyHash":"0e718a3bcab5bea0b8a36e8348be3f3195be41f2ee72b897913a3f85a5e9ef15"}
+ * @tsgo-override {"category":"runtime-performance","allow":["body"],"reason":"Take one UTF-8 byte view of the text and read every byte and rune through it, instead of taking a view for each byte and each rune through the string helpers; the entries and the asciiOnly flag are identical to the TS-Go body."}
  *
  * Go source:
  * func ComputePositionMap(text string) *PositionMap {
@@ -34,14 +30,15 @@ export function ComputePositionMap(text) {
     const entries = [];
     let delta = 0;
     let i = 0;
-    const n = byteLen(text);
+    const view = GetStringByteView(text);
+    const n = StringByteViewLen(text, view);
     while (i < n) {
-        const b = byteAt(text, i);
+        const b = StringByteViewAt(text, view, i);
         if (b < RuneSelf) {
             i++;
             continue;
         }
-        const [r, size] = DecodeRuneInStringAt(text, i);
+        const [r, size] = DecodeRuneInStringViewAt(text, view, i);
         let utf16Size = 1;
         if (r >= 0x10000) {
             utf16Size = 2;

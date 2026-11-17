@@ -1,0 +1,23 @@
+{
+  "kind": "accepted",
+  "value": [
+    {
+      "rule": "construction-captures-qualified",
+      "site": {
+        "kind": "type",
+        "type": 0
+      },
+      "detail": [
+        {
+          "kind": "text",
+          "value": "definition.captures"
+        },
+        {
+          "kind": "number",
+          "value": 0
+        }
+      ]
+    }
+  ],
+  "diagnostics": []
+}

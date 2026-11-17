@@ -1,0 +1,7 @@
+{
+  "name": "root-package-absent",
+  "level": "verifier",
+  "rule": "root-package-absent",
+  "input": "test/host-cases/ir-program/verifier/root-package-absent.input.json",
+  "expected": "test/host-cases/ir-program/verifier/root-package-absent.expected.json"
+}

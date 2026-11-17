@@ -1,0 +1,22 @@
+{
+  "kind": "accepted",
+  "value": [
+    [],
+    [
+      {
+        "rule": "local-id-dense",
+        "site": {
+          "kind": "body",
+          "body": "B[D[M[P[p];m];run];function;0]"
+        },
+        "detail": [
+          {
+            "kind": "number",
+            "value": 0
+          }
+        ]
+      }
+    ]
+  ],
+  "diagnostics": []
+}

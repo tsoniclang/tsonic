@@ -1,0 +1,1 @@
+{"name":"pragma-key-prefix","level":"function","rule":"C2945 exact decoded pragma dictionary key uniqueness/order and source-position ownership, without prototype or grammar fallback","input":"test/host-cases/ir-program/function/pragma-key-prefix.input.json","expected":"test/host-cases/ir-program/function/pragma-key-prefix.expected.json"}

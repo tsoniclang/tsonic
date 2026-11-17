@@ -1,0 +1,7 @@
+{
+  "name": "instantiate-empty-metadata",
+  "level": "function",
+  "rule": "empty-instantiation-zero-work",
+  "input": "test/host-cases/ir-program/function/instantiate-empty-metadata.input.json",
+  "expected": "test/host-cases/ir-program/function/instantiate-empty-metadata.expected.json"
+}

@@ -1,0 +1,1 @@
+{"name":"instantiation-preserves-existing-ids-reuse","level":"function","rule":"instantiation-preserves-existing-ids","input":"test/host-cases/ir-program/function/instantiation-preserves-existing-ids-reuse.input.json","expected":"test/host-cases/ir-program/function/instantiation-preserves-existing-ids-reuse.expected.json"}

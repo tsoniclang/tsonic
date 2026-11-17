@@ -1,0 +1,35 @@
+{
+  "table": {
+    "terms": [
+      {
+        "kind": "primitive",
+        "primitive": "int32"
+      }
+    ],
+    "signatures": []
+  },
+  "bindings": [
+    {
+      "vector": {
+        "classBindings": [
+          {
+            "kind": "rigid",
+            "parameter": "D[M[P[case];main.ts];field/T0]"
+          }
+        ],
+        "methodBindings": [],
+        "capturedBindings": [],
+        "selfBindings": []
+      },
+      "scope": {
+        "classParameters": [
+          "D[M[P[case];main.ts];field/T0]"
+        ],
+        "methodParameters": [],
+        "capturedParameters": [],
+        "selfOwners": []
+      }
+    }
+  ],
+  "evidence": []
+}

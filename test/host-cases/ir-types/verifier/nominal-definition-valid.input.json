@@ -1,0 +1,16 @@
+{
+  "table": {
+    "terms": [
+      {
+        "kind": "declared",
+        "definition": "D[M[P[case];main.ts];field]",
+        "arguments": [],
+        "facet": "instance",
+        "extent": null
+      }
+    ],
+    "signatures": []
+  },
+  "bindings": [],
+  "evidence": []
+}

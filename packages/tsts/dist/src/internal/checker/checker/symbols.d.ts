@@ -1,4 +1,6 @@
 import type { bool, int } from "../../../go/scalars.js";
+import type { LiteralConstructionOwner } from "./literal-creation.js";
+import type { ExtensionConditionalCapture } from "../../../extensions/conditional-type-evidence.js";
 import type { GoMap, GoPtr, GoSeq, GoSlice } from "../../../go/compat.js";
 import type { Node } from "../../ast/spine.js";
 import type { Declaration, ExportDeclarationNode, ExportSpecifierNode, Expression, IdentifierNode, ImportDeclarationNode, PropertyName } from "../../ast/generated/unions.js";
@@ -18,6 +20,7 @@ import type { Number } from "../../jsnum/jsnum.js";
 import type { TypeMapper } from "../mapper.js";
 import type { AccessFlags, ContextFlags, IndexFlags, IndexInfo, InterfaceType, MembersOrExportsResolutionKind, Signature, StructuredType, Type, TypeAlias, TypeFlags, TypeReference } from "../types.js";
 import type { Checker, CheckMode, DeclarationSpaces, ExportCollisionTable, keyBuilder, MappedTypeNameTypeKind, TypeResolution, TypeSystemEntity, TypeSystemPropertyName, WideningContext } from "./state.js";
+import type { Diagnostic } from "../../ast/diagnostic.js";
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getGlobalTypeResolver","kind":"method","status":"implemented","sigHash":"b7162538f53e2dd277927f7a92feb877cea155a3acd551202bdf5db7b187c06d","bodyHash":"ae676d3d0631edb5444cbe7274192e8b34763ec468969261be4dbef03d2d70f9"}
  *
@@ -196,6 +199,7 @@ export declare function Checker_getRequiresScopeChangeCache(receiver: GoPtr<Chec
 export declare function Checker_setRequiresScopeChangeCache(receiver: GoPtr<Checker>, node: GoPtr<Node>, value: Tristate): void;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.onFailedToResolveSymbol","kind":"method","status":"implemented","sigHash":"1b3f268b58f74d1ec2633504901de9e8981b7ffee588780473b6915298c69a42","bodyHash":"3802e3fc0ef406c635b993dfb682fa8b3bd99a4a806de296b59759067eb1e29f"}
+ * @tsgo-override {"category":"extension-host","allow":["signature"],"reason":"Return only the original Diagnostic admitted by the actual existing missing-name error producer; suppressed and unassociated answers remain absent.","goSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,string,packages/tsts/src/internal/ast/generated/flags.ts::SymbolFlags,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/diagnostics/diagnostics.ts::Message>)=>void","tsSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,string,packages/tsts/src/internal/ast/generated/flags.ts::SymbolFlags,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/diagnostics/diagnostics.ts::Message>)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/diagnostic.ts::Diagnostic>"}
  *
  * Go source:
  * func (c *Checker) onFailedToResolveSymbol(errorLocation *ast.Node, name string, meaning ast.SymbolFlags, nameNotFoundMessage *diagnostics.Message) {
@@ -237,7 +241,7 @@ export declare function Checker_setRequiresScopeChangeCache(receiver: GoPtr<Chec
  * 	c.error(errorLocation, nameNotFoundMessage, declarationName)
  * }
  */
-export declare function Checker_onFailedToResolveSymbol(receiver: GoPtr<Checker>, errorLocation: GoPtr<Node>, name: string, meaning: SymbolFlags, nameNotFoundMessage: GoPtr<Message>): void;
+export declare function Checker_onFailedToResolveSymbol(receiver: GoPtr<Checker>, errorLocation: GoPtr<Node>, name: string, meaning: SymbolFlags, nameNotFoundMessage: GoPtr<Message>): GoPtr<Diagnostic>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getSuggestedLibForNonExistentName","kind":"method","status":"implemented","sigHash":"876ffb76ceb669a67e450f4a726f950decdf0268cb9b7928908311849651691f","bodyHash":"2e4eef27ddaf284b9a41ee35548a05641b95c6d6196db75fdab1af57fb9c0be9"}
  *
@@ -589,6 +593,7 @@ export declare function Checker_isUsedInFunctionOrInstanceProperty(receiver: GoP
 export declare function Checker_getTypeOnlyAliasDeclaration(receiver: GoPtr<Checker>, symbol_: GoPtr<Symbol>): GoPtr<Node>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getTypeOnlyAliasDeclarationEx","kind":"method","status":"implemented","sigHash":"f2fee28c9f043169d61a0895c84f40cbdec23f2aabd47775ef344a4ddbae8d6d","bodyHash":"6081de1e28a569c095aa26e2c4db86fe2ae0e50ae6544be3ae14081d89ce22fe"}
+ * @tsgo-override {"category":"runtime-correctness","allow":["body"],"reason":"The loop remembers a symbol it has been on and ends, with no type-only declaration found, when it returns to it. The pinned Go body follows resolveAlias while the symbol is an alias without the wanted meaning and has no memory; two alias-flagged symbols that each also have a namespace meaning and name each other (import x = require of a module that exports with export= the mirror of x, each merged with a namespace) form a ring that resolveAlias does not report as circular, and checking either export assignment never returns. TypeScript has no loop here."}
  *
  * Go source:
  * func (c *Checker) getTypeOnlyAliasDeclarationEx(symbol *ast.Symbol, meaning ast.SymbolFlags) *ast.Node {
@@ -2963,7 +2968,7 @@ export declare function Checker_getSymbolForPrivateIdentifierExpression(receiver
 export declare function Checker_checkQualifiedName(receiver: GoPtr<Checker>, node: GoPtr<Node>, checkMode: CheckMode): GoPtr<Type>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkIndexedAccess","kind":"method","status":"implemented","sigHash":"32fa0a002cb05468dc7def68493137d7aedba03aeb689f7a70ba4ca9a71ad6b7","bodyHash":"889b5dc89357c094a4d04e010b1e12026e834b898e2ef917803c8abceca31716"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After exact TS-Go indexed-access checking, source-evidence queries retain the already-selected receiver, index declaration, and final result without changing source checking."}
+ * @tsgo-override {"category":"extension-host","allow":["body","signature"],"reason":"After exact TS-Go indexed-access checking, source-evidence queries retain the already-selected receiver, index declaration, and final result without changing source checking. R5-23 retains the explicit native result-construction publication owner without changing native checking or caching decisions.","goSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,packages/tsts/src/internal/checker/checker/state.ts::CheckMode)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>","tsSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,packages/tsts/src/internal/checker/checker/state.ts::CheckMode,?packages/tsts/src/internal/checker/checker/literal-creation.ts::LiteralConstructionOwner)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>"}
  * Go source:
  * func (c *Checker) checkIndexedAccess(node *ast.Node, checkMode CheckMode) *Type {
  * 	if node.Flags&ast.NodeFlagsOptionalChain != 0 {
@@ -2972,10 +2977,10 @@ export declare function Checker_checkQualifiedName(receiver: GoPtr<Checker>, nod
  * 	return c.checkElementAccessExpression(node, c.checkNonNullExpression(node.Expression()), checkMode)
  * }
  */
-export declare function Checker_checkIndexedAccess(receiver: GoPtr<Checker>, node: GoPtr<Node>, checkMode: CheckMode): GoPtr<Type>;
+export declare function Checker_checkIndexedAccess(receiver: GoPtr<Checker>, node: GoPtr<Node>, checkMode: CheckMode, constructionOwner?: LiteralConstructionOwner): GoPtr<Type>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkElementAccessChain","kind":"method","status":"implemented","sigHash":"87c91ac1dd6b496bfe2958fdb3dd1e0df6978e08f1f8ab4c9f61519478895348","bodyHash":"16ff9421739abc3918fc26481c0c7b7e280cd0bb97dbb046bbd9febfbfd2f23b"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After TS-Go propagates the optional marker, extension-enabled programs retain the final optional-chain result together with the exact non-null receiver used for selection."}
+ * @tsgo-override {"category":"extension-host","allow":["body","signature"],"reason":"After TS-Go propagates the optional marker, extension-enabled programs retain the final optional-chain result together with the exact non-null receiver used for selection. R5-23 retains the explicit native result-construction publication owner without changing native checking or caching decisions.","goSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,packages/tsts/src/internal/checker/checker/state.ts::CheckMode)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>","tsSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,packages/tsts/src/internal/checker/checker/state.ts::CheckMode,?packages/tsts/src/internal/checker/checker/literal-creation.ts::LiteralConstructionOwner)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>"}
  * Go source:
  * func (c *Checker) checkElementAccessChain(node *ast.Node, checkMode CheckMode) *Type {
  * 	exprType := c.checkExpression(node.Expression())
@@ -2983,7 +2988,7 @@ export declare function Checker_checkIndexedAccess(receiver: GoPtr<Checker>, nod
  * 	return c.propagateOptionalTypeMarker(c.checkElementAccessExpression(node, c.checkNonNullType(nonOptionalType, node.Expression()), checkMode), node, nonOptionalType != exprType)
  * }
  */
-export declare function Checker_checkElementAccessChain(receiver: GoPtr<Checker>, node: GoPtr<Node>, checkMode: CheckMode): GoPtr<Type>;
+export declare function Checker_checkElementAccessChain(receiver: GoPtr<Checker>, node: GoPtr<Node>, checkMode: CheckMode, constructionOwner?: LiteralConstructionOwner): GoPtr<Type>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkElementAccessExpression","kind":"method","status":"implemented","sigHash":"2f39be35c54aa297aa6da29e087ef31836844e9c96d08ac4a5d6679bc793bbda","bodyHash":"11932af46c7b11e3fd365479ad08c039f5afd3b81ae23f567ec842c2f141ef7e"}
  * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"The exported TS-Go operation delegates to an exact worker that also returns already-computed selected index evidence to the extension boundary; source checking is unchanged and no expression is rechecked."}
@@ -3380,7 +3385,7 @@ export declare function Checker_checkImportMetaProperty(receiver: GoPtr<Checker>
 export declare function Checker_checkMetaPropertyKeyword(receiver: GoPtr<Checker>, node: GoPtr<Node>): GoPtr<Type>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkIdentifier","kind":"method","status":"implemented","sigHash":"e9a0175eaea65200220166cc3e50540931a8a88829684e8eeacf1be5a4eaeba7","bodyHash":"6ba6f3033cf51bb621524af70f6dc4d76f82fc1d415f1b812cdea626e961305f"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After exact TS-Go symbol and alias selection accepts an identifier use, direct-call evidence retains the already-selected callee provenance without re-querying the checker; source diagnostics and no-extension behavior are unchanged."}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After exact TS-Go symbol and alias selection, retain direct-call callee provenance and the completed immutable assignment failure with its actually emitted Diagnostic in the existing paired type-answer links; speculative or suppressed failures create no stored answer."}
  *
  * Go source:
  * func (c *Checker) checkIdentifier(node *ast.Node, checkMode CheckMode) *Type {
@@ -3559,7 +3564,7 @@ export declare function Checker_checkIdentifier(receiver: GoPtr<Checker>, node: 
 export declare function Checker_isSameScopedBindingElement(receiver: GoPtr<Checker>, node: GoPtr<Node>, declaration: GoPtr<Node>): bool;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkPropertyAccessExpression","kind":"method","status":"implemented","sigHash":"febcba979df4bee97ff9b0d6a44f3b1d8f0f4d8f43952819b5bcda4e8c2e880e","bodyHash":"82b3a1ac1890b83ce90db47cb21a1598249772e581ef1fe94cf9180ba2495e26"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After exact TS-Go property checking, source-evidence queries retain the selected receiver, member declaration, and final result without changing source semantics."}
+ * @tsgo-override {"category":"extension-host","allow":["body","signature"],"reason":"After exact TS-Go property checking, source-evidence queries retain the selected receiver, member declaration, and final result without changing source semantics. R5-23 retains the explicit native result-construction publication owner without changing native checking or caching decisions.","goSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,packages/tsts/src/internal/checker/checker/state.ts::CheckMode,packages/tsts/src/go/scalars.ts::bool)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>","tsSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,packages/tsts/src/internal/checker/checker/state.ts::CheckMode,packages/tsts/src/go/scalars.ts::bool,?packages/tsts/src/internal/checker/checker/literal-creation.ts::LiteralConstructionOwner)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>"}
  * Go source:
  * func (c *Checker) checkPropertyAccessExpression(node *ast.Node, checkMode CheckMode, writeOnly bool) *Type {
  * 	if node.Flags&ast.NodeFlagsOptionalChain != 0 {
@@ -3569,10 +3574,10 @@ export declare function Checker_isSameScopedBindingElement(receiver: GoPtr<Check
  * 	return c.checkPropertyAccessExpressionOrQualifiedName(node, expr, c.checkNonNullExpression(expr), node.AsPropertyAccessExpression().Name(), checkMode, writeOnly)
  * }
  */
-export declare function Checker_checkPropertyAccessExpression(receiver: GoPtr<Checker>, node: GoPtr<Node>, checkMode: CheckMode, writeOnly: bool): GoPtr<Type>;
+export declare function Checker_checkPropertyAccessExpression(receiver: GoPtr<Checker>, node: GoPtr<Node>, checkMode: CheckMode, writeOnly: bool, constructionOwner?: LiteralConstructionOwner): GoPtr<Type>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkPropertyAccessChain","kind":"method","status":"implemented","sigHash":"8fddaeae38c55291a27039fd3e34d4f23b91a1185f6450fd8a87c8ef77aeb85e","bodyHash":"8d099873c74d1d2075853d42ef27cf852f70d2462e0b439c46f9177816bb5aa8"}
- * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After TS-Go propagates the optional marker, extension-enabled programs retain the final optional-chain result together with the exact non-null receiver used for member selection."}
+ * @tsgo-override {"category":"extension-host","allow":["body","signature"],"reason":"After TS-Go propagates the optional marker, extension-enabled programs retain the final optional-chain result together with the exact non-null receiver used for member selection. R5-23 retains the explicit native result-construction publication owner without changing native checking or caching decisions.","goSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,packages/tsts/src/internal/checker/checker/state.ts::CheckMode)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>","tsSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,packages/tsts/src/internal/checker/checker/state.ts::CheckMode,?packages/tsts/src/internal/checker/checker/literal-creation.ts::LiteralConstructionOwner)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>"}
  * Go source:
  * func (c *Checker) checkPropertyAccessChain(node *ast.Node, checkMode CheckMode) *Type {
  * 	leftType := c.checkExpression(node.Expression())
@@ -3580,7 +3585,7 @@ export declare function Checker_checkPropertyAccessExpression(receiver: GoPtr<Ch
  * 	return c.propagateOptionalTypeMarker(c.checkPropertyAccessExpressionOrQualifiedName(node, node.Expression(), c.checkNonNullType(nonOptionalType, node.Expression()), node.Name(), checkMode, false), node, nonOptionalType != leftType)
  * }
  */
-export declare function Checker_checkPropertyAccessChain(receiver: GoPtr<Checker>, node: GoPtr<Node>, checkMode: CheckMode): GoPtr<Type>;
+export declare function Checker_checkPropertyAccessChain(receiver: GoPtr<Checker>, node: GoPtr<Node>, checkMode: CheckMode, constructionOwner?: LiteralConstructionOwner): GoPtr<Type>;
 interface ResolvedSourcePropertyAccessInfoBase {
     readonly expression: Node;
     readonly receiver: {
@@ -3595,6 +3600,7 @@ interface ResolvedSourcePropertyAccessInfoBase {
     readonly selectedDeclaration?: Node;
     readonly selectedReadDeclaration?: Node;
     readonly selectedWriteDeclaration?: Node;
+    readonly selectedIndex?: IndexInfo;
     readonly writable: boolean;
     readonly optionalChain: boolean;
     readonly callCallee: boolean;
@@ -5065,6 +5071,7 @@ export declare function Checker_getExportOfModule(receiver: GoPtr<Checker>, symb
 export declare function Checker_isOnlyImportableAsDefault(receiver: GoPtr<Checker>, usage: GoPtr<Node>, resolvedModule: GoPtr<Symbol>): bool;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.errorNoModuleMemberSymbol","kind":"method","status":"implemented","sigHash":"866dc9a79f60e29e4f2ce018974eba5c1c802c1a607f8f2a77a8f94e9acfa3de","bodyHash":"35e72ca56f62792f8c9371a74ee7acc8596a93c42011d2a01a23a4a8f2f6692a"}
+ * @tsgo-override {"category":"extension-host","allow":["signature"],"reason":"Return the original Diagnostic from the actual failed alias-member producer instead of erasing it before the alias answer is retained.","goSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/symbol.ts::Symbol>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/symbol.ts::Symbol>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>)=>void","tsSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/symbol.ts::Symbol>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/symbol.ts::Symbol>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/diagnostic.ts::Diagnostic>"}
  *
  * Go source:
  * func (c *Checker) errorNoModuleMemberSymbol(moduleSymbol *ast.Symbol, targetSymbol *ast.Symbol, node *ast.Node, name *ast.Node) {
@@ -5092,9 +5099,10 @@ export declare function Checker_isOnlyImportableAsDefault(receiver: GoPtr<Checke
  * 	}
  * }
  */
-export declare function Checker_errorNoModuleMemberSymbol(receiver: GoPtr<Checker>, moduleSymbol: GoPtr<Symbol>, targetSymbol: GoPtr<Symbol>, node: GoPtr<Node>, name: GoPtr<Node>): void;
+export declare function Checker_errorNoModuleMemberSymbol(receiver: GoPtr<Checker>, moduleSymbol: GoPtr<Symbol>, targetSymbol: GoPtr<Symbol>, node: GoPtr<Node>, name: GoPtr<Node>): GoPtr<Diagnostic>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.reportNonExportedMember","kind":"method","status":"implemented","sigHash":"aef89fbc532c7c456a9b5965659e699be8eabf2983f1ba66feda0b576be3aafb","bodyHash":"50f54d6f30aaa60bae0ca2af8c4be2e2069204def3bd6a2c344e3eca9062ca15"}
+ * @tsgo-override {"category":"extension-host","allow":["signature"],"reason":"Return the original Diagnostic from the actual failed alias-member producer instead of erasing it before the alias answer is retained.","goSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,string,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/symbol.ts::Symbol>,string)=>void","tsSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,string,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/symbol.ts::Symbol>,string)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/diagnostic.ts::Diagnostic>"}
  *
  * Go source:
  * func (c *Checker) reportNonExportedMember(name *ast.Node, declarationName string, moduleSymbol *ast.Symbol, moduleName string) {
@@ -5129,9 +5137,10 @@ export declare function Checker_errorNoModuleMemberSymbol(receiver: GoPtr<Checke
  * 	}
  * }
  */
-export declare function Checker_reportNonExportedMember(receiver: GoPtr<Checker>, name: GoPtr<Node>, declarationName: string, moduleSymbol: GoPtr<Symbol>, moduleName: string): void;
+export declare function Checker_reportNonExportedMember(receiver: GoPtr<Checker>, name: GoPtr<Node>, declarationName: string, moduleSymbol: GoPtr<Symbol>, moduleName: string): GoPtr<Diagnostic>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.reportInvalidImportEqualsExportMember","kind":"method","status":"implemented","sigHash":"6f50a8d118bbbd1fcb50050ab69ee22b08ca88b9f62a570aff00f58aae26e0e7","bodyHash":"57664677160a641fded1a90580e5f2776212b8dff998c3e3b8f1b41dfb2c6bee"}
+ * @tsgo-override {"category":"extension-host","allow":["signature"],"reason":"Return the original Diagnostic from the actual failed alias-member producer instead of erasing it before the alias answer is retained.","goSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,string,string)=>void","tsSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,string,string)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/diagnostic.ts::Diagnostic>"}
  *
  * Go source:
  * func (c *Checker) reportInvalidImportEqualsExportMember(name *ast.Node, declarationName string, moduleName string) {
@@ -5144,7 +5153,7 @@ export declare function Checker_reportNonExportedMember(receiver: GoPtr<Checker>
  * 	}
  * }
  */
-export declare function Checker_reportInvalidImportEqualsExportMember(receiver: GoPtr<Checker>, name: GoPtr<Node>, declarationName: string, moduleName: string): void;
+export declare function Checker_reportInvalidImportEqualsExportMember(receiver: GoPtr<Checker>, name: GoPtr<Node>, declarationName: string, moduleName: string): GoPtr<Diagnostic>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getTargetOfExportSpecifier","kind":"method","status":"implemented","sigHash":"416bad269bcce8594f88d3eb57064e727ee44f87341fb0781865bb7e0460ff62","bodyHash":"01beaae4a8d22cd77f5cfa3ac3bb22e72c35722f68b3f6497a60098be3027784"}
  *
@@ -5384,6 +5393,7 @@ export declare function Checker_getSuggestedImportExtension(receiver: GoPtr<Chec
 export declare function Checker_resolveExternalModuleSymbol(receiver: GoPtr<Checker>, moduleSymbol: GoPtr<Symbol>, dontResolveAlias: bool): GoPtr<Symbol>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.resolveESModuleSymbol","kind":"method","status":"implemented","sigHash":"f1615f54cc3d30a16ee2016cd9adb905eb5bc943cb2fe5e85f9f5b6ddfca7b21","bodyHash":"d983f72f8a259ae1090a73e4460a1d5f7be6ad14467c98dddbafc07b33e191da"}
+ * @tsgo-override {"category":"runtime-correctness","allow":["body"],"reason":"Return the checker's unknown symbol unchanged when the module's export= alias does not resolve. For a namespace import or import call, in an ECMAScript-format file, of a CommonJS-format file, the pinned Go body passes the unknown symbol to cloneTypeAsModuleType, which makes a new declaration-less symbol named unknown on every call; no later identity test against unknownSymbol recognizes it, and resolveAliasWithDeprecationCheck then never returns. TypeScript returns the symbol unchanged on this path (its branch for a target that is neither a module nor a variable, which the Go body dropped together with its diagnostic). Second change: the symbol cloneTypeAsModuleType makes for an import declaration or import call is made once and kept on that node's links. The Go body makes a new one on every call, so an alias's final target and immediate target were two symbols and every resolution of such a symbol made a further one; with import * as x merged with a function and exported with export= in two files that name each other, the loop of getSymbolFlagsEx then meets a new symbol on every iteration, its seen set never matches, and the check of the import does not return. The kept symbol is reused only when it was made from the same source symbol; a different source replaces it. This assumes that one import declaration has one settled source: no program was found in which two sources alternate for one declaration."}
  *
  * Go source:
  * func (c *Checker) resolveESModuleSymbol(moduleSymbol *ast.Symbol, node *ast.Node, moduleSpecifier *ast.Node) *ast.Symbol {
@@ -5445,6 +5455,7 @@ export declare function Checker_resolveExternalModuleSymbol(receiver: GoPtr<Chec
 export declare function Checker_resolveESModuleSymbol(receiver: GoPtr<Checker>, moduleSymbol: GoPtr<Symbol>, node: GoPtr<Node>, moduleSpecifier: GoPtr<Node>): GoPtr<Symbol>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getTypeWithSyntheticDefaultImportType","kind":"method","status":"implemented","sigHash":"3ccd16750ce3c055a159b187e35186cb2ccb591922beb5fb302e01bdefbc436e","bodyHash":"f949cf1f813b45df71dc989a4c1ca15923948f4a865e48d8f557fdf195fc58b5"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Pass explicit absence to R5-20 spread occurrence inputs because a synthetic import wrapper is not a normal object-literal question; native module/cache decisions are unchanged."}
  *
  * Go source:
  * func (c *Checker) getTypeWithSyntheticDefaultImportType(t *Type, symbol *ast.Symbol, originalSymbol *ast.Symbol, moduleSpecifier *ast.Node) *Type {
@@ -5477,6 +5488,7 @@ export declare function Checker_resolveESModuleSymbol(receiver: GoPtr<Checker>, 
 export declare function Checker_getTypeWithSyntheticDefaultImportType(receiver: GoPtr<Checker>, t: GoPtr<Type>, symbol_: GoPtr<Symbol>, originalSymbol: GoPtr<Symbol>, moduleSpecifier: GoPtr<Node>): GoPtr<Type>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.createDefaultPropertyWrapperForModule","kind":"method","status":"implemented","sigHash":"be3759cac24f70c337da650c87f7fe862cc2169962debb1d04020969b99817d5","bodyHash":"6adfd0685cd1d36b52a56a1d9731a82fa4e7f7825ff20441dd60e8adffd26365"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"After the Go body's writes, the default member this function makes is marked on its alias links (syntheticDefault). Nothing else changes: the symbol, its Parent, its alias target and the returned type are the Go body's."}
  *
  * Go source:
  * func (c *Checker) createDefaultPropertyWrapperForModule(symbol *ast.Symbol, originalSymbol *ast.Symbol, anonymousSymbol *ast.Symbol) *Type {
@@ -6071,6 +6083,7 @@ export declare function Checker_resolveIndirectionAlias(receiver: GoPtr<Checker>
 export declare function Checker_tryResolveAlias(receiver: GoPtr<Checker>, symbol_: GoPtr<Symbol>): GoPtr<Symbol>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.resolveAliasWithDeprecationCheck","kind":"method","status":"implemented","sigHash":"c9b9f385352bf280dd523250c5763f2b921dc470ed1b3e1cfb964d00c8e66772","bodyHash":"e945d87ccce14f68c03c3c84e31dfed25d94cf398583adb9c1d1505bdfb332e3"}
+ * @tsgo-override {"category":"runtime-correctness","allow":["body"],"reason":"Two states on which the pinned Go body does not return are ended. (1) Every iteration ends the loop or moves to the immediate target: the pinned Go body, like TypeScript's, leaves the loop variable unchanged when the immediate target is defined, is not the final target and has no declarations, and so never returns; a namespace import, in an ECMAScript-format file, of a CommonJS-format file whose export= names globalThis reaches that state, because the final target and the immediate target are two separate copies of that declaration-less symbol. A target without declarations has no deprecation to report, so the walk moves past it. (2) The walk remembers a symbol it has been on and ends when it returns to it: the Go body has no memory, and where the final target is a copy made for the import it is not on the walk, so a ring of alias-flagged symbols that also have another meaning (import * as x merged with a namespace and exported with export=, in two files naming each other) is walked for ever. (3) When the walk's step is its final target and that target has a source (ExportTypeLinks.target, written by cloneTypeAsModuleType on every symbol it makes), the walk goes on from the source. resolveESModuleSymbol here makes one symbol per import where the Go body makes a new one per call; in Go the immediate target of a namespace import was therefore a second symbol, never the final one, and the walk went on through it to the value behind the import, reporting a deprecated value or a deprecated alias further on. Without (3) a valid program loses those suggestions (TypeScript 6.0.3 reports them). Termination: the successor of a symbol S is its immediate target, except that when this is the walk's final target and has a source, the successor is that source. The final target is fixed for one walk, so the successor is a function of S alone, provided an alias's immediate target is the same on every call. That holds because getImmediateAliasedSymbol stores a defined result on the alias's links and returns it afterwards, and an undefined result ends the walk; it holds for a made symbol too since it is made once per import. Premise, not proven in general: the symbols the walk can reach are finitely many, that is, no turn of a ring makes a new alias-flagged symbol. It holds for the symbol made for an import (made once per import declaration). For the symbol combineValueAndTypeSymbols makes it holds in the programs run, where the combined symbol is stored on the asking alias's links and the asking aliases of the ring are declared ones; a producer that made a new alias-flagged symbol on every turn would defeat any memory by identity, as the Go body's own seen sets are defeated. Under the premise, a walk over a function either ends or enters a ring, and (2) ends it on a ring, in constant space and without allocation, after a number of moves linear in tail plus ring length. Which program needs which: (1) a namespace import of a module whose export= names globalThis; (2) and (3) together the merged-namespace ring, which the walk enters through the source; (3) alone the valid chain ending in a deprecated value. Chronology: while one symbol per import was made and (3) was absent, a build without (2) returned from every program tried (12 cases, 9 rings, 78 probe programs, identical results); that showed no program needing (2) on that source and did not show that none exists; with (3) the ring is met again."}
  *
  * Go source:
  * func (c *Checker) resolveAliasWithDeprecationCheck(symbol *ast.Symbol, location *ast.Node) *ast.Symbol {
@@ -7059,8 +7072,10 @@ export declare function Checker_resolveClassOrInterfaceMembers(receiver: GoPtr<C
  * }
  */
 export declare function Checker_resolveTypeReferenceMembers(receiver: GoPtr<Checker>, t: GoPtr<Type>): void;
+export declare function Checker_getInstantiatedBaseTypes(receiver: GoPtr<Checker>, type: GoPtr<Type>): GoSlice<GoPtr<Type>> | undefined;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.resolveObjectTypeMembers","kind":"method","status":"implemented","sigHash":"e295384186d7b85ac1b326e2459c86f58c814740c1039d61d603883cce5f62aa","bodyHash":"39e69dc06f5f662afc7b58d6bef95adc28144304768dd09944dba3ce3b201cc1"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"R5-15–18 retain the actual instantiated member signature owner and declared position before native member cache publication; inherited shared signatures retain their original owner."}
  *
  * Go source:
  * func (c *Checker) resolveObjectTypeMembers(t *Type, source *Type, typeParameters []*Type, typeArguments []*Type) {
@@ -7439,6 +7454,7 @@ export declare function Checker_isTypeUsableAsIndexSignatureDeclaration(receiver
 export declare function Checker_instantiateIndexInfo(receiver: GoPtr<Checker>, info: GoPtr<IndexInfo>, m: GoPtr<TypeMapper>): GoPtr<IndexInfo>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.resolveAnonymousTypeMembers","kind":"method","status":"implemented","sigHash":"d4b772955b848a9485d8ea411d304b1fedf08cea50f5c9308403c408cf1574e7","bodyHash":"caa27a9002f4de332c6b5dfa86554c5dd13a72960a7e4448887a8cfd662efe18"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"R5-15–18 retain only actual fresh instantiated anonymous member signatures against their producing type and declared position before native cache publication."}
  *
  * Go source:
  * func (c *Checker) resolveAnonymousTypeMembers(t *Type) {
@@ -7721,6 +7737,7 @@ export declare function Checker_resolveMappedTypeMembers(receiver: GoPtr<Checker
 export declare function Checker_getTypeOfMappedSymbol(receiver: GoPtr<Checker>, symbol_: GoPtr<Symbol>): GoPtr<Type>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.resolveUnionTypeMembers","kind":"method","status":"implemented","sigHash":"ad012da8f222e973f34eebb8285bb92cc1d10c7d19a72f2bac396e9d75af1843","bodyHash":"2f2e796c975f2bad3af4212dae1c91b8f86655d3cf41b2b2d1eb24a1f56b4ab9"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"R5-16 N2 retains genuine fresh union member signature constituents before native cache publication; exact input pointer membership prevents overwriting shared signatures."}
  *
  * Go source:
  * func (c *Checker) resolveUnionTypeMembers(t *Type) {
@@ -7769,6 +7786,7 @@ export declare function Checker_isArrayOrTupleSymbol(receiver: GoPtr<Checker>, s
 export declare function Checker_isReadonlyArraySymbol(receiver: GoPtr<Checker>, symbol_: GoPtr<Symbol>): bool;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.resolveIntersectionTypeMembers","kind":"method","status":"implemented","sigHash":"b426068ee0c989e59c0e455483e8357a76080a456d6bcef221cb4170028c0b2b","bodyHash":"b8526ef58824f570a1399081cda9a22800d02bf6a54ab5be5ca10c3c37cb73f3"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"R5-16 N2 retains only a genuinely fresh intersection mixin clone's actual owner and source Signature before native cache publication."}
  *
  * Go source:
  * func (c *Checker) resolveIntersectionTypeMembers(t *Type) {
@@ -8245,6 +8263,7 @@ export declare function Checker_isDeclarationContainedBy(receiver: GoPtr<Checker
 export declare function Checker_isNamedMember(receiver: GoPtr<Checker>, symbol_: GoPtr<Symbol>, id: string): bool;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.instantiateTypeWithAlias","kind":"method","status":"implemented","sigHash":"03de27e27a37380d5e378575dd89c7c31f0a1db41bdf3d4749703d9b7607f1ee","bodyHash":"e8004c6149bff2519a8014c28bef372f47b6c1b328ba70a150f121383073f0fa"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"The native entry retains the same cache and depth owner with absent evidence. Explicit conditional capture replays that worker on cache hits, validates against the canonical result and never replaces its cached identity."}
  *
  * Go source:
  * func (c *Checker) instantiateTypeWithAlias(t *Type, m *TypeMapper, alias *TypeAlias) *Type {
@@ -8290,6 +8309,7 @@ export declare function Checker_isNamedMember(receiver: GoPtr<Checker>, symbol_:
  * }
  */
 export declare function Checker_instantiateTypeWithAlias(receiver: GoPtr<Checker>, t: GoPtr<Type>, m: GoPtr<TypeMapper>, alias: GoPtr<TypeAlias>): GoPtr<Type>;
+export declare function Checker_instantiateTypeWithAliasAndCapture(receiver: GoPtr<Checker>, t: GoPtr<Type>, m: GoPtr<TypeMapper>, alias: GoPtr<TypeAlias>, capture: ExtensionConditionalCapture | undefined): GoPtr<Type>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getNameTypeFromMappedType","kind":"method","status":"implemented","sigHash":"a4ed7a8b79ace07f0c6c2431b9b9f839191b6aecc586cec199e2a98a43fa79ba","bodyHash":"ac3aef27321eaf6f815ca14850aeaee8cf8d3757d6c487bf3fdc3a685af9a603"}
  *

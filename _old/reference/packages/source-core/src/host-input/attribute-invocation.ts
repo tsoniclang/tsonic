@@ -1,0 +1,30 @@
+import type { Node } from "@tsonic/tsts";
+import type { TsonicSourceFileAnalysisContext } from "./source-context.js";
+import type { SelectedProviderSourceCall } from "./provider-calls.js";
+import { unwrapParenthesizedExpression } from "./provider-calls.js";
+
+export function selectedAttributeInvocation(
+  selected: SelectedProviderSourceCall,
+  context: TsonicSourceFileAnalysisContext,
+): Node | undefined {
+  const callback = unwrapParenthesizedExpression(selected.selection.selection.argumentValues[0]?.expression, context);
+  if (
+    selected.selection.selection.argumentValues.length !== 1 ||
+    callback === undefined ||
+    !context.ast.is.IsArrowFunction(callback) ||
+    context.ast.parameters(callback).length !== 0 ||
+    context.ast.typeParameters(callback).length !== 0 ||
+    context.ast.hasModifierKind(callback, "async")
+  ) {
+    return undefined;
+  }
+  const invocation = unwrapParenthesizedExpression(context.ast.body(callback), context);
+  if (
+    invocation === undefined ||
+    (!context.ast.is.IsCallExpression(invocation) && !context.ast.is.IsNewExpression(invocation))
+  ) {
+    return undefined;
+  }
+  const call = context.checker.getResolvedCallInfo(invocation);
+  return call?.kind === "applicable" ? invocation : undefined;
+}

@@ -1,6 +1,7 @@
 import type { ProviderVirtualDeclarationFact } from "./facts.js";
 import type { ProviderVirtualModuleArtifact } from "./host.js";
 import type { ProviderRenderedFunctionSignature } from "./provider-callable-signatures.js";
+import type { ProviderRenderedSourcePrimitive } from "./provider-source-primitives.js";
 export declare const providerVirtualInternalRoot = "tsts-provider://tsts-internal/";
 export declare const providerVirtualPublicRoot = "tsts-provider://tsts-public/";
 export declare const providerCanonicalExportOwnerMarker = ".tsts-export-owner-";
@@ -15,6 +16,7 @@ export interface ProviderVirtualCompilerMetadata {
         readonly localName: string;
     }[];
     readonly renderedFunctionSignatures: readonly ProviderRenderedFunctionSignature[];
+    readonly renderedSourcePrimitives: readonly ProviderRenderedSourcePrimitive[];
 }
 interface ProviderTypeFamilyVariantIdentity {
     readonly id: string;

@@ -1,0 +1,1 @@
+{"name":"name-boundaries","level":"function","rule":"Empty and prototype-property spellings remain exact independent query names","input":"test/host-cases/query/function/name-boundaries.input.json","expected":"test/host-cases/query/function/name-boundaries.expected.json"}

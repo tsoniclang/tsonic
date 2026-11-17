@@ -1,0 +1,32 @@
+{
+  "table": {
+    "terms": [
+      {
+        "kind": "primitive",
+        "primitive": "int32"
+      }
+    ],
+    "signatures": []
+  },
+  "bindings": [],
+  "evidence": [
+    {
+      "type": 0,
+      "component": {
+        "kind": "body",
+        "value": {
+          "body": "B[D[M[P[case];main.ts];field];function;0]",
+          "node": 0
+        }
+      },
+      "category": {
+        "kind": "known",
+        "category": "number"
+      },
+      "numeric": null,
+      "sum": null,
+      "nominal": null,
+      "pointer": null
+    }
+  ]
+}

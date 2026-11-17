@@ -1,0 +1,69 @@
+{
+  "kind": "accepted",
+  "value": {
+    "kind": "parsed",
+    "value": {
+      "module": "M[P[%002Fprogram];src%002Fmain.ts]",
+      "tree": {
+        "id": 0,
+        "origin": {
+          "module": "M[P[%002Fprogram];src%002Fmain.ts]",
+          "start": 0,
+          "length": 0,
+          "derived": []
+        },
+        "parent": 0,
+        "flags": [],
+        "loc": {
+          "pos": 0,
+          "end": 0
+        },
+        "kind": "SourceFile",
+        "statements": {
+          "loc": {
+            "pos": 0,
+            "end": 0
+          },
+          "nodes": []
+        },
+        "endOfFileToken": {
+          "id": 1,
+          "origin": {
+            "module": "M[P[%002Fprogram];src%002Fmain.ts]",
+            "start": 0,
+            "length": 0,
+            "derived": []
+          },
+          "parent": 1,
+          "flags": [],
+          "loc": {
+            "pos": 0,
+            "end": 0
+          },
+          "kind": "EndOfFile",
+          "tsonic": null
+        },
+        "languageVariant": "Standard",
+        "scriptKind": "TS",
+        "commentDirectives": [],
+        "pragmas": [],
+        "checkJsDirective": null,
+        "tsonic": {
+          "module": "M[P[%002Fprogram];src%002Fmain.ts]",
+          "template": {
+            "body": "B[D[M[P[%002Fprogram];src%002Fmain.ts]];module;0]",
+            "lexicalBindings": {
+              "classBindings": [],
+              "methodBindings": [],
+              "capturedBindings": [],
+              "selfBindings": []
+            },
+            "dependence": "parametric"
+          }
+        }
+      },
+      "bodies": []
+    }
+  },
+  "diagnostics": []
+}

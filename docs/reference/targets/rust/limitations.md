@@ -286,12 +286,16 @@ native diagnostic.
 
 ## Application entry
 
-Generated binary output requires the entry module to export `main` with a
-unit result:
+Generated binary output executes the entry module's top-level code. An
+exported `main` is not invoked automatically:
 
 ```ts
 export function main(): void {}
+main();
 ```
 
-An async entry may return `Promise<void>`. An unexported function, a function
-in another module, or a non-unit result is not selected by name recovery.
+An uncalled binary-entry export rejects with
+`TSONIC_UNCALLED_BINARY_ENTRY_MAIN`. An asynchronous startup may use
+`await main()` at top level. A top-level program need not export `main`.
+Library functions retain their native return contracts; a native caller owns
+startup and `Termination` reporting instead of implicit function selection.

@@ -1,0 +1,7 @@
+{
+  "name": "syntax-declared-sharing-preserved",
+  "level": "function",
+  "rule": "syntax-declared-sharing-preserved",
+  "input": "test/host-cases/ir-program/function/syntax-declared-sharing-preserved.input.json",
+  "expected": "test/host-cases/ir-program/function/syntax-declared-sharing-preserved.expected.json"
+}

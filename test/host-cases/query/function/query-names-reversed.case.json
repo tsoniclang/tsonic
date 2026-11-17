@@ -1,0 +1,1 @@
+{"name":"query-names-reversed","level":"function","rule":"The reverse query order retains the same complete name-ordered statistics","input":"test/host-cases/query/function/query-names-reversed.input.json","expected":"test/host-cases/query/function/query-names-reversed.expected.json"}

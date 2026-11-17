@@ -1,0 +1,7 @@
+{
+  "name": "syntax-name-mixed-prefix",
+  "level": "function",
+  "rule": "syntax-name-mixed-prefix",
+  "input": "test/host-cases/ir-program/function/syntax-name-mixed-prefix.input.json",
+  "expected": "test/host-cases/ir-program/function/syntax-name-mixed-prefix.expected.json"
+}

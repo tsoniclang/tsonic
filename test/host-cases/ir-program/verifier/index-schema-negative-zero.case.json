@@ -1,0 +1,1 @@
+{"name":"index-schema-negative-zero","level":"verifier","rule":"Standalone ProgramIndex authenticates its numeric schema and concrete source/node/body associations with a complete ordered opposite vector","input":"test/host-cases/ir-program/verifier/index-schema-negative-zero.input.json","expected":"test/host-cases/ir-program/verifier/index-schema-negative-zero.expected.json"}

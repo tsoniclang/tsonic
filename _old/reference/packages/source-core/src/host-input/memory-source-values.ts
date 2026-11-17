@@ -1,0 +1,234 @@
+import { providerVirtualDeclarationFactKey } from "@tsonic/tsts";
+import { sourceIntegerLiteralValue } from "@tsonic/target-api/host";
+import type { Node, SourcePrimitiveFact, Symbol } from "@tsonic/tsts";
+import type { TsonicSourceFileAnalysisContext } from "./source-context.js";
+import { readSourceFact, type SelectedProviderSourceCall } from "./provider-calls.js";
+import { readSourcePrimitiveAnnotation } from "./primitive-annotation.js";
+import { dataLayoutIdentityKey } from "../memory-layout/registrations.js";
+import { tsonicDataLayoutFactKey } from "./memory-layout-facts.js";
+import type { TsonicDataLayoutFact } from "./memory-layout-facts.js";
+import type { MemorySourceAnalysis } from "./memory-analysis-context.js";
+
+export type SelectedMemoryValue = SelectedProviderSourceCall["selection"]["selection"]["argumentValues"][number];
+
+export function immutableValueOrigin(
+  expression: Node,
+  context: TsonicSourceFileAnalysisContext,
+): Node | undefined {
+  let current: Node | undefined = expression;
+  const seen = new Set<Node>();
+  while (current !== undefined && !seen.has(current)) {
+    seen.add(current);
+    if (context.ast.is.IsParenthesizedExpression(current)) {
+      current = context.ast.as.AsParenthesizedExpression(current)?.Expression;
+      continue;
+    }
+    if (context.ast.is.IsIdentifier(current)) {
+      const resolved = selectedValueSymbol(current, context);
+      const declaration = context.checker.getSymbolValueDeclaration(resolved);
+      if (declaration !== undefined && context.ast.is.IsVariableDeclaration(declaration) &&
+          context.ast.variableDeclarationKind(declaration) === "const") {
+        const initializer = context.ast.as.AsVariableDeclaration(declaration)?.Initializer;
+        if (initializer !== undefined) {
+          current = initializer;
+          continue;
+        }
+      }
+    }
+    return current;
+  }
+  return undefined;
+}
+
+export function selectedPrimitive(
+  value: SelectedMemoryValue,
+  context: TsonicSourceFileAnalysisContext,
+  analysis: MemorySourceAnalysis,
+): SourcePrimitiveFact | undefined {
+  const source = selectedValueSource(value, context);
+  if (source === undefined) return undefined;
+  if (source.annotation !== undefined) return readSourcePrimitiveAnnotation(context, source.annotation);
+  const operation = analysis.rawOperation(source.expression, context);
+  if (operation?.operation === "raw-to-address-integer") {
+    return operation.addressWidth === 32
+      ? { kind: "uint32", width: 32, runtimeBase: "number", signed: false }
+      : { kind: "uint64", width: 64, runtimeBase: "bigint", signed: false };
+  }
+  if (analysis.layoutQuery(source.expression, context)?.kind === "resolved") {
+    return { kind: "native-uint", runtimeBase: "number", signed: false };
+  }
+  return readSourcePrimitiveAnnotation(context, selectedCallReturnAnnotation(source.expression, context));
+}
+
+export function selectedValueAnnotation(value: SelectedMemoryValue, context: TsonicSourceFileAnalysisContext): Node | undefined {
+  const source = selectedValueSource(value, context);
+  return source?.annotation ?? (source === undefined ? undefined : selectedCallReturnAnnotation(source.expression, context));
+}
+
+function selectedCallReturnAnnotation(expression: Node, context: TsonicSourceFileAnalysisContext): Node | undefined {
+  if (!context.ast.is.IsCallExpression(expression)) return undefined;
+  const call = context.checker.getResolvedCallInfo(expression);
+  return call?.kind !== "applicable"
+    ? undefined : context.ast.typeNode(context.checker.getSignatureDeclaration(call.selection.application.signature));
+}
+
+function selectedValueSource(value: SelectedMemoryValue, context: TsonicSourceFileAnalysisContext): {
+  readonly expression: Node;
+  readonly annotation?: Node;
+} | undefined {
+  if (value.authoredTypeNode !== undefined) return { expression: value.expression, annotation: value.authoredTypeNode };
+  let expression: Node | undefined = value.expression;
+  const seen = new Set<Node>();
+  while (expression !== undefined && !seen.has(expression)) {
+    seen.add(expression);
+    if (context.ast.is.IsParenthesizedExpression(expression)) {
+      expression = context.ast.as.AsParenthesizedExpression(expression)?.Expression;
+      continue;
+    }
+    if (context.ast.is.IsNonNullExpression(expression)) {
+      expression = context.ast.as.AsNonNullExpression(expression)?.Expression;
+      continue;
+    }
+    if (context.ast.is.IsSatisfiesExpression(expression)) {
+      expression = context.ast.as.AsSatisfiesExpression(expression)?.Expression;
+      continue;
+    }
+    const authored = context.ast.typeNode(expression);
+    if (authored !== undefined) return { expression, annotation: authored };
+    const storage = context.checker.getResolvedStorageInfo(expression);
+    const declaration = storage?.declaration;
+    const annotation = context.ast.typeNode(declaration);
+    if (annotation !== undefined) return { expression, annotation };
+    if (declaration !== undefined && context.ast.is.IsVariableDeclaration(declaration) &&
+        context.ast.variableDeclarationKind(declaration) === "const") {
+      expression = context.ast.as.AsVariableDeclaration(declaration)?.Initializer;
+      continue;
+    }
+    return { expression };
+  }
+  return undefined;
+}
+
+export function exactIntegerConstant(
+  expression: Node,
+  context: TsonicSourceFileAnalysisContext,
+): { readonly value: bigint; readonly runtimeBase: "number" | "bigint" } | undefined {
+  const constant = classifyIntegerConstant(expression, context);
+  return constant.kind === "available" ? constant : undefined;
+}
+
+export type IntegerConstant =
+  | { readonly kind: "available"; readonly value: bigint; readonly runtimeBase: "number" | "bigint" }
+  | { readonly kind: "invalid" }
+  | { readonly kind: "unavailable" };
+
+export function classifyIntegerConstant(
+  expression: Node,
+  context: TsonicSourceFileAnalysisContext,
+  analysis?: MemorySourceAnalysis,
+): IntegerConstant {
+  const visited = new Set<Node>();
+  let current: Node | undefined = expression;
+  let sign = 1n;
+  let permitsBigInt = true;
+  while (current !== undefined) {
+    const origin = immutableValueOrigin(current, context);
+    if (origin === undefined || visited.has(origin)) return { kind: "unavailable" };
+    visited.add(origin);
+    if (context.ast.is.IsAsExpression(origin)) {
+      current = context.ast.as.AsAsExpression(origin)?.Expression;
+      continue;
+    }
+    if (context.ast.is.IsSatisfiesExpression(origin)) {
+      current = context.ast.as.AsSatisfiesExpression(origin)?.Expression;
+      continue;
+    }
+    if (context.ast.is.IsTypeAssertion(origin)) {
+      current = context.ast.as.AsTypeAssertion(origin)?.Expression;
+      continue;
+    }
+    if (context.ast.is.IsNonNullExpression(origin)) {
+      current = context.ast.as.AsNonNullExpression(origin)?.Expression;
+      continue;
+    }
+    if (context.ast.is.IsPrefixUnaryExpression(origin)) {
+      const operator = context.ast.operatorKindName(origin);
+      if (operator !== "KindMinusToken" && operator !== "KindPlusToken") return { kind: "unavailable" };
+      if (operator === "KindMinusToken") sign = -sign;
+      else permitsBigInt = false;
+      current = context.ast.as.AsPrefixUnaryExpression(origin)?.Operand;
+      continue;
+    }
+    const constant = integerLeafConstant(origin, context, analysis);
+    if (constant.kind !== "available") return constant;
+    return !permitsBigInt && constant.runtimeBase === "bigint"
+      ? { kind: "invalid" }
+      : { ...constant, value: sign * constant.value };
+  }
+  return { kind: "unavailable" };
+}
+
+function integerLeafConstant(
+  origin: Node,
+  context: TsonicSourceFileAnalysisContext,
+  analysis?: MemorySourceAnalysis,
+): IntegerConstant {
+  if (context.ast.is.IsCallExpression(origin)) {
+    const observation = analysis?.layoutQuery(origin, context);
+    if (observation?.kind === "rejected") return { kind: "invalid" };
+    if (observation?.kind === "resolved") {
+      return { kind: "available", value: observation.value, runtimeBase: "number" };
+    }
+  }
+  if (context.ast.is.IsNumericLiteral(origin)) {
+    const value = sourceIntegerLiteralValue(context.ast, origin);
+    return value === undefined ? { kind: "invalid" }
+      : { kind: "available", value, runtimeBase: "number" };
+  }
+  if (context.ast.is.IsBigIntLiteral(origin)) {
+    const text = context.ast.text(origin).split("_").join("");
+    if (!/^(?:[0-9]+|0[xX][0-9a-fA-F]+|0[oO][0-7]+|0[bB][01]+)n$/u.test(text)) return { kind: "invalid" };
+    return { kind: "available", value: BigInt(text.slice(0, -1)), runtimeBase: "bigint" };
+  }
+  const constant = context.checker.getConstantValue(origin);
+  if (typeof constant !== "number") return { kind: "unavailable" };
+  return Number.isInteger(constant)
+    ? { kind: "available", value: BigInt(constant), runtimeBase: "number" } : { kind: "invalid" };
+}
+
+export function exactLayoutSize(expression: Node, context: TsonicSourceFileAnalysisContext): bigint | undefined {
+  const constant = exactIntegerConstant(expression, context);
+  return constant !== undefined && constant.value >= 0n ? constant.value : undefined;
+}
+
+export function selectedDataLayout(
+  expression: Node,
+  context: TsonicSourceFileAnalysisContext,
+  registrations: ReadonlyMap<string, TsonicDataLayoutFact>,
+): TsonicDataLayoutFact | undefined {
+  const origin = immutableValueOrigin(expression, context);
+  if (origin === undefined) return undefined;
+  const resolved = selectedValueSymbol(origin, context);
+  const declaration = context.checker.getSymbolValueDeclaration(resolved);
+  const provider = readSourceFact(context, declaration, providerVirtualDeclarationFactKey) ??
+    readSourceFact(context, resolved, providerVirtualDeclarationFactKey);
+  if (provider === undefined || provider.memberId !== undefined || provider.signatureId !== undefined) return undefined;
+  const layout = registrations.get(dataLayoutIdentityKey(provider));
+  if (layout === undefined) return undefined;
+  context.facts.set(expression, tsonicDataLayoutFactKey, layout);
+  context.facts.set(origin, tsonicDataLayoutFactKey, layout);
+  return layout;
+}
+
+function selectedValueSymbol(expression: Node, context: TsonicSourceFileAnalysisContext): Symbol | undefined {
+  const parent = context.ast.parent(expression);
+  const symbol = parent !== undefined && context.ast.is.IsShorthandPropertyAssignment(parent) &&
+    context.ast.name(parent) === expression ? context.checker.getLexicallyResolvedSymbol(expression)
+      : context.checker.getSymbolAtLocation(expression);
+  if (symbol === undefined) return undefined;
+  const isAlias = context.checker.getSymbolDeclarations(symbol).some((declaration) =>
+    declaration !== undefined && (context.ast.is.IsImportSpecifier(declaration) ||
+      context.ast.is.IsImportClause(declaration) || context.ast.is.IsNamespaceImport(declaration) ||
+      context.ast.is.IsExportSpecifier(declaration)));
+  return isAlias ? context.checker.getAliasedSymbol(symbol) : symbol;
+}

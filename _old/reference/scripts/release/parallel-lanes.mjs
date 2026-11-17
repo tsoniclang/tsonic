@@ -1,0 +1,58 @@
+import { spawn } from "node:child_process";
+import { createWriteStream, readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { readTestResourceBudget, testTaskEnvironment } from "../../test/scripts/test-resource-budget.mjs";
+import { runBoundedTestQueue } from "../../test/scripts/parallel-scheduler.mjs";
+
+export function releaseLaneBudget(budget, count) {
+  if (!Number.isSafeInteger(count) || count < 1) throw new Error("Release lanes require a positive count.");
+  if (!Number.isSafeInteger(budget.childJobs) || budget.childJobs < 1) throw new Error("Release lanes require the guard-selected native child count.");
+  const workers = Math.min(count, budget.workers ?? count);
+  if (!Number.isSafeInteger(workers) || workers < 1) throw new Error("Release lanes require a positive worker count.");
+  if (!Number.isSafeInteger(budget.memoryMiB) || budget.memoryMiB < 1) throw new Error("Release lanes require a finite positive outer memory budget.");
+  return {
+    workers, memoryMiB: budget.memoryMiB,
+    childJobs: budget.childJobs,
+  };
+}
+
+export async function runReleaseLanes(lanes, root, execute = runLane, budget = readTestResourceBudget()) {
+  const selected = releaseLaneBudget(budget, lanes.length);
+  process.stdout.write(`Release acceptance: ${selected.workers} independent lanes, ${selected.childJobs} native jobs per lane, one ${selected.memoryMiB} MiB outer group.\n`);
+  await runBoundedTestQueue(lanes, selected, lane => execute(lane, {
+    root,
+    environment: testTaskEnvironment(process.env, budget, {
+      id: lane.id,
+      childJobs: selected.childJobs,
+    }),
+  }));
+}
+
+function runLane(lane, { root, environment }) {
+  const path = resolve(root, `${lane.id}.log`);
+  const output = createWriteStream(path, { flags: "wx" });
+  return new Promise((resolveRun, rejectRun) => {
+    const child = spawn(lane.command, lane.args, { cwd: lane.cwd, env: environment, stdio: ["ignore", "pipe", "pipe"] });
+    let bytes = 0;
+    let failure;
+    const write = chunk => {
+      bytes += chunk.length;
+      if (bytes > 64 * 1024 * 1024) {
+        failure = new Error(`Release lane '${lane.id}' exceeded its log ceiling.`);
+        child.kill("SIGTERM");
+        return;
+      }
+      output.write(chunk);
+    };
+    child.stdout.on("data", write);
+    child.stderr.on("data", write);
+    child.once("error", error => { failure = error; });
+    child.once("close", status => output.end(() => {
+      process.stdout.write(`Release lane ${lane.id}: ${status === 0 && failure === undefined ? "passed" : "failed"}; ${path}\n`);
+      if (status !== 0 || failure !== undefined) {
+        const excerpt = readFileSync(path).subarray(-16_384).toString("utf8");
+        rejectRun(new Error(`Release lane '${lane.id}' failed (${String(status)}). ${failure?.message ?? ""}\n${excerpt}`));
+      } else resolveRun({ id: lane.id, status });
+    }));
+  });
+}

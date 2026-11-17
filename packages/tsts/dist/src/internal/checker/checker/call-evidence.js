@@ -116,10 +116,18 @@ export function retainElementCallCalleeEvidence(checker, elementAccessExpression
         }),
     });
 }
+export function retainCallArgumentOrigins(checker, callExpression, origins) {
+    const links = LinkStore_Get(checker.signatureLinks, callExpression);
+    retainCallSelectionSeed(checker, callExpression, {
+        ...links.checkedCallSelectionSeed,
+        argumentOrigins: origins,
+    });
+}
 function retainCallSelectionSeed(checker, callExpression, incoming) {
     const links = LinkStore_Get(checker.signatureLinks, callExpression);
     journalSelectedCallEvidence(checker, links);
-    const seed = Object.freeze({ ...incoming });
+    const origins = incoming.argumentOrigins ?? links.checkedCallSelectionSeed?.argumentOrigins;
+    const seed = Object.freeze({ ...incoming, ...(origins === undefined ? {} : { argumentOrigins: origins }) });
     links.checkedCallSelectionSeed = seed;
     return seed;
 }

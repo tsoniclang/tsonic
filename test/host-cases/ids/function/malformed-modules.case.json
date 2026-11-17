@@ -1,0 +1,1 @@
+{"name":"malformed-modules","level":"function","rule":"Module decoding retains actual nested kind and path error offset without accept-and-rewrite","input":"test/host-cases/ids/function/malformed-modules.input.json","expected":"test/host-cases/ids/function/malformed-modules.expected.json"}

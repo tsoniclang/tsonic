@@ -1,0 +1,7 @@
+{
+  "name": "duplicate-source",
+  "level": "verifier",
+  "rule": "source-ids-unique",
+  "input": "test/host-cases/libraries/verifier/duplicate-source.input.json",
+  "expected": "test/host-cases/libraries/verifier/duplicate-source.expected.json"
+}

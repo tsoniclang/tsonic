@@ -1,0 +1,1 @@
+{"name":"structural-keys","level":"function","rule":"Key counts, child boundaries, complete fields and UTF16 ordering","input":"test/host-cases/ids/function/structural-keys.input.json","expected":"test/host-cases/ids/function/structural-keys.expected.json"}

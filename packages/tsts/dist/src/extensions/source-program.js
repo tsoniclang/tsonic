@@ -8,10 +8,13 @@ export function createSourceProgramQueries(program, options = {}) {
         throw new Error("Source program queries require a compiler program.");
     }
     const ast = options.ast ?? createAstReader();
+    const programSourceFiles = Object.freeze((Program_GetSourceFiles(program) ?? [])
+        .filter((sourceFile) => sourceFile !== undefined));
     const sourceFileQueries = new WeakMap();
     const moduleSourceFiles = new WeakMap();
     const included = (sourceFile) => options.includeSourceFile?.(sourceFile) !== false;
-    const getSourceFiles = () => (Program_GetSourceFiles(program) ?? []).filter((sourceFile) => sourceFile !== undefined && included(sourceFile));
+    const containsSourceFile = (sourceFile) => sourceFile !== undefined && Program_GetSourceFile(program, ast.getFileName(sourceFile)) === sourceFile;
+    const getSourceFiles = () => programSourceFiles.filter(included);
     const getSourceFile = (fileName) => {
         const sourceFile = Program_GetSourceFile(program, fileName);
         return sourceFile !== undefined && included(sourceFile)
@@ -19,8 +22,8 @@ export function createSourceProgramQueries(program, options = {}) {
             : undefined;
     };
     const getSourceFileQueries = (sourceFile) => {
-        if (sourceFile === undefined || !included(sourceFile)) {
-            throw new Error("Source-file queries require an included source file from the checked program.");
+        if (sourceFile === undefined || !containsSourceFile(sourceFile)) {
+            throw new Error("Source-file queries require an exact source file from the checked program.");
         }
         const existing = sourceFileQueries.get(sourceFile);
         if (existing !== undefined) {
@@ -70,9 +73,23 @@ export function createSourceProgramQueries(program, options = {}) {
     };
     return Object.freeze({
         ast,
+        programSourceFiles,
+        containsSourceFile,
         getSourceFiles,
         getSourceFile,
         getSourceFileQueries,
+        getBackingConstraints() {
+            const visited = new Set();
+            const constraints = [];
+            for (const file of programSourceFiles) {
+                const vector = getSourceFileQueries(file).checker.getBackingConstraints();
+                if (visited.has(vector))
+                    continue;
+                visited.add(vector);
+                constraints.push(...vector);
+            }
+            return Object.freeze(constraints);
+        },
         resolveModuleSourceFile,
     });
 }

@@ -1,0 +1,1 @@
+{"name":"metadata-field-abi-key-refused","level":"verifier","rule":"C2966 field-offset does not admit an unrelated existing ABI data-layout key","input":"test/host-cases/ir-program/verifier/metadata-field-abi-key-refused.input.json","expected":"test/host-cases/ir-program/verifier/metadata-field-abi-key-refused.expected.json"}

@@ -1,0 +1,1 @@
+{"name":"tuple-boundaries","level":"function","rule":"Canonical tuple cardinality, order and nesting are never a truncated query identity","input":"test/host-cases/query/function/tuple-boundaries.input.json","expected":"test/host-cases/query/function/tuple-boundaries.expected.json"}

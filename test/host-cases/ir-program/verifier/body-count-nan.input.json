@@ -1,0 +1,10 @@
+{
+  "operation": "verify-index-fixture",
+  "change": {
+    "kind": "body-count",
+    "field": "mirConstantCount",
+    "value": {
+      "$number": "NaN"
+    }
+  }
+}

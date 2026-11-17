@@ -1,0 +1,1 @@
+{"name":"pragma-key-duplicate-quoted","level":"function","rule":"C2945 exact decoded pragma dictionary key uniqueness/order and source-position ownership, without prototype or grammar fallback","input":"test/host-cases/ir-program/function/pragma-key-duplicate-quoted.input.json","expected":"test/host-cases/ir-program/function/pragma-key-duplicate-quoted.expected.json"}

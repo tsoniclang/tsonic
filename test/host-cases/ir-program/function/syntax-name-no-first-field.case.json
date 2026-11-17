@@ -1,0 +1,7 @@
+{
+  "name": "syntax-name-no-first-field",
+  "level": "function",
+  "rule": "syntax-name-no-first-field",
+  "input": "test/host-cases/ir-program/function/syntax-name-no-first-field.input.json",
+  "expected": "test/host-cases/ir-program/function/syntax-name-no-first-field.expected.json"
+}

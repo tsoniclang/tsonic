@@ -1,0 +1,1 @@
+{"name":"module-boundary-node-owned-module","level":"verifier","rule":"subject node module identity remains distinct from the conflicting publication label; complete cofindings","input":"test/host-cases/ir-program/verifier/module-boundary-node-owned-module.input.json","expected":"test/host-cases/ir-program/verifier/module-boundary-node-owned-module.expected.json"}

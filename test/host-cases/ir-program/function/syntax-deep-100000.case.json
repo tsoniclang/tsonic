@@ -1,0 +1,1 @@
+{"name":"syntax-deep-100000","level":"function","rule":"A genuine finite 100000-level Block chain prints, parses with exact full payload and root sharing, and verifies without input-depth recursion","input":"test/host-cases/ir-program/function/syntax-deep-100000.input.json","expected":"test/host-cases/ir-program/function/syntax-deep-100000.expected.json"}

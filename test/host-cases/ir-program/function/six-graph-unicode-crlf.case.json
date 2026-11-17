@@ -1,0 +1,1 @@
+{"name":"six-graph-unicode-crlf","level":"function","rule":"Winning offset and column count UTF16 units including a preceding astral pair and lone surrogate; only LF resets the column in CRLF","input":"test/host-cases/ir-program/function/six-graph-unicode-crlf.input.json","expected":"test/host-cases/ir-program/function/six-graph-unicode-crlf.expected.json"}

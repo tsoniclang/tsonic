@@ -1,0 +1,17 @@
+{
+  "table": {
+    "terms": [
+      {
+        "kind": "fixed-array",
+        "element": 0,
+        "extent": {
+          "length": "-1",
+          "runtimeBase": "bigint"
+        }
+      }
+    ],
+    "signatures": []
+  },
+  "bindings": [],
+  "evidence": []
+}

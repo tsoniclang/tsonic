@@ -1,0 +1,7 @@
+{
+  "name": "lookup-absent",
+  "level": "function",
+  "rule": "diag.registry-no-fallback-or-normalization",
+  "input": "test/host-cases/diag/function/lookup-absent.input.json",
+  "expected": "test/host-cases/diag/function/lookup-absent.expected.json"
+}

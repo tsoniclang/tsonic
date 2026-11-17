@@ -1,0 +1,7 @@
+{
+  "name": "parameter-order-invalid",
+  "level": "verifier",
+  "rule": "parameter-order",
+  "input": "test/host-cases/ir-types/verifier/parameter-order-invalid.input.json",
+  "expected": "test/host-cases/ir-types/verifier/parameter-order-invalid.expected.json"
+}

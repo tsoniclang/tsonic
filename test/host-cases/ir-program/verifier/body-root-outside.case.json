@@ -1,0 +1,7 @@
+{
+  "name": "body-root-outside",
+  "level": "verifier",
+  "rule": "body-root-outside",
+  "input": "test/host-cases/ir-program/verifier/body-root-outside.input.json",
+  "expected": "test/host-cases/ir-program/verifier/body-root-outside.expected.json"
+}

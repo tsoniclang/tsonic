@@ -1,0 +1,1 @@
+{"name":"constant-reference-present","level":"verifier","rule":"Joint roots, complete binding identities and actual child proof failures remain qualified and are never filtered or replaced with success","input":"test/host-cases/ir-program/verifier/constant-reference-present.input.json","expected":"test/host-cases/ir-program/verifier/constant-reference-present.expected.json"}

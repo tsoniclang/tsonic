@@ -82,6 +82,10 @@ export type ExtensionForAwaitOfIterationMechanism = ExtensionForAwaitOfAtomicIte
     readonly alternatives: readonly [ExtensionForAwaitOfAtomicIterationMechanism, ...ExtensionForAwaitOfAtomicIterationMechanism[]];
 };
 export type ExtensionCheckedIterationSelection = {
+    readonly subject: {
+        readonly kind: "for-in";
+        readonly node: Node;
+    };
     readonly iterationKind: "for-in";
     readonly sourceIterableType: Type;
     readonly sourceElementType: Type;
@@ -89,15 +93,32 @@ export type ExtensionCheckedIterationSelection = {
         readonly kind: "property-key-enumeration";
     };
 } | {
+    readonly subject: {
+        readonly kind: "for-of";
+        readonly node: Node;
+    };
     readonly iterationKind: "for-of";
     readonly sourceIterableType: Type;
     readonly sourceElementType: Type;
     readonly mechanism: ExtensionForOfIterationMechanism;
 } | {
+    readonly subject: {
+        readonly kind: "for-of";
+        readonly node: Node;
+    };
     readonly iterationKind: "for-await-of";
     readonly sourceIterableType: Type;
     readonly sourceElementType: Type;
     readonly mechanism: ExtensionForAwaitOfIterationMechanism;
+} | {
+    readonly subject: {
+        readonly kind: "spread";
+        readonly node: Node;
+    };
+    readonly sourceIterableType: Type;
+    readonly sourceElementType: Type;
+    readonly iterationKind?: never;
+    readonly mechanism?: never;
 };
 export interface ExtensionCheckedIterationResult {
     readonly elementType: Type;
@@ -128,6 +149,6 @@ export declare function combineExtensionProtocolMechanisms(capture: ExtensionIte
 export declare function createChildExtensionIterationCapture(capture: ExtensionIterationProtocolSelectionCapture): ExtensionIterationProtocolSelectionCapture;
 export declare function captureExtensionArrayOrStringIteration(capture: ExtensionIterationProtocolSelectionCapture, forAwaitOf: boolean, arrayType: GoPtr<Type>, selectedIndexType: GoPtr<Type>, stringType: GoPtr<Type>): void;
 export declare function createExtensionIterationProtocolSelectionCapture(): ExtensionIterationProtocolSelectionCapture;
-export declare function createExtensionForInIterationSelection(sourceIterableType: Type, sourceElementType: Type): ExtensionCheckedIterationSelection;
+export declare function createExtensionForInIterationSelection(statement: Node, sourceIterableType: Type, sourceElementType: Type): ExtensionCheckedIterationSelection;
 export {};
 //# sourceMappingURL=iteration-evidence.d.ts.map

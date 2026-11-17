@@ -1,0 +1,1 @@
+{"name":"phase-source-metadata-TSX","level":"function","rule":"C2945 full SourceFile metadata/closed flags and exact UTF16 own-dictionary key order roundtrip with complete nonidentity canonical projection","input":"test/host-cases/ir-program/function/phase-source-metadata-TSX.input.json","expected":"test/host-cases/ir-program/function/phase-source-metadata-TSX.expected.json"}

@@ -1,6 +1,8 @@
 import { SourceFile_FileName } from "../internal/ast/ast.js";
 import { createSourceProgramQueries, } from "./source-program.js";
 import { isArgumentPassingMode } from "./argument-passing.js";
+import { isProviderWellKnownSymbolName } from "./provider-well-known-symbols.js";
+import { providerVirtualDeclarationFactKey } from "./facts.js";
 import { defineExtensionFactKey, formatExtensionFactKeyForDisplay, getExtensionFactKeyIdentity, isHostSourceReadableFactKey, } from "./fact-key.js";
 export { defineExtensionFactKey, } from "./fact-key.js";
 import { encodeIdentityTuple } from "./identity-tuple.js";
@@ -9,6 +11,7 @@ import { getProviderExportContractKeyMap, getProviderTypeParameterContractKey } 
 import { getProviderVirtualArtifactForCompiler, getProviderTypeFamilyVariantNominalMemberName, getStableProviderVirtualSliceSuffix, isHostOwnedProviderVirtualFileName, providerCanonicalExportOwnerMarker, providerCanonicalModuleDependencyContextMarker, providerPublicVirtualSliceMarker, providerVirtualCompilerArtifactLookup, providerVirtualCompilerMetadataLookup, providerVirtualStructuredTypeDemand, providerVirtualInternalRoot, providerVirtualPublicRoot, } from "./provider-virtual-internal.js";
 import { canonicalizeProviderAbiModel, validateProviderDeclarationModelGraph, } from "./provider-model-graph.js";
 import { createProviderRenderedFunctionSignature, hasUniqueProviderCallableIdentities, renderProviderFunctionSignatureMarker, } from "./provider-callable-signatures.js";
+import { renderProviderSourcePrimitiveMarker } from "./provider-source-primitives.js";
 import { assertProviderAncillaryAggregateScalarCodeUnits, assertProviderBoundaryString, formatProviderBoundarySnapshotFailure, snapshotProviderEvidenceArray, } from "./provider-boundary-data.js";
 import { emptyProviderClosureResourceUsage, reserveProviderClosureResources, } from "./provider-closure-resources.js";
 import { providerAncillaryDataLimits, providerDeclarationClosureLimits, providerDeclarationModelLimits, providerModuleContextLimits, } from "./provider-resource-limits.js";
@@ -98,6 +101,7 @@ const sealProviderRegistrations = Symbol("tsts.provider.sealRegistrations");
 const providerMaxRegisteredProviders = 4_096;
 export const extensionHostSetFact = Symbol("tsts.extensionHost.setFact");
 export const extensionHostRunSourceAnalysis = Symbol("tsts.extensionHost.runSourceAnalysis");
+export const extensionHostProviderExportMaterialized = Symbol("tsts.extensionHost.providerExportMaterialized");
 const extensionStoreViewToken = Object.freeze({});
 export class ExtensionDiagnosticStore {
     #state;
@@ -110,7 +114,7 @@ export class ExtensionDiagnosticStore {
                 diagnosticRanges: new Map(),
                 savepoints: [],
                 savepointStates: new WeakMap(),
-                ownerAuthority: { stack: [] },
+                ownerAuthority: { stack: [], pendingRegistrarExtensionId: null },
                 rangesSealed: false,
             };
             this.#ownerId = undefined;
@@ -1100,7 +1104,16 @@ export class ProviderRegistry {
         this.#requiredProviderModules = snapshotRequiredProviderModules(requiredProviderModules);
         this.#materializationRound = materializationRound;
     }
+    /**
+     * The one registration. Who asked is taken first: the id the host left pending for this call (an extension's
+     * checked initializer capability), or null when the embedding host calls directly. It is cleared as it is taken,
+     * so nothing this call runs, a getter of the provider included, and no call nested in it can see it. A provider
+     * object that is registered stays as it was registered: the call returns before any record is made.
+     */
     registerSourceDeclarationProvider(provider) {
+        const authority = getDiagnosticStoreOwnerAuthority(this.#diagnostics);
+        const registrarExtensionId = authority.pendingRegistrarExtensionId;
+        authority.pendingRegistrarExtensionId = null;
         this.#assertHostOwnedRegistration("source declaration provider");
         if (this.#sourceDeclarationProviderRegistrations.has(provider)) {
             return true;
@@ -1109,7 +1122,7 @@ export class ProviderRegistry {
             this.#diagnostics.append(createRegistrationClosedDiagnostic("source declaration provider"));
             return false;
         }
-        const registration = snapshotSourceDeclarationProviderRegistration(provider);
+        const registration = snapshotSourceDeclarationProviderRegistration(provider, registrarExtensionId);
         if (registration.kind === "invalid") {
             this.#diagnostics.append(createHostDiagnostic({
                 extensionCode: "INVALID_SOURCE_DECLARATION_PROVIDER",
@@ -1567,6 +1580,7 @@ export class ProviderRegistry {
         const artifactDeclarationModel = freezeProviderDeclarationModel(canonicalizeProviderAbiModel(declarationModel));
         const candidate = Object.freeze({
             providerIdentity: owner.provider.identity,
+            registrarExtensionId: owner.provider.registrarExtensionId,
             resolution,
             materialization: declarationRequest.materialization,
             declarationModel,
@@ -2177,6 +2191,7 @@ export class ProviderRegistry {
                 moduleSpecifier: ownerResolution.moduleSpecifier,
                 providerModuleId: ownerResolution.providerModuleId,
                 provider: plan.candidate.providerIdentity,
+                registrarExtensionId: plan.candidate.registrarExtensionId,
                 declarationModel: plan.declarationModel,
                 sourceText,
                 readOnly: true,
@@ -2298,6 +2313,7 @@ export class ProviderRegistry {
             moduleSpecifier: candidate.resolution.moduleSpecifier,
             providerModuleId: candidate.resolution.providerModuleId,
             provider: candidate.providerIdentity,
+            registrarExtensionId: candidate.registrarExtensionId,
             declarationModel,
             sourceText,
             readOnly: true,
@@ -2527,6 +2543,45 @@ export class ExtensionHost {
     [extensionHostSetFact](subject, key, value, evidence = []) {
         return this.facts[factStoreSetForHost](subject, key, value, evidence);
     }
+    [extensionHostProviderExportMaterialized](symbol, sourcePrimitives) {
+        if (this.#semanticFinalizationState !== "open") {
+            throw new Error("Provider exports must materialize before semantic finalization.");
+        }
+        const declaration = this.facts.get(symbol, providerVirtualDeclarationFactKey);
+        if (declaration?.exportId === undefined || declaration.memberId !== undefined) {
+            throw new Error("Provider export materialization requires its published exact export identity.");
+        }
+        for (const extension of this.#extensions) {
+            const materialized = extension.providerExportMaterialized;
+            if (materialized === undefined)
+                continue;
+            const attempt = this.#beginFactAttempt();
+            try {
+                const capabilities = this.#getOwnerCapabilities(extension.identity.id);
+                runWithExtensionOwnerAuthority(this.#ownerAuthority, extension.identity.id, () => {
+                    const scope = createExtensionCapabilityScope();
+                    try {
+                        const facts = createSourceAnalysisFactAccess(capabilities.facts, scope);
+                        materialized(Object.freeze({
+                            symbol,
+                            declaration,
+                            sourcePrimitives: Object.freeze(sourcePrimitives.map(annotation => Object.freeze({ ...annotation }))),
+                            facts: Object.freeze({ set: facts.set }),
+                        }));
+                    }
+                    finally {
+                        revokeExtensionCapabilityScope(scope);
+                    }
+                });
+                this.#commitFactAttempt(attempt);
+            }
+            catch (error) {
+                const settledError = this.#rollbackFactAttemptsAfterFailure(error, attempt);
+                this.#failSemanticFinalization();
+                throw settledError;
+            }
+        }
+    }
     constructor(program, options = {}) {
         this.#program = program;
         this.diagnostics = new ExtensionDiagnosticStore();
@@ -2620,7 +2675,16 @@ export class ExtensionHost {
     }
     #registerSourceDeclarationProviderForExtension(extensionId, provider) {
         this.#assertRegistrationOwner(extensionId, "source declaration provider");
-        return runWithoutExtensionOwnerAuthority(this.#ownerAuthority, () => this.providers.registerSourceDeclarationProvider(provider));
+        return runWithoutExtensionOwnerAuthority(this.#ownerAuthority, () => {
+            const previous = this.#ownerAuthority.pendingRegistrarExtensionId;
+            this.#ownerAuthority.pendingRegistrarExtensionId = extensionId;
+            try {
+                return this.providers.registerSourceDeclarationProvider(provider);
+            }
+            finally {
+                this.#ownerAuthority.pendingRegistrarExtensionId = previous;
+            }
+        });
     }
     #failSemanticFinalization() {
         if (this.#semanticFinalizationState === "finalized") {
@@ -3171,6 +3235,8 @@ function snapshotCompilerExtension(extension) {
         identity,
         ...(dependencies === undefined ? {} : { dependencies }),
         ...(extension.initialize === undefined ? {} : { initialize: extension.initialize }),
+        ...(extension.providerExportMaterialized === undefined
+            ? {} : { providerExportMaterialized: extension.providerExportMaterialized }),
         ...(extension.analyzeSource === undefined ? {} : { analyzeSource: extension.analyzeSource }),
     });
 }
@@ -3940,7 +4006,7 @@ function snapshotProviderIdentity(identity) {
         ...(displayName === undefined ? {} : { displayName }),
     });
 }
-function snapshotSourceDeclarationProviderRegistration(provider) {
+function snapshotSourceDeclarationProviderRegistration(provider, registrarExtensionId) {
     try {
         const identity = snapshotProviderIdentity(provider.identity);
         const declarationMaterialization = provider.declarationMaterialization;
@@ -3963,6 +4029,7 @@ function snapshotSourceDeclarationProviderRegistration(provider) {
             kind: "valid",
             provider: Object.freeze({
                 identity,
+                registrarExtensionId,
                 declarationMaterialization,
                 ownsModule: (specifier, context) => ownsModule.call(provider, specifier, context),
                 resolveModule: (specifier, context) => resolveModule.call(provider, specifier, context),
@@ -4410,7 +4477,11 @@ function providerVirtualCompilerMetadataEqual(left, right) {
     return left.directDeclarations.length === right.directDeclarations.length
         && left.directDeclarations.every((declaration, index) => declaration.id === right.directDeclarations[index]?.id
             && declaration.localName === right.directDeclarations[index]?.localName)
-        && providerRenderedFunctionSignaturesEqual(left.renderedFunctionSignatures, right.renderedFunctionSignatures);
+        && providerRenderedFunctionSignaturesEqual(left.renderedFunctionSignatures, right.renderedFunctionSignatures)
+        && left.renderedSourcePrimitives.length === right.renderedSourcePrimitives.length
+        && left.renderedSourcePrimitives.every((primitive, index) => primitive.marker === right.renderedSourcePrimitives[index]?.marker
+            && primitive.exportId === right.renderedSourcePrimitives[index]?.exportId
+            && primitive.primitive === right.renderedSourcePrimitives[index]?.primitive);
 }
 function providerDeclarationMaterializationEquals(left, right) {
     if (left === undefined || left.kind !== right.kind) {
@@ -4444,6 +4515,7 @@ function renderProviderDeclarationModel(model, options = {}) {
         exactImportsInTypePositions: options.exactImportsInTypePositions === true,
         directDeclarations: new Map(),
         renderedFunctionSignatures: [],
+        renderedSourcePrimitives: [],
     };
     const hasDirectDeclarations = model.exports.some((declaration) => !canonicalLocalNameByExportName.has(getProviderSourceExportName(declaration)));
     if (options.mode === "canonical-export" || hasDirectDeclarations) {
@@ -4538,6 +4610,7 @@ function snapshotProviderVirtualCompilerMetadata(context) {
     return Object.freeze({
         directDeclarations: Object.freeze([...context.directDeclarations].map(([id, localName]) => Object.freeze({ id, localName }))),
         renderedFunctionSignatures: Object.freeze([...context.renderedFunctionSignatures]),
+        renderedSourcePrimitives: Object.freeze([...context.renderedSourcePrimitives]),
     });
 }
 function renderProviderImportDeclaration(declaration) {
@@ -4600,12 +4673,12 @@ function renderProviderExportDeclaration(declaration, context, options = {}) {
     let rendered;
     switch (declaration.kind) {
         case "class": {
-            const typeParameters = renderProviderTypeParameters(declaration.typeParameters ?? [], declarationContext);
+            const typeParameters = renderProviderTypeParameters(declaration.typeParameters ?? [], declarationContext, "type");
             rendered = `${declarationPrefix}class ${declarationName}${typeParameters}${renderProviderHeritage(declaration.heritage ?? [], "class", declarationContext)} {\n${renderProviderClassMembers(declaration, declarationContext)}\n}`;
             break;
         }
         case "interface": {
-            const typeParameters = renderProviderTypeParameters(declaration.typeParameters ?? [], declarationContext);
+            const typeParameters = renderProviderTypeParameters(declaration.typeParameters ?? [], declarationContext, "type");
             rendered = `${typePrefix}interface ${declarationName}${typeParameters}${renderProviderHeritage(declaration.heritage ?? [], "interface", declarationContext)} {\n${renderProviderMembers(declaration.members ?? [], declarationContext)}\n}`;
             break;
         }
@@ -4617,7 +4690,7 @@ function renderProviderExportDeclaration(declaration, context, options = {}) {
             break;
         }
         case "type": {
-            const typeParameters = renderProviderTypeParameters(declaration.typeParameters ?? [], declarationContext);
+            const typeParameters = renderProviderTypeParameters(declaration.typeParameters ?? [], declarationContext, "type");
             rendered = `${typePrefix}type ${declarationName}${typeParameters} = ${renderProviderTypeExpression(declaration.type, declarationContext)};`;
             break;
         }
@@ -4785,21 +4858,27 @@ function getProviderPropertyNameText(name) {
 }
 function renderProviderSignatures(name, signatures, context, constructor = false) {
     return signatures.map((signature) => {
-        const typeParameters = renderProviderTypeParameters(signature.typeParameters ?? [], context);
+        const typeParameters = renderProviderTypeParameters(signature.typeParameters ?? [], context, "signature");
         const parameters = signature.parameters.map((parameter) => renderProviderParameter(parameter, context)).join(", ");
         const returnType = constructor ? "" : `: ${renderProviderTypeExpression(signature.returnType ?? { kind: "void" }, context)}`;
-        return `${name}${typeParameters}(${parameters})${returnType};`;
+        const accessibility = constructor && (signature.accessibility === "protected" ||
+            signature.accessibility === "protected-internal") ? "protected " : "";
+        return `${accessibility}${name}${typeParameters}(${parameters})${returnType};`;
     });
 }
-function renderProviderTypeParameters(typeParameters, context) {
+function renderProviderTypeParameters(typeParameters, context, scope) {
     if (typeParameters.length === 0) {
         return "";
     }
     return `<${typeParameters.map((parameter) => {
+        if (scope === "signature" && parameter.variance !== undefined) {
+            throw new Error("Provider signature type parameters cannot declare type variance.");
+        }
+        const variance = parameter.variance === undefined ? "" : parameter.variance === "invariant" ? "in out " : `${parameter.variance} `;
         const constraints = parameter.constraints ?? [];
         const constraintText = constraints.length === 0 ? "" : ` extends ${constraints.map((constraint) => renderProviderTypeExpression(constraint, context)).join(" & ")}`;
         const defaultText = parameter.defaultType === undefined ? "" : ` = ${renderProviderTypeExpression(parameter.defaultType, context)}`;
-        return `${parameter.name}${constraintText}${defaultText}`;
+        return `${variance}${parameter.name}${constraintText}${defaultText}`;
     }).join(", ")}>`;
 }
 function renderProviderParameter(parameter, context) {
@@ -4833,8 +4912,14 @@ function renderProviderTypeExpressionWorker(type, parentPrecedence, context, opt
         case "bigint":
         case "object":
             return type.kind;
-        case "source-primitive":
-            return renderSourcePrimitiveType(type.name);
+        case "source-primitive": {
+            if (context.declaration === undefined) {
+                throw new Error("Provider source primitive was rendered without an owning declaration.");
+            }
+            const marker = context.renderedSourcePrimitives.length;
+            context.renderedSourcePrimitives.push(Object.freeze({ marker, exportId: context.declaration.id, primitive: type.name }));
+            return `(${renderProviderSourcePrimitiveMarker(marker)}${renderSourcePrimitiveType(type.name)})`;
+        }
         case "source-global":
             return type.typeArguments === undefined || type.typeArguments.length === 0
                 ? `globalThis.${type.name}`
@@ -4859,7 +4944,7 @@ function renderProviderTypeExpressionWorker(type, parentPrecedence, context, opt
             }
             const marker = context.renderedFunctionSignatures.length;
             context.renderedFunctionSignatures.push(createProviderRenderedFunctionSignature(context.declaration, context.member, type, marker));
-            const text = `${renderProviderTypeParameters(type.typeParameters ?? [], context)}(${type.parameters.map((parameter) => renderProviderParameter(parameter, context)).join(", ")}) => ${renderProviderTypeExpression(type.returnType, context)}`;
+            const text = `${renderProviderTypeParameters(type.typeParameters ?? [], context, "signature")}(${type.parameters.map((parameter) => renderProviderParameter(parameter, context)).join(", ")}) => ${renderProviderTypeExpression(type.returnType, context)}`;
             const marked = `(${renderProviderFunctionSignatureMarker(marker)}${text})`;
             return parentPrecedence > providerTypePrecedenceNone ? `(${marked})` : marked;
         }
@@ -5433,7 +5518,7 @@ function isValidProviderExportDeclaration(value) {
         && (value.type === undefined || isValidProviderTypeExpression(value.type))
         && (value.typeParameters ?? []).every(isValidProviderTypeParameterDeclaration)
         && (value.heritage ?? []).every(isValidProviderHeritageDeclaration)
-        && (value.signatures ?? []).every(isValidProviderSignatureDeclaration)
+        && (value.signatures ?? []).every(signature => signature.accessibility === undefined && isValidProviderSignatureDeclaration(signature))
         && (value.kind === "enum"
             ? (value.members ?? []).every(isValidProviderEnumMemberDeclaration)
             : value.kind === "namespace" || value.kind === "function"
@@ -5631,6 +5716,7 @@ function hasRequiredProviderExportShape(value) {
 function isValidProviderMemberDeclaration(value) {
     return value.id.length > 0
         && (value.kind === "constructor" || isValidProviderPropertyName(value.name))
+        && (value.kind === "constructor" || (value.signatures ?? []).every(signature => signature.accessibility === undefined))
         && hasRequiredProviderMemberShape(value)
         && hasNoUnrenderedProviderMemberShape(value)
         && (value.type === undefined || isValidProviderTypeExpression(value.type))
@@ -5653,7 +5739,7 @@ function isValidProviderNamespaceMemberDeclaration(value) {
         && hasRequiredProviderMemberShape(value)
         && hasNoUnrenderedProviderNamespaceMemberShape(value)
         && (value.type === undefined || isValidProviderTypeExpression(value.type))
-        && (value.signatures ?? []).every(isValidProviderSignatureDeclaration);
+        && (value.signatures ?? []).every(signature => signature.accessibility === undefined && isValidProviderSignatureDeclaration(signature));
 }
 function hasNoUnrenderedProviderMemberShape(value) {
     switch (value.kind) {
@@ -5701,6 +5787,8 @@ function hasRequiredProviderMemberShape(value) {
 function isValidProviderSignatureDeclaration(value) {
     return value.id.length > 0
         && (value.name === undefined || isIdentifierText(value.name))
+        && (value.accessibility === undefined || value.accessibility === "public" ||
+            value.accessibility === "protected" || value.accessibility === "protected-internal")
         && value.parameters.every(isValidProviderParameterDeclaration)
         && (value.returnType === undefined || isValidProviderTypeExpression(value.returnType))
         && (value.typeParameters ?? []).every(isValidProviderTypeParameterDeclaration);
@@ -6056,26 +6144,6 @@ function isValidProviderNamespaceMemberName(name) {
         return isIdentifierText(name);
     }
     return name.kind === "identifier" && isIdentifierText(name.text);
-}
-function isProviderWellKnownSymbolName(name) {
-    switch (name) {
-        case "asyncIterator":
-        case "hasInstance":
-        case "isConcatSpreadable":
-        case "iterator":
-        case "match":
-        case "matchAll":
-        case "replace":
-        case "search":
-        case "species":
-        case "split":
-        case "toPrimitive":
-        case "toStringTag":
-        case "unscopables":
-            return true;
-        default:
-            return false;
-    }
 }
 function isKnownSourcePrimitive(name) {
     switch (name) {

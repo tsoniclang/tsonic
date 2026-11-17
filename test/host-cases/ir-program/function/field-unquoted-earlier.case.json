@@ -1,0 +1,7 @@
+{
+  "name": "field-unquoted-earlier",
+  "level": "function",
+  "rule": "text-first-position",
+  "input": "test/host-cases/ir-program/function/field-unquoted-earlier.input.json",
+  "expected": "test/host-cases/ir-program/function/field-unquoted-earlier.expected.json"
+}

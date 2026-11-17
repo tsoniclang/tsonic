@@ -1,0 +1,23 @@
+{
+  "kind": "accepted",
+  "value": [
+    {
+      "rule": "member-order",
+      "site": {
+        "kind": "type",
+        "type": 0
+      },
+      "detail": [
+        {
+          "kind": "text",
+          "value": "members"
+        },
+        {
+          "kind": "number",
+          "value": 1
+        }
+      ]
+    }
+  ],
+  "diagnostics": []
+}

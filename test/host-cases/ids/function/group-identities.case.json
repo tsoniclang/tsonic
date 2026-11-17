@@ -1,0 +1,1 @@
+{"name":"group-identities","level":"function","rule":"Group minimum is canonical BodyId UTF16 order, independent of insertion, locale and numeric order","input":"test/host-cases/ids/function/group-identities.input.json","expected":"test/host-cases/ids/function/group-identities.expected.json"}

@@ -1,0 +1,1 @@
+{"name":"malformed-components","level":"function","rule":"Component decoding rejects missing, repeated, unsorted and wrong-kind members with exact sites","input":"test/host-cases/ids/function/malformed-components.input.json","expected":"test/host-cases/ids/function/malformed-components.expected.json"}

@@ -1,0 +1,213 @@
+import type { Node } from "@tsonic/tsts";
+import type { TargetSourceProgram } from "../../source-model/program.js";
+import type { SourceResult, SourceTypeEvidence } from "../../public/source/contracts.js";
+import type { SourceLiteralDomain } from "../../source-model/literals/domain.js";
+import type { SourceNodeDomain } from "../../source-navigation/lexical-captures.js";
+import { sourceNodesOutsideErasedSubtrees } from "../../source-navigation/callable-invocations.js";
+import { sourceFlowPattern } from "./bindings.js";
+import { createSourceFlowCaptureQuery } from "./captures.js";
+import { createSourceFlowConstruction, type SourceFlowConstruction, type SourceFlowContext } from "./construction.js";
+import { sourceDeclarationFlowEntry, type SourceFlowInitializer } from "./entry.js";
+import { sourceFlowExpression } from "./expressions.js";
+import type { SourceControlFlowQueries, SourceControlFlowSelectedDomain, SourceControlFlowSelection,
+  SourceDeclarationControlFlowOptions, SourceDeclarationFlowExecutionRegion, SourceFlowUnresolved } from "../../source-model/control-flow.js";
+import { SourceFlowFailure, SourceFlowRefusal, sourceFlowLimits } from "./resources.js";
+import { sourceFlowStatement } from "./statements.js";
+import { createSourceSwitchCoverage } from "./switch-coverage.js";
+
+export function createSourceControlFlowQueries(source: TargetSourceProgram,
+  literalDomain: (value: SourceTypeEvidence) => SourceLiteralDomain,
+  callableHead: (declaration: Node) => SourceResult<SourceTypeEvidence>): SourceControlFlowQueries {
+  const domains = new WeakMap<SourceControlFlowSelectedDomain, ReadonlySet<Node>>();
+  const switchCoverage = createSourceSwitchCoverage(source);
+  return Object.freeze({
+    domain: (nodes: readonly Node[]) => selectControlFlowDomain(source, nodes, domains),
+    declaration: (declaration: Node, options: SourceDeclarationControlFlowOptions) =>
+      selectDeclarationControlFlow(source, declaration, options, domains, switchCoverage, literalDomain, callableHead),
+  });
+}
+
+function selectControlFlowDomain(source: TargetSourceProgram, nodes: readonly Node[],
+  domains: WeakMap<SourceControlFlowSelectedDomain, ReadonlySet<Node>>):
+  | { readonly kind: "resolved"; readonly domain: SourceControlFlowSelectedDomain }
+  | SourceFlowUnresolved {
+  const fail = (reason: string, node?: Node): SourceFlowUnresolved => Object.freeze({ kind: "unresolved", reason, source: node });
+  if (!Array.isArray(nodes)) return fail("Source flow requires an explicit dense checked selected-node inventory.");
+  for (let index = 0; index < nodes.length; index += 1) {
+    if (!Object.prototype.hasOwnProperty.call(nodes, index) || nodes[index] === undefined || nodes[index] === null)
+      return fail("Source flow requires an explicit dense checked selected-node inventory.");
+  }
+  const selected = sourceNodesOutsideErasedSubtrees(source.ast, nodes, () => false);
+  if (selected.kind === "unresolved") return fail(selected.reason);
+  const files = new Set<Node>(source.sourceFiles);
+  const children = new Map<Node, ReadonlySet<Node>>();
+  for (const node of selected.nodes) {
+    source.facts.navigation.callableRoles(node);
+    const file = source.ast.getSourceFile(node);
+    if (file === undefined || !files.has(file)) return fail("Source flow selected nodes must belong to the identical Source file domain.", node);
+    const parent = source.ast.parent(node);
+    if (parent === undefined) {
+      if (!files.has(node)) return fail("Source flow selected nodes must belong to the identical checked source program.", node);
+      continue;
+    }
+    let actual = children.get(parent);
+    if (actual === undefined) {
+      actual = new Set(source.ast.children(parent).filter((child): child is Node => child !== undefined));
+      children.set(parent, actual);
+    }
+    if (!actual.has(node)) return fail("Source flow requires each original checked parent/child identity in its selected domain.", node);
+  }
+  const domain = Object.freeze({ kind: "selected", nodes: selected.nodes } satisfies SourceControlFlowSelectedDomain);
+  domains.set(domain, new Set(selected.nodes));
+  return Object.freeze({ kind: "resolved", domain });
+}
+
+type PatternKey = Node | string | number | boolean | undefined;
+interface PatternContinuation {
+  readonly children: Map<PatternKey, PatternContinuation>;
+  entry: number | undefined;
+}
+
+function selectDeclarationControlFlow(source: TargetSourceProgram, declaration: Node,
+  options: SourceDeclarationControlFlowOptions, domains: WeakMap<SourceControlFlowSelectedDomain, ReadonlySet<Node>>,
+  switchCoverage: ReturnType<typeof createSourceSwitchCoverage>,
+  literalDomain: (value: SourceTypeEvidence) => SourceLiteralDomain,
+  callableHead: (declaration: Node) => SourceResult<SourceTypeEvidence>):
+  SourceControlFlowSelection<SourceDeclarationFlowExecutionRegion> {
+  try {
+    const { ast } = source;
+    const propertyRoot = ast.is.IsPropertyDeclaration(declaration);
+    const file = ast.getSourceFile(declaration);
+    if (file === undefined || !source.sourceFiles.includes(file) || !source.facts.navigation.isProjectDeclaration(declaration) ||
+      !source.facts.navigation.callableRoles(declaration).execution && !propertyRoot &&
+      !ast.is.IsClassDeclaration(declaration) && !ast.is.IsClassExpression(declaration) && !ast.is.IsSourceFile(declaration)) {
+      throw new SourceFlowFailure("Source flow requires a callable from the exact checked source program.", declaration);
+    }
+    if (options === null || typeof options !== "object" ||
+      Reflect.ownKeys(options).some(key => key !== "domain" && key !== "limits") ||
+      !Object.prototype.hasOwnProperty.call(Object.getOwnPropertyDescriptor(options, "domain") ?? {}, "value")) {
+      throw new SourceFlowFailure("Source flow requires explicit limits and an explicit checked source domain.", declaration);
+    }
+    const domain = options.domain;
+    if (domain === undefined || domain === null || typeof domain !== "object" ||
+      !Object.prototype.hasOwnProperty.call(Object.getOwnPropertyDescriptor(domain, "kind") ?? {}, "value"))
+      throw new SourceFlowFailure("Source flow requires an explicit checked source or canonical selected domain.", declaration);
+    let included: SourceNodeDomain;
+    if (domain.kind === "source" && Reflect.ownKeys(domain).length === 1) included = "source";
+    else if (domain.kind === "selected") {
+      const selected = domains.get(domain);
+      if (selected === undefined)
+        throw new SourceFlowFailure("Source flow selected domain must come from its original checked inventory boundary.", declaration);
+      included = selected;
+      if (!included.has(declaration)) throw new SourceFlowFailure("Source flow requires its requested root in the canonical selected domain.", declaration);
+    } else throw new SourceFlowFailure("Source flow selected domain must come from its original checked inventory boundary.", declaration);
+    const includes = (node: Node): boolean => included === "source" || included.has(node);
+    const selectedLimits = sourceFlowLimits(options.limits ?? {});
+    const owner = createSourceFlowConstruction<SourceDeclarationFlowExecutionRegion>(declaration, selectedLimits);
+    const selectedEntry = sourceDeclarationFlowEntry(source, declaration, owner.step, callableHead);
+    for (const root of selectedEntry.rootExecutions.keys()) {
+      owner.step(root);
+      if (!includes(root)) throw new SourceFlowFailure(propertyRoot
+        ? "Property initializer flow requires its complete initializer in the checked source domain."
+        : "Declaration flow requires each exact region root in its checked source domain.", root);
+    }
+    const { body, superInitializers, bodyExecution } = selectedEntry;
+    const pending = (propertyRoot ? selectedEntry.syntaxRoots : [declaration, ...selectedEntry.syntaxRoots])
+      .map(node => ({ node, depth: 0 }));
+    while (pending.length > 0) {
+      const current = pending.pop()!;
+      if (!includes(current.node)) {
+        if (propertyRoot) throw new SourceFlowFailure("Property initializer flow requires its complete initializer in the checked source domain.", current.node);
+        continue;
+      }
+      owner.step(current.node);
+      if (current.depth >= selectedLimits.maximumDepth) {
+        throw new SourceFlowFailure("Source flow exceeds its finite syntax depth budget.", current.node,
+          { subject: declaration, dimension: "maximumDepth", limit: selectedLimits.maximumDepth });
+      }
+      for (const child of ast.children(current.node)) {
+        if (child !== undefined) pending.push({ node: child, depth: current.depth + 1 });
+      }
+    }
+    const initialize = (initializers: readonly SourceFlowInitializer<SourceDeclarationFlowExecutionRegion>[], next: number, context: SourceFlowContext): number => {
+      let entry = next;
+      for (let index = initializers.length - 1; index >= 0; index -= 1) {
+        const selected = initializers[index]!;
+        entry = owner.withExecution(selected.execution, () => build.expression(selected.node, entry, context));
+      }
+      return entry;
+    };
+    let patternWave: { readonly context: SourceFlowContext; readonly root: PatternContinuation } | undefined;
+    const withinRoot = <Result>(node: Node, visit: () => Result): Result => {
+      const execution = selectedEntry.rootExecutions.get(node);
+      return execution === undefined ? visit() : owner.withExecution(execution, visit);
+    };
+    const build: SourceFlowConstruction = { source, includes, literalDomain,
+      switchCoversDiscriminant: node => {
+        const selected = switchCoverage(node);
+        if (selected.kind === "refused") throw new SourceFlowRefusal(selected);
+        return selected.value;
+      },
+      initializeSuper: (next, context) => initialize(superInitializers, next, context),
+      captures: createSourceFlowCaptureQuery(source, owner.step, included),
+      point: owner.point, edge: owner.edge, emit: owner.emit, step: owner.step,
+      expression: (node, next, context) => includes(node) ? withinRoot(node, () => owner.nested(node, () => sourceFlowExpression(build, node, next, context))) : next,
+      statement: (node, next, context) => includes(node) ? withinRoot(node, () => owner.nested(node, () => sourceFlowStatement(build, node, next, context))) : next,
+      pattern: (node, next, context, initialization, value) => includes(node) ? withinRoot(node, () => owner.nested(node, () => {
+        const previous = patternWave;
+        const wave = previous?.context === context ? previous : {
+          context, root: { children: new Map<PatternKey, PatternContinuation>(), entry: undefined },
+        };
+        patternWave = wave;
+        try {
+          let selected = wave.root;
+          const select = (key: PatternKey): void => {
+            owner.step(node);
+            let child = selected.children.get(key);
+            if (child === undefined) {
+              child = { children: new Map(), entry: undefined };
+              selected.children.set(key, child);
+            }
+            selected = child;
+          };
+          select(node);
+          select(value?.kind);
+          select(value?.expression);
+          for (const part of value?.projection ?? []) select(part);
+          select(next);
+          select(initialization);
+          if (selected.entry !== undefined) return selected.entry;
+          const entry = sourceFlowPattern(build, node, next, context, initialization, value);
+          selected.entry = entry;
+          return entry;
+        } finally {
+          patternWave = previous;
+        }
+      })) : next,
+    };
+    const exit = build.point(declaration, { kind: "exit" });
+    const exceptionExit = build.point(declaration, { kind: "exception-exit" });
+    const context: SourceFlowContext = { returnTo: exit, throwTo: exceptionExit, breaks: new Map(), continues: new Map() };
+    const completion = initialize(selectedEntry.completionInitializers, exit, context);
+    const bodyContext = { ...context, returnTo: completion };
+    let entry = owner.withExecution(bodyExecution, () => {
+      let entry = body === undefined ? completion : ast.is.IsBlock(body) || ast.is.IsSourceFile(body) ? build.statement(body, completion, bodyContext)
+        : build.expression(body, build.emit(body, { kind: "return" }, completion, bodyContext, false, "return"), bodyContext);
+      const parameters = selectedEntry.parameters;
+      for (let index = parameters.length - 1; index >= 0; index -= 1) {
+        const parameter = parameters[index];
+        if (parameter !== undefined) entry = build.pattern(parameter, entry, context, true, undefined);
+      }
+      return entry;
+    });
+    entry = initialize(selectedEntry.entryInitializers, entry, context);
+    const root = build.point(declaration, { kind: "entry" });
+    build.edge(root, entry);
+    return Object.freeze({ kind: "resolved", graph: owner.finish(root, exit, exceptionExit) });
+  } catch (error) {
+    if (error instanceof SourceFlowRefusal) return error.refusal;
+    if (!(error instanceof SourceFlowFailure)) throw error;
+    return Object.freeze({ kind: "unresolved", reason: error.message, source: error.source,
+      ...(error.resource === undefined ? {} : { resource: error.resource }) });
+  }
+}

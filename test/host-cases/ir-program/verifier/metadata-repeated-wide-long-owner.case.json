@@ -1,0 +1,1 @@
+{"name":"metadata-repeated-wide-long-owner","level":"verifier","rule":"N11 same complete materialized metadata key serves every actual short operand without changing full outcomes","input":"test/host-cases/ir-program/verifier/metadata-repeated-wide-long-owner.input.json","expected":"test/host-cases/ir-program/verifier/metadata-repeated-wide-long-owner.expected.json"}

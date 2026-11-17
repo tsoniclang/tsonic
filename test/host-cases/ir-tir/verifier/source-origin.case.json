@@ -1,0 +1,1 @@
+{"name":"source-origin","level":"verifier","rule":"origin-range","input":"test/host-cases/ir-tir/verifier/source-origin.input.tir","expected":"test/host-cases/ir-tir/verifier/source-origin.expected.json"}

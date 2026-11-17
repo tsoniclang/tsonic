@@ -23,7 +23,9 @@ export function main(): void {}
 ```
 
 For executable output, call it from top-level code. The generated
-`TsonicEntrypoint.Main` runs the entry module.
+`TsonicEntrypoint.Main` runs the entry module. An exported but uncalled
+binary-entry `main` rejects with `TSONIC_UNCALLED_BINARY_ENTRY_MAIN`, matching
+the Rust entry contract. Library exports are unaffected.
 
 C# library module initialization must be synchronous. Top-level `await` in a
 library entry graph is rejected because a CLR module initializer cannot await.
@@ -94,6 +96,21 @@ descriptors; those descriptors cannot escape into ordinary runtime values.
 Native pointer access requires the exact pointer carrier, lexical safety
 context, declaration safety contract where applicable, and generated/user
 project permission. One control never implies another.
+
+## Cleanup control flow
+
+C# cleanup uses native `finally`. Returning or transferring control outside a
+`finally` body is rejected with `CSHARP_NATIVE_FINALLY_CONTROL_TRANSFER`, as
+required by the native language. Throws and control transfers inside a nested
+loop or callable remain supported; they do not leave the enclosing cleanup.
+Tsonic does not add a state-machine emulation to bypass this native restriction.
+
+```ts
+function choose(): boolean {
+  try { return false; }
+  finally { return true; } // native C# diagnostic
+}
+```
 
 ## Generator boundaries
 

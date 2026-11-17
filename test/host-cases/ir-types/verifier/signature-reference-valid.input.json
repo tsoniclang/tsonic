@@ -1,0 +1,28 @@
+{
+  "table": {
+    "terms": [
+      {
+        "kind": "callable",
+        "calls": [
+          0
+        ],
+        "constructs": []
+      }
+    ],
+    "signatures": [
+      {
+        "id": 0,
+        "declaration": null,
+        "owner": null,
+        "composition": null,
+        "kind": "call",
+        "typeParameters": [],
+        "receiver": null,
+        "parameters": [],
+        "result": 0
+      }
+    ]
+  },
+  "bindings": [],
+  "evidence": []
+}

@@ -1,0 +1,1 @@
+{"name":"package-identities","level":"function","rule":"Package canonical UTF16 escaping with no normalization or identity alias","input":"test/host-cases/ids/function/package-identities.input.json","expected":"test/host-cases/ids/function/package-identities.expected.json"}

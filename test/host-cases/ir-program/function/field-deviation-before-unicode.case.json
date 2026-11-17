@@ -1,0 +1,7 @@
+{
+  "name": "field-deviation-before-unicode",
+  "level": "function",
+  "rule": "text-first-position-unicode",
+  "input": "test/host-cases/ir-program/function/field-deviation-before-unicode.input.json",
+  "expected": "test/host-cases/ir-program/function/field-deviation-before-unicode.expected.json"
+}

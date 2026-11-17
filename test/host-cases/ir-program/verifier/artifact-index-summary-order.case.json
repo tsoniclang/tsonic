@@ -1,0 +1,1 @@
+{"name":"artifact-index-summary-order","level":"verifier","rule":"Complete real artifact inventories preserve exact order/uniqueness/type links and unfiltered genuine child violations","input":"test/host-cases/ir-program/verifier/artifact-index-summary-order.input.json","expected":"test/host-cases/ir-program/verifier/artifact-index-summary-order.expected.json"}

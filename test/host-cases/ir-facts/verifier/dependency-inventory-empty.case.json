@@ -1,0 +1,7 @@
+{
+  "name": "dependency-inventory-empty",
+  "level": "verifier",
+  "rule": "component-membership-exact",
+  "input": "test/host-cases/ir-facts/verifier/dependency-inventory-empty.input.facts",
+  "expected": "test/host-cases/ir-facts/verifier/dependency-inventory-empty.expected.json"
+}

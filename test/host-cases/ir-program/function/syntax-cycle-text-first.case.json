@@ -1,0 +1,7 @@
+{
+  "name": "syntax-cycle-text-first",
+  "level": "function",
+  "rule": "syntax-cycle-text-first",
+  "input": "test/host-cases/ir-program/function/syntax-cycle-text-first.input.json",
+  "expected": "test/host-cases/ir-program/function/syntax-cycle-text-first.expected.json"
+}

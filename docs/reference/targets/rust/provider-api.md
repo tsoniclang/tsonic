@@ -77,6 +77,33 @@ That argument uses mode `"ref"` without the conversion and retains `&String`.
 For example, `statSync(path)` may take a string view, while
 `names.includes(path)` must preserve the collection's selected element type.
 
+## Native failures in a source-result domain
+
+A native SDK operation may return the selected source-program error type while
+also producing its own native failures. Declare those exact native carriers
+with the operation, so the existing error inventory supplies the required
+`From<NativeError>` implementations without erasing source failures:
+
+```ts
+{
+  isFallible: true,
+  errorBoundary: "source-program",
+  nativeErrorCarriers: [{ kind: "target-named", id: "acme.NativeError" }],
+}
+```
+
+The provider must also declare that carrier's native path. The list is immutable,
+nonempty, dense and distinct; every carrier is a closed native type. Open generic
+parameters, inconsistent error boundaries and malformed evidence are rejected.
+Only selected operations contribute these errors to the emitted program. This
+does not make an operation fallible implicitly, stringify a source exception,
+or add another checking or runtime-error path.
+
+Hidden dispatch inputs use the same exact argument correspondence for ordinary
+calls and source-module constructors. The source module's logical slot remains
+unchanged when a native root is inserted before or after it; planning uses the
+sealed source-to-target mapping, not an adjusted source index.
+
 ## Compilation lifecycle
 
 1. The host discovers the installed package.

@@ -1,0 +1,1 @@
+{"name":"instantiate-negative-zero-empty-tir","level":"function","rule":"Malformed negative-zero invocation maxima are caller-input defects before artifact selection or publication","input":"test/host-cases/ir-program/function/instantiate-negative-zero-empty-tir.input.json","expected":"test/host-cases/ir-program/function/instantiate-negative-zero-empty-tir.expected.json"}

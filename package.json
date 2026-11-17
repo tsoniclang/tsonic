@@ -1,47 +1,23 @@
 {
   "name": "@tsonic/monorepo",
   "version": "0.1.2",
-  "description": "Source-to-source compiler from TypeScript to target-native projects",
+  "description": "Tsonic Host skeleton workspace",
   "type": "module",
   "private": true,
   "scripts": {
-    "build": "./scripts/build/all.sh --no-format",
-    "build:quick": "./scripts/build/all.sh --no-format",
-    "clean": "./scripts/build/clean.sh",
-    "clean:all": "./scripts/build/clean.sh --all",
-    "test": "bash test/scripts/run-all.sh",
-    "test:build": "bash test/scripts/build.sh",
-    "test:parallel": "bash test/scripts/run-parallel.sh",
-    "typecheck": "npm run build"
+    "build": "TSONIC_TEST_WORKERS=1 bash test/scripts/bounded-run.sh host bash scripts/build/all.sh",
+    "test": "env -u TSONIC_TEST_GUARD_REPORT npm run test:build && TSONIC_TEST_WORKERS=1 bash test/scripts/bounded-run.sh host node --experimental-test-coverage --test-coverage-exclude=**/node_modules/** --test-coverage-include=test/scripts/quarantine.mjs --test-coverage-include=test/architecture/quarantine.test.mjs --test-coverage-include=test/architecture/host/*.mjs --test-coverage-include=test/architecture/host-structure.test.mjs --test-coverage-include=test/architecture/host-isolation.test.mjs --test-coverage-include=test/architecture/host-coverage.test.mjs --test-coverage-include=test/host-cases/*.mjs --test --test-concurrency=1 \"$npm_package_config_testArchitecture\" \"$npm_package_config_testCases\" \"$npm_package_config_testUnits\"",
+    "test:build": "TSONIC_TEST_WORKERS=1 bash test/scripts/bounded-run.sh host node test/scripts/build.mjs",
+    "test:quarantine": "bash test/scripts/bounded-run.sh host node test/scripts/quarantine.mjs"
   },
-  "workspaces": [
-    "packages/tsts",
-    "packages/source-core",
-    "packages/target-api",
-    "packages/js-source-profile",
-    "packages/host",
-    "packages/cli",
-    "packages/create-tsonic"
-  ],
+  "workspaces": ["packages/tsts", "packages/host"],
   "devDependencies": {
     "@types/node": "25.9.1",
     "@typescript/native-preview": "7.0.0-dev.20260617.2"
   },
-  "engines": {
-    "node": ">=22.18.0"
-  },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/tsoniclang/tsonic.git"
-  },
-  "keywords": [
-    "typescript",
-    "source-to-source",
-    "target-neutral",
-    "compiler",
-    "transpiler"
-  ],
+  "engines": { "node": ">=22.18.0" },
+  "repository": { "type": "git", "url": "https://github.com/tsoniclang/tsonic.git" },
   "author": "Tsonic Project",
   "license": "MIT",
-  "dependencies": {}
+  "config": { "testArchitecture": "test/architecture/**/*.test.mjs", "testCases": "test/host-cases/**/*.test.mjs", "testUnits": "test/host-units/**/*.test.mjs" }
 }

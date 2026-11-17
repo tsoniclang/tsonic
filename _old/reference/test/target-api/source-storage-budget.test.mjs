@@ -1,0 +1,218 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
+import { createSourceStorageSubjects } from "../../packages/target-api/dist/target-analysis/source-storage/model/subjects.js";
+
+test("default source storage capacity remains immutable, independent and exact at every finite ceiling", () => {
+  assert.equal(Object.isFrozen(defaultSourceStorageLimits), true);
+  const cases = [
+    ["maximumNodes", "node", 1_048_576], ["maximumEdges", "edge", 262_144],
+    ["maximumSubjectRows", "subject", 1_048_576], ["maximumTransportRows", "row", 4_194_304],
+    ["maximumSteps", "step", 33_554_432],
+  ];
+  for (const [limit, operation, maximum] of cases) {
+    assert.equal(defaultSourceStorageLimits[limit], maximum, limit);
+    const budget = createSourceStorageBudget(defaultSourceStorageLimits);
+    let accepted = 0;
+    while (accepted < maximum && budget[operation](1)) accepted += 1;
+    assert.equal(accepted, maximum, `${operation}: complete finite capacity`);
+    assert.equal(budget.failure() === undefined, true, `${operation}: exact boundary is admitted`);
+    assert.equal(budget[operation](1), false, `${operation}: first excessive reservation rejects`);
+    assert.equal(budget.step(), false, `${operation}: exhaustion cannot switch accounting families`);
+    const independent = createSourceStorageBudget(defaultSourceStorageLimits);
+    assert.equal(independent[operation](1), true, `${operation}: another compilation owns a separate budget`);
+  }
+});
+
+test("adequate finite capacity admits the same workload rejected by a tightened selection", () => {
+  const rowCount = 2_097_153;
+  const stepCount = 4_194_305;
+  const selected = createSourceStorageBudget(defaultSourceStorageLimits);
+  const retained = selected.createRows();
+  assert.equal(retained.add(rowCount), true, "complete live workload is reserved, not just its first row");
+  let completed = 0;
+  while (completed < stepCount && selected.step()) completed += 1;
+  assert.equal(completed, stepCount, "adequate finite work capacity");
+  assert.equal(selected.failure() === undefined, true);
+  retained.release();
+  assert.equal(selected.createRows().add(defaultSourceStorageLimits.maximumTransportRows), true,
+    "released workload does not remain charged against another live owner");
+  assert.equal(selected.row(), false, "all retained owners still share one finite ceiling");
+  const smallRows = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: rowCount - 1 });
+  assert.equal(smallRows.createRows().add(rowCount), false, "tightened finite row selection still rejects");
+  const smallWork = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumSteps: stepCount - 1 });
+  let bounded = 0;
+  while (bounded < stepCount && smallWork.step()) bounded += 1;
+  assert.equal(bounded, stepCount - 1, "tightened finite work selection still rejects exactly");
+  assert.equal(smallWork.row(), false, "work exhaustion does not fabricate an available query");
+});
+
+test("source storage preserves independent finite node, edge, subject, transport-row and work guards", () => {
+  const cases = [
+    ["maximumNodes", "node"], ["maximumEdges", "edge"], ["maximumSubjectRows", "subject"],
+    ["maximumTransportRows", "row"], ["maximumSteps", "step"],
+  ];
+  for (const [limit, operation] of cases) {
+    const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, [limit]: 1 });
+    assert.equal(budget[operation](1), true, limit);
+    assert.equal(budget[operation](1), false, limit);
+    assert.equal(typeof budget.failure() === "string", true, limit);
+    assert.equal(budget.node(), false, "exhaustion cannot be bypassed through another budget family");
+  }
+});
+
+test("owned source storage rows release only their retained cells without resetting finite failures", () => {
+  const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 3 });
+  const permanent = budget.row();
+  assert.equal(permanent, true);
+  const first = budget.createRows();
+  assert.equal(first.add(2), true, "same shared row ceiling");
+  first.release();
+  first.release();
+  const second = budget.createRows();
+  assert.equal(second.add(2), true, "evicted cells no longer occupy storage");
+  assert.equal(budget.failure() === undefined, true);
+  assert.equal(budget.row(), false, "permanent and retained rows still enforce the original ceiling");
+  second.release();
+  assert.equal(budget.row(), false, "release cannot clear a failed budget");
+  for (const cost of [0, -1, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
+    const invalidBudget = createSourceStorageBudget(defaultSourceStorageLimits);
+    assert.equal(invalidBudget.createRows().add(cost), false, "invalid owned reservation");
+    assert.equal(invalidBudget.failure() !== undefined, true);
+  }
+  const closedBudget = createSourceStorageBudget(defaultSourceStorageLimits);
+  const closed = closedBudget.createRows();
+  closed.release();
+  assert.equal(closed.add(1), false, "released owners cannot resurrect storage");
+  assert.equal(closedBudget.failure() !== undefined, true);
+});
+
+test("positive owned reservations use the shared transport-row ceiling without becoming malformed requests", () => {
+  const reason = "Source storage transport exceeds its finite transport-row budget.";
+  for (const [maximum, retained, requested] of [[1, 0, 2], [3, 2, 2], [1, 0, Number.MAX_SAFE_INTEGER]]) {
+    const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: maximum });
+    const owner = budget.createRows();
+    if (retained !== 0) assert.equal(owner.add(retained), true, "the original live rows are admitted");
+    assert.equal(owner.add(requested), false, "the complete positive reservation exceeds the same finite ceiling");
+    assert.equal(budget.failure(), reason, "capacity exhaustion is not an invalid live-owner reservation");
+    assert.equal(budget.usage().rows, retained, "a refused reservation never publishes partial rows");
+    assert.equal(budget.usage().peakRows, retained, "a refused reservation does not invent admitted peak rows");
+    owner.release();
+    assert.equal(budget.usage().rows, 0, "only the original live reservation is released");
+    assert.equal(budget.failure(), reason, "release preserves the original finite refusal");
+    assert.equal(budget.createRows().add(1), false, "another owner cannot recover a failed budget");
+    assert.equal(budget.step(), false, "another accounting family cannot bypass the refusal");
+  }
+  const exact = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 2 });
+  const owner = exact.createRows();
+  assert.equal(owner.add(2), true, "the identical bulk reservation succeeds at its exact original ceiling");
+  assert.equal(exact.failure() === undefined, true, "adequate finite capacity remains available");
+  assert.equal(owner.add(1), false, "the first additional row still exceeds the unchanged limit");
+  assert.equal(exact.failure(), reason, "single and bulk reservations share the ordinary budget refusal");
+  owner.release();
+  assert.equal(exact.usage().rows, 0, "successful live rows are released after failure");
+  assert.equal(exact.usage().peakRows, 2, "release never discounts the actual construction peak");
+  for (const cost of [0, -1, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
+    const invalid = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 1 });
+    assert.equal(invalid.createRows().add(cost), false, "malformed reservations remain invalid");
+    assert.equal(invalid.failure(), "Source storage rows require a live owner and a finite positive reservation.",
+      "the malformed-request reason remains distinct from capacity exhaustion");
+  }
+  const closed = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 1 });
+  const released = closed.createRows();
+  released.release();
+  assert.equal(released.add(2), false, "a released owner remains invalid even when its cost also exceeds capacity");
+  assert.equal(closed.failure(), "Source storage rows require a live owner and a finite positive reservation.",
+    "owner validity is checked before ordinary row admission");
+});
+
+test("source storage rejects invalid, nonfinite, imprecise and increased budget selections", () => {
+  for (const field of Object.keys(defaultSourceStorageLimits)) {
+    for (const value of [0, -1, 0.5, NaN, Infinity, -Infinity, Number.MAX_SAFE_INTEGER + 1, defaultSourceStorageLimits[field] + 1, undefined]) {
+      const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, [field]: value });
+      assert.equal(budget.step(), false, `${field}: ${String(value)}`);
+      assert.equal(budget.failure() !== undefined, true);
+    }
+  }
+  for (const selection of [null, undefined, "unbounded", {}]) {
+    assert.equal(createSourceStorageBudget(selection).step(), false);
+  }
+  const selection = Object.defineProperty({ ...defaultSourceStorageLimits }, "maximumSteps", {
+    get: () => assert.fail("budget selection getter executed"),
+  });
+  assert.equal(createSourceStorageBudget(selection).step(), false, "data-only budget selection");
+});
+
+test("scoped row reservations share the one finite peak and preserve independent retained facts", () => {
+  const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 3 });
+  const retained = budget.createRows();
+  assert.equal(retained.add(1), true);
+  const result = {};
+  for (let index = 0; index < 1000; index += 1) {
+    const selected = budget.withRows(rows => {
+      assert.equal(rows.add(1), true);
+      return budget.withRows(nested => {
+        assert.equal(nested.add(1), true, "actual nested peak includes both outer and independently retained rows");
+        return result;
+      });
+    });
+    assert.equal(selected === result, true, "scope changes no returned identity");
+  }
+  assert.equal(budget.failure() === undefined, true);
+  assert.equal(budget.createRows().add(2), true, "dead scopes release exactly two rows, not the independent retained fact");
+  assert.equal(budget.row(), false, "live retained facts still enforce the original shared ceiling");
+  assert.match(budget.failure(), /transport-row/u);
+});
+
+test("row scope unwind preserves thrown identity and never resets row or work failure", () => {
+  const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 2 });
+  const failure = new Error("exact scope failure");
+  let selectedOwner;
+  assert.throws(() => budget.withRows(rows => {
+    selectedOwner = rows;
+    assert.equal(rows.add(2), true);
+    throw failure;
+  }), error => error === failure);
+  assert.equal(budget.failure() === undefined && budget.createRows().add(2), true, "throw releases only the dead scope");
+  assert.equal(selectedOwner.add(1), false, "an escaped released reservation cannot resurrect a scope");
+  assert.match(budget.failure(), /live owner/u);
+  for (const family of ["row", "step"]) {
+    const bounded = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumTransportRows: 1, maximumSteps: 1 });
+    bounded.withRows(rows => {
+      if (family === "row") {
+        assert.equal(rows.add(1), true);
+        assert.equal(rows.add(1), false);
+      } else {
+        assert.equal(bounded.step(), true);
+        assert.equal(bounded.step(), false);
+      }
+    });
+    const reason = bounded.failure();
+    assert.equal(typeof reason === "string" && bounded.row() === false && bounded.failure() === reason, true,
+      `scope release preserves exact ${family} exhaustion`);
+  }
+});
+
+test("source storage subjects retain dense data-only projections and reject malformed paths without executing accessors", () => {
+  const root = {};
+  const budget = createSourceStorageBudget({ ...defaultSourceStorageLimits, maximumSubjectRows: 5 });
+  const subject = createSourceStorageSubjects(budget.subject, budget.reject);
+  const first = subject(root, "value", [{ kind: "tuple-element", index: 0 }]);
+  const second = subject(root, "value", [{ kind: "tuple-element", index: 1 }]);
+  assert.equal(first !== undefined && second !== undefined && first !== second, true);
+  assert.equal(subject(root, "value", [{ kind: "tuple-element", index: 0 }]) === first, true, "interning does not consume another row");
+  assert.equal(subject(root, "value", [{ kind: "tuple-element", index: 2 }]) === undefined, true, "independent subject-row ceiling");
+  assert.equal(Object.isFrozen(first) && Object.isFrozen(first.projection) && Object.isFrozen(first.projection[0]), true);
+  const getter = Object.defineProperty({}, "kind", { get: () => assert.fail("projection getter executed") });
+  const malformed = [
+    [getter], new Array(1), [null], [{ kind: "unknown" }], [{ kind: "tuple-element", index: -1 }],
+    [{ kind: "tuple-element", index: 0.5 }], [{ kind: "tuple-element", index: Infinity }],
+    Array.from({ length: 257 }, () => ({ kind: "array-element" })),
+  ];
+  for (const projection of malformed) {
+    const budget = createSourceStorageBudget(defaultSourceStorageLimits);
+    const subject = createSourceStorageSubjects(budget.subject, budget.reject);
+    assert.equal(subject(root, "value", projection) === undefined, true, "invalid component path rejected");
+    assert.equal(budget.failure() !== undefined, true, "cannot manufacture immutable evidence");
+  }
+});

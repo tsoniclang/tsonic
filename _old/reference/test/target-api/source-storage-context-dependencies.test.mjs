@@ -1,0 +1,235 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { createCompilerSessionFromFiles, formatDiagnostics } from "@tsonic/tsts";
+import { createTargetSourceProgram } from "../../packages/target-api/dist/public/source.js";
+import { createSourceStorageTransport } from "../../packages/target-api/dist/target-analysis/source-storage/transport/transport.js";
+import { createSourceStorageBudget, defaultSourceStorageLimits } from "../../packages/target-api/dist/target-analysis/source-storage/model/resource-budget.js";
+import { createSourceStorageQuery } from "../../packages/target-api/dist/target-analysis/source-storage/queries.js";
+import { createSourceStorageContextFootprints } from "../../packages/target-api/dist/target-analysis/source-storage/graph/context-footprints.js";
+import { Node_Initializer } from "../../packages/target-api/dist/source-navigation/index.js";
+
+function checkedSource(text) {
+  const checked = createCompilerSessionFromFiles({
+    currentDirectory: "/src", compilerOptions: { strict: true, target: "es2022", module: "esnext" },
+    files: { "/src/index.ts": text },
+  }).checkSource();
+  assert.equal(checked.diagnostics.length, 0, formatDiagnostics(checked.diagnostics));
+  const source = createTargetSourceProgram(checked);
+  const file = source.navigation.sourceFiles.find(file => source.ast.getFileName(file) === "/src/index.ts");
+  assert.equal(file !== undefined, true, "exact checked source file");
+  const nodes = [];
+  const visit = node => { nodes.push(node); source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); }); };
+  visit(file);
+  const declaration = name => nodes.find(node => source.ast.is.IsFunctionDeclaration(node) && source.ast.text(source.ast.name(node)) === name);
+  const call = name => nodes.find(node => {
+    if (!source.ast.is.IsCallExpression(node)) return false;
+    const expression = source.ast.as.AsCallExpression(node).Expression;
+    return source.ast.is.IsIdentifier(expression) && source.ast.text(expression) === name;
+  });
+  return { source, file, nodes, declaration, call };
+}
+
+function selectedContext(body) {
+  const { source, file, declaration, call } = checkedSource(`
+function identity<Value>(value: Value): Value { return value; }
+function consume<Value>(value: Value): Value { return value; }
+function outer(left: {}, right: {}): {} { ${body} }
+const left = {};
+const right = {};
+const output = outer(left, right);
+`);
+  const budget = createSourceStorageBudget(defaultSourceStorageLimits);
+  const transport = createSourceStorageTransport(source, [file], budget);
+  const parent = transport.substitutions.forInvocation(declaration("outer"), call("outer"), transport.substitutions.empty,
+    transport.substitutions.empty, transport.invocationTargets.get(call("outer")));
+  assert.equal(parent !== undefined, true, "complete selected outer invocation");
+  const selected = transport.substitutions.forInvocation(declaration("consume"), call("consume"), parent, parent,
+    transport.invocationTargets.get(call("consume")));
+  assert.equal(selected !== undefined, true, "complete selected consumer invocation");
+  const formal = transport.subject(source.ast.parameters(declaration("consume"))[0], "input");
+  const binding = transport.substitutions.selection(formal, selected);
+  assert.equal(binding?.length === 1, true, "one exact actual input and its enclosing scope");
+  const ports = createSourceStorageContextFootprints(budget, transport.contextualInputs, () => undefined, transport.contextualInputs.applicationFor);
+  const context = ports.select(binding[0].subject)?.ports;
+  assert.equal(context !== undefined, true, "complete demanded caller footprint, including captured and contained values");
+  assert.equal(budget.failure() === undefined, true, "all original finite guards remain intact");
+  const parameter = index => transport.subject(source.ast.parameters(declaration("outer"))[index], "input");
+  return { context, left: parameter(0), right: parameter(1) };
+}
+
+for (const [name, read] of [["field", "box.value"], ["computed field", "box['value']"],
+  ["aliased field", "value"], ["destructured field", "destructured"]]) {
+  test(`a selected ${name} context depends on its receiver rather than unrelated writer frames`, () => {
+    const { source, file, declaration, call } = checkedSource(`export {};
+      class Box { value: object = {}; }
+      function consume<Value>(value: Value): Value { return value; }
+      function write(box: Box, foreign: object): void { box.value = foreign; }
+      function read(box: Box): object {
+        const value = box.value;
+        const { value: destructured } = box;
+        return consume(${read});
+      }
+      const original = new Box(); const replacement = {};
+      write(original, replacement); const selected = read(original);
+    `);
+    const budget = createSourceStorageBudget(defaultSourceStorageLimits);
+    const transport = createSourceStorageTransport(source, [file], budget);
+    const invocation = call("consume");
+    const expression = source.semantics.forNode(invocation).operations.call(invocation).sourceArguments[0].expression;
+    const footprints = createSourceStorageContextFootprints(budget, transport.contextualInputs,
+      transport.contextLocation, transport.contextualInputs.applicationFor);
+    const input = transport.subjectFor(expression);
+    assert.equal(input !== undefined, true, "the checked actual argument has its exact source-storage subject");
+    const selected = footprints.select(input);
+    const receiver = transport.subject(source.ast.parameters(declaration("read"))[0], "input");
+    const foreign = transport.subject(source.ast.parameters(declaration("write"))[1], "input");
+    assert.equal(selected !== undefined && selected.ports.size === 1 && selected.ports.has(receiver), true,
+      "the reader's exact receiver supplies its context");
+    assert.equal(selected.ports.has(foreign), false,
+      "the writer's parameter belongs to the separately selected execution frame");
+    assert.equal(budget.failure() === undefined, true);
+  });
+}
+
+for (const [name, body, expected] of [
+  ["selected identity", `const first = identity(left); const second = identity(right); return consume(first);`, "left"],
+  ["nested container", `const first = identity([left]); const second = identity([right]); return consume(first);`, "left"],
+  ["lexical callback capture", `const callback = () => right; const first = identity(left); return consume(callback);`, "right"],
+  ["selected receiver capture", `const reader = { read: () => right }; const first = identity(left); return consume(reader.read());`, "right"],
+  ["default argument capture", `function read(value: {} = right): {} { return value; } const first = identity(left); return consume(read());`, "right"],
+  ["authored method capture", `const reader = { read(): {} { return right; } }; const first = identity(left); return consume(reader.read());`, "right"],
+  ["authored getter capture", `const reader = { get value(): {} { return right; } }; const first = identity(left); return consume(reader.value);`, "right"],
+  ["constructor capture", `class Reader { value: {}; constructor() { this.value = right; } } const first = identity(left); return consume(new Reader());`, "right"],
+]) {
+  test(`caller context preserves ${name} without importing another invocation's formal inputs`, () => {
+    const selected = selectedContext(body);
+    assert.equal(selected.context.has(selected[expected]), true, "the exact required enclosing formal remains");
+    assert.equal(selected.context.has(selected[expected === "left" ? "right" : "left"]), false,
+      "an unrelated sibling invocation cannot manufacture a caller dependency");
+  });
+}
+
+for (const [name, body, expected] of [
+  ["unused recursive control", `function relay(value: {}, count: number): {} {
+    return count === 0 ? value : relay(value, count - 1);
+  } return consume(relay(left, 3));`, "left"],
+  ["mapped earlier-parameter default", `function relay(value: {}, copied: {} = value): {} { return copied; }
+    return consume(relay(right));`, "right"],
+  ["captured default", `function relay(value: {} = right): {} { return value; }
+    return consume(relay());`, "right"],
+  ["nested returned closure", `function make(value: {}): () => {} { return () => value; }
+    return consume(make(left)());`, "left"],
+  ["callee-local record allocation", `function make(value: {}): { value: {} } { return { value }; }
+    return consume(make(right));`, "right"],
+]) {
+  test(`completed call summaries retain only the caller's exact dependencies for ${name}`, () => {
+    const selected = selectedContext(body);
+    assert.equal(selected.context.size === 1 && selected.context.has(selected[expected]), true,
+      "callee formal ports and unused arguments are never published as caller dependencies");
+  });
+}
+
+test("a created call result has caller-owned identity while an observed receiver is not another allocation", () => {
+  const { source, file, declaration, call } = checkedSource(`export {};
+    class Box { value: object = {}; read(): object { return this.value; } }
+    function make(value: object) { return { value }; }
+    function outer(box: Box, token: object) { return { created: make(token), observed: box.read() }; }
+    const original = {}; const result = outer(new Box(), original);
+  `);
+  const budget = createSourceStorageBudget(defaultSourceStorageLimits);
+  const transport = createSourceStorageTransport(source, [file], budget);
+  const created = transport.subject(call("make"));
+  const observedNode = transport.visitedNodes.find(node => source.ast.is.IsCallExpression(node) &&
+    source.ast.is.IsPropertyAccessExpression(source.ast.as.AsCallExpression(node).Expression));
+  const observed = transport.subject(observedNode);
+  const result = transport.subject(declaration("make"), "return");
+  const input = transport.contextualInputs.applicationFor(created);
+  const receiver = transport.contextualInputs.applicationFor(observed);
+  const local = transport.contextualInputs(result);
+  assert.equal(input !== undefined && input.locations.has(created), true, "the caller sees the producing call site");
+  assert.equal(receiver !== undefined && !receiver.locations.has(observed), true, "a native field read creates no new object");
+  assert.equal(local !== undefined && [...input.locations].every(location => !local.has(location)), true,
+    "callee-local producers do not acquire fake caller activations");
+  assert.equal(budget.failure() === undefined, true);
+});
+
+test("captured mutable locals retain their physical context without importing their writers' formal parameters", () => {
+  const { source, file, nodes } = checkedSource(`export {};
+    function make(token: object) {
+      let cell = token;
+      const read = () => cell;
+      const write = (replacement: object): void => { cell = replacement; };
+      return { read, write };
+    }
+    const original = {}; const replacement = {};
+    const first = make(original); const second = make(original);
+    first.write(replacement);
+    const written = first.read(); const untouched = second.read();
+  `);
+  const variable = name => nodes.find(node => source.ast.is.IsVariableDeclaration(node) && source.ast.text(source.ast.name(node)) === name);
+  const budget = createSourceStorageBudget(defaultSourceStorageLimits);
+  const transport = createSourceStorageTransport(source, [file], budget);
+  const cell = transport.subject(variable("cell"));
+  assert.equal(transport.contextLocation(cell) === "binding", true, "one physical mutable-binding classification owner");
+  const footprints = createSourceStorageContextFootprints(budget, transport.contextualInputs,
+    transport.contextLocation, transport.contextualInputs.applicationFor);
+  const read = footprints.select(transport.subject(Node_Initializer(source.ast, variable("read"))));
+  assert.equal(read !== undefined && read.ports.size === 0 && read.locations.size === 1 && read.locations.has(cell), true,
+    "the captured cell's creator activation, not every potential stored value, owns the environment");
+  assert.equal(budget.failure() === undefined, true);
+  const storage = createSourceStorageQuery(source, [file]);
+  const subject = name => {
+    const selected = storage.subjectFor(Node_Initializer(source.ast, variable(name)));
+    assert.equal(selected.kind === "resolved", true, name);
+    return selected.subject;
+  };
+  const written = storage.closedOriginsFor(subject("written"));
+  const untouched = storage.closedOriginsFor(subject("untouched"));
+  assert.equal(written.kind === "complete" && written.origins.some(origin => origin.subject === subject("replacement")), true,
+    "the actual selected writer still supplies its exact stored value");
+  assert.equal(untouched.kind === "complete" && untouched.origins.length === 1 && untouched.origins[0].subject === subject("original"), true,
+    "equal initial values never merge separate activation-owned binding cells");
+  assert.equal(storage.failureReason() === undefined, true);
+});
+
+for (const [name, members, write, read, helpers = ""] of [
+  ["getter", "get current(): {} { return this.value; }", "box.value = token;", "box.current"],
+  ["method", "current(): {} { return this.value; }", "box.value = token;", "box.current()"],
+  ["helper write", "get current(): {} { return this.value; }", "write(box, token);", "box.current",
+    "function write(box: Box, token: {}): void { box.value = token; }"],
+  ["method write", "set(value: {}): void { this.value = value; } get current(): {} { return this.value; }",
+    "box.set(token);", "box.current"],
+  ["accessor write", "get current(): {} { return this.value; } set current(value: {}) { this.value = value; }",
+    "box.current = token;", "box.current"],
+]) {
+  test(`selected ${name} result retains written token provenance from only its own caller`, () => {
+    const { source, file, nodes } = checkedSource(`
+class Box { value: {} = {}; ${members} }
+function consume<Value>(value: Value): Value { return value; }
+${helpers}
+function outer(box: Box, token: {}): {} { ${write} return consume(${read}); }
+const firstToken = {};
+const secondToken = {};
+const first = outer(new Box(), firstToken);
+const second = outer(new Box(), secondToken);
+`);
+    const variable = name => nodes.find(node => source.ast.is.IsVariableDeclaration(node) &&
+      source.ast.text(source.ast.name(node)) === name);
+    const storage = createSourceStorageQuery(source, [file]);
+    const initialized = name => Node_Initializer(source.ast, variable(name));
+    const subject = name => {
+      const selected = storage.subjectFor(initialized(name));
+      assert.equal(selected.kind === "resolved", true, name);
+      return selected.subject;
+    };
+    for (const [name, expected, unrelated] of [["first", "firstToken", "secondToken"], ["second", "secondToken", "firstToken"]]) {
+      const selected = storage.closedOriginsFor(subject(name));
+      assert.equal(selected.kind === "complete", true, "the exact selected caller has a closed domain");
+      assert.equal(selected.origins.some(origin => origin.subject === subject(expected)), true,
+        "selected caller's stored token survives");
+      assert.equal(selected.origins.some(origin => origin.subject === subject(unrelated)), false,
+        "other caller's stored token is not imported");
+    }
+    assert.equal(storage.failureReason() === undefined, true, "all original finite guards remain intact");
+  });
+}

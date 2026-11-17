@@ -1,10 +1,15 @@
+import type { ResolvedSourceCallInfo } from "./type-checker.js";
 import type { GoPtr } from "../go/compat.js";
 import type { Node, SourceFile } from "../internal/ast/ast.js";
 import type { Program } from "../internal/compiler/program.js";
+export declare function requireApplicableCallInfo(evidence: ResolvedSourceCallInfo | undefined): Extract<ResolvedSourceCallInfo, {
+    readonly kind: "applicable";
+}>;
 export declare function createProgram(sourceText: string, settings?: {
     readonly noLib?: boolean;
     readonly fileName?: "index.ts" | "index.js";
     readonly checkJs?: boolean;
+    readonly target?: "esnext";
 }): {
     readonly program: GoPtr<Program>;
     readonly index: GoPtr<SourceFile>;

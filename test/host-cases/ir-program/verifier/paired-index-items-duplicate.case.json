@@ -1,0 +1,1 @@
+{"name":"paired-index-items-duplicate","level":"verifier","rule":"Complete independent two-package/two-module canonical source inventories; exact whole violation vector for one authored index defect","input":"test/host-cases/ir-program/verifier/paired-index-items-duplicate.input.json","expected":"test/host-cases/ir-program/verifier/paired-index-items-duplicate.expected.json"}

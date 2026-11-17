@@ -1,0 +1,7 @@
+{
+  "name": "syntax-name-escaped-deviation",
+  "level": "function",
+  "rule": "syntax-name-escaped-deviation",
+  "input": "test/host-cases/ir-program/function/syntax-name-escaped-deviation.input.json",
+  "expected": "test/host-cases/ir-program/function/syntax-name-escaped-deviation.expected.json"
+}

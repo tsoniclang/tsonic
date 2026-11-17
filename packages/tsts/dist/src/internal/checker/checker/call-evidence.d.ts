@@ -1,7 +1,7 @@
 import type { GoPtr } from "../../../go/compat.js";
 import type { Node } from "../../ast/spine.js";
 import type { Symbol } from "../../ast/symbol.js";
-import type { Type } from "../types.js";
+import type { EffectiveCallArgumentOrigin, Type } from "../types.js";
 import type { Checker } from "./state.js";
 export interface PropertyCallCalleeEvidence {
     readonly sourceSymbol: GoPtr<Symbol>;
@@ -27,4 +27,5 @@ export declare function callEvidenceWantedForCallee(callee: GoPtr<Node>): boolea
 export declare function retainIdentifierCallCalleeEvidence(checker: GoPtr<Checker>, identifier: GoPtr<Node>, sourceSymbol: GoPtr<Symbol>, selectedSymbol: GoPtr<Symbol>): void;
 export declare function retainPropertyCallCalleeEvidence(checker: GoPtr<Checker>, propertyAccessExpression: GoPtr<Node>, evidence: PropertyCallCalleeEvidence): void;
 export declare function retainElementCallCalleeEvidence(checker: GoPtr<Checker>, elementAccessExpression: GoPtr<Node>, evidence: ElementCallCalleeEvidence): void;
+export declare function retainCallArgumentOrigins(checker: Checker, callExpression: Node, origins: readonly EffectiveCallArgumentOrigin[]): void;
 //# sourceMappingURL=call-evidence.d.ts.map

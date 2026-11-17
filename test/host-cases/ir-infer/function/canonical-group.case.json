@@ -1,0 +1,7 @@
+{
+  "name": "canonical-group",
+  "level": "function",
+  "rule": "group-identity-and-field-order",
+  "input": "test/host-cases/ir-infer/function/canonical-group.input.json",
+  "expected": "test/host-cases/ir-infer/function/canonical-group.expected.json"
+}

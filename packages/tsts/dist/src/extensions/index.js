@@ -1,4 +1,5 @@
 export { getProviderMemberSurfaceKey } from "./provider-member-identity.js";
+export { isProviderWellKnownSymbolName } from "./provider-well-known-symbols.js";
 export { ExtensionDiagnosticStore, ExtensionFactResolver, ExtensionFactStore, ExtensionHost, ExtensionHostDiagnosticCode, ProviderRegistry, TstsSourceProviderContractVersion, attachExtensionHost, attachExtensionHostToProgram, defineExtensionFactKey, getExtensionHost, hasExtensionHost, } from "./host.js";
 export { createSourceSemanticsExtension, sourceSemanticsExtensionId, sourcePrimitive, } from "./source-semantics.js";
 export { SourceFactQueries, createSourceFactQueries, } from "./consumer.js";

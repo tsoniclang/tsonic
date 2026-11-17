@@ -1,0 +1,16 @@
+{
+  "kind": "accepted",
+  "value": {
+    "thrown": {
+      "name": "Error",
+      "message": "no invented query or origin",
+      "cause": {
+        "owner": "infer",
+        "query": null,
+        "origin": null,
+        "message": "no invented query or origin"
+      }
+    }
+  },
+  "diagnostics": []
+}

@@ -1,0 +1,1 @@
+{"name":"shared-types-different","level":"verifier","rule":"Complete owning-rule opposite uses actual canonical fixture data and preserves full genuine child diagnostics","input":"test/host-cases/ir-program/verifier/shared-types-different.input.json","expected":"test/host-cases/ir-program/verifier/shared-types-different.expected.json"}

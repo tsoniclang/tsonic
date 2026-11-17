@@ -1,0 +1,373 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { sourceTypeFlowFixture } from "./fixtures/source-type-flow-fixture.mjs";
+import { createSourceSingleInvocationQuery, sourceLexicalFunctionIsUnused, sourceNodesOutsideErasedSubtrees,
+  createSourceCallableInvocationReferenceQuery } from "../../packages/target-api/dist/source-navigation/callable-invocations.js";
+import { sourceEnclosing } from "../../packages/target-api/dist/source-navigation/callable-boundaries.js";
+
+function fixture(body) {
+  const { source, file } = sourceTypeFlowFixture(`export function outer(): number { ${body} }`);
+  const declarations = new Map();
+  assert.equal(file !== undefined, true);
+  const visit = node => {
+    if (source.ast.is.IsFunctionDeclaration(node)) declarations.set(source.ast.text(source.ast.name(node)), node);
+    if (source.ast.is.IsArrowFunction(node)) {
+      const binding = source.ast.parent(node);
+      if (binding !== undefined && source.ast.is.IsVariableDeclaration(binding) && source.ast.is.IsIdentifier(source.ast.name(binding)))
+        declarations.set(source.ast.text(source.ast.name(binding)), node);
+    }
+    source.ast.forEachChild(node, child => { if (child !== undefined) visit(child); });
+  };
+  visit(file);
+  const query = createSourceSingleInvocationQuery(source.ast, source.facts.navigation);
+  return { source, declaration(name) {
+    const declaration = declarations.get(name);
+    assert.equal(declaration !== undefined, true);
+    return declaration;
+  }, unused(name) {
+    const declaration = declarations.get(name);
+    assert.equal(declaration !== undefined, true);
+    return sourceLexicalFunctionIsUnused(declaration, source.ast, source.facts.navigation);
+  }, select(name) {
+    const declaration = declarations.get(name);
+    assert.equal(declaration !== undefined, true);
+    return query(declaration);
+  } };
+}
+
+test("native callable reference selection shares exact binding, alias and implementation facts", () => {
+  const current = fixture(`function work(): number { return 1; } const alias = work; return work() + alias();`);
+  const declaration = current.declaration("work");
+  const uses = current.source.facts.navigation.declarationUses(declaration);
+  const direct = uses.find(use => use.kind === "direct-call").reference;
+  const stored = uses.find(use => use.role === "storage").reference;
+  const alias = current.source.ast.parent(stored);
+  const aliasUse = current.source.facts.navigation.declarationUses(alias).find(use => use.kind === "direct-call").reference;
+  const query = createSourceCallableInvocationReferenceQuery({ ast: current.source.ast, navigation: current.source.facts.navigation,
+    nativeCallableFor: binding => binding === alias ? declaration : undefined,
+    lexicalBindingFor: target => target === declaration ? declaration : undefined,
+    callAliasFor: binding => binding === alias ? declaration : undefined });
+  const native = query.forTarget(direct, declaration);
+  assert.equal(native.nativeFunction && native.directDeclaration && native.directLexical, true,
+    "the original checked declaration invokes its native helper");
+  const selectedAlias = query.forTarget(aliasUse, declaration);
+  assert.equal(selectedAlias.referenceDeclaration === alias && selectedAlias.directModule && selectedAlias.callAlias, true,
+    "already selected native and call-only alias identities are retained");
+  assert.equal(query.forTarget(aliasUse, declaration) === selectedAlias, true, "all consumers share the same selected reference fact");
+  const valueQuery = createSourceCallableInvocationReferenceQuery({ ast: current.source.ast, navigation: current.source.facts.navigation,
+    nativeCallableFor: () => undefined, lexicalBindingFor: () => undefined, callAliasFor: () => undefined });
+  assert.equal(valueQuery.forTarget(aliasUse, declaration).nativeFunction, false,
+    "the target declaration alone cannot turn an indirect value into a native helper invocation");
+});
+
+test("single lexical invocation proof retains hoisting and exact transitive callers", () => {
+  const current = fixture(`const value = through();
+function read(): number { return 3; }
+function through(): number { return read(); }
+return value;`);
+  assert.equal(current.select("read"), true);
+  assert.equal(current.select("through"), true);
+  assert.equal(current.select("outer"), false);
+  assert.equal(current.select("read"), true);
+});
+
+test("a checked const-bound arrow shares the single-invocation owner with lexical declarations", () => {
+  for (const body of [
+    "const finish = () => 3; return finish();",
+    "const finish = () => 3; const relay = () => finish(); return relay();",
+    "function finish(): number { return 3; } const relay = () => finish(); return relay();",
+    "const finish = () => 3; function relay(): number { return finish(); } return relay();",
+  ]) {
+    const current = fixture(body);
+    assert.equal(current.select("finish"), true, "the original binding and its one checked direct execution are retained");
+    assert.equal(current.select("finish"), true, "the completed owner selection remains stable");
+  }
+});
+
+test("closed bound-arrow invocations expose the exact checked repetition refusal", () => {
+  for (const [statement, expectedUses, expected] of [
+    ["return callback();", 1, true],
+    ["return callback() + callback();", 2, false],
+  ]) {
+    const current = fixture(`function read(): number { return 3; }
+const callback = () => read();
+${statement}`);
+    const binding = current.source.ast.parent(current.declaration("callback"));
+    assert.equal(binding !== undefined, true, "the callback retains its original checked binding");
+    const summary = current.source.facts.navigation.declarationUseSummary(binding);
+    assert.equal(summary.exported, false, "the selected binding is not exported");
+    assert.equal(summary.bindingWritten, false, "the selected binding is not reassigned");
+    assert.equal(summary.hasUnclassifiedValueUse, false, "every original use is classified");
+    const uses = summary.uses.filter(use => use.kind !== "type-only" && use.kind !== "source-linkage");
+    assert.equal(uses.length, expectedUses, "the exact multiplicity is one versus two original runtime uses");
+    assert.equal(uses.every(use => use.kind === "direct-call" && use.role === "call-target" && !use.throughMember),
+      true, "only direct non-member call targets contribute to the multiplicity refusal");
+    if (expectedUses === 2) assert.equal(uses[0].reference !== uses[1].reference, true,
+      "the repeated calls are two distinct original checked references");
+    assert.equal(current.select("callback"), expected, "the canonical query refuses exactly the repeated callback");
+    assert.equal(current.select("read"), expected, "the lexical caller uses that identical checked invocation proof");
+  }
+});
+
+test("bound-arrow invocation proof retains alias, repetition, escape, recursion and deferred negatives", () => {
+  for (const body of [
+    "const finish = () => 3; return finish() + finish();",
+    "const finish = () => 3; const alias = finish; return alias();",
+    "const finish = () => 3; const values = [finish]; return values[0]!();",
+    "const finish = () => 3; let result = 0; while (result < 3) result += finish(); return result;",
+    "const finish = (): number => finish(); return finish();",
+    "const finish = (): number => relay(); const relay = (): number => finish(); return relay();",
+    "const finish = () => 3; const relay = () => finish(); return relay() + relay();",
+    "const finish = () => 3; const relay = () => finish(); const alias = relay; return alias();",
+    "let finish = () => 3; finish = () => 4; return finish();",
+  ]) {
+    assert.equal(fixture(body).select("finish"), false, body);
+  }
+});
+
+test("bound-arrow invocation proof rejects foreign, missing and unresolved checked correspondence", () => {
+  const current = fixture("const finish = () => 3; return finish();");
+  const declaration = current.declaration("finish");
+  const binding = current.source.ast.parent(declaration);
+  const summary = current.source.facts.navigation.declarationUseSummary(binding);
+  for (const mutation of [{ exported: true }, { bindingWritten: true }, { hasUnclassifiedValueUse: true },
+    { uses: summary.uses.map(use => ({ ...use, throughMember: true })) },
+  ]) {
+    const navigation = { ...current.source.facts.navigation, declarationUseSummary: () => ({ ...summary, ...mutation }) };
+    assert.equal(createSourceSingleInvocationQuery(current.source.ast, navigation)(declaration), false,
+      "an unavailable or escaping original binding never proves one native execution");
+  }
+  for (const navigation of [
+    { ...current.source.facts.navigation, sourceReferenceFor: () => undefined },
+    { ...current.source.facts.navigation, referencesToDeclaration: () => [binding] },
+    { ...current.source.facts.navigation, callableImplementation: () => ({ kind: "unresolved", reason: "missing" }) },
+    { ...current.source.facts.navigation, sourceReferenceFor: (reference) => {
+      const selected = current.source.facts.navigation.sourceReferenceFor(reference);
+      return selected === undefined ? undefined : { ...selected, declaration };
+    } },
+  ]) {
+    assert.equal(createSourceSingleInvocationQuery(current.source.ast, navigation)(declaration), false,
+      "the exact original reference domain, implementation, source file and binding are required");
+  }
+});
+
+test("unused lexical declarations retain every runtime use and module declaration", () => {
+  const current = fixture(`
+function dormant(): number { throw 3; }
+function typed(): number { return 3; }
+type Signature = typeof typed;
+const value: Signature | undefined = undefined;
+function called(): number { return 3; }
+function escaped(): number { return 3; }
+const alias = escaped;
+function captured(): number { return 3; }
+const callback = () => captured();
+function compared(): number { return 3; }
+return called() + alias() + callback() + (compared === compared ? 0 : 1) + (value === undefined ? 0 : 1);`);
+  for (const name of ["dormant", "typed"]) assert.equal(current.unused(name), true, name);
+  for (const name of ["outer", "called", "escaped", "captured", "compared"]) {
+    assert.equal(current.unused(name), false, name);
+  }
+});
+
+test("unused lexical omission rejects unclassified, exported and written summaries", () => {
+  const current = fixture(`function read(): number { return 3; } return 0;`);
+  const declaration = current.declaration("read");
+  const summary = current.source.facts.navigation.declarationUseSummary(declaration);
+  for (const mutation of [{ exported: true }, { bindingWritten: true }, { hasUnclassifiedValueUse: true },
+    { uses: [{ reference: declaration, kind: "source-linkage", role: "source-linkage", captured: false, throughMember: false }] },
+  ]) assert.equal(sourceLexicalFunctionIsUnused(declaration, current.source.ast,
+    { ...current.source.facts.navigation, declarationUseSummary: () => ({ ...summary, ...mutation }) }), false);
+});
+
+test("lexical overload uses keep their one checked implementation and original call identity", () => {
+  for (const body of [
+    `function pass<Value>(value: Value): Value;
+function pass<Value>(value: Value): Value { return value; }
+return pass<number>(3);`,
+    `function pass(value: number): number;
+function pass(value: string): string;
+function pass(value: number | string): number | string { return value; }
+return pass("used").length;`,
+    `function pass<Value>(value: Value): Value;
+function pass<Value>(value: Value): Value { return value; }
+function generic<Value>(value: Value): Value { return pass(value); }
+return generic(3);`,
+  ]) {
+    const current = fixture(body);
+    assert.equal(current.unused("pass"), false, "an actual checked overload call retains its native implementation");
+    assert.equal(current.select("pass"), true, "the one original checked call is retained in the canonical invocation proof");
+    const declaration = current.declaration("pass");
+    const file = current.source.ast.getSourceFile(declaration);
+    const original = current.source.facts.navigation.callableImplementation(declaration);
+    assert.equal(original.kind === "resolved" && original.implementation.declaration === declaration &&
+      original.implementation.sourceFile === file, true, "the original implementation retains its authentic binding and source owner");
+    const references = current.source.facts.navigation.referencesToDeclaration(declaration);
+    assert.equal(references.some(reference => {
+      const selected = current.source.facts.navigation.sourceReferenceFor(reference);
+      if (selected === undefined) return false;
+      const implementation = current.source.facts.navigation.callableImplementation(selected.declaration);
+      return implementation.kind === "resolved" && implementation.implementation.declaration === declaration &&
+        implementation.implementation.sourceFile === file;
+    }), true, "the original signature-bound reference selects that same implementation by checked identity");
+  }
+});
+
+test("unused overload families remain erased without merging same-spelling foreign bindings", () => {
+  for (const body of [
+    `function pass<Value>(value: Value): Value;
+function pass<Value>(value: Value): Value { return value; }
+return 0;`,
+    `function pass<Value>(value: Value): Value;
+function pass<Value>(value: Value): Value { return value; }
+type Signature = typeof pass;
+const missing: Signature | undefined = undefined;
+return missing === undefined ? 0 : 1;`,
+    `function left(): number {
+function pass(value: number): number;
+function pass(value: number): number { return value; }
+return pass(3);
+}
+function right(): number {
+function pass(value: number): number;
+function pass(value: number): number { return value; }
+return 0;
+}
+return left() + right();`,
+  ]) {
+    const current = fixture(body);
+    assert.equal(current.unused("pass"), true, "only the original unused checked binding is erased");
+    assert.equal(current.select("pass"), false, "no empty source-use set invents a native invocation");
+  }
+});
+
+test("overloaded lexical usage distinguishes repeated, escaped and exactly once closed deferred calls", () => {
+  for (const [suffix, expected] of [
+    ["return pass(1) + pass(2);", false],
+    ["const alias = pass; return alias(3);", false],
+    ["const deferred = () => pass(3); return deferred();", true],
+    ["const deferred = () => pass(3); return deferred() + deferred();", false],
+  ]) {
+    const current = fixture(`function pass(value: number): number;
+function pass(value: number): number { return value; }
+${suffix}`);
+    assert.equal(current.unused("pass"), false, "an original runtime use is never erased");
+    assert.equal(current.select("pass"), expected, "only the original single closed deferred execution proves one invocation");
+  }
+  const current = fixture("function pass(): number { return 3; } return pass();");
+  const declaration = current.declaration("pass");
+  const foreign = { ...current.source.facts.navigation, sourceReferenceFor: () => undefined };
+  assert.equal(sourceLexicalFunctionIsUnused(declaration, current.source.ast, foreign), false,
+    "a missing original checked reference never becomes an empty safe source summary");
+  assert.equal(createSourceSingleInvocationQuery(current.source.ast, foreign)(declaration), false,
+    "a missing checked use cannot prove one native invocation");
+});
+
+test("single lexical invocation rejects repeated, recursive, escaping and deferred activation", () => {
+  for (const body of [
+    `function read(): number { return 3; } return read() + read();`,
+    `function read(): number { return 3; } for (let index = 0; index < 2; index++) { read(); } return 0;`,
+    `function read(): number { return read(); } return read();`,
+    `function read(): number { return through(); } function through(): number { return read(); } return 0;`,
+    `function read(): number { return 3; } const callback = () => read(); return callback() + callback();`,
+    `function read(): number { return 3; } const alias = read; return alias();`,
+    `function read(): number { return 3; } function through(): number { return read(); } return through() + through();`,
+  ]) assert.equal(fixture(body).select("read"), false, body);
+});
+
+test("enclosing callable navigation accepts finite deep ancestry and terminates cycles", () => {
+  const current = fixture("return 0;");
+  const node = {};
+  const ast = { ...current.source.ast, parent: () => node, kindName: () => "KindBlock" };
+  assert.throws(() => sourceEnclosing(ast, node, "body"), /acyclic original parent chain/u);
+  const nodes = Array.from({ length: 4096 }, () => ({}));
+  const indexes = new Map(nodes.map((value, index) => [value, index]));
+  const deep = { ...current.source.ast, parent: (value) => value === undefined ? undefined : nodes[indexes.get(value) + 1],
+    body: (value) => value === nodes[nodes.length - 1] ? nodes[nodes.length - 2] : undefined,
+    name: () => undefined, modifiers: () => [], parameters: () => [],
+    kindName: (value) => value === nodes[nodes.length - 1] ? "KindFunctionDeclaration" : "KindBlock" };
+  assert.equal(sourceEnclosing(deep, nodes[0], "body") === nodes[nodes.length - 1], true,
+    "finite lexical ancestry reaches its actual callable beyond an arbitrary depth");
+  assert.equal(sourceEnclosing(deep, undefined, "body") === undefined, true, "an absent source has no callable");
+  const cyclic = { ...deep, parent: (value) => value === undefined ? undefined : nodes[(indexes.get(value) + 1) % nodes.length],
+    kindName: () => "KindBlock" };
+  assert.throws(() => sourceEnclosing(cyclic, nodes[0], "body"), /acyclic original parent chain/u,
+    "a long malformed cycle cannot manufacture an enclosing callable");
+});
+
+test("unused lexical admission uses actual checked ancestry beyond the optimization budget", () => {
+  const current = fixture(`${"{".repeat(180)}
+function dormant(): number { throw 3; }
+function called(): number { return 1; }
+called();
+${"}".repeat(180)}
+return 0;`);
+  const dormant = current.declaration("dormant");
+  assert.equal(sourceEnclosing(current.source.ast, dormant, "deferred") === current.declaration("outer"), true,
+    "the checked declaration retains its exact enclosing owner");
+  assert.equal(current.unused("dormant"), true, "an unused deep native body remains erased");
+  assert.equal(current.unused("called"), false, "a real deep invocation still requires its native body");
+  assert.equal(current.select("called"), false, "the separate conservative single-invocation optimization budget is unchanged");
+});
+
+test("finite source participation closes inherited erasure independently of input order", () => {
+  const root = {};
+  const erased = {};
+  const nested = {};
+  const included = {};
+  const leaf = {};
+  const parents = new Map([[erased, root], [nested, erased], [included, root], [leaf, included]]);
+  const nodes = [root, erased, nested, included, leaf];
+  for (const order of [nodes, [...nodes].reverse(), [nested, leaf, included, erased, root]]) {
+    const selected = [];
+    const current = sourceNodesOutsideErasedSubtrees({ parent: node => node === undefined ? undefined : parents.get(node) }, order, node => {
+      selected.push(node);
+      return node === erased;
+    });
+    assert.equal(current.kind, "resolved", "the complete checked domain resolves");
+    if (current.kind !== "resolved") continue;
+    assert.equal(current.nodes.length, 3, "only the root and admitted branch participate");
+    assert.equal(current.nodes.every(node => [root, included, leaf].includes(node)), true, "exact selected identities");
+    assert.equal(current.nodes.every((node, index) => node === order.filter(value => [root, included, leaf].includes(value))[index]), true,
+      "publication preserves the supplied finite node order");
+    assert.equal(selected.includes(nested), false, "no classification occurs inside an erased subtree");
+    assert.equal(new Set(selected).size, selected.length, "each reached classification runs once");
+    assert.equal(Object.isFrozen(current), true, "the completed result is immutable");
+    assert.equal(Object.isFrozen(current.nodes), true, "the selected node domain is immutable");
+  }
+});
+
+test("finite source participation validates every parent before any classification is published", () => {
+  const first = {};
+  const second = {};
+  let selections = 0;
+  const classify = () => { selections += 1; return false; };
+  for (const [nodes, parent, reason] of [
+    [[first, second], (node) => node === first ? second : node === second ? first : undefined, "acyclic"],
+    [[first], () => second, "every checked parent"],
+    [[first, first], () => undefined, "one occurrence"],
+  ]) {
+    const current = sourceNodesOutsideErasedSubtrees({ parent }, nodes, classify);
+    assert.equal(current.kind, "unresolved", "malformed source domain is not partially admitted");
+    assert.equal(current.kind === "unresolved" && current.reason.includes(reason), true, "the actual closure failure is explained");
+    assert.equal(selections, 0, "no target classification/writer runs before complete structural closure");
+  }
+});
+
+test("finite source participation has no arbitrary ancestor-depth limit or post-completion source reads", () => {
+  const nodes = Array.from({ length: 1024 }, () => ({}));
+  const parents = new Map(nodes.slice(1).map((node, index) => [node, nodes[index]]));
+  let reads = 0;
+  let selections = 0;
+  const source = Proxy.revocable({ parent(node) {
+    reads += 1;
+    return node === undefined ? undefined : parents.get(node);
+  } }, {});
+  const current = sourceNodesOutsideErasedSubtrees(source.proxy, [...nodes].reverse(), () => { selections += 1; return false; });
+  assert.equal(current.kind, "resolved", "a finite deeply nested checked tree closes");
+  assert.equal(reads, nodes.length, "each checked parent is read once");
+  assert.equal(selections, nodes.length, "each admitted node is classified once");
+  source.revoke();
+  assert.equal(current.kind === "resolved" && current.nodes.length === nodes.length, true, "the completed domain is data only");
+  assert.equal(current.kind === "resolved" && current.nodes[0] === nodes[nodes.length - 1], true, "exact identity survives source revocation");
+});

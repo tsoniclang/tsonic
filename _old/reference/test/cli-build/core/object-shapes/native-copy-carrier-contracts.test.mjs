@@ -1,0 +1,100 @@
+import { assert, cliPath, readFile, resolve, runGeneratedCsharpRunner, runNode, tempRoot, test, writeProject } from "../../helpers/harness.mjs";
+
+test("CLI preserves native nested spread copies and exact source getter order", async () => {
+  const projectDirectory = resolve(tempRoot, "native-copy-carrier-contracts");
+  const assemblyName = "NativeCopyCarrierContracts";
+  await writeProject(projectDirectory, {
+    "tsonic.json": JSON.stringify({
+      entryPoint: "index.ts",
+      rootDir: "src",
+      outDir: "out",
+      targets: [{ id: "csharp", options: { namespace: "Smoke.NativeCopy", assemblyName } }],
+    }, null, 2),
+    "src/index.ts": [
+      "type Child = { id: number; value: number };",
+      "type Source = { label?: string; child: Child; count: number; note: string; extra: number };",
+      "type Output = { label: string; child: Child; count: number; note: string; extra: number };",
+      "export function rewrite({ label = \"missing\", child, count, ...rest }: Source, value: number): string {",
+      "  const updatedChild: Child = { ...child, value };",
+      "  const output: Output = { ...rest, label, child: { ...updatedChild }, count };",
+      "  return `${output.label}:${output.child.id}:${output.child.value}:${output.count}:${output.note}:${output.extra}`;",
+      "}",
+      "",
+    ].join("\n"),
+  });
+
+  const build = runNode([cliPath, "build", "--project", resolve(projectDirectory, "tsonic.json")]);
+  assert.equal(build.status, 0, build.stdout + build.stderr);
+  const generated = await readFile(resolve(projectDirectory, "out/csharp/src/Index.cs"), "utf8");
+  const contracts = /public static string rewrite\((?<source>ObjectShape_[a-f0-9]{12}<(?<child>ObjectShape_[a-f0-9]{12}<double, double>), double, double, string\?, string>) __tsonic_param\d+, double value\)/u.exec(generated);
+  assert.equal(contracts !== null, true, "native caller and callee share exact source and child interfaces");
+  assert.doesNotMatch(generated, /dynamic|System\.Reflection|GetProperty|Activator\.CreateInstance|__unsupported|InvalidExpression/u);
+  assert.equal(await runGeneratedCsharpRunner(projectDirectory, assemblyName, [
+    "using System;",
+    "using System.Text;",
+    "using Smoke.NativeCopy;",
+    `public sealed class TrackedChild : ${contracts.groups.child}`,
+    "{",
+    "    private readonly StringBuilder events;",
+    "    private double originalId = 2;",
+    "    private double originalValue = 3;",
+    "    public int Writes { get; private set; }",
+    "    public double OriginalId => originalId;",
+    "    public double OriginalValue => originalValue;",
+    "    public TrackedChild(StringBuilder events) { this.events = events; }",
+    "    public double id",
+    "    {",
+    "        get { events.Append('I'); return originalId; }",
+    "        set { Writes++; originalId = value; }",
+    "    }",
+    "    public double value",
+    "    {",
+    "        get { events.Append('V'); return originalValue; }",
+    "        set { Writes++; originalValue = value; }",
+    "    }",
+    "}",
+    `public sealed class TrackedSource : ${contracts.groups.source}`,
+    "{",
+    "    private readonly StringBuilder events;",
+    "    private readonly TrackedChild originalChild;",
+    "    public TrackedSource(TrackedChild child, StringBuilder events) { originalChild = child; this.events = events; }",
+    "    public string? label",
+    "    {",
+    "        get { events.Append('L'); return null; }",
+    "        set { throw new InvalidOperationException(\"Unexpected source write\"); }",
+    "    }",
+    `    public ${contracts.groups.child} child`,
+    "    {",
+    "        get { events.Append('C'); return originalChild; }",
+    "        set { throw new InvalidOperationException(\"Unexpected source write\"); }",
+    "    }",
+    "    public double count",
+    "    {",
+    "        get { events.Append('N'); return 10; }",
+    "        set { throw new InvalidOperationException(\"Unexpected source write\"); }",
+    "    }",
+    "    public string note",
+    "    {",
+    "        get { events.Append('T'); return \"n\"; }",
+    "        set { throw new InvalidOperationException(\"Unexpected source write\"); }",
+    "    }",
+    "    public double extra",
+    "    {",
+    "        get { events.Append('E'); return 4; }",
+    "        set { throw new InvalidOperationException(\"Unexpected source write\"); }",
+    "    }",
+    "}",
+    "public static class Program",
+    "{",
+    "    public static void Main()",
+    "    {",
+    "        var events = new StringBuilder();",
+    "        var child = new TrackedChild(events);",
+    "        var source = new TrackedSource(child, events);",
+    "        Console.WriteLine(Smoke.NativeCopy.Index.rewrite(source, 9));",
+    "        Console.WriteLine(events.ToString());",
+    "        Console.WriteLine($\"{child.OriginalId}:{child.OriginalValue}:{child.Writes}\");",
+    "    }",
+    "}",
+  ]), "missing:2:9:10:n:4\nLCNTEIV\n2:3:0\n");
+});

@@ -1,0 +1,292 @@
+import assert from "node:assert/strict";
+import { spawn, spawnSync } from "node:child_process";
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { join, parse } from "node:path";
+import test from "node:test";
+import { createTestWorkspace } from "../../scripts/test-workspaces.mjs";
+import { tsonicRoot } from "../../scripts/workspace-layout.mjs";
+import { cleanupFinishedCargoTargets } from "../../scripts/parallel-task-resources.mjs";
+
+const scratch = join(tsonicRoot, ".temp/test-workspace-lifecycle");
+const helperUrl = new URL("../../scripts/test-workspaces.mjs", import.meta.url).href;
+
+test("only individually drained task-owned Cargo binary leaves are pruned, preserving generated source and failures", () => {
+  const root = createTestWorkspace(scratch, "cargo-cleanup-");
+  const workspace = createTestWorkspace(root, "project-");
+  const identity = lstatSync(workspace, { bigint: true });
+  const manifest = join(root, "task.jsonl");
+  const group = join(root, "task-cgroup");
+  mkdirSync(group);
+  writeFileSync(join(group, "memory.events.local"), "oom_kill 0\n");
+  writeFileSync(join(group, "memory.peak"), "4096\n");
+  writeFileSync(join(group, "cgroup.events"), "populated 0\n");
+  writeFileSync(join(group, "cgroup.procs"), "");
+  const task = { path: group, taskId: "owned-file", drained: true };
+  const registration = { directory: workspace, ownership: "fresh-task-mkdtemp", taskId: task.taskId,
+    cgroupPath: group, dev: String(identity.dev), ino: String(identity.ino) };
+  const register = entries => writeFileSync(manifest, entries.map(entry => JSON.stringify(entry)).join("\n") + "\n");
+  register([registration]);
+  for (const folder of ["target/debug/deps", "target/debug/incremental", "target/debug/build/native/out", "src"]) mkdirSync(join(workspace, folder), { recursive: true });
+  for (const file of ["Cargo.toml", "Cargo.lock", "src/main.rs", "target/debug/build/native/out/generated.rs", "failure.log", "target/debug/deps/native", "target/debug/incremental/state"]) writeFileSync(join(workspace, file), "retained evidence");
+  const waiting = cleanupFinishedCargoTargets(manifest, { ...task, drained: false });
+  assert.match(waiting.issue, /not proven drained/u);
+  assert.equal(existsSync(join(workspace, "target/debug/deps/native")), true, "an active task keeps its binary");
+  writeFileSync(join(group, "cgroup.procs"), "12345\n");
+  const active = cleanupFinishedCargoTargets(manifest, task);
+  assert.equal(active.removed.length, 0, "a nonempty cgroup.procs keeps the target even with populated zero");
+  writeFileSync(join(group, "cgroup.procs"), "");
+  register([{ ...registration, ino: String(identity.ino + 1n) }]);
+  const changed = cleanupFinishedCargoTargets(manifest, task);
+  assert.equal(changed.removed.length, 0, "changed directory identity keeps the binaries");
+  assert.match(changed.retained[0].reason, /identity/u);
+  register([registration, registration]);
+  const reused = cleanupFinishedCargoTargets(manifest, task);
+  assert.equal(reused.removed.length, 0, "duplicate ownership cannot authorize deleting a reused root");
+  assert.match(reused.retained[0].reason, /fresh exclusive/u);
+  register([registration]);
+  const finished = cleanupFinishedCargoTargets(manifest, task);
+  assert.equal(finished.removed.length, 2, "both finished binary leaves are removed immediately");
+  assert.equal(finished.removed.every(entry => entry.taskId === task.taskId && entry.dev === registration.dev &&
+    entry.ino === registration.ino && entry.drain.drained && entry.drain.processIds.length === 0 &&
+    entry.allocatedBytesRemoved > 0 && entry.netPhysicalBytesFreed === null &&
+    typeof entry.startedAt === "string" && typeof entry.endedAt === "string"), true, "deletions retain exact ownership, drain and honest footprint evidence");
+  for (const file of ["Cargo.toml", "Cargo.lock", "src/main.rs", "target/debug/build/native/out/generated.rs", "failure.log"]) {
+    assert.equal(readFileSync(join(workspace, file), "utf8"), "retained evidence", `${file}: source, configuration and failure evidence survive`);
+  }
+  const foreign = createTestWorkspace(root, "foreign-");
+  mkdirSync(join(foreign, "debug/deps"), { recursive: true });
+  writeFileSync(join(foreign, "debug/deps/native"), "foreign");
+  symlinkSync(foreign, join(workspace, "nested"), "dir");
+  cleanupFinishedCargoTargets(manifest, task);
+  assert.equal(readFileSync(join(foreign, "debug/deps/native"), "utf8"), "foreign", "a symlink cannot transfer deletion ownership");
+  const unregistered = createTestWorkspace(root, "unregistered-");
+  mkdirSync(join(unregistered, "target/debug/deps"), { recursive: true });
+  writeFileSync(join(unregistered, "Cargo.toml"), "unregistered");
+  writeFileSync(join(unregistered, "target/debug/deps/native"), "unregistered");
+  cleanupFinishedCargoTargets(manifest, task);
+  assert.equal(readFileSync(join(unregistered, "target/debug/deps/native"), "utf8"), "unregistered", "unregistered roots are never traversed");
+});
+
+test("the real runner prunes a finished failing file's Cargo binaries after draining its log and native child", () => {
+  const root = createTestWorkspace(scratch, "cargo-runner-");
+  const repository = join(root, "repository");
+  const file = join(repository, "test/infrastructure/runner/terminal.test.mjs");
+  mkdirSync(join(repository, "test/infrastructure/runner"), { recursive: true });
+  const record = join(root, "generated-project.json");
+  const report = join(root, "report.json");
+  writeFileSync(file, `
+import assert from "node:assert/strict";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import test from "node:test";
+import { createTestWorkspace } from ${JSON.stringify(helperUrl)};
+const project = createTestWorkspace(${JSON.stringify(join(root, ".temp"))}, "project-");
+writeFileSync(${JSON.stringify(record)}, JSON.stringify(project));
+for (const folder of ["target/debug/deps", "target/debug/incremental", "src"]) mkdirSync(join(project, folder), {recursive: true});
+for (const path of ["Cargo.toml", "Cargo.lock", "src/main.rs", "failure.log", "target/debug/deps/native", "target/debug/incremental/state"]) writeFileSync(join(project, path), "preserved source and evidence");
+test("deliberate completed file failure", () => assert.fail("preserved original assertion"));
+`);
+  const run = spawnSync(process.execPath, ["test/scripts/run-parallel.mjs", "--scope", "tsonic", "--repository-root", repository, "--file", file],
+    { cwd: tsonicRoot, encoding: "utf8", timeout: 30_000, maxBuffer: 65_536, env: { ...process.env, TSONIC_TEST_SUITE_REPORT: report } });
+  assert.equal(run.status, 1, "the completed assertion remains failed, not silently repaired by cleanup");
+  const [result] = JSON.parse(readFileSync(report, "utf8")).results;
+  assert.equal(result.cgroup.drained, true, "the actual kernel proves the task empty");
+  assert.equal(result.cleanup.issue, null, "fresh ownership and exact kernel drain authorize cleanup without a global process scan");
+  assert.equal(result.cleanup.removed.length, 2, "both generated binary leaves are pruned before the runner returns");
+  const project = JSON.parse(readFileSync(record, "utf8"));
+  for (const path of ["Cargo.toml", "Cargo.lock", "src/main.rs", "failure.log"]) {
+    assert.equal(readFileSync(join(project, path), "utf8"), "preserved source and evidence", `${path}: original evidence is retained`);
+  }
+  assert.equal(result.tests[0].message, "preserved original assertion", "the report keeps the precise failed assertion");
+});
+
+function fixture(body) {
+  const root = createTestWorkspace(scratch, "case-");
+  const file = join(root, "worker.test.mjs");
+  const parent = join(root, ".temp");
+  const record = join(root, "workspaces.json");
+  writeFileSync(file, `
+import assert from "node:assert/strict";
+import test, { after } from "node:test";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { createTestWorkspace } from ${JSON.stringify(helperUrl)};
+const parent = ${JSON.stringify(parent)};
+const record = ${JSON.stringify(record)};
+const directory = createTestWorkspace(parent, "project-");
+writeFileSync(record, JSON.stringify([directory]));
+${body}
+`);
+  return { root, file, parent, record };
+}
+
+function childEnvironment() {
+  const environment = { ...process.env };
+  delete environment.NODE_TEST_CONTEXT;
+  return environment;
+}
+
+function runFixture(current) {
+  return spawnSync(process.execPath, ["--test", "--test-reporter=tap", current.file], {
+    encoding: "utf8", timeout: 15_000, env: childEnvironment(),
+  });
+}
+
+function directories(current) {
+  return JSON.parse(readFileSync(current.record, "utf8"));
+}
+
+test("successful workspaces survive assertions and hooks, then disappear at process exit", () => {
+  const current = fixture(`
+test("native artifacts", () => {
+  for (const relative of ["target/debug", "bin/Debug", "obj/Debug"]) {
+    mkdirSync(join(directory, relative), { recursive: true });
+    writeFileSync(join(directory, relative, "artifact"), "compiled");
+  }
+  writeFileSync(join(directory, "source.ts"), "export const answer = 42;");
+});
+test("later consumer", () => assert.equal(readFileSync(join(directory, "target/debug/artifact"), "utf8"), "compiled"));
+after(() => assert.equal(readFileSync(join(directory, "source.ts"), "utf8"), "export const answer = 42;"));
+`);
+  const result = runFixture(current);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.ok(existsSync(current.parent));
+  assert.ok(directories(current).every(directory => !existsSync(directory)));
+});
+
+for (const [label, body] of [
+  ["test failure", 'test("failure", () => assert.fail("fixture failure"));'],
+  ["hook failure", 'test("success", () => {}); after(() => assert.fail("hook failure"));'],
+  ["nonzero process exit", 'process.exitCode = 7;'],
+]) {
+  test(`${label} retains the workspace and reports its location`, () => {
+    const current = fixture(`writeFileSync(join(directory, "evidence.log"), "native failure");\n${body}`);
+    const result = runFixture(current);
+    assert.notEqual(result.status, 0, result.stdout + result.stderr);
+    const [directory] = directories(current);
+    assert.equal(readFileSync(join(directory, "evidence.log"), "utf8"), "native failure");
+    assert.match(result.stdout + result.stderr, /Retained failed test workspace:/u);
+  });
+}
+
+test("terminated test processes retain their workspaces", () => {
+  const current = fixture(`process.kill(process.pid, "SIGTERM");`);
+  const result = runFixture(current);
+  assert.notEqual(result.status, 0, result.stdout + result.stderr);
+  assert.ok(directories(current).every(directory => existsSync(directory)));
+});
+
+test("fatal initialization errors retain evidence even when Node bypasses exit hooks", () => {
+  const current = fixture(`writeFileSync(join(directory, "evidence.log"), "native failure"); throw new Error("fixture error");`);
+  const result = runFixture(current);
+  assert.notEqual(result.status, 0, result.stdout + result.stderr);
+  assert.match(result.stdout + result.stderr, /fixture error/u);
+  const [directory] = directories(current);
+  assert.equal(readFileSync(join(directory, "evidence.log"), "utf8"), "native failure");
+});
+
+test("existing siblings, caches and symlink targets are never removed", () => {
+  const current = fixture(`
+const old = join(parent, "existing");
+mkdirSync(old);
+writeFileSync(join(old, "source"), "retain");
+symlinkSync(old, join(directory, "node_modules"), "dir");
+test("success", () => assert.equal(readFileSync(join(directory, "node_modules/source"), "utf8"), "retain"));
+`);
+  const result = runFixture(current);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.equal(readFileSync(join(current.parent, "existing/source"), "utf8"), "retain");
+  assert.ok(directories(current).every(directory => !existsSync(directory)));
+});
+
+test("a replaced workspace is retained and fails cleanup", () => {
+  const current = fixture(`
+renameSync(directory, directory + ".saved");
+symlinkSync(directory + ".saved", directory, "dir");
+test("success", () => {});
+`);
+  const result = runFixture(current);
+  assert.notEqual(result.status, 0, result.stdout + result.stderr);
+  assert.match(result.stdout + result.stderr, /identity changed/u);
+  const [directory] = directories(current);
+  assert.ok(existsSync(directory));
+  assert.ok(existsSync(directory + ".saved"));
+});
+
+test("a workspace already removed by its owner is harmless", () => {
+  const current = fixture(`rmSync(directory, { recursive: true }); test("success", () => {});`);
+  const result = runFixture(current);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+});
+
+test("cleanup failures fail the run instead of silently leaking successful workspaces", () => {
+  const current = fixture(`chmodSync(parent, 0o500); test("success", () => {});`);
+  const result = runFixture(current);
+  chmodSync(current.parent, 0o700);
+  assert.notEqual(result.status, 0, result.stdout + result.stderr);
+  assert.match(result.stdout + result.stderr, /Test workspace cleanup failed/u);
+  assert.ok(directories(current).every(directory => existsSync(directory)));
+});
+
+test("a linked scratch parent owns only the newly allocated physical directory", () => {
+  const current = fixture(`
+const linked = join(parent, "linked");
+const physical = join(parent, "physical");
+mkdirSync(physical);
+symlinkSync(physical, linked, "dir");
+const second = createTestWorkspace(linked, "second-");
+writeFileSync(record, JSON.stringify([directory, second]));
+test("success", () => assert.equal(second.startsWith(physical), true));
+`);
+  const result = runFixture(current);
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.ok(existsSync(join(current.parent, "physical")));
+  assert.ok(directories(current).every(directory => !existsSync(directory)));
+});
+
+test("concurrent workers cannot clean each other's workspaces", async () => {
+  const current = fixture(`
+test("wait", async () => {
+  process.stdout.write("WORKSPACE_READY\\n");
+  await new Promise(resolve => process.stdin.once("data", resolve));
+  assert.ok(existsSync(directory));
+});
+`);
+  const child = spawn(process.execPath, [current.file], { env: childEnvironment(), stdio: ["pipe", "pipe", "pipe"] });
+  const closed = new Promise(resolve => child.once("close", (code, signal) => resolve({ code, signal })));
+  let output = "";
+  child.stderr.on("data", data => { output += data; });
+  const timeout = setTimeout(() => child.kill("SIGTERM"), 15_000);
+  try {
+    await new Promise((resolve, reject) => {
+      child.once("error", reject);
+      child.once("exit", () => reject(new Error(`Worker exited before readiness: ${output}`)));
+      child.stdout.on("data", data => {
+        output += data;
+        if (output.includes("WORKSPACE_READY")) resolve();
+      });
+    });
+    const [activeDirectory] = directories(current);
+    const other = fixture('test("success", () => {});');
+    const result = runFixture(other);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.ok(existsSync(activeDirectory));
+    child.stdin.end("finish\n");
+    assert.deepEqual(await closed, { code: 0, signal: null }, output);
+    assert.equal(existsSync(activeDirectory), false);
+  } finally {
+    clearTimeout(timeout);
+    if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
+    await closed;
+  }
+});
+
+test("invalid parents and prefixes never allocate a workspace", () => {
+  const current = createTestWorkspace(scratch, "invalid-");
+  for (const parent of ["relative/.temp", join(parse(tsonicRoot).root, "not-scratch"), "/", undefined]) {
+    assert.throws(() => createTestWorkspace(parent, "project-"), /absolute .temp or .tests/u);
+  }
+  for (const prefix of ["", ".", "..", "../escape-", "/absolute", "bad\0prefix", undefined]) {
+    assert.throws(() => createTestWorkspace(current, prefix), /nonempty file names/u);
+  }
+});

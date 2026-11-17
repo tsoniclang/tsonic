@@ -1,3 +1,4 @@
+import { retainBackingDiagnosticEnvelope, retainBackingDiagnosticNotes, retainCallApplicabilityDiagnostics, withBackingCandidate } from "./backing-constraint-evidence.js";
 import { Node_Text, Node_Members, Node_Statements, Node_CanHaveStatements, Node_Expression, Node_Arguments, Node_TypeArgumentList, Node_TypeArguments, Node_Parameters, Node_TagName, Node_Symbol, Node_Type, Node_Initializer, SourceFile_Diagnostics, SourceFile_Text } from "../../ast/ast.js";
 import { Diagnostic_AddRelatedInfo, Diagnostic_Clone, Diagnostic_RelatedInformation, Diagnostic_SetCategory, DiagnosticsCollection_Add, DiagnosticsCollection_GetDiagnosticsForFile, DiagnosticsCollection_GetGlobalDiagnostics, DiagnosticsCollection_Lookup, NewDiagnostic, NewDiagnosticChain } from "../../ast/diagnostic.js";
 import { CompareDiagnostics } from "../../ast/diagnostic.js";
@@ -971,6 +972,7 @@ export function Checker_getDiagnosticHeadMessageForDecoratorResolution(receiver,
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.reportCallResolutionErrors","kind":"method","status":"implemented","sigHash":"b53e1df31b2b460a4600844bf3e882cae56f028872e89dd7ef8a480d9ee5748a","bodyHash":"437b02d32034811e1876ce1d3b383c0ea77ceaac1f48bc703e360a90ff002840"}
+ * @tsgo-override {"category":"extension-host","allow":["body","signature"],"reason":"Takes the original application evidence of the candidates as a sixth, optional parameter. When the candidate being reported has such evidence, its applicability check or type-argument check runs with that candidate pushed as the backing-constraint candidate, and the diagnostic chains and notes built for the last overload, and the diagnostic for the call node, are recorded in the checker's backing-constraint evidence state. The calls that build, chain, annotate and add each diagnostic are those of the TS-Go body, in the same order. R5-23 retains the explicit native result-construction publication owner without changing native checking or caching decisions.","goSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::CallState>,packages/tsts/src/go/compat.ts::GoSlice<packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/diagnostics/diagnostics.ts::Message>)=>void","tsSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::CallState>,packages/tsts/src/go/compat.ts::GoSlice<packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/diagnostics/diagnostics.ts::Message>,?raw(readonly ResolvedCallApplicationEvidence[]),?packages/tsts/src/internal/checker/checker/literal-creation.ts::LiteralConstructionOwner)=>void"}
  *
  * Go source:
  * func (c *Checker) reportCallResolutionErrors(node *ast.Node, s *CallState, signatures []*Signature, headMessage *diagnostics.Message) {
@@ -1009,24 +1011,38 @@ export function Checker_getDiagnosticHeadMessageForDecoratorResolution(receiver,
  * 	}
  * }
  */
-export function Checker_reportCallResolutionErrors(receiver, node, s, signatures, headMessage) {
+export function Checker_reportCallResolutionErrors(receiver, node, s, signatures, headMessage, applications, constructionOwner) {
     const c = receiver;
     if (s.candidatesForArgumentError.length !== 0) {
         const last = s.candidatesForArgumentError[s.candidatesForArgumentError.length - 1];
         const diags = [];
-        Checker_isSignatureApplicable(receiver, s.node, s.args, last, c.assignableRelation, CheckModeNormal, true, diags);
+        const application = applications?.findLast(candidate => candidate.instantiatedSignature === last);
+        const operation = () => Checker_isSignatureApplicable(receiver, s.node, s.args, last, c.assignableRelation, CheckModeNormal, true, diags, constructionOwner);
+        if (application === undefined)
+            operation();
+        else
+            withBackingCandidate(c, application, operation);
         for (let diagnostic of diags) {
             if (s.candidatesForArgumentError.length > 1) {
                 diagnostic = NewDiagnosticChain(diagnostic, The_last_overload_gave_the_following_error);
+                retainBackingDiagnosticEnvelope(c, diagnostic);
                 diagnostic = NewDiagnosticChain(diagnostic, No_overload_matches_this_call);
+                retainBackingDiagnosticEnvelope(c, diagnostic);
             }
             if (headMessage !== undefined) {
                 diagnostic = NewDiagnosticChain(diagnostic, headMessage);
+                retainBackingDiagnosticEnvelope(c, diagnostic);
             }
             if (last.declaration !== undefined && s.candidatesForArgumentError.length > 1) {
-                Diagnostic_AddRelatedInfo(diagnostic, NewDiagnosticForNode(last.declaration, The_last_overload_is_declared_here));
+                const note = NewDiagnosticForNode(last.declaration, The_last_overload_is_declared_here);
+                Diagnostic_AddRelatedInfo(diagnostic, note);
+                retainBackingDiagnosticNotes(c, diagnostic, [note]);
             }
+            const previousNotes = diagnostic.relatedInformation.length;
             Checker_addImplementationSuccessElaboration(receiver, s, last, diagnostic);
+            retainBackingDiagnosticNotes(c, diagnostic, diagnostic.relatedInformation.slice(previousNotes));
+            if (node !== undefined && diagnostic !== undefined)
+                retainCallApplicabilityDiagnostics(c, node, [diagnostic]);
             Checker_addDiagnostic(receiver, diagnostic);
         }
     }
@@ -1034,7 +1050,12 @@ export function Checker_reportCallResolutionErrors(receiver, node, s, signatures
         Checker_addDiagnostic(receiver, Checker_getArgumentArityError(receiver, s.node, [s.candidateForArgumentArityError], s.args, headMessage));
     }
     else if (s.candidateForTypeArgumentError !== undefined) {
-        Checker_checkTypeArguments(receiver, s.candidateForTypeArgumentError, Node_TypeArguments(s.node) ?? [], true, headMessage);
+        const application = applications?.findLast(candidate => candidate.signature === s.candidateForTypeArgumentError);
+        const operation = () => Checker_checkTypeArguments(receiver, s.candidateForTypeArgumentError, Node_TypeArguments(s.node) ?? [], true, headMessage);
+        if (application === undefined)
+            operation();
+        else
+            withBackingCandidate(c, application, operation);
     }
     else if (!IsJsxOpeningFragment(node)) {
         const signaturesWithCorrectTypeArgumentArity = Filter(signatures, (sig) => Checker_hasCorrectTypeArgumentArity(receiver, sig, s.typeArguments));
@@ -1437,6 +1458,7 @@ export function Checker_reportCannotInvokePossiblyNullOrUndefinedError(receiver,
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.resolveErrorCall","kind":"method","status":"implemented","sigHash":"dedaeb289deb864b8e3babca1046d72be978d2b689f931b473d5015f31f5ea9b","bodyHash":"19157ce534c80d3694cc276eb280e77f41312491fa3b874f891f87ea9b468805"}
+ * @tsgo-override {"category":"extension-host","allow":["signature"],"reason":"R5-23 retains the explicit native result-construction publication owner without changing native checking or caching decisions.","goSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>","tsSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,?packages/tsts/src/internal/checker/checker/literal-creation.ts::LiteralConstructionOwner)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>"}
  *
  * Go source:
  * func (c *Checker) resolveErrorCall(node *ast.Node) *Signature {
@@ -1444,9 +1466,9 @@ export function Checker_reportCannotInvokePossiblyNullOrUndefinedError(receiver,
  * 	return c.unknownSignature
  * }
  */
-export function Checker_resolveErrorCall(receiver, node) {
+export function Checker_resolveErrorCall(receiver, node, constructionOwner) {
     const c = receiver;
-    Checker_resolveUntypedCall(receiver, node);
+    Checker_resolveUntypedCall(receiver, node, constructionOwner);
     return c.unknownSignature;
 }
 /**
@@ -1892,6 +1914,7 @@ export function Checker_produceDeferredDiagnostics(receiver) {
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.addErrorOrSuggestion","kind":"method","status":"implemented","sigHash":"3a4023d03174daef90494da78c235989d9c89eb87726ac6c3715a9f78a03fa5f","bodyHash":"51824774258eba7a3a28e813e5f4b33fc3b86049b9d680d9e4629b7cd004e1d7"}
+ * @tsgo-override {"category":"extension-host","allow":["signature"],"reason":"Transport only the same actually emitted original error Diagnostic through the existing native helper; a suggestion, suppressed error or absent producer returns no cause.","goSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/scalars.ts::bool,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/diagnostic.ts::Diagnostic>)=>void","tsSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/scalars.ts::bool,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/diagnostic.ts::Diagnostic>)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/diagnostic.ts::Diagnostic>"}
  *
  * Go source:
  * func (c *Checker) addErrorOrSuggestion(isError bool, diagnostic *ast.Diagnostic) {
@@ -1906,13 +1929,14 @@ export function Checker_produceDeferredDiagnostics(receiver) {
  */
 export function Checker_addErrorOrSuggestion(receiver, isError, diagnostic) {
     if (isError) {
-        Checker_addDiagnostic(receiver, diagnostic);
+        return Checker_addDiagnostic(receiver, diagnostic);
     }
     else {
         const suggestion = Diagnostic_Clone(diagnostic);
         Diagnostic_SetCategory(suggestion, CategorySuggestion);
         Checker_addSuggestionDiagnostic(receiver, suggestion);
     }
+    return undefined;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.IsDeprecatedDeclaration","kind":"method","status":"implemented","sigHash":"94562f9123e66d313b2ba9a744ea610a748e3134a7922768e3c19b59884b52b2","bodyHash":"8b50399655ffcbf8af2cb56769d1e4b0f6bd78f6201cd915dc26516045d81c4b"}

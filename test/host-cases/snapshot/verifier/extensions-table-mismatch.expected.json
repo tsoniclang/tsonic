@@ -1,0 +1,5 @@
+{
+  "kind": "accepted",
+  "value": [{ "rule": "extension-table-equality", "site": { "kind": "snapshot" }, "detail": [{ "kind": "text", "value": "extensions" }] }],
+  "diagnostics": []
+}

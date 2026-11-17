@@ -1,12 +1,16 @@
 export type ExtensionDiagnosticCategory = "error" | "warning" | "suggestion";
 export type ExtensionFactSubject = object;
 import type { Context } from "../go/context.js";
+import type { Symbol } from "../internal/ast/symbol.js";
 import { type SourceProgramQueries } from "./source-program.js";
 import type { ArgumentPassingMode } from "./argument-passing.js";
+import { type ProviderWellKnownSymbolName } from "./provider-well-known-symbols.js";
+export type { ProviderWellKnownSymbolName } from "./provider-well-known-symbols.js";
 import type { ProviderVirtualDeclarationFact, SourcePrimitiveKind } from "./facts.js";
 import { type ExtensionFactKey } from "./fact-key.js";
 export { defineExtensionFactKey, type ExtensionFactKey, type ExtensionFactKeyOptions, } from "./fact-key.js";
 import { providerVirtualCompilerArtifactLookup, providerVirtualCompilerMetadataLookup, providerVirtualStructuredTypeDemand, type ProviderVirtualCompilerArtifact, type ProviderVirtualCompilerMetadata } from "./provider-virtual-internal.js";
+import { type ProviderSourcePrimitiveAnnotation } from "./provider-source-primitives.js";
 import { type ProviderMaterializationRound } from "./provider-materialization.js";
 export interface ExtensionEvidence {
     readonly message: string;
@@ -106,6 +110,14 @@ declare const extensionFactResolverSavepointIdentity: unique symbol;
 declare const providerRegistrationSavepointIdentity: unique symbol;
 interface ExtensionOwnerAuthority {
     readonly stack: string[];
+    /**
+     * Provenance of one provider registration call; it grants nothing and is not "who is acting" (that is `stack`).
+     * One writer: ExtensionHost's #registerSourceDeclarationProviderForExtension sets it to the extension id it has
+     * just checked, for the one registry call it makes, and restores what was there. One reader: the provider
+     * registry's registration takes it and clears it as its first act, before it reads anything of the provider.
+     * Null at every other time.
+     */
+    pendingRegistrarExtensionId: string | null;
 }
 interface ExtensionFactMutation {
     readonly subject: ExtensionFactSubject;
@@ -166,6 +178,7 @@ export interface CompilerExtension {
     readonly identity: CompilerExtensionIdentity;
     readonly dependencies?: ExtensionDependencySpec;
     readonly initialize?: (context: ExtensionInitializeContext) => void;
+    readonly providerExportMaterialized?: (context: ProviderExportMaterializationContext) => void;
     readonly analyzeSource?: (context: SourceAnalysisContext) => void;
 }
 export interface ExtensionDiagnosticWriter {
@@ -188,6 +201,12 @@ export interface SourceAnalysisContext {
     readonly facts: SourceAnalysisFactAccess;
     readonly factResolver: SourceAnalysisFactResolver;
     readonly diagnostics: ExtensionDiagnosticWriter;
+}
+export interface ProviderExportMaterializationContext {
+    readonly symbol: Symbol;
+    readonly declaration: ProviderVirtualDeclarationFact;
+    readonly sourcePrimitives: readonly ProviderSourcePrimitiveAnnotation[];
+    readonly facts: Pick<SourceAnalysisFactAccess, "set">;
 }
 export interface ExtensionInitializeContext {
     readonly diagnostics: ExtensionDiagnosticWriter;
@@ -301,7 +320,6 @@ export type ProviderPropertyName = string | {
     readonly kind: "well-known-symbol";
     readonly name: ProviderWellKnownSymbolName;
 };
-export type ProviderWellKnownSymbolName = "asyncIterator" | "hasInstance" | "isConcatSpreadable" | "iterator" | "match" | "matchAll" | "replace" | "search" | "species" | "split" | "toPrimitive" | "toStringTag" | "unscopables";
 export interface ProviderTypeParameterDeclaration {
     readonly name: string;
     readonly constraints?: readonly ProviderTypeExpression[];
@@ -381,6 +399,7 @@ export interface ProviderParameterDeclaration {
 export interface ProviderSignatureDeclaration {
     readonly id: string;
     readonly name?: string;
+    readonly accessibility?: "public" | "protected" | "protected-internal";
     readonly parameters: readonly ProviderParameterDeclaration[];
     readonly returnType?: ProviderTypeExpression;
     readonly typeParameters?: readonly ProviderTypeParameterDeclaration[];
@@ -457,6 +476,11 @@ export interface ProviderVirtualDeclarationDocument {
     readonly moduleSpecifier: string;
     readonly providerModuleId: string;
     readonly provider: ProviderIdentity;
+    /**
+     * The id of the extension whose initializer registered `provider`; null when the embedding host registered it
+     * directly. An extension id may be the empty string: compare with null, never by truthiness.
+     */
+    readonly registrarExtensionId: string | null;
     readonly declarationModel: ProviderDeclarationModel;
     readonly sourceText: string;
     readonly readOnly: true;
@@ -487,6 +511,7 @@ export interface ExtendedProgram<TProgram extends object = object> {
 }
 export declare const extensionHostSetFact: unique symbol;
 export declare const extensionHostRunSourceAnalysis: unique symbol;
+export declare const extensionHostProviderExportMaterialized: unique symbol;
 export interface AttachExtensionHostToProgramOptions {
     readonly bindCompilerProgram?: boolean;
 }
@@ -598,6 +623,12 @@ export declare class ExtensionFactResolver {
 export declare class ProviderRegistry {
     #private;
     constructor(diagnostics: ExtensionDiagnosticStore, requiredProviderModules?: readonly RequiredProviderModuleSpec[], materializationRound?: ProviderMaterializationRound);
+    /**
+     * The one registration. Who asked is taken first: the id the host left pending for this call (an extension's
+     * checked initializer capability), or null when the embedding host calls directly. It is cleared as it is taken,
+     * so nothing this call runs, a getter of the provider included, and no call nested in it can see it. A provider
+     * object that is registered stays as it was registered: the call returns before any record is made.
+     */
     registerSourceDeclarationProvider(provider: SourceDeclarationProvider): boolean;
     get hasSourceDeclarationProviders(): boolean;
     requiresProviderForModule(specifier: string): RequiredProviderModuleSpec | undefined;
@@ -622,6 +653,7 @@ export declare class ExtensionHost {
     readonly factResolver: ExtensionFactResolver;
     readonly providers: ProviderRegistry;
     [extensionHostSetFact]<T>(subject: ExtensionFactSubject, key: ExtensionFactKey<T>, value: T, evidence?: readonly ExtensionEvidence[]): ExtensionFactWriteResult;
+    [extensionHostProviderExportMaterialized](symbol: Symbol, sourcePrimitives: readonly ProviderSourcePrimitiveAnnotation[]): void;
     constructor(program: object, options?: ExtensionHostOptions);
     get extensions(): readonly CompilerExtension[];
     get program(): object;

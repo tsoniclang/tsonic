@@ -1,0 +1,1 @@
+{"name":"module-inventory-missing-instance","level":"verifier","rule":"Program chunk inventory agrees with the same genuine unchanged child module and producer answers","input":"test/host-cases/ir-program/verifier/module-inventory-missing-instance.input.json","expected":"test/host-cases/ir-program/verifier/module-inventory-missing-instance.expected.json"}

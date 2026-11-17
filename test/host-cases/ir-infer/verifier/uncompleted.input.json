@@ -1,0 +1,14 @@
+{
+  "group": {
+    "id": "G[B[D[M[P[project];source.ts];run];function;0]]",
+    "bodies": ["B[D[M[P[project];source.ts];run];function;0]"],
+    "signatures": []
+  },
+  "constraints": [{
+    "group": "G[B[D[M[P[project];source.ts];run];function;0]]",
+    "body": "B[D[M[P[project];source.ts];run];function;0]",
+    "variables": [], "candidates": [], "evidence": [], "constraints": []
+  }],
+  "contributions": [],
+  "solution": null
+}

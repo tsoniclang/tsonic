@@ -77,7 +77,7 @@ cd hello-rust
 npm start
 ```
 
-The starter exports the Rust binary entry:
+The starter explicitly starts its entry function:
 
 ```ts
 export function main(): void {
@@ -86,6 +86,8 @@ export function main(): void {
     throw new Error("unexpected answer");
   }
 }
+
+main();
 ```
 
 `npm start` runs Tsonic and then Cargo. Generated Rust and `Cargo.toml` are
@@ -123,6 +125,8 @@ and built-ins are then available:
 export function main(): void {
   console.log([1, 2, 3].map((value) => value * 2).join(","));
 }
+
+main();
 ```
 
 The JS surface is explicit. Selecting a target does not enable it implicitly.

@@ -1,0 +1,1 @@
+{"name":"malformed-groups","level":"function","rule":"Group text contains exactly one canonical qualified body minimum","input":"test/host-cases/ids/function/malformed-groups.input.json","expected":"test/host-cases/ids/function/malformed-groups.expected.json"}
