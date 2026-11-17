@@ -45,7 +45,7 @@ test("one iterative type/member assembly preserves twenty thousand nested ready 
       read.add(node);
       const type = types.get(node);
       assert.equal(type !== undefined, true);
-      return { kind: "complete", value: type };
+      return { kind: "complete", value: { kind: "available", value: type } };
     }, memory: () => ({ kind: "available", value: null }),
     resolution: () => assert.fail("no type name is selected in this constructed ready graph"),
     signature: () => assert.fail("no callable is selected in this constructed ready graph"),

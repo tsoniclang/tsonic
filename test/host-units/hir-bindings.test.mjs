@@ -166,8 +166,9 @@ test("real B1 capture retains local aliases as binding occurrences without fabri
   assert.equal(captured.kind, "ok");
   const definitions = fixture.front.lowerModuleDefinitions({ module: captured.value, componentRoots: captured.value.types.components.map(component => component.root).filter(root => root.module === captured.value.module) });
   assert.equal(definitions.kind, "ok");
-  assert.equal(definitions.value.sourceOccurrences.length, 2);
-  const bindingNodes = new Set(definitions.value.sourceOccurrences.map(row => row.node));
+  const exports = definitions.value.sourceOccurrences.filter(row => row.kind === "ExportSpecifier");
+  assert.equal(exports.length, 2);
+  const bindingNodes = new Set(exports.map(row => row.node));
   assert.equal(definitions.value.rows.some(row => bindingNodes.has(row.node)), false);
   const deps = fixture.lowerDepsFor(definitions.value, fixture.types.createTypeInterner(), source);
   const lowered = fixture.front.lowerModuleExports(deps, captured.value);

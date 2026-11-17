@@ -4,6 +4,8 @@ import type { Context } from "../go/context.js";
 import type { Node, SourceFile } from "../internal/ast/ast.js";
 import type { Symbol } from "../internal/ast/symbol.js";
 import type { Diagnostic } from "../internal/ast/diagnostic.js";
+import type { ResolvedSourceTypeInfo } from "../internal/checker/checker/source-type-answers.js";
+export type { ResolvedSourceTypeInfo } from "../internal/checker/checker/source-type-answers.js";
 import type { TypeIndexInfo } from "./type-shape.js";
 import type { Program } from "../internal/compiler/program.js";
 import type { ResolvedSourceElementAccessInfo as CheckerResolvedSourceElementAccessInfo, ResolvedSourcePropertyAccessInfo as CheckerResolvedSourcePropertyAccessInfo } from "../internal/checker/checker/symbols.js";
@@ -112,7 +114,7 @@ export type ResolvedAliasStep = ResolvedAliasTarget | {
 export interface ResolvedSourceStorageInfo {
     readonly expression: Node;
     readonly storageExpression: Node;
-    readonly type: Type;
+    readonly type: ResolvedSourceTypeInfo;
     readonly symbol?: Symbol;
     readonly declaration?: Node;
     readonly writable: boolean;
@@ -122,9 +124,9 @@ export interface TypeCheckerQueries {
     readonly getGlobalValueSymbol: (name: string) => GoPtr<Symbol>;
     readonly isDefaultLibraryDeclaration: (node: GoPtr<Node>) => boolean;
     readonly getAwaitedType: (type: GoPtr<Type>) => GoPtr<Type>;
-    readonly getTypeAtLocation: (node: GoPtr<Node>) => GoPtr<Type>;
-    readonly getTypeFromTypeNode: (node: GoPtr<Node>) => GoPtr<Type>;
-    readonly getContextualType: (node: GoPtr<Node>, contextFlags?: ContextFlags) => GoPtr<Type>;
+    readonly getTypeAtLocation: (node: GoPtr<Node>) => GoPtr<ResolvedSourceTypeInfo>;
+    readonly getTypeFromTypeNode: (node: GoPtr<Node>) => GoPtr<ResolvedSourceTypeInfo>;
+    readonly getContextualType: (node: GoPtr<Node>, contextFlags?: ContextFlags) => GoPtr<ResolvedSourceTypeInfo>;
     readonly getEffectivePropertyName: (node: GoPtr<Node>) => GoPtr<ResolvedSourcePropertyNameInfo>;
     readonly getSymbolAtLocation: (node: GoPtr<Node>) => GoPtr<Symbol>;
     readonly getLexicallyResolvedSymbol: (identifier: GoPtr<Node>) => GoPtr<Symbol>;

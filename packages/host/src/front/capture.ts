@@ -1,4 +1,4 @@
-import type { ArgumentPassingFact, Diagnostic as CheckerDiagnostic, Node, ResolvedAliasTarget, Signature, SourceFile, Symbol as CheckerSymbol, Type, TypeCheckerQueries, TypeShapeQueries } from "@tsonic/tsts";
+import type { ArgumentPassingFact, Diagnostic as CheckerDiagnostic, Node, ResolvedAliasTarget, ResolvedSourceTypeInfo, Signature, SourceFile, Symbol as CheckerSymbol, Type, TypeCheckerQueries, TypeShapeQueries } from "@tsonic/tsts";
 import { argumentPassingFactKey, getDiagnosticRunMembers, providerVirtualDeclarationFactKey, TypeFlagsUniqueESSymbol } from "@tsonic/tsts";
 import type { CheckerDiagnosticRef, Diagnostic, InvariantFailure, Result } from "../diag/contract.js";
 import { resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
@@ -63,7 +63,7 @@ interface CaptureTables {
 }
 
 type CaptureTask =
-  | { readonly kind: "type"; readonly id: RawTypeId; readonly type: Type; readonly position: RawComponentId; readonly authoredTypeNode: RawNodeRef | null }
+  | { readonly kind: "type"; readonly id: RawTypeId; readonly answer: ResolvedSourceTypeInfo; readonly position: RawComponentId; readonly authoredTypeNode: RawNodeRef | null }
   | { readonly kind: "leave-type"; readonly type: Type }
   | { readonly kind: "signature"; readonly id: RawSignatureId; readonly signature: Signature; readonly owner: RawNodeRef; readonly signatureKind: "call" | "construct" }
   | { readonly kind: "signature-parameter"; readonly draft: SignatureDraft; readonly index: number };
@@ -319,7 +319,7 @@ function capturedMembers(scope: CaptureScope, properties: ReturnType<TypeShapeQu
       throw new TypeError("front: a member requires its actual declared or synthetic origin association");
     const readType = (type: Type, access: "read" | "write", declaration: RawNodeRef): RawTypeId | null => {
       for (let part = 0; part < parent.path.length; part += 1) if (!admit(scope, "edges")) return null;
-      return rawType(scope, () => type, component(scope, parent.root,
+      return rawType(scope, () => withoutTypeCause(type), component(scope, parent.root,
         [...parent.path, { kind: "member", declaration, access }]), null);
     };
     const read = readType(property.type, "read", origin);
@@ -408,7 +408,7 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId): Ra
       for (let part = 0; part < parent.path.length; part += 1) if (!admit(scope, "edges")) return null;
       const path: readonly RawComponentStep[] = [...parent.path,
         { kind: kind === "union" ? "union-member" : "intersection-member", index }];
-      const captured = rawType(scope, () => member, component(scope, parent.root, path), null);
+      const captured = rawType(scope, () => withoutTypeCause(member), component(scope, parent.root, path), null);
       if (captured === null) return null;
       members.push(captured);
     }
@@ -440,7 +440,7 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId): Ra
         const parameter = parameters[index];
         if (info === undefined || parameter === undefined) return throwInvariant(invariant("An interface's checked arguments must match its actual ordered parameters."));
         for (let part = 0; part < parent.path.length; part += 1) if (!admit(scope, "edges")) return null;
-        const argument = rawType(scope, () => info.argument,
+        const argument = rawType(scope, () => withoutTypeCause(info.argument),
           component(scope, parent.root, [...parent.path, { kind: "argument-place", index }]), null);
         if (argument === null) return null;
         arguments_.push({ parameter, declaration: null, argument: available(argument), explicitTypeNode: null, defaultTypeNode: null, scope: info.scope });
@@ -491,12 +491,12 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId): Ra
       if (origin === null) return throwInvariant(invariant("A selected index origin must belong to the actual captured source domain."));
       for (let part = 0; part < parent.path.length; part += 1) if (!admit(scope, "edges")) return null;
       const key = rawTypeId(scope.tables.nextType);
-      const capturedKey = rawType(scope, () => selected.keyType,
+      const capturedKey = rawType(scope, () => withoutTypeCause(selected.keyType),
         component(scope, parent.root, [...parent.path, { kind: "index-key", origin, key }]), null);
       if (capturedKey === null) return null;
       if (capturedKey !== key) return throwInvariant(invariant("An index selector must retain its actual captured row key."));
       for (let part = 0; part < parent.path.length; part += 1) if (!admit(scope, "edges")) return null;
-      const value = rawType(scope, () => selected.valueType,
+      const value = rawType(scope, () => withoutTypeCause(selected.valueType),
         component(scope, parent.root, [...parent.path, { kind: "index-value", origin, key }]), null);
       if (value === null) return null;
       indexes.push({ origin, key, value, readonly: selected.readonly });
@@ -521,7 +521,7 @@ function capturedMemberUse(scope: CaptureScope, node: Node, occurrence: RawNodeR
   if (scope.meter.refusal !== null) return null;
   if (receiver === null) return throwInvariant(invariant("A selected member receiver requires its actual source occurrence."));
   const receiverComponent = component(scope, receiver, []);
-  const receiverType = rawType(scope, () => info.receiver.type, receiverComponent, null);
+  const receiverType = rawType(scope, () => withoutTypeCause(info.receiver.type), receiverComponent, null);
   if (receiverType === null || receiverComponent === null) return null;
   captureFacts(scope);
   if (scope.meter.refusal !== null) return null;
@@ -560,10 +560,10 @@ function capturedMemberUse(scope: CaptureScope, node: Node, occurrence: RawNodeR
   if (scope.meter.refusal !== null) return null;
   const read = info.sourceReadType === undefined ? null : component(scope, occurrence, []);
   if (scope.meter.refusal !== null) return null;
-  if (info.sourceReadType !== undefined && rawType(scope, () => info.sourceReadType, read, null) === null) return null;
+  if (info.sourceReadType !== undefined && rawType(scope, () => withoutTypeCause(info.sourceReadType), read, null) === null) return null;
   const write = info.sourceWriteType === undefined ? null : component(scope, occurrence, []);
   if (scope.meter.refusal !== null) return null;
-  if (info.sourceWriteType !== undefined && rawType(scope, () => info.sourceWriteType, write, null) === null) return null;
+  if (info.sourceWriteType !== undefined && rawType(scope, () => withoutTypeCause(info.sourceWriteType), write, null) === null) return null;
   if (!admit(scope, "facts") || !admit(scope, "edges")) return null;
   const member = inventory.members[memberIndex];
   if (member === undefined) return throwInvariant(invariant("The selected member row must remain in its actual inventory."));
@@ -621,12 +621,16 @@ function providerDeclaration(scope: CaptureScope, node: Node, reference: RawNode
 }
 
 /** The type at one position (component); each position has its own row, so a row's component is where it was read. */
-function rawType(scope: CaptureScope, read: () => Type | undefined, position: RawComponentId | null, authoredTypeNode: RawNodeRef | null): RawTypeId | null {
+function withoutTypeCause(type: Type | undefined): ResolvedSourceTypeInfo | undefined {
+  return type === undefined ? undefined : { type, cause: undefined };
+}
+
+function rawType(scope: CaptureScope, read: () => ResolvedSourceTypeInfo | undefined, position: RawComponentId | null, authoredTypeNode: RawNodeRef | null): RawTypeId | null {
   if (position === null || !admit(scope, "facts")) return null;
-  const type = read();
-  if (type === undefined) return throwInvariant(invariant("The checker returned no type at a position that has one."));
+  const answer = read();
+  if (answer === undefined) return throwInvariant(invariant("The checker returned no type at a position that has one."));
   const id = rawTypeId(scope.tables.nextType++);
-  scope.tables.pending.push({ kind: "type", id, type, position, authoredTypeNode });
+  scope.tables.pending.push({ kind: "type", id, answer, position, authoredTypeNode });
   return id;
 }
 
@@ -639,17 +643,22 @@ function captureFacts(scope: CaptureScope): void {
     } else if (next.kind === "signature") captureSignature(scope, next.id, next.signature, next.owner, next.signatureKind);
     else if (next.kind === "signature-parameter") captureSignatureParameter(scope, next.draft, next.index);
     else {
-      const ancestor = scope.tables.activeTypes.get(next.type);
+      const { type, cause } = next.answer;
+      const ancestor = cause === undefined ? scope.tables.activeTypes.get(type) : undefined;
       let form: RawFact<RawTypeForm>;
       let literal: RawLiteral | null = null;
-      if (scope.shape.isError(next.type)) form = { kind: "unavailable", reason: "missing-original-component", causes: [] };
+      if (cause !== undefined) {
+        const failed = originalFailure(scope, cause);
+        if (failed === null) return;
+        form = failed;
+      } else if (scope.shape.isError(type)) form = { kind: "unavailable", reason: "missing-original-component", causes: [] };
       else {
-        const boolean = scope.shape.getBooleanLiteralTypeValue(next.type);
-        const string = scope.shape.getStringLiteralTypeValue(next.type);
+        const boolean = scope.shape.getBooleanLiteralTypeValue(type);
+        const string = scope.shape.getStringLiteralTypeValue(type);
         if (boolean !== undefined) literal = { kind: "boolean", value: boolean };
         else if (string !== undefined) literal = { kind: "string", value: string };
-        else if ((next.type.flags & TypeFlagsUniqueESSymbol) !== 0) {
-          const symbol = scope.checker.getTypeSymbol(next.type);
+        else if ((type.flags & TypeFlagsUniqueESSymbol) !== 0) {
+          const symbol = scope.checker.getTypeSymbol(type);
           const declarations = symbol === undefined ? [] : scope.checker.getSymbolDeclarations(symbol);
           if (!admit(scope, "edges")) return;
           const declaration = declarations[0];
@@ -660,12 +669,12 @@ function captureFacts(scope: CaptureScope): void {
           if (source === null) return throwInvariant(invariant("A unique symbol's declaration must belong to the admitted source domain."));
           literal = { kind: "symbol", declaration: source };
         }
-        const base = literal === null ? next.type : scope.shape.getBaseTypeOfLiteralType(next.type);
+        const base = literal === null ? type : scope.shape.getBaseTypeOfLiteralType(type);
         if (base === undefined) return throwInvariant(invariant("A captured literal type requires its actual SDK base type."));
         let captured: RawTypeForm | null;
         if (ancestor === undefined) {
-          scope.tables.activeTypes.set(next.type, next.id);
-          scope.tables.pending.push({ kind: "leave-type", type: next.type });
+          scope.tables.activeTypes.set(type, next.id);
+          scope.tables.pending.push({ kind: "leave-type", type: type });
           captured = typeForm(scope, base, next.position);
         } else {
           const original = scope.tables.types[ancestor];
@@ -702,15 +711,37 @@ function bindingTarget(scope: CaptureScope, symbol: CheckerSymbol | undefined): 
   if (symbol === undefined) return { kind: "unavailable", reason: "incomplete-association", causes: [] };
   const step = scope.checker.getAliasStep(symbol);
   if (step === undefined) return { kind: "unavailable", reason: "incomplete-association", causes: [] };
-  if (step.kind === "unresolved") return aliasFailure(scope, step.cause);
+  if (step.kind === "unresolved") return originalFailure(scope, step.cause);
   const targetSymbol = step.kind === "symbol" ? step.symbol : step.exportAssignment;
   return symbolTarget(scope, targetSymbol, step.kind === "exported-value-member" ? step.member : null);
 }
 
-function aliasFailure(scope: CaptureScope, diagnostic: CheckerDiagnostic): Extract<RawFact<never>, { readonly kind: "unavailable" }> | null {
+function originalFailure(scope: CaptureScope, diagnostic: CheckerDiagnostic): Extract<RawFact<never>, { readonly kind: "unavailable" }> | null {
   if (!admit(scope, "facts")) return null;
-  const root = scope.diagnosticRoots.get(diagnostic);
-  if (root === undefined) return throwInvariant(invariant("An actual alias failure must retain membership in its original published checker diagnostic run."));
+  let root = scope.diagnosticRoots.get(diagnostic);
+  if (root === undefined && diagnostic.file !== undefined && diagnostic.file !== scope.file) {
+    const module = OpenedProgram.moduleAt(scope.program, scope.checked.ast.getFileName(diagnostic.file));
+    const input = module === undefined ? undefined : OpenedProgram.file(scope.program, module);
+    if (input?.file !== diagnostic.file || module === undefined)
+      return throwInvariant(invariant("A checker cause must name its actual opened source file."));
+    let index = 0;
+    for (let position = 0; position < scope.checked.diagnostics.length; position += 1) {
+      if (!admit(scope, "facts")) return null;
+      const candidate = scope.checked.diagnostics[position];
+      if (candidate === undefined) return throwInvariant(invariant("The checker returned an absent published diagnostic."));
+      if (candidate.file !== diagnostic.file) continue;
+      const members = getDiagnosticRunMembers(candidate);
+      for (let memberIndex = 0; memberIndex < members.length; memberIndex += 1) {
+        if (!admit(scope, "facts")) return null;
+        const member = members[memberIndex];
+        if (member === undefined) return throwInvariant(invariant("A published checker diagnostic run cannot contain an absent original member."));
+        scope.diagnosticRoots.set(member, { module, index });
+      }
+      index += 1;
+    }
+    root = scope.diagnosticRoots.get(diagnostic);
+  }
+  if (root === undefined) return throwInvariant(invariant("An actual checker failure must retain membership in its original published checker diagnostic run."));
   return { kind: "unavailable", reason: "checker-error", causes: [{ kind: "diagnostic", diagnostic: { kind: "checker", diagnostic: root } }] };
 }
 
@@ -738,7 +769,7 @@ function symbolTarget(scope: CaptureScope, targetSymbol: CheckerSymbol, memberTa
   const first = declarations[0];
   if (first === undefined) return { kind: "unavailable", reason: "incomplete-association", causes: [] };
   if (memberTarget !== null) {
-    const failed = memberTarget?.kind === "unresolved" ? aliasFailure(scope, memberTarget.cause) : null;
+    const failed = memberTarget?.kind === "unresolved" ? originalFailure(scope, memberTarget.cause) : null;
     const member = memberTarget?.kind === "symbol" ? rawSymbol(scope, memberTarget.symbol) : null;
     if (scope.meter.refusal !== null) return null;
     return available({ kind: "member", through: [first, ...declarations.slice(1)],
@@ -787,7 +818,7 @@ function captureSignatureParameter(scope: CaptureScope, draft: SignatureDraft, i
     const parameterSymbol = rawSymbol(scope, symbol);
     if (parameterSymbol === null) return;
     scope.tables.pending.push({ kind: "signature-parameter", draft, index: index + 1 });
-    const type = rawType(scope, () => parameter.type, position, null);
+    const type = rawType(scope, () => withoutTypeCause(parameter.type), position, null);
     if (type === null) return;
     const parameterSyntax = parameterNode === undefined || scope.checked.ast.kindName(parameterNode) !== "KindParameter"
       ? undefined : scope.checked.ast.as.AsParameterDeclaration(parameterNode);
@@ -823,7 +854,7 @@ function captureSignatureTail(scope: CaptureScope, draft: SignatureDraft): void 
     if (position === null) return;
     const receiverSymbol = rawSymbol(scope, thisSymbol);
     if (receiverSymbol === null) return;
-    const type = rawType(scope, () => scope.checker.getTypeOfSymbol(thisSymbol), position, null);
+    const type = rawType(scope, () => withoutTypeCause(scope.checker.getTypeOfSymbol(thisSymbol)), position, null);
     if (type === null) return;
     receiver = { declaration: receiverReference, symbol: receiverSymbol, kind: "required", component: position, type, acceptsOmission: false, initializer: null,
       passing: notProvided() };
@@ -836,7 +867,7 @@ function captureSignatureTail(scope: CaptureScope, draft: SignatureDraft): void 
     if (reference === null) return throwInvariant(invariant("A type parameter of a captured signature's declaration has no node identity."));
     typeParameters.push(reference);
   }
-  const result = rawType(scope, () => scope.checker.getReturnTypeOfSignature(signature), component(scope, owner, [{ kind: "result", signature: id }]), null);
+  const result = rawType(scope, () => withoutTypeCause(scope.checker.getReturnTypeOfSignature(signature)), component(scope, owner, [{ kind: "result", signature: id }]), null);
   if (result === null) return;
   scope.tables.signatures[id] = {
     id, target: null, owner, declaration, kind, typeParameters: available(typeParameters), receiver: available(receiver), parameters,
@@ -906,7 +937,7 @@ function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef): R
     if (destination === null) return null;
     if (argument.selectedArgumentType === undefined || argument.selectedParameterType === undefined)
       throw new TypeError("front: incomplete selected call argument types capture is not implemented");
-    if (rawType(scope, () => argument.selectedArgumentType, source, null) === null || rawType(scope, () => argument.selectedParameterType, destination, null) === null) return null;
+    if (rawType(scope, () => withoutTypeCause(argument.selectedArgumentType), source, null) === null || rawType(scope, () => withoutTypeCause(argument.selectedParameterType), destination, null) === null) return null;
     bindings.push({ sourceArgument, sourceArgumentIndex: argument.sourceArgumentIndex, effectiveArgument,
       effectiveArgumentIndex: argument.effectiveArgumentIndex, sourceForm: argument.sourceForm, spreadElementIndex: argument.spreadElementIndex ?? null,
       parameterIndex: argument.parameterIndex, parameterForm: argument.parameterForm, source: available(source), destination: available(destination) });
@@ -920,7 +951,7 @@ function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef): R
       declarationOrder.push(id);
     }
   }
-  const result = rawType(scope, () => info.resultType, component(scope, invocation, []), null);
+  const result = rawType(scope, () => withoutTypeCause(info.resultType), component(scope, invocation, []), null);
   if (result === null || !admit(scope, "facts")) return null;
   const candidates = rawCandidateListId(scope.tables.candidates.length);
   if (!admit(scope, "facts") || !admit(scope, "facts")) return null;

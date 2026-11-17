@@ -322,7 +322,7 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
     ...["index.ts", "invariant.ts", "order.ts"].map(name => `${host}/diag/${name}`),
     ...["index.ts", "identity.ts", "key.ts"].map(name => `${host}/ids/${name}`),
     ...["index.ts", "arena.ts", "data.ts", "publication-fields.ts", "publication-read.ts", "work.ts", "value.ts", "interner.ts", "canonical.ts", "copy.ts", "text-readers.ts", "text-values.ts", "text-components.ts", "text-records.ts", "normalize.ts",
-      "substitute.ts", "print.ts", "parse.ts", "verify.ts", "verify-bindings.ts", "selector-path.ts", "native-facts.ts", "native-facts-data.ts", "native-carrier.ts", "literal-compatibility.ts"].map(name => `${host}/ir-types/${name}`),
+      "substitute.ts", "graph-stage.ts", "intern-graph.ts", "print.ts", "parse.ts", "verify.ts", "verify-bindings.ts", "selector-path.ts", "native-facts.ts", "native-facts-data.ts", "native-carrier.ts", "literal-compatibility.ts"].map(name => `${host}/ir-types/${name}`),
     ...["index.ts", "pragmas.ts", "endpoints.ts", "children.ts", "walk.ts", "print.ts", "parse.ts", "verify.ts", "verify-syntax.ts",
       "binding-data.ts", "bindings.ts", "capture-data.ts", "verify-export-bindings.ts", "text-read-bindings.ts", "text-causes.ts",
       "verify-bindings.ts", "verify-captures.ts", "text-data.ts", "text-syntax.ts", "text-construction.ts", "text-read-model.ts",
@@ -356,27 +356,33 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
       "verify-index.ts", "verify-module.ts", "verify-structure.ts", "verification-work.ts", "verify-metadata-operands.ts", "work.ts", "work-data.ts"].map(name => `${host}/ir-program/${name}`),
     ...["account.ts", "components.ts", "dominators.ts", "graph.ts", "index.ts", "loops.ts", "ordering.ts", "solve.ts"].map(name => `${host}/dataflow/${name}`),
     ...["index.ts", "conditions.ts", "conditions-data.ts", "parse.ts", "print.ts", "dependency-data.ts", "execution-entry.ts", "verify-dependencies.ts", "verify-facts.ts", "verify-metadata.ts",
-      "verify-relations.ts", "verify-summary.ts", "summary-key.ts", "verify-observations.ts", "application-data.ts", "apply-initialization.ts",
+      "verify-relations.ts", "verify-summary.ts", "summary-key.ts", "escape-key.ts", "verify-observations.ts", "application-data.ts", "apply-initialization.ts",
       "apply-summary.ts", "apply-values.ts", "arena-data.ts", "binding-inputs.ts", "cells-data.ts", "initialization-data.ts", "mir-point.ts",
       "relations-data.ts", "summary-data.ts", "summary-equals.ts", "verification.ts", "verify-bindings.ts", "verify-body-nodes.ts", "verify-cells.ts",
       "verify-initialization.ts", "verify-liveness.ts", "verify-position.ts"].map(name => `${host}/ir-facts/${name}`),
     ...["index.ts", "roles.ts", "verify-catalogue.ts", "admit-guarantees.ts", "verify-summaries.ts",
       "verify-bound.ts"].map(name => `${host}/libraries/${name}`),
     ...["index.ts", "bind-declared.ts", "translate-native.ts", "unknown-declared.ts", "components.ts", "dependencies.ts", "converge.ts"].map(name => `${host}/summaries/${name}`),
-    ...["index.ts", "round.ts", "storage.ts", "source.ts", "proof.ts"].map(name => `${host}/analyses/body/${name}`),
+    ...["index.ts", "round.ts", "storage.ts", "source.ts", "proof.ts", "calls.ts", "captures.ts", "exits.ts",
+      "initialization.ts", "places.ts", "value-flow.ts", "values.ts", "writes.ts"].map(name => `${host}/analyses/body/${name}`),
     ...["index.ts", "model.ts", "storage-use.ts"].map(name => `${host}/analyses/liveness/${name}`),
     ...["index.ts", "verify-extensions.ts", "verify-packages.ts", "verify.ts"].map(name => `${host}/snapshot/${name}`),
     ...["index.ts"].map(name => `${host}/step/${name}`),
     ...["database.ts", "index.ts", "memo.ts"].map(name => `${host}/query/${name}`),
     ...["bindings.ts", "capture.ts", "checker.ts", "diagnostics.ts", "handles.ts", "identities.ts", "index.ts",
-      "lower.ts", "lower-exports.ts", "lower-imports.ts", "options.ts", "program-data.ts", "syntax-capture.ts", "syntax-support.ts"].map(name => `${host}/front/${name}`),
-    ...["definitions.ts", "index.ts", "placement.ts", "signatures.ts"].map(name => `${host}/decls/${name}`),
-    ...["embed.ts", "errors.ts", "frontier.ts", "index.ts", "operators.ts", "schemes.ts", "variables.ts"].map(name => `${host}/rules/${name}`),
-    ...["constraints.ts", "frontier.ts", "groups.ts", "index.ts", "own-signature.ts", "solve.ts"].map(name => `${host}/infer/${name}`),
-    ...["elaborate.ts", "index.ts", "module.ts"].map(name => `${host}/elaborate/${name}`),
-    ...["checked-inputs.ts", "driver.ts", "infer-deps-step.ts", "inference-step.ts", "lower-mir-step.ts", "semantic-queries.ts", "wiring.ts"].map(name => `${host}/pipeline/${name}`),
+      "lower.ts", "lower-exports.ts", "lower-imports.ts", "lower-members.ts", "checked-declarations.ts", "source-bodies.ts",
+      "type-conversion.ts", "options.ts", "program-data.ts", "syntax-capture.ts", "syntax-support.ts"].map(name => `${host}/front/${name}`),
+    ...["definitions.ts", "index.ts", "placement.ts", "signatures.ts", "cycles.ts"].map(name => `${host}/decls/${name}`),
+    ...["embed.ts", "errors.ts", "frontier.ts", "index.ts", "operators.ts", "schemes.ts", "variables.ts",
+      "candidates.ts", "captures.ts"].map(name => `${host}/rules/${name}`),
+    ...["constraints.ts", "frontier.ts", "groups.ts", "index.ts", "own-signature.ts", "solve.ts",
+      "candidates.ts", "captures.ts"].map(name => `${host}/infer/${name}`),
+    ...["elaborate.ts", "index.ts", "module.ts", "declarations.ts", "imports.ts"].map(name => `${host}/elaborate/${name}`),
+    ...["checked-inputs.ts", "driver.ts", "infer-deps-step.ts", "inference-step.ts", "lower-mir-step.ts", "semantic-queries.ts", "wiring.ts",
+      "analysis-barrier.ts", "index.ts", "publication.ts", "source-barrier.ts", "typed-barrier.ts"].map(name => `${host}/pipeline/${name}`),
+    ...["index.ts", "production.ts"].map(name => `${host}/validate/${name}`),
     ...["index.ts", "lower.ts", "state.ts", "model.ts", "operands.ts", "control.ts", "calls.ts", "bindings.ts"].map(name => `${host}/lower-mir/${name}`),
-    ...["budget.ts", "data.ts", "index.ts", "machine.ts", "pause.ts"].map(name => `${host}/evaluate/${name}`)].sort();
+    ...["budget.ts", "data.ts", "index.ts", "integer.ts", "machine.ts", "pause.ts"].map(name => `${host}/evaluate/${name}`)].sort();
   assert.equal(JSON.stringify(inventory), JSON.stringify(expectedInventory), "the complete actual current root equals the explicit reviewed inventory");
   const graph = deps.graph(files);
   for (const module of modules) await context.test(module.name, async () => {
@@ -482,8 +488,8 @@ test("A7 through A13 genuine emitted contracts accept current forms and reject e
       ["dataflow", "BackwardProblem, BlockState, DataflowAccount"], ["ir-program", "ProgramVerificationContext, SupportedProgramSchema, SignatureRecord, PublishedBody"],
       ["ir-types", "SeedTypeInterner, TypeTable, TypePublicationResult, SubstituteSignature, TypeInterner, BindingVector, TypeExpansionLimits"],
       ["ir-tir", "TypedBinding, TypedBindingElement, VerifyTir, VerifyTirModule, TirVerifierInput, TirModule, TirBody, TirSite"], ["libraries", "LibraryVerificationContext, NativeExportAssociation"],
-      ["ids", "LibraryExportIdentity, ModuleId, NodeId"],
-    ]) + '\nexport function current(verify: VerifyMir, body: MirBody, mir: MirVerificationContext, problem: BackwardProblem<number>, account: DataflowAccount, term: MirTerminator, states: readonly BlockState<number>[], program: ProgramVerificationContext, binding: TypedBinding, libraries: LibraryVerificationContext, identity: LibraryExportIdentity, seed: SeedTypeInterner, table: TypeTable, record: SignatureRecord) {\nconst element: TypedBindingElement = { ...binding, role: "binding" }; const hole: TypedBindingElement = { role: "hole" };\nconst schema: SupportedProgramSchema = 1; const projection: readonly NativeExportAssociation[] = libraries.associations;\nreturn { findings: verify(body, mir), before: problem.terminator(term, states, null, account), resources: program.resources, mirVerification: program.mirVerification, element, hole, schema, projection, identity, interner: seed(table), signature: program.signatureIdOf(record.definition, record.kind, record.ordinal, record.bindings) };\n}\n';
+      ["ids", "LibraryExportIdentity, ModuleId, NodeId, BlockId"],
+    ]) + '\nexport function current(verify: VerifyMir, body: MirBody, mir: MirVerificationContext, problem: BackwardProblem<number>, account: DataflowAccount, term: MirTerminator, states: readonly BlockState<number>[], program: ProgramVerificationContext, binding: TypedBinding, libraries: LibraryVerificationContext, identity: LibraryExportIdentity, seed: SeedTypeInterner, table: TypeTable, record: SignatureRecord, block: BlockId) {\nconst element: TypedBindingElement = { ...binding, role: "binding" }; const hole: TypedBindingElement = { role: "hole" };\nconst schema: SupportedProgramSchema = 1; const projection: readonly NativeExportAssociation[] = libraries.associations;\nreturn { findings: verify(body, mir), before: problem.terminator(term, states, null, account, block), resources: program.resources, mirVerification: program.mirVerification, element, hole, schema, projection, identity, interner: seed(table), signature: program.signatureIdOf(record.definition, record.kind, record.ordinal, record.bindings) };\n}\n';
     write("positive.mts", positive + '\nexport function currentPublication(result: TypePublicationResult) { return result.kind === "complete" ? [result.work, result.createdRecords] : null; }\nexport function currentTir(verifyBody: VerifyTir, verifyModule: VerifyTirModule, input: TirVerifierInput, body: TirBody, module: TirModule) { return { body: verifyBody(input, body), outside: verifyModule(input, module).map(violation => [violation.site.module, violation.site.node]) }; }\nexport function currentTirSite(module: ModuleId, node: NodeId): TirSite { return { kind: "node", module, node }; }\nexport function currentProgramSignature(substitute: SubstituteSignature, interner: TypeInterner, artifact: PublishedBody, bindings: BindingVector, limits: TypeExpansionLimits) { return substitute(interner, [artifact.tir.signature], bindings, limits); }\n');
     write("positive-hir-paths.mts", imports([["ir-hir", "HirVerificationContext, HirRule"], ["ids", "BodyId, DefId"]]) +
       '\nexport function current(context: HirVerificationContext, body: BodyId, definition: DefId) { const rule: HirRule = "identity-path-exact"; return { body: context.bodyPathOf(body), definition: context.definitionPathOf(definition), rule }; }\n');

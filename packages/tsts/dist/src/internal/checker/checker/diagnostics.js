@@ -972,7 +972,7 @@ export function Checker_getDiagnosticHeadMessageForDecoratorResolution(receiver,
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.reportCallResolutionErrors","kind":"method","status":"implemented","sigHash":"b53e1df31b2b460a4600844bf3e882cae56f028872e89dd7ef8a480d9ee5748a","bodyHash":"437b02d32034811e1876ce1d3b383c0ea77ceaac1f48bc703e360a90ff002840"}
- * @tsgo-override {"category":"extension-host","allow":["body","signature"],"reason":"Takes the original application evidence of the candidates as a sixth, optional parameter. When the candidate being reported has such evidence, its applicability check or type-argument check runs with that candidate pushed as the backing-constraint candidate, and the diagnostic chains and notes built for the last overload, and the diagnostic for the call node, are recorded in the checker's backing-constraint evidence state. The calls that build, chain, annotate and add each diagnostic are those of the TS-Go body, in the same order.","goSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::CallState>,packages/tsts/src/go/compat.ts::GoSlice<packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/diagnostics/diagnostics.ts::Message>)=>void","tsSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::CallState>,packages/tsts/src/go/compat.ts::GoSlice<packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/diagnostics/diagnostics.ts::Message>,?raw(readonly ResolvedCallApplicationEvidence[]))=>void"}
+ * @tsgo-override {"category":"extension-host","allow":["body","signature"],"reason":"Takes the original application evidence of the candidates as a sixth, optional parameter. When the candidate being reported has such evidence, its applicability check or type-argument check runs with that candidate pushed as the backing-constraint candidate, and the diagnostic chains and notes built for the last overload, and the diagnostic for the call node, are recorded in the checker's backing-constraint evidence state. The calls that build, chain, annotate and add each diagnostic are those of the TS-Go body, in the same order. R5-23 retains the explicit native result-construction publication owner without changing native checking or caching decisions.","goSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::CallState>,packages/tsts/src/go/compat.ts::GoSlice<packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/diagnostics/diagnostics.ts::Message>)=>void","tsSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::CallState>,packages/tsts/src/go/compat.ts::GoSlice<packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/diagnostics/diagnostics.ts::Message>,?raw(readonly ResolvedCallApplicationEvidence[]),?packages/tsts/src/internal/checker/checker/literal-creation.ts::LiteralConstructionOwner)=>void"}
  *
  * Go source:
  * func (c *Checker) reportCallResolutionErrors(node *ast.Node, s *CallState, signatures []*Signature, headMessage *diagnostics.Message) {
@@ -1011,13 +1011,13 @@ export function Checker_getDiagnosticHeadMessageForDecoratorResolution(receiver,
  * 	}
  * }
  */
-export function Checker_reportCallResolutionErrors(receiver, node, s, signatures, headMessage, applications) {
+export function Checker_reportCallResolutionErrors(receiver, node, s, signatures, headMessage, applications, constructionOwner) {
     const c = receiver;
     if (s.candidatesForArgumentError.length !== 0) {
         const last = s.candidatesForArgumentError[s.candidatesForArgumentError.length - 1];
         const diags = [];
         const application = applications?.findLast(candidate => candidate.instantiatedSignature === last);
-        const operation = () => Checker_isSignatureApplicable(receiver, s.node, s.args, last, c.assignableRelation, CheckModeNormal, true, diags);
+        const operation = () => Checker_isSignatureApplicable(receiver, s.node, s.args, last, c.assignableRelation, CheckModeNormal, true, diags, constructionOwner);
         if (application === undefined)
             operation();
         else
@@ -1458,6 +1458,7 @@ export function Checker_reportCannotInvokePossiblyNullOrUndefinedError(receiver,
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.resolveErrorCall","kind":"method","status":"implemented","sigHash":"dedaeb289deb864b8e3babca1046d72be978d2b689f931b473d5015f31f5ea9b","bodyHash":"19157ce534c80d3694cc276eb280e77f41312491fa3b874f891f87ea9b468805"}
+ * @tsgo-override {"category":"extension-host","allow":["signature"],"reason":"R5-23 retains the explicit native result-construction publication owner without changing native checking or caching decisions.","goSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>","tsSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,?packages/tsts/src/internal/checker/checker/literal-creation.ts::LiteralConstructionOwner)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Signature>"}
  *
  * Go source:
  * func (c *Checker) resolveErrorCall(node *ast.Node) *Signature {
@@ -1465,9 +1466,9 @@ export function Checker_reportCannotInvokePossiblyNullOrUndefinedError(receiver,
  * 	return c.unknownSignature
  * }
  */
-export function Checker_resolveErrorCall(receiver, node) {
+export function Checker_resolveErrorCall(receiver, node, constructionOwner) {
     const c = receiver;
-    Checker_resolveUntypedCall(receiver, node);
+    Checker_resolveUntypedCall(receiver, node, constructionOwner);
     return c.unknownSignature;
 }
 /**

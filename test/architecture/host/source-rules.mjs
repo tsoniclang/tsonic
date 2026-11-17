@@ -330,7 +330,7 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
     if (ast.is.IsMappedTypeNode(node)) return node;
     if (!argumentBearingType(node)) return undefined;
     const queries = checker(node);
-    const type = typeShape(node).getTypeFromTypeNode(node);
+    const type = typeShape(node).getTypeFromTypeNode(node)?.type;
     const name = ast.is.IsTypeReferenceNode(node) ? ast.as.AsTypeReferenceNode(node)?.TypeName : undefined;
     const candidates = [...queries.getSymbolDeclarations(queries.getTypeSymbol(type)),
       ...queries.getSymbolDeclarations(symbol(name)).map(candidate => ast.typeNode(candidate))];
@@ -391,8 +391,8 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
     const parameter = type => queries.getSymbolDeclarations(queries.getTypeSymbol(type))
       .some(declaration => declaration !== undefined && ast.is.IsTypeParameterDeclaration(declaration));
     const input = ast.is.IsMappedTypeNode(node) ? mappedKeySource(node) : undefined;
-    if (input !== undefined && parameter(shape.getTypeFromTypeNode(input)) ||
-      argumentBearingType(node) && ast.typeArguments(node).some(argument => argument !== undefined && parameter(shape.getTypeFromTypeNode(argument)))) return false;
+    if (input !== undefined && parameter(shape.getTypeFromTypeNode(input)?.type) ||
+      argumentBearingType(node) && ast.typeArguments(node).some(argument => argument !== undefined && parameter(shape.getTypeFromTypeNode(argument)?.type))) return false;
     const active = new Set();
     const completed = new Map();
     const visit = type => {
@@ -414,7 +414,7 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
       completed.set(type, mutable);
       return mutable;
     };
-    return visit(shape.getTypeFromTypeNode(node));
+    return visit(shape.getTypeFromTypeNode(node)?.type);
   };
   const readonlySequence = original => {
     let parent = ast.parent(original);
@@ -647,7 +647,7 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
         const constructed = nativeConstruction(expression) || declarations.some(declaration => ast.is.IsVariableDeclaration(declaration) &&
           nativeConstruction(ast.as.AsVariableDeclaration(declaration).Initializer));
         const queries = checker(expression);
-        const thrownType = queries.getTypeAtLocation(expression);
+        const thrownType = queries.getTypeAtLocation(expression)?.type;
         const errorType = queries.typeToString(thrownType);
         const nativeType = queries.getSymbolDeclarations(queries.getTypeSymbol(thrownType)).length === 0 &&
           queries.getSymbolDeclarations(queries.getTypeAliasSymbol(thrownType)).length === 0 &&
@@ -702,7 +702,7 @@ export function sourceFindings(source, files, catalogue, graph, quarantineRoots)
           const shape = typeShape(current);
           const literalUnion = type => shape.getStringLiteralTypeValue(type) !== undefined ||
             shape.isUnion(type) && shape.getUnionOrIntersectionTypes(type).every(literalUnion);
-          if (argument === undefined || !literalUnion(shape.getTypeFromTypeNode(argument))) add("contract-shape", file, current);
+          if (argument === undefined || !literalUnion(shape.getTypeFromTypeNode(argument)?.type)) add("contract-shape", file, current);
         }
       }
       if (isContract && (ast.is.IsMappedTypeNode(current) || ast.is.IsConditionalTypeNode(current) ||
@@ -780,7 +780,7 @@ function moduleLifetimeFindings(source, file) {
       const scalar = type => shape.isStringLike(type) || shape.isNumberLike(type) || shape.isBooleanLike(type) ||
         shape.isBigIntLike(type) || shape.isSymbolLike(type) || shape.isNullish(type) ||
         shape.isUnion(type) && shape.getUnionOrIntersectionTypes(type).every(scalar);
-      return scalar(shape.getTypeFromTypeNode(original));
+      return scalar(shape.getTypeFromTypeNode(original)?.type);
     }
     if (!ast.is.IsTypeReferenceNode(original)) return false;
     const queries = source.getSourceFileQueries(ast.getSourceFile(original)).checker;

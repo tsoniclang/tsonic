@@ -1,3 +1,4 @@
+import { typeParameterDeclaration } from "./fixtures/type-parameter-declarations.mjs";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -835,7 +836,7 @@ test("borrowed signature parameter holes report the complete unresolved referenc
     role: { kind: "temporary" }, mode: "local", source: null, origin: body.blocks[0].origin };
   const parameters = [0, 1].map(() => ({ declaration: owner, kind: "required",
     type: identities.tyId(1), passing: "by-value", initializer: null, acceptsOmission: false }));
-  const typeParameters = [0, 1].map(index => ({ identity: { owner, index }, declaration: owner,
+  const typeParameters = [0, 1].map(index => ({ declaration: typeParameterDeclaration(owner, index),
     constraint: null, default: null }));
   const signature = { ...context.types.signatures[0], id: identities.sigId(1), parameters, typeParameters };
   const verify = selected => verified({ ...body, locals: [local] }, {
@@ -867,7 +868,7 @@ test("MIR type closure walks every declared term relation and all signature chil
   const context = sourceContext(body);
   const owner = context.source.owner;
   const reference = { kind: "body", value: { body: body.body, node: identities.nodeId(0) } };
-  const parameter = { owner, index: 0 };
+  const parameter = typeParameterDeclaration(owner, 0);
   const local = { id: identities.localId(0), storage: identities.tyId(5), role: { kind: "temporary" }, mode: "local", source: null, origin: body.blocks[0].origin };
   const memberRow = { key: { kind: "text", value: "x" }, origins: [], readOrigins: [], writeOrigins: [], kind: "property",
     read: identities.tyId(1), write: identities.tyId(1), optional: false, readonly: false };
@@ -898,7 +899,7 @@ test("MIR type closure walks every declared term relation and all signature chil
   ];
   const signature = { ...context.types.signatures[0], id: identities.sigId(1), receiver: identities.tyId(1),
     parameters: [{ declaration: owner, kind: "required", type: identities.tyId(2), passing: "by-value", initializer: null, acceptsOmission: false }],
-    typeParameters: [{ identity: parameter, declaration: owner, constraint: identities.tyId(1), default: identities.tyId(2) }],
+    typeParameters: [{ declaration: parameter, constraint: identities.tyId(1), default: identities.tyId(2) }],
     composition: { kind: "union", signatures: [identities.sigId(0)] } };
   const construct = { ...signature, id: identities.sigId(2), kind: "construct", receiver: null,
     typeParameters: [{ ...signature.typeParameters[0], constraint: null, default: null }], composition: null };
@@ -948,7 +949,7 @@ test("MIR decision-root collection shares admission across bindings, components 
   const context = sourceContext(base);
   const ref = { kind: "body", value: { body: base.body, node: 0 } };
   const empty = { root: ref, path: [] };
-  const parameter = { owner: context.source.owner, index: 0 };
+  const parameter = typeParameterDeclaration(context.source.owner, 0);
   const vector = { classBindings: [{ kind: "bound", parameter, type: 1 }], methodBindings: [{ kind: "bound", parameter, type: 1 }],
     capturedBindings: [{ kind: "bound", parameter, type: 1 }], selfBindings: [{ kind: "bound", owner: parameter.owner, type: 1 }] };
   const scope = { classParameters: [parameter], methodParameters: [parameter], capturedParameters: [parameter], selfOwners: [parameter.owner] };
@@ -1411,7 +1412,7 @@ test("MIR body-owner readers distinguish unknown ownership, missing declarations
   context.declarations.set(definition, null);
   same(verified(input, context), [expectedViolation("definition-resolves", { kind: "constant", constant: 0 })],
     "a known body owner still needs its actual declaration");
-  const parameter = { owner: definition, index: 0 };
+  const parameter = typeParameterDeclaration(definition, 0);
   context.declarations.set(definition, { scope: { classParameters: [parameter], methodParameters: [], capturedParameters: [], selfOwners: [] },
     parameterCount: 1, endpoints: [] });
   same(verified(input, context), [], "parametric initializer remains an actual parameterized body reference");
@@ -1437,7 +1438,7 @@ test("MIR body-owner readers distinguish unknown ownership, missing declarations
 for (const bound of [false, true]) test(`MIR complete ${bound ? "bound" : "rigid"} artifact vectors preserve all parameter families and self ownership`, () => {
   const body = parsedBody();
   const context = sourceContext(body);
-  const parameters = [0, 1, 2, 3, 4, 5].map(index => ({ owner: context.source.owner, index }));
+  const parameters = [0, 1, 2, 3, 4, 5].map(index => (typeParameterDeclaration(context.source.owner, index)));
   const secondOwner = identities.encodeDefId({ module: body.blocks[0].origin.module, segments: [{ name: "outer", ordinal: 0 }] });
   const binding = (index, type) => bound ? { kind: "bound", parameter: parameters[index], type: identities.tyId(type) }
     : { kind: "rigid", parameter: parameters[index] };
@@ -1545,7 +1546,7 @@ test("MIR declaration absence, metadata materialization and instantiated binding
     "an unresolved index is not relabelled as metadata materialization");
   const instantiated = { kind: "instantiated", bindings: bindingVector };
   same(verified({ ...body, bindings: instantiated }, context), [expectedViolation("bindings-complete", { kind: "body" })], "artifact binding kind mismatch complete vector");
-  const scope = { classParameters: [{ owner: context.source.owner, index: 0 }], methodParameters: [], capturedParameters: [], selfOwners: [] };
+  const scope = { classParameters: [typeParameterDeclaration(context.source.owner, 0)], methodParameters: [], capturedParameters: [], selfOwners: [] };
   context.declarations.set(context.source.owner, { scope, parameterCount: 0, endpoints: [] });
   const scoped = { ...context, source: { ...context.source, bindings: instantiated } };
   same(verified({ ...body, bindings: instantiated }, scoped), [expectedViolation("bindings-complete", { kind: "body" })], "missing exact required class binding complete vector");
@@ -3381,9 +3382,9 @@ const selectorVectors = [
   [{ kind: "tuple-slice", start: 1, endCount: 2, readonly: true }, "tuple-slice(start=1, endCount=2, readonly=true)"],
   [{ kind: "result", signature: 6 }, "result(signature=sig:6)"],
   [{ kind: "type-argument", declaration: endpoint.declaration, index: 7 }, 'type-argument(declaration=def:"D[M[P[p];m];run]", index=7)'],
-  [{ kind: "sum-arm", family: { origin: "authored", component: emptyComponent, parameters: [{ owner: endpoint.declaration, index: 0 }],
+  [{ kind: "sum-arm", family: { origin: "authored", component: emptyComponent, parameters: [typeParameterDeclaration(endpoint.declaration, 0)],
     roles: [{ authoredIndex: 0, component: itemReference, member: 8 }] }, index: 0 },
-    `sum-arm(family=SumFamily(origin="authored", component=${emptyComponentText}, parameters=[TypeParameterIdentity(owner=def:"D[M[P[p];m];run]", index=0)], roles=[SumArmRole(authoredIndex=0, component=${itemReferenceText}, member=t:8)]), index=0)`],
+    `sum-arm(family=SumFamily(origin="authored", component=${emptyComponentText}, parameters=[def:"${typeParameterDeclaration(endpoint.declaration, 0)}"], roles=[SumArmRole(authoredIndex=0, component=${itemReferenceText}, member=t:8)]), index=0)`],
   [{ kind: "awaited" }, "awaited()"],
 ];
 
@@ -3424,12 +3425,12 @@ for (const reason of ["incompatible-domain", "lossy-numeric", "missing-correspon
 }
 
 test("MIR binding families retain complete bound/rigid parameter identities and both self-binding arms", () => {
-  const parameter = { owner: endpoint.declaration, index: 0 };
-  const parameterText = 'TypeParameterIdentity(owner=def:"D[M[P[p];m];run]", index=0)';
+  const parameter = typeParameterDeclaration(endpoint.declaration, 0);
+  const parameterText = `def:"${parameter}"`;
   const bindings = { classBindings: [{ kind: "bound", parameter, type: 1 }], methodBindings: [{ kind: "rigid", parameter }],
-    capturedBindings: [{ kind: "bound", parameter: { ...parameter, index: 1 }, type: 2 }],
+    capturedBindings: [{ kind: "bound", parameter: typeParameterDeclaration(endpoint.declaration, 1), type: 2 }],
     selfBindings: [{ kind: "bound", owner: endpoint.declaration, type: 3 }, { kind: "rigid", owner: endpoint.declaration }] };
-  const text = `BindingVector(classBindings=[bound(parameter=${parameterText}, type=t:1)], methodBindings=[rigid(parameter=${parameterText})], capturedBindings=[bound(parameter=TypeParameterIdentity(owner=def:"D[M[P[p];m];run]", index=1), type=t:2)], selfBindings=[bound(owner=def:"D[M[P[p];m];run]", type=t:3), rigid(owner=def:"D[M[P[p];m];run]")])`;
+  const text = `BindingVector(classBindings=[bound(parameter=${parameterText}, type=t:1)], methodBindings=[rigid(parameter=${parameterText})], capturedBindings=[bound(parameter=def:"${typeParameterDeclaration(endpoint.declaration, 1)}", type=t:2)], selfBindings=[bound(owner=def:"D[M[P[p];m];run]", type=t:3), rigid(owner=def:"D[M[P[p];m];run]")])`;
   roundtrip({ ...emptyValue, bindings: { kind: "instantiated", bindings } }, document("", "", "", "", `instantiated(bindings=${text})`), "complete binding families");
 });
 

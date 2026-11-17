@@ -22,18 +22,23 @@ test("the emitted Infer contract takes the rule table through InferDeps and refu
   const stage = mkdtempSync(resolve(evidenceDirectory, "consumer-"));
   cpSync(emittedRoot, stage, { recursive: true, filter: source => !source.endsWith(".js") && !source.endsWith(".map") });
   writeFileSync(resolve(stage, "package.json"), JSON.stringify({ type: "module", private: true }));
-  const imports = 'import type { Result } from "./diag/contract.js";\n' +
-    'import type { AtomicContribution, ConstraintSet, RuleTable, Solution } from "./ir-infer/contract.js";\n' +
-    'import type { EnumerateContributions, InferDeps, SolveGroup } from "./infer/contract.js";\n';
+  const imports = 'import type { Result, UnitRequest } from "./diag/contract.js";\n' +
+    'import type { AtomicContribution, ConstraintSet, InferenceGroup, RuleTable, Solution } from "./ir-infer/contract.js";\n' +
+    'import type { ConstraintsOf, ConstraintsPaused, ConstraintsRequest, GroupConstraints, GroupSolution, InferDeps, InferPaused, InferStep, SolveGroup, SolveRequest } from "./infer/contract.js";\n' +
+    'export type CurrentPorts = Result<null> | UnitRequest | AtomicContribution | ConstraintSet | InferenceGroup | RuleTable | Solution | ConstraintsOf | ConstraintsPaused | ConstraintsRequest | GroupConstraints | GroupSolution | InferDeps | InferPaused | InferStep<GroupSolution, SolveRequest, InferPaused> | SolveGroup | SolveRequest;\n';
   const same = 'type Same<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;\n';
   const positive = imports + same +
     'export const rules: Same<InferDeps["rules"], RuleTable> = true;\n' +
-    'export const enumerateParameters: Same<Parameters<EnumerateContributions>, [deps: InferDeps, constraints: readonly ConstraintSet[]]> = true;\n' +
-    'export const solveParameters: Same<Parameters<SolveGroup>, [deps: InferDeps, constraints: readonly ConstraintSet[]]> = true;\n' +
-    'export const enumerateResult: Same<ReturnType<EnumerateContributions>, Result<readonly AtomicContribution[]>> = true;\n' +
-    'export const solveResult: Same<ReturnType<SolveGroup>, Result<Solution>> = true;\n' +
+    'export const constraintsParameters: Same<Parameters<ConstraintsOf>, [deps: InferDeps, group: InferenceGroup]> = true;\n' +
+    'export const solveParameters: Same<Parameters<SolveGroup>, [deps: InferDeps, group: InferenceGroup, constraints: GroupConstraints, unit: UnitRequest]> = true;\n' +
+    'export const constraintsResult: Same<ReturnType<ConstraintsOf>, InferStep<GroupConstraints, ConstraintsRequest, ConstraintsPaused>> = true;\n' +
+    'export const solveResult: Same<ReturnType<SolveGroup>, InferStep<GroupSolution, SolveRequest, InferPaused>> = true;\n' +
+    'export const contributionResult: Same<GroupSolution["contributions"], readonly AtomicContribution[]> = true;\n' +
+    'export const solutionResult: Same<GroupSolution["solution"], Solution> = true;\n' +
+    'export const constraintRows: Same<GroupConstraints["constraints"], readonly ConstraintSet[]> = true;\n' +
+    'export type Failure = Extract<Result<GroupSolution>, { kind: "refused" }>;\n' +
     'export function table(deps: InferDeps): RuleTable { return deps.rules; }\n' +
-    'export function solve(operation: SolveGroup, deps: InferDeps, constraints: readonly ConstraintSet[]): Result<Solution> { return operation(deps, constraints); }\n';
+    'export function solve(operation: SolveGroup, deps: InferDeps, group: InferenceGroup, constraints: GroupConstraints, unit: UnitRequest): InferStep<GroupSolution, SolveRequest, InferPaused> { return operation(deps, group, constraints, unit); }\n';
   writeFileSync(resolve(stage, "consumer.ts"), positive);
   const compiler = resolve(tooling, "node_modules/@typescript/native-preview/bin/tsgo.js");
   const configuration = files => ({ compilerOptions: {
@@ -63,11 +68,11 @@ test("the emitted Infer contract takes the rule table through InferDeps and refu
   // 2554: a call that still passes the table beside deps has one argument too many.
   // 2741: a dependency record without the table is not InferDeps.
   const negatives = [
-    ["old-enumerate-implementation.ts", `${imports}declare const old: (deps: InferDeps, rules: RuleTable, constraints: readonly ConstraintSet[]) => Result<readonly AtomicContribution[]>;\nexport const enumerate: EnumerateContributions = old;\nexport type Kept = Solution | SolveGroup;`, 2322],
-    ["old-solve-implementation.ts", `${imports}declare const old: (deps: InferDeps, rules: RuleTable, constraints: readonly ConstraintSet[]) => Result<Solution>;\nexport const solve: SolveGroup = old;\nexport type Kept = AtomicContribution | EnumerateContributions;`, 2322],
-    ["old-enumerate-call.ts", `${imports}export function call(operation: EnumerateContributions, deps: InferDeps, rules: RuleTable, constraints: readonly ConstraintSet[]): Result<readonly AtomicContribution[]> { return operation(deps, rules, constraints); }\nexport type Kept = Solution | SolveGroup;`, 2554],
-    ["old-solve-call.ts", `${imports}export function call(operation: SolveGroup, deps: InferDeps, rules: RuleTable, constraints: readonly ConstraintSet[]): Result<Solution> { return operation(deps, rules, constraints); }\nexport type Kept = AtomicContribution | EnumerateContributions;`, 2554],
-    ["deps-without-rules.ts", `${imports}export function build(deps: Omit<InferDeps, "rules">): InferDeps { return deps; }\nexport type Kept = Result<null> | AtomicContribution | ConstraintSet | RuleTable | Solution | EnumerateContributions | SolveGroup;`, 2741],
+    ["removed-enumerate.ts", 'import type { EnumerateContributions } from "./infer/contract.js"; export type Old = EnumerateContributions;', 2305],
+    ["old-solve-implementation.ts", `${imports}declare const old: (deps: InferDeps, rules: RuleTable, constraints: readonly ConstraintSet[]) => Result<Solution>;\nexport const solve: SolveGroup = old;\n`, 2322],
+    ["old-constraints-call.ts", `${imports}export function call(operation: ConstraintsOf, deps: InferDeps, rules: RuleTable, group: InferenceGroup) { return operation(deps, rules, group); }\n`, 2554],
+    ["old-solve-call.ts", `${imports}export function call(operation: SolveGroup, deps: InferDeps, rules: RuleTable, constraints: readonly ConstraintSet[]) { return operation(deps, rules, constraints); }\n`, 2554],
+    ["deps-without-rules.ts", `${imports}export function build(deps: Omit<InferDeps, "rules">): InferDeps { return deps; }\n`, 2741],
   ];
   for (const [name, text] of negatives) writeFileSync(resolve(stage, name), text);
   const refused = run("negative.json", negatives.map(([name]) => name));

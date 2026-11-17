@@ -4,6 +4,7 @@ import { type TypeAliasApplicationInfo } from "./type-applications.js";
 import type { Node, SourceFile } from "../internal/ast/ast.js";
 import type { Symbol } from "../internal/ast/symbol.js";
 import type { Program } from "../internal/compiler/program.js";
+import type { ResolvedSourceTypeInfo } from "../internal/checker/checker/source-type-answers.js";
 import type { Context } from "../go/context.js";
 import type { Signature, Type } from "../internal/checker/types.js";
 export interface TypeIndexInfo {
@@ -66,7 +67,7 @@ export interface TypeIntrinsicNullishFlags {
 }
 export interface TypeShapeQueries {
     readonly typeToString: (type: GoPtr<Type>) => string;
-    readonly getTypeFromTypeNode: (node: GoPtr<Node>) => GoPtr<Type>;
+    readonly getTypeFromTypeNode: (node: GoPtr<Node>) => GoPtr<ResolvedSourceTypeInfo>;
     readonly instantiateTypeAlias: (declaration: GoPtr<Node>, arguments_: readonly Type[]) => TypeAliasApplicationInfo | undefined;
     readonly getTypeAliasApplication: (type: GoPtr<Type>) => TypeAliasApplicationInfo | undefined;
     readonly getConstantValue: (node: GoPtr<Node>) => unknown;

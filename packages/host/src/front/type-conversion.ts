@@ -2,11 +2,12 @@ import type { RawSignatureId, RawTypeId, SigId, TyId } from "../ids/contract.js"
 import { encodeBodyId, sigId, tyId } from "../ids/index.js";
 import type { LiteralTypeValue, SignatureInput, SignatureParameter, TypeEvidence, TypeGraphMapping, TypeGraphResult, TypePublicationStop, TypePublicationWork, TypeTerm } from "../ir-types/contract.js";
 import { compareIndexSignatures, createTypePublicationWork, internTypeGraph, viewTypes } from "../ir-types/index.js";
-import type { ConvertedCheckedType, LowerDeps, RawModule, RawSignature } from "./contract.js";
+import type { ConvertedCheckedType, LowerDeps, RawFact, RawModule, RawSignature } from "./contract.js";
 import { lowerMembers } from "./lower-members.js";
 import { sourceOccurrence } from "./bindings.js";
 
 export type ConversionResult<Value> = { readonly kind: "complete"; readonly value: Value } | TypePublicationStop;
+type CheckedFailure = Extract<RawFact<never>, { readonly kind: "unavailable" }>;
 
 export interface TypeConversion {
   readonly deps: LowerDeps;
@@ -49,6 +50,7 @@ interface TypeGraph {
   readonly terms: TypeTerm[];
   readonly signatureInputs: SignatureInput[];
   typeCount: number;
+  failure: CheckedFailure | null;
 }
 
 export function createTypeConversion(deps: LowerDeps, raw: RawModule): TypeConversion {
@@ -56,11 +58,12 @@ export function createTypeConversion(deps: LowerDeps, raw: RawModule): TypeConve
     convertedTypes: new Map(), convertedSignatures: new Map() };
 }
 
-export function convertRawType(conversion: TypeConversion, id: RawTypeId): ConversionResult<ConvertedCheckedType> {
+export function convertRawType(conversion: TypeConversion, id: RawTypeId): ConversionResult<ConvertedCheckedType> | CheckedFailure {
   const known = conversion.convertedTypes.get(id);
   if (known !== undefined) return { kind: "complete", value: known };
   const graph = createGraph(conversion);
   const root = prepareType(graph, reserveType(graph, id));
+  if ("kind" in root) return root;
   const result = completeGraph(graph);
   if (result.kind !== "complete") return result;
   const converted = mapTypeResult(result.value, root.handle.position, root.evidence);
@@ -76,6 +79,7 @@ export function signatureOf(conversion: TypeConversion, id: RawSignatureId): Con
   const root = reserveSignature(graph, id);
   prepareSignature(graph, root);
   const result = completeGraph(graph);
+  if (result.kind === "unavailable") throw new TypeError("front: a callable endpoint requires its actual available checked signature (" + result.reason + ")");
   if (result.kind !== "complete") return result;
   const converted = mapSignatureResult(result.value, root.position);
   publishMappings(graph, result.value, null);
@@ -85,7 +89,7 @@ export function signatureOf(conversion: TypeConversion, id: RawSignatureId): Con
 function createGraph(conversion: TypeConversion): TypeGraph {
   const snapshot = viewTypes(conversion.deps.types);
   return { conversion, typeBase: snapshot.terms.length, signatureBase: snapshot.signatures.length,
-    types: new Map(), signatures: new Map(), preparedTypes: [], pending: [], terms: [], signatureInputs: [], typeCount: 0 };
+    types: new Map(), signatures: new Map(), preparedTypes: [], pending: [], terms: [], signatureInputs: [], typeCount: 0, failure: null };
 }
 
 function reserveType(graph: TypeGraph, id: RawTypeId): TypeHandle {
@@ -119,10 +123,14 @@ function signatureReference(graph: TypeGraph, id: RawSignatureId, dependencies: 
   return handle.reference;
 }
 
-function prepareType(graph: TypeGraph, handle: TypeHandle): PreparedType {
+function prepareType(graph: TypeGraph, handle: TypeHandle): PreparedType | CheckedFailure {
   const { deps, raw } = graph.conversion;
   const row = raw.types.types[handle.id];
   if (row === undefined) throw new TypeError("front: a raw type must name its captured form");
+  if (row.form.kind === "unavailable" && row.form.reason === "checker-error" && row.form.causes.length !== 0) {
+    graph.failure = row.form;
+    return row.form;
+  }
   if (row.form.kind !== "available")
     throw new TypeError("front: checked type conversion requires its actual captured component/error association (" + row.form.reason + ")");
   if (row.literal.kind !== "available") throw new TypeError("front: checked literal conversion requires its actual captured literal association");
@@ -235,11 +243,12 @@ function scheduleDependencies(graph: TypeGraph, dependencies: Dependency[]): voi
   for (const dependency of dependencies.reverse()) graph.pending.push(dependency);
 }
 
-function completeGraph(graph: TypeGraph): TypeGraphResult {
+function completeGraph(graph: TypeGraph): TypeGraphResult | CheckedFailure {
   for (let next = graph.pending.pop(); next !== undefined; next = graph.pending.pop()) {
     if (next.handle.prepared) continue;
     if (next.kind === "type") prepareType(graph, next.handle);
     else prepareSignature(graph, next.handle);
+    if (graph.failure !== null) return graph.failure;
   }
   return internTypeGraph({ types: graph.conversion.deps.types, work: graph.conversion.typeWork },
     { typeBase: graph.typeBase, signatureBase: graph.signatureBase, terms: graph.terms, signatures: graph.signatureInputs });

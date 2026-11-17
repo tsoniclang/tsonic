@@ -1,3 +1,4 @@
+import { typeParameterDeclaration } from "./fixtures/type-parameter-declarations.mjs";
 import assert from "node:assert/strict";
 import { constructedNativeCells, constructedNativeRelations } from "./fixtures/native-cells.mjs";
 import { spawnSync } from "node:child_process";
@@ -1651,9 +1652,9 @@ test("repeated projected parameter producers carry one complete root environment
       })) })),
     })) }));
     const bindings = emptyBindings({ methodBindings: names.map((name, index) => ({ kind: "bound",
-      parameter: { owner: definition, index }, type: tyId(0) })) });
+      parameter: definitionId(name), type: tyId(0) })) });
     const binding = exportBinding(definition, { bindings, signature: declaredSignature(definition, {
-      typeParameters: names.map((name, index) => ({ identity: { owner: definition, index },
+      typeParameters: names.map(name => ({
         declaration: definitionId(name), constraint: null, default: null })),
       parameters: [{ declaration: definitionId("p"), kind: "required", type: tyId(0), passing: "by-value", initializer: null, acceptsOmission: false }],
     }) });
@@ -1805,8 +1806,8 @@ test("canonical shared producers retain distinct full binding alternatives witho
   const binding = exportBinding(definitionId("api"));
   const sharedDefinition = definitionId("shared");
   const distinctDefinition = definitionId("distinct");
-  const first = emptyBindings({ classBindings: [{ kind: "bound", parameter: { owner: sharedDefinition, index: 0 }, type: tyId(0) }] });
-  const second = emptyBindings({ classBindings: [{ kind: "bound", parameter: { owner: sharedDefinition, index: 0 }, type: tyId(1) }] });
+  const first = emptyBindings({ classBindings: [{ kind: "bound", parameter: typeParameterDeclaration(sharedDefinition, 0), type: tyId(0) }] });
+  const second = emptyBindings({ classBindings: [{ kind: "bound", parameter: typeParameterDeclaration(sharedDefinition, 0), type: tyId(1) }] });
   const raw = (authoredSummary(root, {
     producers: shared.map((identity, id) => ({ id, kind: "shared", identity, path: null })),
     origins: [{ id: 0, kind: "complete", producers: [0, 1, 2], includesAbsence: false }],
@@ -1971,7 +1972,7 @@ test("binding remaps the complete relational graph into signature-order formals 
     { declaration: definitionId("parameter0"), kind: "required", type: tyId(0), passing: "by-value", initializer: null, acceptsOmission: false },
     { declaration: definitionId("parameter1"), kind: "rest", type: tyId(0), passing: "by-value", initializer: null, acceptsOmission: true },
   ] }) });
-  const sharedBindings = emptyBindings({ methodBindings: [{ kind: "rigid", parameter: { owner: sharedDefinition, index: 0 } }] });
+  const sharedBindings = emptyBindings({ methodBindings: [{ kind: "rigid", parameter: typeParameterDeclaration(sharedDefinition, 0) }] });
   const fieldMember = selectedMember();
   const methodMember = selectedMember({ decision: { ...selectedMember().decision,
     key: { kind: "number", value: { numerator: -9007199254740993n, denominator: 2n, negativeZero: false } } } });
@@ -2152,16 +2153,16 @@ test("late native specialization retains every bound and rigid family and refuse
   const nominal = definitionId("class");
   const outer = definitionId("outer");
   const environment = emptyBindings({
-    classBindings: [{ kind: "bound", parameter: { owner: nominal, index: 0 }, type: tyId(0) },
-      { kind: "rigid", parameter: { owner: nominal, index: 1 } }],
-    methodBindings: [{ kind: "rigid", parameter: { owner, index: 0 } },
-      { kind: "bound", parameter: { owner, index: 1 }, type: tyId(1) }],
-    capturedBindings: [{ kind: "bound", parameter: { owner: outer, index: 0 }, type: tyId(1) },
-      { kind: "rigid", parameter: { owner: outer, index: 1 } }],
+    classBindings: [{ kind: "bound", parameter: typeParameterDeclaration(nominal, 0), type: tyId(0) },
+      { kind: "rigid", parameter: typeParameterDeclaration(nominal, 1) }],
+    methodBindings: [{ kind: "rigid", parameter: definitionId("method-T0") },
+      { kind: "bound", parameter: definitionId("method-T1"), type: tyId(1) }],
+    capturedBindings: [{ kind: "bound", parameter: typeParameterDeclaration(outer, 0), type: tyId(1) },
+      { kind: "rigid", parameter: typeParameterDeclaration(outer, 1) }],
     selfBindings: [{ kind: "rigid", owner: outer }, { kind: "bound", owner: nominal, type: tyId(0) }],
   });
   const selected = readyAssociation(summary.identity, exportBinding(owner, { bindings: environment,
-    signature: declaredSignature(owner, { typeParameters: [0, 1].map(index => ({ identity: { owner, index },
+    signature: declaredSignature(owner, { typeParameters: [0, 1].map(index => ({
       declaration: definitionId(`method-T${index}`), constraint: null, default: null })) }) }));
   input.sources[0].modules[0].exports[0].signatures[0].typeParameters = [0, 1].map(index => ({
     name: `method-T${index}`, constraints: [], defaultType: null, variance: "invariant",

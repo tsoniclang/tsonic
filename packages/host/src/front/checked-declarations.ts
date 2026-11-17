@@ -13,7 +13,7 @@ export interface DeclarationLowering {
   readonly definitions: ReadonlyMap<NodeId, DefId>;
   readonly resolution: (node: NodeId) => Hir.HirResolution;
   readonly memory: (node: NodeId) => Hir.CapturedFact<Hir.HirMemoryLayoutCapture | Hir.HirMemoryFieldCapture | null>;
-  readonly checkedType: (node: NodeId) => ConversionResult<TyId>;
+  readonly checkedType: (node: NodeId) => ConversionResult<Hir.CapturedFact<TyId>>;
   readonly signature: (node: NodeId) => ConversionResult<SigId>;
   readonly expression: (node: Hir.Expression<Syntax>) => Hir.Expression<Checked>;
   readonly property: (node: NodeId) => Hir.CapturedFact<MemberKey>;
@@ -71,7 +71,7 @@ export function lowerCheckedType(context: DeclarationLowering, root: Hir.TypeNod
     if (!isTypeNode(node)) continue;
     const type = context.checkedType(node.id);
     if (type.kind !== "complete") return type;
-    const tsonic: Hir.CheckedType = { core: context.core(node.id), type: { kind: "available", value: type.value }, referencedDefinitions: [] };
+    const tsonic: Hir.CheckedType = { core: context.core(node.id), type: type.value, referencedDefinitions: [] };
     let result: Hir.TypeNode<Checked>;
     switch (node.kind) {
       case "NumberKeyword": case "StringKeyword": case "BooleanKeyword": case "BigIntKeyword": case "SymbolKeyword":

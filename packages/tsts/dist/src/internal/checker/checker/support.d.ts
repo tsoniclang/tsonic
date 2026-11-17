@@ -1,4 +1,5 @@
 import type { bool, byte, int } from "../../../go/scalars.js";
+import type { LiteralConstructionOwner } from "./literal-creation.js";
 import type { GoPtr, GoSlice } from "../../../go/compat.js";
 import type { Node } from "../../ast/spine.js";
 import type { Expression } from "../../ast/generated/unions.js";
@@ -513,6 +514,7 @@ export declare function Checker_checkReflectCollision(receiver: GoPtr<Checker>, 
 export declare function Checker_checkThisBeforeSuper(receiver: GoPtr<Checker>, node: GoPtr<Node>, container: GoPtr<Node>, diagnosticMessage: GoPtr<Message>): void;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkAssertion","kind":"method","status":"implemented","sigHash":"8464743512d29959302858e3075f01cc43e601f1a4b21ef39b69bc0cb695c540","bodyHash":"e997c75a1c6e80c9259da66ee139073966373c1729d084fbd268ebcbdd26721e"}
+ * @tsgo-override {"category":"extension-host","allow":["signature"],"reason":"R5-23 retains the explicit native result-construction publication owner without changing native checking or caching decisions.","goSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,packages/tsts/src/internal/checker/checker/state.ts::CheckMode)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>","tsSignature":"func(packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/checker/state.ts::Checker>,packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/ast/spine.ts::Node>,packages/tsts/src/internal/checker/checker/state.ts::CheckMode,?packages/tsts/src/internal/checker/checker/literal-creation.ts::LiteralConstructionOwner)=>packages/tsts/src/go/compat.ts::GoPtr<packages/tsts/src/internal/checker/types.ts::Type>"}
  *
  * Go source:
  * func (c *Checker) checkAssertion(node *ast.Node, checkMode CheckMode) *Type {
@@ -536,7 +538,7 @@ export declare function Checker_checkThisBeforeSuper(receiver: GoPtr<Checker>, n
  * 	return c.getTypeFromTypeNode(typeNode)
  * }
  */
-export declare function Checker_checkAssertion(receiver: GoPtr<Checker>, node: GoPtr<Node>, checkMode: CheckMode): GoPtr<Type>;
+export declare function Checker_checkAssertion(receiver: GoPtr<Checker>, node: GoPtr<Node>, checkMode: CheckMode, constructionOwner?: LiteralConstructionOwner): GoPtr<Type>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.checkAssertionDeferred","kind":"method","status":"implemented","sigHash":"973986c5f4c38a69995010d50136da4ea65daa63e67317dca64da6668fe1478e","bodyHash":"c115a1f302f9fed0371ebbe0074d0264037323087907d6494f44ee0cbaa89d46"}
  *

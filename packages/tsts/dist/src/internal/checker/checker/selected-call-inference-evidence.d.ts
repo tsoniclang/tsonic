@@ -1,5 +1,7 @@
 import type { InferenceContext, InferenceInfo } from "./state.js";
-import type { ResolvedCallInferenceContribution, ResolvedCallInferenceEvidence, ResolvedCallInferenceOrigin, ResolvedCallInferencePathPart, Signature, Type } from "../types.js";
+import type { Checker } from "./state.js";
+import type { Node } from "../../ast/spine.js";
+import type { ResolvedCallInferenceContribution, ResolvedCallApplicationEvidence, ResolvedCallInferenceEvidence, ResolvedCallInferenceOrigin, ResolvedCallInferencePathPart, Signature, Type } from "../types.js";
 interface SelectedInferenceTrace {
     readonly context: InferenceContext;
     readonly origin: ResolvedCallInferenceOrigin;
@@ -69,5 +71,6 @@ export declare function selectedCallInferenceSignatures(journal: SelectedCallInf
 export declare function retainSelectedCallInferenceCandidate(journal: SelectedCallInferenceJournal | undefined, inferences: InferenceContext["inferences"], inference: InferenceInfo, sourceType: Type, formalType: Type, candidate: Type, priority: number, contravariant: boolean): void;
 export declare function copySelectedCallInferenceContext(journal: SelectedCallInferenceJournal, source: InferenceContext, destination: InferenceContext): void;
 export declare function selectedCallInferenceEvidence(journal: SelectedCallInferenceJournal | undefined, context: InferenceContext | undefined): ResolvedCallInferenceEvidence;
+export declare function retainContextualArgumentOwners(checker: Checker, at: Node, signature: Signature, application: ResolvedCallApplicationEvidence): void;
 export {};
 //# sourceMappingURL=selected-call-inference-evidence.d.ts.map

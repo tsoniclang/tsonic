@@ -247,7 +247,18 @@ function headerOf<P extends Hir.Phase>(node: Hir.NodeHeader): Hir.NodeHeader & R
 
 function typeOf(lowering: Lowering, type: RawTypeId): ConversionResult<TyId> {
   const converted = convertRawType(lowering, type);
+  if (converted.kind === "unavailable") throw new TypeError("front: this checked endpoint requires its actual available captured type (" + converted.reason + ")");
   return converted.kind === "complete" ? { kind: "complete", value: converted.value.type } : converted;
+}
+
+function typeFactOf(lowering: Lowering, fact: RawFact<RawTypeId>): ConversionResult<Hir.CapturedFact<TyId>>;
+function typeFactOf(lowering: Lowering, fact: RawFact<RawTypeId | null>): ConversionResult<Hir.CapturedFact<TyId | null>>;
+function typeFactOf(lowering: Lowering, fact: RawFact<RawTypeId | null>): ConversionResult<Hir.CapturedFact<TyId | null>> {
+  if (fact.kind === "unavailable") return { kind: "complete", value: fact };
+  if (fact.value === null) return { kind: "complete", value: { kind: "available", value: null } };
+  const converted = convertRawType(lowering, fact.value);
+  if (converted.kind === "unavailable") return { kind: "complete", value: converted };
+  return converted.kind === "complete" ? { kind: "complete", value: { kind: "available", value: converted.value.type } } : converted;
 }
 
 /**
@@ -299,19 +310,16 @@ function valueOf(lowering: Lowering, node: NodeId): ConversionResult<Hir.Checked
   const views = lowering.views.get(node);
   const core = lowering.core.get(node);
   if (views === undefined || core === undefined) return throwInvariant(invariant("An expression of a written kind has no checker views or core facts."));
-  const read = views.read.kind === "available" ? typeOf(lowering, views.read.value) : null;
-  if (read !== null && read.kind !== "complete") return read;
-  const declared = views.declared.kind === "available" && views.declared.value !== null ? typeOf(lowering, views.declared.value) : null;
-  if (declared !== null && declared.kind !== "complete") return declared;
-  const contextual = views.contextual.kind === "available" && views.contextual.value !== null ? typeOf(lowering, views.contextual.value) : null;
-  if (contextual !== null && contextual.kind !== "complete") return contextual;
+  const read = typeFactOf(lowering, views.read);
+  if (read.kind !== "complete") return read;
+  const declared = typeFactOf(lowering, views.declared);
+  if (declared.kind !== "complete") return declared;
+  const contextual = typeFactOf(lowering, views.contextual);
+  if (contextual.kind !== "complete") return contextual;
   const place = storageOf(lowering, node);
   if (place.kind !== "complete") return place;
   return { kind: "complete", value: {
-    views: { read: views.read.kind === "unavailable" ? views.read
-      : { kind: "available", value: read?.value ?? throwInvariant(invariant("An available read requires its completed checked type.")) },
-      declared: views.declared.kind === "unavailable" ? views.declared : { kind: "available", value: declared?.value ?? null },
-      contextual: views.contextual.kind === "unavailable" ? views.contextual : { kind: "available", value: contextual?.value ?? null } },
+    views: { read: read.value, declared: declared.value, contextual: contextual.value },
     place: place.value,
     memory: memoryOf(lowering, node), observation: capturedFact(core.layoutQuery, absenceOnly("layout query")),
   } };
@@ -333,11 +341,11 @@ function storageOf(lowering: Lowering, node: NodeId): ConversionResult<Hir.Captu
     || symbol?.kind === "available" && symbol.value !== selected.symbol
     || local === undefined || resolution.kind !== "local" || resolution.local.body !== local.body || resolution.local.local !== local.local)
     throw new TypeError("front: a local storage capture must retain its actual expression, declaration and qualified local");
-  const type = typeOf(lowering, selected.type);
+  const type = typeFactOf(lowering, { kind: "available", value: selected.type });
   if (type.kind !== "complete") return type;
   lowering.storage.delete(node);
   return { kind: "complete", value: { kind: "available", value: { base: { kind: "root", resolution }, step: null,
-    read: { kind: "available", value: type.value }, write: { kind: "available", value: selected.writable ? type.value : null } } } };
+    read: type.value, write: selected.writable ? type.value : { kind: "available", value: null } } } };
 }
 
 function token<K extends Hir.TokenSyntaxKind>(node: Hir.Token<Syntax, K>): Hir.Token<Checked, K> {
@@ -345,14 +353,10 @@ function token<K extends Hir.TokenSyntaxKind>(node: Hir.Token<Syntax, K>): Hir.T
 }
 
 /** An authored annotation: its type is the one capture read from the checker for that type node. */
-function typeNode(lowering: Lowering, node: Hir.TypeNode<Syntax>, owner: DefId): ConversionResult<{ readonly node: Hir.TypeNode<Checked>; readonly type: TyId }> {
-  const raw = lowering.authoredTypes.get(node.id);
-  if (raw === undefined) return throwInvariant(invariant("An authored type annotation has no captured checker type."));
-  const type = typeOf(lowering, raw);
-  if (type.kind !== "complete") return type;
+function typeNode(lowering: Lowering, node: Hir.TypeNode<Syntax>, owner: DefId): ConversionResult<{ readonly node: Hir.TypeNode<Checked>; readonly type: Hir.CapturedFact<TyId> }> {
   const checked = lowerCheckedType(declarationLowering(lowering), node, owner);
   if (checked.kind !== "complete") return checked;
-  return { kind: "complete", value: { node: checked.value, type: type.value } };
+  return { kind: "complete", value: { node: checked.value, type: checked.value.tsonic.type } };
 }
 
 function declarationLowering(lowering: Lowering): DeclarationLowering {
@@ -362,7 +366,7 @@ function declarationLowering(lowering: Lowering): DeclarationLowering {
     checkedType: node => {
       const captured = lowering.authoredTypes.get(node);
       if (captured === undefined) return throwInvariant(invariant("Every checked type annotation retains its actual captured SDK type."));
-      return typeOf(lowering, captured);
+      return typeFactOf(lowering, { kind: "available", value: captured });
     },
     signature: node => {
       const rows = lowering.associations.get(node)?.advertised;
@@ -610,7 +614,7 @@ function variableDeclaration(lowering: Lowering, node: Hir.VariableDeclaration<S
     tsonic: { core: coreOf(lowering, node.name.id), role: "declaration-name", declaration } }, exclamationToken: null,
     type: declared === null ? null : declared.value.node, initializer,
     tsonic: { core: coreOf(lowering, node.id), parent: owner, attributes: [], memory: memoryOf(lowering, node.id),
-      declaration, declaredType: { kind: "available", value: declared === null ? null : declared.value.type }, initializer: body } } };
+      declaration, declaredType: declared === null ? { kind: "available", value: null } : declared.value.type, initializer: body } } };
 }
 
 function block(lowering: Lowering, node: Hir.Block<Syntax>): Hir.Block<Checked> {
@@ -718,7 +722,7 @@ function functionDeclaration(lowering: Lowering, node: Hir.FunctionDeclaration<S
     const parameterDefinition = definitionOf(lowering, parameter.id);
     const declared = parameter.type === null ? null : typeNode(lowering, parameter.type, parameterDefinition);
     if (declared !== null && declared.kind !== "complete") return declared;
-    const declaredType = declared === null ? null : declared.value.type;
+    const declaredType: Hir.CapturedFact<TyId | null> = declared === null ? { kind: "available", value: null } : declared.value.type;
     const checkedParameter = rawSignature.parameters[index];
     if (checkedParameter === undefined) return throwInvariant(invariant("A parameter has no row of its captured signature."));
     const checkedType = typeOf(lowering, checkedParameter.type);
@@ -735,7 +739,7 @@ function functionDeclaration(lowering: Lowering, node: Hir.FunctionDeclaration<S
       name: { ...headerOf(parameter.name), kind: "Identifier", text: parameter.name.text, tsonic: { core: coreOf(lowering, parameter.name.id), role: "declaration-name", declaration: target } },
       questionToken: null, type: declared === null ? null : declared.value.node, initializer,
       tsonic: { core: coreOf(lowering, parameter.id), parent: definition, attributes: [], memory: memoryOf(lowering, parameter.id), declaration: target,
-        declaredType: { kind: "available", value: declaredType }, initializer: initializerBody } };
+        declaredType, initializer: initializerBody } };
     parameters.push({ lowered, definition: parameterDefinition, checkedType: checkedType.value, passing: passingOf(lowering, parameter.id), initializer: initializerBody });
   }
   const returnType = node.type === null ? null : typeNode(lowering, node.type, definition);
@@ -841,12 +845,11 @@ export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<Hir.HirM
     if (node.name.kind !== "Identifier") return throwInvariant(invariant("A variable of a written form has no identifier name."));
     const checked = lowering.views.get(node.id);
     if (checked === undefined) return throwInvariant(invariant("A local variable requires its own captured checked type."));
-    const checkerSlot = checked.read.kind === "available" ? typeOf(lowering, checked.read.value) : null;
-    if (checkerSlot !== null && checkerSlot.kind !== "complete") return publicationRefusal(raw, checkerSlot);
+    const checkerSlot = typeFactOf(lowering, checked.read);
+    if (checkerSlot.kind !== "complete") return publicationRefusal(raw, checkerSlot);
     const rows = variableLocals.get(local.body) ?? [];
     rows.push({ id: local.local, declaration: { kind: "item", value: { owner: definitionOf(lowering, node.id), node: node.id } },
-      name: node.name.text, role: "binding", checkerSlot: checked.read.kind === "unavailable" ? checked.read
-        : { kind: "available", value: checkerSlot?.value ?? throwInvariant(invariant("An available local slot requires its completed type.")) },
+      name: node.name.text, role: "binding", checkerSlot: checkerSlot.value,
       capturedFrom: null, mutable });
     variableLocals.set(local.body, rows);
   }

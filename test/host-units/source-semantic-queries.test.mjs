@@ -263,6 +263,7 @@ function ready(source) {
   const declarations = { modules: [{ module: checked, nodes: domain.nodes }], types: interner, typeExpansion: EXPANSION };
   const inference = inferStep.inferDepsOf({ rules: { libraries: { sources: [], sourceRoles: [], guarantees: [] },
     types: interner, typeExpansion: EXPANSION }, hirBody: body => domain.bodyOf.get(body) ?? assert.fail("actual checked body"),
+    checkerDiagnosticsOf: module => module === checked.module ? checked.checkerDiagnostics : assert.fail("actual diagnostic module"),
     itemOf: definition => items.get(definition) ?? assert.fail("actual checked declaration"), bindings: [checked.bindings], ...fixture.hir.createModuleBindingViews([checked.bindings]), limits: LIMITS, graph: GRAPH });
   const grouped = wiring.infer.groupsOf(inference, checked.bodies.map(body => body.body));
   assert.equal(grouped.kind, "ok");
@@ -291,6 +292,17 @@ function ready(source) {
   const signature = { definition: endpoint.declaration, endpoint: endpoint.role, ordinal: 0, bindings: { kind: "parametric" } };
   return { checked, interner, snapshot, domain, descriptions, inputs, queries, database, signature, verification, declarationOf };
 }
+
+test("an actual failed assignment read returns its original published diagnostic without solving a poisoned type", () => {
+  const program = ready("export function store():boolean{const a:boolean=true;a=false;return a;}");
+  const body = program.checked.tree.statements.nodes[0].tsonic.body;
+  const group = program.inputs.groups.find(group => group.bodies.includes(body));
+  assert.notEqual(group, undefined);
+  const result = program.database.run(program.queries.solutionOf, group.id);
+  assert.equal(result.kind, "refused");
+  assert.equal(result.diagnostics.length, 1);
+  assert.equal(result.diagnostics[0], program.checked.checkerDiagnostics.find(diagnostic => diagnostic.code.number === 2588));
+});
 
 for (const annotation of ["boolean", null]) test(`real ${annotation ?? "inferred"} module initializer completes its own registered solution and selected execution`, async () => {
   const program = ready(`export function value(): boolean { return true; } export const flag${annotation === null ? "" : `: ${annotation}`} = false;`);

@@ -936,7 +936,7 @@ test("the whole snapshot module earns fresh strict isolation using real ids prod
   assert.deepEqual(report.sourceInventory.map(entry => relative(repository, entry.path).split(sep).join("/")).sort(),
     [...ownedSources, ...dependencySources].sort());
   assert.deepEqual(report.provenance.map(entry => relative(repository, entry.source).split(sep).join("/")).sort(),
-    ["diag/contract", "diag/index", "ids/contract", "ids/index", "ir-types/arena", "ir-types/contract", "ir-types/data", "ir-types/index", "ir-types/native-facts-data"]
+    ["diag/contract", "diag/index", "ids/contract", "ids/index", "ir-types/arena", "ir-types/contract", "ir-types/data", "ir-types/index", "ir-types/native-facts-data", "ir-types/work"]
       .map(name => `packages/host/src/${name}.ts`));
   assert.equal(report.loadedInventory.every(path => report.expectedInventory.includes(path)), true);
   for (const entry of ["ids/contract", "ids/index", "diag/contract", "ir-types/contract", "ir-types/index"]) {
@@ -947,7 +947,7 @@ test("the whole snapshot module earns fresh strict isolation using real ids prod
 
 test("fresh real public declarations admit a cast-free consumer and reject exact readonly, port and shape opposites", () => {
   const stage = mkdtempSync(resolve(evidenceDirectory, "consumer-"));
-  for (const [directory, names] of [["snapshot", ["contract", ...runtimeNames]], ["ids", ["contract", "index", "identity", "key"]], ["diag", ["contract"]], ["ir-types", ["contract", "data", "arena", "native-facts-data"]]]) {
+  for (const [directory, names] of [["snapshot", ["contract", ...runtimeNames]], ["ids", ["contract", "index", "identity", "key"]], ["diag", ["contract"]], ["ir-types", ["contract", "data", "arena", "native-facts-data", "work"]]]) {
     mkdirSync(resolve(stage, directory));
     for (const name of names) writeFileSync(resolve(stage, directory, `${name}.d.ts`),
       readFileSync(resolve(repository, "packages/host/dist", directory, `${name}.d.ts`)));
@@ -988,7 +988,7 @@ test("fresh real public declarations admit a cast-free consumer and reject exact
   assert.equal(positive.status, 0, positive.text);
   assert.deepEqual(positive.text.split(/\r?\n/u).filter(path => path.startsWith(stage))
     .map(path => relative(stage, path).split(sep).join("/")).sort(),
-  ["consumer.ts", "diag/contract.d.ts", "ids/contract.d.ts", "ids/index.d.ts", "ir-types/arena.d.ts", "ir-types/contract.d.ts", "ir-types/data.d.ts", "ir-types/native-facts-data.d.ts", "snapshot/contract.d.ts", "snapshot/index.d.ts"]);
+  ["consumer.ts", "diag/contract.d.ts", "ids/contract.d.ts", "ids/index.d.ts", "ir-types/arena.d.ts", "ir-types/contract.d.ts", "ir-types/data.d.ts", "ir-types/native-facts-data.d.ts", "ir-types/work.d.ts", "snapshot/contract.d.ts", "snapshot/index.d.ts"]);
   const negative = [
     ["removed-platform-receipt.ts", 2353, 'import type { ProjectSnapshot } from "./snapshot/contract.js"; export function old(value:ProjectSnapshot):void { const {nativeFacts,...rest}=value; const old:ProjectSnapshot={...rest,platform:{layouts:[]}}; void old; }'],
     ["missing-native-receipt.ts", 2741, 'import type { ProjectSnapshot } from "./snapshot/contract.js"; export function old(value:ProjectSnapshot):ProjectSnapshot { const {nativeFacts,...rest}=value; return rest; }'],

@@ -62,6 +62,7 @@ export declare function checkerPool_getCheckerById(receiver: GoPtr<checkerPool>,
 export declare function newCheckerPool(program: GoPtr<Program>): GoPtr<checkerPool>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/compiler/checkerpool.go::func::newCheckerPoolWithTracing","kind":"func","status":"implemented","sigHash":"9953910d49bd820792eabe9a00a2ed76d566e8c7b5bc474574cc454fed7a1624","bodyHash":"5a3ab48b396da0cd3ede9420f73f5db5e323d26d874b7024eb2f69fb43dd3c03"}
+ * @tsgo-override {"category":"embedding-host","allow":["body"],"reason":"The SDK work group executes checker construction and checking synchronously, so its ordinary native pool defaults to one checker rather than allocating four copies without parallel work. Explicit checker counts and the existing SingleThreaded precedence remain authoritative; custom pools and already-created Programs are unchanged."}
  *
  * Go source:
  * func newCheckerPoolWithTracing(program *Program, tr *tracing.Tracing) *checkerPool {

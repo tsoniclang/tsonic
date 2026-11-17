@@ -267,6 +267,7 @@ export declare function Checker_createNormalizedTupleTypeEx(receiver: GoPtr<Chec
  * }
  */
 export declare function Checker_createTypeReferenceEx(receiver: GoPtr<Checker>, target: GoPtr<Type>, typeArguments: GoSlice<GoPtr<Type>>, objectFlags: ObjectFlags): GoPtr<Type>;
+export declare function cachedReferenceInputs(checker: Checker, type: Type): readonly GoPtr<Type>[] | undefined;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getSimplifiedIndexedAccessTypeWorker","kind":"method","status":"implemented","sigHash":"3b9a57400da8c44daf0aff8604ba01e99a5a90ae6d3a0a5f9d0a417e9540349c","bodyHash":"a21b38b13a94cd1d10a988859946161df9025cb6a2f65791a68ebd41b36b5ffb"}
  *

@@ -304,7 +304,7 @@ test("the identity inputs agree with the parser: the declaration nodes the check
           otherwiseNamed += 1;
           const expression = ast.as.AsComputedPropertyName(name).Expression;
           return ast.is.IsStringLiteral(expression) || ast.is.IsNumericLiteral(expression) ? ast.text(expression)
-            : queries.typeShape.getStringLiteralTypeValue(queries.checker.getTypeAtLocation(expression));
+            : queries.typeShape.getStringLiteralTypeValue(queries.checker.getTypeAtLocation(expression)?.type);
         }
         return "";
       };
@@ -1130,7 +1130,10 @@ test("the public isError receipt precedes any classification, with missing actua
   assert.equal(result.value.checkerDiagnostics.some(diagnostic => diagnostic.code.number === 2304), true);
   const missing = result.value.types.types.filter(row => row.form.kind === "unavailable");
   assert.equal(missing.length > 0, true);
-  for (const row of missing) assert.deepEqual(row.form, { kind: "unavailable", reason: "missing-original-component", causes: [] });
+  for (const row of missing) assert.deepEqual(row.form, row.authoredTypeNode === null
+    ? { kind: "unavailable", reason: "missing-original-component", causes: [] }
+    : { kind: "unavailable", reason: "checker-error", causes: [{ kind: "diagnostic", diagnostic: {
+      kind: "checker", diagnostic: { module: result.value.module, index: 0 } } }] });
   const reference = hir.indexSyntaxTree(result.value.tree).find(node => node.kind === "TypeReference");
   const rows = result.value.types.types.filter(row => {
     const component = result.value.types.components[row.component];
@@ -1142,7 +1145,7 @@ test("the public isError receipt precedes any classification, with missing actua
   const file = checked.getSourceFile("/project/src/main.ts");
   const nativeReference = OpenedProgram.syntax(opened.program).get("/project/src/main.ts").outcome.numbering.nodes[reference.typeName.id];
   const queries = checked.getSourceFileQueries(file);
-  assert.equal(queries.typeShape.isError(queries.checker.getTypeAtLocation(nativeReference)), true);
+  assert.equal(queries.typeShape.isError(queries.checker.getTypeAtLocation(nativeReference)?.type), true);
   const actualAny = openedModule("export function identity(value: any): any { return value; }\n");
   const capturedAny = front.captureModule(actualAny.deps, actualAny.program, actualAny.module);
   assert.equal(capturedAny.kind, "ok");

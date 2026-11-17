@@ -59,7 +59,7 @@ const prefix = typeText => typeText.replace(/("[^"]*")|\b([A-Z]\w*)\b/g, (match,
   : name === "P" ? "Hir.SyntaxPhase" : `Hir.${name}`);
 const guards = new Map();
 const guardOf = (typeNode, label) => {
-  const kinds = [...new Set(kindsOfType(shape.getTypeFromTypeNode(typeNode)))].sort();
+  const kinds = [...new Set(kindsOfType(shape.getTypeFromTypeNode(typeNode)?.type))].sort();
   if (kinds.length === 0) throw new Error(`no kinds for ${label}: ${text(typeNode)}`);
   const key = kinds.join(",");
   if (!guards.has(key)) guards.set(key, { name: `isGroup${guards.size}`, kinds, type: prefix(text(typeNode).replace(/\s*\|\s*null$/u, "")) });
@@ -112,7 +112,7 @@ const expanded = members.flatMap(member => {
 for (const member of expanded) {
   const name = text(member).replace(/<.*$/su, "");
   const declaration = decls.get(name);
-  const kinds = [...new Set(kindsOfType(shape.getTypeFromTypeNode(member)))].sort();
+  const kinds = [...new Set(kindsOfType(shape.getTypeFromTypeNode(member)?.type))].sort();
   const props = ast.members(declaration).filter(m => ast.is.IsPropertySignatureDeclaration(m));
   const fields = props.filter(p => !header.has(ast.text(ast.name(p))));
   if (fields.length === 0) {
@@ -144,7 +144,7 @@ for (const member of expanded) {
       const reference = ast.is.IsUnionTypeNode(typeNode) ? ast.children(typeNode).find(child => child !== undefined && ast.is.IsTypeReferenceNode(child)) : typeNode;
       const element = ast.typeArguments(reference)[0];
       expression = `${nullable ? "listOrNull" : "list"}(context, view.${sdk}, id, ${guardOf(element, `${name}.${field}`)})`;
-    } else if (kindsOfType(shape.getTypeFromTypeNode(typeNode)).length > 0) {
+    } else if (kindsOfType(shape.getTypeFromTypeNode(typeNode)?.type).length > 0) {
       expression = `${nullable ? "oneOrNull" : "one"}(context, view.${sdk}, id, ${guardOf(typeNode, `${name}.${field}`)})`;
     } else if (scalarSource[field] !== undefined) expression = scalarSource[field]();
     else throw new Error(`no source for scalar ${name}.${field}: ${typeText}`);
@@ -224,7 +224,7 @@ for (const guard of guards.values()) {
   out.push(`${typeNodes ? "export " : ""}function ${guard.name}(node: Hir.SyntaxNode<Hir.SyntaxPhase>): node is ${guard.type} { return ${name}.includes(node.kind); }`);
 }
 out.push(`/** The kinds of HIR's expression syntax. */`);
-out.push(`export const expressionKinds: readonly string[] = [${[...new Set(kindsOfType(shape.getTypeFromTypeNode(ast.typeNode(decls.get("Expression")))))].sort().map(kind => `"${kind}"`).join(", ")}];`);
+out.push(`export const expressionKinds: readonly string[] = [${[...new Set(kindsOfType(shape.getTypeFromTypeNode(ast.typeNode(decls.get("Expression")))?.type))].sort().map(kind => `"${kind}"`).join(", ")}];`);
 out.push(`function isSyntax(node: Hir.SyntaxNode<Hir.SyntaxPhase>): node is Hir.SyntaxNode<Hir.SyntaxPhase> { return isSyntaxKinds.includes(node.kind); }`);
 out.push(`const isSyntaxKinds: readonly string[] = [${[...new Set(cases.flatMap(entry => entry.kinds))].sort().map(kind => `"${kind}"`).join(", ")}];`);
 out.push(``);

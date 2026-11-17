@@ -41,6 +41,24 @@ test(`public Host analysis source barrier captures the complete actual ${library
   assert.equal(result.value.modules.some(module => module.module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts")), true);
 });
 
+test("public Host analysis reports the actual original readonly assignment diagnostic at its consuming fact", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const source = "export function store():boolean{const a:boolean=true;a=false;return a;}";
+  const input = analysisInput(fixture, "sdk-minimal", source);
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "refused");
+  assert.equal(result.diagnostics.length, 1);
+  const diagnostic = result.diagnostics[0];
+  assert.equal(diagnostic.code.kind, "checker");
+  assert.equal(diagnostic.code.number, 2588);
+  assert.equal(diagnostic.site.kind, "source");
+  assert.equal(diagnostic.site.origin.start, source.indexOf("a=false"));
+  assert.equal(diagnostic.site.origin.length, 1);
+  const valid = analyzeHostProgram(analysisInput(fixture, "sdk-minimal", source.replace("const a", "let a")));
+  assert.equal(valid.kind, "ok");
+});
+
 test("real public Host analysis retains an omitted initializer's actual captured boolean mutation", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

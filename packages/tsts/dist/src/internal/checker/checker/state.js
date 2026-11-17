@@ -1,4 +1,6 @@
 import { NewGoStructMap } from "../../../go/compat.js";
+import { GetNodeId } from "../../ast/utilities.js";
+import { LiteralCreation } from "./literal-creation.js";
 import * as xxh3 from "../../../go/github.com/zeebo/xxh3.js";
 import { Uint32, Uint64 } from "../../../go/sync/atomic.js";
 import * as strconv from "../../../go/strconv.js";
@@ -587,6 +589,15 @@ export const IterationUseCacheFlags = IterationUseAllowsSyncIterablesFlag | Iter
 export const IterationTypeKindYield = 0;
 export const IterationTypeKindReturn = 1;
 export const IterationTypeKindNext = 2;
+export function contextWideningKey(root, path, source) {
+    let original = source;
+    while (original.derivation?.kind === "regular-of" || original.derivation?.kind === "widened-from")
+        original = original.derivation.source;
+    const literal = LiteralCreation.read(original);
+    if (literal === undefined)
+        return undefined;
+    return JSON.stringify([String(root.id), path, String(GetNodeId(literal.node)), literal.mode]);
+}
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::varGroup::nextCheckerID","kind":"varGroup","status":"implemented","sigHash":"dbc1c6e027cb16b6fd2215b971d28a64a490ef784d68d5d95e42b3041fdabe51","bodyHash":"691c9b3b86cfec456bb8ca016c01f0d098694586e0f4d0db67dc01e307680fb9"}
  *

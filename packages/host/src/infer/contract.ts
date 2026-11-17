@@ -1,5 +1,5 @@
 import type { Diagnostic, Result, UnitAnswerPosition, UnitRequest } from "../diag/contract.js";
-import type { BodyId, DefId } from "../ids/contract.js";
+import type { BodyId, DefId, ModuleId } from "../ids/contract.js";
 import type { Signature, SignatureRequest, TypeEvidence, TypeExpansionLimits, TypeInterner, TypeProductionRequest } from "../ir-types/contract.js";
 import type { CheckedPhase, Declaration, HirBindingViews, HirBody, HirModuleBinding } from "../ir-hir/contract.js";
 import type { DataflowLimits } from "../dataflow/contract.js";
@@ -19,6 +19,7 @@ export interface GroupDeps {
 }
 
 export interface InferDeps extends GroupDeps, HirBindingViews {
+  readonly checkerDiagnosticsOf: (module: ModuleId) => readonly Diagnostic[];
   readonly rules: RuleTable;
   readonly types: TypeInterner;
   readonly typeExpansion: TypeExpansionLimits;

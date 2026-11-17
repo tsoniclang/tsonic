@@ -14,6 +14,7 @@ import { after, before, test } from "node:test";
 import { checkCoverage } from "../architecture/host/coverage.mjs";
 import { parseSources } from "../architecture/host/import-graph.mjs";
 import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
+import { typeParameterDeclaration } from "./fixtures/type-parameter-declarations.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const runtimeFiles = ["index.js", "definitions.js", "signatures.js", "placement.js"].map(name => resolve(repository, "packages/host/dist/decls", name));
@@ -608,7 +609,7 @@ test("declaredSignatureOf: past the type-expansion limit the answer is refused w
   // which enter the request's key (the diagnostic's unit).
   const program = addProgram();
   const limited = { ...program.inputs, typeExpansion: { ...NO_EXPANSION_LIMIT, maximumVisits: 0 } };
-  const parameter = index => ({ owner: program.add, index });
+  const parameter = index => typeParameterDeclaration(program.add, index);
   const vector = { classBindings: [{ kind: "rigid", parameter: parameter(0) }], methodBindings: [{ kind: "bound", parameter: parameter(1), type: 0 }],
     capturedBindings: [], selfBindings: [{ kind: "rigid", owner: program.moduleDefinition }, { kind: "bound", owner: program.add, type: 0 }] };
   const step = decls.declaredSignatureOf(limited, request(program, { bindings: { kind: "instantiated", bindings: vector } }));
@@ -628,11 +629,13 @@ function preorder(root) {
   for (const node of nodes) for (const child of hir.childrenOfSyntax(node)) child.parent = node.id;
   return nodes;
 }
-const identity = (owner, index) => ({ owner, index });
+const parameterDefinition = (owner, text) => ids.encodeDefId({
+  ...ids.decodeDefId(owner).value, segments: [...ids.decodeDefId(owner).value.segments, segment(text)],
+});
 const typeParameter = (text, owner, index) => {
-  const definition = ids.encodeDefId({ ...ids.decodeDefId(owner).value, segments: [...ids.decodeDefId(owner).value.segments, segment(text)] });
+  const definition = parameterDefinition(owner, text);
   return { kind: "TypeParameter", modifiers: null, name: name(text, definition), constraint: null, expression: null, defaultType: null,
-    tsonic: { ...facts(owner), definition, parameter: { identity: identity(owner, index), declaration: definition, constraint: null, default: null } } };
+    tsonic: { ...facts(owner), definition, parameter: { declaration: definition, constraint: null, default: null } } };
 };
 const typeParameters = (owner, ...texts) => texts.length === 0 ? null : list(texts.map((text, index) => typeParameter(text, owner, index)));
 const parameterNamed = (text, owner) => ({ kind: "Parameter", modifiers: null, dotDotDotToken: null, name: name(text, null), questionToken: null, type: null, initializer: null,
@@ -699,10 +702,10 @@ test("generic environment: the partition of K-3292's table, static against insta
   const program = genericModule();
   const table = decls.describeDefinitions(checked(program.module), []);
   const at = definition => table.definitions.find(row => row.definition === definition).generics;
-  const param = (owner, index) => identity(owner, index);
+  const param = parameterDefinition;
   const scope = (classParameters, methodParameters, capturedParameters, selfOwners) => ({ classParameters, methodParameters, capturedParameters, selfOwners });
   const { C, m, arrow, D, n, h, s, t, k, g, Alias, root } = program;
-  const T = param(C, 0), U = param(m, 0), V = param(arrow, 0), W = param(D, 0), X = param(n, 0), H = param(h, 0), Y = param(s, 0), Tk = param(k, 0), Z = param(g, 0), A = param(Alias, 0);
+  const T = param(C, "T"), U = param(m, "U"), V = param(arrow, "V"), W = param(D, "W"), X = param(n, "X"), H = param(h, "H"), Y = param(s, "Y"), Tk = param(k, "T"), Z = param(g, "Z"), A = param(Alias, "A");
   assert.deepEqual(at(root), scope([], [], [], []), "the module");
   assert.deepEqual(at(C), scope([T], [], [], [C]), "C<T>");
   assert.deepEqual(at(definitionOf(segment("C"), segment("T"))), scope([T], [], [], [C]), "C's type parameter has C's environment");
@@ -746,8 +749,8 @@ test("wide native binder subtraction retains qualified identity and order withou
     const program = genericModule(Array.from({ length: count }, (_, index) => `T${index}`));
     const table = decls.describeDefinitions(checked(program.module), []);
     const member = table.definitions.find(row => row.definition === program.m).generics;
-    assert.deepEqual(member.classParameters, Array.from({ length: count }, (_, index) => identity(program.C, index)));
-    assert.deepEqual(member.methodParameters, [identity(program.m, 0)]);
+    assert.deepEqual(member.classParameters, Array.from({ length: count }, (_, index) => parameterDefinition(program.C, `T${index}`)));
+    assert.deepEqual(member.methodParameters, [parameterDefinition(program.m, "U")]);
     assert.deepEqual(member.capturedParameters, []);
   }
 });

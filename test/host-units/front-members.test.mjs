@@ -15,7 +15,8 @@ test("actual global augmentation retains its original module keyword and genuine
   const declaration = captured.value.tree.statements.nodes.find(node => node.kind === "ModuleDeclaration");
   assert.equal(declaration !== undefined, true);
   assert.equal(declaration.keyword, "GlobalKeyword");
-  const definitions = fixture.front.lowerModuleDefinitions(captured.value);
+  const definitions = fixture.front.lowerModuleDefinitions({ module: captured.value,
+    componentRoots: captured.value.types.components.map(component => component.root).filter(root => root.module === captured.value.module) });
   assert.equal(definitions.kind, "ok");
   assert.equal(definitions.value.rows.some(row => row.node === declaration.id && row.kind === "ModuleDeclaration"), true);
 });
@@ -31,7 +32,8 @@ test("actual namespace-valued members retain their genuine module declaration or
   const captured = fixture.front.captureModule(opened.deps, opened.program, module);
   assert.equal(captured.kind, "ok");
   const raw = captured.value;
-  const definitions = fixture.front.lowerModuleDefinitions(raw);
+  const definitions = fixture.front.lowerModuleDefinitions({ module: raw,
+    componentRoots: raw.types.components.map(component => component.root).filter(root => root.module === raw.module) });
   assert.equal(definitions.kind, "ok");
   const rows = new Map(definitions.value.rows.map(row => [row.node, row]));
   const child = raw.types.members.flatMap(table => table.members).find(member => member.name === "Child");

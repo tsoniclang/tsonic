@@ -4,9 +4,11 @@ import { readTypeAliasApplication, resolveTypeAliasApplication } from "./type-ap
 import { SourceFile_FileName } from "../internal/ast/ast.js";
 import { GetSourceFileOfNode, IsFunctionLike } from "../internal/ast/utilities.js";
 import { CheckFlagsOptionalParameter, CheckFlagsRestParameter, } from "../internal/ast/checkflags.js";
-import { Program_GetSourceFile, Program_GetTypeChecker } from "../internal/compiler/program.js";
-import { CheckerLifetimeAPI, WithCheckerLifetime } from "../internal/core/context.js";
-import { getExtensionHost } from "../extensions/host.js";
+import { Program_GetSourceFile, Program_GetTypeCheckerForFile, Program_SourceFiles } from "../internal/compiler/program.js";
+import { CheckerLifetimeDiagnostics, WithCheckerLifetime } from "../internal/core/context.js";
+import { withOwnedChecker, withCheckerById } from "./checker-ownership.js";
+import { createTypeNormalization } from "./type-normalization.js";
+import { sourceTypeAnswer } from "../internal/checker/checker/source-type-answers.js";
 import { Background } from "../go/context.js";
 import { Checker_GetApparentType, Checker_GetExpandedParameters, Checker_GetIndexInfosOfType, Checker_GetPropertiesOfType, Checker_GetReturnTypeOfSignature, Checker_GetSignaturesOfType, Checker_GetTypeArguments, Checker_GetTypeFromTypeNode, Checker_GetWidenedType, Checker_IsArrayLikeType, Checker_RemoveMissingOrUndefinedType, IsTupleType, } from "../internal/checker/exports.js";
 import { Checker_getTypeOfSymbol, Checker_getInstantiatedBaseTypes, } from "../internal/checker/checker/symbols.js";
@@ -25,11 +27,12 @@ export function createTypeShapeQueries(program, defaultOptions) {
     }
     const queries = {
         typeToString: (type) => withCheckerForType(program, type, defaultOptions, (checker) => Checker_TypeToString(checker, type)) ?? "",
-        getTypeFromTypeNode: (node) => withCheckerForNode(program, node, defaultOptions, (checker) => Checker_GetTypeFromTypeNode(checker, node)),
+        getTypeFromTypeNode: (node) => withCheckerForNode(program, node, defaultOptions, checker => sourceTypeAnswer(checker, node, Checker_GetTypeFromTypeNode(checker, node))),
         instantiateTypeAlias: (declaration, arguments_) => withCheckerForNode(program, declaration, defaultOptions, checker => resolveTypeAliasApplication(checker, declaration, arguments_)),
-        getTypeAliasApplication: (type) => withCheckerForSourceFile(program, defaultOptions.sourceFile, defaultOptions, checker => readTypeAliasApplication(checker, type)),
-        getIndexedAccessComponents: (type) => withCheckerForSourceFile(program, defaultOptions.sourceFile, defaultOptions, checker => readTypeIndexedAccessComponents(checker, type)),
-        selectIndexedAccess: (objectType, indexType) => withCheckerForSourceFile(program, defaultOptions.sourceFile, defaultOptions, checker => selectTypeIndexedAccess(checker, objectType, indexType)),
+        getTypeAliasApplication: (type) => withOwnedChecker(program, defaultOptions.sourceFile, type?.checker, defaultOptions.context ?? Background(), checker => readTypeAliasApplication(checker, type)),
+        getIndexedAccessComponents: (type) => withOwnedChecker(program, defaultOptions.sourceFile, type?.checker, defaultOptions.context ?? Background(), checker => readTypeIndexedAccessComponents(checker, type)),
+        selectIndexedAccess: (objectType, indexType) => withOwnedChecker(program, defaultOptions.sourceFile, objectType?.checker, defaultOptions.context ?? Background(), checker => checker.program.SourceFiles() === Program_SourceFiles(program)
+            ? selectTypeIndexedAccess(checker, objectType, indexType) : undefined),
         getConstantValue: (node) => withCheckerForNode(program, node, defaultOptions, (checker) => Checker_GetConstantValue(checker, node)),
         getNumericLiteralTypeValue: (type) => withCheckerForType(program, type, defaultOptions, () => {
             if (hasFlags(type, TypeFlagsNumberLiteral))
@@ -66,13 +69,11 @@ export function createTypeShapeQueries(program, defaultOptions) {
         isTypeReference: (type) => type !== undefined && (type.objectFlags & ObjectFlagsReference) !== 0,
         isTuple: isTupleType,
         isArrayLike: (type) => withCheckerForType(program, type, defaultOptions, (checker) => Checker_IsArrayLikeType(checker, type)) === true,
-        isTypeIdenticalTo: (left, right) => withCheckerForSourceFile(program, defaultOptions.sourceFile, defaultOptions, checker => {
-            if (checker === undefined || left?.checker === undefined || right?.checker === undefined ||
-                left.checker !== checker || right.checker !== checker ||
-                left.checker.program.SourceFiles() !== checker.program.SourceFiles() ||
+        isTypeIdenticalTo: (left, right) => withOwnedChecker(program, defaultOptions.sourceFile, left?.checker, defaultOptions.context ?? Background(), checker => {
+            if (left === undefined || right?.checker === undefined || checker.program.SourceFiles() !== Program_SourceFiles(program) ||
                 right.checker.program.SourceFiles() !== checker.program.SourceFiles())
                 return false;
-            return Checker_isTypeIdenticalTo(checker, left, right);
+            return Checker_isTypeIdenticalTo(checker, left, right.checker === checker ? right : createTypeNormalization(checker).type(right));
         }) === true,
         couldContainTypeVariables: (type) => withCheckerForType(program, type, defaultOptions, (checker) => {
             if (checker === undefined) {
@@ -86,18 +87,7 @@ export function createTypeShapeQueries(program, defaultOptions) {
             ? Checker_GetTypeArguments(checker, type)
             : []) ?? [],
         getInstantiatedBaseTypes(type) {
-            const owner = type?.checker;
-            if (owner === undefined ||
-                Program_GetSourceFile(program, SourceFile_FileName(defaultOptions.sourceFile)) !== defaultOptions.sourceFile)
-                return undefined;
-            return withCheckerForSourceFile(program, defaultOptions.sourceFile, defaultOptions, checker => {
-                if (checker === undefined)
-                    return undefined;
-                if (checker !== owner && checker.program !== owner.program) {
-                    const host = getExtensionHost(checker.program);
-                    if (host === undefined || host !== getExtensionHost(owner.program))
-                        return undefined;
-                }
+            return withOwnedChecker(program, defaultOptions.sourceFile, type?.checker, defaultOptions.context ?? Background(), owner => {
                 const bases = Checker_getInstantiatedBaseTypes(owner, type);
                 if (bases === undefined)
                     return undefined;
@@ -164,7 +154,7 @@ export function createTypeShapeQueries(program, defaultOptions) {
                 return getTypeSignatureInfo(checker, signature);
             }))) ?? Object.freeze([]);
         },
-        getDeclarationSignatureInfo: declaration => !IsFunctionLike(declaration) ? undefined : withCheckerForSourceFile(program, GetSourceFileOfNode(declaration), defaultOptions, checker => {
+        getDeclarationSignatureInfo: declaration => !IsFunctionLike(declaration) ? undefined : withCheckerForNode(program, declaration, defaultOptions, checker => {
             const signature = Checker_getSignatureFromDeclaration(checker, declaration);
             return signature === undefined ? undefined : getTypeSignatureInfo(checker, signature);
         }),
@@ -311,37 +301,24 @@ function isTupleType(type) {
     return type !== undefined && IsTupleType(type);
 }
 function withCheckerForNode(program, node, defaultOptions, callback) {
-    if (node === undefined) {
-        return undefined;
-    }
-    return withCheckerForSourceFile(program, defaultOptions.sourceFile, defaultOptions, callback);
-}
-function withCheckerForType(program, type, defaultOptions, callback) {
-    if (program === undefined || type === undefined) {
-        return undefined;
-    }
-    if (type.checker !== undefined) {
-        return callback(type.checker);
-    }
-    return withCheckerForSourceFile(program, defaultOptions.sourceFile, defaultOptions, callback);
-}
-function withCheckerForSignature(program, signature, defaultOptions, callback) {
-    if (program === undefined || signature === undefined) {
-        return undefined;
-    }
-    return withCheckerForSourceFile(program, defaultOptions.sourceFile, defaultOptions, callback);
-}
-function withCheckerForSourceFile(program, sourceFile, defaultOptions, callback) {
+    const sourceFile = GetSourceFileOfNode(node);
     if (program === undefined || sourceFile === undefined ||
+        Program_GetSourceFile(program, SourceFile_FileName(defaultOptions.sourceFile)) !== defaultOptions.sourceFile ||
         Program_GetSourceFile(program, SourceFile_FileName(sourceFile)) !== sourceFile) {
         return undefined;
     }
-    const [checker, done] = Program_GetTypeChecker(program, WithCheckerLifetime(defaultOptions.context ?? Background(), CheckerLifetimeAPI));
+    const [checker, done] = Program_GetTypeCheckerForFile(program, WithCheckerLifetime(defaultOptions.context ?? Background(), CheckerLifetimeDiagnostics), sourceFile);
     try {
         return callback(checker);
     }
     finally {
         done();
     }
+}
+function withCheckerForType(program, type, defaultOptions, callback) {
+    return withOwnedChecker(program, defaultOptions.sourceFile, type?.checker, defaultOptions.context ?? Background(), callback);
+}
+function withCheckerForSignature(program, signature, defaultOptions, callback) {
+    return signature === undefined ? undefined : withCheckerById(program, defaultOptions.sourceFile, signature.checkerId, defaultOptions.context ?? Background(), callback);
 }
 //# sourceMappingURL=type-shape.js.map

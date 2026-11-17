@@ -1,3 +1,4 @@
+import { typeParameterDeclaration } from "./fixtures/type-parameter-declarations.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { isDeepStrictEqual } from "node:util";
@@ -138,9 +139,9 @@ test("supplied native guarantees never become unknown when exact selected associ
 
 test("parametric native environments use genuine ready rigid slots across all four binding families", () => {
   const value = fixture();
-  const classParameter = { owner: definition("class"), index: 0 };
-  const methodParameter = { owner: value.declaration, index: 1 };
-  const capturedParameter = { owner: definition("outer"), index: 2 };
+  const classParameter = typeParameterDeclaration(definition("class"), 0);
+  const methodParameter = typeParameterDeclaration(value.declaration, 1);
+  const capturedParameter = typeParameterDeclaration(definition("outer"), 2);
   value.association.scope = { classParameters: [classParameter], methodParameters: [methodParameter], capturedParameters: [capturedParameter], selfOwners: [definition("self")] };
   const result = summary(value.deps, value.input);
   assert.equal(result.key.execution.request.bindings.kind, "parametric");

@@ -879,6 +879,7 @@ export declare function Checker_resolveJsxOpeningLikeElement(receiver: GoPtr<Che
 export declare function Checker_checkApplicableSignatureForJsxCallLikeElement(receiver: GoPtr<Checker>, node: GoPtr<Node>, signature: GoPtr<Signature>, relation: GoPtr<Relation>, checkMode: CheckMode, reportErrors: bool, diagnosticOutput: GoPtr<GoSlice<GoPtr<Diagnostic>>>): bool;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/jsx.go::method::Checker.createJsxAttributesTypeFromAttributesProperty","kind":"method","status":"implemented","sigHash":"7d0913e9a7b6a76d1c36bd936c78f6bc486c9d896cb991a3f02a52dea850cc94","bodyHash":"36cc949a1bd0733901e68380c392d08b1634c465ea17f1b09f192e6ebef40c6d"}
+ * @tsgo-override {"category":"extension-host","allow":["body"],"reason":"Pass explicit absence to R5-20 spread occurrence inputs because JSX attribute construction is not a normal object-literal question; native JSX spread behavior is unchanged."}
  *
  * Go source:
  * func (c *Checker) createJsxAttributesTypeFromAttributesProperty(openingLikeElement *ast.Node, checkMode CheckMode) *Type {

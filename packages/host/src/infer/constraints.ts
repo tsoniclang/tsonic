@@ -219,6 +219,8 @@ function generate(deps: InferDeps, group: InferenceGroup, signatures: ReadonlyMa
       const pending: Frame[] = [{ kind: "enter", node: body.root }];
       for (let frame = pending.pop(); frame !== undefined; frame = pending.pop()) {
         if (frame.kind === "enter") {
+          const failure = failedRead(deps, frame.node);
+          if (failure !== null) return { kind: "done", value: { kind: "refused", diagnostics: failure } };
           if (frame.node.kind === "BinaryExpression" && frame.node.tsonic.role !== "assignment"
             || frame.node.kind === "PrefixUnaryExpression" || frame.node.kind === "CallExpression"
             || frame.node.kind === "PropertyAccessExpression") {
@@ -302,6 +304,25 @@ function childrenOf(node: HirNode): readonly HirNode[] {
     case "Identifier": case "TrueKeyword": case "FalseKeyword": case "StringLiteral": case "NullKeyword": return [];
     default: return notInferredYet(PORT, `a ${node.kind}`, node.origin);
   }
+}
+
+function failedRead(deps: InferDeps, node: HirNode): readonly [Diagnostic, ...Diagnostic[]] | null {
+  const annotation = node.tsonic;
+  if (annotation === null || !("role" in annotation)) return null;
+  const fact = annotation.role === "value" ? annotation.value.views.read
+    : annotation.role === "assignment-target" && annotation.place.kind === "available" ? annotation.place.value.read : null;
+  if (fact === null || fact.kind !== "unavailable" || fact.reason !== "checker-error") return null;
+  let diagnostics: [Diagnostic, ...Diagnostic[]] | null = null;
+  for (const cause of fact.causes) {
+    if (cause.kind !== "diagnostic" || cause.diagnostic.kind !== "checker")
+      return callerDefect(PORT, "an original checker read failure retains its actual checker diagnostic identity");
+    const reference = cause.diagnostic.diagnostic;
+    const diagnostic = deps.checkerDiagnosticsOf(reference.module)[reference.index];
+    if (diagnostic === undefined) return callerDefect(PORT, "a checker read failure names its actual published diagnostic");
+    if (diagnostics === null) diagnostics = [diagnostic];
+    else diagnostics.push(diagnostic);
+  }
+  return diagnostics ?? callerDefect(PORT, "a checker read failure retains a nonempty original cause");
 }
 
 function leave(walk: Walk, node: HirNode): void {

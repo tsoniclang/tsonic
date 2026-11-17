@@ -79,6 +79,8 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
   };
   const inference = inferDepsOf({ rules: { libraries: source.libraries, types: source.types,
     typeExpansion: inputs.limits.instantiation.typeExpansion }, hirBody: bodyOf, itemOf,
+    checkerDiagnosticsOf: module => source.modules.find(checked => checked.module.module === module)?.module.checkerDiagnostics
+      ?? fail("An inference fact needs its original module's checker diagnostic inventory."),
     bindings: source.modules.map(module => module.module.bindings), bindingOf: source.bindingOf, limits: inputs.limits.inference,
     graph: inputs.limits.dataflow });
   const grouped = pipelineWiring.infer.groupsOf(inference, [...sources.bodies.keys()]);

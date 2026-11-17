@@ -129,14 +129,27 @@ test("a declaration-only computed name does not acquire executing assignment sto
   assert.equal(result.value.tree.statements.nodes[1].members.nodes[0].name.expression.operatorToken.kind, "EqualsToken");
 });
 
-test("the actual SDK readonly local answer retains its diagnostics without inventing its missing error-type association", async () => {
+test("the actual SDK readonly local answer retains its original error association through lowering", async () => {
   const { raw, lower } = await captured("export function store():boolean{const a:boolean=true;a=false;return a;}");
   assert.equal(raw.storage.length, 1);
   const fact = raw.storage[0].fact;
   assert.equal(fact.kind, "available");
   assert.equal(fact.value.writable, false);
   assert.equal(raw.checkerDiagnostics.length > 0, true);
-  assert.throws(() => lower(), /actual captured component\/error association \(missing-original-component\)/u);
+  const assignment = raw.tree.statements.nodes[0].body.statements.nodes[1].expression;
+  const read = raw.checkerViews.find(view => view.node.node === assignment.left.id).read;
+  const failed = raw.types.types[read.value].form;
+  assert.equal(failed.kind, "unavailable");
+  assert.equal(failed.reason, "checker-error");
+  const root = failed.causes[0].diagnostic.diagnostic;
+  assert.equal(root.module, raw.module);
+  assert.equal(raw.checkerDiagnostics[root.index].code.number, 2588);
+  assert.deepEqual(raw.types.types[fact.value.type].form, failed);
+  const { checked } = lower();
+  const target = checked.tree.statements.nodes[0].body.statements.nodes[1].expression.left;
+  assert.equal(target.tsonic.role, "assignment-target");
+  assert.deepEqual(target.tsonic.place.value.read, failed);
+  assert.deepEqual(target.tsonic.place.value.write, { kind: "available", value: null });
 });
 
 test("plain assignment capture admits every fact and edge before publishing its actual storage answer", async () => {

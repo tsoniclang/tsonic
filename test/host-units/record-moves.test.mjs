@@ -42,13 +42,11 @@ test("fresh genuine emitted declarations admit the moved records at their owners
   const types = 'import type { DeclarationRequest, SignatureRequest } from "./ir-types/contract.js";\n';
   const hir = 'import type { DeclarationAttributes } from "./ir-hir/contract.js";\n';
   const same = 'type Same<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;\n';
-  const positive = 'import type { Result } from "./diag/contract.js";\n' + types +
+  const positive = types +
     'import type { DeclarationAttributes, HirAttribute } from "./ir-hir/contract.js";\n' +
-    'import type { AttributesOf, HeritageOf, SignatureOfDeclaration } from "./decls/contract.js";\n' + same +
-    'export const signatureRequest: Same<Parameters<SignatureOfDeclaration>[1], SignatureRequest> = true;\n' +
-    'export const heritageRequest: Same<Parameters<HeritageOf>[1], DeclarationRequest> = true;\n' +
-    'export const attributesRequest: Same<Parameters<AttributesOf>[1], DeclarationRequest> = true;\n' +
-    'export const attributesResult: Same<ReturnType<AttributesOf>, Result<DeclarationAttributes>> = true;\n' +
+    'import type { DeclaredSignatureOf } from "./decls/contract.js";\n' + same +
+    'export const signatureRequest: Same<Parameters<DeclaredSignatureOf>[1], SignatureRequest> = true;\n' +
+    'export const attributesPayload: Same<DeclarationAttributes["attributes"], readonly HirAttribute[]> = true;\n' +
     'export function endpoint(request: SignatureRequest): "advertised" | "api-signature" | "api-body" { return request.endpoint; }\n' +
     'export function ordinal(request: SignatureRequest): number { return request.ordinal; }\n' +
     'export function declarationOf(request: SignatureRequest): DeclarationRequest { return { definition: request.definition, bindings: request.bindings }; }\n' +
@@ -79,12 +77,12 @@ test("fresh genuine emitted declarations admit the moved records at their owners
   for (const required of ["consumer.ts", "decls/contract.d.ts", "ir-types/contract.d.ts", "ir-hir/contract.d.ts", "diag/contract.d.ts"])
     assert.equal(loaded.includes(required), true, `${required} is loaded`);
   const negatives = [
-    ["old-declaration-request.ts", 'import type { DeclarationRequest } from "./decls/contract.js";\nexport type Old = DeclarationRequest;', 2459],
+    ["old-declaration-request.ts", 'import type { DeclarationRequest } from "./decls/contract.js";\nexport type Old = DeclarationRequest;', 2305],
     ["old-signature-request.ts", 'import type { SignatureRequest } from "./decls/contract.js";\nexport type Old = SignatureRequest;', 2459],
-    ["old-declaration-attributes.ts", 'import type { DeclarationAttributes } from "./decls/contract.js";\nexport type Old = DeclarationAttributes;', 2459],
+    ["old-declaration-attributes.ts", 'import type { DeclarationAttributes } from "./decls/contract.js";\nexport type Old = DeclarationAttributes;', 2305],
     ["attributes-from-types.ts", 'import type { DeclarationAttributes } from "./ir-types/contract.js";\nexport type Wrong = DeclarationAttributes;', 2305],
     ["request-from-hir.ts", 'import type { SignatureRequest } from "./ir-hir/contract.js";\nexport type Wrong = SignatureRequest;', 2305],
-    ["distinct-records.ts", `${types}import type { HeritageOf } from "./decls/contract.js";\n${same}export const wrong: Same<Parameters<HeritageOf>[1], SignatureRequest> = true;\nexport type Kept = DeclarationRequest;`, 2322],
+    ["distinct-records.ts", `${types}${same}export const wrong: Same<DeclarationRequest, SignatureRequest> = true;\n`, 2322],
     ["readonly-ordinal.ts", `${types}export function update(request: SignatureRequest): DeclarationRequest { request.ordinal = 1; return request; }`, 2540],
     ["foreign-endpoint.ts", `${types}export function replace(request: SignatureRequest): SignatureRequest | DeclarationRequest { const next: SignatureRequest = { ...request, endpoint: "body" }; return next; }`, 2322],
     ["readonly-attributes.ts", `${hir}export function grow(value: DeclarationAttributes): void { value.attributes.push(); }`, 2339],

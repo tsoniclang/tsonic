@@ -332,7 +332,7 @@ export function Checker_getInstantiationExpressionType(receiver, exprType, node)
         return SameMap(applicableSignatures, (sig) => {
             const typeArgumentTypes = Checker_checkTypeArguments(receiver, sig, typeArgumentNodes, true, undefined);
             if (typeArgumentTypes !== undefined) {
-                return Checker_getSignatureInstantiation(receiver, sig, typeArgumentTypes, IsInJSFile(sig.declaration), undefined);
+                return Checker_getSignatureInstantiation(receiver, sig, typeArgumentTypes, IsInJSFile(sig.declaration), undefined, undefined);
             }
             return sig;
         });
