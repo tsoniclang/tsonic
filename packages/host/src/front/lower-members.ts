@@ -21,9 +21,10 @@ export function lowerMembers(deps: LowerDeps, members: readonly RawMember[],
     const readOrigins = new Map<string, MemberOrigin>();
     const writeOrigins = new Map<string, MemberOrigin>();
     for (const origin of member.origins) {
-      if (origin.kind !== "declaration" && origin.kind !== "intrinsic")
+      if (origin.kind !== "declaration" && origin.kind !== "intrinsic" && origin.kind !== "source-member")
         throw new TypeError("front: checked member conversion requires its actual read/write origin association");
       const key = origin.kind === "intrinsic" ? encodeKey([origin.kind, origin.symbol])
+        : origin.kind === "source-member" ? encodeKey([origin.kind, origin.occurrence.module, origin.occurrence.node])
         : encodeKey([origin.kind, origin.declaration.module, origin.declaration.node]);
       const value = origins.get(key) ?? lowerMemberOrigin(deps, origin);
       origins.set(key, value);

@@ -2822,6 +2822,9 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
     ["mapped body", selected => { selected.origins = [{ kind: "mapped", owner: { kind: "body", value: { body: otherBody, node: ids.nodeId(0) } }, key: { kind: "number", value: { numerator: 1n, denominator: 1n, negativeZero: false } } }]; },
       selected => { selected.origins[0].owner.value.node = ids.nodeId(99); }, "node-resolves",
       "A selected member origin retains its actual qualified source occurrence."],
+    ["source data property", selected => { selected.origins = [{ kind: "source-member", occurrence: { body: otherBody, node: ids.nodeId(0) } }]; },
+      selected => { selected.origins[0].occurrence.node = ids.nodeId(99); }, "node-resolves",
+      "A selected data-property member origin retains its actual qualified source occurrence."],
     ["declared origin", selected => { selected.origins = [{ kind: "declared", declaration: definitions.other }]; },
       selected => { selected.origins[0].declaration = definitions.missing; }, "producer-resolves",
       "A selected member origin retains its actual declaration."],
@@ -3559,9 +3562,10 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
     const selected = member(); selected.decision.key = key;
     selected.decision.origins = [{ kind: "declared", declaration: definitions.field }, { kind: "class-prototype", owner: definitions.layout },
       { kind: "mapped", owner: { kind: "body", value: nodeRef(1) }, key: { kind: "text", value: "value" } },
-      { kind: "intrinsic", symbol: "global-this" }, { kind: "intrinsic", symbol: "undefined" }];
+      { kind: "intrinsic", symbol: "global-this" }, { kind: "intrinsic", symbol: "undefined" }, { kind: "source-member", occurrence: nodeRef(1) }];
     const expected = selectionText(authored, [`declared(declaration=def:"${definitions.field}")`, `class-prototype(owner=def:"${definitions.layout}")`,
-      `mapped(owner=body(value=${nodeText(1)}), key=text(value="value"))`, 'intrinsic(symbol="global-this")', 'intrinsic(symbol="undefined")']);
+      `mapped(owner=body(value=${nodeText(1)}), key=text(value="value"))`, 'intrinsic(symbol="global-this")', 'intrinsic(symbol="undefined")',
+      `source-member(occurrence=${nodeText(1)})`]);
     await arenaTextCase(`full field member key transport ${key.kind}`, "projections", [{ id: 0, parent: null, projection: { kind: "field", member: selected } }],
       [`ProjectionPath(id=path:0, parent=null, projection=field(member=${expected}))`]);
     await factTransport(`closed array complete selected member ${key.kind}`, ["closedArrays"], "closedArrays=[]", { node: 1, kind: "closed", declarations: [{ kind: "local", local: { body, local: 0 } }, { kind: "definition", definition: definitions.field }], references: [nodeRef(2)], literals: [nodeRef(3)], elements: [selected] },

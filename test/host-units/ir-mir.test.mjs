@@ -3477,8 +3477,8 @@ test("MIR member keys, origins and accessor endpoints retain exact nested select
   for (const [key, keyText] of keys) {
     const origins = [{ kind: "declared", declaration: endpoint.declaration }, { kind: "class-prototype", owner: endpoint.declaration },
       { kind: "mapped", owner: itemReference, key }, { kind: "mapped", owner: sourceReference, key },
-      { kind: "intrinsic", symbol: "global-this" }, { kind: "intrinsic", symbol: "undefined" }];
-    const originsText = `declared(declaration=def:"D[M[P[p];m];run]"), class-prototype(owner=def:"D[M[P[p];m];run]"), mapped(owner=${itemReferenceText}, key=${keyText}), mapped(owner=${sourceReferenceText}, key=${keyText}), intrinsic(symbol="global-this"), intrinsic(symbol="undefined")`;
+      { kind: "intrinsic", symbol: "global-this" }, { kind: "intrinsic", symbol: "undefined" }, { kind: "source-member", occurrence: nodeRef }];
+    const originsText = `declared(declaration=def:"D[M[P[p];m];run]"), class-prototype(owner=def:"D[M[P[p];m];run]"), mapped(owner=${itemReferenceText}, key=${keyText}), mapped(owner=${sourceReferenceText}, key=${keyText}), intrinsic(symbol="global-this"), intrinsic(symbol="undefined"), source-member(occurrence=${nodeText})`;
     const getter = { ...endpoint, role: "api-body", body: null };
     const getterText = 'HirCallableEndpoint(declaration=def:"D[M[P[p];m];run]", role="api-body", signature=sig:0, body=null)';
     const decision = { key, origins, selectedDeclarations: [endpoint.declaration], primary: endpoint.declaration,

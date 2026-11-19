@@ -175,6 +175,7 @@ export interface RawSignature {
 
 export type RawMemberOrigin =
   | { readonly kind: "declaration"; readonly declaration: RawNodeRef; readonly access: "read" | "write" }
+  | { readonly kind: "source-member"; readonly occurrence: RawNodeRef; readonly access: "read" | "write" }
   | { readonly kind: "intrinsic"; readonly symbol: IntrinsicMemberOrigin; readonly access: "read" | "write" }
   | { readonly kind: "class-prototype"; readonly declaration: RawNodeRef; readonly facet: "value" }
   | { readonly kind: "mapped"; readonly declaration: RawNodeRef; readonly source: RawComponentId;

@@ -261,6 +261,11 @@ function capturedPropertyKey(scope: CaptureScope, node: Node | undefined): RawMe
   return { kind: "symbol", declaration: source, wellKnown: wellKnown === undefined ? null : wellKnownSymbol(wellKnown.kind) };
 }
 
+function capturedMemberOrigin(kind: string, reference: RawNodeRef, access: "read" | "write"): RawMemberOrigin {
+  return kind === "KindPropertyAssignment" ? { kind: "source-member", occurrence: reference, access }
+    : { kind: "declaration", declaration: reference, access };
+}
+
 function capturedMembers(scope: CaptureScope, properties: ReturnType<TypeShapeQueries["getPropertyInfos"]>, position: RawComponentId): readonly RawMember[] | null {
   const parent = scope.tables.components[position];
   if (parent === undefined) return throwInvariant(invariant("A member inventory requires its actual captured source component."));
@@ -322,7 +327,8 @@ function capturedMembers(scope: CaptureScope, properties: ReturnType<TypeShapeQu
         seen.add(source);
         const kind = scope.checked.ast.kindName(source);
         if (kind === "KindInterfaceDeclaration" || kind === "KindTypeAliasDeclaration") continue;
-        if (kind !== "KindVariableDeclaration" && kind !== "KindFunctionDeclaration" && kind !== "KindModuleDeclaration" && kind !== "KindPropertyDeclaration"
+        if (kind !== "KindVariableDeclaration" && kind !== "KindFunctionDeclaration" && kind !== "KindModuleDeclaration"
+          && kind !== "KindPropertyDeclaration" && kind !== "KindPropertyAssignment"
           && kind !== "KindPropertySignature" && kind !== "KindMethodDeclaration" && kind !== "KindMethodSignature"
           && kind !== "KindGetAccessor" && kind !== "KindSetAccessor")
           throw new TypeError(`front: property origin transport for the actual ${kind} declaration is not implemented`);
@@ -335,11 +341,11 @@ function capturedMembers(scope: CaptureScope, properties: ReturnType<TypeShapeQu
         method ||= kind === "KindMethodDeclaration" || kind === "KindMethodSignature";
         if (kind !== "KindSetAccessor") {
           if (!admit(scope, "facts")) return null;
-          origins.push({ kind: "declaration", declaration: reference, access: "read" });
+          origins.push(capturedMemberOrigin(kind, reference, "read"));
         }
         if (!property.readonly && kind !== "KindGetAccessor") {
           if (!admit(scope, "facts")) return null;
-          origins.push({ kind: "declaration", declaration: reference, access: "write" });
+          origins.push(capturedMemberOrigin(kind, reference, "write"));
         }
       }
     }

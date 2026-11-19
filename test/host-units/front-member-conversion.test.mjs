@@ -174,3 +174,122 @@ test("actual intrinsic environment members keep their native origins and the lib
   assert.equal(table.terms[read] === shape, true, "the actual global environment member refers back to the same published shape");
   assert.equal(isDeepStrictEqual(fixture.types.parseTypes(fixture.types.printTypes(table)), { kind: "parsed", value: table }), true);
 });
+
+test("captured data-property origins demand their genuine body occurrence without assigning a definition", async () => {
+  assert.ok(process.env.TSONIC_TEST_ADMISSION);
+  const fixture = await loadFrontFixture();
+  const source = "export const Plain: { enabled: boolean } = { enabled: true };"
+    + "export function check(plain: typeof Plain): boolean { return plain.enabled; }";
+  const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source },
+    libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
+  const opened = fixture.openAndCapture(snapshot);
+  const module = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
+  const capture = fixture.front.captureModule(opened.deps, opened.program, module);
+  assert.equal(capture.kind, "ok");
+  const raw = capture.value;
+  assert.deepEqual(raw.checkerDiagnostics, []);
+  const [statement, callable] = raw.tree.statements.nodes;
+  const plain = statement.declarationList.declarations.nodes[0];
+  const node = plain.initializer.properties.nodes[0];
+  const reference = { module, node: node.id };
+  assert.equal(node.kind, "PropertyAssignment");
+  const members = raw.types.members.flatMap(table => table.members);
+  const property = members.find(member => member.declarations.some(declaration => declaration.module === module && declaration.node === node.id));
+  assert.ok(property);
+  assert.deepEqual(property.origins, ["read", "write"].map(access =>
+    ({ kind: "source-member", occurrence: reference, access })));
+  const use = raw.memberUses.find(row => row.occurrence.node === callable.body.statements.nodes[0].expression.id);
+  assert.deepEqual(use.selectedDeclaration, { module, node: plain.type.members.nodes[0].id });
+  assert.notEqual(use.selectedDeclaration.node, node.id);
+  const definitions = fixture.front.lowerModuleDefinitions({ module: raw, componentRoots: [
+    ...raw.types.components.map(component => component.root).filter(root => root.module === module), ...property.origins.map(origin => origin.occurrence),
+  ] });
+  assert.equal(definitions.kind, "ok");
+  assert.equal(definitions.value.rows.some(row => row.node === node.id), false);
+  const ready = definitions.value.sourceOccurrences.find(row => row.node === node.id);
+  const owner = definitions.value.rows.find(row => row.node === plain.id).definition;
+  assert.deepEqual(ready.occurrence, { kind: "body", value: {
+    body: fixture.ids.encodeBodyId({ owner, role: "initializer", ordinal: 0 }), node: node.id,
+  } });
+  assert.equal(ready.kind, "PropertyAssignment");
+});
+
+test("an imported data property's source occurrence stays in its own module even when another node has the same ID", async () => {
+  assert.ok(process.env.TSONIC_TEST_ADMISSION);
+  const fixture = await loadFrontFixture();
+  const originText = "export const Plain = { enabled: true };";
+  const snapshot = fixture.projectSnapshot({ sourceFiles: {
+    "main.ts": "import { Plain } from './origin.js'; export const read = Plain.enabled;",
+    "origin.ts": originText,
+    "other.ts": originText,
+  }, libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }] });
+  const opened = fixture.openAndCapture(snapshot);
+  const owner = fixture.packageOf("/project");
+  const modules = ["main", "origin", "other"].map(name => fixture.moduleOf(owner, `src/${name}.ts`));
+  const [main, origin, other] = modules.map(module => {
+    const capture = fixture.front.captureModule(opened.deps, opened.program, module);
+    assert.equal(capture.kind, "ok");
+    assert.deepEqual(capture.value.checkerDiagnostics, []);
+    return capture.value;
+  });
+  const variable = raw => raw.tree.statements.nodes[0].declarationList.declarations.nodes[0];
+  const originVariable = variable(origin);
+  const originNode = originVariable.initializer.properties.nodes[0];
+  assert.equal(originNode.id, variable(other).initializer.properties.nodes[0].id);
+  const origins = main.types.members.flatMap(table => table.members).flatMap(member => member.origins)
+    .filter(candidate => candidate.kind === "source-member");
+  const occurrence = { module: origin.module, node: originNode.id };
+  assert.ok(origins.length > 0);
+  assert.deepEqual(origins.map(candidate => candidate.occurrence), origins.map(() => occurrence));
+  assert.equal(main.memberUses.length, 1);
+  assert.deepEqual(main.memberUses[0].selectedDeclaration, occurrence);
+  assert.deepEqual(main.memberUses[0].readDeclarations, [occurrence]);
+  const definition = fixture.front.lowerModuleDefinitions({ module: origin, componentRoots: [occurrence] });
+  assert.equal(definition.kind, "ok");
+  const ready = definition.value.sourceOccurrences.find(row => row.node === occurrence.node);
+  const otherDefinitions = fixture.front.lowerModuleDefinitions({ module: other, componentRoots: [{ module: other.module, node: occurrence.node }] });
+  assert.equal(otherDefinitions.kind, "ok");
+  const crossed = otherDefinitions.value.sourceOccurrences.find(row => row.node === occurrence.node);
+  assert.equal(ready.kind, "PropertyAssignment");
+  const path = fixture.ids.decodeBodyId(ready.occurrence.value.body);
+  assert.equal(path.kind, "decoded");
+  assert.equal(path.value.owner, definition.value.rows.find(row => row.node === originVariable.id).definition);
+  assert.equal(path.value.role, "initializer");
+  assert.throws(() => fixture.front.lowerModuleDefinitions({ module: other, componentRoots: [occurrence] }),
+    /component root request must retain its actual captured module/);
+
+  const mainDefinitions = fixture.front.lowerModuleDefinitions({ module: main, componentRoots: main.types.components
+    .map(component => component.root).filter(root => root.module === main.module) });
+  assert.equal(mainDefinitions.kind, "ok");
+  const local = fixture.lowerDepsFor(mainDefinitions.value, fixture.types.createTypeInterner(), snapshot.packages.files
+    .find(file => file.path.endsWith("/main.ts")).text);
+  const deps = { ...local, sourceOccurrenceOf: reference => reference.module === origin.module && reference.node === originNode.id
+    ? ready : local.sourceOccurrenceOf(reference) };
+  const row = main.types.types.find(candidate => candidate.form.kind === "available" && candidate.form.value.kind === "structure"
+    && main.types.members[candidate.form.value.inventory].members.some(member => member.origins.some(value =>
+      value.kind === "source-member" && value.occurrence.module === origin.module && value.occurrence.node === originNode.id)));
+  assert.ok(row);
+  const { createTypeConversion, convertRawType } = await import("../../packages/host/dist/front/type-conversion.js");
+  const crossedDeps = { ...deps, sourceOccurrenceOf: reference => reference.module === origin.module ? crossed : deps.sourceOccurrenceOf(reference) };
+  assert.throws(() => convertRawType(createTypeConversion(crossedDeps, main), row.id), /actual captured module/u);
+  assert.equal(fixture.types.viewTypes(deps.types).terms.length, 0);
+  for (const invalid of [null, { ...ready, kind: "PropertyDeclaration" }]) {
+    const wrong = { ...deps, sourceOccurrenceOf: reference => reference.module === origin.module ? invalid : deps.sourceOccurrenceOf(reference) };
+    assert.throws(() => convertRawType(createTypeConversion(wrong, main), row.id), /body-qualified PropertyAssignment/u);
+    assert.equal(fixture.types.viewTypes(deps.types).terms.length, 0);
+  }
+  const converted = convertRawType(createTypeConversion(deps, main), row.id);
+  assert.equal(converted.kind, "complete");
+  const table = fixture.types.viewTypes(deps.types);
+  const shape = table.terms[converted.value.type];
+  assert.equal(shape.kind, "shape");
+  const enabled = shape.members.find(member => member.key.kind === "text" && member.key.value === "enabled");
+  assert.deepEqual(enabled.origins, [{ kind: "source-member", occurrence: ready.occurrence.value }]);
+  assert.deepEqual(enabled.readOrigins, enabled.origins);
+  assert.deepEqual(enabled.writeOrigins, enabled.origins);
+  assert.equal(isDeepStrictEqual(fixture.types.parseTypes(fixture.types.printTypes(table)), { kind: "parsed", value: table }), true);
+  const verification = { table, bindings: [], evidence: [], nominalOf: () => null, localExists: () => false };
+  assert.deepEqual(fixture.types.verifyTypes({ ...verification, nodeExists: reference => isDeepStrictEqual(reference, ready.occurrence) }), []);
+  const findings = fixture.types.verifyTypes({ ...verification, nodeExists: reference => isDeepStrictEqual(reference, crossed.occurrence) });
+  assert.equal(findings.some(finding => finding.rule === "cross-owner-qualified"), true);
+});

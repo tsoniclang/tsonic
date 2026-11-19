@@ -194,7 +194,7 @@ export function createTypeTextValues(): TypeTextValues {
     default: return null;
     }
   });
-  const reader_origin: RecordReader<MemberOrigin> = unionReader(["declared","class-prototype","intrinsic","mapped"], label => {
+  const reader_origin: RecordReader<MemberOrigin> = unionReader(["declared","class-prototype","intrinsic","source-member","mapped"], label => {
     switch (label) {
     case "declared": return recordReader<MemberOrigin>("declared", read => {
       const field_declaration = read("declaration", lazyReader(() => reader_definition_id));
@@ -207,6 +207,10 @@ export function createTypeTextValues(): TypeTextValues {
     case "intrinsic": return recordReader<MemberOrigin>("intrinsic", read => {
       const field_symbol = read("symbol", enumReader<IntrinsicMemberOrigin>("intrinsic-member-symbol", ["global-this", "undefined"]));
       return { fields: [field_symbol], value: () => ({ kind: "intrinsic", symbol: field_symbol.value() }) };
+    });
+    case "source-member": return recordReader<MemberOrigin>("source-member", read => {
+      const occurrence = read("occurrence", lazyReader(() => reader_node));
+      return { fields: [occurrence], value: () => ({ kind: "source-member", occurrence: occurrence.value() }) };
     });
     case "mapped": return recordReader<MemberOrigin>("mapped", read => {
       const field_owner = read("owner", lazyReader(() => reader_source));

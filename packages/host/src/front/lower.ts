@@ -8,7 +8,7 @@ import type { MemberKey, MemberOrigin, TypePublicationStop } from "../ir-types/c
 import type { PassingMode } from "../ir-types/contract.js";
 import type { LowerDeps, ModuleDefinitions, ModuleDefinitionsInput, ModuleExports, RawBindingTarget, RawCallSelection, RawCallableAssociation, RawCheckerViews, RawCoreCapture, RawFact, RawMemberUse, RawModule, RawModuleLink, RawPropertyName, RawStorageCapture } from "./contract.js";
 import { moduleIdentities, sourceIdentityName, sourcePropertyNames } from "./identities.js";
-import { bindingOccurrence, lowerBindingFact, lowerBindings, lowerMemberKey } from "./bindings.js";
+import { bindingOccurrence, lowerBindingFact, lowerBindings, lowerMemberKey, lowerMemberOrigin } from "./bindings.js";
 import { lowerExportDeclaration } from "./lower-exports.js";
 import { childSourceBody, enterSourceBody } from "./source-bodies.js";
 import type { SourceBodyScope, SourceBodyTransition } from "./source-bodies.js";
@@ -430,11 +430,14 @@ function memberUse(lowering: Lowering, node: Hir.PropertyAccessExpression<Syntax
     throw new TypeError("front: a member read requires its actual selected read declarations");
   const origins = declarations.map((declaration, index): MemberOrigin => {
     const original = arm.readDeclarations[index];
-    if (original?.module !== declaration.module || original.node !== declaration.node
-      || !member.origins.some(origin => origin.kind === "declaration" && origin.access === "read"
-        && origin.declaration.module === declaration.module && origin.declaration.node === declaration.node))
+    const captured = member.origins.find(origin => {
+      if (origin.kind !== "declaration" && origin.kind !== "source-member") return false;
+      const reference = origin.kind === "declaration" ? origin.declaration : origin.occurrence;
+      return origin.access === "read" && reference.module === declaration.module && reference.node === declaration.node;
+    });
+    if (original?.module !== declaration.module || original.node !== declaration.node || captured === undefined)
       throw new TypeError("front: member read origins must retain the exact selected receiver declarations");
-    return { kind: "declared", declaration: lowering.deps.definitionOf(declaration) };
+    return lowerMemberOrigin(lowering.deps, captured);
   });
   lowering.memberUses.delete(node.id);
   return { key: { kind: "available", value: lowerMemberKey(lowering.deps, member.key) },

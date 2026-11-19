@@ -3206,7 +3206,8 @@ const libraryTarget = () => ({ target: "library", module: { providerId: "authore
   moduleSpecifier: "authored:module", providerModuleId: "module" } });
 const memberOrigins = () => [{ kind: "declared", declaration: definitionIdentity }, { kind: "class-prototype", owner: definitionIdentity },
   { kind: "mapped", owner: bodySource(0), key: { kind: "text", value: "field" } },
-  { kind: "intrinsic", symbol: "global-this" }, { kind: "intrinsic", symbol: "undefined" }];
+  { kind: "intrinsic", symbol: "global-this" }, { kind: "intrinsic", symbol: "undefined" },
+  { kind: "source-member", occurrence: bodySource(0).value }];
 
 function checkedRoleInputs() {
   const rows = [];

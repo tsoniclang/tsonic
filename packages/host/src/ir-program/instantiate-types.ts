@@ -87,6 +87,7 @@ function origin(scan: SeedScan, value: MemberOrigin): InstantiationAllocationSto
     case "declared":
     case "intrinsic":
     case "class-prototype": return fields(scan, 2);
+    case "source-member": return fields(scan, 5);
     case "mapped": return fields(scan, 7) ?? memberKey(scan, value.key);
   }
 }

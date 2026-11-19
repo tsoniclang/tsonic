@@ -128,7 +128,7 @@ export function createReadGroup1(readers: () => HirTextReaders): HirReadGroup1 {
       return { fields: [field_start], value: () => ({ kind: "parameter-tail", start: field_start.value() }) };
     });
   const record_57 = recordReader<{ readonly kind: "member"; readonly origin: Types.MemberOrigin; }>("member", read => {
-      const field_origin = read("origin", unionReader<Types.MemberOrigin>(() => [readers().record_58, readers().record_59, readers().intrinsicMemberOrigin, readers().record_60]));
+      const field_origin = read("origin", unionReader<Types.MemberOrigin>(() => [readers().record_58, readers().record_59, readers().intrinsicMemberOrigin, readers().sourceMemberOrigin, readers().record_60]));
       return { fields: [field_origin], value: () => ({ kind: "member", origin: field_origin.value() }) };
     });
   const record_58 = recordReader<{ readonly kind: "declared"; readonly declaration: Ids.DefId; }>("declared", read => {
@@ -143,5 +143,9 @@ export function createReadGroup1(readers: () => HirTextReaders): HirReadGroup1 {
     const field_symbol = read("symbol", literalReader<Types.IntrinsicMemberOrigin>(["global-this", "undefined"]));
     return { fields: [field_symbol], value: () => ({ kind: "intrinsic", symbol: field_symbol.value() }) };
   });
-  return { record_30, record_31, record_32, record_33, record_34, record_35, record_36, record_37, record_38, record_39, record_40, record_41, record_42, record_43, record_44, record_45, record_46, record_47, record_48, record_49, record_50, record_51, record_52, record_53, record_54, record_55, record_56, record_57, record_58, record_59, intrinsicMemberOrigin };
+  const sourceMemberOrigin = recordReader<Extract<Types.MemberOrigin, { readonly kind: "source-member" }>>("source-member", read => {
+    const occurrence = read("occurrence", readers().record_6);
+    return { fields: [occurrence], value: () => ({ kind: "source-member", occurrence: occurrence.value() }) };
+  });
+  return { record_30, record_31, record_32, record_33, record_34, record_35, record_36, record_37, record_38, record_39, record_40, record_41, record_42, record_43, record_44, record_45, record_46, record_47, record_48, record_49, record_50, record_51, record_52, record_53, record_54, record_55, record_56, record_57, record_58, record_59, intrinsicMemberOrigin, sourceMemberOrigin };
 }

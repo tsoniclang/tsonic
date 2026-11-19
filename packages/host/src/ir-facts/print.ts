@@ -191,7 +191,8 @@ const memberOrigin = (writer: Writer, value: MemberOrigin): void => record(write
   value.kind === "declared" ? [["declaration", () => identity(writer, "def", value.declaration)]]
     : value.kind === "class-prototype" ? [["owner", () => identity(writer, "def", value.owner)]]
       : value.kind === "intrinsic" ? [["symbol", () => scalar(writer, value.symbol)]]
-        : [["owner", () => sourceRef(writer, value.owner)], ["key", () => memberKey(writer, value.key)]]);
+        : value.kind === "source-member" ? [["occurrence", () => nodeRef(writer, value.occurrence)]]
+          : [["owner", () => sourceRef(writer, value.owner)], ["key", () => memberKey(writer, value.key)]]);
 const endpoint = (writer: Writer, value: HirCallableEndpoint): void => record(writer, "HirCallableEndpoint", [
   ["declaration", () => identity(writer, "def", value.declaration)], ["role", () => scalar(writer, value.role)],
   ["signature", () => identity(writer, "sig", value.signature)],

@@ -66,6 +66,12 @@ export function lowerMemberOrigin(deps: LowerDeps, origin: RawMemberOrigin): Mem
   if (origin.kind === "declaration") return { kind: "declared", declaration: deps.definitionOf(origin.declaration) };
   if (origin.kind === "class-prototype") return { kind: "class-prototype", owner: deps.definitionOf(origin.declaration) };
   if (origin.kind === "intrinsic") return { kind: "intrinsic", symbol: origin.symbol };
+  if (origin.kind === "source-member") {
+    const source = sourceOccurrence(deps, origin.occurrence);
+    if (source?.kind !== "PropertyAssignment" || source.occurrence.kind !== "body")
+      return fail("A data-property member origin must retain its actual body-qualified PropertyAssignment.");
+    return { kind: "source-member", occurrence: source.occurrence.value };
+  }
   throw new TypeError("front: mapped binding-member origin conversion is not implemented");
 }
 

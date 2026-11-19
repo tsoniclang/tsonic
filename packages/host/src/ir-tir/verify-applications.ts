@@ -215,6 +215,7 @@ const memberOriginKey = (origin: MemberOrigin): string => {
   if (origin.kind === "declared") return encodeKey([origin.kind, origin.declaration]);
   if (origin.kind === "class-prototype") return encodeKey([origin.kind, origin.owner]);
   if (origin.kind === "intrinsic") return encodeKey([origin.kind, origin.symbol]);
+  if (origin.kind === "source-member") return encodeKey([origin.kind, origin.occurrence.body, origin.occurrence.node]);
   const reference = origin.owner;
   return encodeKey([origin.kind, reference.kind, reference.kind === "body" ? reference.value.body : reference.value.owner,
     reference.value.node, memberKey(origin.key)]);
@@ -259,13 +260,16 @@ export const verifyMemberDecision = (
   let origins = inventory !== null && !inventory.repeated && member !== undefined && decision.origins.length !== 0;
   const actualOrigins: string[] = [];
   const declared = new Set<string>();
+  let sourceOnly = decision.origins.length !== 0;
   if (member !== undefined) for (const origin of decision.origins) {
     const key = memberOriginKey(origin);
     if (!member.origins.has(key)) origins = false;
     actualOrigins.push(key);
     if (origin.kind === "declared") declared.add(origin.declaration);
+    if (origin.kind !== "source-member") sourceOnly = false;
   }
   const selected = new Set(decision.selectedDeclarations);
+  if (sourceOnly && selected.size !== 0) origins = false;
   if (decision.primary !== null && !selected.has(decision.primary)) origins = false;
   for (const declaration of decision.selectedDeclarations) {
     if (declared.size !== 0 && !declared.has(declaration)) origins = false;

@@ -212,7 +212,7 @@ export function readMemberKeyText<Root>(cursor: Cursor, finish: (value: MemberKe
 }
 
 export function readMemberOriginText<Root>(cursor: Cursor, finish: (value: MemberOrigin) => TextStep<Root>): TextStep<Root> {
-  return atomicText(cursor, next => choice(next, ["declared","class-prototype","intrinsic","mapped"]), label =>
+  return atomicText(cursor, next => choice(next, ["declared","class-prototype","intrinsic","source-member","mapped"]), label =>
     atomicText(cursor, next => delimiter(next, "("), () => {
       const fields: RecordFields = { given: new Set<string>() };
       switch (label) {
@@ -228,6 +228,9 @@ export function readMemberOriginText<Root>(cursor: Cursor, finish: (value: Membe
           return fieldText<Extract<MemberOrigin, { readonly kind: "intrinsic" }>["symbol"], Root>(cursor, fields, "symbol",
             (next, done) => atomicText(next, actual => readStringChoice(actual, ["global-this", "undefined"]), done), symbol =>
               atomicText(cursor, next => closeRecord(next, fields), () => acceptText({ kind: label, symbol }, finish)));
+        case "source-member":
+          return fieldText<NodeRef, Root>(cursor, fields, "occurrence", (next, done) => atomicText(next, readNodeRef, done), occurrence =>
+            atomicText(cursor, next => closeRecord(next, fields), () => acceptText({ kind: label, occurrence }, finish)));
         case "mapped":
           return fieldText<SourceNodeRef, Root>(cursor, fields, "owner", (next, done) => atomicText(next, readSourceNodeRef, done), ownerValue =>
     fieldText<MemberKey, Root>(cursor, fields, "key", readMemberKeyText, keyValue =>

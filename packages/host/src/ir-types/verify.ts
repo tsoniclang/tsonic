@@ -41,6 +41,8 @@ function qualified(value: SourceNodeRef, rule: TypeRule, site: TypeSite, field: 
 }
 
 function memberOrigin(value: MemberOrigin, site: TypeSite, checks: Checks): void {
+  if (value.kind === "source-member")
+    return qualified({ kind: "body", value: value.occurrence }, "cross-owner-qualified", site, "origin.occurrence", checks);
   if (value.kind !== "mapped") return;
   qualified(value.owner, "cross-owner-qualified", site, "origin.owner", checks);
   if (value.key.kind === "number" && !rationalNormalized(value.key.value)) checks.add("rational-normalized", site, "origin.key");

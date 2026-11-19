@@ -8,7 +8,8 @@ const copyKey = (value: MemberKey): MemberKey => value.kind === "number"
   ? { ...value, value: { ...value.value } } : { ...value };
 
 const copyOrigin = (value: MemberOrigin): MemberOrigin => value.kind === "mapped"
-  ? { ...value, owner: copySource(value.owner), key: copyKey(value.key) } : { ...value };
+  ? { ...value, owner: copySource(value.owner), key: copyKey(value.key) }
+  : value.kind === "source-member" ? { ...value, occurrence: { ...value.occurrence } } : { ...value };
 
 const copyConstruction = (value: ConstructionDefinition): ConstructionDefinition =>
   ({ occurrence: { ...value.occurrence }, captures: value.captures.map(capture => ({ ...capture })) });

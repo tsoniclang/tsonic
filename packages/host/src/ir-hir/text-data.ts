@@ -79,6 +79,7 @@ function memberOriginData(value: Types.MemberOrigin): HirDataWork {
     case "declared": return recordData(value.kind, value, () => [fieldData("declaration", definitionData(value.declaration))]);
     case "class-prototype": return recordData(value.kind, value, () => [fieldData("owner", definitionData(value.owner))]);
     case "intrinsic": return recordData(value.kind, value, () => [fieldData("symbol", scalarData(value.symbol))]);
+    case "source-member": return recordData(value.kind, value, () => [fieldData("occurrence", nodeRefData(value.occurrence))]);
     case "mapped": return recordData(value.kind, value, () => [fieldData("owner", sourceRefData(value.owner)), fieldData("key", memberKeyData(value.key))]);
   }
 }

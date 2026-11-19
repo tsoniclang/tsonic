@@ -51,12 +51,17 @@ export function captureSourceBarrier(inputs: HostAnalysisInputs): Result<SourceB
     names.set(module, text);
   }
   const componentRoots = new Map<ModuleId, RawNodeRef[]>();
-  for (const captured of raw.values()) for (const component of captured.types.components) {
-    const root = component.root;
-    if (!raw.has(root.module)) return fail("A captured component root must belong to the actual captured program module inventory.");
+  const request = (root: RawNodeRef): void => {
+    if (!raw.has(root.module)) return fail("A captured source occurrence must belong to the actual captured program module inventory.");
     const requested = componentRoots.get(root.module) ?? [];
     requested.push(root);
     componentRoots.set(root.module, requested);
+  };
+  for (const captured of raw.values()) {
+    for (const component of captured.types.components) request(component.root);
+    for (const table of captured.types.members) for (const member of table.members) {
+      for (const origin of member.origins) if (origin.kind === "source-member") request(origin.occurrence);
+    }
   }
   for (const [module, captured] of raw) {
     const identified = front.lowerModuleDefinitions({ module: captured, componentRoots: componentRoots.get(module) ?? [] });

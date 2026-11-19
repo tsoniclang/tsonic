@@ -570,11 +570,12 @@ export function createDataSchemas(): DataSchemas {
   });
 
   const memberOriginSchema: RecordSchema<MemberOrigin> = unionSchema<MemberOrigin>("MemberOrigin",
-    () => [declaredOriginSchema, prototypeOriginSchema, intrinsicOriginSchema, mappedOriginSchema], value => {
+    () => [declaredOriginSchema, prototypeOriginSchema, intrinsicOriginSchema, sourceMemberOriginSchema, mappedOriginSchema], value => {
     switch (value.kind) {
       case "declared": return declaredOriginSchema.stage(value);
       case "class-prototype": return prototypeOriginSchema.stage(value);
       case "intrinsic": return intrinsicOriginSchema.stage(value);
+      case "source-member": return sourceMemberOriginSchema.stage(value);
       case "mapped": return mappedOriginSchema.stage(value);
     }
   });
@@ -593,6 +594,11 @@ export function createDataSchemas(): DataSchemas {
   const intrinsicOriginSchema = recordSchema<Extract<MemberOrigin, { readonly kind: "intrinsic" }>>("IntrinsicOrigin", "intrinsic", read => {
     const symbol = read("symbol", () => intrinsicOriginSymbol, value => value.symbol);
     return { fields: [symbol], value: () => ({ kind: "intrinsic", symbol: symbol.value() }) };
+  });
+
+  const sourceMemberOriginSchema = recordSchema<Extract<MemberOrigin, { readonly kind: "source-member" }>>("SourceMemberOrigin", "source-member", read => {
+    const occurrence = read("occurrence", () => nodeRefSchema, value => value.occurrence);
+    return { fields: [occurrence], value: () => ({ kind: "source-member", occurrence: occurrence.value() }) };
   });
 
   const mappedOriginSchema = recordSchema<MappedOriginRecord>("MappedOrigin", "mapped", read => {

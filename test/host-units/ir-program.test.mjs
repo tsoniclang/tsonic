@@ -1875,12 +1875,29 @@ test("ir-program binding capture types and bound types are renumbered by an inde
     "owner, pointee, source and every bound type follow the publication; occurrence, expressions and descriptor references are copied");
 });
 
+test("Program index and type seed retain a source member's exact body occurrence", () => {
+  const fixture = moduleFixture();
+  const occurrence = { body: fixture.bodyId, node: 3 };
+  const origin = { kind: "source-member", occurrence };
+  fixture.index.types.terms.push({ kind: "shape", members: [{ key: { kind: "text", value: "enabled" },
+    origins: [origin], readOrigins: [origin], writeOrigins: [], kind: "property", read: 0, write: null,
+    optional: false, readonly: true }], indexes: [], calls: [], constructs: [] });
+  const printed = product.printProgramIndex(fixture.index);
+  const wire = `source-member(occurrence=NodeRef(body=body:"${fixture.bodyId}", node=n:3))`;
+  assert.equal(printed.includes(wire), true);
+  completeProgramValue(product.parseProgramIndex(printed), { kind: "parsed", value: fixture.index }, "body-qualified member origin");
+  const invalid = printed.replace(wire, `source-member(occurrence=ItemNodeRef(owner=def:"${fixture.definition}", node=n:3))`);
+  assert.equal(product.parseProgramIndex(invalid).kind, "invalid-text");
+  completeSyntaxTransport(fixture, fixture.module);
+});
+
 test("ir-program complete write-only member origins retain null read identity in every transport", () => {
   const fixture = moduleFixture();
   const example = syntaxExamples.get("PropertyAccessExpression");
   const node = structuredClone(example.node);
   node.tsonic.selection = { kind: "decided", decision: { decision: { key: { kind: "text", value: "value" },
-    origins: [{ kind: "declared", declaration: fixture.definition }], selectedDeclarations: [], primary: null, read: null, write: 0,
+    origins: [{ kind: "declared", declaration: fixture.definition },
+      { kind: "source-member", occurrence: { body: fixture.module.bodies[0].instance.body, node: node.id } }], selectedDeclarations: [], primary: null, read: null, write: 0,
     getter: null, setter: null, bindings: { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] },
     location: { kind: "data", check: { kind: "none" }, receiver: "in-place" } }, getter: null, setter: null } };
   completeSyntaxTransport(fixture, syntaxTransportModule({ module: fixture.module }, node, "Expression"), example.input.index.types);

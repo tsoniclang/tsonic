@@ -2636,10 +2636,10 @@ const codecApplicationDecisionWire = `ApplicationDecision(candidate=0, advertise
   'completion=CompletionEndpoint(signature=sig:0, completion=t:0, yielded=t:0, sent=t:0), result=t:0, activation=null)';
 const codecMemberDecision = { key: codecKey, origins: [codecMemberOrigin, { kind: "declared", declaration: ownerId },
   { kind: "class-prototype", owner: ownerId }, { kind: "intrinsic", symbol: "global-this" },
-  { kind: "intrinsic", symbol: "undefined" }], selectedDeclarations: [ownerId], primary: ownerId, read: 0, write: 0,
+  { kind: "intrinsic", symbol: "undefined" }, { kind: "source-member", occurrence: codecReference }], selectedDeclarations: [ownerId], primary: ownerId, read: 0, write: 0,
   getter: codecEndpoint, setter: codecEndpoint, bindings: emptyBindings(), location: { kind: "accessor" } };
 const codecMemberDecisionWire = `MemberDecision(key=${codecKeyWire}, origins=[${codecMemberOriginWire}, ` +
-  `declared(declaration=def:"${ownerId}"), class-prototype(owner=def:"${ownerId}"), intrinsic(symbol="global-this"), intrinsic(symbol="undefined")], selectedDeclarations=[def:"${ownerId}"], ` +
+  `declared(declaration=def:"${ownerId}"), class-prototype(owner=def:"${ownerId}"), intrinsic(symbol="global-this"), intrinsic(symbol="undefined"), source-member(occurrence=${codecReferenceWire})], selectedDeclarations=[def:"${ownerId}"], ` +
   `primary=def:"${ownerId}", read=t:0, write=t:0, getter=${codecEndpointWire}, setter=${codecEndpointWire}, bindings=${codecBindingsWire}, location=accessor())`;
 const codecPart = { part: 0, source: codecReference, destination: { root: codecSource, path: [] }, member: codecMemberDecision,
   embedding: { kind: "identity" } };
@@ -7865,6 +7865,24 @@ for (const kind of ["declared", "class-prototype", "mapped"]) {
     assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
   });
 }
+
+test("F-3 source-only member selection cannot borrow a declaration identity", () => {
+  const fixture = foreignMemberScenario("declared");
+  const origin = { kind: "source-member", occurrence: { body: bodyId, node: 3 } };
+  const member = fixture.table.members[0];
+  member.origins = [origin];
+  member.readOrigins = [origin];
+  member.writeOrigins = [origin];
+  fixture.decision.origins = [origin];
+  fixture.input.source.tree.statements.nodes[0].expression.tsonic.origins = available([origin]);
+  const mismatched = nodeViolation("member-origin", 2, "member selection does not retain a real member key and its actual declared origins");
+  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [mismatched]);
+  fixture.decision.primary = null;
+  fixture.decision.selectedDeclarations = [];
+  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), []);
+  fixture.decision.origins = [{ kind: "source-member", occurrence: { ...origin.occurrence, node: 4 } }];
+  assertCompleteValue(product.verifyTir(fixture.input, fixture.body), [mismatched]);
+});
 
 for (const negative of ["primary-not-selected", "empty-selected", "other-selected"]) {
   test(`F4 primary/selected declaration association ${negative} uses real endpoints`, () => {

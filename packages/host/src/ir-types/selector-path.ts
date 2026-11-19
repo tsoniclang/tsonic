@@ -24,6 +24,7 @@ function originKey(origin: MemberOrigin): readonly KeyData[] {
     case "declared": return [origin.kind, origin.declaration];
     case "class-prototype": return [origin.kind, origin.owner];
     case "intrinsic": return [origin.kind, origin.symbol];
+    case "source-member": return [origin.kind, origin.occurrence.body, origin.occurrence.node];
     case "mapped": return [origin.kind, sourceKey(origin.owner), memberKeyData(origin.key)];
   }
 }

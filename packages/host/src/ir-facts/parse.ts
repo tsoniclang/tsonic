@@ -1104,7 +1104,7 @@ const memberKey: Decode<MemberKey> = (state, input) => then(label(input, ["text"
       finishRecord<MemberKey>(state, values, { kind: "symbol", declaration: declarationValue })));
   }
 });
-const memberOrigin: Decode<MemberOrigin> = (state, input) => then(label(input, ["declared","class-prototype","intrinsic","mapped"]), kind => {
+const memberOrigin: Decode<MemberOrigin> = (state, input) => then(label(input, ["declared","class-prototype","intrinsic","source-member","mapped"]), kind => {
   switch (kind) {
     case "declared": return then(fields(state, input, "declared"), values =>
     then(readField(state, values, "declaration", definition), declarationValue =>
@@ -1117,6 +1117,9 @@ const memberOrigin: Decode<MemberOrigin> = (state, input) => then(label(input, [
       symbol === "global-this" || symbol === "undefined"
         ? finishRecord<MemberOrigin>(state, values, { kind: "intrinsic", symbol })
         : fail(input, ["global-this", "undefined"])));
+    case "source-member": return then(fields(state, input, "source-member"), values =>
+      then(readField(state, values, "occurrence", nodeRef), occurrence =>
+        finishRecord<MemberOrigin>(state, values, { kind: "source-member", occurrence })));
     case "mapped": return then(fields(state, input, "mapped"), values =>
     then(readField(state, values, "owner", sourceRef), ownerValue =>
     then(readField(state, values, "key", memberKey), keyValue =>

@@ -99,6 +99,7 @@ export type MemberOrigin =
   | { readonly kind: "declared"; readonly declaration: DefId }
   | { readonly kind: "class-prototype"; readonly owner: DefId }
   | { readonly kind: "intrinsic"; readonly symbol: IntrinsicMemberOrigin }
+  | { readonly kind: "source-member"; readonly occurrence: NodeRef }
   | { readonly kind: "mapped"; readonly owner: SourceNodeRef; readonly key: MemberKey };
 
 export interface MemberStorageSelection {

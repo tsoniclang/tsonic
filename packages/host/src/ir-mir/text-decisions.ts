@@ -226,18 +226,22 @@ export function createDecisionWires(scalars: ScalarWires): DecisionWires {
   const intrinsicOrigin = record<Extract<MemberOrigin, { readonly kind: "intrinsic" }>>("intrinsic", () =>
     field("symbol", () => literals(["global-this", "undefined"]), value => value.symbol, symbol => finish(() => ({ kind: "intrinsic", symbol }))));
 
+  const sourceMemberOrigin = record<Extract<MemberOrigin, { readonly kind: "source-member" }>>("source-member", () =>
+    field("occurrence", () => nodeRefWire, value => value.occurrence, occurrence => finish(() => ({ kind: "source-member", occurrence }))));
+
   const mappedOrigin = record<MemberOrigin & { readonly kind: "mapped" }>("mapped", () =>
     field("owner", () => sourceWire, value => value.owner, owner =>
       field("key", () => memberKeyWire, value => value.key, key => finish(() => ({ kind: "mapped", owner, key })))));
 
   const memberOriginWire: Wire<MemberOrigin> = variants([
     choice("declared", () => declaredOrigin), choice("class-prototype", () => prototypeOrigin),
-    choice("intrinsic", () => intrinsicOrigin), choice("mapped", () => mappedOrigin),
+    choice("intrinsic", () => intrinsicOrigin), choice("source-member", () => sourceMemberOrigin), choice("mapped", () => mappedOrigin),
   ], (value, path, next) => {
     switch (value.kind) {
       case "declared": return declaredOrigin.write(value, path, next);
       case "class-prototype": return prototypeOrigin.write(value, path, next);
       case "intrinsic": return intrinsicOrigin.write(value, path, next);
+      case "source-member": return sourceMemberOrigin.write(value, path, next);
       case "mapped": return mappedOrigin.write(value, path, next);
     }
   });

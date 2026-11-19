@@ -164,6 +164,7 @@ export function publicationShape(selected: PublicationRecord): PublicationShape 
         case "declared": return { children: [] };
         case "class-prototype": return { children: [] };
         case "intrinsic": return { children: [] };
+        case "source-member": return { children: [{ kind: "node", value: value.occurrence }] };
         case "mapped": return { children: [{ kind: "source", value: value.owner }, { kind: "member-key", value: value.key }] };
       }
     }

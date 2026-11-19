@@ -147,6 +147,12 @@ const collectStorageOrigins = (
         break;
       case "intrinsic":
         break;
+      case "source-member":
+        if (!context.nodeExists({ kind: "body", value: origin.occurrence })) {
+          const stop = recordFinding(account, violations, "last", "node-resolves", site, "A selected data-property member origin retains its actual qualified source occurrence.");
+          if (stop !== null) return stop;
+        }
+        break;
       case "mapped": {
         if (!context.nodeExists(origin.owner)) {
           const stop = recordFinding(account, violations, "last", "node-resolves", site, "A selected member origin retains its actual qualified source occurrence.");
