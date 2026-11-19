@@ -1,12 +1,13 @@
+import type { UnitRequest } from "../diag/contract.js";
 import type { DefId, SigId } from "../ids/contract.js";
 import { readSignature, readType } from "../ir-types/index.js";
 import type { AccessorCorrespondence, ConstructorCorrespondence, MemberInventory, MemberUnavailableReason } from "../ir-types/contract.js";
 import type { HirNode } from "../ir-hir/contract.js";
-import type { DeclsDeps, MembersOf } from "./contract.js";
+import type { DeclsDeps, MembersOf, MemberTypeOf } from "./contract.js";
 import { findAscending, moduleOf } from "./signatures.js";
 
-function declarationNode(deps: DeclsDeps, declaration: DefId): HirNode {
-  const checked = moduleOf(deps, declaration, { query: "membersOf", key: declaration });
+function declarationNode(deps: DeclsDeps, declaration: DefId, unit: UnitRequest): HirNode {
+  const checked = moduleOf(deps, declaration, unit);
   const entry = findAscending(checked.module.items, declaration, item => item.definition);
   const node = entry === undefined ? undefined : checked.nodes[entry.node];
   if (entry === undefined || node === undefined || node.id !== entry.node)
@@ -14,11 +15,11 @@ function declarationNode(deps: DeclsDeps, declaration: DefId): HirNode {
   return node;
 }
 
-function constructorOf(deps: DeclsDeps, identity: SigId): ConstructorCorrespondence {
+function constructorOf(deps: DeclsDeps, identity: SigId, unit: UnitRequest): ConstructorCorrespondence {
   const signature = readSignature(deps.types, identity);
   if (signature.kind !== "construct") throw new TypeError("decls: a construct inventory requires an actual construct signature");
   if (signature.declaration === null) return { signature: identity, declaration: null, body: null };
-  const node = declarationNode(deps, signature.declaration);
+  const node = declarationNode(deps, signature.declaration, unit);
   if (node.tsonic === null || !("signatures" in node.tsonic))
     throw new TypeError("decls: a constructor correspondence requires its actual checked endpoint");
   const endpoints = node.tsonic.signatures.filter(endpoint => endpoint.signature === identity);
@@ -37,6 +38,7 @@ export const membersOf: MembersOf = (deps, receiver) => {
   else if (term.kind === "intrinsic" && (term.intrinsic === "any" || term.intrinsic === "unknown"))
     inventory = open({ kind: "dynamic" });
   else if (term.kind === "shape" || term.kind === "callable") {
+    const unit: UnitRequest = { query: "membersOf", key: receiver };
     const members = term.kind === "shape" ? term.members.map(member => ({ key: member.key, origins: member.origins,
       readOrigins: member.readOrigins, writeOrigins: member.writeOrigins, kind: member.kind,
       optional: member.optional, readonly: member.readonly })) : [];
@@ -48,7 +50,7 @@ export const membersOf: MembersOf = (deps, receiver) => {
       for (const origin of member.origins) {
         if (origin.kind !== "declared")
           throw new TypeError("decls: an accessor inventory requires its actual checked origin correspondence");
-        const node = declarationNode(deps, origin.declaration);
+        const node = declarationNode(deps, origin.declaration, unit);
         if (node.kind !== "GetAccessor" && node.kind !== "SetAccessor")
           throw new TypeError("decls: an accessor origin must name its actual getter or setter declaration");
         accessors.push({ origin, getter: node.kind === "GetAccessor" ? origin.declaration : null,
@@ -56,8 +58,36 @@ export const membersOf: MembersOf = (deps, receiver) => {
       }
     }
     inventory = { receiver, members, indexes, calls: term.calls, constructs: term.constructs, accessors,
-      constructors: term.constructs.map(signature => constructorOf(deps, signature)), completeness: { kind: "complete" } };
+      constructors: term.constructs.map(signature => constructorOf(deps, signature, unit)), completeness: { kind: "complete" } };
   } else throw new TypeError(`decls: membersOf requires the actual retained checker inventory for ${term.kind}`);
   return { kind: "done", value: { kind: "ok", value: inventory, positions: [{ position: { kind: "result" }, error: null }],
     diagnostics: [], emissions: [] } };
+};
+
+export const memberTypeOf: MemberTypeOf = (deps, request) => {
+  const receiver = readType(deps.types, request.receiver);
+  if (receiver.kind !== "shape")
+    throw new TypeError("decls: memberTypeOf requires an actual retained typed member inventory");
+  const ordinal = request.member;
+  if (!Number.isSafeInteger(ordinal) || ordinal < 0 || Object.is(ordinal, -0) || ordinal >= receiver.members.length)
+    throw new TypeError("decls: memberTypeOf requires an actual member of the receiver inventory");
+  const member = receiver.members[ordinal];
+  if (member === undefined) throw new TypeError("decls: the requested member is missing from its canonical inventory");
+  if (member.kind !== "property" || member.origins.length === 0)
+    throw new TypeError("decls: memberTypeOf requires the retained type producer for this member kind");
+  const unit: UnitRequest = { query: "memberTypeOf", key: [request.receiver, ordinal] };
+  for (const origin of member.origins) {
+    if (origin.kind !== "declared")
+      throw new TypeError("decls: memberTypeOf requires the retained type producer for this member origin");
+    const node = declarationNode(deps, origin.declaration, unit);
+    if (node.kind !== "PropertySignature" || node.type === null)
+      throw new TypeError("decls: memberTypeOf requires the actual type of this property's declaration or inferred part");
+  }
+  const { read, write } = member;
+  if (read === null) throw new TypeError("decls: a declared structural field requires its actual read type");
+  if (readType(deps.types, read).kind === "error"
+    || (write !== null && write !== read && readType(deps.types, write).kind === "error"))
+    throw new TypeError("decls: memberTypeOf cannot publish an error type without its actual cause");
+  return { kind: "done", value: { kind: "ok", value: { read, write },
+    positions: [{ position: { kind: "result" }, error: null }], diagnostics: [], emissions: [] } };
 };

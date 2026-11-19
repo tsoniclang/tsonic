@@ -162,6 +162,7 @@ function walk(lowering: Lowering): boolean {
           : next.kind === "block-end" ? endLocalBlock(lowering, next.node, next.scope)
         : next.kind === "argument-place" ? argumentPlace(lowering, next.node)
         : next.kind === "call" ? finishCall(lowering, next)
+        : next.kind === "field-read" ? fieldRead(lowering, next)
         : next.kind === "operation" ? operation(lowering, next)
           : next.kind === "narrow" ? narrow(lowering, next.node, next.narrowing)
             : next.kind === "label-end" ? endLabel(lowering, next.node, next.scope)
@@ -376,6 +377,22 @@ function expression(lowering: Lowering, node: Expression<TypedPhase>): boolean {
       pushOperand(lowering, { operand: { kind: "place", place }, inPlace: local, storage: rawType(payload), site: siteOf(body, node) });
       return true;
     }
+    case "PropertyAccessExpression": {
+      const payload = node.tsonic;
+      if (payload.role !== "value") return notLoweredYet(`a property access of role ${payload.role}`, node.origin);
+      if (node.questionDotToken !== null) return notLoweredYet("a selected optional field read", node.origin);
+      if (payload.selection.kind !== "decided") return callerDefect("a deferred member read", node.origin);
+      const member = payload.selection.decision;
+      const access = member.decision.location;
+      if (access.kind !== "data") return notLoweredYet("a selected accessor invocation", node.origin);
+      if (access.receiver !== "in-place" || access.check.kind !== "none")
+        return notLoweredYet("a selected checked or by-reference field read", node.origin);
+      const storage = rawType(payload);
+      if (member.decision.read !== storage) return callerDefect("a field read inconsistent with its selected storage", node.origin);
+      value(lowering, payload, node);
+      lowering.work.push({ kind: "field-read", node, member, storage }, { kind: "expression", node: node.expression });
+      return true;
+    }
     case "ParenthesizedExpression":
     case "NonNullExpression":
     case "AsExpression":
@@ -531,6 +548,17 @@ function narrow(lowering: Lowering, node: NodeHeader, decision: Extract<NonNulla
   terminate(state, { ...site, kind: "check", place: checked, next, unwind: { kind: decision.failure === "abort" ? "abort" : "escape" } });
   enterBlock(state, next);
   pushOperand(lowering, { operand: { kind: "place", place: checked }, inPlace: raw.inPlace, storage: decision.result, site });
+  return true;
+}
+
+function fieldRead(lowering: Lowering, { node, member, storage }: Extract<Work, { readonly kind: "field-read" }>): boolean {
+  const receiver = popOperand(lowering, failure("a field read was reached without its receiver", node.origin));
+  if (receiver.operand.kind !== "place") return callerDefect("an in-place field read requires an evaluated storage place", node.origin);
+  const site = siteOf(lowering.body, node);
+  const place = newPlace(lowering.state,
+    { kind: "place", place: receiver.operand.place, projection: { kind: "field", member }, tir: site.tir }, storage, node.origin);
+  if (place === null) return false;
+  pushOperand(lowering, { operand: { kind: "place", place }, inPlace: receiver.inPlace, storage, site });
   return true;
 }
 

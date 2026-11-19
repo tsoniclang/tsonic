@@ -7,7 +7,7 @@ import type { Step } from "../step/contract.js";
 
 // Decls (COMPONENTS section 2; amendment S2-7). This file states the two operations of checkpoint 2,
 // `describeDefinitions` and `declaredSignatureOf`. The other operations of part 1 (`placeSignature`,
-// `placeMemberType`, `memberTypeOf`, `heritageOf`, `enumOf`, `produceType`, `classifyCycle`) are added
+// `placeMemberType`, `heritageOf`, `enumOf`, `produceType`, `classifyCycle`) are added
 // here when they are written. Decls has no record of synchronous readers: what it needs from another owner is a
 // request through Pipeline's driver (part 4), and what Front produced is read as data.
 
@@ -132,6 +132,19 @@ export type ErrorSignature = (deps: DeclsDeps, request: SignatureRequest, cause:
 export type PlaceSignature = (deps: DeclsDeps, placement: SignaturePlacement, unit: UnitRequest) => DeclsStep<Signature, never>;
 
 export type MembersOf = (deps: DeclsDeps, type: TyId) => Step<UnitResult<MemberInventory>, never, never, Diagnostic>;
+
+export interface MemberTypeRequest {
+  readonly receiver: TyId;
+  /** Position in this exact receiver's canonical member inventory, not a declaration or a source position. */
+  readonly member: number;
+}
+
+export interface MemberTypes {
+  readonly read: TyId | null;
+  readonly write: TyId | null;
+}
+
+export type MemberTypeOf = (deps: DeclsDeps, request: MemberTypeRequest) => DeclsStep<MemberTypes, never>;
 
 /**
  * Part 1, `declaredSignatureOf`: the declared signature of the endpoint the request names, under its bindings.

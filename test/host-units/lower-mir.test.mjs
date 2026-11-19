@@ -10,7 +10,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { after, before, test as declare } from "node:test";
 import { checkCoverage } from "../architecture/host/coverage.mjs";
 import { parseSources } from "../architecture/host/import-graph.mjs";
-import { ARRAY_STEP, EMPTY_BINDINGS, MODULE, PARAMETRIC, SELECTED_BINDINGS, SIG, T, TABLE, bodyId, builders, callee, declareType, def, defaultMapping, mapped, native, omittedMapping, seal, selected, signature, typedBody, typedOperation, value, verificationContext } from "./fixtures/lower-mir/typed.mjs";
+import { ARRAY_STEP, EMPTY_BINDINGS, MODULE, PARAMETRIC, SELECTED_BINDINGS, SIG, T, TABLE, bodyId, builders, callee, declareType, def, defaultMapping, direct, mapped, native, omittedMapping, seal, selected, selection, signature, typedBody, typedOperation, value, verificationContext } from "./fixtures/lower-mir/typed.mjs";
 import {
   argumentConstantOf, argumentKindsOf, at, blocksWithStatementAt, calleeNameOf, capturedLocalsOf, capturedRootsOf, checkedPlace, checks,
   controlPoints, createsClosure, destinationBaseOf, destinationChainOf, destinationFieldOf, destinationRootOf, edgesOf, effects,
@@ -39,6 +39,15 @@ const literalFalse = declareType("lowerLiteralFalse", { kind: "literal", value: 
 const optionalBool = declareType("lowerOptionalBool", { kind: "optional", value: T.bool });
 const indirectSignature = signature("lower.indirect.target", [["x", T.int32]], T.int32);
 const indirectType = declareType("lowerIndirectCallable", { kind: "callable", calls: [indirectSignature], constructs: [] });
+const field = def("directField.Box.flag");
+const fieldOrigin = { kind: "declared", declaration: field };
+const directField = selection("flag", T.bool, T.bool, direct("in-place"));
+directField.decision.decision.origins = [fieldOrigin];
+directField.decision.decision.selectedDeclarations = [field];
+directField.decision.decision.primary = field;
+const directBox = declareType("directFieldBox", { kind: "shape", members: [{ key: directField.decision.decision.key,
+  origins: [fieldOrigin], readOrigins: [fieldOrigin], writeOrigins: [fieldOrigin], kind: "property",
+  read: T.bool, write: T.bool, optional: false, readonly: false }], indexes: [], calls: [], constructs: [] });
 const test = (name, ...rest) => {
   const run = rest.pop();
   return declare(name, ...rest, context => { current = context; return run(context); });
@@ -272,6 +281,137 @@ test("production lowering rejects template identity even when the checked bindin
   const program = shaped("selected.empty.scope", [], T.void, b => b.block());
   assert.throws(() => produced(deps, { ...program.tir, bindings: PARAMETRIC }, []), /selected complete body instance/u);
   assert.equal(produced(deps, program.tir, []).kind, "ok");
+});
+
+test("an already selected direct field read projects its actual in-place storage without copying the receiver", () => {
+  const program = shaped("directField.read", [["box", "required", directBox]], T.bool,
+    b => b.block(b.returns({ $: "read", ...b.property(b.id("box", 0, directBox), "flag", b.read(T.bool, directField)) })));
+  const result = produced(deps, program.tir, []);
+  assert.equal(result.kind, "ok");
+  assert.deepEqual(verified(result.value, program), []);
+  const mir = result.value;
+  assert.equal(mir.locals.length, 1);
+  assert.equal(mir.places.length, 2);
+  assert.deepEqual(mir.blocks[0].statements, []);
+  assert.deepEqual(mir.places[1].base, { kind: "place", place: 0, tir: { body: mir.body, node: program.at("read") },
+    projection: { kind: "field", member: directField.decision } });
+  assert.equal(mir.places[1].storage, T.bool);
+  assert.deepEqual(mir.blocks[0].terminator.value, { kind: "place", place: 1 });
+  for (let maximumRecords = 0; maximumRecords < 4; maximumRecords += 1)
+    assert.equal(produced({ ...deps, limits: { maximumRecords } }, program.tir, []).kind, "refused");
+  assert.equal(produced({ ...deps, limits: { maximumRecords: 4 } }, program.tir, []).kind, "ok");
+});
+
+test("an in-place field read snapshots only the field before a subsequent write to the same receiver", () => {
+  const program = shaped("directField.ordered", [["box", "required", directBox], ["replacement", "required", directBox]],
+    T.bool, b => b.block(b.returns(b.comparison(
+      { $: "read", ...b.property(b.id("box", 0, directBox), "flag", b.read(T.bool, directField)) },
+      "EqualsEqualsEqualsToken",
+      b.sequence({ $: "overwrite", ...b.assign(b.target("box", 0, directBox), "EqualsToken",
+        b.id("replacement", 1, directBox), directBox, directBox) }, b.keyword("TrueKeyword", T.bool), T.bool),
+      native("===", "bool", [T.bool, T.bool], T.bool)))));
+  const mir = lower(program);
+  const statements = mir.blocks[0].statements;
+  const snapshot = statements[1];
+  assert.deepEqual(statements.map(statement => statement.kind === "assign" ? statement.value.kind : statement.kind),
+    ["storage-live", "use", "use", "storage-live", "binary"]);
+  assert.equal(snapshot.tir.node, program.at("read"));
+  assert.equal(statements[2].tir.node, program.at("overwrite"));
+  assert.equal(mir.places[snapshot.place].storage, T.bool);
+  assert.equal(mir.places[snapshot.value.operand.place].base.projection.kind, "field");
+  assert.deepEqual(statements[4].value.left, { kind: "place", place: snapshot.place });
+});
+
+test("a pending field read remains direct across a sibling write, but not across a possibly aliased caller write", () => {
+  for (const mode of ["by-value", "byref-readwrite"]) {
+    const program = shaped(`directField.sibling.${mode}`,
+      [["box", "required", directBox, "byref-readwrite"], ["other", "required", directBox, mode],
+        ["replacement", "required", directBox]], T.bool, b => b.block(b.returns(b.comparison(
+        { $: "read", ...b.property(b.id("box", 0, directBox), "flag", b.read(T.bool, directField)) },
+        "EqualsEqualsEqualsToken", b.sequence({ $: "write", ...b.assign(b.target("other", 1, directBox), "EqualsToken",
+          b.id("replacement", 2, directBox), directBox, directBox) }, b.keyword("TrueKeyword", T.bool), T.bool),
+        native("===", "bool", [T.bool, T.bool], T.bool)))));
+    const mir = lower(program);
+    const statements = mir.blocks[0].statements;
+    const use = statements.find(statement => statement.kind === "assign" && statement.value.kind === "binary");
+    const write = statements.findIndex(statement => statement.kind === "assign" && statement.tir.node === program.at("write"));
+    const projection = mir.places.find(place => place.base.kind === "place" && place.base.projection.kind === "field");
+    const reads = statements.filter(statement => statement.kind === "assign" && statement.tir.node === program.at("read"));
+    if (mode === "by-value") {
+      assert.deepEqual(reads, []);
+      assert.deepEqual(use.value.left, { kind: "place", place: projection.id });
+    } else {
+      assert.equal(reads.length, 1);
+      assert.equal(statements.indexOf(reads[0]) < write, true);
+      assert.deepEqual(reads[0].value.operand, { kind: "place", place: projection.id });
+      assert.deepEqual(use.value.left, { kind: "place", place: reads[0].place });
+    }
+  }
+});
+
+test("a read preceding a selected call saves the field exactly once only if the call may write its receiver", () => {
+  for (const mode of ["byref-readonly", "byref-readwrite"]) {
+    const name = `directField.effect.${mode}`;
+    const target = `${name}.callee`;
+    const sig = signature(target, [["box", directBox, "required", null, mode]], T.bool);
+    const program = shaped(name, [["box", "required", directBox]], T.bool, b => b.block(b.returns(b.comparison(
+      { $: "read", ...b.property(b.id("box", 0, directBox), "flag", b.read(T.bool, directField)) }, "EqualsEqualsEqualsToken",
+      { $: "call", ...b.call(b.global(target, target, T.unknown), [{ $: "receiver", ...b.id("box", 0, directBox) }], T.bool,
+        at => ({ callee: callee(target, sig, [mapped(0, 0, mode)], T.bool), receiver: null,
+          arguments: [{ kind: "provided", parameter: 0, expression: at("receiver") }] })) },
+      native("===", "bool", [T.bool, T.bool], T.bool)))));
+    program.tir.locals[0].mutable = true;
+    const mir = lower(program);
+    const first = mir.blocks[0];
+    assert.equal(first.terminator.kind, "call");
+    assert.equal(first.terminator.tir.node, program.at("call"));
+    const use = mir.blocks[first.terminator.next].statements.find(statement => statement.kind === "assign" && statement.value.kind === "binary");
+    const projection = mir.places.find(place => place.base.kind === "place" && place.base.projection.kind === "field");
+    const saved = first.statements.filter(statement => statement.kind === "assign" && statement.tir.node === program.at("read"));
+    if (mode === "byref-readonly") {
+      assert.deepEqual(saved, []);
+      assert.deepEqual(use.value.left, { kind: "place", place: projection.id });
+    } else {
+      assert.equal(saved.length, 1);
+      assert.deepEqual(saved[0].value.operand, { kind: "place", place: projection.id });
+      assert.equal(mir.places[saved[0].place].storage, T.bool);
+      assert.deepEqual(use.value.left, { kind: "place", place: saved[0].place });
+    }
+    const records = mir.locals.length + mir.places.length + mir.constants.length + mir.blocks.length
+      + mir.blocks.reduce((total, block) => total + block.statements.length, 0);
+    for (let maximumRecords = 0; maximumRecords < records; maximumRecords += 1) {
+      const refused = produced({ ...deps, limits: { maximumRecords } }, program.tir, []);
+      assert.equal(refused.kind, "refused");
+      assert.equal(refused.diagnostics.length, 1);
+    }
+    assert.equal(produced({ ...deps, limits: { maximumRecords: records } }, program.tir, []).kind, "ok");
+  }
+});
+
+test("direct field lowering does not replace a different holding, check or accessor selection", () => {
+  const make = (name, build) => shaped(`directField.opposite.${name}`, [["box", "required", directBox]], T.bool,
+    b => b.block(b.returns(build(b))));
+  const withLocation = location => ({ kind: "decided", decision: {
+    ...directField.decision, decision: { ...directField.decision.decision, location },
+  } });
+  for (const [name, selected, message] of [
+    ["checked", withLocation({ kind: "data", check: { kind: "required", failure: "unwind" }, receiver: "in-place" }), /selected checked or by-reference field read/],
+    ["reference", withLocation(direct("by-reference")), /selected checked or by-reference field read/],
+    ["accessor", withLocation({ kind: "accessor" }), /selected accessor invocation/],
+    ["deferred", { kind: "deferred", deferred: null }, /deferred member read/],
+  ]) {
+    const program = make(name, b => b.property(b.id("box", 0, directBox), "flag", b.read(T.bool, selected)));
+    assert.throws(() => produced(deps, program.tir, []), message);
+  }
+  const target = make("target", b => b.property(b.id("box", 0, directBox), "flag", b.write(directField, T.bool)));
+  assert.throws(() => produced(deps, target.tir, []), /property access of role assignment-target/);
+  const optional = make("optional", b => ({ ...b.property(b.id("box", 0, directBox), "flag", b.read(T.bool, directField)),
+    questionDotToken: { kind: "QuestionDotToken", tsonic: null } }));
+  assert.throws(() => produced(deps, optional.tir, []), /selected optional field read/);
+  const crossed = make("crossed", b => b.property(b.id("box", 0, directBox), "flag", b.read(T.int32, directField)));
+  assert.throws(() => produced(deps, crossed.tir, []), /field read inconsistent with its selected storage/);
+  const noPlace = make("constant", b => b.property(b.keyword("TrueKeyword", T.bool), "flag", b.read(T.bool, directField)));
+  assert.throws(() => produced(deps, noPlace.tir, []), /in-place field read requires an evaluated storage place/);
 });
 
 test("first producer: the receiver's row and a body that completes with no value", () => {

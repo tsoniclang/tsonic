@@ -1,7 +1,7 @@
 import type { Result } from "../diag/contract.js";
 import type { GroupId, NodeRef, TyId } from "../ids/contract.js";
 import type {
-  AtomicContribution, ConstraintScheme, ContributionKey, FlowConstraint, InferenceValue, OperatorConstraint, VariableBound,
+  AtomicContribution, ConstraintScheme, ContributionKey, FlowConstraint, InferenceValue, MemberConstraint, OperatorConstraint, VariableBound,
 } from "../ir-infer/contract.js";
 import type { CategoryEvidence, TypeEvidence } from "../ir-types/contract.js";
 import { internType, readType } from "../ir-types/index.js";
@@ -100,6 +100,36 @@ export function operatorScheme(deps: RulesDeps): ConstraintScheme<OperatorConstr
         decision: { kind: "op", operation },
         selectedCandidate: null,
       });
+    },
+  };
+}
+
+export function memberScheme(deps: RulesDeps): ConstraintScheme<MemberConstraint> {
+  return {
+    enumerate: input => {
+      const { constraint, group, reference } = input;
+      if (constraint.access !== "read") return notDecidedYet("a member write contribution", null);
+      const receiver = variableOf(deps, constraint.receiver, constraint.occurrence, group);
+      const result = variableOf(deps, constraint.result, constraint.occurrence, group);
+      return one({ node: constraint.occurrence, candidate: null, role: { kind: "member" } },
+        receiver === null ? [] : [receiver], result === null ? [] : [result], reference);
+    },
+    evaluate: input => {
+      const { constraint } = input;
+      const [receiver] = positions(deps, input.evidence, [constraint.receiver, constraint.result], constraint.occurrence);
+      if (receiver === undefined) return callerDefect("a member read requires its actual receiver evidence", null);
+      const variable = variableOf(deps, receiver.value.type, constraint.occurrence, null);
+      const selected = variable === null ? receiver : input.reads.find(value => value.variable === variable);
+      if (selected === undefined) return callerDefect("a member read requires the actual value of its receiver variable", null);
+      validateValue(deps, selected);
+      if (selected.error === null)
+        return notDecidedYet("the selected member's declared inventory, type and native receiver representation", null);
+      const result = variableOf(deps, constraint.result, constraint.occurrence, null);
+      const value: InferenceValue = { error: selected.error,
+        value: { type: selected.value.type, component: { kind: "body", value: constraint.occurrence },
+          category: { kind: "dynamic" }, numeric: null, sum: null, nominal: null, pointer: null } };
+      return ok({ bounds: result === null ? [] : [bound(input.contribution.key, result, "producer", value)],
+        decision: { kind: "error", error: selected.error }, selectedCandidate: null });
     },
   };
 }

@@ -2,8 +2,8 @@ import type { CaptureModule, CaptureProgramModules, CreateCheckerExtensions, Ext
   LowerModuleExports, OpenCheckedProgram } from "../front/contract.js";
 import { captureModule, captureProgramModules, createCheckerExtensions, extensionReferencesOf, lowerModule, lowerModuleDefinitions,
   lowerModuleExports, openCheckedProgram } from "../front/index.js";
-import type { ClassifyCycle, DeclaredSignatureOf, DescribeDefinitions, ErrorSignature, MembersOf, PlaceSignature, ResumeDeclaredSignatureOf } from "../decls/contract.js";
-import { classifyCycle, declaredSignatureOf, describeDefinitions, errorSignature, membersOf, placeSignature, resumeDeclaredSignatureOf } from "../decls/index.js";
+import type { ClassifyCycle, DeclaredSignatureOf, DescribeDefinitions, ErrorSignature, MembersOf, MemberTypeOf, PlaceSignature, ResumeDeclaredSignatureOf } from "../decls/contract.js";
+import { classifyCycle, declaredSignatureOf, describeDefinitions, errorSignature, membersOf, memberTypeOf, placeSignature, resumeDeclaredSignatureOf } from "../decls/index.js";
 import type { CreateRuleTable, DecideCaptureModes } from "../rules/contract.js";
 import { createRuleTable, decideCaptureModes } from "../rules/index.js";
 import type { ConstraintsOf, GroupsOf, ResumeConstraintsOf, ResumeSolveGroup, SolveGroup } from "../infer/contract.js";
@@ -52,6 +52,7 @@ export interface DeclsWiring {
   readonly errorSignature: ErrorSignature;
   readonly placeSignature: PlaceSignature;
   readonly membersOf: MembersOf;
+  readonly memberTypeOf: MemberTypeOf;
 }
 
 export interface FrontWiring {
@@ -69,7 +70,7 @@ export interface FrontWiring {
 export const pipelineWiring: PipelineWiring = {
   front: { createCheckerExtensions, extensionReferencesOf, openCheckedProgram, captureProgramModules, captureModule, lowerModuleDefinitions,
     lowerModuleExports, lowerModule },
-  decls: { classifyCycle, describeDefinitions, declaredSignatureOf, resumeDeclaredSignatureOf, errorSignature, placeSignature, membersOf },
+  decls: { classifyCycle, describeDefinitions, declaredSignatureOf, resumeDeclaredSignatureOf, errorSignature, placeSignature, membersOf, memberTypeOf },
   rules: { createRuleTable, decideCaptureModes },
   infer: { constraintsOf, groupsOf, resumeConstraintsOf, resumeSolveGroup, solveGroup },
   elaborate: { elaborate },

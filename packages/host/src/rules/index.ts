@@ -4,7 +4,7 @@ import type { CreateRuleTable } from "./contract.js";
 import { decideEmbedding } from "./embed.js";
 import { notDecidedYet } from "./frontier.js";
 import { decideOperator } from "./operators.js";
-import { flowScheme, operatorScheme } from "./schemes.js";
+import { flowScheme, memberScheme, operatorScheme } from "./schemes.js";
 import { localVariableRule, signatureVariableRule } from "./variables.js";
 import { callScheme, decideCandidate } from "./candidates.js";
 import { decideCaptureModes } from "./captures.js";
@@ -49,7 +49,7 @@ export const createRuleTable: CreateRuleTable = (deps): RuleTable => ({
     flow: flowScheme(deps),
     literal: atConstraint("literal"),
     op: operatorScheme(deps),
-    member: atConstraint("member"),
+    member: memberScheme(deps),
     index: atConstraint("index"),
     call: callScheme(deps),
     construct: atConstraint("construct"),

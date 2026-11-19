@@ -1083,6 +1083,39 @@ test("actual selected member constraints retain their checked origins and distin
   assert.deepEqual(inferIr.verifyInference({ ...verification, group, constraints: generated.value.value.constraints,
     contributions: [], solution: null, bindingScopes: set.constraints.filter(constraint => constraint.kind === "flow" || constraint.kind === "member")
       .map(() => program.descriptions.get(source.owner).generics) }), []);
+  const scheme = program.inputs.inference.rules.constraints.member;
+  const reference = { body: set.body, index: set.constraints.indexOf(member) };
+  const evidence = set.evidence.slice(0, 2);
+  const listing = { group: group.id, remainingContributions: 1, reference, variables: set.variables, candidates: set.candidates,
+    constraint: member, evidence };
+  const contribution = { key: { node: member.occurrence, candidate: null, role: { kind: "member" } },
+    reads: [], bounds: [result.variable], constraint: reference };
+  assert.deepEqual(scheme.enumerate(listing), { kind: "ok", diagnostics: [], value: [contribution] });
+  assert.deepEqual(scheme.enumerate({ ...listing, constraint: { ...member, receiver: member.result } }).value,
+    [{ ...contribution, reads: [result.variable] }]);
+  const unit = { query: "solutionOf", key: group.id };
+  const solveRefusal = wiring.infer.solveGroup({ ...program.inputs.inference,
+    limits: { ...LIMITS, maximumAtomicContributionsPerGroup: 0 } }, group, generated.value.value, unit);
+  assert.equal(solveRefusal.kind, "done");
+  assert.equal(solveRefusal.value.kind, "refused");
+  assert.equal(solveRefusal.value.diagnostics.length, 1);
+  assert.deepEqual(solveRefusal.value.diagnostics[0].arguments,
+    [{ kind: "text", value: "atomic contributions per group" }, { kind: "number", value: 0 }]);
+  assert.throws(() => scheme.evaluate({ constraint: member, contribution, candidates: set.candidates, evidence, reads: [] }),
+    /declared inventory, type and native receiver representation/);
+  assert.throws(() => scheme.evaluate({ constraint: member, contribution, candidates: set.candidates, evidence: [...evidence].reverse(), reads: [] }),
+    /evidence of type position 0/);
+  const errorType = fixture.types.internType(program.interner, { kind: "error" });
+  const error = { kind: "error", causes: [{ kind: "unit", unit: { request: { query: "fixture-receiver", key: source.body },
+    position: { kind: "result" } } }] };
+  const receiverError = { error, value: { ...evidence[0].value, type: errorType } };
+  const propagated = scheme.evaluate({ constraint: { ...member, receiver: errorType }, contribution,
+    candidates: set.candidates, evidence: [receiverError, evidence[1]], reads: [] });
+  assert.equal(propagated.kind, "ok");
+  assert.equal(propagated.value.decision.error, error, "the isolated Rules owner borrows the supplied cause unchanged");
+  assert.equal(propagated.value.bounds[0].error, error);
+  assert.equal(propagated.value.bounds[0].variable, result.variable);
+  assert.deepEqual(propagated.diagnostics, []);
   const checkedOrigins = access.tsonic.origins;
   const checkedKey = access.name.tsonic.key;
   for (const change of ["origins", "key"]) {

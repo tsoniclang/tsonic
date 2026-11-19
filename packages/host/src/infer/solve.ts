@@ -330,7 +330,9 @@ function enumerate(deps: InferDeps, group: InferenceGroup, set: ConstraintSet, r
   const common = { group: group.id, remainingContributions, reference: { body: set.body, index }, variables: set.variables,
     candidates: set.candidates, evidence: reached.evidence };
   switch (reached.kind) {
-    case "member": return deps.rules.constraints.member.enumerate({ ...common, constraint: reached.constraint });
+    case "member": return remainingContributions === 0
+      ? { kind: "refused", diagnostics: [limitDiagnostic(group, "atomic contributions per group", deps.limits.maximumAtomicContributionsPerGroup)] }
+      : deps.rules.constraints.member.enumerate({ ...common, constraint: reached.constraint });
     case "op": return deps.rules.constraints.op.enumerate({ ...common, constraint: reached.constraint });
     case "flow": return deps.rules.constraints.flow.enumerate({ ...common, constraint: reached.constraint });
     case "call": return deps.rules.constraints.call.enumerate({ ...common, constraint: reached.constraint });

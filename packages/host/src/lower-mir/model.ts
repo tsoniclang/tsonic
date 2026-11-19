@@ -3,7 +3,7 @@ import { throwInvariant } from "../diag/index.js";
 import type { BlockId, BodyId, LocalId, LocalRef, NodeId, Origin, PlaceId, TyId } from "../ids/contract.js";
 import type { BinaryExpression, Block, CallExpression, ConditionalExpression, DoStatement, Expression, ForStatement, IfStatement, LabeledStatement, NewExpression, NodeHeader, ReturnStatement, SourceFile, Statement, ThrowStatement, VariableDeclaration, VariableDeclarationList, WhileStatement } from "../ir-hir/contract.js";
 import type { MirOperand, MirSite } from "../ir-mir/contract.js";
-import type { TirApplication, TirBody, TirDemand, TypedOperation, TypedPhase, TypedValue } from "../ir-tir/contract.js";
+import type { MemberSelection, TirApplication, TirBody, TirDemand, TypedOperation, TypedPhase, TypedValue } from "../ir-tir/contract.js";
 import type { InternalBodyInput, LowerMirDeps } from "./contract.js";
 import type { LowerState } from "./state.js";
 
@@ -31,6 +31,7 @@ export type Work =
   | { readonly kind: "declarations"; readonly node: VariableDeclarationList<TypedPhase>; readonly lexical: boolean; readonly position: number }
   | { readonly kind: "block-end"; readonly node: Block<TypedPhase>; readonly scope: LocalScope }
   | { readonly kind: "call"; readonly node: CallExpression<TypedPhase> | NewExpression<TypedPhase>; readonly application: TirApplication; readonly direct: boolean }
+  | { readonly kind: "field-read"; readonly node: NodeHeader; readonly member: MemberSelection; readonly storage: TyId }
   | { readonly kind: "operation"; readonly node: NodeHeader; readonly operation: TypedOperation; readonly form: "unary" | "binary" }
   | { readonly kind: "operation"; readonly node: NodeHeader; readonly operation: TypedOperation; readonly form: "convert"; readonly to: TyId }
   | { readonly kind: "narrow"; readonly node: NodeHeader; readonly narrowing: Extract<NonNullable<TypedValue["narrowing"]>, { readonly kind: "narrowed" }> }

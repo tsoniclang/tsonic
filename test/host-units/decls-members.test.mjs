@@ -115,6 +115,101 @@ test("membersOf preserves callable identity and reports only genuine open parame
   assert.throws(() => declarations.membersOf(deps, declared), /actual retained checker inventory for declared/);
 });
 
+test("memberTypeOf reads only the requested declared structural member, without choosing a receiver representation", async () => {
+  const fixture = await loadFrontFixture();
+  const actual = fixture.checkedModuleOf("export type Box={flag:boolean; note:string; readonly marker:string;};");
+  const alias = actual.checked.tree.statements.nodes[0];
+  const receiver = alias.type.tsonic.type.value;
+  const nodes = fixture.hir.indexSyntaxTree(actual.checked.tree);
+  const deps = { modules: [{ module: actual.checked, nodes }], types: actual.interner,
+    get typeExpansion() { throw new Error("a closed declaration component was substituted again"); } };
+  const inventory = answer(deps, receiver);
+  const type = types.readType(actual.interner, receiver);
+  const note = type.members.find(member => member.key.value === "note");
+  assert.notEqual(note, undefined);
+  Object.defineProperty(note, "read", { get() { throw new Error("an unrelated member type was demanded"); } });
+  Object.defineProperty(note, "write", { get() { throw new Error("an unrelated member type was demanded"); } });
+  for (const [name, expected, writable] of [["flag", { kind: "primitive", primitive: "bool" }, true],
+    ["marker", { kind: "string" }, false]]) {
+    const member = inventory.members.findIndex(candidate => candidate.key.value === name);
+    assert.notEqual(member, -1);
+    const result = declarations.memberTypeOf(deps, { receiver, member });
+    assert.equal(result.kind, "done");
+    assert.equal(result.value.kind, "ok");
+    assert.deepEqual(result.value.positions, [{ position: { kind: "result" }, error: null }]);
+    assert.deepEqual(result.value.diagnostics, []);
+    assert.deepEqual(result.value.emissions, []);
+    const { read, write } = result.value.value;
+    assert.deepEqual(types.readType(actual.interner, read), expected);
+    assert.equal(write, writable ? read : null);
+  }
+  for (const member of [-0, -1, 0.5, inventory.members.length])
+    assert.throws(() => declarations.memberTypeOf(deps, { receiver, member }), /actual member of the receiver inventory/);
+});
+
+test("memberTypeOf does not guess an inference result, unretained association, or missing original error cause", async () => {
+  const fixture = await loadFrontFixture();
+  const actual = fixture.checkedModuleOf("export type Box={flag:boolean;get enabled():boolean;};");
+  const alias = actual.checked.tree.statements.nodes[0];
+  const receiver = alias.type.tsonic.type.value;
+  const shape = types.readType(actual.interner, receiver);
+  const nodes = fixture.hir.indexSyntaxTree(actual.checked.tree);
+  const deps = { modules: [{ module: actual.checked, nodes }], types: actual.interner, typeExpansion: expansion };
+  const flag = shape.members.findIndex(member => member.key.value === "flag");
+  const getter = shape.members.findIndex(member => member.key.value === "enabled");
+  const declaration = nodes.find(node => node.kind === "PropertySignature");
+  assert.equal(flag >= 0 && getter >= 0 && declaration !== undefined, true);
+  const answerFor = member => {
+    const source = types.internType(actual.interner, { ...shape,
+      members: shape.members.map((row, index) => index === flag ? { ...row, ...member } : row) });
+    return declarations.memberTypeOf(deps, { receiver: source, member: flag });
+  };
+  const inferredReceiver = { ...deps, modules: [{ module: actual.checked, nodes: nodes.map(node =>
+    node === declaration ? { ...node, type: null } : node) }] };
+  assert.throws(() => declarations.memberTypeOf(inferredReceiver, { receiver, member: flag }), /declaration or inferred part/);
+  assert.throws(() => declarations.memberTypeOf(deps, { receiver, member: getter }), /type producer for this member kind/);
+  assert.throws(() => answerFor({ origins: [] }), /type producer for this member kind/);
+  assert.throws(() => answerFor({ origins: [{ kind: "mapped", owner: source, key: { kind: "text", value: "flag" } }] }),
+    /type producer for this member origin/);
+  assert.throws(() => answerFor({ origins: [{ kind: "declared", declaration: alias.tsonic.definition }] }),
+    /declaration or inferred part/);
+  const error = types.internType(actual.interner, { kind: "error" });
+  assert.throws(() => answerFor({ read: error }), /error type without its actual cause/);
+  assert.throws(() => answerFor({ write: error }), /error type without its actual cause/);
+  const unavailable = types.internType(actual.interner, { kind: "declared",
+    definition: alias.tsonic.definition, arguments: [], facet: "instance", extent: null });
+  assert.throws(() => declarations.memberTypeOf(deps, { receiver: unavailable, member: 0 }), /actual retained typed member inventory/);
+  const table = types.viewTypes(actual.interner);
+  const withheld = table.terms[receiver].members[flag];
+  delete table.terms[receiver].members[flag];
+  try {
+    assert.throws(() => declarations.memberTypeOf(deps, { receiver, member: flag }), /missing from its canonical inventory/);
+  } finally { table.terms[receiver].members[flag] = withheld; }
+  assert.throws(() => answerFor({ read: null }), /requires its actual read type/);
+});
+
+test("memberTypeOf keeps the selected receiver binding for the same actual generic declaration member", async () => {
+  const fixture = await loadFrontFixture();
+  const actual = fixture.checkedModuleOf("export type Box<T>={value:T;}; export type Flag=Box<boolean>; export type Text=Box<string>;");
+  const [generic, flag, text] = actual.checked.tree.statements.nodes;
+  const deps = { modules: [{ module: actual.checked, nodes: fixture.hir.indexSyntaxTree(actual.checked.tree) }],
+    types: actual.interner, typeExpansion: expansion };
+  const genericRow = answer(deps, generic.type.tsonic.type.value).members[0];
+  const receivers = [flag.type.tsonic.type.value, text.type.tsonic.type.value];
+  assert.notEqual(receivers[0], receivers[1]);
+  const results = receivers.map(receiver => {
+    const inventory = answer(deps, receiver);
+    assert.deepEqual(inventory.members[0].origins, genericRow.origins);
+    const completed = declarations.memberTypeOf(deps, { receiver, member: 0 });
+    assert.equal(completed.kind, "done");
+    assert.equal(completed.value.kind, "ok");
+    const { read, write } = completed.value.value;
+    assert.equal(read, write);
+    return types.readType(actual.interner, read);
+  });
+  assert.deepEqual(results, [{ kind: "primitive", primitive: "bool" }, { kind: "string" }]);
+});
+
 test("membersOf projects real checked accessor origins and construct endpoints without demanding their value types", async () => {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true);
   const fixture = await loadFrontFixture();
