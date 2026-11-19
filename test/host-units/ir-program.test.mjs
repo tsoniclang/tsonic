@@ -493,7 +493,7 @@ function evaluate(input) {
             published.mir.bindings = bindings;
             published.facts[0].execution.instance = instance;
             published.observations.instance = instance;
-            fixture.index.executions[0].instance = instance;
+            fixture.index.dependencyInventory.operations[0].execution.instance = instance;
             fixture.answers.set(encodeContextKey(["bodyOf", instance]), published.tir);
             if (input.change.scopeMissing) fixture.answers.set(encodeContextKey(["bindingScopeOf", fixture.definition]), null);
             if (input.change.maximum !== undefined) ProgramWork.state(fixture.context.resources).limits.maximumBindingVectorsPerArtifact = input.change.maximum;
@@ -1045,11 +1045,11 @@ test("Program binding facts retain the same complete original cause relation thr
     assert.equal(product.parseProgramIndex(text.replace(`group=${JSON.stringify(group)}`, `group=${malformed}`)).kind, "invalid-text");
 });
 const emptyWireIndex = { schema: 1, nativeFactsKey: signatureFixture.index.nativeFactsKey, rootPackage: signatureFixture.index.rootPackage, packages: [], modules: [],
-  types: { terms: [], signatures: [] }, signatures: [], bodies: [], executions: [], metadata: [], summaries: [], constants: [], diagnostics: [] };
+  types: { terms: [], signatures: [] }, signatures: [], bodies: [], dependencyInventory: { operations: [], dependencies: [], components: [] }, metadata: [], summaries: [], constants: [], diagnostics: [] };
 for (const kind of ["advertised", "api-signature", "api-body"]) for (const body of kind === "api-body" ? [null, signatureFixture.bodyId] : [undefined]) {
   const record = { definition: signatureFixture.definition, bindings: { kind: "parametric" }, ordinal: 0, signature: 0, kind,
     ...(body === undefined ? {} : { body }) };
-  const text = `ProgramIndex(schema=1, rootPackage=pkg:${JSON.stringify(emptyWireIndex.rootPackage)}, packages=[], modules=[], types=TypeTable(terms=[], signatures=[]), signatures=[${kind}(definition=def:${JSON.stringify(record.definition)}, bindings=parametric(), ordinal=0, signature=sig:0${body === undefined ? "" : `, body=${body === null ? "null" : `body:${JSON.stringify(body)}`}`})], bodies=[], executions=[], metadata=[], summaries=[], constants=[], diagnostics=[], nativeFactsKey=${JSON.stringify(emptyWireIndex.nativeFactsKey)})`;
+  const text = `ProgramIndex(schema=1, rootPackage=pkg:${JSON.stringify(emptyWireIndex.rootPackage)}, packages=[], modules=[], types=TypeTable(terms=[], signatures=[]), signatures=[${kind}(definition=def:${JSON.stringify(record.definition)}, bindings=parametric(), ordinal=0, signature=sig:0${body === undefined ? "" : `, body=${body === null ? "null" : `body:${JSON.stringify(body)}`}`})], bodies=[], dependencyInventory=DependencyInventory(operations=[], dependencies=[], components=[]), metadata=[], summaries=[], constants=[], diagnostics=[], nativeFactsKey=${JSON.stringify(emptyWireIndex.nativeFactsKey)})`;
   const index = { ...emptyWireIndex, signatures: [record] };
   authoredDocuments.push({ text, index });
   test(`ir-program independent ${kind}/${String(body)} complete literal retains every signature-record field`, () => {
@@ -1074,7 +1074,7 @@ for (const kind of ["advertised", "api-signature", "api-body"]) for (const body 
     methodBindings: [], capturedBindings: [], selfBindings: [{ kind: "rigid", owner: signatureFixture.definition }, { kind: "bound", owner: other, type: 0 }] };
   const definition = JSON.stringify(signatureFixture.definition);
   const bindings = `instantiated(bindings=BindingVector(classBindings=[rigid(parameter=TypeParameterIdentity(owner=def:${definition}, index=0)), bound(parameter=TypeParameterIdentity(owner=def:${definition}, index=1), type=t:0)], methodBindings=[], capturedBindings=[], selfBindings=[rigid(owner=def:${definition}), bound(owner=def:${JSON.stringify(other)}, type=t:0)]))`;
-  const text = `ProgramIndex(schema=1, rootPackage=pkg:${JSON.stringify(emptyWireIndex.rootPackage)}, packages=[], modules=[], types=TypeTable(terms=[], signatures=[]), signatures=[advertised(definition=def:${definition}, bindings=${bindings}, ordinal=0, signature=sig:0)], bodies=[], executions=[], metadata=[], summaries=[], constants=[], diagnostics=[], nativeFactsKey=${JSON.stringify(emptyWireIndex.nativeFactsKey)})`;
+  const text = `ProgramIndex(schema=1, rootPackage=pkg:${JSON.stringify(emptyWireIndex.rootPackage)}, packages=[], modules=[], types=TypeTable(terms=[], signatures=[]), signatures=[advertised(definition=def:${definition}, bindings=${bindings}, ordinal=0, signature=sig:0)], bodies=[], dependencyInventory=DependencyInventory(operations=[], dependencies=[], components=[]), metadata=[], summaries=[], constants=[], diagnostics=[], nativeFactsKey=${JSON.stringify(emptyWireIndex.nativeFactsKey)})`;
   const index = { ...emptyWireIndex, signatures: [{ kind: "advertised", definition: signatureFixture.definition,
     bindings: { kind: "instantiated", bindings: vector }, ordinal: 0, signature: 0 }] };
   authoredDocuments.push({ text, index });
@@ -1146,7 +1146,7 @@ for (const kind of ["advertised", "api-signature", "api-body"]) for (const body 
   const exports = [{ name: "direct", target: { kind: "declarations", definitions: [definition] } },
     { name: "alias", target: { kind: "binding", occurrence: occurrence(0) } }];
   const moduleRecord = `ModuleRecord(module=${moduleText}, package=pkg:${JSON.stringify(emptyWireIndex.rootPackage)}, items=[DefinitionNode(definition=${owner}, node=n:0)], exports=[HirModuleExport(name="direct", target=declarations(definitions=[${owner}])), HirModuleExport(name="alias", target=binding(occurrence=${item(0)}))], bindings=[${values.map(([, target], node) => `HirModuleBinding(occurrence=${node === 1 ? body(node) : item(node)}, target=${target})`).join(", ")}], checkerDiagnostics=[])`;
-  const text = `ProgramIndex(schema=1, rootPackage=pkg:${JSON.stringify(emptyWireIndex.rootPackage)}, packages=[], modules=[${moduleRecord}], types=TypeTable(terms=[], signatures=[]), signatures=[], bodies=[], executions=[], metadata=[], summaries=[], constants=[], diagnostics=[], nativeFactsKey=${JSON.stringify(emptyWireIndex.nativeFactsKey)})`;
+  const text = `ProgramIndex(schema=1, rootPackage=pkg:${JSON.stringify(emptyWireIndex.rootPackage)}, packages=[], modules=[${moduleRecord}], types=TypeTable(terms=[], signatures=[]), signatures=[], bodies=[], dependencyInventory=DependencyInventory(operations=[], dependencies=[], components=[]), metadata=[], summaries=[], constants=[], diagnostics=[], nativeFactsKey=${JSON.stringify(emptyWireIndex.nativeFactsKey)})`;
   const index = { ...emptyWireIndex, modules: [{ module, package: emptyWireIndex.rootPackage, items: [{ definition, node: 0 }], exports, bindings, checkerDiagnostics: [] }] };
   authoredDocuments.push({ text, index });
   test("ir-program independently authored binding grammar retains every closed target without claiming semantic verification", () => {
@@ -1398,7 +1398,7 @@ for (const [name, { index, text, offset, firstField }] of extraFieldFaults)
 
 test("ir-program independent complete escaped package strings retain every decoded UTF16 code unit", () => {
   const pkg = JSON.stringify(emptyWireIndex.rootPackage);
-  const text = `ProgramIndex("sch\\u0065ma"=1, rootPackage=pkg:${pkg}, packages=[PackageRecord(id=pkg:${pkg}, name="quote\\\"\\/slash\\\\\\b\\f\\n\\r\\t\\u00AF\\uD800", packageRoot="/program", sourceRoot="/program/src", dependencies=[], exports=[])], modules=[], types=TypeTable(terms=[], signatures=[]), signatures=[], bodies=[], executions=[], metadata=[], summaries=[], constants=[], diagnostics=[], nativeFactsKey=${JSON.stringify(emptyWireIndex.nativeFactsKey)})`;
+  const text = `ProgramIndex("sch\\u0065ma"=1, rootPackage=pkg:${pkg}, packages=[PackageRecord(id=pkg:${pkg}, name="quote\\\"\\/slash\\\\\\b\\f\\n\\r\\t\\u00AF\\uD800", packageRoot="/program", sourceRoot="/program/src", dependencies=[], exports=[])], modules=[], types=TypeTable(terms=[], signatures=[]), signatures=[], bodies=[], dependencyInventory=DependencyInventory(operations=[], dependencies=[], components=[]), metadata=[], summaries=[], constants=[], diagnostics=[], nativeFactsKey=${JSON.stringify(emptyWireIndex.nativeFactsKey)})`;
   const index = { ...emptyWireIndex, packages: [{ id: emptyWireIndex.rootPackage, name: 'quote"/slash\\\b\f\n\r\t\u00af\ud800',
     packageRoot: "/program", sourceRoot: "/program/src", dependencies: [], exports: [] }] };
   completeProgramValue(product.parseProgramIndex(text), { kind: "parsed", value: index }, "complete escapes include uppercase hexadecimal, quoted field spelling and a lone UTF16 surrogate");
