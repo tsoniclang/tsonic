@@ -349,6 +349,7 @@ test("real public Host analysis publishes a recursive declared alias without unf
 test("real public Host analysis preserves exact native string equality and inequality decisions and their Boolean counterparts", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { evaluate } = await import("../../packages/host/dist/evaluate/index.js");
   for (const domain of ["string", "boolean"])
   for (const [token, operator] of [["EqualsEqualsToken", "=="], ["EqualsEqualsEqualsToken", "==="],
     ["ExclamationEqualsToken", "!="], ["ExclamationEqualsEqualsToken", "!=="]]) {
@@ -366,10 +367,22 @@ test("real public Host analysis preserves exact native string equality and inequ
       && statement.value.kind === "binary").value.operation.decision;
     assert.deepEqual(operation.operation, { kind: domain === "string" ? "string-operator" : "boolean-operator", operator });
     assert.deepEqual(operation.execution, { kind: "pure" });
-    const terms = result.value.index.types.terms;
+    const table = result.value.index.types;
+    const terms = table.terms;
     const operand = domain === "string" ? { kind: "string" } : { kind: "primitive", primitive: "bool" };
     assert.deepEqual(operation.operands.map(type => terms[type]), [operand, operand]);
     assert.deepEqual(terms[operation.result], { kind: "primitive", primitive: "bool" });
+    for (const equal of [true, false]) {
+      const values = domain === "string" ? ["e\u0301", equal ? "e\u0301" : "é"] : [false, !equal];
+      const arguments_ = values.map((value, index) => ({ kind: domain, type: operation.operands[index], value }));
+      const evaluated = evaluate({ types: table, typeOf: type => table.terms[type], signatureOf: signature => table.signatures[signature],
+        selectedNativeFacts: input.snapshot.nativeFacts, limits: input.limits.evaluation }, selected.instance, selected.mir, arguments_,
+      "compile-time", { query: "constValue", key: [selected.instance, "compile-time"] });
+      assert.equal(evaluated.kind, "done");
+      assert.equal(evaluated.value.kind, "ok");
+      assert.deepEqual(evaluated.value.value, { kind: "value",
+        value: { kind: "boolean", type: operation.result, value: operator.startsWith("!") ? !equal : equal } });
+    }
   }
 });
 
