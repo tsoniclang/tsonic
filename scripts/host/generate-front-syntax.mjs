@@ -85,16 +85,16 @@ const scalarByKind = {
   "PrefixUnaryExpression.operator": "prefixOperator(context, node)",
   "PostfixUnaryExpression.operator": "postfixOperator(context, node)",
   "TypeOperatorNode.operator": "typeOperator(context, node)",
-  "HeritageClause.token": "heritageToken(context, node)",
-  "ImportAttributes.token": "attributesToken(context, node)",
-  "MetaProperty.keywordToken": "metaKeyword(context, node)",
+  "HeritageClause.token": "heritageToken(context, view.Token)",
+  "ImportAttributes.token": "attributesToken(context, view.Token)",
+  "MetaProperty.keywordToken": "metaKeyword(context, view.KeywordToken)",
   "ModuleDeclaration.keyword": "moduleKeyword(context, node)",
   "ImportClause.phaseModifier": "phaseModifier(context, node, view.PhaseModifier)",
   "SourceFile.languageVariant": "languageVariant(view.LanguageVariant)",
   "SourceFile.scriptKind": "scriptKind(view.ScriptKind)",
   "SourceFile.commentDirectives": "commentDirectives(context, view.CommentDirectives)",
-  "SourceFile.pragmas": "pragmas(view.Pragmas)",
-  "SourceFile.checkJsDirective": "checkJsDirective(view.CheckJsDirective)",
+  "SourceFile.pragmas": "context.pragmas",
+  "SourceFile.checkJsDirective": "context.checkJsDirective",
   "SyntaxList.children": "view.Children.map(child => one(context, child, id, isSyntax))",
   "JSDocText.text": "jsDocText(view.text)",
   "JSDocLink.text": "jsDocText(view.text)",
@@ -214,7 +214,7 @@ out.push(`// Written with the help of a one-off script from the HIR contract; ed
 out.push(`import type * as Hir from "../ir-hir/contract.js";`);
 out.push(`import type { NodeId } from "../ids/contract.js";`);
 out.push(`import type { SdkNodeList, SyntaxCaptureContext, SyntaxNodeOf } from "./syntax-support.js";`);
-out.push(`import { attributesToken, checkJsDirective, commentDirectives, defect, headerOf, heritageToken, jsDocText, languageVariant, metaKeyword, moduleKeyword, phaseModifier, postfixOperator, pragmas, prefixOperator, rangeOf, scriptKind, tokenFlags, typeOperator } from "./syntax-support.js";`);
+out.push(`import { attributesToken, commentDirectives, defect, headerOf, heritageToken, jsDocText, languageVariant, metaKeyword, moduleKeyword, phaseModifier, postfixOperator, prefixOperator, rangeOf, scriptKind, tokenFlags, typeOperator } from "./syntax-support.js";`);
 out.push(...helpers);
 out.push(``);
 for (const guard of guards.values()) {

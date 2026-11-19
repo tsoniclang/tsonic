@@ -26,6 +26,7 @@ export type AstSourceRange = {
 export interface AstReader {
     readonly kind: (node: GoPtr<Node>) => Kind | undefined;
     readonly kindName: (node: GoPtr<Node>) => string;
+    readonly syntaxKindName: (kind: Kind) => string;
     readonly text: (node: GoPtr<Node>) => string;
     readonly name: (node: GoPtr<Node>) => GoPtr<Node>;
     readonly body: (node: GoPtr<Node>) => GoPtr<Node>;

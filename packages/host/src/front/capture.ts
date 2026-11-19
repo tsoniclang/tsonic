@@ -13,6 +13,7 @@ import { ExtensionTable, OpenedProgram } from "./handles.js";
 import type { FileNumbering, FileSyntaxEntry } from "./handles.js";
 import { captureNode, expressionKinds, typeNodeKinds } from "./syntax-capture.js";
 import type { SyntaxCaptureContext } from "./syntax-support.js";
+import { capturePragmas } from "./syntax-support.js";
 import { isModuleBindingKind } from "../ir-hir/index.js";
 import { captureCheckerDiagnostic } from "./diagnostics.js";
 
@@ -86,12 +87,15 @@ interface CaptureMeter {
   refusal: Diagnostic | null;
 }
 
-interface CaptureScope {
+interface CaptureAdmission {
   readonly deps: CaptureDeps;
-  readonly program: CheckedProgram;
   readonly path: string;
   readonly meter: CaptureMeter;
   readonly module: ModuleId;
+}
+
+interface CaptureScope extends CaptureAdmission {
+  readonly program: CheckedProgram;
   readonly file: SourceFile;
   readonly checked: OpenedProgramView;
   readonly checker: TypeCheckerQueries;
@@ -175,7 +179,7 @@ function fileNumberingOf(deps: CaptureDeps, program: CheckedProgram, path: strin
 }
 
 /** Admits one more fact or edge, before it is added; the first one over its limit stops the capture with a refusal. */
-function admit(scope: CaptureScope, dimension: "facts" | "edges"): boolean {
+function admit(scope: CaptureAdmission, dimension: "facts" | "edges"): boolean {
   if (scope.meter.refusal !== null) return false;
   const maximum = dimension === "facts" ? scope.deps.navigationCapture.maximumCapturedFactsPerModule : scope.deps.navigationCapture.maximumCapturedEdgesPerModule;
   if (scope.meter[dimension] + 1 > maximum) {
@@ -986,12 +990,17 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
   if (own.kind === "refused") return { kind: "refused", diagnostics: [own.diagnostic] };
   const { nodes, ids: ownNodes } = own.numbering;
   const displacement = input.displacement;
+  const admission: CaptureAdmission = { deps, module, path, meter: { facts: 0, edges: 0, refusal: null } };
+  const ranges = { ast, file, displacement };
+  const pragmas = capturePragmas(ranges, () => admit(admission, "facts"));
+  if (pragmas === null) return { kind: "refused", diagnostics: [admission.meter.refusal
+    ?? throwInvariant(invariant("Directive capture must retain the first fact refusal."))] };
   // The syntax capture takes each node's identity from the numbering, and must reach the nodes in its order.
-  const context: SyntaxCaptureContext = { ast, file, module, displacement, numbering: own.numbering };
+  const context: SyntaxCaptureContext = { ...ranges, ...pragmas, module, numbering: own.numbering };
   const tree = captureNode(context, file, null);
   if (tree.kind !== "SourceFile") return throwInvariant(invariant("A module's captured tree is not a source file."));
   const queries = checked.getSourceFileQueries(file);
-  const scope: CaptureScope = { deps, program, path, meter: { facts: 0, edges: 0, refusal: null }, module, file, checked, checker: queries.checker,
+  const scope: CaptureScope = { ...admission, program, file, checked, checker: queries.checker,
     shape: queries.typeShape, ownNodes, emptyCoreInventory: closedInventoryEmpty(program), diagnosticRoots: new Map(),
     tables: { types: [], components: [], signatures: [], members: [], candidates: [], symbols: [], symbolIds: new Map(), signatureIds: new Map(), activeTypes: new Map(), nextType: 0, nextMember: 0, pending: [] } };
   const checkerDiagnostics: Diagnostic[] = [];

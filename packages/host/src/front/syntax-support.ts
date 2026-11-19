@@ -7,6 +7,7 @@ import {
   TokenFlagsPrecedingLineBreak, TokenFlagsPrecedingJSDocComment, TokenFlagsUnterminated, TokenFlagsExtendedUnicodeEscape, TokenFlagsScientific, TokenFlagsOctal, TokenFlagsHexSpecifier, TokenFlagsBinarySpecifier, TokenFlagsOctalSpecifier, TokenFlagsContainsSeparator, TokenFlagsUnicodeEscape, TokenFlagsContainsInvalidEscape, TokenFlagsHexEscape, TokenFlagsContainsLeadingZero, TokenFlagsContainsInvalidSeparator, TokenFlagsPrecedingJSDocLeadingAsterisks, TokenFlagsSingleQuote, TokenFlagsPrecedingJSDocWithDeprecated, TokenFlagsPrecedingJSDocWithSeeOrLink,
 } from "@tsonic/tsts";
 import type * as Hir from "../ir-hir/contract.js";
+import { orderPragmaArguments } from "../ir-hir/index.js";
 import type { ModuleId, NodeId, Origin } from "../ids/contract.js";
 
 /** A node of the checker's tree. */
@@ -24,11 +25,19 @@ export interface SdkNodeList {
  * minus the delivered length, applied once), and the next preorder identity, which also records the checker's node
  * that the identity stands for.
  */
-export interface SyntaxCaptureContext {
+interface SyntaxLocationContext {
   readonly ast: AstReader;
   readonly file: SourceFile;
-  readonly module: ModuleId;
   readonly displacement: number;
+}
+
+interface CapturedPragmas {
+  readonly pragmas: readonly Hir.Pragma[];
+  readonly checkJsDirective: Hir.CheckJsDirective | null;
+}
+
+export interface SyntaxCaptureContext extends SyntaxLocationContext, CapturedPragmas {
+  readonly module: ModuleId;
   readonly numbering: FileNumbering;
 }
 
@@ -37,14 +46,14 @@ export function defect(message: string): never {
   throw new TypeError(`front: ${message}`);
 }
 
-function originalRange(context: SyntaxCaptureContext, startByte: number, endByte: number): Hir.TextRange {
+function originalRange(context: SyntaxLocationContext, startByte: number, endByte: number): Hir.TextRange {
   const range = context.ast.sourceRange(context.file, startByte, endByte);
   if (range.kind !== "source") return defect("the checker gave no source range for a node of a checked file");
   return { pos: range.start + context.displacement, end: range.end + context.displacement };
 }
 
 /** A list's or a comment's range: the checker's byte range, as UTF-16 offsets of the captured text. */
-export function rangeOf(context: SyntaxCaptureContext, loc: { readonly pos: number; readonly end: number }): Hir.TextRange {
+export function rangeOf(context: SyntaxLocationContext, loc: { readonly pos: number; readonly end: number }): Hir.TextRange {
   return originalRange(context, loc.pos, loc.end);
 }
 
@@ -87,25 +96,27 @@ export function tokenFlags(value: number): readonly Hir.TokenFlag[] {
   return named.filter(([, bit]) => (value & bit) !== 0).map(([name]) => name);
 }
 
-/**
- * The keyword token of a heritage clause, import attributes, a meta property or a module declaration. The checker
- * states it as a kind number; the SDK exports kind names only for nodes (AstReader.kindName), not for kind numbers:
- * refused until it does (K-3297). Never read from the source words.
- */
-function keywordNotReadable(context: SyntaxCaptureContext, node: SyntaxNodeOf): never {
-  return defect(`the keyword of a ${context.ast.kindName(node)} node needs a public name of the checker's kind numbers, which the SDK does not export`);
+type StoredSyntaxKind = Parameters<AstReader["syntaxKindName"]>[0];
+
+export function heritageToken(context: SyntaxCaptureContext, token: StoredSyntaxKind): "ExtendsKeyword" | "ImplementsKeyword" {
+  const name = context.ast.syntaxKindName(token);
+  if (name === "KindExtendsKeyword") return "ExtendsKeyword";
+  if (name === "KindImplementsKeyword") return "ImplementsKeyword";
+  return defect(`the checker states an unknown heritage token ${name}`);
 }
 
-export function heritageToken(context: SyntaxCaptureContext, node: SyntaxNodeOf): "ExtendsKeyword" | "ImplementsKeyword" {
-  return keywordNotReadable(context, node);
+export function attributesToken(context: SyntaxCaptureContext, token: StoredSyntaxKind): "WithKeyword" | "AssertKeyword" {
+  const name = context.ast.syntaxKindName(token);
+  if (name === "KindWithKeyword") return "WithKeyword";
+  if (name === "KindAssertKeyword") return "AssertKeyword";
+  return defect(`the checker states an unknown import attributes token ${name}`);
 }
 
-export function attributesToken(context: SyntaxCaptureContext, node: SyntaxNodeOf): "WithKeyword" | "AssertKeyword" {
-  return keywordNotReadable(context, node);
-}
-
-export function metaKeyword(context: SyntaxCaptureContext, node: SyntaxNodeOf): "ImportKeyword" | "NewKeyword" {
-  return keywordNotReadable(context, node);
+export function metaKeyword(context: SyntaxCaptureContext, token: StoredSyntaxKind): "ImportKeyword" | "NewKeyword" {
+  const name = context.ast.syntaxKindName(token);
+  if (name === "KindImportKeyword") return "ImportKeyword";
+  if (name === "KindNewKeyword") return "NewKeyword";
+  return defect(`the checker states an unknown meta property keyword ${name}`);
 }
 
 export function moduleKeyword(context: SyntaxCaptureContext, node: SyntaxNodeOf): Hir.ModuleDeclaration<Hir.SyntaxPhase>["keyword"] {
@@ -172,14 +183,38 @@ export function commentDirectives(context: SyntaxCaptureContext,
       : directive.Kind === CommentDirectiveKindUnknown ? "Unknown" : defect(`the checker states an unknown comment directive kind ${directive.Kind}`) }));
 }
 
-/** Pragmas of a file: none is the only form read here so far. */
-export function pragmas(value: readonly unknown[]): readonly Hir.Pragma[] {
-  return value.length === 0 ? [] : defect("the pragmas of a file are not yet converted");
+function commentRange(context: SyntaxLocationContext, value: NonNullable<SourceFile["CheckJsDirective"]>["Range"]): Hir.CommentRange {
+  const name = context.ast.syntaxKindName(value.Kind);
+  const kind = name === "KindSingleLineCommentTrivia" ? "SingleLineCommentTrivia"
+    : name === "KindMultiLineCommentTrivia" ? "MultiLineCommentTrivia" : defect(`the checker states an unknown comment kind ${name}`);
+  return { ...rangeOf(context, value), kind, hasTrailingNewLine: value.HasTrailingNewLine };
 }
 
-/** A `@ts-check` or `@ts-nocheck` directive: none is the only form read here so far. */
-export function checkJsDirective(value: object | undefined): null {
-  return value === undefined ? null : defect("a check-JS directive is not yet converted");
+export function capturePragmas(context: SyntaxLocationContext, admit: () => boolean): CapturedPragmas | null {
+  const pragmas: Hir.Pragma[] = [];
+  const captured = context.file.Pragmas;
+  for (let index = 0; index < captured.length; index += 1) {
+    if (!admit()) return null;
+    const pragma = captured[index];
+    if (pragma === undefined) return defect("the checker's pragma inventory is not dense");
+    const args: Hir.PragmaArgumentEntry[] = [];
+    const entries = pragma.Args;
+    if (entries !== undefined) {
+      const iterator = entries.entries();
+      for (let index = 0; index < entries.size; index += 1) {
+        if (!admit()) return null;
+        const entry = iterator.next();
+        if (entry.done) return defect("the checker's pragma arguments ended before their actual extent");
+        const [name, argument] = entry.value;
+        args.push({ name, value: { ...rangeOf(context, argument), name: argument.Name, value: argument.Value } });
+      }
+    }
+    pragmas.push({ ...commentRange(context, pragma), name: pragma.Name, args: orderPragmaArguments(args) });
+  }
+  const selected = context.file.CheckJsDirective;
+  if (selected === undefined) return { pragmas, checkJsDirective: null };
+  if (!admit()) return null;
+  return { pragmas, checkJsDirective: { enabled: selected.Enabled, range: commentRange(context, selected.Range) } };
 }
 
 export function jsDocText(value: readonly string[]): readonly string[] {

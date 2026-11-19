@@ -4,7 +4,7 @@
 import type * as Hir from "../ir-hir/contract.js";
 import type { NodeId } from "../ids/contract.js";
 import type { SdkNodeList, SyntaxCaptureContext, SyntaxNodeOf } from "./syntax-support.js";
-import { attributesToken, checkJsDirective, commentDirectives, defect, headerOf, heritageToken, jsDocText, languageVariant, metaKeyword, moduleKeyword, phaseModifier, postfixOperator, pragmas, prefixOperator, rangeOf, scriptKind, tokenFlags, typeOperator } from "./syntax-support.js";
+import { attributesToken, commentDirectives, defect, headerOf, heritageToken, jsDocText, languageVariant, metaKeyword, moduleKeyword, phaseModifier, postfixOperator, prefixOperator, rangeOf, scriptKind, tokenFlags, typeOperator } from "./syntax-support.js";
 
 type Guard<T extends Hir.SyntaxNode<Hir.SyntaxPhase>> = (node: Hir.SyntaxNode<Hir.SyntaxPhase>) => node is T;
 
@@ -910,7 +910,7 @@ function buildNode(context: SyntaxBuildContext, node: SyntaxNodeOf, parent: Node
       const id = context.next(node);
       const header = headerOf(context, node, id, parent);
       const types_ = list(context, view.Types, id, isGroup28);
-      const token_ = heritageToken(context, node);
+      const token_ = heritageToken(context, view.Token);
       return { kind: "HeritageClause", ...header, types: types_, token: token_, tsonic: null };
     }
     case "KindInterfaceDeclaration":
@@ -1478,7 +1478,7 @@ function buildNode(context: SyntaxBuildContext, node: SyntaxNodeOf, parent: Node
       const id = context.next(node);
       const header = headerOf(context, node, id, parent);
       const name_ = one(context, view.name, id, isGroup2);
-      const keywordToken_ = metaKeyword(context, node);
+      const keywordToken_ = metaKeyword(context, view.KeywordToken);
       return { kind: "MetaProperty", ...header, name: name_, keywordToken: keywordToken_, tsonic: null };
     }
     case "KindNonNullExpression":
@@ -1795,7 +1795,7 @@ function buildNode(context: SyntaxBuildContext, node: SyntaxNodeOf, parent: Node
       const id = context.next(node);
       const header = headerOf(context, node, id, parent);
       const attributes_ = list(context, view.Attributes, id, isGroup51);
-      const token_ = attributesToken(context, node);
+      const token_ = attributesToken(context, view.Token);
       const multiLine_ = view.MultiLine;
       return { kind: "ImportAttributes", ...header, attributes: attributes_, token: token_, multiLine: multiLine_, tsonic: null };
     }
@@ -2409,8 +2409,8 @@ function buildNode(context: SyntaxBuildContext, node: SyntaxNodeOf, parent: Node
       const languageVariant_ = languageVariant(view.LanguageVariant);
       const scriptKind_ = scriptKind(view.ScriptKind);
       const commentDirectives_ = commentDirectives(context, view.CommentDirectives);
-      const pragmas_ = pragmas(view.Pragmas);
-      const checkJsDirective_ = checkJsDirective(view.CheckJsDirective);
+      const pragmas_ = context.pragmas;
+      const checkJsDirective_ = context.checkJsDirective;
       return { kind: "SourceFile", ...header, statements: statements_, endOfFileToken: endOfFileToken_, languageVariant: languageVariant_, scriptKind: scriptKind_, commentDirectives: commentDirectives_, pragmas: pragmas_, checkJsDirective: checkJsDirective_, tsonic: null };
     }
     case "KindModuleDeclaration":

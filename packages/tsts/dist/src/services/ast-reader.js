@@ -14,6 +14,7 @@ export function createAstReader() {
     const reader = {
         kind: (node) => node?.Kind,
         kindName: (node) => node === undefined ? "Undefined" : KindString(node.Kind),
+        syntaxKindName: KindString,
         text: (node) => node === undefined ? "" : Node_Text(node),
         name: (node) => node === undefined ? undefined : Node_Name(node),
         body: (node) => node === undefined ? undefined : Node_Body(node),

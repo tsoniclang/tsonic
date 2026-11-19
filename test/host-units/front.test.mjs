@@ -1561,7 +1561,7 @@ test("syntax assembly consumes an admitted 20000-expression numbering iterativel
   const ast = { kindName: node => node.kind, as: { AsParenthesizedExpression: node => node },
     authoredRange: () => ({ kind: "authored", start: 0, end: 0 }), sourceRange: () => ({ kind: "source", start: 0, end: 0 }),
     pos: () => 0, end: () => 0 };
-  const context = { ast, file: null, module, displacement: 0, numbering: { nodes, ids: numbers, parents } };
+  const context = { ast, file: null, module, displacement: 0, pragmas: [], checkJsDirective: null, numbering: { nodes, ids: numbers, parents } };
   const result = captureNode(context, root, null);
   let count = 0;
   for (let node = result; node !== undefined; node = node.expression) {
@@ -2041,44 +2041,90 @@ test("K-3341 many parameters preserve the exact fact boundary before their last 
 // K-3343: identity counters belong to the owner itself. The raw modules are constructed (K-3343 allows it): the syntax tree comes
 // from the checker through Front's own syntax capture, the rest of the raw module from add's capture, because the full capture of
 // these object and union types meets the checker-type frontier. Expectations written before the run.
-test("K-3343: names holding #, / and : never make two owners share a counter; overloads in one owner still count up; rows are deterministic and identities distinct", async () => {
+async function captureSyntaxOf(sourceText, module) {
   const { captureNode } = await import("../../packages/host/dist/front/syntax-capture.js");
+  const { capturePragmas } = await import("../../packages/host/dist/front/syntax-support.js");
+  const session = sdk.createCompilerSessionFromFiles({ currentDirectory: "/project", files: new Map([["/project/src/main.ts", sourceText]]),
+    rootFiles: ["/project/src/main.ts"], compilerOptions: { noLib: true, noEmit: true }, useCaseSensitiveFileNames: true });
+  const checked = session.checkSource();
+  const file = checked.getSourceFile("/project/src/main.ts");
+  const nodes = [];
+  const numbers = new Map();
+  const parents = new Map();
+  const pending = [{ node: file, parent: null }];
+  for (let current = pending.pop(); current !== undefined; current = pending.pop()) {
+    const id = ids.nodeId(nodes.length);
+    nodes.push(current.node);
+    numbers.set(current.node, id);
+    parents.set(current.node, current.parent);
+    const children = [];
+    checked.ast.forEachChild(current.node, child => { if (child !== undefined) children.push(child); });
+    for (let index = children.length - 1; index >= 0; index -= 1) pending.push({ node: children[index], parent: id });
+  }
+  const ranges = { ast: checked.ast, file, displacement: 0 };
+  const pragmas = capturePragmas(ranges, () => true);
+  assert.ok(pragmas);
+  return captureNode({ ...ranges, ...pragmas, module,
+    numbering: { nodes, ids: numbers, parents } }, file, null);
+}
+
+test("the captured syntax retains the actual non-node heritage, import-attribute and meta keywords", async () => {
+  const hir = await import("../../packages/host/dist/ir-hir/index.js");
+  const module = moduleOf(packageOf("/project"), "src/main.ts");
+  const tree = await captureSyntaxOf(`interface Parent {}
+    class Child extends Base implements Parent { constructor() { super(); new.target; } }
+    import output from "data" with { type: "json" };
+    export const url = import.meta.url;`, module);
+  const nodes = hir.indexSyntaxTree(tree);
+  assert.deepEqual(nodes.filter(node => node.kind === "HeritageClause").map(node => node.token), ["ExtendsKeyword", "ImplementsKeyword"]);
+  assert.deepEqual(nodes.filter(node => node.kind === "ImportAttributes").map(node => node.token), ["WithKeyword"]);
+  assert.deepEqual(nodes.filter(node => node.kind === "MetaProperty").map(node => node.keywordToken), ["NewKeyword", "ImportKeyword"]);
+});
+
+test("actual file pragmas preserve argument ranges, selection and the owning capture limit", async () => {
+  const text = '// é\n/// <reference no-default-lib="true" />\n/** @jsx factory */\n// @ts-check\n// @ts-nocheck\n';
+  const current = openedModule(text);
+  const captured = front.captureModule(current.deps, current.program, current.module);
+  assert.equal(captured.kind, "ok");
+  const tree = captured.value.tree;
+  assert.deepEqual(tree.pragmas.map(pragma => [pragma.name, pragma.kind]), [
+    ["reference", "SingleLineCommentTrivia"], ["jsx", "MultiLineCommentTrivia"],
+    ["ts-check", "SingleLineCommentTrivia"], ["ts-nocheck", "SingleLineCommentTrivia"],
+  ]);
+  for (const pragma of tree.pragmas) for (const { name, value } of pragma.args) {
+    assert.equal(name, value.name);
+    assert.equal(text.slice(value.pos, value.end), value.value);
+  }
+  assert.equal(tree.checkJsDirective.enabled, false);
+  assert.equal(text.slice(tree.checkJsDirective.range.pos, tree.checkJsDirective.range.end), "// @ts-nocheck");
+  for (const maximum of [0, 1, 2, 3, 4, 5, 6]) {
+    const limits = { ...current.deps.navigationCapture, maximumCapturedFactsPerModule: maximum };
+    const result = front.captureModule({ ...current.deps, navigationCapture: limits }, current.program, current.module);
+    assert.equal(result.kind, "refused", `actual fact cut ${maximum}`);
+    assert.deepEqual(result.diagnostics[0].arguments, [{ kind: "text", value: "front.maximumCapturedFactsPerModule" },
+      { kind: "number", value: maximum }]);
+  }
+});
+
+test("K-3343: names holding #, / and : never make two owners share a counter; overloads in one owner still count up; rows are deterministic and identities distinct", async () => {
   const base = checkedModuleOf(addSource).raw;
-  const rowsOf = sourceText => {
-    const session = sdk.createCompilerSessionFromFiles({ currentDirectory: "/project", files: new Map([["/project/src/main.ts", sourceText]]),
-      rootFiles: ["/project/src/main.ts"], compilerOptions: { noLib: true, noEmit: true }, useCaseSensitiveFileNames: true });
-    const checked = session.checkSource();
-    const file = checked.getSourceFile("/project/src/main.ts");
-    const nodes = [];
-    const numbers = new Map();
-    const parents = new Map();
-    const pending = [{ node: file, parent: null }];
-    for (let current = pending.pop(); current !== undefined; current = pending.pop()) {
-      const id = ids.nodeId(nodes.length);
-      nodes.push(current.node);
-      numbers.set(current.node, id);
-      parents.set(current.node, current.parent);
-      const children = [];
-      checked.ast.forEachChild(current.node, child => { if (child !== undefined) children.push(child); });
-      for (let index = children.length - 1; index >= 0; index -= 1) pending.push({ node: children[index], parent: id });
-    }
-    const tree = captureNode({ ast: checked.ast, file, module: base.module, displacement: 0,
-      numbering: { nodes, ids: numbers, parents } }, file, null);
+  const rowsOf = async sourceText => {
+    const tree = await captureSyntaxOf(sourceText, base.module);
     const definitions = front.lowerModuleDefinitions({ module: { ...base, tree }, componentRoots: [] });
     assert.equal(definitions.kind, "ok");
     return definitions.value.rows;
   };
   const paths = rows => rows.map(row => row.segments.map(segment => [segment.name, segment.ordinal]));
   const collision = "export interface I {\n  a: { \"b#0/c\": { z: number } };\n  \"a#0/b\": { c: { z: number } };\n}\n";
-  const rows = rowsOf(collision);
+  const rows = await rowsOf(collision);
   assert.deepEqual(paths(rows), [[], [["I", 0]], [["I", 0], ["a", 0]], [["I", 0], ["a", 0], ["b#0/c", 0]], [["I", 0], ["a", 0], ["b#0/c", 0], ["z", 0]],
     [["I", 0], ["a#0/b", 0]], [["I", 0], ["a#0/b", 0], ["c", 0]], [["I", 0], ["a#0/b", 0], ["c", 0], ["z", 0]]]);
   assert.equal(new Set(rows.map(row => row.definition)).size, rows.length, "every identity is distinct");
-  assert.deepEqual(rowsOf(collision), rows, "the rows of one source are the same each time");
+  assert.deepEqual(await rowsOf(collision), rows, "the rows of one source are the same each time");
   const names = "export interface J {\n  \"\": number;\n  \"#\": number;\n  \":\": number;\n  \"/\": number;\n  \"a:b#0/c\": number;\n  \"é\": number;\n  \"名\": number;\n}\n";
-  const nameRows = rowsOf(names);
+  const nameRows = await rowsOf(names);
   assert.deepEqual(paths(nameRows).slice(2), ["", "#", ":", "/", "a:b#0/c", "é", "名"].map(name => [["J", 0], [name, 0]]));
   assert.equal(new Set(nameRows.map(row => row.definition)).size, nameRows.length);
   const overloads = "export function over(a: number): number;\nexport function over(a: string): string;\nexport function over(a: number | string): number | string { return a; }\n";
-  assert.deepEqual(paths(rowsOf(overloads)), [[], [["over", 0]], [["over", 0], ["a", 0]], [["over", 1]], [["over", 1], ["a", 0]], [["over", 2]], [["over", 2], ["a", 0]]]);
+  assert.deepEqual(paths(await rowsOf(overloads)), [[], [["over", 0]], [["over", 0], ["a", 0]], [["over", 1]], [["over", 1], ["a", 0]], [["over", 2]], [["over", 2], ["a", 0]]]);
 });
