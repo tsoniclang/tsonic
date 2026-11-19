@@ -5,14 +5,13 @@ import { requirePresent, resourceLimitDiagnostic, throwInvariant } from "../../d
 import type { AppliedSummary, CaptureLocation, MirPoint, RelationalArena, Summary, SummaryApplicationInput, SummaryKey, ValueEntryBinding } from "../../ir-facts/contract.js";
 import { admitSummaryIdentity, applySummary, summaryKey } from "../../ir-facts/index.js";
 import type { MirBody, MirOperand, MirTerminator } from "../../ir-mir/contract.js";
-import type { OriginsId, ValueContextId } from "../../ids/contract.js";
+import type { LocalId, OriginsId, ValueContextId } from "../../ids/contract.js";
 import { valueContextId } from "../../ids/index.js";
 import type { BodyInstance } from "../../ir-types/contract.js";
 import type { BodyRoundDeps, BodyRoundInput } from "./contract.js";
-import { appliedOrigins, valueKind } from "./values.js";
-import type { AdmitOrigins, ValueOrigins } from "./values.js";
+import { valueKind } from "./values.js";
 import { readLocal } from "./places.js";
-import { primitiveWrites } from "./writes.js";
+import { callWrites, primitiveExitLocals } from "./writes.js";
 
 export interface CallError {
   readonly kind: "error";
@@ -137,9 +136,9 @@ export function applyScalarCall(deps: BodyRoundDeps, input: BodyRoundInput,
     + value.callbacks.length + value.resultCells.length + value.backing.length;
   if (effects !== 0)
     return frontier(operation, "BodyAnalysis requires the actual caller cell, event, callback or backing producer for these applied effects.");
-  const written = primitiveWrites(deps, input, operation, summary, summary.writes, value.writes)
-    ?? primitiveWrites(deps, input, operation, summary, summary.contentsOnReturn, value.contentsOnReturn)
-    ?? primitiveWrites(deps, input, operation, summary, summary.contentsOnUnwind, value.contentsOnUnwind);
+  const written = callWrites(deps, input, operation, summary, summary.writes, value.writes)
+    ?? callWrites(deps, input, operation, summary, summary.contentsOnReturn, value.contentsOnReturn)
+    ?? callWrites(deps, input, operation, summary, summary.contentsOnUnwind, value.contentsOnUnwind);
   if (written !== null) return written;
   for (let index = 0; index < value.subjects.length; index += 1) {
     const work = chargeWork(deps.account, 1);
@@ -161,7 +160,9 @@ export function applyScalarCall(deps: BodyRoundDeps, input: BodyRoundInput,
   for (const retained of value.retention) {
     const work = chargeWork(deps.account, 1);
     if (work !== null) return work;
-    if (retained.into.kind !== "return" && retained.into.kind !== "throw" || retained.value.kind !== "caller")
+    if (retained.into.kind !== "return" && retained.into.kind !== "throw"
+      && (retained.into.kind !== "capture" || retained.into.path !== null || operation.callee.kind !== "body")
+      || retained.value.kind !== "caller")
       return frontier(operation, "BodyAnalysis requires the actual external retention transport for these applied effects.");
   }
   for (const capture of value.captures) {
@@ -181,10 +182,14 @@ export function applyScalarCall(deps: BodyRoundDeps, input: BodyRoundInput,
   return applied;
 }
 
-export function referenceCallResult(deps: BodyRoundDeps, input: BodyRoundInput,
+export type CallValueEffects =
+  | { readonly kind: "primitive"; readonly result: OriginsId; readonly contents: readonly LocalId[] }
+  | { readonly kind: "applied"; readonly value: AppliedSummary };
+
+export function callValueEffects(deps: BodyRoundDeps, input: BodyRoundInput,
   operation: Extract<MirTerminator, { readonly kind: "call" }>, point: MirPoint, summary: Summary,
-  arena: RelationalArena, state: readonly OriginsId[], constants: readonly OriginsId[], values: ValueOrigins,
-  admit: AdmitOrigins, fallback: OriginsId, captures: readonly CaptureLocation[]): DataflowResult<OriginsId> {
+  arena: RelationalArena, state: readonly OriginsId[], constants: readonly OriginsId[],
+  fallback: OriginsId, captures: readonly CaptureLocation[]): DataflowResult<CallValueEffects> {
   const read = chargeWork(deps.account, 1);
   if (read !== null) return read;
   const signature = deps.signatureOf(summary.signature);
@@ -194,7 +199,15 @@ export function referenceCallResult(deps: BodyRoundDeps, input: BodyRoundInput,
   const classified = accountFailure(deps.account);
   if (classified !== null) return classified;
   if (kind === null) return frontier(operation, "BodyAnalysis requires the actual selected call-result representation and Origins producer.");
-  if (kind !== "reference") return { kind: "complete", value: fallback };
+  if (kind !== "reference") {
+    const contents = primitiveExitLocals(deps, input, operation, summary, "return");
+    if (contents.kind !== "complete") return contents;
+    if (contents.value !== null) {
+      const output = chargeResultEntries(deps.account, 1);
+      if (output !== null) return output;
+      return { kind: "complete", value: { kind: "primitive", result: fallback, contents: contents.value } };
+    }
+  }
   const setup = chargeWork(deps.account, operation.arguments.length + arena.contexts.length)
     ?? chargeResultEntries(deps.account, operation.arguments.length + arena.contexts.length + 3);
   if (setup !== null) return setup;
@@ -233,6 +246,7 @@ export function referenceCallResult(deps: BodyRoundDeps, input: BodyRoundInput,
   const caller = { ...arena, contexts: [...arena.contexts, { id: context, receiver: null, arguments: arguments_, captures }] };
   const applied = applyScalarCall(deps, input, operation, point, summary, caller, context, entries, cells);
   if (applied.kind !== "complete") return applied;
-  const result = appliedOrigins(deps, values, applied.value.result, admit);
-  return typeof result === "number" ? { kind: "complete", value: result } : result;
+  const output = chargeResultEntries(deps.account, 1);
+  if (output !== null) return output;
+  return { kind: "complete", value: { kind: "applied", value: applied.value } };
 }

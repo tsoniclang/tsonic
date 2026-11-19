@@ -2,14 +2,14 @@ import type { DataflowResult, DataflowStop, FlowSolution, ForwardProblem } from 
 import { accountFailure, chargeResultEntries, chargeWork, solve } from "../../dataflow/index.js";
 import { requirePresent } from "../../diag/index.js";
 import type { BlockId, LocalId, OriginsId } from "../../ids/contract.js";
-import type { CaptureLocation, RelationalArena } from "../../ir-facts/contract.js";
-import type { MirOperand, MirStatement } from "../../ir-mir/contract.js";
+import type { AppliedSummary, CaptureLocation, RelationalArena, Summary } from "../../ir-facts/contract.js";
+import type { MirOperand, MirStatement, MirTerminator } from "../../ir-mir/contract.js";
 import type { BodyRoundDeps, BodyRoundInput } from "./contract.js";
-import { callSummary, isCallError, referenceCallResult } from "./calls.js";
+import { callSummary, callValueEffects, isCallError } from "./calls.js";
 import { bodyFrontier, readLocal } from "./places.js";
-import { joinOrigins, valueKind } from "./values.js";
+import { appliedOrigins, joinOrigins, valueKind } from "./values.js";
 import type { AdmitOrigins, ValueOrigins } from "./values.js";
-import { primitiveExitLocals } from "./writes.js";
+import { captureLocalAtCall } from "./initialization.js";
 
 export interface CurrentValues {
   readonly origins: readonly OriginsId[];
@@ -59,16 +59,78 @@ export function mergeContents(deps: BodyRoundDeps, state: ReadonlySet<LocalId>, 
   return { kind: "complete", value: next ?? state };
 }
 
-export function collectExitContents(deps: BodyRoundDeps, origins: readonly OriginsId[], contents: ReadonlySet<LocalId>, cells: readonly LocalId[],
+export function applyExitContents(deps: BodyRoundDeps, input: BodyRoundInput,
+  operation: Extract<MirTerminator, { readonly kind: "call" }>, summary: Summary, application: AppliedSummary,
+  kind: "return" | "unwind", state: ValueState | undefined, values: ValueOrigins, admit: AdmitOrigins,
+  destination: { readonly local: LocalId; readonly tracked: boolean } | null): DataflowResult<CurrentValues> {
+  const setup = chargeWork(deps.account, 1) ?? chargeResultEntries(deps.account, 2);
+  if (setup !== null) return setup;
+  const origins = requirePresent(state?.origins, { owner: "analyses/body", query: null, origin: operation.origin,
+    message: "An applied exit retains its actual solved pre-call value state." });
+  const previousContents = requirePresent(state?.contents, { owner: "analyses/body", query: null, origin: operation.origin,
+    message: "An applied exit retains its actual solved pre-call content state." });
+  const source = kind === "return" ? summary.contentsOnReturn : summary.contentsOnUnwind;
+  const applied = kind === "return" ? application.contentsOnReturn : application.contentsOnUnwind;
+  const locals: LocalId[] = [];
+  let next: OriginsId[] | null = null;
+  const store = (local: LocalId, value: OriginsId): DataflowStop | null => {
+    const read = chargeWork(deps.account, 1);
+    if (read !== null) return read;
+    const previous = requirePresent((next ?? origins)[local], { owner: "analyses/body", query: null, origin: operation.origin,
+      message: "An applied cell content retains its actual executing local." });
+    if (previous === value) return null;
+    if (next === null) {
+      const copy = chargeWork(deps.account, origins.length) ?? chargeResultEntries(deps.account, origins.length + 1);
+      if (copy !== null) return copy;
+      next = [...origins];
+    }
+    next[local] = value;
+    return null;
+  };
+  for (let index = 0; index < applied.length; index += 1) {
+    const read = chargeWork(deps.account, 2);
+    if (read !== null) return read;
+    const selected = requirePresent(source[index], { owner: "analyses/body", query: null, origin: operation.origin,
+      message: "An applied finite content retains its actual source cell." });
+    const row = requirePresent(applied[index], { owner: "analyses/body", query: null, origin: operation.origin,
+      message: "An applied finite content retains its actual value." });
+    const local = captureLocalAtCall(deps, input.mir, operation, summary, selected.target);
+    if (local.kind !== "complete") return local;
+    const value = appliedOrigins(deps, values, row.value, admit);
+    if (typeof value !== "number") return value;
+    const stored = store(local.value, value);
+    if (stored !== null) return stored;
+    const growth = chargeResultEntries(deps.account, 1);
+    if (growth !== null) return growth;
+    locals.push(local.value);
+  }
+  if (destination !== null) {
+    const value = appliedOrigins(deps, values, application.result, admit);
+    if (typeof value !== "number") return value;
+    const stored = store(destination.local, value);
+    if (stored !== null) return stored;
+  }
+  const contents = mergeContents(deps, previousContents, locals, destination?.tracked === true ? destination.local : null);
+  if (contents.kind !== "complete") return contents;
+  const output = chargeResultEntries(deps.account, 1);
+  if (output !== null) return output;
+  return { kind: "complete", value: { origins: next ?? origins, contents: contents.value } };
+}
+
+export function collectExitContents(deps: BodyRoundDeps, origins: readonly OriginsId[], entry: readonly OriginsId[], contents: ReadonlySet<LocalId>, cells: readonly LocalId[],
   output: Map<number, OriginsId>, values: ValueOrigins, admit: AdmitOrigins): DataflowStop | null {
   const prior = accountFailure(deps.account);
   if (prior !== null) return prior;
   for (let cell = 0; cell < cells.length; cell += 1) {
-    const read = chargeWork(deps.account, 2);
+    const read = chargeWork(deps.account, 4);
     if (read !== null) return read;
     const local = requirePresent(cells[cell], { owner: "analyses/body", query: null, origin: null,
       message: "A finite exit retains the actual local of every owned cell." });
-    if (!contents.has(local)) continue;
+    const initial = requirePresent(entry[local], { owner: "analyses/body", query: null, origin: null,
+      message: "A finite exit retains the actual entry value of its cell." });
+    const symbol = requirePresent(values.rows[initial], { owner: "analyses/body", query: null, origin: null,
+      message: "An entry value retains its actual Origins relation." });
+    if (!contents.has(local) && symbol.producers.length === 0) continue;
     const current = requirePresent(origins[local], { owner: "analyses/body", query: null, origin: null,
       message: "A finite exit retains the actual current value of its cell." });
     const previous = output.get(cell);
@@ -77,6 +139,25 @@ export function collectExitContents(deps: BodyRoundDeps, origins: readonly Origi
     const growth = chargeResultEntries(deps.account, previous === undefined ? 1 : 0);
     if (growth !== null) return growth;
     output.set(cell, value);
+  }
+  return null;
+}
+
+export function removeUnchangedContents(deps: BodyRoundDeps, output: Map<number, OriginsId>, cells: readonly LocalId[],
+  entry: readonly OriginsId[], values: ValueOrigins): DataflowStop | null {
+  const prior = accountFailure(deps.account);
+  if (prior !== null) return prior;
+  for (const [cell, value] of output) {
+    const read = chargeWork(deps.account, 3);
+    if (read !== null) return read;
+    const local = requirePresent(cells[cell], { owner: "analyses/body", query: null, origin: null,
+      message: "A finite content retains its actual owning local." });
+    const initial = requirePresent(entry[local], { owner: "analyses/body", query: null, origin: null,
+      message: "A finite content retains its real entry value." });
+    if (value !== initial) continue;
+    const symbol = requirePresent(values.rows[initial], { owner: "analyses/body", query: null, origin: null,
+      message: "An unchanged finite content retains its real entry symbol." });
+    if (symbol.producers.length !== 0) output.delete(cell);
   }
   return null;
 }
@@ -183,25 +264,33 @@ export function valueProblem(deps: BodyRoundDeps, input: BodyRoundInput, arena: 
         if (selected.kind !== "complete") return outgoing;
         if (isCallError(selected.value)) return bodyFrontier("A solved value call retains its already-completed semantic answer.");
         if (!selected.value.returns) return outgoing;
+        const destination = terminator.destination === null ? null : readLocal(input.mir, { kind: "place", place: terminator.destination });
+        const result = callValueEffects(deps, input, terminator, { block, statement: null }, selected.value,
+          arena, state.origins, constants, requirePresent(destination === null ? arena.origins[0]?.id : initial[destination], {
+            owner: "analyses/body", query: null, origin: terminator.origin,
+            message: "A call retains its actual initial destination or empty value relation." }),
+          terminator.callee.kind !== "body" ? [] : requirePresent(captures.get(block), { owner: "analyses/body", query: null,
+            origin: terminator.origin, message: "A selected body call retains its actual slot-location inventory." }));
+        if (result.kind !== "complete") return outgoing;
+        if (result.value.kind === "applied") {
+          const descriptor = chargeResultEntries(account, destination === null ? 0 : 1);
+          if (descriptor !== null) return outgoing;
+          const applied = applyExitContents(deps, input, terminator, selected.value, result.value.value, "return", state, values, admit,
+            destination === null ? null : { local: destination, tracked: tracked.has(destination) });
+          if (applied.kind !== "complete") return outgoing;
+          edge(terminator.next, applied.value);
+          return outgoing;
+        }
         let next = state;
         let writtenLocal: LocalId | null = null;
-        if (terminator.destination !== null) {
-          const destination = readLocal(input.mir, { kind: "place", place: terminator.destination });
-          const result = referenceCallResult(deps, input, terminator, { block, statement: null }, selected.value,
-            arena, state.origins, constants, values, admit, requirePresent(initial[destination], { owner: "analyses/body", query: null,
-              origin: terminator.origin, message: "A call destination retains its actual storage disposition." }),
-            terminator.callee.kind !== "body" ? [] : requirePresent(captures.get(block), { owner: "analyses/body", query: null,
-              origin: terminator.origin, message: "A selected body call retains its actual slot-location inventory." }));
-          if (result.kind !== "complete") return outgoing;
+        if (destination !== null) {
           if (chargeWork(account, state.origins.length + 1) !== null || chargeResultEntries(account, state.origins.length + 1) !== null) return outgoing;
           const written = [...state.origins];
-          written[destination] = result.value;
+          written[destination] = result.value.result;
           writtenLocal = tracked.has(destination) ? destination : null;
           next = { origins: written, contents: state.contents };
         }
-        const returned = primitiveExitLocals(deps, input, terminator, selected.value, "return");
-        if (returned.kind !== "complete") return outgoing;
-        const contents = mergeContents(deps, next.contents, returned.value, writtenLocal);
+        const contents = mergeContents(deps, next.contents, result.value.contents, writtenLocal);
         if (contents.kind !== "complete") return outgoing;
         if (chargeResultEntries(account, 1) !== null) return outgoing;
         next = { origins: next.origins, contents: contents.value };
