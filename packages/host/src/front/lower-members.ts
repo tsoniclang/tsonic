@@ -1,5 +1,6 @@
-import type { RawTypeId, TyId } from "../ids/contract.js";
+import type { BodyId, NodeId, RawTypeId, TyId } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
+import type * as Hir from "../ir-hir/contract.js";
 import type { Member, MemberOrigin } from "../ir-types/contract.js";
 import type { LowerDeps, RawFact, RawMember } from "./contract.js";
 import { lowerMemberKey, lowerMemberOrigin } from "./bindings.js";
@@ -36,4 +37,29 @@ export function lowerMembers(deps: LowerDeps, members: readonly RawMember[],
       kind: member.readKind, read: typeOf(member.read), write: typeOf(member.write),
       optional: member.optional, readonly: member.readonly };
   });
+}
+
+export function lowerObjectProperties(node: Hir.ObjectLiteralExpression<Hir.SyntaxPhase>, body: BodyId, members: readonly Member[],
+  coreOf: (node: NodeId) => Hir.HirCoreCapture, valueOf: (node: Hir.Expression<Hir.SyntaxPhase>) => Hir.Expression<Hir.CheckedPhase>):
+  Hir.NodeList<Hir.ObjectLiteralElementLike<Hir.CheckedPhase>> {
+  const selections = new Map<NodeId, Member>();
+  for (const member of members) for (const origin of member.origins) {
+    if (origin.kind !== "source-member" || origin.occurrence.body !== body) continue;
+    if (selections.has(origin.occurrence.node))
+      throw new TypeError("front: a data-property occurrence cannot select two checked members");
+    selections.set(origin.occurrence.node, member);
+  }
+  return { loc: node.properties.loc, nodes: node.properties.nodes.map(property => {
+    if (property.kind !== "PropertyAssignment" || property.name.kind !== "Identifier" ||
+      property.modifiers !== null || property.postfixToken !== null || property.type !== null)
+      throw new TypeError("front: checked object property must be a plain data-property assignment");
+    const selected = selections.get(property.id);
+    if (selected === undefined || selected.kind !== "property")
+      throw new TypeError("front: object data-property requires its actual checked member occurrence");
+    const key: Hir.CapturedFact<Member["key"]> = { kind: "available", value: selected.key };
+    const origins: Hir.CapturedFact<Member["origins"]> = { kind: "available", value: selected.origins };
+    return { ...property, modifiers: null, postfixToken: null, type: null, initializer: valueOf(property.initializer),
+      name: { ...property.name, tsonic: { core: coreOf(property.name.id), role: "property-name", key, origins } },
+      tsonic: { core: coreOf(property.id), key, origins } };
+  }) };
 }

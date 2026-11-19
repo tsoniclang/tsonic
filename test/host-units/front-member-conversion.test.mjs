@@ -14,7 +14,7 @@ const session = new Session();
 const post = (method, parameters = {}) => new Promise((done, reject) => {
   session.post(method, parameters, (error, result) => error === null ? done(result) : reject(error));
 });
-let lowerMembers;
+let lowerMembers, lowerObjectProperties;
 let ids;
 let types;
 
@@ -24,7 +24,7 @@ before(async () => {
   await post("Debugger.enable");
   await post("Profiler.enable");
   await post("Profiler.startPreciseCoverage", { callCount: true, detailed: true });
-  ({ lowerMembers } = await import("../../packages/host/dist/front/lower-members.js"));
+  ({ lowerMembers, lowerObjectProperties } = await import("../../packages/host/dist/front/lower-members.js"));
   ids = await import("../../packages/host/dist/ids/index.js");
   types = await import("../../packages/host/dist/ir-types/index.js");
 });
@@ -212,6 +212,57 @@ test("captured data-property origins demand their genuine body occurrence withou
     body: fixture.ids.encodeBodyId({ owner, role: "initializer", ordinal: 0 }), node: node.id,
   } });
   assert.equal(ready.kind, "PropertyAssignment");
+});
+
+test("object property lowering selects by the full checked occurrence, not shape order or spelling", async () => {
+  const fixture = await loadFrontFixture();
+  const source = "export const shape: { z: boolean; a: boolean } = { z: true, a: false };";
+  const opened = fixture.openedModule(source);
+  const { module, program } = opened;
+  const captured = fixture.front.captureModule(opened.deps, program, module);
+  assert.equal(captured.kind, "ok");
+  const raw = captured.value;
+  const enclosing = raw.tree.statements.nodes[0].declarationList.declarations.nodes[0];
+  const literal = enclosing.initializer;
+  const declarations = fixture.front.lowerModuleDefinitions({ module: raw, componentRoots: [
+    ...raw.types.components.map(component => component.root).filter(reference => reference.module === module),
+    ...literal.properties.nodes.map(property => ({ module, node: property.id })),
+  ] });
+  assert.equal(declarations.kind, "ok");
+  const interner = fixture.types.createTypeInterner();
+  const deps = fixture.lowerDepsFor(declarations.value, interner, source);
+  const exported = fixture.front.lowerModuleExports(deps, raw);
+  assert.equal(exported.kind, "ok");
+  const checked = fixture.front.lowerModule({ ...deps, exportsOf: () => exported.value }, raw);
+  assert.equal(checked.kind, "ok");
+  const body = checked.value.bodies.find(entry => entry.root.id === literal.id);
+  const sourceShape = fixture.types.readType(interner, body.root.tsonic.value.views.read.value);
+  assert.equal(sourceShape.kind, "shape");
+  assert.deepEqual(sourceShape.members.map(member => member.key.value), ["a", "z"]);
+  const bodies = new Map(body.root.properties.nodes.map(property => [property.id, property]));
+  const checkedCore = new Map([...bodies.values()].flatMap(property => [
+    [property.id, property.tsonic.core], [property.name.id, property.name.tsonic.core],
+  ]));
+  const read = node => [...bodies.values()].find(property => property.initializer.id === node.id).initializer;
+  const lower = (members, node = literal) => lowerObjectProperties(node, body.body, members, id => checkedCore.get(id), read);
+  assert.deepEqual(lower(sourceShape.members), body.root.properties);
+  assert.throws(() => lower([...sourceShape.members, sourceShape.members[0]]), /cannot select two checked members/u);
+  const expected = sourceShape.members[0];
+  const otherBody = fixture.ids.encodeBodyId({ owner: body.owner, role: "initializer", ordinal: 1 });
+  const differentOwner = { ...expected, origins: [{ ...expected.origins[0], occurrence: { body: otherBody, node: expected.origins[0].occurrence.node } }] };
+  const differentOrigin = { ...expected, origins: [{ kind: "declared", declaration: body.owner }] };
+  for (const crossed of [differentOwner, differentOrigin, { ...expected, kind: "method" }])
+    assert.throws(() => lower([crossed, sourceShape.members[1]]), /actual checked member occurrence/u);
+  const property = literal.properties.nodes[0];
+  const malformed = [
+    { ...property, kind: "ShorthandPropertyAssignment" },
+    { ...property, name: property.initializer },
+    { ...property, modifiers: { loc: property.loc, nodes: [] } },
+    { ...property, postfixToken: { kind: "QuestionToken" } },
+    { ...property, type: enclosing.type },
+  ];
+  for (const first of malformed) assert.throws(() => lower(sourceShape.members, { ...literal,
+    properties: { loc: literal.properties.loc, nodes: [first, literal.properties.nodes[1]] } }), /plain data-property assignment/u);
 });
 
 test("an imported data property's source occurrence stays in its own module even when another node has the same ID", async () => {

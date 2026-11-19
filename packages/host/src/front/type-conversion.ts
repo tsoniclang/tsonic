@@ -2,7 +2,7 @@ import type { RawSignatureId, RawTypeId, SigId, TyId } from "../ids/contract.js"
 import { encodeBodyId, sigId, tyId } from "../ids/index.js";
 import type { LiteralTypeValue, SignatureInput, SignatureParameter, TypeEvidence, TypeGraphMapping, TypeGraphResult, TypePublicationStop, TypePublicationWork, TypeTerm } from "../ir-types/contract.js";
 import { compareIndexSignatures, createTypePublicationWork, internTypeGraph, viewTypes } from "../ir-types/index.js";
-import type { ConvertedCheckedType, LowerDeps, RawFact, RawModule, RawSignature } from "./contract.js";
+import type { ConvertedCheckedType, LowerDeps, RawFact, RawModule, RawSignature, RawTypeForm } from "./contract.js";
 import { lowerMembers } from "./lower-members.js";
 import { sourceOccurrence } from "./bindings.js";
 
@@ -274,14 +274,30 @@ function publishMappings(graph: TypeGraph, mapping: TypeGraphMapping, root: Prep
   for (const handle of graph.signatures.values()) graph.conversion.convertedSignatures.set(handle.id, mapSignatureResult(mapping, handle.position));
 }
 
+export function rawSignatureParameter(raw: RawModule, id: RawTypeId): Extract<RawTypeForm, { readonly kind: "parameter" }> {
+  const captured = raw.types.types[id];
+  if (captured?.id !== id || captured.form.kind !== "available" || captured.form.value.kind !== "parameter")
+    throw new TypeError("front: a signature binder requires its actual captured parameter type");
+  const parameter = captured.form.value;
+  const position = raw.types.components[captured.component];
+  if (position?.root.module !== parameter.parameter.module || position.root.node !== parameter.parameter.node || position.path.length !== 0)
+    throw new TypeError("front: a signature binder requires its actual qualified declaration component");
+  return parameter;
+}
+
 function signatureInput(graph: TypeGraph, signature: RawSignature, result: RawTypeId, dependencies: Dependency[]): SignatureInput {
-  if (signature.typeParameters.kind !== "available" || signature.typeParameters.value.length !== 0
-    || signature.receiver.kind !== "available" || signature.receiver.value !== null)
-    throw new TypeError("front: generic or receiver-bearing callable type conversion is not implemented");
+  if (signature.typeParameters.kind !== "available" || signature.receiver.kind !== "available" || signature.receiver.value !== null)
+    throw new TypeError("front: incomplete or receiver-bearing callable type conversion is not implemented");
   if (signature.composition !== null) throw new TypeError("front: composed callable signature conversion is not implemented");
   const declaration = signature.declaration;
   if (declaration === null) throw new TypeError("front: declarationless callable signature conversion is not implemented");
   const definition = graph.conversion.deps.definitionOf(declaration);
+  const typeParameters = signature.typeParameters.value.map(id => {
+    const parameter = rawSignatureParameter(graph.conversion.raw, id);
+    return { declaration: graph.conversion.deps.definitionOf(parameter.parameter),
+      constraint: parameter.constraint === null ? null : typeReference(graph, parameter.constraint, dependencies),
+      default: parameter.default === null ? null : typeReference(graph, parameter.default, dependencies) };
+  });
   const parameters = signature.parameters.map((parameter): SignatureParameter => {
     const declared = parameter.declaration;
     if (declared === null) throw new TypeError("front: declarationless callable parameter conversion is not implemented");
@@ -297,5 +313,5 @@ function signatureInput(graph: TypeGraph, signature: RawSignature, result: RawTy
       acceptsOmission: parameter.acceptsOmission };
   });
   return { declaration: definition, owner: { kind: "item", value: { owner: definition, node: declaration.node } }, composition: null,
-    kind: signature.kind, typeParameters: [], receiver: null, parameters, result: typeReference(graph, result, dependencies) };
+    kind: signature.kind, typeParameters, receiver: null, parameters, result: typeReference(graph, result, dependencies) };
 }

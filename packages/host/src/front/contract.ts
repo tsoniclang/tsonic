@@ -166,7 +166,7 @@ export interface RawSignature {
   readonly owner: RawNodeRef | null;
   readonly declaration: RawNodeRef | null;
   readonly kind: "call" | "construct";
-  readonly typeParameters: RawFact<readonly RawNodeRef[]>;
+  readonly typeParameters: RawFact<readonly RawTypeId[]>;
   readonly receiver: RawFact<RawParameter | null>;
   readonly parameters: readonly RawParameter[];
   readonly result: RawFact<RawTypeId>;
@@ -301,8 +301,8 @@ export interface RawInferenceContribution {
     | { readonly kind: "argument" | "argument-tail"; readonly subject: RawNodeRef;
         readonly effectiveArgumentIndex: number; readonly parameterIndex: number }
     | { readonly kind: "receiver" | "contextual-result"; readonly subject: RawNodeRef };
-  readonly source: RawComponentId;
-  readonly formal: RawComponentId;
+  readonly source: RawTypeId;
+  readonly formal: RawTypeId;
 }
 
 export interface RawApplication {

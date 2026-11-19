@@ -1364,10 +1364,12 @@ test("an applicable SDK receipt is not a complete overload inventory, and missin
       message: "front: complete applicable candidate conversion is not implemented without a proven singleton declaration order" });
   }
   const selected = raw.types.candidates[0].candidates[0];
-  for (const patch of [{ classArguments: [{}] }, { signatureArguments: [{}] }, { receiver: selected.application.callee }]) {
+  for (const [patch, message] of [[{ classArguments: [{}] }, "front: nonempty call candidate binding conversion is not implemented"],
+    [{ signatureArguments: [{}] }, "front: selected bindings must cover the actual original signature binder inventory"],
+    [{ receiver: selected.application.callee }, "front: nonempty call candidate binding conversion is not implemented"]]) {
     const changed = { ...raw, types: { ...raw.types, candidates: raw.types.candidates.map(list => ({ ...list,
       candidates: list.candidates.map(candidate => ({ ...candidate, application: { ...candidate.application, ...patch } })) })) } };
-    assert.throws(() => convert(changed), { name: "TypeError", message: "front: nonempty call candidate binding conversion is not implemented" });
+    assert.throws(() => convert(changed), { name: "TypeError", message });
   }
   const obligations = { ...raw, types: { ...raw.types, candidates: raw.types.candidates.map(list => ({ ...list,
     candidates: list.candidates.map(candidate => ({ ...candidate, constraints: [{}] })) })) } };
@@ -1641,7 +1643,7 @@ test("K-3313.2 proven absence: with an empty closed inventory each captured node
   assert.deepEqual(checked.bodies.flatMap(body => body.params.map(parameter => parameter.passing)), ["by-value", "by-value"]);
 });
 
-test("K-3313.2 offered but not answered: a selected semantics module that offers reference markers leaves every core fact not provided, and lowering refuses the parameter's passing instead of defaulting it", async () => {
+test("K-3313.2 an argument-only marker module does not remove the actual signature passing proof", async () => {
   const types = await import("../../packages/host/dist/ir-types/index.js");
   const semantics = { moduleSpecifier: "@tsonic/core/lang.js", capabilities: ["call-marker"], exports: [{ kind: "call-marker", exportName: "readwriteref", marker: "read-write-reference" }] };
   const snapshot = projectSnapshot({ sourceFiles: { "main.ts": addSource }, libraries: bundled(), providerPackages: [{ root: "/semantics", name: "semantics" }],
@@ -1653,8 +1655,15 @@ test("K-3313.2 offered but not answered: a selected semantics module that offers
   assert.equal(raw.value.core.length, 18);
   assert.deepEqual([...new Set(raw.value.core.flatMap(row => Object.entries(row).filter(([name]) => name !== "node").map(([, fact]) => JSON.stringify(fact))))], [JSON.stringify(notProvided)]);
   const definitions = front.lowerModuleDefinitions({ module: raw.value, componentRoots: raw.value.types.components.map(component => component.root).filter(root => root.module === raw.value.module) });
-  assert.throws(() => lowerWithReadyExports(lowerDepsFor(definitions.value, types.createTypeInterner(), addSource), raw.value),
-    { name: "TypeError", message: "front: a parameter whose passing mode is not proven is not implemented (the selected inventory offers core facts that capture does not answer yet)" });
+  const lower = value => lowerWithReadyExports(lowerDepsFor(definitions.value, types.createTypeInterner(), addSource), value);
+  const checked = lower(raw.value);
+  assert.equal(checked.kind, "ok");
+  assert.deepEqual(checked.value.bodies.flatMap(body => body.params.map(parameter => parameter.passing)), ["by-value", "by-value"]);
+  const missing = { ...raw.value, types: { ...raw.value.types,
+    signatures: raw.value.types.signatures.map(signature => ({ ...signature,
+      parameters: signature.parameters.map(parameter => ({ ...parameter, passing: notProvided })),
+    })) } };
+  assert.throws(() => lower(missing), /captured passing mode is unavailable/u);
 });
 
 test("K-3313.2 a positive declaration passing fact is consumed as captured: a by-reference parameter row gives that mode in the signature, the body's parameters and the node's core", async () => {
@@ -2015,7 +2024,11 @@ test("K-3361: a receiver is captured apart from the ordinary parameters and lowe
   assert.deepEqual([plain.signature.receiver, plain.signature.typeParameters], [{ kind: "available", value: null }, { kind: "available", value: [] }]);
   const generic = captured("export function f<T>(x: number): number { return x; }\n");
   const typeParameter = generic.nodes.find(node => node.kind === "TypeParameter").id;
-  assert.deepEqual(generic.signature.typeParameters, { kind: "available", value: [{ module: generic.module, node: typeParameter }] });
+  assert.equal(generic.signature.typeParameters.kind, "available");
+  assert.equal(generic.signature.typeParameters.value.length, 1);
+  const binder = generic.raw.types.types[generic.signature.typeParameters.value[0]];
+  assert.deepEqual(binder.form, { kind: "available", value: { kind: "parameter",
+    parameter: { module: generic.module, node: typeParameter }, constraint: null, default: null } });
   assert.throws(refusalOf(generic), { name: "TypeError", message: "front: checked annotation not implemented: FunctionDeclaration with type parameters" });
 });
 

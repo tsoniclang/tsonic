@@ -59,6 +59,121 @@ test("public Host analysis reports the actual original readonly assignment diagn
   assert.equal(valid.kind, "ok");
 });
 
+test("the source barrier retains object data-property origins and initializer order", async () => {
+  const fixture = await loadFrontFixture();
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const input = analysisInput(fixture, "sdk-minimal", "export const shape: { z: boolean; a: boolean } = { z: true, a: false };");
+  const result = captureSourceBarrier(input);
+  assert.equal(result.kind, "ok");
+  const main = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
+  const checked = result.value.modules.find(entry => entry.module.module === main).module;
+  const declaration = checked.tree.statements.nodes[0].declarationList.declarations.nodes[0];
+  const literal = declaration.initializer;
+  const body = checked.bodies.find(row => row.root.id === literal.id);
+  assert.equal(literal.kind, "ObjectLiteralExpression");
+  assert.equal(body.root === literal, true);
+  assert.deepEqual(literal.properties.nodes.map(property => property.initializer.kind), ["TrueKeyword", "FalseKeyword"]);
+  for (const [index, property] of literal.properties.nodes.entries()) {
+    const key = { kind: "text", value: ["z", "a"][index] };
+    const origin = { kind: "source-member", occurrence: { body: body.body, node: property.id } };
+    assert.deepEqual(property.tsonic.key, { kind: "available", value: key });
+    assert.deepEqual(property.tsonic.origins, { kind: "available", value: [origin] });
+    assert.equal(property.name.tsonic.role, "property-name");
+    assert.deepEqual(property.name.tsonic.origins, property.tsonic.origins);
+  }
+});
+
+test("the source barrier retains a library's actual generic bodyless callable without a synthetic body", async () => {
+  const fixture = await loadFrontFixture();
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const source = 'import { hold } from "header-fixture"; export { hold };';
+  const input = analysisInput(fixture, "sdk-minimal", source);
+  const root = "/project/node_modules/header-fixture";
+  const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source },
+    libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
+    extraFiles: { [root + "/package.json"]: '{"name":"header-fixture","version":"1.0.0","types":"index.d.ts"}' },
+    otherPackages: [{ root, name: "header-fixture", modules: {
+      "index.d.ts": ["declaration", "export declare function hold<T>(value: T): T;", true],
+    } }] });
+  const result = captureSourceBarrier({ ...input, snapshot });
+  assert.equal(result.kind, "ok");
+  const provider = fixture.moduleOf(fixture.packageOf(root), "index.d.ts");
+  const checked = result.value.modules.find(entry => entry.module.module === provider).module;
+  const declaration = checked.tree.statements.nodes[0];
+  assert.equal(declaration.kind, "FunctionDeclaration");
+  assert.equal(declaration.body, null);
+  assert.equal(declaration.tsonic.body, null);
+  assert.equal(checked.bodies.some(body => body.owner === declaration.tsonic.definition), false);
+  const [endpoint] = declaration.tsonic.signatures;
+  assert.equal(endpoint.role, "api-signature");
+  assert.equal(endpoint.body, null);
+  assert.equal(endpoint.declaration, declaration.tsonic.definition);
+  const signature = fixture.types.readSignature(result.value.types, endpoint.signature);
+  const parameter = declaration.parameters.nodes[0];
+  assert.deepEqual(parameter.tsonic.declaration, { kind: "definition", definition: signature.parameters[0].declaration });
+  assert.equal(signature.parameters[0].passing, "by-value");
+  assert.equal(signature.result, signature.parameters[0].type);
+  assert.deepEqual(signature.typeParameters, [declaration.typeParameters.nodes[0].tsonic.parameter]);
+});
+
+test("the source barrier retains the exact value declaration used by an authored type query", async () => {
+  const fixture = await loadFrontFixture();
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const input = analysisInput(fixture, "sdk-minimal", "export let signal: boolean = true; export function read(value: typeof signal): boolean { return value; }");
+  const result = captureSourceBarrier(input);
+  assert.equal(result.kind, "ok");
+  const main = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
+  const source = result.value.modules.find(entry => entry.module.module === main).module;
+  const signal = source.tree.statements.nodes[0].declarationList.declarations.nodes[0];
+  const query = source.tree.statements.nodes[1].parameters.nodes[0].type;
+  const declaration = signal.tsonic.declaration.definition;
+  assert.equal(query.kind, "TypeQuery");
+  assert.deepEqual(query.exprName.tsonic.resolution, { kind: "declarations", definitions: [declaration] });
+  assert.deepEqual(query.tsonic.referencedDefinitions, [declaration]);
+  assert.deepEqual(fixture.types.readType(result.value.types, query.tsonic.type.value), { kind: "primitive", primitive: "bool" });
+});
+
+test("the source barrier keeps a checked struct marker distinct from an unmarked value of the same declared type", async () => {
+  const fixture = await loadFrontFixture();
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const source = 'import { struct, field } from "marker-fixture";\n'
+    + 'export interface Layout { flag: boolean }\n'
+    + 'export const Shape: Layout = struct({ flag: field<boolean>() });\n'
+    + 'export const Plain: Layout = { flag: true };';
+  const root = "/project/node_modules/marker-fixture";
+  const registration = { package: fixture.packageOf("/semantics"), version: "1", moduleSpecifier: "./plugin.js", exportId: "semantics" };
+  const extensions = fixture.front.createCheckerExtensions([{ reference: registration, value: { kind: "semantics-module", value: {
+    moduleSpecifier: "marker-fixture", packageName: "marker-fixture", packageVersion: "1.0.0", capabilities: ["call-marker"],
+    exports: [{ kind: "call-marker", exportName: "struct", marker: "struct" }, { kind: "call-marker", exportName: "field", marker: "field" }],
+  } } }]);
+  const snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source },
+    libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
+    providerPackages: [{ root: "/semantics", name: "semantics" }], semanticModules: [registration],
+    extraFiles: { [root + "/package.json"]: '{"name":"marker-fixture","version":"1.0.0","types":"index.d.ts"}' },
+    otherPackages: [{ root, name: "marker-fixture", modules: {
+      "index.d.ts": ["declaration", "export declare function struct<T>(value: T): T; export declare function field<T>(): T;", true],
+    } }] });
+  const result = captureSourceBarrier({ ...analysisInput(fixture, "sdk-minimal", source), snapshot, extensions });
+  assert.equal(result.kind, "ok");
+  const main = fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts");
+  const module = result.value.modules.find(entry => entry.module.module === main).module;
+  const [marked, plain] = module.tree.statements.nodes.filter(node => node.kind === "VariableStatement")
+    .map(statement => statement.declarationList.declarations.nodes[0]);
+  assert.equal(marked.type.tsonic.type.kind, "available");
+  assert.deepEqual(marked.type.tsonic.type, plain.type.tsonic.type);
+  assert.equal(plain.tsonic.core.markers.kind, "unavailable");
+  const call = marked.initializer;
+  const fieldCall = call.arguments.nodes[0].properties.nodes[0].initializer;
+  const type = fieldCall.typeArguments.nodes[0];
+  const body = module.bodies.find(entry => entry.root.id === call.id);
+  const expected = { name: "flag", readonly: false, typeNode: { kind: "body", value: { body: body.body, node: type.id } },
+    type: type.tsonic.type };
+  const markers = node => node.tsonic.core.markers.value;
+  assert.deepEqual(markers(fieldCall).field, expected);
+  assert.deepEqual(markers(call).struct, { valueType: true, fields: { kind: "available", value: [expected] } });
+  assert.deepEqual(markers(marked).struct, markers(call).struct);
+});
+
 test("real public Host analysis retains an omitted initializer's actual captured boolean mutation", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

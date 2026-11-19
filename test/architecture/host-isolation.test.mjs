@@ -370,7 +370,7 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
     ...["index.ts"].map(name => `${host}/step/${name}`),
     ...["database.ts", "index.ts", "memo.ts"].map(name => `${host}/query/${name}`),
     ...["bindings.ts", "capture.ts", "checker.ts", "diagnostics.ts", "handles.ts", "identities.ts", "index.ts",
-      "lower.ts", "lower-exports.ts", "lower-imports.ts", "lower-members.ts", "checked-declarations.ts", "source-bodies.ts",
+      "lower.ts", "lower-calls.ts", "lower-exports.ts", "lower-imports.ts", "lower-members.ts", "checked-declarations.ts", "source-bodies.ts",
       "type-conversion.ts", "options.ts", "program-data.ts", "syntax-capture.ts", "syntax-support.ts"].map(name => `${host}/front/${name}`),
     ...["definitions.ts", "index.ts", "placement.ts", "signatures.ts", "cycles.ts", "members.ts"].map(name => `${host}/decls/${name}`),
     ...["embed.ts", "errors.ts", "frontier.ts", "index.ts", "operators.ts", "schemes.ts", "variables.ts",

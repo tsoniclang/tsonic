@@ -1,5 +1,5 @@
-import type { ArgumentPassingFact, Diagnostic as CheckerDiagnostic, Node, ResolvedAliasTarget, ResolvedSourceTypeInfo, Signature, SourceFile, Symbol as CheckerSymbol, Type, TypeCheckerQueries, TypeShapeQueries } from "@tsonic/tsts";
-import { argumentPassingFactKey, getDiagnosticRunMembers, providerVirtualDeclarationFactKey, TypeFlagsUniqueESSymbol } from "@tsonic/tsts";
+import type { ArgumentPassingFact, Diagnostic as CheckerDiagnostic, FieldFact, Node, ResolvedAliasTarget, ResolvedCallSelectionEvidence, ResolvedSourceTypeInfo, Signature, SourceFile, Symbol as CheckerSymbol, Type, TypeCheckerQueries, TypeShapeQueries } from "@tsonic/tsts";
+import { argumentPassingFactKey, defaultValueFactKey, fieldFactKey, getDiagnosticRunMembers, providerVirtualDeclarationFactKey, sourceMarkerFactKey, structFactKey, TypeFlagsUniqueESSymbol } from "@tsonic/tsts";
 import type { CheckerDiagnosticRef, Diagnostic, InvariantFailure, Result } from "../diag/contract.js";
 import { resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
 import type { ModuleId, NodeId } from "../ids/contract.js";
@@ -7,8 +7,9 @@ import { nodeId, rawCandidateListId, rawComponentId, rawMemberTableId, rawSignat
 import type * as Hir from "../ir-hir/contract.js";
 import type { RawComponentId, RawSignatureId, RawSymbolId, RawTypeId } from "../ids/contract.js";
 import type {
-  CaptureDeps, CheckedProgram, RawArgumentBinding, RawAuthoredArgument, RawBinding, RawBindingTarget, RawCallSelection, RawCallableAssociation, RawCandidateList, RawCoreCapture, RawCheckedType, RawCheckerViews, RawComponent, RawComponentStep, RawDiagnosticCoverage, RawFact, RawIndexSignature, RawLiteral, RawMember, RawMemberOrigin, RawMemberKey, RawMemberTable, RawMemberUse, RawModule, RawModuleExport, RawModuleLink, RawNodeRef, RawParameter, RawPropertyName, RawProviderDeclaration, RawReference, RawSignature, RawStorageCapture, RawSymbol, RawTypeArgument, RawTypeForm,
+  CaptureDeps, CheckedProgram, RawArgumentBinding, RawAuthoredArgument, RawBinding, RawBindingTarget, RawCallSelection, RawCallableAssociation, RawCandidateList, RawCoreCapture, RawCheckedType, RawCheckerViews, RawComponent, RawComponentStep, RawDiagnosticCoverage, RawFact, RawIndexSignature, RawInferenceContribution, RawLiteral, RawMember, RawMemberOrigin, RawMemberKey, RawMemberTable, RawMemberUse, RawModule, RawModuleExport, RawModuleLink, RawNodeRef, RawParameter, RawPropertyName, RawProviderDeclaration, RawReference, RawSignature, RawStorageCapture, RawSymbol, RawTypeArgument, RawTypeForm,
 } from "./contract.js";
+import type { RawFieldMarker, RawMarkers } from "./contract.js";
 import { ExtensionTable, OpenedProgram } from "./handles.js";
 import type { FileNumbering, FileSyntaxEntry } from "./handles.js";
 import { captureNode, expressionKinds, typeNodeKinds } from "./syntax-capture.js";
@@ -73,9 +74,9 @@ type CaptureTask =
 interface SignatureDraft {
   readonly id: RawSignatureId;
   readonly signature: Signature;
+  readonly target: RawSignatureId | null;
   readonly owner: RawNodeRef;
   readonly kind: "call" | "construct";
-  readonly declarationNode: Node | undefined;
   readonly declaration: RawNodeRef | null;
   readonly parameterInfos: ReturnType<TypeShapeQueries["getSignatureParameterInfos"]>;
   readonly parameters: RawParameter[];
@@ -103,6 +104,8 @@ interface CaptureScope extends CaptureAdmission {
   readonly shape: TypeShapeQueries;
   readonly ownNodes: ReadonlyMap<Node, NodeId>;
   readonly emptyCoreInventory: boolean;
+  readonly closedDeclarationPassing: boolean;
+  readonly closedDeclaredExtent: boolean;
   readonly diagnosticRoots: Map<CheckerDiagnostic, CheckerDiagnosticRef>;
   readonly tables: CaptureTables;
 }
@@ -516,7 +519,7 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, aut
       }
       if (arguments_.length !== parameters.length) return throwInvariant(invariant("Every selected interface parameter requires its actual checked argument."));
       return { kind: "declared", declaration: source, facet: "instance", parameters, arguments: arguments_, definition: null,
-        extent: scope.emptyCoreInventory ? available(null) : notProvided() };
+        extent: scope.closedDeclaredExtent ? available(null) : notProvided() };
     }
   }
   const calls = shape.getCallSignatures(type);
@@ -645,11 +648,19 @@ function capturedMemberUse(scope: CaptureScope, node: Node, occurrence: RawNodeR
       readDeclarations, writeDeclarations }] };
 }
 
-function closedInventoryEmpty(program: CheckedProgram): boolean {
+function closedCoreInventory(program: CheckedProgram): Pick<CaptureScope, "emptyCoreInventory" | "closedDeclarationPassing" | "closedDeclaredExtent"> {
   const contributions = OpenedProgram.contributions(program);
-  return OpenedProgram.libraryData(program).every(entry => entry.roles.length === 0) &&
-    ExtensionTable.semantics(OpenedProgram.table(program)).every(module => module.exports.length === 0) && contributions.safetyProviders.length === 0 &&
-    contributions.declarationProviders.length === 0 && contributions.compilerExtensions.length === 0;
+  const table = OpenedProgram.table(program);
+  const closedDeclarationPassing = OpenedProgram.libraryData(program).every(entry => entry.roles.length === 0) &&
+    contributions.safetyProviders.length === 0 && contributions.declarationProviders.length === 0 && contributions.compilerExtensions.length === 0 &&
+    ExtensionTable.entries(table).every(entry => entry.kind === "semantics-module");
+  const semantics = ExtensionTable.semantics(table);
+  return {
+    closedDeclarationPassing,
+    closedDeclaredExtent: closedDeclarationPassing && semantics.every(module =>
+      module.exports.every(entry => entry.kind !== "type-marker" || entry.marker !== "fixed-array")),
+    emptyCoreInventory: closedDeclarationPassing && semantics.every(module => module.exports.length === 0),
+  };
 }
 
 function declarationPassing(scope: CaptureScope, node: Node | undefined): Extract<ArgumentPassingFact, { readonly role: "declaration" }> | undefined {
@@ -666,6 +677,58 @@ function coreFacts(node: RawNodeRef, empty: boolean): RawCoreCapture {
     pointerOperation: proven(null), metadata: proven(null), layout: proven(null), field: proven(null), fieldBinding: proven(null),
     recordBinding: proven(null), layoutQuery: proven(null), attribute: proven(null), safety: proven(null), argumentPassing: proven(null), flowState: proven(null),
   };
+}
+
+function markerField(scope: CaptureScope, field: FieldFact): RawFieldMarker | null {
+  const typeNode = referenceTo(scope, scope.program, field.type);
+  if (typeNode === null) return scope.meter.refusal !== null ? null
+    : throwInvariant(invariant("A field marker must retain its actual authored type node."));
+  return { name: field.name, typeNode, readonly: field.readonly === true };
+}
+
+function capturedMarkers(scope: CaptureScope, node: Node): RawMarkers | undefined | null {
+  if (scope.emptyCoreInventory) return undefined;
+  const facts = scope.checked.sourceFacts;
+  const structure = facts.getFact(node, structFactKey);
+  const field = facts.getFact(node, fieldFactKey);
+  const defaultValue = facts.getFact(node, defaultValueFactKey);
+  const jsString = facts.getFact(node, sourceMarkerFactKey)?.marker === "js-string";
+  if (structure === undefined && field === undefined && defaultValue === undefined && !jsString) return undefined;
+  if (!admit(scope, "facts")) return null;
+  let capturedStruct: RawMarkers["struct"] = null;
+  if (structure !== undefined) {
+    if (!admit(scope, "facts")) return null;
+    const supplied = structure.fields;
+    let fields: RawFact<readonly RawFieldMarker[]> = notProvided();
+    if (supplied !== undefined) {
+      const entries: RawFieldMarker[] = [];
+      for (let index = 0; index < supplied.length; index += 1) {
+        if (!admit(scope, "facts") || !admit(scope, "edges")) return null;
+        const entry = supplied[index];
+        if (entry === undefined) return throwInvariant(invariant("A struct marker's authored field inventory must be dense."));
+        const capture = markerField(scope, entry);
+        if (capture === null) return null;
+        entries.push(capture);
+      }
+      fields = available(entries);
+    }
+    capturedStruct = { valueType: structure.valueType, fields };
+  }
+  let capturedField: RawFieldMarker | null = null;
+  if (field !== undefined) {
+    if (!admit(scope, "facts") || !admit(scope, "edges")) return null;
+    capturedField = markerField(scope, field);
+    if (capturedField === null) return null;
+  }
+  let capturedDefault: RawMarkers["defaultValue"] = null;
+  if (defaultValue !== undefined) {
+    if (!admit(scope, "facts") || !admit(scope, "edges")) return null;
+    const typeNode = referenceTo(scope, scope.program, defaultValue.type);
+    if (typeNode === null) return scope.meter.refusal !== null ? null
+      : throwInvariant(invariant("A default-value marker must retain its actual authored type node."));
+    capturedDefault = { typeNode };
+  }
+  return { struct: capturedStruct, field: capturedField, defaultValue: capturedDefault, jsString };
 }
 
 function providerDeclaration(scope: CaptureScope, node: Node, reference: RawNodeRef): RawProviderDeclaration | null | undefined {
@@ -868,7 +931,11 @@ function captureSignature(scope: CaptureScope, id: RawSignatureId, signature: Si
   const declarationNode = scope.checker.getSignatureDeclaration(signature);
   const declaration = declarationNode === undefined ? null : referenceTo(scope, program, declarationNode);
   if (scope.meter.refusal !== null) return;
-  scope.tables.pending.push({ kind: "signature-parameter", index: 0, draft: { id, signature, owner, kind, declarationNode, declaration,
+  const original = signature.target;
+  if (original === signature) return throwInvariant(invariant("A signature cannot be its own original target."));
+  const target = original === undefined ? null : rawSignature(scope, original, owner, kind);
+  if (original !== undefined && target === null) return;
+  scope.tables.pending.push({ kind: "signature-parameter", index: 0, draft: { id, signature, target, owner, kind, declaration,
     parameterInfos: scope.shape.getSignatureParameterInfos(signature), parameters: [] } });
 }
 
@@ -899,7 +966,7 @@ function captureSignatureParameter(scope: CaptureScope, draft: SignatureDraft, i
     if (!admit(scope, "facts")) return;
     const passingFact = declarationPassing(scope, parameterNode);
     const passing: RawParameter["passing"] = passingFact === undefined
-      ? parameterNode !== undefined && scope.emptyCoreInventory ? available("by-value") : notProvided()
+      ? parameterSyntax !== undefined && scope.closedDeclarationPassing ? available("by-value") : notProvided()
       : available(passingFact.mode);
     parameters.push({ declaration: parameterReference, symbol: parameterSymbol, kind: parameter.parameterKind, component: position, type, acceptsOmission: parameter.acceptsOmission,
       initializer, passing });
@@ -909,7 +976,7 @@ function captureSignatureParameter(scope: CaptureScope, draft: SignatureDraft, i
 }
 
 function captureSignatureTail(scope: CaptureScope, draft: SignatureDraft): void {
-  const { id, signature, owner, kind, declarationNode, declaration, parameters } = draft;
+  const { id, signature, target, owner, kind, declaration, parameters } = draft;
   const program = scope.program;
   // The explicit this receiver (K-3361), which the checker keeps apart from the ordinary parameters: the SDK's own
   // query answers it, so its absence is the checker's, not assumed.
@@ -928,18 +995,25 @@ function captureSignatureTail(scope: CaptureScope, draft: SignatureDraft): void 
     receiver = { declaration: receiverReference, symbol: receiverSymbol, kind: "required", component: position, type, acceptsOmission: false, initializer: null,
       passing: notProvided() };
   }
-  // The type parameters of the declaration, used or not (K-3361): each declaration node, as the syntax holds it.
-  const typeParameters: RawNodeRef[] = [];
-  for (const parameter of declarationNode === undefined ? [] : scope.checked.ast.typeParameters(declarationNode)) {
-    const reference = parameter === undefined ? null : referenceTo(scope, program, parameter);
-    if (scope.meter.refusal !== null) return;
-    if (reference === null) return throwInvariant(invariant("A type parameter of a captured signature's declaration has no node identity."));
-    typeParameters.push(reference);
+  const typeParameters: RawTypeId[] = [];
+  for (let index = 0; index < signature.typeParameters.length; index += 1) {
+    if (!admit(scope, "edges")) return;
+    const parameter = signature.typeParameters[index];
+    const symbol = parameter === undefined ? undefined : scope.checker.getTypeSymbol(parameter);
+    const declarations = symbol === undefined ? [] : scope.checker.getSymbolDeclarations(symbol);
+    const selected = declarations[0];
+    if (parameter === undefined || declarations.length !== 1 || selected === undefined || scope.checked.ast.kindName(selected) !== "KindTypeParameter")
+      throw new TypeError("front: a signature type parameter requires its actual source declaration");
+    const reference = requiredCallReference(scope, selected);
+    if (reference === null) return;
+    const captured = rawType(scope, () => withoutTypeCause(parameter), component(scope, reference, []), null);
+    if (captured === null) return;
+    typeParameters.push(captured);
   }
   const result = rawType(scope, () => withoutTypeCause(scope.checker.getReturnTypeOfSignature(signature)), component(scope, owner, [{ kind: "result", signature: id }]), null);
   if (result === null) return;
   scope.tables.signatures[id] = {
-    id, target: null, owner, declaration, kind, typeParameters: available(typeParameters), receiver: available(receiver), parameters,
+    id, target, owner, declaration, kind, typeParameters: available(typeParameters), receiver: available(receiver), parameters,
     result: available(result), composition: null,
   };
 }
@@ -963,22 +1037,105 @@ function capturedStorage(scope: CaptureScope, node: Node, occurrence: RawNodeRef
   return { node: occurrence, fact: available({ expression, storageExpression, declaration, symbol, type, writable: selected.writable }) };
 }
 
+function requiredCallReference(scope: CaptureScope, node: Node): RawNodeRef | null {
+  const reference = referenceTo(scope, scope.program, node);
+  if (reference !== null || scope.meter.refusal !== null) return reference;
+  return throwInvariant(invariant("A call or signature association must retain its actual source node."));
+}
+
+type SelectedCall = Extract<ResolvedCallSelectionEvidence, { readonly kind: "applicable" }>["selection"];
+
+function captureSelectedBindings(scope: CaptureScope, selected: SelectedCall, invocation: RawNodeRef, original: RawSignatureId): {
+  readonly arguments: readonly RawTypeArgument[];
+  readonly contributions: RawFact<readonly RawInferenceContribution[]>;
+} | null {
+  const { application, inferenceContributions } = selected;
+  const parameters = application.signature.typeParameters;
+  const nativeArguments = application.signatureTypeArguments;
+  const nativeContributions = inferenceContributions.kind === "available" ? inferenceContributions.contributions : [];
+  const ast = scope.checked.ast;
+  const declared = application.signatureShape.declaration;
+  const originalNodes = declared === undefined ? [] : ast.typeParameters(declared);
+  const authored = ast.typeArguments(application.invocation);
+  if (nativeArguments.length !== parameters.length || authored.length > nativeArguments.length)
+    return throwInvariant(invariant("A selected application must retain its complete original signature bindings."));
+  const arguments_: RawTypeArgument[] = [];
+  if (nativeContributions.length !== 0 && !admit(scope, "edges")) return null;
+  const binders = nativeContributions.length === 0 ? null : new Map<Type, RawNodeRef>();
+  for (let index = 0; index < nativeArguments.length; index += 1) {
+    if (!admit(scope, "edges") || !admit(scope, "facts")) return null;
+    const binding = nativeArguments[index];
+    if (binding === undefined || binding.typeParameter !== parameters[index] || binding.declaration === undefined
+      || binding.declaration !== originalNodes[index] || ast.kindName(binding.declaration) !== "KindTypeParameter"
+      || binding.checkedArgument === undefined || binding.explicitTypeNode !== authored[index])
+      return throwInvariant(invariant("A selected signature binding must retain its actual original parameter and argument."));
+    if (binding.defaultTypeNode !== undefined && (binding.explicitTypeNode !== undefined
+      || ast.as.AsTypeParameterDeclaration(binding.declaration)?.DefaultType !== binding.defaultTypeNode))
+      return throwInvariant(invariant("A selected default type argument must retain the original parameter's default."));
+    const parameter = requiredCallReference(scope, binding.declaration);
+    if (parameter === null) return null;
+    const authoredNode = binding.explicitTypeNode ?? binding.defaultTypeNode;
+    const argumentNode = authoredNode === undefined ? null : requiredCallReference(scope, authoredNode);
+    if (authoredNode !== undefined && argumentNode === null) return null;
+    const argument = rawType(scope, () => withoutTypeCause(binding.checkedArgument),
+      component(scope, invocation, [{ kind: "type-argument", declaration: parameter, index }]), argumentNode);
+    if (argument === null) return null;
+    binders?.set(binding.typeParameter, parameter);
+    arguments_.push({ parameter, declaration: parameter, argument: available(argument), scope: "local",
+      explicitTypeNode: binding.explicitTypeNode === undefined ? null : argumentNode,
+      defaultTypeNode: binding.defaultTypeNode === undefined ? null : argumentNode });
+  }
+  const contributions: RawInferenceContribution[] = [];
+  for (let index = 0; index < nativeContributions.length; index += 1) {
+    if (!admit(scope, "edges") || !admit(scope, "facts")) return null;
+    const contribution = nativeContributions[index];
+    if (contribution === undefined)
+      return throwInvariant(invariant("A selected inference contribution inventory must be dense."));
+    const { origin } = contribution;
+    if (contribution.sourcePath.length !== 0 || contribution.formalPath.length !== 0
+      || (origin.kind !== "argument" && origin.kind !== "contextual-result"))
+      throw new TypeError("front: projected, tail or receiver inference contribution capture is not implemented");
+    const parameter = binders?.get(contribution.typeParameter);
+    if (parameter === undefined || declared === undefined)
+      return throwInvariant(invariant("A selected inference contribution must name an actual original signature parameter."));
+    if (origin.kind === "argument") {
+      const argument = selected.arguments.values[origin.effectiveArgumentIndex];
+      if (argument?.sourceArgument !== origin.subject || argument.parameterIndex !== origin.parameterIndex)
+        return throwInvariant(invariant("An inference contribution must retain its actual selected argument association."));
+    } else if (origin.subject !== application.invocation)
+      return throwInvariant(invariant("A contextual-result contribution must retain its original invocation."));
+    const subject = requiredCallReference(scope, origin.subject);
+    if (subject === null) return null;
+    const declaration = requiredCallReference(scope, declared);
+    if (declaration === null) return null;
+    const source = rawType(scope, () => withoutTypeCause(contribution.sourceRootType), component(scope, subject, []), null);
+    if (source === null) return null;
+    const formal = rawType(scope, () => withoutTypeCause(contribution.formalRootType), component(scope, declaration, [origin.kind === "argument"
+      ? { kind: "parameter", signature: original, index: origin.parameterIndex } : { kind: "result", signature: original }]), null);
+    if (formal === null) return null;
+    contributions.push({ declaration: parameter, origin: { ...origin, subject }, source, formal });
+  }
+  return { arguments: arguments_, contributions: inferenceContributions.kind === "available" ? available(contributions) : notProvided() };
+}
+
 function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef): RawCallSelection | null {
+  if (!admit(scope, "facts")) return null;
   const info = scope.checker.getResolvedCallInfo(node);
   if (info === undefined) return throwInvariant(invariant("The checker gave no call evidence for a captured call."));
   if (info.kind !== "applicable") throw new TypeError("front: conditional or untyped call capture is not implemented");
   const selected = info.selection;
   const application = selected.application;
+  if (info.call !== node || application.invocation !== node)
+    return throwInvariant(invariant("A selected call must retain its actual invocation."));
   if (info.declarationOrder.kind !== "available" || info.declarationOrder.signatures.length !== 1)
     throw new TypeError("front: complete applicable candidate capture is not implemented without a proven singleton declaration order");
-  if (info.declarationOrder.signatures[0] !== application.signature || application.instantiatedSignature !== application.signature)
-    throw new TypeError("front: nonidentical selected and declared singleton signature capture is not implemented");
-  if (application.class !== undefined || application.signatureTypeArguments.length !== 0 || application.receiver !== undefined || application.signatureShape.composite !== undefined)
-    throw new TypeError("front: generic, receiver-bearing or composed call capture is not implemented");
+  if (info.declarationOrder.signatures[0] !== application.signature
+    || (application.instantiatedSignature !== application.signature && application.instantiatedSignature.target !== application.signature))
+    return throwInvariant(invariant("An applicable singleton call must retain its actual declared and instantiated signature association."));
+  if (application.class !== undefined || application.receiver !== undefined || application.signatureShape.composite !== undefined)
+    throw new TypeError("front: class-bound, receiver-bearing or composed call capture is not implemented");
   if (selected.constraints.length !== 0 || selected.diagnostics.length !== 0 || selected.diagnosticCoverage.length !== 0)
     throw new TypeError("front: call diagnostic obligations capture is not implemented");
-  if (selected.inferenceContributions.kind === "available" && selected.inferenceContributions.contributions.length !== 0)
-    throw new TypeError("front: call inference contribution capture is not implemented");
   const signature = rawSignature(scope, application.instantiatedSignature, invocation, application.kind);
   if (signature === null) return null;
   const callee = referenceTo(scope, scope.program, application.callee.expression);
@@ -1011,28 +1168,24 @@ function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef): R
       effectiveArgumentIndex: argument.effectiveArgumentIndex, sourceForm: argument.sourceForm, spreadElementIndex: argument.spreadElementIndex ?? null,
       parameterIndex: argument.parameterIndex, parameterForm: argument.parameterForm, source: available(source), destination: available(destination) });
   }
-  const declarationOrder: RawSignatureId[] = [];
-  if (info.declarationOrder.kind === "available") {
-    for (const declared of info.declarationOrder.signatures) {
-      if (!admit(scope, "edges")) return null;
-      const id = rawSignature(scope, declared, invocation, application.kind);
-      if (id === null) return null;
-      declarationOrder.push(id);
-    }
-  }
+  if (!admit(scope, "edges")) return null;
+  const original = rawSignature(scope, application.signature, invocation, application.kind);
+  if (original === null) return null;
+  const capturedBindings = captureSelectedBindings(scope, selected, invocation, original);
+  if (capturedBindings === null) return null;
   const result = rawType(scope, () => withoutTypeCause(info.resultType), component(scope, invocation, []), null);
-  if (result === null || !admit(scope, "facts")) return null;
+  if (result === null) return null;
   const candidates = rawCandidateListId(scope.tables.candidates.length);
   if (!admit(scope, "facts") || !admit(scope, "facts")) return null;
   scope.tables.candidates.push({ id: candidates, candidates: [{ ordinal: 0,
-    application: { invocation, kind: application.kind, signature, callee, receiver: null, classArguments: [], signatureArguments: [] }, sourceArguments,
-    arguments: available(bindings), inferenceContributions: selected.inferenceContributions.kind === "available" ? available([]) : notProvided(),
+    application: { invocation, kind: application.kind, signature, callee, receiver: null, classArguments: [], signatureArguments: capturedBindings.arguments }, sourceArguments,
+    arguments: available(bindings), inferenceContributions: capturedBindings.contributions,
     constraints: [], diagnostics: [], diagnosticCoverage: [] }] });
   captureFacts(scope);
   if (scope.meter.refusal !== null) return null;
   const completed = scope.tables.signatures[signature];
   if (completed === undefined) return throwInvariant(invariant("A selected call has no completed captured signature."));
-  return { kind: "applicable", invocation, declarationOrder: info.declarationOrder.kind === "available" ? available(declarationOrder) : notProvided(),
+  return { kind: "applicable", invocation, declarationOrder: available([original]),
     candidates, selectedOrdinal: 0, result, parameters: completed.parameters };
 }
 
@@ -1066,7 +1219,7 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
   if (tree.kind !== "SourceFile") return throwInvariant(invariant("A module's captured tree is not a source file."));
   const queries = checked.getSourceFileQueries(file);
   const scope: CaptureScope = { ...admission, program, file, checked, checker: queries.checker,
-    shape: queries.typeShape, ownNodes, emptyCoreInventory: closedInventoryEmpty(program), diagnosticRoots: new Map(),
+    shape: queries.typeShape, ownNodes, ...closedCoreInventory(program), diagnosticRoots: new Map(),
     tables: { types: [], components: [], signatures: [], members: [], candidates: [], symbols: [], symbolIds: new Map(), signatureIds: new Map(),
       activeTypes: new Map(), mergedParameterOwners: undefined, nextType: 0, nextMember: 0, pending: [] } };
   const checkerDiagnostics: Diagnostic[] = [];
@@ -1221,7 +1374,10 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
     if (provider !== undefined) {
       providerDeclarations.push(provider);
     }
-    const base = coreFacts(reference, scope.emptyCoreInventory);
+    const markers = capturedMarkers(scope, node);
+    if (markers === null) break;
+    const empty = coreFacts(reference, scope.emptyCoreInventory);
+    const base = markers === undefined ? empty : { ...empty, markers: available(markers) };
     const row = provider === undefined ? base : { ...base, provider: available(provider.identity) };
     const passing = ast.kindName(node) === "KindParameter" ? declarationPassing(scope, node) : undefined;
     core.push(passing === undefined ? row : { ...row, argumentPassing: available(passing) });

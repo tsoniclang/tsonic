@@ -96,6 +96,15 @@ export function lowerCheckedType(context: DeclarationLowering, root: Hir.TypeNod
           tsonic: { ...tsonic, referencedDefinitions: resolution.kind === "declarations" ? resolution.definitions : [] } };
         break;
       }
+      case "TypeQuery": {
+        const name = node.exprName;
+        if (name.kind !== "Identifier" || node.typeArguments !== null) return fail("qualified or applied type query");
+        const resolution = context.resolution(name.id);
+        result = { ...header(node), kind: node.kind, typeArguments: null,
+          exprName: { ...header(name), kind: "Identifier", text: name.text, tsonic: { core: context.core(name.id), role: "type-name", resolution } },
+          tsonic: { ...tsonic, referencedDefinitions: resolution.kind === "declarations" ? resolution.definitions : [] } };
+        break;
+      }
       default: return fail(node.kind);
     }
     completed.set(node.id, result);
@@ -156,6 +165,45 @@ function typeParameters(context: DeclarationLowering, source: Hir.TypeParameterL
   return { kind: "complete", value: { loc: source.loc, nodes } };
 }
 
+type BodylessCallable = Extract<Hir.SyntaxNode<Syntax>, { readonly kind: "FunctionDeclaration" | "CallSignature" | "ConstructSignature"
+  | "MethodSignature" | "IndexSignature" | "GetAccessor" | "SetAccessor" }>;
+
+interface CheckedCallableHeader {
+  readonly typeParameters: Hir.TypeParameterList<Checked> | null;
+  readonly parameters: Hir.ParameterList<Checked>;
+  readonly type: Hir.TypeNode<Checked> | null;
+  readonly fullSignature: null;
+  readonly tsonic: Hir.CheckedCallable;
+}
+
+function bodylessCallableHeader(context: DeclarationLowering, node: BodylessCallable, owner: DefId,
+  declaration: DefId, typeOf: TypeReader): ConversionResult<CheckedCallableHeader> {
+  if (node.fullSignature !== null) return fail("full signature annotation");
+  const own = typeParameters(context, node.typeParameters, declaration, typeOf);
+  if (own.kind !== "complete") return own;
+  const signature = node.kind === "IndexSignature" ? null : context.signature(node.id);
+  if (signature !== null && signature.kind !== "complete") return signature;
+  const formal = parameters(context, node.parameters, declaration, typeOf);
+  if (formal.kind !== "complete") return formal;
+  const type = node.type === null ? null : typeOf(node.type, declaration);
+  if (type !== null && type.kind !== "complete") return type;
+  return { kind: "complete", value: { typeParameters: own.value, parameters: formal.value, type: type === null ? null : type.value,
+    fullSignature: null, tsonic: { ...facts(context, node, owner), definition: declaration,
+      parameters: own.value?.nodes.map(parameter => parameter.tsonic.parameter) ?? [], body: null,
+      signatures: signature === null ? [] : [{ declaration, role: "api-signature", signature: signature.value, body: null }] } } };
+}
+
+export function lowerCheckedBodylessFunction(context: DeclarationLowering, node: Hir.FunctionDeclaration<Syntax>, owner: DefId):
+  ConversionResult<Hir.FunctionDeclaration<Checked>> {
+  if (node.body !== null || node.asteriskToken !== null || node.name === null) return fail("bodyless function header");
+  const declaration = definitionOf(context, node.id);
+  const callable = bodylessCallableHeader(context, node, owner, declaration, (type, typeOwner) => lowerCheckedType(context, type, typeOwner));
+  if (callable.kind !== "complete") return callable;
+  return { kind: "complete", value: { ...header(node), kind: node.kind, ...callable.value,
+    modifiers: lowerCheckedModifiers(node.modifiers), name: declarationName(context, node.name, declaration),
+    body: null, asteriskToken: null } };
+}
+
 function typeElements(context: DeclarationLowering, source: readonly Hir.TypeElement<Syntax>[], owner: DefId,
   typeOf: TypeReader): ConversionResult<readonly Hir.TypeElement<Checked>[]> {
   const elements: Hir.TypeElement<Checked>[] = [];
@@ -177,20 +225,9 @@ function typeElements(context: DeclarationLowering, source: readonly Hir.TypeEle
       return fail(node.kind);
     if ((node.kind === "GetAccessor" || node.kind === "SetAccessor") && (node.body !== null || node.asteriskToken !== null))
       return fail("an accessor with an execution body or generator marker");
-    if (node.fullSignature !== null) return fail("full signature annotation");
-    const own = typeParameters(context, node.typeParameters, declaration, typeOf);
-    if (own.kind !== "complete") return own;
-    const signature = node.kind === "IndexSignature" ? null : context.signature(node.id);
-    if (signature !== null && signature.kind !== "complete") return signature;
-    const tsonic: Hir.CheckedCallable = { ...facts(context, node, owner), definition: declaration,
-      parameters: own.value?.nodes.map(parameter => parameter.tsonic.parameter) ?? [], body: null,
-      signatures: signature === null ? [] : [{ declaration, role: "api-signature", signature: signature.value, body: null }] };
-    const formal = parameters(context, node.parameters, declaration, typeOf);
-    if (formal.kind !== "complete") return formal;
-    const type = node.type === null ? null : typeOf(node.type, declaration);
-    if (type !== null && type.kind !== "complete") return type;
-    const common = { ...header(node), typeParameters: own.value, parameters: formal.value,
-      type: type === null ? null : type.value, fullSignature: null, tsonic };
+    const callable = bodylessCallableHeader(context, node, owner, declaration, typeOf);
+    if (callable.kind !== "complete") return callable;
+    const common = { ...header(node), ...callable.value };
     switch (node.kind) {
       case "CallSignature": case "ConstructSignature": elements.push({ ...common, kind: node.kind }); break;
       case "IndexSignature": elements.push({ ...common, kind: node.kind, modifiers: lowerCheckedModifiers(node.modifiers) }); break;
