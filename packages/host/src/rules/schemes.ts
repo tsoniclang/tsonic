@@ -44,8 +44,10 @@ function resultCategory(operands: readonly TypeEvidence[]): CategoryEvidence {
   return operands.every(operand => operand.category.kind === "known" && operand.category.category === category) ? first : { kind: "dynamic" };
 }
 
-function resultEvidence(type: TyId, occurrence: NodeRef, operands: readonly TypeEvidence[]): TypeEvidence {
-  const category = resultCategory(operands);
+function resultEvidence(deps: RulesDeps, type: TyId, occurrence: NodeRef, operands: readonly TypeEvidence[]): TypeEvidence {
+  const selected = readType(deps.types, type);
+  const category: CategoryEvidence = selected.kind === "primitive" && selected.primitive === "bool"
+    ? { kind: "known", category: "boolean" } : resultCategory(operands);
   return {
     type, component: { kind: "body", value: occurrence }, category,
     numeric: { producer: occurrence, kind: "operation", category, authored: null },
@@ -94,7 +96,7 @@ export function operatorScheme(deps: RulesDeps): ConstraintScheme<OperatorConstr
       const key = input.contribution.key;
       return ok({
         bounds: variable === null ? [] : [bound(key, variable, "producer",
-          { value: resultEvidence(operation.result, value.occurrence, operands.map(operand => operand.value)), error: null })],
+          { value: resultEvidence(deps, operation.result, value.occurrence, operands.map(operand => operand.value)), error: null })],
         decision: { kind: "op", operation },
         selectedCandidate: null,
       });

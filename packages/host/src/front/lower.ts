@@ -3,7 +3,7 @@ import { resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
 import type { BodyId, DefId, LocalRef, NodeId, RawTypeId, SourceNodeRef, TyId } from "../ids/contract.js";
 import { candidateListId, encodeBodyId, localId } from "../ids/index.js";
 import type * as Hir from "../ir-hir/contract.js";
-import { iterateChildrenOfSyntax } from "../ir-hir/index.js";
+import { binaryOperatorOf, iterateChildrenOfSyntax } from "../ir-hir/index.js";
 import type { MemberKey, MemberOrigin, TypePublicationStop } from "../ir-types/contract.js";
 import type { PassingMode } from "../ir-types/contract.js";
 import type { LowerDeps, ModuleDefinitions, ModuleDefinitionsInput, ModuleExports, RawBindingTarget, RawCallSelection, RawCallableAssociation, RawCheckerViews, RawCoreCapture, RawFact, RawMemberUse, RawModule, RawModuleLink, RawPropertyName, RawStorageCapture } from "./contract.js";
@@ -32,6 +32,7 @@ const invariant = (message: string): InvariantFailure => ({ owner: "front", quer
 const writtenKinds: readonly string[] = ["SourceFile", "EndOfFile", "ExportKeyword", "FunctionDeclaration", "Parameter",
   "Identifier", "NumberKeyword", "StringKeyword", "BooleanKeyword", "BigIntKeyword", "AnyKeyword", "UnknownKeyword", "NeverKeyword", "ObjectKeyword", "UndefinedKeyword", "VoidKeyword",
   "Block", "ReturnStatement", "ThrowStatement", "IfStatement", "BinaryExpression", "PrefixUnaryExpression", "PlusToken", "EqualsToken", "CallExpression", "ExpressionStatement", "ParenthesizedExpression",
+  "EqualsEqualsToken", "EqualsEqualsEqualsToken", "ExclamationEqualsToken", "ExclamationEqualsEqualsToken",
   "ExportDeclaration", "NamedExports", "ExportSpecifier", "NamespaceExport", "StringLiteral", "TrueKeyword", "FalseKeyword", "NullKeyword",
   "ImportDeclaration", "ImportClause", "NamedImports", "ImportSpecifier", "NamespaceImport",
   "VariableStatement", "VariableDeclarationList", "VariableDeclaration", "InterfaceDeclaration", "TypeAliasDeclaration", "TypeLiteral", "TypeParameter", "PropertySignature",
@@ -483,10 +484,12 @@ function buildExpression(lowering: Lowering, node: Hir.Expression<Syntax>): Conv
           operatorToken: token(node.operatorToken), right: expression(lowering, node.right),
           tsonic: { core: coreOf(lowering, node.id), role: "assignment", value: value.value, target: left.tsonic.place } } };
       }
-      if (node.operatorToken.kind !== "PlusToken") return throwInvariant(invariant("A binary operator of an unwritten kind passed the written-kinds check."));
+      const operator = binaryOperatorOf(node.operatorToken.kind);
+      if (operator !== "+" && operator !== "==" && operator !== "===" && operator !== "!=" && operator !== "!==")
+        return throwInvariant(invariant("A binary operator of an unwritten kind passed the written-kinds check."));
       return { kind: "complete", value: { ...headerOf(node), kind: "BinaryExpression", modifiers: null, left: expression(lowering, node.left), type: null,
         operatorToken: token(node.operatorToken), right: expression(lowering, node.right),
-        tsonic: { core: coreOf(lowering, node.id), role: "arithmetic", value: value.value } } };
+        tsonic: { core: coreOf(lowering, node.id), role: operator === "+" ? "arithmetic" : "comparison", value: value.value } } };
     }
     case "CallExpression": {
       const application = applicationOf(lowering, node);

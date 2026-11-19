@@ -2,7 +2,7 @@ import type { Violation } from "../diag/contract.js";
 import type { BodyId, DefId, NodeId, SourceNodeRef } from "../ids/contract.js";
 import type { ExactRational, LiteralTypeValue, LiteralValue } from "../ir-types/contract.js";
 import { encodeDefId } from "../ids/index.js";
-import type { AwaitExpression, BinaryOperator, CheckedPhase, DeclarationKind, ForInStatement, ForOfStatement, HirBinaryOperator, HirBody, HirCandidateList, HirModule, HirNode, HirRule, HirSite, HirUnaryOperator, HirVerificationContext, SpreadElement, VerifyHir, YieldExpression } from "./contract.js";
+import type { AwaitExpression, BinaryOperatorOf, CheckedPhase, DeclarationKind, ForInStatement, ForOfStatement, HirBinaryOperator, HirBody, HirCandidateList, HirModule, HirNode, HirRule, HirSite, HirUnaryOperator, HirVerificationContext, SpreadElement, VerifyHir, YieldExpression } from "./contract.js";
 import type { HirDataRoot, HirInventory, HirNodeEntry, HirReport } from "./verify-syntax.js";
 import { walkHirData } from "./verify-syntax.js";
 import { hirBodyData, hirDiagnosticsData, hirItemsData, hirModuleBindingData, hirModuleExportData, hirNodeData, hirObligationsData } from "./text-data.js";
@@ -434,7 +434,7 @@ function candidateViolations(inventory: HirInventory, context: HirVerificationCo
   }
 }
 
-function binaryOperator(token: BinaryOperator): HirBinaryOperator | null {
+export const binaryOperatorOf: BinaryOperatorOf = token => {
   switch (token) {
     case "PlusToken": case "PlusEqualsToken": return "+";
     case "MinusToken": case "MinusEqualsToken": return "-";
@@ -460,7 +460,7 @@ function binaryOperator(token: BinaryOperator): HirBinaryOperator | null {
     case "InstanceOfKeyword": return "instanceof";
     case "QuestionQuestionToken": case "AmpersandAmpersandToken": case "BarBarToken": case "EqualsToken": case "BarBarEqualsToken": case "AmpersandAmpersandEqualsToken": case "QuestionQuestionEqualsToken": case "CommaToken": return null;
   }
-}
+};
 
 interface HirOperation {
   readonly operator: HirUnaryOperator | HirBinaryOperator;
@@ -469,7 +469,7 @@ interface HirOperation {
 
 function operationOf(node: HirNode): HirOperation | null {
   if (node.kind === "BinaryExpression") {
-    const operator = binaryOperator(node.operatorToken.kind);
+    const operator = binaryOperatorOf(node.operatorToken.kind);
     return operator === null ? null : { operator, operands: [node.left.id, node.right.id] };
   }
   if (node.kind === "PrefixUnaryExpression" && node.tsonic.role !== "type-literal") {

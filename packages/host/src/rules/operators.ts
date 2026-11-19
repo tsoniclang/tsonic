@@ -2,7 +2,7 @@ import type { NodeRef, Origin } from "../ids/contract.js";
 import type { HirBinaryOperator, HirUnaryOperator } from "../ir-hir/contract.js";
 import type { OperationDecision } from "../ir-infer/contract.js";
 import type { TypeEvidence } from "../ir-types/contract.js";
-import { nativeCarrierOf, readType, viewTypes } from "../ir-types/index.js";
+import { internType, nativeCarrierOf, readType, viewTypes } from "../ir-types/index.js";
 import type { RulesDeps } from "./contract.js";
 import { at, callerDefect, notDecidedYet, termName } from "./frontier.js";
 
@@ -38,6 +38,17 @@ export function decideOperator(deps: RulesDeps, operator: HirUnaryOperator | Hir
   const carrier = terms[0];
   if (terms.length !== 2 || !form.binary || left === undefined || right === undefined || carrier === undefined)
     return callerDefect(`the operator ${operator} with ${terms.length} operands at ${at(occurrence)}`, origin);
+  if (operator === "==" || operator === "===" || operator === "!=" || operator === "!==") {
+    const table = viewTypes(deps.types);
+    const leftCarrier = nativeCarrierOf(table, left.type, type => table.terms[type]);
+    const rightCarrier = nativeCarrierOf(table, right.type, type => table.terms[type]);
+    const kind = leftCarrier.kind === "primitive" && leftCarrier.primitive === "bool"
+      && rightCarrier.kind === "primitive" && rightCarrier.primitive === "bool" ? "boolean-operator"
+      : leftCarrier.kind === "needs-selected-association" && table.terms[leftCarrier.type]?.kind === "string"
+        && rightCarrier.kind === "needs-selected-association" && table.terms[rightCarrier.type]?.kind === "string" ? "string-operator" : null;
+    if (kind !== null) return { kind: "selected", operation: { kind, operator }, operands: [left.type, right.type],
+      result: internType(deps.types, { kind: "primitive", primitive: "bool" }), execution: { kind: "pure" } };
+  }
   if (operator !== "+" || carrier.kind !== "primitive" || carrier.primitive !== "float64" || left.type !== right.type)
     return notDecidedYet(`the binary operator ${operator} over ${named} at ${at(occurrence)}`, origin);
   return {

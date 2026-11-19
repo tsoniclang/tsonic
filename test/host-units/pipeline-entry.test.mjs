@@ -346,6 +346,33 @@ test("real public Host analysis publishes a recursive declared alias without unf
   assert.equal(shape.members[0].read, alias.tsonic.type);
 });
 
+test("real public Host analysis preserves exact native string equality and inequality decisions and their Boolean counterparts", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  for (const domain of ["string", "boolean"])
+  for (const [token, operator] of [["EqualsEqualsToken", "=="], ["EqualsEqualsEqualsToken", "==="],
+    ["ExclamationEqualsToken", "!="], ["ExclamationEqualsEqualsToken", "!=="]]) {
+    const input = analysisInput(fixture, "sdk-minimal",
+      `export function compare(left: ${domain}, right: ${domain}): boolean { return left ${operator} right; }`);
+    const result = analyzeHostProgram(input);
+    assert.equal(result.kind, "ok");
+    const main = result.value.modules.find(module => module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts"));
+    const selected = main.bodies.find(body => body.kind === "selected" && body.tir.params.length === 2);
+    const expression = selected.tir.root.statements.nodes[0].expression;
+    assert.equal(expression.kind, "BinaryExpression");
+    assert.equal(expression.operatorToken.kind, token);
+    assert.equal(expression.tsonic.role, "comparison");
+    const operation = selected.mir.blocks.flatMap(block => block.statements).find(statement => statement.kind === "assign"
+      && statement.value.kind === "binary").value.operation.decision;
+    assert.deepEqual(operation.operation, { kind: domain === "string" ? "string-operator" : "boolean-operator", operator });
+    assert.deepEqual(operation.execution, { kind: "pure" });
+    const terms = result.value.index.types.terms;
+    const operand = domain === "string" ? { kind: "string" } : { kind: "primitive", primitive: "bool" };
+    assert.deepEqual(operation.operands.map(type => terms[type]), [operand, operand]);
+    assert.deepEqual(terms[operation.result], { kind: "primitive", primitive: "bool" });
+  }
+});
+
 test("real public Host analysis returns a string parameter with its actual entry origins", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

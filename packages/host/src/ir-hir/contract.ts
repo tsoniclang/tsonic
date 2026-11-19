@@ -4053,6 +4053,7 @@ export type HirBinaryOperator = "+" | "-" | "*" | "/" | "%" | "**" | "&" | "|" |
   | "<<" | ">>" | ">>>" | "<" | "<=" | ">" | ">=" | "==" | "!=" | "===" | "!==" | "in" | "instanceof";
 export type HirAssignmentOperator = "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "**=" | "&="
   | "|=" | "^=" | "<<=" | ">>=" | ">>>=" | "&&=" | "||=" | "??=";
+export type BinaryOperatorOf = (token: BinaryOperator) => HirBinaryOperator | null;
 
 export interface HirCapturedType {
   readonly type: CapturedFact<TyId>;

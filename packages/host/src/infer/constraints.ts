@@ -7,7 +7,7 @@ import type { ConstraintsOf, ConstraintsPaused, ConstraintsRequest, GroupConstra
 import { requirePresent, resourceLimitDiagnostic } from "../diag/index.js";
 import { internType, readType, signatureRequestKey } from "../ir-types/index.js";
 import { inferredPartKey, inferredPartsOf } from "../ir-infer/index.js";
-import { resolveModuleBinding } from "../ir-hir/index.js";
+import { binaryOperatorOf, resolveModuleBinding } from "../ir-hir/index.js";
 import { callerDefect, notInferredYet, validateInferenceLimits } from "./frontier.js";
 import { ownSignatureRequest } from "./own-signature.js";
 import { callableEndpoints, candidateEndpoint, endpointRequest, unavailableCandidate } from "./candidates.js";
@@ -373,12 +373,13 @@ function leave(walk: Walk, node: HirNode): void {
       walk.typeOf.set(node.id, storage);
       return;
     }
-    if (node.operatorToken.kind !== "PlusToken" || node.tsonic.role !== "arithmetic")
+    const operator = binaryOperatorOf(node.operatorToken.kind);
+    if (operator === null || (operator === "+" ? node.tsonic.role !== "arithmetic" : node.tsonic.role !== "comparison"))
       return notInferredYet(PORT, `the binary operator ${node.operatorToken.kind}`, node.origin);
     const result = present(walk.operators.get(node.id), "the actual operator result position");
     const left = typeAt(walk, node.left);
     const right = typeAt(walk, node.right);
-    walk.draft.constraints.push({ kind: "op", occurrence: refOf(walk, node), operator: "+",
+    walk.draft.constraints.push({ kind: "op", occurrence: refOf(walk, node), operator,
       operands: [left, right], result, permissionScope: null });
     const evidence: readonly (readonly [Slot, HirNode])[] = [[left, node.left], [right, node.right], [result, node]];
     for (const [type, source] of evidence)
