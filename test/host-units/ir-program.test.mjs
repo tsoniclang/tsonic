@@ -18,6 +18,7 @@ import { encodeBodyId, encodeDefId, encodeKey, encodeModuleId, tyId } from "../.
 import { summaryKey } from "../../packages/host/dist/ir-facts/index.js";
 import { artifactBindingsData, executionKey } from "../../packages/host/dist/ir-types/index.js";
 import { cellTransportCases } from "./fixtures/program-cells.mjs";
+import { typeParameterDeclaration } from "./fixtures/type-parameter-declarations.mjs";
 
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const runtimeNames = [
@@ -1004,7 +1005,7 @@ const extraFieldFaults = new Map();
 const recordChoices = new Map([
   ...["ProgramIndex", "PackageRecord", "PackageExport", "ModuleRecord", "DefinitionNode", "HirModuleExport", "HirModuleBinding", "CheckerDiagnosticRef", "BodyRecord", "ConstantRecord", "ConstantReference",
     "Diagnostic", "RelatedDiagnostic", "DiagnosticFix", "TextEdit", "LocalRef", "NodeRef", "ItemNodeRef", "LibraryModuleIdentity",
-    "CommentDirective", "HirAttribute", "BindingVector", "TypeParameterIdentity"].map(name => [name, [name]]),
+    "CommentDirective", "HirAttribute", "BindingVector"].map(name => [name, [name]]),
   ...["advertised", "api-signature", "api-body"].map(name => [name, ["advertised", "api-signature", "api-body"]]),
   ...["parametric", "instantiated"].map(name => [name, ["parametric", "instantiated"]]),
   ...["bound", "rigid"].map(name => [name, ["bound", "rigid"]]),
@@ -1069,11 +1070,11 @@ for (const kind of ["advertised", "api-signature", "api-body"]) for (const body 
 }
 {
   const other = moduleFixture("src/other.ts").definition;
-  const parameter = index => ({ owner: signatureFixture.definition, index });
+  const parameter = index => typeParameterDeclaration(signatureFixture.definition, index);
   const vector = { classBindings: [{ kind: "rigid", parameter: parameter(0) }, { kind: "bound", parameter: parameter(1), type: 0 }],
     methodBindings: [], capturedBindings: [], selfBindings: [{ kind: "rigid", owner: signatureFixture.definition }, { kind: "bound", owner: other, type: 0 }] };
   const definition = JSON.stringify(signatureFixture.definition);
-  const bindings = `instantiated(bindings=BindingVector(classBindings=[rigid(parameter=TypeParameterIdentity(owner=def:${definition}, index=0)), bound(parameter=TypeParameterIdentity(owner=def:${definition}, index=1), type=t:0)], methodBindings=[], capturedBindings=[], selfBindings=[rigid(owner=def:${definition}), bound(owner=def:${JSON.stringify(other)}, type=t:0)]))`;
+  const bindings = `instantiated(bindings=BindingVector(classBindings=[rigid(parameter=def:${JSON.stringify(parameter(0))}), bound(parameter=def:${JSON.stringify(parameter(1))}, type=t:0)], methodBindings=[], capturedBindings=[], selfBindings=[rigid(owner=def:${definition}), bound(owner=def:${JSON.stringify(other)}, type=t:0)]))`;
   const text = `ProgramIndex(schema=1, rootPackage=pkg:${JSON.stringify(emptyWireIndex.rootPackage)}, packages=[], modules=[], types=TypeTable(terms=[], signatures=[]), signatures=[advertised(definition=def:${definition}, bindings=${bindings}, ordinal=0, signature=sig:0)], bodies=[], dependencyInventory=DependencyInventory(operations=[], dependencies=[], components=[]), metadata=[], summaries=[], constants=[], diagnostics=[], nativeFactsKey=${JSON.stringify(emptyWireIndex.nativeFactsKey)})`;
   const index = { ...emptyWireIndex, signatures: [{ kind: "advertised", definition: signatureFixture.definition,
     bindings: { kind: "instantiated", bindings: vector }, ordinal: 0, signature: 0 }] };
@@ -1081,6 +1082,9 @@ for (const kind of ["advertised", "api-signature", "api-body"]) for (const body 
   test("ir-program independent complete binding records preserve both rigid and bound owner-qualified forms", () => {
     completeProgramValue(product.parseProgramIndex(text), { kind: "parsed", value: index }, "the complete structural binding grammar does not pretend that this deliberately unverified index is semantically valid");
     assert.equal(product.printProgramIndex(index), text + "\n");
+    const retired = text.replace(`parameter=def:${JSON.stringify(parameter(0))}`,
+      `parameter=TypeParameterIdentity(owner=def:${definition}, index=0)`);
+    assert.equal(product.parseProgramIndex(retired).kind, "invalid-text");
   });
 }
 {
