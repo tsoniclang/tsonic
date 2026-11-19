@@ -303,6 +303,29 @@ test(`real public Host analysis retains ${form} boolean negation as its selected
   assert.deepEqual(callable.facts.map(facts => facts.execution.provided), [1]);
 });
 
+test("real public Host analysis selects the native Boolean carrier for actual literal negation", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  for (const literal of [true, false]) {
+    const input = analysisInput(fixture, "sdk-minimal", `export function negate(): boolean { return !${literal}; }`);
+    const result = analyzeHostProgram(input);
+    assert.equal(result.kind, "ok");
+    assert.equal(result.value.modules.length, input.snapshot.packages.modules.length);
+    const main = result.value.modules.find(module => module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts"));
+    const selected = main.bodies.find(body => body.kind === "selected" && body.tir.root.kind === "Block");
+    const expression = selected.tir.root.statements.nodes[0].expression;
+    assert.equal(expression.kind, "PrefixUnaryExpression");
+    const unary = selected.mir.blocks.flatMap(block => block.statements).find(statement => statement.kind === "assign"
+      && statement.value.kind === "unary");
+    const { decision } = unary.value.operation;
+    assert.deepEqual(decision.operation, { kind: "native-operator", operator: "!", carrier: "bool" });
+    assert.deepEqual(decision.operands, [expression.operand.tsonic.type]);
+    const terms = result.value.index.types.terms;
+    assert.deepEqual(terms[decision.operands[0]], { kind: "literal", value: { kind: "boolean", value: literal }, base: decision.result });
+    assert.deepEqual(terms[decision.result], { kind: "primitive", primitive: "bool" });
+  }
+});
+
 test("real public Host analysis publishes a recursive declared alias without unfolding its member graph", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

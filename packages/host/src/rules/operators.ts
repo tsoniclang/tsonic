@@ -2,7 +2,7 @@ import type { NodeRef, Origin } from "../ids/contract.js";
 import type { HirBinaryOperator, HirUnaryOperator } from "../ir-hir/contract.js";
 import type { OperationDecision } from "../ir-infer/contract.js";
 import type { TypeEvidence } from "../ir-types/contract.js";
-import { readType } from "../ir-types/index.js";
+import { nativeCarrierOf, readType, viewTypes } from "../ir-types/index.js";
 import type { RulesDeps } from "./contract.js";
 import { at, callerDefect, notDecidedYet, termName } from "./frontier.js";
 
@@ -24,11 +24,14 @@ export function decideOperator(deps: RulesDeps, operator: HirUnaryOperator | Hir
   const form = forms(operator);
   if (terms.length === 1 && form.unary) {
     const operand = operands[0];
-    const carrier = terms[0];
-    if (operator !== "!" || carrier?.kind !== "primitive" || carrier.primitive !== "bool" || operand === undefined)
+    if (operator !== "!" || operand === undefined)
+      return notDecidedYet(`the unary operator ${operator} over ${named} at ${at(occurrence)}`, origin);
+    const table = viewTypes(deps.types);
+    const carrier = nativeCarrierOf(table, operand.type, type => table.terms[type]);
+    if (carrier.kind !== "primitive" || carrier.primitive !== "bool")
       return notDecidedYet(`the unary operator ${operator} over ${named} at ${at(occurrence)}`, origin);
     return { kind: "selected", operation: { kind: "native-operator", operator: "!", carrier: "bool" },
-      operands: [operand.type], result: operand.type, execution: { kind: "pure" } };
+      operands: [operand.type], result: carrier.type, execution: { kind: "pure" } };
   }
   const left = operands[0];
   const right = operands[1];
