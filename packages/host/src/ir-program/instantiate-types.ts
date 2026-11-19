@@ -85,6 +85,7 @@ function memberKey(scan: SeedScan, value: MemberKey): InstantiationAllocationSto
 function origin(scan: SeedScan, value: MemberOrigin): InstantiationAllocationStop | null {
   switch (value.kind) {
     case "declared":
+    case "intrinsic":
     case "class-prototype": return fields(scan, 2);
     case "mapped": return fields(scan, 7) ?? memberKey(scan, value.key);
   }

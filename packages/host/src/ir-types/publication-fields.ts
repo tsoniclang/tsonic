@@ -163,6 +163,7 @@ export function publicationShape(selected: PublicationRecord): PublicationShape 
       switch (value.kind) {
         case "declared": return { children: [] };
         case "class-prototype": return { children: [] };
+        case "intrinsic": return { children: [] };
         case "mapped": return { children: [{ kind: "source", value: value.owner }, { kind: "member-key", value: value.key }] };
       }
     }

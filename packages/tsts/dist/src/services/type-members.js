@@ -22,6 +22,8 @@ export function readTypePropertyInfo(checker, type, symbol) {
     const containingType = mapped
         ? LinkStore_TryGet(checker.valueSymbolLinks, symbol)?.containingType : undefined;
     const mappedDeclaration = containingType === undefined ? undefined : Type_AsMappedType(containingType)?.declaration;
+    const intrinsicOrigin = symbol === checker.globalThisSymbol ? "global-this"
+        : symbol === checker.undefinedSymbol ? "undefined" : undefined;
     return {
         symbol,
         rootSymbols: Object.freeze(Checker_GetRootSymbols(checker, symbol).filter((root) => root !== undefined)),
@@ -29,6 +31,7 @@ export function readTypePropertyInfo(checker, type, symbol) {
         type: propertyType,
         optional: (symbol.Flags & SymbolFlagsOptional) !== 0,
         readonly: Checker_isReadonlySymbol(checker, symbol) === true,
+        ...(intrinsicOrigin === undefined ? {} : { intrinsicOrigin }),
         ...(!mapped ? {} : { mapped: Object.freeze({
                 keyType: mappedLinks?.keyType,
                 syntheticOrigin: mappedLinks?.syntheticOrigin,

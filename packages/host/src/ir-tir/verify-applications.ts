@@ -214,6 +214,7 @@ const memberKey = (value: MemberKey): string => {
 const memberOriginKey = (origin: MemberOrigin): string => {
   if (origin.kind === "declared") return encodeKey([origin.kind, origin.declaration]);
   if (origin.kind === "class-prototype") return encodeKey([origin.kind, origin.owner]);
+  if (origin.kind === "intrinsic") return encodeKey([origin.kind, origin.symbol]);
   const reference = origin.owner;
   return encodeKey([origin.kind, reference.kind, reference.kind === "body" ? reference.value.body : reference.value.owner,
     reference.value.node, memberKey(origin.key)]);

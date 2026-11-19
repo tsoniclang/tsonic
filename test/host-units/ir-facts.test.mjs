@@ -3115,6 +3115,10 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
   await metadataOpposite("self-consistent field data cannot replace the finalized captured selection", withField,
     input => { input.fields[0].member.origins = [{ kind: "class-prototype", owner: definitions.other }]; },
     [violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence.")]);
+  for (const symbol of ["global-this", "undefined"])
+    await metadataOpposite(`intrinsic ${symbol} provenance does not authorize a different physical field`, withField,
+      input => { input.fields[0].member.origins = [{ kind: "intrinsic", symbol }]; },
+      [violation("member-correspondence-exact", metadataSite(), "A field retains its complete selected member group, primary and value correspondence.")]);
   for (const key of [{ kind: "text", value: "other" },
     { kind: "number", value: { numerator: 1n, denominator: 1n, negativeZero: false } },
     { kind: "symbol", declaration: definitions.other }])
@@ -3541,13 +3545,23 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
 
   const selectionText = (key, origins, primary = `def:"${definitions.field}"`, getter = "null", setter = "null") =>
     `MemberSelection(decision=MemberDecision(key=${key}, origins=${arrayText(origins)}, selectedDeclarations=${arrayText([`def:"${definitions.field}"`])}, primary=${primary}, read=t:0, write=t:0, getter=${getter}, setter=${setter}, bindings=${bindingsText}, location=data(check=none(), receiver="in-place")), getter=null, setter=null)`;
+  await suite.test("member origin text rejects an unrecognized native symbol at its containing occurrence", () => {
+    const member = selectionText('text(value="value")', ['intrinsic(symbol="invented")']);
+    const row = `ProjectionPath(id=path:0, parent=null, projection=field(member=${member}))`;
+    const text = emptyFactsText.replace("projections=[]", `projections=${arrayText([row])}`);
+    const offset = text.indexOf("intrinsic(symbol=");
+    const lines = text.slice(0, offset).split("\n");
+    malformed(product.parseFacts, text, offset, ["global-this", "undefined"], "intrinsic",
+      "a native symbol has only the two genuine members of the transport domain", lines.length, lines.at(-1).length + 1);
+  });
   for (const [key, authored] of [[{ kind: "text", value: "value" }, 'text(value="value")'], [{ kind: "number", value: { numerator: 0n, denominator: 1n, negativeZero: true } }, "number(value=ExactRational(numerator=0n, denominator=1n, negativeZero=true))"],
     [{ kind: "symbol", declaration: definitions.field }, `symbol(declaration=def:"${definitions.field}")`]]) {
     const selected = member(); selected.decision.key = key;
     selected.decision.origins = [{ kind: "declared", declaration: definitions.field }, { kind: "class-prototype", owner: definitions.layout },
-      { kind: "mapped", owner: { kind: "body", value: nodeRef(1) }, key: { kind: "text", value: "value" } }];
+      { kind: "mapped", owner: { kind: "body", value: nodeRef(1) }, key: { kind: "text", value: "value" } },
+      { kind: "intrinsic", symbol: "global-this" }, { kind: "intrinsic", symbol: "undefined" }];
     const expected = selectionText(authored, [`declared(declaration=def:"${definitions.field}")`, `class-prototype(owner=def:"${definitions.layout}")`,
-      `mapped(owner=body(value=${nodeText(1)}), key=text(value="value"))`]);
+      `mapped(owner=body(value=${nodeText(1)}), key=text(value="value"))`, 'intrinsic(symbol="global-this")', 'intrinsic(symbol="undefined")']);
     await arenaTextCase(`full field member key transport ${key.kind}`, "projections", [{ id: 0, parent: null, projection: { kind: "field", member: selected } }],
       [`ProjectionPath(id=path:0, parent=null, projection=field(member=${expected}))`]);
     await factTransport(`closed array complete selected member ${key.kind}`, ["closedArrays"], "closedArrays=[]", { node: 1, kind: "closed", declarations: [{ kind: "local", local: { body, local: 0 } }, { kind: "definition", definition: definitions.field }], references: [nodeRef(2)], literals: [nodeRef(3)], elements: [selected] },

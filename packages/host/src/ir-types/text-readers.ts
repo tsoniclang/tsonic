@@ -3,7 +3,7 @@ import { requirePresent } from "../diag/index.js";
 
 export type ScalarRule = "type-id" | "signature-id" | "own-signature-id" | "definition-id" | "body-id" | "group-id" | "node-id" | "local-id"
   | "number" | "bigint" | "string" | "boolean" | "native" | "intrinsic" | "member-kind" | "signature-kind"
-  | "parameter-kind" | "tuple-kind" | "passing" | "runtime-base" | "facet" | "sum-origin";
+  | "parameter-kind" | "tuple-kind" | "passing" | "runtime-base" | "facet" | "sum-origin" | "intrinsic-member-symbol";
 export interface TextFieldReader {
   readonly name: string;
   readonly request: () => TextRequest;

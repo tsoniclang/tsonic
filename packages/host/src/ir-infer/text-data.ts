@@ -570,10 +570,11 @@ export function createDataSchemas(): DataSchemas {
   });
 
   const memberOriginSchema: RecordSchema<MemberOrigin> = unionSchema<MemberOrigin>("MemberOrigin",
-    () => [declaredOriginSchema, prototypeOriginSchema, mappedOriginSchema], value => {
+    () => [declaredOriginSchema, prototypeOriginSchema, intrinsicOriginSchema, mappedOriginSchema], value => {
     switch (value.kind) {
       case "declared": return declaredOriginSchema.stage(value);
       case "class-prototype": return prototypeOriginSchema.stage(value);
+      case "intrinsic": return intrinsicOriginSchema.stage(value);
       case "mapped": return mappedOriginSchema.stage(value);
     }
   });
@@ -586,6 +587,12 @@ export function createDataSchemas(): DataSchemas {
   const prototypeOriginSchema = recordSchema<PrototypeOriginRecord>("PrototypeOrigin", "class-prototype", read => {
     const owner = read("owner", () => defSchema, value => value.owner);
     return { fields: [owner], value: () => ({ kind: "class-prototype", owner: owner.value() }) };
+  });
+
+  const intrinsicOriginSymbol = enumSchema("IntrinsicMemberOrigin", ["global-this", "undefined"]);
+  const intrinsicOriginSchema = recordSchema<Extract<MemberOrigin, { readonly kind: "intrinsic" }>>("IntrinsicOrigin", "intrinsic", read => {
+    const symbol = read("symbol", () => intrinsicOriginSymbol, value => value.symbol);
+    return { fields: [symbol], value: () => ({ kind: "intrinsic", symbol: symbol.value() }) };
   });
 
   const mappedOriginSchema = recordSchema<MappedOriginRecord>("MappedOrigin", "mapped", read => {

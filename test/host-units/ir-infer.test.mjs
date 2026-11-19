@@ -2210,6 +2210,8 @@ test("all decision, mapping, embedding, operation and protocol-step arms retain 
   const member = recordGolden("MemberDecision", { key: textKeyGolden, origins: arrayGolden([
     recordGolden("declared", { declaration: definitionGolden }, "declared"),
     recordGolden("class-prototype", { owner: definitionGolden }, "class-prototype"),
+    recordGolden("intrinsic", { symbol: scalarGolden("global-this") }, "intrinsic"),
+    recordGolden("intrinsic", { symbol: scalarGolden("undefined") }, "intrinsic"),
     recordGolden("mapped", { owner: sourceGolden, key: textKeyGolden }, "mapped"),
   ]), selectedDeclarations: arrayGolden([definitionGolden]), primary: definitionGolden, read: typeGolden, write: typeGolden,
   getter: endpointGolden("api-signature"), setter: endpointGolden("api-body", bodyGolden), bindings: bindingGolden,

@@ -103,6 +103,7 @@ export function createHirSchema(): HirSchema {
     MemberKey: hirChoice(hirVariant("text", [["value", "string"]]), hirVariant("number", [["value", "ExactRational"]]),
       hirVariant("symbol", [["declaration", "DefId"]])),
     MemberOrigin: hirChoice(hirVariant("declared", [["declaration", "DefId"]]), hirVariant("class-prototype", [["owner", "DefId"]]),
+      hirVariant("intrinsic", [["symbol", hirLiteral("global-this", "undefined")]]),
       hirVariant("mapped", [["owner", sourceReference], ["key", "MemberKey"]])),
     PassingMode: hirLiteral("by-value", "byref-readonly", "byref-readwrite", "byref-writeonly-must-init", "borrow-shared", "borrow-mut", "move"),
     ConstructionDefinition: hirRecord("ConstructionDefinition", [["occurrence", "NodeRef"], ["captures", hirArray("LocalRef")]]),

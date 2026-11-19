@@ -2635,10 +2635,11 @@ const codecApplicationDecisionWire = `ApplicationDecision(candidate=0, advertise
   'rest(parameter=3, arguments=[0, 1], passing="move")], ' +
   'completion=CompletionEndpoint(signature=sig:0, completion=t:0, yielded=t:0, sent=t:0), result=t:0, activation=null)';
 const codecMemberDecision = { key: codecKey, origins: [codecMemberOrigin, { kind: "declared", declaration: ownerId },
-  { kind: "class-prototype", owner: ownerId }], selectedDeclarations: [ownerId], primary: ownerId, read: 0, write: 0,
+  { kind: "class-prototype", owner: ownerId }, { kind: "intrinsic", symbol: "global-this" },
+  { kind: "intrinsic", symbol: "undefined" }], selectedDeclarations: [ownerId], primary: ownerId, read: 0, write: 0,
   getter: codecEndpoint, setter: codecEndpoint, bindings: emptyBindings(), location: { kind: "accessor" } };
 const codecMemberDecisionWire = `MemberDecision(key=${codecKeyWire}, origins=[${codecMemberOriginWire}, ` +
-  `declared(declaration=def:"${ownerId}"), class-prototype(owner=def:"${ownerId}")], selectedDeclarations=[def:"${ownerId}"], ` +
+  `declared(declaration=def:"${ownerId}"), class-prototype(owner=def:"${ownerId}"), intrinsic(symbol="global-this"), intrinsic(symbol="undefined")], selectedDeclarations=[def:"${ownerId}"], ` +
   `primary=def:"${ownerId}", read=t:0, write=t:0, getter=${codecEndpointWire}, setter=${codecEndpointWire}, bindings=${codecBindingsWire}, location=accessor())`;
 const codecPart = { part: 0, source: codecReference, destination: { root: codecSource, path: [] }, member: codecMemberDecision,
   embedding: { kind: "identity" } };

@@ -58,6 +58,7 @@ interface CaptureTables {
   readonly symbolIds: Map<CheckerSymbol, RawSymbolId>;
   readonly signatureIds: Map<Signature, RawSignatureId>;
   readonly activeTypes: Map<Type, RawTypeId>;
+  mergedParameterOwners: Map<CheckerSymbol, ReadonlyMap<Node, Node>> | undefined;
   nextType: number;
   nextMember: number;
   readonly pending: CaptureTask[];
@@ -269,8 +270,31 @@ function capturedMembers(scope: CaptureScope, properties: ReturnType<TypeShapeQu
     const property = properties[index];
     if (property === undefined) return throwInvariant(invariant("A selected property inventory must retain every actual row."));
     if (property.mapped !== undefined) throw new TypeError("front: mapped property origin transport requires its actual selected mapped component");
+    const readType = (type: Type, step: RawComponentStep): RawTypeId | null => {
+      for (let part = 0; part < parent.path.length; part += 1) if (!admit(scope, "edges")) return null;
+      return rawType(scope, () => withoutTypeCause(type), component(scope, parent.root, [...parent.path, step]), null);
+    };
     const primary = scope.checker.getSymbolValueDeclaration(property.symbol);
-    if (primary === undefined) throw new TypeError("front: a property without an actual source value declaration requires its original synthetic member association");
+    if (primary === undefined) {
+      const symbol = property.intrinsicOrigin;
+      if (symbol === undefined)
+        throw new TypeError("front: a property without an actual source value declaration requires its original synthetic member association");
+      if (!admit(scope, "facts")) return null;
+      const read = readType(property.type, { kind: "intrinsic-member", symbol, access: "read" });
+      if (read === null) return null;
+      const origins: RawMemberOrigin[] = [{ kind: "intrinsic", symbol, access: "read" }];
+      let write: RawTypeId | null = null;
+      if (!property.readonly) {
+        if (!admit(scope, "facts")) return null;
+        write = readType(property.type, { kind: "intrinsic-member", symbol, access: "write" });
+        if (write === null) return null;
+        origins.push({ kind: "intrinsic", symbol, access: "write" });
+      }
+      members.push({ key: { kind: "text", value: property.name }, name: property.name, origins,
+        declarations: [], getters: [], setters: [], optional: property.optional, readonly: property.readonly,
+        read: available(read), write: available(write), readKind: "property" });
+      continue;
+    }
     const name = scope.checked.ast.name(primary);
     const key = capturedPropertyKey(scope, name);
     if (scope.meter.refusal !== null) return null;
@@ -321,12 +345,7 @@ function capturedMembers(scope: CaptureScope, properties: ReturnType<TypeShapeQu
     }
     if (declarations.length === 0 || !seen.has(primary))
       throw new TypeError("front: a member requires its actual declared or synthetic origin association");
-    const readType = (type: Type, access: "read" | "write", declaration: RawNodeRef): RawTypeId | null => {
-      for (let part = 0; part < parent.path.length; part += 1) if (!admit(scope, "edges")) return null;
-      return rawType(scope, () => withoutTypeCause(type), component(scope, parent.root,
-        [...parent.path, { kind: "member", declaration, access }]), null);
-    };
-    const read = readType(property.type, "read", origin);
+    const read = readType(property.type, { kind: "member", declaration: origin, access: "read" });
     if (read === null) return null;
     let write: RawTypeId | null = null;
     if (!property.readonly) {
@@ -342,7 +361,7 @@ function capturedMembers(scope: CaptureScope, properties: ReturnType<TypeShapeQu
         type = parameter.type;
         declaration = setters[0] ?? throwInvariant(invariant("A selected setter retains its actual captured source declaration."));
       } else if (getters.length !== 0) throw new TypeError("front: a writable accessor requires its actual setter association");
-      write = readType(type, "write", declaration);
+      write = readType(type, { kind: "member", declaration, access: "write" });
       if (write === null) return null;
     }
     members.push({ key, name: property.name, origins, declarations, getters, setters,
@@ -352,15 +371,55 @@ function capturedMembers(scope: CaptureScope, properties: ReturnType<TypeShapeQu
   return members;
 }
 
-function typeForm(scope: CaptureScope, type: Type, position: RawComponentId): RawTypeForm | null {
+function selectMergedParameter(scope: CaptureScope, symbol: CheckerSymbol, declarations: readonly (Node | undefined)[],
+  authored: RawNodeRef | null): Node | undefined {
+  if (authored === null || !admit(scope, "edges")) return undefined;
+  const ast = scope.checked.ast;
+  const file = OpenedProgram.file(scope.program, authored.module)?.file;
+  const numbered = file === undefined ? undefined : OpenedProgram.syntax(scope.program).get(ast.getFileName(file))?.outcome;
+  const source = numbered?.kind === "numbered" ? numbered.numbering.nodes[authored.node] : undefined;
+  if (source === undefined) return throwInvariant(invariant("An authored type occurrence must retain its actual numbered checker node."));
+  if (ast.kindName(source) !== "KindTypeReference") return undefined;
+  const reference = ast.as.AsTypeReferenceNode(source);
+  if (reference === undefined || scope.checker.getSymbolAtLocation(reference.TypeName) !== symbol) return undefined;
+  let byOwner = scope.tables.mergedParameterOwners?.get(symbol);
+  if (byOwner === undefined) {
+    if (!admit(scope, "edges")) return undefined;
+    const indexed = new Map<Node, Node>();
+    for (let index = 0; index < declarations.length; index += 1) {
+      if (!admit(scope, "edges")) return undefined;
+      const declaration = declarations[index];
+      const owner = ast.parent(declaration);
+      if (declaration === undefined || ast.kindName(declaration) !== "KindTypeParameter" || owner === undefined || indexed.has(owner))
+        return throwInvariant(invariant("A merged type parameter requires distinct actual enclosing declarations."));
+      indexed.set(owner, declaration);
+    }
+    (scope.tables.mergedParameterOwners ??= new Map()).set(symbol, indexed);
+    byOwner = indexed;
+  }
+  let selected: Node | undefined;
+  for (let node: Node | undefined = source; node !== undefined; node = ast.parent(node)) {
+    if (!admit(scope, "edges")) return undefined;
+    const declaration = byOwner.get(node);
+    if (declaration === undefined) continue;
+    if (selected !== undefined)
+      return throwInvariant(invariant("The actual type occurrence cannot belong to competing declarations of one merged parameter."));
+    selected = declaration;
+  }
+  return selected;
+}
+
+function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, authored: RawNodeRef | null): RawTypeForm | null {
   const shape = scope.shape;
   const symbol = scope.checker.getTypeSymbol(type);
   const declarations = symbol === undefined ? [] : scope.checker.getSymbolDeclarations(symbol);
-  for (const declaration of declarations) {
+  for (const candidate of declarations) {
     if (!admit(scope, "edges")) return null;
-    if (declaration === undefined) return throwInvariant(invariant("A type's declaration inventory cannot contain an absent row."));
-    if (scope.checked.ast.kindName(declaration) !== "KindTypeParameter") continue;
-    if (declarations.length !== 1)
+    if (candidate === undefined) return throwInvariant(invariant("A type's declaration inventory cannot contain an absent row."));
+    if (scope.checked.ast.kindName(candidate) !== "KindTypeParameter") continue;
+    const declaration = declarations.length === 1 ? candidate : symbol === undefined ? undefined : selectMergedParameter(scope, symbol, declarations, authored);
+    if (scope.meter.refusal !== null) return null;
+    if (declaration === undefined)
       throw new TypeError("front: a merged type parameter requires its actual selected declaration association");
     const ast = scope.checked.ast;
     const parameter = referenceTo(scope, scope.program, declaration);
@@ -679,7 +738,7 @@ function captureFacts(scope: CaptureScope): void {
         if (ancestor === undefined) {
           scope.tables.activeTypes.set(type, next.id);
           scope.tables.pending.push({ kind: "leave-type", type: type });
-          captured = typeForm(scope, base, next.position);
+          captured = typeForm(scope, base, next.position, next.authoredTypeNode);
         } else {
           const original = scope.tables.types[ancestor];
           if (original?.form.kind !== "available")
@@ -1002,7 +1061,8 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
   const queries = checked.getSourceFileQueries(file);
   const scope: CaptureScope = { ...admission, program, file, checked, checker: queries.checker,
     shape: queries.typeShape, ownNodes, emptyCoreInventory: closedInventoryEmpty(program), diagnosticRoots: new Map(),
-    tables: { types: [], components: [], signatures: [], members: [], candidates: [], symbols: [], symbolIds: new Map(), signatureIds: new Map(), activeTypes: new Map(), nextType: 0, nextMember: 0, pending: [] } };
+    tables: { types: [], components: [], signatures: [], members: [], candidates: [], symbols: [], symbolIds: new Map(), signatureIds: new Map(),
+      activeTypes: new Map(), mergedParameterOwners: undefined, nextType: 0, nextMember: 0, pending: [] } };
   const checkerDiagnostics: Diagnostic[] = [];
   const diagnosticCoverage: RawDiagnosticCoverage[] = [];
   for (const diagnostic of checked.diagnostics) {

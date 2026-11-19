@@ -364,6 +364,8 @@ export function textMemberOrigin(value: MemberOrigin): TextWork {
         return record(value.kind, [
       field("owner", identity("def", value.owner)),
     ]);
+      case "intrinsic":
+        return record(value.kind, [field("symbol", text(value.symbol))]);
       case "mapped":
         return record(value.kind, [
       field("owner", textSourceNodeRef(value.owner)),

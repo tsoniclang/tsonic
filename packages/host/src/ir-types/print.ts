@@ -67,6 +67,7 @@ function origin(value: MemberOrigin): TextRecord {
   switch (value.kind) {
     case "declared": return record(value.kind, value, ["declaration", reference("def", value.declaration)]);
     case "class-prototype": return record(value.kind, value, ["owner", reference("def", value.owner)]);
+    case "intrinsic": return record(value.kind, value, ["symbol", value.symbol]);
     case "mapped": return record(value.kind, value, ["owner", source(value.owner)], ["key", memberKey(value.key)]);
   }
 }

@@ -69,6 +69,9 @@ test("the one selector-path encoding: each selector is one array beginning with 
   assert.deepEqual(encodeSelectorPath([{ kind: "tuple-element", index: 2 }, { kind: "awaited" }]), [["tuple-element", 2], ["awaited"]]);
   assert.deepEqual(encodeSelectorPath([{ kind: "member", origin: { kind: "mapped", owner: node(body, 7), key: { kind: "text", value: "k" } } }]),
     [["member", ["mapped", ["body", body, 7], ["text", "k"]]]]);
+  for (const symbol of ["global-this", "undefined"])
+    assert.deepEqual(encodeSelectorPath([{ kind: "member", origin: { kind: "intrinsic", symbol } }]),
+      [["member", ["intrinsic", symbol]]]);
   assert.deepEqual(encodeSelectorPath([{ kind: "construction-argument", definition: construction(3, [{ body, local: 4 }]), index: 1 }]),
     [["construction-argument", [body, 3], [[body, 4]], 1]]);
   assert.deepEqual(encodeSelectorPath([{ kind: "sum-arm", family: family("authored", [{ kind: "optional-value" }]), index: 1 }]),
@@ -320,6 +323,10 @@ test("physical member storage projects only the canonical qualified selection an
   for (const origin of [{ kind: "class-prototype", owner }, { kind: "mapped", owner: source, key: selection.key },
     { kind: "mapped", owner: itemSource, key: { kind: "symbol", declaration: other } }]) {
     assert.notEqual(encodeKey(memberStorageData({ ...selection, origins: [origin] })), original);
+  }
+  for (const symbol of ["global-this", "undefined"]) {
+    assert.deepEqual(memberStorageData({ ...selection, origins: [{ kind: "intrinsic", symbol }], selectedDeclarations: [], primary: null }),
+      [["text", "field"], [["intrinsic", symbol]], [], null, bindingVectorData(bindings)]);
   }
   for (const change of [{ primary: null }, { selectedDeclarations: [other] },
     { bindings: { ...bindings, classBindings: [{ kind: "bound", parameter: parameterDeclaration(owner, 0), type: 1 }] } }]) {
@@ -1608,7 +1615,8 @@ test("every native primitive and intrinsic arm is interned, read, printed and pa
 
 test("all TypeTerm, literal, selector, origin, signature and passing arms round-trip complete declared records", () => {
   const origins = [{ kind: "declared", declaration: owner }, { kind: "class-prototype", owner: other },
-    { kind: "mapped", owner: itemSource, key: { kind: "symbol", declaration: other } }];
+    { kind: "mapped", owner: itemSource, key: { kind: "symbol", declaration: other } },
+    { kind: "intrinsic", symbol: "global-this" }, { kind: "intrinsic", symbol: "undefined" }];
   const construction = { occurrence: source.value, captures: [{ body, local: 0 }, { body, local: 1 }] };
   const family = { origin: "authored", component: { root: source, path: [] }, parameters: [parameterDeclaration(owner, 0)],
     roles: [{ authoredIndex: 0, component: source, member: 0 }, { authoredIndex: 1, component: itemSource, member: 1 }] };
@@ -2615,7 +2623,7 @@ test("balanced recursive equalities compress multi-level aliases without changin
     [componentPrefix + 'body(value=NodeRef(body=', 'body:"invalid"', ', node=n:0))' + componentSuffix, ["canonical body identity"]],
     [componentPrefix + 'body(value=NodeRef(body=', 'body:0', ', node=n:0))' + componentSuffix, ["canonical body identity"]],
     [memberPrefix, 'foreign()', memberSuffix, ["text", "number", "symbol"]],
-    [memberPrefix + 'text(value="x"), origins=[', 'foreign()', '], readOrigins=[], writeOrigins=[], kind="property", read=t:0, write=null, optional=false, readonly=true)], indexes=[], calls=[], constructs=[])], signatures=[])', ["declared", "class-prototype", "mapped"]],
+    [memberPrefix + 'text(value="x"), origins=[', 'foreign()', '], readOrigins=[], writeOrigins=[], kind="property", read=t:0, write=null, optional=false, readonly=true)], indexes=[], calls=[], constructs=[])], signatures=[])', ["declared", "class-prototype", "intrinsic", "mapped"]],
     [signaturePrefix + 'null, composition=', 'foreign()', ', kind="call", typeParameters=[], receiver=null, parameters=[], result=t:0)])', ["union", "intersection"]],
     ['TypeTable(terms=[projection(source=t:0, projection=', 'foreign()', ')], signatures=[])', ["awaited", "component"]],
     [selectorPrefix, 'foreign()', selectorSuffix, ["component selector"]],

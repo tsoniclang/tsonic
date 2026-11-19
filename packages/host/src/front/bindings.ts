@@ -65,6 +65,7 @@ export function lowerMemberKey(deps: LowerDeps, key: RawMemberKey): MemberKey {
 export function lowerMemberOrigin(deps: LowerDeps, origin: RawMemberOrigin): MemberOrigin {
   if (origin.kind === "declaration") return { kind: "declared", declaration: deps.definitionOf(origin.declaration) };
   if (origin.kind === "class-prototype") return { kind: "class-prototype", owner: deps.definitionOf(origin.declaration) };
+  if (origin.kind === "intrinsic") return { kind: "intrinsic", symbol: origin.symbol };
   throw new TypeError("front: mapped binding-member origin conversion is not implemented");
 }
 

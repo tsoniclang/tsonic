@@ -78,6 +78,7 @@ function memberOriginData(value: Types.MemberOrigin): HirDataWork {
   switch (value.kind) {
     case "declared": return recordData(value.kind, value, () => [fieldData("declaration", definitionData(value.declaration))]);
     case "class-prototype": return recordData(value.kind, value, () => [fieldData("owner", definitionData(value.owner))]);
+    case "intrinsic": return recordData(value.kind, value, () => [fieldData("symbol", scalarData(value.symbol))]);
     case "mapped": return recordData(value.kind, value, () => [fieldData("owner", sourceRefData(value.owner)), fieldData("key", memberKeyData(value.key))]);
   }
 }

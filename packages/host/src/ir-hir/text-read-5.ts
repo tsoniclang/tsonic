@@ -23,7 +23,7 @@ export function createReadGroup5(readers: () => HirTextReaders): HirReadGroup5 {
     });
   const record_154 = recordReader<{ readonly kind: "member"; readonly key: Types.MemberKey; readonly origins: readonly Types.MemberOrigin[]; }>("member", read => {
       const field_key = read("key", unionReader<Types.MemberKey>(() => [readers().record_35, readers().record_61, readers().record_63]));
-      const field_origins = read("origins", sequenceReader(unionReader<Types.MemberOrigin>(() => [readers().record_58, readers().record_59, readers().record_60])));
+      const field_origins = read("origins", sequenceReader(unionReader<Types.MemberOrigin>(() => [readers().record_58, readers().record_59, readers().intrinsicMemberOrigin, readers().record_60])));
       return { fields: [field_key, field_origins], value: () => ({ kind: "member", key: field_key.value(), origins: field_origins.value() }) };
     });
   const record_155 = recordReader<{ readonly kind: "index"; readonly expression: Ids.NodeId; }>("index", read => {
@@ -66,7 +66,7 @@ export function createReadGroup5(readers: () => HirTextReaders): HirReadGroup5 {
       return { fields: [field_value], value: () => ({ kind: "available", value: field_value.value() }) };
     });
   const record_161 = recordReader<{ readonly kind: "available"; readonly value: readonly Types.MemberOrigin[]; }>("available", read => {
-      const field_value = read("value", sequenceReader(unionReader<Types.MemberOrigin>(() => [readers().record_58, readers().record_59, readers().record_60])));
+      const field_value = read("value", sequenceReader(unionReader<Types.MemberOrigin>(() => [readers().record_58, readers().record_59, readers().intrinsicMemberOrigin, readers().record_60])));
       return { fields: [field_value], value: () => ({ kind: "available", value: field_value.value() }) };
     });
   const record_162 = recordReader<{ readonly kind: "available"; readonly value: readonly Ids.DefId[]; }>("available", read => {

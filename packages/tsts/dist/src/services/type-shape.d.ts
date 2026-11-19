@@ -32,6 +32,7 @@ export interface TypePropertyInfo {
     readonly type: Type;
     readonly optional: boolean;
     readonly readonly: boolean;
+    readonly intrinsicOrigin?: "global-this" | "undefined";
     readonly mapped?: TypeMappedPropertyInfo;
 }
 export interface TypeTupleElementInfo {

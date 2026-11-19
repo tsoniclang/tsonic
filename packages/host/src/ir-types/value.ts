@@ -59,6 +59,7 @@ function memberOriginData(origin: MemberOrigin): KeyData {
   switch (origin.kind) {
     case "declared": return [origin.kind, origin.declaration];
     case "class-prototype": return [origin.kind, origin.owner];
+    case "intrinsic": return [origin.kind, origin.symbol];
     case "mapped": return [origin.kind, origin.owner.kind,
       origin.owner.kind === "body" ? origin.owner.value.body : origin.owner.value.owner,
       origin.owner.value.node, memberKeyData(origin.key)];

@@ -122,8 +122,9 @@ export function admitStorageIdentity(member: MemberStorageSelection, account: Da
     if (origin === undefined) continue;
     const stop = origin.kind === "declared" ? chargeWork(account, origin.declaration.length)
       : origin.kind === "class-prototype" ? chargeWork(account, origin.owner.length)
-        : chargeWork(account, origin.owner.kind === "body" ? origin.owner.value.body.length : origin.owner.value.owner.length)
-          ?? admitMemberKey(origin.key, account);
+        : origin.kind === "intrinsic" ? chargeWork(account, origin.symbol.length)
+          : chargeWork(account, origin.owner.kind === "body" ? origin.owner.value.body.length : origin.owner.value.owner.length)
+            ?? admitMemberKey(origin.key, account);
     if (stop !== null) return stop;
   }
   for (const declaration of member.selectedDeclarations) {

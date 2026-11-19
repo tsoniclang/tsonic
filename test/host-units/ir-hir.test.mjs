@@ -3205,7 +3205,8 @@ const projectTarget = () => ({ target: "project", module: moduleIdentity });
 const libraryTarget = () => ({ target: "library", module: { providerId: "authored-provider", providerVersion: "1", packageName: null,
   moduleSpecifier: "authored:module", providerModuleId: "module" } });
 const memberOrigins = () => [{ kind: "declared", declaration: definitionIdentity }, { kind: "class-prototype", owner: definitionIdentity },
-  { kind: "mapped", owner: bodySource(0), key: { kind: "text", value: "field" } }];
+  { kind: "mapped", owner: bodySource(0), key: { kind: "text", value: "field" } },
+  { kind: "intrinsic", symbol: "global-this" }, { kind: "intrinsic", symbol: "undefined" }];
 
 function checkedRoleInputs() {
   const rows = [];

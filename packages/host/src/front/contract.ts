@@ -1,7 +1,7 @@
 import type { Cause, Diagnostic, Result } from "../diag/contract.js";
 import type { DefId, DefinitionSegment, LibraryExportIdentity, LibraryModuleIdentity, ModuleId, NodeId, Origin, SourceNodeRef, RawCandidateListId, RawComponentId,
   RawDataLayoutId, RawMemberTableId, RawMemoryFieldId, RawMemoryLayoutId, RawSignatureId, RawSymbolId, RawTypeId, TyId } from "../ids/contract.js";
-import type { LiteralValue, NativePrimitive, PassingMode, TypeEvidence, TypeExpansionLimits, TypeInterner, TypePublicationLimits } from "../ir-types/contract.js";
+import type { IntrinsicMemberOrigin, LiteralValue, NativePrimitive, PassingMode, TypeEvidence, TypeExpansionLimits, TypeInterner, TypePublicationLimits } from "../ir-types/contract.js";
 import type { HirModule, HirModuleBinding, HirModuleExport, SourceFile, SyntaxKind, SyntaxPhase } from "../ir-hir/contract.js";
 import type { LibraryCatalogue, WellKnownSymbol } from "../libraries/contract.js";
 import type { ExtensionReferenceEntry, ImportPreparation, LibraryRoleEntry, PackageSnapshot, ProjectSnapshot } from "../snapshot/contract.js";
@@ -124,6 +124,7 @@ export type RawMemberKey =
 export type RawComponentStep =
   | { readonly kind: "class-value" | "element" | "optional-value" }
   | { readonly kind: "member"; readonly declaration: RawNodeRef; readonly access: "read" | "write" }
+  | { readonly kind: "intrinsic-member"; readonly symbol: IntrinsicMemberOrigin; readonly access: "read" | "write" }
   | { readonly kind: "class-prototype"; readonly declaration: RawNodeRef }
   | { readonly kind: "mapped-member"; readonly declaration: RawNodeRef; readonly source: RawComponentId;
       readonly key: RawMemberKey; readonly access: "read" | "write" }
@@ -174,6 +175,7 @@ export interface RawSignature {
 
 export type RawMemberOrigin =
   | { readonly kind: "declaration"; readonly declaration: RawNodeRef; readonly access: "read" | "write" }
+  | { readonly kind: "intrinsic"; readonly symbol: IntrinsicMemberOrigin; readonly access: "read" | "write" }
   | { readonly kind: "class-prototype"; readonly declaration: RawNodeRef; readonly facet: "value" }
   | { readonly kind: "mapped"; readonly declaration: RawNodeRef; readonly source: RawComponentId;
       readonly key: RawMemberKey; readonly access: "read" | "write" };

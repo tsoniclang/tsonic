@@ -10,7 +10,7 @@ function referencePrefix(rule: ScalarRule): string | null {
     case "body-id": return "body"; case "group-id": return "group"; case "node-id": return "n"; case "local-id": return "l";
     case "number": case "bigint": case "string": case "boolean": case "native": case "intrinsic": case "member-kind":
     case "signature-kind": case "parameter-kind": case "tuple-kind": case "passing": case "runtime-base": case "facet":
-    case "sum-origin": return null;
+    case "sum-origin": case "intrinsic-member-symbol": return null;
   }
 }
 function scalarExpected(rule: ScalarRule): readonly string[] {
@@ -25,6 +25,7 @@ function scalarExpected(rule: ScalarRule): readonly string[] {
     case "native": return ["bool", "char", "int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64",
       "int128", "uint128", "native-int", "native-uint", "float16", "float32", "float64", "decimal"];
     case "intrinsic": return ["any", "unknown", "object", "void", "never", "absence", "bigint", "symbol"];
+    case "intrinsic-member-symbol": return ["global-this", "undefined"];
     case "member-kind": return ["property", "method", "accessor"];
     case "signature-kind": return ["call", "construct"];
     case "parameter-kind": return ["required", "optional", "default", "rest"];

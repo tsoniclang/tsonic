@@ -1,6 +1,6 @@
 import type { BodyId, DefId, GroupId, ItemNodeRef, LocalId, LocalRef, NodeId, NodeRef, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import { decodeBodyId, decodeDefId, decodeGroupId, encodeBodyId, encodeDefId, encodeGroupId, localId, nodeId, sigId, tyId } from "../ids/index.js";
-import type { ConstructionDefinition, ExactRational, FixedExtent, IndexSignature, Intrinsic, LiteralTypeValue, Member, MemberKey, MemberOrigin, NativePrimitive, PassingMode, Signature, SignatureParameter, TupleElement, TypeParameter } from "./contract.js";
+import type { ConstructionDefinition, ExactRational, FixedExtent, IndexSignature, Intrinsic, IntrinsicMemberOrigin, LiteralTypeValue, Member, MemberKey, MemberOrigin, NativePrimitive, PassingMode, Signature, SignatureParameter, TupleElement, TypeParameter } from "./contract.js";
 import type { RecordReader, TextReader } from "./text-readers.js";
 import { arrayReader, bigintReader, booleanReader, enumReader, lazyReader, nullableReader, numberReader, recordReader, stringReader, unionReader } from "./text-readers.js";
 
@@ -194,7 +194,7 @@ export function createTypeTextValues(): TypeTextValues {
     default: return null;
     }
   });
-  const reader_origin: RecordReader<MemberOrigin> = unionReader(["declared","class-prototype","mapped"], label => {
+  const reader_origin: RecordReader<MemberOrigin> = unionReader(["declared","class-prototype","intrinsic","mapped"], label => {
     switch (label) {
     case "declared": return recordReader<MemberOrigin>("declared", read => {
       const field_declaration = read("declaration", lazyReader(() => reader_definition_id));
@@ -203,6 +203,10 @@ export function createTypeTextValues(): TypeTextValues {
     case "class-prototype": return recordReader<MemberOrigin>("class-prototype", read => {
       const field_owner = read("owner", lazyReader(() => reader_definition_id));
       return { fields: [field_owner], value: () => ({ kind: "class-prototype", owner: field_owner.value() }) };
+    });
+    case "intrinsic": return recordReader<MemberOrigin>("intrinsic", read => {
+      const field_symbol = read("symbol", enumReader<IntrinsicMemberOrigin>("intrinsic-member-symbol", ["global-this", "undefined"]));
+      return { fields: [field_symbol], value: () => ({ kind: "intrinsic", symbol: field_symbol.value() }) };
     });
     case "mapped": return recordReader<MemberOrigin>("mapped", read => {
       const field_owner = read("owner", lazyReader(() => reader_source));

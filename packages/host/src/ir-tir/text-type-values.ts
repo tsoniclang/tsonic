@@ -266,6 +266,10 @@ export const createTypeValuesText = (kernel: TirTextKernel): TypeValuesTextModel
   const work_MemberOrigin_class_prototype: TirRecordCodec<MemberOrigin & { readonly kind: "class-prototype" }> = defineRecord<MemberOrigin & { readonly kind: "class-prototype" }>("MemberOrigin#class-prototype", "MemberOrigin", { field: "kind", value: "class-prototype" }, "class-prototype", null, null, fields => fields
     .field("owner", "def", value => referenceWork("def", value.owner), definitionReader)
     .finish((field_owner) => ({ kind: "class-prototype", owner: field_owner })));
+  const intrinsicOriginSymbol = literalReader<"global-this" | "undefined">("IntrinsicMemberOrigin", ["global-this", "undefined"]);
+  const intrinsicOrigin = defineRecord<Extract<MemberOrigin, { readonly kind: "intrinsic" }>>("MemberOrigin#intrinsic", "MemberOrigin", { field: "kind", value: "intrinsic" }, "intrinsic", null, null, fields => fields
+    .field("symbol", "IntrinsicMemberOrigin", value => scalarWork("IntrinsicMemberOrigin", value.symbol), intrinsicOriginSymbol)
+    .finish(symbol => ({ kind: "intrinsic", symbol })));
   const work_MemberOrigin_mapped: TirRecordCodec<MemberOrigin & { readonly kind: "mapped" }> = defineRecord<MemberOrigin & { readonly kind: "mapped" }>("MemberOrigin#mapped", "MemberOrigin", { field: "kind", value: "mapped" }, "mapped", null, null, fields => fields
     .field("owner", "SourceNodeRef", value => work_SourceNodeRef.write(value.owner), lazyReader(() => work_SourceNodeRef.reader))
     .field("key", "MemberKey", value => work_MemberKey.write(value.key), lazyReader(() => work_MemberKey.reader))
@@ -587,9 +591,10 @@ export const createTypeValuesText = (kernel: TirTextKernel): TypeValuesTextModel
     switch (value.kind) {
       case "declared": return work_MemberOrigin_declared.write(value);
       case "class-prototype": return work_MemberOrigin_class_prototype.write(value);
+      case "intrinsic": return intrinsicOrigin.write(value);
       case "mapped": return work_MemberOrigin_mapped.write(value);
     }
-  }, () => [work_MemberOrigin_declared.reader, work_MemberOrigin_class_prototype.reader, work_MemberOrigin_mapped.reader]);
+  }, () => [work_MemberOrigin_declared.reader, work_MemberOrigin_class_prototype.reader, intrinsicOrigin.reader, work_MemberOrigin_mapped.reader]);
   const work_ComponentSelector: TirRecordCodec<ComponentSelector> = unionRecord<ComponentSelector>("ComponentSelector", (value: ComponentSelector): TirTypedRecordWork => {
     switch (value.kind) {
       case "class-value": return work_ComponentSelector_class_value.write(value);

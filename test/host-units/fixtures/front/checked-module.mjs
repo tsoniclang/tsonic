@@ -130,14 +130,15 @@ export async function loadFrontFixture() {
     return { module, snapshot, raw: raw.value, definitions: definitions.value, interner, exports: exported.value, checked: checked.value };
   }
 
-  function checkedModulesOf(sourceFiles) {
-    const snapshot = projectSnapshot({ sourceFiles, libraries: bundled() });
+  function captureModulesOf(snapshot, modules = snapshot.packages.modules) {
     const opened = openAndCapture(snapshot);
     const interner = types.createTypeInterner();
-    const captures = Object.entries(sourceFiles).map(([name, text]) => {
-      const module = moduleOf(packageOf("/project"), "src/" + name);
+    const fileTexts = new Map(snapshot.packages.files.map(file => [file.path, file.text]));
+    const captures = modules.map(({ id: module, path }) => {
       const raw = front.captureModule(opened.deps, opened.program, module);
       assert.equal(raw.kind, "ok");
+      const text = fileTexts.get(path);
+      assert.equal(typeof text, "string", "the captured module has its original snapshot text");
       return { module, text, raw: raw.value };
     });
     const requests = new Map();
@@ -155,7 +156,7 @@ export async function loadFrontFixture() {
     const occurrences = new Map(captured.map(entry => [entry.module, new Map(entry.definitions.sourceOccurrences.map(row => [row.node, row]))]));
     const text = new Map(captured.map(entry => [entry.module, entry.text]));
     const first = captured[0];
-    assert.equal(first !== undefined, true, "a real source module inventory is nonempty");
+    assert.equal(first !== undefined, true, "an actual captured module inventory is nonempty");
     const exported = new Map();
     const deps = { ...lowerDepsFor(first.definitions, interner, first.text),
       definitionOf: reference => definitions.get(reference.module)?.get(reference.node) ?? assert.fail("an actual cross-module F1 declaration is required"),
@@ -167,6 +168,14 @@ export async function loadFrontFixture() {
       assert.equal(result.kind, "ok");
       exported.set(entry.module, result.value);
     }
+    return { interner, captured, deps, opened };
+  }
+
+  function checkedModulesOf(sourceFiles) {
+    const snapshot = projectSnapshot({ sourceFiles, libraries: bundled() });
+    const available = new Map(snapshot.packages.modules.map(module => [module.id, module]));
+    const requested = Object.keys(sourceFiles).map(name => available.get(moduleOf(packageOf("/project"), "src/" + name)));
+    const { interner, captured, deps } = captureModulesOf(snapshot, requested);
     const modules = captured.map(entry => {
       const result = front.lowerModule(deps, entry.raw);
       assert.equal(result.kind, "ok");
@@ -198,5 +207,5 @@ export async function loadFrontFixture() {
     });
   }
 
-  return { front, ids, snapshots, types, hir, sdk, packageOf, moduleOf, bundled, projectSnapshot, openAndCapture, openedModule, lowerDepsFor, checkedModuleOf, checkedModulesOf, verifyChecked };
+  return { front, ids, snapshots, types, hir, sdk, packageOf, moduleOf, bundled, projectSnapshot, openAndCapture, openedModule, lowerDepsFor, checkedModuleOf, captureModulesOf, checkedModulesOf, verifyChecked };
 }

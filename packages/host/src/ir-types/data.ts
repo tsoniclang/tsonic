@@ -93,9 +93,12 @@ export type MemberKey =
   | { readonly kind: "number"; readonly value: ExactRational }
   | { readonly kind: "symbol"; readonly declaration: DefId };
 
+export type IntrinsicMemberOrigin = "global-this" | "undefined";
+
 export type MemberOrigin =
   | { readonly kind: "declared"; readonly declaration: DefId }
   | { readonly kind: "class-prototype"; readonly owner: DefId }
+  | { readonly kind: "intrinsic"; readonly symbol: IntrinsicMemberOrigin }
   | { readonly kind: "mapped"; readonly owner: SourceNodeRef; readonly key: MemberKey };
 
 export interface MemberStorageSelection {

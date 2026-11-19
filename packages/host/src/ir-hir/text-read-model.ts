@@ -78,6 +78,7 @@ export interface HirReadGroup1 {
   readonly record_57: HirReader<{ readonly kind: "member"; readonly origin: Types.MemberOrigin; }>;
   readonly record_58: HirReader<{ readonly kind: "declared"; readonly declaration: Ids.DefId; }>;
   readonly record_59: HirReader<{ readonly kind: "class-prototype"; readonly owner: Ids.DefId; }>;
+  readonly intrinsicMemberOrigin: HirReader<Extract<Types.MemberOrigin, { readonly kind: "intrinsic" }>>;
 }
 export interface HirReadGroup2 {
   readonly record_60: HirReader<{ readonly kind: "mapped"; readonly owner: Ids.SourceNodeRef; readonly key: Types.MemberKey; }>;

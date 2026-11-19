@@ -145,6 +145,8 @@ const collectStorageOrigins = (
           if (stop !== null) return stop;
         }
         break;
+      case "intrinsic":
+        break;
       case "mapped": {
         if (!context.nodeExists(origin.owner)) {
           const stop = recordFinding(account, violations, "last", "node-resolves", site, "A selected member origin retains its actual qualified source occurrence.");
