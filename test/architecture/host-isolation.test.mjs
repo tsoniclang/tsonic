@@ -372,7 +372,7 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
     ...["bindings.ts", "capture.ts", "checker.ts", "diagnostics.ts", "handles.ts", "identities.ts", "index.ts",
       "lower.ts", "lower-exports.ts", "lower-imports.ts", "lower-members.ts", "checked-declarations.ts", "source-bodies.ts",
       "type-conversion.ts", "options.ts", "program-data.ts", "syntax-capture.ts", "syntax-support.ts"].map(name => `${host}/front/${name}`),
-    ...["definitions.ts", "index.ts", "placement.ts", "signatures.ts", "cycles.ts"].map(name => `${host}/decls/${name}`),
+    ...["definitions.ts", "index.ts", "placement.ts", "signatures.ts", "cycles.ts", "members.ts"].map(name => `${host}/decls/${name}`),
     ...["embed.ts", "errors.ts", "frontier.ts", "index.ts", "operators.ts", "schemes.ts", "variables.ts",
       "candidates.ts", "captures.ts"].map(name => `${host}/rules/${name}`),
     ...["constraints.ts", "frontier.ts", "groups.ts", "index.ts", "own-signature.ts", "solve.ts",

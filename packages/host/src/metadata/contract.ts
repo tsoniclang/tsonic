@@ -1,6 +1,6 @@
 import type { Diagnostic, Result } from "../diag/contract.js";
 import type { DefId, SourceNodeRef, TyId } from "../ids/contract.js";
-import type { ArtifactBindings, BodyInstance, ConstantContext, ConstValue, MemberTable, TypeOf, TypeTable } from "../ir-types/contract.js";
+import type { ArtifactBindings, BodyInstance, ConstantContext, ConstValue, MemberInventory, TypeOf, TypeTable } from "../ir-types/contract.js";
 import type {
   CapturedFact, CheckedPhase, Declaration, HirMemoryFieldCapture, HirMemoryLayoutCapture, HirObservationCapture,
 } from "../ir-hir/contract.js";
@@ -20,7 +20,7 @@ export interface MetadataDeps {
     key: MetadataKey,
   ) => CapturedFact<HirMemoryLayoutCapture | HirMemoryFieldCapture | null>;
   readonly constValue: (initializer: BodyInstance, context: ConstantContext) => ConstValue;
-  readonly membersOf: (type: TyId) => MemberTable;
+  readonly membersOf: (type: TyId) => MemberInventory;
   readonly typeOf: TypeOf;
   readonly limits: AnalysisLimits;
   readonly metadataLimits: MetadataLimits;

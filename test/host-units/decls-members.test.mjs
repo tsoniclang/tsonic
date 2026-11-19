@@ -1,0 +1,197 @@
+import assert from "node:assert/strict";
+import { after, before, test } from "node:test";
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { Session } from "node:inspector";
+import { fileURLToPath } from "node:url";
+import { checkCoverage } from "../architecture/host/coverage.mjs";
+import { parseSources } from "../architecture/host/import-graph.mjs";
+import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
+
+const expansion = { maximumDepth: 64, maximumVisits: 10000, maximumUnionMembers: 1000, maximumIntersectionMembers: 1000 };
+const session = new Session();
+const post = (method, parameters = {}) => new Promise((resolve, reject) => {
+  session.post(method, parameters, (error, result) => error === null ? resolve(result) : reject(error));
+});
+let declarations;
+let types;
+let ids;
+let definition;
+let origin;
+let source;
+
+before(async () => {
+  assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true);
+  session.connect();
+  await post("Debugger.enable");
+  await post("Profiler.enable");
+  await post("Profiler.startPreciseCoverage", { callCount: true, detailed: true });
+  declarations = await import("../../packages/host/dist/decls/index.js");
+  types = await import("../../packages/host/dist/ir-types/index.js");
+  ids = await import("../../packages/host/dist/ids/index.js");
+  const module = ids.encodeModuleId({ package: ids.encodePackageId("/inventory"), path: "main.ts" });
+  definition = ids.encodeDefId({ module, segments: [] });
+  origin = { kind: "declared", declaration: definition };
+  source = { kind: "item", value: { owner: definition, node: ids.nodeId(0) } };
+});
+
+after(async () => {
+  try {
+    const capture = await post("Profiler.takePreciseCoverage");
+    const url = new URL("../../packages/host/dist/decls/members.js", import.meta.url);
+    const result = capture.result.filter(script => script.url === url.href);
+    const sources = [];
+    for (const script of result) {
+      const actual = await post("Debugger.getScriptSource", { scriptId: script.scriptId });
+      sources.push({ scriptId: script.scriptId, url: script.url, text: actual.scriptSource });
+    }
+    await post("Profiler.stopPreciseCoverage");
+    const report = checkCoverage({ canonical: realpathSync, readText: path => readFileSync(path, "utf8"), parse: parseSources,
+      project: (scriptUrl, text) => ({ path: fileURLToPath(scriptUrl), text }) }, [fileURLToPath(url)], [{ ...capture, result, sources }]);
+    const directory = new URL("../../.temp/decls-members-coverage/", import.meta.url);
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(new URL("report.json", directory), `${JSON.stringify(report, null, 2)}\n`);
+    assert.equal(result.length, 1);
+    assert.equal(report.status, "passed", JSON.stringify(report.findings).slice(0, 6000));
+    for (const file of report.files) {
+      assert.equal(file.lines, 100);
+      assert.equal(file.branches, 100);
+      assert.equal(file.functions, 100);
+    }
+  } finally { session.disconnect(); }
+});
+
+function answer(deps, receiver) {
+  const result = declarations.membersOf(deps, receiver);
+  assert.equal(result.kind, "done");
+  assert.equal(result.value.kind, "ok");
+  assert.deepEqual(result.value.positions, [{ position: { kind: "result" }, error: null }]);
+  assert.deepEqual(result.value.diagnostics, []);
+  assert.deepEqual(result.value.emissions, []);
+  return result.value.value;
+}
+
+test("membersOf returns only inventory metadata without reading member types, checked modules or call signature answers", () => {
+  const interner = types.createTypeInterner();
+  const boolean = types.internType(interner, { kind: "primitive", primitive: "bool" });
+  const call = types.internSignature(interner, { declaration: null, owner: null, composition: null, kind: "call",
+    typeParameters: [], receiver: null, parameters: [], result: boolean });
+  const receiver = types.internType(interner, { kind: "shape", members: [{ key: { kind: "text", value: "flag" },
+    origins: [origin], readOrigins: [origin], writeOrigins: [], kind: "property", read: boolean, write: null,
+    optional: true, readonly: true }], indexes: [{ origin: source, key: boolean, read: boolean, write: null, readonly: true }],
+    calls: [call], constructs: [] });
+  const term = types.readType(interner, receiver);
+  const table = types.viewTypes(interner);
+  const unexpected = () => { throw new Error("a typed position was read"); };
+  Object.defineProperty(term.members[0], "read", { get: unexpected });
+  Object.defineProperty(term.members[0], "write", { get: unexpected });
+  Object.defineProperty(term.indexes[0], "read", { get: unexpected });
+  Object.defineProperty(term.indexes[0], "write", { get: unexpected });
+  Object.defineProperty(table.signatures, call, { get: unexpected });
+  const deps = { types: interner, get modules() { throw new Error("checked modules were read"); },
+    get typeExpansion() { throw new Error("type expansion was requested"); } };
+  const inventory = answer(deps, receiver);
+  assert.deepEqual(inventory, { receiver, members: [{ key: { kind: "text", value: "flag" }, origins: [origin],
+    readOrigins: [origin], writeOrigins: [], kind: "property", optional: true, readonly: true }],
+    indexes: [{ origin: source, key: boolean, readonly: true }], calls: [call], constructs: [], accessors: [], constructors: [],
+    completeness: { kind: "complete" } });
+  assert.equal("read" in inventory.members[0] || "write" in inventory.members[0], false);
+  assert.equal("read" in inventory.indexes[0] || "write" in inventory.indexes[0], false);
+});
+
+test("membersOf preserves callable identity and reports only genuine open parameter or dynamic reasons", () => {
+  const interner = types.createTypeInterner();
+  const deps = { types: interner, modules: [], typeExpansion: expansion };
+  const callable = types.internType(interner, { kind: "callable", calls: [], constructs: [] });
+  const inventory = answer(deps, callable);
+  assert.deepEqual(inventory.members, []);
+  assert.deepEqual(inventory.completeness, { kind: "complete" });
+  for (const [term, reason] of [[{ kind: "param", parameter: definition }, { kind: "parameter", parameter: definition }],
+    [{ kind: "intrinsic", intrinsic: "any" }, { kind: "dynamic" }],
+    [{ kind: "intrinsic", intrinsic: "unknown" }, { kind: "dynamic" }]]) {
+    const receiver = types.internType(interner, term);
+    assert.deepEqual(answer(deps, receiver).completeness, { kind: "open", reasons: [reason] });
+  }
+  const declared = types.internType(interner, { kind: "declared", definition, arguments: [], facet: "instance", extent: null });
+  assert.throws(() => declarations.membersOf(deps, declared), /actual retained checker inventory for declared/);
+});
+
+test("membersOf projects real checked accessor origins and construct endpoints without demanding their value types", async () => {
+  assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true);
+  const fixture = await loadFrontFixture();
+  const actual = fixture.checkedModuleOf("export type Fields={get flag():boolean;set flag(value:boolean);new():boolean;};");
+  const alias = actual.checked.tree.statements.nodes[0];
+  const receiver = alias.type.tsonic.type.value;
+  const nodes = fixture.hir.indexSyntaxTree(actual.checked.tree);
+  const deps = { modules: [{ module: actual.checked, nodes }], types: actual.interner, typeExpansion: expansion };
+  const inventory = answer(deps, receiver);
+  assert.equal(inventory.members.length, 1);
+  assert.equal(inventory.accessors.length, 2);
+  const getter = nodes.find(node => node.kind === "GetAccessor");
+  const setter = nodes.find(node => node.kind === "SetAccessor");
+  assert.equal(getter !== undefined && setter !== undefined, true);
+  assert.equal(inventory.accessors.some(row => row.getter === getter.tsonic.definition && row.setter === null), true);
+  assert.equal(inventory.accessors.some(row => row.setter === setter.tsonic.definition && row.getter === null), true);
+  assert.equal(inventory.constructs.length, 1);
+  assert.equal(inventory.constructors.length, 1);
+  const constructor = nodes.find(node => node.kind === "ConstructSignature");
+  assert.equal(constructor !== undefined, true);
+  assert.deepEqual(inventory.constructors[0], { signature: inventory.constructs[0], declaration: constructor.tsonic.definition, body: null });
+});
+
+test("membersOf consumes construct correspondence metadata but never a constructor parameter or result type", () => {
+  const interner = types.createTypeInterner();
+  const boolean = types.internType(interner, { kind: "primitive", primitive: "bool" });
+  const construct = types.internSignature(interner, { declaration: null, owner: null, composition: null, kind: "construct",
+    typeParameters: [], receiver: null, parameters: [], result: boolean });
+  const receiver = types.internType(interner, { kind: "callable", calls: [], constructs: [construct] });
+  const signature = types.readSignature(interner, construct);
+  const unexpected = () => { throw new Error("a constructor type position was read"); };
+  Object.defineProperty(signature, "parameters", { get: unexpected });
+  Object.defineProperty(signature, "result", { get: unexpected });
+  const inventory = answer({ types: interner, modules: [], typeExpansion: expansion }, receiver);
+  assert.deepEqual(inventory.constructors, [{ signature: construct, declaration: null, body: null }]);
+});
+
+test("membersOf rejects missing, foreign and crossed real correspondence associations instead of fabricating them", async () => {
+  const fixture = await loadFrontFixture();
+  const actual = fixture.checkedModuleOf("export type Fields={plain:boolean;get flag():boolean;set flag(value:boolean);new():boolean;};");
+  const alias = actual.checked.tree.statements.nodes[0];
+  const receiver = alias.type.tsonic.type.value;
+  const term = types.readType(actual.interner, receiver);
+  const nodes = fixture.hir.indexSyntaxTree(actual.checked.tree);
+  const deps = { modules: [{ module: actual.checked, nodes }], types: actual.interner, typeExpansion: expansion };
+  const accessor = term.members.find(member => member.kind === "accessor");
+  const property = term.members.find(member => member.kind === "property");
+  assert.equal(accessor !== undefined && property !== undefined, true);
+  const altered = origins => types.internType(actual.interner, { ...term,
+    members: term.members.map(member => member === accessor ? { ...member, origins } : member) });
+  assert.throws(() => declarations.membersOf(deps, altered(property.origins)), /actual getter or setter declaration/);
+  assert.throws(() => declarations.membersOf(deps, altered([{ kind: "mapped", owner: source, key: accessor.key }])),
+    /actual checked origin correspondence/);
+  assert.throws(() => declarations.membersOf(deps, altered([origin])), /module is not a checked module/);
+  const getter = nodes.find(node => node.kind === "GetAccessor");
+  assert.equal(getter !== undefined, true);
+  const withoutGetter = { ...deps, modules: [{ module: { ...actual.checked,
+    items: actual.checked.items.filter(item => item.definition !== getter.tsonic.definition) }, nodes }] };
+  assert.throws(() => declarations.membersOf(withoutGetter, receiver), /actual checked declaration/);
+  const wrongNode = { ...deps, modules: [{ module: actual.checked,
+    nodes: nodes.map(node => node === getter ? { ...node, id: ids.nodeId(nodes.length) } : node) }] };
+  assert.throws(() => declarations.membersOf(wrongNode, receiver), /actual checked declaration/);
+  const constructor = nodes.find(node => node.kind === "ConstructSignature");
+  assert.equal(constructor !== undefined, true);
+  const withConstructor = tsonic => ({ ...deps, modules: [{ module: actual.checked,
+    nodes: nodes.map(node => node === constructor ? { ...node, tsonic } : node) }] });
+  assert.throws(() => declarations.membersOf(withConstructor(null), receiver), /actual checked endpoint/);
+  assert.throws(() => declarations.membersOf(withConstructor(property.tsonic ?? {}), receiver), /actual checked endpoint/);
+  assert.throws(() => declarations.membersOf(withConstructor({ ...constructor.tsonic, signatures: [] }), receiver),
+    /one agreeing actual body association/);
+  const otherBody = actual.checked.bodies[0].body;
+  assert.throws(() => declarations.membersOf(withConstructor({ ...constructor.tsonic, signatures: [
+    ...constructor.tsonic.signatures, { ...constructor.tsonic.signatures[0], body: otherBody }] }), receiver),
+  /one agreeing actual body association/);
+  const boolean = types.internType(actual.interner, { kind: "primitive", primitive: "bool" });
+  const call = types.internSignature(actual.interner, { declaration: null, owner: null, composition: null, kind: "call",
+    typeParameters: [], receiver: null, parameters: [], result: boolean });
+  const wrongKind = types.internType(actual.interner, { kind: "callable", calls: [], constructs: [call] });
+  assert.throws(() => declarations.membersOf(deps, wrongKind), /actual construct signature/);
+});

@@ -106,24 +106,30 @@ export interface MemberStorageSelection {
   readonly bindings: BindingVector;
 }
 
-export interface Member {
+export interface MemberInventoryEntry {
   readonly key: MemberKey;
   readonly origins: readonly MemberOrigin[];
   readonly readOrigins: readonly MemberOrigin[];
   readonly writeOrigins: readonly MemberOrigin[];
   readonly kind: "property" | "method" | "accessor";
-  readonly read: TyId | null;
-  readonly write: TyId | null;
   readonly optional: boolean;
   readonly readonly: boolean;
 }
 
-export interface IndexSignature {
+export interface Member extends MemberInventoryEntry {
+  readonly read: TyId | null;
+  readonly write: TyId | null;
+}
+
+export interface IndexInventoryEntry {
   readonly origin: SourceNodeRef;
   readonly key: TyId;
+  readonly readonly: boolean;
+}
+
+export interface IndexSignature extends IndexInventoryEntry {
   readonly read: TyId;
   readonly write: TyId | null;
-  readonly readonly: boolean;
 }
 
 export type PassingMode = "by-value" | "byref-readonly" | "byref-readwrite"
@@ -310,10 +316,10 @@ export interface ConstructorCorrespondence {
   readonly body: BodyId | null;
 }
 
-export interface MemberTable {
+export interface MemberInventory {
   readonly receiver: TyId;
-  readonly members: readonly Member[];
-  readonly indexes: readonly IndexSignature[];
+  readonly members: readonly MemberInventoryEntry[];
+  readonly indexes: readonly IndexInventoryEntry[];
   readonly calls: readonly SigId[];
   readonly constructs: readonly SigId[];
   readonly accessors: readonly AccessorCorrespondence[];

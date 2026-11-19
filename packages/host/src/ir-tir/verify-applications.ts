@@ -3,7 +3,7 @@ import { encodeKey } from "../ids/index.js";
 import type { HirApplication, HirCallableEndpoint, HirCandidate, HirNode, HirProtocolFact } from "../ir-hir/contract.js";
 import { callableEndpointKey, selectedEndpointRoleFaults } from "../ir-hir/index.js";
 import type { ApplicationDecision, InferenceDeclaration, MemberDecision, ParameterMapping, RuleOutcome } from "../ir-infer/contract.js";
-import type { Member, MemberKey, MemberOrigin, MemberTable, Signature, SignatureParameter, TypeTable } from "../ir-types/contract.js";
+import type { MemberInventory, MemberInventoryEntry, MemberKey, MemberOrigin, Signature, SignatureParameter, TypeTable } from "../ir-types/contract.js";
 import type { MemberSelection, ResolvedCallee, TirApplication, TirArgument, TirNode, TirProtocol, TypedOperation } from "./contract.js";
 import type { TirOccurrenceEmit } from "./verify-occurrences.js";
 
@@ -220,14 +220,14 @@ const memberOriginKey = (origin: MemberOrigin): string => {
 };
 
 export interface TirMemberInventory {
-  readonly table: MemberTable;
-  readonly members: ReadonlyMap<string, { readonly member: Member; readonly origins: ReadonlySet<string> }>;
+  readonly table: MemberInventory;
+  readonly members: ReadonlyMap<string, { readonly member: MemberInventoryEntry; readonly origins: ReadonlySet<string> }>;
   readonly accessors: ReadonlyMap<string, { readonly getter: string | null; readonly setter: string | null }>;
   readonly repeated: boolean;
 }
 
-export const indexMembers = (table: MemberTable): TirMemberInventory => {
-  const members = new Map<string, { member: Member; origins: ReadonlySet<string> }>();
+export const indexMembers = (table: MemberInventory): TirMemberInventory => {
+  const members = new Map<string, { member: MemberInventoryEntry; origins: ReadonlySet<string> }>();
   const accessors = new Map<string, { getter: string | null; setter: string | null }>();
   let repeated = false;
   for (const member of table.members) {

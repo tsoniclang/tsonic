@@ -1,6 +1,6 @@
 import type { BodyId, DefId, KeyData, LocalId, LocalRef, ModuleId, NodeId, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { Diagnostic, TextParseResult, Violation } from "../diag/contract.js";
-import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, ExactRational, MemberKey, MemberTable, NominalDefinition, PassingMode, TypeComponent, TypeEvidence, TypeParameter, TypeTable } from "../ir-types/contract.js";
+import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, ExactRational, MemberInventory, MemberKey, NominalDefinition, PassingMode, TypeComponent, TypeEvidence, TypeParameter, TypeTable } from "../ir-types/contract.js";
 import type { BodyRoot, CapturedFact, DeclarationTarget, HirAttribute, HirCallableEndpoint, HirLexicalScope, HirModule, HirNode, ImportTarget, ParameterDeclaration, Phase, SourceFile, SyntaxNode } from "../ir-hir/contract.js";
 import type { ApplicationDecision, BodyCaptureRow, ClosureDecision, ConstructionPartDecision, DeferredDecision, EmbeddingDecision, FlowRole, InferenceDeclaration, MemberDecision, OperationDecision, OperationIdentity, RefinementDecision, RuleOutcome } from "../ir-infer/contract.js";
 
@@ -642,7 +642,7 @@ export interface TirVerifierInput {
   readonly types: TypeTable;
   readonly bindingScopesOf: (target: TirBindingTarget) => readonly BindingScope[] | null;
   readonly declarationOf: (definition: DefId) => InferenceDeclaration | null;
-  readonly memberTableOf: (instance: BodyInstance, occurrence: TirMemberOccurrence) => MemberTable | null;
+  readonly memberTableOf: (instance: BodyInstance, occurrence: TirMemberOccurrence) => MemberInventory | null;
   readonly bodyOf: (instance: BodyInstance) => TirBody | null;
   readonly nominalOf: (definition: DefId) => NominalDefinition | null;
   readonly nodeOf: (node: SourceNodeRef) => HirNode | null;
