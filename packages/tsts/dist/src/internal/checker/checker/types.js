@@ -1904,6 +1904,7 @@ export function getKnownIteratorMethodTypeParameterBindings(methodType, resolver
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getTypeOfExpression","kind":"method","status":"implemented","sigHash":"cb8c5ef58147a16d026eee278f23649ef67438dec7f2797964308f606784e71c","bodyHash":"0d4788e115716f7e3c46025eff9db5ee34e683e29fc78f755e162e8181aceb8c"}
+ * @tsgo-override {"category":"runtime-performance","allow":["body"],"reason":"Charge the existing flow cache access and retain only its complete acquired results through the shared paid cache writer."}
  *
  * Go source:
  * func (c *Checker) getTypeOfExpression(node *ast.Node) *Type {
@@ -1933,19 +1934,29 @@ export function Checker_getTypeOfExpression(receiver, node) {
     if (quickType !== undefined) {
         return quickType;
     }
+    admitNativeChecker(receiver, "work");
     const cachedType = receiver.flowTypeCache?.get(node);
     if (cachedType !== undefined) {
         return cachedType;
     }
     const startInvocationCount = receiver.flowInvocationCount;
     const t = Checker_checkExpressionEx(receiver, node, CheckModeTypeOnly);
-    if (receiver.flowInvocationCount !== startInvocationCount) {
-        if (receiver.flowTypeCache === undefined) {
-            receiver.flowTypeCache = new globalThis.Map();
-        }
-        receiver.flowTypeCache.set(node, t);
-    }
+    if (receiver.flowInvocationCount !== startInvocationCount)
+        retainFlowExpressionType(receiver, node, t);
     return t;
+}
+export function retainFlowExpressionType(receiver, node, type) {
+    if (type === undefined)
+        return;
+    const cache = receiver.flowTypeCache;
+    admitNativeChecker(receiver, "work");
+    const prior = cache?.get(node);
+    if (prior === type)
+        return;
+    if (prior === undefined)
+        admitNativeChecker(receiver, "retained", cache === undefined ? 2 : 1);
+    markNativeCheckerProvisional(receiver);
+    (receiver.flowTypeCache ??= new Map()).set(node, type);
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getQuickTypeOfExpression","kind":"method","status":"implemented","sigHash":"94f09512d914331770ff4da92f6ce1189c4f7a6cdaf3b3cb7f2e8dfa4a29bcce","bodyHash":"16b380c34b33edc18d13b38190cac47e0484de933dff4b5bc275f48a51ee7118"}

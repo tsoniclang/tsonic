@@ -8,6 +8,7 @@ import { IsExpressionNode, IsPartOfTypeNode } from "../../ast/utilities.js";
 import { IsConstructorDeclaration, IsPropertySignatureDeclaration } from "../../ast/generated/predicates.js";
 import { LinkStore_Get, LinkStore_TryGet } from "../../core/linkstore.js";
 import { isSourceModuleBinding, retainedAliasFailure } from "./symbols.js";
+import { admitNativeChecker } from "../resource-admission.js";
 function admittedCause(cause, admits) {
     return cause !== undefined && admits?.(cause) !== false ? cause : undefined;
 }
@@ -20,6 +21,7 @@ export function sourceTypeAnswer(checker, node, type, admits) {
     return readSourceTypeAnswer(checker, node, type, admits, false);
 }
 export function borrowedSourceTypeAnswer(checker, anchor, type, admits) {
+    admitNativeChecker(checker, "work");
     if (isSourceModuleBinding(anchor)) {
         const symbol = Node_Symbol(anchor);
         return withCause(type, symbol === undefined ? undefined : admittedCause(retainedAliasFailure(checker, anchor, symbol, true), admits));
@@ -98,8 +100,10 @@ export function signatureReturnAnswer(checker, signature, type, admits) {
     return typeSource !== undefined && answer.causes.length === 0 ? { ...answer, typeSource } : answer;
 }
 export function directTypeSource(checker, node, type) {
-    while (node?.Kind === KindParenthesizedType)
+    while (node?.Kind === KindParenthesizedType) {
+        admitNativeChecker(checker, "work");
         node = Node_Type(node);
+    }
     if (node === undefined)
         return undefined;
     const retained = LinkStore_TryGet(checker.typeNodeLinks, node);
@@ -115,6 +119,7 @@ function readSourceTypeAnswer(checker, node, type, admits, borrowed) {
     let current = node;
     let mayBorrow = true;
     while (current !== undefined) {
+        admitNativeChecker(checker, "work");
         const retained = LinkStore_TryGet(checker.typeNodeLinks, current);
         if (retained?.declarationFailure !== undefined) {
             const cause = admittedCause(retained.declarationFailure, admits);

@@ -1,8 +1,21 @@
 import { SourceFile_FileName } from "../internal/ast/ast.js";
-import { Program_GetSourceFile, Program_GetTypeCheckerById, Program_HasUsableCheckerSession, Program_OfChecker, Program_TerminateCheckerSession } from "../internal/compiler/program.js";
-import { CheckerLifetimeAPI, WithCheckerLifetime } from "../internal/core/context.js";
+import { Program_GetSourceFile, Program_GetTypeCheckerById, Program_GetTypeCheckerForFile, Program_HasUsableCheckerSession, Program_OfChecker, Program_TerminateCheckerSession } from "../internal/compiler/program.js";
+import { CheckerLifetimeAPI, CheckerLifetimeDiagnostics, WithCheckerLifetime } from "../internal/core/context.js";
 import { getExtensionHost } from "../extensions/host.js";
 import { runNativeCheckerAcquisition } from "../internal/checker/resource-admission.js";
+export function withSourceFileChecker(program, requester, sourceFile, context, read) {
+    if (program === undefined || requester === undefined || sourceFile === undefined || !Program_HasUsableCheckerSession(program) ||
+        Program_GetSourceFile(program, SourceFile_FileName(requester)) !== requester ||
+        Program_GetSourceFile(program, SourceFile_FileName(sourceFile)) !== sourceFile)
+        return undefined;
+    const [checker, release] = Program_GetTypeCheckerForFile(program, WithCheckerLifetime(context, CheckerLifetimeDiagnostics), sourceFile);
+    try {
+        return checker === undefined ? undefined : read(checker);
+    }
+    finally {
+        release();
+    }
+}
 export function withCheckerById(program, sourceFile, checkerId, context, read) {
     if (program === undefined || sourceFile === undefined || !Program_HasUsableCheckerSession(program) ||
         Program_GetSourceFile(program, SourceFile_FileName(sourceFile)) !== sourceFile)
@@ -36,11 +49,12 @@ export function withOwnedChecker(program, sourceFile, owner, context, read) {
     }
 }
 export function withOwnedCheckerAcquisition(program, sourceFile, owner, context, admit, read) {
-    return withOwnedChecker(program, sourceFile, owner, context, checker => {
-        const producer = Program_OfChecker(checker);
-        if (producer === undefined)
-            throw new Error("An acquired checker must retain its originating program.");
-        return runNativeCheckerAcquisition(checker, context, admit, () => Program_TerminateCheckerSession(producer, checker), () => read(checker));
-    }) ?? { kind: "unavailable" };
+    return withOwnedChecker(program, sourceFile, owner, context, checker => acquireLeasedChecker(checker, context, admit, () => read(checker))) ?? { kind: "unavailable" };
+}
+export function acquireLeasedChecker(checker, context, admit, read) {
+    const producer = Program_OfChecker(checker);
+    if (producer === undefined)
+        throw new Error("An acquired checker must retain its originating program.");
+    return runNativeCheckerAcquisition(checker, context, admit, () => Program_TerminateCheckerSession(producer, checker), read);
 }
 //# sourceMappingURL=checker-ownership.js.map

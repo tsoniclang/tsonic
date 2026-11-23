@@ -6,6 +6,9 @@ import type { Symbol } from "../internal/ast/symbol.js";
 import type { Diagnostic } from "../internal/ast/diagnostic.js";
 import type { ResolvedSourceModuleLink } from "./source-module-link.js";
 export type { ResolvedSourceModuleLink } from "./source-module-link.js";
+import type { SourceTypeRequest } from "./source-type-answer.js";
+export type { SourceTypeRequest } from "./source-type-answer.js";
+import type { NativeCheckerAdmission, NativeCheckerResult } from "../internal/checker/resource-admission.js";
 import type { CheckerDiagnosticMembership, ResolvedSourceTypeInfo } from "../internal/checker/checker/source-type-answers.js";
 export type { ResolvedSourceTypeInfo } from "../internal/checker/checker/source-type-answers.js";
 import type { TypeIndexInfo } from "./type-shape.js";
@@ -136,6 +139,7 @@ export interface TypeCheckerQueries {
     readonly getGlobalValueSymbol: (name: string) => GoPtr<Symbol>;
     readonly isDefaultLibraryDeclaration: (node: GoPtr<Node>) => boolean;
     readonly getAwaitedType: (type: GoPtr<Type>) => GoPtr<Type>;
+    readonly acquireSourceType: <Stop extends object>(request: SourceTypeRequest, admit: NativeCheckerAdmission<Stop>) => NativeCheckerResult<ResolvedSourceTypeInfo, Stop>;
     readonly getTypeAtLocation: (node: GoPtr<Node>) => GoPtr<ResolvedSourceTypeInfo>;
     readonly getTypeFromTypeNode: (node: GoPtr<Node>) => GoPtr<ResolvedSourceTypeInfo>;
     readonly getContextualType: (node: GoPtr<Node>, contextFlags?: ContextFlags) => GoPtr<ResolvedSourceTypeInfo>;

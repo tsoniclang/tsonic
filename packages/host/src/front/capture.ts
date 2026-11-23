@@ -1,5 +1,5 @@
 import type { ArgumentPassingFact, Diagnostic as CheckerDiagnostic, FieldFact, Node, ResolvedAliasTarget, ResolvedCallSelectionEvidence, ResolvedSourceTypeInfo, Signature, SourceFile, Symbol as CheckerSymbol, Type, TypeCheckerQueries, TypeIndexInfo, TypeReferenceArgumentInfo, TypeShapeQueries } from "@tsonic/tsts";
-import type { NativeCheckerAdmission, ResolvedCallInferenceContribution, ResolvedCheckedComponentEvidence, ResolvedCheckerBackingConstraint, SourceMarkerFact, TypePropertyInfo, TypePropertyInventory } from "@tsonic/tsts";
+import type { NativeCheckerAdmission, ResolvedCallInferenceContribution, ResolvedCheckedComponentEvidence, ResolvedCheckerBackingConstraint, SourceMarkerFact, SourceTypeRequest, TypePropertyInfo, TypePropertyInventory } from "@tsonic/tsts";
 import { argumentPassingFactKey, defaultValueFactKey, fieldFactKey, providerVirtualDeclarationFactKey,
   sourceMarkerFactKey, structFactKey, TypeFlagsConditional, TypeFlagsEnumLike, TypeFlagsIndexedAccess, TypeFlagsUniqueESSymbol } from "@tsonic/tsts";
 import type { Cause, CheckerDiagnosticRef, Diagnostic, InvariantFailure, Result } from "../diag/contract.js";
@@ -315,8 +315,8 @@ interface CaptureScope extends CaptureAdmission {
   readonly file: SourceFile;
   readonly numericLiterals: Map<Node, RawNumericLiteral>;
   readonly checked: OpenedProgramView;
-  readonly checker: TypeCheckerQueries;
-  readonly shape: TypeShapeQueries;
+  readonly checker: Omit<TypeCheckerQueries, "getTypeAtLocation" | "getTypeFromTypeNode" | "getContextualType" | "getReturnTypeOfSignature">;
+  readonly shape: Omit<TypeShapeQueries, "getTypeFromTypeNode" | "getReturnTypeOfSignature">;
   readonly ownNodes: ReadonlyMap<Node, NodeId>;
   readonly emptyCoreInventory: boolean;
   readonly emptyObservationInventory: boolean;
@@ -439,6 +439,14 @@ function admit(scope: CaptureAdmission, dimension: "facts" | "edges", units = 1)
 function nativeCaptureAdmission(scope: CaptureAdmission): NativeCheckerAdmission<Diagnostic> {
   return (cost, units) => admit(scope, cost === "work" ? "edges" : "facts", units) ? null :
     scope.meter.refusal ?? throwInvariant(invariant("Native acquisition retains its actual first capture refusal."));
+}
+
+function sourceType(scope: CaptureScope, request: SourceTypeRequest): ResolvedSourceTypeInfo | undefined {
+  if (scope.meter.refusal !== null) return undefined;
+  const result = scope.checker.acquireSourceType(request, nativeCaptureAdmission(scope));
+  if (result.kind === "refused" && result.stop !== scope.meter.refusal)
+    return throwInvariant(invariant("A source-type acquisition must retain its actual first capture refusal."));
+  return result.kind === "complete" ? result.value : undefined;
 }
 
 function moduleOfFile(program: CheckedProgram, file: SourceFile, ast: OpenedProgramView["ast"]): ModuleId | undefined {
@@ -576,7 +584,8 @@ function mappedOwner(scope: CaptureScope, type: Type, node: Node | undefined): M
   const symbol = scope.checker.getTypeSymbol(type);
   const declarations = scope.checker.getSymbolDeclarations(symbol);
   if (declarations.length !== 1 || declarations[0] !== node) return missingMappedOrigin();
-  const authored = scope.checker.getTypeFromTypeNode(node);
+  const authored = sourceType(scope, { kind: "annotation", node });
+  if (scope.meter.refusal !== null) return null;
   if (authored === undefined || authored.causes.length !== 0 ||
     (type !== authored.type && scope.shape.getTypeReferenceTarget(type) !== authored.type)) return missingMappedOrigin();
   if (!admit(scope, "edges")) return null;
@@ -966,14 +975,14 @@ function writtenBracketedElement(scope: CaptureScope, source: Node): Node | unde
 function authoredTupleReceiver(scope: CaptureScope, type: Type, source: Node): ReceiverUse | null {
   const element = writtenBracketedElement(scope, source);
   if (element === undefined || tupleSyntax(scope, element) === undefined || !admit(scope, "edges")) return null;
-  const checked = scope.checker.getTypeFromTypeNode(source);
+  const checked = sourceType(scope, { kind: "annotation", node: source });
   if (checked?.type !== type || checked.causes.length !== 0 || !admit(scope, "edges")) return null;
   const target = scope.shape.getTypeReferenceTarget(type);
   const symbol = target === undefined ? undefined : scope.checker.getTypeSymbol(target);
   if (target === undefined || symbol === undefined) return null;
   const slot = localTypeArgument(scope, type);
   if (slot === undefined || !scope.shape.isTuple(slot.argument) || !admit(scope, "edges")) return null;
-  const selected = scope.checker.getTypeFromTypeNode(element);
+  const selected = sourceType(scope, { kind: "annotation", node: element });
   if (selected?.type !== slot.argument || selected.causes.length !== 0 || !admit(scope, "facts")) return null;
   return { kind: "receiver", type, target: symbol, nativeTarget: target, application: source,
     slots: new Map([[slot.parameter, { parameter: slot.parameter, argument: slot.argument, source: element, declaration: null }]]) };
@@ -1041,7 +1050,7 @@ function localTypeArgument(scope: CaptureScope, type: Type): TypeReferenceArgume
 function composedUnionUse(scope: CaptureScope, syntax: ComposedRestSyntax, original: Type, selected: Type,
   receiver: ReceiverUse | null): ComposedUnionUse | null {
   if (!admit(scope, "edges")) return null;
-  const authored = scope.checker.getTypeFromTypeNode(syntax.union);
+  const authored = sourceType(scope, { kind: "annotation", node: syntax.union });
   if (authored?.type !== original || authored.causes.length !== 0 || !admit(scope, "edges")) return null;
   const ast = scope.checked.ast;
   const parameters = ast.typeParameters(syntax.owner);
@@ -1049,13 +1058,13 @@ function composedUnionUse(scope: CaptureScope, syntax: ComposedRestSyntax, origi
   const binder = declaration === undefined ? undefined : scope.checker.getSymbolAtLocation(ast.name(declaration));
   if (declaration === undefined || binder === undefined || scope.checker.getSymbolAtLocation(syntax.bareName) !== binder ||
     scope.checker.getSymbolAtLocation(syntax.named.binderName) !== binder || !admit(scope, "edges")) return null;
-  const bare = scope.checker.getTypeFromTypeNode(syntax.bare);
+  const bare = sourceType(scope, { kind: "annotation", node: syntax.bare });
   const slot = receiver === null ? undefined : onlyReceiverSlot(receiver);
   if (bare === undefined || bare.causes.length !== 0 || scope.checker.getTypeSymbol(bare.type) !== binder ||
     receiver !== null && bare.type !== slot?.parameter || !admit(scope, "edges")) return null;
-  const argument = scope.checker.getTypeFromTypeNode(syntax.named.argument);
+  const argument = sourceType(scope, { kind: "annotation", node: syntax.named.argument });
   if (argument?.type !== bare.type || argument.causes.length !== 0 || !admit(scope, "edges")) return null;
-  const reference = scope.checker.getTypeFromTypeNode(syntax.reference);
+  const reference = sourceType(scope, { kind: "annotation", node: syntax.reference });
   if (reference === undefined || reference.causes.length !== 0 || !scope.shape.isTypeReference(reference.type) || !admit(scope, "edges")) return null;
   const target = scope.shape.getTypeReferenceTarget(reference.type);
   const symbol = target === undefined ? undefined : scope.checker.getTypeSymbol(target);
@@ -1082,7 +1091,7 @@ function declaredRestArgument(scope: CaptureScope, syntax: DeclaredRestSyntax, o
   const bound = receiver === null ? undefined : onlyReceiverSlot(receiver);
   if (bound?.declaration !== null || original.alias !== undefined || selected.alias !== undefined ||
     !scope.shape.isTuple(bound.argument) || !admit(scope, "edges")) return null;
-  const written = scope.checker.getTypeFromTypeNode(syntax.reference);
+  const written = sourceType(scope, { kind: "annotation", node: syntax.reference });
   if (written?.type !== original || written.causes.length !== 0 || !admit(scope, "edges")) return null;
   const target = scope.shape.getTypeReferenceTarget(original);
   if (target === undefined || !admit(scope, "edges") || scope.shape.getTypeReferenceTarget(selected) !== target) return null;
@@ -1106,7 +1115,7 @@ function restBindingUse(scope: CaptureScope, syntax: ComposedRestSyntax | Declar
   if (syntax.kind === "declared" && (original.alias !== undefined || selected.alias !== undefined)) return null;
   const input = localTypeArgument(scope, original);
   if (input === undefined || !scope.shape.isTypeReference(selected) || !admit(scope, "edges")) return null;
-  const authored = scope.checker.getTypeFromTypeNode(syntax.array);
+  const authored = sourceType(scope, { kind: "annotation", node: syntax.array });
   if (authored?.type !== original || authored.causes.length !== 0) return null;
   const target = scope.shape.getTypeReferenceTarget(original);
   if (target === undefined || syntax.kind === "declared" && !admit(scope, "edges") || scope.shape.getTypeReferenceTarget(selected) !== target) return null;
@@ -1171,7 +1180,7 @@ function receiverBindingUse(scope: CaptureScope, type: Type, use: OriginalTypeUs
   const input = infos?.[0];
   if (infos === undefined || infos.length !== syntax.args.length) return null;
   if ("Kind" in use) {
-    const answer = scope.checker.getTypeFromTypeNode(source);
+    const answer = sourceType(scope, { kind: "annotation", node: source });
     if (answer?.type !== type || answer.causes.length !== 0) return null;
   }
   if (syntax.name !== undefined) {
@@ -1185,7 +1194,7 @@ function receiverBindingUse(scope: CaptureScope, type: Type, use: OriginalTypeUs
     const selected = infos[index];
     const written = syntax.args[index];
     if (selected?.scope !== "local" || written === undefined || parameterReferenceName(scope, written) === undefined) return null;
-    const answer = scope.checker.getTypeFromTypeNode(written);
+    const answer = sourceType(scope, { kind: "annotation", node: written });
     if (answer?.type !== selected.argument || answer.causes.length !== 0) return null;
     const symbol = scope.checker.getTypeSymbol(selected.argument);
     const declarations = scope.checker.getSymbolDeclarations(symbol);
@@ -1201,7 +1210,7 @@ function directReceiverSource(scope: CaptureScope, receiver: ReceiverUse, typeNo
   const syntax = receiverSyntax(scope, typeNode);
   if (syntax === undefined || !admit(scope, "edges") ||
     (syntax.name !== undefined && scope.checker.getSymbolAtLocation(syntax.name) !== receiver.target)) return undefined;
-  const original = scope.checker.getTypeFromTypeNode(typeNode);
+  const original = sourceType(scope, { kind: "annotation", node: typeNode });
   if (original === undefined || original.causes.length !== 0 || scope.shape.getTypeReferenceTarget(original.type) !== receiver.nativeTarget) return undefined;
   const inputs = scope.shape.getTypeReferenceArgumentInfos(original.type);
   if (inputs === undefined || inputs.length !== receiver.slots.size || syntax.args.length !== inputs.length) return undefined;
@@ -1214,7 +1223,7 @@ function directReceiverSource(scope: CaptureScope, receiver: ReceiverUse, typeNo
     const name = parameterReferenceName(scope, node);
     const symbol = scope.checker.getTypeSymbol(input.parameter);
     if (name === undefined || symbol === undefined || scope.checker.getSymbolAtLocation(name) !== symbol) return undefined;
-    const argument = scope.checker.getTypeFromTypeNode(node);
+    const argument = sourceType(scope, { kind: "annotation", node });
     if (argument?.type !== input.parameter || argument.causes.length !== 0) return undefined;
   }
   return original.type;
@@ -1257,16 +1266,16 @@ function projectedReceiver(scope: CaptureScope, use: ReceiverProjectionUse, type
     ? projectedDeclaredArgument(scope, use, type, use.source.signature) : null;
   if (scope.checked.ast.kindName(use.syntax) === "KindThisType") {
     if (use.source.kind !== "result" || !admit(scope, "edges")) return null;
-    const original = scope.checker.getReturnTypeOfSignature(use.source.signature)?.type;
+    const original = sourceType(scope, { kind: "signature-return", signature: use.source.signature })?.type;
     if (original === undefined || original === type || !admit(scope, "edges")) return null;
-    const authored = scope.checker.getTypeFromTypeNode(use.syntax);
+    const authored = sourceType(scope, { kind: "annotation", node: use.syntax });
     return authored?.type === original && authored.causes.length === 0 && authoredSelfOwner(scope, original, use.syntax) !== undefined
       && scope.checker.getTypeSymbol(original) === use.receiver.target ? use.receiver : null;
   }
   const original = directReceiverSource(scope, use.receiver, use.syntax);
   if (original === undefined) return null;
   const source = use.source.kind === "formal" ? use.source.type
-    : admit(scope, "edges") ? scope.checker.getReturnTypeOfSignature(use.source.signature)?.type : undefined;
+    : admit(scope, "edges") ? sourceType(scope, { kind: "signature-return", signature: use.source.signature })?.type : undefined;
   return source === original ? use.receiver : null;
 }
 
@@ -1274,9 +1283,9 @@ function projectedTupleReceiver(scope: CaptureScope, receiver: ReceiverUse, synt
   type: Type): ReceiverUse | null {
   const slot = onlyReceiverSlot(receiver);
   if (slot?.declaration !== null || !admit(scope, "edges")) return null;
-  const original = scope.checker.getReturnTypeOfSignature(signature);
+  const original = sourceType(scope, { kind: "signature-return", signature });
   if (original === undefined || original.causes.length !== 0 || !admit(scope, "edges")) return null;
-  const written = scope.checker.getTypeFromTypeNode(syntax);
+  const written = sourceType(scope, { kind: "annotation", node: syntax });
   if (written?.type !== original.type || written.causes.length !== 0 || !admit(scope, "edges")) return null;
   const input = localTypeArgument(scope, original.type);
   if (input?.argument !== slot.parameter || !admit(scope, "edges")) return null;
@@ -1287,7 +1296,8 @@ function projectedTupleReceiver(scope: CaptureScope, receiver: ReceiverUse, synt
   const name = parameterReferenceName(scope, element);
   const binder = name === undefined ? undefined : scope.checker.getTypeSymbol(slot.parameter);
   if (binder === undefined || scope.checker.getSymbolAtLocation(name) !== binder) return null;
-  const selected = scope.checker.getTypeFromTypeNode(element);
+  const selected = sourceType(scope, { kind: "annotation", node: element });
+  if (scope.meter.refusal !== null) return null;
   const symbol = scope.checker.getTypeSymbol(target);
   if (selected?.type !== slot.parameter || selected.causes.length !== 0 || symbol === undefined || !admit(scope, "facts")) return null;
   return { kind: "receiver", type, target: symbol, nativeTarget: target, application: syntax,
@@ -1313,16 +1323,16 @@ function projectedDeclaredArgument(scope: CaptureScope, use: ReceiverProjectionU
   const applied = selected?.[0];
   if (selected?.length !== 1 || applied?.scope !== "local" ||
     (binderName === undefined ? !scope.shape.isTuple(applied.argument) : applied.argument !== slot.argument) || !admit(scope, "edges")) return null;
-  const answer = scope.checker.getReturnTypeOfSignature(signature);
+  const answer = sourceType(scope, { kind: "signature-return", signature });
   if (answer === undefined || answer.causes.length !== 0 || scope.shape.getTypeReferenceTarget(answer.type) !== target || !admit(scope, "edges")) return null;
   const original = answer.type;
-  const annotation = scope.checker.getTypeFromTypeNode(use.syntax);
+  const annotation = sourceType(scope, { kind: "annotation", node: use.syntax });
   if (annotation?.type !== original || annotation.causes.length !== 0) return null;
   const inputs = scope.shape.getTypeReferenceArgumentInfos(original);
   const input = inputs?.[0];
   if (inputs?.length !== 1 || input?.scope !== "local" || input.parameter !== applied.parameter ||
     (binderName === undefined ? !scope.shape.isTuple(input.argument) : input.argument !== slot.parameter) || !admit(scope, "edges")) return null;
-  const authored = scope.checker.getTypeFromTypeNode(syntax.argument);
+  const authored = sourceType(scope, { kind: "annotation", node: syntax.argument });
   if (authored?.type !== input.argument || authored.causes.length !== 0) return null;
   const selectedUse: Node | TupleProjectionUse = binderName === undefined
     ? { kind: "tuple-projection", syntax: syntax.argument, original: input.argument, receiver } : slot.source;
@@ -1340,18 +1350,18 @@ function authoredTupleArgument(scope: CaptureScope, type: Type, originalUse: Ori
   if (symbol === undefined || scope.checker.getSymbolAtLocation(syntax.name) !== symbol) return null;
   if ("Kind" in originalUse) {
     if (!admit(scope, "edges")) return null;
-    const annotation = scope.checker.getTypeFromTypeNode(source);
+    const annotation = sourceType(scope, { kind: "annotation", node: source });
     if (annotation?.type !== type || annotation.causes.length !== 0) return null;
   }
   if (!admit(scope, "edges")) return null;
-  const authored = scope.checker.getTypeFromTypeNode(syntax.argument);
+  const authored = sourceType(scope, { kind: "annotation", node: syntax.argument });
   return authored?.type === argument && authored.causes.length === 0 ? { authored: syntax.argument, selected: syntax.argument } : null;
 }
 
 function tupleAnnotationOf(scope: CaptureScope, type: Type, annotation: Node | undefined): Node | undefined {
   const ast = scope.checked.ast;
   if (annotation === undefined || !admit(scope, "edges")) return undefined;
-  const checked = scope.checker.getTypeFromTypeNode(annotation);
+  const checked = sourceType(scope, { kind: "annotation", node: annotation });
   if (checked?.type !== type || checked.causes.length !== 0) return undefined;
   if (tupleSyntax(scope, annotation) !== undefined) return annotation;
   const name = parameterReferenceName(scope, annotation);
@@ -1374,7 +1384,7 @@ function tupleAnnotationOf(scope: CaptureScope, type: Type, annotation: Node | u
   if (declaration === undefined || ast.typeParameters(declaration).length !== 0) return undefined;
   const result = ast.typeNode(declaration);
   if (result === undefined || tupleSyntax(scope, result) === undefined || !admit(scope, "edges")) return undefined;
-  const definition = scope.checker.getTypeFromTypeNode(result);
+  const definition = sourceType(scope, { kind: "annotation", node: result });
   return definition?.type === type && definition.causes.length === 0 ? result : undefined;
 }
 
@@ -1445,7 +1455,8 @@ function captureTuple(scope: CaptureScope, type: Type, position: RawComponentId,
         (scope.checked.ast.kindName(annotation) === "KindOptionalType") !== (slot.elementKind === "optional")))
       throw new TypeError("front: a tuple slot requires its actual required or optional unlabelled association");
     if (annotation !== undefined) {
-      const authored = scope.checker.getTypeFromTypeNode(annotation);
+      const authored = sourceType(scope, { kind: "annotation", node: annotation });
+      if (scope.meter.refusal !== null) return null;
       if (authored?.type !== before.type || authored.causes.length !== 0)
         throw new TypeError("front: a tuple slot requires its actual authored checker type");
     }
@@ -1522,7 +1533,7 @@ function authoredOptionalFormalArms(scope: CaptureScope, type: Type, syntax: Nod
     if (!admit(scope, "edges")) return null;
     const arm = written[index];
     if (arm === undefined) return null;
-    const answer = scope.checker.getTypeFromTypeNode(arm);
+    const answer = sourceType(scope, { kind: "annotation", node: arm });
     if (answer === undefined || answer.causes.length !== 0 || !unassigned.delete(answer.type)) return null;
     sources.set(answer.type, arm);
   }
@@ -1551,7 +1562,7 @@ function authoredOptionalAnnotation(scope: CaptureScope, task: Extract<CaptureTa
   const signature = scope.checker.getSignatureFromDeclaration(owner);
   if (signature === undefined || signature.target !== undefined || signature.mapper !== undefined || signature.composite !== undefined ||
     scope.checker.getSignatureDeclaration(signature) !== owner || !admit(scope, "edges")) return null;
-  const answer = scope.checker.getTypeFromTypeNode(syntax);
+  const answer = sourceType(scope, { kind: "annotation", node: syntax });
   return answer?.type === type && answer.causes.length === 0 ? authoredOptionalFormalArms(scope, type, syntax) : null;
 }
 
@@ -1575,11 +1586,11 @@ function unionArmUse(scope: CaptureScope, type: Type, use: OriginalTypeUse | nul
   if (node === undefined) return null;
   const syntax = projection?.syntax ?? undefinedUnionSyntax(scope, node);
   if (syntax === undefined || !admit(scope, "edges")) return null;
-  const original = projection === null ? type : scope.checker.getReturnTypeOfSignature(projection.original)?.type;
+  const original = projection === null ? type : sourceType(scope, { kind: "signature-return", signature: projection.original })?.type;
   if (original === undefined) return null;
   if (use === null || "Kind" in use) {
     if (!admit(scope, "edges")) return null;
-    const answer = scope.checker.getTypeFromTypeNode(syntax.node);
+    const answer = sourceType(scope, { kind: "annotation", node: syntax.node });
     if (answer?.type !== original || answer.causes.length !== 0) return null;
   }
   const arms = undefinedUnionArms(scope, original);
@@ -1595,9 +1606,9 @@ function unionArmUse(scope: CaptureScope, type: Type, use: OriginalTypeUse | nul
       if (declaration === undefined || scope.checked.ast.kindName(declaration) !== "KindTypeParameter") return null;
     }
   }
-  const parameter = scope.checker.getTypeFromTypeNode(syntax.parameter);
+  const parameter = sourceType(scope, { kind: "annotation", node: syntax.parameter });
   if (parameter?.type !== arms.value || parameter.causes.length !== 0 || !admit(scope, "edges")) return null;
-  const absent = scope.checker.getTypeFromTypeNode(syntax.absent);
+  const absent = sourceType(scope, { kind: "annotation", node: syntax.absent });
   if (absent?.type !== arms.absent || absent.causes.length !== 0) return null;
   if (projection === null) return { kind: "union-arm", type: arms.value, source: syntax.parameter };
   const receiver = projection.receiver;
@@ -1618,7 +1629,7 @@ function callbackPayload(scope: CaptureScope, type: Type, optional: boolean): { 
 
 function callbackBindingUse(scope: CaptureScope, use: CallbackInputUse, type: Type): CallbackBindingUse | null {
   if (type !== use.selected || !admit(scope, "edges")) return null;
-  const source = scope.checker.getTypeFromTypeNode(use.syntax);
+  const source = sourceType(scope, { kind: "annotation", node: use.syntax });
   if (source === undefined || source.causes.length !== 0) return null;
   const old = callbackPayload(scope, use.original, use.optional);
   if (old === undefined || old.value !== source.type || !admit(scope, "edges")) return null;
@@ -1641,7 +1652,7 @@ function callbackBindingUse(scope: CaptureScope, use: CallbackInputUse, type: Ty
 
 function directBinderSource(scope: CaptureScope, bound: ReceiverSlotUse, syntax: Node, parameter: CheckerSymbol | undefined): Node | undefined {
   if (parameter === undefined || scope.checker.getTypeSymbol(bound.parameter) !== parameter || !admit(scope, "edges")) return undefined;
-  const authored = scope.checker.getTypeFromTypeNode(syntax);
+  const authored = sourceType(scope, { kind: "annotation", node: syntax });
   return authored?.type === bound.parameter && authored.causes.length === 0 ? bound.source : undefined;
 }
 
@@ -1649,7 +1660,7 @@ function directResultUse(scope: CaptureScope, use: DirectResultUse, type: Type):
   if (!admit(scope, "edges")) return null;
   const parameter = scope.checker.getSymbolAtLocation(use.name);
   if (parameter === undefined || !admit(scope, "edges")) return null;
-  const original = scope.checker.getReturnTypeOfSignature(use.original);
+  const original = sourceType(scope, { kind: "signature-return", signature: use.original });
   const bound = original === undefined || original.causes.length !== 0 ? undefined : use.receiver.slots.get(original.type);
   if (bound === undefined || type !== bound.argument) return null;
   const source = directBinderSource(scope, bound, use.syntax, parameter);
@@ -1700,7 +1711,7 @@ function directIndexValueSource(scope: CaptureScope, receiver: ReceiverUse, boun
   const parameters = ast.parameters(declaration);
   const key = parameters.length === 1 ? ast.typeNode(parameters[0]) : undefined;
   if (key === undefined) return undefined;
-  const authored = scope.checker.getTypeFromTypeNode(key);
+  const authored = sourceType(scope, { kind: "annotation", node: key });
   if (authored === undefined || authored.type !== keyType || authored.causes.length !== 0 || !admit(scope, "edges")) return undefined;
   return directBinderSource(scope, bound, valueNode, scope.checker.getSymbolAtLocation(name));
 }
@@ -1749,7 +1760,8 @@ function authoredOperatorOperand(scope: CaptureScope, child: Node | undefined, s
   if (scope.meter.refusal !== null) return null;
   if (source === null) return throwInvariant(invariant("A dependent operator requires its actual admitted operand syntax."));
   return rawType(scope, () => {
-    const authored = scope.checker.getTypeFromTypeNode(child);
+    const authored = sourceType(scope, { kind: "annotation", node: child });
+    if (scope.meter.refusal !== null) return undefined;
     if (authored === undefined || selected !== undefined && authored.type !== selected)
       return throwInvariant(invariant("A direct dependent operand must agree with its actual checked answer."));
     return authored;
@@ -1850,7 +1862,8 @@ function projectedConditional(scope: CaptureScope, type: Type, parent: RawCompon
       throw new TypeError("front: a conditional property component requires its actual authored operator");
     if (answer.application === null) {
       if (!admit(scope, "edges")) return null;
-      const original = scope.shape.getTypeFromTypeNode(declaration);
+      const original = sourceType(scope, { kind: "annotation", node: declaration });
+      if (scope.meter.refusal !== null) return null;
       if (original?.type !== type || original.causes.length !== 0)
         throw new TypeError("front: a selected conditional property component requires its exact retained application");
     }
@@ -2205,7 +2218,8 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
     const owner = authoredSelfOwner(scope, type, syntax);
     if (scope.meter.refusal !== null) return null;
     if (owner === undefined) throw new TypeError("front: a self type requires its actual authored interface method owner");
-    const authored = scope.checker.getTypeFromTypeNode(syntax);
+    const authored = sourceType(scope, { kind: "annotation", node: syntax });
+    if (scope.meter.refusal !== null) return null;
     if (authored?.type !== type || authored.causes.length !== 0)
       throw new TypeError("front: a self type requires its actual authored checker answer");
     const source = referenceTo(scope, scope.program, owner);
@@ -2244,7 +2258,7 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
     const read = (node: Node | undefined): RawTypeId | null => {
       if (node === undefined) return null;
       const source = referenceTo(scope, scope.program, node);
-      return source === null ? null : rawType(scope, () => scope.checker.getTypeFromTypeNode(node), component(scope, source, null), source);
+      return source === null ? null : rawType(scope, () => sourceType(scope, { kind: "annotation", node }), component(scope, source, null), source);
     };
     const constraint = read(selected.Constraint);
     if (scope.meter.refusal !== null) return null;
@@ -2320,7 +2334,7 @@ function typeForm(scope: CaptureScope, type: Type, position: RawComponentId, ori
           ? authoredArgumentSources(scope, syntax, symbol, infos, () => {
             if (!("Kind" in originalUse)) return true;
             if (!admit(scope, "edges")) return false;
-            const actual = scope.checker.getTypeFromTypeNode(syntax);
+            const actual = sourceType(scope, { kind: "annotation", node: syntax });
             return actual?.type === type && actual.causes.length === 0;
           }) : null;
       if (scope.meter.refusal !== null) return null;
@@ -2691,7 +2705,8 @@ function withoutTypeCause(type: Type | undefined, typeSource?: Node): ResolvedSo
 function rawType(scope: CaptureScope, read: () => ResolvedSourceTypeInfo | undefined, position: RawComponentId | null,
   originalUse: OriginalTypeUse | null, bindingUse: TypeBindingUse | null = null, literalNode: Node | null = null): RawTypeId | null {
   if (position === null || !admit(scope, "facts")) return null;
-  return enqueueRawType(scope, read(), position, originalUse, bindingUse, literalNode);
+  const answer = read();
+  return scope.meter.refusal === null ? enqueueRawType(scope, answer, position, originalUse, bindingUse, literalNode) : null;
 }
 
 function enqueueRawType(scope: CaptureScope, answer: ResolvedSourceTypeInfo | undefined, position: RawComponentId,
@@ -2870,7 +2885,7 @@ function exactNumericUnion(scope: CaptureScope, task: TypeCapture): RawTypeForm 
     const reference = referenceTo(scope, scope.program, operand);
     if (scope.meter.refusal !== null) return null;
     if (reference === null) return throwInvariant(invariant("An authored numeric union constituent requires its actual admitted source."));
-    const member = rawType(scope, () => scope.checker.getTypeFromTypeNode(operand), component(scope, reference, null), reference, null, operand);
+    const member = rawType(scope, () => sourceType(scope, { kind: "annotation", node: operand }), component(scope, reference, null), reference, null, operand);
     if (member === null) return null;
     members.push(member);
     sources?.push(reference);
@@ -3489,7 +3504,8 @@ function authoredArgumentSources(scope: CaptureScope, annotation: Node, target: 
       admitted = true;
     }
     if (!admit(scope, "edges")) return null;
-    const answer = scope.checker.getTypeFromTypeNode(authored);
+    const answer = sourceType(scope, { kind: "annotation", node: authored });
+    if (scope.meter.refusal !== null) return null;
     if (answer?.type !== input.argument || answer.causes.length !== 0) continue;
     if (!admit(scope, "facts")) return null;
     (slots ??= new Map()).set(input.parameter, { authored, selected: authored, argument: input.argument });
@@ -3511,7 +3527,7 @@ function unchangedResultArguments(scope: CaptureScope, signature: Signature, typ
   const inputs = scope.shape.getTypeReferenceArgumentInfos(type);
   return inputs === undefined ? null : authoredArgumentSources(scope, annotation, target, inputs, () => {
     if (!admit(scope, "edges")) return false;
-    const answer = scope.checker.getReturnTypeOfSignature(original);
+    const answer = sourceType(scope, { kind: "signature-return", signature: original });
     return answer?.type === type && answer.typeSource === annotation && answer.causes.length === 0;
   });
 }
@@ -3559,7 +3575,8 @@ function captureSignatureTail(scope: CaptureScope, draft: SignatureDraft): void 
     receiverInput(scope, resultSyntax) !== undefined || tupleReference(scope, resultSyntax) !== undefined) ? resultSyntax : null;
   const resultPosition = component(scope, owner, { kind: "result", signature: id });
   if (resultPosition === null || !admit(scope, "facts")) return;
-  const answer = scope.checker.getReturnTypeOfSignature(signature);
+  const answer = sourceType(scope, { kind: "signature-return", signature });
+  if (scope.meter.refusal !== null) return;
   const operator = signatureAnnotationOperator(scope, resultSyntax, answer?.typeSource);
   if (scope.meter.refusal !== null) return;
   const direct = resultSyntax !== undefined && answer?.typeSource === resultSyntax
@@ -3634,7 +3651,7 @@ function contributedFormalType(scope: CaptureScope, application: SelectedCall["a
   const annotation = formal?.Type;
   if (formal?.Initializer === undefined || formal.QuestionToken !== undefined || annotation === undefined || !admit(scope, "edges"))
     return undefined;
-  const written = scope.checker.getTypeFromTypeNode(annotation);
+  const written = sourceType(scope, { kind: "annotation", node: annotation });
   if (written?.type !== projection.member || written.causes.length !== 0) return undefined;
   const arms = undefinedUnionArms(scope, formalRootType);
   return arms?.value === projection.member && arms.valueIndex === projection.index ? arms.value : undefined;
@@ -3780,7 +3797,7 @@ function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef): R
     const occurrence = referenceTo(scope, scope.program, argument);
     if (occurrence === null) return scope.meter.refusal !== null ? null : throwInvariant(invariant("A call argument has no source identity."));
     const position = component(scope, invocation, { kind: "argument-place", index });
-    if (position === null || rawType(scope, () => scope.checker.getTypeAtLocation(argument), position, null, null,
+    if (position === null || rawType(scope, () => sourceType(scope, { kind: "expression", node: argument }), position, null, null,
       kind === "KindNumericLiteral" ? argument : null) === null) return null;
     sourceArguments.push({ occurrence, expression: occurrence, kind: "value", component: available(position) });
   }
@@ -4005,7 +4022,8 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
     if (kind === "KindVariableDeclaration" || kind === "KindEnumMember") {
       const position = component(scope, reference, null);
       if (position === null || !admit(scope, "facts")) break;
-      const answer = scope.checker.getTypeAtLocation(node);
+      const answer = sourceType(scope, { kind: "expression", node });
+      if (scope.meter.refusal !== null) break;
       const read = enqueueRawType(scope, answer, position, null, null, null);
       const storageAlias = kind === "KindVariableDeclaration" ? inferredStorageAlias(scope, node, answer) : null;
       if (scope.meter.refusal !== null) break;
@@ -4053,11 +4071,13 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
       && !numericAnnotationLiteral) {
       const readPosition = component(scope, reference, null);
       if (readPosition === null || !admit(scope, "facts")) break;
-      const answer = scope.checker.getTypeAtLocation(node);
+      const answer = sourceType(scope, { kind: "expression", node });
+      if (scope.meter.refusal !== null) break;
       if (answer === undefined) return throwInvariant(invariant("The checker returned no type at a position that has one."));
       failedSelection = answer.causes.length !== 0 && (kind === "KindPropertyAccessExpression" || kind === "KindCallExpression")
         && scope.shape.isError(answer.type);
-      const contextual = scope.checker.getContextualType(node);
+      const contextual = sourceType(scope, { kind: "contextual", node });
+      if (scope.meter.refusal !== null) break;
       const tuple = kind === "KindArrayLiteralExpression" ? tupleInitializerUse(scope, node, parent, contextual) : null;
       if (scope.meter.refusal !== null) break;
       const read = enqueueRawType(scope, answer, readPosition, null, tuple, kind === "KindNumericLiteral" ? node : null);
@@ -4084,7 +4104,7 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
     }
     // An authored type annotation (the type child of its declaration): the type the checker gives that type node.
     if (kind !== "KindTemplateLiteralTypeSpan" && typeNodeKinds.includes(kind.replace(/^Kind/u, "")) &&
-      rawType(scope, () => scope.checker.getTypeFromTypeNode(node), component(scope, reference, null), reference, null,
+      rawType(scope, () => sourceType(scope, { kind: "annotation", node }), component(scope, reference, null), reference, null,
         kind === "KindLiteralType" && scope.numericLiterals.has(node) ? node : null) === null) break;
     if (callableKinds.includes(kind)) {
       const signature = scope.checker.getSignatureFromDeclaration(node);

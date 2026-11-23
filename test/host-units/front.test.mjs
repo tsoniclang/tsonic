@@ -1953,7 +1953,11 @@ test("wrong-arity overload capture retains all actual declarations and the origi
     return front.captureModule({ ...deps, navigationCapture: { ...deps.navigationCapture,
       maximumCapturedEdgesPerModule: maximum } }, program, module);
   };
-  const exact = 16;
+  const authoredEdges = 16;
+  const signatureResults = 3 * 3;
+  const annotations = 17 + 5;
+  const expressionAndContext = 6 + 3 + 4 + 1;
+  const exact = authoredEdges + signatureResults + annotations + expressionAndContext;
   const diagnostic = source.raw.checkerDiagnostics[original.index];
   for (let maximum = 0; maximum < exact; maximum += 1) {
     const stop = resourceLimitDiagnostic({ owner: "front", limit: "front.maximumCapturedEdgesPerModule", maximum,
@@ -2883,8 +2887,11 @@ test("capture limits: nodes, syntax depth, facts and edges are each refused at z
     const { deps, program } = openedModule(addSource);
     return front.captureModule({ ...deps, navigationCapture: { ...deps.navigationCapture, [name]: value } }, program, module);
   };
+  const nativeFacts = 2 + 2 + 2;
+  const nativeEdges = 3 + 14 + 8 + 3 + 2 * 5 + 2;
   for (const [name, limit, exact] of [["maximumCapturedNodesPerModule", "front.maximumCapturedNodesPerModule", 18], ["maximumSyntaxDepth", "front.maximumSyntaxDepth", 6],
-    ["maximumCapturedFactsPerModule", "front.maximumCapturedFactsPerModule", 47], ["maximumCapturedEdgesPerModule", "front.maximumCapturedEdgesPerModule", 5]]) {
+    ["maximumCapturedFactsPerModule", "front.maximumCapturedFactsPerModule", 47 + nativeFacts],
+    ["maximumCapturedEdgesPerModule", "front.maximumCapturedEdgesPerModule", 5 + nativeEdges]]) {
     for (const value of [0, exact - 1]) assert.deepEqual(under(name, value), refusal(limit, value), `${name} = ${value}`);
     assert.equal(under(name, exact).kind, "ok", `${name} = ${exact}`);
   }
@@ -3003,10 +3010,11 @@ test("K-3341 many parameters: refused at zero and one under the fact count, acce
     const { deps, program } = openedModule(sourceText);
     return front.captureModule({ ...deps, navigationCapture: { ...deps.navigationCapture, maximumCapturedFactsPerModule: value } }, program, module);
   };
-  for (const value of [0, 64]) assert.deepEqual(under(value), { kind: "refused", diagnostics: [diag.resourceLimitDiagnostic({ owner: "front",
+  const exact = 65 + 2;
+  for (const value of [0, exact - 1]) assert.deepEqual(under(value), { kind: "refused", diagnostics: [diag.resourceLimitDiagnostic({ owner: "front",
     limit: "front.maximumCapturedFactsPerModule", maximum: value, site: { kind: "file", path: "/project/src/main.ts" },
     unit: { request: { query: "captureModule", key: module }, position: { kind: "result" } } })] }, `maximum ${value}`);
-  assert.equal(under(65).kind, "ok");
+  assert.equal(under(exact).kind, "ok");
 });
 
 // K-3340: lowering keeps each fact's availability and reason as captured. Constructed raw modules from add's real capture (node 13
