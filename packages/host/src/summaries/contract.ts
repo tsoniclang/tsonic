@@ -19,6 +19,7 @@ export interface SummaryLimits {
 }
 
 export interface DeclaredSummaryDeps {
+  readonly account: DataflowAccount;
   readonly signature: Signature;
   readonly parameters: readonly ParameterMapping[];
   readonly source: SourceNodeRef;
@@ -32,8 +33,7 @@ export type DeclaredSummaryInput = { readonly execution: DeclaredExecution } & (
   | { readonly kind: "unknown"; readonly scope: BindingScope; readonly bindingDependent: boolean; readonly suspends: boolean }
 );
 
-export type BindDeclaredSummary = (account: DataflowAccount, deps: DeclaredSummaryDeps,
-  input: DeclaredSummaryInput) => DataflowResult<Result<Summary>>;
+export type BindDeclaredSummary = (deps: DeclaredSummaryDeps, input: DeclaredSummaryInput) => DataflowResult<Result<Summary>>;
 
 export interface ComponentDeps {
   readonly account: DataflowAccount;

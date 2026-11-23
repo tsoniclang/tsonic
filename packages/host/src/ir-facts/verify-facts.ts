@@ -680,13 +680,15 @@ if (!consumed.get(index)?.has(component)) {
           "Rest transports retain every actual unconsumed tuple component or one symbolic repeated sequence, including known empty spreads."); if (stop !== null) return stop; }
       }
       const activation = alternative.resolution.activation;
-      const dependent = activation === null ? context.bindingDependentOf(decision.api.declaration) : null;
-      const environment: ArtifactBindings | null = activation !== null || dependent === true
-        ? { kind: "instantiated", bindings: decision.implementationBindings } : dependent === null ? null : { kind: "parametric" };
+      const environment: ArtifactBindings = { kind: "instantiated", bindings: decision.implementationBindings };
+      if (activation === null) {
+        const selectedBindings = admitArtifactIdentity(environment, account);
+        if (selectedBindings !== null) return selectedBindings;
+      }
       const actual = activation === null ? null : context.tirBody(activation);
       const captured = actual === null ? 0 : actual.captures.length;
       const activationValid = actual === null || activation === null || actual.body === activation.body && actual.owner === decision.api.declaration &&
-        sameBindings(actual.bindings, activation.bindings) && environment !== null && sameBindings(activation.bindings, environment);
+        sameBindings(actual.bindings, activation.bindings) && sameBindings(activation.bindings, environment);
       let provided = 0;
       for (const parameter of decision.parameters) {
     const step = chargeWork(account, 1);
@@ -694,11 +696,14 @@ if (!consumed.get(index)?.has(component)) {
 if (parameter.kind === "argument") provided += 1;
   }
       const summary = alternative.summary;
-      const selectedExecution = activation === null
-        ? summary.kind === "declared" && summary.execution.request.definition === decision.api.declaration &&
-          summary.execution.request.endpoint === decision.api.role && context.signatureIdOf(summary.execution.request) === decision.api.signature
-        : summary.kind === "body" && instanceKey(summary.execution.instance) === instanceKey(activation);
-      if (summaryDefinition(summary, context) !== decision.api.declaration || environment === null || !sameBindings(summaryBindings(summary), environment) ||
+      let selectedExecution = false;
+      if (activation !== null) selectedExecution = summary.kind === "body" && instanceKey(summary.execution.instance) === instanceKey(activation);
+      else if (summary.kind === "declared" && summary.execution.request.definition === decision.api.declaration
+        && summary.execution.request.endpoint === decision.api.role && Object.is(context.types.signatures[decision.api.signature]?.id, decision.api.signature)) {
+        const bound = context.signatureIdOf(summary.execution.request);
+        selectedExecution = bound !== null && (selected === undefined || Object.is(bound, selected.id));
+      }
+      if (summaryDefinition(summary, context) !== decision.api.declaration || !sameBindings(summaryBindings(summary), environment) ||
         !selectedExecution || !Object.is(summary.execution.provided, provided) || !activationValid) { const stop = report("summary-reference-exact", site,
         "An invocation names the actual selected declaration and exact instantiated summary environment."); if (stop !== null) return stop; }
       const captureSet = new Set<string>();

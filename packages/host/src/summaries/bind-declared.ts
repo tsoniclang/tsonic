@@ -94,7 +94,8 @@ function failure(request: string): Result<Summary> {
   return { kind: "refused", diagnostics: [diagnostic] };
 }
 
-export const bindDeclaredSummary: BindDeclaredSummary = (account, deps, input) => {
+export const bindDeclaredSummary: BindDeclaredSummary = (deps, input) => {
+  const { account } = deps;
   const selection = validateSelection(account, deps, input);
   if (selection !== null) return selection;
   if (input.kind === "unknown") {

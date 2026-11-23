@@ -64,7 +64,7 @@ export function declaredInvocationFixture() {
   index.types.signatures.push({ id: signature, declaration: definition, owner: null, composition: null, kind: "call",
     typeParameters: [], receiver: null, parameters: [], result: 0 });
   const key = { kind: "declared", execution: { request: { definition, endpoint: "api-signature", ordinal: 0,
-    bindings: { kind: "parametric" } }, provided: 0 } };
+    bindings: { kind: "instantiated", bindings } }, provided: 0 } };
   index.signatures.push({ kind: endpoint.role, definition, ordinal: 0, signature, bindings: key.execution.request.bindings });
   const dependency = index.dependencyInventory;
   dependency.operations.push(key);

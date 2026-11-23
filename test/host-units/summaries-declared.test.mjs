@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { isDeepStrictEqual } from "node:util";
 import { encodeBodyId, encodeDefId, encodeModuleId, encodePackageId } from "../../packages/host/dist/ids/index.js";
 import { admitGuarantees } from "../../packages/host/dist/libraries/index.js";
-import { bindDeclaredSummary as bindWithAccount } from "../../packages/host/dist/summaries/index.js";
+import { bindDeclaredSummary as bindOwned } from "../../packages/host/dist/summaries/index.js";
 import { accountFailure, createAccount } from "../../packages/host/dist/dataflow/index.js";
 import { rigidBindings, signatureRequestKey } from "../../packages/host/dist/ir-types/index.js";
 import { constructedNativeCells, constructedNativeRelations } from "./fixtures/native-cells.mjs";
@@ -13,6 +13,7 @@ const definition = name => encodeDefId({ module: encodeModuleId({ package: encod
 const empty = () => ({ classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] });
 const scope = () => ({ classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] });
 const limits = { maximumWork: 1000000, maximumResultEntries: 1000000 };
+const bindWithAccount = (account, deps, input) => bindOwned({ ...deps, account }, input);
 
 function bindDeclaredSummary(deps, input) {
   const result = bindWithAccount(createAccount(limits), deps, input);
@@ -74,7 +75,7 @@ test("declared summaries have no visible prefix at any work or created-record cu
         assert.equal(result.dimension, dimension);
         assert.equal(result.maximum, maximum);
         assert.equal(result, accountFailure(bounded));
-        assert.equal(bindWithAccount(bounded, { get signature() { assert.fail("No read after the original stop."); } }, input), result);
+        assert.equal(bindOwned({ account: bounded, get signature() { assert.fail("No read after the original stop."); } }, input), result);
       }
     }
     const unopened = createAccount({ ...limits, maximumWork: 4 });

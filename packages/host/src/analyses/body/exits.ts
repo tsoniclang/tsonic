@@ -7,6 +7,7 @@ import { admitSummaryIdentity, escapeTargetKey, summaryPositionKey } from "../..
 import type { MirSite, MirTerminator } from "../../ir-mir/contract.js";
 import type { Execution } from "../../ir-types/contract.js";
 import type { BodyRoundDeps, BodyRoundInput } from "./contract.js";
+import type { ReadCallBoundary } from "./open-calls.js";
 import { bodyFrontier, readLocal } from "./places.js";
 import { orderedRows } from "./source.js";
 
@@ -62,12 +63,25 @@ export function retainValue(deps: BodyRoundDeps, execution: Execution, site: Mir
 export function retainCallCaptures(deps: BodyRoundDeps, input: BodyRoundInput,
   operation: Extract<MirTerminator, { readonly kind: "call" }>, point: MirPoint, applied: AppliedSummary,
   captured: ReadonlyMap<number, CaptureLocation>, arena: RelationalArena,
-  escapes: ValueEscape[], retention: ValueRetention[], copiedEntries: ReadonlySet<BoundProducerId> | null): DataflowStop | null {
+  escapes: ValueEscape[], retention: ValueRetention[], copiedEntries: ReadonlySet<BoundProducerId> | null,
+  readBoundary: ReadCallBoundary): DataflowStop | null {
   const prior = accountFailure(deps.account);
   if (prior !== null) return prior;
   for (const row of applied.retention) {
     const read = chargeWork(deps.account, 3);
     if (read !== null) return read;
+    if (row.into.kind === "external") {
+      if (row.value.kind !== "caller" || row.value.value.owner.kind !== "body" || row.value.value.owner.execution !== input.execution)
+        return bodyFrontier("An external retain requires the actual caller value it transports.");
+      const reserve = chargeResultEntries(deps.account, 3);
+      if (reserve !== null) return reserve;
+      const boundary = readBoundary({ owner: { kind: "summary", key: applied.source.key }, boundary: row.into.boundary });
+      if (typeof boundary !== "number") return boundary;
+      const retained = retainValue(deps, input.execution, operation, point, { kind: "external", boundary }, row.value.value.origins,
+        arena, escapes, retention, copiedEntries);
+      if (retained !== null) return retained;
+      continue;
+    }
     if (row.into.kind !== "capture") continue;
     const capture = operation.callee.kind === "body" && row.into.path === null ? operation.callee.captures[row.into.index] : undefined;
     if (capture?.capture !== "captured-location" || row.value.kind !== "caller")

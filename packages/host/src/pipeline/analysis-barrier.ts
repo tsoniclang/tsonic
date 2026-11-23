@@ -12,7 +12,7 @@ import { verifyMir } from "../ir-mir/index.js";
 import type { BodyInstance, Execution } from "../ir-types/contract.js";
 import { executionKey, instanceKey, internType, readSignature, readType, viewTypes } from "../ir-types/index.js";
 import type { Query } from "../query/contract.js";
-import type { ConvergenceMember } from "../summaries/contract.js";
+import type { ConvergenceMember, DeclaredSummaryInput } from "../summaries/contract.js";
 import type { ProgramInitialization } from "../ir-program/contract.js";
 import type { ErrorValue } from "../diag/contract.js";
 import type { HostAnalysisInputs } from "./contract.js";
@@ -178,8 +178,11 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
     signatureIdOf: typed.signatureIdOf, declarationSourceOf: sources.declarationSourceOf,
     diagnostics: source.modules.flatMap(module => module.module.checkerDiagnostics),
     bindingDependentOf: definition => bindingDependence.get(definition) ?? null,
-    captureCount: key => key.kind === "body" ? readyBody(key.execution.instance).captures.length
-      : declared?.get(summaryKey(key))?.guarantee === null ? 0 : null,
+    captureCount: key => {
+      if (key.kind === "body") return readyBody(key.execution.instance).captures.length;
+      const ready = declared?.get(summaryKey(key));
+      return ready === undefined ? null : ready.guarantee?.statement.captures.length ?? 0;
+    },
     callbackSignaturesOf: () => null,
     arenaOf: owner => {
       if (owner.kind === "body") return facts.get(executionKey(owner.execution))?.arena ?? null;
@@ -335,8 +338,7 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
       if (selectedRead !== null) return analysisStop(selectedRead, unit);
       const selected = declared?.get(key);
       if (selected === undefined) return fail("A declared Summary requires its actual selected ready declaration.");
-      if (selected.guarantee !== null) return fail("The selected native guarantee requires its actual declared cell and callback relations.");
-      const { execution, placement, parameters, scope } = selected;
+      const { execution, placement, parameters, scope, guarantee } = selected;
       const { signature } = placement;
       const setup = chargeResultEntries(account, 1);
       if (setup !== null) return analysisStop(setup, unit);
@@ -375,10 +377,29 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
         const stop = given(formal.type, index);
         if (stop !== null) return analysisStop(stop, unit);
       }
-      const dependent = scope.classParameters.length + scope.methodParameters.length + scope.capturedParameters.length + scope.selfOwners.length !== 0;
-      const built = pipelineWiring.summaries.bindDeclaredSummary(account,
-        { signature, parameters, source: selected.source, callables },
-        { kind: "unknown", execution, scope, bindingDependent: dependent, suspends: false });
+      const bindingRead = chargeWork(account, 4);
+      if (bindingRead !== null) return analysisStop(bindingRead, unit);
+      const dependent = guarantee === null
+        ? scope.classParameters.length + scope.methodParameters.length + scope.capturedParameters.length + scope.selfOwners.length !== 0
+        : guarantee.statement.bindingDependent;
+      let binding: DeclaredSummaryInput;
+      if (guarantee === null) binding = { kind: "unknown", execution, scope, bindingDependent: dependent, suspends: false };
+      else {
+        const admission = chargeWork(account, 4);
+        if (admission !== null) return analysisStop(admission, unit);
+        const { statement } = guarantee;
+        const { identity } = statement;
+        if (identity.memberId !== null || statement.writes.length !== 0 || statement.captures.length !== 0 || statement.callbacks.length !== 0)
+          return fail("The selected native guarantee requires its actual member, declared cell and callback relations.");
+        const output = chargeResultEntries(account, 28);
+        if (output !== null) return analysisStop(output, unit);
+        binding = { kind: "native", guarantee, execution, associations: [{ kind: "callable", identity, request: placement.request,
+          signature, scope, member: null, guarantee: identity }], cells: { execution, origin: identity, cells: [], producers: [], captures: [] },
+          relations: { callbacks: [], resultCells: [], backing: [], concurrentWrites: [], contentsOnReturn: [], contentsOnUnwind: [],
+            returns: true, unwinds: true, initialization: { cells: [], events: [], conditions: [{ alternatives: [] }, { alternatives: [[]] }],
+              points: [{ kind: "return" }, { kind: "unwind" }], rows: [{ point: 0, cell: null, condition: 0 }, { point: 1, cell: null, condition: 0 }] } } };
+      }
+      const built = pipelineWiring.summaries.bindDeclaredSummary({ account, signature, parameters, source: selected.source, callables }, binding);
       if (built.kind !== "complete") return analysisStop(built, unit);
       if (built.value.kind === "refused") return built.value;
       const summary = built.value.value;

@@ -270,7 +270,7 @@ export function prepareRequiredExecutions(source: SourceBarrier, sources: Checke
           if (selected.role !== decision.api.role) continue;
           if (selected.declaration === decision.api.declaration && selected.body === null && selected.signature === decision.api.signature) {
             const request: SignatureRequest = { definition: selected.declaration, endpoint: selected.role, ordinal,
-              bindings: { kind: "instantiated", bindings: decision.bindings } };
+              bindings: { kind: "instantiated", bindings: decision.implementationBindings } };
             const execution: DeclaredExecution = { request, provided };
             const key: SummaryKey = { kind: "declared", execution };
             const stop = admitSummaryIdentity(key, account);

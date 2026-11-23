@@ -285,11 +285,11 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
   };
 
   const arrayText = records => records.length === 0 ? "[]" : `[\n  ${records.join(",\n  ")}\n]`;
+  const bindingsText = "BindingVector(classBindings=[], methodBindings=[], capturedBindings=[], selfBindings=[])";
   const executionText = `Execution(instance=BodyInstance(body=body:"${body}", bindings=parametric()), provided=0)`;
   const bodySummaryText = `body(execution=${executionText})`;
-  const calleeSummaryText = `declared(execution=DeclaredExecution(request=SignatureRequest(definition=def:"${definitions.callee}", endpoint="api-signature", ordinal=0, bindings=parametric()), provided=2))`;
+  const calleeSummaryText = `declared(execution=DeclaredExecution(request=SignatureRequest(definition=def:"${definitions.callee}", endpoint="api-signature", ordinal=0, bindings=instantiated(bindings=${bindingsText})), provided=2))`;
   const instanceText = `BodyInstance(body=body:"${body}", bindings=parametric())`;
-  const bindingsText = "BindingVector(classBindings=[], methodBindings=[], capturedBindings=[], selfBindings=[])";
   const nodeText = id => `NodeRef(body=body:"${body}", node=n:${id})`;
   const keyText = name => `MetadataKey(definition=def:"${definitions[name]}", bindings=parametric())`;
   const emptyFactsText = `BodyFacts(execution=Execution(instance=${instanceText}, provided=0), arena=RelationalArena(cells=[], projections=[], producers=[], contexts=[], boundProducers=[], origins=[], boundaries=[]), liveness=LivenessFacts(stores=[], locals=[], bindings=[], captures=[]), initialization=InitializationFacts(reads=[]), refinements=RefinementFacts(refinements=[], integers=[], countedLoops=[]), origins=OriginFacts(points=[], reads=[], subjects=[], writes=[], escapes=[], invocations=[], callbacks=[], activations=[], frontiers=[], constructions=[], instanceRegions=[], exitContents=ExitContents(onReturn=[], onUnwind=[])), suspension=SuspensionFacts(suspensions=[]), errorStorage=ErrorStorageFacts(errors=[]), pointerBacking=PointerBackingFacts(pointers=[]), rawLocations=[], fieldBindings=[], recordBindings=[], memoryBindings=[], selectedMemoryDeclarations=[], closedArrays=[])\n`;
@@ -878,8 +878,10 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
         alternative.summary = { kind: "body", execution: { instance: clone(alternative.resolution.activation), provided } };
       } else {
         assert.equal(alternative.summary.kind, "declared", "a bodyless fixture supplies its actual complete declaration request");
+        alternative.summary.execution.request.bindings = { kind: "instantiated", bindings: clone(alternative.resolution.decision.implementationBindings) };
         alternative.summary.execution.provided = provided;
-        supplied.signatureRequests.set(signatureRequestKey(alternative.summary.execution.request), alternative.resolution.decision.api.signature);
+        const completion = alternative.resolution.decision.completion.signature;
+        if (supplied.types.signatures[completion]?.id === completion) supplied.signatureRequests.set(signatureRequestKey(alternative.summary.execution.request), completion);
       }
       const after = summaryOwner(alternative.summary);
       if (arena !== undefined) supplied.canonicalArenas.set(ownerKey(after), arena);
@@ -2062,6 +2064,8 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
     const resolution = { decision: { candidate: 0, advertised: endpoint("advertised"), api: endpoint("api-signature"), bindings: emptyBindings(), implementationBindings: emptyBindings(),
       parameters: [{ kind: "argument", parameter: 0, argument: 0, component: null, passing: "by-value" }, { kind: "argument", parameter: 1, argument: 1, component: null, passing: "by-value" }],
       completion: { signature: 1, completion: 1, yielded: null, sent: null }, result: 1, activation: null }, activation: null };
+    const callee = calleeSummaryKey();
+    callee.execution.request.bindings = { kind: "instantiated", bindings: clone(resolution.decision.bindings) };
     supplied.tir.root = { ...header(1), kind: "CallExpression", questionDotToken: null, typeArguments: null,
       expression: { ...header(2, 1), kind: "Identifier", text: "callee", tsonic: { ...typedValue(3), role: "value",
         resolution: { kind: "definition", definition: definitions.callee, aliases: [] } } },
@@ -2072,14 +2076,14 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
         arguments: [{ kind: "provided", parameter: 0, expression: 3 }, { kind: "provided", parameter: 1, expression: 4 }] } }, operation: null } };
     input.refinements.integers = [1, 2, 3, 4].map(node => ({ node, range: null, nonnegative: false }));
     supplied.mir.blocks[0].tir = nodeRef(1); supplied.mir.blocks[0].terminator.tir = nodeRef(1);
-    supplied.signatureRequests.set(signatureRequestKey(calleeSummaryKey().execution.request), 1);
-    const selectedOwner = summaryOwner(calleeSummaryKey());
+    supplied.signatureRequests.set(signatureRequestKey(callee.execution.request), 1);
+    const selectedOwner = summaryOwner(callee);
     const transports = [definitions.parameter, definitions.capture].map((parameter, index) => ({ kind: "provided", authoredIndex: index, parameter, parameterIndex: index,
       repeated: false, passing: "by-value", actual: 0, formal: { owner: clone(selectedOwner), producer: index }, projection: null }));
     supplied.canonicalArenas.set(ownerKey(selectedOwner), { projections: [], producers: transports.map((value, index) => ({ id: index, path: null, kind: "parameter", index })), contexts: [], boundProducers: [], origins: [], boundaries: [] });
     input.arena.contexts[0].arguments = [{ kind: "provided", origins: 0 }, { kind: "provided", origins: 0 }];
     input.origins.invocations = [{ node: 1, point: { block: 0, statement: null }, kind: "call", alternatives: [{ resolution, context: 0, arguments: transports, result: 0, thrown: 0,
-      summary: calleeSummaryKey() }], boundaries: [] }];
+      summary: callee }], boundaries: [] }];
     supplied.mir.constants = [1n, 2n].map((value, id) => ({ id, type: 0, value: { kind: "literal",
       value: { kind: "number", token: String(value), value: { numerator: value, denominator: 1n, negativeZero: false } } } }));
     const block = supplied.mir.blocks[0];
@@ -2252,7 +2256,7 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
       "Every non-rest selected formal has its complete actual or explicit omitted transport."],
     ["argument-transports-authored-order", input => { input.origins.invocations[0].alternatives[0].arguments.reverse(); },
       "Transports retain authored actual evaluation order without inventing a flattened runtime slot."],
-    ["summary-reference-exact", input => { input.origins.invocations[0].alternatives[0].summary.execution.request.bindings = { kind: "instantiated", bindings: emptyBindings() }; },
+    ["summary-reference-exact", input => { input.origins.invocations[0].alternatives[0].summary.execution.request.bindings = parametric(); },
       "An invocation names the actual selected declaration and exact instantiated summary environment."],
   ];
   for (const [rule, amend, message] of invocationCases) {
@@ -2273,8 +2277,7 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
   await factOpposite("missing lexical scope is not an empty environment", (input, supplied) => {
     invocationFixture(input, supplied);
   }, (input, supplied) => { supplied.context.bindingScopeOf = selected => selected === definitions.callee ? null : emptyScope(); },
-    [violation("bindings-complete", nodeSite(1), "The complete lexical binding scope must resolve in the supplied declaration inventory."),
-      violation("bindings-complete", nodeSite(1), "The complete lexical binding scope must resolve in the supplied declaration inventory.")]);
+    Array.from({ length: 5 }, () => violation("bindings-complete", nodeSite(1), "The complete lexical binding scope must resolve in the supplied declaration inventory.")));
   for (const field of ["authoredIndex", "parameterIndex"]) {
     for (const invalid of [-1, -0, 0.5, NaN, Infinity, -Infinity]) await factOpposite(`transport ${field} retains its actual index domain ${String(invalid)}/${Object.is(invalid, -0)}`,
       invocationFixture, input => { input.origins.invocations[0].alternatives[0].arguments[0][field] = invalid; },
@@ -2313,9 +2316,8 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
   await factOpposite("bodyless API environment never borrows the advertised namespace", bodylessDependentInvocation,
     input => { input.origins.invocations[0].alternatives[0].resolution.decision.implementationBindings.methodBindings[0].type = 1; },
     [violation("summary-reference-exact", nodeSite(1), "An invocation names the actual selected declaration and exact instantiated summary environment.")]);
-  await factOpposite("unknown actual API dependence is not parametric", invocationFixture,
-    (input, supplied) => { supplied.context.bindingDependentOf = definition => definition === definitions.callee ? null : false; },
-    [violation("summary-reference-exact", nodeSite(1), "An invocation names the actual selected declaration and exact instantiated summary environment.")]);
+  await factOpposite("a selected declared environment does not depend on an effect classifier", invocationFixture,
+    (input, supplied) => { supplied.context.bindingDependentOf = () => assert.fail("The actual selected request already owns its environment."); }, []);
   const actualDependentActivation = (input, supplied) => {
     bodylessDependentInvocation(input, supplied);
     const alternative = input.origins.invocations[0].alternatives[0];

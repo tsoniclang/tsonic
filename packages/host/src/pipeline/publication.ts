@@ -199,6 +199,7 @@ function finalContext(inputs: HostAnalysisInputs, typed: TypedSourceBarrier, ana
     arenas.set(executionKey(mapped.execution), mapped.arena);
   }
   const originalSummaries = analysis.summaries.values();
+  let declaredCaptures: Map<string, number> | null = null;
   for (let position = 0; position < analysis.summaries.size; position += 1) {
     const stop = admit(1);
     if (stop !== null) return stop;
@@ -211,7 +212,16 @@ function finalContext(inputs: HostAnalysisInputs, typed: TypedSourceBarrier, ana
       return fail("Final Summary evidence needs exact independent original summary ownership.");
     const identity = admitSummaryIdentity(mapped.key, account);
     if (identity !== null) return identity;
-    summaries.set(summaryKey(mapped.key), mapped);
+    const key = summaryKey(mapped.key);
+    if (original.key.kind === "declared") {
+      const read = admitSummaryIdentity(original.key, account) ?? admit(declaredCaptures === null ? 2 : 1);
+      if (read !== null) return read;
+      const captured = analysis.verification.captureCount(original.key);
+      if (captured === null || mapped.key.kind !== "declared") return fail("A final declared Summary requires its actual capture inventory.");
+      declaredCaptures ??= new Map();
+      declaredCaptures.set(key, captured);
+    }
+    summaries.set(key, mapped);
   }
   const initialization = image.initializationOf(analysis.initialization);
   if (initialization === null) return fail("Final verification needs its actual retained initialization proof.");
@@ -231,7 +241,8 @@ function finalContext(inputs: HostAnalysisInputs, typed: TypedSourceBarrier, ana
       arenaOf: owner => owner.kind === "body" ? arenas.get(executionKey(owner.execution)) ?? null
         : summaries.get(summaryKey(owner.key))?.arena ?? null,
       summaryOf: key => summaries.get(summaryKey(key)) ?? null,
-      captureCount: key => key.kind === "body" ? bodyOf(key.execution.instance)?.captures.length ?? null : null,
+      captureCount: key => key.kind === "body" ? bodyOf(key.execution.instance)?.captures.length ?? null
+        : declaredCaptures?.get(summaryKey(key)) ?? null,
     },
   } };
 }

@@ -15,6 +15,8 @@ import type { StaticSlots } from "./places.js";
 import type { HeldFields } from "./field-effects.js";
 import { selectedCallAt } from "./storage.js";
 import { appliedOrigins, joinOrigins, valueKind } from "./values.js";
+import type { OpenCallTransport, ReadCallBoundary } from "./open-calls.js";
+import { noCallBoundary } from "./open-calls.js";
 import type { AdmitOrigins, ValueOrigins } from "./values.js";
 
 export interface CurrentValues {
@@ -68,7 +70,7 @@ export function mergeContents(deps: BodyRoundDeps, state: ReadonlySet<number>, l
 export function applyExitContents(deps: BodyRoundDeps,
   operation: Extract<MirTerminator, { readonly kind: "call" }>, application: AppliedSummary, cellSlots: readonly number[],
   kind: "return" | "unwind", state: ValueState | undefined, values: ValueOrigins, admit: AdmitOrigins,
-  destination: { readonly local: number; readonly tracked: boolean } | null): DataflowResult<CurrentValues> {
+  destination: { readonly local: number; readonly tracked: boolean } | null, readBoundary: ReadCallBoundary): DataflowResult<CurrentValues> {
   const setup = chargeWork(deps.account, 1) ?? chargeResultEntries(deps.account, 2);
   if (setup !== null) return setup;
   const origins = requirePresent(state?.origins, { owner: "analyses/body", query: null, origin: operation.origin,
@@ -99,7 +101,7 @@ export function applyExitContents(deps: BodyRoundDeps,
       message: "An applied finite content retains its actual value." });
     const local = requirePresent(cellSlots[row.target.targets[0].cell], { owner: "analyses/body", query: null, origin: operation.origin,
       message: "An applied finite content retains its actual caller slot." });
-    const value = appliedOrigins(deps, values, row.value, admit);
+    const value = appliedOrigins(deps, values, row.value, admit, readBoundary);
     if (typeof value !== "number") return value;
     const stored = store(local, value);
     if (stored !== null) return stored;
@@ -108,7 +110,7 @@ export function applyExitContents(deps: BodyRoundDeps,
     locals.push(local);
   }
   if (destination !== null) {
-    const value = appliedOrigins(deps, values, application.result, admit);
+    const value = appliedOrigins(deps, values, application.result, admit, readBoundary);
     if (typeof value !== "number") return value;
     const stored = store(destination.local, value);
     if (stored !== null) return stored;
@@ -216,6 +218,7 @@ export function valueProblem(deps: BodyRoundDeps, input: BodyRoundInput, arena: 
   values: ValueOrigins, constants: readonly OriginsId[], initial: readonly OriginsId[], boundary: CurrentValues,
   reachable: readonly boolean[], admit: AdmitOrigins,
   captures: ReadonlyMap<BlockId, readonly CallCaptureTransport[]>, tracked: ReadonlySet<number>, calls: ReadonlyMap<BlockId, SelectedCall> | null,
+  transport: OpenCallTransport | null,
   statics: StaticSlots = null, staticCallees: StaticCalleeCells | null = null, cellSlots: readonly number[] = [], fields: HeldFields | null = null,
   objectValues: ReadonlySet<LocalId> | null = null): ForwardProblem<ValueState> {
   return {
@@ -298,8 +301,10 @@ export function valueProblem(deps: BodyRoundDeps, input: BodyRoundInput, arena: 
         if (result.value.kind === "applied") {
           const descriptor = chargeResultEntries(account, destination === null ? 0 : 1);
           if (descriptor !== null) return outgoing;
+          const boundary = transport?.forCall(terminator, selected) ?? noCallBoundary;
+          if (typeof boundary !== "function") return outgoing;
           const applied = applyExitContents(deps, terminator, result.value.value, cellSlots, "return", state, values, admit,
-            destination === null ? null : { local: destination, tracked: tracked.has(destination) });
+            destination === null ? null : { local: destination, tracked: tracked.has(destination) }, boundary);
           if (applied.kind !== "complete") return outgoing;
           edge(terminator.next, applied.value);
           return outgoing;
@@ -330,11 +335,12 @@ export function solveValueOrigins(deps: BodyRoundDeps, input: BodyRoundInput, ar
   values: ValueOrigins, constants: readonly OriginsId[], initial: readonly OriginsId[], boundary: readonly OriginsId[],
   reachable: readonly boolean[], admit: AdmitOrigins,
   captures: ReadonlyMap<BlockId, readonly CallCaptureTransport[]>, cells: readonly number[], calls: ReadonlyMap<BlockId, SelectedCall> | null,
-  statics: StaticSlots, staticCallees: StaticCalleeCells | null, fields: HeldFields | null, objectValues: ReadonlySet<LocalId> | null): DataflowResult<FlowSolution<ValueState>> {
+  statics: StaticSlots, staticCallees: StaticCalleeCells | null, fields: HeldFields | null, objectValues: ReadonlySet<LocalId> | null,
+  transport: OpenCallTransport | null): DataflowResult<FlowSolution<ValueState>> {
   const work = chargeWork(deps.account, 1 + cells.length) ?? chargeResultEntries(deps.account, 4 + cells.length);
   if (work !== null) return work;
   const tracked = new Set(cells);
   const problem = valueProblem(deps, input, arena, values, constants, initial, { origins: boundary, contents: new Set() },
-    reachable, admit, captures, tracked, calls, statics, staticCallees, cells, fields, objectValues);
+    reachable, admit, captures, tracked, calls, transport, statics, staticCallees, cells, fields, objectValues);
   return solve(input.mir, input.execution.provided, problem, deps.account);
 }

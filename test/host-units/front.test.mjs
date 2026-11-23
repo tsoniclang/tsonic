@@ -802,7 +802,7 @@ test("provider overloads supply their own ABI while ordinary captured declaratio
   assert.deepEqual(verifyMir(mir.value, mirVerificationContext(run, body, entries)), { kind: "complete", violations: [] });
   const call = mir.value.blocks.map(row => row.terminator).find(row => row.kind === "call" && row.tir.node === edge.at.node);
   assert.ok(call);
-  const opaque = bindDeclaredSummary(account, { signature: ready.placement.signature, parameters: ready.parameters,
+  const opaque = bindDeclaredSummary({ account, signature: ready.placement.signature, parameters: ready.parameters,
     source: ready.source, callables: [] }, { kind: "unknown", execution: ready.execution, scope: ready.scope,
     suspends: false, bindingDependent: false });
   assert.equal(opaque.kind, "complete");
@@ -853,6 +853,23 @@ test("provider overloads supply their own ABI while ordinary captured declaratio
     pipelineWiring.summaries.convergeComponent = converge;
   }
 
+  const published = analyzeHostProgram(callInput);
+  assert.equal(published.kind, "ok");
+  const declaredSummary = published.value.index.summaries.find(row => row.key.kind === "declared");
+  assert.equal(declaredSummary.key.execution.request.definition, chosen.tsonic.definition);
+  assert.equal(declaredSummary.key.execution.request.bindings.kind, "instantiated");
+  assert.equal(declaredSummary.key.execution.provided, 1);
+  assert.equal(declaredSummary.arena.origins[declaredSummary.result].kind, "open");
+  assert.equal(declaredSummary.returns && declaredSummary.unwinds, true);
+  const callers = published.value.modules.flatMap(module => module.bodies).filter(body => body.kind === "selected")
+    .flatMap(body => body.facts).filter(facts => facts.origins.invocations.length !== 0);
+  assert.equal(callers.length, 1);
+  const [invocation] = callers[0].origins.invocations;
+  assert.deepEqual(invocation.alternatives[0].summary, declaredSummary.key);
+  assert.equal(invocation.boundaries.length, 1);
+  assert.equal(callers[0].arena.boundaries[invocation.boundaries[0]].kind, "opaque-invocation");
+  assert.deepEqual(callers[0].origins.activations, []);
+
   const siblingGuarantee = { ...guarantee, identity: signatures[0].identity };
   for (const [declarations, chosenStatement] of [[[siblingGuarantee], null], [[siblingGuarantee, guarantee], guarantee]]) {
     const input = claimedInput(callSnapshot, callSession.deps.extensions, registration.reference.package, [], declarations);
@@ -864,6 +881,11 @@ test("provider overloads supply their own ABI while ordinary captured declaratio
     assert.equal(selection.guarantee, claimed.value.libraries.guarantees.find(row => row.statement === chosenStatement) ?? null);
     assert.equal(selection.guarantee?.statement ?? null, chosenStatement);
     assert.equal(selection.execution.request.definition, chosen.tsonic.definition);
+    const completed = analyzeHostProgram(input);
+    assert.equal(completed.kind, "ok");
+    const declared = completed.value.index.summaries.find(row => row.key.kind === "declared");
+    assert.equal(declared.arena.origins[declared.result].kind, chosenStatement === null ? "open" : "complete");
+    assert.equal(declared.returns && declared.unwinds, true);
   }
 });
 

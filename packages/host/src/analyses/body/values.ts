@@ -8,6 +8,7 @@ import { nativeCarrierOf, optionalValueDomainOf } from "../../ir-types/index.js"
 import type { BodyRoundDeps } from "./contract.js";
 import { orderedRows } from "./source.js";
 import { bodyFrontier } from "./places.js";
+import type { ReadCallBoundary } from "./open-calls.js";
 
 const maximumSafeIdDigits = 16;
 const noBoundaries: readonly OpenBoundaryId[] = [];
@@ -146,10 +147,10 @@ export function joinOrigins(deps: BodyRoundDeps, values: ValueOrigins, left: Ori
 }
 
 export function appliedOrigins(deps: BodyRoundDeps, values: ValueOrigins, value: AppliedOriginsValue,
-  admit: AdmitOrigins): OriginsId | DataflowStop {
+  admit: AdmitOrigins, readBoundary: ReadCallBoundary): OriginsId | DataflowStop {
   const read = chargeWork(deps.account, 1);
   if (read !== null) return read;
-  if (value.callee.length !== 0 || value.boundaries.length !== 0)
+  if (value.callee.length !== 0)
     return bodyFrontier("BodyAnalysis requires the actual created or open call-result Origins producer.");
   const alternatives = admit(value.caller.length, false);
   if (alternatives !== null) return alternatives;
@@ -159,5 +160,24 @@ export function appliedOrigins(deps: BodyRoundDeps, values: ValueOrigins, value:
   for (const reference of value.caller) producers.push(reference.producer);
   const sorted = orderedRows(producers, (left, right) => left - right, deps.account);
   if (sorted.kind !== "complete") return sorted;
-  return internValue(deps, values, sorted.value, value.includesAbsence, noBoundaries, admit);
+  if (value.boundaries.length === 0) return internValue(deps, values, sorted.value, value.includesAbsence, noBoundaries, admit);
+  const setup = chargeResultEntries(deps.account, 1);
+  if (setup !== null) return setup;
+  const opened = new Set<OpenBoundaryId>();
+  for (let index = 0; index < value.boundaries.length; index += 1) {
+    const step = chargeWork(deps.account, 1);
+    if (step !== null) return step;
+    const reference = requirePresent(value.boundaries[index], { owner: "analyses/body", query: null, origin: null,
+      message: "Applied open Origins retain each actual boundary reference." });
+    const mapped = readBoundary(reference);
+    if (typeof mapped !== "number") return mapped;
+    if (opened.has(mapped)) continue;
+    const keep = chargeResultEntries(deps.account, 1);
+    if (keep !== null) return keep;
+    opened.add(mapped);
+  }
+  const retain = chargeWork(deps.account, opened.size) ?? chargeResultEntries(deps.account, 1 + opened.size);
+  if (retain !== null) return retain;
+  const boundaries = orderedRows([...opened], (left, right) => left - right, deps.account);
+  return boundaries.kind !== "complete" ? boundaries : internValue(deps, values, sorted.value, value.includesAbsence, boundaries.value, admit);
 }

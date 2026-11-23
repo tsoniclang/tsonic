@@ -23,7 +23,7 @@ const analysisLimits = { maximumProjectionDepth: 64, maximumOriginAlternatives: 
   maximumRelationalRecordsPerBody: 100000, maximumRelationalReferencesPerBody: 100000 };
 const scope = { classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] };
 const repository = fileURLToPath(new URL("../../", import.meta.url));
-const runtimeFiles = ["index", "round", "storage", "source", "proof", "calls", "values", "value-flow", "places", "field-effects", "static-calls", "captures", "initialization", "writes", "exits"].map(name => resolve(repository, `packages/host/dist/analyses/body/${name}.js`));
+const runtimeFiles = ["index", "round", "storage", "source", "proof", "calls", "open-calls", "values", "value-flow", "places", "field-effects", "static-calls", "captures", "initialization", "writes", "exits"].map(name => resolve(repository, `packages/host/dist/analyses/body/${name}.js`));
 const session = new Session();
 const post = (method, parameters = {}) => new Promise((done, reject) =>
   session.post(method, parameters, (error, value) => error === null ? done(value) : reject(error)));
@@ -49,6 +49,7 @@ let scalarArgument;
 let applyScalarCall;
 let joinOrigins;
 let appliedOrigins;
+let noCallBoundary;
 let valueOrigins;
 let valueProblem;
 let transferValue;
@@ -83,7 +84,10 @@ before(async () => {
   ({ sourceOccurrences, orderedRows } = await import("../../packages/host/dist/analyses/body/source.js"));
   ({ bodyNodes } = await import("../../packages/host/dist/ir-facts/verify-body-nodes.js"));
   ({ callSummary, scalarArgument, applyScalarCall, callValueEffects } = await import("../../packages/host/dist/analyses/body/calls.js"));
-  ({ joinOrigins, appliedOrigins, valueOrigins } = await import("../../packages/host/dist/analyses/body/values.js"));
+  ({ noCallBoundary } = await import("../../packages/host/dist/analyses/body/open-calls.js"));
+  const originValues = await import("../../packages/host/dist/analyses/body/values.js");
+  ({ joinOrigins, valueOrigins } = originValues);
+  appliedOrigins = (deps, values, value, admit) => originValues.appliedOrigins(deps, values, value, admit, noCallBoundary);
   ({ valueProblem, transferValue, collectExitContents, removeUnchangedContents } = await import("../../packages/host/dist/analyses/body/value-flow.js"));
   ({ prepareCallCaptures } = await import("../../packages/host/dist/analyses/body/captures.js"));
   ({ cellMustAtExit, callExitAssigned, sourceNeedAssigned, callSlotAt, recordUninitializedRead } =
@@ -3945,7 +3949,7 @@ test("the direct least round evaluates its supplied argument without applying ei
   const account = createAccount(limits);
   const effects = valueProblem({ ...current.deps, account }, current.input, pair.facts.arena,
     indexedOrigins(current, pair.facts.arena.origins), [], initial, boundary, current.input.mir.blocks.map(() => true),
-    () => null, new Map(), new Set([0, 1]), new Map([[point.block, least]]));
+    () => null, new Map(), new Set([0, 1]), new Map([[point.block, least]]), null);
   const noContinuation = { ...operation, get destination() { assert.fail("a least value edge cannot apply a selected destination"); },
     get unwind() { assert.fail("a least value edge cannot apply an unwind effect"); } };
   assert.deepEqual(effects.terminator(noContinuation, boundary, account, point.block), []);
@@ -4144,7 +4148,7 @@ test("the canonical reference lattice compares values, pays joins and treats unr
   const boundary = contentState(state);
   const make = (account = createAccount(limits), answer = summary, reachable = current.input.mir.blocks.map(() => true), admit = () => null) =>
     valueProblem({ ...current.deps, account }, current.input, pair.facts.arena, values, [], initial, boundary, reachable, admit, new Map(),
-      new Set([0, 1]), new Map([[point.block, answer]]));
+      new Set([0, 1]), new Map([[point.block, answer]]), null);
   const problem = make();
   const lattice = problem.lattice;
   assert.equal(lattice.equals(boundary, boundary, createAccount(limits)), true);
@@ -4245,7 +4249,7 @@ test("real many-slot joins and immediate callee exit contents use one linear pai
     const activation = pair.facts.origins.activations.find(row => row.point.block === block.id);
     const contexts = new Map([[block.id, pair.facts.arena.contexts[activation.context].captures]]);
     const make = account => valueProblem({ ...current.deps, account }, current.input, pair.facts.arena, values, [], origins, state,
-      current.input.mir.blocks.map(() => true), () => null, contexts, new Set(locals), new Map([[block.id, summary]]));
+      current.input.mir.blocks.map(() => true), () => null, contexts, new Set(locals), new Map([[block.id, summary]]), null);
     const expected = new Set(locals);
     const length = origins.length;
     const joinWork = 3 * length + count + 1;
@@ -4401,6 +4405,44 @@ test("canonical Origins unions retain strict supersets and deduplicate genuine o
   assert.equal(joinOrigins(current.deps, values, first, left, () => null), left);
   const all = joinOrigins(current.deps, values, left, right, () => null);
   assert.deepEqual(rows[all].producers, [0, 1, 2]);
+});
+
+test("an opaque native reference call retains open value, referent effects and unwind through its caller", async () => {
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const fixture = await loadFrontFixture();
+  const { sdk, packageOf, projectSnapshot, openAndCapture } = fixture;
+  const reference = { package: packageOf("/text-provider"), moduleSpecifier: "./plugin.js", exportId: "provider", version: "1" };
+  const provider = { identity: { id: "test.provider.open-reference", version: "1.0.0", extensionContractVersion: sdk.TstsSourceProviderContractVersion,
+    diagnosticRange: { start: 9_900_000, end: 9_900_099 } }, declarationMaterialization: "complete",
+    ownsModule: requested => ({ kind: requested === "native:text" ? "owned" : "unowned" }),
+    resolveModule: requested => ({ kind: "virtual", moduleSpecifier: requested, virtualFileName: "/provider/native/text.d.ts", providerModuleId: "native.text" }),
+    getDeclarationModel: () => ({ moduleSpecifier: "native:text", providerModuleId: "native.text", exports: [
+      { id: "ResolveText", name: "nativeText", exportName: "resolve", kind: "function", signatures: [{ id: "ResolveText.string",
+        parameters: [{ name: "value", type: { kind: "string" } }], returnType: { kind: "string" } }] },
+    ] }) };
+  const snapshot = projectSnapshot({
+    sourceFiles: { "main.ts": 'import { resolve } from "native:text"; function forward(value:string):string {return resolve(value);}'
+      + 'export function call(value:string):string{return forward(value);}' },
+    libraries: [{ name: "lib.es5.d.ts", text: sdk.barebonesLibContent }],
+    providerPackages: [{ root: "/text-provider", name: "text-provider" }], declarationProviders: [reference],
+  });
+  const opened = openAndCapture(snapshot, [{ reference, value: { kind: "declaration-provider", value: provider } }]);
+  const result = analyzeHostProgram({ ...analysisInput(fixture, "sdk-minimal"), snapshot, extensions: opened.deps.extensions });
+  assert.equal(result.kind, "ok");
+  const executing = result.value.index.summaries.filter(summary => summary.key.kind === "body" && summary.parameters.length === 1);
+  assert.equal(executing.length, 2);
+  for (const summary of executing) {
+    const value = summary.arena.origins[summary.result];
+    assert.equal(value.kind, "open");
+    assert.equal(summary.parameters[0].reads.kind, "open");
+    assert.equal(summary.parameters[0].writes.kind, "open");
+    assert.equal(summary.arena.boundaries[value.boundaries[0]].kind, "opaque-invocation");
+    assert.equal(summary.arena.boundaries[value.boundaries[0]].at.node.value.body, summary.key.execution.instance.body);
+    assert.equal(summary.retention.some(row => row.into.kind === "external"), true);
+    assert.equal(summary.returns && summary.unwinds, true);
+  }
 });
 
 test("an actual discarded reference call retains its effects without writing a normal result destination", () => {

@@ -137,7 +137,7 @@ export function callSummary(deps: BodyRoundDeps, body: MirBody,
     const { request } = key.execution;
     if (key.execution.provided !== provided || request.bindings.kind !== "instantiated")
       return frontier(operation, "A declared call retains its actual selected binding environment and provided entry.");
-    const bindings = declaredCallee.resolution.decision.bindings;
+    const bindings = declaredCallee.resolution.decision.implementationBindings;
     if (bindings !== request.bindings.bindings) {
       const read = admitArtifactIdentity({ kind: "instantiated", bindings }, deps.account);
       if (read !== null) return read;
@@ -266,8 +266,7 @@ export function applyScalarCall(deps: BodyRoundDeps, input: BodyRoundInput,
   const value = applied.value;
   const inspection = chargeWork(deps.account, 16);
   if (inspection !== null) return inspection;
-  if (value.result.callee.length !== 0 || value.result.boundaries.length !== 0
-    || value.thrown.callee.length !== 0 || value.thrown.boundaries.length !== 0)
+  if (value.result.callee.length !== 0 || value.thrown.callee.length !== 0)
     return frontier(operation, "BodyAnalysis requires the actual Origins result and thrown-value binding of this call.");
   const effects = value.events.length + value.concurrentWrites.length
     + value.callbacks.length + value.resultCells.length + value.backing.length;
@@ -290,8 +289,7 @@ export function applyScalarCall(deps: BodyRoundDeps, input: BodyRoundInput,
   for (const parameter of value.parameters) {
     const work = chargeWork(deps.account, 1);
     if (work !== null) return work;
-    if (parameter.source.reads.kind !== "complete" || parameter.source.writes.kind !== "complete"
-      || (parameter.source.reads.paths.length !== 0 || parameter.source.writes.paths.length !== 0) && parameter.source.slot.kind !== "parameter")
+    if ((parameter.source.reads.paths.length !== 0 || parameter.source.writes.paths.length !== 0) && parameter.source.slot.kind !== "parameter")
       return frontier(operation, "BodyAnalysis requires the actual parameter subobject read/write transport for these applied effects.");
     if (parameter.source.reads.paths.length !== 0) {
       const stopped = onParameterEffect("read", parameter);
@@ -305,7 +303,7 @@ export function applyScalarCall(deps: BodyRoundDeps, input: BodyRoundInput,
   for (const retained of value.retention) {
     const work = chargeWork(deps.account, 1);
     if (work !== null) return work;
-    if (retained.into.kind !== "return" && retained.into.kind !== "throw"
+    if (retained.into.kind !== "return" && retained.into.kind !== "throw" && retained.into.kind !== "external"
       && (retained.into.kind !== "capture" || retained.into.path !== null || operation.callee.kind !== "body")
       || retained.value.kind !== "caller")
       return frontier(operation, "BodyAnalysis requires the actual external retention transport for these applied effects.");
@@ -313,8 +311,8 @@ export function applyScalarCall(deps: BodyRoundDeps, input: BodyRoundInput,
   for (const capture of value.captures) {
     const work = chargeWork(deps.account, 1);
     if (work !== null) return work;
-    if (capture.source.reads.kind !== "complete" || capture.source.reads.paths.length !== 0
-      || capture.source.writes.kind !== "complete" || capture.source.writes.paths.length !== 0)
+    if (capture.source.reads.paths.length !== 0 || capture.source.writes.paths.length !== 0
+      || summary.arena.boundaries.length === 0 && (capture.source.reads.kind === "open" || capture.source.writes.kind === "open"))
       return frontier(operation, "BodyAnalysis requires the actual captured subobject read/write transport for these applied effects.");
   }
   for (const row of value.initialization) {

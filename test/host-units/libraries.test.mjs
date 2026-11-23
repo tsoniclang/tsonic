@@ -195,7 +195,7 @@ async function useDeclaredBinding() {
   const { createAccount } = await import("../../packages/host/dist/dataflow/index.js");
   const { bindDeclaredSummary } = await import("../../packages/host/dist/summaries/index.js");
   return (deps, input) => {
-    const result = bindDeclaredSummary(createAccount({ maximumWork: 1000000, maximumResultEntries: 1000000 }), deps, input);
+    const result = bindDeclaredSummary({ ...deps, account: createAccount({ maximumWork: 1000000, maximumResultEntries: 1000000 }) }, input);
     assert.equal(result.kind, "complete");
     return result.value;
   };
