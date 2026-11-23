@@ -16,7 +16,7 @@ import type {
 } from "./contract.js";
 import type { InvariantFailure } from "../diag/contract.js";
 import type { SyntaxCopyPorts, SyntaxPlan } from "./copy-node.js";
-import { copied, holdSyntaxPayload, copyNodeList, finishFunctionSyntax, memoSyntaxPlan, requireSyntaxStructure, syntaxHeader, withSyntaxPayload } from "./copy-node.js";
+import { copied, finishSignatureSyntax, holdSyntaxPayload, finishFunctionSyntax, memoSyntaxPlan, requireSyntaxStructure, syntaxHeader, withSyntaxPayload } from "./copy-node.js";
 import { throwInvariant } from "../diag/index.js";
 
 const missingStructure: InvariantFailure = { owner: "ir-hir", query: null, origin: null,
@@ -145,6 +145,19 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
   function structure<Kind extends SyntaxStructureReceipt<P>["kind"]>(node: ControlSyntax<P> | DeclarationStructureSyntax<P>, kind: Kind) {
     return requireSyntaxStructure<P, Kind>(structureOf(node), kind);
   }
+  const methodFields = (node: MethodDeclaration<P> | GetAccessorDeclaration<P> | SetAccessorDeclaration<P>) => {
+    const fields = structure(node, "method");
+    const body = fields.body();
+    return { modifiers: fields.modifiers(ports().ModifierLike), name: ports().PropertyName(fields.name()), postfixToken: fields.postfix(),
+      ...finishSignatureSyntax(fields, ports()), asteriskToken: fields.asterisk(), body: body === null ? null : ports().BlockOrExpression(body) };
+  };
+  const propertyFields = (node: PropertyDeclaration<P> | PropertySignatureDeclaration<P>) => {
+    const fields = structure(node, "property-member");
+    const type = fields.type();
+    const initializer = fields.initializer();
+    return { modifiers: fields.modifiers(ports().ModifierLike), name: ports().PropertyName(fields.name()), postfixToken: fields.postfix(),
+      type: type === null ? null : ports().TypeNode(type), initializer: initializer === null ? null : ports().Expression(initializer) };
+  };
 
   function nullable<Source, Destination>(value: Source | null, read: (source: Source) => Destination): Destination | null {
     return value === null ? null : read(value);
@@ -511,156 +524,64 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
     CallSignatureDeclaration: node => memoSyntaxPlan(CallSignatureDeclaration, node, () => withSyntaxPayload(phase.CallSignatureDeclaration, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        typeParameters: node.typeParameters === null ? null : copyNodeList(node.typeParameters, item => ports().TypeParameterDeclaration(item).read()),
-        parameters: copyNodeList(node.parameters, item => ports().ParameterDeclaration(item).read()),
-        type: node.type === null ? null : ports().TypeNode(node.type),
-        fullSignature: node.fullSignature === null ? null : ports().TypeNode(node.fullSignature),
-        tsonic,
-      });
+      return tsonic => ({ ...header, kind, ...finishSignatureSyntax(structure(node, "bare-signature"), ports()), tsonic });
     })),
     ConstructSignatureDeclaration: node => memoSyntaxPlan(ConstructSignatureDeclaration, node, () => withSyntaxPayload(phase.ConstructSignatureDeclaration, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        typeParameters: node.typeParameters === null ? null : copyNodeList(node.typeParameters, item => ports().TypeParameterDeclaration(item).read()),
-        parameters: copyNodeList(node.parameters, item => ports().ParameterDeclaration(item).read()),
-        type: node.type === null ? null : ports().TypeNode(node.type),
-        fullSignature: node.fullSignature === null ? null : ports().TypeNode(node.fullSignature),
-        tsonic,
-      });
+      return tsonic => ({ ...header, kind, ...finishSignatureSyntax(structure(node, "bare-signature"), ports()), tsonic });
     })),
     ConstructorDeclaration: node => memoSyntaxPlan(ConstructorDeclaration, node, () => withSyntaxPayload(phase.ConstructorDeclaration, node.tsonic, () => {
       const header = syntaxHeader(node);
-      const { kind, asteriskToken } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
-        typeParameters: node.typeParameters === null ? null : copyNodeList(node.typeParameters, item => ports().TypeParameterDeclaration(item).read()),
-        parameters: copyNodeList(node.parameters, item => ports().ParameterDeclaration(item).read()),
-        type: node.type === null ? null : ports().TypeNode(node.type),
-        fullSignature: node.fullSignature === null ? null : ports().TypeNode(node.fullSignature),
-        asteriskToken,
-        body: node.body === null ? null : ports().BlockOrExpression(node.body),
-        tsonic,
-      });
+      const { kind } = node;
+      return tsonic => {
+        const fields = structure(node, "constructor");
+        const body = fields.body();
+        return { ...header, kind, modifiers: fields.modifiers(ports().ModifierLike), ...finishSignatureSyntax(fields, ports()),
+          asteriskToken: fields.asterisk(), body: body === null ? null : ports().BlockOrExpression(body), tsonic };
+      };
     })),
     GetAccessorDeclaration: node => memoSyntaxPlan(GetAccessorDeclaration, node, () => withSyntaxPayload(phase.GetAccessorDeclaration, node.tsonic, () => {
       const header = syntaxHeader(node);
-      const { kind, postfixToken, asteriskToken } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
-        name: ports().PropertyName(node.name),
-        postfixToken,
-        typeParameters: node.typeParameters === null ? null : copyNodeList(node.typeParameters, item => ports().TypeParameterDeclaration(item).read()),
-        parameters: copyNodeList(node.parameters, item => ports().ParameterDeclaration(item).read()),
-        type: node.type === null ? null : ports().TypeNode(node.type),
-        fullSignature: node.fullSignature === null ? null : ports().TypeNode(node.fullSignature),
-        asteriskToken,
-        body: node.body === null ? null : ports().BlockOrExpression(node.body),
-        tsonic,
-      });
+      const { kind } = node;
+      return tsonic => ({ ...header, kind, ...methodFields(node), tsonic });
     })),
     SetAccessorDeclaration: node => memoSyntaxPlan(SetAccessorDeclaration, node, () => withSyntaxPayload(phase.SetAccessorDeclaration, node.tsonic, () => {
       const header = syntaxHeader(node);
-      const { kind, postfixToken, asteriskToken } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
-        name: ports().PropertyName(node.name),
-        postfixToken,
-        typeParameters: node.typeParameters === null ? null : copyNodeList(node.typeParameters, item => ports().TypeParameterDeclaration(item).read()),
-        parameters: copyNodeList(node.parameters, item => ports().ParameterDeclaration(item).read()),
-        type: node.type === null ? null : ports().TypeNode(node.type),
-        fullSignature: node.fullSignature === null ? null : ports().TypeNode(node.fullSignature),
-        asteriskToken,
-        body: node.body === null ? null : ports().BlockOrExpression(node.body),
-        tsonic,
-      });
+      const { kind } = node;
+      return tsonic => ({ ...header, kind, ...methodFields(node), tsonic });
     })),
     IndexSignatureDeclaration: node => memoSyntaxPlan(IndexSignatureDeclaration, node, () => withSyntaxPayload(phase.IndexSignatureDeclaration, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
-        typeParameters: node.typeParameters === null ? null : copyNodeList(node.typeParameters, item => ports().TypeParameterDeclaration(item).read()),
-        parameters: copyNodeList(node.parameters, item => ports().ParameterDeclaration(item).read()),
-        type: node.type === null ? null : ports().TypeNode(node.type),
-        fullSignature: node.fullSignature === null ? null : ports().TypeNode(node.fullSignature),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "modified-signature");
+        return { ...header, kind, modifiers: fields.modifiers(ports().ModifierLike), ...finishSignatureSyntax(fields, ports()), tsonic };
+      };
     })),
     MethodSignatureDeclaration: node => memoSyntaxPlan(MethodSignatureDeclaration, node, () => withSyntaxPayload(phase.MethodSignatureDeclaration, node.tsonic, () => {
       const header = syntaxHeader(node);
-      const { kind, postfixToken } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
-        name: ports().PropertyName(node.name),
-        postfixToken,
-        typeParameters: node.typeParameters === null ? null : copyNodeList(node.typeParameters, item => ports().TypeParameterDeclaration(item).read()),
-        parameters: copyNodeList(node.parameters, item => ports().ParameterDeclaration(item).read()),
-        type: node.type === null ? null : ports().TypeNode(node.type),
-        fullSignature: node.fullSignature === null ? null : ports().TypeNode(node.fullSignature),
-        tsonic,
-      });
+      const { kind } = node;
+      return tsonic => {
+        const fields = structure(node, "method-signature");
+        return { ...header, kind, modifiers: fields.modifiers(ports().ModifierLike), name: ports().PropertyName(fields.name()),
+          postfixToken: fields.postfix(), ...finishSignatureSyntax(fields, ports()), tsonic };
+      };
     })),
     MethodDeclaration: node => memoSyntaxPlan(MethodDeclaration, node, () => withSyntaxPayload(phase.MethodDeclaration, node.tsonic, () => {
       const header = syntaxHeader(node);
-      const { kind, postfixToken, asteriskToken } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
-        name: ports().PropertyName(node.name),
-        postfixToken,
-        typeParameters: node.typeParameters === null ? null : copyNodeList(node.typeParameters, item => ports().TypeParameterDeclaration(item).read()),
-        parameters: copyNodeList(node.parameters, item => ports().ParameterDeclaration(item).read()),
-        type: node.type === null ? null : ports().TypeNode(node.type),
-        fullSignature: node.fullSignature === null ? null : ports().TypeNode(node.fullSignature),
-        asteriskToken,
-        body: node.body === null ? null : ports().BlockOrExpression(node.body),
-        tsonic,
-      });
+      const { kind } = node;
+      return tsonic => ({ ...header, kind, ...methodFields(node), tsonic });
     })),
     PropertySignatureDeclaration: node => memoSyntaxPlan(PropertySignatureDeclaration, node, () => withSyntaxPayload(phase.PropertySignatureDeclaration, node.tsonic, () => {
       const header = syntaxHeader(node);
-      const { kind, postfixToken } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
-        name: ports().PropertyName(node.name),
-        postfixToken,
-        type: node.type === null ? null : ports().TypeNode(node.type),
-        initializer: node.initializer === null ? null : ports().Expression(node.initializer),
-        tsonic,
-      });
+      const { kind } = node;
+      return tsonic => ({ ...header, kind, ...propertyFields(node), tsonic });
     })),
     PropertyDeclaration: node => memoSyntaxPlan(PropertyDeclaration, node, () => withSyntaxPayload(phase.PropertyDeclaration, node.tsonic, () => {
       const header = syntaxHeader(node);
-      const { kind, postfixToken } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
-        name: ports().PropertyName(node.name),
-        postfixToken,
-        type: node.type === null ? null : ports().TypeNode(node.type),
-        initializer: node.initializer === null ? null : ports().Expression(node.initializer),
-        tsonic,
-      });
+      const { kind } = node;
+      return tsonic => ({ ...header, kind, ...propertyFields(node), tsonic });
     })),
     SemicolonClassElement: node => memoSyntaxPlan(SemicolonClassElement, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
@@ -674,13 +595,10 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
     ClassStaticBlockDeclaration: node => memoSyntaxPlan(ClassStaticBlockDeclaration, node, () => withSyntaxPayload(phase.ClassStaticBlockDeclaration, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
-        body: ports().Block(node.body).read(),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "static-block");
+        return { ...header, kind, modifiers: fields.modifiers(ports().ModifierLike), body: ports().Block(fields.body()).read(), tsonic };
+      };
     })),
   };
 }

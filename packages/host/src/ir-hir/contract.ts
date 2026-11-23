@@ -5063,7 +5063,10 @@ export type ControlSyntaxReceipt<P extends Phase> = {
 );
 
 export type DeclarationStructureSyntax<P extends Phase> = ClassDeclaration<P> | ClassExpression<P> | InterfaceDeclaration<P>
-  | HeritageClause<P> | TypeAliasDeclaration<P> | EnumDeclaration<P> | EnumMember<P> | ModuleBlock<P> | MissingDeclaration<P>;
+  | HeritageClause<P> | TypeAliasDeclaration<P> | EnumDeclaration<P> | EnumMember<P> | ModuleBlock<P> | MissingDeclaration<P>
+  | CallSignatureDeclaration<P> | ConstructSignatureDeclaration<P> | ConstructorDeclaration<P> | GetAccessorDeclaration<P>
+  | SetAccessorDeclaration<P> | IndexSignatureDeclaration<P> | MethodSignatureDeclaration<P> | MethodDeclaration<P>
+  | PropertySignatureDeclaration<P> | PropertyDeclaration<P> | ClassStaticBlockDeclaration<P>;
 
 export interface ModifiedSyntaxFields<P extends Phase> {
   readonly modifiers: (read: (value: ModifierLike<P>) => ModifierLike<P>) => ModifierList<P> | null;
@@ -5096,6 +5099,16 @@ export type DeclarationStructureReceipt<P extends Phase> = {
       readonly initializer: () => Expression<P> | null } & ModifiedSyntaxFields<P>)
   | { readonly kind: "module-block"; readonly statements: (read: (value: Statement<P>) => Statement<P>) => NodeList<Statement<P>> }
   | ({ readonly kind: "missing-declaration" } & ModifiedSyntaxFields<P>)
+  | ({ readonly kind: "bare-signature" } & SignatureSyntaxFields<P>)
+  | ({ readonly kind: "modified-signature" } & CallableSyntaxFields<P>)
+  | ({ readonly kind: "constructor"; readonly asterisk: () => AsteriskToken<P> | null;
+      readonly body: () => BlockOrExpression<P> | null } & CallableSyntaxFields<P>)
+  | ({ readonly kind: "method"; readonly asterisk: () => AsteriskToken<P> | null;
+      readonly body: () => BlockOrExpression<P> | null } & CallableSyntaxFields<P> & MemberNameSyntaxFields<P>)
+  | ({ readonly kind: "method-signature" } & CallableSyntaxFields<P> & MemberNameSyntaxFields<P>)
+  | ({ readonly kind: "property-member"; readonly type: () => TypeNode<P> | null;
+      readonly initializer: () => Expression<P> | null } & MemberNameSyntaxFields<P> & ModifiedSyntaxFields<P>)
+  | ({ readonly kind: "static-block"; readonly body: () => Block<P> } & ModifiedSyntaxFields<P>)
 );
 
 export type WrappedTypeSyntax<P extends Phase> = TypeOperatorNode<P> | OptionalTypeNode<P> | RestTypeNode<P> | ParenthesizedTypeNode<P>;
@@ -5136,19 +5149,24 @@ export type TypeStructureReceipt<P extends Phase> = {
   | { readonly kind: "template-type-span"; readonly type: () => TypeNode<P>; readonly literal: () => TemplateMiddleOrTail<P> }
 );
 
-export interface CallableSyntaxFields<P extends Phase> extends ModifiedSyntaxFields<P>, TypeParametersSyntaxFields<P> {
+export interface SignatureSyntaxFields<P extends Phase> extends TypeParametersSyntaxFields<P> {
   readonly parameters: (read: (value: ParameterDeclaration<P>) => ParameterDeclaration<P>) => NodeList<ParameterDeclaration<P>>;
   readonly type: () => TypeNode<P> | null;
   readonly full: () => TypeNode<P> | null;
 }
 
+export interface CallableSyntaxFields<P extends Phase> extends SignatureSyntaxFields<P>, ModifiedSyntaxFields<P> {}
+
 export type ExpressionStructureSyntax<P extends Phase> = QualifiedName<P> | YieldExpression<P> | ArrowFunction<P>
   | MetaProperty<P> | TemplateExpression<P> | TemplateSpan<P> | TaggedTemplateExpression<P>
   | PropertyAssignment<P> | ShorthandPropertyAssignment<P> | TypeAssertion<P> | ExpressionWithTypeArguments<P> | SyntheticReferenceExpression<P>;
 
-export interface PropertyAssignmentFields<P extends Phase> extends ModifiedSyntaxFields<P> {
+export interface MemberNameSyntaxFields<P extends Phase> {
   readonly name: () => PropertyName<P>;
   readonly postfix: () => QuestionToken<P> | ExclamationToken<P> | null;
+}
+
+export interface PropertyAssignmentFields<P extends Phase> extends ModifiedSyntaxFields<P>, MemberNameSyntaxFields<P> {
   readonly type: () => TypeNode<P> | null;
 }
 

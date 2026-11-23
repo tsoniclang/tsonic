@@ -1,5 +1,5 @@
 import type {
-  Phase, PreparedSyntaxSlot, SyntaxCopyResult, SyntaxNode, SyntaxStructureReceipt, ArrayLiteralExpression, ArrayTypeNode, ArrowFunction, AsExpression, AwaitExpression,
+  Phase, PreparedSyntaxSlot, SignatureSyntaxFields, SyntaxCopyResult, SyntaxNode, SyntaxStructureReceipt, ArrayLiteralExpression, ArrayTypeNode, ArrowFunction, AsExpression, AwaitExpression,
   BigIntLiteral, BinaryExpression, BindingElement, BindingName, BindingPattern,
   Block, BlockOrExpression, BreakStatement, CallExpression,
   CallSignatureDeclaration, CaseBlock, CaseClause, CaseOrDefaultClause, CatchClause,
@@ -331,6 +331,14 @@ export function finishFunctionSyntax<P extends Phase, Stop, Image>(shape: Functi
   return shape.finish(formal => ports.ParameterDeclaration(formal).read(), body => ports.BlockOrExpression(body),
     modifier => ports.ModifierLike(modifier), parameter => ports.TypeParameterDeclaration(parameter).read(),
     type => ports.TypeNode(type), name => ports.Identifier(name).read());
+}
+
+export function finishSignatureSyntax<P extends Phase, Stop, Image>(shape: SignatureSyntaxFields<P>, ports: SyntaxCopyPorts<P, Stop, Image>) {
+  const type = shape.type();
+  const full = shape.full();
+  return { typeParameters: shape.typeParameters(parameter => ports.TypeParameterDeclaration(parameter).read()),
+    parameters: shape.parameters(formal => ports.ParameterDeclaration(formal).read()),
+    type: type === null ? null : ports.TypeNode(type), fullSignature: full === null ? null : ports.TypeNode(full) };
 }
 
 const unmaterialized: InvariantFailure = { owner: "ir-hir", query: null, origin: null,

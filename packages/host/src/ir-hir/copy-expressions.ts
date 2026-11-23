@@ -15,7 +15,7 @@ import type {
 } from "./contract.js";
 import { throwInvariant } from "../diag/index.js";
 import type { SyntaxCopyPorts, SyntaxPlan } from "./copy-node.js";
-import { holdSyntaxPayload, finishFunctionSyntax, memoSyntaxPlan, requireSyntaxStructure, syntaxHeader, withSyntaxPayload } from "./copy-node.js";
+import { finishSignatureSyntax, holdSyntaxPayload, finishFunctionSyntax, memoSyntaxPlan, requireSyntaxStructure, syntaxHeader, withSyntaxPayload } from "./copy-node.js";
 
 export interface ExpressionsPlans<P extends Phase, Stop, Image> {
   readonly Identifier: (node: Identifier<P>) => SyntaxPlan<Identifier<P>, Stop, Image>;
@@ -333,13 +333,9 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
       const { kind } = node;
       return tsonic => {
         const fields = structure(node, "arrow");
-        const type = fields.type();
-        const full = fields.full();
         const body = fields.body();
         return { ...header, kind, modifiers: fields.modifiers(ports().ModifierLike),
-          typeParameters: fields.typeParameters(value => ports().TypeParameterDeclaration(value).read()),
-          parameters: fields.parameters(value => ports().ParameterDeclaration(value).read()),
-          type: type === null ? null : ports().TypeNode(type), fullSignature: full === null ? null : ports().TypeNode(full),
+          ...finishSignatureSyntax(fields, ports()),
           asteriskToken: fields.asterisk(), body: body === null ? null : ports().BlockOrExpression(body), equalsGreaterThanToken: fields.arrow(), tsonic };
       };
     })),

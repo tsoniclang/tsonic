@@ -8,7 +8,7 @@ import type {
   Phase, SyntaxPhaseCopy, SyntaxStructureReceipt, TypeNode, TypeStructureSyntax,
 } from "./contract.js";
 import type { SyntaxCopyPorts, SyntaxPlan } from "./copy-node.js";
-import { holdSyntaxPayload, memoSyntaxPlan, requireSyntaxStructure, syntaxHeader, withSyntaxPayload } from "./copy-node.js";
+import { finishSignatureSyntax, holdSyntaxPayload, memoSyntaxPlan, requireSyntaxStructure, syntaxHeader, withSyntaxPayload } from "./copy-node.js";
 
 export interface TypesPlans<P extends Phase, Stop, Image> {
   readonly KeywordTypeNode: (node: KeywordTypeNode<P>) => SyntaxPlan<KeywordTypeNode<P>, Stop, Image>;
@@ -75,8 +75,7 @@ export function createTypesPlans<P extends Phase, Stop, Image>(phase: SyntaxPhas
   const typeOrNull = (node: TypeNode<P> | null) => node === null ? null : ports().TypeNode(node);
   const callableFields = (node: FunctionTypeNode<P> | ConstructorTypeNode<P>) => {
     const fields = structure(node, "callable-type");
-    return { modifiers: fields.modifiers(ports().ModifierLike), typeParameters: fields.typeParameters(value => ports().TypeParameterDeclaration(value).read()),
-      parameters: fields.parameters(value => ports().ParameterDeclaration(value).read()), type: typeOrNull(fields.type()), fullSignature: typeOrNull(fields.full()) };
+    return { modifiers: fields.modifiers(ports().ModifierLike), ...finishSignatureSyntax(fields, ports()) };
   };
   return {
     KeywordTypeNode: node => memoSyntaxPlan(KeywordTypeNode, node, () => withSyntaxPayload(phase.KeywordTypeNode, node.tsonic, () => {

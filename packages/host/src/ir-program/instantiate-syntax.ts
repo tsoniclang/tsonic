@@ -190,55 +190,22 @@ function admitSyntaxHeader(scan: ProjectionInventory, node: SyntaxNode<TypedPhas
         ?? inventoryRecord(scan, 2);
     case "ExportSpecifier":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10);
-    case "CallSignature":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11)
-        ?? (node.typeParameters === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryRecord(scan, 2);
-    case "ConstructSignature":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11)
-        ?? (node.typeParameters === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryRecord(scan, 2);
-    case "Constructor":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 14)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
-        ?? (node.typeParameters === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryRecord(scan, 2);
+    case "CallSignature": case "ConstructSignature":
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11);
+    case "Constructor": case "MethodSignature":
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 14);
     case "GetAccessor":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 16)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
-        ?? (node.typeParameters === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryRecord(scan, 2);
     case "SetAccessor":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 16)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
-        ?? (node.typeParameters === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryRecord(scan, 2);
-    case "IndexSignature":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 12)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
-        ?? (node.typeParameters === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryRecord(scan, 2);
-    case "MethodSignature":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 14)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
-        ?? (node.typeParameters === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryRecord(scan, 2);
     case "MethodDeclaration":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 16)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
-        ?? (node.typeParameters === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryRecord(scan, 2);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 16);
+    case "IndexSignature":
     case "PropertySignature":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 12)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2));
     case "PropertyDeclaration":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 12)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 12);
     case "SemicolonClassElement":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 7);
     case "ClassStaticBlockDeclaration":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "OmittedExpression":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 7);
     case "NullKeyword":     case "TrueKeyword":     case "FalseKeyword":     case "ThisKeyword":     case "SuperKeyword":     case "ImportKeyword":

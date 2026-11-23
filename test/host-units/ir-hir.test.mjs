@@ -634,6 +634,27 @@ test("HIR copies the complete Checked constructor inventory through one paid pos
         expectList("parameters", watch(selected, "parameters"));
         expectFields("type", "fullSignature");
         if (selected.kind === "ArrowFunction") expectFields("asteriskToken", "equalsGreaterThanToken", "body");
+      } else if (["CallSignature", "ConstructSignature", "Constructor", "IndexSignature", "MethodSignature", "MethodDeclaration", "GetAccessor", "SetAccessor"].includes(selected.kind)) {
+        const modified = selected.kind !== "CallSignature" && selected.kind !== "ConstructSignature";
+        const method = selected.kind === "MethodDeclaration" || selected.kind === "GetAccessor" || selected.kind === "SetAccessor";
+        if (modified) expectedReads.push("modifiers");
+        expectedReads.push("typeParameters");
+        const modifiers = modified ? watch(selected, "modifiers") : null;
+        const typeParameters = watch(selected, "typeParameters");
+        expectList("modifiers", modifiers);
+        if (method) expectFields("asteriskToken");
+        if (method || selected.kind === "MethodSignature") expectFields("name", "postfixToken");
+        expectList("typeParameters", typeParameters);
+        expectedReads.push("parameters");
+        expectList("parameters", watch(selected, "parameters"));
+        expectFields("type", "fullSignature");
+        if (selected.kind === "Constructor") expectFields("asteriskToken");
+        if (method || selected.kind === "Constructor") expectFields("body");
+      } else if (selected.kind === "PropertyDeclaration" || selected.kind === "PropertySignature" || selected.kind === "ClassStaticBlockDeclaration") {
+        expectedReads.push("modifiers");
+        expectList("modifiers", watch(selected, "modifiers"));
+        if (selected.kind === "ClassStaticBlockDeclaration") expectFields("body");
+        else expectFields("name", "postfixToken", "type", "initializer");
       } else if (selected.kind === "TypeParameter") {
         expectedReads.push("modifiers");
         expectList("modifiers", watch(selected, "modifiers"));

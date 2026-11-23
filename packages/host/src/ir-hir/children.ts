@@ -32,6 +32,8 @@ import type { AssertsKeyword, ConstructorTypeNode, FunctionTypeNode, ImportAttri
 import type { ArrowFunction, CallableSyntaxFields, EqualsGreaterThanToken, EqualsToken, ExpressionStructureReceipt, ExpressionStructureSyntax,
   MetaProperty, PropertyAssignment, QualifiedName, ShorthandPropertyAssignment, SyntheticReferenceExpression, TaggedTemplateExpression,
   TemplateExpression, TemplateLiteral, TemplateSpan, TypeAssertion, YieldExpression } from "./contract.js";
+import type { ClassStaticBlockDeclaration, ConstructorDeclaration, GetAccessorDeclaration, MethodDeclaration,
+  MethodSignatureDeclaration, PropertyDeclaration, PropertySignatureDeclaration, SetAccessorDeclaration, SignatureSyntaxFields } from "./contract.js";
 export type { SyntaxChildSlot } from "./contract.js";
 
 const emptyChildren: readonly never[] = ([]);
@@ -451,10 +453,9 @@ function* mappedTypeSlots<P extends Phase>(readonlyToken: () => ReadonlyKeyword<
   yield* members();
 }
 
-function* callableTypeSlots<P extends Phase>(modifiers: () => Iterable<SyntaxChildSlot<P>>,
+function* signatureSlots<P extends Phase>(
   typeParameters: () => Iterable<SyntaxChildSlot<P>>, parameters: () => Iterable<SyntaxChildSlot<P>>,
   type: () => TypeNode<P> | null, full: () => TypeNode<P> | null): Generator<SyntaxChildSlot<P>> {
-  yield* modifiers();
   yield* typeParameters();
   yield* parameters();
   yield* children<P, FunctionTypeNode<P> | ConstructorTypeNode<P>>(["type", "nullable", type], ["fullSignature", "nullable", full]);
@@ -478,21 +479,41 @@ function templateTypeSpanSlots<P extends Phase>(type: () => TypeNode<P>, literal
   return children<P, TemplateLiteralTypeSpan<P>>(["type", "required", type], ["literal", "required", literal]);
 }
 
+type SignatureOperands<P extends Phase> = Pick<FunctionTypeNode<P>, "typeParameters" | "parameters" | "type" | "fullSignature">;
+
+function rawSignatureSlots<P extends Phase>(node: SignatureOperands<P>) {
+  return signatureSlots<P>(() => children<P, SignatureOperands<P>>(["typeParameters", "list", () => node.typeParameters]),
+    () => children<P, SignatureOperands<P>>(["parameters", "list", () => node.parameters]), () => node.type, () => node.fullSignature);
+}
+
+function prepareSignatureStructure<P extends Phase, Stop>(node: SignatureOperands<P>,
+  admitList: (field: SyntaxChildListField) => Stop | null): SyntaxCopyResult<SignatureSyntaxFields<P> & { readonly slots: Iterable<SyntaxChildSlot<P>> }, Stop> {
+  const rawTypeParameters = node.typeParameters;
+  const stop = (rawTypeParameters === null ? null : admitList("typeParameters")) ?? admitList("parameters");
+  if (stop !== null) return { kind: "refused", stop };
+  const typeParameters = heldOptionalList<P, TypeParameterDeclaration<P>>("typeParameters", rawTypeParameters);
+  const parameters = heldList<P, ParameterDeclaration<P>>("parameters", () => node.parameters);
+  const type = heldChild(() => node.type);
+  const full = heldChild(() => node.fullSignature);
+  return { kind: "copied", value: { slots: signatureSlots<P>(typeParameters.slots, parameters.slots, type.pull, full.pull),
+    typeParameters: typeParameters.finish, parameters: parameters.finish, type: type.read, full: full.read } };
+}
+
+function* prependSlots<P extends Phase>(first: Iterable<SyntaxChildSlot<P>>, rest: Iterable<SyntaxChildSlot<P>>): Generator<SyntaxChildSlot<P>> {
+  yield* first;
+  yield* rest;
+}
+
 function prepareCallableStructure<P extends Phase, Stop>(node: FunctionTypeNode<P> | ConstructorTypeNode<P> | ArrowFunction<P>,
   admitList: (field: SyntaxChildListField) => Stop | null): SyntaxCopyResult<CallableSyntaxFields<P> & { readonly slots: Iterable<SyntaxChildSlot<P>> }, Stop> {
   const rawModifiers = node.modifiers;
   const modifierStop = rawModifiers === null ? null : admitList("modifiers");
   if (modifierStop !== null) return { kind: "refused", stop: modifierStop };
-  const rawTypeParameters = node.typeParameters;
-  const stop = (rawTypeParameters === null ? null : admitList("typeParameters")) ?? admitList("parameters");
-  if (stop !== null) return { kind: "refused", stop };
+  const signature = prepareSignatureStructure<P, Stop>(node, admitList);
+  if (signature.kind === "refused") return signature;
   const modifiers = heldOptionalList<P, ModifierLike<P>>("modifiers", rawModifiers);
-  const typeParameters = heldOptionalList<P, TypeParameterDeclaration<P>>("typeParameters", rawTypeParameters);
-  const parameters = heldList<P, ParameterDeclaration<P>>("parameters", () => node.parameters);
-  const type = heldChild(() => node.type);
-  const full = heldChild(() => node.fullSignature);
-  return { kind: "copied", value: { slots: callableTypeSlots<P>(modifiers.slots, typeParameters.slots, parameters.slots, type.pull, full.pull),
-    modifiers: modifiers.finish, typeParameters: typeParameters.finish, parameters: parameters.finish, type: type.read, full: full.read } };
+  return { kind: "copied", value: { ...signature.value, modifiers: modifiers.finish,
+    slots: prependSlots<P>(modifiers.slots(), signature.value.slots) } };
 }
 
 function prepareTypeStructure<P extends Phase, Stop>(node: TypeStructureSyntax<P>, ordinal: number,
@@ -799,7 +820,9 @@ function isDeclarationStructure<P extends Phase>(node: SyntaxNode<P>): node is D
   switch (node.kind) {
     case "ClassDeclaration": case "ClassExpression": case "InterfaceDeclaration": case "HeritageClause":
     case "TypeAliasDeclaration": case "JSTypeAliasDeclaration": case "EnumDeclaration": case "EnumMember":
-    case "ModuleBlock": case "MissingDeclaration": return true;
+    case "ModuleBlock": case "MissingDeclaration": case "CallSignature": case "ConstructSignature": case "Constructor":
+    case "GetAccessor": case "SetAccessor": case "IndexSignature": case "MethodSignature": case "MethodDeclaration":
+    case "PropertySignature": case "PropertyDeclaration": case "ClassStaticBlockDeclaration": return true;
     default: return false;
   }
 }
@@ -830,6 +853,29 @@ function enumMemberSlots<P extends Phase>(name: () => PropertyName<P>, postfix: 
   return children<P, EnumMember<P>>(["name", "required", name], ["postfixToken", "nullable", postfix], ["initializer", "nullable", initializer]);
 }
 
+type MethodSyntax<P extends Phase> = MethodDeclaration<P> | GetAccessorDeclaration<P> | SetAccessorDeclaration<P>;
+type NamedMemberSyntax<P extends Phase> = MethodSyntax<P> | MethodSignatureDeclaration<P> | PropertyDeclaration<P> | PropertySignatureDeclaration<P>;
+
+function memberNameSlots<P extends Phase>(name: () => PropertyName<P>, postfix: () => QuestionToken<P> | ExclamationToken<P> | null) {
+  return children<P, NamedMemberSyntax<P>>(["name", "required", name], ["postfixToken", "nullable", postfix]);
+}
+
+function memberAsteriskSlots<P extends Phase>(asterisk: () => AsteriskToken<P> | null) {
+  return children<P, MethodSyntax<P> | ConstructorDeclaration<P>>(["asteriskToken", "nullable", asterisk]);
+}
+
+function memberBodySlots<P extends Phase>(body: () => BlockOrExpression<P> | null) {
+  return children<P, MethodSyntax<P> | ConstructorDeclaration<P>>(["body", "nullable", body]);
+}
+
+function propertyMemberSlots<P extends Phase>(type: () => TypeNode<P> | null, initializer: () => Expression<P> | null) {
+  return children<P, PropertyDeclaration<P> | PropertySignatureDeclaration<P>>(["type", "nullable", type], ["initializer", "nullable", initializer]);
+}
+
+function staticBlockSlots<P extends Phase>(body: () => Block<P>) {
+  return children<P, ClassStaticBlockDeclaration<P>>(["body", "required", body]);
+}
+
 function prepareDeclaration<P extends Phase, Stop>(node: DeclarationStructureSyntax<P>, ordinal: number,
   admitList: (field: SyntaxChildListField) => Stop | null): SyntaxCopyResult<DeclarationStructureReceipt<P>, Stop> {
   switch (node.kind) {
@@ -845,6 +891,10 @@ function prepareDeclaration<P extends Phase, Stop>(node: DeclarationStructureSyn
       const types = heldList<P, ExpressionWithTypeArguments<P>>("types", () => node.types);
       return { kind: "copied", value: { kind: "heritage", ordinal, slots: types.slots(), types: types.finish } };
     }
+    case "CallSignature": case "ConstructSignature": {
+      const signature = prepareSignatureStructure<P, Stop>(node, admitList);
+      return signature.kind === "refused" ? signature : { kind: "copied", value: { kind: "bare-signature", ordinal, ...signature.value } };
+    }
   }
   const rawModifiers = node.modifiers;
   if (rawModifiers !== null) {
@@ -852,6 +902,45 @@ function prepareDeclaration<P extends Phase, Stop>(node: DeclarationStructureSyn
     if (stop !== null) return { kind: "refused", stop };
   }
   const modifiers = heldOptionalList<P, ModifierLike<P>>("modifiers", rawModifiers);
+  if (node.kind === "IndexSignature" || node.kind === "Constructor" || node.kind === "MethodSignature" ||
+    node.kind === "MethodDeclaration" || node.kind === "GetAccessor" || node.kind === "SetAccessor") {
+    const signature = prepareSignatureStructure<P, Stop>(node, admitList);
+    if (signature.kind === "refused") return signature;
+    if (node.kind === "IndexSignature") return { kind: "copied", value: { kind: "modified-signature", ordinal,
+      ...signature.value, modifiers: modifiers.finish, slots: prependSlots<P>(modifiers.slots(), signature.value.slots) } };
+    if (node.kind === "Constructor") {
+      const asterisk = heldChild(() => node.asteriskToken);
+      const body = heldChild(() => node.body);
+      return { kind: "copied", value: { kind: "constructor", ordinal, ...signature.value, modifiers: modifiers.finish,
+        slots: declarationSlots<P>(modifiers.slots, () => signature.value.slots, () => memberAsteriskSlots<P>(asterisk.pull), () => memberBodySlots<P>(body.pull)),
+        asterisk: asterisk.read, body: body.read } };
+    }
+    const name = heldChild(() => node.name);
+    const postfix = heldChild(() => node.postfixToken);
+    const member = () => memberNameSlots<P>(name.pull, postfix.pull);
+    if (node.kind === "MethodSignature") return { kind: "copied", value: { kind: "method-signature", ordinal,
+      ...signature.value, modifiers: modifiers.finish, slots: declarationSlots<P>(modifiers.slots, member, () => signature.value.slots),
+      name: name.read, postfix: postfix.read } };
+    const asterisk = heldChild(() => node.asteriskToken);
+    const body = heldChild(() => node.body);
+    return { kind: "copied", value: { kind: "method", ordinal, ...signature.value, modifiers: modifiers.finish,
+      slots: declarationSlots<P>(modifiers.slots, () => memberAsteriskSlots<P>(asterisk.pull), member, () => signature.value.slots, () => memberBodySlots<P>(body.pull)),
+      name: name.read, postfix: postfix.read, asterisk: asterisk.read, body: body.read } };
+  }
+  if (node.kind === "PropertySignature" || node.kind === "PropertyDeclaration") {
+    const name = heldChild(() => node.name);
+    const postfix = heldChild(() => node.postfixToken);
+    const type = heldChild(() => node.type);
+    const initializer = heldChild(() => node.initializer);
+    return { kind: "copied", value: { kind: "property-member", ordinal, modifiers: modifiers.finish,
+      slots: declarationSlots<P>(modifiers.slots, () => memberNameSlots<P>(name.pull, postfix.pull), () => propertyMemberSlots<P>(type.pull, initializer.pull)),
+      name: name.read, postfix: postfix.read, type: type.read, initializer: initializer.read } };
+  }
+  if (node.kind === "ClassStaticBlockDeclaration") {
+    const body = heldChild(() => node.body);
+    return { kind: "copied", value: { kind: "static-block", ordinal, modifiers: modifiers.finish,
+      slots: prependSlots<P>(modifiers.slots(), staticBlockSlots<P>(body.pull)), body: body.read } };
+  }
   if (node.kind === "MissingDeclaration")
     return { kind: "copied", value: { kind: "missing-declaration", ordinal, slots: modifiers.slots(), modifiers: modifiers.finish } };
   if (node.kind === "EnumMember") {
@@ -1568,34 +1657,29 @@ function ordinarySlots<PhaseType extends Phase>(
     case "CallSignature":
     case "ConstructSignature":
     case "JSDocSignature":
-      return children<PhaseType, typeof node>(["typeParameters", "list", () => node.typeParameters], ["parameters", "list", () => node.parameters], ["type", "nullable", () => node.type], ["fullSignature", "nullable", () => node.fullSignature]);
-    case "FunctionType": case "ConstructorType":
-      return callableTypeSlots<PhaseType>(() => children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers]),
-        () => children<PhaseType, typeof node>(["typeParameters", "list", () => node.typeParameters]),
-        () => children<PhaseType, typeof node>(["parameters", "list", () => node.parameters]), () => node.type, () => node.fullSignature);
+      return rawSignatureSlots<PhaseType>(node);
+    case "FunctionType": case "ConstructorType": case "IndexSignature":
+      return prependSlots<PhaseType>(children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers]), rawSignatureSlots<PhaseType>(node));
     case "Constructor":
-      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["typeParameters", "list", () => node.typeParameters], ["parameters", "list", () => node.parameters],
-        ["type", "nullable", () => node.type], ["fullSignature", "nullable", () => node.fullSignature], ["asteriskToken", "nullable", () => node.asteriskToken], ["body", "nullable", () => node.body]);
+      return declarationSlots<PhaseType>(() => children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers]), () => rawSignatureSlots<PhaseType>(node),
+        () => memberAsteriskSlots<PhaseType>(() => node.asteriskToken), () => memberBodySlots<PhaseType>(() => node.body));
     case "GetAccessor":
     case "SetAccessor":
-      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["asteriskToken", "nullable", () => node.asteriskToken], ["name", "required", () => node.name], ["postfixToken", "nullable", () => node.postfixToken],
-        ["typeParameters", "list", () => node.typeParameters], ["parameters", "list", () => node.parameters], ["type", "nullable", () => node.type], ["fullSignature", "nullable", () => node.fullSignature], ["body", "nullable", () => node.body]);
-    case "IndexSignature":
-      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["typeParameters", "list", () => node.typeParameters], ["parameters", "list", () => node.parameters], ["type", "nullable", () => node.type], ["fullSignature", "nullable", () => node.fullSignature]);
-    case "MethodSignature":
-      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["name", "required", () => node.name], ["postfixToken", "nullable", () => node.postfixToken],
-        ["typeParameters", "list", () => node.typeParameters], ["parameters", "list", () => node.parameters], ["type", "nullable", () => node.type], ["fullSignature", "nullable", () => node.fullSignature]);
     case "MethodDeclaration":
-      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["asteriskToken", "nullable", () => node.asteriskToken], ["name", "required", () => node.name], ["postfixToken", "nullable", () => node.postfixToken],
-        ["typeParameters", "list", () => node.typeParameters], ["parameters", "list", () => node.parameters], ["type", "nullable", () => node.type], ["fullSignature", "nullable", () => node.fullSignature], ["body", "nullable", () => node.body]);
+      return declarationSlots<PhaseType>(() => children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers]), () => memberAsteriskSlots<PhaseType>(() => node.asteriskToken),
+        () => memberNameSlots<PhaseType>(() => node.name, () => node.postfixToken), () => rawSignatureSlots<PhaseType>(node), () => memberBodySlots<PhaseType>(() => node.body));
+    case "MethodSignature":
+      return declarationSlots<PhaseType>(() => children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers]),
+        () => memberNameSlots<PhaseType>(() => node.name, () => node.postfixToken), () => rawSignatureSlots<PhaseType>(node));
     case "PropertySignature":
     case "PropertyDeclaration":
-      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["name", "required", () => node.name], ["postfixToken", "nullable", () => node.postfixToken], ["type", "nullable", () => node.type], ["initializer", "nullable", () => node.initializer]);
+      return declarationSlots<PhaseType>(() => children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers]),
+        () => memberNameSlots<PhaseType>(() => node.name, () => node.postfixToken), () => propertyMemberSlots<PhaseType>(() => node.type, () => node.initializer));
     case "PropertyAssignment":
       return propertyAssignmentSlots<PhaseType>(() => children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers]),
         () => node.name, () => node.postfixToken, () => node.type, initializerSlots<PhaseType>(() => node.initializer));
     case "ClassStaticBlockDeclaration":
-      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["body", "required", () => node.body]);
+      return prependSlots<PhaseType>(children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers]), staticBlockSlots<PhaseType>(() => node.body));
     case "BinaryExpression":
       return binaryFields<PhaseType>(node, () => node.modifiers, {
         modifiers: (field, list) => children<PhaseType, typeof node>([field, "list", () => list]),
@@ -1607,9 +1691,7 @@ function ordinarySlots<PhaseType extends Phase>(
     case "YieldExpression":
       return yieldSlots<PhaseType>(() => node.asteriskToken, () => node.expression);
     case "ArrowFunction":
-      return arrowSlots<PhaseType>(callableTypeSlots<PhaseType>(() => children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers]),
-        () => children<PhaseType, typeof node>(["typeParameters", "list", () => node.typeParameters]),
-        () => children<PhaseType, typeof node>(["parameters", "list", () => node.parameters]), () => node.type, () => node.fullSignature),
+      return arrowSlots<PhaseType>(prependSlots<PhaseType>(children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers]), rawSignatureSlots<PhaseType>(node)),
       () => node.asteriskToken, () => node.equalsGreaterThanToken, () => node.body);
     case "AsExpression":
     case "SatisfiesExpression":
