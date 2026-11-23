@@ -157,7 +157,7 @@ function evaluate(input) {
     case "phase-codec":
     case "phase-inline-sharing": {
       if (input.operation === "phase-inline-sharing") {
-        input.module.bodies[0].tir.root = input.module.tree;
+        input.module.bodies[0].tir.root = input.module.tree.root;
         const alternatives = input.module.bodies[0].tir.evidence[0].category.alternatives;
         alternatives[1] = alternatives[0];
       }
@@ -204,10 +204,10 @@ function evaluate(input) {
       const parsedModules = program.modules.map(module => product.parseModuleBodies(program.index, product.printModuleBodies(program.index, module)));
       return { program, printedIndex: product.printProgramIndex(program.index),
         printedModules: program.modules.map(module => product.printModuleBodies(program.index, module)),
-        sharedRoots: program.modules.map(module => Object.is(module.tree, module.bodies[0].tir.root)),
+        sharedRoots: program.modules.map(module => Object.is(module.tree.root, module.bodies[0].tir.root)),
         parsedIndex: product.parseProgramIndex(product.printProgramIndex(program.index)),
         parsedModules, parsedModuleRoots: parsedModules.map(parsed => parsed.kind === "parsed"
-          && Object.is(parsed.value.tree, parsed.value.bodies[0].tir.root)) };
+          && Object.is(parsed.value.tree.root, parsed.value.bodies[0].tir.root)) };
     }
     case "canonicalize-method-fixture":
       authoredMethodGraph(input.program.modules[0]);
@@ -220,7 +220,7 @@ function evaluate(input) {
       const index = product.parseProgramIndex(product.printProgramIndex(program.index));
       const parsed = product.parseModuleBodies(program.index, product.printModuleBodies(program.index, module));
       if (parsed.kind !== "parsed") return { index, parsed };
-      const method = parsed.value.tree.statements.nodes[0].members.nodes[0];
+      const method = parsed.value.tree.root.statements.nodes[0].node.members.nodes[0];
       const nested = method.body.statements.nodes[0];
       const shares = parsed.value.bodies.map(body => body.instance.body === method.tsonic.template.body
         ? Object.is(body.tir.root, method.body) : body.instance.body === nested.tsonic.template.body
@@ -230,7 +230,7 @@ function evaluate(input) {
     case "parse-index": return product.parseProgramIndex(input.text);
     case "deep-syntax-roundtrip": {
       const fixture = moduleBoundaryFixture("control", publicationFixture());
-      const { tree } = fixture.module;
+      const tree = fixture.module.tree.root;
       const nodes = [];
       let statement = { id: input.depth + 1, origin: tree.origin, parent: input.depth, flags: [], loc: tree.loc,
         kind: "EmptyStatement", tsonic: null };
@@ -240,10 +240,10 @@ function evaluate(input) {
           kind: "Block", statements: { loc: tree.loc, nodes: [statement] }, multiLine: false, tsonic: null };
         nodes.push(statement);
       }
-      tree.statements.nodes = [statement];
+      tree.statements.nodes = [{ kind: "ready-statement", node: statement }];
       tree.endOfFileToken.id = input.depth + 2;
       const checked = fixture.tirInput.source.tree;
-      checked.statements = tree.statements;
+      checked.statements = { loc: tree.statements.loc, nodes: [statement] };
       const scopes = [{ node: 0, parent: null, attributes: [] }];
       for (let position = 1; position <= input.depth; position += 1) scopes.push({ node: position, parent: position - 1, attributes: [] });
       fixture.module.bodies[0].tir.scopes = scopes;
@@ -261,7 +261,7 @@ function evaluate(input) {
       const flat = node => node.kind === "Block" || node.kind === "SourceFile"
         ? { ...node, statements: { ...node.statements, nodes: [] } } : node;
       let original = tree;
-      let actual = parsed.value.tree;
+      let actual = parsed.value.tree.root;
       let complete = isDeepStrictEqual(shape(parsed.value), shape(fixture.module));
       let count = 0;
       for (;;) {
@@ -269,17 +269,18 @@ function evaluate(input) {
         count += 1;
         if (original.kind === "EmptyStatement") break;
         complete = actual.statements.nodes.length === 1 && complete;
-        actual = actual.statements.nodes[0];
-        original = original.statements.nodes[0];
+        actual = actual.kind === "SourceFile" ? actual.statements.nodes[0].node : actual.statements.nodes[0];
+        original = original.kind === "SourceFile" ? original.statements.nodes[0].node : original.statements.nodes[0];
       }
       fixture.context.resources = product.createProgramVerificationWork(ProgramWork.state(fixture.context.resources).limits, createAccount({ maximumWork: 10000 + (input.depth + 3) * (64 + 8 * fixture.bodyId.length), maximumResultEntries: 1000000000 }));
-      return { complete, chainNodes: count, sharedRoot: Object.is(parsed.value.tree, parsed.value.bodies[0].tir.root),
+      return { complete, chainNodes: count, sharedRoot: Object.is(parsed.value.tree.root, parsed.value.bodies[0].tir.root),
         violations: moduleViolations(fixture.index, fixture.module, fixture.context) };
     }
     case "parse-module": return product.parseModuleBodies(input.index, input.text);
     case "parse-module-sharing": {
       const parsed = product.parseModuleBodies(input.index, input.text);
-      return { parsed, shared: parsed.kind === "parsed" && Object.is(parsed.value.tree.statements.nodes[0], parsed.value.tree.statements.nodes[1]) };
+      return { parsed, shared: parsed.kind === "parsed" &&
+        Object.is(parsed.value.tree.root.statements.nodes[0].node, parsed.value.tree.root.statements.nodes[1].node) };
     }
     case "verify-index": return product.verifyProgramIndex(input.index, verificationContext(input));
     case "verify-path-fixture": {
@@ -370,8 +371,9 @@ function evaluate(input) {
       return product.instantiate(input.index, input.module, input.artifact, input.bindings, input.limits);
     case "instantiate-module-fixture": {
       const published = input.module.bodies[0];
-      assert.equal(published.instance.body, input.module.tree.tsonic.template.body, "authored module template body");
-      published.tir.root = input.module.tree;
+      const root = input.module.tree.root;
+      assert.equal(published.instance.body, root.tsonic.template.body, "authored module template body");
+      published.tir.root = root;
       return product.instantiate(input.index, input.module, input.artifact, input.bindings, input.limits);
     }
     case "instantiate-preserves-input": {
@@ -385,16 +387,16 @@ function evaluate(input) {
     }
     case "instantiate-wide-fixture": {
       const fixture = moduleFixture();
-      const root = fixture.module.tree;
+      const root = fixture.module.tree.root;
       const statement = {
         id: 1, origin: root.origin, parent: root.id, flags: [], loc: root.loc, kind: "EmptyStatement", tsonic: null,
       };
       const tree = {
-        ...root, statements: { loc: root.loc, nodes: new Array(input.children).fill(statement) },
+        ...root, statements: { loc: root.loc, nodes: new Array(input.children).fill({ kind: "ready-statement", node: statement }) },
         endOfFileToken: { ...root.endOfFileToken, id: 2 },
       };
       const module = {
-        ...fixture.module, tree,
+        ...fixture.module, tree: { kind: "ready-root", root: tree },
         bodies: fixture.module.bodies.map(body => ({ ...body, tir: { ...body.tir, root: tree } })),
       };
       return product.instantiate(fixture.index, module, { kind: "tir", body: fixture.bodyId }, {
@@ -503,7 +505,7 @@ function evaluate(input) {
           }
           case "definition-node-owner":
           case "source-item-unlisted": {
-            const root = fixture.module.tree;
+            const root = fixture.module.tree.root;
             const path = { module: fixture.module.module, segments: [{ name: "Alias", ordinal: 0 }] };
             const definition = encodeDefId(path);
             const origin = input.change.kind === "definition-node-owner"
@@ -514,8 +516,18 @@ function evaluate(input) {
                 tsonic: { role: "declaration-name", declaration: { kind: "definition", definition }, storage: null } },
               type: { ...header, id: 3, parent: 1, kind: "VoidKeyword", tsonic: { type: 0, declarations: [] } },
               tsonic: { definition, parameters: [], type: 0 } };
-            root.statements.nodes.push(alias);
+            root.statements.nodes.push({ kind: "ready-statement", node: alias });
             root.endOfFileToken = { ...root.endOfFileToken, id: 4 };
+            const source = fixture.tirInput.source.tree;
+            const core = source.tsonic.core;
+            const available = value => ({ kind: "available", value });
+            source.statements.nodes.push({ ...alias,
+              name: { ...alias.name, tsonic: { core, role: "declaration-name", declaration: { kind: "definition", definition } } },
+              type: { ...alias.type, tsonic: { core, type: available(0), referencedDefinitions: [] } },
+              tsonic: { core, parent: fixture.definition, attributes: [], memory: available(null), definition,
+                parameters: [], type: available(0) },
+            });
+            source.endOfFileToken = { ...root.endOfFileToken };
             const item = { definition, node: alias.id };
             fixture.index.modules[0].items.unshift(item);
             if (input.change.kind === "definition-node-owner") fixture.tirInput.source.items.unshift(item);
@@ -523,7 +535,7 @@ function evaluate(input) {
             break;
           }
           case "item-node": fixture.index.modules[0].items[0].node = input.change.value; break;
-          case "node-density": fixture.module.tree.endOfFileToken.id = 2; break;
+          case "node-density": fixture.module.tree.root.endOfFileToken.id = 2; break;
           case "body-source-owner":
             fixture.selected.tir.owner = encodeDefId({ module: fixture.module.module, segments: [{ name: "other", ordinal: 0 }] });
             break;
@@ -729,8 +741,9 @@ test("Program verifies the original type-only star and round-trips native static
   const decodedConsumer = product.parseModuleBodies(index, printedConsumer);
   assert.equal(decodedConsumer.kind, "parsed");
   assert.equal(product.printModuleBodies(index, decodedConsumer.value), printedConsumer);
-  const resolution = module => module.tree.statements.nodes.find(node => node.kind === "FunctionDeclaration" && node.name.text === "fromAlias")
-    .body.statements.nodes[0].expression.tsonic.resolution;
+  const resolution = module => module.tree.root.statements.nodes
+    .find(slot => slot.kind === "ready-callable" && slot.node.name.text === "fromAlias")
+    .node.body.statements.nodes[0].expression.tsonic.resolution;
   for (const current of [consumer, decodedConsumer.value]) {
     const selected = resolution(current);
     assert.equal(selected.kind, "static");
@@ -757,7 +770,10 @@ test("Program wire distinguishes bodyless callable and noncallable index formals
   assert.equal(decoded.kind, "parsed");
   assert.equal(product.printModuleBodies(index, decoded.value) === printed, true);
   for (const module of [main, decoded.value]) {
-    const [table, read] = module.tree.statements.nodes;
+    const [tableSlot, readSlot] = module.tree.root.statements.nodes;
+    assert.deepEqual([tableSlot.kind, readSlot.kind], ["ready-statement", "ready-callable"]);
+    const { node: table } = tableSlot;
+    const { node: read } = readSlot;
     const [method, indexed] = table.members.nodes;
     assert.deepEqual([method.kind, indexed.kind, read.kind], ["MethodSignature", "IndexSignature", "FunctionDeclaration"]);
     const formals = [method, indexed, read].map(node => node.parameters.nodes[0]);
@@ -895,14 +911,14 @@ test("Program source and signature verifier reads require their complete paid id
 
 test("ir-program print rejects a genuine child cycle at its actual field path", () => {
   const fixture = callerSyntaxCycle();
-  const expected = "Syntax object cycle at ModuleBodies.tree.statements.nodes[0].expression.left";
+  const expected = "Syntax child cycle at ModuleBodies.tree.root.statements.nodes[0].expression.left";
   assert.throws(() => product.printModuleBodies(fixture.index, fixture.module),
     error => error instanceof TypeError && error.message === expected);
 });
 
 test("ir-program canonicalization rejects a genuine child cycle at its actual field path", () => {
   const fixture = callerSyntaxCycle();
-  const expected = "Syntax object cycle at HostProgram.modules[0].tree.statements.nodes[0].expression.left";
+  const expected = "Syntax child cycle at HostProgram.modules[0].tree.root.statements.nodes[0].expression.left";
   assert.throws(() => projectFixtureProgram({ index: fixture.index, modules: [fixture.module] }, {
     table: fixture.index.types, types: [0], signatures: [0],
   }), error => error instanceof TypeError && error.message === expected);
@@ -910,7 +926,7 @@ test("ir-program canonicalization rejects a genuine child cycle at its actual fi
 
 test("ir-program module verification rejects a genuine child cycle at its actual field path", () => {
   const fixture = callerSyntaxCycle();
-  const expected = "Syntax object cycle at ModuleBodies.tree.statements.nodes[0].expression.left";
+  const expected = "Syntax child cycle at ModuleBodies.tree.root.statements.nodes[0].expression.left";
   assert.throws(() => product.verifyModuleBodies(fixture.index, fixture.module, fixture.context),
     error => error instanceof TypeError && error.message === expected);
 });
@@ -923,7 +939,7 @@ test("Program chapter verification cannot use the candidate tree or bodies as in
     const other = publicationFixture();
     const original = fixture.context.tirOf;
     assert.equal(other.tirInput.module.module, fixture.tirInput.module.module);
-    assert.equal(other.tirInput.module.tree.id, fixture.tirInput.module.tree.id);
+    assert.equal(other.tirInput.module.tree.root.id, fixture.tirInput.module.tree.root.id);
     assert.notEqual(other.tirInput.module.tree, fixture.tirInput.module.tree);
     const expected = fixture.tirInput.module;
     const module = family === "root" ? { ...expected, tree: other.tirInput.module.tree }
@@ -1535,7 +1551,7 @@ for (const [name, message] of [
 test("ir-program canonicalization rejects the genuine recursive expression component", () => {
   for (const side of ["to", "from"]) {
     const fixture = callerComponentCycle();
-    const step = fixture.module.tree.statements.nodes[0].expression.tsonic.narrowing.proof.steps[0];
+    const step = fixture.module.tree.root.statements.nodes[0].node.expression.tsonic.narrowing.proof.steps[0];
     if (side === "to") Object.defineProperty(step, "from", { get() { assert.fail("FROM must remain unread when TO fails first"); } });
     else step.to = { root: step.to.root, path: [] };
     assert.throws(() => projectFixtureProgram({ index: fixture.index, modules: [fixture.module] }, {
@@ -1569,7 +1585,7 @@ test("ir-program finite shared expression components retain the complete canonic
     table: fixture.index.types, types: [0, 1], signatures: [0],
   });
   assert.equal(isDeepStrictEqual(actual, expected), true, "complete finite canonical publication");
-  assert.equal(Object.is(actual.modules[0].tree, actual.modules[0].bodies[0].tir.root), true,
+  assert.equal(Object.is(actual.modules[0].tree.root, actual.modules[0].bodies[0].tir.root), true,
     "actual shared finite template root");
 });
 
@@ -1701,7 +1717,7 @@ for (const kind of ["advertised", "api-signature", "api-body"]) for (const body 
 {
   const input = decodeFixtureJson(readFileSync(resolve(repository, "test/host-cases/ir-program/function/phase-number-declaration.input.json"), "utf8"));
   const prior = decodeFixtureJson(readFileSync(resolve(repository, "test/host-cases/ir-program/function/phase-number-declaration.expected.json"), "utf8")).value.printed;
-  const node = input.module.tree.statements.nodes[0].expression;
+  const node = input.module.tree.root.statements.nodes[0].node.expression;
   const body = signatureFixture.bodyId;
   const definition = signatureFixture.definition;
   const ref = { kind: "item", value: { owner: definition, node: 2 } };
@@ -1780,8 +1796,8 @@ for (const kind of ["advertised", "api-signature", "api-body"]) for (const body 
   const path = "test/host-cases/ir-program/function/phase-name-value";
   const input = decodeFixtureJson(readFileSync(resolve(repository, `${path}.input.json`), "utf8"));
   const prior = decodeFixtureJson(readFileSync(resolve(repository, `${path}.expected.json`), "utf8")).value.printed;
-  const node = input.module.tree.statements.nodes[0].expression;
-  const body = input.module.tree.tsonic.template.body;
+  const node = input.module.tree.root.statements.nodes[0].node.expression;
+  const body = input.module.tree.root.tsonic.template.body;
   const binding = { kind: "body", value: { body, node: node.id } };
   const start = prior.lastIndexOf("tsonic=TypedName(");
   const end = prior.indexOf("\n", start);
@@ -1870,7 +1886,8 @@ for (const { text, index } of authoredDocuments) {
         if (token[3] === ")" && !records.some(record => delegatedRecords.has(record.name))) {
           const record = records.at(-1);
           const key = `${records.slice(-2).map(record => record.name).join("/")}:${record.firstField ?? ""}`;
-          const expectedItems = record.name === "PragmaArguments" ? [text.slice(record.open, token.index).trim().length === 0 ? "pragma key" : ","] : [")"];
+          const expectedItems = record.name === "PragmaArguments" ? [text.slice(record.open, token.index).trim().length === 0 ? "pragma key" : ","]
+            : record.name === "CheckedDeclarations" ? ["newline"] : record.name === "TypedDeclarations" ? ["n:"] : [")"];
           if (!closingFaults.has(key)) closingFaults.set(key, { index, isIndex: text.startsWith("ProgramIndex("), text, offset: token.index, expectedItems });
           if (record.name !== "PragmaArguments" && record.firstField !== null && !extraFieldFaults.has(key))
             extraFieldFaults.set(key, { index, text, offset: token.index, firstField: record.firstField });
@@ -2059,10 +2076,11 @@ test("ir-program syntax journal boundaries retain complete literal coordinates a
   completeProgramValue(product.parseModuleBodies(input.index, text + " \t\n"), { kind: "parsed", value: input.module }, "journal trailing whitespace reaches the sole EOF authority");
   const newline = text.indexOf("\n");
   completeTextFault(input.index, text.slice(0, newline) + " " + text.slice(newline + 1), newline, ["newline"], false);
-  const equals = text.indexOf("n:0=SourceFile") + "n:0".length;
+  const equals = text.indexOf("n:0=TirModuleRoot") + "n:0".length;
   completeTextFault(input.index, text.slice(0, equals) + " @" + text.slice(equals + 1), equals + 1, ["="], false);
   const kind = equals + 1;
-  completeTextFault(input.index, text.slice(0, kind) + "Z" + text.slice(kind + 1), kind, expectedSyntaxKinds, false);
+  completeTextFault(input.index, text.slice(0, kind) + "Z" + text.slice(kind + 1), kind,
+    [...expectedSyntaxKinds.filter(name => name !== "Parameter"), "TirModuleRoot", "TirReadyCallable", "TirFormal"], false);
 });
 
 test("ir-program pragma faults retain lexical and UTF16-order first-fault precedence", () => {
@@ -2115,7 +2133,7 @@ for (const { family, kinds } of syntaxTransportFamilies) for (const kind of kind
     signatures: input.index.types.signatures.length === 0 ? envelope.index.types.signatures : input.index.types.signatures };
   const module = syntaxTransportModule({ module: envelope.module }, node, family);
   const parsed = completeSyntaxTransport(envelope, module, types);
-  assert.equal(Object.is(parsed.tree, parsed.bodies[0].tir.root), family !== "BodyRoot", "the parsed graph retains exactly the authored module/body root sharing");
+  assert.equal(Object.is(parsed.tree.root, parsed.bodies[0].tir.root), family !== "BodyRoot", "the parsed graph retains exactly the authored module/body root sharing");
 });
 
 const transportedKinds = new Set(syntaxTransportFamilies.flatMap(family => family.kinds));
@@ -2215,7 +2233,7 @@ for (const kind of ["CallExpression", "BinaryExpression", "Decorator", "ObjectLi
     const fixture = moduleFixture();
     const special = kind === "protocol" || kind === "deferred-operator"
       ? decodeFixtureJson(readFileSync(resolve(repository, `test/host-cases/ir-program/function/${kind === "protocol" ? "six-protocol-step-await" : "six-deferred-operator-0"}.input.json`), "utf8")) : null;
-    const example = special === null ? syntaxExamples.get(kind === "component" ? "StringLiteral" : kind) : { input: special, node: special.module.tree.statements.nodes[0].expression };
+    const example = special === null ? syntaxExamples.get(kind === "component" ? "StringLiteral" : kind) : { input: special, node: special.module.tree.root.statements.nodes[0].node.expression };
     const node = evidencedSyntax(example.node).node;
     if (kind === "deferred-operator") node.tsonic.conversion.deferred.invocation.input.permissionScope = null;
     if (kind === "component") {
@@ -2296,7 +2314,7 @@ for (const kind of ["BindingElement", "VoidKeyword"]) test(`ir-program complete 
 for (const capture of ["attribute", "application-attribute", "root", "placement", "apply", "select-member"]) test(`ir-program complete ${capture} capture retains nullable selection data and real source-reference operands`, () => {
   const fixture = moduleFixture();
   const input = decodeFixtureJson(readFileSync(resolve(repository, "test/host-cases/ir-program/function/six-core-safety-1.input.json"), "utf8"));
-  const node = structuredClone(input.module.tree.statements.nodes[0].expression);
+  const node = structuredClone(input.module.tree.root.statements.nodes[0].node.expression);
   const value = node.tsonic.conversion.deferred.invocation.input;
   const reference = { kind: "item", value: { owner: fixture.definition, node: 0 } };
   value.permissionScope = { body: fixture.bodyId, node: 0 };
@@ -2332,7 +2350,7 @@ for (const [name, select] of [
 ]) test(`ir-program ${name} capture survives the canonical copy, the text and Instantiate unchanged`, () => {
   const fixture = moduleFixture();
   const input = decodeFixtureJson(readFileSync(resolve(repository, "test/host-cases/ir-program/function/six-core-safety-1.input.json"), "utf8"));
-  const node = structuredClone(input.module.tree.statements.nodes[0].expression);
+  const node = structuredClone(input.module.tree.root.statements.nodes[0].node.expression);
   const value = node.tsonic.conversion.deferred.invocation.input;
   const reference = { kind: "item", value: { owner: fixture.definition, node: 0 } };
   const occurrence = { body: fixture.bodyId, node: 0 };
@@ -2389,7 +2407,7 @@ test("ir-program Instantiate substitutes the owner, pointee, source and both vec
   const reference = { kind: "item", value: { owner: fixture.definition, node: 0 } };
   const occurrence = { body: fixture.bodyId, node: 0 };
   const moduleOf = (fieldVector, owner, pointee, recordVector, source) => {
-    const node = structuredClone(input.module.tree.statements.nodes[0].expression);
+    const node = structuredClone(input.module.tree.root.statements.nodes[0].node.expression);
     const value = node.tsonic.conversion.deferred.invocation.input;
     value.permissionScope = occurrence;
     value.captured.fieldBinding = available({ occurrence, bindings: available(fieldVector), owner: available(owner), pointee: available(pointee),
@@ -2423,7 +2441,7 @@ test("ir-program binding capture records move the Instantiate work and created-r
   const empty = { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] };
   const occurrence = { body: fixture.bodyId, node: 0 };
   const moduleOf = (fieldBinding, recordBinding) => {
-    const node = structuredClone(input.module.tree.statements.nodes[0].expression);
+    const node = structuredClone(input.module.tree.root.statements.nodes[0].node.expression);
     const value = node.tsonic.conversion.deferred.invocation.input;
     value.permissionScope = occurrence;
     value.captured.fieldBinding = available(fieldBinding);
@@ -2577,7 +2595,7 @@ test("Program pre-copy allowance does not count a borrowed checked marker applic
   const { createProjectionInventory, drainProjectionInventory } = await import("../../packages/host/dist/ir-program/program-values.js");
   const { createInstantiationMeter } = await import("../../packages/host/dist/ir-program/work.js");
   const input = decodeFixtureJson(readFileSync(resolve(repository, "test/host-cases/ir-program/function/six-core-safety-1.input.json"), "utf8"));
-  const deferred = input.module.tree.statements.nodes[0].expression.tsonic.conversion.deferred;
+  const deferred = input.module.tree.root.statements.nodes[0].node.expression.tsonic.conversion.deferred;
   const limits = { maximumWork: 10000, maximumCreatedRecords: 10000, maximumBindingVectorsPerArtifact: 8,
     typeExpansion: { maximumDepth: 256, maximumVisits: 10000, maximumUnionMembers: 256, maximumIntersectionMembers: 256 } };
   const identity = value => value;
@@ -2802,7 +2820,9 @@ test("ir-program checks exact type-table agreement for shared, decoded and misma
     ["conflicting Facts table", foreign, published, false, false],
     ["conflicting checked table", published, foreign, true, false],
   ]) {
-    const context = { ...fixture.context, facts: { ...fixture.context.facts, types: facts },
+    const resources = product.createProgramVerificationWork(ProgramWork.state(fixture.context.resources).limits,
+      createAccount({ maximumWork: 10000, maximumResultEntries: 1000000000 }));
+    const context = { ...fixture.context, resources, facts: { ...fixture.context.facts, types: facts },
       tirOf: module => module === fixture.module.module ? { ...fixture.tirInput, types: checked } : null };
     completeProgramValue(product.verifyProgramIndex(fixture.index, context),
       { kind: "complete", violations: matchesIndex ? [] : finding({ kind: "index" }) }, name);
@@ -2814,21 +2834,28 @@ test("ir-program checks exact type-table agreement for shared, decoded and misma
 test("ir-program a missing complete instantiated chunk retains the exact absent body identity", () => {
   const fixture = publicationFixture();
   const removed = fixture.module.bodies.pop();
-  completeProgramValue(moduleViolations(fixture.index, fixture.module, fixture.context), [{ rule: "body-levels-total",
-    site: { kind: "body", instance: removed.instance }, detail: [{ kind: "text", value: fixture.module.module }] }], "all indexed instances must be present in the supplied chunk");
+  completeProgramValue(moduleViolations(fixture.index, fixture.module, fixture.context), [
+    { rule: "body-levels-total", site: { kind: "body", instance: removed.instance }, detail: [{ kind: "text", value: fixture.module.module }] },
+    { rule: "tir-valid", site: { kind: "node", module: fixture.module.module, node: 0 }, detail: [
+      { kind: "text", value: "template-shared-once" },
+      { kind: "text", value: "chapter does not retain the complete independently required body inventory" },
+    ] },
+  ], "indexed membership and independent Typed chapter membership both retain their own complete findings");
 });
 
 test("ir-program a copied module publication retains every genuine identity and sharing cofinding", () => {
   const fixture = publicationFixture();
-  fixture.module.tree = { ...fixture.module.tree };
+  fixture.module.tree = { ...fixture.module.tree, root: { ...fixture.module.tree.root } };
   const templateSite = { kind: "body", instance: fixture.template.instance };
   const nested = [{ kind: "text", value: "nested-template-identity" },
     { kind: "text", value: "published template is not the authentic body's canonical shared module subtree" }];
   completeProgramValue(moduleViolations(fixture.index, fixture.module, fixture.context), [
     { rule: "template-body-shared", site: templateSite, detail: [{ kind: "number", value: 0 }] },
-    { rule: "tir-valid", site: { kind: "node", module: fixture.module.module, node: 0 }, detail: nested },
     { rule: "tir-valid", site: { kind: "node", module: fixture.module.module, node: 0 }, detail: [{ kind: "text", value: "module-node-identity" },
       { kind: "text", value: "module tree does not retain its actual source and publication identity" }] },
+    { rule: "tir-valid", site: { kind: "node", module: fixture.module.module, node: 0 }, detail: [{ kind: "text", value: "module-node-identity" },
+      { kind: "text", value: "ready module root must share the independently required module template" }] },
+    { rule: "tir-valid", site: { kind: "node", module: fixture.module.module, node: 0 }, detail: nested },
   ], "a complete equal-value copy is not the supplied canonical publication object, and the actual node site is retained");
 });
 
@@ -3361,7 +3388,7 @@ test("Program transports the exact verified construction-part and its independen
   assert.equal("read" in inventory.members[0] || "write" in inventory.members[0], false);
   const publication = typeProduct.exportTypes(types, limits);
   assert.equal(publication.kind, "complete");
-  const [statement] = fixture.body.root.statements.nodes;
+  const [{ node: statement }] = fixture.body.root.statements.nodes;
   const [part] = statement.expression.tsonic.construction.decision.decision.operation.parts;
   const run = (maximumWork = limits.maximumWork, maximumCreatedRecords = limits.maximumCreatedRecords,
     providedOccurrence = expected.occurrence) => {
@@ -3622,8 +3649,8 @@ test("actual TIR node prepare reads its lexical payload once before later siblin
   function prepare(bounds, instrument) {
     const meter = createInstantiationMeter(bounds);
     const scan = createProjectionInventory(meter, { parameterBinding: identity, selfBinding: identity }, path => assert.fail(path));
-    const root = structuredClone(specimen.module.tree);
-    const original = root.statements.nodes[0].expression.type.types.nodes;
+    const root = structuredClone(specimen.module.tree.root);
+    const original = root.statements.nodes[0].node.expression.type.types.nodes;
     const earlier = original[0].typeParameter;
     const later = original[1];
     const authored = earlier.tsonic;
@@ -3642,8 +3669,12 @@ test("actual TIR node prepare reads its lexical payload once before later siblin
   assert.equal(full.result.kind, "complete");
   const work = beforeBounds.maximumWork - remainingWork(full.meter.account);
   const created = full.meter.created;
-  assert.equal(work, 428);
-  assert.equal(created, 61);
+  const copyPlan = 1;
+  const moduleReceipt = 1;
+  const statementRecord = 1;
+  const statementFields = 2;
+  assert.equal(work, 428 + copyPlan + moduleReceipt + statementRecord + statementFields - 1);
+  assert.equal(created, 61 + copyPlan + moduleReceipt + statementRecord);
   const [[first, requiredFirst], [second, requiredSecond]] = full.reads;
   assert.deepEqual([first, second], ["first payload", "next sibling"]);
   assert.equal(requiredFirst < requiredSecond && requiredSecond < work, true);
@@ -3670,17 +3701,20 @@ test("actual TIR node prepare reads its lexical payload once before later siblin
   assert.equal(solved.kind, "complete");
   const ids = new Map(requested.map((type, index) => [type, solved.value[index]]));
   assert.notEqual(ids.get(full.authored.parameter.constraint), full.authored.parameter.constraint);
-  const copiedSyntax = full.result.value.materialize({ type: value => ids.get(value), signature: identity });
+  const rejectChecked = () => assert.fail("The authored Typed-only specimen has no Checked slot");
+  const copiedSyntax = full.result.value.materialize({ type: value => ids.get(value), signature: identity },
+    { moduleOf: rejectChecked, declarationOf: rejectChecked, expressionOf: rejectChecked });
   assert.equal(copiedSyntax.kind, "copied");
   const image = copiedSyntax.value;
-  const newRoot = image.sourceFileOf(full.root);
+  const newRoot = image.bodyRootOf(full.root);
   assert.equal(image.bodyRootOf(full.root) === newRoot, true);
-  const actual = newRoot.statements.nodes[0].expression.type.types.nodes[0].typeParameter;
-  assert.equal(actual === image.nodeOf(full.earlier), true);
+  const actual = newRoot.statements.nodes[0].node.expression.type.types.nodes[0].typeParameter;
+  assert.equal(Object.is(actual, full.earlier), false);
+  assert.equal(actual.id, full.earlier.id);
   assert.equal(actual.tsonic.parameter.constraint, ids.get(full.authored.parameter.constraint));
   assert.equal(actual.tsonic.parameter.default, ids.get(full.authored.parameter.default));
   assert.deepEqual(full.reads.map(([label]) => label), ["first payload", "next sibling"]);
-  assert.equal(image.nodeOf(specimen.module.tree.statements.nodes[0].expression.type.types.nodes[1]), null);
+  assert.throws(() => image.bodyRootOf(specimen.module.tree.root), /actual chapter operand/u);
 });
 
 for (const change of ["absent", "present", "duplicate", "argument"]) test(`ir-program invocation summary ${change} retains the complete artifact reference result`, () => {
@@ -3795,13 +3829,13 @@ test("ir-program an unavailable parametric closure retains its complete publicat
 
 test("ir-program a deep authored child mismatch propagates to its containing body without losing the lower finding", () => {
   const fixture = publicationFixture();
-  const root = fixture.module.tree;
+  const root = fixture.module.tree.root;
   const common = { origin: root.origin, flags: [], loc: root.loc, tsonic: null };
   const child = { ...common, id: 2, parent: 1, kind: "EmptyStatement" };
   const block = { ...common, id: 1, parent: 0, kind: "Block", statements: { loc: root.loc, nodes: [child] }, multiLine: false };
-  root.statements.nodes = [block];
+  root.statements.nodes = [{ kind: "ready-statement", node: block }];
   root.endOfFileToken.id = 3;
-  fixture.tirInput.source.tree.statements = structuredClone(root.statements);
+  fixture.tirInput.source.tree.statements = { loc: root.statements.loc, nodes: [structuredClone(block)] };
   fixture.tirInput.source.tree.endOfFileToken = { ...root.endOfFileToken };
   const scope = { node: 1, parent: 0, attributes: [] };
   fixture.template.tir.scopes.push(scope);
@@ -3846,7 +3880,7 @@ test("ir-program a missing checked body retains the complete source and nested-p
 
 test("ir-program a separately copied body root retains its actual original root identity", () => {
   const fixture = publicationFixture();
-  const root = { ...fixture.module.tree, id: 2 };
+  const root = { ...fixture.module.tree.root, id: 2 };
   fixture.template.tir.root = root;
   fixture.answers.set(encodeContextKey(["nodeOf", { kind: "body", value: { body: fixture.bodyId, node: 2 } }]), null);
   const site = { kind: "body", instance: fixture.template.instance };
@@ -3855,6 +3889,8 @@ test("ir-program a separately copied body root retains its actual original root 
   completeProgramValue(moduleViolations(fixture.index, fixture.module, fixture.context), [
     { rule: "instance-node-ids-exact", site, detail: [{ kind: "number", value: 0 }, { kind: "number", value: 2 }] },
     { rule: "template-body-shared", site, detail: [{ kind: "number", value: 2 }] },
+    { ...child("module-node-identity", "ready module root must share the independently required module template"),
+      site: { kind: "node", module: fixture.module.module, node: 0 } },
     { ...nested, site: { kind: "node", module: fixture.module.module, node: 0 } },
     child("module-node-identity", "body does not retain its module identity and canonical parametric subtree"),
     child("authored-node-ids-preserved", "typed node identity differs from the actual authored node at this position"),
@@ -4042,7 +4078,7 @@ test("ir-program pragma dictionary keys preserve native UTF16 order, own prototy
   const keys = ["", "\0", "__proto__", "constructor", "a", "aa", "ab", "a\ud800", "\ud800", "𝄞", "\uffff", "hyphen-name", 'quote"'];
   const argumentValue = 'quote"\\\b\f\n\r\t\0\ud800';
   const args = keys.toSorted().map(name => ({ name, value: { pos: 0, end: 0, name, value: argumentValue } }));
-  fixture.module.tree.pragmas = [{ kind: "SingleLineCommentTrivia", pos: 0, end: 0, hasTrailingNewLine: false, name: "transport", args }];
+  fixture.module.tree.root.pragmas = [{ kind: "SingleLineCommentTrivia", pos: 0, end: 0, hasTrailingNewLine: false, name: "transport", args }];
   const text = product.printModuleBodies(fixture.index, fixture.module);
   const fields = keys.toSorted().map(name => `${/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name) ? name : JSON.stringify(name)}=PragmaArgument(pos=0, end=0, name=${JSON.stringify(name)}, value=${JSON.stringify(argumentValue)})`).join(", ");
   assert.equal(text.includes(`args=PragmaArguments(${fields})`), true, "complete independently specified key order, spelling and payload");
@@ -4058,7 +4094,7 @@ test("ir-program all modifier, syntax-flag and token-flag spellings remain compl
     id: identity++, kind, origin: node.origin, parent: node.id, flags: [], loc: node.loc, tsonic: null,
   })) };
   const module = syntaxTransportModule({ module: fixture.module }, node, "Statement");
-  module.tree.flags = ["Ambient"];
+  module.tree.root.flags = ["Ambient"];
   completeSyntaxTransport(fixture, module, example.input.index.types);
   for (const kind of ["StringLiteral", "NumericLiteral", "BigIntLiteral", "RegularExpressionLiteral", "NoSubstitutionTemplateLiteral", "TemplateHead", "TemplateMiddle", "TemplateTail", "JsxText"]) {
     const example = syntaxExamples.get(kind);
@@ -4097,7 +4133,7 @@ for (const name of mirTransportCases(moduleFixture()).map(value => value.name)) 
 
 test("ir-program conversion carriers retain native versus backed identity and reject the retired refinement value", () => {
   const fixture = moduleFixture();
-  const header = { id: 2, origin: fixture.module.tree.origin, parent: 1, flags: [], loc: fixture.module.tree.loc };
+  const header = { id: 2, origin: fixture.module.tree.root.origin, parent: 1, flags: [], loc: fixture.module.tree.root.loc };
   const bindings = { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] };
   const value = { type: 0, convertedType: 0, conversion: { kind: "identity" }, narrowing: null, evidenceIndex: null, demand: { kind: "always" } };
   const literal = { ...header, kind: "NumericLiteral", text: "0", tokenFlags: [], tsonic: { ...value, role: "value",

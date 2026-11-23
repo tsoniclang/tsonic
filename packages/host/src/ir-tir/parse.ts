@@ -637,6 +637,7 @@ const verifyWireReferences = (state: TirReadState): void => {
       earlierFailure(state, invalid(use.token.offset, ["acyclic syntax reference"], use.token.text));
     }
   }
+  if (state.failure !== null) return;
   const visited = new Set<number>();
   const pending: TirWireRecord[] = [];
   for (let index = state.references.length - 1; index >= 0; index--) {
@@ -645,13 +646,14 @@ const verifyWireReferences = (state: TirReadState): void => {
   }
   for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
     if (visited.has(node.ordinal) || node.declaration === null) continue;
-    const position = visited.size;
     visited.add(node.ordinal);
-    if (node.ordinal !== position) earlierFailure(state, invalid(node.declaration.offset, ["wire traversal position"], String(node.ordinal)));
     for (let index = node.children.length - 1, child = node.children[index]; child !== undefined; child = node.children[--index]) pending.push(child.target);
   }
-  for (const node of state.declarations) if (!visited.has(node.ordinal) && node.declaration !== null) {
-    earlierFailure(state, invalid(node.declaration.offset, ["wire traversal position"], String(node.ordinal)));
+  for (const node of state.declarations) if (node.declaration !== null) {
+    if (!visited.has(node.ordinal))
+      earlierFailure(state, invalid(node.declaration.offset, ["referenced syntax declaration"], String(node.ordinal)));
+    else if (node.ordinal >= state.declarations.length)
+      earlierFailure(state, invalid(node.declaration.offset, ["dense wire binding"], String(node.ordinal)));
   }
 };
 
@@ -715,10 +717,6 @@ const constructTirBody = (state: TirReadState, accept: (value: TirConstruction<T
     }
     if (state.declared.has(ordinal.value)) {
       state.failure = invalid(ordinal.offset, ["unique wire binding"], ordinal.text);
-      break;
-    }
-    if (ordinal.value !== state.declarations.length) {
-      state.failure = invalid(ordinal.offset, ["wire traversal position"], ordinal.text);
       break;
     }
     const equals = expectToken(state, "=");

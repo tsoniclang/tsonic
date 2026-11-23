@@ -85,13 +85,25 @@ syntaxTransportFamilies.push(
 
 export function syntaxTransportModule(input, value, family) {
   const module = structuredClone(input.module);
-  const root = module.tree;
+  const root = module.tree.root;
   const node = structuredClone(value);
   let maximum = root.id;
   for (const value of syntaxPhysicalNodes(node)) maximum = Math.max(maximum, value.id);
   const header = id => ({ id, origin: root.origin, parent: root.id, flags: [], loc: root.loc });
   const list = nodes => ({ loc: root.loc, nodes });
   const wrapper = header(maximum + 1);
+  if (family === "SyntaxNode" && node.kind === "SourceFile") {
+    module.tree = { kind: "ready-root", root: node };
+    module.bodies[0].tir.root = node;
+    return module;
+  }
+  if (family === "SyntaxNode" && node.kind === "Parameter") {
+    node.parent = wrapper.id;
+    return syntaxTransportModule({ ...input, module }, { ...wrapper, kind: "FunctionType",
+      modifiers: null, typeParameters: null, parameters: list([node]), type: null, fullSignature: null,
+      tsonic: { type: 0, declarations: [] },
+    }, "TypeNode");
+  }
   const typedValue = { type: 0, convertedType: 0, conversion: { kind: "identity" }, narrowing: null, evidenceIndex: null, demand: { kind: "always" } };
   const emptyBindings = { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] };
   const property = id => ({ ...header(id), kind: "Identifier", text: "value", tsonic: { role: "property-name", key: { kind: "text", value: "value" } } });
@@ -175,7 +187,7 @@ export function syntaxTransportModule(input, value, family) {
     }
     default: throw new Error(`Unknown declared syntax transport family: ${family}`);
   }
-  root.statements = list([statement]);
+  root.statements = list([{ kind: statement.kind === "FunctionDeclaration" && statement.body !== null ? "ready-callable" : "ready-statement", node: statement }]);
   module.bodies[0].tir.root = root;
   return module;
 }
@@ -256,7 +268,7 @@ export function nullableSyntaxCases(node, definition, body) {
   const parameter = parent => {
     const own = header(parent);
     return { ...own, kind: "Parameter", modifiers: null, dotDotDotToken: null, name: name(own.id), questionToken: null,
-      type: null, initializer: null, tsonic: { declaration: definition, local: { body, local: 0 }, storage: 0, passing: "by-value", initializer: null, role: "required" } };
+      type: null, initializer: { kind: "none" }, tsonic: { declaration: definition, local: { body, local: 0 }, storage: 0, passing: "by-value", initializer: null, role: "required" } };
   };
   const typeParameter = parent => {
     const own = header(parent);
@@ -321,7 +333,10 @@ export function nullableSyntaxCases(node, definition, body) {
       || field === "initializer" && node.kind === "PropertyAssignment"
       || field === "comment" && node.kind === "JSDoc"
       || field === "attributes" && ["ImportAttributes", "JsxOpeningElement", "JsxSelfClosingElement"].includes(node.kind)) continue;
-    if (node[field] === null) result.push({ field, node: { ...structuredClone(node), [field]: provide() } });
+    if (node.kind === "Parameter" && field === "initializer") {
+      const initializer = node.initializer.kind === "none" ? { kind: "ready-default", root: provide() } : { kind: "none" };
+      result.push({ field, node: { ...structuredClone(node), initializer } });
+    } else if (node[field] === null) result.push({ field, node: { ...structuredClone(node), [field]: provide() } });
     else if (field === "parameters" && node[field].nodes.length === 0) result.push({ field, node: { ...structuredClone(node), [field]: provide() } });
     else if (field === "typeParameters" && node[field].nodes.length === 0
       || field === "members" && node[field].nodes.length === 0) {
@@ -409,7 +424,7 @@ export function mirTransportCases(fixture) {
   const member = { decision: { key: { kind: "text", value: "value" }, origins: [], selectedDeclarations: [], primary: null,
     read: 0, write: 0, getter: null, setter: null, bindings, location: { kind: "data", check: { kind: "none" }, receiver: "in-place" } }, getter: null, setter: null };
   const operand = { kind: "constant", constant: 0 };
-  const local = { id: 0, storage: 0, role: { kind: "temporary" }, mode: "local", source: null, origin: fixture.module.tree.origin };
+  const local = { id: 0, storage: 0, role: { kind: "temporary" }, mode: "local", source: null, origin: fixture.module.tree.root.origin };
   const root = { id: 0, storage: 0, base: { kind: "local", local: 0 }, origin: local.origin };
   const constant = { id: 0, type: 0, value: { kind: "literal", value: { kind: "absence" } } };
   const site = { origin: local.origin, tir: { body: fixture.bodyId, node: 0 } };

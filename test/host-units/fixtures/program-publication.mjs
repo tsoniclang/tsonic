@@ -33,7 +33,7 @@ export function publicationFixture(fixture = moduleFixture()) {
       points: [{ kind: "return" }], rows: [{ point: 0, cell: null, condition: 0 }] }, resultCells: [], backing: [] });
   fixture.index.summaries.sort((left, right) => summaryKey(left.key) < summaryKey(right.key) ? -1 : 1);
   for (const [reader, key, value] of [
-    ["bodyOf", instance, tir], ["tirBody", instance, tir], ["mirBody", instance, mir],
+    ["bodyOf", instance, tir], ["tirBody", instance, tir], ["mirBody", instance, mir], ["requiredEntriesOf", instance, [0]],
     ["tirBindingScopesOf", { kind: "body", instance }, [fixture.scope, fixture.scope, fixture.scope]],
     ["sourceBindingScopesOf", { kind: "body", execution: { instance, provided: 0 } }, [fixture.scope]],
     ["sourceBindingScopesOf", { kind: "observations", instance }, [fixture.scope]],

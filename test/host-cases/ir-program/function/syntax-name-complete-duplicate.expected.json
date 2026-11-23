@@ -2,8 +2,8 @@
   "kind": "accepted",
   "value": {
     "kind": "invalid-text",
-    "offset": 1168,
-    "line": 4,
+    "offset": 1273,
+    "line": 6,
     "column": 225,
     "expected": [
       "unique record field"

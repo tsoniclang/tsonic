@@ -6513,12 +6513,12 @@ for (const [name, suffix, relativeOffset, expected, found] of [
   ["missing declaration colon", "n=", 1, [":"], "="],
   ["missing declaration equals", "n:2", 3, ["="], null],
   ["duplicate declaration", "n:0=", 2, ["unique wire binding"], "0"],
-  ["non-dense declaration", "n:3=", 2, ["wire traversal position"], "3"],
+  ["incomplete non-dense declaration", "n:3=", 4, ["value"], null],
   ["negative-zero declaration", "n:-0=", 2, ["wire traversal position"], "-0"],
   ["nonfinite declaration", "n:NaN=", 2, ["wire traversal position"], "NaN"],
   ["wrong declaration value kind", "n:null=", 2, ["wire traversal position"], "null"],
   ["missing declaration ordinal", "n:", 2, ["wire traversal position"], null],
-  ["unreachable declared node", `n:2=EndOfFile(${syntaxHeaderWire(2, null)}, tsonic=null)`, 2, ["wire traversal position"], "2"],
+  ["unreachable declared node", `n:2=EndOfFile(${syntaxHeaderWire(2, null)}, tsonic=null)`, 2, ["referenced syntax declaration"], "2"],
 ]) {
   test(`complete wire-binding failure: ${name}`, () => {
     const prefix = completeEmptyWire.slice(0, -")\n".length);
@@ -6526,6 +6526,15 @@ for (const [name, suffix, relativeOffset, expected, found] of [
     assertInvalidText(text, prefix.length + relativeOffset, expected, found);
   });
 }
+test("Typed declaration order is independent of the dense wire identity set", () => {
+  const lines = completeEmptyWire.trimEnd().split("\n");
+  const root = lines.findIndex(line => line.startsWith("n:0="));
+  assert.equal(lines[root + 1].startsWith("n:1="), true);
+  [lines[root], lines[root + 1]] = [lines[root + 1], lines[root]];
+  assertCompleteValue(product.parseTir(lines.join("\n")), { kind: "parsed", value: emptyModuleBody() });
+  const sparse = completeEmptyWire.replace("endOfFileToken=n:1", "endOfFileToken=n:7").replace("n:1=EndOfFile", "n:7=EndOfFile");
+  assertInvalidText(sparse, sparse.indexOf("n:7=EndOfFile") + 2, ["dense wire binding"], "7");
+});
 test("record separators require the actual newline even when every earlier wire reference is defined", () => {
   const prefix = completeEmptyWire.slice(0, -"\n)\n".length);
   assertInvalidText(prefix + "n:2=", prefix.length, ["newline"], "n");

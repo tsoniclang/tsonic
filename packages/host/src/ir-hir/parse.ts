@@ -96,7 +96,7 @@ type WireBinding =
 interface HirWireDomain {
   readonly arena: Map<number, WireBinding>;
   readonly roots: Set<WireNode>;
-  readonly declared: { readonly node: WireNode; readonly offset: number }[];
+  readonly declared: { readonly position: number; readonly node: WireNode; readonly offset: number }[];
   readonly edges: WireEdge[];
   readonly references: WireReference[];
 }
@@ -516,9 +516,15 @@ function closeHirWire(reader: TextReader, domain: HirWireDomain): boolean {
     reachable.add(node);
     for (const edge of node.edges) work.push(edge.target);
   }
-  for (const binding of domain.declared) if (!reachable.has(binding.node)) {
-    fail(reader, ["referenced syntax declaration"], binding.offset);
-    return false;
+  for (const binding of domain.declared) {
+    if (!reachable.has(binding.node)) {
+      fail(reader, ["referenced syntax declaration"], binding.offset);
+      return false;
+    }
+    if (binding.position >= domain.declared.length) {
+      fail(reader, ["dense wire binding"], binding.offset);
+      return false;
+    }
   }
   return true;
 }
@@ -602,7 +608,6 @@ function readHirSyntax(reader: TextReader, readers: ReturnType<typeof createHirT
         return false;
       }
       if (arena.get(position.value)?.kind === "declared") { fail(reader, ["distinct wire binding"], offset); return false; }
-      if (position.value !== declared.length) { fail(reader, [`${wirePrefix}${declared.length}`], offset); return false; }
       whitespace(reader);
       if (reader.text.charAt(reader.cursor) !== "=") { fail(reader, ["="]); return false; }
       reader.cursor += 1;
@@ -693,7 +698,7 @@ function readHirSyntax(reader: TextReader, readers: ReturnType<typeof createHirT
         builders = [requirePresent(syntaxReaders.get(label), constructionFailure)(value => { node.construction = value; })];
         recordOwner = node;
         arena.set(declaration.position, { kind: "declared", node, label, offset: declaration.offset });
-        declared.push({ node, offset: declaration.offset });
+        declared.push({ position: declaration.position, node, offset: declaration.offset });
       }
       reader.cursor += 1;
       reader.pending = { frame: { kind: "record", builders, names: new Set(), owner: recordOwner, put: accept,

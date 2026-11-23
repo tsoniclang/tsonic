@@ -7,7 +7,7 @@ export function declaredInvocationFixture() {
   const { index, module, bodyId, answers, scope, selected, template, tirInput } = fixture;
   const source = tirInput.source;
   const checkedRoot = source.tree;
-  const root = module.tree;
+  const root = module.tree.root;
   const path = { module: module.module, segments: [{ name: "external", ordinal: 0 }] };
   const definition = encodeDefId(path);
   const signature = index.types.signatures.length;
@@ -54,7 +54,7 @@ export function declaredInvocationFixture() {
   const checkedStatement = { ...statement, expression: checkedCall };
   const typedStatement = { ...statement, expression: typedCall };
   checkedRoot.statements = list([checkedFn, checkedStatement]);
-  root.statements = list([typedFn, typedStatement]);
+  root.statements = list([{ kind: "ready-statement", node: typedFn }, { kind: "ready-statement", node: typedStatement }]);
   root.endOfFileToken.id = 8;
   source.items.unshift({ definition, node: checkedFn.id });
   index.modules[0].items.unshift({ definition, node: checkedFn.id });

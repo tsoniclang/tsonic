@@ -69,7 +69,7 @@ export function prepareModuleSyntax(scan: ProjectionInventory, rewrite: TypeRefe
     const moduleId = module.module;
     function* slots(): Generator<ChapterRootSlot> {
       yield { read: () => sourceTree.kind === "checked-root" ? { kind: "checked", node: sourceTree.root }
-        : { kind: "module-root", node: sourceTree.root }, path: at + ".tree" };
+        : { kind: "module-root", node: sourceTree.root }, path: at + ".tree.root" };
       for (const [position, { body }] of admittedRows.entries()) {
         const path = at + ".bodies[" + position + "].tir";
         yield { read: () => chapterBodyRoot(body.roots.root), path: path + ".root" };

@@ -15,7 +15,7 @@ import { summaryKey } from "../../packages/host/dist/ir-facts/index.js";
 export function encodeContextKey([name, key]) {
   let data;
   switch (name) {
-    case "bodyOf": case "tirBody": case "mirBody": data = instanceKey(key); break;
+    case "bodyOf": case "tirBody": case "mirBody": case "requiredEntriesOf": data = instanceKey(key); break;
     case "sourceBindingScopesOf": data = bindingTargetKey(key); break;
     case "tirBindingScopesOf": data = key.kind === "module" ? [key.kind, key.module]
       : [key.kind, instanceKey(key.instance)]; break;
@@ -132,7 +132,8 @@ export function moduleFixture(path = "src/main.ts", root = "/program", instanceB
     selectedMemoryDeclarations: [], closedArrays: [],
   };
   const published = { kind: "selected", instance, tir, mir, observations: { instance, rows: [] }, facts: [facts] };
-  const module = { module: moduleId, tree, bodies: [published] };
+  const chapter = { kind: "ready-root", root: tree };
+  const module = { module: moduleId, tree: chapter, bodies: [published] };
   const index = {
     schema: 1, nativeFactsKey: selectedNativeFactsKey, rootPackage: packageId,
     packages: [{ id: packageId, name: null, packageRoot: root, sourceRoot: root + "/src", dependencies: [], exports: [] }],
@@ -145,7 +146,7 @@ export function moduleFixture(path = "src/main.ts", root = "/program", instanceB
     initialization: { entry: moduleId, external: [], modules: [{ instance, provided: 0 }], entries: [] },
   };
   const available = value => ({ kind: "available", value });
-  const checked = { ...syntax, tsonic: {
+  const checked = { ...syntax, statements: { loc, nodes: [] }, tsonic: {
     core: { provider: available(null), markers: available({ struct: null, field: null, defaultValue: null, jsString: false, application: available(null) }),
       pointerType: available(null), pointerOperation: available(null), fieldBinding: available(null), recordBinding: available(null),
       attribute: available(null), safety: available(null), argumentPassing: available(null), flowState: available(null) },
@@ -178,7 +179,7 @@ export function moduleFixture(path = "src/main.ts", root = "/program", instanceB
   const supplied = new Map(rows.map(([reader, key, value]) => [encodeContextKey([reader, key]), value]));
   const lookup = exactLookup(supplied);
   const tirInput = {
-    source, module: { module: moduleId, tree, bodies: [tir] }, types,
+    source, module: { module: moduleId, tree: chapter, bodies: [tir] }, types,
     requiredEntriesOf: instance => lookup("requiredEntriesOf", instance),
     bindingScopesOf: target => ({ kind: "complete", scopes: lookup("tirBindingScopesOf", target) }),
     declarationOf: definition => lookup("declarationOf", definition),
@@ -197,7 +198,7 @@ export function moduleFixture(path = "src/main.ts", root = "/program", instanceB
 }
 
 export function authoredMethodGraph(module) {
-  const method = module.tree.statements.nodes[0].members.nodes[0];
+  const method = module.tree.root.statements.nodes[0].node.members.nodes[0];
   const nested = method.body.statements.nodes[0];
   for (const published of module.bodies) {
     if (published.instance.body === method.tsonic.template.body) published.tir.root = method.body;
@@ -255,6 +256,7 @@ export function dualInstanceFixture() {
   fixture.tirInput.module.bodies.push(published.tir);
   const rows = [
     ["bodyOf", instance, published.tir], ["tirBody", instance, published.tir],
+    ["requiredEntriesOf", instance, [0]],
     ["arenaOf", { kind: "body", execution: { instance, provided: 0 } }, published.facts[0].arena],
     ["tirBindingScopesOf", { kind: "body", instance }, [fixture.scope, fixture.scope, fixture.scope]],
     ["sourceBindingScopesOf", { kind: "body", execution: { instance, provided: 0 } }, [fixture.scope]],
@@ -296,9 +298,10 @@ export function moduleBoundaryFixture(change, fixture) {
       const module = encodeModuleId({ package: fixture.index.rootPackage, path: "src/other.ts" });
       fixture.index.modules = [{ module, package: fixture.index.rootPackage, items: [], exports: [], bindings: [], checkerDiagnostics: [] }];
       fixture.index.bodies = [];
-      fixture.module = { module, bodies: [], tree: { ...fixture.module.tree, id: 1,
-        tsonic: { ...fixture.module.tree.tsonic, module },
-        endOfFileToken: { ...fixture.module.tree.endOfFileToken, parent: 1 } } };
+      const original = fixture.module.tree.root;
+      const root = { ...original, id: 1, tsonic: { ...original.tsonic, module },
+        endOfFileToken: { ...original.endOfFileToken, parent: 1 } };
+      fixture.module = { module, bodies: [], tree: { kind: "ready-root", root } };
       fixture.answers.set(encodeContextKey(["tirOf", module]), null);
       return fixture;
     }
@@ -308,7 +311,7 @@ export function moduleBoundaryFixture(change, fixture) {
 
 export function callerSyntaxCycle() {
   const fixture = moduleFixture();
-  const original = fixture.module.tree;
+  const original = fixture.module.tree.root;
   const common = { origin: original.origin, parent: 0, flags: [], loc: original.loc };
   const leaf = { ...common, id: 4, kind: "Identifier", text: "x", tsonic: { role: "type-name", type: 0, declarations: [] } };
   const operatorToken = { ...common, id: 5, kind: "PlusToken", tsonic: null };
@@ -319,14 +322,15 @@ export function callerSyntaxCycle() {
   };
   expression.left = expression;
   const statement = { ...common, id: 3, kind: "ExpressionStatement", expression, tsonic: null };
-  const tree = { ...original, statements: { loc: original.loc, nodes: [statement] } };
-  const module = { ...fixture.module, tree, bodies: fixture.module.bodies.map(body => ({ ...body, tir: { ...body.tir, root: tree } })) };
+  const root = { ...original, statements: { loc: original.loc, nodes: [{ kind: "ready-statement", node: statement }] } };
+  const module = { ...fixture.module, tree: { kind: "ready-root", root },
+    bodies: fixture.module.bodies.map(body => ({ ...body, tir: { ...body.tir, root } })) };
   return { index: fixture.index, module, context: fixture.context };
 }
 
 export function callerComponentCycle() {
   const fixture = moduleFixture();
-  const tree = fixture.module.tree;
+  const tree = fixture.module.tree.root;
   const common = { origin: tree.origin, flags: [], loc: tree.loc };
   const root = { kind: "body", value: { body: fixture.bodyId, node: 2 } };
   const component = { root, path: [] };
@@ -337,8 +341,8 @@ export function callerComponentCycle() {
     tsonic: { type: 1, convertedType: 1, conversion: { kind: "identity" },
       narrowing: { kind: "narrowed", source: 1, result: 1, proof, failure: "unwind" }, evidenceIndex: null,
       demand: { kind: "always" }, role: "value", value: "leaf" } };
-  tree.statements = { loc: tree.loc, nodes: [{ ...common, id: 1, parent: 0,
-    kind: "ExpressionStatement", expression, tsonic: null }] };
+  tree.statements = { loc: tree.loc, nodes: [{ kind: "ready-statement", node: { ...common, id: 1, parent: 0,
+    kind: "ExpressionStatement", expression, tsonic: null } }] };
   tree.endOfFileToken.id = 3;
   fixture.index.types.terms.push({ kind: "string" });
   return { ...fixture, component };

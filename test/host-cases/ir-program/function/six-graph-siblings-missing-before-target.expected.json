@@ -1,1 +1,1 @@
-{"kind":"accepted","value":{"kind":"invalid-text","offset":331,"line":2,"column":249,"expected":["declared syntax node"],"found":"n"},"diagnostics":[]}
+{"kind":"accepted","value":{"kind":"invalid-text","offset":414,"line":4,"column":274,"expected":["declared syntax node"],"found":"n"},"diagnostics":[]}

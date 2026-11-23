@@ -146,7 +146,6 @@ function readSyntaxTail(cursor: Cursor, ports: SyntaxReadPorts, chapter: Chapter
     const wire = readSyntaxWire(cursor);
     if (wire.kind === "invalid-text") return wire;
     if (definitions.has(wire.value.position)) return invalid(cursor, wire.value.offset, ["unique syntax binding"]);
-    if (wire.value.position !== definitions.size) return invalid(cursor, wire.value.offset, [`n:${definitions.size}`]);
     const equals = delimiter(cursor, "=");
     if (equals.kind === "invalid-text") return equals;
     const kind = choice(cursor, kinds);
@@ -183,8 +182,10 @@ function closeTypedWire(cursor: Cursor, definitions: ReadonlyMap<number, SyntaxD
     const definition = definitions.get(ordinal);
     if (definition !== undefined) for (const dependency of definition.dependencies) pending.push(dependency.position);
   }
-  for (const definition of definitions.values()) if (!reachable.has(definition.position))
-    return invalid(cursor, definition.offset, ["referenced syntax declaration"]);
+  for (const definition of definitions.values()) {
+    if (!reachable.has(definition.position)) return invalid(cursor, definition.offset, ["referenced syntax declaration"]);
+    if (definition.position >= definitions.size) return invalid(cursor, definition.offset, ["dense wire binding"]);
+  }
   return { kind: "parsed", value: ordered.definitions };
 }
 

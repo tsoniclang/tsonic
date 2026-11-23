@@ -5,7 +5,7 @@ import { loadFrontFixture } from "./front/checked-module.mjs";
 
 function metadataValue(fixture, id, type, changes = {}) {
   const available = value => ({ kind: "available", value });
-  const root = fixture.module.tree;
+  const root = fixture.module.tree.root;
   const literal = { numerator: 1n, denominator: 1n, negativeZero: false };
   const syntax = { id, parent: id - 1, origin: root.origin, flags: [], loc: root.loc,
     kind: "NumericLiteral", text: "1", tokenFlags: [] };
@@ -18,7 +18,7 @@ function metadataValue(fixture, id, type, changes = {}) {
     kind: "ExpressionStatement", tsonic: null };
   const checkedStatement = { ...statement, expression: source };
   const typedStatement = { ...statement, expression: typed };
-  root.statements = { ...root.statements, nodes: [...root.statements.nodes, typedStatement] };
+  root.statements = { ...root.statements, nodes: [...root.statements.nodes, { kind: "ready-statement", node: typedStatement }] };
   const checkedRoot = fixture.tirInput.source.tree;
   checkedRoot.statements = { ...checkedRoot.statements, nodes: [...checkedRoot.statements.nodes, checkedStatement] };
   root.endOfFileToken.id = id + 1;
@@ -52,7 +52,7 @@ export function metadataOperationFixture(operation, fact, selectedKey, root = "/
     fingerprint: "native64-le", byteOrder: "little", addressWidth: 64 };
   first.index.metadata = [metadata, data];
   const published = first.selected;
-  const site = { origin: first.module.tree.origin, tir: { body: first.bodyId, node: 2 } };
+  const site = { origin: first.module.tree.root.origin, tir: { body: first.bodyId, node: 2 } };
   published.mir.locals = [{ id: 0, storage: 2, role: { kind: "temporary" }, mode: "local", source: null, origin: site.origin }];
   published.mir.places = [{ id: 0, base: { kind: "local", local: 0 }, storage: 2, origin: site.origin }];
   const operandKey = selectedKey === "layout" ? key : dataKey;

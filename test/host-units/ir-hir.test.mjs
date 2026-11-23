@@ -1259,6 +1259,18 @@ test("HIR checked declaration content uses actual requested roots and preserves 
   assert.equal(image.expressionOf(ordinal) === expression, false);
   assert.equal(image.declarationOf(ordinal), null);
   assert.equal(product.printCheckedDeclarations([image.sourceFileOf(0), image.expressionOf(ordinal)]).text, printed.text);
+  const [checkedLabel, ...definitions] = printed.text.split("\n");
+  const checkedClose = definitions.pop();
+  const reversed = [checkedLabel, ...definitions.toReversed(), checkedClose].join("\n");
+  const reordered = product.parseCheckedDeclarations(prefix + reversed, prefix.length).value.finish(requests).value.materialize();
+  assert.equal(reordered.sourceFileOf(0).statements.nodes[0].expression === reordered.expressionOf(ordinal), true);
+  const endOrdinal = printed.wireOf(source.tree.endOfFileToken);
+  const sparse = printed.text.replace(`endOfFileToken=c:${endOrdinal}`, "endOfFileToken=c:701")
+    .replace(`c:${endOrdinal}=EndOfFile`, "c:701=EndOfFile");
+  const sparseResult = product.parseCheckedDeclarations(prefix + sparse, prefix.length).value.finish(requests);
+  assert.equal(sparseResult.kind, "invalid-text");
+  assert.deepEqual(sparseResult.expected, ["dense wire binding"]);
+  assert.equal(sparseResult.offset, prefix.length + sparse.indexOf("c:701=EndOfFile"));
   assert.equal(product.printHir(product.parseHir(standalone).value), standalone);
   for (const [rootRequests, expected, offset] of [
     [[{ role: "source-file", ordinal, offset: expressionOffset }], ["SourceFile"], expressionOffset],
@@ -2951,7 +2963,9 @@ test("HIR malformed typed fields retain exact independently selected record and 
     [original.replace("tree=n:0", "tree=n:999"), "tree=n:999", ["declared syntax node"], "tree=".length],
     [original.replace("nodes=[]", "nodes=[false]"), "nodes=[false]", ["Statement"], "nodes=[".length],
     [original.replace("n:1=EndOfFile", "n:0=EndOfFile"), "n:0=EndOfFile", ["distinct wire binding"]],
-    [original.replace("n:1=EndOfFile", "n:3=EndOfFile"), "n:3=EndOfFile", ["n:1"]],
+    [original.replace("n:1=EndOfFile", "n:3=EndOfFile"), "endOfFileToken=n:1", ["declared syntax node"], "endOfFileToken=".length],
+    [original.replace("endOfFileToken=n:1", "endOfFileToken=n:3").replace("n:1=EndOfFile", "n:3=EndOfFile"),
+      "n:3=EndOfFile", ["dense wire binding"]],
     [original.replace("n:0=SourceFile", "n:0=InventedNode"), "n:0=InventedNode", ["syntax node declaration"], "n:0=".length],
     [original.replace("n:0=SourceFile", "n:0=HirBody"), "n:0=HirBody", ["syntax node declaration"], "n:0=".length],
     [original.replace("n:0=SourceFile", "n:0=Token"), "n:0=Token", ["syntax node declaration"], "n:0=".length],

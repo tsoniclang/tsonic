@@ -2,8 +2,8 @@
   "kind": "accepted",
   "value": {
     "kind": "invalid-text",
-    "offset": 1148,
-    "line": 4,
+    "offset": 1253,
+    "line": 6,
     "column": 205,
     "expected": [
       "type",
