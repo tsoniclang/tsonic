@@ -596,6 +596,63 @@ export const tirOperationsOf: TirOperationsOf = (input, instance) => {
     ({ operation: value, node: { body: body.body, node: node.id }, origin: node.origin }));
 };
 
+function verifyPlacedDefaults<Stop extends object>(input: TirVerifierInput, body: TirBody, boundary: TirSourceBoundary,
+  admit: TirReadyReadAdmission<Stop>, emit: TirOccurrenceEmit): Stop | null {
+  let minimum: number | undefined;
+  let ordinal = 0;
+  for (let position = 0; position < body.params.length; position += 1) {
+    const row = admit({ kind: "row" });
+    if (row !== null) return row;
+    const parameter = body.params[position];
+    const authored = boundary.headers[position];
+    if (parameter === undefined || parameter.tsonic.role === "this") continue;
+    const formal = ordinal++;
+    if (authored === null || authored === undefined) continue;
+    const placement = authored.tsonic.initializer;
+    const role = parameter.initializer;
+    if (placement === null || authored.initializer === null) {
+      if (role.kind !== "none" || placement !== null || authored.initializer !== null)
+        emit("parameter-order", parameter, "an initializer role needs its actual authored expression and placement");
+      continue;
+    }
+    const instance: BodyInstance = { body: placement, bindings: body.bindings };
+    const identity = admit({ kind: "artifact", instance });
+    if (identity !== null) return identity;
+    const ready = input.bodyOf(instance);
+    let exact = parameter.tsonic.initializer === placement && boundary.bodies.get(placement)?.root === authored.initializer;
+    if (ready === null) exact &&= role.kind === "checked-default" && role.root === authored.initializer;
+    else {
+      const actual = { body: ready.body, bindings: ready.bindings };
+      const returned = admit({ kind: "artifact", instance: actual });
+      if (returned !== null) return returned;
+      exact &&= ready.owner === parameter.tsonic.declaration && sameInstance(actual, instance)
+        && role.kind === "ready-default" && role.root === ready.root;
+    }
+    if (body.bindings.kind === "instantiated") {
+      if (minimum === undefined) {
+        const caller = { body: body.body, bindings: body.bindings };
+        const asked = admit({ kind: "artifact", instance: caller });
+        if (asked !== null) return asked;
+        const entries = input.requiredEntriesOf(caller);
+        const read = admit({ kind: "row" });
+        if (read !== null) return read;
+        minimum = entries?.at(-1) ?? -1;
+      }
+      if (minimum < 0) exact = false;
+      else if (minimum <= formal) {
+        const asked = admit({ kind: "artifact", instance });
+        if (asked !== null) return asked;
+        const entries = input.requiredEntriesOf(instance);
+        const read = admit({ kind: "row" });
+        if (read !== null) return read;
+        exact &&= ready !== null && entries?.length === 1 && Object.is(entries[0], 0);
+      }
+    }
+    if (!exact) emit("nested-template-identity", parameter, "formal default must match its placed body and independently required execution");
+  }
+  return null;
+}
+
 function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody, admit: TirReadyReadAdmission<Stop>,
   membership: (selected: TirBody, emit: TirOccurrenceEmit) => Stop | null,
 ): TirVerificationResult<TirSite, Stop> {
@@ -626,6 +683,8 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
   verifyQualifiedReferences(input, body, structure, emit);
   const publication = membership(body, emit);
   if (publication !== null) return { kind: "resource-stop", stop: publication };
+  const defaults = verifyPlacedDefaults(input, body, boundary, admit, emit);
+  if (defaults !== null) return { kind: "resource-stop", stop: defaults };
   const ownNodeIds = verifyNestedPublication(input, body, semantics, inventory.original, inventory.typedNodes, inventory.ownNodes, boundary.headers, emit);
   verifyControlledContexts(body, inventory.original, structure, semantics, emit);
   const bindingSlots = verifyBindingSlots(body, structure, inventory.sourceNodes, boundary.bodies, input.module.bodies, input.bodyOf, input.nodeOf, emit, admit);

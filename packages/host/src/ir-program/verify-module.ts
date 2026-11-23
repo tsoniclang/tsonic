@@ -273,10 +273,12 @@ export function verifyPublishedChildren(
       for (const child of metadata.violations) violations.push(child);
     }
     if (input !== null) {
+      const identity = admit({ kind: "artifact", instance: published.instance });
+      if (identity !== null) return identity;
       const mir = verifyMir(published.mir, {
         selectedNativeFacts: context.selectedNativeFacts,
         limits: context.mirVerification, source: published.tir, bodyOf: input.bodyOf, types: index.types,
-        declarationOf: input.declarationOf, bodyOwner: context.facts.bodyOwner,
+        declarationOf: input.declarationOf, bodyOwner: context.facts.bodyOwner, requiredEntries: input.requiredEntriesOf(published.instance) ?? [],
       });
       // A body past its limit is the answer for the module: it names the body, and nothing gathered so far is a finding.
       if (mir.kind === "resource-limit") return { kind: "resource-limit", body: published.instance, dimension: mir.dimension, maximum: mir.maximum };
@@ -388,8 +390,7 @@ function verifyModuleInventory(
       if (!factsKeys.has(executionIdentity)) {
         violations.push({ rule: "facts-execution-total", site: bodySite, detail: [textDetail(executionIdentity)] });
       }
-      const entry = published.mir.entries[published.mir.entries[0] === undefined ? -1
-        : published.mir.entries[0].provided - execution.provided];
+      const entry = published.mir.entries.find(row => row.provided === execution.provided);
       if (entry === undefined || entry.provided !== execution.provided || !Number.isSafeInteger(execution.provided)
         || execution.provided < 0 || Object.is(execution.provided, -0)) {
         violations.push({ rule: "execution-entry-resolves", site: bodySite, detail: [numberDetail(execution.provided)] });

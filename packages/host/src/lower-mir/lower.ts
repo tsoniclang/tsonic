@@ -40,7 +40,7 @@ import { addEntry, constantOperand, createState, emitStatement, enterBlock, fini
 // answer before it makes the next record and the walk ends at the first refusal with the one diagnostic. No record
 // is made after a refusal.
 //
-export function lowerBody(deps: LowerMirDeps, body: TirBody, internal: readonly InternalBodyInput[]): Result<MirBody> {
+export function lowerBody(deps: LowerMirDeps, body: TirBody, internal: readonly InternalBodyInput[], provided: readonly number[]): Result<MirBody> {
   // The caller sets the limit; a value that is not a count is the caller's defect, as for the MIR verifier's limit.
   const maximumRecords = deps.limits.maximumRecords;
   if (!Number.isSafeInteger(maximumRecords) || maximumRecords < 0 || Object.is(maximumRecords, -0))
@@ -53,7 +53,7 @@ export function lowerBody(deps: LowerMirDeps, body: TirBody, internal: readonly 
     signatureOf: deps.signatureOf, internal, internalOf: null, body, work: [], operands: [],
     exposed: new Set(), reads: new Map(), staticReads: new Set(), selections: new Map(), localOf: new Map(), labels: new Map(), preservedLocals: new Set(), receiver: null,
     outerLocals: new Map(), scope: null };
-  const mir = enter(lowering, root) && walk(lowering) ? finish(deps, lowering) : null;
+  const mir = enter(lowering, root) && walk(lowering) ? finish(lowering, provided) : null;
   return mir === null ? { kind: "refused", diagnostics: [sizeLimit(deps, body)] } : { kind: "ok", value: mir, diagnostics: [] };
 }
 
@@ -114,7 +114,6 @@ function enter(lowering: Lowering, root: TirBody["root"]): boolean {
   if (first === null) return false;
   enterBlock(state, first);
   if (!prepareFunctionLocals(lowering)) return false;
-  addEntry(state, { provided: parameters, block: first });
   if (root.kind === "SourceFile") lowering.work.push({ kind: "module", node: root, position: 0 });
   else if (root.kind === "Block") lowering.work.push({ kind: "statement", node: root });
   else lowering.work.push({ kind: "complete", node: root, result: "value" }, { kind: "expression", node: root });
@@ -199,24 +198,30 @@ function moduleStatement(lowering: Lowering, pending: Extract<Work, { readonly k
 }
 
 /** Ends a body whose last block is still open, and assembles the graph. Null: refused. */
-function finish(deps: LowerMirDeps, lowering: Lowering): MirBody | null {
+function finish(lowering: Lowering, entries: readonly number[]): MirBody | null {
   const { state, body } = lowering;
   if (state.current !== null) {
-    const completion = deps.typeOf(body.completion);
+    const completion = lowering.typeOf(body.completion);
     if (completion.kind !== "intrinsic" || completion.intrinsic !== "void")
       return callerDefect("the end of a body that completes with a value is reached", body.root.origin);
     terminate(state, { ...siteOf(body, body.root), kind: "return", value: null });
   }
-  if (!omittedEntries(lowering)) return null;
+  if (!omittedEntries(lowering, entries)) return null;
   return finishBody(state);
 }
 
-function omittedEntries(lowering: Lowering): boolean {
+function omittedEntries(lowering: Lowering, entries: readonly number[]): boolean {
   const { state, body } = lowering;
   const signature = lowering.signatureOf(body.signature);
   let provided = signature.parameters.length;
-  let next = requirePresent(state.entries[0], failure("a completed body has no full entry", body.root.origin)).block;
-  for (let position = body.params.length - 1; position >= 0; position -= 1) {
+  let next = requirePresent(state.blocks[0], failure("a completed body has no initial block", body.root.origin)).id;
+  if (entries.length === 0) return callerDefect("a selected body requires at least one offered entry", body.root.origin);
+  let positionInEntries = 0;
+  if (Object.is(entries[0], provided)) {
+    addEntry(state, { provided, block: next });
+    positionInEntries += 1;
+  }
+  for (let position = body.params.length - 1; position >= 0 && positionInEntries < entries.length; position -= 1) {
     const header = requirePresent(body.params[position], failure("a parameter vector has a hole", body.root.origin));
     const row = header.tsonic;
     const parameterLocal = executionParameterLocal(header, body.body);
@@ -237,10 +242,13 @@ function omittedEntries(lowering: Lowering): boolean {
       if (!initializeAbsence(lowering, header, destination, row.storage)) return false;
     }
     terminate(state, { ...site, kind: "goto", target: next });
-    addEntry(state, { provided, block: entry });
+    if (Object.is(entries[positionInEntries], provided)) {
+      addEntry(state, { provided, block: entry });
+      positionInEntries += 1;
+    }
     next = entry;
   }
-  return true;
+  return positionInEntries === entries.length || callerDefect("required entries must be unique, admissible and in decreasing provided order", body.root.origin);
 }
 
 function statement(lowering: Lowering, node: Statement<TypedPhase>): boolean {

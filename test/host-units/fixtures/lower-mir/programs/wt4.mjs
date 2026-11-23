@@ -49,6 +49,9 @@ export function wt4() {
     captures: [{ local: { body: bodyId("f"), local: 0 }, capture: "captured-location" }],
     root: coalesce(dy, dy.id("x", 0, T.optInt32), dy.num("0", T.int32), T.int32, { self: "x??0", control: "x", right: "0" }) });
 
+  f.tir.params[0].initializer = { kind: "ready-default", root: xDefault.tir.root };
+  f.tir.params[1].initializer = { kind: "ready-default", root: yDefault.tir.root };
+
   // The ready data Pipeline supplies for the initializer executions f places (section 7 part 1).
   const internal = [
     { instance: { body: X_DEFAULT, bindings: SELECTED_BINDINGS }, captures: [], signature: SIG_X_DEFAULT },

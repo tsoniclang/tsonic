@@ -888,7 +888,7 @@ function sourceContext(body = parsedBody()) {
     assert.equal(bodyOwners.has(identity), true, `no undeclared MIR body-owner lookup: ${identity}`);
     return bodyOwners.get(identity);
   };
-  return { selectedNativeFacts: nativeFactsFixture(), limits: verificationLimits, source, bodyOf: () => null,
+  return { selectedNativeFacts: nativeFactsFixture(), limits: verificationLimits, requiredEntries: [0], source, bodyOf: () => null,
     types, declarationOf, declarations, bodyOwner, bodyOwners };
 }
 
@@ -896,7 +896,7 @@ function sourceContext(body = parsedBody()) {
 function selectedParameter(source, selection) {
   const identity = identities.nodeId(10000);
   return { id: identity, origin: source.root.origin, parent: null, flags: [], loc: source.root.loc,
-    kind: "Parameter", modifiers: null, dotDotDotToken: null, questionToken: null, type: null, initializer: null,
+    kind: "Parameter", modifiers: null, dotDotDotToken: null, questionToken: null, type: null, initializer: { kind: "none" },
     name: { id: identities.nodeId(10001), origin: source.root.origin, parent: identity, flags: [], loc: source.root.loc,
       kind: "Identifier", text: selection.role === "this" ? "this" : "value",
       tsonic: { role: "declaration-name", declaration: { kind: "local", local: selection.local }, storage: selection.storage } },
@@ -912,14 +912,14 @@ test("MIR selected header roots retain their occurrence and exclude separately-o
   const initializer = "B[D[M[P[p];m];default];default-argument;0]";
   const parameter = selectedParameter(context.source, { local: { body: context.source.body, local: identities.localId(0) },
     declaration: context.source.owner, role: "default", passing: "by-value", initializer, storage: identities.tyId(1) });
-  parameter.initializer = { id: identities.nodeId(10002), origin: parameter.origin, parent: parameter.id,
+  parameter.initializer = { kind: "ready-default", root: { id: identities.nodeId(10002), origin: parameter.origin, parent: parameter.id,
     flags: [], loc: parameter.loc, kind: "FalseKeyword", tsonic: { type: identities.tyId(1), convertedType: identities.tyId(1),
-      conversion: { kind: "identity" }, narrowing: null, evidenceIndex: null, demand: { kind: "always" }, role: "value" } };
+      conversion: { kind: "identity" }, narrowing: null, evidenceIndex: null, demand: { kind: "always" }, role: "value" } } };
   const source = { ...context.source, params: [parameter] };
   const nodes = control.sourceNodes(source, texts);
   assert.equal(nodes.get(parameter.id).node, parameter, "the selected original parameter is an eligible MIR occurrence");
   assert.equal(nodes.get(parameter.name.id).node, parameter.name, "the header's eligible child is retained");
-  assert.equal(nodes.has(parameter.initializer.id), false, "the separate initializer body is not callable execution");
+  assert.equal(nodes.has(parameter.initializer.root.id), false, "the separate initializer body is not callable execution");
   assert.equal(nodes.get(parameter.id).bodies.has(initializer), true, "the actual placed initializer identity stays on its header");
   assert.equal(control.sourceNodes({ ...source, params: [parameter, parameter] }, texts).size, nodes.size,
     "the same canonical object can be reached twice without a second occurrence");
@@ -939,6 +939,7 @@ test("MIR entries use the selected required omission capability without changing
   const context = sourceContext(body);
   const declaration = identities.decodeBodyId(body.body).value.owner;
   const parameter = { declaration, kind: "required", type: identities.tyId(0), passing: "by-value", initializer: null, acceptsOmission: true };
+  context.requiredEntries = [1, 0];
   context.types.signatures[0].parameters = [parameter];
   context.source.params = [selectedParameter(context.source, { local: { body: body.body, local: identities.localId(0) }, declaration,
     role: "required", passing: "by-value", initializer: null, storage: identities.tyId(0) })];
@@ -952,11 +953,13 @@ test("MIR entries use the selected required omission capability without changing
   parameter.acceptsOmission = false;
   same(verified(body, context), [expectedViolation("entries-exact", { kind: "body" })], "the same type never invents omission capability");
   body.entries.pop();
+  context.requiredEntries = [1];
   same(verified(body, context), [], "the nonomissible selected formal admits only the supplied entry");
   parameter.acceptsOmission = undefined;
   same(verified(body, context), [expectedViolation("entries-exact", { kind: "body" })], "missing selected capability is not known nonomissibility");
   context.types.signatures[0].parameters = [undefined];
   same(verified(body, context), [expectedViolation("entries-exact", { kind: "body" })], "a sparse formal is not an omissible entry");
+  context.requiredEntries = [0];
   parameter.kind = "rest";
   parameter.acceptsOmission = true;
   context.types.signatures[0].parameters = [parameter];
@@ -4039,7 +4042,7 @@ export const body: MirBody = { body: identity, bindings: { kind: "parametric" },
   blocks: [{ origin, tir: { body: identity, node: nodeId(0) }, id: blockId(0), statements: [],
     terminator: { origin, tir: { body: identity, node: nodeId(1) }, kind: "return", value: null } }] };
 declare const selectedNativeFacts: MirVerificationContext["selectedNativeFacts"];
-export const context: MirVerificationContext = { selectedNativeFacts, limits: { maximumWork: 0 }, source, bodyOf: () => null, types, bodyOwner: selected => selected === identity ? definition : null,
+export const context: MirVerificationContext = { selectedNativeFacts, limits: { maximumWork: 0 }, requiredEntries: [0], source, bodyOf: () => null, types, bodyOwner: selected => selected === identity ? definition : null,
   declarationOf: selected => selected === definition ? {
   scope: { classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] }, parameterCount: 0, endpoints: [] } : null };
 const ports: readonly [PrintMir, ParseMir, VerifyMir] = [Mir.printMir, Mir.parseMir, Mir.verifyMir];

@@ -121,7 +121,7 @@ function fixture(program, internal = [], provided = TABLE.signatures[program.tir
   const execution = { instance: { body: program.tir.body, bindings: program.tir.bindings }, provided };
   const unit = { query: "bodyRound", key: executionKey(execution) };
   const lowered = lowerToMir({ typeOf, signatureOf, limits: { maximumRecords: 10000 },
-    defs: { completionSelector: T.int32, exceptionStorage: T.unknown }, unit: { request: unit, position: { kind: "result" } } }, program.tir, internal);
+    defs: { completionSelector: T.int32, exceptionStorage: T.unknown }, unit: { request: unit, position: { kind: "result" } } }, program.tir, internal, verificationContext(program).requiredEntries);
   assert.equal(lowered.kind, "ok", "the real LowerMir producer completes");
   const canonical = verificationContext(program);
   const mirContext = program.bindingScope === undefined ? canonical : { ...canonical, declarationOf: definition => {

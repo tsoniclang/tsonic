@@ -41,7 +41,7 @@ export function lowerMirDeps(run: LowerMirRun, unit: UnitRef): LowerMirDeps {
 }
 
 /** The context in which the graph of `body` is verified at the lowered-body barrier. */
-export function mirVerificationContext(run: LowerMirRun, body: TirBody): MirVerificationContext {
+export function mirVerificationContext(run: LowerMirRun, body: TirBody, requiredEntries: readonly number[]): MirVerificationContext {
   return { selectedNativeFacts: run.selectedNativeFacts, limits: run.verification,
-    source: body, bodyOf: run.bodyOf, types: run.table, declarationOf: run.declarationOf, bodyOwner: run.bodyOwner };
+    source: body, bodyOf: run.bodyOf, types: run.table, declarationOf: run.declarationOf, bodyOwner: run.bodyOwner, requiredEntries };
 }

@@ -282,17 +282,14 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
   const params: ParameterDeclaration<TypedPhase>[] = [];
   const expectedInitializers = new Set<BodyId>();
   for (const parameter of body.params) if (parameter.initializer !== null) expectedInitializers.add(parameter.initializer);
-  const initializers = new Map<BodyId, TirBody>();
+  const initializers = new Map<BodyId, Exclude<ElaborationChild, ElaborationNoResult>>();
   const bindingsKey = artifactBindingsKey(instance.bindings);
   for (const child of input.initializers) {
     const initializer = "kind" in child ? child.instance : child;
     if (!expectedInitializers.has(initializer.body) || initializers.has(initializer.body)
       || artifactBindingsKey(initializer.bindings) !== bindingsKey)
       return callerDefect("a formal initializer must be its unique completed body under the same actual bindings", rootOrigin);
-    if ("kind" in child) {
-      if (child.kind === "checked") return callerDefect("an unopened formal must be retained at its actual header", rootOrigin);
-      return { ...child, instance, diagnostics: [] };
-    }
+    if ("kind" in child && child.kind === "no-result") return { ...child, instance, diagnostics: [] };
     initializers.set(initializer.body, child);
   }
   if (initializers.size !== expectedInitializers.size)
@@ -311,18 +308,33 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
       return callerDefect("the parameter header is not its actual checked item and owning callable occurrence", rootOrigin);
     const initializer = row.initializer === null ? null : initializers.get(row.initializer)
       ?? callerDefect("the actual formal initializer body is missing", header.origin);
-    let initializerRoot: Expression<TypedPhase> | null = null;
-    if (initializer !== null) {
+    const completed = (initializer: TirBody): Expression<TypedPhase> => {
       const root = initializer.root;
       if (root.kind === "SourceFile" || root.kind === "Block" || initializer.owner !== row.declaration
         || root.id !== header.initializer?.id || initializer.completion !== parameter.type
         || deps.signatureOf(initializer.signature).result !== parameter.type)
         return callerDefect("the completed formal initializer must retain its checked owner, expression and selected result", header.origin);
-      initializerRoot = root;
-    }
+      return root;
+    };
+    if (initializer !== null && "kind" in initializer && (initializer.body.root !== header.initializer
+      || initializer.body.owner !== row.declaration || header.initializer === null))
+      return callerDefect("an unopened default requires its actual checked initializer and formal owner", header.origin);
+    const authored = header.initializer;
+    const slot: ParameterDeclaration<TypedPhase>["initializer"] = initializer === null ? { kind: "none" }
+      : "kind" in initializer ? { kind: "checked-default", root: authored ?? callerDefect("an unopened default has no checked root", header.origin) }
+      : { kind: "ready-default", root: completed(initializer) };
     const selected = elaborateParameter(deps, header, body.body, { local: { body: body.body, local: row.local }, declaration: row.declaration,
-      role: row.role, passing: row.passing, initializer: row.initializer, storage: parameter.type }, initializerRoot);
+      role: row.role, passing: row.passing, initializer: row.initializer, storage: parameter.type }, slot);
     if (selected.kind === "refused") return selected;
+    if (initializer !== null && "kind" in initializer) {
+      const formal = selected.value;
+      const stopped = initializer.onRequired(ready => {
+        if (formal.initializer !== slot) return callerDefect("a required default may be attached to its actual checked slot only once", header.origin);
+        formal.initializer = { kind: "ready-default", root: completed(ready) };
+        return { kind: "ok", diagnostics: [], value: undefined };
+      });
+      if (stopped.kind === "refused") return stopped;
+    }
     params.push(selected.value);
   }
   const variablesByNode = new Map<NodeId, VariableDeclaration<TypedPhase>>();

@@ -84,7 +84,7 @@ export async function checkCompoundStaticAssignment() {
     const changedTir = { ...exact, root: { ...exact.root, statements: { ...exact.root.statements,
       nodes: [{ ...returned, expression: changedExpression }] } } };
     assert.equal(verifyTir(typed.value.verifierOf(module.module), changedTir).some(issue => issue.rule === "operation-type"), true);
-    const context = { selectedNativeFacts: nativeFacts, source: body.tir, types: index.types, limits: input.limits.mirVerification,
+    const context = { selectedNativeFacts: nativeFacts, source: body.tir, requiredEntries: typed.value.required.provided.get(instanceKey(body.instance)), types: index.types, limits: input.limits.mirVerification,
       declarationOf: typed.value.declarationOf, bodyOwner: identity => fixture.ids.decodeBodyId(identity).value.owner,
       bodyOf: instance => typed.value.bodies.get(instanceKey(instance)) ?? null };
     for (const [original, crossed, rule] of [
@@ -192,7 +192,7 @@ export async function checkStaticUpdates() {
       const wrongTir = { ...exact, root: { ...exact.root, statements: { ...exact.root.statements,
         nodes: [{ ...original, expression: crossedExpression }] } } };
       assert.equal(verifyTir(typed.value.verifierOf(module.module), wrongTir).some(issue => issue.rule === "operation-type"), true, label);
-      const context = { selectedNativeFacts: nativeFacts, source: body.tir, types: index.types,
+      const context = { selectedNativeFacts: nativeFacts, source: body.tir, requiredEntries: typed.value.required.provided.get(instanceKey(body.instance)), types: index.types,
         limits: active.limits.mirVerification, declarationOf: typed.value.declarationOf,
         bodyOwner: owner => fixture.ids.decodeBodyId(owner).value.owner,
         bodyOf: instance => typed.value.bodies.get(instanceKey(instance)) ?? null };
@@ -321,7 +321,7 @@ export async function checkQualifiedStaticRead() {
       const wrongLoad = { ...load, value: { kind: "use", operand: { kind: "place", place: load.place } } };
       const wrongMir = { ...reader.mir, blocks: reader.mir.blocks.map(block => ({ ...block,
         statements: block.statements.map(statement => statement === load ? wrongLoad : statement) })) };
-      const verified = verifyMir(wrongMir, { selectedNativeFacts: selected.snapshot.nativeFacts, source: reader.tir,
+      const verified = verifyMir(wrongMir, { selectedNativeFacts: selected.snapshot.nativeFacts, source: reader.tir, requiredEntries: typed.value.required.provided.get(instanceKey(reader.instance)),
         types: index.types, limits: selected.limits.mirVerification, declarationOf: typed.value.declarationOf,
         bodyOwner: body => fixture.ids.decodeBodyId(body).value.owner,
         bodyOf: instance => typed.value.bodies.get(instanceKey(instance)) ?? null });

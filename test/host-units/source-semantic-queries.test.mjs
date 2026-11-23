@@ -623,7 +623,7 @@ test("real bodyless call, method, construct and index formals retain definitions
     bodies.set(source.body, answer.value);
   }
   const module = [...bodies.values()].find(body => body.root.kind === "SourceFile");
-  const publication = { module: program.checked.module, tree: module.root,
+  const publication = { module: program.checked.module, tree: { kind: "ready-root", root: module.root },
     bodies: program.checked.bodies.map(body => bodies.get(body.body)) };
   const declaration = module.root.statements.nodes[1];
   assert.equal(declaration.kind, "InterfaceDeclaration");
@@ -1241,7 +1241,7 @@ test("real explicit and inferred calls retain their original endpoint, applied c
   const selected = wiring.elaborate.elaborate(deps, { instance: { body: body.body, bindings }, scope, body,
     typing: readyTyping(publication.constraints.constraints[0], publication.solution, typed.value), nestedBodies: [], initializers: [] });
   assert.equal(selected.kind, "ok");
-  const typedModule = { module: program.checked.module, tree: moduleTyped.value.root,
+  const typedModule = { module: program.checked.module, tree: { kind: "ready-root", root: moduleTyped.value.root },
     bodies: [...program.checked.bodies.map(source => typedByBody.get(source.body)), selected.value] };
   const bodyOf = instance => instance.bindings.kind === "parametric" ? typedByBody.get(instance.body) ?? null
     : instance.body === body.body && fixture.types.artifactBindingsKey(instance.bindings) === fixture.types.artifactBindingsKey(bindings) ? selected.value : null;
@@ -1261,9 +1261,9 @@ test("real explicit and inferred calls retain their original endpoint, applied c
       exceptionStorage: insertFixtureType(fixture.types, program.interner, { kind: "intrinsic", intrinsic: "unknown" }) },
     lowering: { maximumRecords: 100000 }, verification: { maximumWork: 1000000 } };
   const unit = { request: { query: "mirBody", key: [body.body, fixture.types.artifactBindingsData(bindings)] }, position: { kind: "result" } };
-  const lowered = wiring.lowerMir.lowerToMir(lower.lowerMirDeps(run, unit), selected.value, []);
+  const lowered = wiring.lowerMir.lowerToMir(lower.lowerMirDeps(run, unit), selected.value, [], [selected.value.params.length]);
   assert.equal(lowered.kind, "ok");
-  assert.deepEqual(irMir.verifyMir(lowered.value, lower.mirVerificationContext(run, selected.value)), { kind: "complete", violations: [] });
+  assert.deepEqual(irMir.verifyMir(lowered.value, lower.mirVerificationContext(run, selected.value, [selected.value.params.length])), { kind: "complete", violations: [] });
   const applications = lowered.value.blocks.map(block => block.terminator).filter(terminator => terminator.kind === "call");
   assert.deepEqual(applications.map(terminator => terminator.callee.resolution.decision.completion.signature),
     decisions.map(row => row.decision.application.completion.signature));
@@ -1345,7 +1345,7 @@ for (const annotation of ["boolean", null]) test(`real ${annotation ?? "inferred
   assert.equal(selectedVariable.initializer === selected.value.root, true);
   assert.equal(selectedVariable.tsonic.initializer, selected.value.body);
   assert.equal(types.artifactBindingsKey(selectedModule.bindings), types.artifactBindingsKey(selected.value.bindings));
-  const publication = { module: program.checked.module, tree: moduleBody.root, bodies: [...typed.values(), ...selectedBodies.values()] };
+  const publication = { module: program.checked.module, tree: { kind: "ready-root", root: moduleBody.root }, bodies: [...typed.values(), ...selectedBodies.values()] };
   const verifier = { source: program.checked, module: publication, types: types.viewTypes(program.interner),
     staticStorageOf: () => null,
     declarationOf: program.declarationOf, memberTableOf: () => null, nominalOf: () => null,
@@ -1381,10 +1381,10 @@ for (const annotation of ["boolean", null]) test(`real ${annotation ?? "inferred
       return { instance: { body: child.body, bindings: child.bindings }, captures: child.captures, signature: child.signature };
     });
     const unit = { request: { query: "mirBody", key: [body.body, types.artifactBindingsData(body.bindings)] }, position: { kind: "result" } };
-    const result = wiring.lowerMir.lowerToMir(lower.lowerMirDeps(run, unit), body, actualChildren);
+    const result = wiring.lowerMir.lowerToMir(lower.lowerMirDeps(run, unit), body, actualChildren, [body.params.length]);
     assert.equal(result.kind, "ok");
     assert.deepEqual(result.diagnostics, []);
-    assert.deepEqual(mir.verifyMir(result.value, lower.mirVerificationContext(run, body)), { kind: "complete", violations: [] });
+    assert.deepEqual(mir.verifyMir(result.value, lower.mirVerificationContext(run, body, [body.params.length])), { kind: "complete", violations: [] });
     assert.deepEqual(mir.parseMir(mir.printMir(result.value)), { kind: "parsed", value: result.value });
     loweredBodies.set(body.body, result.value);
   }
@@ -1603,7 +1603,7 @@ for (const [authored, annotation, kind, expected] of [
   assert.equal(selected.tsonic.conversion.kind, "convert");
   assert.equal(selected.tsonic.conversion.operation.decision.operation.embedding === embedding, true);
   if (kind === "string") assert.equal(selected.tsonic.value, expected);
-  const publication = { module: program.checked.module, tree: module.root, bodies: [...typed.values()] };
+  const publication = { module: program.checked.module, tree: { kind: "ready-root", root: module.root }, bodies: [...typed.values()] };
   const verifier = { source: program.checked, module: publication, types: types.viewTypes(program.interner),
     staticStorageOf: () => null,
     declarationOf: program.declarationOf, memberTableOf: () => null, nominalOf: () => null,
@@ -1710,7 +1710,7 @@ test(`real ${annotation === null ? "inferred" : "annotated"} ${authored} default
   const outer = elaborate(program.checked.bodies.find(body => body.root.kind === "SourceFile"));
   assert.equal(outer.root.statements.nodes[0].parameters.nodes[0] === callable.params[0], true);
   if (annotation === "string") assert.equal(initializer.root.tsonic.value, expected);
-  const publication = { module: program.checked.module, tree: outer.root, bodies: [...typed.values()] };
+  const publication = { module: program.checked.module, tree: { kind: "ready-root", root: outer.root }, bodies: [...typed.values()] };
   const verifier = { source: program.checked, module: publication, types: types.viewTypes(program.interner),
     staticStorageOf: () => null,
     declarationOf: program.declarationOf, memberTableOf: () => null, nominalOf: () => null,
@@ -1818,7 +1818,7 @@ test("an actual null return completes its inferred declaration and selected body
   const selected = wiring.elaborate.elaborate(deps, { ...inputOf(callableSource),
     instance: { body: callable.body, bindings }, typing: { ...original.typing, template: callable } });
   assert.equal(selected.kind, "ok");
-  const publication = { module: program.checked.module, tree: typed.get(moduleSource.body).root,
+  const publication = { module: program.checked.module, tree: { kind: "ready-root", root: typed.get(moduleSource.body).root },
     bodies: [...typed.values(), selected.value] };
   const verifier = { source: program.checked, module: publication, types: types.viewTypes(program.interner),
     staticStorageOf: () => null,

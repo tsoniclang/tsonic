@@ -120,48 +120,41 @@ export function call(): boolean { const supplied: boolean = true; return choose(
   const captured = captureSourceBarrier(inputs);
   assert.equal(captured.kind, "ok");
   const account = createAccount(inputs.limits.dataflow);
-  const typed = typeSourceBarrier(inputs, captured.value, account);
-  assert.equal(typed.kind, "ok");
-  const bodies = typed.value.bodies;
-  const originals = [...bodies.values()].filter(body => body.bindings.kind === "instantiated");
-  const caller = originals.find(body => body.root.kind === "Block" && body.root.statements.nodes.at(-1)?.expression?.kind === "CallExpression");
-  const callee = originals.find(body => body.params.length === 2);
-  const [supplied, omitted] = callee.params.map(parameter => ({ body: parameter.tsonic.initializer, bindings: callee.bindings }));
-  const call = caller.root.statements.nodes.at(-1).expression;
-  assert.equal(call.tsonic.application.kind, "decided");
-  const actualCallee = call.tsonic.application.decision.callee;
-  assert.notEqual(actualCallee.activation, null);
-  const at = { body: caller.body, node: call.id };
+  const choose = captured.value.modules.find(row => row.module.module === snapshot.entryPoint).module.tree.statements.nodes[0];
   const dependenciesOf = pipelineWiring.summaries.dependenciesOf;
   let checks = 0;
-  let observedReads = null;
-  const getBody = bodies.get;
-  bodies.get = function (key) {
-    observedReads?.push(key);
-    return getBody.call(this, key);
-  };
   pipelineWiring.summaries.dependenciesOf = (deps, input) => {
-    if (input.tir.body === caller.body) {
-      observedReads = [];
+    const call = input.tir.root.kind === "Block" ? input.tir.root.statements.nodes.at(-1)?.expression : null;
+    if (call?.kind === "CallExpression") {
+      assert.equal(call.tsonic.application.kind, "decided");
+      const callee = call.tsonic.application.decision.callee;
+      assert.equal(callee.activation.body, choose.tsonic.body);
+      const at = { body: input.tir.body, node: call.id };
+      const [supplied, omitted] = choose.parameters.nodes.map(parameter => ({
+        body: parameter.tsonic.initializer, bindings: structuredClone(callee.activation.bindings),
+      }));
+      const formal = choose.parameters.nodes[1];
+      const property = Object.getOwnPropertyDescriptor(formal, "initializer");
+      let reads = 0;
+      Object.defineProperty(formal, "initializer", { configurable: true, get() { reads += 1; return property.value; } });
       try {
-        assert.equal(deps.initializerAt(at, { instance: supplied, parameter: 0, callee: actualCallee }), null);
-        assert.equal(deps.initializerAt(at, { instance: supplied, parameter: 1, callee: actualCallee }), null);
-        assert.equal(deps.initializerAt(at, { instance: omitted, parameter: 0, callee: actualCallee }), null);
-        assert.deepEqual(observedReads, []);
-        const answer = deps.initializerAt(at, { instance: omitted, parameter: 1, callee: actualCallee });
-        assert.deepEqual(answer, { kind: "body", execution: { instance: omitted, provided: 0 } });
-        assert.equal(observedReads.length > 0, true);
-        assert.equal(observedReads.every(key => key === fixture.types.instanceKey(omitted)), true);
+        assert.equal(deps.initializerAt(at, { instance: supplied, parameter: 0, callee }), null);
+        assert.equal(deps.initializerAt(at, { instance: supplied, parameter: 1, callee }), null);
+        assert.equal(deps.initializerAt(at, { instance: omitted, parameter: 0, callee }), null);
+        assert.equal(reads, 0);
+        assert.deepEqual(deps.initializerAt(at, { instance: omitted, parameter: 1, callee }),
+          { kind: "body", execution: { instance: omitted, provided: 0 } });
+        assert.equal(reads, 1);
         checks += 1;
-      } finally { observedReads = null; }
+      } finally { Object.defineProperty(formal, "initializer", property); }
     }
     return dependenciesOf(deps, input);
   };
   try {
+    const typed = typeSourceBarrier(inputs, captured.value, account);
+    assert.equal(typed.kind, "ok");
+    assert.equal(checks, 1);
     assert.equal(analyzeTypedSource(inputs, typed.value, account).kind, "ok");
     assert.equal(checks, 1);
-  } finally {
-    pipelineWiring.summaries.dependenciesOf = dependenciesOf;
-    delete bodies.get;
-  }
+  } finally { pipelineWiring.summaries.dependenciesOf = dependenciesOf; }
 });

@@ -442,6 +442,7 @@ export type MirVerification =
   | { readonly kind: "resource-limit"; readonly body: BodyId; readonly dimension: "work"; readonly maximum: number };
 
 export interface MirVerificationContext {
+  readonly requiredEntries: readonly number[];
   readonly selectedNativeFacts: SelectedNativeFacts;
   readonly limits: MirVerificationLimits;
   readonly source: TirBody;

@@ -166,7 +166,7 @@ before(async () => {
     endpoints: [endpoint(name, "advertised", sig), endpoint(name, "api-body", sig)] });
   const declared = new Map([["laws", SIG_USE], ["laws.use", SIG_USE], ["laws.bump", SIG_BUMP], ["laws.two", SIG_TWO], ["laws.acquire", SIG_USE],
     ["laws.next", SIG_USE], ["laws.done", SIG_USE], ["laws.value", SIG_USE], ["laws.await", SIG_USE], ["laws.pure", SIG_USE]].map(([name, sig]) => [def(name), declaration(name, sig)]));
-  context = { selectedNativeFacts: nativeFactsFixture(), limits: { maximumWork: 100000 }, source: source.tir, bodyOf: () => null, types: TABLE, declarationOf: definition => declared.get(definition) ?? null,
+  context = { selectedNativeFacts: nativeFactsFixture(), limits: { maximumWork: 100000 }, requiredEntries: [3, 2], source: source.tir, bodyOf: () => null, types: TABLE, declarationOf: definition => declared.get(definition) ?? null,
     bodyOwner: body => body === BODY ? def("laws") : body === bodyId("laws.use") ? def("laws.use") : body === bodyId("laws.bump") ? def("laws.bump") : body === bodyId("laws.two") ? def("laws.two") : null };
   fixedContext = { ...context, source: fixedSource.tir };
 });
@@ -532,7 +532,7 @@ test("law 3: fixed inner bounds retain the actual enclosing checked-location dep
       base: { kind: "checked", place: 0, projection: { kind: "index", operand: p(1) }, tir: at("outer").tir } },
     { origin, id: 5, storage: T.int32,
       base: { kind: "checked", place: 4, projection: { kind: "index", operand: p(2) }, tir: at("inner").tir } });
-    const given = { ...context, source: program.tir, bodyOwner: key => key === own ? def(name) : context.bodyOwner(key),
+    const given = { ...context, requiredEntries: [3], source: program.tir, bodyOwner: key => key === own ? def(name) : context.bodyOwner(key),
       declarationOf: key => key === def(name) ? { scope: { classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] },
         parameterCount: 0, endpoints: [endpoint(name, "advertised", selectedSignature), endpoint(name, "api-body", selectedSignature)] } : context.declarationOf(key) };
     const parsed = parseMir(printMir(body));
@@ -1510,7 +1510,7 @@ test("law 7 uses selected omission capability independently of required or optio
     const signatures = [...context.types.signatures];
     signatures[SIG_LAWS] = { ...original, parameters: original.parameters.map((parameter, index) =>
       index === 2 ? { ...parameter, kind, acceptsOmission } : parameter) };
-    const selected = { ...context, types: { ...context.types, signatures } };
+    const selected = { ...context, requiredEntries: acceptsOmission ? [3, 2] : [3], types: { ...context.types, signatures } };
     const graph = good();
     if (!acceptsOmission) graph.entries.pop();
     assert.equal(found(graph, selected).some(finding => finding.rule === "entries-exact"), false);
@@ -1523,7 +1523,7 @@ test("law 7 uses selected omission capability independently of required or optio
     index === 2 ? { ...parameter, kind: "rest", acceptsOmission: true } : parameter) };
   const graph = good();
   graph.entries = [{ provided: 2, block: 0 }];
-  assert.equal(found(graph, { ...context, types: { ...context.types, signatures } })
+  assert.equal(found(graph, { ...context, requiredEntries: [2], types: { ...context.types, signatures } })
     .some(finding => finding.rule === "entries-exact"), false);
 });
 

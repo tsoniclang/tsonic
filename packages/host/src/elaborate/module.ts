@@ -16,22 +16,23 @@ function defect(message: string): never {
 const templateOf = (body: TirBody): TypedBodyTemplate => ({ body: body.body, lexicalBindings: body.lexicalBindings, dependence: body.dependence });
 
 export function elaborateParameter<State>(deps: ElaborateDeps<State>, node: ParameterDeclaration<CheckedPhase>, body: BodyId, selected: TypedParameter,
-  initializer: Expression<TypedPhase> | null): Result<ParameterDeclaration<TypedPhase>> {
+  initializer: ParameterDeclaration<TypedPhase>["initializer"]): Result<ParameterDeclaration<TypedPhase> & {
+    initializer: ParameterDeclaration<TypedPhase>["initializer"];
+  }> {
   if (node.name.kind !== "Identifier" || node.name.tsonic.role !== "declaration-name"
     || node.name.tsonic.declaration.kind !== "local") return defect("not elaborated yet: a nonlocal parameter declaration.");
   const local = node.name.tsonic.declaration.local;
   if (selected.local === null || local.body !== body || local.body !== selected.local.body || local.local !== selected.local.local)
     return defect("A parameter has no actual typed-body local association.");
-  if (node.initializer === null ? initializer !== null || selected.initializer !== null
-    : initializer === null || initializer.id !== node.initializer.id || initializer.parent !== node.id || selected.initializer === null)
+  if (node.initializer === null ? initializer.kind !== "none" || selected.initializer !== null
+    : initializer.kind === "none" || initializer.root.id !== node.initializer.id || initializer.root.parent !== node.id || selected.initializer === null)
     return defect("A parameter retains exactly its separately completed initializer syntax.");
   const type = annotation(deps, node.type);
   if (type.kind === "refused") return type;
   return { kind: "ok", diagnostics: [], value: { ...node, modifiers: modifiers(node.modifiers),
     dotDotDotToken: node.dotDotDotToken === null ? null : { ...node.dotDotDotToken, tsonic: null },
     questionToken: node.questionToken === null ? null : { ...node.questionToken, tsonic: null },
-    name: name(node.name, selected.storage), type: type.value, initializer: initializer === null ? { kind: "none" }
-      : { kind: "ready-default", root: initializer }, tsonic: selected } };
+    name: name(node.name, selected.storage), type: type.value, initializer, tsonic: selected } };
 }
 
 function callable<State>(deps: ElaborateDeps<State>, node: FunctionDeclaration<CheckedPhase>, body: TirBody): Result<TirReadyCallable> {

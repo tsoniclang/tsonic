@@ -28,8 +28,6 @@ export function verifyLaws(
     violations.push({ rule, site: { kind: "instruction", body: body.body, block, statement }, detail: [] });
   };
 
-  // Law 7: one entry for each admissible supplied count: the full count first and at the first block, each next
-  // count one less, down to the count that omits every trailing parameter the signature lets be omitted.
   const signature = densePosition(context.source.signature, context.types.signatures.length)
     ? context.types.signatures[context.source.signature] : undefined;
   if (signature !== undefined && Object.is(signature.id, context.source.signature)) {
@@ -43,10 +41,13 @@ export function verifyLaws(
       fixed += 1;
       omissible = parameter.acceptsOmission === true ? omissible + 1 : 0;
     }
-    exact &&= body.entries.length === omissible + 1;
+    exact &&= body.entries.length !== 0 && body.entries.length === context.requiredEntries.length;
+    let previous = fixed + 1;
     for (const [position, entry] of body.entries.entries()) {
-      if (!Object.is(entry.provided, fixed - position) || !densePosition(entry.block, body.blocks.length)
-        || position === 0 && !Object.is(entry.block, 0)) exact = false;
+      if (!Object.is(entry.provided, context.requiredEntries[position]) || !densePosition(entry.provided, fixed + 1)
+        || entry.provided < fixed - omissible || entry.provided >= previous || !densePosition(entry.block, body.blocks.length)
+        || entry.provided === fixed && !Object.is(entry.block, 0)) exact = false;
+      previous = entry.provided;
     }
     if (!exact) reportBody("entries-exact");
   }

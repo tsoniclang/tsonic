@@ -42,7 +42,7 @@ export async function checkOptionalNoInitializer() {
     assert.equal(header.tsonic.role, formal.kind);
     assert.equal(formal.acceptsOmission, optional);
     assert.equal(formal.initializer, null);
-    assert.equal(header.initializer, null);
+    assert.deepEqual(header.initializer, { kind: "none" });
     assert.equal(header.tsonic.storage, formal.type);
     assert.equal(callee.tir.root.statements.nodes[0].expression.tsonic.type, formal.type);
     assert.equal(callee.tir.root.statements.nodes[0].expression.tsonic.conversion.kind, "identity");
@@ -180,7 +180,7 @@ export async function checkOptionalReferenceNoInitializer() {
   assert.equal(formal.passing, "by-value");
   assert.equal(formal.acceptsOmission, true);
   assert.equal(formal.initializer, null);
-  assert.equal(header.initializer, null);
+  assert.deepEqual(header.initializer, { kind: "none" });
   assert.equal(header.tsonic.initializer, null);
   assert.equal(header.tsonic.storage, formal.type);
   assert.deepEqual(index.types.terms[formal.type], { kind: "optional", value: header.type.tsonic.type });

@@ -126,9 +126,9 @@ test(`real SDK source add with ${resultAnnotation === "" ? "inferred" : "annotat
     "the authored saved expectation is consumed, not derived from output");
   const actualModule = elaborate(moduleBody);
   assert.equal(actualModule.root.kind, "SourceFile");
-  assert.equal(actualModule.root.statements.nodes[0].body === actualFunction.root, true, "one canonical typed subtree");
+  assert.equal(actualModule.root.statements.nodes[0].node.body === actualFunction.root, true, "one canonical typed subtree");
   for (const [index, parameter] of actualFunction.params.entries()) {
-    assert.equal(actualModule.root.statements.nodes[0].parameters.nodes[index] === parameter, true,
+    assert.equal(actualModule.root.statements.nodes[0].node.parameters.nodes[index] === parameter, true,
       "the module and body share the one actual selected parameter occurrence");
     assert.equal(parameter.parent, checked.tree.statements.nodes[0].id);
     assert.equal(parameter.parent === actualFunction.root.id, false, "the actual header parent is not rewritten to the body root");
@@ -138,7 +138,7 @@ test(`real SDK source add with ${resultAnnotation === "" ? "inferred" : "annotat
     assert.equal("acceptsOmission" in parameter.tsonic, false, "the header does not duplicate signature omission authority");
   }
   assert.deepEqual(types.readType(interner, actualModule.completion), { kind: "intrinsic", intrinsic: "void" });
-  const publication = { module, tree: actualModule.root, bodies: checked.bodies.map(body => typed.get(body.body)) };
+  const publication = { module, tree: { kind: "ready-root", root: actualModule.root }, bodies: checked.bodies.map(body => typed.get(body.body)) };
   const verifier = { source: checked, module: publication, types: tableOf(), declarationOf,
     bindingScopesOf: suppliedTirScopes(target => {
       if (target.kind === "module") return target.module === module ? [] : null;
@@ -237,13 +237,13 @@ test(`real SDK source add with ${resultAnnotation === "" ? "inferred" : "annotat
   const currentRun = { ...run, table: tableOf() };
   const unit = { request: { query: "mirBody", key: [actualExecution.body, types.artifactBindingsData(actualExecution.bindings)] },
     position: { kind: "result" } };
-  assert.throws(() => wiring.lowerMir.lowerToMir(lowerMirStep.lowerMirDeps(currentRun, unit), actualFunction, []),
+  assert.throws(() => wiring.lowerMir.lowerToMir(lowerMirStep.lowerMirDeps(currentRun, unit), actualFunction, [], [2]),
     /selected complete body instance/u, "production lowering does not accept the schema-level parametric template");
-  const lower = limits => wiring.lowerMir.lowerToMir(lowerMirStep.lowerMirDeps({ ...currentRun, lowering: limits }, unit), actualExecution, []);
+  const lower = limits => wiring.lowerMir.lowerToMir(lowerMirStep.lowerMirDeps({ ...currentRun, lowering: limits }, unit), actualExecution, [], [2]);
   const lowered = lower(run.lowering);
   assert.equal(lowered.kind, "ok", "the real typed function lowers without a handwritten graph");
   const mir = lowered.value;
-  const mirContext = lowerMirStep.mirVerificationContext(currentRun, actualExecution);
+  const mirContext = lowerMirStep.mirVerificationContext(currentRun, actualExecution, [2]);
   assert.equal(mirContext.selectedNativeFacts === snapshot.nativeFacts, true, "the caller forwards the same captured native facts record");
   assert.deepEqual(irMir.verifyMir(mir, mirContext), { kind: "complete", violations: [] });
   assert.equal(isDeepStrictEqual(irMir.parseMir(irMir.printMir(mir)), { kind: "parsed", value: mir }), true,

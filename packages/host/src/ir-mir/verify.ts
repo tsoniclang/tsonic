@@ -417,7 +417,7 @@ export function verifyBody(body: MirBody, context: MirVerificationContext): MirV
     return selected;
   };
   const input: MirVerificationContext = { selectedNativeFacts: context.selectedNativeFacts, limits: context.limits,
-    source: context.source, bodyOf: context.bodyOf, types: context.types, declarationOf, bodyOwner };
+    source: context.source, bodyOf: context.bodyOf, types: context.types, declarationOf, bodyOwner, requiredEntries: context.requiredEntries };
   const wires = createDecisionWires(createScalarWires());
   const texts = createWireTexts(wires);
   const nodes = sourceNodes(input.source, texts);

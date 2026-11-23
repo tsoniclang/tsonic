@@ -4,10 +4,10 @@ import type { Result, UnitRequest } from "../diag/contract.js";
 import { throwInvariant } from "../diag/index.js";
 import type { BodyId, DefId, ModuleId, NodeRef } from "../ids/contract.js";
 import type { ExecutionDependency, SummaryKey } from "../ir-facts/contract.js";
-import { admitSummaryIdentity, summaryKey } from "../ir-facts/index.js";
+import { admitArtifactIdentity, admitSummaryIdentity, summaryKey } from "../ir-facts/index.js";
 import type { TirBody } from "../ir-tir/contract.js";
 import type { BodyInstance, Execution } from "../ir-types/contract.js";
-import { readSignature } from "../ir-types/index.js";
+import { artifactBindingsKey, instanceKey, readSignature } from "../ir-types/index.js";
 import type { SourceBarrier } from "./source-barrier.js";
 import type { CheckedSourceViews } from "./checked-inputs.js";
 import { analysisStop } from "./analysis-stop.js";
@@ -25,11 +25,12 @@ export interface RequiredExecutions {
   readonly operationsByBody: ReadonlyMap<BodyId, readonly BodyOperation[]>;
   readonly dependencies: readonly ExecutionDependency[];
   readonly moduleExecutions: ReadonlyMap<ModuleId, Execution>;
+  readonly provided: ReadonlyMap<string, readonly number[]>;
 }
 
 export function prepareRequiredExecutions(source: SourceBarrier, sources: CheckedSourceViews, roots: Iterable<TirBody>,
   requireBody: (instance: BodyInstance) => Result<TirBody>, account: DataflowAccount, unit: UnitRequest): Result<RequiredExecutions> {
-  const setup = chargeResultEntries(account, 6);
+  const setup = chargeResultEntries(account, 7);
   if (setup !== null) return analysisStop(setup, unit);
   const operations: SummaryKey[] = [];
   const operationIdentities: string[] = [];
@@ -37,6 +38,7 @@ export function prepareRequiredExecutions(source: SourceBarrier, sources: Checke
   const known = new Set<string>();
   const dependencies: ExecutionDependency[] = [];
   const moduleExecutions = new Map<ModuleId, Execution>();
+  const counts = new Map<string, { readonly values: Set<number>; minimum: number; maximum: number }>();
 
   const add = (key: SummaryKey): DataflowStop | null => {
     const work = chargeWork(account, 1);
@@ -59,6 +61,15 @@ export function prepareRequiredExecutions(source: SourceBarrier, sources: Checke
     if (key.kind === "body") {
       if (offered === undefined) operationsByBody.set(key.execution.instance.body, [key]);
       else offered.push(key);
+      const admitted = chargeWork(account, 1);
+      if (admitted !== null) return admitted;
+      const selected = instanceKey(key.execution.instance);
+      const group = counts.get(selected);
+      const retain = chargeResultEntries(account, group === undefined ? 4 : 1);
+      if (retain !== null) return retain;
+      const { provided } = key.execution;
+      if (group === undefined) counts.set(selected, { values: new Set([provided]), minimum: provided, maximum: provided });
+      else { group.values.add(provided); group.minimum = Math.min(group.minimum, provided); group.maximum = Math.max(group.maximum, provided); }
     }
     return null;
   };
@@ -143,8 +154,9 @@ export function prepareRequiredExecutions(source: SourceBarrier, sources: Checke
         if (occurrence?.kind !== "CallExpression" || occurrence.tsonic.application.kind !== "available") return null;
         const captured = occurrence.tsonic.application.value;
         const { instance, parameter, callee: { activation, decision } } = initializer;
-        if (activation === null || captured.kind !== "call" || parameter < captured.arguments.length
-          || instance.bindings !== activation.bindings) return null;
+        if (activation === null || captured.kind !== "call" || parameter < captured.arguments.length) return null;
+        const keys = admitArtifactIdentity(instance.bindings, account) ?? admitArtifactIdentity(activation.bindings, account);
+        if (keys !== null || artifactBindingsKey(instance.bindings) !== artifactBindingsKey(activation.bindings)) return null;
         const mappingRead = chargeWork(account, 1);
         if (mappingRead !== null) return null;
         const mapping = decision.parameters[parameter];
@@ -165,7 +177,7 @@ export function prepareRequiredExecutions(source: SourceBarrier, sources: Checke
       if (occurrence.tsonic.initializer === null) return null;
       const instance: BodyInstance = typeof initializer === "string"
         ? { body: initializer, bindings } : initializer.instance;
-      if (instance.body !== occurrence.tsonic.initializer || instance.bindings !== bindings) return null;
+      if (instance.body !== occurrence.tsonic.initializer) return null;
       const checked = sources.bodies.get(instance.body);
       if (checked === undefined || checked.params.length !== 0 || checked.root !== occurrence.initializer)
         return fail("A placed initializer requires its actual separately owned parameterless source.");
@@ -185,7 +197,8 @@ export function prepareRequiredExecutions(source: SourceBarrier, sources: Checke
       const checked = sources.bodies.get(body.body);
       const list = captured.candidates.kind === "available" ? checked?.candidateLists[captured.candidates.value] : undefined;
       const candidate = list?.candidates[decision.candidate];
-      if (list === undefined || candidate?.ordinal !== decision.candidate || candidate.declaration !== decision.advertised.declaration
+      if (captured.candidates.kind !== "available" || list?.id !== captured.candidates.value
+        || candidate?.ordinal !== decision.candidate || candidate.declaration !== decision.advertised.declaration
         || callee.activation.bindings.kind !== "instantiated" || callee.activation.bindings.bindings !== decision.implementationBindings) return null;
       const signature = readSignature(source.types, decision.completion.signature);
       if (sources.bodies.get(callee.activation.body)?.owner !== decision.api.declaration || signature.declaration !== decision.api.declaration
@@ -236,5 +249,19 @@ export function prepareRequiredExecutions(source: SourceBarrier, sources: Checke
     }
   }
 
-  return { kind: "ok", diagnostics: [], value: { operations, operationIdentities, operationsByBody, dependencies, moduleExecutions } };
+  const retain = chargeResultEntries(account, 1);
+  if (retain !== null) return analysisStop(retain, unit);
+  const provided = new Map<string, readonly number[]>();
+  for (const [key, group] of counts) {
+    const row = chargeResultEntries(account, 2 + group.values.size);
+    if (row !== null) return analysisStop(row, unit);
+    const ordered: number[] = [];
+    for (let count = group.maximum; count >= group.minimum; count -= 1) {
+      const stop = chargeWork(account, 1);
+      if (stop !== null) return analysisStop(stop, unit);
+      if (group.values.has(count)) ordered.push(count);
+    }
+    provided.set(key, ordered);
+  }
+  return { kind: "ok", diagnostics: [], value: { operations, operationIdentities, operationsByBody, dependencies, moduleExecutions, provided } };
 }

@@ -35,4 +35,5 @@ export type LowerToMir = (
   deps: LowerMirDeps,
   body: TirBody,
   internal: readonly InternalBodyInput[],
+  provided: readonly number[],
 ) => Result<MirBody>;

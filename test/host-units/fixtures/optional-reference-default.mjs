@@ -20,7 +20,7 @@ export async function checkOptionalReferenceDefault() {
   assert.equal(program.kind, "ok", JSON.stringify(program.diagnostics));
   const { index, modules } = program.value;
   const active = modules.flatMap(module => module.bodies).filter(body => body.kind === "selected");
-  const callee = active.find(body => body.tir.params[1]?.initializer !== null && body.tir.params[1]?.initializer !== undefined);
+  const callee = active.find(body => body.tir.params[1]?.initializer.kind === "ready-default");
   assert.ok(callee);
   const module = modules.find(module => module.bodies.includes(callee));
   const [fallback, optional] = index.types.signatures[callee.tir.signature].parameters;

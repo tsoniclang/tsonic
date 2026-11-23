@@ -146,9 +146,9 @@ test("actual string literals select the present optional alternative and keep th
       bodyOf: target => typed.bodies.get(instanceKey(target)) ?? null };
     assert.deepEqual(caller.nestedBodies, []);
     const lowered = lowerToMir(lowerMirDeps(run, { request: { query: "mirBody", key: instanceKey(instance) },
-      position: { kind: "result" } }), caller, []);
+      position: { kind: "result" } }), caller, [], typed.required.provided.get(instanceKey(instance)));
     assert.equal(lowered.kind, "ok");
-    assert.deepEqual(verifyMir(lowered.value, mirVerificationContext(run, caller)), { kind: "complete", violations: [] });
+    assert.deepEqual(verifyMir(lowered.value, mirVerificationContext(run, caller, typed.required.provided.get(instanceKey(instance)))), { kind: "complete", violations: [] });
     const mir = lowered.value;
     const block = mir.blocks.find(row => row.terminator.kind === "call" && row.terminator.tir.node === call.id);
     assert.equal(block.terminator.callee.kind, "direct");

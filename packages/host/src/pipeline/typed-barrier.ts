@@ -255,12 +255,21 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
   const initialization = planModuleInitialization(inputs.snapshot.entryPoint, source, exposure.value.selections, account);
   if (initialization.kind !== "complete") return analysisStop(initialization, unit);
   const attachments: { readonly key: string; readonly complete: (ready: TirBody) => Result<void> }[] = [];
-  const unopenedCallable = (parent: HirBody, child: BodyId): HirBody | null => {
-    if (parent.root.kind !== "SourceFile" || project.has(parent.root.origin.module)) return null;
+  const unopenedChild = (parent: HirBody, child: BodyId): HirBody | null => {
+    if (project.has(parent.root.origin.module)) return null;
     const checked = bodyOf(child);
     const item = items.get(checked.owner);
-    return item?.kind === "FunctionDeclaration" && item.body === checked.root && item.tsonic.body === child ? checked : null;
+    if (item?.kind === "Parameter" && item.initializer === checked.root && item.tsonic.initializer === child) return checked;
+    return parent.root.kind === "SourceFile" && item?.kind === "FunctionDeclaration"
+      && item.body === checked.root && item.tsonic.body === child ? checked : null;
   };
+  const checkedChildOf = (child: HirBody, instance: BodyInstance, key: string): Extract<ElaborationChild, { kind: "checked" }> =>
+    ({ kind: "checked", body: child, instance, onRequired: complete => {
+      const stop = chargeWork(account, 1) ?? chargeResultEntries(account, 2);
+      if (stop !== null) return analysisStop(stop, unit);
+      attachments.push({ key, complete });
+      return { kind: "ok", diagnostics: [], value: undefined };
+    } });
   const produce = (seeds: readonly BodyId[], bindings: BodyInstance["bindings"]): QueryRefusal | null => {
       const mode = bindings.kind;
       const pending: Work[] = seeds.map((body): Work => ({ kind: "visit", body })).reverse();
@@ -296,33 +305,32 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
           const template = prior;
           const initializers = checked.params.flatMap(parameter => parameter.initializer === null ? [] : [parameter.initializer]);
           pending.push({ kind: "elaborate", body: checked, instance, key, scope, publication, template, initializers });
-          for (const children of [initializers, checked.nestedBodies]) {
+          const eagerDefaults = project.has(checked.root.origin.module) ? initializers : [];
+          for (const children of [eagerDefaults, checked.nestedBodies]) {
             for (let index = children.length - 1; index >= 0; index -= 1) {
               const child = children[index];
               if (child === undefined) return fail("The checked nested body inventory is dense.");
-              if (unopenedCallable(checked, child) === null) pending.push({ kind: "visit", body: child });
+              if (unopenedChild(checked, child) === null) pending.push({ kind: "visit", body: child });
             }
           }
           continue;
         }
         const { body: checked, instance, key, scope, publication, template } = next;
-        const ready = (children: readonly BodyId[]): ElaborationChild[] => children.map(body =>
-          instanceResult(instanceKey({ body, bindings: instance.bindings }),
-            "Elaboration requires the actual same-binding nested attempt, not a substituted template."));
         const nestedBodies = checked.nestedBodies.map((body): ElaborationChild => {
           const child = { body, bindings };
-          const checkedChild = unopenedCallable(checked, body);
+          const checkedChild = unopenedChild(checked, body);
           const childKey = instanceKey(child);
           if (checkedChild !== null && !bodies.has(childKey) && !refusedInstances.has(childKey))
-            return { kind: "checked", body: checkedChild, instance: child, onRequired: complete => {
-              const stop = chargeWork(account, 1) ?? chargeResultEntries(account, 2);
-              if (stop !== null) return analysisStop(stop, unit);
-              attachments.push({ key: childKey, complete });
-              return { kind: "ok", diagnostics: [], value: undefined };
-            } };
+            return checkedChildOf(checkedChild, child, childKey);
           return instanceResult(childKey, "A required nested occurrence needs its actual same-binding body.");
         });
-        const initializers = ready(next.initializers);
+        const initializers = next.initializers.map((body): ElaborationChild => {
+          const child = { body, bindings };
+          const childKey = instanceKey(child);
+          return bodies.has(childKey) || refusedInstances.has(childKey)
+            ? instanceResult(childKey, "A required default needs its actual same-binding body.")
+            : checkedChildOf(bodyOf(body), child, childKey);
+        });
         const constraints = "kind" in publication ? undefined : publication.constraints.constraints.find(system => system.body === checked.body);
         const result = pipelineWiring.elaborate.elaborate("kind" in publication ? elaboration : { ...elaboration, cuts: publication.checkedCuts },
           { instance, scope, body: checked,
@@ -471,6 +479,7 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
     const input: TirVerifierInput = { source: original, module: typed, types: viewTypes(source.types),
       declarationOf, nominalOf: source.nominalOf, nodeOf: sources.nodeOf, bindingOf: source.bindingOf, localExists: sources.localExists, staticStorageOf,
       diagnostics: original.checkerDiagnostics, bodyOf: instance => bodies.get(instanceKey(instance))?.body ?? null,
+      requiredEntriesOf: instance => required.value.provided.get(instanceKey(instance)) ?? null,
       memberTableOf: (instance, occurrence) => occurrence.kind === "selection" && occurrence.ordinal === 0
         ? memberInventoriesOf(instance.body)?.get(occurrence.node)
           ?? fail("A selected member needs its actual ready canonical member inventory.")

@@ -27,7 +27,7 @@ function prepared(name) {
   const signatureOf = signature => TABLE.signatures[signature];
   const lowered = lowerToMir({ typeOf, signatureOf, limits: { maximumRecords: 10000 },
     defs: { completionSelector: T.int32, exceptionStorage: T.unknown },
-    unit: { request: unit, position: { kind: "result" } } }, program.tir, []);
+    unit: { request: unit, position: { kind: "result" } } }, program.tir, [], [execution.provided]);
   assert.equal(lowered.kind, "ok");
   assert.deepEqual(verifyMir(lowered.value, verificationContext(program)), { kind: "complete", violations: [] });
   const nodes = new Map();

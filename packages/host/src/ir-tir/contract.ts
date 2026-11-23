@@ -726,6 +726,7 @@ export interface TirVerifierInput extends HirBindingViews {
   readonly bindingScopesOf: TirBindingScopesOf;
   readonly declarationOf: (definition: DefId) => InferenceDeclaration | null;
   readonly memberTableOf: (instance: BodyInstance, occurrence: TirMemberOccurrence) => MemberInventory | null;
+  readonly requiredEntriesOf: (instance: BodyInstance) => readonly number[] | null;
   readonly bodyOf: (instance: BodyInstance) => TirBody | null;
   readonly nominalOf: (definition: DefId) => NominalDefinition | null;
   readonly nodeOf: (node: SourceNodeRef) => HirNode | null;

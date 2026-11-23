@@ -238,17 +238,18 @@ function call(machine: Machine, terminator: Extract<MirTerminator, { readonly ki
 function enter(machine: Machine, instance: BodyInstance, body: MirBody, ready: ReadyCall): void {
   if (instance.bindings.kind !== "instantiated" || !sameInstance(instance, { body: body.body, bindings: body.bindings }))
     return fail("A body answer must be the exact requested complete callee instance.", ready.terminator.origin);
-  const full = body.entries[0];
-  if (full === undefined) return fail("A verified callee must publish its full fixed-argument entry.", ready.terminator.origin);
-  let provided = full.provided;
+  let provided = ready.arguments.length;
   while (provided > 0 && ready.arguments[provided - 1] === null) provided -= 1;
-  if (ready.arguments.length < full.provided) return fail("A selected call must carry every fixed argument or explicit omission.", ready.terminator.origin);
   const entry = body.entries.find(entry => entry.provided === provided);
   if (entry === undefined) return fail("A selected call must name an actually admissible provided entry.", ready.terminator.origin);
   const frame: Frame = { instance, body, cells: new Map(), work: [], values: [], caller: ready.terminator, block: entry.block, statement: 0 };
+  let parameters = 0;
   for (const local of body.locals) {
     let cell: Cell | null | undefined;
-    if (local.role.kind === "parameter") cell = ready.arguments[local.role.index];
+    if (local.role.kind === "parameter") {
+      parameters += 1;
+      cell = ready.arguments[local.role.index];
+    }
     else if (local.role.kind === "receiver") {
       const ownership = localOwnershipOfMir(local.mode);
       if (ownership === "undecided") return fail("A selected receiver must have its complete storage mode.", local.origin);
@@ -260,6 +261,8 @@ function enter(machine: Machine, instance: BodyInstance, body: MirBody, ready: R
     if (cell === undefined || cell === null) return fail("Evaluate needs the selected callee's actual incoming storage association.", local.origin);
     frame.cells.set(local.id, cell);
   }
+  if (parameters !== ready.arguments.length)
+    return fail("A selected call must carry every fixed argument or explicit omission.", ready.terminator.origin);
   machine.frames.push(frame);
 }
 

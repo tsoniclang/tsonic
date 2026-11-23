@@ -3451,6 +3451,7 @@ test("final MIR moves a dense two-target switch through the actual nonidentity t
   } };
   const original = { ...unchanged, constants, blocks: [start, ...[1, 2, 3].map(id => ({ ...unchanged.blocks[0], id }))] };
   const check = (body, source, types) => verifyMir(body, {
+    requiredEntries: [0],
     source, types, limits: fixture.context.mirVerification, selectedNativeFacts: fixture.context.selectedNativeFacts,
     bodyOf: fixture.tirInput.bodyOf, bodyOwner: fixture.context.facts.bodyOwner, declarationOf: fixture.tirInput.declarationOf,
   });
@@ -3547,6 +3548,7 @@ test("verified MIR definition constants earn owned rigid bindings at the Program
   const constant = { id: 0, type, value };
   const original = { ...originalMir, constants: [constant] };
   const verify = (body, source, types) => verifyMir(body, { source, types, limits: host.limits.mirVerification,
+    requiredEntries: [0],
     selectedNativeFacts: host.snapshot.nativeFacts, bodyOf: instance => typed.value.bodies.get(instanceKey(instance)) ?? null,
     bodyOwner: analysis.value.verification.bodyOwner, declarationOf: typed.value.declarationOf });
   assert.deepEqual(verify(original, source, table), { kind: "complete", violations: [] });

@@ -157,6 +157,7 @@ export function moduleFixture(path = "src/main.ts", root = "/program", instanceB
       asynchronous: false, generator: false, candidateLists: [], nestedBodies: [] }], exports: [], bindings: [], moduleLinks: [], checkerDiagnostics: [], obligations: [],
   };
   const rows = [
+    ["requiredEntriesOf", instance, [0]],
     ["modulePathOf", moduleId, modulePath], ["definitionPathOf", definition, definitionPath],
     ["bodyOwner", bodyId, definition], ["bindingScopeOf", definition, scope],
     ["sourceBindingScopesOf", { kind: "body", execution: { instance, provided: 0 } }, []], ["tirBody", instance, tir], ["mirBody", instance, mir],
@@ -178,6 +179,7 @@ export function moduleFixture(path = "src/main.ts", root = "/program", instanceB
   const lookup = exactLookup(supplied);
   const tirInput = {
     source, module: { module: moduleId, tree, bodies: [tir] }, types,
+    requiredEntriesOf: instance => lookup("requiredEntriesOf", instance),
     bindingScopesOf: target => ({ kind: "complete", scopes: lookup("tirBindingScopesOf", target) }),
     declarationOf: definition => lookup("declarationOf", definition),
     staticStorageOf: declaration => lookup("staticStorageOf", declaration),

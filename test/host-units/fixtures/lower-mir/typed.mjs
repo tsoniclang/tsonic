@@ -104,9 +104,16 @@ export const endpoint = (name, role, signatureId, withBody = true) => {
   return made;
 };
 const NO_SCOPE = { classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] };
+export function offeredEntries(signature) {
+  const fixed = signature.parameters.filter(parameter => parameter.kind !== "rest");
+  const entries = [fixed.length];
+  for (let position = fixed.length - 1; position >= 0 && fixed[position].acceptsOmission; position -= 1) entries.push(position);
+  return entries;
+}
 /** The context `verifyMir` needs for a graph lowered from `program`: its typed body, the type table, and the declarations and body owners the programs name. */
 export const verificationContext = program => ({
   selectedNativeFacts,
+  requiredEntries: offeredEntries(TABLE.signatures[program.tir.signature]),
   limits: { maximumWork: 1000000 }, source: program.tir, bodyOf: program.bodyOf ?? (() => null), types: TABLE,
   declarationOf: definition => KNOWN.has(definition) ? { scope: NO_SCOPE, parameterCount: 0, endpoints: ENDPOINTS.get(definition) ?? [] } : null,
   bodyOwner: body => OWNERS.get(body) ?? null,
@@ -263,7 +270,7 @@ export function typedBody(name, { signature: signatureId, completion, params = [
     const syntax = seal(name, { kind: "Parameter", modifiers: null,
       dotDotDotToken: parameterRole === "rest" ? token("DotDotDotToken") : null,
       name: b.declName(locals[local][0], local), questionToken: parameterRole === "optional" ? token("QuestionToken") : null,
-      type: null, initializer: null,
+      type: null, initializer: { kind: "none" },
       tsonic: { declaration: def(`${name}.${locals[local][0]}`), local: { body, local }, storage, passing, initializer, role: parameterRole },
     }, role, count);
     count = syntax.count;

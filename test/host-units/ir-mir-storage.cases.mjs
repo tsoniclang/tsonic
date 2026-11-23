@@ -29,7 +29,7 @@ const BODY = bodyId("storage");
 const endpoint = role => ({ declaration: def("storage"), role, signature: SIG, body: BODY });
 const declaration = { scope: { classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] }, parameterCount: 0,
   endpoints: [endpoint("advertised"), endpoint("api-body")] };
-const contextOf = maximumWork => ({ selectedNativeFacts: nativeFactsFixture(), limits: { maximumWork }, source: source.tir, bodyOf: () => null, types: TABLE,
+const contextOf = maximumWork => ({ selectedNativeFacts: nativeFactsFixture(), limits: { maximumWork }, requiredEntries: [2, 1], source: source.tir, bodyOf: () => null, types: TABLE,
   declarationOf: definition => definition === def("storage") ? declaration : null, bodyOwner: body => body === BODY ? def("storage") : null });
 const site = label => ({ origin: { module: "M[P[p];m]", start: source.at(label), length: 1, derived: [] }, tir: { body: BODY, node: source.at(label) } });
 const AT = site("root");

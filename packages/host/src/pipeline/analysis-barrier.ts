@@ -105,11 +105,12 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
       if (included.has(child)) return null;
       const instance: BodyInstance = { body: child, bindings: body.bindings };
       const selected = typed.bodies.get(instanceKey(instance));
-      if (selected === undefined && body.root.kind === "SourceFile") {
+      if (selected === undefined) {
         const nested = sources.bodies.get(child);
         const reference = nested === undefined ? null : sources.declarationSourceOf(nested.owner);
         const original = reference === null ? null : sources.nodeOf(reference);
-        if (original?.kind === "FunctionDeclaration" && original.tsonic.body === child && original.body === nested?.root) return null;
+        if (body.root.kind === "SourceFile" && original?.kind === "FunctionDeclaration" && original.tsonic.body === child && original.body === nested?.root
+          || original?.kind === "Parameter" && original.tsonic.initializer === child && original.initializer === nested?.root) return null;
       }
       if (selected === undefined) return fail("A required lowered initializer needs its actual verified typed body.");
       const growth = chargeResultEntries(account, 3);
@@ -125,15 +126,16 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
     for (const header of body.params) {
       const stop = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
       if (stop !== null) return analysisStop(stop, unit);
-      if (header.tsonic.initializer !== null) {
+      if (header.initializer.kind === "ready-default" && header.tsonic.initializer !== null) {
         const stop = include(header.tsonic.initializer);
         if (stop !== null) return analysisStop(stop, unit);
       }
     }
+    const requiredEntries = typed.required.provided.get(identity) ?? fail("Each selected body needs its independently required entries.");
     const lowered = pipelineWiring.lowerMir.lowerToMir(lowerMirDeps(run,
-      { request: { query: "mirBody", key: identity }, position: { kind: "result" } }), body, internal);
+      { request: { query: "mirBody", key: identity }, position: { kind: "result" } }), body, internal, requiredEntries);
     if (lowered.kind === "refused") return lowered;
-    const verified = verifyMir(lowered.value, mirVerificationContext(run, body));
+    const verified = verifyMir(lowered.value, mirVerificationContext(run, body, requiredEntries));
     if (verified.kind === "resource-limit") return analysisStop(verified, unit);
     if (verified.violations.length !== 0) return fail(`The actual LowerMir result violates ${verified.violations[0]?.rule}.`);
     const growth = chargeResultEntries(account, 3);

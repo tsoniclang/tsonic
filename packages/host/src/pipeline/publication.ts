@@ -40,7 +40,7 @@ function finalContext(inputs: HostAnalysisInputs, typed: TypedSourceBarrier, ana
   account: DataflowAccount, selectedNativeFactsKey: string,
 ): DataflowResult<ProgramVerificationContext> | NonNullable<ReturnType<typeof admitProgramReadyRow>> {
   const admit = (records: number) => admitProgramReadyRow(resources, 1, records);
-  const setup = admit(14);
+  const setup = admit(15);
   if (setup !== null) return setup;
   const checked = new Map<ModuleId, ProgramEvidence["checked"][number]>();
   const tirInputs = new Map<ModuleId, TirVerifierInput>();
@@ -49,6 +49,7 @@ function finalContext(inputs: HostAnalysisInputs, typed: TypedSourceBarrier, ana
   const storage = new Map<string, TyId | null>();
   const members = new Map<string, MemberInventory | null>();
   const typedBodies = new Map<string, TirBody>();
+  const requiredEntries = new Map<string, readonly number[]>();
   const graphs = new Map<string, MirBody>();
   const arenas = new Map<string, RelationalArena>();
   const summaries = new Map<string, Summary>();
@@ -134,6 +135,13 @@ function finalContext(inputs: HostAnalysisInputs, typed: TypedSourceBarrier, ana
       const originalIdentity = chargeWork(account, originalBody.body.length) ?? admitArtifactIdentity(originalBody.bindings, account);
       if (originalIdentity !== null) return originalIdentity;
       const originalInstance = { body: originalBody.body, bindings: originalBody.bindings };
+      if (originalBody.bindings.kind === "instantiated") {
+        const keep = admit(1);
+        if (keep !== null) return keep;
+        const provided = originalTir.requiredEntriesOf(originalInstance);
+        if (provided === null) return fail("A selected final body requires its actual independently sealed entries.");
+        requiredEntries.set(key, provided);
+      }
       const originalScopes = originalTir.bindingScopesOf<DataflowStop>({ kind: "body", instance: originalInstance }, originalBody, null);
       if (originalScopes.kind !== "complete") return originalScopes.stop;
       scopes.set(key, originalScopes.scopes);
@@ -155,7 +163,7 @@ function finalContext(inputs: HostAnalysisInputs, typed: TypedSourceBarrier, ana
         endpoints: payload !== null && "signatures" in payload ? payload.signatures : [] });
     }
     tirInputs.set(module, { ...originalTir, source: checkedImage.module, module: { module, tree, bodies }, types,
-      declarationOf, nodeOf: scopedNode, bodyOf,
+      declarationOf, nodeOf: scopedNode, bodyOf, requiredEntriesOf: instance => requiredEntries.get(instanceKey(instance)) ?? null,
       bindingScopesOf: target => ({ kind: "complete", scopes: target.kind === "module"
         ? moduleScopes.get(target.module) ?? null : scopes.get(instanceKey(target.instance)) ?? null }),
       staticStorageOf: declaration => storage.get(storageKey(declaration)) ?? null,

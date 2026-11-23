@@ -3642,6 +3642,7 @@ test("a plain assignment writes the exact module static selected at the authored
   const typed = typeSourceBarrier(selected, captured.value, createTypedAccount(selected));
   assert.equal(typed.kind, "ok");
   const context = { selectedNativeFacts: selected.snapshot.nativeFacts, source: body.tir, types: index.types,
+    requiredEntries: typed.value.required.provided.get(instanceKey(body.instance)),
     limits: selected.limits.mirVerification, declarationOf: typed.value.declarationOf,
     bodyOwner: identity => fixture.ids.decodeBodyId(identity).value.owner,
     bodyOf: instance => typed.value.bodies.get(instanceKey(instance)) ?? null };
@@ -3760,6 +3761,7 @@ test("wrapped static targets use the qualified definition and reject crossed MIR
     assert.deepEqual(body.mir.places[store.place].base, { kind: "static", definition });
     assert.equal(store.value.operand.kind, "place");
     const context = { selectedNativeFacts: nativeFacts, source: body.tir, types: index.types, limits: input.limits.mirVerification,
+      requiredEntries: typed.value.required.provided.get(instanceKey(body.instance)),
       declarationOf: typed.value.declarationOf, bodyOwner: identity => fixture.ids.decodeBodyId(identity).value.owner,
       bodyOf: instance => typed.value.bodies.get(instanceKey(instance)) ?? null };
     const crossed = { ...body.mir, blocks: body.mir.blocks.map(block => ({ ...block,
@@ -4304,7 +4306,7 @@ test("the same authored int64 addition lowers according to the exact selected fa
     const defs = { completionSelector: fixture.types.internType(types, { kind: "primitive", primitive: "int32" }),
       exceptionStorage: fixture.types.internType(types, { kind: "intrinsic", intrinsic: "unknown" }) };
     const mir = lowerToMir({ defs, typeOf: id => fixture.types.readType(types, id), signatureOf: id => fixture.types.readSignature(types, id),
-      limits: input.limits.lowering, unit: { query: "mirOf", key: instanceKey({ body: body.body, bindings: body.bindings }) } }, body, []);
+      limits: input.limits.lowering, unit: { query: "mirOf", key: instanceKey({ body: body.body, bindings: body.bindings }) } }, body, [], [0]);
     assert.equal(mir.kind, "ok", JSON.stringify(mir.diagnostics));
     const invokes = mir.value.blocks.map(block => block.terminator).filter(row => row.kind === "invoke");
     assert.equal(invokes.length, carrier === null ? 0 : 1);
@@ -4314,7 +4316,7 @@ test("the same authored int64 addition lowers according to the exact selected fa
       assert.deepEqual(invokes[0].operation.decision.execution, { kind: "invocation", writesStorage: false, failure: law });
     }
     assert.deepEqual(fixture.types.readType(types, body.completion), { kind: "primitive", primitive });
-    const checked = verifyMir(mir.value, { selectedNativeFacts: input.snapshot.nativeFacts, source: body,
+    const checked = verifyMir(mir.value, { selectedNativeFacts: input.snapshot.nativeFacts, source: body, requiredEntries: [0],
       types: fixture.types.viewTypes(types), limits: input.limits.mirVerification, declarationOf: typed.value.declarationOf,
       bodyOwner: key => fixture.ids.decodeBodyId(key).value.owner,
       bodyOf: instance => typed.value.bodies.get(instanceKey(instance)) ?? null });
@@ -7992,6 +7994,43 @@ test("checked dependency diagnostics follow exact required executions, not packa
       assert.deepEqual(functions.map(slot => slot.kind), [use === "call" ? "ready-callable" : "checked-declaration", "checked-declaration"]);
       assert.equal(chapter.bodies.some(row => row.kind === "selected" && row.tir.owner === functions[1].node.tsonic.definition), false);
       assert.equal(result.value.index.initialization.modules.some(row => row.instance.body === chapter.tree.root.tsonic.template.body), true);
+    }
+  }
+});
+
+test("dependency defaults are opened only by the selected provided counts", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const root = "/project/node_modules/dependency";
+  const name = "dependency";
+  const module = fixture.moduleOf(fixture.packageOf(root), "index.ts");
+  for (const [calls, expected] of [["return take(true,false);", [2]], ["return take();", [0]],
+    ["if (flag) return take(); return take(true,false);", [2, 0]]]) for (const broken of [false, true]) {
+    const source = 'import {take} from "dependency"; export function run(flag:boolean):boolean {' + calls + "}";
+    const dependency = "export function take(first:boolean=" + (broken ? "missingDefault" : "true")
+      + ", second:boolean=false):boolean {return first;}";
+    const input = analysisInput(fixture, "sdk-minimal", source);
+    input.snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source },
+      libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
+      extraFiles: { [root + "/package.json"]: JSON.stringify({ name, version: "1.0.0", types: "index.ts" }) },
+      otherPackages: [{ root, name, modules: { "index.ts": ["source", dependency, false] } }] });
+    const result = analyzeHostProgram(input);
+    if (broken && expected.includes(0)) {
+      assert.equal(result.kind, "refused");
+      assert.deepEqual(result.diagnostics.map(row => row.code.rendered), ["TS2304"]);
+      assert.match(result.diagnostics[0].message, /missingDefault/u);
+      continue;
+    }
+    assert.equal(result.kind, "ok");
+    const chapter = result.value.modules.find(row => row.module === module);
+    const selected = chapter.bodies.find(row => row.kind === "selected" && row.tir.params.length === 2);
+    assert.deepEqual(selected.mir.entries.map(entry => entry.provided), expected);
+    assert.deepEqual(selected.facts.map(row => row.execution.provided).sort((left, right) => right - left), expected);
+    for (const formal of selected.tir.params) {
+      const initializer = chapter.bodies.find(row => row.kind === "selected" && row.tir.body === formal.tsonic.initializer);
+      assert.equal(formal.initializer.kind, expected.includes(0) ? "ready-default" : "checked-default");
+      assert.equal(initializer !== undefined, expected.includes(0));
+      if (initializer !== undefined) assert.equal(initializer.tir.root === formal.initializer.root, true);
     }
   }
 });

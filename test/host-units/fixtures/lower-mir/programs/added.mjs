@@ -40,7 +40,7 @@ export function scaled() {
   child.tir.root = seal("scaled.b", syntax, "default", program.nodeCount).root;
   const header = program.tir.params[1];
   child.tir.root.parent = header.id;
-  header.initializer = child.tir.root;
+  header.initializer = { kind: "ready-default", root: child.tir.root };
   program.bodyOf = instance => sameInstance(instance, internal[0].instance) ? child.tir : null;
   return { program, internal, B_DEFAULT, child };
 }

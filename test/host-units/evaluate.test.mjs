@@ -52,7 +52,7 @@ function fixture(name, type = T.bool, makeRoot = b => b.block(b.returns(b.keywor
   const views = { typeOf: type => types.readType(interner, type), signatureOf: signature => types.readSignature(interner, signature) };
   const unit = { query: "constValue", key: [name, "compile-time"] };
   const produced = lower.lowerToMir({ ...views, limits: { maximumRecords: 10000 },
-    defs: { completionSelector: T.int32, exceptionStorage: T.unknown }, unit: { request: unit, position: { kind: "result" } } }, program.tir, []);
+    defs: { completionSelector: T.int32, exceptionStorage: T.unknown }, unit: { request: unit, position: { kind: "result" } } }, program.tir, [], verificationContext(program).requiredEntries);
   assert.equal(produced.kind, "ok", "the real LowerMir producer completed");
   const parsed = mir.parseMir(mir.printMir(produced.value));
   assert.equal(parsed.kind, "parsed", "the actual MIR codec completed");

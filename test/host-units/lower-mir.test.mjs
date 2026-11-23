@@ -93,7 +93,9 @@ before(async () => {
   await post("Debugger.enable");
   await post("Profiler.enable");
   await post("Profiler.startPreciseCoverage", { callCount: true, detailed: true });
-  ({ lowerToMir: produced } = await import("../../packages/host/dist/lower-mir/index.js"));
+  const { lowerToMir: lowerRequired } = await import("../../packages/host/dist/lower-mir/index.js");
+  const { offeredEntries } = await import("./fixtures/lower-mir/typed.mjs");
+  produced = (deps, body, internal) => lowerRequired(deps, body, internal, offeredEntries(deps.signatureOf(body.signature)));
   lowerToMir = (...given) => {
     try {
       return produced(...given);
@@ -2261,7 +2263,7 @@ test("actual selected parameter headers place a separate default execution only 
     const header = program.tir.params[0];
     child.tir.root = seal(parameterName, syntax, "default", program.nodeCount).root;
     child.tir.root.parent = header.id;
-    header.initializer = child.tir.root;
+    header.initializer = { kind: "ready-default", root: child.tir.root };
     const input = { instance: { body: initializer, bindings: SELECTED_BINDINGS }, captures: [], signature: child.tir.signature };
     program.bodyOf = instance => instanceKey(instance) === instanceKey(input.instance) ? child.tir : null;
     lower(child);
@@ -2315,7 +2317,7 @@ test("ordered default entries execute real child MIR and capture the actual earl
     child.tir.root = syntax.root;
     child.tir.bindings = bindings;
     child.tir.root.parent = program.tir.params[index].id;
-    program.tir.params[index].initializer = child.tir.root;
+    program.tir.params[index].initializer = { kind: "ready-default", root: child.tir.root };
     return child;
   });
   const inputs = children.map(child => ({ instance: { body: child.tir.body, bindings },
