@@ -681,6 +681,29 @@ test("HIR copies the complete Checked constructor inventory through one paid pos
       } else if (selected.kind === "NamedImports" || selected.kind === "NamedExports") {
         expectedReads.push("elements");
         expectList("elements", watch(selected, "elements"));
+      } else if (selected.kind === "JsxElement" || selected.kind === "JsxFragment") {
+        const element = selected.kind === "JsxElement";
+        expectFields(element ? "openingElement" : "openingFragment");
+        expectedReads.push("children");
+        expectList("children", watch(selected, "children"));
+        expectFields(element ? "closingElement" : "closingFragment");
+      } else if (selected.kind === "JsxAttributes") {
+        expectedReads.push("properties");
+        expectList("properties", watch(selected, "properties"));
+      } else if (selected.kind === "JsxOpeningElement" || selected.kind === "JsxSelfClosingElement") {
+        expectedReads.push("typeArguments");
+        const args = watch(selected, "typeArguments");
+        expectFields("tagName");
+        expectList("typeArguments", args);
+        expectFields("attributes");
+      } else if (selected.kind === "JsxNamespacedName") {
+        expectFields("namespace", "name");
+      } else if (selected.kind === "JsxClosingElement") {
+        expectFields("tagName");
+      } else if (selected.kind === "JsxAttribute") {
+        expectFields("name", "initializer");
+      } else if (selected.kind === "JsxExpression") {
+        expectFields("dotDotDotToken", "expression");
       } else if (selected.kind === "TypeParameter") {
         expectedReads.push("modifiers");
         expectList("modifiers", watch(selected, "modifiers"));

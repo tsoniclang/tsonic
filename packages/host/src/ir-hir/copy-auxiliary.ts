@@ -12,7 +12,7 @@ import type {
   JSDocSignature, JSDocNameReference, SourceFile, SourceFileSyntaxReceipt, ModuleDeclaration, ImportEqualsDeclaration,
   ExportDeclaration, ImportTypeNode, ImportClause, ImportSpecifier, JSDocText,
   JSDocLink, JSDocLinkPlain, JSDocLinkCode, JSDocTypeLiteral, JSDocParameterOrPropertyTag,
-  Expression, ModuleStructureSyntax, Phase, SingleExpressionSyntax, SyntaxPhaseCopy, SyntaxStructureReceipt,
+  Expression, JsxStructureSyntax, ModuleStructureSyntax, Phase, SingleExpressionSyntax, SyntaxPhaseCopy, SyntaxStructureReceipt,
 } from "./contract.js";
 import type { SyntaxCopyPorts, SyntaxPlan } from "./copy-node.js";
 import { holdSyntaxPayload, copyNodeList, memoSyntaxPlan, requireSyntaxStructure, syntaxHeader, withSyntaxPayload } from "./copy-node.js";
@@ -87,12 +87,17 @@ export interface AuxiliaryPlans<P extends Phase, Stop, Image> {
 
 export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: SyntaxPhaseCopy<P, Stop, Image>,
   ports: () => SyntaxCopyPorts<P, Stop, Image>, expressionOf: (node: SingleExpressionSyntax<P>) => Expression<P>,
-  sourceOf: (node: SourceFile<P>) => SourceFileSyntaxReceipt<P>, structureOf: (node: ModuleStructureSyntax<P>) => SyntaxStructureReceipt<P>):
+  sourceOf: (node: SourceFile<P>) => SourceFileSyntaxReceipt<P>, structureOf: (node: ModuleStructureSyntax<P> | JsxStructureSyntax<P>) => SyntaxStructureReceipt<P>):
   AuxiliaryPlans<P, Stop, Image> {
-  function structure<Kind extends SyntaxStructureReceipt<P>["kind"]>(node: ModuleStructureSyntax<P>, kind: Kind) {
+  function structure<Kind extends SyntaxStructureReceipt<P>["kind"]>(node: ModuleStructureSyntax<P> | JsxStructureSyntax<P>, kind: Kind) {
     return requireSyntaxStructure<P, Kind>(structureOf(node), kind);
   }
   const optional = <Value, Copied>(value: Value | null, read: (value: Value) => Copied): Copied | null => value === null ? null : read(value);
+  const jsxOpeningFields = (node: JsxOpeningElement<P> | JsxSelfClosingElement<P>) => {
+    const fields = structure(node, "jsx-opening");
+    return { tagName: ports().JsxTagNameExpression(fields.name()), typeArguments: fields.args(ports().TypeNode),
+      attributes: ports().JsxAttributes(fields.attributes()).read() };
+  };
   const ImportDeclaration = new Map<ImportDeclaration<P>, SyntaxPlan<ImportDeclaration<P>, Stop, Image>>();
   const ExternalModuleReference = new Map<ExternalModuleReference<P>, SyntaxPlan<ExternalModuleReference<P>, Stop, Image>>();
   const NamespaceImport = new Map<NamespaceImport<P>, SyntaxPlan<NamespaceImport<P>, Stop, Image>>();
@@ -248,14 +253,11 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
     JsxElement: node => memoSyntaxPlan(JsxElement, node, () => withSyntaxPayload(phase.JsxElement, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        openingElement: ports().JsxOpeningElement(node.openingElement).read(),
-        children: copyNodeList(node.children, item => ports().JsxChild(item)),
-        closingElement: ports().JsxClosingElement(node.closingElement).read(),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "jsx-element");
+        return { ...header, kind, openingElement: ports().JsxOpeningElement(fields.opening()).read(), children: fields.children(ports().JsxChild),
+          closingElement: ports().JsxClosingElement(fields.closing()).read(), tsonic };
+      };
     })),
     JsxAttributes: node => memoSyntaxPlan(JsxAttributes, node, () => withSyntaxPayload(phase.JsxAttributes, node.tsonic, () => {
       const header = syntaxHeader(node);
@@ -263,56 +265,36 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
       return tsonic => ({
         ...header,
         kind,
-        properties: copyNodeList(node.properties, item => ports().JsxAttributeLike(item)),
+        properties: structure(node, "jsx-attributes").properties(ports().JsxAttributeLike),
         tsonic,
       });
     })),
     JsxNamespacedName: node => memoSyntaxPlan(JsxNamespacedName, node, () => withSyntaxPayload(phase.JsxNamespacedName, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        namespace: ports().Identifier(node.namespace).read(),
-        name: ports().Identifier(node.name).read(),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "jsx-name");
+        return { ...header, kind, namespace: ports().Identifier(fields.namespace()).read(), name: ports().Identifier(fields.name()).read(), tsonic };
+      };
     })),
     JsxOpeningElement: node => memoSyntaxPlan(JsxOpeningElement, node, () => withSyntaxPayload(phase.JsxOpeningElement, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        tagName: ports().JsxTagNameExpression(node.tagName),
-        typeArguments: node.typeArguments === null ? null : copyNodeList(node.typeArguments, item => ports().TypeNode(item)),
-        attributes: ports().JsxAttributes(node.attributes).read(),
-        tsonic,
-      });
+      return tsonic => ({ ...header, kind, ...jsxOpeningFields(node), tsonic });
     })),
     JsxSelfClosingElement: node => memoSyntaxPlan(JsxSelfClosingElement, node, () => withSyntaxPayload(phase.JsxSelfClosingElement, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        tagName: ports().JsxTagNameExpression(node.tagName),
-        typeArguments: node.typeArguments === null ? null : copyNodeList(node.typeArguments, item => ports().TypeNode(item)),
-        attributes: ports().JsxAttributes(node.attributes).read(),
-        tsonic,
-      });
+      return tsonic => ({ ...header, kind, ...jsxOpeningFields(node), tsonic });
     })),
     JsxFragment: node => memoSyntaxPlan(JsxFragment, node, () => withSyntaxPayload(phase.JsxFragment, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        openingFragment: ports().JsxOpeningFragment(node.openingFragment).read(),
-        children: copyNodeList(node.children, item => ports().JsxChild(item)),
-        closingFragment: ports().JsxClosingFragment(node.closingFragment).read(),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "jsx-fragment");
+        return { ...header, kind, openingFragment: ports().JsxOpeningFragment(fields.opening()).read(), children: fields.children(ports().JsxChild),
+          closingFragment: ports().JsxClosingFragment(fields.closing()).read(), tsonic };
+      };
     })),
     JsxOpeningFragment: node => memoSyntaxPlan(JsxOpeningFragment, node, () => withSyntaxPayload(phase.JsxOpeningFragment, node.tsonic, () => {
       const header = syntaxHeader(node);
@@ -335,13 +317,10 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
     JsxAttribute: node => memoSyntaxPlan(JsxAttribute, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        name: ports().JsxAttributeName(node.name),
-        initializer: node.initializer === null ? null : ports().JsxAttributeValue(node.initializer),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "jsx-attribute");
+        return { ...header, kind, name: ports().JsxAttributeName(fields.name()), initializer: optional(fields.initializer(), ports().JsxAttributeValue), tsonic };
+      };
     })),
     JsxSpreadAttribute: node => memoSyntaxPlan(JsxSpreadAttribute, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
@@ -359,20 +338,17 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
       return tsonic => ({
         ...header,
         kind,
-        tagName: ports().JsxTagNameExpression(node.tagName),
+        tagName: ports().JsxTagNameExpression(structure(node, "jsx-closing").name()),
         tsonic,
       });
     })),
     JsxExpression: node => memoSyntaxPlan(JsxExpression, node, () => withSyntaxPayload(phase.JsxExpression, node.tsonic, () => {
       const header = syntaxHeader(node);
-      const { kind, dotDotDotToken } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        dotDotDotToken,
-        expression: node.expression === null ? null : ports().Expression(node.expression),
-        tsonic,
-      });
+      const { kind } = node;
+      return tsonic => {
+        const fields = structure(node, "jsx-expression");
+        return { ...header, kind, dotDotDotToken: fields.dots(), expression: optional(fields.expression(), ports().Expression), tsonic };
+      };
     })),
     JsxText: node => memoSyntaxPlan(JsxText, node, () => withSyntaxPayload(phase.JsxText, node.tsonic, () => {
       const header = syntaxHeader(node);

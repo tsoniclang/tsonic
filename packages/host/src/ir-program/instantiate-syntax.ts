@@ -332,22 +332,16 @@ function admitSyntaxHeader(scan: ProjectionInventory, node: SyntaxNode<TypedPhas
     case "PartiallyEmittedExpression":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "JsxElement":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10)
-        ?? inventoryRecord(scan, 2);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10);
     case "JsxAttributes":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8)
-        ?? inventoryRecord(scan, 2);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "JsxNamespacedName":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "JsxOpeningElement":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10)
-        ?? (node.typeArguments === null ? null : inventoryRecord(scan, 2));
     case "JsxSelfClosingElement":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10)
-        ?? (node.typeArguments === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10);
     case "JsxFragment":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10)
-        ?? inventoryRecord(scan, 2);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10);
     case "JsxOpeningFragment":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 7);
     case "JsxClosingFragment":

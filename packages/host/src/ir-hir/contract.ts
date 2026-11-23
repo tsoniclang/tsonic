@@ -5222,6 +5222,27 @@ export type ModuleStructureReceipt<P extends Phase> = {
   | ({ readonly kind: "export-assignment"; readonly type: () => TypeNode<P> | null; readonly expression: () => Expression<P> } & ModifiedSyntaxFields<P>)
 );
 
+export type JsxStructureSyntax<P extends Phase> = JsxElement<P> | JsxAttributes<P> | JsxNamespacedName<P>
+  | JsxOpeningElement<P> | JsxSelfClosingElement<P> | JsxFragment<P> | JsxAttribute<P> | JsxClosingElement<P> | JsxExpression<P>;
+
+export type JsxStructureReceipt<P extends Phase> = {
+  readonly ordinal: number;
+  readonly slots: Iterable<SyntaxChildSlot<P>>;
+} & (
+  | { readonly kind: "jsx-element"; readonly opening: () => JsxOpeningElement<P>; readonly closing: () => JsxClosingElement<P>;
+      readonly children: (read: (value: JsxChild<P>) => JsxChild<P>) => NodeList<JsxChild<P>> }
+  | { readonly kind: "jsx-attributes";
+      readonly properties: (read: (value: JsxAttributeLike<P>) => JsxAttributeLike<P>) => NodeList<JsxAttributeLike<P>> }
+  | { readonly kind: "jsx-name"; readonly namespace: () => Identifier<P>; readonly name: () => Identifier<P> }
+  | { readonly kind: "jsx-opening"; readonly name: () => JsxTagNameExpression<P>; readonly attributes: () => JsxAttributes<P>;
+      readonly args: (read: (value: TypeNode<P>) => TypeNode<P>) => NodeList<TypeNode<P>> | null }
+  | { readonly kind: "jsx-fragment"; readonly opening: () => JsxOpeningFragment<P>; readonly closing: () => JsxClosingFragment<P>;
+      readonly children: (read: (value: JsxChild<P>) => JsxChild<P>) => NodeList<JsxChild<P>> }
+  | { readonly kind: "jsx-attribute"; readonly name: () => JsxAttributeName<P>; readonly initializer: () => JsxAttributeValue<P> | null }
+  | { readonly kind: "jsx-closing"; readonly name: () => JsxTagNameExpression<P> }
+  | { readonly kind: "jsx-expression"; readonly dots: () => DotDotDotToken<P> | null; readonly expression: () => Expression<P> | null }
+);
+
 export interface ApplicationSyntaxReceipt<P extends Phase> {
   readonly kind: "application";
   readonly ordinal: number;
@@ -5269,16 +5290,16 @@ export type RetainedSyntaxNode<P extends Phase> = Block<P> | BinaryExpression<P>
   | UnarySyntax<P> | AnnotatedExpressionSyntax<P> | ConditionalExpression<P> | IfStatement<P>
   | PropertyAccessExpression<P> | ElementAccessExpression<P> | ArrayLiteralExpression<P> | ObjectLiteralExpression<P>
   | VariableStatement<P> | VariableDeclaration<P> | VariableDeclarationList<P> | BindingPattern<P> | BindingElement<P> | ControlSyntax<P>
-  | DeclarationStructureSyntax<P> | TypeStructureSyntax<P> | ExpressionStructureSyntax<P> | ModuleStructureSyntax<P>;
+  | DeclarationStructureSyntax<P> | TypeStructureSyntax<P> | ExpressionStructureSyntax<P> | ModuleStructureSyntax<P> | JsxStructureSyntax<P>;
 export type SyntaxStructureReceipt<P extends Phase> = BlockSyntaxReceipt<P> | BinarySyntaxReceipt<P> | ReturnSyntaxReceipt<P>
   | SingleExpressionReceipt<P> | ApplicationSyntaxReceipt<P> | ParameterSyntaxReceipt<P> | SourceFileSyntaxReceipt<P> | FunctionSyntaxReceipt<P>
   | UnarySyntaxReceipt<P> | AnnotatedExpressionSyntaxReceipt<P> | ConditionalSyntaxReceipt<P> | IfSyntaxReceipt<P>
   | PropertySyntaxReceipt<P> | ElementSyntaxReceipt<P> | ArraySyntaxReceipt<P> | ObjectSyntaxReceipt<P>
   | VariableStatementSyntaxReceipt<P> | VariableDeclarationSyntaxReceipt<P> | VariableListSyntaxReceipt<P>
   | BindingPatternSyntaxReceipt<P> | BindingElementSyntaxReceipt<P> | ControlSyntaxReceipt<P> | DeclarationStructureReceipt<P>
-  | TypeStructureReceipt<P> | ExpressionStructureReceipt<P> | ModuleStructureReceipt<P>;
+  | TypeStructureReceipt<P> | ExpressionStructureReceipt<P> | ModuleStructureReceipt<P> | JsxStructureReceipt<P>;
 export type SyntaxChildListField = "modifiers" | "typeParameters" | "parameters" | "typeArguments" | "arguments" | "statements"
-  | "elements" | "properties" | "declarations" | "clauses" | "types" | "members" | "heritageClauses" | "attributes" | "templateSpans";
+  | "elements" | "properties" | "declarations" | "clauses" | "types" | "members" | "heritageClauses" | "attributes" | "templateSpans" | "children";
 export type PrepareSyntaxStructure = <P extends Phase, Stop>(
   node: SyntaxNode<P>, ordinal: number, reserve: (node: RetainedSyntaxNode<P>) => Stop | null,
   admitList: (node: RetainedSyntaxNode<P>, field: SyntaxChildListField) => Stop | null,
