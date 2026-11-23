@@ -307,6 +307,7 @@ export type MirRule =
   | "bindings-complete"
   | "origin-valid"
   | "tir-node-resolves"
+  | "observation-source-exact"
   | "place-root-resolves"
   | "place-parent-precedes"
   | "definition-resolves"

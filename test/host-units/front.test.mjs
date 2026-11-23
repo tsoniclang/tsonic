@@ -573,37 +573,10 @@ test("layout capture retains the same selected application and authored operands
 });
 
 test("selected native layout geometry reaches verified Program through the real constant and observation demands", async () => {
-  const root = "/layout-provider";
-  const specifier = "native:layout";
-  const providerModuleId = "native.layout";
-  const provider = { ...declarationProvider("test.layout", specifier, providerModuleId),
-    getDeclarationModel: () => ({ moduleSpecifier: specifier, providerModuleId, exports: [
-      { id: "Abi", name: "Abi", kind: "value", type: { kind: "boolean" } },
-      { id: "layout", name: "layout", kind: "function", signatures: [{ id: "layout.call", typeParameters: [{ name: "T" }],
-        parameters: [{ name: "abi", type: { kind: "boolean" } }, ...["size", "alignment", "stride"].map(name => ({ name, type: { kind: "number" } }))],
-        returnType: { kind: "boolean" } }] },
-      { id: "size", name: "size", kind: "function", signatures: [{ id: "size.call",
-        parameters: [{ name: "descriptor", type: { kind: "boolean" } }], returnType: { kind: "number" } }] },
-    ] }) };
-  const registration = providerRegistration(root, provider);
-  const roles = { reference: reference(root, "roles"), value: { kind: "semantics-module", value: { moduleSpecifier: specifier,
-    exports: [{ kind: "call-marker", exportName: "layout", marker: "memory-value-layout" },
-      { kind: "call-marker", exportName: "size", marker: "memory-size" }] } } };
-  const declaration = { providerId: provider.identity.id, providerVersion: provider.identity.version,
-    providerModuleId, moduleSpecifier: specifier, exportId: "Abi" };
-  const native = { fingerprint: "selected-layout", byteOrder: "big", addressWidth: 64 };
-  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { layoutInput } = await import("./fixtures/front/layout-input.mjs");
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const { printProgramIndex, parseProgramIndex, printModuleBodies, parseModuleBodies } = await import("../../packages/host/dist/ir-program/index.js");
-  const makeInput = (text, limits) => {
-    const snapshot = projectSnapshot({ sourceFiles: { "main.ts": 'import { Abi, layout as make, size as measure } from "native:layout"; ' + text },
-      libraries: [{ name: "lib.es5.d.ts", text: sdk.barebonesLibContent }], providerPackages: [{ root, name: "layout-provider" }],
-      declarationProviders: [registration.reference], semanticModules: [roles.reference] });
-    return { ...limits, extensions: front.createCheckerExtensions([registration, roles]), snapshot: { ...snapshot,
-      contributions: { ...snapshot.contributions, dataLayouts: [declaration] },
-      nativeFacts: { ...snapshot.nativeFacts, geometry: { layouts: [{ declaration, layout: native }] } } } };
-  };
-  const baseline = analysisInput(await loadFrontFixture(), "sdk-minimal");
+  const { create: makeInput, native, baseline } = layoutInput(await loadFrontFixture());
   const named = "const descriptor = make<boolean>(Abi, 8, 8, 8); export const width = measure(descriptor);";
   const inline = "export const width = measure(make<boolean>(Abi, 8, 8, 8));";
   const dependent = "const inner = make<boolean>(Abi, 8, 8, 8); export const width = measure(make<boolean>(Abi, measure(inner), 8, 8));";

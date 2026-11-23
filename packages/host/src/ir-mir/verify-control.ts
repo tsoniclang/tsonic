@@ -5,7 +5,7 @@ import { callableEndpointKey, hasOverloadEndpoints, selectedEndpointRoleFaults }
 import type { ApplicationDecision } from "../ir-infer/contract.js";
 import type { BodyInstance } from "../ir-types/contract.js";
 import type { ChapterSyntaxSlots, MemberSelection, ResolvedCallee, TirBody, TirChapterSyntax, TirProtocol, TirProtocolStep, TirSyntaxOccurrence, TypedOperation } from "../ir-tir/contract.js";
-import { chapterSyntaxSlots, indexChapterSyntax, tirBodySyntaxOf } from "../ir-tir/index.js";
+import { chapterSyntaxSlots, indexChapterSyntax, layoutObservationOf, rawValueTypeOf, tirBodySyntaxOf } from "../ir-tir/index.js";
 import { wireText } from "./text.js";
 import type { DecisionWires } from "./text-decisions.js";
 import type { MirBlock, MirBody, MirRule, MirSite, MirTerminator, MirUnwind, MirVerificationContext, MirViolationSite } from "./contract.js";
@@ -349,7 +349,13 @@ export function verifySelections(
   for (const constant of body.constants) {
     if (constant === undefined) continue;
     const site: MirViolationSite = { kind: "constant", body: body.body, constant: constant.id };
-    if (constant.value.kind === "observation") reference(constant.value.at, site);
+    if (constant.value.kind !== "observation") continue;
+    chargeWork(meter, 1);
+    if (meter.exhausted) return [];
+    const source = reference(constant.value.at, site);
+    if (source === undefined) continue;
+    const observation = layoutObservationOf(source.node);
+    if (observation === null || !Object.is(rawValueTypeOf(observation), constant.type)) report("observation-source-exact", site);
   }
   for (const place of body.places) {
     if (place === undefined || place.base.kind !== "place" && place.base.kind !== "checked") continue;

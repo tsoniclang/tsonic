@@ -2,7 +2,7 @@ import { requirePresent } from "../diag/index.js";
 import type { InvariantFailure } from "../diag/contract.js";
 import type { NodeList, SyntaxChildSlot } from "../ir-hir/contract.js";
 import { iterateFunctionHeaderSlots, iterateSourceFileHeaderSlots, iterateSyntaxChildSlots, unparenthesizedExpression } from "../ir-hir/index.js";
-import type { LayoutBindingOf } from "./contract.js";
+import type { LayoutBindingOf, LayoutObservationOf, RawValueTypeOf } from "./contract.js";
 import type { AdmitFormalInitializer, BodyOccurrenceSlots, ChapterStatementSyntax, ChapterSyntaxSlots, FormalInitializerSlot, FormalInitializerSyntax, IndexChapterSyntax, ReadChapterSyntaxSlot, TirBodySyntaxOf, TirChapterSyntax, TirChapterSyntaxSlot, TirFormalInitializer, TirFormalInitializerRead, TirModuleStatement, TypedPhase } from "./contract.js";
 
 const missingChild: InvariantFailure = { owner: "ir-tir", query: null, origin: null,
@@ -15,6 +15,16 @@ export const layoutBindingOf: LayoutBindingOf = initializer => {
   const selected = expression.tsonic;
   return selected.layout === "value-layout" || selected.layout === "array-layout" || selected.layout === "field-layout" ? selected : null;
 };
+
+export const layoutObservationOf: LayoutObservationOf = node => {
+  if (node.kind !== "CallExpression" || !("layout" in node.tsonic)) return null;
+  const selected = node.tsonic;
+  return selected.layout === "size" || selected.layout === "alignment" || selected.layout === "stride"
+    || selected.layout === "field-offset" ? selected : null;
+};
+
+export const rawValueTypeOf: RawValueTypeOf = payload =>
+  payload.narrowing !== null && payload.narrowing.kind === "narrowed" ? payload.narrowing.source : payload.type;
 
 function ordinarySlot(slot: SyntaxChildSlot<TypedPhase>): TirChapterSyntaxSlot {
   return { kind: "syntax", fields: slot.fields, read: () => {

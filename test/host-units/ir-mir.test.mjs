@@ -1931,19 +1931,45 @@ function lifetimeBody(body, statements) {
   return { ...body, locals: [local], places: [place], blocks: [{ ...body.blocks[0], statements: statements(body.blocks[0], local, place) }] };
 }
 
-test("MIR observation constants retain exact source references and their complete uniqueness key", () => {
-  const body = parsedBody();
-  const context = sourceContext(body);
-  const value = { kind: "observation", at: { body: body.body, node: identities.nodeId(0) } };
-  const constant = { id: identities.constId(0), type: identities.tyId(0), value };
-  same(verified({ ...body, constants: [constant] }, context), [], "the genuine root observation is a complete valid opposite");
+test("MIR observation constants require their actual verified layout query, raw type and complete uniqueness key", async () => {
+  const { layoutInput } = await import("./fixtures/front/layout-input.mjs");
+  const { createAccount } = await import("../../packages/host/dist/dataflow/index.js");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { analyzeTypedSource } = await import("../../packages/host/dist/pipeline/analysis-barrier.js");
+  const { instanceKey, viewTypes } = await import("../../packages/host/dist/ir-types/index.js");
+  const { create } = layoutInput(await loadFrontFixture());
+  const input = create("const descriptor = make<boolean>(Abi, 8, 8, 8); export const width = measure(descriptor);");
+  const account = createAccount(input.limits.dataflow);
+  const captured = captureSourceBarrier(input);
+  assert.equal(captured.kind, "ok", JSON.stringify(captured.diagnostics));
+  const typed = typeSourceBarrier(input, captured.value, account);
+  assert.equal(typed.kind, "ok", JSON.stringify(typed.diagnostics));
+  const analyzed = analyzeTypedSource(input, typed.value, account);
+  assert.equal(analyzed.kind, "ok", JSON.stringify(analyzed.diagnostics));
+  const body = [...analyzed.value.mir.values()].find(row => row.constants.some(constant => constant.value.kind === "observation"));
+  assert.equal(body !== undefined, true);
+  const source = typed.value.bodies.get(instanceKey({ body: body.body, bindings: body.bindings }));
+  const proof = typed.value.verifierOf(source.root.origin.module);
+  const context = { source, types: viewTypes(captured.value.types), selectedNativeFacts: input.snapshot.nativeFacts,
+    limits: input.limits.mirVerification, requiredEntries: [0], bodyOf: proof.bodyOf, declarationOf: proof.declarationOf,
+    bodyOwner: identity => captured.value.checked.bodies.get(identity)?.owner ?? null };
+  const [constant] = body.constants;
+  assert.equal(body.constants.length, 1);
+  assert.equal(constant.value.kind, "observation");
+  same(verified(body, context), [], "the original Layout call is a complete verified source");
   same(verified({ ...body, constants: [constant, { ...constant, id: identities.constId(1) }] }, context),
-    [expectedViolation("constant-unique", { kind: "constant", constant: 1 })],
+    [{ rule: "constant-unique", site: { kind: "constant", body: body.body, constant: 1 }, detail: [] }],
     "two actual records at the same qualified observation retain their complete duplicate finding");
-  same(verified({ ...body, constants: [{ ...constant,
-    value: { ...value, at: { ...value.at, node: identities.nodeId(99) } } }] }, context),
-    [expectedViolation("tir-node-resolves", { kind: "constant", constant: 0 })],
-    "a source reference is not resolved merely because its body is correct");
+  const check = row => verified({ ...body, constants: [row] }, context).filter(finding => finding.site.kind === "constant");
+  const exact = rule => [{ rule, site: { kind: "constant", body: body.body, constant: constant.id }, detail: [] }];
+  const at = constant.value.at;
+  same(check({ ...constant, value: { kind: "observation", at: { ...at, node: source.root.expression.id } } }),
+    exact("observation-source-exact"), "an eligible callee identifier is not an observation");
+  same(check({ ...constant, type: source.root.expression.tsonic.type }), exact("observation-source-exact"),
+    "the authentic source under a different actual carrier is not evidence");
+  same(check({ ...constant, value: { kind: "observation", at: { ...at, node: identities.nodeId(999) } } }),
+    exact("tir-node-resolves"), "a source reference is not resolved merely because its body is correct");
 });
 
 test("MIR ordinary constants retain unresolved and sparse supplied type-table references", () => {

@@ -3664,7 +3664,7 @@ export function readLater(value: boolean): boolean { return value; }`);
     get() { assert.fail("an observation refusal must leave the following actual body unread"); },
   });
   assert.throws(() => analyzeTypedSource(input, typed.value, account),
-    /actual observation capture requires its checked descriptor-to-MetadataKey Layout producer/u);
+    error => error.cause?.owner === "pipeline" && error.cause.message === "A selected execution cannot borrow unavailable observation capture.");
 });
 
 test("a cross-module omitted reference formal runs its actual placed default", async () => {

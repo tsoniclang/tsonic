@@ -164,6 +164,3 @@ export function localFromSource(lowering: Lowering, source: LocalRef): LocalId |
 }
 
 export const siteOf = (body: TirBody, node: NodeHeader): MirSite => ({ origin: node.origin, tir: { body: body.body, node: node.id } });
-
-export const rawType = (payload: TypedValue): TyId =>
-  payload.narrowing !== null && payload.narrowing.kind === "narrowed" ? payload.narrowing.source : payload.type;

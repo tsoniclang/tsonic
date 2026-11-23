@@ -6,10 +6,11 @@ import { shortCircuitOperatorOf } from "../ir-hir/index.js";
 import type { MirBody, MirLocalRole, MirOperand, MirUnwind } from "../ir-mir/contract.js";
 import { localOwnershipOfMir } from "../ir-mir/index.js";
 import type { TirBody, TirEnumResolution, TirLocal, TypedBinary, TypedOperation, TypedPhase, TypedUnary, TypedValue } from "../ir-tir/contract.js";
+import { layoutObservationOf, rawValueTypeOf as rawType } from "../ir-tir/index.js";
 import type { LiteralValue } from "../ir-types/contract.js";
 import type { InternalBodyInput, LowerMirDeps } from "./contract.js";
 import type { ControlScope, Discard, Evaluated, Lowering, Work } from "./model.js";
-import { callerDefect, executingValue, failure, localFromSource, notLoweredYet, rawType, siteOf } from "./model.js";
+import { callerDefect, executingValue, failure, localFromSource, notLoweredYet, siteOf } from "./model.js";
 import { held, holdReceiver, observePendingRead, popOperand, pushOperand, readPlace, saveBeforeControl, saveBeforeStore, saveRead, temporary } from "./operands.js";
 import { breaks, continues, endConditionalFalse, endConditionalTrue, endDo, endElse, endFor, endLabel, endSelected, endShortCircuit, endThen, endWhile, enterConditional, enterDo, enterFor, enterIf, enterShortCircuit, enterSwitch, enterWhile, finishSwitchTest, loopCondition, nextFor, nextSwitchClause } from "./control.js";
 import { argumentPlace, enterCall, finishCall } from "./calls.js";
@@ -513,12 +514,9 @@ function expression(lowering: Lowering, node: Expression<TypedPhase>): boolean {
       const selected = node.tsonic;
       if (!("application" in selected)) return callerDefect("a nonexecuting declaration name in an executable call", node.origin);
       if ("layout" in selected) {
-        switch (selected.layout) {
-          case "value-layout": case "array-layout": case "field-layout":
-            return notLoweredYet("a layout descriptor used as a runtime value", node.origin);
-          case "size": case "alignment": case "stride": case "field-offset":
-            return layoutOperand(lowering, node, selected);
-        }
+        const observation = layoutObservationOf(node);
+        return observation === null ? notLoweredYet("a layout descriptor used as a runtime value", node.origin)
+          : layoutOperand(lowering, node, observation);
       }
       value(lowering, selected, node);
       return enterCall(lowering, node, selected);

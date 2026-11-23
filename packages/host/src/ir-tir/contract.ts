@@ -216,6 +216,8 @@ export interface TypedLayoutApplication extends SelectedApplication {
 export type TypedCall = TypedApplication | TypedLayoutApplication | DeclarationNameExpression;
 
 export type LayoutBindingOf = (initializer: Expression<TypedPhase> | null) => TypedLayoutApplication | null;
+export type LayoutObservationOf = (node: TirSyntaxOccurrence) => TypedLayoutApplication | null;
+export type RawValueTypeOf = (payload: TypedValue) => TyId;
 
 export interface TypedProtocolValue extends TypedValue {
   readonly protocol: RuleOutcome<TirProtocol>;

@@ -1,10 +1,11 @@
 import type { MemberSelectionKey, ParseTir, PrintTir, TirOperationsOf, VerifyTir, VerifyTirModule } from "./contract.js";
-import type { LayoutBindingOf } from "./contract.js";
+import type { LayoutBindingOf, LayoutObservationOf, RawValueTypeOf } from "./contract.js";
 import type { AdmitFormalInitializer, BodyOccurrenceSlots, ChapterStatementSyntax, ChapterSyntaxSlots, FormalInitializerSlot, FormalInitializerSyntax, IndexChapterSyntax, ReadChapterSyntaxSlot, TirBodySyntaxOf } from "./contract.js";
 import { admitFormalInitializer as admitInitializer, bodyOccurrenceSlots as occurrenceSlots,
   chapterStatementSyntax as statementSyntax, chapterSyntaxSlots as chapterSlots, formalInitializerSlot as initializerSlot,
   formalInitializerSyntax as initializerSyntax, indexChapterSyntax as indexChapter,
-  layoutBindingOf as layoutBinding, readChapterSyntaxSlot as readChapterSlot, tirBodySyntaxOf as bodySyntaxOf } from "./chapter-syntax.js";
+  layoutBindingOf as layoutBinding, layoutObservationOf as layoutObservation, rawValueTypeOf as rawValueType,
+  readChapterSyntaxSlot as readChapterSlot, tirBodySyntaxOf as bodySyntaxOf } from "./chapter-syntax.js";
 import { parseTypedBody } from "./parse.js";
 import { printTypedBody } from "./print.js";
 import { selectionKey } from "./selection-key.js";
@@ -26,3 +27,5 @@ export const admitFormalInitializer: AdmitFormalInitializer = admitInitializer;
 export const formalInitializerSlot: FormalInitializerSlot = initializerSlot;
 export const formalInitializerSyntax: FormalInitializerSyntax = initializerSyntax;
 export const layoutBindingOf: LayoutBindingOf = layoutBinding;
+export const layoutObservationOf: LayoutObservationOf = layoutObservation;
+export const rawValueTypeOf: RawValueTypeOf = rawValueType;
