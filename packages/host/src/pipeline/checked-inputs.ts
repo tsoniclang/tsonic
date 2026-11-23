@@ -1,6 +1,6 @@
 import type { DeclsModule } from "../decls/contract.js";
 import { throwInvariant } from "../diag/index.js";
-import type { BodyId, DefId, LocalRef, ModuleId, NodeId, SourceNodeRef } from "../ids/contract.js";
+import type { BodyId, DefId, ItemNodeRef, LocalRef, ModuleId, NodeId, SourceNodeRef } from "../ids/contract.js";
 import type { CheckedTypingCut, CheckedTypingCuts, HirBody, HirNode } from "../ir-hir/contract.js";
 import { checkedParameterHeadersOf, childrenOfSyntax } from "../ir-hir/index.js";
 import type { StructuralTypingCuts } from "../infer/contract.js";
@@ -11,6 +11,9 @@ export interface CheckedSourceViews {
   readonly nodeOf: (reference: SourceNodeRef) => HirNode | null;
   readonly localExists: (reference: LocalRef) => boolean;
   readonly declarationSourceOf: (definition: DefId) => SourceNodeRef | null;
+  readonly localDeclarationOf: (local: LocalRef) => SourceNodeRef | null;
+  readonly parentOf: (node: HirNode) => HirNode | null;
+  readonly itemOf: (node: HirNode) => ItemNodeRef | null;
   readonly cuts: CheckedTypingCuts;
   readonly structuralCuts: StructuralTypingCuts;
   readonly formScopeOf: (node: HirNode) => FormsScope;
@@ -207,6 +210,21 @@ export function checkedSourceViews(modules: readonly DeclsModule[],
     },
     localExists: reference => ordinal(reference.local) && bodies.get(reference.body)?.locals[reference.local]?.id === reference.local,
     declarationSourceOf: definition => declarations.get(definition)?.source ?? null,
+    localDeclarationOf: reference => {
+      const local = ordinal(reference.local) ? bodies.get(reference.body)?.locals[reference.local] : undefined;
+      return local?.id === reference.local ? local.declaration : null;
+    },
+    parentOf: node => {
+      const namespace = namespaces.get(node.origin.module);
+      return namespace?.module.nodes[node.id] === node && node.parent !== null ? namespace.module.nodes[node.parent] ?? null : null;
+    },
+    itemOf: node => {
+      const namespace = namespaces.get(node.origin.module);
+      if (namespace?.module.nodes[node.id] !== node) return null;
+      const definition = namespace.items[node.id];
+      const source = definition === null || definition === undefined ? null : declarations.get(definition)?.source;
+      return source?.kind === "item" && source.value.node === node.id ? source.value : null;
+    },
     cuts: bindForms(() => undefined),
     structuralCuts: { syntax: node => syntaxCuts.has(node), body: body => bodyCut(body) !== null,
       declaration: definition => declarationCut(definition) !== null, parameterInitializer: (definition, index) => initializerCut(definition, index) !== null },

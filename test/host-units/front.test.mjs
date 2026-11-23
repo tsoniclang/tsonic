@@ -475,6 +475,27 @@ test("layout capture retains the same selected application and authored operands
   const selectedObservation = observation.tsonic.observation.value;
   assert.equal(selectedObservation.operation, "size");
   assert.equal(body.nodeOf({ kind: "body", value: selectedObservation.operand }) === observation.arguments.nodes[0], true);
+  const { resolveCheckedLayout } = await import("../../packages/host/dist/ir-hir/index.js");
+  const { chargeWork, chargeResultEntries, accountFailure } = await import("../../packages/host/dist/dataflow/index.js");
+  function resolveAt(limit, operand, readers = body, bindings = checked.value.bindingOf) {
+    const meter = createAccount({ maximumWork: limit, maximumResultEntries: 100 });
+    const resolution = resolveCheckedLayout({ ...readers, bindingOf: bindings,
+      admit: (work, records) => chargeWork(meter, work) ?? (records === 0 ? null : chargeResultEntries(meter, records)) }, operand);
+    if (resolution.kind !== "complete") assert.equal(resolution.stop === accountFailure(meter), true);
+    return { resolution, work: meter.work };
+  }
+  const operand = { kind: "body", value: selectedObservation.operand };
+  const resolved = resolveAt(100, operand);
+  assert.equal(resolved.resolution.kind, "complete");
+  assert.equal(resolved.resolution.value.capture === capture, true);
+  assert.equal(resolved.resolution.value.node === layout, true);
+  assert.equal(resolved.resolution.value.definition, descriptorItem.definition);
+  for (let maximum = 0; maximum < resolved.work; maximum += 1) {
+    assert.equal(resolveAt(maximum, operand).resolution.kind, "resource-stop", String(maximum));
+  }
+  assert.equal(resolveAt(0, operand, { ...body, nodeOf: () => assert.fail("an unadmitted operand is unread") }).resolution.kind, "resource-stop");
+  assert.deepEqual(resolveAt(100, { kind: "body", value: { ...selectedObservation.operand, body: actualBodies[0].body } }).resolution,
+    { kind: "complete", value: null });
   assert.deepEqual([capture.geometry.byteSize.kind, selectedObservation.value.kind], ["unavailable", "unavailable"]);
   const typed = typeSourceBarrier(input, checked.value, createAccount(input.limits.dataflow));
   assert.equal(typed.kind, "ok", JSON.stringify(typed.diagnostics));

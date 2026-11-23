@@ -4111,6 +4111,25 @@ export type CheckedLayoutRoleOf = (call: CallExpression<CheckedPhase>) => Layout
 export type CheckedLayoutConstructionOf = (node: HirNode) =>
   Exclude<HirMemoryLayoutCapture, { readonly kind: "data-layout" }> | HirMemoryFieldCapture | null;
 
+export interface CheckedLayoutSourceDeps<Stop extends object> extends HirBindingViews {
+  readonly admit: (work: number, records: number) => Stop | null;
+  readonly nodeOf: (reference: SourceNodeRef) => HirNode | null;
+  readonly declarationSourceOf: (definition: DefId) => SourceNodeRef | null;
+  readonly localDeclarationOf: (local: LocalRef) => SourceNodeRef | null;
+  readonly parentOf: (node: HirNode) => HirNode | null;
+  readonly itemOf: (node: HirNode) => ItemNodeRef | null;
+}
+
+export interface CheckedLayoutSource {
+  readonly definition: DefId;
+  readonly capture: HirMemoryLayoutCapture | HirMemoryFieldCapture;
+  readonly node: HirNode;
+}
+
+export type ResolveCheckedLayout = <Stop extends object>(deps: CheckedLayoutSourceDeps<Stop>, reference: SourceNodeRef) =>
+  | { readonly kind: "complete"; readonly value: CheckedLayoutSource | null }
+  | { readonly kind: "resource-stop"; readonly stop: Stop };
+
 export type HirUnaryOperator = "+" | "-" | "!" | "~" | "++" | "--" | "typeof" | "void" | "delete";
 export type HirBinaryOperator = "+" | "-" | "*" | "/" | "%" | "**" | "&" | "|" | "^"
   | "<<" | ">>" | ">>>" | "<" | "<=" | ">" | ">=" | "==" | "!=" | "===" | "!==" | "in" | "instanceof";

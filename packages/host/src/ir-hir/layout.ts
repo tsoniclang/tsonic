@@ -1,4 +1,5 @@
-import type { CheckedLayoutConstructionOf, CheckedLayoutOperandOf, CheckedLayoutRoleOf } from "./contract.js";
+import type { SourceNodeRef } from "../ids/contract.js";
+import type { CheckedLayoutConstructionOf, CheckedLayoutOperandOf, CheckedLayoutRoleOf, HirModuleBinding, HirNode, ResolveCheckedLayout } from "./contract.js";
 
 export const checkedLayoutConstructionOf: CheckedLayoutConstructionOf = node => {
   if (node.kind !== "CallExpression") return null;
@@ -29,4 +30,68 @@ export const checkedLayoutOperandOf: CheckedLayoutOperandOf = (call, position) =
       return descriptor.kind === "array" && position === 5 ? descriptor.extentExpression : null;
     default: return null;
   }
+};
+
+function sameOccurrence(left: SourceNodeRef, right: SourceNodeRef): boolean {
+  if (left.value.node !== right.value.node) return false;
+  return left.kind === "item" ? right.kind === "item" && left.value.owner === right.value.owner
+    : right.kind === "body" && left.value.body === right.value.body;
+}
+
+const absent = { kind: "complete", value: null } satisfies ReturnType<ResolveCheckedLayout>;
+
+export const resolveCheckedLayout: ResolveCheckedLayout = (deps, reference) => {
+  const initial = deps.admit(1, 1);
+  if (initial !== null) return { kind: "resource-stop", stop: initial };
+  const visited = new Set<HirNode | HirModuleBinding>();
+  let node = deps.nodeOf(reference);
+  while (node !== null) {
+    const step = deps.admit(1, 1);
+    if (step !== null) return { kind: "resource-stop", stop: step };
+    if (visited.has(node)) return absent;
+    visited.add(node);
+    if (node.kind === "ParenthesizedExpression") {
+      node = node.expression;
+      continue;
+    }
+    const layout = checkedLayoutConstructionOf(node);
+    const memory = node.kind === "VariableDeclaration" ? node.tsonic.memory : null;
+    const capture = layout ?? (memory?.kind === "available" && memory.value?.kind === "data-layout" ? memory.value : null);
+    if (capture !== null) {
+      const read = deps.admit(2, 1);
+      if (read !== null) return { kind: "resource-stop", stop: read };
+      const item = deps.itemOf(node);
+      if (item === null || deps.nodeOf(capture.occurrence) !== node
+        || capture.kind === "data-layout" && (capture.declaration.kind !== "available" || capture.declaration.value !== item.owner))
+        return absent;
+      return { kind: "complete", value: { definition: item.owner, capture, node } };
+    }
+    if (node.kind === "VariableDeclaration") {
+      const read = deps.admit(2, 0);
+      if (read !== null) return { kind: "resource-stop", stop: read };
+      const parent = deps.parentOf(node);
+      if (parent?.kind !== "VariableDeclarationList" || !parent.flags.includes("Const")) return absent;
+      node = node.initializer;
+      continue;
+    }
+    if (node.kind !== "Identifier" || node.tsonic.role !== "value") return absent;
+    let resolution = node.tsonic.resolution;
+    while (resolution.kind === "binding") {
+      const read = deps.admit(2, 1);
+      if (read !== null) return { kind: "resource-stop", stop: read };
+      const binding = deps.bindingOf(resolution.occurrence);
+      if (binding === null || visited.has(binding) || !sameOccurrence(resolution.occurrence, binding.occurrence)
+        || binding.target.kind !== "available") return absent;
+      visited.add(binding);
+      resolution = binding.target.value;
+    }
+    const read = deps.admit(2, 0);
+    if (read !== null) return { kind: "resource-stop", stop: read };
+    const owner = resolution.kind === "local" ? deps.localDeclarationOf(resolution.local)
+      : resolution.kind === "declarations" && resolution.definitions.length === 1
+        ? deps.declarationSourceOf(resolution.definitions[0]) : null;
+    if (owner === null) return absent;
+    node = deps.nodeOf(owner);
+  }
+  return absent;
 };

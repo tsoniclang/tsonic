@@ -1241,7 +1241,7 @@ test("HIR public index has exactly the current complete data and binding operati
     "binaryOperatorOf", "callableEndpointKey", "checkedGroupingFrontierOf", "checkedLayoutConstructionOf", "checkedLayoutOperandOf", "checkedLayoutRoleOf", "checkedMemberStorageOf", "checkedParameterHeadersOf", "checkedSourceObjectFieldOf", "checkedSourceObjectHoldingOf", "checkedVariableStorageOf", "childrenOfSyntax", "collectInferredStorageSources", "compoundAssignmentOperatorOf",
     "copyCheckedContent", "copyCheckedModule", "copySyntaxForest", "createModuleBindingViews", "deriveDeclarationScopes", "hasOverloadEndpoints", "indexSyntaxTree", "isModuleBindingKind", "isTypeOnlyExportStar",
     "iterateChildrenOfSyntax", "iterateFunctionHeaderSlots", "iterateParameterHeaderSlots", "iterateSourceFileHeaderSlots", "iterateSyntaxChildEdges", "iterateSyntaxChildSlots", "orderPragmaArguments", "parseCheckedDeclarations", "parseHir", "prefixOperatorOf", "prepareFunctionHeader", "prepareSourceFileHeader", "prepareSyntaxCopy", "prepareSyntaxStructure", "printCheckedDeclarations", "printHir",
-    "projectCheckedContent", "readWriteRootStorageOf", "resolveModuleBinding", "resolveModuleExport", "selectedEndpointRoleFaults", "shortCircuitOperatorOf", "unparenthesizedExpression", "verifyHir",
+    "projectCheckedContent", "readWriteRootStorageOf", "resolveCheckedLayout", "resolveModuleBinding", "resolveModuleExport", "selectedEndpointRoleFaults", "shortCircuitOperatorOf", "unparenthesizedExpression", "verifyHir",
     "walkSyntaxForest", "walkSyntaxTree", "writableRootStorageOf",
   ]);
   assert.deepStrictEqual(readdirSync(resolve(repository, "packages/host/src/ir-hir")).filter(name => name.endsWith(".ts")).sort(),
