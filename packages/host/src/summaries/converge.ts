@@ -1,6 +1,7 @@
 import { accountFailure, chargeResultEntries, chargeWork, refuseAccount } from "../dataflow/index.js";
 import type { Cause, ErrorValue, UnitAnswerPosition, UnitRef } from "../diag/contract.js";
 import { unitPositionData } from "../diag/index.js";
+import type { NodeId, NodeRef } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
 import type { LivenessFacts, RelationalOwner, Summary, SummaryAnswer, SummaryKey } from "../ir-facts/contract.js";
 import { admitSummaryIdentity, summaryEquals, summaryKey, verifyFacts, verifySummary } from "../ir-facts/index.js";
@@ -9,12 +10,15 @@ import type { ConvergenceDeps, ConvergenceMember, ConvergeComponent, StableBody 
 
 type RoundCallRead = ReturnType<Parameters<ConvergenceDeps["analyzeBodyRound"]>[0]["summaryOf"]>;
 type RoundLeast = Extract<RoundCallRead, { readonly kind: "least" }>;
+type DeclaredTarget = Extract<SummaryKey, { readonly kind: "declared" }>;
+const noDeclaredCall = () => null;
 
 interface PreparedMember {
   readonly member: ConvergenceMember;
   readonly liveness: LivenessFacts;
   readonly key: string;
   readonly identity: string;
+  readonly declaredAt: (at: NodeRef) => DeclaredTarget | null;
   readonly least: RoundLeast | null;
 }
 
@@ -55,6 +59,7 @@ export const convergeComponent: ConvergeComponent = (deps, input) => {
     identitiesByMember.push(identity);
   }
   const required = new Set<string>();
+  let declaredCalls: Map<number, Map<NodeId, DeclaredTarget>> | null = null;
   let internal = false;
   let previous = -1;
   for (let position = 0; position < component.rows.length; position += 1) {
@@ -68,7 +73,21 @@ export const convergeComponent: ConvergeComponent = (deps, input) => {
     const source: SummaryKey = { kind: "body", execution: dependency.dependent };
     const identities = admitSummaryIdentity(source, account) ?? admitSummaryIdentity(dependency.target, account);
     if (identities !== null) return identities;
-    if (!members.has(summaryKey(source))) throw new TypeError("Every component row is dependent on one of its members.");
+    const dependent = members.get(summaryKey(source));
+    if (dependent === undefined) throw new TypeError("Every component row is dependent on one of its members.");
+    if (dependency.reason === "call" && dependency.target.kind === "declared") {
+      if (dependency.at.body !== dependency.dependent.instance.body)
+        throw new TypeError("A declared call retains its actual dependent occurrence.");
+      const existing = declaredCalls?.get(dependent);
+      if (existing?.has(dependency.at.node) === true)
+        throw new TypeError("A direct call has one exact declared dependency.");
+      const keep = chargeResultEntries(account, (declaredCalls === null ? 1 : 0) + (existing === undefined ? 2 : 0) + 1);
+      if (keep !== null) return keep;
+      declaredCalls ??= new Map();
+      const calls = existing ?? new Map<NodeId, DeclaredTarget>();
+      if (existing === undefined) declaredCalls.set(dependent, calls);
+      calls.set(dependency.at.node, dependency.target);
+    }
     const target = summaryKey(dependency.target);
     if (members.has(target)) internal = true;
     else if (!required.has(target)) {
@@ -135,7 +154,13 @@ export const convergeComponent: ConvergeComponent = (deps, input) => {
     }
     const identity = identitiesByMember[position];
     if (identity === undefined) throw new TypeError("Each member retains its exact admitted identity.");
-    ready.push({ member, liveness: storage.value, key: executionKey(member.execution), identity, least });
+    const calls = declaredCalls?.get(position);
+    if (calls !== undefined) {
+      const keep = chargeResultEntries(account, 1);
+      if (keep !== null) return keep;
+    }
+    ready.push({ member, liveness: storage.value, key: executionKey(member.execution), identity, least,
+      declaredAt: calls === undefined ? noDeclaredCall : at => at.body === member.execution.instance.body ? calls.get(at.node) ?? null : null });
   }
   type Prior = { readonly read: RoundCallRead; readonly keys: readonly string[] };
   let prior: readonly Prior[] | null = null;
@@ -168,7 +193,9 @@ export const convergeComponent: ConvergeComponent = (deps, input) => {
       const selected = ready[position];
       if (selected === undefined) throw new TypeError("The selected ready member vector is dense.");
       const { member, liveness, key, identity } = selected;
-      const round = deps.analyzeBodyRound({ ...deps.environment, summaryOf, account, unit: member.unit }, {
+      const round = deps.analyzeBodyRound({ ...deps.environment, summaryOf,
+        declaredAt: selected.declaredAt,
+        account, unit: member.unit }, {
         execution: member.execution, mir: member.mir, tir: member.tir, liveness,
       });
       const stoppedRound = accountFailure(account);

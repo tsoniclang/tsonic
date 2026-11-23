@@ -1,6 +1,6 @@
 import type { CallerRefusal, DataflowAccount, DataflowResult } from "../../dataflow/contract.js";
 import type { ErrorValue, UnitRef, UnitRequest, UnitResult } from "../../diag/contract.js";
-import type { DefId, LocalRef, ModuleId, Origin, SigId, SourceNodeRef, TyId } from "../../ids/contract.js";
+import type { DefId, LocalRef, ModuleId, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../../ids/contract.js";
 import type { AnalysisLimits, BodyFacts, LivenessFacts, ModuleStaticCellRef, Summary, SummaryAnswer, SummaryKey, SummaryPosition } from "../../ir-facts/contract.js";
 import type { MirBody, MirEntry } from "../../ir-mir/contract.js";
 import type { TirBody } from "../../ir-tir/contract.js";
@@ -29,6 +29,7 @@ export type RoundCallRead = SummaryAnswer | RoundLeast
 
 export interface BodyRoundDeps extends BodyRoundEnvironment {
   readonly summaryOf: (key: SummaryKey, admittedKey: string) => RoundCallRead;
+  readonly declaredAt: (at: NodeRef) => Extract<SummaryKey, { readonly kind: "declared" }> | null;
   readonly account: DataflowAccount;
   readonly unit: UnitRequest;
 }

@@ -3,11 +3,12 @@ import { accountFailure, chargeResultEntries, chargeWork } from "../../dataflow/
 import type { UnitRef } from "../../diag/contract.js";
 import { requirePresent, resourceLimitDiagnostic, throwInvariant } from "../../diag/index.js";
 import type { AppliedSummary, BoundInitializationRow, CaptureBinding, CaptureLocation, MirPoint, RelationalArena, Summary, SummaryApplicationInput, SummaryKey, ValueArgument, ValueEntryBinding } from "../../ir-facts/contract.js";
-import { admitSummaryIdentity, applySummary, bindInitialization, summaryKey } from "../../ir-facts/index.js";
+import { admitArtifactIdentity, admitSummaryIdentity, applySummary, bindInitialization, summaryKey } from "../../ir-facts/index.js";
 import type { MirBody, MirOperand, MirTerminator } from "../../ir-mir/contract.js";
 import type { LocalId, OriginsId, PlaceId, ValueContextId } from "../../ids/contract.js";
 import { valueContextId } from "../../ids/index.js";
 import type { BodyInstance, Signature } from "../../ir-types/contract.js";
+import { bindingVectorKey } from "../../ir-types/index.js";
 import type { BodyRoundDeps, BodyRoundInput, RoundCallRead, RoundLeast } from "./contract.js";
 import { valueKind } from "./values.js";
 import { readLocal } from "./places.js";
@@ -25,12 +26,7 @@ export interface CallError {
   readonly provided: number;
 }
 
-type SelectedBodySummary = Summary & { readonly key: Extract<SummaryKey, { readonly kind: "body" }> };
-export type SelectedCall = SelectedBodySummary | CallError | RoundLeast;
-
-function isAdmittedBodySummary(_summary: Summary, offered: SummaryKey): _summary is SelectedBodySummary {
-  return offered.kind === "body";
-}
+export type SelectedCall = Summary | CallError | RoundLeast;
 
 function isAdmittedLeast(selected: Summary | RoundLeast, least: RoundLeast | null): selected is RoundLeast {
   return selected === least;
@@ -72,7 +68,22 @@ export function callSummary(deps: BodyRoundDeps, body: MirBody,
   if (prior !== null) return prior;
   const admission = chargeWork(deps.account, 1) ?? chargeResultEntries(deps.account, 3);
   if (admission !== null) return admission;
-  const instance = callInstance(operation);
+  const callee = operation.callee;
+  const declaredCallee = callee.kind === "direct" && callee.resolution.activation === null
+    && callee.resolution.decision.activation === null ? callee : null;
+  const instance = declaredCallee === null ? callInstance(operation) : null;
+  let declared: ReturnType<BodyRoundDeps["declaredAt"]> = null;
+  if (declaredCallee !== null) {
+    const read = chargeWork(deps.account, 1);
+    if (read !== null) return read;
+    declared = deps.declaredAt(operation.tir);
+    const stopped = accountFailure(deps.account);
+    if (stopped !== null) return stopped;
+    if (declared === null || declaredCallee.resolution.decision.api.role !== "api-signature"
+      || declared.execution.request.endpoint !== "api-signature"
+      || declared.execution.request.definition !== declaredCallee.resolution.decision.api.declaration)
+      return frontier(operation, "BodyAnalysis requires the actual selected argument, receiver and capture transport for this call.");
+  }
   if (operation.callee.kind === "body") for (let index = 0; index < operation.callee.captures.length; index += 1) {
     const work = chargeWork(deps.account, 1);
     if (work !== null) return work;
@@ -116,9 +127,24 @@ export function callSummary(deps: BodyRoundDeps, body: MirBody,
       return frontier(operation, "BodyAnalysis requires the actual selected argument, receiver and capture transport for this call.");
     provided += 1;
   }
-  const key: SummaryKey = { kind: "body", execution: { instance, provided } };
+  let key: SummaryKey;
+  if (declared !== null) key = declared;
+  else if (instance !== null) key = { kind: "body", execution: { instance, provided } };
+  else return frontier(operation, "A body call retains its actual selected instance.");
   const identity = admitSummaryIdentity(key, deps.account);
   if (identity !== null) return identity;
+  if (declaredCallee !== null && key.kind === "declared") {
+    const { request } = key.execution;
+    if (key.execution.provided !== provided || request.bindings.kind !== "instantiated")
+      return frontier(operation, "A declared call retains its actual selected binding environment and provided entry.");
+    const bindings = declaredCallee.resolution.decision.bindings;
+    if (bindings !== request.bindings.bindings) {
+      const read = admitArtifactIdentity({ kind: "instantiated", bindings }, deps.account);
+      if (read !== null) return read;
+      if (bindingVectorKey(bindings) !== bindingVectorKey(request.bindings.bindings))
+        return frontier(operation, "A declared call retains its actual selected binding environment and provided entry.");
+    }
+  }
   const requested = summaryKey(key);
   const read = chargeWork(deps.account, 1);
   if (read !== null) return read;
@@ -157,7 +183,7 @@ export function callSummary(deps: BodyRoundDeps, body: MirBody,
   const offered: SummaryKey = least ? { kind: "body", execution: selected.execution } : selected.key;
   const returned = admitSummaryIdentity(offered, deps.account);
   if (returned !== null) return returned;
-  if ((!least && !isAdmittedBodySummary(selected, offered)) || summaryKey(offered) !== requested)
+  if (summaryKey(offered) !== requested)
     return frontier(operation, "A call reads the Summary of its exact complete selected execution and provided count.");
   if (least && (selected.entry.provided !== provided || operation.step !== null))
     return frontier(operation, "A private least relation requires the actual selected ordinary entry and provided count.");
@@ -339,7 +365,7 @@ export function callCaptureBindings(deps: BodyRoundDeps, operation: Extract<MirT
 }
 
 export function callValueEffects(deps: BodyRoundDeps, input: BodyRoundInput,
-  operation: Extract<MirTerminator, { readonly kind: "call" }>, point: MirPoint, summary: SelectedBodySummary,
+  operation: Extract<MirTerminator, { readonly kind: "call" }>, point: MirPoint, summary: Summary,
   arena: RelationalArena, state: readonly OriginsId[], constants: readonly OriginsId[],
   captures: readonly CallCaptureTransport[], statics: StaticCalleeCells | null, objectValues: ReadonlySet<LocalId> | null): DataflowResult<CallValueEffects> {
   let usePrimitiveContents = true;

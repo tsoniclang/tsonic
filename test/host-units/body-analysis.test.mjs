@@ -134,6 +134,7 @@ function fixture(program, internal = [], provided = TABLE.signatures[program.tir
   const input = { execution, mir: lowered.value, tir: program.tir, liveness: storage.value };
   const deps = { types: TABLE, typeOf, signatureOf, sourceObjectHolding: () => ({ kind: "complete", value: false }),
     summaryOf: () => { throw new Error("A call-free actual body has no Summary demand"); },
+    declaredAt: () => null,
     account, limits: analysisLimits, unit };
   return { program, execution, input, deps, bindingScope: program.bindingScope };
 }

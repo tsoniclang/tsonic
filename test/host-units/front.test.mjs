@@ -777,6 +777,56 @@ test("provider overloads supply their own ABI while ordinary captured declaratio
   assert.equal(evidence.value.signatures.filter(row => row === ready.placement).length, 1);
   assert.deepEqual(typed.value.database.stats(), stats);
 
+  const { instanceKey, internType, viewTypes } = await import("../../packages/host/dist/ir-types/index.js");
+  const { lowerMirDeps, mirVerificationContext } = await import("../../packages/host/dist/pipeline/lower-mir-step.js");
+  const { lowerToMir } = await import("../../packages/host/dist/lower-mir/index.js");
+  const { verifyMir } = await import("../../packages/host/dist/ir-mir/index.js");
+  const { bindDeclaredSummary } = await import("../../packages/host/dist/summaries/index.js");
+  const { callSummary } = await import("../../packages/host/dist/analyses/body/calls.js");
+  const { accountFailure } = await import("../../packages/host/dist/dataflow/index.js");
+  const edge = typed.value.required.dependencies.find(edge => edge.target.execution === ready.execution);
+  assert.equal(edge.reason, "call");
+  const callerInstance = edge.dependent.instance;
+  const bodyOf = instance => typed.value.bodies.get(instanceKey(instance)) ?? null;
+  const body = bodyOf(callerInstance);
+  const entries = typed.value.required.provided.get(instanceKey(callerInstance));
+  const interner = captured.value.types;
+  const run = { selectedNativeFacts: callInput.snapshot.nativeFacts, interner, table: viewTypes(interner),
+    defs: { completionSelector: internType(interner, { kind: "primitive", primitive: "int32" }),
+      exceptionStorage: internType(interner, { kind: "intrinsic", intrinsic: "unknown" }) },
+    lowering: callInput.limits.lowering, verification: callInput.limits.mirVerification,
+    declarationOf: typed.value.declarationOf, bodyOwner: id => captured.value.checked.bodies.get(id)?.owner ?? null, bodyOf };
+  const unit = { request: { query: "frontNativeCall", key: instanceKey(callerInstance) }, position: { kind: "result" } };
+  const mir = lowerToMir(lowerMirDeps(run, unit), body, [], entries);
+  assert.equal(mir.kind, "ok");
+  assert.deepEqual(verifyMir(mir.value, mirVerificationContext(run, body, entries)), { kind: "complete", violations: [] });
+  const call = mir.value.blocks.map(row => row.terminator).find(row => row.kind === "call" && row.tir.node === edge.at.node);
+  assert.ok(call);
+  const opaque = bindDeclaredSummary({ signature: ready.placement.signature, parameters: ready.parameters,
+    source: ready.source, callables: [] }, { kind: "unknown", execution: ready.execution, scope: ready.scope,
+    suspends: false, bindingDependent: false });
+  assert.equal(opaque.kind, "ok");
+  const reads = [];
+  const deps = { account, signatureOf: id => readSignature(interner, id), declaredAt: at => {
+    reads.push(at.node);
+    assert.deepEqual(at, edge.at);
+    return edge.target;
+  }, summaryOf: (key, admittedKey) => {
+    reads.push("summary");
+    assert.equal(key, edge.target);
+    assert.equal(admittedKey, summaryKey(key));
+    return { value: opaque.value, unit };
+  } };
+  const cut = createAccount({ ...callInput.limits.dataflow, maximumWork: 1 });
+  assert.equal(callSummary({ ...deps, account: cut }, mir.value, call), accountFailure(cut));
+  assert.deepEqual(reads, []);
+  const accepted = callSummary(deps, mir.value, call);
+  assert.equal(accepted.kind, "complete");
+  assert.equal(accepted.value, opaque.value);
+  assert.deepEqual(reads, [edge.at.node, "summary"]);
+  assert.throws(() => callSummary({ ...deps, declaredAt: () => ({ ...edge.target, execution: { ...ready.execution, provided: 0 } }),
+    summaryOf: () => assert.fail("A crossed provided entry must not read a Summary.") }, mir.value, call), /actual selected binding environment and provided entry/u);
+
   const siblingGuarantee = { ...guarantee, identity: signatures[0].identity };
   for (const [declarations, chosenStatement] of [[[siblingGuarantee], null], [[siblingGuarantee, guarantee], guarantee]]) {
     const input = claimedInput(callSnapshot, callSession.deps.extensions, registration.reference.package, [], declarations);

@@ -850,7 +850,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
         if (next.kind !== "complete") return next;
         currentOrigins = next.value.origins;
       }
-      activations.push({ node: terminator.tir.node, point, activation: callInstance(terminator), context,
+      if (summary.key.kind === "body") activations.push({ node: terminator.tir.node, point, activation: callInstance(terminator), context,
         caller: valueContextId(0), entry: null });
       if (terminator.callee.kind === "direct") {
         const invocationWork = chargeWork(account, 1) ?? chargeResultEntries(account, 6);
