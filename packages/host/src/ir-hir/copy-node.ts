@@ -1,5 +1,5 @@
 import type {
-  Phase, PreparedSyntaxSlot, SyntaxCopyResult, SyntaxNode, ArrayLiteralExpression, ArrayTypeNode, ArrowFunction, AsExpression, AwaitExpression,
+  Phase, PreparedSyntaxSlot, SyntaxCopyResult, SyntaxNode, SyntaxStructureReceipt, ArrayLiteralExpression, ArrayTypeNode, ArrowFunction, AsExpression, AwaitExpression,
   BigIntLiteral, BinaryExpression, BindingElement, BindingName, BindingPattern,
   Block, BlockOrExpression, BreakStatement, CallExpression,
   CallSignatureDeclaration, CaseBlock, CaseClause, CaseOrDefaultClause, CatchClause,
@@ -57,6 +57,17 @@ export interface SyntaxPlan<Value extends NodeHeader, Stop, Image> {
 
 export function copied<Value>(value: Value): { readonly kind: "copied"; readonly value: Value } {
   return { kind: "copied", value };
+}
+
+const wrongStructure: InvariantFailure = { owner: "ir-hir", query: null, origin: null,
+  message: "A syntax constructor requires its actual admitted field receipt." };
+
+export function requireSyntaxStructure<P extends Phase, Kind extends SyntaxStructureReceipt<P>["kind"]>(
+  receipt: SyntaxStructureReceipt<P>, kind: Kind): Extract<SyntaxStructureReceipt<P>, { readonly kind: Kind }> {
+  function matches(value: SyntaxStructureReceipt<P>): value is Extract<SyntaxStructureReceipt<P>, { readonly kind: Kind }> {
+    return value.kind === kind;
+  }
+  return requirePresent(matches(receipt) ? receipt : undefined, wrongStructure);
 }
 
 export function holdSyntaxPayload<Value, Image>(value: Value): SyntaxCopyResult<PreparedSyntaxSlot<Value, Image>, never> {

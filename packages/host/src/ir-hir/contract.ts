@@ -5098,6 +5098,29 @@ export type DeclarationStructureReceipt<P extends Phase> = {
   | ({ readonly kind: "missing-declaration" } & ModifiedSyntaxFields<P>)
 );
 
+export type WrappedTypeSyntax<P extends Phase> = TypeOperatorNode<P> | OptionalTypeNode<P> | RestTypeNode<P> | ParenthesizedTypeNode<P>;
+export type TypeStructureSyntax<P extends Phase> = WrappedTypeSyntax<P> | ArrayTypeNode<P> | UnionTypeNode<P> | IntersectionTypeNode<P>
+  | TupleTypeNode<P> | TypeLiteralNode<P> | ConditionalTypeNode<P> | IndexedAccessTypeNode<P> | TypeReferenceNode<P> | TypeQueryNode<P>
+  | LiteralTypeNode<P> | InferTypeNode<P> | NamedTupleMember<P>;
+
+export type TypeStructureReceipt<P extends Phase> = {
+  readonly ordinal: number;
+  readonly slots: Iterable<SyntaxChildSlot<P>>;
+} & (
+  | { readonly kind: "type-wrapper"; readonly value: () => TypeNode<P> }
+  | { readonly kind: "type-vector"; readonly values: (read: (node: TypeNode<P>) => TypeNode<P>) => NodeList<TypeNode<P>> }
+  | { readonly kind: "type-members"; readonly members: (read: (node: TypeElement<P>) => TypeElement<P>) => NodeList<TypeElement<P>> }
+  | { readonly kind: "conditional-type"; readonly check: () => TypeNode<P>; readonly extends: () => TypeNode<P>;
+      readonly whenTrue: () => TypeNode<P>; readonly whenFalse: () => TypeNode<P> }
+  | { readonly kind: "indexed-type"; readonly object: () => TypeNode<P>; readonly index: () => TypeNode<P> }
+  | { readonly kind: "named-type"; readonly name: () => EntityName<P>;
+      readonly arguments: (read: (node: TypeNode<P>) => TypeNode<P>) => NodeList<TypeNode<P>> | null }
+  | { readonly kind: "literal-type"; readonly literal: () => LiteralTypeChild<P> }
+  | { readonly kind: "infer-type"; readonly parameter: () => TypeParameterDeclaration<P> }
+  | { readonly kind: "named-tuple"; readonly dots: () => DotDotDotToken<P> | null; readonly name: () => Identifier<P>;
+      readonly question: () => QuestionToken<P> | null; readonly type: () => TypeNode<P> }
+);
+
 export interface ApplicationSyntaxReceipt<P extends Phase> {
   readonly kind: "application";
   readonly ordinal: number;
@@ -5145,13 +5168,14 @@ export type RetainedSyntaxNode<P extends Phase> = Block<P> | BinaryExpression<P>
   | UnarySyntax<P> | AnnotatedExpressionSyntax<P> | ConditionalExpression<P> | IfStatement<P>
   | PropertyAccessExpression<P> | ElementAccessExpression<P> | ArrayLiteralExpression<P> | ObjectLiteralExpression<P>
   | VariableStatement<P> | VariableDeclaration<P> | VariableDeclarationList<P> | BindingPattern<P> | BindingElement<P> | ControlSyntax<P>
-  | DeclarationStructureSyntax<P>;
+  | DeclarationStructureSyntax<P> | TypeStructureSyntax<P>;
 export type SyntaxStructureReceipt<P extends Phase> = BlockSyntaxReceipt<P> | BinarySyntaxReceipt<P> | ReturnSyntaxReceipt<P>
   | SingleExpressionReceipt<P> | ApplicationSyntaxReceipt<P> | ParameterSyntaxReceipt<P> | SourceFileSyntaxReceipt<P> | FunctionSyntaxReceipt<P>
   | UnarySyntaxReceipt<P> | AnnotatedExpressionSyntaxReceipt<P> | ConditionalSyntaxReceipt<P> | IfSyntaxReceipt<P>
   | PropertySyntaxReceipt<P> | ElementSyntaxReceipt<P> | ArraySyntaxReceipt<P> | ObjectSyntaxReceipt<P>
   | VariableStatementSyntaxReceipt<P> | VariableDeclarationSyntaxReceipt<P> | VariableListSyntaxReceipt<P>
-  | BindingPatternSyntaxReceipt<P> | BindingElementSyntaxReceipt<P> | ControlSyntaxReceipt<P> | DeclarationStructureReceipt<P>;
+  | BindingPatternSyntaxReceipt<P> | BindingElementSyntaxReceipt<P> | ControlSyntaxReceipt<P> | DeclarationStructureReceipt<P>
+  | TypeStructureReceipt<P>;
 export type SyntaxChildListField = "modifiers" | "typeParameters" | "parameters" | "typeArguments" | "arguments" | "statements"
   | "elements" | "properties" | "declarations" | "clauses" | "types" | "members" | "heritageClauses";
 export type PrepareSyntaxStructure = <P extends Phase, Stop>(
@@ -5172,7 +5196,8 @@ export interface SyntaxForest<P extends Phase> {
     "property-access" | "element-access" | "array-literal" | "object-literal" | "variable-statement" | "variable-declaration" |
     "variable-list" | "binding-pattern" | "binding-element" | "tested-statement" | "for" | "for-in-or-of" | "jump" | "switch" |
     "case-block" | "case-clause" | "try" | "catch" | "labeled" | "class" | "interface" | "heritage" | "type-alias" |
-    "enum" | "enum-member" | "module-block" | "missing-declaration" | null;
+    "enum" | "enum-member" | "module-block" | "missing-declaration" | "type-wrapper" | "type-vector" | "type-members" |
+    "conditional-type" | "indexed-type" | "named-type" | "literal-type" | "infer-type" | "named-tuple" | null;
   readonly firstRootSize: number;
   readonly copy: <Stop, Image>(start: () => SyntaxCopyResult<SyntaxPhaseCopy<P, Stop, Image>, Stop>,
     beforeNode: (node: SyntaxNode<P>) => Stop | null, image: Image) => SyntaxCopyResult<SyntaxImage<P>, Stop>;

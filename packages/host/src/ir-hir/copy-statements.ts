@@ -16,7 +16,7 @@ import type {
 } from "./contract.js";
 import type { InvariantFailure } from "../diag/contract.js";
 import type { SyntaxCopyPorts, SyntaxPlan } from "./copy-node.js";
-import { copied, holdSyntaxPayload, copyNodeList, finishFunctionSyntax, memoSyntaxPlan, syntaxHeader, withSyntaxPayload } from "./copy-node.js";
+import { copied, holdSyntaxPayload, copyNodeList, finishFunctionSyntax, memoSyntaxPlan, requireSyntaxStructure, syntaxHeader, withSyntaxPayload } from "./copy-node.js";
 import { throwInvariant } from "../diag/index.js";
 
 const missingStructure: InvariantFailure = { owner: "ir-hir", query: null, origin: null,
@@ -143,11 +143,7 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
   const SemicolonClassElement = new Map<SemicolonClassElement<P>, SyntaxPlan<SemicolonClassElement<P>, Stop, Image>>();
   const ClassStaticBlockDeclaration = new Map<ClassStaticBlockDeclaration<P>, SyntaxPlan<ClassStaticBlockDeclaration<P>, Stop, Image>>();
   function structure<Kind extends SyntaxStructureReceipt<P>["kind"]>(node: ControlSyntax<P> | DeclarationStructureSyntax<P>, kind: Kind) {
-    const receipt = structureOf(node);
-    function matches(value: SyntaxStructureReceipt<P>): value is Extract<SyntaxStructureReceipt<P>, { readonly kind: Kind }> {
-      return value.kind === kind;
-    }
-    return matches(receipt) ? receipt : throwInvariant(missingStructure);
+    return requireSyntaxStructure<P, Kind>(structureOf(node), kind);
   }
 
   function nullable<Source, Destination>(value: Source | null, read: (source: Source) => Destination): Destination | null {

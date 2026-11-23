@@ -320,11 +320,8 @@ function admitSyntaxHeader(scan: ProjectionInventory, node: SyntaxNode<TypedPhas
     case "AnyKeyword":     case "BigIntKeyword":     case "BooleanKeyword":     case "IntrinsicKeyword":     case "NeverKeyword":     case "NumberKeyword":     case "ObjectKeyword":     case "StringKeyword":     case "SymbolKeyword":     case "UndefinedKeyword":     case "UnknownKeyword":     case "VoidKeyword":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 7);
     case "UnionType":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8)
-        ?? inventoryRecord(scan, 2);
     case "IntersectionType":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8)
-        ?? inventoryRecord(scan, 2);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "ConditionalType":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11);
     case "TypeOperator":
@@ -336,8 +333,7 @@ function admitSyntaxHeader(scan: ProjectionInventory, node: SyntaxNode<TypedPhas
     case "IndexedAccessType":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "TypeReference":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? (node.typeArguments === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "ExpressionWithTypeArguments":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
         ?? (node.typeArguments === null ? null : inventoryRecord(scan, 2));
@@ -353,17 +349,13 @@ function admitSyntaxHeader(scan: ProjectionInventory, node: SyntaxNode<TypedPhas
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10)
         ?? inventoryRecord(scan, 2);
     case "TypeQuery":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? (node.typeArguments === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "MappedType":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 13)
         ?? (node.members === null ? null : inventoryRecord(scan, 2));
     case "TypeLiteral":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8)
-        ?? inventoryRecord(scan, 2);
     case "TupleType":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8)
-        ?? inventoryRecord(scan, 2);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "NamedTupleMember":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11);
     case "OptionalType":

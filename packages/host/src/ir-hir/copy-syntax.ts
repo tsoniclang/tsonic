@@ -403,7 +403,7 @@ function createSyntaxPlans<P extends Phase, Stop, Image>(phase: SyntaxPhaseCopy<
     const receipt = structure(node);
     return receipt.kind === "object-literal" ? receipt : throwInvariant(missingPreparation);
   });
-  const types = createTypesPlans(phase, () => ports);
+  const types = createTypesPlans(phase, () => ports, structure);
   const auxiliary = createAuxiliaryPlans(phase, () => ports, expressionOf, node => {
     const receipt = structure(node);
     return receipt.kind === "source-header" ? receipt : throwInvariant(missingPreparation);

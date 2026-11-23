@@ -24,6 +24,8 @@ import type { AwaitKeyword, CaseBlock, CaseClause, CaseOrDefaultClause, CatchCla
 import type { ClassDeclaration, ClassElement, ClassExpression, DeclarationStructureReceipt, DeclarationStructureSyntax, EnumDeclaration,
   EnumMember, ExclamationToken, ExpressionWithTypeArguments, HeritageClause, InterfaceDeclaration, PropertyName, TypeAliasDeclaration,
   TypeElement } from "./contract.js";
+import type { ArrayTypeNode, ConditionalTypeNode, EntityName, IndexedAccessTypeNode, InferTypeNode, LiteralTypeChild, LiteralTypeNode,
+  NamedTupleMember, TypeQueryNode, TypeReferenceNode, TypeStructureReceipt, TypeStructureSyntax, WrappedTypeSyntax } from "./contract.js";
 export type { SyntaxChildSlot } from "./contract.js";
 
 const emptyChildren: readonly never[] = ([]);
@@ -371,6 +373,131 @@ function prepareControl<P extends Phase, Stop>(node: ControlSyntax<P>, ordinal: 
 function heldOptionalList<P extends Phase, Value extends SyntaxNode<P>>(field: string, source: NodeList<Value> | null) {
   const present = source === null ? null : heldList<P, Value>(field, () => source);
   return { slots: () => present?.slots() ?? [], finish: (read: (node: Value) => Value) => present?.finish(read) ?? null };
+}
+
+function isTypeStructure<P extends Phase>(node: SyntaxNode<P>): node is TypeStructureSyntax<P> {
+  switch (node.kind) {
+    case "TypeOperator": case "OptionalType": case "RestType": case "ParenthesizedType": case "ArrayType":
+    case "UnionType": case "IntersectionType": case "TupleType": case "TypeLiteral": case "ConditionalType":
+    case "IndexedAccessType": case "TypeReference": case "TypeQuery": case "LiteralType": case "InferType": case "NamedTupleMember":
+      return true;
+    default: return false;
+  }
+}
+
+function wrappedTypeSlots<P extends Phase>(type: () => TypeNode<P>) {
+  return children<P, WrappedTypeSyntax<P>>(["type", "required", type]);
+}
+
+function arrayTypeSlots<P extends Phase>(element: () => TypeNode<P>) {
+  return children<P, ArrayTypeNode<P>>(["elementType", "required", element]);
+}
+
+function conditionalTypeSlots<P extends Phase>(check: () => TypeNode<P>, bound: () => TypeNode<P>,
+  whenTrue: () => TypeNode<P>, whenFalse: () => TypeNode<P>) {
+  return children<P, ConditionalTypeNode<P>>(["checkType", "required", check], ["extendsType", "required", bound],
+    ["trueType", "required", whenTrue], ["falseType", "required", whenFalse]);
+}
+
+function indexedTypeSlots<P extends Phase>(object: () => TypeNode<P>, index: () => TypeNode<P>) {
+  return children<P, IndexedAccessTypeNode<P>>(["objectType", "required", object], ["indexType", "required", index]);
+}
+
+function* namedTypeSlots<P extends Phase>(field: "typeName" | "exprName", name: () => EntityName<P>,
+  args: () => Iterable<SyntaxChildSlot<P>>): Generator<SyntaxChildSlot<P>> {
+  if (field === "typeName") yield* children<P, TypeReferenceNode<P>>([field, "required", name]);
+  else yield* children<P, TypeQueryNode<P>>([field, "required", name]);
+  yield* args();
+}
+
+function literalTypeSlots<P extends Phase>(literal: () => LiteralTypeChild<P>) {
+  return children<P, LiteralTypeNode<P>>(["literal", "required", literal]);
+}
+
+function inferTypeSlots<P extends Phase>(parameter: () => TypeParameterDeclaration<P>) {
+  return children<P, InferTypeNode<P>>(["typeParameter", "required", parameter]);
+}
+
+function namedTupleSlots<P extends Phase>(dots: () => DotDotDotToken<P> | null, name: () => Identifier<P>,
+  question: () => QuestionToken<P> | null, type: () => TypeNode<P>) {
+  return children<P, NamedTupleMember<P>>(["dotDotDotToken", "nullable", dots], ["name", "required", name],
+    ["questionToken", "nullable", question], ["type", "required", type]);
+}
+
+function prepareTypeStructure<P extends Phase, Stop>(node: TypeStructureSyntax<P>, ordinal: number,
+  admitList: (field: SyntaxChildListField) => Stop | null): SyntaxCopyResult<TypeStructureReceipt<P>, Stop> {
+  switch (node.kind) {
+    case "TypeOperator": case "OptionalType": case "RestType": case "ParenthesizedType": {
+      const type = heldChild(() => node.type);
+      return { kind: "copied", value: { kind: "type-wrapper", ordinal, slots: wrappedTypeSlots<P>(type.pull), value: type.read } };
+    }
+    case "ArrayType": {
+      const element = heldChild(() => node.elementType);
+      return { kind: "copied", value: { kind: "type-wrapper", ordinal, slots: arrayTypeSlots<P>(element.pull), value: element.read } };
+    }
+    case "UnionType": case "IntersectionType": {
+      const stop = admitList("types");
+      if (stop !== null) return { kind: "refused", stop };
+      const types = heldList<P, TypeNode<P>>("types", () => node.types);
+      return { kind: "copied", value: { kind: "type-vector", ordinal, slots: types.slots(), values: types.finish } };
+    }
+    case "TupleType": {
+      const stop = admitList("elements");
+      if (stop !== null) return { kind: "refused", stop };
+      const elements = heldList<P, TypeNode<P>>("elements", () => node.elements);
+      return { kind: "copied", value: { kind: "type-vector", ordinal, slots: elements.slots(), values: elements.finish } };
+    }
+    case "TypeLiteral": {
+      const stop = admitList("members");
+      if (stop !== null) return { kind: "refused", stop };
+      const members = heldList<P, TypeElement<P>>("members", () => node.members);
+      return { kind: "copied", value: { kind: "type-members", ordinal, slots: members.slots(), members: members.finish } };
+    }
+    case "ConditionalType": {
+      const check = heldChild(() => node.checkType);
+      const bound = heldChild(() => node.extendsType);
+      const whenTrue = heldChild(() => node.trueType);
+      const whenFalse = heldChild(() => node.falseType);
+      return { kind: "copied", value: { kind: "conditional-type", ordinal,
+        slots: conditionalTypeSlots<P>(check.pull, bound.pull, whenTrue.pull, whenFalse.pull),
+        check: check.read, extends: bound.read, whenTrue: whenTrue.read, whenFalse: whenFalse.read } };
+    }
+    case "IndexedAccessType": {
+      const object = heldChild(() => node.objectType);
+      const index = heldChild(() => node.indexType);
+      return { kind: "copied", value: { kind: "indexed-type", ordinal, slots: indexedTypeSlots<P>(object.pull, index.pull),
+        object: object.read, index: index.read } };
+    }
+    case "TypeReference": case "TypeQuery": {
+      const rawArguments = node.typeArguments;
+      if (rawArguments !== null) {
+        const stop = admitList("typeArguments");
+        if (stop !== null) return { kind: "refused", stop };
+      }
+      const reference = node.kind === "TypeReference";
+      const name = reference ? heldChild(() => node.typeName) : heldChild(() => node.exprName);
+      const args = heldOptionalList<P, TypeNode<P>>("typeArguments", rawArguments);
+      return { kind: "copied", value: { kind: "named-type", ordinal,
+        slots: namedTypeSlots<P>(reference ? "typeName" : "exprName", name.pull, args.slots),
+        name: name.read, arguments: args.finish } };
+    }
+    case "LiteralType": {
+      const literal = heldChild(() => node.literal);
+      return { kind: "copied", value: { kind: "literal-type", ordinal, slots: literalTypeSlots<P>(literal.pull), literal: literal.read } };
+    }
+    case "InferType": {
+      const parameter = heldChild(() => node.typeParameter);
+      return { kind: "copied", value: { kind: "infer-type", ordinal, slots: inferTypeSlots<P>(parameter.pull), parameter: parameter.read } };
+    }
+    case "NamedTupleMember": {
+      const dots = heldChild(() => node.dotDotDotToken);
+      const name = heldChild(() => node.name);
+      const question = heldChild(() => node.questionToken);
+      const type = heldChild(() => node.type);
+      return { kind: "copied", value: { kind: "named-tuple", ordinal, slots: namedTupleSlots<P>(dots.pull, name.pull, question.pull, type.pull),
+        dots: dots.read, name: name.read, question: question.read, type: type.read } };
+    }
+  }
 }
 
 function isDeclarationStructure<P extends Phase>(node: SyntaxNode<P>): node is DeclarationStructureSyntax<P> {
@@ -740,6 +867,10 @@ export const prepareSyntaxStructure: PrepareSyntaxStructure = <P extends Phase, 
   node: SyntaxNode<P>, ordinal: number, reserve: (node: RetainedSyntaxNode<P>) => Stop | null,
   admitList: (node: RetainedSyntaxNode<P>, field: SyntaxChildListField) => Stop | null,
 ) => {
+  if (isTypeStructure<P>(node)) {
+    const stop = reserve(node);
+    return stop === null ? prepareTypeStructure<P, Stop>(node, ordinal, field => admitList(node, field)) : { kind: "refused", stop };
+  }
   if (isDeclarationStructure<P>(node)) {
     const stop = reserve(node);
     return stop === null ? prepareDeclaration<P, Stop>(node, ordinal, field => admitList(node, field)) : { kind: "refused", stop };
@@ -1213,29 +1344,31 @@ function ordinarySlots<PhaseType extends Phase>(
     case "IntersectionType":
       return children<PhaseType, typeof node>(["types", "list", () => node.types]);
     case "ConditionalType":
-      return children<PhaseType, typeof node>(["checkType", "required", () => node.checkType], ["extendsType", "required", () => node.extendsType], ["trueType", "required", () => node.trueType], ["falseType", "required", () => node.falseType]);
-    case "TypeOperator":
+      return conditionalTypeSlots<PhaseType>(() => node.checkType, () => node.extendsType, () => node.trueType, () => node.falseType);
     case "JSDocTypeExpression":
     case "JSDocNonNullableType":
     case "JSDocNullableType":
     case "JSDocVariadicType":
     case "JSDocOptionalType":
+      return children<PhaseType, typeof node>(["type", "required", () => node.type]);
+    case "TypeOperator":
     case "OptionalType":
     case "RestType":
     case "ParenthesizedType":
-      return children<PhaseType, typeof node>(["type", "required", () => node.type]);
+      return wrappedTypeSlots<PhaseType>(() => node.type);
     case "InferType":
-      return children<PhaseType, typeof node>(["typeParameter", "required", () => node.typeParameter]);
+      return inferTypeSlots<PhaseType>(() => node.typeParameter);
     case "ArrayType":
-      return children<PhaseType, typeof node>(["elementType", "required", () => node.elementType]);
+      return arrayTypeSlots<PhaseType>(() => node.elementType);
     case "IndexedAccessType":
-      return children<PhaseType, typeof node>(["objectType", "required", () => node.objectType], ["indexType", "required", () => node.indexType]);
+      return indexedTypeSlots<PhaseType>(() => node.objectType, () => node.indexType);
     case "TypeReference":
-      return children<PhaseType, typeof node>(["typeName", "required", () => node.typeName], ["typeArguments", "list", () => node.typeArguments]);
+      return namedTypeSlots<PhaseType>("typeName", () => node.typeName,
+        () => children<PhaseType, typeof node>(["typeArguments", "list", () => node.typeArguments]));
     case "ExpressionWithTypeArguments":
       return children<PhaseType, typeof node>(["expression", "required", () => node.expression], ["typeArguments", "list", () => node.typeArguments]);
     case "LiteralType":
-      return children<PhaseType, typeof node>(["literal", "required", () => node.literal]);
+      return literalTypeSlots<PhaseType>(() => node.literal);
     case "TypePredicate":
       return children<PhaseType, typeof node>(["assertsModifier", "nullable", () => node.assertsModifier], ["parameterName", "required", () => node.parameterName], ["type", "nullable", () => node.type]);
     case "ImportAttribute":
@@ -1243,7 +1376,8 @@ function ordinarySlots<PhaseType extends Phase>(
     case "ImportAttributes":
       return children<PhaseType, typeof node>(["attributes", "list", () => node.attributes]);
     case "TypeQuery":
-      return children<PhaseType, typeof node>(["exprName", "required", () => node.exprName], ["typeArguments", "list", () => node.typeArguments]);
+      return namedTypeSlots<PhaseType>("exprName", () => node.exprName,
+        () => children<PhaseType, typeof node>(["typeArguments", "list", () => node.typeArguments]));
     case "MappedType":
       return children<PhaseType, typeof node>(["readonlyToken", "nullable", () => node.readonlyToken], ["typeParameter", "required", () => node.typeParameter], ["nameType", "nullable", () => node.nameType],
         ["questionToken", "nullable", () => node.questionToken], ["type", "nullable", () => node.type], ["members", "list", () => node.members]);
@@ -1252,7 +1386,7 @@ function ordinarySlots<PhaseType extends Phase>(
     case "TupleType":
       return children<PhaseType, typeof node>(["elements", "list", () => node.elements]);
     case "NamedTupleMember":
-      return children<PhaseType, typeof node>(["dotDotDotToken", "nullable", () => node.dotDotDotToken], ["name", "required", () => node.name], ["questionToken", "nullable", () => node.questionToken], ["type", "required", () => node.type]);
+      return namedTupleSlots<PhaseType>(() => node.dotDotDotToken, () => node.name, () => node.questionToken, () => node.type);
     case "ConstructorType":
       return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["typeParameters", "list", () => node.typeParameters], ["parameters", "list", () => node.parameters], ["type", "nullable", () => node.type], ["fullSignature", "nullable", () => node.fullSignature]);
     case "TemplateLiteralTypeSpan":

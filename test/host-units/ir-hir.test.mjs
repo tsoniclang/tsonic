@@ -596,7 +596,21 @@ test("HIR copies the complete Checked constructor inventory through one paid pos
         return raw;
       };
       const expectedReads = [];
-      if (selected.kind === "PropertyAccessExpression" || selected.kind === "ElementAccessExpression") {
+      if (selected.kind === "NamedTupleMember") {
+        expectedReads.push("dotDotDotToken", "name", "questionToken", "type");
+        for (const field of expectedReads) watch(selected, field);
+      } else if (selected.kind === "TupleType" || selected.kind === "UnionType" || selected.kind === "IntersectionType") {
+        const field = selected.kind === "TupleType" ? "elements" : "types";
+        const list = watch(selected, field);
+        const rows = watch(list, "nodes");
+        watch(list, "loc");
+        expectedReads.push(field, "nodes", "loc");
+        for (let position = 0; position < rows.length; position += 1) {
+          const display = "type " + position;
+          watch(rows, position, display);
+          expectedReads.push(display);
+        }
+      } else if (selected.kind === "PropertyAccessExpression" || selected.kind === "ElementAccessExpression") {
         expectedReads.push("expression", "questionDotToken", selected.kind === "PropertyAccessExpression" ? "name" : "argumentExpression");
         for (const field of expectedReads) watch(selected, field);
       } else if (selected.kind === "VariableDeclaration" || selected.kind === "BindingElement") {
@@ -1468,12 +1482,15 @@ test("Checked control flow seals authored operands, clause lists and exception r
   }
 });
 
-test("Checked declaration recipes retain the actual interface, alias and enum lists and operands", async () => {
+test("Checked declaration and type recipes retain the actual lists, named arguments and operands", async () => {
   const { createInstantiationMeter, admitCheckedProjection, chargeInstantiationWork } = await import("../../packages/host/dist/ir-program/work.js");
   const { accountFailure, remainingWork } = await import("../../packages/host/dist/dataflow/index.js");
   const fixture = await loadFrontFixture();
-  const { checked } = fixture.checkedModuleOf(
-    "export interface Header<Flag> { value: Flag; } export type Actual<Flag> = Header<Flag>; export enum Steps { Zero, One = Zero + 1 }");
+  const { checked } = fixture.checkedModuleOf(`
+    export interface Header<Flag> { value: Flag; }
+    export type Actual<Flag> = Header<Flag>;
+    export enum Steps { Zero, One = Zero + 1 }
+  `);
   const [record, alias, enumeration] = checked.tree.statements.nodes;
   const formals = record.typeParameters;
   const recordMembers = record.members;
@@ -1504,6 +1521,10 @@ test("Checked declaration recipes retain the actual interface, alias and enum li
   watch(alias, "typeParameters", "alias formal presence");
   watch(alias, "name", "alias name");
   const type = watch(alias, "type", "aliased type");
+  const argumentsList = watch(type, "typeArguments", "type argument presence");
+  const reference = watch(type, "typeName", "reference name");
+  watch(argumentsList, "loc", "type argument range");
+  const argument = watch(argumentsList.nodes, 0, "type argument row");
   watch(enumeration, "modifiers", "enum modifiers");
   watch(enumeration, "name", "enum name");
   watch(enumeration, "members", "enum member list");
@@ -1542,6 +1563,7 @@ test("Checked declaration recipes retain the actual interface, alias and enum li
   assert.equal(copied.name === image.nodeOf(recordName) && copied.typeParameters.nodes[0] === image.nodeOf(formal), true);
   assert.equal(copied.members.nodes[0] === image.nodeOf(member) && copied.heritageClauses === null, true);
   assert.equal(image.statementOf(alias).type === image.nodeOf(type), true);
+  assert.equal(image.nodeOf(type).typeName === image.nodeOf(reference) && image.nodeOf(type).typeArguments.nodes[0] === image.nodeOf(argument), true);
   const memberImage = image.statementOf(enumeration).members.nodes[1];
   assert.equal(memberImage === image.nodeOf(initialized) && memberImage.initializer === image.nodeOf(initializer), true);
   for (const [field, value] of [["maximumWork", earned.work], ["maximumCreatedRecords", earned.records]]) {
