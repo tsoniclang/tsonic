@@ -1,6 +1,7 @@
 import { NewGoStructMap } from "../../go/compat.js";
 import * as slices from "../../go/slices.js";
 import * as core from "../core/core.js";
+import { admitNativeChecker } from "./resource-admission.js";
 import { Set_Has } from "../collections/set.js";
 import { IsInJSFile } from "../ast/utilities.js";
 import { FromString } from "../jsnum/string.js";
@@ -2645,7 +2646,15 @@ export function Checker_createEmptyObjectTypeFromStringLiteral(receiver, t) {
 export function Checker_newInferenceContext(receiver, typeParameters, signature, flags, compareTypes) {
     const c = receiver;
     const ct = compareTypes !== undefined ? compareTypes : c.compareTypesAssignable;
-    return Checker_newInferenceContextWorker(receiver, core.Map(typeParameters, newInferenceInfo), signature, flags, ct);
+    const count = typeParameters?.length ?? 0;
+    admitNativeChecker(receiver, "retained", 1 + count);
+    const inferences = [];
+    for (let position = 0; position < count; position += 1) {
+        admitNativeChecker(receiver, "work");
+        admitNativeChecker(receiver, "retained");
+        inferences.push(newInferenceInfo(typeParameters[position]));
+    }
+    return Checker_newInferenceContextWorker(receiver, inferences, signature, flags, ct);
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/inference.go::method::Checker.cloneInferenceContext","kind":"method","status":"implemented","sigHash":"b528c8557efc41276497cfd0a0ece81df38ffc94e84beb7e3bce2cd5ff238da8","bodyHash":"f6e00d8c073892864f75139c1caa233e8ef774e4d4a50f84b0a1ad50c7a6a090"}
@@ -2706,6 +2715,7 @@ export function Checker_cloneInferredPartOfContext(receiver, n) {
  * }
  */
 export function Checker_newInferenceContextWorker(receiver, inferences, signature, flags, compareTypes) {
+    admitNativeChecker(receiver, "retained");
     const n = {
         inferences,
         signature,

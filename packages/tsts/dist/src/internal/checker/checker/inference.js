@@ -9,6 +9,7 @@ import { InternalSymbolNameInstantiationExpression } from "../../ast/symbol.js";
 import { SymbolFlagsMethod, SymbolFlagsNone, SymbolFlagsPrototype, SymbolFlagsTypeLiteral } from "../../ast/symbolflags.js";
 import { Diagnostic_AddRelatedInfo, DiagnosticsCollection_Add, NewDiagnostic } from "../../ast/diagnostic.js";
 import { Filter, FindLastIndex, IfElse, Map, OrElse, Same, SameMap, Some } from "../../core/core.js";
+import { admitNativeChecker } from "../resource-admission.js";
 import { LinkStore_Get } from "../../core/linkstore.js";
 import { getDeclarationsOfKind, isNodeDescendantOf, IsTypeAny, NewDiagnosticForNode } from "../utilities.js";
 import { Checker_symbolToString, Checker_TypeToString } from "../printer.js";
@@ -18,7 +19,7 @@ import { Checker_isTypeIdenticalTo } from "../relater.js";
 import { Checker_getConditionalTypeWithCapture } from "./types.js";
 import { Checker_isMemberOfStringMapping, Checker_isTypeMatchedByTemplateLiteralType, getRecursionIdentity } from "../relater.js";
 import { TypeFlagsTypeParameter, TypeFlagsIndexedAccess, TypeFlagsConditional, TypeFlagsSubstitution, TypeFlagsAnyOrUnknown, TypeFlagsUnknown, TypeFlagsAny, TypeFlagsPrimitive, TypeFlagsNever, TypeFlagsUnionOrIntersection, TypeFlagsUnion, TypeFlagsIntersection, TypeFlagsTemplateLiteral, TypeFlagsStringMapping, TypeFlagsIndex, TypeFlagsObject, TypeFlagsInstantiableNonPrimitive, TypeFlagsInstantiable, TypeFlagsNullable, TypeFlagsUndefined, TypeFlagsString, TypeFlagsStringLiteral, TypeFlagsStringOrNumberLiteralOrUnique, TypeFlagsObjectFlagsType, TypeAlias_TypeArguments, Type_AsConditionalType, Type_AsSubstitutionType, Type_AsTypeParameter, Type_AsUnionOrIntersectionType, Type_AsTemplateLiteralType, Type_AsIndexedAccessType, Type_AsMappedType, Type_AsIndexType, Type_AsTypeReference, Type_AsInstantiationExpressionType, StructuredType_CallSignatures, StructuredType_ConstructSignatures, Type_TargetTupleType, Type_AsConstrainedType, Type_AsObjectType, Type_Target, Type_Mapper, Type_Types, ObjectFlagsReference, ObjectFlagsInterface, ObjectFlagsMapped, ObjectFlagsAnonymous, ObjectFlagsInstantiated, ObjectFlagsInstantiationExpressionType, ObjectFlagsNone, ObjectFlagsSingleSignatureType, ObjectFlagsCouldContainTypeVariablesComputed, ObjectFlagsCouldContainTypeVariables, ElementFlagsVariadic, IndexFlagsNone, AccessFlagsNone, } from "../types.js";
-import { TypeSystemPropertyNameResolvedBaseConstraint, CachedTypeKindPermissiveInstantiation, CachedTypeKindRestrictiveInstantiation, IntrinsicTypeKindNoInfer, IntrinsicTypeKindUppercase, IntrinsicTypeKindLowercase, IntrinsicTypeKindCapitalize, IntrinsicTypeKindUncapitalize, intrinsicTypeKinds, getTypeInstantiationKey, getConditionalTypeKey, getTypeAliasInstantiationKey, getStringLiteralValue, everyType, someType, applyStringMapping, isUnaryTupleTypeNode, WideningKindNormal, } from "./state.js";
+import { TypeSystemPropertyNameResolvedBaseConstraint, CachedTypeKindPermissiveInstantiation, CachedTypeKindRestrictiveInstantiation, IntrinsicTypeKindNoInfer, IntrinsicTypeKindUppercase, IntrinsicTypeKindLowercase, IntrinsicTypeKindCapitalize, IntrinsicTypeKindUncapitalize, intrinsicTypeKinds, getTypeInstantiationKey, getConditionalTypeKey, instantiateConditionalArguments, createConditionalMapper, getTypeAliasInstantiationKey, getStringLiteralValue, everyType, someType, applyStringMapping, isUnaryTupleTypeNode, WideningKindNormal, } from "./state.js";
 import { Checker_instantiateType, Checker_getTypeFromTypeNode, Checker_mapType, Checker_getUnionType, Checker_getIntersectionType, Checker_getReducedType, Checker_getSimplifiedType, Checker_isGenericTupleType, Checker_maybeTypeOfKind, Checker_getConditionalType, Checker_isEmptyLiteralType, Checker_isEmptyArrayLiteralType, Checker_getWidenedLiteralTypeForInitializer, Checker_reportImplicitAny, Checker_IsEmptyAnonymousObjectType, Checker_getTemplateLiteralType, Checker_createTupleTypeEx, Checker_getElementTypes, Checker_isPatternLiteralType, Checker_isPatternLiteralPlaceholderType, Checker_isGenericMappedType, Checker_isArrayOrTupleType, Checker_getActualTypeVariable, Checker_pushTypeResolution, Checker_popTypeResolution, Checker_getStringLiteralType, Checker_getTrueTypeFromConditionalType, Checker_getFalseTypeFromConditionalType, Checker_getTypeOfExpression, Checker_instantiateAnonymousType, Checker_instantiateMappedType, Checker_createDeferredTypeReference, Checker_newType, Checker_newObjectType, Checker_getPropertiesOfObjectType, Checker_getBaseTypes } from "./types.js";
 import { Checker_getTypeOfSymbol, Checker_getWriteTypeOfSymbol, Checker_instantiateSymbol, Checker_instantiateTypeWithAlias, Checker_instantiateTypeAlias, Checker_getDeclaredTypeOfSymbol, Checker_getNameTypeFromMappedType, Checker_isMappedTypeGenericIndexedAccess, Checker_getIndexedAccessTypeOrUndefined, Checker_substituteIndexedMappedType, Checker_isGenericIndexType, Checker_getIndexTypeForMappedType, Checker_mapTypeWithAlias, Checker_getSymbolOfDeclaration, Checker_registerForUnusedIdentifiersCheck, Checker_getIndexInfosOfType, Checker_getLiteralTypeFromProperty, Checker_getNonMissingTypeOfSymbol, Checker_hasBindableName, Checker_getParentOfSymbol, Checker_getPropertyOfObjectType, Checker_getIndexTypeOfType, Checker_resolveStructuredTypeMembers, Checker_setStructuredTypeMembers, Checker_newSymbol } from "./symbols.js";
 import { Checker_areTypeParametersIdentical, Checker_getConstraintOfTypeParameter, Checker_getConstraintFromTypeParameter, Checker_fillMissingTypeArguments, Checker_getMinTypeArgumentCount, Checker_isTypeParameterPossiblyReferenced, Checker_getTypeParameterFromMappedType, Checker_getOuterTypeParameters, Checker_getDeclaredTypeOfTypeParameter, Checker_getRestrictiveTypeParameter, Checker_getContextualTypeForArgument, Checker_getApplicableIndexInfos, Checker_checkIndexConstraintForIndexSignature, Checker_hasCorrectTypeArgumentArity, Checker_checkTypeArguments, Checker_getSignatureInstantiation } from "./signatures.js";
@@ -1027,14 +1028,19 @@ export function Checker_getConditionalTypeInstantiation(receiver, t, mapper, for
     return Checker_getConditionalTypeInstantiationWithCapture(receiver, t, mapper, forConstraint, alias, undefined);
 }
 export function Checker_getConditionalTypeInstantiationWithCapture(receiver, t, mapper, forConstraint, alias, capture) {
+    admitNativeChecker(receiver, "work");
     const root = Type_AsConditionalType(t).root;
-    if (root.outerTypeParameters.length !== 0) {
-        const typeArguments = Map(root.outerTypeParameters, (tp) => TypeMapper_Map(mapper, tp));
-        const key = getConditionalTypeKey(typeArguments, alias, forConstraint);
-        const cached = root.instantiations.get(key);
+    const parameters = root.outerTypeParameters;
+    if (parameters.length !== 0) {
+        const typeArguments = instantiateConditionalArguments(receiver, parameters, mapper);
+        const key = getConditionalTypeKey(receiver, typeArguments, alias, forConstraint);
+        admitNativeChecker(receiver, "work");
+        const instantiations = root.instantiations;
+        const cached = instantiations.get(key);
         let result = cached;
         if (result === undefined || capture !== undefined) {
-            const newMapper = newTypeMapper(root.outerTypeParameters, typeArguments);
+            const newMapper = createConditionalMapper(receiver, parameters, typeArguments);
+            admitNativeChecker(receiver, "work", 2);
             const checkType = root.checkType;
             let distributionType = undefined;
             if (root.isDistributive) {
@@ -1052,8 +1058,10 @@ export function Checker_getConditionalTypeInstantiationWithCapture(receiver, t, 
                     ? Checker_getConditionalType(receiver, root, newMapper, forConstraint, alias)
                     : Checker_getConditionalTypeWithCapture(receiver, root, newMapper, forConstraint, alias, capture);
             }
-            if (capture === undefined)
-                root.instantiations.set(key, result);
+            if (capture === undefined) {
+                admitNativeChecker(receiver, "retained");
+                instantiations.set(key, result);
+            }
         }
         if (capture !== undefined && cached !== undefined) {
             return result !== undefined && Checker_isTypeIdenticalTo(receiver, result, cached) ? cached : undefined;

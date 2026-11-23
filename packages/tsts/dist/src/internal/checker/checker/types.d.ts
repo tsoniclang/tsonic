@@ -3945,6 +3945,7 @@ export declare function Checker_getReducedType(receiver: GoPtr<Checker>, t: GoPt
  * }
  */
 export declare function Checker_getReducedUnionType(receiver: GoPtr<Checker>, unionType: GoPtr<Type>): GoPtr<Type>;
+export declare function mapNativeTypeMembers(receiver: GoPtr<Checker>, constituents: GoSlice<GoPtr<Type>>, map: (value: GoPtr<Type>) => GoPtr<Type>, keep: (value: GoPtr<Type>) => boolean): GoSlice<GoPtr<Type>>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getReducedApparentType","kind":"method","status":"implemented","sigHash":"855a1a471ec3610ff09aaccbdcb9f16a628b647a7469b8f70fb725cc1a038643","bodyHash":"31ac989e83fa855053c591b334238672f83ad54e6dac6c36ba305eb890113319"}
  *

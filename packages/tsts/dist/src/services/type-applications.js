@@ -43,7 +43,7 @@ export function readConditionalApplication(checker, result, data) {
             return null;
         bindings.push(Object.freeze({ declaration, parameter, argument }));
     }
-    if (root.instantiations.get(getConditionalTypeKey(inputs.targets, result.alias, false)) !== result)
+    if (root.instantiations.get(getConditionalTypeKey(checker, inputs.targets, result.alias, false)) !== result)
         return null;
     return Object.freeze(bindings);
 }

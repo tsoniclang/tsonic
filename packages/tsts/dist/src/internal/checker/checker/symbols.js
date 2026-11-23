@@ -10,7 +10,7 @@ import { isShorthandAmbientModuleSymbol } from "../utilities.js";
 import { Checker_hasSignatures } from "./signatures.js";
 import { Checker_canHaveSyntheticDefault } from "./support.js";
 import { isESMFormatImportImportingCommonjsFormatFile } from "./state.js";
-import { Checker_cloneTypeAsModuleType, Checker_getSpreadType, Checker_getTypeWithSyntheticDefaultOnly, Checker_isValidSpreadType, Checker_mapTypeEx, Checker_removeType } from "./types.js";
+import { Checker_cloneTypeAsModuleType, Checker_getSpreadType, Checker_getTypeWithSyntheticDefaultOnly, Checker_isValidSpreadType, Checker_mapTypeEx, Checker_removeType, mapNativeTypeMembers } from "./types.js";
 import * as xxh3 from "../../../go/github.com/zeebo/xxh3.js";
 import { Clone as MapClone, Values as MapValues } from "../../../go/maps.js";
 import { Collect, Compact, Concat, Contains as SliceContains, Values as SliceValues } from "../../../go/slices.js";
@@ -11968,13 +11968,16 @@ export function keyBuilder_writeSymbol(receiver, s) {
  */
 export function keyBuilder_writeAlias(receiver, alias) {
     if (alias !== undefined) {
-        keyBuilder_writeByte(receiver, 1);
-        keyBuilder_writeSymbol(receiver, alias.symbol);
-        keyBuilder_writeTypes(receiver, alias.typeArguments);
+        keyBuilder_writePresentAlias(receiver, alias.symbol, alias.typeArguments);
     }
     else {
         keyBuilder_writeByte(receiver, 0);
     }
+}
+export function keyBuilder_writePresentAlias(receiver, symbol, argumentsList) {
+    keyBuilder_writeByte(receiver, 1);
+    keyBuilder_writeSymbol(receiver, symbol);
+    keyBuilder_writeTypes(receiver, argumentsList);
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getSyntheticElementAccess","kind":"method","status":"implemented","sigHash":"fa606aa9404ea616a9e08b62388b5b7dca3f25ddd18014ee473585122fae7f17","bodyHash":"6585a9545b8822c8dd2a1b5c9ae6351f338b050206d75fc3b89feb4ed229fe65"}
@@ -16625,7 +16628,9 @@ export function Checker_getWidenedUniqueESSymbolType(receiver, t) {
  */
 export function Checker_mapTypeWithAlias(receiver, t, f, alias) {
     if ((t.flags & TypeFlagsUnion) !== 0 && alias !== undefined) {
-        return Checker_getUnionTypeEx(receiver, Map(Type_Types(t), f), UnionReductionLiteral, alias, undefined);
+        admitNativeChecker(receiver, "work");
+        const mapped = mapNativeTypeMembers(receiver, Type_Types(t), f, () => true);
+        return Checker_getUnionTypeEx(receiver, mapped, UnionReductionLiteral, alias, undefined);
     }
     return Checker_mapType(receiver, t, f);
 }

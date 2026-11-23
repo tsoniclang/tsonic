@@ -7125,7 +7125,7 @@ export function Checker_getReducedUnionType(receiver, unionType) {
     }
     return reduced;
 }
-function mapNativeTypeMembers(receiver, constituents, map, keep) {
+export function mapNativeTypeMembers(receiver, constituents, map, keep) {
     let changed;
     for (let position = 0; position < constituents.length; position += 1) {
         admitNativeChecker(receiver, "work");
@@ -9419,11 +9419,14 @@ export function Checker_getTypeFromConditionalTypeNode(receiver, node) {
             instantiations: undefined,
             alias,
         };
-        links.resolvedType = Checker_getConditionalType(receiver, root, undefined, false, undefined);
+        const result = Checker_getConditionalType(receiver, root, undefined, false, undefined);
         if (outerTypeParameters.length !== 0) {
+            const key = getConditionalTypeKey(receiver, outerTypeParameters, undefined, false);
+            admitNativeChecker(receiver, "retained", 2);
             root.instantiations = NewGoStructMap();
-            root.instantiations.set(getConditionalTypeKey(outerTypeParameters, undefined, false), links.resolvedType);
+            root.instantiations.set(key, result);
         }
+        links.resolvedType = result;
     }
     return links.resolvedType;
 }
@@ -9583,14 +9586,17 @@ export function Checker_getConditionalType(receiver, root, mapper, forConstraint
 }
 export function Checker_getConditionalTypeWithCapture(receiver, root, mapper, forConstraint, alias, capture) {
     let result = undefined;
-    let extraTypes = [];
+    let extraTypes;
     let tailCount = 0;
     for (;;) {
+        admitNativeChecker(receiver, "work");
         if (tailCount === 1000) {
             Checker_error(receiver, receiver.currentNode, diagnosticsMessages.Type_instantiation_is_excessively_deep_and_possibly_infinite);
             return receiver.errorType;
         }
+        markNativeCheckerProvisional(receiver);
         const checkType = Checker_instantiateType(receiver, Checker_getActualTypeVariable(receiver, root.checkType), mapper);
+        admitNativeChecker(receiver, "work");
         const extendsType = Checker_instantiateType(receiver, root.extendsType, mapper);
         if (checkType === receiver.errorType || extendsType === receiver.errorType) {
             return receiver.errorType;
@@ -9598,6 +9604,7 @@ export function Checker_getConditionalTypeWithCapture(receiver, root, mapper, fo
         if (checkType === receiver.wildcardType || extendsType === receiver.wildcardType) {
             return receiver.wildcardType;
         }
+        admitNativeChecker(receiver, "work");
         const rootNode = AsConditionalTypeNode(root.node);
         const checkTypeNode = SkipTypeParentheses(rootNode.CheckType);
         const extendsTypeNode = SkipTypeParentheses(rootNode.ExtendsType);
@@ -9606,8 +9613,9 @@ export function Checker_getConditionalTypeWithCapture(receiver, root, mapper, fo
             (Node_Elements(checkTypeNode) ?? []).length === (Node_Elements(extendsTypeNode) ?? []).length;
         const checkTypeDeferred = Checker_isDeferredType(receiver, checkType, checkTuples);
         let combinedMapper = undefined;
-        if (root.inferTypeParameters.length !== 0) {
-            const context = Checker_newInferenceContext(receiver, root.inferTypeParameters, undefined, InferenceFlagsNone, undefined);
+        const inferredParameters = root.inferTypeParameters;
+        if (inferredParameters.length !== 0) {
+            const context = Checker_newInferenceContext(receiver, inferredParameters, undefined, InferenceFlagsNone, undefined);
             if (mapper !== undefined) {
                 context.nonFixingMapper = Checker_combineTypeMappers(receiver, context.nonFixingMapper, mapper);
             }
@@ -9625,11 +9633,17 @@ export function Checker_getConditionalTypeWithCapture(receiver, root, mapper, fo
                     (forConstraint &&
                         (inferredExtendsType.flags & TypeFlagsNever) === 0 &&
                         someType(Checker_getPermissiveInstantiation(receiver, inferredExtendsType), (t) => Checker_isTypeAssignableTo(receiver, t, Checker_getPermissiveInstantiation(receiver, checkType))))) {
-                    capture?.record(root, "true", rootNode.TrueType, core.OrElse(combinedMapper, mapper));
-                    extraTypes = [...(extraTypes ?? []), Checker_instantiateTypeWithCapture(receiver, Checker_getTypeFromTypeNode(receiver, rootNode.TrueType), core.OrElse(combinedMapper, mapper), capture)];
+                    admitNativeChecker(receiver, "work");
+                    admitNativeChecker(receiver, "retained", extraTypes === undefined ? 2 : 1);
+                    const trueNode = rootNode.TrueType;
+                    const trueMapper = core.OrElse(combinedMapper, mapper);
+                    capture?.record(root, "true", trueNode, trueMapper);
+                    (extraTypes ??= []).push(Checker_instantiateTypeWithCapture(receiver, Checker_getTypeFromTypeNode(receiver, trueNode), trueMapper, capture));
                 }
-                capture?.record(root, "false", rootNode.FalseType, mapper);
-                const falseType = Checker_getTypeFromTypeNode(receiver, rootNode.FalseType);
+                admitNativeChecker(receiver, "work");
+                const falseNode = rootNode.FalseType;
+                capture?.record(root, "false", falseNode, mapper);
+                const falseType = Checker_getTypeFromTypeNode(receiver, falseNode);
                 if ((falseType.flags & TypeFlagsConditional) !== 0) {
                     const newRoot = Type_AsConditionalType(falseType).root;
                     if (newRoot.node.Parent === root.node && (!newRoot.isDistributive || newRoot.checkType === root.checkType)) {
@@ -9652,9 +9666,11 @@ export function Checker_getConditionalTypeWithCapture(receiver, root, mapper, fo
             }
             if ((inferredExtendsType.flags & TypeFlagsAnyOrUnknown) !== 0 ||
                 Checker_isTypeAssignableTo(receiver, Checker_getRestrictiveInstantiation(receiver, checkType), Checker_getRestrictiveInstantiation(receiver, inferredExtendsType))) {
-                const trueType = Checker_getTypeFromTypeNode(receiver, rootNode.TrueType);
+                admitNativeChecker(receiver, "work");
+                const trueNode = rootNode.TrueType;
+                const trueType = Checker_getTypeFromTypeNode(receiver, trueNode);
                 const trueMapper = core.OrElse(combinedMapper, mapper);
-                capture?.record(root, "true", rootNode.TrueType, trueMapper);
+                capture?.record(root, "true", trueNode, trueMapper);
                 const [tailRoot, tailMapper] = Checker_getTailRecursionRoot(receiver, trueType, trueMapper);
                 if (tailRoot !== undefined) {
                     root = tailRoot;
@@ -9679,8 +9695,10 @@ export function Checker_getConditionalTypeWithCapture(receiver, root, mapper, fo
         }
         break;
     }
-    if (extraTypes.length !== 0) {
-        return Checker_getUnionType(receiver, [...extraTypes, result]);
+    if (extraTypes !== undefined) {
+        admitNativeChecker(receiver, "retained");
+        extraTypes.push(result);
+        return Checker_getUnionType(receiver, extraTypes);
     }
     return result;
 }

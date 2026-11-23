@@ -2908,7 +2908,7 @@ export declare function getTemplateTypeKey(texts: GoSlice<string>, types: GoSlic
  * 	return b.hash()
  * }
  */
-export declare function getConditionalTypeKey(typeArguments: GoSlice<GoPtr<Type>>, alias: GoPtr<TypeAlias>, forConstraint: bool): CacheHashKey;
+export declare function getConditionalTypeKey(checker: GoPtr<Checker>, typeArguments: GoSlice<GoPtr<Type>>, alias: GoPtr<TypeAlias>, forConstraint: bool): CacheHashKey;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::func::getRelationKey","kind":"func","status":"implemented","sigHash":"36c2f12e97b87e880c681bd40302aab0aa5170d953f1deb36ccb848286eb4223","bodyHash":"efe123b66dac31f225e25a91783fa47808cbb0ca26c92a159f9d1638e2b3259f"}
  *
@@ -3220,6 +3220,8 @@ export declare function getModifiedReadonlyState(state: bool, modifiers: MappedT
  * }
  */
 export declare function instantiateList<T extends GoComparable>(c: GoPtr<Checker>, values: GoSlice<T>, m: GoPtr<TypeMapper>, instantiator: (c: GoPtr<Checker>, value: T, m: GoPtr<TypeMapper>) => T): GoSlice<T>;
+export declare function instantiateConditionalArguments(checker: GoPtr<Checker>, parameters: GoSlice<GoPtr<Type>>, mapper: GoPtr<TypeMapper>): GoSlice<GoPtr<Type>>;
+export declare function createConditionalMapper(checker: GoPtr<Checker>, parameters: GoSlice<GoPtr<Type>>, mapped: GoSlice<GoPtr<Type>>): GoPtr<TypeMapper>;
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::func::getSymbolPath","kind":"func","status":"implemented","sigHash":"26ca0a5ad8eb7cdd9b4bf69394ce248af9f77098b454b1073c54af56cef1ff36","bodyHash":"f9972b43259df35f1d7262066ad238a05b5d6c2e5adb5e48f9c0fb6d0796c399"}
  *

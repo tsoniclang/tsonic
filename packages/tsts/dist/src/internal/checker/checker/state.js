@@ -38,9 +38,9 @@ import { keyBuilder_writeByte, keyBuilder_writeInt, keyBuilder_writeString } fro
 import { keyBuilder_hash } from "./support-queries.js";
 import { keyBuilder_writeType, keyBuilder_writeTypes, keyBuilder_writeGenericTypeReferences } from "./types.js";
 import { keyBuilder_writeNode, keyBuilder_writeNodeId } from "./syntax-checking.js";
-import { keyBuilder_writeAlias, keyBuilder_writeSymbol } from "./symbols.js";
+import { keyBuilder_writeAlias, keyBuilder_writePresentAlias, keyBuilder_writeSymbol } from "./symbols.js";
 import { Checker_compareSymbolChainsWorker } from "../symbolaccessibility.js";
-import { newFunctionTypeMapper } from "../mapper.js";
+import { newFunctionTypeMapper, newTypeMapper, TypeMapper_Map } from "../mapper.js";
 import { Checker_getTypeArguments, Checker_getUniqueLiteralTypeForTypeParameter, Checker_newSignature, Checker_newTypeParameter } from "./signatures.js";
 import { Checker_evaluateEntity, Checker_initializeChecker, Checker_initializeClosures, Checker_initializeIterationResolvers, Checker_reportUnmeasurableWorker, Checker_reportUnreliableWorker } from "./support.js";
 import { Checker_createNameResolver, Checker_createNameResolverForSuggestion, Checker_createTypeFromGenericGlobalType, Checker_getGlobalStrictFunctionType, Checker_getGlobalTypeAliasResolver, Checker_getGlobalTypeResolver, Checker_getGlobalTypeSymbolResolver, Checker_getGlobalValueSymbolResolver, Checker_newSymbol, Checker_newSymbolEx } from "./symbols.js";
@@ -2353,10 +2353,19 @@ export function getTemplateTypeKey(texts, types) {
  * 	return b.hash()
  * }
  */
-export function getConditionalTypeKey(typeArguments, alias, forConstraint) {
+export function getConditionalTypeKey(checker, typeArguments, alias, forConstraint) {
+    admitNativeChecker(checker, "work", 2 + typeArguments.length);
     const b = { h: xxh3.New() };
     keyBuilder_writeTypes(b, typeArguments);
-    keyBuilder_writeAlias(b, alias);
+    if (alias === undefined) {
+        keyBuilder_writeAlias(b, alias);
+    }
+    else {
+        admitNativeChecker(checker, "work", 2);
+        const aliasArguments = alias.typeArguments;
+        admitNativeChecker(checker, "work", aliasArguments.length);
+        keyBuilder_writePresentAlias(b, alias.symbol, aliasArguments);
+    }
     if (forConstraint) {
         keyBuilder_writeByte(b, "!".charCodeAt(0));
     }
@@ -2841,6 +2850,15 @@ export function instantiateList(c, values, m, instantiator) {
         }
     }
     return values;
+}
+export function instantiateConditionalArguments(checker, parameters, mapper) {
+    return instantiateList(checker, parameters, mapper, (_checker, parameter, mapping) => TypeMapper_Map(mapping, parameter));
+}
+export function createConditionalMapper(checker, parameters, mapped) {
+    if (parameters.length === 1)
+        admitNativeChecker(checker, "work", 2);
+    admitNativeChecker(checker, "retained", 2);
+    return newTypeMapper(parameters, mapped);
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::func::getSymbolPath","kind":"func","status":"implemented","sigHash":"26ca0a5ad8eb7cdd9b4bf69394ce248af9f77098b454b1073c54af56cef1ff36","bodyHash":"f9972b43259df35f1d7262066ad238a05b5d6c2e5adb5e48f9c0fb6d0796c399"}
