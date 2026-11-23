@@ -95,15 +95,15 @@ export type InferPaused<State> = PlacementPaused | MemberSolvePause<MemberSolveC
 
 export type MemberSolveContinuation<State> = MemberSolveSuspension<InferDeps<State>, GroupConstraints, State>;
 
-export interface SelectionConstraintOrigin {
+export type SelectionConstraintContext = {
   readonly occurrence: NodeRef;
   readonly origin: Origin;
-}
+} & ({ readonly kind: "member" } | { readonly kind: "call"; readonly scope: BindingScope });
 
 export interface GroupConstraints {
   readonly constraints: readonly ConstraintSet[];
   readonly outsideParts: readonly InferredPartType[];
-  readonly selectionOrigins: readonly SelectionConstraintOrigin[];
+  readonly selectionContexts: readonly SelectionConstraintContext[];
 }
 
 export interface GroupSolution {

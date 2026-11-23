@@ -63,6 +63,30 @@ function verificationViews(program, record) {
     nodeExists: reference => program.domain.nodeOf(reference) !== null, localExists: program.domain.localExists };
 }
 
+test("candidate requests borrow the checked bodyless endpoint and reject a crossed owning definition", async () => {
+  const { callableEndpoints, endpointRequest } = await import("../../packages/host/dist/infer/candidates.js");
+  const state = ready("export interface Callable { (flag: boolean): boolean; }"
+    + "export function ordinary(flag: boolean): boolean { return flag; }");
+  const callable = [...state.items.values()].find(item => item.kind === "CallSignature");
+  const ordinary = [...state.items.values()].find(item => item.kind === "FunctionDeclaration");
+  assert.ok(callable && ordinary);
+  const endpoints = callableEndpoints(state.deps, callable.tsonic.definition);
+  assert.equal(endpoints === callable.tsonic.signatures, true);
+  assert.equal(endpoints.length, 1);
+  const [endpoint] = endpoints;
+  assert.equal(endpoint.role, "api-signature");
+  assert.equal(endpoint.body, null);
+  const bindings = { kind: "instantiated", bindings: { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] } };
+  const request = endpointRequest(state.deps, endpoint, bindings);
+  assert.deepEqual(request, { definition: callable.tsonic.definition, endpoint: "api-signature", ordinal: 0, bindings });
+  const step = wiring.decls.declaredSignatureOf(state.inputs, request, state.domain.sources.cuts);
+  assert.equal(step.kind, "done");
+  assert.equal(step.value.kind, "ok");
+  assert.equal(step.value.value.declaration, callable.tsonic.definition);
+  assert.throws(() => callableEndpoints({ ...state.deps, itemOf: () => callable }, ordinary.tsonic.definition),
+    /callable endpoint inventory must retain its actual declaration/u);
+});
+
 function verifyRecord(program, record) {
   return irInfer.verifyInference({ ...record, ...verificationViews(program, record),
     placedSignatureOf: body => record.placements.get(body) ?? null });
@@ -543,11 +567,14 @@ test("a same-group call reads its actual finalized argument, preserves dependenc
     record.contributions.reduce((count, contribution) => count + contribution.reads.length, 0),
     record.contributions.reduce((count, contribution) => count + contribution.bounds.length, 0),
     record.solution.constraints.length], [2, 3, 2, 2, 3]);
-  const observed = { occurrence: actual.constraint.occurrence, origin: actual.origin };
-  const generated = { constraints: record.constraints, outsideParts: [], selectionOrigins: [observed] };
+  const observed = { kind: "call", occurrence: actual.constraint.occurrence, origin: actual.origin, scope: actual.scope };
+  const generated = { constraints: record.constraints, outsideParts: [], selectionContexts: [observed] };
   const unit = { query: "solutionOf", key: record.group.id };
-  const crossed = { ...generated, selectionOrigins: [{ ...observed, occurrence: actual.constraint.application.arguments[0].occurrence }] };
+  const crossed = { ...generated, selectionContexts: [{ ...observed, occurrence: actual.constraint.application.arguments[0].occurrence }] };
   assert.throws(() => wiring.infer.solveGroup(program.deps, record.group, crossed, unit), /actual checked occurrence origin in constraint order/);
+  assert.throws(() => wiring.infer.solveGroup(program.deps, record.group, {
+    ...generated, selectionContexts: [{ kind: "member", occurrence: observed.occurrence, origin: observed.origin }],
+  }, unit), /selection context must have the same role/u);
   for (let maximumWork = 0; maximumWork < 14; maximumWork += 1) {
     const under = wiring.infer.solveGroup({ ...program.deps, graph: { ...GRAPH, maximumWork },
       hirBody: () => assert.fail("a refused solve cannot read a later signature body"),
@@ -560,6 +587,13 @@ test("a same-group call reads its actual finalized argument, preserves dependenc
   assert.equal(exact.kind, "paused");
   assert.equal(exact.paused.solved.length, 3);
 });
+
+function callContext(program, group, constraint) {
+  const body = program.domain.bodyOf.get(constraint.occurrence.body);
+  const node = program.domain.nodeOf({ kind: "body", value: constraint.occurrence });
+  return { origin: node.origin, scope: program.deps.bindingScopeOf(body.owner), typeWork: program.deps.typeWork,
+    unit: { query: "solutionOf", key: group.id } };
+}
 
 test("constructed call result categories retain the selected native carrier without fabricating number evidence for char", () => {
   const program = ready("export function value(): boolean { return true; } export function read(): boolean { return value(); }\n");
@@ -595,7 +629,8 @@ test("constructed call result categories retain the selected native carrier with
     const enumeration = scheme.enumerate({ group: record.group.id, reference: { body: system.body, index: 0 },
       constraint, variables: system.variables, candidates, evidence, remainingContributions: 1 });
     assert.equal(enumeration.kind, "ok");
-    const result = scheme.evaluate({ constraint, contribution: enumeration.value[0], evidence, candidates, reads: [] });
+    const result = scheme.evaluate({ ...callContext(program, record.group, original),
+      constraint, contribution: enumeration.value[0], evidence, candidates, reads: [] });
     assert.equal(result.kind, "ok");
     assert.equal(result.value.decision.application.result, resultType);
     assert.equal(result.value.bounds[0].value.type, resultType);
@@ -622,7 +657,7 @@ test("actual fixed call arguments retain their checked source and reject malform
     constraint: selected, variables: system.variables, candidates, evidence, remainingContributions: 1 });
   const enumeration = enumerate(constraint);
   assert.equal(enumeration.kind, "ok");
-  const evaluate = (rows, selected = candidates) => scheme.evaluate({ constraint, contribution: enumeration.value[0],
+  const evaluate = (rows, selected = candidates) => scheme.evaluate({ ...callContext(program, record.group, constraint), constraint, contribution: enumeration.value[0],
     evidence: rows, candidates: selected, reads: [] });
   assert.deepEqual(evaluate(evidence).value.decision.application.parameters,
     [{ kind: "argument", parameter: 0, argument: 0, component: null, passing: "by-value" }]);
@@ -964,7 +999,7 @@ test("SolveGroup's scripted multi-bound scheme reads its declared footprint line
         decision: null, selectedCandidate: null } };
       },
     };
-    const generated = { outsideParts: [], selectionOrigins: [], constraints: [{ group: group.id, body, variables, candidates: [],
+    const generated = { outsideParts: [], selectionContexts: [], constraints: [{ group: group.id, body, variables, candidates: [],
       constraints: [{ kind: "op", occurrence, operator: "+", operands: open, result: type, permissionScope: null }],
       evidence: [...open.map(type => ({ value: { ...evidence, type }, error: null })), { value: evidence, error: null }] }] };
     const deps = { ...program.deps, rules: { ...program.deps.rules, constraints: { ...program.deps.rules.constraints, op: scheme } },

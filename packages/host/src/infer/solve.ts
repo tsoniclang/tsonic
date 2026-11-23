@@ -5,7 +5,7 @@ import type {
   BodyTyping, CaptureRow, InferenceValue, InferenceVariable, InferredPartType, MemberRuleCompletion, MemberRuleStep, SolvedConstraint,
 } from "../ir-infer/contract.js";
 import type { GroupConstraints, GroupSolution, InferDeps, InferPaused, InferStep,
-  PlacementPaused, ResumeSolveGroup, SelectionConstraintOrigin, SolveAnswer, SolveGroup, SolveRequest } from "./contract.js";
+  PlacementPaused, ResumeSolveGroup, SelectionConstraintContext, SolveAnswer, SolveGroup, SolveRequest } from "./contract.js";
 import { requirePresent, resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
 import { compareContributionKeys, inferredPartKey, inferredPartsOf } from "../ir-infer/index.js";
 import { internType } from "../ir-types/index.js";
@@ -86,7 +86,7 @@ function solve<State>(deps: InferDeps<State>, group: InferenceGroup, generated: 
           return refused(...diagnostics, limitDiagnostic(group, "inference dependency work", deps.graph.maximumWork));
         (defaults ??= new Map()).set(variable.id, constraint);
       }
-      const source = constraint.kind === "member" || constraint.kind === "call" ? generated.selectionOrigins[selectionPosition++] : undefined;
+      const source = constraint.kind === "member" || constraint.kind === "call" ? generated.selectionContexts[selectionPosition++] : undefined;
       const reached = reach(constraint, set.evidence, offset, source);
       offset += reached.evidence.length;
       const listed = enumerate(deps, group, set, reached, index, owned, limits.maximumAtomicContributionsPerGroup - enumerated.length);
@@ -99,7 +99,7 @@ function solve<State>(deps: InferDeps<State>, group: InferenceGroup, generated: 
       }
     }
   }
-  if (selectionPosition !== generated.selectionOrigins.length)
+  if (selectionPosition !== generated.selectionContexts.length)
     return callerDefect(PORT, "the checked selection origins must name only the actual selection constraints");
   enumerated.sort((left, right) => compareContributionKeys(left.contribution.key, right.contribution.key));
 
@@ -395,15 +395,17 @@ function finishSolve<State>(frame: Frame<State>): Step<State> {
   return { kind: "paused", requests: pending, paused, earned: diagnostics };
 }
 
-function reach(constraint: Constraint, evidence: readonly InferenceValue[], offset: number, source: SelectionConstraintOrigin | undefined): Reached {
+function reach(constraint: Constraint, evidence: readonly InferenceValue[], offset: number, source: SelectionConstraintContext | undefined): Reached {
   if (constraint.kind === "member" || constraint.kind === "call") {
     if (source?.occurrence.body !== constraint.occurrence.body || source.occurrence.node !== constraint.occurrence.node)
       return callerDefect(PORT, "a selection constraint requires its actual checked occurrence origin in constraint order");
-    if (constraint.kind === "member")
+    if (constraint.kind === "member" && source.kind === "member")
       return { kind: "member", constraint, origin: source.origin, evidence: evidence.slice(offset, offset + 2) };
-    return { kind: "call", constraint, origin: source.origin, evidence: evidence.slice(offset,
-      offset + 2 + (constraint.application.receiver === null ? 0 : 1) + constraint.application.typeArguments.length
-      + constraint.application.arguments.reduce((length, argument) => length + 1 + (argument.tuple?.length ?? 0), 0)) };
+    if (constraint.kind === "call" && source.kind === "call")
+      return { kind: "call", constraint, origin: source.origin, scope: source.scope, evidence: evidence.slice(offset,
+        offset + 2 + (constraint.application.receiver === null ? 0 : 1) + constraint.application.typeArguments.length
+        + constraint.application.arguments.reduce((length, argument) => length + 1 + (argument.tuple?.length ?? 0), 0)) };
+    return callerDefect(PORT, "a selection context must have the same role as its constraint");
   }
   if (constraint.kind === "op") return { kind: "op", constraint, evidence: evidence.slice(offset, offset + constraint.operands.length + 1) };
   if (constraint.kind === "flow") return { kind: "flow", constraint, evidence: evidence.slice(offset, offset + 2) };
@@ -447,7 +449,7 @@ function evaluate<State>(deps: InferDeps<State>, item: Enumerated,
     case "flow": return deps.rules.constraints.flow.evaluate({ ...common, constraint: item.reached.constraint });
     case "literal": return deps.rules.constraints.literal.evaluate({ ...common, constraint: item.reached.constraint });
     case "call": return deps.rules.constraints.call.evaluate({ ...common, constraint: item.reached.constraint, origin: item.reached.origin,
-      scope: deps.bindingScopeOf(deps.hirBody(item.set.body).owner), typeWork: deps.typeWork, unit });
+      scope: item.reached.scope, typeWork: deps.typeWork, unit });
     case "default": return deps.rules.constraints.default.evaluate({ ...common, constraint: item.reached.constraint });
   }
 }

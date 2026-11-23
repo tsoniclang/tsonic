@@ -10,11 +10,12 @@ export function callableEndpoints(deps: GroupDeps, definition: DefId): readonly 
 }
 
 export function endpointsOf(item: HirNode, definition: DefId): readonly HirCallableEndpoint[] {
-  if (item.kind !== "FunctionDeclaration")
+  const callable = item.tsonic;
+  if (callable === null || !("signatures" in callable))
     return notInferredYet("ConstraintsOf", `the authoritative callable endpoints of ${item.kind}`, item.origin);
-  if (item.tsonic.definition !== definition)
+  if (callable.definition !== definition)
     return callerDefect("ConstraintsOf", "a callable endpoint inventory must retain its actual declaration");
-  return item.tsonic.signatures;
+  return callable.signatures;
 }
 
 export function endpointRequest(deps: GroupDeps, endpoint: HirCallableEndpoint, bindings: SignatureRequest["bindings"]): SignatureRequest {

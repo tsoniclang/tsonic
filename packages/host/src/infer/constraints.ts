@@ -1,9 +1,9 @@
 import type { Diagnostic, Result } from "../diag/contract.js";
 import type { BodyId, CandidateListId, DefId, LocalId, LocalRef, NodeId, NodeRef, Origin, SourceNodeRef, TyId } from "../ids/contract.js";
-import type { BindingVector, CategoryEvidence, Signature } from "../ir-types/contract.js";
+import type { BindingScope, BindingVector, CategoryEvidence, Signature } from "../ir-types/contract.js";
 import type { CallExpression, CapturedFact, Expression, HirApplication, HirBody, HirCandidateList, HirNode, HirParam, HirResolution, CheckedPhase } from "../ir-hir/contract.js";
 import type { CallConstraint, DefaultConstraint, FlowConstraint, InferenceCandidateList, InferenceGroup, InferenceValue, InferenceVariable, InferredPartType, InferredSignaturePart, LiteralConstraint, LiteralConstructionConstraint, LiteralPart, MemberConstraint, OperatorConstraint } from "../ir-infer/contract.js";
-import type { ConstraintsOf, ConstraintsPaused, ConstraintsRequest, GroupConstraints, InferenceInputs, InferStep, ResumeConstraintsOf, SelectionConstraintOrigin } from "./contract.js";
+import type { ConstraintsOf, ConstraintsPaused, ConstraintsRequest, GroupConstraints, InferenceInputs, InferStep, ResumeConstraintsOf, SelectionConstraintContext } from "./contract.js";
 import { requirePresent, resourceLimitDiagnostic } from "../diag/index.js";
 import { admitTypePublicationStep, internType, internTypeGraph, optionalValueDomainOf, readSignature, readType, rigidBindings,
   refuseTypeConstruction, signatureRequestKey, viewTypes } from "../ir-types/index.js";
@@ -41,6 +41,7 @@ type DraftConstraint =
 
 interface Draft {
   readonly body: HirBody;
+  readonly scope: BindingScope;
   readonly bindings: BindingVector;
   readonly candidates: ReadonlyMap<CandidateListId, InferenceCandidateList>;
   readonly variables: InferenceVariable[];
@@ -58,7 +59,7 @@ interface Generation {
   readonly signatures: ReadonlyMap<string, Signature>;
   readonly parameters: ParameterIndex;
   readonly outsideParts: ReadonlyMap<string, InferredPartType>;
-  readonly selectionOrigins: SelectionConstraintOrigin[];
+  readonly selectionContexts: SelectionConstraintContext[];
   nextVariable: number;
 }
 
@@ -236,13 +237,14 @@ function ownedParts(deps: InferenceInputs, group: InferenceGroup): ReadonlyMap<B
 
 function generate(deps: InferenceInputs, group: InferenceGroup, signatures: ReadonlyMap<string, Signature>, outsideParts: readonly InferredPartType[],
   eligibleCandidates: readonly (readonly HirCandidateList[])[]): Output {
-  const generation: Generation = { deps, group, parts: ownedParts(deps, group), partTypes: new Map(), nextVariable: 0, selectionOrigins: [],
+  const generation: Generation = { deps, group, parts: ownedParts(deps, group), partTypes: new Map(), nextVariable: 0, selectionContexts: [],
     ownParts: new Set(group.signatures.map(inferredPartKey)), ownDefinitions: new Set(group.signatures.map(part => part.definition)), signatures, parameters: new Map(),
     outsideParts: new Map(outsideParts.map(part => [inferredPartKey(part.part), part])) };
   const drafts: Draft[] = group.bodies.map((reference, position) => {
     const body = deps.hirBody(reference);
     const candidates = readyCandidates(generation, present(eligibleCandidates[position], "the body's eligible candidate rows"));
-    return { body, bindings: rigidBindings(deps.bindingScopeOf(body.owner)), candidates: new Map(candidates.map(list => [list.id, list])),
+    const scope = deps.bindingScopeOf(body.owner);
+    return { body, scope, bindings: rigidBindings(scope), candidates: new Map(candidates.map(list => [list.id, list])),
       variables: [], constraints: [], evidence: [] };
   });
   for (const draft of drafts) {
@@ -336,7 +338,7 @@ function generate(deps: InferenceInputs, group: InferenceGroup, signatures: Read
     }
   }
   const typeOf = (slot: Slot): TyId => present(readySlotType(generation, slot), "the actual owned or ready outside type slot");
-  return { kind: "done", value: { kind: "ok", value: { outsideParts, selectionOrigins: generation.selectionOrigins, constraints: drafts.map(draft => ({
+  return { kind: "done", value: { kind: "ok", value: { outsideParts, selectionContexts: generation.selectionContexts, constraints: drafts.map(draft => ({
     group: group.id, body: draft.body.body, variables: draft.variables, candidates: [...draft.candidates.values()],
     constraints: draft.constraints.map(constraint => constraint.kind === "flow"
       ? { ...constraint, from: typeOf(constraint.from), to: typeOf(constraint.to) }
@@ -637,7 +639,7 @@ function leave(walk: Walk, node: HirNode, readWriteTarget: boolean, caseSubject?
     const result = present(walk.operators.get(node.id), "the actual member result position");
     const receiver = typeAt(walk, node.expression);
     const occurrence = refOf(walk, node);
-    walk.generation.selectionOrigins.push({ occurrence, origin: node.origin });
+    walk.generation.selectionContexts.push({ kind: "member", occurrence, origin: node.origin });
     walk.draft.constraints.push({ kind: "member", occurrence, receiver,
       key: node.name.tsonic.key.value, access: "read", result, origins: node.tsonic.origins.value, bindings: walk.draft.bindings });
     walk.draft.evidence.push({ type: receiver, node: node.expression, component: { kind: "body", value: refOf(walk, node.expression) } },
@@ -759,7 +761,7 @@ function leave(walk: Walk, node: HirNode, readWriteTarget: boolean, caseSubject?
     const callee = typeAt(walk, node.expression);
     if (typeof callee !== "number") return notInferredYet(PORT, "a callee whose signature is an unresolved inferred part", node.origin);
     const occurrence = refOf(walk, node);
-    walk.generation.selectionOrigins.push({ occurrence, origin: node.origin });
+    walk.generation.selectionContexts.push({ kind: "call", occurrence, origin: node.origin, scope: walk.draft.scope });
     walk.draft.constraints.push({ kind: "call", occurrence, application: {
       captured: node.tsonic.core, permissionScope: null, callee, receiver: null, typeArguments, arguments: arguments_,
       candidates: captured.value.candidates.value, result,
@@ -906,11 +908,10 @@ function localType(walk: Walk, node: Extract<HirNode, { readonly kind: "Identifi
         return type.value;
       }
       if (name.role === "assignment-target") return callerDefect(PORT, "a static assignment targets an actual variable declaration");
-      if (item.tsonic !== null && "signatures" in item.tsonic) {
-        const endpoints = admitTypePublicationStep(deps.typeWork, item.tsonic.signatures.length);
-        if (endpoints !== null) return refuseTypeConstruction(deps.typeWork, endpoints, node.origin, unit);
-      }
-      for (const endpoint of endpointsOf(item, definition)) {
+      const endpoints = endpointsOf(item, definition);
+      const endpointStop = admitTypePublicationStep(deps.typeWork, endpoints.length);
+      if (endpointStop !== null) return refuseTypeConstruction(deps.typeWork, endpointStop, node.origin, unit);
+      for (const endpoint of endpoints) {
         if (readSignature(walk.generation.deps.types, endpoint.signature).typeParameters.length !== 0) {
           signatures.push(endpoint.signature);
           continue;
