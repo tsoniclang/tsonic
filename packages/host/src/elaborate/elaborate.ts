@@ -83,9 +83,17 @@ function signaturePartType<State>(deps: ElaborateDeps<State>, body: HirBody, typ
   if (root.kind === "Block" || root.kind === "SourceFile" || root.parent === null)
     return callerDefect("an inferred initializer part requires its actual checked expression execution", origin);
   const declaration = deps.nodeOf({ kind: "item", value: { owner: body.owner, node: root.parent } });
-  if (declaration === null || declaration.kind !== "Parameter" && declaration.kind !== "VariableDeclaration" && declaration.kind !== "PropertyDeclaration"
+  if (declaration === null || declaration.kind !== "Parameter" && declaration.kind !== "VariableDeclaration" &&
+    declaration.kind !== "PropertyDeclaration" && declaration.kind !== "EnumMember"
     || declaration.initializer !== root || declaration.tsonic.initializer !== body.body)
     return callerDefect("an inferred initializer part is not its checked declaration's own expression execution", origin);
+  if (part.part.kind === "enum-member-value") {
+    if (declaration.kind !== "EnumMember" || part.definition !== body.owner || declaration.tsonic.declaration.kind !== "definition"
+      || declaration.tsonic.declaration.definition !== part.definition)
+      return callerDefect("an enum value part has no matching checked member and owner", origin);
+    return typing.completion;
+  }
+  if (declaration.kind === "EnumMember") return callerDefect("an enum initializer requires its actual enum value part", origin);
   if (part.part.kind === "parameter-initializer") {
     if (declaration.kind !== "Parameter" || declaration.type !== null || declaration.tsonic.parent !== part.definition)
       return callerDefect("an inferred formal part has no matching checked parameter and callable owner", origin);

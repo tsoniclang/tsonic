@@ -568,7 +568,7 @@ test("a same-group call reads its actual finalized argument, preserves dependenc
     record.contributions.reduce((count, contribution) => count + contribution.bounds.length, 0),
     record.solution.constraints.length], [2, 3, 2, 2, 3]);
   const observed = { kind: "call", occurrence: actual.constraint.occurrence, origin: actual.origin, scope: actual.scope };
-  const generated = { constraints: record.constraints, outsideParts: [], enumInitializers: [], selectionContexts: [observed] };
+  const generated = { constraints: record.constraints, outsideParts: [], selectionContexts: [observed] };
   const unit = { query: "solutionOf", key: record.group.id };
   const crossed = { ...generated, selectionContexts: [{ ...observed, occurrence: actual.constraint.application.arguments[0].occurrence }] };
   assert.throws(() => wiring.infer.solveGroup(program.deps, record.group, crossed, unit), /actual checked occurrence origin in constraint order/);
@@ -999,7 +999,7 @@ test("SolveGroup's scripted multi-bound scheme reads its declared footprint line
         decision: null, selectedCandidate: null } };
       },
     };
-    const generated = { outsideParts: [], selectionContexts: [], enumInitializers: [], constraints: [{ group: group.id, body, variables, candidates: [],
+    const generated = { outsideParts: [], selectionContexts: [], constraints: [{ group: group.id, body, variables, candidates: [],
       constraints: [{ kind: "op", occurrence, operator: "+", operands: open, result: type, permissionScope: null }],
       evidence: [...open.map(type => ({ value: { ...evidence, type }, error: null })), { value: evidence, error: null }] }] };
     const deps = { ...program.deps, rules: { ...program.deps.rules, constraints: { ...program.deps.rules.constraints, op: scheme } },

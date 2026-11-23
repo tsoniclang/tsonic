@@ -7,6 +7,7 @@ import type { Step } from "../step/contract.js";
 
 export type InferredPart =
   | { readonly kind: "return" | "yield" | "variable" | "field" }
+  | { readonly kind: "enum-member-value" }
   | { readonly kind: "parameter-initializer"; readonly index: number };
 
 export interface InferredSignaturePart {

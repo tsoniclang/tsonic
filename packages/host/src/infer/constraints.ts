@@ -224,7 +224,7 @@ function ownedParts(deps: InferenceInputs, group: InferenceGroup): ReadonlyMap<B
         } else target = owner.tsonic.body;
         break;
       }
-      case "VariableDeclaration": case "PropertyDeclaration": target = owner.tsonic.initializer; break;
+      case "VariableDeclaration": case "PropertyDeclaration": case "EnumMember": target = owner.tsonic.initializer; break;
       default: return callerDefect(PORT, "an inferred part belongs to no actual executable declaration");
     }
     if (target === null || !members.has(target)) return callerDefect(PORT, "an inferred part has no producer execution in its group");
@@ -247,7 +247,6 @@ function generate(deps: InferenceInputs, group: InferenceGroup, signatures: Read
     return { body, scope, bindings: rigidBindings(scope), candidates: new Map(candidates.map(list => [list.id, list])),
       variables: [], constraints: [], evidence: [] };
   });
-  const enumInitializers: { readonly occurrence: NodeRef; readonly type: Slot }[] = [];
   for (const draft of drafts) {
     const { body } = draft;
     const reference = body.body;
@@ -257,8 +256,8 @@ function generate(deps: InferenceInputs, group: InferenceGroup, signatures: Read
     const walk: Walk = { generation, draft, signature: own === null ? undefined : signatures.get(signatureRequestKey(own.request)),
       typeOf: new Map(), operators: new Map(), returnPart, returnedOperand: false, bareReturn: null };
     const inferReturn = returnPart !== undefined;
-    const inferInitializer = deps.itemOf(body.owner).kind === "EnumMember" ||
-      owned.some(part => part.part.kind === "variable" || part.part.kind === "parameter-initializer");
+    const inferInitializer = owned.some(part => part.part.kind === "variable" || part.part.kind === "parameter-initializer"
+      || part.part.kind === "enum-member-value");
     for (const part of owned) {
       const diagnostic = allocate(walk, { kind: "signature", signature: part, occurrence: refOf(walk, body.root) });
       if (diagnostic !== null) return refused(diagnostic);
@@ -326,15 +325,9 @@ function generate(deps: InferenceInputs, group: InferenceGroup, signatures: Read
     }
     if (body.root.kind !== "Block" && body.root.kind !== "SourceFile") {
       const part = (generation.parts.get(reference) ?? []).find(candidate => candidate.part.kind === "parameter-initializer"
-        || candidate.part.kind === "variable" || candidate.part.kind === "field");
+        || candidate.part.kind === "variable" || candidate.part.kind === "field" || candidate.part.kind === "enum-member-value");
       if (part === undefined) {
         const owner = deps.itemOf(body.owner);
-        if (owner.kind === "EnumMember") {
-          if (owner.tsonic.initializer !== body.body || owner.initializer !== body.root)
-            return callerDefect(PORT, "an enum initializer must be its actual member's qualified expression");
-          enumInitializers.push({ occurrence: refOf(walk, body.root), type: typeAt(walk, body.root) });
-          continue;
-        }
         if (owner.kind !== "Parameter" && owner.kind !== "VariableDeclaration" && owner.kind !== "PropertyDeclaration"
           || owner.tsonic.initializer !== body.body || owner.type === null
           || owner.tsonic.declaredType.kind !== "available" || owner.tsonic.declaredType.value === null
@@ -346,8 +339,7 @@ function generate(deps: InferenceInputs, group: InferenceGroup, signatures: Read
     }
   }
   const typeOf = (slot: Slot): TyId => present(readySlotType(generation, slot), "the actual owned or ready outside type slot");
-  return { kind: "done", value: { kind: "ok", value: { outsideParts, selectionContexts: generation.selectionContexts,
-    enumInitializers: enumInitializers.map(entry => ({ occurrence: entry.occurrence, type: typeOf(entry.type) })), constraints: drafts.map(draft => ({
+  return { kind: "done", value: { kind: "ok", value: { outsideParts, selectionContexts: generation.selectionContexts, constraints: drafts.map(draft => ({
     group: group.id, body: draft.body.body, variables: draft.variables, candidates: [...draft.candidates.values()],
     constraints: draft.constraints.map(constraint => constraint.kind === "flow"
       ? { ...constraint, from: typeOf(constraint.from), to: typeOf(constraint.to) }

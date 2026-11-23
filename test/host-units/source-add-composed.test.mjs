@@ -41,6 +41,7 @@ test("checked enum members share only their actual authored execution roots with
   const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
   const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
   const { createAccount } = await import("../../packages/host/dist/dataflow/index.js");
+  const { inferredPartsOf } = await import("../../packages/host/dist/ir-infer/index.js");
   const input = analysisInput(fixture, "sdk-minimal",
     'export enum Code { Start = 2, End = 5, Next } export enum Word { Yes = "yes" }');
   const captured = captureSourceBarrier(input);
@@ -58,21 +59,30 @@ test("checked enum members share only their actual authored execution roots with
     assert.deepEqual(table.terms[declaration.tsonic.type], { kind: "enum", definition: declaration.tsonic.definition });
     for (const member of declaration.members.nodes) {
       const executions = chapter.bodies.filter(execution => execution.owner === member.tsonic.definition);
+      const definition = member.tsonic.definition;
+      const reference = captured.value.checked.declarationSourceOf(definition);
+      const original = captured.value.checked.nodeOf(reference);
+      assert.equal(original.kind, "EnumMember");
       assert.equal(member.tsonic.storage, declaration.tsonic.type);
       if (member.initializer === null) {
         assert.equal(member.name.text, "Next");
         assert.equal(member.tsonic.initializer, null);
         assert.equal(executions.length, 0);
+        assert.deepEqual(inferredPartsOf(definition, original), []);
         continue;
       }
       assert.equal(executions.length, 2);
       const parametric = executions.find(execution => execution.bindings.kind === "parametric");
       const instantiated = executions.find(execution => execution.bindings.kind === "instantiated");
+      assert.deepEqual(inferredPartsOf(definition, original), [{ definition, part: { kind: "enum-member-value" } }]);
       assert.equal(parametric.root === member.initializer, true);
       for (const body of [parametric, instantiated]) {
         assert.equal(body.body, member.tsonic.initializer);
         assert.notEqual(body.completion, member.tsonic.storage);
         assert.equal(table.signatures[body.signature].result, body.completion);
+        const placement = typed.value.placedSignatureOf({ body: body.body, bindings: body.bindings });
+        assert.equal(placement.request, null);
+        assert.equal(placement.signature === table.signatures[body.signature], true);
         const carrier = table.terms[body.completion];
         if (declaration === numeric) assert.deepEqual(carrier, { kind: "primitive", primitive: "int64" });
         else assert.deepEqual(carrier.value, { kind: "string", value: "yes" });

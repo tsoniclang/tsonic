@@ -13,7 +13,7 @@ import { inferredPartKey } from "./inferred-parts.js";
 import { verifySolution, visitBindings } from "./verify-solution.js";
 import { callableEndpointKey, hasOverloadEndpoints, selectedEndpointRoleFaults } from "../ir-hir/index.js";
 
-const parts: readonly string[] = ["return", "yield", "variable", "field", "parameter-initializer"];
+const parts: readonly string[] = ["return", "yield", "variable", "field", "parameter-initializer", "enum-member-value"];
 const kinds: readonly string[] = ["signature", "local", "binder", "literal"];
 
 function comparePart(left: InferredSignaturePart, right: InferredSignaturePart): number {

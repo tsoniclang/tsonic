@@ -31,6 +31,8 @@ export function inferredPartsOf(definition: DefId, declaration: HirNode): readon
       return declaration.type === null && declaration.initializer !== null ? [{ definition, part: { kind: "variable" } }] : [];
     case "PropertyDeclaration":
       return declaration.type === null && declaration.initializer !== null ? [{ definition, part: { kind: "field" } }] : [];
+    case "EnumMember":
+      return declaration.initializer === null ? [] : [{ definition, part: { kind: "enum-member-value" } }];
     default:
       return [];
   }

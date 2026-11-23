@@ -1497,7 +1497,8 @@ test("all four formal mapping dispositions use the real signature and authored a
 test("inferred signature parts preserve every actual owner and indexed initializer slot", () => {
   const parts = ["return", "yield", "variable", "field"].map(kind => ({ definition, part: { kind } }));
   parts.push({ definition, part: { kind: "parameter-initializer", index: 0 } },
-    { definition, part: { kind: "parameter-initializer", index: 1 } });
+    { definition, part: { kind: "parameter-initializer", index: 1 } },
+    { definition, part: { kind: "enum-member-value" } });
   const variables = parts.map((part, id) => ({ kind: "signature", id, occurrence, signature: part }));
   const parameters = [0, 1].map(index => {
     const declaration = `D[${moduleIdentity};run/argument${index}]`;
@@ -1508,8 +1509,9 @@ test("inferred signature parts preserve every actual owner and indexed initializ
     types: { terms: [{ kind: "primitive", primitive: "int32" }], signatures: [{ ...signature, parameters }] } };
   fullEqual(product.verifyInference(verificationInput(input)), [], "all distinct parts retain their actual declaration slots");
   const missing = { definition, part: { kind: "parameter-initializer", index: 2 } };
-  ruleCase("inferred-part-identity", input, { ...input, group: { ...input.group, signatures: [...parts.slice(0, -1), missing] },
-    constraints: [constraintSet([], [...variables.slice(0, -1), { ...variables.at(-1), signature: missing }])] },
+  const crossedParts = [...parts.slice(0, -2), missing, parts.at(-1)];
+  ruleCase("inferred-part-identity", input, { ...input, group: { ...input.group, signatures: crossedParts },
+    constraints: [constraintSet([], crossedParts.map((part, id) => ({ kind: "signature", id, occurrence, signature: part })))] },
   [violation("inferred-part-identity", groupSite, "declaration")], "a third initializer is outside the actual two-parameter declaration");
   const returned = { definition, part: { kind: "return" } };
   ruleCase("inferred-part-identity", { group: { id: group, bodies: [body], signatures: [returned] },
@@ -1964,9 +1966,10 @@ test("solved body captures reject duplicates, own-body and missing qualified loc
     assert.equal(product.verifyInference(input(captures)).some(row => row.rule === "closure-capture-total"), true);
 });
 
-test("every original signature part retains its complete group codec value", () => {
+test("every signature part retains its complete group codec value", () => {
   const parts = ["return", "yield", "variable", "field"].map(kind => recordGolden(kind, {}, kind));
   parts.push(recordGolden("parameter-initializer", { index: scalarGolden(2) }, "parameter-initializer"));
+  parts.push(recordGolden("enum-member-value", {}, "enum-member-value"));
   const golden = recordGolden("InferenceGroup", { id: groupGolden, bodies: arrayGolden([bodyGolden]),
     signatures: arrayGolden(parts.map(part => recordGolden("InferredSignaturePart", { definition: definitionGolden, part }))) });
   assertRoundTrip("InferenceGroup", golden.value, golden.text, "all signature part constructors");
@@ -4154,13 +4157,15 @@ test("the shared inferred-part inventory retains authored roles, default offsets
     fullEqual(product.inferredPartsOf(definition, { kind, type: {}, initializer: {} }), [], `${kind} annotated`);
     fullEqual(product.inferredPartsOf(definition, { kind, type: null, initializer: null }), [], `${kind} uninitialized`);
   }
+  fullEqual(product.inferredPartsOf(definition, { kind: "EnumMember", initializer: {} }), [part("enum-member-value")], "authored enumerator body");
+  fullEqual(product.inferredPartsOf(definition, { kind: "EnumMember", initializer: null }), [], "implicit enumerator has no inferred body part");
   fullEqual(product.inferredPartsOf(definition, { ...callable, kind: "FunctionDeclaration", parameters: { nodes: [] } }), [part("return")], "no receiver");
   fullEqual(product.inferredPartsOf(definition, { ...callable, kind: "FunctionDeclaration", parameters: { nodes: [parameter("value", null, {})] } }),
     [part("return"), defaultPart], "ordinary first parameter");
   fullEqual(product.inferredPartsOf(definition, { ...callable, kind: "FunctionDeclaration", parameters: { nodes: [{ name: { kind: "ObjectBindingPattern" }, type: null, initializer: {} }] } }),
     [part("return"), defaultPart], "pattern is not a receiver");
   fullEqual(product.inferredPartsOf(definition, { kind: "SourceFile" }), [], "module is not an inferred signature part");
-  const inventory = [part("return"), part("yield"), part("variable"), part("field"), defaultPart,
+  const inventory = [part("return"), part("yield"), part("variable"), part("field"), part("enum-member-value"), defaultPart,
     { ...defaultPart, part: { kind: "parameter-initializer", index: 1 } }, { definition: `${definition}/other`, part: { kind: "return" } }];
   assert.equal(new Set(inventory.map(product.inferredPartKey)).size, inventory.length, "kind, definition and ordinal each retain identity");
   assert.equal(product.inferredPartKey({ ...defaultPart }), product.inferredPartKey(defaultPart));

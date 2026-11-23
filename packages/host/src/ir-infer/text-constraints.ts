@@ -313,12 +313,13 @@ export function createConstraintsSchemas(captureValues: CaptureValuesSchemas, ca
   });
 
   const inferredPartSchema: RecordSchema<InferredPart> = unionSchema<InferredPart>("InferredPart",
-    () => [returnPartSchema, yieldPartSchema, variablePartSchema, fieldPartSchema, parameterInitializerPartSchema], value => {
+    () => [returnPartSchema, yieldPartSchema, variablePartSchema, fieldPartSchema, parameterInitializerPartSchema, enumMemberPartSchema], value => {
     switch (value.kind) {
       case "return": return returnPartSchema.stage(value);
       case "yield": return yieldPartSchema.stage(value);
       case "variable": return variablePartSchema.stage(value);
       case "field": return fieldPartSchema.stage(value);
+      case "enum-member-value": return enumMemberPartSchema.stage(value);
       case "parameter-initializer": return parameterInitializerPartSchema.stage(value);
     }
   });
@@ -338,6 +339,9 @@ export function createConstraintsSchemas(captureValues: CaptureValuesSchemas, ca
   const fieldPartSchema = recordSchema<FieldPartRecord>("FieldPart", "field", () => {
     return { fields: [], value: () => ({ kind: "field" }) };
   });
+
+  const enumMemberPartSchema = recordSchema<{ readonly kind: "enum-member-value" }>("enum-member-value", "enum-member-value", () =>
+    ({ fields: [], value: () => ({ kind: "enum-member-value" }) }));
 
   const parameterInitializerPartSchema = recordSchema<ParameterInitializerPartRecord>("ParameterInitializerPart", "parameter-initializer", read => {
     const index = read("index", () => numberSchema, value => value.index);

@@ -92,6 +92,9 @@ export const partition: GroupsOf = (deps, bodies) => {
     if (!take(1 + body.params.length)) return stop();
     for (const part of inferredPartsOf(body.owner, item)) {
       if (!take(1)) return stop();
+      if (part.part.kind === "enum-member-value" && (item.kind !== "EnumMember" || roles[position] !== "enum-member-initializer"
+        || item.initializer !== body.root || item.tsonic.initializer !== body.body))
+        return callerDefect(PORT, "an enum result must retain its actual member initializer body");
       let target = position;
       if (part.part.kind === "parameter-initializer") {
         const parameter = parameters[part.part.index];
