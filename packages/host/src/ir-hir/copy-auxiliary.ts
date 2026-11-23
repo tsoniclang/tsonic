@@ -12,10 +12,10 @@ import type {
   JSDocSignature, JSDocNameReference, SourceFile, SourceFileSyntaxReceipt, ModuleDeclaration, ImportEqualsDeclaration,
   ExportDeclaration, ImportTypeNode, ImportClause, ImportSpecifier, JSDocText,
   JSDocLink, JSDocLinkPlain, JSDocLinkCode, JSDocTypeLiteral, JSDocParameterOrPropertyTag,
-  Expression, Phase, SingleExpressionSyntax, SyntaxPhaseCopy,
+  Expression, ModuleStructureSyntax, Phase, SingleExpressionSyntax, SyntaxPhaseCopy, SyntaxStructureReceipt,
 } from "./contract.js";
 import type { SyntaxCopyPorts, SyntaxPlan } from "./copy-node.js";
-import { holdSyntaxPayload, copyNodeList, memoSyntaxPlan, syntaxHeader, withSyntaxPayload } from "./copy-node.js";
+import { holdSyntaxPayload, copyNodeList, memoSyntaxPlan, requireSyntaxStructure, syntaxHeader, withSyntaxPayload } from "./copy-node.js";
 
 export interface AuxiliaryPlans<P extends Phase, Stop, Image> {
   readonly ImportDeclaration: (node: ImportDeclaration<P>) => SyntaxPlan<ImportDeclaration<P>, Stop, Image>;
@@ -87,8 +87,12 @@ export interface AuxiliaryPlans<P extends Phase, Stop, Image> {
 
 export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: SyntaxPhaseCopy<P, Stop, Image>,
   ports: () => SyntaxCopyPorts<P, Stop, Image>, expressionOf: (node: SingleExpressionSyntax<P>) => Expression<P>,
-  sourceOf: (node: SourceFile<P>) => SourceFileSyntaxReceipt<P>):
+  sourceOf: (node: SourceFile<P>) => SourceFileSyntaxReceipt<P>, structureOf: (node: ModuleStructureSyntax<P>) => SyntaxStructureReceipt<P>):
   AuxiliaryPlans<P, Stop, Image> {
+  function structure<Kind extends SyntaxStructureReceipt<P>["kind"]>(node: ModuleStructureSyntax<P>, kind: Kind) {
+    return requireSyntaxStructure<P, Kind>(structureOf(node), kind);
+  }
+  const optional = <Value, Copied>(value: Value | null, read: (value: Value) => Copied): Copied | null => value === null ? null : read(value);
   const ImportDeclaration = new Map<ImportDeclaration<P>, SyntaxPlan<ImportDeclaration<P>, Stop, Image>>();
   const ExternalModuleReference = new Map<ExternalModuleReference<P>, SyntaxPlan<ExternalModuleReference<P>, Stop, Image>>();
   const NamespaceImport = new Map<NamespaceImport<P>, SyntaxPlan<NamespaceImport<P>, Stop, Image>>();
@@ -158,15 +162,12 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
     ImportDeclaration: node => memoSyntaxPlan(ImportDeclaration, node, () => withSyntaxPayload(phase.ImportDeclaration, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
-        importClause: node.importClause === null ? null : ports().ImportClause(node.importClause).read(),
-        moduleSpecifier: ports().Expression(node.moduleSpecifier),
-        attributes: node.attributes === null ? null : ports().ImportAttributes(node.attributes).read(),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "import-declaration");
+        return { ...header, kind, modifiers: fields.modifiers(ports().ModifierLike),
+          importClause: optional(fields.clause(), value => ports().ImportClause(value).read()), moduleSpecifier: ports().Expression(fields.specifier()),
+          attributes: optional(fields.attributes(), value => ports().ImportAttributes(value).read()), tsonic };
+      };
     })),
     ExternalModuleReference: node => memoSyntaxPlan(ExternalModuleReference, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
@@ -184,7 +185,7 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
       return tsonic => ({
         ...header,
         kind,
-        name: ports().Identifier(node.name).read(),
+        name: ports().Identifier(structure(node, "namespace-import").name()).read(),
         tsonic,
       });
     })),
@@ -194,33 +195,26 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
       return tsonic => ({
         ...header,
         kind,
-        elements: copyNodeList(node.elements, item => ports().ImportSpecifier(item).read()),
+        elements: structure(node, "named-imports").elements(item => ports().ImportSpecifier(item).read()),
         tsonic,
       });
     })),
     ExportAssignment: node => memoSyntaxPlan(ExportAssignment, node, () => withSyntaxPayload(phase.ExportAssignment, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind, isExportEquals } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
-        isExportEquals,
-        type: node.type === null ? null : ports().TypeNode(node.type),
-        expression: ports().Expression(node.expression),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "export-assignment");
+        return { ...header, kind, modifiers: fields.modifiers(ports().ModifierLike), isExportEquals,
+          type: optional(fields.type(), ports().TypeNode), expression: ports().Expression(fields.expression()), tsonic };
+      };
     })),
     NamespaceExportDeclaration: node => memoSyntaxPlan(NamespaceExportDeclaration, node, () => withSyntaxPayload(phase.NamespaceExportDeclaration, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
-        name: ports().Identifier(node.name).read(),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "namespace-export-declaration");
+        return { ...header, kind, modifiers: fields.modifiers(ports().ModifierLike), name: ports().Identifier(fields.name()).read(), tsonic };
+      };
     })),
     NamespaceExport: node => memoSyntaxPlan(NamespaceExport, node, () => withSyntaxPayload(phase.NamespaceExport, node.tsonic, () => {
       const header = syntaxHeader(node);
@@ -228,7 +222,7 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
       return tsonic => ({
         ...header,
         kind,
-        name: ports().ModuleExportName(node.name),
+        name: ports().ModuleExportName(structure(node, "namespace-export").name()),
         tsonic,
       });
     })),
@@ -238,21 +232,18 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
       return tsonic => ({
         ...header,
         kind,
-        elements: copyNodeList(node.elements, item => ports().ExportSpecifier(item).read()),
+        elements: structure(node, "named-exports").elements(item => ports().ExportSpecifier(item).read()),
         tsonic,
       });
     })),
     ExportSpecifier: node => memoSyntaxPlan(ExportSpecifier, node, () => withSyntaxPayload(phase.ExportSpecifier, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind, isTypeOnly } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        isTypeOnly,
-        propertyName: node.propertyName === null ? null : ports().ModuleExportName(node.propertyName),
-        name: ports().ModuleExportName(node.name),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "export-specifier");
+        return { ...header, kind, isTypeOnly, propertyName: optional(fields.property(), ports().ModuleExportName),
+          name: ports().ModuleExportName(fields.name()), tsonic };
+      };
     })),
     JsxElement: node => memoSyntaxPlan(JsxElement, node, () => withSyntaxPayload(phase.JsxElement, node.tsonic, () => {
       const header = syntaxHeader(node);
@@ -740,82 +731,59 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
       ({ kind: "SourceFile", ...sourceOf(node).finish(item => ports().Statement(item)), tsonic }))),
     ModuleDeclaration: node => memoSyntaxPlan(ModuleDeclaration, node, () => withSyntaxPayload(phase.ModuleDeclaration, node.tsonic, () => {
       const header = syntaxHeader(node);
-      const { kind, asteriskToken, keyword } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
-        asteriskToken,
-        body: node.body === null ? null : ports().NodeBody(node.body),
-        keyword,
-        name: ports().ModuleName(node.name),
-        tsonic,
-      });
+      const { kind, keyword } = node;
+      return tsonic => {
+        const fields = structure(node, "namespace");
+        return { ...header, kind, modifiers: fields.modifiers(ports().ModifierLike), asteriskToken: fields.asterisk(),
+          body: optional(fields.body(), ports().NodeBody), keyword, name: ports().ModuleName(fields.name()), tsonic };
+      };
     })),
     ImportEqualsDeclaration: node => memoSyntaxPlan(ImportEqualsDeclaration, node, () => withSyntaxPayload(phase.ImportEqualsDeclaration, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind, isTypeOnly } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
-        isTypeOnly,
-        name: ports().Identifier(node.name).read(),
-        moduleReference: ports().ModuleReference(node.moduleReference),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "import-equals");
+        return { ...header, kind, modifiers: fields.modifiers(ports().ModifierLike), isTypeOnly,
+          name: ports().Identifier(fields.name()).read(), moduleReference: ports().ModuleReference(fields.reference()), tsonic };
+      };
     })),
     ExportDeclaration: node => memoSyntaxPlan(ExportDeclaration, node, () => withSyntaxPayload(phase.ExportDeclaration, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind, isTypeOnly } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
-        isTypeOnly,
-        exportClause: node.exportClause === null ? null : ports().NamedExportBindings(node.exportClause),
-        moduleSpecifier: node.moduleSpecifier === null ? null : ports().Expression(node.moduleSpecifier),
-        attributes: node.attributes === null ? null : ports().ImportAttributes(node.attributes).read(),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "export-declaration");
+        return { ...header, kind, modifiers: fields.modifiers(ports().ModifierLike), isTypeOnly,
+          exportClause: optional(fields.clause(), ports().NamedExportBindings), moduleSpecifier: optional(fields.specifier(), ports().Expression),
+          attributes: optional(fields.attributes(), value => ports().ImportAttributes(value).read()), tsonic };
+      };
     })),
     ImportTypeNode: node => memoSyntaxPlan(ImportTypeNode, node, () => withSyntaxPayload(phase.ImportTypeNode, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind, isTypeOf } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        typeArguments: node.typeArguments === null ? null : copyNodeList(node.typeArguments, item => ports().TypeNode(item)),
-        isTypeOf,
-        argument: ports().TypeNode(node.argument),
-        attributes: node.attributes === null ? null : ports().ImportAttributes(node.attributes).read(),
-        qualifier: node.qualifier === null ? null : ports().EntityName(node.qualifier),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "import-type");
+        return { ...header, kind, typeArguments: fields.args(ports().TypeNode), isTypeOf, argument: ports().TypeNode(fields.argument()),
+          attributes: optional(fields.attributes(), value => ports().ImportAttributes(value).read()),
+          qualifier: optional(fields.qualifier(), ports().EntityName), tsonic };
+      };
     })),
     ImportClause: node => memoSyntaxPlan(ImportClause, node, () => withSyntaxPayload(phase.ImportClause, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind, phaseModifier } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        phaseModifier,
-        name: node.name === null ? null : ports().Identifier(node.name).read(),
-        namedBindings: node.namedBindings === null ? null : ports().NamedImportBindings(node.namedBindings),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "import-clause");
+        return { ...header, kind, phaseModifier, name: optional(fields.name(), value => ports().Identifier(value).read()),
+          namedBindings: optional(fields.bindings(), ports().NamedImportBindings), tsonic };
+      };
     })),
     ImportSpecifier: node => memoSyntaxPlan(ImportSpecifier, node, () => withSyntaxPayload(phase.ImportSpecifier, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind, isTypeOnly } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        isTypeOnly,
-        propertyName: node.propertyName === null ? null : ports().ModuleExportName(node.propertyName),
-        name: ports().Identifier(node.name).read(),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "import-specifier");
+        return { ...header, kind, isTypeOnly, propertyName: optional(fields.property(), ports().ModuleExportName),
+          name: ports().Identifier(fields.name()).read(), tsonic };
+      };
     })),
     JSDocText: node => memoSyntaxPlan(JSDocText, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);

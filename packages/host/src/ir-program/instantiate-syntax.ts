@@ -168,26 +168,21 @@ function admitSyntaxHeader(scan: ProjectionInventory, node: SyntaxNode<TypedPhas
     case "NotEmittedTypeElement":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 7);
     case "ImportDeclaration":     case "JSImportDeclaration":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11);
     case "ExternalModuleReference":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "NamespaceImport":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "NamedImports":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8)
-        ?? inventoryRecord(scan, 2);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "ExportAssignment":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11);
     case "NamespaceExportDeclaration":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "NamespaceExport":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "NamedExports":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8)
-        ?? inventoryRecord(scan, 2);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "ExportSpecifier":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10);
     case "CallSignature": case "ConstructSignature":
@@ -455,17 +450,13 @@ function admitSyntaxHeader(scan: ProjectionInventory, node: SyntaxNode<TypedPhas
     case "SourceFile":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 14);
     case "ModuleDeclaration":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 12)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 12);
     case "ImportEqualsDeclaration":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11);
     case "ExportDeclaration":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 12)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 12);
     case "ImportType":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 12)
-        ?? (node.typeArguments === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 12);
     case "ImportClause":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10);
     case "ImportSpecifier":

@@ -655,6 +655,32 @@ test("HIR copies the complete Checked constructor inventory through one paid pos
         expectList("modifiers", watch(selected, "modifiers"));
         if (selected.kind === "ClassStaticBlockDeclaration") expectFields("body");
         else expectFields("name", "postfixToken", "type", "initializer");
+      } else if (["ImportDeclaration", "JSImportDeclaration", "ExportDeclaration", "ImportEqualsDeclaration", "ModuleDeclaration",
+        "ExportAssignment", "NamespaceExportDeclaration"].includes(selected.kind)) {
+        expectedReads.push("modifiers");
+        expectList("modifiers", watch(selected, "modifiers"));
+        switch (selected.kind) {
+          case "ImportDeclaration": case "JSImportDeclaration": expectFields("importClause", "moduleSpecifier", "attributes"); break;
+          case "ExportDeclaration": expectFields("exportClause", "moduleSpecifier", "attributes"); break;
+          case "ImportEqualsDeclaration": expectFields("name", "moduleReference"); break;
+          case "ModuleDeclaration": expectFields("asteriskToken", "name", "body"); break;
+          case "ExportAssignment": expectFields("type", "expression"); break;
+          case "NamespaceExportDeclaration": expectFields("name"); break;
+        }
+      } else if (selected.kind === "ImportType") {
+        expectedReads.push("typeArguments");
+        const argumentsList = watch(selected, "typeArguments");
+        expectFields("argument", "attributes", "qualifier");
+        expectList("typeArguments", argumentsList);
+      } else if (selected.kind === "ImportClause") {
+        expectFields("name", "namedBindings");
+      } else if (selected.kind === "ImportSpecifier" || selected.kind === "ExportSpecifier") {
+        expectFields("propertyName", "name");
+      } else if (selected.kind === "NamespaceImport" || selected.kind === "NamespaceExport") {
+        expectFields("name");
+      } else if (selected.kind === "NamedImports" || selected.kind === "NamedExports") {
+        expectedReads.push("elements");
+        expectList("elements", watch(selected, "elements"));
       } else if (selected.kind === "TypeParameter") {
         expectedReads.push("modifiers");
         expectList("modifiers", watch(selected, "modifiers"));

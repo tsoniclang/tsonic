@@ -407,7 +407,7 @@ function createSyntaxPlans<P extends Phase, Stop, Image>(phase: SyntaxPhaseCopy<
   const auxiliary = createAuxiliaryPlans(phase, () => ports, expressionOf, node => {
     const receipt = structure(node);
     return receipt.kind === "source-header" ? receipt : throwInvariant(missingPreparation);
-  });
+  }, structure);
   const ports: SyntaxCopyPorts<P, Stop, Image> = {
     ...statements, ...expressions, ...types, ...auxiliary,
     EntityName: node => readRole(node, entityNameRole<P>),

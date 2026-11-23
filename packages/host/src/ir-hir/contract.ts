@@ -5193,6 +5193,35 @@ export type ExpressionStructureReceipt<P extends Phase> = {
   | { readonly kind: "synthetic-reference"; readonly expression: () => Expression<P>; readonly thisArg: () => Expression<P> }
 );
 
+export type ModuleStructureSyntax<P extends Phase> = ImportDeclaration<P> | ExportDeclaration<P> | ImportEqualsDeclaration<P>
+  | ModuleDeclaration<P> | ImportTypeNode<P> | ImportClause<P> | ImportSpecifier<P> | ExportSpecifier<P>
+  | NamespaceImport<P> | NamespaceExport<P> | NamespaceExportDeclaration<P> | NamedImports<P> | NamedExports<P> | ExportAssignment<P>;
+
+export type ModuleStructureReceipt<P extends Phase> = {
+  readonly ordinal: number;
+  readonly slots: Iterable<SyntaxChildSlot<P>>;
+} & (
+  | ({ readonly kind: "import-declaration"; readonly clause: () => ImportClause<P> | null;
+      readonly specifier: () => Expression<P>; readonly attributes: () => ImportAttributes<P> | null } & ModifiedSyntaxFields<P>)
+  | ({ readonly kind: "export-declaration"; readonly clause: () => NamedExportBindings<P> | null;
+      readonly specifier: () => Expression<P> | null; readonly attributes: () => ImportAttributes<P> | null } & ModifiedSyntaxFields<P>)
+  | ({ readonly kind: "import-equals"; readonly name: () => Identifier<P>; readonly reference: () => ModuleReference<P> } & ModifiedSyntaxFields<P>)
+  | ({ readonly kind: "namespace"; readonly asterisk: () => AsteriskToken<P> | null; readonly name: () => ModuleName<P>;
+      readonly body: () => NodeBody<P> | null } & ModifiedSyntaxFields<P>)
+  | { readonly kind: "import-type"; readonly argument: () => TypeNode<P>; readonly attributes: () => ImportAttributes<P> | null;
+      readonly qualifier: () => EntityName<P> | null;
+      readonly args: (read: (value: TypeNode<P>) => TypeNode<P>) => NodeList<TypeNode<P>> | null }
+  | { readonly kind: "import-clause"; readonly name: () => Identifier<P> | null; readonly bindings: () => NamedImportBindings<P> | null }
+  | { readonly kind: "import-specifier"; readonly property: () => ModuleExportName<P> | null; readonly name: () => Identifier<P> }
+  | { readonly kind: "export-specifier"; readonly property: () => ModuleExportName<P> | null; readonly name: () => ModuleExportName<P> }
+  | { readonly kind: "namespace-import"; readonly name: () => Identifier<P> }
+  | { readonly kind: "namespace-export"; readonly name: () => ModuleExportName<P> }
+  | ({ readonly kind: "namespace-export-declaration"; readonly name: () => Identifier<P> } & ModifiedSyntaxFields<P>)
+  | { readonly kind: "named-imports"; readonly elements: (read: (value: ImportSpecifier<P>) => ImportSpecifier<P>) => NodeList<ImportSpecifier<P>> }
+  | { readonly kind: "named-exports"; readonly elements: (read: (value: ExportSpecifier<P>) => ExportSpecifier<P>) => NodeList<ExportSpecifier<P>> }
+  | ({ readonly kind: "export-assignment"; readonly type: () => TypeNode<P> | null; readonly expression: () => Expression<P> } & ModifiedSyntaxFields<P>)
+);
+
 export interface ApplicationSyntaxReceipt<P extends Phase> {
   readonly kind: "application";
   readonly ordinal: number;
@@ -5240,14 +5269,14 @@ export type RetainedSyntaxNode<P extends Phase> = Block<P> | BinaryExpression<P>
   | UnarySyntax<P> | AnnotatedExpressionSyntax<P> | ConditionalExpression<P> | IfStatement<P>
   | PropertyAccessExpression<P> | ElementAccessExpression<P> | ArrayLiteralExpression<P> | ObjectLiteralExpression<P>
   | VariableStatement<P> | VariableDeclaration<P> | VariableDeclarationList<P> | BindingPattern<P> | BindingElement<P> | ControlSyntax<P>
-  | DeclarationStructureSyntax<P> | TypeStructureSyntax<P> | ExpressionStructureSyntax<P>;
+  | DeclarationStructureSyntax<P> | TypeStructureSyntax<P> | ExpressionStructureSyntax<P> | ModuleStructureSyntax<P>;
 export type SyntaxStructureReceipt<P extends Phase> = BlockSyntaxReceipt<P> | BinarySyntaxReceipt<P> | ReturnSyntaxReceipt<P>
   | SingleExpressionReceipt<P> | ApplicationSyntaxReceipt<P> | ParameterSyntaxReceipt<P> | SourceFileSyntaxReceipt<P> | FunctionSyntaxReceipt<P>
   | UnarySyntaxReceipt<P> | AnnotatedExpressionSyntaxReceipt<P> | ConditionalSyntaxReceipt<P> | IfSyntaxReceipt<P>
   | PropertySyntaxReceipt<P> | ElementSyntaxReceipt<P> | ArraySyntaxReceipt<P> | ObjectSyntaxReceipt<P>
   | VariableStatementSyntaxReceipt<P> | VariableDeclarationSyntaxReceipt<P> | VariableListSyntaxReceipt<P>
   | BindingPatternSyntaxReceipt<P> | BindingElementSyntaxReceipt<P> | ControlSyntaxReceipt<P> | DeclarationStructureReceipt<P>
-  | TypeStructureReceipt<P> | ExpressionStructureReceipt<P>;
+  | TypeStructureReceipt<P> | ExpressionStructureReceipt<P> | ModuleStructureReceipt<P>;
 export type SyntaxChildListField = "modifiers" | "typeParameters" | "parameters" | "typeArguments" | "arguments" | "statements"
   | "elements" | "properties" | "declarations" | "clauses" | "types" | "members" | "heritageClauses" | "attributes" | "templateSpans";
 export type PrepareSyntaxStructure = <P extends Phase, Stop>(
