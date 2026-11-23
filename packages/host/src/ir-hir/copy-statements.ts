@@ -143,11 +143,11 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       const header = syntaxHeader(node);
       return tsonic => {
         const shape = ifOf(node);
-        const expression = ports().Expression(shape.expression()).read();
-        const thenStatement = ports().Statement(shape.thenStatement()).read();
+        const expression = ports().Expression(shape.expression());
+        const thenStatement = ports().Statement(shape.thenStatement());
         const alternative = shape.elseStatement();
         return { ...header, kind: "IfStatement", expression, thenStatement,
-          elseStatement: alternative === null ? null : ports().Statement(alternative).read(), tsonic };
+          elseStatement: alternative === null ? null : ports().Statement(alternative), tsonic };
       };
     })),
     DoStatement: node => memoSyntaxPlan(DoStatement, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
@@ -156,8 +156,8 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       return tsonic => ({
         ...header,
         kind,
-        statement: ports().Statement(node.statement).read(),
-        expression: ports().Expression(node.expression).read(),
+        statement: ports().Statement(node.statement),
+        expression: ports().Expression(node.expression),
         tsonic,
       });
     })),
@@ -167,8 +167,8 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       return tsonic => ({
         ...header,
         kind,
-        statement: ports().Statement(node.statement).read(),
-        expression: ports().Expression(node.expression).read(),
+        statement: ports().Statement(node.statement),
+        expression: ports().Expression(node.expression),
         tsonic,
       });
     })),
@@ -178,10 +178,10 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       return tsonic => ({
         ...header,
         kind,
-        statement: ports().Statement(node.statement).read(),
-        initializer: node.initializer === null ? null : ports().ForInitializer(node.initializer).read(),
-        condition: node.condition === null ? null : ports().Expression(node.condition).read(),
-        incrementor: node.incrementor === null ? null : ports().Expression(node.incrementor).read(),
+        statement: ports().Statement(node.statement),
+        initializer: node.initializer === null ? null : ports().ForInitializer(node.initializer),
+        condition: node.condition === null ? null : ports().Expression(node.condition),
+        incrementor: node.incrementor === null ? null : ports().Expression(node.incrementor),
         tsonic,
       });
     })),
@@ -192,9 +192,9 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
         ...header,
         kind,
         awaitModifier,
-        initializer: ports().ForInitializer(node.initializer).read(),
-        expression: ports().Expression(node.expression).read(),
-        statement: ports().Statement(node.statement).read(),
+        initializer: ports().ForInitializer(node.initializer),
+        expression: ports().Expression(node.expression),
+        statement: ports().Statement(node.statement),
         tsonic,
       });
     })),
@@ -205,9 +205,9 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
         ...header,
         kind,
         awaitModifier,
-        initializer: ports().ForInitializer(node.initializer).read(),
-        expression: ports().Expression(node.expression).read(),
-        statement: ports().Statement(node.statement).read(),
+        initializer: ports().ForInitializer(node.initializer),
+        expression: ports().Expression(node.expression),
+        statement: ports().Statement(node.statement),
         tsonic,
       });
     })),
@@ -236,7 +236,7 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       const { kind } = node;
       return tsonic => {
         const expression = returned(node);
-        return { ...header, kind, expression: expression === null ? null : ports().Expression(expression).read(), tsonic };
+        return { ...header, kind, expression: expression === null ? null : ports().Expression(expression), tsonic };
       };
     })),
     WithStatement: node => memoSyntaxPlan(WithStatement, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
@@ -245,8 +245,8 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       return tsonic => ({
         ...header,
         kind,
-        expression: ports().Expression(node.expression).read(),
-        statement: ports().Statement(node.statement).read(),
+        expression: ports().Expression(node.expression),
+        statement: ports().Statement(node.statement),
         tsonic,
       });
     })),
@@ -256,7 +256,7 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       return tsonic => ({
         ...header,
         kind,
-        expression: ports().Expression(node.expression).read(),
+        expression: ports().Expression(node.expression),
         caseBlock: ports().CaseBlock(node.caseBlock).read(),
         tsonic,
       });
@@ -267,7 +267,7 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       return tsonic => ({
         ...header,
         kind,
-        clauses: copyNodeList(node.clauses, item => ports().CaseOrDefaultClause(item).read()),
+        clauses: copyNodeList(node.clauses, item => ports().CaseOrDefaultClause(item)),
         tsonic,
       });
     })),
@@ -277,8 +277,8 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       return tsonic => ({
         ...header,
         kind,
-        expression: ports().Expression(node.expression).read(),
-        statements: copyNodeList(node.statements, item => ports().Statement(item).read()),
+        expression: ports().Expression(node.expression),
+        statements: copyNodeList(node.statements, item => ports().Statement(item)),
         tsonic,
       });
     })),
@@ -289,7 +289,7 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
         ...header,
         kind,
         expression,
-        statements: copyNodeList(node.statements, item => ports().Statement(item).read()),
+        statements: copyNodeList(node.statements, item => ports().Statement(item)),
         tsonic,
       });
     })),
@@ -299,7 +299,7 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       return tsonic => ({
         ...header,
         kind,
-        expression: ports().Expression(expressionOf(node)).read(),
+        expression: ports().Expression(expressionOf(node)),
         tsonic,
       });
     })),
@@ -342,7 +342,7 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
         ...header,
         kind,
         label: ports().Identifier(node.label).read(),
-        statement: ports().Statement(node.statement).read(),
+        statement: ports().Statement(node.statement),
         tsonic,
       });
     })),
@@ -352,13 +352,13 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       return tsonic => ({
         ...header,
         kind,
-        expression: ports().Expression(expressionOf(node)).read(),
+        expression: ports().Expression(expressionOf(node)),
         tsonic,
       });
     })),
     Block: node => memoSyntaxPlan(Block, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => tsonic => {
       const shape = blockOf(node);
-      return { ...shape.header, kind: "Block", statements: shape.statements(item => ports().Statement(item).read()),
+      return { ...shape.header, kind: "Block", statements: shape.statements(item => ports().Statement(item)),
         multiLine: shape.multiLine, tsonic };
     })),
     VariableStatement: node => memoSyntaxPlan(VariableStatement, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
@@ -367,7 +367,7 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       return tsonic => ({
         ...header,
         kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item).read()),
+        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
         declarationList: ports().VariableDeclarationList(node.declarationList).read(),
         tsonic,
       });
@@ -378,10 +378,10 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       return tsonic => ({
         ...header,
         kind,
-        name: ports().BindingName(node.name).read(),
+        name: ports().BindingName(node.name),
         exclamationToken,
-        type: node.type === null ? null : ports().TypeNode(node.type).read(),
-        initializer: node.initializer === null ? null : ports().Expression(node.initializer).read(),
+        type: node.type === null ? null : ports().TypeNode(node.type),
+        initializer: node.initializer === null ? null : ports().Expression(node.initializer),
         tsonic,
       });
     })),
@@ -415,12 +415,12 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
         return {
           ...shape.header,
           kind: "Parameter",
-          modifiers: shape.modifiers(item => ports().ModifierLike(item).read()),
+          modifiers: shape.modifiers(item => ports().ModifierLike(item)),
           dotDotDotToken: shape.dotDotDotToken(),
-          name: ports().BindingName(shape.name()).read(),
+          name: ports().BindingName(shape.name()),
           questionToken: shape.questionToken(),
-          type: type === null ? null : ports().TypeNode(type).read(),
-          initializer: copyInitializer(node, child => ports().Expression(child).read(), image),
+          type: type === null ? null : ports().TypeNode(type),
+          initializer: copyInitializer(node, child => ports().Expression(child), image),
           tsonic,
         };
       });
@@ -432,9 +432,9 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
         ...header,
         kind,
         dotDotDotToken,
-        propertyName: node.propertyName === null ? null : ports().PropertyName(node.propertyName).read(),
-        name: node.name === null ? null : ports().BindingName(node.name).read(),
-        initializer: node.initializer === null ? null : ports().Expression(node.initializer).read(),
+        propertyName: node.propertyName === null ? null : ports().PropertyName(node.propertyName),
+        name: node.name === null ? null : ports().BindingName(node.name),
+        initializer: node.initializer === null ? null : ports().Expression(node.initializer),
         tsonic,
       });
     })),
@@ -444,7 +444,7 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       return tsonic => ({
         ...header,
         kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item).read()),
+        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
         tsonic,
       });
     })),
@@ -456,11 +456,11 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       return tsonic => ({
         ...header,
         kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item).read()),
+        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
         name: node.name === null ? null : ports().Identifier(node.name).read(),
         typeParameters: node.typeParameters === null ? null : copyNodeList(node.typeParameters, item => ports().TypeParameterDeclaration(item).read()),
         heritageClauses: node.heritageClauses === null ? null : copyNodeList(node.heritageClauses, item => ports().HeritageClause(item).read()),
-        members: copyNodeList(node.members, item => ports().ClassElement(item).read()),
+        members: copyNodeList(node.members, item => ports().ClassElement(item)),
         tsonic,
       });
     })),
@@ -470,11 +470,11 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       return tsonic => ({
         ...header,
         kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item).read()),
+        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
         name: node.name === null ? null : ports().Identifier(node.name).read(),
         typeParameters: node.typeParameters === null ? null : copyNodeList(node.typeParameters, item => ports().TypeParameterDeclaration(item).read()),
         heritageClauses: node.heritageClauses === null ? null : copyNodeList(node.heritageClauses, item => ports().HeritageClause(item).read()),
-        members: copyNodeList(node.members, item => ports().ClassElement(item).read()),
+        members: copyNodeList(node.members, item => ports().ClassElement(item)),
         tsonic,
       });
     })),
@@ -495,11 +495,11 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       return tsonic => ({
         ...header,
         kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item).read()),
+        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
         name: ports().Identifier(node.name).read(),
         typeParameters: node.typeParameters === null ? null : copyNodeList(node.typeParameters, item => ports().TypeParameterDeclaration(item).read()),
         heritageClauses: node.heritageClauses === null ? null : copyNodeList(node.heritageClauses, item => ports().HeritageClause(item).read()),
-        members: copyNodeList(node.members, item => ports().TypeElement(item).read()),
+        members: copyNodeList(node.members, item => ports().TypeElement(item)),
         tsonic,
       });
     })),
@@ -509,10 +509,10 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       return tsonic => ({
         ...header,
         kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item).read()),
+        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
         name: ports().Identifier(node.name).read(),
         typeParameters: node.typeParameters === null ? null : copyNodeList(node.typeParameters, item => ports().TypeParameterDeclaration(item).read()),
-        type: ports().TypeNode(node.type).read(),
+        type: ports().TypeNode(node.type),
         tsonic,
       });
     })),
@@ -522,10 +522,10 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       return tsonic => ({
         ...header,
         kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item).read()),
-        name: ports().PropertyName(node.name).read(),
+        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
+        name: ports().PropertyName(node.name),
         postfixToken,
-        initializer: node.initializer === null ? null : ports().Expression(node.initializer).read(),
+        initializer: node.initializer === null ? null : ports().Expression(node.initializer),
         tsonic,
       });
     })),
@@ -535,7 +535,7 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       return tsonic => ({
         ...header,
         kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item).read()),
+        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
         name: ports().Identifier(node.name).read(),
         members: copyNodeList(node.members, item => ports().EnumMember(item).read()),
         tsonic,
@@ -547,7 +547,7 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       return tsonic => ({
         ...header,
         kind,
-        statements: copyNodeList(node.statements, item => ports().Statement(item).read()),
+        statements: copyNodeList(node.statements, item => ports().Statement(item)),
         tsonic,
       });
     })),
@@ -577,8 +577,8 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
         kind,
         typeParameters: node.typeParameters === null ? null : copyNodeList(node.typeParameters, item => ports().TypeParameterDeclaration(item).read()),
         parameters: copyNodeList(node.parameters, item => ports().ParameterDeclaration(item).read()),
-        type: node.type === null ? null : ports().TypeNode(node.type).read(),
-        fullSignature: node.fullSignature === null ? null : ports().TypeNode(node.fullSignature).read(),
+        type: node.type === null ? null : ports().TypeNode(node.type),
+        fullSignature: node.fullSignature === null ? null : ports().TypeNode(node.fullSignature),
         tsonic,
       });
     })),
@@ -590,8 +590,8 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
         kind,
         typeParameters: node.typeParameters === null ? null : copyNodeList(node.typeParameters, item => ports().TypeParameterDeclaration(item).read()),
         parameters: copyNodeList(node.parameters, item => ports().ParameterDeclaration(item).read()),
-        type: node.type === null ? null : ports().TypeNode(node.type).read(),
-        fullSignature: node.fullSignature === null ? null : ports().TypeNode(node.fullSignature).read(),
+        type: node.type === null ? null : ports().TypeNode(node.type),
+        fullSignature: node.fullSignature === null ? null : ports().TypeNode(node.fullSignature),
         tsonic,
       });
     })),
@@ -601,13 +601,13 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       return tsonic => ({
         ...header,
         kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item).read()),
+        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
         typeParameters: node.typeParameters === null ? null : copyNodeList(node.typeParameters, item => ports().TypeParameterDeclaration(item).read()),
         parameters: copyNodeList(node.parameters, item => ports().ParameterDeclaration(item).read()),
-        type: node.type === null ? null : ports().TypeNode(node.type).read(),
-        fullSignature: node.fullSignature === null ? null : ports().TypeNode(node.fullSignature).read(),
+        type: node.type === null ? null : ports().TypeNode(node.type),
+        fullSignature: node.fullSignature === null ? null : ports().TypeNode(node.fullSignature),
         asteriskToken,
-        body: node.body === null ? null : ports().BlockOrExpression(node.body).read(),
+        body: node.body === null ? null : ports().BlockOrExpression(node.body),
         tsonic,
       });
     })),
@@ -617,15 +617,15 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       return tsonic => ({
         ...header,
         kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item).read()),
-        name: ports().PropertyName(node.name).read(),
+        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
+        name: ports().PropertyName(node.name),
         postfixToken,
         typeParameters: node.typeParameters === null ? null : copyNodeList(node.typeParameters, item => ports().TypeParameterDeclaration(item).read()),
         parameters: copyNodeList(node.parameters, item => ports().ParameterDeclaration(item).read()),
-        type: node.type === null ? null : ports().TypeNode(node.type).read(),
-        fullSignature: node.fullSignature === null ? null : ports().TypeNode(node.fullSignature).read(),
+        type: node.type === null ? null : ports().TypeNode(node.type),
+        fullSignature: node.fullSignature === null ? null : ports().TypeNode(node.fullSignature),
         asteriskToken,
-        body: node.body === null ? null : ports().BlockOrExpression(node.body).read(),
+        body: node.body === null ? null : ports().BlockOrExpression(node.body),
         tsonic,
       });
     })),
@@ -635,15 +635,15 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       return tsonic => ({
         ...header,
         kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item).read()),
-        name: ports().PropertyName(node.name).read(),
+        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
+        name: ports().PropertyName(node.name),
         postfixToken,
         typeParameters: node.typeParameters === null ? null : copyNodeList(node.typeParameters, item => ports().TypeParameterDeclaration(item).read()),
         parameters: copyNodeList(node.parameters, item => ports().ParameterDeclaration(item).read()),
-        type: node.type === null ? null : ports().TypeNode(node.type).read(),
-        fullSignature: node.fullSignature === null ? null : ports().TypeNode(node.fullSignature).read(),
+        type: node.type === null ? null : ports().TypeNode(node.type),
+        fullSignature: node.fullSignature === null ? null : ports().TypeNode(node.fullSignature),
         asteriskToken,
-        body: node.body === null ? null : ports().BlockOrExpression(node.body).read(),
+        body: node.body === null ? null : ports().BlockOrExpression(node.body),
         tsonic,
       });
     })),
@@ -653,11 +653,11 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       return tsonic => ({
         ...header,
         kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item).read()),
+        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
         typeParameters: node.typeParameters === null ? null : copyNodeList(node.typeParameters, item => ports().TypeParameterDeclaration(item).read()),
         parameters: copyNodeList(node.parameters, item => ports().ParameterDeclaration(item).read()),
-        type: node.type === null ? null : ports().TypeNode(node.type).read(),
-        fullSignature: node.fullSignature === null ? null : ports().TypeNode(node.fullSignature).read(),
+        type: node.type === null ? null : ports().TypeNode(node.type),
+        fullSignature: node.fullSignature === null ? null : ports().TypeNode(node.fullSignature),
         tsonic,
       });
     })),
@@ -667,13 +667,13 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       return tsonic => ({
         ...header,
         kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item).read()),
-        name: ports().PropertyName(node.name).read(),
+        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
+        name: ports().PropertyName(node.name),
         postfixToken,
         typeParameters: node.typeParameters === null ? null : copyNodeList(node.typeParameters, item => ports().TypeParameterDeclaration(item).read()),
         parameters: copyNodeList(node.parameters, item => ports().ParameterDeclaration(item).read()),
-        type: node.type === null ? null : ports().TypeNode(node.type).read(),
-        fullSignature: node.fullSignature === null ? null : ports().TypeNode(node.fullSignature).read(),
+        type: node.type === null ? null : ports().TypeNode(node.type),
+        fullSignature: node.fullSignature === null ? null : ports().TypeNode(node.fullSignature),
         tsonic,
       });
     })),
@@ -683,15 +683,15 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       return tsonic => ({
         ...header,
         kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item).read()),
-        name: ports().PropertyName(node.name).read(),
+        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
+        name: ports().PropertyName(node.name),
         postfixToken,
         typeParameters: node.typeParameters === null ? null : copyNodeList(node.typeParameters, item => ports().TypeParameterDeclaration(item).read()),
         parameters: copyNodeList(node.parameters, item => ports().ParameterDeclaration(item).read()),
-        type: node.type === null ? null : ports().TypeNode(node.type).read(),
-        fullSignature: node.fullSignature === null ? null : ports().TypeNode(node.fullSignature).read(),
+        type: node.type === null ? null : ports().TypeNode(node.type),
+        fullSignature: node.fullSignature === null ? null : ports().TypeNode(node.fullSignature),
         asteriskToken,
-        body: node.body === null ? null : ports().BlockOrExpression(node.body).read(),
+        body: node.body === null ? null : ports().BlockOrExpression(node.body),
         tsonic,
       });
     })),
@@ -701,11 +701,11 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       return tsonic => ({
         ...header,
         kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item).read()),
-        name: ports().PropertyName(node.name).read(),
+        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
+        name: ports().PropertyName(node.name),
         postfixToken,
-        type: node.type === null ? null : ports().TypeNode(node.type).read(),
-        initializer: node.initializer === null ? null : ports().Expression(node.initializer).read(),
+        type: node.type === null ? null : ports().TypeNode(node.type),
+        initializer: node.initializer === null ? null : ports().Expression(node.initializer),
         tsonic,
       });
     })),
@@ -715,11 +715,11 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       return tsonic => ({
         ...header,
         kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item).read()),
-        name: ports().PropertyName(node.name).read(),
+        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
+        name: ports().PropertyName(node.name),
         postfixToken,
-        type: node.type === null ? null : ports().TypeNode(node.type).read(),
-        initializer: node.initializer === null ? null : ports().Expression(node.initializer).read(),
+        type: node.type === null ? null : ports().TypeNode(node.type),
+        initializer: node.initializer === null ? null : ports().Expression(node.initializer),
         tsonic,
       });
     })),
@@ -738,7 +738,7 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       return tsonic => ({
         ...header,
         kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item).read()),
+        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
         body: ports().Block(node.body).read(),
         tsonic,
       });

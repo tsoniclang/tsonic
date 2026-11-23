@@ -161,9 +161,9 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
       return tsonic => ({
         ...header,
         kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item).read()),
+        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
         importClause: node.importClause === null ? null : ports().ImportClause(node.importClause).read(),
-        moduleSpecifier: ports().Expression(node.moduleSpecifier).read(),
+        moduleSpecifier: ports().Expression(node.moduleSpecifier),
         attributes: node.attributes === null ? null : ports().ImportAttributes(node.attributes).read(),
         tsonic,
       });
@@ -174,7 +174,7 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
       return tsonic => ({
         ...header,
         kind,
-        expression: ports().Expression(expressionOf(node)).read(),
+        expression: ports().Expression(expressionOf(node)),
         tsonic,
       });
     })),
@@ -204,10 +204,10 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
       return tsonic => ({
         ...header,
         kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item).read()),
+        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
         isExportEquals,
-        type: node.type === null ? null : ports().TypeNode(node.type).read(),
-        expression: ports().Expression(node.expression).read(),
+        type: node.type === null ? null : ports().TypeNode(node.type),
+        expression: ports().Expression(node.expression),
         tsonic,
       });
     })),
@@ -217,7 +217,7 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
       return tsonic => ({
         ...header,
         kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item).read()),
+        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
         name: ports().Identifier(node.name).read(),
         tsonic,
       });
@@ -228,7 +228,7 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
       return tsonic => ({
         ...header,
         kind,
-        name: ports().ModuleExportName(node.name).read(),
+        name: ports().ModuleExportName(node.name),
         tsonic,
       });
     })),
@@ -249,8 +249,8 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
         ...header,
         kind,
         isTypeOnly,
-        propertyName: node.propertyName === null ? null : ports().ModuleExportName(node.propertyName).read(),
-        name: ports().ModuleExportName(node.name).read(),
+        propertyName: node.propertyName === null ? null : ports().ModuleExportName(node.propertyName),
+        name: ports().ModuleExportName(node.name),
         tsonic,
       });
     })),
@@ -261,7 +261,7 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
         ...header,
         kind,
         openingElement: ports().JsxOpeningElement(node.openingElement).read(),
-        children: copyNodeList(node.children, item => ports().JsxChild(item).read()),
+        children: copyNodeList(node.children, item => ports().JsxChild(item)),
         closingElement: ports().JsxClosingElement(node.closingElement).read(),
         tsonic,
       });
@@ -272,7 +272,7 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
       return tsonic => ({
         ...header,
         kind,
-        properties: copyNodeList(node.properties, item => ports().JsxAttributeLike(item).read()),
+        properties: copyNodeList(node.properties, item => ports().JsxAttributeLike(item)),
         tsonic,
       });
     })),
@@ -293,8 +293,8 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
       return tsonic => ({
         ...header,
         kind,
-        tagName: ports().JsxTagNameExpression(node.tagName).read(),
-        typeArguments: node.typeArguments === null ? null : copyNodeList(node.typeArguments, item => ports().TypeNode(item).read()),
+        tagName: ports().JsxTagNameExpression(node.tagName),
+        typeArguments: node.typeArguments === null ? null : copyNodeList(node.typeArguments, item => ports().TypeNode(item)),
         attributes: ports().JsxAttributes(node.attributes).read(),
         tsonic,
       });
@@ -305,8 +305,8 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
       return tsonic => ({
         ...header,
         kind,
-        tagName: ports().JsxTagNameExpression(node.tagName).read(),
-        typeArguments: node.typeArguments === null ? null : copyNodeList(node.typeArguments, item => ports().TypeNode(item).read()),
+        tagName: ports().JsxTagNameExpression(node.tagName),
+        typeArguments: node.typeArguments === null ? null : copyNodeList(node.typeArguments, item => ports().TypeNode(item)),
         attributes: ports().JsxAttributes(node.attributes).read(),
         tsonic,
       });
@@ -318,7 +318,7 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
         ...header,
         kind,
         openingFragment: ports().JsxOpeningFragment(node.openingFragment).read(),
-        children: copyNodeList(node.children, item => ports().JsxChild(item).read()),
+        children: copyNodeList(node.children, item => ports().JsxChild(item)),
         closingFragment: ports().JsxClosingFragment(node.closingFragment).read(),
         tsonic,
       });
@@ -347,8 +347,8 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
       return tsonic => ({
         ...header,
         kind,
-        name: ports().JsxAttributeName(node.name).read(),
-        initializer: node.initializer === null ? null : ports().JsxAttributeValue(node.initializer).read(),
+        name: ports().JsxAttributeName(node.name),
+        initializer: node.initializer === null ? null : ports().JsxAttributeValue(node.initializer),
         tsonic,
       });
     })),
@@ -358,7 +358,7 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
       return tsonic => ({
         ...header,
         kind,
-        expression: ports().Expression(expressionOf(node)).read(),
+        expression: ports().Expression(expressionOf(node)),
         tsonic,
       });
     })),
@@ -368,7 +368,7 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
       return tsonic => ({
         ...header,
         kind,
-        tagName: ports().JsxTagNameExpression(node.tagName).read(),
+        tagName: ports().JsxTagNameExpression(node.tagName),
         tsonic,
       });
     })),
@@ -379,7 +379,7 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
         ...header,
         kind,
         dotDotDotToken,
-        expression: node.expression === null ? null : ports().Expression(node.expression).read(),
+        expression: node.expression === null ? null : ports().Expression(node.expression),
         tsonic,
       });
     })),
@@ -401,7 +401,7 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
       return tsonic => ({
         ...header,
         kind,
-        children: node.children.map(item => ports().SyntaxNode(item).read()),
+        children: node.children.map(item => ports().SyntaxNode(item)),
         tsonic,
       });
     })),
@@ -411,8 +411,8 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
       return tsonic => ({
         ...header,
         kind,
-        comment: copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
-        tags: node.tags === null ? null : copyNodeList(node.tags, item => ports().JSDocTag(item).read()),
+        comment: copyNodeList(node.comment, item => ports().JSDocComment(item)),
+        tags: node.tags === null ? null : copyNodeList(node.tags, item => ports().JSDocTag(item)),
         tsonic,
       });
     })),
@@ -422,7 +422,7 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
       return tsonic => ({
         ...header,
         kind,
-        type: ports().TypeNode(node.type).read(),
+        type: ports().TypeNode(node.type),
         tsonic,
       });
     })),
@@ -432,7 +432,7 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
       return tsonic => ({
         ...header,
         kind,
-        type: ports().TypeNode(node.type).read(),
+        type: ports().TypeNode(node.type),
         tsonic,
       });
     })),
@@ -442,7 +442,7 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
       return tsonic => ({
         ...header,
         kind,
-        type: ports().TypeNode(node.type).read(),
+        type: ports().TypeNode(node.type),
         tsonic,
       });
     })),
@@ -461,7 +461,7 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
       return tsonic => ({
         ...header,
         kind,
-        type: ports().TypeNode(node.type).read(),
+        type: ports().TypeNode(node.type),
         tsonic,
       });
     })),
@@ -471,7 +471,7 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
       return tsonic => ({
         ...header,
         kind,
-        type: ports().TypeNode(node.type).read(),
+        type: ports().TypeNode(node.type),
         tsonic,
       });
     })),
@@ -482,8 +482,8 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
         ...header,
         kind,
         tagName: ports().Identifier(node.tagName).read(),
-        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
-        typeExpression: ports().SyntaxNode(node.typeExpression).read(),
+        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item)),
+        typeExpression: ports().SyntaxNode(node.typeExpression),
         tsonic,
       });
     })),
@@ -494,7 +494,7 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
         ...header,
         kind,
         tagName: ports().Identifier(node.tagName).read(),
-        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
+        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item)),
         tsonic,
       });
     })),
@@ -505,8 +505,8 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
         ...header,
         kind,
         tagName: ports().Identifier(node.tagName).read(),
-        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
-        constraint: ports().SyntaxNode(node.constraint).read(),
+        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item)),
+        constraint: ports().SyntaxNode(node.constraint),
         typeParameters: copyNodeList(node.typeParameters, item => ports().TypeParameterDeclaration(item).read()),
         tsonic,
       });
@@ -518,8 +518,8 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
         ...header,
         kind,
         tagName: ports().Identifier(node.tagName).read(),
-        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
-        typeExpression: node.typeExpression === null ? null : ports().TypeNode(node.typeExpression).read(),
+        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item)),
+        typeExpression: node.typeExpression === null ? null : ports().TypeNode(node.typeExpression),
         tsonic,
       });
     })),
@@ -530,7 +530,7 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
         ...header,
         kind,
         tagName: ports().Identifier(node.tagName).read(),
-        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
+        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item)),
         tsonic,
       });
     })),
@@ -541,7 +541,7 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
         ...header,
         kind,
         tagName: ports().Identifier(node.tagName).read(),
-        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
+        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item)),
         tsonic,
       });
     })),
@@ -552,7 +552,7 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
         ...header,
         kind,
         tagName: ports().Identifier(node.tagName).read(),
-        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
+        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item)),
         tsonic,
       });
     })),
@@ -563,7 +563,7 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
         ...header,
         kind,
         tagName: ports().Identifier(node.tagName).read(),
-        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
+        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item)),
         tsonic,
       });
     })),
@@ -574,7 +574,7 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
         ...header,
         kind,
         tagName: ports().Identifier(node.tagName).read(),
-        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
+        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item)),
         tsonic,
       });
     })),
@@ -585,7 +585,7 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
         ...header,
         kind,
         tagName: ports().Identifier(node.tagName).read(),
-        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
+        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item)),
         tsonic,
       });
     })),
@@ -596,8 +596,8 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
         ...header,
         kind,
         tagName: ports().Identifier(node.tagName).read(),
-        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
-        nameExpression: ports().TypeNode(node.nameExpression).read(),
+        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item)),
+        nameExpression: ports().TypeNode(node.nameExpression),
         tsonic,
       });
     })),
@@ -608,7 +608,7 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
         ...header,
         kind,
         tagName: ports().Identifier(node.tagName).read(),
-        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
+        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item)),
         className: ports().ExpressionWithTypeArguments(node.className).read(),
         tsonic,
       });
@@ -620,7 +620,7 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
         ...header,
         kind,
         tagName: ports().Identifier(node.tagName).read(),
-        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
+        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item)),
         className: ports().ExpressionWithTypeArguments(node.className).read(),
         tsonic,
       });
@@ -632,8 +632,8 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
         ...header,
         kind,
         tagName: ports().Identifier(node.tagName).read(),
-        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
-        typeExpression: ports().TypeNode(node.typeExpression).read(),
+        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item)),
+        typeExpression: ports().TypeNode(node.typeExpression),
         tsonic,
       });
     })),
@@ -644,8 +644,8 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
         ...header,
         kind,
         tagName: ports().Identifier(node.tagName).read(),
-        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
-        typeExpression: node.typeExpression === null ? null : ports().TypeNode(node.typeExpression).read(),
+        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item)),
+        typeExpression: node.typeExpression === null ? null : ports().TypeNode(node.typeExpression),
         tsonic,
       });
     })),
@@ -656,8 +656,8 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
         ...header,
         kind,
         tagName: ports().Identifier(node.tagName).read(),
-        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
-        typeExpression: ports().TypeNode(node.typeExpression).read(),
+        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item)),
+        typeExpression: ports().TypeNode(node.typeExpression),
         tsonic,
       });
     })),
@@ -668,9 +668,9 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
         ...header,
         kind,
         tagName: ports().Identifier(node.tagName).read(),
-        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
+        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item)),
         importClause: node.importClause === null ? null : ports().ImportClause(node.importClause).read(),
-        moduleSpecifier: ports().Expression(node.moduleSpecifier).read(),
+        moduleSpecifier: ports().Expression(node.moduleSpecifier),
         attributes: node.attributes === null ? null : ports().ImportAttributes(node.attributes).read(),
         tsonic,
       });
@@ -682,9 +682,9 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
         ...header,
         kind,
         tagName: ports().Identifier(node.tagName).read(),
-        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
-        typeExpression: ports().TypeNode(node.typeExpression).read(),
-        name: node.name === null ? null : ports().JSDocFullName(node.name).read(),
+        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item)),
+        typeExpression: ports().TypeNode(node.typeExpression),
+        name: node.name === null ? null : ports().JSDocFullName(node.name),
         tsonic,
       });
     })),
@@ -695,8 +695,8 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
         ...header,
         kind,
         tagName: ports().Identifier(node.tagName).read(),
-        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
-        typeExpression: ports().TypeNode(node.typeExpression).read(),
+        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item)),
+        typeExpression: ports().TypeNode(node.typeExpression),
         tsonic,
       });
     })),
@@ -707,9 +707,9 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
         ...header,
         kind,
         tagName: ports().Identifier(node.tagName).read(),
-        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
-        typeExpression: node.typeExpression === null ? null : ports().SyntaxNode(node.typeExpression).read(),
-        name: node.name === null ? null : ports().JSDocFullName(node.name).read(),
+        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item)),
+        typeExpression: node.typeExpression === null ? null : ports().SyntaxNode(node.typeExpression),
+        name: node.name === null ? null : ports().JSDocFullName(node.name),
         tsonic,
       });
     })),
@@ -721,8 +721,8 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
         kind,
         typeParameters: node.typeParameters === null ? null : copyNodeList(node.typeParameters, item => ports().TypeParameterDeclaration(item).read()),
         parameters: copyNodeList(node.parameters, item => ports().ParameterDeclaration(item).read()),
-        type: node.type === null ? null : ports().TypeNode(node.type).read(),
-        fullSignature: node.fullSignature === null ? null : ports().TypeNode(node.fullSignature).read(),
+        type: node.type === null ? null : ports().TypeNode(node.type),
+        fullSignature: node.fullSignature === null ? null : ports().TypeNode(node.fullSignature),
         tsonic,
       });
     })),
@@ -732,23 +732,23 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
       return tsonic => ({
         ...header,
         kind,
-        name: ports().EntityName(node.name).read(),
+        name: ports().EntityName(node.name),
         tsonic,
       });
     })),
     SourceFile: node => memoSyntaxPlan(SourceFile, node, () => withSyntaxPayload(phase.SourceFile, node.tsonic, () => tsonic =>
-      ({ kind: "SourceFile", ...sourceOf(node).finish(item => ports().Statement(item).read()), tsonic }))),
+      ({ kind: "SourceFile", ...sourceOf(node).finish(item => ports().Statement(item)), tsonic }))),
     ModuleDeclaration: node => memoSyntaxPlan(ModuleDeclaration, node, () => withSyntaxPayload(phase.ModuleDeclaration, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind, asteriskToken, keyword } = node;
       return tsonic => ({
         ...header,
         kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item).read()),
+        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
         asteriskToken,
-        body: node.body === null ? null : ports().NodeBody(node.body).read(),
+        body: node.body === null ? null : ports().NodeBody(node.body),
         keyword,
-        name: ports().ModuleName(node.name).read(),
+        name: ports().ModuleName(node.name),
         tsonic,
       });
     })),
@@ -758,10 +758,10 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
       return tsonic => ({
         ...header,
         kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item).read()),
+        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
         isTypeOnly,
         name: ports().Identifier(node.name).read(),
-        moduleReference: ports().ModuleReference(node.moduleReference).read(),
+        moduleReference: ports().ModuleReference(node.moduleReference),
         tsonic,
       });
     })),
@@ -771,10 +771,10 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
       return tsonic => ({
         ...header,
         kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item).read()),
+        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
         isTypeOnly,
-        exportClause: node.exportClause === null ? null : ports().NamedExportBindings(node.exportClause).read(),
-        moduleSpecifier: node.moduleSpecifier === null ? null : ports().Expression(node.moduleSpecifier).read(),
+        exportClause: node.exportClause === null ? null : ports().NamedExportBindings(node.exportClause),
+        moduleSpecifier: node.moduleSpecifier === null ? null : ports().Expression(node.moduleSpecifier),
         attributes: node.attributes === null ? null : ports().ImportAttributes(node.attributes).read(),
         tsonic,
       });
@@ -785,11 +785,11 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
       return tsonic => ({
         ...header,
         kind,
-        typeArguments: node.typeArguments === null ? null : copyNodeList(node.typeArguments, item => ports().TypeNode(item).read()),
+        typeArguments: node.typeArguments === null ? null : copyNodeList(node.typeArguments, item => ports().TypeNode(item)),
         isTypeOf,
-        argument: ports().TypeNode(node.argument).read(),
+        argument: ports().TypeNode(node.argument),
         attributes: node.attributes === null ? null : ports().ImportAttributes(node.attributes).read(),
-        qualifier: node.qualifier === null ? null : ports().EntityName(node.qualifier).read(),
+        qualifier: node.qualifier === null ? null : ports().EntityName(node.qualifier),
         tsonic,
       });
     })),
@@ -801,7 +801,7 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
         kind,
         phaseModifier,
         name: node.name === null ? null : ports().Identifier(node.name).read(),
-        namedBindings: node.namedBindings === null ? null : ports().NamedImportBindings(node.namedBindings).read(),
+        namedBindings: node.namedBindings === null ? null : ports().NamedImportBindings(node.namedBindings),
         tsonic,
       });
     })),
@@ -812,7 +812,7 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
         ...header,
         kind,
         isTypeOnly,
-        propertyName: node.propertyName === null ? null : ports().ModuleExportName(node.propertyName).read(),
+        propertyName: node.propertyName === null ? null : ports().ModuleExportName(node.propertyName),
         name: ports().Identifier(node.name).read(),
         tsonic,
       });
@@ -834,7 +834,7 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
         ...header,
         kind,
         text,
-        name: node.name === null ? null : ports().EntityName(node.name).read(),
+        name: node.name === null ? null : ports().EntityName(node.name),
         tsonic,
       });
     })),
@@ -845,7 +845,7 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
         ...header,
         kind,
         text,
-        name: node.name === null ? null : ports().EntityName(node.name).read(),
+        name: node.name === null ? null : ports().EntityName(node.name),
         tsonic,
       });
     })),
@@ -856,7 +856,7 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
         ...header,
         kind,
         text,
-        name: node.name === null ? null : ports().EntityName(node.name).read(),
+        name: node.name === null ? null : ports().EntityName(node.name),
         tsonic,
       });
     })),
@@ -866,7 +866,7 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
       return tsonic => ({
         ...header,
         kind,
-        jsDocPropertyTags: node.jsDocPropertyTags === null ? null : node.jsDocPropertyTags.map(item => ports().JSDocTag(item).read()),
+        jsDocPropertyTags: node.jsDocPropertyTags === null ? null : node.jsDocPropertyTags.map(item => ports().JSDocTag(item)),
         isArrayType,
         tsonic,
       });
@@ -878,10 +878,10 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
         ...header,
         kind,
         tagName: ports().Identifier(node.tagName).read(),
-        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item).read()),
-        name: ports().EntityName(node.name).read(),
+        comment: node.comment === null ? null : copyNodeList(node.comment, item => ports().JSDocComment(item)),
+        name: ports().EntityName(node.name),
         isBracketed,
-        typeExpression: node.typeExpression === null ? null : ports().TypeNode(node.typeExpression).read(),
+        typeExpression: node.typeExpression === null ? null : ports().TypeNode(node.typeExpression),
         isNameFirst,
         tsonic,
       });

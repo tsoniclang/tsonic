@@ -3960,13 +3960,21 @@ test("actual TIR node prepare reads its lexical payload once before later siblin
     const meter = createInstantiationMeter(bounds);
     const scan = createProjectionInventory(meter, { parameterBinding: identity, selfBinding: identity }, path => assert.fail(path));
     const root = structuredClone(specimen.module.tree.root);
-    const original = root.statements.nodes[0].node.expression.type.types.nodes;
+    const cast = root.statements.nodes[0].node.expression;
+    const original = cast.type.types.nodes;
     const earlier = original[0].typeParameter;
     const later = original[1];
     const authored = earlier.tsonic;
     const name = earlier.name;
     const text = name.text;
     const scalar = { sealed: false, reads: 0 };
+    for (const [role, operand] of [["expression", cast.expression], ["type", cast.type]]) {
+      const kind = operand.kind;
+      Object.defineProperty(operand, "kind", { get() {
+        assert.equal(scalar.sealed, false, `an admitted ${role} must use its retained discriminator`);
+        return kind;
+      } });
+    }
     Object.defineProperty(name, "text", { get() {
       assert.equal(scalar.sealed, false, "typed identifier text must be earned before materialization");
       scalar.reads += 1;

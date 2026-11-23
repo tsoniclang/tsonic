@@ -270,41 +270,41 @@ export interface SyntaxCopyPorts<P extends Phase, Stop, Image> {
   readonly SyntheticReferenceExpression: (node: SyntheticReferenceExpression<P>) => SyntaxPlan<SyntheticReferenceExpression<P>, Stop, Image>;
   readonly JSDocTypeLiteral: (node: JSDocTypeLiteral<P>) => SyntaxPlan<JSDocTypeLiteral<P>, Stop, Image>;
   readonly JSDocParameterOrPropertyTag: (node: JSDocParameterOrPropertyTag<P>) => SyntaxPlan<JSDocParameterOrPropertyTag<P>, Stop, Image>;
-  readonly EntityName: (node: EntityName<P>) => SyntaxPlan<EntityName<P>, Stop, Image>;
-  readonly Expression: (node: Expression<P>) => SyntaxPlan<Expression<P>, Stop, Image>;
-  readonly LeftHandSideExpression: (node: LeftHandSideExpression<P>) => SyntaxPlan<LeftHandSideExpression<P>, Stop, Image>;
-  readonly Statement: (node: Statement<P>) => SyntaxPlan<Statement<P>, Stop, Image>;
-  readonly ForInitializer: (node: ForInitializer<P>) => SyntaxPlan<ForInitializer<P>, Stop, Image>;
-  readonly CaseOrDefaultClause: (node: CaseOrDefaultClause<P>) => SyntaxPlan<CaseOrDefaultClause<P>, Stop, Image>;
-  readonly BindingName: (node: BindingName<P>) => SyntaxPlan<BindingName<P>, Stop, Image>;
-  readonly TypeNode: (node: TypeNode<P>) => SyntaxPlan<TypeNode<P>, Stop, Image>;
-  readonly PropertyName: (node: PropertyName<P>) => SyntaxPlan<PropertyName<P>, Stop, Image>;
-  readonly BlockOrExpression: (node: BlockOrExpression<P>) => SyntaxPlan<BlockOrExpression<P>, Stop, Image>;
-  readonly ClassElement: (node: ClassElement<P>) => SyntaxPlan<ClassElement<P>, Stop, Image>;
-  readonly TypeElement: (node: TypeElement<P>) => SyntaxPlan<TypeElement<P>, Stop, Image>;
-  readonly ModuleExportName: (node: ModuleExportName<P>) => SyntaxPlan<ModuleExportName<P>, Stop, Image>;
-  readonly MemberName: (node: MemberName<P>) => SyntaxPlan<MemberName<P>, Stop, Image>;
-  readonly TemplateMiddleOrTail: (node: TemplateMiddleOrTail<P>) => SyntaxPlan<TemplateMiddleOrTail<P>, Stop, Image>;
-  readonly TemplateLiteral: (node: TemplateLiteral<P>) => SyntaxPlan<TemplateLiteral<P>, Stop, Image>;
-  readonly ObjectLiteralElementLike: (node: ObjectLiteralElementLike<P>) => SyntaxPlan<ObjectLiteralElementLike<P>, Stop, Image>;
-  readonly LiteralTypeChild: (node: LiteralTypeChild<P>) => SyntaxPlan<LiteralTypeChild<P>, Stop, Image>;
-  readonly TypePredicateParameterName: (node: TypePredicateParameterName<P>) => SyntaxPlan<TypePredicateParameterName<P>, Stop, Image>;
-  readonly ImportAttributeName: (node: ImportAttributeName<P>) => SyntaxPlan<ImportAttributeName<P>, Stop, Image>;
-  readonly JsxChild: (node: JsxChild<P>) => SyntaxPlan<JsxChild<P>, Stop, Image>;
-  readonly JsxAttributeLike: (node: JsxAttributeLike<P>) => SyntaxPlan<JsxAttributeLike<P>, Stop, Image>;
-  readonly JsxTagNameExpression: (node: JsxTagNameExpression<P>) => SyntaxPlan<JsxTagNameExpression<P>, Stop, Image>;
-  readonly JsxAttributeName: (node: JsxAttributeName<P>) => SyntaxPlan<JsxAttributeName<P>, Stop, Image>;
-  readonly JsxAttributeValue: (node: JsxAttributeValue<P>) => SyntaxPlan<JsxAttributeValue<P>, Stop, Image>;
-  readonly JSDocComment: (node: JSDocComment<P>) => SyntaxPlan<JSDocComment<P>, Stop, Image>;
-  readonly JSDocTag: (node: JSDocTag<P>) => SyntaxPlan<JSDocTag<P>, Stop, Image>;
-  readonly JSDocFullName: (node: JSDocFullName<P>) => SyntaxPlan<JSDocFullName<P>, Stop, Image>;
-  readonly NodeBody: (node: NodeBody<P>) => SyntaxPlan<NodeBody<P>, Stop, Image>;
-  readonly ModuleName: (node: ModuleName<P>) => SyntaxPlan<ModuleName<P>, Stop, Image>;
-  readonly ModuleReference: (node: ModuleReference<P>) => SyntaxPlan<ModuleReference<P>, Stop, Image>;
-  readonly NamedExportBindings: (node: NamedExportBindings<P>) => SyntaxPlan<NamedExportBindings<P>, Stop, Image>;
-  readonly NamedImportBindings: (node: NamedImportBindings<P>) => SyntaxPlan<NamedImportBindings<P>, Stop, Image>;
-  readonly ModifierLike: (node: ModifierLike<P>) => SyntaxPlan<ModifierLike<P>, Stop, Image>;
-  readonly SyntaxNode: (node: SyntaxNode<P>) => SyntaxPlan<SyntaxNode<P>, Stop, Image>;
+  readonly EntityName: (node: EntityName<P>) => EntityName<P>;
+  readonly Expression: (node: Expression<P>) => Expression<P>;
+  readonly LeftHandSideExpression: (node: LeftHandSideExpression<P>) => LeftHandSideExpression<P>;
+  readonly Statement: (node: Statement<P>) => Statement<P>;
+  readonly ForInitializer: (node: ForInitializer<P>) => ForInitializer<P>;
+  readonly CaseOrDefaultClause: (node: CaseOrDefaultClause<P>) => CaseOrDefaultClause<P>;
+  readonly BindingName: (node: BindingName<P>) => BindingName<P>;
+  readonly TypeNode: (node: TypeNode<P>) => TypeNode<P>;
+  readonly PropertyName: (node: PropertyName<P>) => PropertyName<P>;
+  readonly BlockOrExpression: (node: BlockOrExpression<P>) => BlockOrExpression<P>;
+  readonly ClassElement: (node: ClassElement<P>) => ClassElement<P>;
+  readonly TypeElement: (node: TypeElement<P>) => TypeElement<P>;
+  readonly ModuleExportName: (node: ModuleExportName<P>) => ModuleExportName<P>;
+  readonly MemberName: (node: MemberName<P>) => MemberName<P>;
+  readonly TemplateMiddleOrTail: (node: TemplateMiddleOrTail<P>) => TemplateMiddleOrTail<P>;
+  readonly TemplateLiteral: (node: TemplateLiteral<P>) => TemplateLiteral<P>;
+  readonly ObjectLiteralElementLike: (node: ObjectLiteralElementLike<P>) => ObjectLiteralElementLike<P>;
+  readonly LiteralTypeChild: (node: LiteralTypeChild<P>) => LiteralTypeChild<P>;
+  readonly TypePredicateParameterName: (node: TypePredicateParameterName<P>) => TypePredicateParameterName<P>;
+  readonly ImportAttributeName: (node: ImportAttributeName<P>) => ImportAttributeName<P>;
+  readonly JsxChild: (node: JsxChild<P>) => JsxChild<P>;
+  readonly JsxAttributeLike: (node: JsxAttributeLike<P>) => JsxAttributeLike<P>;
+  readonly JsxTagNameExpression: (node: JsxTagNameExpression<P>) => JsxTagNameExpression<P>;
+  readonly JsxAttributeName: (node: JsxAttributeName<P>) => JsxAttributeName<P>;
+  readonly JsxAttributeValue: (node: JsxAttributeValue<P>) => JsxAttributeValue<P>;
+  readonly JSDocComment: (node: JSDocComment<P>) => JSDocComment<P>;
+  readonly JSDocTag: (node: JSDocTag<P>) => JSDocTag<P>;
+  readonly JSDocFullName: (node: JSDocFullName<P>) => JSDocFullName<P>;
+  readonly NodeBody: (node: NodeBody<P>) => NodeBody<P>;
+  readonly ModuleName: (node: ModuleName<P>) => ModuleName<P>;
+  readonly ModuleReference: (node: ModuleReference<P>) => ModuleReference<P>;
+  readonly NamedExportBindings: (node: NamedExportBindings<P>) => NamedExportBindings<P>;
+  readonly NamedImportBindings: (node: NamedImportBindings<P>) => NamedImportBindings<P>;
+  readonly ModifierLike: (node: ModifierLike<P>) => ModifierLike<P>;
+  readonly SyntaxNode: (node: SyntaxNode<P>) => SyntaxNode<P>;
   readonly LiteralKeywordExpression: (node: KeywordExpression<P, "TrueKeyword" | "FalseKeyword" | "NullKeyword">) => SyntaxPlan<KeywordExpression<P, "TrueKeyword" | "FalseKeyword" | "NullKeyword">, Stop, Image>;
 }
 
@@ -317,9 +317,9 @@ export function copyNodeList<Value>(list: NodeList<Value>, copy: (value: Value) 
 }
 
 export function finishFunctionSyntax<P extends Phase, Stop, Image>(shape: FunctionSyntaxReceipt<P>, ports: SyntaxCopyPorts<P, Stop, Image>) {
-  return shape.finish(formal => ports.ParameterDeclaration(formal).read(), body => ports.BlockOrExpression(body).read(),
-    modifier => ports.ModifierLike(modifier).read(), parameter => ports.TypeParameterDeclaration(parameter).read(),
-    type => ports.TypeNode(type).read(), name => ports.Identifier(name).read());
+  return shape.finish(formal => ports.ParameterDeclaration(formal).read(), body => ports.BlockOrExpression(body),
+    modifier => ports.ModifierLike(modifier), parameter => ports.TypeParameterDeclaration(parameter).read(),
+    type => ports.TypeNode(type), name => ports.Identifier(name).read());
 }
 
 const unmaterialized: InvariantFailure = { owner: "ir-hir", query: null, origin: null,

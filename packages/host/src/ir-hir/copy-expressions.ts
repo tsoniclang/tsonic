@@ -177,7 +177,7 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
       return tsonic => ({
         ...header,
         kind,
-        left: ports().EntityName(node.left).read(),
+        left: ports().EntityName(node.left),
         right: ports().Identifier(node.right).read(),
         tsonic,
       });
@@ -188,7 +188,7 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
       return tsonic => ({
         ...header,
         kind,
-        expression: ports().Expression(expressionOf(node)).read(),
+        expression: ports().Expression(expressionOf(node)),
         tsonic,
       });
     })),
@@ -198,7 +198,7 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
       return tsonic => ({
         ...header,
         kind,
-        expression: ports().LeftHandSideExpression(node.expression).read(),
+        expression: ports().LeftHandSideExpression(node.expression),
         tsonic,
       });
     })),
@@ -289,12 +289,12 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
     })),
     BinaryExpression: node => memoSyntaxPlan(BinaryExpression, node, () => withSyntaxPayload(phase.BinaryExpression, node.tsonic, () => tsonic => {
       const shape = binaryOf(node);
-      const modifiers = shape.modifiers(item => ports().ModifierLike(item).read());
-      const left = ports().Expression(shape.left()).read();
+      const modifiers = shape.modifiers(item => ports().ModifierLike(item));
+      const left = ports().Expression(shape.left());
       const rawType = shape.type();
       return { ...shape.header, kind: "BinaryExpression", modifiers, left,
-        type: rawType === null ? null : ports().TypeNode(rawType).read(),
-        operatorToken: shape.operator(), right: ports().Expression(shape.right()).read(), tsonic };
+        type: rawType === null ? null : ports().TypeNode(rawType),
+        operatorToken: shape.operator(), right: ports().Expression(shape.right()), tsonic };
     })),
     PrefixUnaryExpression: node => memoSyntaxPlan(PrefixUnaryExpression, node, () => withSyntaxPayload(phase.PrefixUnaryExpression, node.tsonic, () => {
       const header = syntaxHeader(node);
@@ -303,7 +303,7 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
         ...header,
         kind,
         operator,
-        operand: ports().Expression(unaryOf(node).operand()).read(),
+        operand: ports().Expression(unaryOf(node).operand()),
         tsonic,
       });
     })),
@@ -313,7 +313,7 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
       return tsonic => ({
         ...header,
         kind,
-        operand: ports().Expression(unaryOf(node).operand()).read(),
+        operand: ports().Expression(unaryOf(node).operand()),
         operator,
         tsonic,
       });
@@ -325,7 +325,7 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
         ...header,
         kind,
         asteriskToken,
-        expression: node.expression === null ? null : ports().Expression(node.expression).read(),
+        expression: node.expression === null ? null : ports().Expression(node.expression),
         tsonic,
       });
     })),
@@ -335,13 +335,13 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
       return tsonic => ({
         ...header,
         kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item).read()),
+        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
         typeParameters: node.typeParameters === null ? null : copyNodeList(node.typeParameters, item => ports().TypeParameterDeclaration(item).read()),
         parameters: copyNodeList(node.parameters, item => ports().ParameterDeclaration(item).read()),
-        type: node.type === null ? null : ports().TypeNode(node.type).read(),
-        fullSignature: node.fullSignature === null ? null : ports().TypeNode(node.fullSignature).read(),
+        type: node.type === null ? null : ports().TypeNode(node.type),
+        fullSignature: node.fullSignature === null ? null : ports().TypeNode(node.fullSignature),
         asteriskToken,
-        body: node.body === null ? null : ports().BlockOrExpression(node.body).read(),
+        body: node.body === null ? null : ports().BlockOrExpression(node.body),
         equalsGreaterThanToken,
         tsonic,
       });
@@ -352,48 +352,48 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
       const header = syntaxHeader(node);
       return tsonic => {
         const shape = annotatedOf(node);
-        return { ...header, kind: "AsExpression", expression: ports().Expression(shape.expression()).read(),
-          type: ports().TypeNode(shape.type()).read(), tsonic };
+        return { ...header, kind: "AsExpression", expression: ports().Expression(shape.expression()),
+          type: ports().TypeNode(shape.type()), tsonic };
       };
     })),
     SatisfiesExpression: node => memoSyntaxPlan(SatisfiesExpression, node, () => withSyntaxPayload(phase.SatisfiesExpression, node.tsonic, () => {
       const header = syntaxHeader(node);
       return tsonic => {
         const shape = annotatedOf(node);
-        return { ...header, kind: "SatisfiesExpression", expression: ports().Expression(shape.expression()).read(),
-          type: ports().TypeNode(shape.type()).read(), tsonic };
+        return { ...header, kind: "SatisfiesExpression", expression: ports().Expression(shape.expression()),
+          type: ports().TypeNode(shape.type()), tsonic };
       };
     })),
     ConditionalExpression: node => memoSyntaxPlan(ConditionalExpression, node, () => withSyntaxPayload(phase.ConditionalExpression, node.tsonic, () => {
       const header = syntaxHeader(node);
       return tsonic => {
         const shape = conditionalOf(node);
-        return { ...header, kind: "ConditionalExpression", condition: ports().Expression(shape.condition()).read(),
-          questionToken: shape.question(), whenTrue: ports().Expression(shape.whenTrue()).read(), colonToken: shape.colon(),
-          whenFalse: ports().Expression(shape.whenFalse()).read(), tsonic };
+        return { ...header, kind: "ConditionalExpression", condition: ports().Expression(shape.condition()),
+          questionToken: shape.question(), whenTrue: ports().Expression(shape.whenTrue()), colonToken: shape.colon(),
+          whenFalse: ports().Expression(shape.whenFalse()), tsonic };
       };
     })),
     PropertyAccessExpression: node => memoSyntaxPlan(PropertyAccessExpression, node, () => withSyntaxPayload(phase.PropertyAccessExpression, node.tsonic, () => {
       const header = syntaxHeader(node);
       return tsonic => {
         const shape = propertyOf(node);
-        return { ...header, kind: "PropertyAccessExpression", expression: ports().Expression(shape.expression()).read(),
-          questionDotToken: shape.questionDotToken(), name: ports().MemberName(shape.name()).read(), tsonic };
+        return { ...header, kind: "PropertyAccessExpression", expression: ports().Expression(shape.expression()),
+          questionDotToken: shape.questionDotToken(), name: ports().MemberName(shape.name()), tsonic };
       };
     })),
     ElementAccessExpression: node => memoSyntaxPlan(ElementAccessExpression, node, () => withSyntaxPayload(phase.ElementAccessExpression, node.tsonic, () => {
       const header = syntaxHeader(node);
       return tsonic => {
         const shape = elementOf(node);
-        return { ...header, kind: "ElementAccessExpression", expression: ports().Expression(shape.expression()).read(),
-          questionDotToken: shape.questionDotToken(), argumentExpression: ports().Expression(shape.argument()).read(), tsonic };
+        return { ...header, kind: "ElementAccessExpression", expression: ports().Expression(shape.expression()),
+          questionDotToken: shape.questionDotToken(), argumentExpression: ports().Expression(shape.argument()), tsonic };
       };
     })),
     CallExpression: node => memoSyntaxPlan(CallExpression, node, () => withSyntaxPayload(phase.CallExpression, node.tsonic, () => tsonic => {
       const shape = applicationOf(node);
-      const expression = ports().Expression(shape.expression()).read();
-      const typeArguments = shape.typeArguments(item => ports().TypeNode(item).read());
-      const args = shape.arguments(item => ports().Expression(item).read());
+      const expression = ports().Expression(shape.expression());
+      const typeArguments = shape.typeArguments(item => ports().TypeNode(item));
+      const args = shape.arguments(item => ports().Expression(item));
       if (args === null) return throwInvariant({
         owner: "ir-hir", query: null, origin: shape.header.origin, message: "A call requires its admitted argument list.",
       });
@@ -401,9 +401,9 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
     })),
     NewExpression: node => memoSyntaxPlan(NewExpression, node, () => withSyntaxPayload(phase.NewExpression, node.tsonic, () => tsonic => {
       const shape = applicationOf(node);
-      return { ...shape.header, kind: "NewExpression", expression: ports().Expression(shape.expression()).read(),
-        typeArguments: shape.typeArguments(item => ports().TypeNode(item).read()),
-        arguments: shape.arguments(item => ports().Expression(item).read()), tsonic };
+      return { ...shape.header, kind: "NewExpression", expression: ports().Expression(shape.expression()),
+        typeArguments: shape.typeArguments(item => ports().TypeNode(item)),
+        arguments: shape.arguments(item => ports().Expression(item)), tsonic };
     })),
     MetaProperty: node => memoSyntaxPlan(MetaProperty, node, () => withSyntaxPayload(phase.MetaProperty, node.tsonic, () => {
       const header = syntaxHeader(node);
@@ -422,7 +422,7 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
       return tsonic => ({
         ...header,
         kind,
-        expression: ports().Expression(expressionOf(node)).read(),
+        expression: ports().Expression(expressionOf(node)),
         tsonic,
       });
     })),
@@ -432,7 +432,7 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
       return tsonic => ({
         ...header,
         kind,
-        expression: ports().Expression(expressionOf(node)).read(),
+        expression: ports().Expression(expressionOf(node)),
         tsonic,
       });
     })),
@@ -453,8 +453,8 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
       return tsonic => ({
         ...header,
         kind,
-        expression: ports().Expression(node.expression).read(),
-        literal: ports().TemplateMiddleOrTail(node.literal).read(),
+        expression: ports().Expression(node.expression),
+        literal: ports().TemplateMiddleOrTail(node.literal),
         tsonic,
       });
     })),
@@ -464,10 +464,10 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
       return tsonic => ({
         ...header,
         kind,
-        tag: ports().Expression(node.tag).read(),
+        tag: ports().Expression(node.tag),
         questionDotToken,
-        typeArguments: node.typeArguments === null ? null : copyNodeList(node.typeArguments, item => ports().TypeNode(item).read()),
-        template: ports().TemplateLiteral(node.template).read(),
+        typeArguments: node.typeArguments === null ? null : copyNodeList(node.typeArguments, item => ports().TypeNode(item)),
+        template: ports().TemplateLiteral(node.template),
         tsonic,
       });
     })),
@@ -477,7 +477,7 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
       return tsonic => ({
         ...header,
         kind,
-        expression: ports().Expression(expressionOf(node)).read(),
+        expression: ports().Expression(expressionOf(node)),
         tsonic,
       });
     })),
@@ -487,7 +487,7 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
       return tsonic => ({
         ...header,
         kind,
-        elements: arrayOf(node).elements(item => ports().Expression(item).read()),
+        elements: arrayOf(node).elements(item => ports().Expression(item)),
         multiLine,
         tsonic,
       });
@@ -498,7 +498,7 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
       return tsonic => ({
         ...header,
         kind,
-        properties: objectOf(node).properties(item => ports().ObjectLiteralElementLike(item).read()),
+        properties: objectOf(node).properties(item => ports().ObjectLiteralElementLike(item)),
         multiLine,
         tsonic,
       });
@@ -509,7 +509,7 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
       return tsonic => ({
         ...header,
         kind,
-        expression: ports().Expression(expressionOf(node)).read(),
+        expression: ports().Expression(expressionOf(node)),
         tsonic,
       });
     })),
@@ -519,11 +519,11 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
       return tsonic => ({
         ...header,
         kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item).read()),
-        name: ports().PropertyName(node.name).read(),
+        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
+        name: ports().PropertyName(node.name),
         postfixToken,
-        type: node.type === null ? null : ports().TypeNode(node.type).read(),
-        initializer: ports().Expression(node.initializer).read(),
+        type: node.type === null ? null : ports().TypeNode(node.type),
+        initializer: ports().Expression(node.initializer),
         tsonic,
       });
     })),
@@ -533,12 +533,12 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
       return tsonic => ({
         ...header,
         kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item).read()),
-        name: ports().PropertyName(node.name).read(),
+        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
+        name: ports().PropertyName(node.name),
         postfixToken,
-        type: node.type === null ? null : ports().TypeNode(node.type).read(),
+        type: node.type === null ? null : ports().TypeNode(node.type),
         equalsToken,
-        objectAssignmentInitializer: node.objectAssignmentInitializer === null ? null : ports().Expression(node.objectAssignmentInitializer).read(),
+        objectAssignmentInitializer: node.objectAssignmentInitializer === null ? null : ports().Expression(node.objectAssignmentInitializer),
         tsonic,
       });
     })),
@@ -548,7 +548,7 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
       return tsonic => ({
         ...header,
         kind,
-        expression: ports().Expression(expressionOf(node)).read(),
+        expression: ports().Expression(expressionOf(node)),
         tsonic,
       });
     })),
@@ -558,7 +558,7 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
       return tsonic => ({
         ...header,
         kind,
-        expression: ports().Expression(expressionOf(node)).read(),
+        expression: ports().Expression(expressionOf(node)),
         tsonic,
       });
     })),
@@ -568,7 +568,7 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
       return tsonic => ({
         ...header,
         kind,
-        expression: ports().Expression(expressionOf(node)).read(),
+        expression: ports().Expression(expressionOf(node)),
         tsonic,
       });
     })),
@@ -578,7 +578,7 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
       return tsonic => ({
         ...header,
         kind,
-        expression: ports().Expression(expressionOf(node)).read(),
+        expression: ports().Expression(expressionOf(node)),
         tsonic,
       });
     })),
@@ -588,8 +588,8 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
       return tsonic => ({
         ...header,
         kind,
-        type: ports().TypeNode(node.type).read(),
-        expression: ports().Expression(node.expression).read(),
+        type: ports().TypeNode(node.type),
+        expression: ports().Expression(node.expression),
         tsonic,
       });
     })),
@@ -599,8 +599,8 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
       return tsonic => ({
         ...header,
         kind,
-        expression: ports().Expression(node.expression).read(),
-        typeArguments: node.typeArguments === null ? null : copyNodeList(node.typeArguments, item => ports().TypeNode(item).read()),
+        expression: ports().Expression(node.expression),
+        typeArguments: node.typeArguments === null ? null : copyNodeList(node.typeArguments, item => ports().TypeNode(item)),
         tsonic,
       });
     })),
@@ -649,7 +649,7 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
       return tsonic => ({
         ...header,
         kind,
-        expression: ports().Expression(expressionOf(node)).read(),
+        expression: ports().Expression(expressionOf(node)),
         tsonic,
       });
     })),
@@ -659,8 +659,8 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
       return tsonic => ({
         ...header,
         kind,
-        expression: ports().Expression(node.expression).read(),
-        thisArg: ports().Expression(node.thisArg).read(),
+        expression: ports().Expression(node.expression),
+        thisArg: ports().Expression(node.thisArg),
         tsonic,
       });
     })),
