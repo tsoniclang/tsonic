@@ -1,6 +1,6 @@
 import type { TyId } from "../ids/contract.js";
 import type {
-  CapturedFact, CheckedClosure, CheckedContentImage, CheckedEnum, CheckedExport, CheckedExportAssignment, CheckedExportBinding, CheckedImport, CheckedModule,
+  CapturedFact, CheckedClosure, CheckedContentImage, CheckedEnum, CheckedEnumMember, CheckedExport, CheckedExportAssignment, CheckedExportBinding, CheckedImport, CheckedModule,
   CheckedNamespace, CheckedNamespaceExport, CheckedProperty, CheckedStaticBlock, CheckedAggregate, CheckedApplication, CheckedBinary, CheckedBinding, CheckedBindingList, CheckedCallable,
   CheckedClass, CheckedClassExpression, CheckedDeclarationFacts, CheckedExpression, CheckedInstantiation, CheckedIteration,
   CheckedKeyword, CheckedLiteral, CheckedMember, CheckedName, CheckedPhase, CheckedProjection, CheckedProtocol, CheckedType,
@@ -309,14 +309,16 @@ function checkedProjector<Stop>(project: CheckedProjection<Stop>) {
         following(captured(row.type, project.type), type => copied({ ...ready, definition: row.definition, parameters, type })))));
   }
 
-  function variable(row: CheckedVariable): SyntaxCopyResult<CheckedVariable, Stop> {
-    return admit(4, 1, () => following(declarationPart(row), ready =>
+  function variableFields<Value>(row: CheckedVariable, fields: number, complete: (value: CheckedVariable) => Value): SyntaxCopyResult<Value, Stop> {
+    return admit(fields, 1, () => following(declarationPart(row), ready =>
       following(captured(row.declaredType, optionalType), declaredType => {
         const bound = row.inferredTypeBound;
         return following(optional((fact: CapturedFact<TyId>) => captured(fact, project.type))(bound), inferredTypeBound =>
-          copied({ ...ready, declaration: row.declaration, declaredType, inferredTypeBound, initializer: row.initializer }));
+          copied(complete({ ...ready, declaration: row.declaration, declaredType, inferredTypeBound, initializer: row.initializer })));
       })));
   }
+  const variable = (row: CheckedVariable) => variableFields(row, 4, value => value);
+  const enumMember = (row: CheckedEnumMember) => variableFields(row, 5, value => ({ ...value, valueSource: row.valueSource }));
 
   function binding(row: CheckedBinding): SyntaxCopyResult<CheckedBinding, Stop> {
     return admit(3, 1, () => following(project.core(row.core), core =>
@@ -418,7 +420,7 @@ function checkedProjector<Stop>(project: CheckedProjection<Stop>) {
     DeleteExpression: ready(expression<CheckedExpression>(5)),
     ElementAccessExpression: ready(member),
     EnumDeclaration: ready(declaration<CheckedEnum>(7)),
-    EnumMember: ready(variable),
+    EnumMember: ready(enumMember),
     ExportAssignment: ready(declaration<CheckedExportAssignment>(5)),
     ExportDeclaration: ready(carrier<CheckedExport>(2)),
     ExportSpecifier: ready(carrier<CheckedExportBinding>(2)),

@@ -123,7 +123,7 @@ export function createSyntaxGroup1(readers: () => HirTextReaders): ReadonlyMap<s
       const field_name = read("name", readers().syntax_12);
       const field_postfixToken = read("postfixToken", unionReader<Hir.ExclamationToken<Hir.CheckedPhase> | Hir.QuestionToken<Hir.CheckedPhase> | null>(() => [readers().scalar_null, readers().syntax_27]));
       const field_initializer = read("initializer", unionReader<Hir.Expression<Hir.CheckedPhase> | null>(() => [readers().scalar_null, readers().syntax_2]));
-      const field_tsonic = read("tsonic", readers().record_245);
+      const field_tsonic = read("tsonic", readers().enumMember);
       return { fields: [field_id, field_origin, field_parent, field_flags, field_loc, field_modifiers, field_name, field_postfixToken, field_initializer, field_tsonic], value: () => ({ kind: "EnumMember", id: field_id.value(), origin: field_origin.value(), parent: field_parent.value(), flags: field_flags.value(), loc: field_loc.value(), modifiers: field_modifiers.value(), name: field_name.value(), postfixToken: field_postfixToken.value(), initializer: field_initializer.value(), tsonic: field_tsonic.value() }) };
     }, value => ({ kind: "EnumMember", value }), accept)],
     ["ExportAssignment", accept => syntaxRecord<Hir.ExportAssignment<Hir.CheckedPhase>>(read => {

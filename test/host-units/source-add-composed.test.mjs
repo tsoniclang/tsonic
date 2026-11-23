@@ -187,6 +187,36 @@ test("an enum read keeps its verified member and value carrier through both synt
   assert.equal(printModuleBodies(analyzed.value.index, parsed.value), document);
 });
 
+test("initial and predecessor-derived enum types carry their authored value sources", async () => {
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { printHir, parseHir } = await import("../../packages/host/dist/ir-hir/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", "export enum Chain { Zero, One=Zero+1, Two, Three=Two+1 }");
+  const captured = captureSourceBarrier(input);
+  assert.equal(captured.kind, "ok", JSON.stringify(captured.diagnostics));
+  const source = captured.value.enums[0];
+  const [zero, one, two, three] = source.declaration.members.nodes;
+  const oneSource = { definition: one.tsonic.declaration.definition, body: one.tsonic.initializer };
+  assert.equal(zero.tsonic.valueSource, null);
+  assert.deepEqual(one.tsonic.valueSource, oneSource);
+  assert.equal(two.tsonic.valueSource === one.tsonic.valueSource, true);
+  assert.deepEqual(three.tsonic.valueSource, { definition: three.tsonic.declaration.definition, body: three.tsonic.initializer });
+  const text = printHir(source.module.module);
+  const parsed = parseHir(text);
+  assert.equal(parsed.kind, "parsed");
+  assert.equal(printHir(parsed.value), text);
+
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const rows = new Map(result.value.index.constants.map(row => [row.reference.member, row.value]));
+  for (const [member, expected] of [[zero, 0n], [one, 1n], [two, 2n], [three, 3n]]) {
+    const value = rows.get(member.tsonic.declaration.definition);
+    assert.equal(value.kind, "number");
+    assert.equal(value.value.numerator, expected);
+    assert.deepEqual(result.value.index.types.terms[value.type], { kind: "primitive", primitive: "int64" });
+  }
+});
+
 test("authored fractional enum members use the selected exact Float64 literal format", async () => {
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const analyze = text => {

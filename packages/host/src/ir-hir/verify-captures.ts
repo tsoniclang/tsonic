@@ -35,6 +35,8 @@ export function createHirSchema(): HirSchema {
     ["memory", captured(hirNullable(hirChoice("HirMemoryLayoutCapture", "HirMemoryFieldCapture")))],
   ]);
   const declaration: readonly HirField[] = ([...declarationFacts, ["definition", "DefId"]]);
+  const variableFields: readonly HirField[] = [...declarationFacts, ["declaration", "DeclarationTarget"], ["declaredType", captured(hirNullable("TyId"))],
+    ["inferredTypeBound", hirNullable(captured("TyId"))], ["initializer", hirNullable("BodyId")]];
   const classMetadata: readonly HirField[] = ([
     ...declaration, ["parameters", hirArray("TypeParameterData")], ["heritage", hirArray("HirHeritage")], ["members", hirArray("DefId")],
   ]);
@@ -306,8 +308,9 @@ export function createHirSchema(): HirSchema {
       ["definition", "DefId"], ["parameters", hirArray("TypeParameterData")], ["heritage", hirArray("HirHeritage")], ["members", hirArray("DefId")]]),
     HirHeritage: hirRecord("HirHeritage", [["role", hirLiteral("extends", "implements")], ["type", "TyId"]]),
     CheckedTypeAlias: hirRecord("CheckedTypeAlias", [...declaration, ["parameters", hirArray("TypeParameterData")], ["type", captured("TyId")]]),
-    CheckedVariable: hirRecord("CheckedVariable", [...declarationFacts, ["declaration", "DeclarationTarget"], ["declaredType", captured(hirNullable("TyId"))],
-      ["inferredTypeBound", hirNullable(captured("TyId"))], ["initializer", hirNullable("BodyId")]]),
+    CheckedVariable: hirRecord("CheckedVariable", variableFields),
+    CheckedEnumMember: hirRecord("CheckedEnumMember", [...variableFields, ["valueSource", hirNullable("EnumValueSource")]]),
+    EnumValueSource: hirRecord("EnumValueSource", [["definition", "DefId"], ["body", "BodyId"]]),
     CheckedEnum: hirRecord("CheckedEnum", [...declaration, ["nominal", "DefId"], ["members", hirArray("DefId")]]),
     CheckedNamespace: hirRecord("CheckedNamespace", [...declaration, ["members", hirArray("DefId")]]),
     CheckedImport: hirRecord("CheckedImport", [...core, ["target", captured("ImportTarget")], ["bindings", hirArray(sourceReference)]]),

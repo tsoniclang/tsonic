@@ -277,6 +277,7 @@ export interface HirReadGroup8 {
   readonly record_243: HirReader<Hir.NodeList<Hir.EnumMember<Hir.CheckedPhase>>>;
   readonly record_244: HirReader<Hir.CheckedEnum>;
   readonly record_245: HirReader<Hir.CheckedVariable>;
+  readonly enumMember: HirReader<Hir.CheckedEnumMember>;
   readonly record_246: HirReader<Hir.CheckedExport>;
   readonly record_248: HirReader<{ readonly kind: "available"; readonly value: Hir.ImportTarget | null; }>;
   readonly record_249: HirReader<Hir.HirCoreCarrier & { readonly role: "value"; readonly value: Hir.CheckedValue; }>;

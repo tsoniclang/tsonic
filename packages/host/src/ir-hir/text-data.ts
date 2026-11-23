@@ -647,11 +647,22 @@ function typeAliasData(value: Hir.CheckedTypeAlias): HirDataWork {
   return recordData("CheckedTypeAlias", value, () => [...declarationFields(value), fieldData("parameters", arrayData(value.parameters, parameterData)), fieldData("type", capturedData(value.type, typeData))]);
 }
 
-function variableData(value: Hir.CheckedVariable): HirDataWork {
-  return recordData("CheckedVariable", value, () => [...declarationFactsFields(value), fieldData("declaration", declarationTargetData(value.declaration)),
+function variableFields(value: Hir.CheckedVariable) {
+  return [...declarationFactsFields(value), fieldData("declaration", declarationTargetData(value.declaration)),
     fieldData("declaredType", capturedData(value.declaredType, slot => nullableData(slot, typeData))),
     fieldData("inferredTypeBound", nullableData(value.inferredTypeBound, bound => capturedData(bound, typeData))),
-    fieldData("initializer", nullableData(value.initializer, bodyData))]);
+    fieldData("initializer", nullableData(value.initializer, bodyData))];
+}
+
+function variableData(value: Hir.CheckedVariable): HirDataWork {
+  return recordData("CheckedVariable", value, () => variableFields(value));
+}
+
+function enumMemberData(value: Hir.CheckedEnumMember): HirDataWork {
+  return recordData("CheckedEnumMember", value, () => [...variableFields(value), fieldData("valueSource",
+    nullableData(value.valueSource, source => recordData("EnumValueSource", source, () => [
+      fieldData("definition", definitionData(source.definition)), fieldData("body", bodyData(source.body)),
+    ])))]);
 }
 
 function enumData(value: Hir.CheckedEnum): HirDataWork {
@@ -753,7 +764,8 @@ export function hirCheckedData(node: Hir.HirNode): HirDataWork {
       return scalarData(node.tsonic);
     case "ForInStatement": case "ForOfStatement":
       return iterationData(node.tsonic);
-    case "VariableDeclaration": case "Parameter": case "EnumMember": case "PropertySignature":
+    case "EnumMember": return enumMemberData(node.tsonic);
+    case "VariableDeclaration": case "Parameter": case "PropertySignature":
     case "PropertyDeclaration":
       return variableData(node.tsonic);
     case "VariableDeclarationList":

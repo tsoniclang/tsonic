@@ -771,24 +771,32 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
         if (enumReference !== null && node.kind === "Identifier" && node.tsonic.role === "value" && owned !== null
           && enumReference.declaration.owner === owned.owner && enumReference.declaration.node === owned.node
           && member?.kind === "EnumMember" && member.id === owned.node && member.tsonic.declaration.kind === "definition"
-          && member.tsonic.declaration.definition === owned.owner && member.tsonic.initializer !== null
+          && member.tsonic.declaration.definition === owned.owner
           && enumReference.bindings.kind === "instantiated" && enumReference.aliases.length === aliases.length
           && enumReference.aliases.every((alias, index) => {
             const actual = aliases[index];
             return actual !== undefined && sameSourceReference(alias, actual);
           })) {
           const { bindings } = enumReference.bindings;
-          const template: BodyInstance = { body: member.tsonic.initializer, bindings: { kind: "parametric" } };
-          const stop = admit({ kind: "bindings", bindings }) ?? admit({ kind: "artifact", instance: template });
+          const valueSource = member.tsonic.valueSource;
+          const template: BodyInstance | null = valueSource === null ? null : { body: valueSource.body, bindings: { kind: "parametric" } };
+          const stop = admit({ kind: "bindings", bindings }) ?? (template === null ? null : admit({ kind: "artifact", instance: template }));
           if (stop !== null) return { kind: "resource-stop", stop };
           const scope = input.declarationOf(owned.owner)?.scope;
-          const ready = input.bodyOf(template);
           earned = bindings.classBindings.length === 0 && bindings.methodBindings.length === 0
             && bindings.capturedBindings.length === 0 && bindings.selfBindings.length === 0
             && scope !== undefined && scope.classParameters.length === 0 && scope.methodParameters.length === 0
-            && scope.capturedParameters.length === 0 && scope.selfOwners.length === 0
-            && ready !== null && ready.body === template.body && ready.bindings.kind === "parametric"
-            && ready.owner === owned.owner && ready.completion === node.tsonic.type;
+            && scope.capturedParameters.length === 0 && scope.selfOwners.length === 0;
+          if (earned) {
+            if (template === null || valueSource === null) {
+              const type = input.types.terms[node.tsonic.type];
+              earned = type?.kind === "primitive" && type.primitive === "int64";
+            } else {
+              const ready = input.bodyOf(template);
+              earned = ready !== null && ready.body === template.body && ready.bindings.kind === "parametric"
+                && ready.owner === valueSource.definition && ready.completion === node.tsonic.type;
+            }
+          }
         }
         if (!earned) emit("enum-reference-exact", node, "an enum read must retain its actual checked member, binding hops and completed value type");
       }

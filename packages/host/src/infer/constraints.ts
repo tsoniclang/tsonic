@@ -561,7 +561,12 @@ function inspectCheckedExecution(deps: InferenceInputs, body: HirBody, diagnosti
           && item.tsonic.declaredType.value === null)
           for (const part of inferredPartsOf(definition, item)) request(part);
         if (item.kind === "EnumMember") {
-          for (const part of inferredPartsOf(definition, item)) request(part);
+          const source = item.tsonic.valueSource;
+          if (source !== null) {
+            if (deps.structuralCuts.declaration(source.definition))
+              return { kind: "form-cut", definition: source.definition, at: { body: body.body, node: current.id } };
+            request({ definition: source.definition, part: { kind: "enum-member-value" } });
+          }
         }
       } else if (selected.kind === "local") {
         const declaration = deps.hirBody(selected.local.body).locals[selected.local.local]?.declaration;
@@ -927,9 +932,12 @@ function localType(walk: Walk, node: Extract<HirNode, { readonly kind: "Identifi
       if (resolution.definitions.length === 1 && item.kind === "EnumMember" && name.role === "value") {
         if (item.tsonic.declaration.kind !== "definition" || item.tsonic.declaration.definition !== definition)
           return callerDefect(PORT, "an enum read retains its actual qualified member");
-        const part = inferredPartsOf(definition, item)[0];
-        if (part === undefined)
-          return notInferredYet(PORT, "the actual predecessor type of an implicit enum member", node.origin);
+        const source = item.tsonic.valueSource;
+        if (source === null) return internType(deps.types, { kind: "primitive", primitive: "int64" });
+        const selected = deps.hirBody(source.body);
+        if (selected.body !== source.body || selected.owner !== source.definition)
+          return callerDefect(PORT, "an enum read retains its actual value-type source body");
+        const part: InferredSignaturePart = { definition: source.definition, part: { kind: "enum-member-value" } };
         const key = inferredPartKey(part);
         if (!walk.generation.ownParts.has(key) && !walk.generation.outsideParts.has(key))
           return callerDefect(PORT, "an enum read requires its actual completed or owned value part");

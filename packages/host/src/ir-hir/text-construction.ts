@@ -454,7 +454,7 @@ export interface HirRecordConstruction {
 }
 
 interface HirFieldSlot<Value> extends HirConstructionField { readonly value: () => Value }
-type ReadField = <Value>(name: string, reader: HirReader<Value>) => HirFieldSlot<Value>;
+export type ReadField = <Value>(name: string, reader: HirReader<Value>) => HirFieldSlot<Value>;
 interface HirRecordBuild<Value> { readonly fields: readonly HirConstructionField[]; readonly value: () => Value }
 
 export function scalarReader<Value>(select: (input: HirPlainScalar) => { readonly value: Value } | null): HirReader<Value> {

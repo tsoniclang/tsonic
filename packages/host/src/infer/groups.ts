@@ -83,6 +83,7 @@ export const partition: GroupsOf = (deps, bodies) => {
   }
   const parts: OwnedPart[] = [];
   const definitions = new Map<DefId, number>();
+  const enumParts = new Set<DefId>();
   for (const [position, body] of ready.entries()) {
     if (!take(1)) return stop();
     const item = present(items.get(body.owner), "the body's declaration");
@@ -95,6 +96,15 @@ export const partition: GroupsOf = (deps, bodies) => {
       if (part.part.kind === "enum-member-value" && (item.kind !== "EnumMember" || roles[position] !== "enum-member-initializer"
         || item.initializer !== body.root || item.tsonic.initializer !== body.body))
         return callerDefect(PORT, "an enum result must retain its actual member initializer body");
+      if (part.part.kind === "enum-member-value") {
+        if (item.kind !== "EnumMember" || item.tsonic.parent === null)
+          return callerDefect(PORT, "an enum initializer must retain its declaring part");
+        if (!enumParts.has(item.tsonic.parent)) {
+          const reserve = chargeResultEntries(account, 1);
+          if (reserve !== null) return refuse(reserve);
+          enumParts.add(item.tsonic.parent);
+        }
+      }
       let target = position;
       if (part.part.kind === "parameter-initializer") {
         const parameter = parameters[part.part.index];
@@ -116,6 +126,29 @@ export const partition: GroupsOf = (deps, bodies) => {
         definitions.set(part.definition, declaration);
       }
       if (!edge(declaration, target)) return stop();
+    }
+  }
+  for (const definition of enumParts) {
+    if (!take(1)) return stop();
+    const declaration = deps.itemOf(definition);
+    if (declaration.kind !== "EnumDeclaration" || declaration.tsonic.definition !== definition)
+      return callerDefect(PORT, "an enum dependency must retain its actual checked declaring part");
+    const members = declaration.members.nodes;
+    for (let position = 0; position < members.length; position += 1) {
+      if (!take(1)) return stop();
+      const member = present(members[position], "the actual enum member");
+      const { initializer, valueSource, declaration: target } = member.tsonic;
+      if (initializer !== null || valueSource === null) continue;
+      if (target.kind !== "definition" || target.definition !== declaration.tsonic.members[position])
+        return callerDefect(PORT, "an implicit enum member must retain its actual declaring slot");
+      if (deps.structuralCuts.body(valueSource.body)) continue;
+      const vertex = definitions.get(valueSource.definition);
+      const producer = index.get(valueSource.body);
+      if (vertex === undefined || producer === undefined || ready[producer]?.owner !== valueSource.definition)
+        return callerDefect(PORT, "an implicit enum type must retain its actual authored type producer");
+      const reserve = chargeResultEntries(account, 1);
+      if (reserve !== null) return refuse(reserve);
+      definitions.set(target.definition, vertex);
     }
   }
   const useResolution = bindingDependencies(deps, successors, definitions, index, ready, roles, take, edge);

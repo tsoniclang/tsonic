@@ -128,7 +128,7 @@ type HirSchemaName = HirSyntaxName | "ModuleId" | "BodyId" | "NodeId" | "TyId" |
   | "CheckedName" | "CheckedBinary" | "CheckedUnary" | "CheckedKeyword" | "CheckedInstantiation"
   | "CheckedAggregate" | "CheckedApplication" | "CheckedMember" | "CheckedProtocol" | "CheckedClosure"
   | "CheckedType" | "DeclarationTarget" | "CheckedCallable" | "CheckedClass" | "CheckedClassExpression"
-  | "HirHeritage" | "CheckedTypeAlias" | "CheckedVariable" | "CheckedEnum" | "CheckedNamespace"
+  | "HirHeritage" | "CheckedTypeAlias" | "CheckedVariable" | "CheckedEnumMember" | "EnumValueSource" | "CheckedEnum" | "CheckedNamespace"
   | "CheckedImport" | "CheckedExport" | "CheckedExportBinding" | "CheckedNamespaceExport" | "CheckedExportAssignment" | "CheckedStaticBlock"
   | "CheckedProperty" | "CheckedBinding" | "CheckedBindingList" | "CheckedIteration" | "CheckedModule"
   | "CheckedTypeParameter" | "HirLocal" | "HirParam" | "HirLexicalScope" | "HirBody" | "HirDeclarationEntry"
@@ -640,6 +640,8 @@ export interface HirSchema extends HirSyntaxSchema {
   readonly HirHeritage: HirShapeBody;
   readonly CheckedTypeAlias: HirShapeBody;
   readonly CheckedVariable: HirShapeBody;
+  readonly CheckedEnumMember: HirShapeBody;
+  readonly EnumValueSource: HirShapeBody;
   readonly CheckedEnum: HirShapeBody;
   readonly CheckedNamespace: HirShapeBody;
   readonly CheckedImport: HirShapeBody;
@@ -799,7 +801,7 @@ export function createSyntaxSchema(): HirSyntaxSchema {
     InterfaceDeclaration: node("InterfaceDeclaration", "CheckedClass", [["modifiers", modifiers], ["name", "Identifier"], ["typeParameters", typeParameters], ["heritageClauses", hirNullable(list("HeritageClause"))], ["members", list("TypeElement")]]),
     TypeAliasDeclaration: node("TypeAliasDeclaration", "CheckedTypeAlias", [["modifiers", modifiers], ["name", "Identifier"], ["typeParameters", typeParameters], ["type", "TypeNode"]]),
     JSTypeAliasDeclaration: node("JSTypeAliasDeclaration", "CheckedTypeAlias", [["modifiers", modifiers], ["name", "Identifier"], ["typeParameters", typeParameters], ["type", "TypeNode"]]),
-    EnumMember: node("EnumMember", "CheckedVariable", [["modifiers", modifiers], ["name", "PropertyName"], ["postfixToken", postfix], ["initializer", initializer]]),
+    EnumMember: node("EnumMember", "CheckedEnumMember", [["modifiers", modifiers], ["name", "PropertyName"], ["postfixToken", postfix], ["initializer", initializer]]),
     EnumDeclaration: node("EnumDeclaration", "CheckedEnum", [["modifiers", modifiers], ["name", "Identifier"], ["members", list("EnumMember")]]),
     ModuleBlock: node("ModuleBlock", "null", [["statements", list("Statement")]]),
     NotEmittedStatement: node("NotEmittedStatement", "null"),

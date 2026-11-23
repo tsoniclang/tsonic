@@ -463,7 +463,8 @@ function constructorMetadata(node) {
     case "Identifier": case "PrivateIdentifier": case "QualifiedName": return nameMetadata();
     case "ComputedPropertyName": case "ImportAttribute": case "PropertyAssignment": case "ShorthandPropertyAssignment":
       return { core: absentCore(), key: unavailable(), origins: unavailable() };
-    case "VariableDeclaration": case "Parameter": case "PropertySignature": case "PropertyDeclaration": case "EnumMember": return variable();
+    case "VariableDeclaration": case "Parameter": case "PropertySignature": case "PropertyDeclaration": return variable();
+    case "EnumMember": return { ...variable(), valueSource: null };
     case "VariableDeclarationList": return { core: absentCore(), disposal: [] };
     case "ObjectBindingPattern": case "ArrayBindingPattern": case "BindingElement":
       return { core: absentCore(), declaration: null, declaredType: available(null) };
@@ -5264,6 +5265,7 @@ function initializerModule(kind) {
   }
   const body = `B[${definition};${role};0]`;
   declaration.tsonic.initializer = body;
+  if (kind === "EnumMember") declaration.tsonic.valueSource = { definition, body };
   numberSyntaxFixture(value.tree);
   value.items = value.items.filter(item => item.definition !== definition);
   value.items.push({ definition, node: declaration.id });
@@ -5285,6 +5287,28 @@ for (const kind of ["VariableDeclaration", "PropertyDeclaration", "EnumMember"])
     const decoded = roundtrip((value), `initializer/${kind}`);
     assert.deepStrictEqual(product.verifyHir(decoded.value, contextFor(decoded.value)), []);
   });
+
+test("an implicit enum member cannot erase its actual preceding type source", () => {
+  const { value, declaration, definition, body } = initializerModule("EnumMember");
+  const owner = value.tree.statements.nodes[0];
+  const implicitDefinition = `D[${moduleIdentity};item/next]`;
+  const implicit = syntax("EnumMember", 0, { modifiers: null, postfixToken: null, initializer: null,
+    name: syntax("Identifier", 0, { text: "next", tsonic: { core: absentCore(), role: "property-name",
+      key: available({ kind: "text", value: "next" }), origins: available([{ kind: "declared", declaration: implicitDefinition }]) } }),
+    tsonic: { ...declarationFacts(owner.tsonic.definition), declaration: { kind: "definition", definition: implicitDefinition },
+      declaredType: available(0), inferredTypeBound: null, initializer: null, valueSource: { definition, body } } });
+  owner.members.nodes.push(implicit);
+  owner.tsonic.members.push(implicitDefinition);
+  numberSyntaxFixture(value.tree);
+  value.items.push({ definition: implicitDefinition, node: implicit.id });
+  value.items.sort((left, right) => left.definition < right.definition ? -1 : left.definition > right.definition ? 1 : 0);
+  assert.equal(value.bodies.find(candidate => candidate.body === body).root === declaration.initializer, true);
+  assert.deepEqual(product.verifyHir(value, contextFor(value)), []);
+  implicit.tsonic.valueSource = null;
+  assert.deepEqual(product.verifyHir(value, contextFor(value)), [
+    violation("body-owner", nodeSite(owner.id), "an enum value type source must retain the actual latest initializer in its declaring part"),
+  ]);
+});
 
 test("HIR namespace members preserve genuine nested declarations and ordered identities", () => {
   for (const [count, reversed] of [[0, false], [1, false], [3, false], [3, true]]) {
@@ -6003,7 +6027,8 @@ for (const kind of ["VariableDeclaration", "Parameter", "EnumMember", "PropertyS
         declaration = syntax(kind, 0, { modifiers: null, name, postfixToken: null,
           ...(kind === "EnumMember" ? {} : { type: null }), initializer: null,
           tsonic: { ...declarationFacts(fixture.definition), declaration: { kind: "definition", definition },
-            declaredType: available(ids.tyId(0)), inferredTypeBound: null, initializer: null } });
+            declaredType: available(ids.tyId(0)), inferredTypeBound: null, initializer: null,
+            ...(kind === "EnumMember" ? { valueSource: null } : {}) } });
         fixture.node.members.nodes.push(declaration);
         fixture.node.tsonic.members = [definition];
         numberSyntaxFixture(value.tree);

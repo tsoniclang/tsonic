@@ -1051,6 +1051,7 @@ function enumDeclaration(lowering: Lowering, node: Hir.EnumDeclaration<Syntax>, 
   const nominal = lowering.deps.definitionOf(captured.nominal);
   const members: Hir.EnumMember<Checked>[] = [];
   const identities: DefId[] = [];
+  let valueSource: Hir.EnumValueSource | null = null;
   for (const member of node.members.nodes) {
     const identity = definitionOf(lowering, member.id);
     const name = propertyName(context, member.name, identity);
@@ -1060,13 +1061,14 @@ function enumDeclaration(lowering: Lowering, node: Hir.EnumDeclaration<Syntax>, 
     if (type.kind !== "complete") return type;
     const initializer = member.initializer === null ? null : expression(lowering, member.initializer);
     const body = initializer === null ? null : encodeBodyId({ owner: identity, role: "enum-member-initializer", ordinal: 0 });
+    if (body !== null) valueSource = { definition: identity, body };
     if (body !== null && initializer !== null) lowering.bodies.push({ body, owner: identity, params: [], locals: [], root: initializer,
       captures: [], scopes: [], asynchronous: false, generator: false,
       candidateLists: lowering.candidateLists.get(body) ?? [], nestedBodies: [] });
     members.push({ ...headerOf(member), kind: "EnumMember", modifiers: lowerCheckedModifiers(member.modifiers),
       name: name.value, postfixToken: member.postfixToken === null ? null : token(member.postfixToken), initializer,
       tsonic: { core: coreOf(lowering, member.id), parent: definition, attributes: [], memory: memoryOf(lowering, member.id),
-        declaration: { kind: "definition", definition: identity }, declaredType: type.value, inferredTypeBound: null, initializer: body } });
+        declaration: { kind: "definition", definition: identity }, declaredType: type.value, inferredTypeBound: null, initializer: body, valueSource } });
     identities.push(identity);
   }
   return { kind: "complete", value: { ...headerOf(node), kind: "EnumDeclaration", modifiers: lowerCheckedModifiers(node.modifiers),

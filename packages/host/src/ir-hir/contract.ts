@@ -4392,6 +4392,15 @@ export interface CheckedVariable extends CheckedDeclarationFacts {
   readonly initializer: BodyId | null;
 }
 
+export interface EnumValueSource {
+  readonly definition: DefId;
+  readonly body: BodyId;
+}
+
+export interface CheckedEnumMember extends CheckedVariable {
+  readonly valueSource: EnumValueSource | null;
+}
+
 export interface CheckedEnum extends CheckedDeclaration {
   readonly nominal: DefId;
   readonly members: readonly DefId[];
@@ -4489,7 +4498,7 @@ export interface CheckedPhase extends Phase {
   readonly HeritageClause: null;
   readonly InterfaceDeclaration: CheckedClass;
   readonly TypeAliasDeclaration: CheckedTypeAlias;
-  readonly EnumMember: CheckedVariable;
+  readonly EnumMember: CheckedEnumMember;
   readonly EnumDeclaration: CheckedEnum;
   readonly ModuleBlock: null;
   readonly NotEmittedStatement: null;

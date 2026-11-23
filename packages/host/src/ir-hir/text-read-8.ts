@@ -2,6 +2,7 @@ import type * as Hir from "./contract.js";
 import type * as Ids from "../ids/contract.js";
 import type * as Types from "../ir-types/contract.js";
 import { recordReader, sequenceReader, unionReader } from "./text-construction.js";
+import type { ReadField } from "./text-construction.js";
 import type { HirTextReaders, HirReadGroup8 } from "./text-read-model.js";
 export function createReadGroup8(readers: () => HirTextReaders): HirReadGroup8 {
   const record_240 = recordReader<{ readonly core: Hir.HirCoreCapture; readonly role: "value"; readonly value: Hir.CheckedValue; readonly origins: Hir.CapturedFact<readonly Types.MemberOrigin[]>; readonly accessor: Hir.CapturedFact<Hir.HirApplication | null> }>("CheckedMember", read => {
@@ -43,7 +44,7 @@ export function createReadGroup8(readers: () => HirTextReaders): HirReadGroup8 {
         value: () => ({ core: field_core.value(), parent: field_parent.value(), attributes: field_attributes.value(), memory: field_memory.value(),
           definition: field_definition.value(), nominal: field_nominal.value(), members: field_members.value() }) };
     });
-  const record_245 = recordReader<Hir.CheckedVariable>("CheckedVariable", read => {
+  const variableFields = (read: ReadField) => {
       const field_core = read("core", readers().record_84);
       const field_parent = read("parent", unionReader<Ids.DefId | null>(() => [readers().scalar_null, readers().identity_def]));
       const field_attributes = read("attributes", sequenceReader(readers().record_13));
@@ -57,7 +58,18 @@ export function createReadGroup8(readers: () => HirTextReaders): HirReadGroup8 {
         field_initializer], value: () => ({ core: field_core.value(), parent: field_parent.value(), attributes: field_attributes.value(),
         memory: field_memory.value(), declaration: field_declaration.value(), declaredType: field_declaredType.value(),
         inferredTypeBound: field_inferredTypeBound.value(), initializer: field_initializer.value() }) };
-    });
+  };
+  const record_245 = recordReader<Hir.CheckedVariable>("CheckedVariable", variableFields);
+  const enumValueSource = recordReader<Hir.EnumValueSource>("EnumValueSource", read => {
+    const definition = read("definition", readers().identity_def);
+    const body = read("body", readers().identity_body);
+    return { fields: [definition, body], value: () => ({ definition: definition.value(), body: body.value() }) };
+  });
+  const enumMember = recordReader<Hir.CheckedEnumMember>("CheckedEnumMember", read => {
+    const variable = variableFields(read);
+    const valueSource = read("valueSource", unionReader<Hir.EnumValueSource | null>(() => [readers().scalar_null, enumValueSource]));
+    return { fields: [...variable.fields, valueSource], value: () => ({ ...variable.value(), valueSource: valueSource.value() }) };
+  });
   const record_246 = recordReader<Hir.CheckedExport>("CheckedExport", read => {
       const field_core = read("core", readers().record_84);
       const field_target = read("target", unionReader<Hir.CapturedFact<Hir.ImportTarget | null>>(() => [readers().record_248, readers().record_10]));
@@ -185,5 +197,5 @@ export function createReadGroup8(readers: () => HirTextReaders): HirReadGroup8 {
       const field_nodes = read("nodes", sequenceReader(readers().syntax_50));
       return { fields: [field_loc, field_nodes], value: () => ({ loc: field_loc.value(), nodes: field_nodes.value() }) };
     });
-  return { record_240, record_241, record_242, record_243, record_244, record_245, record_246, record_248, record_249, record_250, record_251, record_252, record_253, record_254, record_255, record_256, record_257, record_258, record_259, record_260, record_261, record_262, record_263, record_265, record_266, record_267, record_268, record_269 };
+  return { record_240, record_241, record_242, record_243, record_244, record_245, record_246, record_248, record_249, record_250, record_251, record_252, record_253, record_254, record_255, record_256, record_257, record_258, record_259, record_260, record_261, record_262, record_263, record_265, record_266, record_267, record_268, record_269, enumMember };
 }

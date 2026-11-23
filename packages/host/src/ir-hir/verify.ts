@@ -454,9 +454,25 @@ function candidateViolations(inventory: HirInventory, context: HirVerificationCo
           report("body-owner", site, "initializer body must retain its actual syntax initializer");
       }
     }
-    if (node.kind === "EnumDeclaration" && node.tsonic.nominal !== node.tsonic.definition
-      && context.nominalOf(node.tsonic.nominal)?.kind !== "enum")
-      report("definition-reference", site, "an enum part retains its actual nominal enum owner");
+    if (node.kind === "EnumDeclaration") {
+      if (node.tsonic.nominal !== node.tsonic.definition && context.nominalOf(node.tsonic.nominal)?.kind !== "enum")
+        report("definition-reference", site, "an enum part retains its actual nominal enum owner");
+      let sourceDefinition: DefId | null = null;
+      let sourceBody: BodyId | null = null;
+      for (const [position, member] of node.members.nodes.entries()) {
+        if (member === undefined) continue;
+        const phase = member.tsonic;
+        const actual = phase.declaration.kind === "definition" ? phase.declaration.definition : null;
+        if (member.initializer !== null && phase.initializer !== null) {
+          sourceDefinition = actual;
+          sourceBody = phase.initializer;
+        }
+        const source = phase.valueSource;
+        if (phase.parent !== node.tsonic.definition || actual === null || node.tsonic.members[position] !== actual
+          || (source === null ? sourceBody !== null : source.definition !== sourceDefinition || source.body !== sourceBody))
+          report("body-owner", site, "an enum value type source must retain the actual latest initializer in its declaring part");
+      }
+    }
     if (metadata !== null && "signatures" in metadata) for (const endpoint of metadata.signatures) {
       const signature = validHirIndex(endpoint.signature) ? context.types.signatures[endpoint.signature] : undefined;
       if ((signature !== undefined && signature.declaration !== null && signature.declaration !== endpoint.declaration) ||
