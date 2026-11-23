@@ -4,8 +4,8 @@ import type {
   ArtifactBindings, BindingVector, BodyInstance, MemberInventory, SelectedNativeFacts, SignatureEndpoint, SignatureRequest, TypeInterner, TypePublication, TypeTable,
 } from "../ir-types/contract.js";
 import type { CheckedModuleImage, HirModule } from "../ir-hir/contract.js";
-import type { PlacedSignature } from "../ir-infer/contract.js";
-import type { TirBody, TirChapterTree, TirMemberOccurrence, TirReadyReadAdmission, TirVerifierInput } from "../ir-tir/contract.js";
+import type { CandidateInput, PlacedSignature } from "../ir-infer/contract.js";
+import type { TirApplication, TirBody, TirChapterTree, TirMemberOccurrence, TirReadyReadAdmission, TirVerifierInput } from "../ir-tir/contract.js";
 import type { MirBody, MirVerificationLimits } from "../ir-mir/contract.js";
 import type { BodyFacts, BodyObservations, FactsVerificationContext, MetadataRecord, Summary } from "../ir-facts/contract.js";
 import type { InstantiationAllocationStop, InstantiationStop, ProgramWork } from "./work.js";
@@ -111,8 +111,9 @@ export type ProgramVerificationWork = ProgramWork;
 export type TirSpecializationPlacement =
   | { readonly kind: "endpoint"; readonly template: PlacedSignature; readonly selected: PlacedSignature }
   | { readonly kind: "execution"; readonly template: PlacedSignature };
+export type ReplayTirCandidate = (input: CandidateInput, result: TyId) => DataflowResult<TirApplication>;
 export type SpecializeTir = (template: TirBody, instance: BodyInstance, placement: TirSpecializationPlacement,
-  types: TypeInterner, resources: ProgramVerificationWork) =>
+  types: TypeInterner, resources: ProgramVerificationWork, replay: ReplayTirCandidate) =>
   { readonly kind: "complete"; readonly value: TirBody } | Extract<InstantiationResult, { readonly kind: "resource-limit" | "refused" }>;
 export type CreateProgramVerificationWork = (limits: ProgramVerificationLimits, account: DataflowAccount) => ProgramVerificationWork;
 export type AdmitProgramReadyRow = (resources: ProgramVerificationWork, work: number, records: number) => InstantiationAllocationStop | null;

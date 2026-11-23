@@ -228,7 +228,7 @@ export function readGraphValue(data: GraphValue, work: TypePublicationWork): Pub
   return selected.kind === "resource-limit" ? selected : { kind: "complete", value: { kind: "signature", value: selected.value } };
 }
 
-export function inspectGraphValue(data: GraphValue): GraphDescription {
+function projectGraphReferences(data: GraphValue): { readonly shape: GraphValue; readonly references: readonly GraphReference[] } {
   let position = 0;
   const references: GraphReference[] = [];
   const setReferences: GraphReference[] = [];
@@ -253,14 +253,24 @@ export function inspectGraphValue(data: GraphValue): GraphDescription {
     if (value.kind === "union" || value.kind === "intersection") value = { ...value, members: typeSet(value.members, -1) };
     else if (value.kind === "shape" || value.kind === "callable") value = { ...value,
       calls: signatureSet(value.calls, -2), constructs: signatureSet(value.constructs, -3) };
-    const label = `type:${typeText(remapTerm(value, typeOf, signatureOf))}`;
-    return { label, references: [...references, ...setReferences] };
+    const shape: GraphValue = { kind: "type", value: remapTerm(value, typeOf, signatureOf) };
+    return { shape, references: [...references, ...setReferences] };
   }
   const value = data.value;
   const composition = value.composition === null ? null
     : { ...value.composition, signatures: signatureSet(value.composition.signatures, -4) };
-  const label = `signature:${signatureText(remapSignature({ ...value, composition }, typeOf, signatureOf))}`;
-  return { label, references: [...setReferences, ...references] };
+  const shape: GraphValue = { kind: "signature", value: remapSignature({ ...value, composition }, typeOf, signatureOf) };
+  return { shape, references: [...setReferences, ...references] };
+}
+
+export function graphReferences(data: GraphValue): readonly GraphReference[] {
+  return projectGraphReferences(data).references;
+}
+
+export function inspectGraphValue(data: GraphValue): GraphDescription {
+  const { shape, references } = projectGraphReferences(data);
+  const label = shape.kind === "type" ? `type:${typeText(shape.value)}` : `signature:${signatureText(shape.value)}`;
+  return { label, references };
 }
 
 function connect(source: GraphNode, target: GraphNode, role: number): void {

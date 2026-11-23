@@ -1629,8 +1629,8 @@ test("all thirteen deferred rule families retain their independently observable 
   const expectedFields = ["input", "occurrence", "occurrence", "input", "input", "input", "input", "input", "input", "input", "occurrence", "occurrence", "input"];
   for (const [row, [constraint, invocation, opposite, bindingScopes]] of rows.entries()) {
     const set = { ...constraintSet([constraint]), candidates: constraint.kind === "call" ? [{ id: 0, candidates: [candidate] }] : [] };
-    const solved = saved => ({ ...completeSolution(), constraints: [{ constraint: { body, index: 0 }, decision: {
-      kind: "deferred", deferred: { invocation: saved, result: 0 },
+    const solved = (saved, result = 0) => ({ ...completeSolution(), constraints: [{ constraint: { body, index: 0 }, decision: {
+      kind: "deferred", deferred: { invocation: saved, result },
     } }] });
     const input = { constraints: [set], bindingScopes, solution: solved(invocation), nodes: [{ owner: source, ids: [0, 1] }] };
     const changed = { ...invocation, input: opposite };
@@ -1647,6 +1647,9 @@ test("all thirteen deferred rule families retain their independently observable 
         constraints: [constraintSet([equality])], bindingScopes: [emptyScope] })), [],
         "a saved domain-fit relation also belongs to a genuine equality constraint");
     if (invocation.rule === "candidate") {
+      const types = { terms: [{ kind: "primitive", primitive: "int32" }, { kind: "primitive", primitive: "bool" }], signatures: [signature] };
+      ruleCase("deferred-invocation", { ...input, types }, { ...input, types, solution: solved(invocation, 1) },
+        [violation("deferred-invocation", constraintSite(0), "result")], "the saved result must belong to the actual applied endpoint");
       ruleCase("deferred-invocation", input, { ...input,
         constraints: [{ ...set, constraints: [member] }], bindingScopes: [emptyScope, emptyScope, emptyScope] },
       [violation("deferred-invocation", constraintSite(0), "input")],

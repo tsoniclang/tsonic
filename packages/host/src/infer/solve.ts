@@ -286,7 +286,7 @@ function continueSolve<State>(frame: Frame<State>, start: number): Step<State> {
       const final = present(variables[variable], "a completed variable read");
       return final.error === null ? final : { ...final, error: absorbed(unit, group.id, variable) };
     });
-    const evaluated = evaluate(deps, item, reads);
+    const evaluated = evaluate(deps, item, reads, unit);
     if (evaluated.kind === "paused") return pauseMember(frame, evaluated, position, task.index, item, null);
     const result = evaluated.kind === "done" ? contributionOf(evaluated.value) : evaluated;
     const stop = finishContribution(frame, task.index, item, result, null);
@@ -432,7 +432,7 @@ function enumerate<State>(deps: InferDeps<State>, group: InferenceGroup, set: Co
 }
 
 function evaluate<State>(deps: InferDeps<State>, item: Enumerated,
-  reads: readonly FinalVariable[]): MemberStep<State> | Result<ContributionOutcome> {
+  reads: readonly FinalVariable[], unit: UnitRequest): MemberStep<State> | Result<ContributionOutcome> {
   const common = { contribution: item.contribution, candidates: item.set.candidates, evidence: item.reached.evidence, reads };
   switch (item.reached.kind) {
     case "member": {
@@ -442,7 +442,8 @@ function evaluate<State>(deps: InferDeps<State>, item: Enumerated,
     case "op": return deps.rules.constraints.op.evaluate({ ...common, constraint: item.reached.constraint });
     case "flow": return deps.rules.constraints.flow.evaluate({ ...common, constraint: item.reached.constraint });
     case "literal": return deps.rules.constraints.literal.evaluate({ ...common, constraint: item.reached.constraint });
-    case "call": return deps.rules.constraints.call.evaluate({ ...common, constraint: item.reached.constraint, origin: item.reached.origin });
+    case "call": return deps.rules.constraints.call.evaluate({ ...common, constraint: item.reached.constraint, origin: item.reached.origin,
+      scope: deps.bindingScopeOf(deps.hirBody(item.set.body).owner), typeWork: deps.typeWork, unit });
     case "default": return deps.rules.constraints.default.evaluate({ ...common, constraint: item.reached.constraint });
   }
 }

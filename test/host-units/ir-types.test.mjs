@@ -4108,6 +4108,30 @@ test("a paid binding key uses the same canonical row projection without acquirin
   }
 });
 
+test("lexical support distinguishes nested signature binders, free outer references and foreign ones", () => {
+  const inner = parameterDeclaration(other, 0);
+  const outer = parameterDeclaration(owner, 0);
+  const storage = createTypeInterner();
+  const innerType = product.internType(storage, { kind: "param", parameter: inner });
+  const outerType = product.internType(storage, { kind: "param", parameter: outer });
+  const local = insertFixtureSignature(product, storage, signature({ typeParameters: [{ declaration: inner, constraint: null, default: null }], result: innerType }));
+  const captured = insertFixtureSignature(product, storage, signature({ typeParameters: [{ declaration: inner, constraint: null, default: null }], result: outerType }));
+  const callable = id => insertFixtureType(product, storage, { kind: "callable", calls: [id], constructs: [] });
+  const sealed = callable(local);
+  const open = callable(captured);
+  const scope = { ...emptyScope(), methodParameters: [outer] };
+  const table = viewTypes(storage);
+  assert.deepEqual(product.readLexicalTypeSupport(table, [sealed], scope, fixtureTypeAdmission()), { kind: "complete", value: "independent" });
+  assert.deepEqual(product.readLexicalTypeSupport(table, [open], scope, fixtureTypeAdmission()), { kind: "complete", value: "dependent" });
+  assert.deepEqual(product.readLexicalTypeSupport(table, [innerType], scope, fixtureTypeAdmission()), { kind: "complete", value: "foreign" });
+  assert.deepEqual(product.readLexicalTypeSupport(table, [999], scope, fixtureTypeAdmission()), { kind: "complete", value: "invalid" });
+  const account = createAccount({ maximumWork: 0, maximumResultEntries: 100 });
+  const unread = { get terms() { assert.fail("the original stop precedes a type table read"); } };
+  const stop = product.readLexicalTypeSupport(unread, [open], scope,
+    { work: count => chargeWork(account, count), retain: count => chargeResultEntries(account, count) });
+  assert.equal(stop === accountFailure(account), true);
+});
+
 test("executionKey and declaredExecutionKey: the provided count is part of the key and is data only, never checked here", () => {
   const instance = instanceOf(instantiated({ classBindings: [boundAt(0, 1)] }));
   const key = provided => executionKey({ instance, provided });

@@ -1,6 +1,6 @@
 import type { ArtifactBindings, BindingVector, BodyInstance, TypeExpansionLimits, TypeInterner, TypeTable,
   TypeTableAdmissionWork, TypeTransform } from "../ir-types/contract.js";
-import type { ArtifactReference, Instantiate, InstantiatedArtifact, InstantiationResult, ModuleBodies, ProgramIndex, SpecializeTir } from "./contract.js";
+import type { ArtifactReference, Instantiate, InstantiatedArtifact, InstantiationResult, ModuleBodies, ProgramIndex, ReplayTirCandidate, SpecializeTir } from "./contract.js";
 import { hostDiagnosticCode, requirePresent, throwInvariant } from "../diag/index.js";
 import type { InvariantFailure } from "../diag/contract.js";
 import type { BodyFacts } from "../ir-facts/contract.js";
@@ -18,6 +18,7 @@ import type { ArtifactPlacement } from "./instantiate-tir.js";
 import { inventoryBodySyntax } from "./instantiate-syntax.js";
 import { rewriteBodySyntax } from "./canonical-syntax.js";
 import { typedSyntaxPhaseCopy } from "./canonical-phase.js";
+import type { CandidateReplayPlan } from "./instantiate-phase.js";
 
 type ParametricArtifact = Extract<InstantiatedArtifact, { readonly kind: "tir" | "summary" }>;
 type ArtifactCandidate =
@@ -162,7 +163,7 @@ type ArtifactProjection = {
 };
 
 function prepareArtifact(scan: ProjectionInventory, artifact: ParametricArtifact,
-  bindings: ArtifactBindings, placement: ArtifactPlacement,
+  bindings: ArtifactBindings, placement: ArtifactPlacement, replay: CandidateReplayPlan | null,
 ): ArtifactProjection | InstantiationStop {
   const environment = inventoryRecord(scan, 2);
   if (environment !== null) return environment;
@@ -171,7 +172,7 @@ function prepareArtifact(scan: ProjectionInventory, artifact: ParametricArtifact
       const body = inventoryTirBody(scan, artifact.body);
       if (body.kind !== "complete") return body;
       const prepared = body.value;
-      const syntax = inventoryBodySyntax(scan, prepared.roots, typedSyntaxPhaseCopy(scan, "Instantiation.root"));
+      const syntax = inventoryBodySyntax(scan, prepared.roots, typedSyntaxPhaseCopy(scan, "Instantiation.root", replay));
       if (syntax.kind !== "complete") return syntax;
       return {
         kind: "complete",
@@ -271,11 +272,11 @@ export const instantiate: Instantiate = (index, module, artifact, bindings, limi
   if (admitted.kind !== "complete") return admitted;
   const interner = admitted.types;
   if (selected.kind === "exact") return { kind: "instantiated", artifact: selected.artifact, types: viewTypes(interner) };
-  return projectArtifact(meter, interner, selected.artifact, { kind: "instantiated", bindings }, { kind: "structural" });
+  return projectArtifact(meter, interner, selected.artifact, { kind: "instantiated", bindings }, { kind: "structural" }, null);
 };
 
 function projectArtifact(meter: InstantiationMeter, interner: TypeInterner, artifact: ParametricArtifact,
-  instance: Extract<ArtifactBindings, { readonly kind: "instantiated" }>, placement: ArtifactPlacement):
+  instance: Extract<ArtifactBindings, { readonly kind: "instantiated" }>, placement: ArtifactPlacement, resume: ReplayTirCandidate | null):
   Extract<InstantiationResult, { readonly kind: "instantiated" | "resource-limit" | "refused" }> {
   const bindings = instance.bindings;
   const typeWork = programTypeWork(meter);
@@ -284,7 +285,8 @@ function projectArtifact(meter: InstantiationMeter, interner: TypeInterner, arti
   const scan = createProjectionInventory(meter, lookup.lookup, () => {
     throw new TypeError("Inline cycle in instantiation TypeComponent");
   });
-  const projection = prepareArtifact(scan, artifact, instance, placement);
+  const replay: CandidateReplayPlan | null = resume === null ? null : { settle: resume, pending: [] };
+  const projection = prepareArtifact(scan, artifact, instance, placement, replay);
   if (projection.kind !== "complete") return projection;
   const expansion: TypeExpansionLimits = meter.limits.typeExpansion;
   const types = substituteReferences(meter, scan.types, roots => substitute(interner, roots, bindings, expansion, typeWork));
@@ -295,6 +297,12 @@ function projectArtifact(meter: InstantiationMeter, interner: TypeInterner, arti
     type: value => transformed(types.values, value),
     signature: value => transformed(signatures.values, value),
   };
+  if (replay !== null) for (const settle of replay.pending) {
+    const step = chargeInstantiationWork(meter);
+    if (step !== null) return step;
+    const stopped = settle(rewrite);
+    if (stopped !== null) return stopped;
+  }
   const projected = projection.project(rewrite);
   if (projected.kind === "refused") return projected.stop;
   return {
@@ -307,10 +315,11 @@ function projectArtifact(meter: InstantiationMeter, interner: TypeInterner, arti
 const wrongSpecialization: InvariantFailure = { owner: "ir-program", query: null, origin: null,
   message: "A selected Typed projection needs its actual substitution-ready template and placed signature." };
 
-export const specializeTir: SpecializeTir = (template, instance, placement, types, resources) => {
+export const specializeTir: SpecializeTir = (template, instance, placement, types, resources, replay) => {
   const meter = ProgramWork.state(resources);
   const initial = chargeInstantiationWork(meter);
   if (initial !== null) return initial;
+  if (typeof replay !== "function") return throwInvariant(wrongSpecialization);
   const original = placement.template;
   if (instance.body !== template.body || instance.bindings.kind !== "instantiated" || template.bindings.kind !== "parametric"
     || template.dependence !== "parametric" || original.signature.id !== template.signature
@@ -333,7 +342,7 @@ export const specializeTir: SpecializeTir = (template, instance, placement, type
       return throwInvariant(wrongSpecialization);
     artifactPlacement = { kind: "selected", signature: selected.signature.id };
   }
-  const projected = projectArtifact(meter, types, { kind: "tir", body: template }, instance.bindings, artifactPlacement);
+  const projected = projectArtifact(meter, types, { kind: "tir", body: template }, instance.bindings, artifactPlacement, replay);
   if (projected.kind !== "instantiated") return projected;
   if (projected.artifact.kind !== "tir") return throwInvariant(wrongSpecialization);
   return { kind: "complete", value: projected.artifact.body };

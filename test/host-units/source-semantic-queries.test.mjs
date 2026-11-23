@@ -1111,7 +1111,7 @@ test("a native callable value cannot substitute the checked endpoint signature f
     error => error.cause?.owner === "rules" && error.message.includes("actual callable value signature"));
 });
 
-test("recursive generic inference keeps the placed template and applied completion distinct", () => {
+test("recursive generic inference defers the candidate with its distinct placed template and applied completion", () => {
   const program = ready("export function repeat<T>(value:T):T { return repeat(value); }");
   const declaration = program.checked.tree.statements.nodes[0];
   const body = program.domain.bodyOf.get(declaration.tsonic.body);
@@ -1120,25 +1120,29 @@ test("recursive generic inference keeps the placed template and applied completi
   assert.equal(result.kind, "completed");
   const publication = result.value;
   const original = publication.solution.bodies.find(row => row.body === body.body);
-  const selected = publication.solution.constraints.find(row => row.decision.kind === "call");
-  const application = selected.decision.application;
+  const selected = publication.solution.constraints.find(row => row.decision.kind === "deferred"
+    && row.decision.deferred.invocation.rule === "candidate");
+  const deferred = selected.decision.deferred;
+  const application = deferred.invocation.input.candidates[0];
   const candidate = publication.constraints.constraints.find(row => row.body === body.body).candidates[0].candidates[0];
   assert.equal(application.api.body, original.body);
   assert.equal(application.api.signature, original.signature);
-  assert.notEqual(application.completion.signature, original.signature);
-  assert.equal(application.completion.signature, candidate.endpoints.value.apiSignature);
-  assert.equal(application.completion.completion, fixture.types.readSignature(program.interner, application.completion.signature).result);
-  const verify = completion => irInfer.verifyInference({ group, constraints: publication.constraints.constraints,
+  assert.notEqual(application.apiSignature, original.signature);
+  assert.equal(application.apiSignature, candidate.endpoints.value.apiSignature);
+  assert.equal(deferred.result, fixture.types.readSignature(program.interner, application.apiSignature).result);
+  const verify = changed => irInfer.verifyInference({ group, constraints: publication.constraints.constraints,
     contributions: publication.contributions, solution: { ...publication.solution,
       constraints: publication.solution.constraints.map(row => row !== selected ? row : {
-        ...row, decision: { ...row.decision, application: { ...application, completion } },
+        ...row, decision: { kind: "deferred", deferred: changed },
       }) },
     placedSignatureOf: identity => identity === original.body ? original.signature : null,
     ...program.verification(group, publication.constraints, publication) }).map(row => row.rule);
-  assert.deepEqual(verify({ ...application.completion, signature: original.signature }), ["endpoint-agreement", "body-completion-endpoints"]);
+  assert.deepEqual(verify({ ...deferred, invocation: { ...deferred.invocation, input: { ...deferred.invocation.input,
+    candidates: [{ ...application, apiSignature: original.signature }],
+  } } }), ["deferred-invocation"]);
   const unrelated = fixture.types.internType(program.interner, { kind: "primitive", primitive: "bool" });
-  assert.notEqual(unrelated, application.completion.completion);
-  assert.deepEqual(verify({ ...application.completion, completion: unrelated }), ["body-completion-endpoints"]);
+  assert.notEqual(unrelated, deferred.result);
+  assert.deepEqual(verify({ ...deferred, result: unrelated }), ["deferred-invocation"]);
 });
 
 test("real explicit and inferred calls retain their original endpoint, applied completion and authored type arguments", async () => {

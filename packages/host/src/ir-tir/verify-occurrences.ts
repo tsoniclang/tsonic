@@ -1,12 +1,11 @@
 import type { DefId, LocalRef, NodeId, SourceNodeRef, TyId } from "../ids/contract.js";
-import { encodeKey } from "../ids/index.js";
 import type { HirNode, SwitchStatement } from "../ir-hir/contract.js";
 import { compoundAssignmentOperatorOf, prefixOperatorOf, shortCircuitOperatorOf, unparenthesizedExpression } from "../ir-hir/index.js";
 import type { Origin } from "../ids/contract.js";
 import type { ApplicationDecision, DeferredDecision, MemberDecision, OperationDecision, RuleOutcome } from "../ir-infer/contract.js";
-import type { BodyInstance, TypeEvidence, TypeTable } from "../ir-types/contract.js";
-import { isNativeBinaryFloatPrimitive, isNativeIntegerPrimitive, nativeCarrierOf } from "../ir-types/index.js";
-import type { MemberSelection, ResolvedCallee, TirApplication, TirBody, TirMemberOccurrence, TirModule, TirNode, TirProtocol, TirRule, TirTypedSyntax, TypedBodyTemplate, TypedOperation, TypedPhase, TypedValue } from "./contract.js";
+import type { BindingScope, BodyInstance, TypeEvidence, TypeTable } from "../ir-types/contract.js";
+import { isNativeBinaryFloatPrimitive, isNativeIntegerPrimitive, nativeCarrierOf, readLexicalTypeSupport } from "../ir-types/index.js";
+import type { MemberSelection, ResolvedCallee, TirApplication, TirBody, TirMemberOccurrence, TirModule, TirNode, TirProtocol, TirReadyReadAdmission, TirRule, TirTypedSyntax, TypedBodyTemplate, TypedOperation, TypedPhase, TypedValue } from "./contract.js";
 import type { TirLayouts, TirReference, TirRecordAssociation, TirRecordLayout, TirScalarValue, TirTypedWork, TirValuePath } from "./text-layouts.js";
 import { enterTirInline, roleSyntaxReference, tirPathText } from "./text-layouts.js";
 import { requirePresent } from "../diag/index.js";
@@ -61,11 +60,6 @@ export interface TirSelectedMemberVisit {
 interface TirMemberCursor {
   readonly node: TirNode;
   ordinal: number;
-}
-
-export interface TirTypeGraph {
-  readonly children: ReadonlyMap<number, readonly number[]>;
-  readonly signatureOffset: number;
 }
 
 type TirChapterHeader = Extract<TirTypedSyntax, { readonly kind: "module-root" | "ready-callable" }>;
@@ -596,39 +590,53 @@ export const verifyOccurrenceOperation = (node: TirNode, table: TypeTable, emit:
   if (!matches) emit("operation-type", node, "selected operation does not retain the authored operand count and value endpoints");
 };
 
-export const verifyDeferredParameters = (
-  deferred: DeferredDecision, node: TirNode, body: TirBody, table: TypeTable, graph: TirTypeGraph,
-  memo: Map<string, boolean>, emit: TirOccurrenceEmit,
-): void => {
+export function verifyDeferredParameters<Stop extends object>(
+  deferred: DeferredDecision, node: TirNode, body: TirBody, table: TypeTable,
+  emit: TirOccurrenceEmit, admit: TirReadyReadAdmission<Stop>,
+): Stop | null {
+  const setup = admit({ kind: "deferred-type-support", work: 1, records: 6 });
+  if (setup !== null) return setup;
   const context = deferred.invocation.input.context;
-  let valid = context.occurrence.body === body.body && Object.is(context.occurrence.node, node.id) &&
+  const valid = context.occurrence.body === body.body && Object.is(context.occurrence.node, node.id) &&
     context.origin.module === node.origin.module && context.origin.start === node.origin.start && context.origin.length === node.origin.length;
-  const parameters = new Set<string>();
-  const owners = new Set<string>();
-  for (const family of [context.bindings.classBindings, context.bindings.methodBindings, context.bindings.capturedBindings]) {
-    for (const binding of family) parameters.add(binding.parameter);
+  const classParameters: DefId[] = [];
+  const methodParameters: DefId[] = [];
+  const capturedParameters: DefId[] = [];
+  const selfOwners: DefId[] = [];
+  const scope: BindingScope = { classParameters, methodParameters, capturedParameters, selfOwners };
+  const { bindings } = context;
+  const families = [
+    { rows: bindings.classBindings, target: classParameters },
+    { rows: bindings.methodBindings, target: methodParameters },
+    { rows: bindings.capturedBindings, target: capturedParameters },
+  ];
+  for (const { rows, target } of families) for (let position = 0; position < rows.length; position += 1) {
+    const step = admit({ kind: "deferred-type-support", work: 1, records: 1 });
+    if (step !== null) return step;
+    const binding = rows[position];
+    if (binding !== undefined) target.push(binding.parameter);
   }
-  for (const binding of context.bindings.selfBindings) owners.add(binding.owner);
-  const support = encodeKey({ kind: "record", fields: [["parameters", [...parameters].sort()], ["owners", [...owners].sort()]] });
+  for (let position = 0; position < bindings.selfBindings.length; position += 1) {
+    const step = admit({ kind: "deferred-type-support", work: 1, records: 1 });
+    if (step !== null) return step;
+    const binding = bindings.selfBindings[position];
+    if (binding !== undefined) selfOwners.push(binding.owner);
+  }
+  const roots: TyId[] = [];
   for (const evidence of deferredEvidence(deferred)) {
-    if (!Number.isSafeInteger(evidence.type) || Object.is(evidence.type, -0) || evidence.type < 0 || evidence.type >= table.terms.length) continue;
-    const query = encodeKey([evidence.type, support]);
-    let supported = memo.get(query);
-    if (supported === undefined) {
-      supported = true;
-      const pending: number[] = [evidence.type];
-      const visited = new Set<number>();
-      for (let selected = pending.pop(); selected !== undefined; selected = pending.pop()) {
-        if (visited.has(selected)) continue;
-        visited.add(selected);
-        const term = selected < graph.signatureOffset ? table.terms[selected] : undefined;
-        if (term?.kind === "param" && !parameters.has(term.parameter) ||
-          term?.kind === "self" && !owners.has(term.owner)) { supported = false; break; }
-        for (const child of graph.children.get(selected) ?? []) pending.push(child);
-      }
-      memo.set(query, supported);
-    }
-    if (!supported) { valid = false; break; }
+    const step = admit({ kind: "deferred-type-support", work: 1, records: 1 });
+    if (step !== null) return step;
+    const type = evidence.type;
+    if (Number.isSafeInteger(type) && !Object.is(type, -0) && type >= 0 && type < table.terms.length) roots.push(type);
   }
-  if (!valid) emit("deferred-parameters", node, "saved invocation does not retain its occurrence and complete captured rigid-parameter support");
-};
+  const admitSupport = (work: number, records: number): { readonly kind: "resource-limit"; readonly stop: Stop } | null => {
+    const stop = admit({ kind: "deferred-type-support", work, records });
+    return stop === null ? null : { kind: "resource-limit", stop };
+  };
+  const support = readLexicalTypeSupport(table, roots, scope, { work: count => admitSupport(count, 0), retain: count => admitSupport(0, count) });
+  if (support.kind !== "complete") return support.stop;
+  if (support.value === "invalid") emit("type-closed", node, "typed reference does not reach a present closed type/signature graph");
+  if (!valid || support.value === "foreign")
+    emit("deferred-parameters", node, "saved invocation does not retain its occurrence and complete captured rigid-parameter support");
+  return null;
+}

@@ -304,7 +304,14 @@ const missingProjection: InvariantFailure = { owner: "ir-program", query: null, 
 export function prepareProjectionRows<Source, Value>(scan: ProjectionInventory, values: readonly Source[],
   prepare: (read: () => Source, index: number) => PreparedReferenceProjection<Value>,
 ): PreparedSyntaxSlot<Value[], TypeReferenceRewrite> {
-  const rows: BindingRowPlan<Value>[] = [];
+  const rows = prepareProjectionRowsWith<Source, Value, undefined>(scan, values, prepare);
+  return rewrite => rows(rewrite, undefined);
+}
+
+export function prepareProjectionRowsWith<Source, Value, Context>(scan: ProjectionInventory, values: readonly Source[],
+  prepare: (read: () => Source, index: number) => SyntaxCopyResult<(rewrite: TypeReferenceRewrite, context: Context) => Value, InstantiationStop>,
+): (rewrite: TypeReferenceRewrite, context: Context) => Value[] {
+  const rows: ((rewrite: TypeReferenceRewrite, context: Context) => Value)[] = [];
   const length = values.length;
   let index = 0;
   const next = (): InstantiationStop | null => {
@@ -318,7 +325,7 @@ export function prepareProjectionRows<Source, Value>(scan: ProjectionInventory, 
     return null;
   };
   scan.pending.push(next);
-  return rewrite => rows.map(row => row(rewrite));
+  return (rewrite, context) => rows.map(row => row(rewrite, context));
 }
 
 export function deferProjection<Value>(scan: ProjectionInventory, prepare: () => PreparedReferenceProjection<Value>): BindingRowPlan<Value> {
@@ -511,15 +518,16 @@ export function prepareParameterProjection(scan: ProjectionInventory, read: () =
   }) };
 }
 
-export function prepareEndpoint(scan: ProjectionInventory, read: () => HirCallableEndpoint): PreparedReferenceProjection<HirCallableEndpoint> {
+export function prepareEndpoint(scan: ProjectionInventory, read: () => HirCallableEndpoint,
+  domain: "image" | "original"): PreparedReferenceProjection<HirCallableEndpoint> {
   const record = inventoryRecord(scan, 4);
   if (record !== null) return { kind: "refused", stop: record };
   const value = read();
   const signature = value.signature;
-  const stop = inventorySignature(scan, signature);
+  const stop = domain === "image" ? inventorySignature(scan, signature) : inventoryFields(scan, 1);
   if (stop !== null) return { kind: "refused", stop };
   const { declaration, role, body } = value;
-  return { kind: "copied", value: rewrite => ({ declaration, role, body, signature: rewrite.signature(signature) }) };
+  return { kind: "copied", value: rewrite => ({ declaration, role, body, signature: domain === "image" ? rewrite.signature(signature) : signature }) };
 }
 
 interface ComponentPath {

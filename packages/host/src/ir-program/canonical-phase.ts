@@ -13,13 +13,13 @@ import type {
 import type { TypeReferenceRewrite } from "./canonical-types.js";
 import type { InstantiationStop } from "./work.js";
 import type { ProjectionInventory } from "./program-values.js";
-import type { PreparedPhase } from "./instantiate-phase.js";
+import type { CandidateReplayPlan, PreparedPhase } from "./instantiate-phase.js";
 import {
   inventoryRecord, inventoryType, prepareBindingsProjection, prepareEndpoint, prepareParameterProjection, prepareProjectionRows,
 } from "./program-values.js";
 import {
   borrowPhase, holdPhase, optionalTypePhase, paidPhase, prepareApplication, prepareConstructionPart, prepareOutcome, prepareProtocol,
-  prepareRefinement, prepareSelection, prepareTirApplication, prepareTypedOperation, prepareValue, typePhase, typesPhase, withOptionalPlan, withPlan,
+  prepareRefinement, prepareReplayedApplication, prepareSelection, prepareTirApplication, prepareTypedOperation, prepareValue, typePhase, typesPhase, withOptionalPlan, withPlan,
 } from "./instantiate-phase.js";
 
 function prepareValueOccurrence(scan: ProjectionInventory, value: TypedValueOccurrence, at: string): PreparedPhase<TypedValueOccurrence> {
@@ -203,9 +203,11 @@ function prepareTypedMember(scan: ProjectionInventory, value: TypedMember, at: s
     });
 }
 
-function prepareTypedApplication(scan: ProjectionInventory, value: TypedApplication, at: string): PreparedPhase<TypedApplication> {
+function prepareTypedApplication(scan: ProjectionInventory, value: TypedApplication, at: string,
+  replay: CandidateReplayPlan | null): PreparedPhase<TypedApplication> {
   return paidPhase(scan, 8, () => withPlan(prepareValue(scan, value, at), common =>
-    withPlan(prepareOutcome(scan, () => value.application, application => prepareTirApplication(scan, application), at + ".application"), application =>
+    withPlan(replay === null ? prepareOutcome(scan, () => value.application, application => prepareTirApplication(scan, application, "transport"), at + ".application")
+      : prepareReplayedApplication(scan, () => value.application, at + ".application", replay), application =>
       withPlan(withOptionalPlan(value.operation, operation => operationOutcome(scan, operation, at + ".operation")), operation =>
         ({ kind: "copied", value: image => ({ ...common(image), application: application(image), operation: operation(image) }) })))));
 }
@@ -294,7 +296,7 @@ function preparePropertyKey(scan: ProjectionInventory, value: TypedPropertyKey):
 
 function prepareDecorator(scan: ProjectionInventory, value: TypedDecorator, at: string): PreparedPhase<TypedDecorator> {
   return paidPhase(scan, 1, () => withPlan(prepareOutcome(scan, () => value.application,
-    application => prepareTirApplication(scan, application), at + ".application"), application =>
+    application => prepareTirApplication(scan, application, "transport"), at + ".application"), application =>
     ({ kind: "copied", value: image => ({ application: application(image) }) })));
 }
 
@@ -342,7 +344,7 @@ function prepareCallablePhase(scan: ProjectionInventory, source: TypedCallable):
   const header = inventoryRecord(scan, 5);
   if (header !== null) return { kind: "refused", stop: header };
   const preparedParameters = prepareProjectionRows(scan, source.parameters, read => prepareParameterProjection(scan, read));
-  const preparedEndpoints = prepareProjectionRows(scan, source.signatures, read => prepareEndpoint(scan, read));
+  const preparedEndpoints = prepareProjectionRows(scan, source.signatures, read => prepareEndpoint(scan, read, "image"));
   const template = prepareTemplate(scan, source.template);
   if (template.kind === "refused") return template;
   const { definition, attributes } = source;
@@ -532,7 +534,8 @@ function prepareExportAssignmentPhase(scan: ProjectionInventory, source: TypedEx
   return { kind: "copied", value: rewrite => ({ definition, type: rewrite.type(type) }) };
 }
 
-export function typedSyntaxPhaseCopy(scan: ProjectionInventory, at: string): SyntaxPhaseCopy<TypedPhase, InstantiationStop, TypeReferenceRewrite> {
+export function typedSyntaxPhaseCopy(scan: ProjectionInventory, at: string,
+  replay: CandidateReplayPlan | null): SyntaxPhaseCopy<TypedPhase, InstantiationStop, TypeReferenceRewrite> {
   return {
     ArrayLiteralExpression: value => prepareConstruction(scan, value, at + ".ArrayLiteralExpression.tsonic"),
     ArrayTypeNode: value => prepareTypePhase(scan, value),
@@ -543,7 +546,7 @@ export function typedSyntaxPhaseCopy(scan: ProjectionInventory, at: string): Syn
     BinaryExpression: value => prepareBinary(scan, value, at + ".BinaryExpression.tsonic"),
     BindingElement: value => prepareBindingElement(scan, value),
     BindingPattern: value => prepareOmissionPhase(scan, value),
-    CallExpression: value => "role" in value ? holdPhase(value) : prepareTypedApplication(scan, value, at + ".CallExpression.tsonic"),
+    CallExpression: value => "role" in value ? holdPhase(value) : prepareTypedApplication(scan, value, at + ".CallExpression.tsonic", replay),
     CallSignatureDeclaration: value => prepareCallablePhase(scan, value),
     CaseClause: value => paidPhase(scan, 1, () => withPlan(operationOutcome(scan, value.operation, at + ".CaseClause.tsonic.operation"),
       operation => ({ kind: "copied", value: image => ({ operation: operation(image) }) }))),
@@ -614,7 +617,7 @@ export function typedSyntaxPhaseCopy(scan: ProjectionInventory, at: string): Syn
     NamespaceExport: holdPhase,
     NamespaceExportDeclaration: holdPhase,
     NamespaceImport: holdPhase,
-    NewExpression: value => prepareTypedApplication(scan, value, at + ".NewExpression.tsonic"),
+    NewExpression: value => prepareTypedApplication(scan, value, at + ".NewExpression.tsonic", null),
     NoSubstitutionTemplateLiteral: value => prepareString(scan, value, at + ".NoSubstitutionTemplateLiteral.tsonic"),
     NonNullExpression: value => prepareValueOccurrence(scan, value, at + ".NonNullExpression.tsonic"),
     NumericLiteral: value => prepareNumber(scan, value, at + ".NumericLiteral.tsonic"),
@@ -643,7 +646,7 @@ export function typedSyntaxPhaseCopy(scan: ProjectionInventory, at: string): Syn
     SpreadElement: value => prepareProtocolValue(scan, value, at + ".SpreadElement.tsonic"),
     StringLiteral: value => prepareString(scan, value, at + ".StringLiteral.tsonic"),
     SyntheticReferenceExpression: holdPhase,
-    TaggedTemplateExpression: value => prepareTypedApplication(scan, value, at + ".TaggedTemplateExpression.tsonic"),
+    TaggedTemplateExpression: value => prepareTypedApplication(scan, value, at + ".TaggedTemplateExpression.tsonic", null),
     TemplateExpression: value => prepareUnary(scan, value, at + ".TemplateExpression.tsonic"),
     TemplateLiteralTypeNode: value => prepareTypePhase(scan, value),
     TemplateLiteralTypeSpan: value => prepareTypePhase(scan, value),

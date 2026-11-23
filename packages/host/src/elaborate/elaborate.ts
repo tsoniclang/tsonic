@@ -4,10 +4,10 @@ import type { BodyId, LocalId, NodeId, NodeRef, Origin, TyId } from "../ids/cont
 import type { BinaryExpression, Block, CheckedPhase, Expression, HirBody, HirNode, Identifier, NodeHeader, ParameterDeclaration, Statement, TypeArgumentList, TypeNode, VariableDeclaration, VariableDeclarationList } from "../ir-hir/contract.js";
 import { checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, walkSyntaxTree, writableRootStorageOf } from "../ir-hir/index.js";
 import type { ApplicationDecision, BodyTyping, EmbeddingDecision, FlowRole, InferredSignaturePart, MemberDecision, RuleOutcome } from "../ir-infer/contract.js";
-import type { TargetAccess, TirArgument, TirBody, TirLocal, TirResolution, TirSelection, TypedBinary, TypedOperation, TypedPhase, TypedValue } from "../ir-tir/contract.js";
+import type { TargetAccess, TirApplication, TirArgument, TirBody, TirLocal, TirResolution, TirSelection, TypedBinary, TypedOperation, TypedPhase, TypedValue } from "../ir-tir/contract.js";
 import type { BodyInstance, LiteralValue } from "../ir-types/contract.js";
 import { artifactBindingsKey, optionalValueDomainOf, readType, rigidBindings } from "../ir-types/index.js";
-import type { ElaborateDeps, ElaborateInput, ElaborationChild, ElaborationNoResult, ElaborationResult } from "./contract.js";
+import type { ElaborateDeps, ElaborateInput, ElaborateSelectedCall, ElaborationChild, ElaborationNoResult, ElaborationResult } from "./contract.js";
 import { attachFormalDefault, elaborateModuleSyntax, elaborateParameter, elaborateVariable, isInlineModuleStatement } from "./module.js";
 import { declarationAlias, declarationInterface, declarationModifiers, declarationType } from "./declarations.js";
 
@@ -34,6 +34,36 @@ interface Flow {
 
 const header = (node: NodeHeader): NodeHeader =>
   ({ id: node.id, origin: node.origin, parent: node.parent, flags: node.flags, loc: node.loc });
+
+export const elaborateSelectedCall: ElaborateSelectedCall = ({ signatureOf }, application, bindings, { provided, argumentAt }, origin) => {
+  if (provided > application.parameters.length) return notElaboratedYet("the selected argument and receiver transport of this call", origin);
+  const implementation = application.implementationBindings;
+  const parametricSelection = bindings.kind === "parametric" && implementation.classBindings.length === 0
+    && implementation.methodBindings.length === 0 && implementation.capturedBindings.length === 0
+    && implementation.selfBindings.length === 0;
+  const activation: BodyInstance | null = application.api.body === null ? null : { body: application.api.body,
+    bindings: parametricSelection ? bindings : { kind: "instantiated", bindings: implementation } };
+  const formals = provided === application.parameters.length ? null : signatureOf(application.completion.signature).parameters;
+  const operands = application.parameters.map((mapping, parameter): TirArgument => {
+    if (parameter >= provided) {
+      const formal = formals?.[parameter];
+      if (mapping.parameter !== parameter || activation === null || formal === undefined || !formal.acceptsOmission)
+        return callerDefect("an omitted argument retains its actual selected omission and callee activation", origin);
+      if (mapping.kind === "omitted" && formal.kind === "optional" && formal.initializer === null && mapping.type === formal.type)
+        return { kind: "omitted", parameter, value: { kind: "absence" } };
+      if (mapping.kind !== "default" || formal.kind !== "default" || mapping.initializer !== formal.initializer)
+        return callerDefect("an omitted argument retains its actual selected default and callee activation", origin);
+      return { kind: "omitted", parameter, value: { kind: "initializer",
+        instance: { body: mapping.initializer, bindings: activation.bindings } } };
+    }
+    const source = argumentAt(parameter);
+    if (source === undefined || mapping.kind !== "argument" || mapping.parameter !== parameter || mapping.argument !== parameter
+      || mapping.component !== null || mapping.passing !== "by-value")
+      return notElaboratedYet("the actual fixed by-value source argument mapping", origin);
+    return { kind: "provided", parameter, expression: source };
+  });
+  return { callee: { decision: application, activation }, receiver: null, arguments: operands };
+};
 
 function signaturePartType<State>(deps: ElaborateDeps<State>, body: HirBody, typing: BodyTyping, part: InferredSignaturePart): TyId {
   const origin = body.root.origin;
@@ -173,7 +203,7 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
   const flows: (Flow | undefined)[] = [];
   const variables: ({ readonly kind: "local" | "literal" | "literal-decision"; readonly id: number; readonly type: TyId }
     | { readonly kind: "contextual-literal"; readonly type: TyId; target: number | null } | undefined)[] = [];
-  const applications: (ApplicationDecision | undefined)[] = [];
+  const applications: (RuleOutcome<ApplicationDecision> | undefined)[] = [];
   const members: (MemberDecision | undefined)[] = [];
   const calleeTypes = new Map<NodeId, TyId>();
   const read = { operations: new Set<number>(), flows: new Set<number>(), variables: new Set<number>(), applications: new Set<number>(), members: new Set<number>() };
@@ -225,11 +255,14 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
         return callerDefect("a selected member read retains its actual finalized result type", origin);
       members[position] = decision.member;
     } else if (constraint.kind === "call") {
-      if (decision.kind !== "call" || decision.operation !== null || applications[position] !== undefined)
+      if (applications[position] !== undefined)
         return callerDefect("a call must retain its one selected application decision", origin);
       const node = nodes[position];
       if (node?.kind !== "CallExpression") return callerDefect("a call decision must name its actual call syntax", origin);
-      applications[position] = decision.application;
+      if (decision.kind === "call" && decision.operation === null) applications[position] = { kind: "decided", decision: decision.application };
+      else if (decision.kind === "deferred" && decision.deferred.invocation.rule === "candidate"
+        && decision.deferred.invocation.input.kind === "call") applications[position] = decision;
+      else return callerDefect("a call must retain its actual selected or binding-dependent candidate", origin);
       calleeTypes.set(node.expression.id, finalType(constraint.application.callee, origin));
     } else if (constraint.kind === "default") {
       if (constraint.rule === "signature-producers") {
@@ -702,12 +735,13 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
           const value = requirePresent(values[slot], failure("compiler defect", "a throw without a selected operand endpoint", node.expression.origin));
           const occurrence = { body: body.body, node: producer.id };
           const application = producer.kind === "CallExpression" ? applications[slot] : undefined;
-          if (producer.kind === "CallExpression" && (application === undefined || application.result !== value.type))
+          if (producer.kind === "CallExpression" && (application === undefined
+            || (application.kind === "decided" ? application.decision.result : application.deferred.result) !== value.type))
             return callerDefect("a throw call must retain its actual selected result endpoint", producer.origin);
           const checked = deps.rules.checkThrowOperandUse({ instance, statement: { body: body.body, node: node.id },
             operand: { body: body.body, node: node.expression.id }, origin: node.expression.origin,
-            selected: application === undefined ? { kind: "value", producer: occurrence, type: value.type }
-              : { kind: "application", producer: occurrence, decision: application } });
+            selected: application?.kind === "decided" ? { kind: "application", producer: occurrence, decision: application.decision }
+              : { kind: "value", producer: occurrence, type: value.type } });
           if (checked.kind === "refused") return checked;
           statements[position] = { ...header(node), kind: "ThrowStatement", expression, tsonic: null };
         } else visit(node.expression);
@@ -935,34 +969,12 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
       case "CallExpression":
         if (building) {
           const application = applications[position] ?? compilerDefect("a call has no solved selected application", node.origin);
-          const provided = node.arguments.nodes.length;
-          if (node.questionDotToken !== null || provided > application.parameters.length)
+          if (node.questionDotToken !== null)
             return notElaboratedYet("the selected argument and receiver transport of this call", node.origin);
-          const implementation = application.implementationBindings;
-          const parametricSelection = instance.bindings.kind === "parametric" && implementation.classBindings.length === 0
-            && implementation.methodBindings.length === 0 && implementation.capturedBindings.length === 0
-            && implementation.selfBindings.length === 0;
-          const activation: BodyInstance | null = application.api.body === null ? null : { body: application.api.body,
-            bindings: parametricSelection ? instance.bindings : { kind: "instantiated", bindings: implementation } };
-          const formals = provided === application.parameters.length ? null : deps.signatureOf(application.completion.signature).parameters;
-          const arguments_ = application.parameters.map((mapping, parameter): TirArgument => {
-            if (parameter >= provided) {
-              const formal = formals?.[parameter];
-              if (mapping.parameter !== parameter || activation === null || formal === undefined || !formal.acceptsOmission)
-                return callerDefect("an omitted argument retains its actual selected omission and callee activation", node.origin);
-              if (mapping.kind === "omitted" && formal.kind === "optional" && formal.initializer === null && mapping.type === formal.type)
-                return { kind: "omitted", parameter, value: { kind: "absence" } };
-              if (mapping.kind !== "default" || formal.kind !== "default" || mapping.initializer !== formal.initializer)
-                return callerDefect("an omitted argument retains its actual selected default and callee activation", node.origin);
-              return { kind: "omitted", parameter, value: { kind: "initializer",
-                instance: { body: mapping.initializer, bindings: activation.bindings } } };
-            }
-            const source = node.arguments.nodes[parameter];
-            if (source === undefined || mapping.kind !== "argument" || mapping.parameter !== parameter || mapping.argument !== parameter
-              || mapping.component !== null || mapping.passing !== "by-value")
-              return notElaboratedYet("the actual fixed by-value source argument mapping", node.origin);
-            return { kind: "provided", parameter, expression: source.id };
-          });
+          const result = application.kind === "decided" ? application.decision.result : application.deferred.result;
+          const selected: RuleOutcome<TirApplication> = application.kind === "deferred" ? application
+            : { kind: "decided", decision: elaborateSelectedCall(deps, application.decision, instance.bindings,
+              { provided: node.arguments.nodes.length, argumentAt: at => node.arguments.nodes[at]?.id }, node.origin) };
           read.applications.add(position);
           let typeArguments: TypeArgumentList<TypedPhase> | null = null;
           if (node.typeArguments !== null) {
@@ -976,9 +988,7 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
           }
           expressions[position] = { ...header(node), kind: "CallExpression", expression: expressionOf(node.expression),
             arguments: { ...node.arguments, nodes: node.arguments.nodes.map(expressionOf) }, typeArguments, questionDotToken: null,
-            tsonic: { ...valueOf(position, application.result, node.origin), operation: null,
-              application: { kind: "decided", decision: { callee: { decision: application, activation },
-                receiver: null, arguments: arguments_ } } } };
+            tsonic: { ...valueOf(position, result, node.origin), operation: null, application: selected } };
         } else {
           visitList(node.arguments.nodes, node.origin);
           visit(node.expression);

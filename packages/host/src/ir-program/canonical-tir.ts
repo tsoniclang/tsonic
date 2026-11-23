@@ -33,7 +33,7 @@ export function projectMirBody(scan: ProjectionInventory, body: MirBody, rewrite
     member: value => finishProjection(scan, prepareSelection(scan, value), rewrite),
     instance,
     operation: (value, path) => finishProjection(scan, prepareTypedOperation(scan, value, path), rewrite),
-    callee: value => finishProjection(scan, prepareCallee(scan, value), rewrite),
+    callee: value => finishProjection(scan, prepareCallee(scan, value, "transport"), rewrite),
   };
 
   const keyWork: MirConstantKeyWork<InstantiationStop, MirCopyRefusal<InstantiationStop>> = {

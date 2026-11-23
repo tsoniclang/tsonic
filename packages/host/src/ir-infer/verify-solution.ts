@@ -205,9 +205,17 @@ function deferredReferences(context: SolutionContext, record: DeferredDecision, 
         candidateInput.candidates.every((candidate, index) => {
           const original = candidates.candidates[index];
           return original !== undefined && candidate.ordinal === original.ordinal && candidate.declaration === original.declaration &&
-            candidate.advertised.declaration === original.declaration && actualEndpoint(input, candidate.advertised, endpoints) &&
-              actualEndpoint(input, candidate.api, endpoints, original.declaration);
+            original.endpoints.kind === "available" &&
+            callableEndpointKey(candidate.advertised) === callableEndpointKey(original.endpoints.value.advertised) &&
+            callableEndpointKey(candidate.api) === callableEndpointKey(original.endpoints.value.api) &&
+            candidate.advertisedSignature === original.endpoints.value.advertisedSignature &&
+            candidate.apiSignature === original.endpoints.value.apiSignature;
         });
+      if (matches && candidateInput.candidates.length === 1) {
+        const applied = candidateInput.candidates[0]?.apiSignature;
+        if (applied === undefined || input.types.signatures[applied]?.result !== record.result)
+          emit(output, "deferred-invocation", site, "result");
+      }
       break;
     }
     case "operator": matches = value.kind === "op" && invocation.input.operator === value.operator &&

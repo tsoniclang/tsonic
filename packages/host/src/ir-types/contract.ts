@@ -217,6 +217,12 @@ export interface BindingScope {
   readonly selfOwners: readonly DefId[];
 }
 
+export type HasLexicalTypeDependency = (interner: TypeInterner, roots: readonly TyId[], scope: BindingScope,
+  work: TypePublicationWork) => { readonly kind: "complete"; readonly value: boolean } | TypePublicationStop;
+export type ReadLexicalTypeSupport = <Stop extends TypeTableAdmissionStop>(table: TypeTable, roots: readonly TyId[],
+  scope: BindingScope, admission: TypeTableAdmissionWork<Stop>) =>
+  { readonly kind: "complete"; readonly value: "independent" | "dependent" | "foreign" | "invalid" } | Stop;
+
 export type RigidBindings = (scope: BindingScope) => BindingVector;
 
 export interface BindingVerificationInput {

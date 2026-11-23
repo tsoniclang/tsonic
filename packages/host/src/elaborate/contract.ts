@@ -1,9 +1,9 @@
 import type { Diagnostic, Result } from "../diag/contract.js";
-import type { DefId, ModuleId, SourceNodeRef } from "../ids/contract.js";
-import type { BindingScope, BodyInstance, SignatureOf, TypeOf, TypeInterner, TypePublicationWork } from "../ir-types/contract.js";
+import type { DefId, ModuleId, NodeId, Origin, SourceNodeRef } from "../ids/contract.js";
+import type { ArtifactBindings, BindingScope, BodyInstance, SignatureOf, TypeOf, TypeInterner, TypePublicationWork } from "../ir-types/contract.js";
 import type { CheckedTypingCut, CheckedTypingCuts, HirBindingViews, HirBody, HirNode } from "../ir-hir/contract.js";
-import type { ConstraintSet, RuleTable, Solution } from "../ir-infer/contract.js";
-import type { StaticStorageOf, TirBody, TirFormal, TirFormalInitializer } from "../ir-tir/contract.js";
+import type { ApplicationDecision, ConstraintSet, RuleTable, Solution } from "../ir-infer/contract.js";
+import type { StaticStorageOf, TirApplication, TirBody, TirFormal, TirFormalInitializer } from "../ir-tir/contract.js";
 
 export interface ElaborateDeps<State> extends HirBindingViews {
   readonly cuts: CheckedTypingCuts;
@@ -52,6 +52,18 @@ export interface ElaborateInput {
 
 export type ElaborationResult = Extract<Result<TirBody>, { readonly kind: "ok" }> | ElaborationNoResult;
 export type Elaborate = <State>(deps: ElaborateDeps<State>, input: ElaborateInput) => ElaborationResult;
+
+export interface SelectedCallDeps {
+  readonly signatureOf: SignatureOf;
+}
+
+export interface SelectedCallOperands {
+  readonly provided: number;
+  readonly argumentAt: (position: number) => NodeId | undefined;
+}
+
+export type ElaborateSelectedCall = (deps: SelectedCallDeps, decision: ApplicationDecision, bindings: ArtifactBindings,
+  operands: SelectedCallOperands, origin: Origin) => TirApplication;
 
 export interface FormalDefaultDeps {
   readonly signatureOf: SignatureOf;

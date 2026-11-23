@@ -1,10 +1,10 @@
 import { encodeKey } from "../ids/index.js";
 import type { TyId, SigId, DefId } from "../ids/contract.js";
-import type { Substitute, SubstituteSignature, ProjectBindingValues, TypeInterner, TypeTerm, SignatureInput, SignatureSubstitution, TypeBinding, BindingVector,
+import type { Substitute, SubstituteSignature, ProjectBindingValues, HasLexicalTypeDependency, ReadLexicalTypeSupport, TypeInterner, TypeTerm, SignatureInput, SignatureSubstitution, TypeBinding, BindingVector,
   SelfBinding, TypeExpansionLimits, TypeTableAdmissionWork, TypeTableAdmissionStop } from "./contract.js";
 import { storedType, storedSignature } from "./interner.js";
-import { TypeArena } from "./arena.js";
-import { remapTerm, remapConditional, remapSignature, orderedSignature, inspectGraphValue } from "./canonical.js";
+import { TypeArena, type GraphIdentity } from "./arena.js";
+import { remapTerm, remapConditional, remapSignature, orderedSignature, graphReferences, type GraphValue } from "./canonical.js";
 import { stageGraph } from "./graph-stage.js";
 import { bindingVectorKeyOf, typeIdentifier, signatureIdentifier, required } from "./value.js";
 import type { ExpansionResult, ExpansionStop, TypePublicationStop, TypePublicationWork } from "./work.js";
@@ -13,6 +13,7 @@ import { admitGraphType, admitGraphSignature, readStagedGraph } from "./publicat
 
 interface ScopeNode { readonly id: number; readonly left: ScopeNode | null; readonly right: ScopeNode | null }
 interface Scope { readonly root: ScopeNode | null; readonly height: number }
+const unblocked: Scope = { root: null, height: 0 };
 interface PlanBase {
   readonly key: string;
   readonly blocked: Scope;
@@ -115,24 +116,7 @@ function prepareSubstitution<Stop extends TypeTableAdmissionStop>(
   return { kind: "complete", value: environment };
 }
 
-function transform<Stop extends TypeTableAdmissionStop>(
-  environment: SubstitutionEnvironment, kind: "type" | "signature", original: number,
-  mode: SignatureSubstitution, commitment: TypeTableAdmissionWork<Stop>,
-): ExpansionResult<number | null> | Stop {
-  const { storage, parameters, self, limits, memo } = environment;
-  const stop = (dimension: Dimension, maximum: number): ExpansionStop => ({ kind: "resource-limit", dimension, maximum });
-  const memoKey = (kind: "type" | "signature", identity: number, scope: SignatureSubstitution): string =>
-    encodeKey([scope === "selected" ? "selected-signature" : kind, identity]);
-  const cacheKey = memoKey(kind, original, mode);
-  if (environment.absent?.has(cacheKey) === true) return { kind: "complete", value: null };
-  const retained = memo.get(cacheKey);
-  if (retained !== undefined) {
-    const admission = commitment.work(1);
-    if (admission !== null) return admission;
-    if (kind === "type") storedType(storage, typeIdentifier(retained));
-    else storedSignature(storage, signatureIdentifier(retained));
-    return { kind: "complete", value: retained };
-  }
+function lexicalScopes() {
   const binderIds = new Map<string, number>();
   const scopeNodes = new Map<string, ScopeNode>();
   const leaf: ScopeNode = { id: 1, left: null, right: null };
@@ -179,9 +163,135 @@ function transform<Stop extends TypeTableAdmissionStop>(
     }
     return result;
   };
+  return { block, scopeHas };
+}
+
+function nestedPatternScope(graph: GraphValue, blocked: Scope, block: ReturnType<typeof lexicalScopes>["block"]): Scope | null {
+  if (graph.kind !== "type" || graph.value.kind !== "projection" || graph.value.projection.kind !== "conditional") return null;
+  const binder = graph.value.projection.inferParameter;
+  return binder === null ? null : block(blocked, [parameterKey(binder)]);
+}
+
+function referenceScope(role: number, blocked: Scope, patternScope: Scope | null): Scope {
+  return role === 1 || role === 2 ? patternScope ?? blocked : blocked;
+}
+
+export const readLexicalTypeSupport: ReadLexicalTypeSupport = (table, roots, scope, admission) => {
+  const initial = admission.work(1);
+  if (initial !== null) return initial;
+  const setup = admission.retain(4);
+  if (setup !== null) return setup;
+  const parameters = new Set<string>();
+  const selfOwners = new Set<DefId>();
+  for (const family of [scope.classParameters, scope.methodParameters, scope.capturedParameters]) {
+    for (let position = 0; position < family.length; position += 1) {
+      const stop = admission.work(1) ?? admission.retain(1);
+      if (stop !== null) return stop;
+      const parameter = family[position];
+      if (parameter === undefined) throw new TypeError("A lexical binding scope requires dense parameters.");
+      parameters.add(parameterKey(parameter));
+    }
+  }
+  for (let position = 0; position < scope.selfOwners.length; position += 1) {
+    const stop = admission.work(1) ?? admission.retain(1);
+    if (stop !== null) return stop;
+    const owner = scope.selfOwners[position];
+    if (owner === undefined) throw new TypeError("A lexical binding scope requires dense self owners.");
+    selfOwners.add(owner);
+  }
+
+  const { block, scopeHas } = lexicalScopes();
+  const seen = new Set<string>();
+  const pending: { readonly reference: GraphIdentity; readonly blocked: Scope }[] = [];
+  let dependent = false;
+  for (let position = 0; position < roots.length; position += 1) {
+    const rootRead = admission.work(1) ?? admission.retain(1);
+    if (rootRead !== null) return rootRead;
+    const identity = roots[position];
+    if (identity === undefined) throw new TypeError("A lexical dependency scan requires dense roots.");
+    pending.push({ reference: { kind: "type", identity }, blocked: unblocked });
+    for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
+      const { reference } = next;
+      const admit = admission.work(1);
+      if (admit !== null) return admit;
+      if (!Number.isSafeInteger(reference.identity) || reference.identity < 0 || Object.is(reference.identity, -0))
+        return { kind: "complete", value: "invalid" };
+      let graph: GraphValue;
+      if (reference.kind === "type") {
+        const value = table.terms[reference.identity];
+        if (value === undefined) return { kind: "complete", value: "invalid" };
+        graph = { kind: "type", value };
+      } else {
+        const value = table.signatures[reference.identity];
+        if (value === undefined || value.id !== reference.identity) return { kind: "complete", value: "invalid" };
+        graph = { kind: "signature", value };
+      }
+      const fields = graph.kind === "type"
+        ? admitGraphType(graph.value, admission.work, () => null) : admitGraphSignature(graph.value, admission.work, () => null);
+      if (fields !== null) return fields;
+      const blocked = graph.kind === "type" ? next.blocked : block(next.blocked,
+        graph.value.typeParameters.map(parameter => parameterKey(parameter.declaration)));
+      const key = `${reference.kind}:${reference.identity}:${blocked.root?.id ?? 0}`;
+      if (seen.has(key)) continue;
+      const remember = admission.retain(1);
+      if (remember !== null) return remember;
+      seen.add(key);
+      if (graph.kind === "type") {
+        const term = graph.value;
+        if (term.kind === "param") {
+          const parameter = parameterKey(term.parameter);
+          if (!scopeHas(blocked, parameter)) {
+            if (!parameters.has(parameter)) return { kind: "complete", value: "foreign" };
+            dependent = true;
+          }
+        } else if (term.kind === "self") {
+          if (!selfOwners.has(term.owner)) return { kind: "complete", value: "foreign" };
+          dependent = true;
+        }
+      }
+      const patternScope = nestedPatternScope(graph, blocked, block);
+      const children = graphReferences(graph);
+      for (let child = children.length - 1; child >= 0; child -= 1) {
+        const reserve = admission.work(1) ?? admission.retain(1);
+        if (reserve !== null) return reserve;
+        const edge = children[child];
+        if (edge === undefined) throw new TypeError("A lexical dependency scan requires a dense canonical graph.");
+        pending.push({ reference: edge, blocked: referenceScope(edge.role, blocked, patternScope) });
+      }
+    }
+  }
+  return { kind: "complete", value: dependent ? "dependent" : "independent" };
+};
+
+export const hasLexicalTypeDependency: HasLexicalTypeDependency = (interner, roots, scope, work) => {
+  const result = readLexicalTypeSupport(TypeArena.view(interner), roots, scope, publicationAdmission(work));
+  if (result.kind !== "complete") return result;
+  if (result.value === "foreign" || result.value === "invalid")
+    throw new TypeError("An inferred application requires its actual closed or lexically supported type references.");
+  return { kind: "complete", value: result.value === "dependent" };
+};
+
+function transform<Stop extends TypeTableAdmissionStop>(
+  environment: SubstitutionEnvironment, kind: "type" | "signature", original: number,
+  mode: SignatureSubstitution, commitment: TypeTableAdmissionWork<Stop>,
+): ExpansionResult<number | null> | Stop {
+  const { storage, parameters, self, limits, memo } = environment;
+  const stop = (dimension: Dimension, maximum: number): ExpansionStop => ({ kind: "resource-limit", dimension, maximum });
+  const memoKey = (kind: "type" | "signature", identity: number, scope: SignatureSubstitution): string =>
+    encodeKey([scope === "selected" ? "selected-signature" : kind, identity]);
+  const cacheKey = memoKey(kind, original, mode);
+  if (environment.absent?.has(cacheKey) === true) return { kind: "complete", value: null };
+  const retained = memo.get(cacheKey);
+  if (retained !== undefined) {
+    const admission = commitment.work(1);
+    if (admission !== null) return admission;
+    if (kind === "type") storedType(storage, typeIdentifier(retained));
+    else storedSignature(storage, signatureIdentifier(retained));
+    return { kind: "complete", value: retained };
+  }
+  const { block, scopeHas } = lexicalScopes();
   const nodes = new Map<string, Plan>();
   const work: Plan[] = [];
-  const unblocked: Scope = { root: null, height: 0 };
   const enqueue = (kind: "type" | "signature", identity: number, inherited: Scope, depth: number,
     scope: SignatureSubstitution): ExpansionResult<Plan> | Stop => {
     const admission = commitment.work(1);
@@ -260,14 +370,10 @@ function transform<Stop extends TypeTableAdmissionStop>(
         const fields = admitGraphType(plan.value, commitment.work, () => null);
         if (fields !== null) return fields;
       }
-      const description = plan.kind === "type" ? inspectGraphValue({ kind: "type", value: plan.value })
-        : inspectGraphValue({ kind: "signature", value: plan.value });
-      const binder = plan.kind === "type" && plan.value.kind === "projection" && plan.value.projection.kind === "conditional"
-        ? plan.value.projection.inferParameter : null;
-      const patternScope = binder === null ? plan.blocked : block(plan.blocked, [parameterKey(binder)]);
-      for (const reference of description.references) {
-        const selected = binder === null ? child(reference.kind, reference.identity) : child(reference.kind, reference.identity,
-          reference.role === 1 || reference.role === 2 ? patternScope : plan.blocked, reference.role);
+      const patternScope = nestedPatternScope(plan, plan.blocked, block);
+      for (const reference of graphReferences(plan)) {
+        const selected = patternScope === null ? child(reference.kind, reference.identity) : child(reference.kind, reference.identity,
+          referenceScope(reference.role, plan.blocked, patternScope), reference.role);
         if (selected.kind !== "complete") return selected;
       }
     }

@@ -9,7 +9,7 @@ import type {
 import type {
   CapturedFact, HirCapturedType, HirCoreCapture, HirFieldBindingCapture, HirFieldMarkerCapture, HirMarkersCapture, HirPointerTypeCapture, HirRecordBindingCapture, PreparedSyntaxSlot, SyntaxCopyResult,
 } from "../ir-hir/contract.js";
-import type { BindingVector, TypeEvidence } from "../ir-types/contract.js";
+import type { ArtifactBindings, BindingVector, TypeEvidence } from "../ir-types/contract.js";
 import type { TyId } from "../ids/contract.js";
 import type { TypeReferenceRewrite } from "./canonical-types.js";
 import type { InvariantFailure } from "../diag/contract.js";
@@ -18,9 +18,10 @@ import type { PreparedReferenceProjection, ProjectionInventory } from "./program
 import type { InstantiationStop } from "./work.js";
 import {
   deferComponentProjection, deferProjection, inventoryFields, inventoryRecord, inventorySignature, inventoryType,
-  prepareArtifactBindingsWith, prepareBindingsProjection, prepareEndpoint, prepareEvidenceProjection, prepareInstance, prepareInstanceWith, prepareProjectionRows,
+  prepareArtifactBindingsWith, prepareBindingsProjection, prepareEndpoint, prepareEvidenceProjection, prepareInstanceWith, prepareProjectionRows, prepareProjectionRowsWith,
 } from "./program-values.js";
 import { chargeInstantiationWork, reserveInstantiationRecord } from "./work.js";
+import type { ReplayTirCandidate } from "./contract.js";
 
 export type PreparedPhase<Value> = PreparedReferenceProjection<Value>;
 export type PhaseProject<Value> = PreparedSyntaxSlot<Value, TypeReferenceRewrite>;
@@ -94,9 +95,9 @@ function prepareMember(scan: ProjectionInventory, value: MemberDecision): Prepar
   const header = inventoryRecord(scan, 10);
   if (header !== null) return { kind: "refused", stop: header };
   const rawGetter = value.getter;
-  const getter = rawGetter === null ? () => null : deferProjection(scan, () => prepareEndpoint(scan, () => rawGetter));
+  const getter = rawGetter === null ? () => null : deferProjection(scan, () => prepareEndpoint(scan, () => rawGetter, "image"));
   const rawSetter = value.setter;
-  const setter = rawSetter === null ? () => null : deferProjection(scan, () => prepareEndpoint(scan, () => rawSetter));
+  const setter = rawSetter === null ? () => null : deferProjection(scan, () => prepareEndpoint(scan, () => rawSetter, "image"));
   const read = value.read;
   const readStop = inventoryType(scan, read);
   if (readStop !== null) return { kind: "refused", stop: readStop };
@@ -141,9 +142,9 @@ function prepareApplicationWith<Output>(scan: ProjectionInventory, value: Applic
       }
     }
   });
-  const advertised = prepareEndpoint(scan, () => value.advertised);
+  const advertised = prepareEndpoint(scan, () => value.advertised, "image");
   if (advertised.kind === "refused") return advertised;
-  const api = prepareEndpoint(scan, () => value.api);
+  const api = prepareEndpoint(scan, () => value.api, "image");
   if (api.kind === "refused") return api;
   const bindings = prepareBindingsProjection(scan, value.bindings);
   if (bindings.kind === "refused") return bindings;
@@ -309,14 +310,15 @@ export function withOptionalPlan<Source, Value>(source: Source | null, prepare: 
   return source === null ? holdPhase(null) : prepare(source);
 }
 
-function prepareCandidateEndpoint(scan: ProjectionInventory, read: () => CandidateEndpoint): PreparedPhase<CandidateEndpoint> {
+function prepareCandidateEndpoint(scan: ProjectionInventory, read: () => CandidateEndpoint,
+  domain: "image" | "original"): PreparedPhase<CandidateEndpoint> {
   return paidPhase(scan, 8, () => {
     const candidate = read();
-    return withPlan(prepareEndpoint(scan, () => candidate.advertised), advertised => {
+    return withPlan(prepareEndpoint(scan, () => candidate.advertised, domain), advertised => {
       const advertisedSignature = candidate.advertisedSignature;
       const early = inventorySignature(scan, advertisedSignature);
       if (early !== null) return { kind: "refused", stop: early };
-      return withPlan(prepareEndpoint(scan, () => candidate.api), api => {
+      return withPlan(prepareEndpoint(scan, () => candidate.api, domain), api => {
         const apiSignature = candidate.apiSignature;
         const late = inventorySignature(scan, apiSignature);
         if (late !== null) return { kind: "refused", stop: late };
@@ -332,18 +334,19 @@ function prepareCandidateEndpoint(scan: ProjectionInventory, read: () => Candida
   });
 }
 
-function prepareInvocation(scan: ProjectionInventory, value: DeferredInvocation, at: string): PreparedPhase<DeferredInvocation> {
+function prepareInvocation(scan: ProjectionInventory, value: DeferredInvocation, at: string,
+  domain: "image" | "original"): PreparedPhase<DeferredInvocation> {
   const stop = inventoryRecord(scan, 2) ?? inventoryRecord(scan, 3);
   if (stop !== null) return { kind: "refused", stop };
   const { bindings, occurrence, origin } = value.input.context;
   return withPlan(prepareBindingsProjection(scan, bindings), ready => {
     const context: PhaseProject<RuleContext> = image => ({ occurrence, origin, bindings: ready(image) });
-    return prepareInvocationInput(scan, value, context, at);
+    return prepareInvocationInput(scan, value, context, at, domain);
   });
 }
 
 function prepareInvocationInput(scan: ProjectionInventory, invocation: DeferredInvocation,
-  context: PhaseProject<RuleContext>, at: string): PreparedPhase<DeferredInvocation> {
+  context: PhaseProject<RuleContext>, at: string, domain: "image" | "original"): PreparedPhase<DeferredInvocation> {
   const evidence = (read: () => TypeEvidence): PreparedPhase<TypeEvidence> => prepareEvidenceProjection(scan, read);
   const optional = (value: TypeEvidence | null): PreparedPhase<TypeEvidence | null> =>
     withOptionalPlan(value, ready => evidence(() => ready));
@@ -418,7 +421,7 @@ function prepareInvocationInput(scan: ProjectionInventory, invocation: DeferredI
           return { kind: "copied", value: image => ({ occurrence, kind, tuple: tuple(image), value: value(image) }) };
         });
       }));
-      const candidates = prepareProjectionRows(scan, input.candidates, read => prepareCandidateEndpoint(scan, read));
+      const candidates = prepareProjectionRows(scan, input.candidates, read => prepareCandidateEndpoint(scan, read, domain));
       return withPlan(evidence(() => input.callee), callee => withPlan(optional(input.receiver), receiver => {
         const { kind } = input;
         return { kind: "copied", value: image => ({ rule: "candidate", input: { context: context(image),
@@ -495,36 +498,81 @@ function prepareInvocationInput(scan: ProjectionInventory, invocation: DeferredI
   }
 }
 
-export function prepareDeferred(scan: ProjectionInventory, value: DeferredDecision, at: string): PreparedPhase<DeferredDecision> {
+function prepareDeferredInDomain(scan: ProjectionInventory, value: DeferredDecision, at: string,
+  domain: "image" | "original"): PreparedPhase<DeferredDecision> {
   return paidPhase(scan, 2, () => {
-    const invocation = deferProjection(scan, () => prepareInvocation(scan, value.invocation, at + ".invocation"));
+    const invocation = deferProjection(scan, () => prepareInvocation(scan, value.invocation, at + ".invocation", domain));
     return withPlan(typePhase(scan, value.result), result =>
       ({ kind: "copied", value: image => ({ invocation: invocation(image), result: result(image) }) }));
   });
 }
 
-export function prepareOutcome<Decision>(scan: ProjectionInventory, read: () => RuleOutcome<Decision>,
-  prepare: (value: Decision) => PreparedPhase<Decision>, at: string): PreparedPhase<RuleOutcome<Decision>> {
+export function prepareDeferred(scan: ProjectionInventory, value: DeferredDecision, at: string): PreparedPhase<DeferredDecision> {
+  return prepareDeferredInDomain(scan, value, at, "image");
+}
+
+function prepareRuleOutcome<Decision>(scan: ProjectionInventory, read: () => RuleOutcome<Decision>,
+  prepare: (value: Decision) => PreparedPhase<Decision>, deferred: (value: DeferredDecision) => PreparedPhase<RuleOutcome<Decision>>): PreparedPhase<RuleOutcome<Decision>> {
   return paidPhase<RuleOutcome<Decision>>(scan, 2, () => {
     const value = read();
     switch (value.kind) {
       case "decided": return withPlan(prepare(value.decision), decision =>
         ({ kind: "copied", value: image => ({ kind: "decided", decision: decision(image) }) }));
-      case "deferred": return withPlan(prepareDeferred(scan, value.deferred, at + ".deferred"), deferred =>
-        ({ kind: "copied", value: image => ({ kind: "deferred", deferred: deferred(image) }) }));
+      case "deferred": return deferred(value.deferred);
     }
   });
 }
 
-export function prepareCallee(scan: ProjectionInventory, value: ResolvedCallee): PreparedReferenceProjection<ResolvedCallee> {
+export function prepareOutcome<Decision>(scan: ProjectionInventory, read: () => RuleOutcome<Decision>,
+  prepare: (value: Decision) => PreparedPhase<Decision>, at: string): PreparedPhase<RuleOutcome<Decision>> {
+  return prepareRuleOutcome(scan, read, prepare, value => withPlan(prepareDeferred(scan, value, at + ".deferred"), deferred =>
+    ({ kind: "copied", value: image => ({ kind: "deferred", deferred: deferred(image) }) })));
+}
+
+export interface CandidateReplayPlan {
+  readonly settle: ReplayTirCandidate;
+  readonly pending: ((image: TypeReferenceRewrite) => InstantiationStop | null)[];
+}
+
+const missingReplayedApplication: InvariantFailure = { owner: "ir-program", query: null, origin: null,
+  message: "A selected Typed call requires its actual completed candidate replay." };
+
+export function prepareReplayedApplication(scan: ProjectionInventory, read: () => RuleOutcome<TirApplication>, at: string,
+  replay: CandidateReplayPlan): PreparedPhase<RuleOutcome<TirApplication>> {
+  return prepareRuleOutcome(scan, read, value => prepareTirApplication(scan, value, "selected"), value =>
+    withPlan(prepareDeferredInDomain(scan, value, at + ".deferred", "original"), deferred => paidPhase(scan, 1, () => {
+      let selected: TirApplication | undefined;
+      replay.pending.push(image => {
+        const input = deferred(image);
+        if (input.invocation.rule !== "candidate") throw new TypeError("A selected application needs an actual deferred candidate.");
+        const result = replay.settle(input.invocation.input, input.result);
+        if (result.kind !== "complete") return result;
+        selected = result.value;
+        return null;
+      });
+      return { kind: "copied", value: () => ({ kind: "decided", decision: requirePresent(selected, missingReplayedApplication) }) };
+    })));
+}
+
+type CallExecution = "transport" | "selected";
+
+export function prepareCallee(scan: ProjectionInventory, value: ResolvedCallee, execution: CallExecution): PreparedReferenceProjection<ResolvedCallee> {
   const header = inventoryRecord(scan, 2);
   if (header !== null) return { kind: "refused", stop: header };
   return prepareApplicationWith<ResolvedCallee>(scan, value.decision, (source, decision) => {
     const original = value.activation;
     if (original === null) return { kind: "copied", value: rewrite => ({ decision: decision(rewrite), activation: null }) };
-    const activation = prepareInstanceWith<BindingVector>(scan, original, bindings =>
-      prepareArtifactBindingsWith<BindingVector>(scan, bindings, vector =>
-        vector === source ? { kind: "copied", value: (_rewrite, implementation) => implementation } : prepareBindingsProjection(scan, vector)));
+    const activation = prepareInstanceWith<BindingVector>(scan, original, bindings => {
+      if (execution === "selected" && bindings.kind === "parametric") {
+        const stop = inventoryRecord(scan, 2);
+        if (stop !== null) return { kind: "refused", stop };
+        if (source.classBindings.length + source.methodBindings.length + source.capturedBindings.length + source.selfBindings.length !== 0)
+          throw new TypeError("A template-only activation requires its own empty implementation bindings.");
+        return { kind: "copied", value: (_rewrite, implementation) => ({ kind: "instantiated", bindings: implementation }) };
+      }
+      return prepareArtifactBindingsWith<BindingVector>(scan, bindings, vector =>
+        vector === source ? { kind: "copied", value: (_rewrite, implementation) => implementation } : prepareBindingsProjection(scan, vector));
+    });
     if (activation.kind === "refused") return activation;
     return { kind: "copied", value: rewrite => {
       const selected = decision(rewrite);
@@ -540,11 +588,11 @@ export function prepareSelection(scan: ProjectionInventory, value: MemberSelecti
   if (decision.kind === "refused") return decision;
   const rawGetter = value.getter;
   const getter: PreparedReferenceProjection<ResolvedCallee | null> = rawGetter === null
-    ? { kind: "copied", value: () => null } : prepareCallee(scan, rawGetter);
+    ? { kind: "copied", value: () => null } : prepareCallee(scan, rawGetter, "transport");
   if (getter.kind === "refused") return getter;
   const rawSetter = value.setter;
   const setter: PreparedReferenceProjection<ResolvedCallee | null> = rawSetter === null
-    ? { kind: "copied", value: () => null } : prepareCallee(scan, rawSetter);
+    ? { kind: "copied", value: () => null } : prepareCallee(scan, rawSetter, "transport");
   if (setter.kind === "refused") return setter;
   return { kind: "copied", value: rewrite => ({
     decision: decision.value(rewrite), getter: getter.value(rewrite), setter: setter.value(rewrite),
@@ -563,7 +611,8 @@ function prepareRestPart(scan: ProjectionInventory, read: () => TirRestPart): Pr
   return { kind: "copied", value: image => ({ kind: "spread", expression, tuple: elements(image) }) };
 }
 
-function prepareTirArgument(scan: ProjectionInventory, read: () => TirArgument): PreparedPhase<TirArgument> {
+function prepareTirArgument(scan: ProjectionInventory, read: () => TirArgument, execution: CallExecution):
+  SyntaxCopyResult<(image: TypeReferenceRewrite, activation: ArtifactBindings | null) => TirArgument, InstantiationStop> {
   const row = chargeInstantiationWork(scan.meter);
   if (row !== null) return { kind: "refused", stop: row };
   const argument = read();
@@ -581,20 +630,34 @@ function prepareTirArgument(scan: ProjectionInventory, read: () => TirArgument):
       if (value.kind !== "initializer") return borrowPhase(scan, 1, argument);
       const record = reserveInstantiationRecord(scan.meter) ?? inventoryFields(scan, 3);
       if (record !== null) return { kind: "refused", stop: record };
-      return paidPhase(scan, 2, () => withPlan(prepareInstance(scan, value.instance, null), instance => {
-        const parameter = argument.parameter;
-        return { kind: "copied", value: image => ({ kind: "omitted", parameter, value: { kind: "initializer", instance: instance(image) } }) };
-      }));
+      const initializer = inventoryRecord(scan, 2);
+      if (initializer !== null) return { kind: "refused", stop: initializer };
+      const instance = prepareInstanceWith<ArtifactBindings | null>(scan, value.instance, bindings => {
+        if (execution === "selected" && bindings.kind === "parametric") {
+          const stop = inventoryFields(scan, 1);
+          return stop === null ? { kind: "copied", value: (_image, activation) => requirePresent(activation ?? undefined, missingReplayedApplication) }
+            : { kind: "refused", stop };
+        }
+        return prepareArtifactBindingsWith<ArtifactBindings | null>(scan, bindings, vector => prepareBindingsProjection(scan, vector));
+      });
+      if (instance.kind === "refused") return instance;
+      const parameter = argument.parameter;
+      return { kind: "copied", value: (image, activation) => ({ kind: "omitted", parameter,
+        value: { kind: "initializer", instance: instance.value(image, activation) } }) };
     }
   }
 }
 
-export function prepareTirApplication(scan: ProjectionInventory, value: TirApplication): PreparedPhase<TirApplication> {
+export function prepareTirApplication(scan: ProjectionInventory, value: TirApplication, execution: CallExecution): PreparedPhase<TirApplication> {
   return paidPhase(scan, 3, () => {
-    const args = prepareProjectionRows(scan, value.arguments, read => prepareTirArgument(scan, read));
-    return withPlan(prepareCallee(scan, value.callee), callee => {
+    const args = prepareProjectionRowsWith<TirArgument, TirArgument, ArtifactBindings | null>(scan, value.arguments,
+      read => prepareTirArgument(scan, read, execution));
+    return withPlan(prepareCallee(scan, value.callee, execution), callee => {
       const receiver = value.receiver;
-      return { kind: "copied", value: image => ({ receiver, callee: callee(image), arguments: args(image) }) };
+      return { kind: "copied", value: image => {
+        const selected = callee(image);
+        return { receiver, callee: selected, arguments: args(image, selected.activation?.bindings ?? null) };
+      } };
     });
   });
 }
@@ -604,7 +667,7 @@ export function prepareProtocol(scan: ProjectionInventory, value: TirProtocol, a
     const steps = prepareProjectionRows<TirProtocolStep, TirProtocolStep>(scan, value.steps, (read, index) => paidPhase(scan, 3, () => {
       const step = read();
       return withPlan(prepareTypedOperation(scan, step.operation, at + ".steps[" + index + "].operation"), operation =>
-        withPlan(withOptionalPlan(step.callee, callee => prepareCallee(scan, callee)), callee => {
+        withPlan(withOptionalPlan(step.callee, callee => prepareCallee(scan, callee, "transport")), callee => {
           const role = step.role;
           return { kind: "copied", value: image => ({ role, operation: operation(image), callee: callee(image) }) };
         }));

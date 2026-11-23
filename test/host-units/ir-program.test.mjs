@@ -850,8 +850,11 @@ export function second(value:string):string { return echo<string>(value); }`);
   const selected = typed.value.placedSignatureOf(instance);
   const crossed = typed.value.placedSignatureOf(instanceOf(choices[1]));
   const resources = product.createProgramVerificationWork(input.limits.instantiation, account);
+  const unusedReplay = () => assert.fail("a substitution-ready body does not request candidate replay");
   const specialize = (placement, resources) =>
-    product.specializeTir(template, instance, placement, typed.value.source.types, resources);
+    product.specializeTir(template, instance, placement, typed.value.source.types, resources, unusedReplay);
+  assert.throws(() => product.specializeTir(template, instance, { kind: "endpoint", template: original, selected },
+    typed.value.source.types, resources), /actual substitution-ready template and placed signature/u);
   assert.throws(() => specialize({ kind: "endpoint", template: original, selected: crossed }, resources),
     /actual substitution-ready template and placed signature/u);
   const placement = { kind: "endpoint", template: original, selected };
@@ -863,9 +866,44 @@ export function second(value:string):string { return echo<string>(value); }`);
   const exhausted = createAccount({ ...input.limits.dataflow, maximumWork: 0 });
   const stopped = product.createProgramVerificationWork(input.limits.instantiation, exhausted);
   const poison = { get body() { assert.fail("a stopped projection reads no source body"); } };
-  const refusal = product.specializeTir(poison, instance, placement, typed.value.source.types, stopped);
+  const refusal = product.specializeTir(poison, instance, placement, typed.value.source.types, stopped, unusedReplay);
   assert.equal(refusal.kind === "resource-limit" && refusal === accountFailure(exhausted), true);
-  assert.strictEqual(product.specializeTir(poison, instance, placement, typed.value.source.types, stopped), refusal);
+  assert.strictEqual(product.specializeTir(poison, instance, placement, typed.value.source.types, stopped, unusedReplay), refusal);
+});
+
+test("candidate replay refusal preserves the actual stop without opening another prepared call", async () => {
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const fixture = await loadFrontFixture();
+  const input = analysisInput(fixture, "sdk-minimal", `function echo<T>(value:T):T { return value; }
+function take<T>(value:T):T { echo(value); return echo(value); }
+export function run(value:boolean):boolean { return take(value); }`);
+  const source = captureSourceBarrier(input);
+  assert.equal(source.kind, "ok");
+  const typed = typeSourceBarrier(input, source.value, createAccount(input.limits.dataflow));
+  assert.equal(typed.kind, "ok");
+  const bodies = [...typed.value.bodies.values()];
+  const template = bodies.find(body => body.bindings.kind === "parametric" && body.root.kind === "Block"
+    && body.root.statements.nodes.length === 2 && body.root.statements.nodes[0].kind === "ExpressionStatement");
+  const ready = bodies.find(body => body.body === template.body && body.bindings.kind === "instantiated");
+  const target = { body: ready.body, bindings: ready.bindings };
+  const placement = { kind: "endpoint", template: typed.value.placedSignatureOf({ body: template.body, bindings: template.bindings }),
+    selected: typed.value.placedSignatureOf(target) };
+  const maximumWork = input.limits.dataflow.maximumWork;
+  const account = createAccount(input.limits.dataflow);
+  const resources = product.createProgramVerificationWork(input.limits.instantiation, account);
+  const calls = [];
+  const replay = (candidate, result) => {
+    calls.push(candidate.context.occurrence);
+    assert.equal(result, ready.completion);
+    return chargeWork(account, maximumWork + 1);
+  };
+  const stopped = product.specializeTir(template, target, placement, source.value.types, resources, replay);
+  assert.equal(stopped.kind === "resource-limit" && stopped === accountFailure(account), true);
+  assert.deepEqual(calls, [{ body: template.body, node: template.root.statements.nodes[0].expression.id }]);
+  const unread = { get body() { assert.fail("a stopped replay must not reopen its body"); } };
+  assert.equal(product.specializeTir(unread, target, placement, source.value.types, resources, replay) === stopped, true);
+  assert.equal(calls.length, 1);
 });
 
 test("Program completed evidence growth borrows the existing work and created-record allowance", () => {
@@ -3123,7 +3161,7 @@ test("TIR application retains paid spread tuples and borrows its actual value an
     const provided = { kind: "provided", parameter: 0, expression: nodeId(0) };
     const rest = { kind: "rest", parameter: 1, parts: tagged("part", [spread, { kind: "value", expression: nodeId(2) }, nullSpread]) };
     const omitted = { kind: "omitted", parameter: 2, value: { kind: "absence" } };
-    const result = prepareTirApplication(scan, { callee: alternative.resolution, receiver: null, arguments: tagged("arg", [provided, rest, omitted]) });
+    const result = prepareTirApplication(scan, { callee: alternative.resolution, receiver: null, arguments: tagged("arg", [provided, rest, omitted]) }, "transport");
     const stop = result.kind === "refused" ? result.stop : drainProjectionInventory(scan);
     if (stop !== null) return { stop, original: meter.failure ?? accountFailure(meter.account), pulls };
     readable = false;
@@ -3744,7 +3782,7 @@ test("actual TIR node prepare reads its lexical payload once before later siblin
         return payload;
       } });
     }
-    const result = inventoryBodySyntax(scan, { root, params: [] }, typedSyntaxPhaseCopy(scan, "Instantiation.root"));
+    const result = inventoryBodySyntax(scan, { root, params: [] }, typedSyntaxPhaseCopy(scan, "Instantiation.root", null));
     return { meter, scan, result, root, earlier, later, reads, authored };
   }
   const full = prepare(beforeBounds, true);

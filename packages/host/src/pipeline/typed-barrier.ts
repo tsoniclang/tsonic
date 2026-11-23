@@ -6,7 +6,7 @@ import { chargeResultEntries, chargeWork } from "../dataflow/index.js";
 import type { CheckedPhase, CheckedTypingCut, Declaration, HirBody, HirNode, SourceFile } from "../ir-hir/contract.js";
 import type { InferenceDeclaration, InferenceGroup, InferSite, PlacedSignature } from "../ir-infer/contract.js";
 import { inferenceBindingSites, inferredPartKey } from "../ir-infer/index.js";
-import type { BindingScope, BodyInstance, SignatureRequest } from "../ir-types/contract.js";
+import type { BindingScope, BodyInstance, Signature, SignatureRequest } from "../ir-types/contract.js";
 import { instanceKey, readSignature, readType, signatureRequestKey, typePublicationRefusalOf, verifyBindings, viewTypes } from "../ir-types/index.js";
 import type { ProgramEvidenceInput, ProgramMemberEvidence, ProgramStaticStorageEvidence, ProgramVerificationWork, TirSpecializationPlacement } from "../ir-program/contract.js";
 import { createProgramVerificationWork, specializeTir, tirReadyReadAdmission } from "../ir-program/index.js";
@@ -22,6 +22,7 @@ import type { FormDiagnosticSite } from "../validate/contract.js";
 import type { SourceBarrier, SourceModule } from "./source-barrier.js";
 import { checkedSourceViews } from "./checked-inputs.js";
 import { inferDepsOf } from "./infer-deps-step.js";
+import { candidateReplayOf } from "./inference-step.js";
 import { completedFormCut, formDiagnosticsQuery } from "./semantic-queries.js";
 import { createSourceSemanticDatabase } from "./semantic-queries.js";
 import { pipelineWiring } from "./wiring.js";
@@ -386,6 +387,12 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
   }
   const admit = tirReadyReadAdmission(account);
   let replayResources: ProgramVerificationWork | null = null;
+  const declaredSignature = (request: SignatureRequest): Result<Signature> => {
+    const selected = database.run(queries.declaredSignatureOf, request);
+    const stopped = typesRefusal();
+    if (stopped !== null) return selected.kind === "refused" ? refusal(selected, stopped) : refusal(stopped);
+    return selected.kind === "refused" ? selected : { kind: "ok", value: selected.value, diagnostics: [] };
+  };
   const requireBody = (instance: BodyInstance): Result<TirBody> => {
     const key = instanceKey(instance);
     const existing = bodies.get(key);
@@ -394,7 +401,8 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
     if (stop !== null) return stop;
     if (refusedInstances.has(key)) return refusal();
     if (instance.bindings.kind === "instantiated") {
-      const scope = scopeOf(bodyOf(instance.body).owner);
+      const checked = bodyOf(instance.body);
+      const scope = scopeOf(checked.owner);
       if (scoped(scope)) {
         const source = bodies.get(instanceKey({ body: instance.body, bindings: parametric }));
         if (source === undefined) return refusal();
@@ -407,14 +415,13 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
         if (request === null) placement = { kind: "execution", template: source.placed };
         else {
           const selectedRequest = { ...request, bindings: instance.bindings };
-          const selected = database.run(queries.declaredSignatureOf, selectedRequest);
-          const stopped = typesRefusal();
-          if (stopped !== null) return selected.kind === "refused" ? refusal(selected, stopped) : refusal(stopped);
+          const selected = declaredSignature(selectedRequest);
           if (selected.kind === "refused") return refusal(selected);
           placement = { kind: "endpoint", template: source.placed, selected: { request: selectedRequest, signature: selected.value } };
         }
         replayResources ??= createProgramVerificationWork(inputs.limits.instantiation, account);
-        const specialized = specializeTir(source.body, instance, placement, elaboration.types, replayResources);
+        const specialized = specializeTir(source.body, instance, placement, elaboration.types, replayResources,
+          candidateReplayOf(elaboration, account, checked, instance, declaredSignature));
         if (specialized.kind === "refused") return refusal(specialized);
         if (specialized.kind === "resource-limit") return refusal({ kind: "refused", diagnostics: [resourceLimitDiagnostic({
           owner: "ir-program", limit: specialized.dimension, maximum: specialized.maximum,

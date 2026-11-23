@@ -6,7 +6,7 @@ import { checkedVariableStorageOf, childrenOfSyntax, hasOverloadEndpoints, index
 import type { BindingVerificationInput, BodyInstance, TypeEvidence, TypeRule, TypeTable } from "../ir-types/contract.js";
 import { sameInstance, verifyTypes } from "../ir-types/index.js";
 import type { TirBindingTarget, TirBody, TirChapterSyntax, TirModule, TirNodeSite, TirOperationsOf, TirReadyReadAdmission, TirRule, TirSite, TirSyntaxOccurrence, TirTypedSyntax, TirVerificationResult, TirVerifierInput, TypedPhase, VerifyTir, VerifyTirModule } from "./contract.js";
-import type { TirOccurrenceEmit, TirOccurrenceSite, TirStructure, TirTypeGraph } from "./verify-occurrences.js";
+import type { TirOccurrenceEmit, TirOccurrenceSite, TirStructure } from "./verify-occurrences.js";
 import { applicationOf, collectTirSemantics, inspectTirStructure, sameLocalReference, sameSourceReference, typedValueOf, verifyDeferredParameters, verifyOccurrenceOperation, verifyOccurrenceRole, verifyOperationShape, verifySwitchOperations, verifyValueEndpoints } from "./verify-occurrences.js";
 import type { TirDeclarationInventory, TirMemberInventory } from "./verify-applications.js";
 import { declarationEndpoints, indexMembers, verifyActivation, verifyArgumentTransport, verifyCallEndpoints, verifyMemberDecision, verifyMemberSelection, verifyProtocolOperation, verifyProtocolRecord } from "./verify-applications.js";
@@ -378,9 +378,8 @@ const validIndex = (value: number, length: number): boolean =>
 
 export const verifyClosedReferences = (
   root: TirOccurrenceSite, structure: TirStructure, table: TypeTable, diagnostics: readonly Diagnostic[], emit: TirOccurrenceEmit,
-): TirTypeGraph => {
+): void => {
   const reverse = new Map<number, number[]>();
-  const children = new Map<number, number[]>();
   const invalid = new Set<number>();
   const errors = new Set<number>();
   const errorOrigins = new Set<string>();
@@ -395,9 +394,6 @@ export const verifyClosedReferences = (
   const edge = (owner: number, target: number, signature = false): void => {
     if (!validIndex(target, signature ? table.signatures.length : table.terms.length)) { invalid.add(owner); return; }
     const selected = signature ? target + offset : target;
-    const outgoing = children.get(owner) ?? [];
-    outgoing.push(selected);
-    children.set(owner, outgoing);
     const incoming = reverse.get(selected) ?? [];
     incoming.push(owner);
     reverse.set(selected, incoming);
@@ -471,7 +467,6 @@ export const verifyClosedReferences = (
       if (!reported) emit("error-diagnostic", reference.node, "error type is not accompanied by an actual error diagnostic at its source origin");
     }
   }
-  return { children, signatureOffset: offset };
 };
 
 const originalApplication = (node: HirNode | undefined): HirApplication | null => {
@@ -682,7 +677,7 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
   verifyDeclarationNames(structure.nodes, inventory.sourceNodes, emit);
   const semantics = collectTirSemantics(structure);
   verifyBodyRecords(body, inventory.original, emit);
-  const typeGraph = verifyClosedReferences(body.root, structure, input.types, input.diagnostics, emit);
+  verifyClosedReferences(body.root, structure, input.types, input.diagnostics, emit);
   verifyQualifiedReferences(input, body, structure, emit);
   const publication = membership(body, emit);
   if (publication !== null) return { kind: "resource-stop", stop: publication };
@@ -827,9 +822,9 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
     if (paid !== null) return { kind: "resource-stop", stop: paid };
     verifyPublishedInstance(input.bodyOf(instance.value), instance.node, emit);
   }
-  const supportMemo = new Map<string, boolean>();
   for (const deferred of semantics.deferred) {
-    verifyDeferredParameters(deferred.value, deferred.node, body, input.types, typeGraph, supportMemo, emit);
+    const stop = verifyDeferredParameters(deferred.value, deferred.node, body, input.types, emit, admit);
+    if (stop !== null) return { kind: "resource-stop", stop };
   }
   for (const operation of semantics.operations) {
     verifyOperationShape(operation.value, operation.node, emit);

@@ -1,11 +1,17 @@
-import type { UnitErrorRead, UnitRef, UnitRequest } from "../diag/contract.js";
+import type { Result, UnitErrorRead, UnitRef, UnitRequest } from "../diag/contract.js";
 import { throwInvariant } from "../diag/index.js";
 import type { BodyId, NodeId, SourceNodeRef } from "../ids/contract.js";
 import type { HirBody } from "../ir-hir/contract.js";
 import type { GroupConstraints, GroupSolution, PlacementAnswer, PlacementPaused } from "../infer/contract.js";
 import type { InferenceGroup, InferenceVariable, InferredPartRequest, InferredPartType, InferVerificationInput, PlacedSignature } from "../ir-infer/contract.js";
 import { inferredPartKey, verifyInference } from "../ir-infer/index.js";
-import type { MemberInventory } from "../ir-types/contract.js";
+import type { ArtifactBindings, BodyInstance, MemberInventory, Signature, SignatureRequest } from "../ir-types/contract.js";
+import type { DataflowAccount } from "../dataflow/contract.js";
+import { chargeResultEntries, chargeWork } from "../dataflow/index.js";
+import type { ElaborateDeps } from "../elaborate/contract.js";
+import { admitArtifactIdentity } from "../ir-facts/index.js";
+import type { ReplayTirCandidate } from "../ir-program/contract.js";
+import { pipelineWiring } from "./wiring.js";
 
 export interface InferencePublication extends Omit<GroupSolution, "memberInventories"> {
   readonly group: InferenceGroup;
@@ -25,6 +31,86 @@ export interface CompletedPlacement {
 
 function fail(message: string): never {
   return throwInvariant({ owner: "pipeline", query: null, origin: null, message });
+}
+
+export function candidateReplayOf<State>(deps: ElaborateDeps<State>, account: DataflowAccount, checked: HirBody, instance: BodyInstance,
+  declaredSignature: (request: SignatureRequest) => Result<Signature>): ReplayTirCandidate {
+  return (input, result) => {
+    const header = chargeWork(account, 1);
+    if (header !== null) return header;
+    const { occurrence, origin } = input.context;
+    const call = deps.nodeOf({ kind: "body", value: occurrence });
+    if (occurrence.body !== instance.body || call?.kind !== "CallExpression" || call.origin !== origin
+      || call.tsonic.application.kind !== "available" || input.kind !== "call" || input.receiver !== null)
+      return fail("A binding-dependent call must retain its original checked occurrence.");
+    const authored = call.tsonic.application.value;
+    const list = authored.candidates;
+    const candidate = input.candidates[0];
+    if (input.candidates.length !== 1 || candidate === undefined || list.kind !== "available"
+      || authored.arguments.length !== input.arguments.length || authored.receiver !== null || authored.kind !== "call")
+      return fail("A binding-dependent call must retain its actual candidate and operands.");
+    let matched = false;
+    for (let position = 0; position < checked.candidateLists.length; position += 1) {
+      const rowRead = chargeWork(account, 1);
+      if (rowRead !== null) return rowRead;
+      const row = checked.candidateLists[position];
+      if (row === undefined) return fail("A checked candidate inventory must be dense.");
+      if (row.id !== list.value) continue;
+      const candidateRead = chargeWork(account, 1);
+      if (candidateRead !== null) return candidateRead;
+      const original = row.candidates[candidate.ordinal];
+      matched = original?.ordinal === candidate.ordinal && original.declaration === candidate.declaration;
+      break;
+    }
+    if (!matched) return fail("A binding-dependent call must select its actual checked candidate.");
+    for (let position = 0; position < input.arguments.length; position += 1) {
+      const rowRead = chargeWork(account, 1);
+      if (rowRead !== null) return rowRead;
+      const argument = input.arguments[position];
+      const original = authored.arguments[position];
+      if (argument === undefined || argument.occurrence.body !== instance.body || original?.expression !== argument.occurrence.node
+        || original.kind !== argument.kind)
+        return fail("A binding-dependent call must transport its actual authored argument roles.");
+    }
+    const endpointRead = chargeWork(account, 1);
+    if (endpointRead !== null) return endpointRead;
+    const declaration = deps.itemOf(candidate.declaration);
+    const endpoint = candidate.api;
+    if (declaration.kind !== "FunctionDeclaration" || endpoint.declaration !== candidate.declaration
+      || candidate.advertised.signature !== endpoint.signature || candidate.advertised.role !== endpoint.role
+      || candidate.advertised.body !== endpoint.body || candidate.advertised.declaration !== candidate.declaration)
+      return fail("A binding-dependent call must retain its actual admitted endpoint correspondence.");
+    let ordinal = 0;
+    let found = false;
+    for (let position = 0; position < declaration.tsonic.signatures.length; position += 1) {
+      const rowRead = chargeWork(account, 1);
+      if (rowRead !== null) return rowRead;
+      const original = declaration.tsonic.signatures[position];
+      if (original === undefined) return fail("A checked signature inventory must be dense.");
+      if (original.role !== endpoint.role) continue;
+      if (original.declaration === endpoint.declaration && original.signature === endpoint.signature && original.body === endpoint.body) {
+        found = true;
+        break;
+      }
+      ordinal += 1;
+    }
+    if (!found) return fail("A binding-dependent call must resume the exact original checked endpoint.");
+    const bindings: ArtifactBindings = { kind: "instantiated", bindings: candidate.bindings };
+    const cost = chargeWork(account, endpoint.declaration.length) ?? admitArtifactIdentity(bindings, account) ?? chargeResultEntries(account, 1);
+    if (cost !== null) return cost;
+    const requested: SignatureRequest = { definition: endpoint.declaration, endpoint: endpoint.role, ordinal, bindings };
+    const selected = declaredSignature(requested);
+    if (selected.kind === "refused") return selected;
+    const { id } = selected.value;
+    if (selected.value.declaration !== candidate.declaration || selected.value.result !== result)
+      return fail("A replayed candidate must retain the independently selected result and declaration.");
+    const settled = deps.rules.candidate({ ...input, candidates: [{ ...candidate, advertisedSignature: id, apiSignature: id }] });
+    if (settled.kind === "refused") return settled;
+    if (settled.value.kind !== "decided" || settled.value.decision.result !== result)
+      return fail("A bound candidate must produce a completed selected application.");
+    return { kind: "complete", value: pipelineWiring.elaborate.elaborateSelectedCall(deps, settled.value.decision, instance.bindings,
+      { provided: input.arguments.length, argumentAt: position => input.arguments[position]?.occurrence.node }, origin) };
+  };
 }
 
 function sameSignatureOwner(expected: SourceNodeRef | null, actual: SourceNodeRef | null): boolean {

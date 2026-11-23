@@ -1,11 +1,12 @@
 import type { NativeFactsKey, IsNativeBinaryFloatPrimitive, IsNativeIntegerPrimitive, IsNativeSignedIntegerPrimitive, FloatingBitsFit, ExactFloat64LiteralFit, FloatingFormatWidth, NativeCarrierOf, OptionalValueDomainOf, LiteralCompatibilityOf, NativeIntegerGeometryOf, PlatformDeclarationKey, VerifyNativeFacts, MemberStorageData, CreateTypeInterner, AdmitTypeTable, InternType, ReadType, ReadSignature, ViewTypes,
   ExportTypes, Substitute, SubstituteSignature, PrintTypes, ParseTypes, VerifyTypes, EncodeSelectorPath, CompareIndexSignatures, CompareMemberKeys, InstanceKey, SameInstance, ExecutionKey,
   DeclaredExecutionKey, BindingVectorKey, ReadBindingVectorKey, ArtifactBindingsKey, BindingVectorData, ArtifactBindingsData,
-  SignatureRequestData, SignatureRequestKey, TypeProductionRequestData, ConstantReferenceKey, ProjectBindingValues, RigidBindings,
+  SignatureRequestData, SignatureRequestKey, TypeProductionRequestData, ConstantReferenceKey, ProjectBindingValues, HasLexicalTypeDependency, ReadLexicalTypeSupport, RigidBindings,
   AdmitTypePublicationStep, CreateTypePublicationWork, InternTypeGraph, RefuseTypeConstruction, TypePublicationRefusalOf } from "./contract.js";
 import { createTypeInterner as create, admitTypeTable as adopt, internType as intern,
   readType as read, readSignature as readCallable, viewTypes as view, exportTypes as publish } from "./interner.js";
-import { substitute as transform, substituteSignature as transformSignature, projectBindingValues as projectBindings } from "./substitute.js";
+import { substitute as transform, substituteSignature as transformSignature, projectBindingValues as projectBindings,
+  hasLexicalTypeDependency as dependsOnLexicalType, readLexicalTypeSupport as readLexicalSupport } from "./substitute.js";
 import { printTypes as print } from "./print.js";
 import { parseTypes as parse } from "./parse.js";
 import { verifyTypes as verify } from "./verify.js";
@@ -56,6 +57,8 @@ export const exportTypes: ExportTypes = publish;
 export const substitute: Substitute = transform;
 export const substituteSignature: SubstituteSignature = transformSignature;
 export const projectBindingValues: ProjectBindingValues = projectBindings;
+export const hasLexicalTypeDependency: HasLexicalTypeDependency = dependsOnLexicalType;
+export const readLexicalTypeSupport: ReadLexicalTypeSupport = readLexicalSupport;
 export const printTypes: PrintTypes = print;
 export const parseTypes: ParseTypes = parse;
 export const verifyTypes: VerifyTypes = verify;

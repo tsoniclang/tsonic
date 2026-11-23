@@ -767,6 +767,7 @@ export type ParseTir = (text: string) => TextParseResult<TirBody>;
 export type TirReadyRead =
   | { readonly kind: "prior" | "row" }
   | { readonly kind: "retain-publication-entry" }
+  | { readonly kind: "deferred-type-support"; readonly work: number; readonly records: number }
   | { readonly kind: "artifact"; readonly instance: BodyInstance }
   | { readonly kind: "bindings"; readonly bindings: BindingVector }
   | { readonly kind: "static-item"; readonly declaration: ItemNodeRef }

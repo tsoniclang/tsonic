@@ -923,14 +923,14 @@ await suite.test("Program inventories only the two actual fields of a resolved n
   assert.equal(decision.stop, null);
   assert.equal(different.stop, null);
   const prepared = createProjectionInventory(createInstantiationMeter(input.limits.instantiation), lookup, path => assert.fail(path));
-  const calleePlan = prepareCallee(prepared, callee);
+  const calleePlan = prepareCallee(prepared, callee, "transport");
   assert.equal(calleePlan.kind, "copied");
   assert.equal(drainProjectionInventory(prepared), null);
   const actual = calleePlan.value({ type: identity, signature: identity });
   assert.equal(isDeepStrictEqual(actual, callee), true);
   assert.equal(actual.activation.bindings.bindings === actual.decision.implementationBindings, true);
   const visit = source => scan => {
-    const result = prepareCallee(scan, source);
+    const result = prepareCallee(scan, source, "transport");
     return result.kind === "refused" ? result.stop : null;
   };
   const work = decision.work + 3 + 3 + 3;
@@ -940,7 +940,7 @@ await suite.test("Program inventories only the two actual fields of a resolved n
   assert.deepEqual(run(visit(independent)), { stop: null, work: decision.work + different.work + 3,
     created: decision.created + different.created + 1 });
   const other = createProjectionInventory(createInstantiationMeter(input.limits.instantiation), lookup, path => assert.fail(path));
-  const independentPlan = prepareCallee(other, independent);
+  const independentPlan = prepareCallee(other, independent, "transport");
   assert.equal(independentPlan.kind, "copied");
   assert.equal(drainProjectionInventory(other), null);
   const separate = independentPlan.value({ type: identity, signature: identity });

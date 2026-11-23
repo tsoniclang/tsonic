@@ -1,6 +1,6 @@
 import type { BodyId, CandidateListId, DefId, GroupId, LocalRef, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
-import type { Diagnostic, ErrorValue, Result, TextParseResult, UnitRef, Violation } from "../diag/contract.js";
-import type { CheckFailure, HandleActivation, ReceiverAccess } from "../ir-types/contract.js";
+import type { Diagnostic, ErrorValue, Result, TextParseResult, UnitRef, UnitRequest, Violation } from "../diag/contract.js";
+import type { CheckFailure, HandleActivation, ReceiverAccess, TypePublicationWork } from "../ir-types/contract.js";
 import type { BindingScope, BindingVector, BodyInstance, LiteralValue, MemberInventory, MemberKey, MemberOrigin, MemberStorageSelection, MemberTypeRequest, MemberTypes, NativePrimitive, NominalDefinition, PassingMode, Signature, SignatureRequest, TypeComponent, TypeEvidence, TypeProductionRequest, TypeTable } from "../ir-types/contract.js";
 import type { CapturedFact, HirBinaryOperator, HirCallableEndpoint, HirCandidate, HirCoreCapture, HirUnaryOperator, HirNode } from "../ir-hir/contract.js";
 import type { Step } from "../step/contract.js";
@@ -727,7 +727,8 @@ export interface ConstraintScheme<ConstraintKind extends Constraint> {
 
 export interface CallContributionScheme {
   readonly enumerate: (input: EnumerationInput<CallConstraint>) => Result<readonly AtomicContribution[]>;
-  readonly evaluate: (input: ContributionEvaluation<CallConstraint> & { readonly origin: Origin }) => Result<ContributionOutcome>;
+  readonly evaluate: (input: ContributionEvaluation<CallConstraint> & { readonly origin: Origin;
+    readonly scope: BindingScope; readonly typeWork: TypePublicationWork; readonly unit: UnitRequest }) => Result<ContributionOutcome>;
 }
 
 export interface ConstraintSchemes<State> {

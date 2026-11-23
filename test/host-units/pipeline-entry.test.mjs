@@ -132,6 +132,92 @@ test("only the omitted generic binding owns its ready default and required entry
     && edge.target.kind === "body" && sameInstance(edge.target.execution.instance, initializer[0].instance)), true);
 });
 
+for (const recursive of [false, true])
+test(`binding-dependent calls in a generic template acquire only their concretely selected activation (${recursive ? "recursive" : "wrapper"})`, async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { sameInstance } = await import("../../packages/host/dist/ir-types/index.js");
+  const root = "/project/node_modules/dependency";
+  const module = fixture.moduleOf(fixture.packageOf(root), "index.ts");
+  for (const reverse of [false, true]) {
+    const library = recursive ? "export function take<T>(value:T):T { return take(value); }"
+      : "function echo<T>(value:T):T { return value; } export function take<T>(value:T):T { return echo(value); }";
+    const callers = ["export function first(value:boolean):boolean { return take(value); }",
+      "export function second(value:string):string { return take(value); }"];
+    const source = 'import { take } from "dependency"; ' + (reverse ? callers.reverse() : callers).join(" ");
+    const input = analysisInput(fixture, "sdk-minimal", source);
+    input.snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source },
+      libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
+      extraFiles: { [root + "/package.json"]: JSON.stringify({ name: "dependency", version: "1.0.0", types: "index.ts" }) },
+      otherPackages: [{ root, name: "dependency", modules: { "index.ts": ["source", library, false] } }] });
+    const result = analyzeHostProgram(input);
+    assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+    const { index, modules } = result.value;
+    const chapter = modules.find(row => row.module === module);
+    const applicationOf = row => row.tir.root.statements.nodes[0].expression.tsonic.application;
+    const template = chapter.bodies.find(row => row.kind === "template" && row.tir.root.kind === "Block"
+      && row.tir.root.statements.nodes[0].expression.kind === "CallExpression");
+    assert.equal(applicationOf(template).kind, "deferred");
+    const deferred = applicationOf(template).deferred;
+    assert.equal(deferred.invocation.rule, "candidate");
+    assert.deepEqual(deferred.invocation.input.context.occurrence, {
+      body: template.instance.body, node: template.tir.root.statements.nodes[0].expression.id,
+    });
+    const selections = chapter.bodies.filter(row => row.kind === "selected" && row.instance.body === template.instance.body);
+    assert.equal(selections.length, 2);
+    const carriers = selections.map(row => {
+      const application = applicationOf(row);
+      assert.equal(application.kind, "decided");
+      const callee = application.decision.callee;
+      assert.equal(callee.activation.bindings.bindings === callee.decision.implementationBindings, true);
+      const target = chapter.bodies.find(candidate => candidate.kind === "selected" && sameInstance(candidate.instance, callee.activation));
+      assert.equal(target.instance.body === row.instance.body, recursive);
+      assert.equal(target.tir.signature, callee.decision.completion.signature);
+      assert.equal(target.tir.completion, row.tir.completion);
+      assert.deepEqual(target.mir.entries.map(entry => entry.provided), [1]);
+      const type = index.types.terms[target.tir.completion];
+      return type.kind === "primitive" ? type.primitive : type.kind;
+    });
+    assert.deepEqual(carriers.sort(), ["bool", "string"]);
+  }
+});
+
+for (const omitted of [false, true])
+test(`an independently closed call stays decided inside a generic template (${omitted ? "omitted" : "supplied"})`, async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `function echo(value:boolean${omitted ? "=true" : ""}):boolean { return value; }
+function take<T>(value:T):boolean { return echo(${omitted ? "" : "true"}); }
+export function run(value:string):boolean { return take(value); }`);
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const chapter = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
+  const template = chapter.bodies.find(row => row.kind === "template" && row.tir.lexicalBindings.methodBindings.length === 1);
+  const selected = chapter.bodies.find(row => row.kind === "selected" && row.instance.body === template.instance.body);
+  for (const row of [template, selected]) {
+    const application = row.tir.root.statements.nodes[0].expression.tsonic.application;
+    assert.equal(application.kind, "decided");
+    const activation = application.decision.callee.activation;
+    assert.equal(activation.bindings.kind, row.tir.bindings.kind);
+    if (row === selected) {
+      assert.equal(activation.bindings.bindings === application.decision.callee.decision.implementationBindings, true);
+      assert.equal(activation.bindings === row.instance.bindings, false);
+    }
+    if (omitted) assert.deepEqual(application.decision.arguments[0].value.instance.bindings, activation.bindings);
+  }
+  if (omitted) {
+    const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+    const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+    const captured = captureSourceBarrier(input);
+    assert.equal(captured.kind, "ok");
+    const prepared = typeSourceBarrier(input, captured.value, createTypedAccount(input));
+    assert.equal(prepared.kind, "ok");
+    const ready = [...prepared.value.bodies.values()].find(row => row.body === selected.instance.body && row.bindings.kind === "instantiated");
+    const application = ready.root.statements.nodes[0].expression.tsonic.application.decision;
+    assert.equal(application.arguments[0].value.instance.bindings === application.callee.activation.bindings, true);
+  }
+});
+
 test("checked Source verifies the actual foreign generic scope before declaration description", async () => {
   const fixture = await loadFrontFixture();
   const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");

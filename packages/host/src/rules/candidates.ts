@@ -1,7 +1,9 @@
-import type { ApplicationDecision, CandidateInput, CallConstraint, CallContributionScheme, InferenceCandidateList, InferenceValue, ParameterMapping } from "../ir-infer/contract.js";
-import { internType, optionalValueDomainOf, readSignature, readType } from "../ir-types/index.js";
+import type { ApplicationDecision, CandidateInput, CallConstraint, CallContributionScheme, ConstraintDecision, InferenceCandidateList, InferenceValue, ParameterMapping } from "../ir-infer/contract.js";
+import { admitTypePublicationStep, hasLexicalTypeDependency, internType, optionalValueDomainOf, readSignature, readType, refuseTypeConstruction, rigidBindings } from "../ir-types/index.js";
 import type { Origin } from "../ids/contract.js";
 import type { Result } from "../diag/contract.js";
+import type { Signature } from "../ir-types/contract.js";
+import type { CandidateEndpoint } from "../ir-infer/contract.js";
 import { hostDiagnosticCode } from "../diag/index.js";
 import type { RulesDeps } from "./contract.js";
 import { callerDefect, notDecidedYet } from "./frontier.js";
@@ -10,11 +12,17 @@ import { variableOf } from "./schemes.js";
 import { embeddingForm } from "./embed.js";
 
 export function decideCandidate(deps: RulesDeps, input: CandidateInput): Result<ApplicationDecision> {
-  return selectCandidate(deps, input, input.context.origin);
+  const { origin } = input.context;
+  return completeCandidate(deps, input, originalCandidate(deps, input, origin), origin, null);
 }
 
-function selectCandidate(deps: RulesDeps, input: Omit<CandidateInput, "context">, origin: Origin,
-  checkedArguments: CallConstraint["application"]["arguments"] | null = null): Result<ApplicationDecision> {
+interface PreparedCandidate {
+  readonly candidate: CandidateEndpoint;
+  readonly signature: Signature;
+  readonly original: Signature;
+}
+
+function originalCandidate(deps: RulesDeps, input: Omit<CandidateInput, "context">, origin: Origin): PreparedCandidate {
   const candidate = input.candidates[0];
   if (candidate === undefined || input.candidates.length !== 1)
     return notDecidedYet("native ordered applicability over multiple or missing candidates", origin);
@@ -40,6 +48,12 @@ function selectCandidate(deps: RulesDeps, input: Omit<CandidateInput, "context">
   const valueSignature = original.typeParameters.length !== 0 ? original.id : signature.id;
   if (callee.kind !== "callable" || !callee.calls.includes(valueSignature))
     return callerDefect("the callee must contain its actual callable value signature", origin);
+  return { candidate, signature, original };
+}
+
+function completeCandidate(deps: RulesDeps, input: Omit<CandidateInput, "context">, ready: PreparedCandidate, origin: Origin,
+  checkedArguments: CallConstraint["application"]["arguments"] | null): Result<ApplicationDecision> {
+  const { candidate, signature, original } = ready;
   const parameters: ParameterMapping[] = [];
   for (const [index, parameter] of signature.parameters.entries()) {
     if (parameter.kind === "rest" || parameter.passing !== "by-value")
@@ -172,25 +186,52 @@ export function callScheme(deps: RulesDeps): CallContributionScheme {
         return { kind: "ok", diagnostics: [], value: { bounds: destination === null ? [] : [{ contribution: input.contribution.key,
           variable: destination, kind: "producer", ...evidence }], decision: { kind: "error", error }, selectedCandidate: null } };
       }
-      const selected = selectCandidate(deps, { kind: "call", callee: callee.value, receiver: null,
-        typeArguments: typeArguments.map(argument => argument.value), arguments: arguments_, candidates: [candidate] },
-        input.origin, constraint.application.arguments);
-      if (selected.kind === "refused") return selected;
-      const decision = selected.value;
-      if (destination === null && constraint.application.result !== decision.result)
+      const operands = { kind: "call", callee: callee.value, receiver: null,
+        typeArguments: typeArguments.map(argument => argument.value), arguments: arguments_, candidates: [candidate] } satisfies Omit<CandidateInput, "context">;
+      const prepared = originalCandidate(deps, operands, input.origin);
+      const type = prepared.signature.result;
+      if (destination === null && constraint.application.result !== type)
         return callerDefect("a closed application result must agree with the authoritative completion", null);
-      const term = readType(deps.types, decision.result);
+      const term = readType(deps.types, type);
       const optional = term.kind === "optional" ? optionalValueDomainOf(term, value => readType(deps.types, value)) : null;
-      const evidence: InferenceValue = { value: { type: decision.result, component: { kind: "body", value: constraint.occurrence },
+      const evidence: InferenceValue = { value: { type, component: { kind: "body", value: constraint.occurrence },
         category: optional?.kind === "optional-value" ? optional.category
           : term.kind === "primitive" && term.primitive === "bool" ? { kind: "known", category: "boolean" }
           : term.kind === "primitive" && term.primitive === "float64" ? { kind: "known", category: "number" }
           : term.kind === "string" ? { kind: "known", category: "string" }
           : term.kind === "intrinsic" && term.intrinsic === "absence" ? { kind: "known", category: "absence" }
           : { kind: "dynamic" }, numeric: null, sum: null, nominal: null, pointer: null }, error: null };
+      const { scope, typeWork } = input;
+      let dependent = false;
+      if (scope.classParameters.length + scope.methodParameters.length + scope.capturedParameters.length + scope.selfOwners.length !== 0) {
+        const roots = [type, operands.callee.type, ...operands.typeArguments.map(value => value.type),
+          ...operands.arguments.map(argument => argument.value.type)];
+        const vector = candidate.bindings;
+        for (const family of [vector.classBindings, vector.methodBindings, vector.capturedBindings, vector.selfBindings]) {
+          for (let position = 0; position < family.length; position += 1) {
+            const stop = admitTypePublicationStep(typeWork);
+            if (stop !== null) return refuseTypeConstruction(typeWork, stop, input.origin, input.unit);
+            const binding = family[position];
+            if (binding === undefined) return callerDefect("a selected candidate requires complete binding rows", input.origin);
+            if (binding.kind === "bound") roots.push(binding.type);
+          }
+        }
+        const dependency = hasLexicalTypeDependency(deps.types, roots, scope, typeWork);
+        if (dependency.kind !== "complete") return refuseTypeConstruction(typeWork, dependency, input.origin, input.unit);
+        dependent = dependency.value;
+      }
+      let outcome: ConstraintDecision;
+      if (dependent) outcome = { kind: "deferred", deferred: { result: type, invocation: { rule: "candidate",
+        input: { ...operands, context: { occurrence: constraint.occurrence, origin: input.origin, bindings: rigidBindings(scope) } },
+      } } };
+      else {
+        const selected = completeCandidate(deps, operands, prepared, input.origin, constraint.application.arguments);
+        if (selected.kind === "refused") return selected;
+        outcome = { kind: "call", application: selected.value, operation: null };
+      }
       return { kind: "ok", diagnostics: [], value: { bounds: destination === null ? [] : [{ contribution: input.contribution.key,
         variable: destination, kind: "producer", ...evidence }],
-        decision: { kind: "call", application: decision, operation: null }, selectedCandidate: decision.candidate } };
+        decision: outcome, selectedCandidate: outcome.kind === "call" ? outcome.application.candidate : null } };
     },
   };
 }

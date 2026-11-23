@@ -163,7 +163,7 @@ function origins(scan: ProjectionInventory, image: TypeReferenceRewrite, source:
       const row = read();
       return followingProjection(projectRows(scan, row.alternatives, read => projectRecord(scan, 6, () => {
         const alternative = read();
-        return followingProjection(finishProjection(scan, prepareCallee(scan, alternative.resolution), image), resolution =>
+        return followingProjection(finishProjection(scan, prepareCallee(scan, alternative.resolution, "transport"), image), resolution =>
           followingProjection(projectRows(scan, alternative.arguments, read => transport(scan, image, read)), args =>
             followingProjection(projectSummaryKey(scan, image, alternative.summary), summary =>
               copiedProjection({ resolution, context: alternative.context, arguments: args,
