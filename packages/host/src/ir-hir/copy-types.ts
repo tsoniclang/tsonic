@@ -5,10 +5,10 @@ import type {
   MappedTypeNode, TypeLiteralNode, TupleTypeNode, NamedTupleMember, OptionalTypeNode,
   RestTypeNode, ParenthesizedTypeNode, FunctionTypeNode, ConstructorTypeNode, TemplateLiteralTypeNode,
   TemplateLiteralTypeSpan, TypeParameterDeclaration,
-  Phase, SyntaxPhaseCopy, SyntaxStructureReceipt, TypeStructureSyntax,
+  Phase, SyntaxPhaseCopy, SyntaxStructureReceipt, TypeNode, TypeStructureSyntax,
 } from "./contract.js";
 import type { SyntaxCopyPorts, SyntaxPlan } from "./copy-node.js";
-import { holdSyntaxPayload, copyNodeList, memoSyntaxPlan, requireSyntaxStructure, syntaxHeader, withSyntaxPayload } from "./copy-node.js";
+import { holdSyntaxPayload, memoSyntaxPlan, requireSyntaxStructure, syntaxHeader, withSyntaxPayload } from "./copy-node.js";
 
 export interface TypesPlans<P extends Phase, Stop, Image> {
   readonly KeywordTypeNode: (node: KeywordTypeNode<P>) => SyntaxPlan<KeywordTypeNode<P>, Stop, Image>;
@@ -72,6 +72,12 @@ export function createTypesPlans<P extends Phase, Stop, Image>(phase: SyntaxPhas
   function structure<Kind extends SyntaxStructureReceipt<P>["kind"]>(node: TypeStructureSyntax<P>, kind: Kind) {
     return requireSyntaxStructure<P, Kind>(structureOf(node), kind);
   }
+  const typeOrNull = (node: TypeNode<P> | null) => node === null ? null : ports().TypeNode(node);
+  const callableFields = (node: FunctionTypeNode<P> | ConstructorTypeNode<P>) => {
+    const fields = structure(node, "callable-type");
+    return { modifiers: fields.modifiers(ports().ModifierLike), typeParameters: fields.typeParameters(value => ports().TypeParameterDeclaration(value).read()),
+      parameters: fields.parameters(value => ports().ParameterDeclaration(value).read()), type: typeOrNull(fields.type()), fullSignature: typeOrNull(fields.full()) };
+  };
   return {
     KeywordTypeNode: node => memoSyntaxPlan(KeywordTypeNode, node, () => withSyntaxPayload(phase.KeywordTypeNode, node.tsonic, () => {
       const header = syntaxHeader(node);
@@ -148,26 +154,20 @@ export function createTypesPlans<P extends Phase, Stop, Image>(phase: SyntaxPhas
     })),
     TypePredicateNode: node => memoSyntaxPlan(TypePredicateNode, node, () => withSyntaxPayload(phase.TypePredicateNode, node.tsonic, () => {
       const header = syntaxHeader(node);
-      const { kind, assertsModifier } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        assertsModifier,
-        parameterName: ports().TypePredicateParameterName(node.parameterName),
-        type: node.type === null ? null : ports().TypeNode(node.type),
-        tsonic,
-      });
+      const { kind } = node;
+      return tsonic => {
+        const fields = structure(node, "type-predicate");
+        return { ...header, kind, assertsModifier: fields.asserts(), parameterName: ports().TypePredicateParameterName(fields.name()),
+          type: typeOrNull(fields.type()), tsonic };
+      };
     })),
     ImportAttribute: node => memoSyntaxPlan(ImportAttribute, node, () => withSyntaxPayload(phase.ImportAttribute, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        name: ports().ImportAttributeName(node.name),
-        value: ports().Expression(node.value),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "import-attribute");
+        return { ...header, kind, name: ports().ImportAttributeName(fields.name()), value: ports().Expression(fields.value()), tsonic };
+      };
     })),
     ImportAttributes: node => memoSyntaxPlan(ImportAttributes, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
@@ -176,7 +176,7 @@ export function createTypesPlans<P extends Phase, Stop, Image>(phase: SyntaxPhas
         ...header,
         kind,
         token,
-        attributes: copyNodeList(node.attributes, item => ports().ImportAttribute(item).read()),
+        attributes: structure(node, "import-attributes").attributes(item => ports().ImportAttribute(item).read()),
         multiLine,
         tsonic,
       });
@@ -191,18 +191,13 @@ export function createTypesPlans<P extends Phase, Stop, Image>(phase: SyntaxPhas
     })),
     MappedTypeNode: node => memoSyntaxPlan(MappedTypeNode, node, () => withSyntaxPayload(phase.MappedTypeNode, node.tsonic, () => {
       const header = syntaxHeader(node);
-      const { kind, readonlyToken, questionToken } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        readonlyToken,
-        typeParameter: ports().TypeParameterDeclaration(node.typeParameter).read(),
-        nameType: node.nameType === null ? null : ports().TypeNode(node.nameType),
-        questionToken,
-        type: node.type === null ? null : ports().TypeNode(node.type),
-        members: node.members === null ? null : copyNodeList(node.members, item => ports().TypeElement(item)),
-        tsonic,
-      });
+      const { kind } = node;
+      return tsonic => {
+        const fields = structure(node, "mapped-type");
+        return { ...header, kind, readonlyToken: fields.readonlyToken(), typeParameter: ports().TypeParameterDeclaration(fields.parameter()).read(),
+          nameType: typeOrNull(fields.nameType()), questionToken: fields.question(), type: typeOrNull(fields.type()),
+          members: fields.members(ports().TypeElement), tsonic };
+      };
     })),
     TypeLiteralNode: node => memoSyntaxPlan(TypeLiteralNode, node, () => withSyntaxPayload(phase.TypeLiteralNode, node.tsonic, () => {
       const header = syntaxHeader(node);
@@ -241,66 +236,40 @@ export function createTypesPlans<P extends Phase, Stop, Image>(phase: SyntaxPhas
     FunctionTypeNode: node => memoSyntaxPlan(FunctionTypeNode, node, () => withSyntaxPayload(phase.FunctionTypeNode, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
-        typeParameters: node.typeParameters === null ? null : copyNodeList(node.typeParameters, item => ports().TypeParameterDeclaration(item).read()),
-        parameters: copyNodeList(node.parameters, item => ports().ParameterDeclaration(item).read()),
-        type: node.type === null ? null : ports().TypeNode(node.type),
-        fullSignature: node.fullSignature === null ? null : ports().TypeNode(node.fullSignature),
-        tsonic,
-      });
+      return tsonic => ({ ...header, kind, ...callableFields(node), tsonic });
     })),
     ConstructorTypeNode: node => memoSyntaxPlan(ConstructorTypeNode, node, () => withSyntaxPayload(phase.ConstructorTypeNode, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
-        typeParameters: node.typeParameters === null ? null : copyNodeList(node.typeParameters, item => ports().TypeParameterDeclaration(item).read()),
-        parameters: copyNodeList(node.parameters, item => ports().ParameterDeclaration(item).read()),
-        type: node.type === null ? null : ports().TypeNode(node.type),
-        fullSignature: node.fullSignature === null ? null : ports().TypeNode(node.fullSignature),
-        tsonic,
-      });
+      return tsonic => ({ ...header, kind, ...callableFields(node), tsonic });
     })),
     TemplateLiteralTypeNode: node => memoSyntaxPlan(TemplateLiteralTypeNode, node, () => withSyntaxPayload(phase.TemplateLiteralTypeNode, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        head: ports().TemplateHead(node.head).read(),
-        templateSpans: copyNodeList(node.templateSpans, item => ports().TemplateLiteralTypeSpan(item).read()),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "template-type");
+        return { ...header, kind, head: ports().TemplateHead(fields.head()).read(),
+          templateSpans: fields.spans(item => ports().TemplateLiteralTypeSpan(item).read()), tsonic };
+      };
     })),
     TemplateLiteralTypeSpan: node => memoSyntaxPlan(TemplateLiteralTypeSpan, node, () => withSyntaxPayload(phase.TemplateLiteralTypeSpan, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        type: ports().TypeNode(node.type),
-        literal: ports().TemplateMiddleOrTail(node.literal),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "template-type-span");
+        return { ...header, kind, type: ports().TypeNode(fields.type()), literal: ports().TemplateMiddleOrTail(fields.literal()), tsonic };
+      };
     })),
     TypeParameterDeclaration: node => memoSyntaxPlan(TypeParameterDeclaration, node, () => withSyntaxPayload(phase.TypeParameterDeclaration, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
-        name: ports().Identifier(node.name).read(),
-        constraint: node.constraint === null ? null : ports().TypeNode(node.constraint),
-        expression: node.expression === null ? null : ports().Expression(node.expression),
-        defaultType: node.defaultType === null ? null : ports().TypeNode(node.defaultType),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "type-parameter");
+        const expression = fields.expression();
+        return { ...header, kind, modifiers: fields.modifiers(ports().ModifierLike), name: ports().Identifier(fields.name()).read(),
+          constraint: typeOrNull(fields.constraint()), expression: expression === null ? null : ports().Expression(expression),
+          defaultType: typeOrNull(fields.defaultType()), tsonic };
+      };
     })),
   };
 }

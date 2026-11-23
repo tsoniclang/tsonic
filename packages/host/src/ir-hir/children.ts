@@ -26,6 +26,9 @@ import type { ClassDeclaration, ClassElement, ClassExpression, DeclarationStruct
   TypeElement } from "./contract.js";
 import type { ArrayTypeNode, ConditionalTypeNode, EntityName, IndexedAccessTypeNode, InferTypeNode, LiteralTypeChild, LiteralTypeNode,
   NamedTupleMember, TypeQueryNode, TypeReferenceNode, TypeStructureReceipt, TypeStructureSyntax, WrappedTypeSyntax } from "./contract.js";
+import type { AssertsKeyword, ConstructorTypeNode, FunctionTypeNode, ImportAttribute, ImportAttributeName, MappedTypeNode, MinusToken,
+  PlusToken, ReadonlyKeyword, TemplateHead, TemplateLiteralTypeNode, TemplateLiteralTypeSpan, TemplateMiddleOrTail,
+  TypePredicateNode, TypePredicateParameterName } from "./contract.js";
 export type { SyntaxChildSlot } from "./contract.js";
 
 const emptyChildren: readonly never[] = ([]);
@@ -380,6 +383,8 @@ function isTypeStructure<P extends Phase>(node: SyntaxNode<P>): node is TypeStru
     case "TypeOperator": case "OptionalType": case "RestType": case "ParenthesizedType": case "ArrayType":
     case "UnionType": case "IntersectionType": case "TupleType": case "TypeLiteral": case "ConditionalType":
     case "IndexedAccessType": case "TypeReference": case "TypeQuery": case "LiteralType": case "InferType": case "NamedTupleMember":
+    case "TypePredicate": case "ImportAttribute": case "ImportAttributes": case "MappedType": case "TypeParameter":
+    case "FunctionType": case "ConstructorType": case "TemplateLiteralType": case "TemplateLiteralTypeSpan":
       return true;
     default: return false;
   }
@@ -422,6 +427,52 @@ function namedTupleSlots<P extends Phase>(dots: () => DotDotDotToken<P> | null, 
   question: () => QuestionToken<P> | null, type: () => TypeNode<P>) {
   return children<P, NamedTupleMember<P>>(["dotDotDotToken", "nullable", dots], ["name", "required", name],
     ["questionToken", "nullable", question], ["type", "required", type]);
+}
+
+function typePredicateSlots<P extends Phase>(asserts: () => AssertsKeyword<P> | null,
+  name: () => TypePredicateParameterName<P>, type: () => TypeNode<P> | null) {
+  return children<P, TypePredicateNode<P>>(["assertsModifier", "nullable", asserts], ["parameterName", "required", name],
+    ["type", "nullable", type]);
+}
+
+function importAttributeSlots<P extends Phase>(name: () => ImportAttributeName<P>, value: () => Expression<P>) {
+  return children<P, ImportAttribute<P>>(["name", "required", name], ["value", "required", value]);
+}
+
+function* mappedTypeSlots<P extends Phase>(readonlyToken: () => ReadonlyKeyword<P> | PlusToken<P> | MinusToken<P> | null,
+  parameter: () => TypeParameterDeclaration<P>, nameType: () => TypeNode<P> | null,
+  question: () => QuestionToken<P> | PlusToken<P> | MinusToken<P> | null, type: () => TypeNode<P> | null,
+  members: () => Iterable<SyntaxChildSlot<P>>): Generator<SyntaxChildSlot<P>> {
+  yield* children<P, MappedTypeNode<P>>(["readonlyToken", "nullable", readonlyToken], ["typeParameter", "required", parameter],
+    ["nameType", "nullable", nameType], ["questionToken", "nullable", question], ["type", "nullable", type]);
+  yield* members();
+}
+
+function* callableTypeSlots<P extends Phase>(modifiers: () => Iterable<SyntaxChildSlot<P>>,
+  typeParameters: () => Iterable<SyntaxChildSlot<P>>, parameters: () => Iterable<SyntaxChildSlot<P>>,
+  type: () => TypeNode<P> | null, full: () => TypeNode<P> | null): Generator<SyntaxChildSlot<P>> {
+  yield* modifiers();
+  yield* typeParameters();
+  yield* parameters();
+  yield* children<P, FunctionTypeNode<P> | ConstructorTypeNode<P>>(["type", "nullable", type], ["fullSignature", "nullable", full]);
+}
+
+function* typeParameterSlots<P extends Phase>(modifiers: () => Iterable<SyntaxChildSlot<P>>, name: () => Identifier<P>,
+  constraint: () => TypeNode<P> | null, expression: () => Expression<P> | null,
+  defaultType: () => TypeNode<P> | null): Generator<SyntaxChildSlot<P>> {
+  yield* modifiers();
+  yield* children<P, TypeParameterDeclaration<P>>(["name", "required", name], ["constraint", "nullable", constraint],
+    ["expression", "nullable", expression], ["defaultType", "nullable", defaultType]);
+}
+
+function* templateTypeSlots<P extends Phase>(head: () => TemplateHead<P>,
+  spans: () => Iterable<SyntaxChildSlot<P>>): Generator<SyntaxChildSlot<P>> {
+  yield* children<P, TemplateLiteralTypeNode<P>>(["head", "required", head]);
+  yield* spans();
+}
+
+function templateTypeSpanSlots<P extends Phase>(type: () => TypeNode<P>, literal: () => TemplateMiddleOrTail<P>) {
+  return children<P, TemplateLiteralTypeSpan<P>>(["type", "required", type], ["literal", "required", literal]);
 }
 
 function prepareTypeStructure<P extends Phase, Stop>(node: TypeStructureSyntax<P>, ordinal: number,
@@ -496,6 +547,83 @@ function prepareTypeStructure<P extends Phase, Stop>(node: TypeStructureSyntax<P
       const type = heldChild(() => node.type);
       return { kind: "copied", value: { kind: "named-tuple", ordinal, slots: namedTupleSlots<P>(dots.pull, name.pull, question.pull, type.pull),
         dots: dots.read, name: name.read, question: question.read, type: type.read } };
+    }
+    case "TypePredicate": {
+      const asserts = heldChild(() => node.assertsModifier);
+      const name = heldChild(() => node.parameterName);
+      const type = heldChild(() => node.type);
+      return { kind: "copied", value: { kind: "type-predicate", ordinal, slots: typePredicateSlots<P>(asserts.pull, name.pull, type.pull),
+        asserts: asserts.read, name: name.read, type: type.read } };
+    }
+    case "ImportAttribute": {
+      const name = heldChild(() => node.name);
+      const value = heldChild(() => node.value);
+      return { kind: "copied", value: { kind: "import-attribute", ordinal, slots: importAttributeSlots<P>(name.pull, value.pull),
+        name: name.read, value: value.read } };
+    }
+    case "ImportAttributes": {
+      const stop = admitList("attributes");
+      if (stop !== null) return { kind: "refused", stop };
+      const attributes = heldList<P, ImportAttribute<P>>("attributes", () => node.attributes);
+      return { kind: "copied", value: { kind: "import-attributes", ordinal, slots: attributes.slots(), attributes: attributes.finish } };
+    }
+    case "MappedType": {
+      const rawMembers = node.members;
+      const stop = rawMembers === null ? null : admitList("members");
+      if (stop !== null) return { kind: "refused", stop };
+      const readonlyToken = heldChild(() => node.readonlyToken);
+      const parameter = heldChild(() => node.typeParameter);
+      const nameType = heldChild(() => node.nameType);
+      const question = heldChild(() => node.questionToken);
+      const type = heldChild(() => node.type);
+      const members = heldOptionalList<P, TypeElement<P>>("members", rawMembers);
+      return { kind: "copied", value: { kind: "mapped-type", ordinal,
+        slots: mappedTypeSlots<P>(readonlyToken.pull, parameter.pull, nameType.pull, question.pull, type.pull, members.slots),
+        readonlyToken: readonlyToken.read, parameter: parameter.read, nameType: nameType.read, question: question.read,
+        type: type.read, members: members.finish } };
+    }
+    case "FunctionType": case "ConstructorType": {
+      const rawModifiers = node.modifiers;
+      const modifierStop = rawModifiers === null ? null : admitList("modifiers");
+      if (modifierStop !== null) return { kind: "refused", stop: modifierStop };
+      const rawTypeParameters = node.typeParameters;
+      const stop = (rawTypeParameters === null ? null : admitList("typeParameters")) ?? admitList("parameters");
+      if (stop !== null) return { kind: "refused", stop };
+      const modifiers = heldOptionalList<P, ModifierLike<P>>("modifiers", rawModifiers);
+      const typeParameters = heldOptionalList<P, TypeParameterDeclaration<P>>("typeParameters", rawTypeParameters);
+      const parameters = heldList<P, ParameterDeclaration<P>>("parameters", () => node.parameters);
+      const type = heldChild(() => node.type);
+      const full = heldChild(() => node.fullSignature);
+      return { kind: "copied", value: { kind: "callable-type", ordinal,
+        slots: callableTypeSlots<P>(modifiers.slots, typeParameters.slots, parameters.slots, type.pull, full.pull),
+        modifiers: modifiers.finish, typeParameters: typeParameters.finish, parameters: parameters.finish, type: type.read, full: full.read } };
+    }
+    case "TypeParameter": {
+      const rawModifiers = node.modifiers;
+      const stop = rawModifiers === null ? null : admitList("modifiers");
+      if (stop !== null) return { kind: "refused", stop };
+      const modifiers = heldOptionalList<P, ModifierLike<P>>("modifiers", rawModifiers);
+      const name = heldChild(() => node.name);
+      const constraint = heldChild(() => node.constraint);
+      const expression = heldChild(() => node.expression);
+      const defaultType = heldChild(() => node.defaultType);
+      return { kind: "copied", value: { kind: "type-parameter", ordinal,
+        slots: typeParameterSlots<P>(modifiers.slots, name.pull, constraint.pull, expression.pull, defaultType.pull),
+        modifiers: modifiers.finish, name: name.read, constraint: constraint.read, expression: expression.read, defaultType: defaultType.read } };
+    }
+    case "TemplateLiteralType": {
+      const stop = admitList("templateSpans");
+      if (stop !== null) return { kind: "refused", stop };
+      const head = heldChild(() => node.head);
+      const spans = heldList<P, TemplateLiteralTypeSpan<P>>("templateSpans", () => node.templateSpans);
+      return { kind: "copied", value: { kind: "template-type", ordinal, slots: templateTypeSlots<P>(head.pull, spans.slots),
+        head: head.read, spans: spans.finish } };
+    }
+    case "TemplateLiteralTypeSpan": {
+      const type = heldChild(() => node.type);
+      const literal = heldChild(() => node.literal);
+      return { kind: "copied", value: { kind: "template-type-span", ordinal, slots: templateTypeSpanSlots<P>(type.pull, literal.pull),
+        type: type.read, literal: literal.read } };
     }
   }
 }
@@ -1270,8 +1398,10 @@ function ordinarySlots<PhaseType extends Phase>(
     case "ConstructSignature":
     case "JSDocSignature":
       return children<PhaseType, typeof node>(["typeParameters", "list", () => node.typeParameters], ["parameters", "list", () => node.parameters], ["type", "nullable", () => node.type], ["fullSignature", "nullable", () => node.fullSignature]);
-    case "FunctionType":
-      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["typeParameters", "list", () => node.typeParameters], ["parameters", "list", () => node.parameters], ["type", "nullable", () => node.type], ["fullSignature", "nullable", () => node.fullSignature]);
+    case "FunctionType": case "ConstructorType":
+      return callableTypeSlots<PhaseType>(() => children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers]),
+        () => children<PhaseType, typeof node>(["typeParameters", "list", () => node.typeParameters]),
+        () => children<PhaseType, typeof node>(["parameters", "list", () => node.parameters]), () => node.type, () => node.fullSignature);
     case "Constructor":
       return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["typeParameters", "list", () => node.typeParameters], ["parameters", "list", () => node.parameters],
         ["type", "nullable", () => node.type], ["fullSignature", "nullable", () => node.fullSignature], ["asteriskToken", "nullable", () => node.asteriskToken], ["body", "nullable", () => node.body]);
@@ -1325,8 +1455,9 @@ function ordinarySlots<PhaseType extends Phase>(
     case "MetaProperty":
       return children<PhaseType, typeof node>(["name", "required", () => node.name]);
     case "TemplateExpression":
-    case "TemplateLiteralType":
       return children<PhaseType, typeof node>(["head", "required", () => node.head], ["templateSpans", "list", () => node.templateSpans]);
+    case "TemplateLiteralType":
+      return templateTypeSlots<PhaseType>(() => node.head, () => children<PhaseType, typeof node>(["templateSpans", "list", () => node.templateSpans]));
     case "TemplateSpan":
       return children<PhaseType, typeof node>(["expression", "required", () => node.expression], ["literal", "required", () => node.literal]);
     case "TaggedTemplateExpression":
@@ -1370,27 +1501,25 @@ function ordinarySlots<PhaseType extends Phase>(
     case "LiteralType":
       return literalTypeSlots<PhaseType>(() => node.literal);
     case "TypePredicate":
-      return children<PhaseType, typeof node>(["assertsModifier", "nullable", () => node.assertsModifier], ["parameterName", "required", () => node.parameterName], ["type", "nullable", () => node.type]);
+      return typePredicateSlots<PhaseType>(() => node.assertsModifier, () => node.parameterName, () => node.type);
     case "ImportAttribute":
-      return children<PhaseType, typeof node>(["name", "required", () => node.name], ["value", "required", () => node.value]);
+      return importAttributeSlots<PhaseType>(() => node.name, () => node.value);
     case "ImportAttributes":
       return children<PhaseType, typeof node>(["attributes", "list", () => node.attributes]);
     case "TypeQuery":
       return namedTypeSlots<PhaseType>("exprName", () => node.exprName,
         () => children<PhaseType, typeof node>(["typeArguments", "list", () => node.typeArguments]));
     case "MappedType":
-      return children<PhaseType, typeof node>(["readonlyToken", "nullable", () => node.readonlyToken], ["typeParameter", "required", () => node.typeParameter], ["nameType", "nullable", () => node.nameType],
-        ["questionToken", "nullable", () => node.questionToken], ["type", "nullable", () => node.type], ["members", "list", () => node.members]);
+      return mappedTypeSlots<PhaseType>(() => node.readonlyToken, () => node.typeParameter, () => node.nameType, () => node.questionToken,
+        () => node.type, () => children<PhaseType, typeof node>(["members", "list", () => node.members]));
     case "TypeLiteral":
       return children<PhaseType, typeof node>(["members", "list", () => node.members]);
     case "TupleType":
       return children<PhaseType, typeof node>(["elements", "list", () => node.elements]);
     case "NamedTupleMember":
       return namedTupleSlots<PhaseType>(() => node.dotDotDotToken, () => node.name, () => node.questionToken, () => node.type);
-    case "ConstructorType":
-      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["typeParameters", "list", () => node.typeParameters], ["parameters", "list", () => node.parameters], ["type", "nullable", () => node.type], ["fullSignature", "nullable", () => node.fullSignature]);
     case "TemplateLiteralTypeSpan":
-      return children<PhaseType, typeof node>(["type", "required", () => node.type], ["literal", "required", () => node.literal]);
+      return templateTypeSpanSlots<PhaseType>(() => node.type, () => node.literal);
     case "JsxElement":
       return children<PhaseType, typeof node>(["openingElement", "required", () => node.openingElement], ["children", "list", () => node.children], ["closingElement", "required", () => node.closingElement]);
     case "JsxAttributes":
@@ -1455,7 +1584,8 @@ function ordinarySlots<PhaseType extends Phase>(
     case "ImportClause":
       return children<PhaseType, typeof node>(["name", "nullable", () => node.name], ["namedBindings", "nullable", () => node.namedBindings]);
     case "TypeParameter":
-      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["name", "required", () => node.name], ["constraint", "nullable", () => node.constraint], ["expression", "nullable", () => node.expression], ["defaultType", "nullable", () => node.defaultType]);
+      return typeParameterSlots<PhaseType>(() => children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers]), () => node.name,
+        () => node.constraint, () => node.expression, () => node.defaultType);
     case "SyntheticReferenceExpression":
       return children<PhaseType, typeof node>(["expression", "required", () => node.expression], ["thisArg", "required", () => node.thisArg]);
     case "JSDocTypeLiteral":

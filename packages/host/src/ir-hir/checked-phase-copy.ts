@@ -585,7 +585,7 @@ export const projectCheckedContent: ProjectCheckedContent = <Stop, SupplyStop>(
       projector = checkedProjector(project);
       const originals = forest;
       copy = createSyntaxCopyState<CheckedPhase, Stop, null>(projector.phase,
-        node => project.admit(1, 1) ?? (originals.structureOf(node) === null ? project.syntaxNode(node) : null), originals);
+        node => project.admit(1, 1) ?? (originals.hasStructure(node) ? null : project.syntaxNode(node)), originals);
     }
     for (; settled < forest.nodes.length; settled += 1) {
       const stopped = copy.prepare(requirePresent(forest.nodes[settled], missingEvidence), settled);

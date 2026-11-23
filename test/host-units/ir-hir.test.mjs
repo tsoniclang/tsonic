@@ -596,20 +596,58 @@ test("HIR copies the complete Checked constructor inventory through one paid pos
         return raw;
       };
       const expectedReads = [];
+      const expectFields = (...fields) => {
+        for (const field of fields) {
+          expectedReads.push(field);
+          watch(selected, field);
+        }
+      };
+      const expectList = (field, list) => {
+        if (list === null) return;
+        const rows = watch(list, "nodes", field + " vector");
+        watch(list, "loc", field + " range");
+        expectedReads.push(field + " vector", field + " range");
+        for (let position = 0; position < rows.length; position += 1) {
+          const label = field + " " + position;
+          watch(rows, position, label);
+          expectedReads.push(label);
+        }
+      };
       if (selected.kind === "NamedTupleMember") {
-        expectedReads.push("dotDotDotToken", "name", "questionToken", "type");
-        for (const field of expectedReads) watch(selected, field);
+        expectFields("dotDotDotToken", "name", "questionToken", "type");
       } else if (selected.kind === "TupleType" || selected.kind === "UnionType" || selected.kind === "IntersectionType") {
         const field = selected.kind === "TupleType" ? "elements" : "types";
-        const list = watch(selected, field);
-        const rows = watch(list, "nodes");
-        watch(list, "loc");
-        expectedReads.push(field, "nodes", "loc");
-        for (let position = 0; position < rows.length; position += 1) {
-          const display = "type " + position;
-          watch(rows, position, display);
-          expectedReads.push(display);
-        }
+        expectedReads.push(field);
+        expectList(field, watch(selected, field));
+      } else if (selected.kind === "MappedType") {
+        expectedReads.push("members");
+        const members = watch(selected, "members");
+        expectFields("readonlyToken", "typeParameter", "nameType", "questionToken", "type");
+        expectList("members", members);
+      } else if (selected.kind === "FunctionType" || selected.kind === "ConstructorType") {
+        expectedReads.push("modifiers", "typeParameters");
+        const modifiers = watch(selected, "modifiers");
+        const typeParameters = watch(selected, "typeParameters");
+        expectList("modifiers", modifiers);
+        expectList("typeParameters", typeParameters);
+        expectedReads.push("parameters");
+        expectList("parameters", watch(selected, "parameters"));
+        expectFields("type", "fullSignature");
+      } else if (selected.kind === "TypeParameter") {
+        expectedReads.push("modifiers");
+        expectList("modifiers", watch(selected, "modifiers"));
+        expectFields("name", "constraint", "expression", "defaultType");
+      } else if (selected.kind === "TypePredicate") {
+        expectFields("assertsModifier", "parameterName", "type");
+      } else if (selected.kind === "ImportAttribute") {
+        expectFields("name", "value");
+      } else if (selected.kind === "ImportAttributes" || selected.kind === "TemplateLiteralType") {
+        if (selected.kind === "TemplateLiteralType") expectFields("head");
+        const field = selected.kind === "TemplateLiteralType" ? "templateSpans" : "attributes";
+        expectedReads.push(field);
+        expectList(field, watch(selected, field));
+      } else if (selected.kind === "TemplateLiteralTypeSpan") {
+        expectFields("type", "literal");
       } else if (selected.kind === "PropertyAccessExpression" || selected.kind === "ElementAccessExpression") {
         expectedReads.push("expression", "questionDotToken", selected.kind === "PropertyAccessExpression" ? "name" : "argumentExpression");
         for (const field of expectedReads) watch(selected, field);
@@ -1630,13 +1668,9 @@ test("Block and Binary materialize only actual paid fields, not post-admission g
     });
     if (forest.kind !== "complete") return { result: forest, stop: meter.failure ?? accountFailure(meter.account), seen };
     sealed = true;
-    const result = product.copyCheckedContent(forest.value, { admit, syntaxNode: node => {
-      if (node === block || node === binary) {
-        assert.equal(forest.value.structureOf(node), node === block ? "block" : "binary");
-        return null;
-      }
-      return inventoryRecord(scan, 5);
-    }, type: hold, signature: hold, bindings: hold, parameter: hold, component: hold, core: hold });
+    const result = product.copyCheckedContent(forest.value, { admit, syntaxNode: node =>
+      node === block || node === binary ? null : inventoryRecord(scan, 5),
+    type: hold, signature: hold, bindings: hold, parameter: hold, component: hold, core: hold });
     assert.equal(result.kind, "copied");
     const mapped = result.value.syntax.bodyRootOf(block);
     const branch = mapped.statements.nodes[0].expression;

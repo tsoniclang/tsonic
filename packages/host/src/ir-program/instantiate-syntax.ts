@@ -346,13 +346,11 @@ function admitSyntaxHeader(scan: ProjectionInventory, node: SyntaxNode<TypedPhas
     case "ImportAttribute":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "ImportAttributes":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10)
-        ?? inventoryRecord(scan, 2);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10);
     case "TypeQuery":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "MappedType":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 13)
-        ?? (node.members === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 13);
     case "TypeLiteral":
     case "TupleType":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
@@ -365,15 +363,8 @@ function admitSyntaxHeader(scan: ProjectionInventory, node: SyntaxNode<TypedPhas
     case "ParenthesizedType":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "FunctionType":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 12)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
-        ?? (node.typeParameters === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryRecord(scan, 2);
     case "ConstructorType":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 12)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
-        ?? (node.typeParameters === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryRecord(scan, 2);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 12);
     case "TemplateHead":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11);
     case "TemplateMiddle":
@@ -381,8 +372,7 @@ function admitSyntaxHeader(scan: ProjectionInventory, node: SyntaxNode<TypedPhas
     case "TemplateTail":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11);
     case "TemplateLiteralType":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? inventoryRecord(scan, 2);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "TemplateLiteralTypeSpan":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "PartiallyEmittedExpression":
@@ -530,8 +520,7 @@ function admitSyntaxHeader(scan: ProjectionInventory, node: SyntaxNode<TypedPhas
     case "JSDocLinkCode":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "TypeParameter":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 12)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 12);
     case "SyntheticReferenceExpression":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "JSDocTypeLiteral":

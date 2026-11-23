@@ -176,9 +176,9 @@ export function createSyntaxForest<PhaseType extends NullableInitializerPhase<Ph
   };
   return { append, nodes, postorder, wireOf, structure, copyInitializer,
     firstRootSize: () => firstRootSize,
-    structureOf: (node: SyntaxNode<PhaseType>) => {
+    hasStructure: (node: SyntaxNode<PhaseType>) => {
       const entry = wire.get(node);
-      return entry === undefined || typeof entry === "number" ? null : entry.kind === "parameter" ? entry.header.kind : entry.kind;
+      return entry !== undefined && typeof entry !== "number";
     },
   };
 }
@@ -192,7 +192,7 @@ export const walkSyntaxForest: WalkSyntaxForest = <PhaseType extends NullableIni
   if (stopped !== null) return stopped;
   const copy = bindSyntaxForest<PhaseType>(state.nodes, state.postorder, state.wireOf, state.structure, state.copyInitializer);
   return { kind: "complete", value: {
-    nodes: () => state.nodes.values(), firstRootSize: state.firstRootSize(), wireOf: state.wireOf, structureOf: state.structureOf, copy,
+    nodes: () => state.nodes.values(), firstRootSize: state.firstRootSize(), wireOf: state.wireOf, copy,
   } };
 };
 
