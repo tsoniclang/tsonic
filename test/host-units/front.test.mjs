@@ -471,7 +471,17 @@ test("provider session files share the actual opened source domain and retain re
   assert.equal(call.kind, "applicable");
   const literal = caller.value.tree.statements.nodes[2].declarationList.declarations.nodes[0].initializer;
   assert.deepEqual(caller.value.core[literal.id].layoutQuery, { kind: "available", value: null });
-  assert.deepEqual(caller.value.core[call.invocation.node].layoutQuery, { kind: "unavailable", reason: "not-provided", causes: [] });
+  assert.deepEqual(caller.value.core[call.invocation.node].layoutQuery, { kind: "available", value: null });
+  assert.deepEqual(caller.value.core[call.invocation.node].metadata, { kind: "unavailable", reason: "not-provided", causes: [] });
+  const arbitraryReference = reference("/provider-one", "extension");
+  const arbitrary = { reference: arbitraryReference, value: { kind: "compiler-extension",
+    value: { identity: { id: "test.unclassified-observer", version: "1.0.0" }, initialize() {} } } };
+  const openInventory = openAndCapture({ ...snapshot, contributions: { ...snapshot.contributions, compilerExtensions: [arbitraryReference] } },
+    [registration, arbitrary]);
+  const openCaller = front.captureModule(openInventory.deps, openInventory.program, snapshot.entryPoint);
+  assert.equal(openCaller.kind, "ok");
+  assert.deepEqual(openCaller.value.core[openCaller.value.calls[0].invocation.node].layoutQuery,
+    { kind: "unavailable", reason: "not-provided", causes: [] });
   const selected = caller.value.types.candidates[call.candidates].candidates[0];
   const signature = caller.value.types.signatures[selected.application.signature];
   assert.deepEqual(signature.parameters[0].passing, { kind: "available", value: "byref-readwrite" });
@@ -556,6 +566,7 @@ test("provider session files share the actual opened source domain and retain re
 
 test("provider overloads supply their own ABI while ordinary captured declarations keep their closed defaults", async () => {
   const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
   const { readSignature, readType } = await import("../../packages/host/dist/ir-types/index.js");
   const provider = { ...declarationProvider("test.provider.abi", "native:thing", "native.thing"),
@@ -603,6 +614,16 @@ test("provider overloads supply their own ABI while ordinary captured declaratio
   const ordinary = result.value.modules.find(row => row.module.module === snapshot.entryPoint).module.tree.statements.nodes
     .find(node => node.kind === "FunctionDeclaration");
   assert.equal(readSignature(result.value.types, ordinary.tsonic.signatures[0].signature).parameters[0].passing, "by-value");
+
+  const erased = projectSnapshot({ sourceFiles: { "main.ts": 'import type { read } from "native:thing";'
+    + "export function ordinary(input:boolean):boolean{return input;}" }, libraries,
+    providerPackages: [{ root: "/provider-one", name: "provider-one-pkg" }], declarationProviders: [registration.reference] });
+  const program = analyzeHostProgram({ ...analysisInput(fixture, "sdk-minimal"), snapshot: erased, extensions: opened.deps.extensions });
+  assert.equal(program.kind, "ok");
+  assert.deepEqual(program.value.index.metadata, []);
+  const checkedProvider = program.value.modules.find(row => row.module === owner.document.module);
+  assert.equal(checkedProvider?.tree.kind, "checked-root");
+  assert.equal(checkedProvider.bodies.length, 0);
 });
 
 /**

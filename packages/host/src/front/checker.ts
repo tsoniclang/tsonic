@@ -52,7 +52,8 @@ export function createExtensionTable(registrations: readonly CheckerRegistration
         // A second registration of one provider identity is not recorded here. The table refuses nothing: it is the
         // session that reports two extensions of one identity, and then no program is opened on this table.
         if (!providers.has(providerKey(registration.value.value.identity))) {
-          providers.set(providerKey(registration.value.value.identity), { reference: registration.reference, provider: registration.value.value });
+          providers.set(providerKey(registration.value.value.identity), { reference: registration.reference,
+            provider: registration.value.value, roles: registration.value.roles });
         }
         extensions.push(providerExtension(registration.value.value));
         break;

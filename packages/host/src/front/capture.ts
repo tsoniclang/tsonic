@@ -317,6 +317,7 @@ interface CaptureScope extends CaptureAdmission {
   readonly shape: TypeShapeQueries;
   readonly ownNodes: ReadonlyMap<Node, NodeId>;
   readonly emptyCoreInventory: boolean;
+  readonly emptyObservationInventory: boolean;
   readonly closedOrdinaryPassing: boolean;
   readonly closedOrdinaryExtent: boolean;
   readonly diagnosticRoots: Map<CheckerDiagnostic, CheckerDiagnosticRef>;
@@ -2495,20 +2496,27 @@ function snapshotDeclaration(program: CheckedProgram, reference: RawNodeRef): bo
   return OpenedProgram.file(program, reference.module)?.origin.kind === "snapshot";
 }
 
-function closedCoreInventory(program: CheckedProgram): Pick<CaptureScope, "emptyCoreInventory" | "closedOrdinaryPassing" | "closedOrdinaryExtent"> {
+function closedCoreInventory(program: CheckedProgram): Pick<CaptureScope,
+  "emptyCoreInventory" | "emptyObservationInventory" | "closedOrdinaryPassing" | "closedOrdinaryExtent"> {
   const contributions = OpenedProgram.contributions(program);
   const table = OpenedProgram.table(program);
-  const closedOrdinaryPassing = OpenedProgram.libraryData(program).every(entry => entry.roles.length === 0) &&
+  let noRoles = OpenedProgram.libraryData(program).every(entry => entry.roles.length === 0);
+  if (noRoles) for (const entry of ExtensionTable.providers(table).values()) {
+    if (entry.roles.length !== 0) { noRoles = false; break; }
+  }
+  const closedOrdinaryPassing = noRoles &&
     contributions.safetyProviders.length === 0 && contributions.compilerExtensions.length === 0 &&
     ExtensionTable.entries(table).every(entry => entry.kind === "semantics-module" || entry.kind === "declaration-provider");
   const closedCore = closedOrdinaryPassing && contributions.declarationProviders.length === 0 &&
     ExtensionTable.entries(table).every(entry => entry.kind === "semantics-module");
   const semantics = ExtensionTable.semantics(table);
+  const emptySemantics = semantics.every(module => module.exports.length === 0);
   return {
     closedOrdinaryPassing,
     closedOrdinaryExtent: closedOrdinaryPassing && semantics.every(module =>
       module.exports.every(entry => entry.kind !== "type-marker" || entry.marker !== "fixed-array")),
-    emptyCoreInventory: closedCore && semantics.every(module => module.exports.length === 0),
+    emptyCoreInventory: closedCore && emptySemantics,
+    emptyObservationInventory: closedOrdinaryPassing && emptySemantics && contributions.dataLayouts.length === 0,
   };
 }
 
@@ -2519,12 +2527,12 @@ function declarationPassing(scope: CaptureScope, node: Node | undefined): Extrac
   return fact;
 }
 
-function coreFacts(node: RawNodeRef, empty: boolean, literal: boolean): RawCoreCapture {
+function coreFacts(node: RawNodeRef, empty: boolean, noLayoutQuery: boolean): RawCoreCapture {
   const proven = <Value>(value: Value): RawFact<Value> => empty ? available(value) : notProvided();
   return {
     node, provider: proven(null), markers: proven({ struct: null, field: null, defaultValue: null, jsString: false, application: available(null) }), pointerType: proven(null),
     pointerOperation: proven(null), metadata: proven(null), layout: proven(null), field: proven(null), fieldBinding: proven(null),
-    recordBinding: proven(null), layoutQuery: literal ? available(null) : proven(null), attribute: proven(null), safety: proven(null), argumentPassing: proven(null), flowState: proven(null),
+    recordBinding: proven(null), layoutQuery: noLayoutQuery ? available(null) : notProvided(), attribute: proven(null), safety: proven(null), argumentPassing: proven(null), flowState: proven(null),
   };
 }
 
@@ -3904,7 +3912,7 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
     const markers = capturedMarkers(scope, node, id);
     if (markers === null) break;
     const literal = ast.is.IsLiteralKind(node.Kind) || kind === "KindTrueKeyword" || kind === "KindFalseKeyword" || kind === "KindNullKeyword";
-    const empty = coreFacts(reference, scope.emptyCoreInventory, literal);
+    const empty = coreFacts(reference, scope.emptyCoreInventory, literal || scope.emptyObservationInventory);
     const base = markers === undefined ? empty : { ...empty, markers: available(markers) };
     const row = provider === undefined ? base : { ...base, provider: available(provider.identity) };
     const passing = kind === "KindParameter" ? declarationPassing(scope, node) : undefined;
