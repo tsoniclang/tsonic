@@ -1,0 +1,240 @@
+import type { DataflowAccount, DataflowStop } from "../dataflow/contract.js";
+import { chargeResultEntries, chargeWork } from "../dataflow/index.js";
+import type { Result, UnitRequest } from "../diag/contract.js";
+import { throwInvariant } from "../diag/index.js";
+import type { BodyId, DefId, ModuleId, NodeRef } from "../ids/contract.js";
+import type { ExecutionDependency, SummaryKey } from "../ir-facts/contract.js";
+import { admitSummaryIdentity, summaryKey } from "../ir-facts/index.js";
+import type { TirBody } from "../ir-tir/contract.js";
+import type { BodyInstance, Execution } from "../ir-types/contract.js";
+import { readSignature } from "../ir-types/index.js";
+import type { SourceBarrier } from "./source-barrier.js";
+import type { CheckedSourceViews } from "./checked-inputs.js";
+import { analysisStop } from "./analysis-stop.js";
+import { pipelineWiring } from "./wiring.js";
+
+function fail(message: string): never {
+  return throwInvariant({ owner: "pipeline", query: null, origin: null, message });
+}
+
+type BodyOperation = Extract<SummaryKey, { readonly kind: "body" }>;
+
+export interface RequiredExecutions {
+  readonly operations: readonly SummaryKey[];
+  readonly operationIdentities: readonly string[];
+  readonly operationsByBody: ReadonlyMap<BodyId, readonly BodyOperation[]>;
+  readonly dependencies: readonly ExecutionDependency[];
+  readonly moduleExecutions: ReadonlyMap<ModuleId, Execution>;
+}
+
+export function prepareRequiredExecutions(source: SourceBarrier, sources: CheckedSourceViews, roots: Iterable<TirBody>,
+  requireBody: (instance: BodyInstance) => Result<TirBody>, account: DataflowAccount, unit: UnitRequest): Result<RequiredExecutions> {
+  const setup = chargeResultEntries(account, 6);
+  if (setup !== null) return analysisStop(setup, unit);
+  const operations: SummaryKey[] = [];
+  const operationIdentities: string[] = [];
+  const operationsByBody = new Map<BodyId, BodyOperation[]>();
+  const known = new Set<string>();
+  const dependencies: ExecutionDependency[] = [];
+  const moduleExecutions = new Map<ModuleId, Execution>();
+
+  const add = (key: SummaryKey): DataflowStop | null => {
+    const work = chargeWork(account, 1);
+    if (work !== null) return work;
+    const identityWork = admitSummaryIdentity(key, account);
+    if (identityWork !== null) return identityWork;
+    const identity = summaryKey(key);
+    if (known.has(identity)) return null;
+    let offered: BodyOperation[] | undefined;
+    if (key.kind === "body") {
+      const indexWork = chargeWork(account, 1);
+      if (indexWork !== null) return indexWork;
+      offered = operationsByBody.get(key.execution.instance.body);
+    }
+    const growth = chargeResultEntries(account, 3 + (key.kind !== "body" ? 0 : offered === undefined ? 3 : 1));
+    if (growth !== null) return growth;
+    known.add(identity);
+    operations.push(key);
+    operationIdentities.push(identity);
+    if (key.kind === "body") {
+      if (offered === undefined) operationsByBody.set(key.execution.instance.body, [key]);
+      else offered.push(key);
+    }
+    return null;
+  };
+
+  for (const body of roots) {
+    if (body.bindings.kind !== "instantiated") continue;
+    const instance = { body: body.body, bindings: body.bindings };
+    const signatureWork = chargeWork(account, 1);
+    if (signatureWork !== null) return analysisStop(signatureWork, unit);
+    const formals = readSignature(source.types, body.signature).parameters;
+    for (let provided = formals.length; ; provided -= 1) {
+      const execution: Execution = { instance, provided };
+      const stopped = add({ kind: "body", execution });
+      if (stopped !== null) return analysisStop(stopped, unit);
+      if (provided === 0) break;
+      const formalWork = chargeWork(account, 1);
+      if (formalWork !== null) return analysisStop(formalWork, unit);
+      const formal = formals[provided - 1];
+      if (formal === undefined) return fail("The selected signature has a dense ordinary formal inventory.");
+      if (!formal.acceptsOmission) break;
+    }
+  }
+
+  const callableEntriesAt = (at: NodeRef, definition: DefId): readonly SummaryKey[] | null => {
+    if (sources.nodeOf({ kind: "body", value: at }) === null) return null;
+    const itemSource = sources.declarationSourceOf(definition);
+    const declaration = itemSource === null ? null : sources.nodeOf(itemSource);
+    if (declaration?.kind !== "FunctionDeclaration" || declaration.tsonic.definition !== definition) return null;
+    const body = declaration.tsonic.body;
+    if (body === null || sources.bodies.get(body)?.owner !== definition) return null;
+    const scope = source.descriptions.get(definition)?.generics;
+    if (scope === undefined || scope.classParameters.length + scope.capturedParameters.length + scope.methodParameters.length
+      + scope.selfOwners.length !== 0) return null;
+    for (let index = 0; index < declaration.tsonic.signatures.length; index += 1) {
+      if (chargeWork(account, 1) !== null) return null;
+      const endpoint = declaration.tsonic.signatures[index];
+      if (endpoint === undefined) return fail("The checked callable's signature inventory is dense.");
+      if (endpoint.role !== "api-body" || endpoint.body !== body || endpoint.declaration !== definition) continue;
+      const setup = chargeWork(account, 1) ?? chargeResultEntries(account, 7);
+      if (setup !== null) return null;
+      const signature = readSignature(source.types, endpoint.signature);
+      const instance: BodyInstance = { body, bindings: { kind: "instantiated",
+        bindings: { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] } } };
+      const entries: SummaryKey[] = [];
+      for (let provided = signature.parameters.length; ; provided -= 1) {
+        if (chargeWork(account, 1) ?? chargeResultEntries(account, 2)) return null;
+        entries.push({ kind: "body", execution: { instance, provided } });
+        if (provided === 0 || !signature.parameters[provided - 1]?.acceptsOmission) break;
+      }
+      return entries;
+    }
+    return null;
+  };
+  for (let index = 0; index < operations.length; index += 1) {
+    const operation = operations[index];
+    if (operation === undefined || operation.kind !== "body")
+      return fail("A declared required operation needs its actual selected native guarantee association and binder.");
+    const required = requireBody(operation.execution.instance);
+    if (required.kind === "refused") return required;
+    const body = required.value;
+    if (body.root.kind === "SourceFile") {
+      const admit = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
+      if (admit !== null) return analysisStop(admit, unit);
+      if (operation.execution.provided !== 0 || moduleExecutions.has(body.root.origin.module)) return fail("A source module must have one actual initializer execution.");
+      moduleExecutions.set(body.root.origin.module, operation.execution);
+    }
+    const initializerAt: Parameters<typeof pipelineWiring.summaries.dependenciesOf>[0]["initializerAt"] = (at, initializer) => {
+      if (at.body !== body.body) return fail("An initializer occurrence must belong to the requesting actual selected execution.");
+      let occurrence = sources.nodeOf({ kind: "body", value: at });
+      if (occurrence === null && typeof initializer === "string") {
+        const checked = sources.bodies.get(body.body);
+        for (let index = 0; index < (checked?.params.length ?? 0); index += 1) {
+          if (chargeWork(account, 1) !== null) return null;
+          const parameter = checked?.params[index];
+          if (parameter?.initializer !== initializer) continue;
+          occurrence = sources.nodeOf({ kind: "item", value: { owner: parameter.declaration, node: at.node } });
+          break;
+        }
+      }
+      let bindings = operation.execution.instance.bindings;
+      if (typeof initializer !== "string") {
+        if (occurrence?.kind !== "CallExpression" || occurrence.tsonic.application.kind !== "available") return null;
+        const captured = occurrence.tsonic.application.value;
+        const { instance, parameter, callee: { activation, decision } } = initializer;
+        if (activation === null || captured.kind !== "call" || parameter < captured.arguments.length
+          || instance.bindings !== activation.bindings) return null;
+        const mappingRead = chargeWork(account, 1);
+        if (mappingRead !== null) return null;
+        const mapping = decision.parameters[parameter];
+        if (mapping?.kind !== "default" || mapping.parameter !== parameter
+          || mapping.initializer !== instance.body) return null;
+        const formalRead = chargeWork(account, 1);
+        if (formalRead !== null) return null;
+        const formal = readSignature(source.types, decision.completion.signature).parameters[parameter];
+        if (formal?.kind !== "default" || !formal.acceptsOmission || formal.initializer !== instance.body) return null;
+        bindings = activation.bindings;
+        const reference = sources.declarationSourceOf(formal.declaration);
+        occurrence = reference === null ? null : sources.nodeOf(reference);
+        if (reference?.kind !== "item" || reference.value.owner !== formal.declaration || occurrence?.kind !== "Parameter"
+          || occurrence.tsonic.parent !== decision.api.declaration) return null;
+      }
+      if (occurrence === null || occurrence.kind !== "Parameter" && occurrence.kind !== "VariableDeclaration"
+        && occurrence.kind !== "PropertyDeclaration" && occurrence.kind !== "EnumMember") return null;
+      if (occurrence.tsonic.initializer === null) return null;
+      const instance: BodyInstance = typeof initializer === "string"
+        ? { body: initializer, bindings } : initializer.instance;
+      if (instance.body !== occurrence.tsonic.initializer || instance.bindings !== bindings) return null;
+      const checked = sources.bodies.get(instance.body);
+      if (checked === undefined || checked.params.length !== 0 || checked.root !== occurrence.initializer)
+        return fail("A placed initializer requires its actual separately owned parameterless source.");
+      return { kind: "body", execution: { instance, provided: 0 } };
+    };
+    const calleeAt: Parameters<typeof pipelineWiring.summaries.dependenciesOf>[0]["calleeAt"] = (at, callee) => {
+      if (at.body !== body.body) return fail("A selected call occurrence belongs to its actual requesting execution.");
+      const original = sources.nodeOf({ kind: "body", value: at });
+      if (original?.kind !== "CallExpression" || original.tsonic.application.kind !== "available") return null;
+      const captured = original.tsonic.application.value;
+      const decision = callee.decision;
+      if (captured.kind !== "call" || captured.receiver !== null || captured.arguments.length > decision.parameters.length
+        || decision.api.body === null || callee.activation === null
+        || callee.activation.body !== decision.api.body) return null;
+      const signatureRead = chargeWork(account, 1);
+      if (signatureRead !== null) return null;
+      const checked = sources.bodies.get(body.body);
+      const list = captured.candidates.kind === "available" ? checked?.candidateLists[captured.candidates.value] : undefined;
+      const candidate = list?.candidates[decision.candidate];
+      if (list === undefined || candidate?.ordinal !== decision.candidate || candidate.declaration !== decision.advertised.declaration
+        || callee.activation.bindings.kind !== "instantiated" || callee.activation.bindings.bindings !== decision.implementationBindings) return null;
+      const signature = readSignature(source.types, decision.completion.signature);
+      if (sources.bodies.get(callee.activation.body)?.owner !== decision.api.declaration || signature.declaration !== decision.api.declaration
+        || signature.parameters.length !== decision.parameters.length || signature.receiver !== null)
+        return fail("A selected call retains its actual API body, authoritative signature and offered entry.");
+      let provided = 0;
+      for (let parameter = 0; parameter < decision.parameters.length; parameter += 1) {
+        const read = chargeWork(account, 1);
+        if (read !== null) return null;
+        const mapping = decision.parameters[parameter];
+        const formal = signature.parameters[parameter];
+        if (mapping?.kind !== "argument") {
+          if (mapping?.parameter !== parameter || formal === undefined || !formal.acceptsOmission)
+            return fail("The omitted typed disposition requires the actual selected omission capability.");
+          if (mapping.kind === "omitted") {
+            if (formal.kind !== "optional" || formal.initializer !== null || mapping.type !== formal.type)
+              return fail("The selected absence omission requires its actual formal type without an initializer.");
+          } else if (mapping.kind !== "default" || formal.kind !== "default" || formal.initializer !== mapping.initializer)
+            return fail("The omitted typed disposition must name its actual selected default.");
+          continue;
+        }
+        const original = captured.arguments[parameter];
+        if (parameter !== provided || mapping.parameter !== parameter || mapping.argument !== parameter
+          || mapping.component !== null || mapping.passing !== "by-value" || original?.kind !== "value"
+          || formal?.passing !== mapping.passing)
+          return null;
+        provided += 1;
+      }
+      if (provided !== captured.arguments.length) return null;
+      const execution: Execution = { instance: callee.activation, provided };
+      const stop = admitSummaryIdentity({ kind: "body", execution }, account);
+      if (stop !== null) return null;
+      return { kind: "body", execution };
+    };
+    const discovered = pipelineWiring.summaries.dependenciesOf({ account, callableEntriesAt,
+      signatureOf: signature => readSignature(source.types, signature), calleeAt, initializerAt,
+      operationEntriesAt: () => null, dispatchEntriesAt: () => null },
+    { execution: operation.execution, tir: body });
+    if (discovered.kind !== "complete") return analysisStop(discovered, unit);
+    for (const key of discovered.value.operations) {
+      const stop = add(key);
+      if (stop !== null) return analysisStop(stop, unit);
+    }
+    for (const edge of discovered.value.dependencies) {
+      const stop = chargeResultEntries(account, 1);
+      if (stop !== null) return analysisStop(stop, unit);
+      dependencies.push(edge);
+    }
+  }
+
+  return { kind: "ok", diagnostics: [], value: { operations, operationIdentities, operationsByBody, dependencies, moduleExecutions } };
+}

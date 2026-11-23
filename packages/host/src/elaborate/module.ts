@@ -147,6 +147,22 @@ export function elaborateModuleSyntax<State>(deps: ElaborateDeps<State>, root: S
         const body = statement.tsonic.body;
         const child = body === null ? undefined : children.get(body);
         if (child === undefined) return defect("A module function requires its actual child attempt.");
+        if ("kind" in child && child.kind === "checked") {
+          if (child.body.root !== statement.body || child.body.owner !== statement.tsonic.definition)
+            return defect("An unopened callable must retain its actual checked declaration and body.");
+          const index = statements.length;
+          const unopened = { kind: "checked-declaration", node: statement } satisfies TirModuleStatement;
+          statements.push(unopened);
+          const retained = child.onRequired(ready => {
+            if (statements[index] !== unopened) return defect("A required callable can be attached to its actual unopened slot only once.");
+            const header = callable(deps, statement, ready);
+            if (header.kind === "refused") return header;
+            statements[index] = { kind: "ready-callable", node: header.value };
+            return { kind: "ok", diagnostics: header.diagnostics, value: undefined };
+          });
+          if (retained.kind === "refused") return retained;
+          continue;
+        }
         if ("kind" in child) {
           causes.push(...child.causes);
           continue;

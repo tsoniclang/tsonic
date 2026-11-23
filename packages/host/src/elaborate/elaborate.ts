@@ -289,7 +289,10 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
     if (!expectedInitializers.has(initializer.body) || initializers.has(initializer.body)
       || artifactBindingsKey(initializer.bindings) !== bindingsKey)
       return callerDefect("a formal initializer must be its unique completed body under the same actual bindings", rootOrigin);
-    if ("kind" in child) return { ...child, instance, diagnostics: [] };
+    if ("kind" in child) {
+      if (child.kind === "checked") return callerDefect("an unopened formal must be retained at its actual header", rootOrigin);
+      return { ...child, instance, diagnostics: [] };
+    }
     initializers.set(initializer.body, child);
   }
   if (initializers.size !== expectedInitializers.size)
@@ -1076,7 +1079,10 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
   if (moduleRoot !== null && moduleRoot.kind !== "ok") return moduleRoot;
   const rootBlock = blocked.get(root.id);
   if (rootBlock !== undefined) return rootBlock;
-  for (const child of childStates.values()) if ("kind" in child) return { ...child, instance, diagnostics: [] };
+  for (const child of childStates.values()) if ("kind" in child) {
+    if (child.kind === "no-result") return { ...child, instance, diagnostics: [] };
+    if (root.kind !== "SourceFile") return callerDefect("only an actual module declaration may have an unopened child", rootOrigin);
+  }
   const typedRoot = moduleRoot === null ? root.kind === "Block" ? block(root) : expressionOf(root) : moduleRoot.value;
   const refuseUnread = (entries: readonly unknown[], seen: ReadonlySet<number>, label: string): void => {
     for (const [position, entry] of entries.entries()) {

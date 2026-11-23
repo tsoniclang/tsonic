@@ -508,7 +508,7 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
       "candidates.ts", "captures.ts"].map(name => `${host}/infer/${name}`),
     ...["elaborate.ts", "index.ts", "module.ts", "declarations.ts", "imports.ts"].map(name => `${host}/elaborate/${name}`),
     ...["checked-inputs.ts", "driver.ts", "external-entries.ts", "infer-deps-step.ts", "inference-step.ts", "lower-mir-step.ts", "module-initialization.ts", "semantic-queries.ts", "wiring.ts",
-      "analysis-barrier.ts", "analysis-stop.ts", "index.ts", "publication.ts", "source-barrier.ts", "typed-barrier.ts"].map(name => `${host}/pipeline/${name}`),
+      "analysis-barrier.ts", "analysis-stop.ts", "index.ts", "publication.ts", "required-executions.ts", "source-barrier.ts", "typed-barrier.ts"].map(name => `${host}/pipeline/${name}`),
     ...["index.ts", "production.ts"].map(name => `${host}/validate/${name}`),
     ...["index.ts", "lower.ts", "state.ts", "model.ts", "operands.ts", "control.ts", "calls.ts", "bindings.ts"].map(name => `${host}/lower-mir/${name}`),
     ...["budget.ts", "comparison.ts", "conversions.ts", "data.ts", "index.ts", "integer.ts", "machine.ts", "pause.ts"].map(name => `${host}/evaluate/${name}`)].sort();

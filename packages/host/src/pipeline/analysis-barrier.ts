@@ -2,8 +2,8 @@ import type { CallerRefusal, DataflowAccount, DataflowStop } from "../dataflow/c
 import { chargeResultEntries, chargeWork } from "../dataflow/index.js";
 import type { Diagnostic, Result, UnitAnswerPosition, UnitDiagnostic, UnitRequest } from "../diag/contract.js";
 import { resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
-import type { BodyId, DefId, ModuleId, NodeRef } from "../ids/contract.js";
-import type { BodyFacts, BodyObservations, DependencyInventory, ExecutionDependency, FactsVerificationContext,
+import type { BodyId, DefId } from "../ids/contract.js";
+import type { BodyFacts, BodyObservations, DependencyInventory, FactsVerificationContext,
   SummaryAnswer, SummaryKey } from "../ir-facts/contract.js";
 import { admitSummaryIdentity, summaryKey } from "../ir-facts/index.js";
 import type { MirBody } from "../ir-mir/contract.js";
@@ -19,9 +19,6 @@ import type { DeclaredSignatureErrorData } from "../decls/contract.js";
 import type { SourceSemanticInputs, SourceSemanticWitness } from "./semantic-queries.js";
 import type { TypedSourceBarrier } from "./typed-barrier.js";
 import type { InternalBodyInput } from "../lower-mir/contract.js";
-import type { NodeId } from "../ids/contract.js";
-import type { ParameterDeclaration } from "../ir-hir/contract.js";
-import type { TypedPhase } from "../ir-tir/contract.js";
 import type { CheckedBodyNodeRange } from "./checked-inputs.js";
 import { analysisStop } from "./analysis-stop.js";
 import { checkedSourceViews } from "./checked-inputs.js";
@@ -43,8 +40,6 @@ export interface AnalysisBarrier {
   readonly initialization: ProgramInitialization;
 }
 
-type BodyOperation = Extract<SummaryKey, { readonly kind: "body" }>;
-
 export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourceBarrier, account: DataflowAccount): Result<AnalysisBarrier> {
   const unit: UnitRequest = { query: "AnalyzeHostProgram", key: inputs.snapshot.packages.fingerprint };
   const setup = chargeResultEntries(account, 4);
@@ -59,16 +54,10 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
   const table = viewTypes(source.types);
   const mir = new Map<string, MirBody>();
   const observations = new Map<string, BodyObservations>();
-  const parameterHeaders = new Map<string, ReadonlyMap<NodeId, ParameterDeclaration<TypedPhase>>>();
   const facts = new Map<string, BodyFacts>();
   const summaries = new Map<string, SummaryAnswer>();
-  const operations: SummaryKey[] = [];
-  const operationIdentities: string[] = [];
-  const operationsByBody = new Map<BodyId, BodyOperation[]>();
+  const { operations, operationIdentities, operationsByBody, dependencies, moduleExecutions } = typed.required;
   const bindingDependence = new Map<DefId, boolean>();
-  const known = new Set<string>();
-  const dependencies: ExecutionDependency[] = [];
-  const moduleExecutions = new Map<ModuleId, Execution>();
   const exposedBodies = typed.exposure.bodies;
   const safety: Query<SourceSemanticInputs, BodyInstance, ErrorValue | null, SourceSemanticWitness, DeclaredSignatureErrorData> = {
     name: "safetyDiagnostics", keyData: instanceKey, answerPolicy: { kind: "refusal-only" },
@@ -82,30 +71,6 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
   };
   const readyBody = (instance: BodyInstance) => typed.bodies.get(instanceKey(instance))
     ?? fail("The selected dependency needs its actual verified typed body instance.");
-  const add = (key: SummaryKey): DataflowStop | null => {
-    const work = chargeWork(account, 1);
-    if (work !== null) return work;
-    const identityWork = admitSummaryIdentity(key, account);
-    if (identityWork !== null) return identityWork;
-    const identity = summaryKey(key);
-    if (known.has(identity)) return null;
-    let offered: BodyOperation[] | undefined;
-    if (key.kind === "body") {
-      const indexWork = chargeWork(account, 1);
-      if (indexWork !== null) return indexWork;
-      offered = operationsByBody.get(key.execution.instance.body);
-    }
-    const growth = chargeResultEntries(account, 3 + (key.kind !== "body" ? 0 : offered === undefined ? 3 : 1));
-    if (growth !== null) return growth;
-    known.add(identity);
-    operations.push(key);
-    operationIdentities.push(identity);
-    if (key.kind === "body") {
-      if (offered === undefined) operationsByBody.set(key.execution.instance.body, [key]);
-      else offered.push(key);
-    }
-    return null;
-  };
   for (const body of typed.bodies.values()) {
     const declarationWork = chargeWork(account, 1);
     if (declarationWork !== null) return analysisStop(declarationWork, unit);
@@ -134,15 +99,21 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
       bodyOf: (instance: BodyInstance) => typed.bodies.get(instanceKey(instance)) ?? null };
     const internal: InternalBodyInput[] = [];
     const included = new Set<BodyId>();
-    const headers = new Map<NodeId, ParameterDeclaration<TypedPhase>>();
     const include = (child: BodyId): DataflowStop | null => {
       const work = chargeWork(account, 1);
       if (work !== null) return work;
       if (included.has(child)) return null;
+      const instance: BodyInstance = { body: child, bindings: body.bindings };
+      const selected = typed.bodies.get(instanceKey(instance));
+      if (selected === undefined && body.root.kind === "SourceFile") {
+        const nested = sources.bodies.get(child);
+        const reference = nested === undefined ? null : sources.declarationSourceOf(nested.owner);
+        const original = reference === null ? null : sources.nodeOf(reference);
+        if (original?.kind === "FunctionDeclaration" && original.tsonic.body === child && original.body === nested?.root) return null;
+      }
+      if (selected === undefined) return fail("A required lowered initializer needs its actual verified typed body.");
       const growth = chargeResultEntries(account, 3);
       if (growth !== null) return growth;
-      const instance: BodyInstance = { body: child, bindings: body.bindings };
-      const selected = readyBody(instance);
       included.add(child);
       internal.push({ instance, signature: selected.signature, captures: selected.captures });
       return null;
@@ -154,7 +125,6 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
     for (const header of body.params) {
       const stop = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
       if (stop !== null) return analysisStop(stop, unit);
-      headers.set(header.id, header);
       if (header.tsonic.initializer !== null) {
         const stop = include(header.tsonic.initializer);
         if (stop !== null) return analysisStop(stop, unit);
@@ -169,7 +139,6 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
     const growth = chargeResultEntries(account, 3);
     if (growth !== null) return analysisStop(growth, unit);
     mir.set(identity, lowered.value);
-    parameterHeaders.set(identity, headers);
     if (sources.bodies.get(body.body)?.owner !== body.owner)
       return fail("A selected execution requires its actual checked body and declaration.");
     for (const range of observationRanges.get(body.body) ?? []) for (let position = range.start; position < range.end; position += 1) {
@@ -184,153 +153,6 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
     }
     observationRanges.delete(body.body);
     observations.set(identity, { instance, rows: [] });
-    const signatureWork = chargeWork(account, 1);
-    if (signatureWork !== null) return analysisStop(signatureWork, unit);
-    const formals = readSignature(source.types, body.signature).parameters;
-    for (let provided = formals.length; ; provided -= 1) {
-      const execution: Execution = { instance, provided };
-      const stopped = add({ kind: "body", execution });
-      if (stopped !== null) return analysisStop(stopped, unit);
-      if (body.root.kind === "SourceFile") {
-        const admit = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
-        if (admit !== null) return analysisStop(admit, unit);
-        if (moduleExecutions.has(body.root.origin.module)) return fail("A source module must have one actual initializer execution.");
-        moduleExecutions.set(body.root.origin.module, execution);
-      }
-      if (provided === 0) break;
-      const formalWork = chargeWork(account, 1);
-      if (formalWork !== null) return analysisStop(formalWork, unit);
-      const formal = formals[provided - 1];
-      if (formal === undefined) return fail("The selected signature has a dense ordinary formal inventory.");
-      if (!formal.acceptsOmission) break;
-    }
-  }
-  const callableEntriesAt = (at: NodeRef, definition: DefId): readonly SummaryKey[] | null => {
-    const current = sources.bodies.get(at.body);
-    if (current === undefined || sources.nodeOf({ kind: "body", value: at }) === null) return null;
-    const itemSource = sources.declarationSourceOf(definition);
-    const declaration = itemSource === null ? null : sources.nodeOf(itemSource);
-    if (declaration?.kind !== "FunctionDeclaration" || declaration.tsonic.definition !== definition) return null;
-    const body = declaration.tsonic.body;
-    if (body === null || sources.bodies.get(body)?.owner !== definition) return null;
-    for (let position = 0; position < declaration.tsonic.signatures.length; position += 1) {
-      const read = chargeWork(account, 1);
-      if (read !== null) return null;
-      const endpoint = declaration.tsonic.signatures[position];
-      if (endpoint === undefined) return fail("The checked callable's signature inventory is dense.");
-      if (endpoint.role !== "api-body" || endpoint.declaration !== definition || endpoint.body !== body) continue;
-      const lookup = chargeWork(account, 1);
-      return lookup === null ? operationsByBody.get(body) ?? null : null;
-    }
-    return null;
-  };
-  for (let index = 0; index < operations.length; index += 1) {
-    const operation = operations[index];
-    if (operation === undefined || operation.kind !== "body")
-      return fail("A declared required operation needs its actual selected native guarantee association and binder.");
-    const body = readyBody(operation.execution.instance);
-    const headers = parameterHeaders.get(instanceKey(operation.execution.instance));
-    if (headers === undefined) return fail("A selected execution retains its actual verified parameter-header inventory.");
-    const initializerAt: Parameters<typeof pipelineWiring.summaries.dependenciesOf>[0]["initializerAt"] = (at, initializer) => {
-      if (at.body !== body.body) return fail("An initializer occurrence must belong to the requesting actual selected execution.");
-      const header = headers.get(at.node);
-      let occurrence = header ?? sources.nodeOf({ kind: "body", value: at });
-      let bindings = operation.execution.instance.bindings;
-      if (typeof initializer !== "string") {
-        if (occurrence?.kind !== "CallExpression" || occurrence.tsonic.application.kind !== "available") return null;
-        const captured = occurrence.tsonic.application.value;
-        const { instance, parameter, callee: { activation, decision } } = initializer;
-        if (activation === null || captured.kind !== "call" || parameter < captured.arguments.length
-          || instanceKey(instance) !== instanceKey({ body: instance.body, bindings: activation.bindings })) return null;
-        const mappingRead = chargeWork(account, 1);
-        if (mappingRead !== null) return null;
-        const mapping = decision.parameters[parameter];
-        if (mapping?.kind !== "default" || mapping.parameter !== parameter
-          || mapping.initializer !== instance.body) return null;
-        const formalRead = chargeWork(account, 1);
-        if (formalRead !== null) return null;
-        const formal = readSignature(source.types, decision.completion.signature).parameters[parameter];
-        if (formal?.kind !== "default" || !formal.acceptsOmission || formal.initializer !== instance.body) return null;
-        bindings = activation.bindings;
-        const selected = readyBody(instance);
-        occurrence = selected.root.parent === null ? null
-          : parameterHeaders.get(instanceKey(activation))?.get(selected.root.parent) ?? null;
-        if (occurrence?.kind !== "Parameter" || occurrence.tsonic.declaration !== formal.declaration) return null;
-      }
-      if (occurrence === null || occurrence.kind !== "Parameter" && occurrence.kind !== "VariableDeclaration"
-        && occurrence.kind !== "PropertyDeclaration" && occurrence.kind !== "EnumMember") return null;
-      if (occurrence.tsonic.initializer === null) return null;
-      const instance: BodyInstance = typeof initializer === "string"
-        ? { body: initializer, bindings } : initializer.instance;
-      if (instance.body !== occurrence.tsonic.initializer || instanceKey(instance) !== instanceKey({
-        body: occurrence.tsonic.initializer, bindings })) return null;
-      const selected = readyBody(instance);
-      const signatureWork = chargeWork(account, 1);
-      if (signatureWork !== null) return null;
-      const signature = readSignature(source.types, selected.signature);
-      if (signature.receiver !== null || signature.parameters.length !== 0)
-        return fail("A placed initializer requires its actual selected parameterless signature.");
-      return { kind: "body", execution: { instance, provided: 0 } };
-    };
-    const calleeAt: Parameters<typeof pipelineWiring.summaries.dependenciesOf>[0]["calleeAt"] = (at, callee) => {
-      if (at.body !== body.body) return fail("A selected call occurrence belongs to its actual requesting execution.");
-      const original = sources.nodeOf({ kind: "body", value: at });
-      if (original?.kind !== "CallExpression" || original.tsonic.application.kind !== "available") return null;
-      const captured = original.tsonic.application.value;
-      const decision = callee.decision;
-      if (captured.kind !== "call" || captured.receiver !== null || captured.arguments.length > decision.parameters.length
-        || decision.api.body === null || callee.activation === null
-        || callee.activation.body !== decision.api.body) return null;
-      const signatureRead = chargeWork(account, 1);
-      if (signatureRead !== null) return null;
-      const selected = readyBody(callee.activation);
-      const signature = readSignature(source.types, decision.completion.signature);
-      if (selected.owner !== decision.api.declaration || selected.signature !== signature.id
-        || signature.parameters.length !== decision.parameters.length || signature.receiver !== null)
-        return fail("A selected call retains its actual API body, authoritative signature and offered entry.");
-      let provided = 0;
-      for (let parameter = 0; parameter < decision.parameters.length; parameter += 1) {
-        const read = chargeWork(account, 1);
-        if (read !== null) return null;
-        const mapping = decision.parameters[parameter];
-        const formal = signature.parameters[parameter];
-        if (mapping?.kind !== "argument") {
-          if (mapping?.parameter !== parameter || formal === undefined || !formal.acceptsOmission)
-            return fail("The omitted typed disposition requires the actual selected omission capability.");
-          if (mapping.kind === "omitted") {
-            if (formal.kind !== "optional" || formal.initializer !== null || mapping.type !== formal.type)
-              return fail("The selected absence omission requires its actual formal type without an initializer.");
-          } else if (mapping.kind !== "default" || formal.kind !== "default" || formal.initializer !== mapping.initializer)
-            return fail("The omitted typed disposition must name its actual selected default.");
-          continue;
-        }
-        const original = captured.arguments[parameter];
-        if (parameter !== provided || mapping.parameter !== parameter || mapping.argument !== parameter
-          || mapping.component !== null || mapping.passing !== "by-value" || original?.kind !== "value"
-          || formal?.passing !== mapping.passing)
-          return null;
-        provided += 1;
-      }
-      if (provided !== captured.arguments.length) return null;
-      const execution: Execution = { instance: callee.activation, provided };
-      const stop = admitSummaryIdentity({ kind: "body", execution }, account);
-      if (stop !== null) return null;
-      return { kind: "body", execution };
-    };
-    const discovered = pipelineWiring.summaries.dependenciesOf({ account, callableEntriesAt,
-      signatureOf: signature => readSignature(source.types, signature), calleeAt, initializerAt,
-      operationEntriesAt: () => null, dispatchEntriesAt: () => null },
-    { execution: operation.execution, tir: body });
-    if (discovered.kind !== "complete") return analysisStop(discovered, unit);
-    for (const key of discovered.value.operations) {
-      const stop = add(key);
-      if (stop !== null) return analysisStop(stop, unit);
-    }
-    for (const edge of discovered.value.dependencies) {
-      const stop = chargeResultEntries(account, 1);
-      if (stop !== null) return analysisStop(stop, unit);
-      dependencies.push(edge);
-    }
   }
   const conditionRefusal: CallerRefusal = { kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "pipeline",
     limit: "condition alternatives", maximum: inputs.limits.analyses.maximumConditionAlternatives,

@@ -27,6 +27,7 @@ import { createSourceSemanticDatabase } from "./semantic-queries.js";
 import { pipelineWiring } from "./wiring.js";
 import { analysisStop } from "./analysis-stop.js";
 import { selectExternalEntries, type ExternalEntrySelection } from "./external-entries.js";
+import { prepareRequiredExecutions, type RequiredExecutions } from "./required-executions.js";
 import { planModuleInitialization } from "./module-initialization.js";
 
 function fail(message: string): never {
@@ -56,6 +57,7 @@ export interface TypedSourceBarrier {
   readonly source: SourceBarrier;
   readonly initializationRoots: readonly SourceFile<CheckedPhase>[];
   readonly exposure: ExternalEntrySelection;
+  readonly required: RequiredExecutions;
   readonly bodies: {
     readonly get: (key: string) => TirBody | undefined;
     readonly values: () => IterableIterator<TirBody>;
@@ -192,11 +194,10 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
       bindingScopes: inferenceBindingSites({ group: _group, constraints: constraints.constraints, solution: result.solution })
         .map(binding => scopeOf(binding.definition ?? ownerAt(binding.site))) };
   } });
-  for (const module of roots) for (const body of module.module.bodies) {
-    if (sources.structuralCuts.body(body.body)) continue;
-    const root = groupOf.get(body.body);
+  const solve = (body: BodyId): QueryRefusal | null => {
+    const root = groupOf.get(body);
     if (root === undefined) return fail("Every project body requires its actual canonical inference group.");
-    if (root.result !== undefined) continue;
+    if (root.result !== undefined) return null;
     const completed = database.run(queries.solutionOf, root.group.id);
     const typeStopped = typesRefusal();
     const productionStopped = productionRefusalOf();
@@ -204,6 +205,12 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
     if (completed.kind === "refused" && database.isRecordLimitRefusal(completed)) return refusal(completed, ...shared);
     if (shared.length !== 0) return refusal(...shared);
     root.result = completed.kind === "refused" ? completed : completed.value;
+    return null;
+  };
+  for (const entry of roots) if (project.has(entry.module.module)) for (const body of entry.module.bodies) {
+    if (sources.structuralCuts.body(body.body)) continue;
+    const stop = solve(body.body);
+    if (stop !== null) return stop;
   }
   const bodies = new Map<string, { readonly body: TirBody; readonly placed: PlacedSignature; scopes: readonly BindingScope[] | null }>();
   const memberInventoriesOf = (body: BodyId) => {
@@ -211,7 +218,7 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
     return publication === undefined || "kind" in publication ? undefined : publication.memberInventories.get(body);
   };
   const refusedInstances = new Map<string, ElaborationNoResult>();
-  const instanceResult = (key: string, missing: string): ElaborationChild => {
+  const instanceResult = (key: string, missing: string): TirBody | ElaborationNoResult => {
     const ready = bodies.get(key)?.body;
     return ready ?? refusedInstances.get(key) ?? fail(missing);
   };
@@ -247,18 +254,21 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
   if (exposure.kind !== "complete") return analysisStop(exposure, unit);
   const initialization = planModuleInitialization(inputs.snapshot.entryPoint, source, exposure.value.selections, account);
   if (initialization.kind !== "complete") return analysisStop(initialization, unit);
-  const modes: readonly ("parametric" | "instantiated")[] = ["parametric", "instantiated"];
-  for (const module of roots) {
-    for (const mode of modes) {
-      if (mode === "instantiated" && (module.role !== "source" || !project.has(module.module.module))) continue;
-      const pending: Work[] = module.module.bodies.map((body): Work => ({ kind: "visit", body: body.body })).reverse();
+  const attachments: { readonly key: string; readonly complete: (ready: TirBody) => Result<void> }[] = [];
+  const unopenedCallable = (parent: HirBody, child: BodyId): HirBody | null => {
+    if (parent.root.kind !== "SourceFile" || project.has(parent.root.origin.module)) return null;
+    const checked = bodyOf(child);
+    const item = items.get(checked.owner);
+    return item?.kind === "FunctionDeclaration" && item.body === checked.root && item.tsonic.body === child ? checked : null;
+  };
+  const produce = (seeds: readonly BodyId[], bindings: BodyInstance["bindings"]): QueryRefusal | null => {
+      const mode = bindings.kind;
+      const pending: Work[] = seeds.map((body): Work => ({ kind: "visit", body })).reverse();
       while (pending.length !== 0) {
         const next = pending.pop();
         if (next === undefined) return fail("The actual typed work vector is dense.");
         if (next.kind === "visit") {
           const checked = bodyOf(next.body);
-          const bindings: BodyInstance["bindings"] = mode === "parametric" ? { kind: "parametric" }
-            : { kind: "instantiated", bindings: { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] } };
           const instance: BodyInstance = { body: checked.body, bindings };
           const key = instanceKey(instance);
           if (bodies.has(key) || refusedInstances.has(key)) continue;
@@ -272,6 +282,8 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
           const scope = scopeOf(checked.owner);
           if (mode === "instantiated" && (scope.classParameters.length !== 0 || scope.methodParameters.length !== 0
             || scope.capturedParameters.length !== 0 || scope.selfOwners.length !== 0)) continue;
+          const stopped = solve(checked.body);
+          if (stopped !== null) return stopped;
           const publication = groupOf.get(checked.body)?.result;
           if (publication === undefined) return fail("Elaboration requires the actual completed inference attempt.");
           if ("kind" in publication && checked.root.kind !== "SourceFile") {
@@ -288,7 +300,7 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
             for (let index = children.length - 1; index >= 0; index -= 1) {
               const child = children[index];
               if (child === undefined) return fail("The checked nested body inventory is dense.");
-              pending.push({ kind: "visit", body: child });
+              if (unopenedCallable(checked, child) === null) pending.push({ kind: "visit", body: child });
             }
           }
           continue;
@@ -297,7 +309,19 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
         const ready = (children: readonly BodyId[]): ElaborationChild[] => children.map(body =>
           instanceResult(instanceKey({ body, bindings: instance.bindings }),
             "Elaboration requires the actual same-binding nested attempt, not a substituted template."));
-        const nestedBodies = ready(checked.nestedBodies);
+        const nestedBodies = checked.nestedBodies.map((body): ElaborationChild => {
+          const child = { body, bindings };
+          const checkedChild = unopenedCallable(checked, body);
+          const childKey = instanceKey(child);
+          if (checkedChild !== null && !bodies.has(childKey) && !refusedInstances.has(childKey))
+            return { kind: "checked", body: checkedChild, instance: child, onRequired: complete => {
+              const stop = chargeWork(account, 1) ?? chargeResultEntries(account, 2);
+              if (stop !== null) return analysisStop(stop, unit);
+              attachments.push({ key: childKey, complete });
+              return { kind: "ok", diagnostics: [], value: undefined };
+            } };
+          return instanceResult(childKey, "A required nested occurrence needs its actual same-binding body.");
+        });
         const initializers = ready(next.initializers);
         const constraints = "kind" in publication ? undefined : publication.constraints.constraints.find(system => system.body === checked.body);
         const result = pipelineWiring.elaborate.elaborate("kind" in publication ? elaboration : { ...elaboration, cuts: publication.checkedCuts },
@@ -334,7 +358,15 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
           }
         }
       }
-    }
+      return null;
+  };
+  const parametric = { kind: "parametric" } satisfies BodyInstance["bindings"];
+  const empty = { kind: "instantiated", bindings: { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] } } satisfies BodyInstance["bindings"];
+  for (const module of roots) {
+    if (!project.has(module.module.module)) continue;
+    const seeds = module.module.bodies.map(body => body.body);
+    const stop = produce(seeds, parametric) ?? (module.role === "source" ? produce(seeds, empty) : null);
+    if (stop !== null) return stop;
   }
   const diagnostics = [...new Set([...database.diagnostics(), ...elaborationDiagnostics])];
   if (refusedInstances.size !== 0 || diagnostics.some(diagnostic => diagnostic.severity === "error")) {
@@ -342,13 +374,54 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
     if (first === undefined) return fail("A typing refusal must retain its actual diagnostic.");
     return { kind: "refused", diagnostics: [first, ...remaining] };
   }
+  const requireBody = (instance: BodyInstance): Result<TirBody> => {
+    const key = instanceKey(instance);
+    const existing = bodies.get(key);
+    if (existing !== undefined) return { kind: "ok", diagnostics: [], value: existing.body };
+    const stop = produce([instance.body], parametric) ?? produce([instance.body], instance.bindings);
+    if (stop !== null) return stop;
+    if (refusedInstances.has(key)) return refusal();
+    const ready = bodies.get(key);
+    if (ready === undefined) return fail("A required execution needs its actual bound local Typed producer.");
+    return { kind: "ok", diagnostics: [], value: ready.body };
+  };
+  const explicit: TirBody[] = [];
+  for (const root of initialization.value) if (!project.has(root.origin.module)) {
+    const result = requireBody({ body: root.tsonic.body, bindings: empty });
+    if (result.kind === "refused") return result;
+    explicit.push(result.value);
+  }
+  for (const body of exposure.value.bodies) if (!project.has(bodyOf(body).root.origin.module)) {
+    const result = requireBody({ body, bindings: empty });
+    if (result.kind === "refused") return result;
+    explicit.push(result.value);
+  }
+  const required = prepareRequiredExecutions(source, sources, (function* () {
+    for (const row of bodies.values()) if (project.has(row.body.root.origin.module)) yield row.body;
+    yield* explicit;
+  })(), requireBody, account, unit);
+  if (required.kind === "refused") return required;
+  for (let index = 0; index < attachments.length; index += 1) {
+    const stop = chargeWork(account, 1);
+    if (stop !== null) return analysisStop(stop, unit);
+    const slot = attachments[index];
+    if (slot === undefined) return fail("The retained unopened declaration slots must be dense.");
+    const ready = bodies.get(slot.key);
+    if (ready === undefined) continue;
+    const attached = slot.complete(ready.body);
+    if (attached.kind === "refused") return refusal(attached);
+  }
   const modules = new Map<ModuleId, TirModule & { readonly bodies: TirBody[] }>();
   for (const module of roots) {
-    const own = module.module.bodies.map(body => bodies.get(instanceKey({ body: body.body, bindings: { kind: "parametric" } }))?.body
-      ?? fail("Every required source body has one authentic template."));
-    const moduleBody = own.find(body => body.root.kind === "SourceFile");
-    if (moduleBody === undefined || moduleBody.root.kind !== "SourceFile") return fail("A typed module retains its actual canonical SourceFile root.");
-    modules.set(module.module.module, { module: module.module.module, tree: { kind: "ready-root", root: moduleBody.root }, bodies: own });
+    const own: TirBody[] = [];
+    for (const checked of module.module.bodies) {
+      const row = bodies.get(instanceKey({ body: checked.body, bindings: parametric }));
+      if (row !== undefined) own.push(row.body);
+    }
+    const root = bodies.get(instanceKey({ body: module.module.tree.tsonic.body, bindings: parametric }))?.body.root;
+    if (root !== undefined && root.kind !== "SourceFile") return fail("The module initializer requires its actual SourceFile.");
+    modules.set(module.module.module, { module: module.module.module, tree: root === undefined
+      ? { kind: "checked-root", root: module.module.tree } : { kind: "ready-root", root }, bodies: own });
   }
   for (const { body } of bodies.values()) {
     if (body.bindings.kind !== "instantiated") continue;
@@ -492,5 +565,5 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
   };
   return { kind: "ok", diagnostics, value: { source, modules, verifierOf, sourceNodeOf: sources.nodeOf, declarationOf, database, staticStorageOf,
     bodies: { get: key => bodies.get(key)?.body, *values() { for (const entry of bodies.values()) yield entry.body; } },
-    placedSignatureOf, signatureIdOf, programEvidence, exposure: exposure.value, initializationRoots: initialization.value } };
+    placedSignatureOf, signatureIdOf, programEvidence, required: required.value, exposure: exposure.value, initializationRoots: initialization.value } };
 }

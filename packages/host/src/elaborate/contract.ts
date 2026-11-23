@@ -32,7 +32,9 @@ export interface ElaborationNoResult {
   readonly diagnostics: readonly Diagnostic[];
 }
 
-export type ElaborationChild = TirBody | ElaborationNoResult;
+export type ElaborationChild = TirBody | ElaborationNoResult
+  | { readonly kind: "checked"; readonly body: HirBody; readonly instance: BodyInstance;
+      readonly onRequired: (complete: (ready: TirBody) => Result<void>) => Result<void> };
 
 export interface ElaborateInput {
   readonly instance: BodyInstance;

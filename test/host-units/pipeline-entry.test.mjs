@@ -7955,6 +7955,47 @@ test("re-exported static storage is exposed by its declaring module even when a 
   assert.equal(diagnostic.site.origin.start, sourceFiles["main.ts"].lastIndexOf("exposed"));
 });
 
+test("checked dependency diagnostics follow exact required executions, not package capture", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const root = "/project/node_modules/dependency";
+  const name = "dependency";
+  const module = fixture.moduleOf(fixture.packageOf(root), "index.ts");
+  for (const use of ["type", "eager", "call"]) for (const broken of [false, true]) {
+    const link = use === "type" ? 'import type { Ready } from "dependency"; export type Result = Ready;'
+      : use === "eager" ? 'import "dependency";' : 'import { take } from "dependency";';
+    const source = link + " export function run(value:boolean):boolean { return " + (use === "call" ? "take(value)" : "value") + "; }";
+    const dependency = "export type Ready = boolean; export let boot:boolean = true; "
+      + "export function take(value:boolean):boolean { return " + (broken ? "missing" : "value") + "; } "
+      + "export function unused():boolean { return unrelated; }";
+    const input = analysisInput(fixture, "sdk-minimal", source);
+    input.snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source },
+      libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
+      extraFiles: { [root + "/package.json"]: JSON.stringify({ name, version: "1.0.0", types: "index.ts" }) },
+      otherPackages: [{ root, name, modules: { "index.ts": ["source", dependency, false] } }] });
+    const result = analyzeHostProgram(input);
+    if (use === "call" && broken) {
+      assert.equal(result.kind, "refused");
+      assert.deepEqual(result.diagnostics.map(row => row.code.rendered), ["TS2304"]);
+      assert.match(result.diagnostics[0].message, /missing/u);
+      continue;
+    }
+    assert.equal(result.kind, "ok", use);
+    const chapter = result.value.modules.find(row => row.module === module);
+    const checked = result.value.index.modules.find(row => row.module === module);
+    assert.equal(checked.checkerDiagnostics.length, broken ? 2 : 1);
+    assert.deepEqual(result.diagnostics, []);
+    assert.equal(chapter.tree.kind, use === "type" ? "checked-root" : "ready-root");
+    if (use === "type") assert.equal(chapter.bodies.length, 0);
+    else {
+      const functions = chapter.tree.root.statements.nodes.filter(slot => slot.node.kind === "FunctionDeclaration");
+      assert.deepEqual(functions.map(slot => slot.kind), [use === "call" ? "ready-callable" : "checked-declaration", "checked-declaration"]);
+      assert.equal(chapter.bodies.some(row => row.kind === "selected" && row.tir.owner === functions[1].node.tsonic.definition), false);
+      assert.equal(result.value.index.initialization.modules.some(row => row.instance.body === chapter.tree.root.tsonic.template.body), true);
+    }
+  }
+});
+
 test("initialization follows the runtime dependency graph, not the compilation roots", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
