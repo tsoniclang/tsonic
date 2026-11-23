@@ -1173,19 +1173,36 @@ test("prepared syntax discovery cannot read another node after returning or refu
   assert.equal(work, 0);
 });
 
-test("the Checked formal receipt is paid before its one nullable read and reused by copy", async () => {
+test("Checked module, callable and formal receipts retain each acquired structural field once", async () => {
   const { createInstantiationMeter, admitCheckedProjection, chargeInstantiationWork } = await import("../../packages/host/dist/ir-program/work.js");
   const { accountFailure } = await import("../../packages/host/dist/dataflow/index.js");
   const fixture = await loadFrontFixture();
   const { checked } = fixture.checkedModuleOf("export function selected(flag: boolean = true): boolean { return flag; }");
-  const parameter = checked.tree.statements.nodes[0].parameters.nodes[0];
+  const source = checked.tree;
+  const callable = source.statements.nodes[0];
+  const formalList = callable.parameters;
+  const parameter = formalList.nodes[0];
+  const body = callable.body;
   const initializer = parameter.initializer;
+  const name = parameter.name;
+  const type = parameter.type;
   const crossed = { ...parameter, get initializer() { assert.fail("foreign receipt must not read its original field"); } };
-  let reads = 0;
-  Object.defineProperty(parameter, "initializer", { get() {
-    reads++;
-    return initializer;
-  } });
+  const reads = [];
+  const headers = [];
+  let sealed = false;
+  const watch = (owner, field, into, label = field) => {
+    const original = owner[field];
+    Object.defineProperty(owner, field, { get() {
+      assert.equal(sealed, false, label);
+      into.push(label);
+      return original;
+    } });
+  };
+  for (const field of ["modifiers", "dotDotDotToken", "name", "questionToken", "type", "initializer"]) watch(parameter, field, reads);
+  for (const field of ["languageVariant", "statements", "endOfFileToken"]) watch(source, field, headers);
+  for (const field of ["modifiers", "typeParameters", "name", "parameters", "type", "fullSignature", "body"]) watch(callable, field, headers);
+  watch(formalList, "loc", headers, "formal list range");
+  watch(formalList.nodes, 0, headers, "formal list row");
   const limits = (maximumWork, maximumCreatedRecords) => ({ maximumWork, maximumCreatedRecords, maximumBindingVectorsPerArtifact: 1,
     typeExpansion: { maximumDepth: 10, maximumVisits: 1000, maximumUnionMembers: 100, maximumIntersectionMembers: 100 } });
   const hold = value => ({ kind: "copied", value });
@@ -1195,23 +1212,33 @@ test("the Checked formal receipt is paid before its one nullable read and reused
     const admit = (work, records) => admitCheckedProjection(meter, work, records);
     const graph = product.walkSyntaxForest([{ path: "module", read: () => checked.tree }], {
       root: step, edge: step, node: step, parameter: () => admit(1, 1),
-      structure: node => admit(node.kind === "Block" ? 9 : 7, 2), modifiers: step,
+      structure: node => admit(node.kind === "Block" ? 9 : 7, 2), list: step,
     });
     if (graph.kind !== "complete") return { graph, stop: meter.failure ?? accountFailure(meter.account) };
     if (!finish) return { graph };
+    sealed = true;
     return { graph, image: product.copyCheckedContent(graph.value,
       { admit, syntaxNode: () => admit(1, 1), type: hold, signature: hold, bindings: hold, parameter: hold, component: hold, core: hold }) };
   };
   const denied = invoke(0, false);
   assert.equal(denied.graph === denied.stop, true);
-  assert.equal(reads, 0);
+  assert.deepEqual(reads, []);
+  assert.deepEqual(headers, []);
   const success = invoke(100000, true);
   assert.equal(success.graph.kind, "complete");
   assert.equal(success.image.kind, "copied");
   const actual = success.image.value.syntax.parameterOf(parameter);
+  const output = success.image.value.syntax.sourceFileOf(source).statements.nodes[0];
+  assert.equal(output === success.image.value.syntax.statementOf(callable), true);
+  assert.equal(output.parameters.nodes[0] === actual, true);
+  assert.equal(output.body === success.image.value.syntax.bodyRootOf(body), true);
   assert.equal(success.image.value.syntax.parameterOf(crossed) === null, true);
+  assert.equal(actual.name === success.image.value.syntax.nodeOf(name), true);
+  assert.equal(actual.type === success.image.value.syntax.nodeOf(type), true);
   assert.equal(actual.initializer === success.image.value.syntax.nodeOf(initializer), true);
-  assert.equal(reads, 1);
+  assert.deepEqual(reads, ["modifiers", "dotDotDotToken", "name", "questionToken", "type", "initializer"]);
+  assert.deepEqual(headers, ["languageVariant", "statements", "modifiers", "typeParameters", "name", "parameters",
+    "formal list range", "formal list row", "type", "fullSignature", "body", "endOfFileToken"]);
 });
 
 test("Block and Binary materialize only actual paid fields, not post-admission getters", async () => {
@@ -1265,7 +1292,7 @@ test("Block and Binary materialize only actual paid fields, not post-admission g
     const forest = product.walkSyntaxForest([{ path: "actual.body", read: () => block }], {
       root: edge, node: edge, edge, parameter: () => admit(1, 1),
       structure: node => inventoryRecord(scan, 5) ?? inventoryRecord(scan, node.kind === "Block" ? 2 : 0),
-      modifiers: edge,
+      list: edge,
     });
     if (forest.kind !== "complete") return { result: forest, stop: meter.failure ?? accountFailure(meter.account), seen };
     sealed = true;

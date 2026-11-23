@@ -151,18 +151,14 @@ function admitSyntaxHeader(scan: ProjectionInventory, node: SyntaxNode<TypedPhas
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8)
         ?? inventoryRecord(scan, 2);
     case "Parameter":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 13)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 13);
     case "BindingElement":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11);
     case "MissingDeclaration":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8)
         ?? (node.modifiers === null ? null : inventoryRecord(scan, 2));
     case "FunctionDeclaration":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 15)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
-        ?? (node.typeParameters === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryRecord(scan, 2);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 15);
     case "ClassDeclaration":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 12)
         ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
@@ -302,10 +298,7 @@ function admitSyntaxHeader(scan: ProjectionInventory, node: SyntaxNode<TypedPhas
         ?? (node.typeParameters === null ? null : inventoryRecord(scan, 2))
         ?? inventoryRecord(scan, 2);
     case "FunctionExpression":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 15)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
-        ?? (node.typeParameters === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryRecord(scan, 2);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 15);
     case "AsExpression":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "SatisfiesExpression":
@@ -553,8 +546,7 @@ function admitSyntaxHeader(scan: ProjectionInventory, node: SyntaxNode<TypedPhas
     case "JSDocNameReference":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "SourceFile":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 14)
-        ?? inventoryRecord(scan, 2);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 14);
     case "ModuleDeclaration":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 12)
         ?? (node.modifiers === null ? null : inventoryRecord(scan, 2));

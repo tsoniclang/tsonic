@@ -2,7 +2,7 @@ import { requirePresent } from "../diag/index.js";
 import type { InvariantFailure } from "../diag/contract.js";
 import type { NodeList, SyntaxChildSlot } from "../ir-hir/contract.js";
 import { iterateFunctionHeaderSlots, iterateSourceFileHeaderSlots, iterateSyntaxChildSlots } from "../ir-hir/index.js";
-import type { AdmitFormalInitializer, BodyOccurrenceSlots, ChapterStatementSyntax, ChapterSyntaxSlots, FormalInitializerSyntax, IndexChapterSyntax, ReadChapterSyntaxSlot, TirBodySyntaxOf, TirChapterSyntax, TirChapterSyntaxSlot, TirFormal, TirFormalInitializer, TirFormalInitializerRead, TirModuleStatement, TypedPhase } from "./contract.js";
+import type { AdmitFormalInitializer, BodyOccurrenceSlots, ChapterStatementSyntax, ChapterSyntaxSlots, FormalInitializerSlot, FormalInitializerSyntax, IndexChapterSyntax, ReadChapterSyntaxSlot, TirBodySyntaxOf, TirChapterSyntax, TirChapterSyntaxSlot, TirFormalInitializer, TirFormalInitializerRead, TirModuleStatement, TypedPhase } from "./contract.js";
 
 const missingChild: InvariantFailure = { owner: "ir-tir", query: null, origin: null,
   message: "An authored chapter role must retain its actual dense child vector." };
@@ -38,16 +38,15 @@ function* moduleStatements(field: "statements", list: NodeList<TirModuleStatemen
   }
 }
 
-function formalInitializer(node: TirFormal, field: "initializer"): readonly TirChapterSyntaxSlot[] {
-  return [{ kind: "formal-initializer", fields: [field], read: () => {
+export const formalInitializerSlot: FormalInitializerSlot = node =>
+  ({ kind: "formal-initializer", fields: ["initializer"], read: () => {
     const actual = node.initializer;
     switch (actual.kind) {
       case "none": return { kind: "none" };
       case "checked-default": return { kind: "checked-default", root: () => actual.root };
       case "ready-default": return { kind: "ready-default", root: () => actual.root };
     }
-  } }];
-}
+  } });
 
 function readInitializer(initializer: TirFormalInitializerRead): TirFormalInitializer {
   if (initializer.kind === "none") return initializer;
@@ -84,7 +83,7 @@ export const chapterSyntaxSlots: ChapterSyntaxSlots = function* (subject) {
   switch (subject.kind) {
     case "ordinary":
     case "formal":
-      yield* iterateSyntaxChildSlots<TypedPhase, TirChapterSyntaxSlot>(subject.node, ordinarySlot, formalInitializer);
+      yield* iterateSyntaxChildSlots<TypedPhase, TirChapterSyntaxSlot>(subject.node, ordinarySlot, parameter => [formalInitializerSlot(parameter)]);
       return;
     case "module-root":
       yield* iterateSourceFileHeaderSlots<TypedPhase, TirChapterSyntaxSlot>(subject.node, ordinarySlot,

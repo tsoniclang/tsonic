@@ -1,4 +1,5 @@
-import type { BodyRoot, CopySyntaxForest, ModifierLike, Statement, TypeNode, RetainedSyntaxNode, SingleExpressionSyntax, SyntaxStructureReceipt,
+import type { BodyRoot, CopySyntaxForest, FunctionDeclaration, FunctionExpression, ModifierLike, Statement, TypeNode,
+  RetainedSyntaxNode, SingleExpressionSyntax, SyntaxStructureReceipt,
   FinishSyntaxCopy, Phase, PrepareSyntaxCopy, SyntaxCopyResult, SyntaxForest, SyntaxImage,
   SyntaxInitializerImage, SyntaxMaterialization, SyntaxNode, SyntaxPhaseCopy } from "./contract.js";
 import type { InvariantFailure } from "../diag/contract.js";
@@ -98,22 +99,32 @@ function createSyntaxPlans<P extends Phase, Stop, Image>(phase: SyntaxPhaseCopy<
     const receipt = structure(node);
     return receipt.kind === "single-expression" ? receipt.expression() : throwInvariant(missingPreparation);
   };
+  const functionOf = (node: FunctionDeclaration<P> | FunctionExpression<P>) => {
+    const receipt = structure(node);
+    return receipt.kind === "function-header" ? receipt : throwInvariant(missingPreparation);
+  };
   const statements = createStatementsPlans(phase, () => ports, initializer, node => {
     const receipt = structure(node);
     return receipt.kind === "block" ? receipt : throwInvariant(missingPreparation);
   }, node => {
     const receipt = structure(node);
     return receipt.kind === "return" ? receipt.expression() : throwInvariant(missingPreparation);
-  }, expressionOf);
+  }, expressionOf, node => {
+    const receipt = structure(node);
+    return receipt.kind === "formal-header" ? receipt : throwInvariant(missingPreparation);
+  }, functionOf);
   const expressions = createExpressionsPlans(phase, () => ports, node => {
     const receipt = structure(node);
     return receipt.kind === "binary" ? receipt : throwInvariant(missingPreparation);
   }, expressionOf, node => {
     const receipt = structure(node);
     return receipt.kind === "application" ? receipt : throwInvariant(missingPreparation);
-  });
+  }, functionOf);
   const types = createTypesPlans(phase, () => ports);
-  const auxiliary = createAuxiliaryPlans(phase, () => ports, expressionOf);
+  const auxiliary = createAuxiliaryPlans(phase, () => ports, expressionOf, node => {
+    const receipt = structure(node);
+    return receipt.kind === "source-header" ? receipt : throwInvariant(missingPreparation);
+  });
   const ports: SyntaxCopyPorts<P, Stop, Image> = {
     ...statements, ...expressions, ...types, ...auxiliary,
     SyntaxNode: node => planSyntaxNode(ports, node, forgetKind),

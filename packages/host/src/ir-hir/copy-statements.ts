@@ -4,35 +4,16 @@ import type {
   WithStatement, SwitchStatement, CaseBlock, CaseClause, DefaultClause,
   ThrowStatement, TryStatement, CatchClause, DebuggerStatement, LabeledStatement,
   ExpressionStatement, Block, BlockSyntaxReceipt, VariableStatement, VariableDeclaration, VariableDeclarationList,
-  BindingPattern, ParameterDeclaration, BindingElement, MissingDeclaration, FunctionDeclaration, FunctionDeclarationHeader,
+  BindingPattern, ParameterDeclaration, ParameterSyntaxReceipt, BindingElement, MissingDeclaration, FunctionDeclaration, FunctionSyntaxReceipt,
   ClassDeclaration, ClassExpression, HeritageClause, InterfaceDeclaration, TypeAliasDeclaration,
   EnumMember, EnumDeclaration, ModuleBlock, NotEmittedStatement, NotEmittedTypeElement,
   CallSignatureDeclaration, ConstructSignatureDeclaration, ConstructorDeclaration, GetAccessorDeclaration, SetAccessorDeclaration,
   IndexSignatureDeclaration, MethodSignatureDeclaration, MethodDeclaration, PropertySignatureDeclaration, PropertyDeclaration,
   SemicolonClassElement, ClassStaticBlockDeclaration,
-  BlockOrExpression, Expression, NodeList, Phase, SingleExpressionSyntax, SyntaxInitializerImage, SyntaxPhaseCopy,
+  Expression, Phase, SingleExpressionSyntax, SyntaxInitializerImage, SyntaxPhaseCopy,
 } from "./contract.js";
 import type { SyntaxCopyPorts, SyntaxPlan } from "./copy-node.js";
-import { copied, holdSyntaxPayload, copyNodeList, memoSyntaxPlan, syntaxHeader, withSyntaxPayload } from "./copy-node.js";
-
-export function copyFunctionDeclarationHeader<P extends Phase, Stop, Image, Params, Body>(
-  node: FunctionDeclarationHeader<P>, ports: SyntaxCopyPorts<P, Stop, Image>,
-  parameters: () => Params, body: () => Body, tsonic: P["FunctionDeclaration"],
-): FunctionDeclarationHeader<P> & { readonly parameters: Params; readonly body: Body } {
-  return {
-    ...syntaxHeader(node),
-    kind: node.kind,
-    modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports.ModifierLike(item).read()),
-    typeParameters: node.typeParameters === null ? null : copyNodeList(node.typeParameters, item => ports.TypeParameterDeclaration(item).read()),
-    parameters: parameters(),
-    type: node.type === null ? null : ports.TypeNode(node.type).read(),
-    fullSignature: node.fullSignature === null ? null : ports.TypeNode(node.fullSignature).read(),
-    asteriskToken: node.asteriskToken,
-    body: body(),
-    name: node.name === null ? null : ports.Identifier(node.name).read(),
-    tsonic,
-  };
-}
+import { copied, holdSyntaxPayload, copyNodeList, finishFunctionSyntax, memoSyntaxPlan, syntaxHeader, withSyntaxPayload } from "./copy-node.js";
 
 export interface StatementsPlans<P extends Phase, Stop, Image> {
   readonly EmptyStatement: (node: EmptyStatement<P>) => SyntaxPlan<EmptyStatement<P>, Stop, Image>;
@@ -92,7 +73,9 @@ export interface StatementsPlans<P extends Phase, Stop, Image> {
 export function createStatementsPlans<P extends Phase, Stop, Image>(phase: SyntaxPhaseCopy<P, Stop, Image>,
   ports: () => SyntaxCopyPorts<P, Stop, Image>, copyInitializer: SyntaxInitializerImage<P, Image>,
   blockOf: (node: Block<P>) => BlockSyntaxReceipt<P>, returned: (node: ReturnStatement<P>) => Expression<P> | null,
-  expressionOf: (node: SingleExpressionSyntax<P>) => Expression<P>):
+  expressionOf: (node: SingleExpressionSyntax<P>) => Expression<P>,
+  parameterOf: (node: ParameterDeclaration<P>) => ParameterSyntaxReceipt<P>,
+  functionOf: (node: FunctionDeclaration<P>) => FunctionSyntaxReceipt<P>):
   StatementsPlans<P, Stop, Image> {
   const EmptyStatement = new Map<EmptyStatement<P>, SyntaxPlan<EmptyStatement<P>, Stop, Image>>();
   const IfStatement = new Map<IfStatement<P>, SyntaxPlan<IfStatement<P>, Stop, Image>>();
@@ -428,14 +411,16 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       if (payload.kind === "refused") return payload;
       return copied(image => {
         const tsonic = payload.value(image);
+        const shape = parameterOf(node);
+        const type = shape.type();
         return {
-          ...syntaxHeader(node),
-          kind: node.kind,
-          modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item).read()),
-          dotDotDotToken: node.dotDotDotToken,
-          name: ports().BindingName(node.name).read(),
-          questionToken: node.questionToken,
-          type: node.type === null ? null : ports().TypeNode(node.type).read(),
+          ...shape.header,
+          kind: "Parameter",
+          modifiers: shape.modifiers(item => ports().ModifierLike(item).read()),
+          dotDotDotToken: shape.dotDotDotToken(),
+          name: ports().BindingName(shape.name()).read(),
+          questionToken: shape.questionToken(),
+          type: type === null ? null : ports().TypeNode(type).read(),
           initializer: copyInitializer(node, child => ports().Expression(child).read(), image),
           tsonic,
         };
@@ -465,9 +450,7 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       });
     })),
     FunctionDeclaration: node => memoSyntaxPlan(FunctionDeclaration, node, () => withSyntaxPayload(phase.FunctionDeclaration, node.tsonic, () => tsonic =>
-      copyFunctionDeclarationHeader<P, Stop, Image, NodeList<ParameterDeclaration<P>>, BlockOrExpression<P> | null>(
-        node, ports(), () => copyNodeList(node.parameters, item => ports().ParameterDeclaration(item).read()),
-        () => node.body === null ? null : ports().BlockOrExpression(node.body).read(), tsonic))),
+      ({ kind: "FunctionDeclaration", ...finishFunctionSyntax(functionOf(node), ports()), tsonic }))),
     ClassDeclaration: node => memoSyntaxPlan(ClassDeclaration, node, () => withSyntaxPayload(phase.ClassDeclaration, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;

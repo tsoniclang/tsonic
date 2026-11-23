@@ -1,4 +1,4 @@
-import type { Expression, HirNode, IndexSyntaxTree, RetainedSyntaxNode, SyntaxStructureReceipt,
+import type { Expression, HirNode, IndexSyntaxTree, ParameterSyntaxReceipt, RetainedSyntaxNode, SyntaxStructureReceipt,
   NullableInitializerPhase, ParameterDeclaration, Phase, SyntaxForest, SyntaxNode, SyntaxRootSlot, SyntaxWalkAdmission, UnparenthesizedExpression,
   SyntaxInitializerImage, WalkSyntaxForest, WalkSyntaxTree } from "./contract.js";
 import type { BodyId, CandidateListId, DefId, Derivation, ItemNodeRef, LocalId, LocalRef, NodeId, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
@@ -66,6 +66,7 @@ export function createSyntaxForest<PhaseType extends NullableInitializerPhase<Ph
     readonly kind: "parameter";
     readonly ordinal: number;
     readonly initializer: Expression<PhaseType> | null;
+    readonly header: ParameterSyntaxReceipt<PhaseType>;
   }
   type Frame =
     | { readonly kind: "root"; readonly iterator: Iterator<SyntaxRootSlot<PhaseType>>; readonly first: boolean }
@@ -111,7 +112,8 @@ export function createSyntaxForest<PhaseType extends NullableInitializerPhase<Ph
           const shape = prepared.value;
           wire.set(node, shape ?? ordinal);
           const slots = shape === null ? iterateSyntaxChildSlots<PhaseType, ChildSlot>(node, value => ({ kind: "child", value }),
-            (parameter, field) => [{ kind: "initializer", parameter, field }]) : structuralSlots(shape.slots);
+            (parameter, field) => [{ kind: "initializer", parameter, field }])
+            : structuralSlots(shape.slots, node.kind === "Parameter" ? node : null);
           nodes.push(node);
           pending.push({ kind: "leave", node }, { kind: "children", iterator: slots[Symbol.iterator](), path: frame.path });
           break;
@@ -123,18 +125,19 @@ export function createSyntaxForest<PhaseType extends NullableInitializerPhase<Ph
             const { parameter, field } = slot.value;
             const reserved = admission.parameter(parameter);
             if (reserved !== null) return reserved;
-            const ordinal = wire.get(parameter);
-            if (typeof ordinal !== "number") return throwInvariant({ owner: "ir-hir", query: null, origin: parameter.origin,
+            const retained = wire.get(parameter);
+            if (retained === undefined || typeof retained === "number" || retained.kind !== "formal-header")
+              return throwInvariant({ owner: "ir-hir", query: null, origin: parameter.origin,
               message: "A formal initializer must belong to its one admitted pointer." });
             const initializer = parameter.initializer;
             if (initializer === null) {
-              wire.set(parameter, { kind: "parameter", ordinal, initializer });
+              wire.set(parameter, { kind: "parameter", ordinal: retained.ordinal, initializer, header: retained });
               pending.push(frame);
               break;
             }
             const stop = admission.edge();
             if (stop !== null) return stop;
-            wire.set(parameter, { kind: "parameter", ordinal, initializer });
+            wire.set(parameter, { kind: "parameter", ordinal: retained.ordinal, initializer, header: retained });
             pending.push(frame, { kind: "enter", node: initializer, path: { parent: frame.path, segment: "." + field } });
             break;
           }
@@ -151,8 +154,9 @@ export function createSyntaxForest<PhaseType extends NullableInitializerPhase<Ph
     }
     return null;
   }
-  function* structuralSlots(values: Iterable<SyntaxChildSlot<PhaseType>>): Generator<ChildSlot> {
+  function* structuralSlots(values: Iterable<SyntaxChildSlot<PhaseType>>, formal: ParameterDeclaration<PhaseType> | null): Generator<ChildSlot> {
     for (const value of values) yield { kind: "child", value };
+    if (formal !== null) yield { kind: "initializer", parameter: formal, field: "initializer" };
   }
   const wireOf = (node: SyntaxNode<PhaseType>): number | undefined => {
     const entry = wire.get(node);
@@ -160,7 +164,7 @@ export function createSyntaxForest<PhaseType extends NullableInitializerPhase<Ph
   };
   function structure(node: RetainedSyntaxNode<PhaseType>): SyntaxStructureReceipt<PhaseType> {
     const entry = wire.get(node);
-    if (entry !== undefined && typeof entry !== "number" && entry.kind !== "parameter") return entry;
+    if (entry !== undefined && typeof entry !== "number") return entry.kind === "parameter" ? entry.header : entry;
     return throwInvariant({ owner: "ir-hir", query: null, origin: node.origin, message: "Syntax requires its exact admitted structural receipt." });
   }
   const copyInitializer: SyntaxInitializerImage<PhaseType, unknown> = (node, expression) => {
@@ -174,7 +178,7 @@ export function createSyntaxForest<PhaseType extends NullableInitializerPhase<Ph
     firstRootSize: () => firstRootSize,
     structureOf: (node: SyntaxNode<PhaseType>) => {
       const entry = wire.get(node);
-      return entry === undefined || typeof entry === "number" || entry.kind === "parameter" ? null : entry.kind;
+      return entry === undefined || typeof entry === "number" ? null : entry.kind === "parameter" ? entry.header.kind : entry.kind;
     },
   };
 }

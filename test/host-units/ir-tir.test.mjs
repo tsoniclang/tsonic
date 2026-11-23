@@ -1253,7 +1253,7 @@ for (const path of [...functionCases, ...verifierCases]) {
 }
 test("exact annotated runtime ports include the owning operation projection and retire the second binding walk", () => {
   assertCompleteValue(Object.keys(product).sort(), ["admitFormalInitializer", "bodyOccurrenceSlots", "chapterStatementSyntax", "chapterSyntaxSlots",
-    "formalInitializerSyntax", "indexChapterSyntax", "memberSelectionKey", "parseTir", "printTir", "readChapterSyntaxSlot", "tirBodySyntaxOf",
+    "formalInitializerSlot", "formalInitializerSyntax", "indexChapterSyntax", "memberSelectionKey", "parseTir", "printTir", "readChapterSyntaxSlot", "tirBodySyntaxOf",
     "tirOperationsOf", "verifyTir", "verifyTirModule"]);
 });
 

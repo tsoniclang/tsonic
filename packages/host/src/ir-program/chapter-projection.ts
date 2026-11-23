@@ -106,7 +106,7 @@ SyntaxCopyResult<PreparedChapterHeader, InstantiationStop> {
   }
   const listAdmission = () => inventoryRecord(scan, 2);
   const header = prepareFunctionHeader<TypedPhase, TirChapterSyntaxSlot, InstantiationStop>(node, ordinary, parameters,
-    field => [{ kind: "syntax", fields: [field], read: () => ({ kind: "ordinary", node: (block = node.body) }) }], listAdmission, listAdmission);
+    field => [{ kind: "syntax", fields: [field], read: () => ({ kind: "ordinary", node: (block = node.body) }) }], listAdmission);
   if (header.kind === "refused") return header;
   const payload = phase.FunctionDeclaration(node.tsonic);
   if (payload.kind === "refused") return payload;

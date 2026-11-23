@@ -2,11 +2,13 @@ import type { InvariantFailure } from "../diag/contract.js";
 import { requirePresent, throwInvariant } from "../diag/index.js";
 import type { ChildrenOfSyntax, IterateChildrenOfSyntax, IterateSyntaxChildEdges, NullableInitializerPhase, Phase, SyntaxNode, NodeList, SyntaxChild } from "./contract.js";
 import type { IterateFunctionHeaderSlots, IterateParameterHeaderSlots, IterateSourceFileHeaderSlots, IterateSyntaxChildSlots,
-  AsteriskToken, EndOfFile, FunctionDeclarationHeader, FunctionExpression, Identifier, ParameterDeclaration,
+  AsteriskToken, EndOfFile, FunctionDeclaration, FunctionDeclarationFields, FunctionDeclarationHeader, FunctionExpression, Identifier, ParameterDeclaration,
   PreparedFunctionHeader, PreparedSourceFileHeader, PrepareFunctionHeader, PrepareSourceFileHeader, SourceFileHeader,
   SyntaxChildSlot, TypeParameterDeclaration } from "./contract.js";
 import type { ApplicationSyntaxReceipt, BinaryExpression, BinaryOperatorToken, BinarySyntaxReceipt, Block, BlockSyntaxReceipt,
-  CallOrNewExpression, Expression, ModifierLike, ModifierList, PrepareSyntaxStructure, QuestionDotToken, RetainedSyntaxNode,
+  BindingName, BlockOrExpression, CallOrNewExpression, DotDotDotToken, Expression, FunctionSyntaxReceipt,
+  ModifierLike, ModifierList, ParameterSyntaxReceipt, SourceFile, SourceFileSyntaxReceipt, SyntaxChildListField,
+  PrepareSyntaxStructure, QuestionDotToken, QuestionToken, RetainedSyntaxNode,
   ReturnStatement, ReturnSyntaxReceipt, SingleExpressionReceipt, SingleExpressionSyntax,
   Statement, SyntaxCopyResult, TextRange, TypeNode } from "./contract.js";
 import { syntaxHeader } from "./copy-node.js";
@@ -256,17 +258,26 @@ function prepareApplicationStructure<P extends Phase, Stop>(node: CallOrNewExpre
 
 export const prepareSyntaxStructure: PrepareSyntaxStructure = <P extends Phase, Stop>(
   node: SyntaxNode<P>, ordinal: number, reserve: (node: RetainedSyntaxNode<P>) => Stop | null,
-  admitList: (field: "modifiers" | "typeArguments" | "arguments") => Stop | null,
+  admitList: (node: RetainedSyntaxNode<P>, field: SyntaxChildListField) => Stop | null,
 ) => {
   if (node.kind !== "Block" && node.kind !== "BinaryExpression" && node.kind !== "ReturnStatement" &&
-      node.kind !== "CallExpression" && node.kind !== "NewExpression" && !isSingleExpressionSyntax<P>(node))
+      node.kind !== "CallExpression" && node.kind !== "NewExpression" && node.kind !== "Parameter" &&
+      node.kind !== "SourceFile" && node.kind !== "FunctionDeclaration" && node.kind !== "FunctionExpression" && !isSingleExpressionSyntax<P>(node))
     return { kind: "copied", value: null };
   const stop = reserve(node);
   if (stop !== null) return { kind: "refused", stop };
   if (node.kind === "Block") return { kind: "copied", value: prepareBlockStructure<P>(node, ordinal) };
   if (node.kind === "ReturnStatement") return { kind: "copied", value: prepareReturnStructure<P>(node, ordinal) };
-  if (node.kind === "BinaryExpression") return prepareBinaryStructure<P, Stop>(node, ordinal, () => admitList("modifiers"));
-  if (node.kind === "CallExpression" || node.kind === "NewExpression") return prepareApplicationStructure<P, Stop>(node, ordinal, admitList);
+  if (node.kind === "BinaryExpression") return prepareBinaryStructure<P, Stop>(node, ordinal, () => admitList(node, "modifiers"));
+  if (node.kind === "CallExpression" || node.kind === "NewExpression")
+    return prepareApplicationStructure<P, Stop>(node, ordinal, field => admitList(node, field));
+  if (node.kind === "Parameter") return prepareParameterStructure<P, Stop>(node, ordinal, () => admitList(node, "modifiers"));
+  if (node.kind === "SourceFile") {
+    const listStop = admitList(node, "statements");
+    return listStop === null ? { kind: "copied", value: prepareSourceFileStructure<P>(node, ordinal) } : { kind: "refused", stop: listStop };
+  }
+  if (node.kind === "FunctionDeclaration" || node.kind === "FunctionExpression")
+    return prepareFunctionStructure<P, Stop>(node, ordinal, field => admitList(node, field));
   return { kind: "copied", value: prepareSingleExpression<P>(node, ordinal) };
 };
 
@@ -295,13 +306,64 @@ export const prepareSourceFileHeader: PrepareSourceFileHeader = <P extends Phase
   };
 };
 
+function prepareSourceFileStructure<P extends Phase>(node: SourceFile<P>, ordinal: number): SourceFileSyntaxReceipt<P> {
+  let list: RetainedSyntaxList<Statement<P>> | undefined;
+  let length = 0;
+  const { slots, finish } = prepareSourceFileHeader<P, SyntaxChildSlot<P>>(node, sameSlot<P>,
+    field => readRetainedList<P, Statement<P>>(field, node.statements, (admitted, count) => {
+      list = admitted;
+      length = count;
+    }));
+  return { kind: "source-header", ordinal, slots,
+    finish: statement => finish(materializeList(requirePresent(list, missingStructure), length, statement), token => token) };
+}
+
+interface ParameterFields<P extends Phase> {
+  readonly modifiers: () => Iterable<SyntaxChildSlot<P>>;
+  readonly dots: () => DotDotDotToken<P> | null;
+  readonly name: () => BindingName<P>;
+  readonly question: () => QuestionToken<P> | null;
+  readonly type: () => TypeNode<P> | null;
+}
+
+function* parameterFields<P extends Phase>(fields: ParameterFields<P>): Generator<SyntaxChildSlot<P>> {
+  yield* fields.modifiers();
+  yield* children<P, ParameterDeclaration<P>>(["dotDotDotToken", "nullable", fields.dots], ["name", "required", fields.name],
+    ["questionToken", "nullable", fields.question], ["type", "nullable", fields.type]);
+}
+
 export const iterateParameterHeaderSlots: IterateParameterHeaderSlots = function* <P extends Phase, Slot>(node: ParameterDeclaration<P>,
   ordinary: (slot: SyntaxChildSlot<P>) => Slot, initializer: (field: "initializer") => Iterable<Slot>) {
-  for (const slot of children<P, typeof node>(["modifiers", "list", () => node.modifiers], ["dotDotDotToken", "nullable", () => node.dotDotDotToken],
-    ["name", "required", () => node.name], ["questionToken", "nullable", () => node.questionToken], ["type", "nullable", () => node.type]))
-    yield ordinary(slot);
+  for (const slot of parameterFields<P>({ modifiers: () => children<P, typeof node>(["modifiers", "list", () => node.modifiers]),
+    dots: () => node.dotDotDotToken, name: () => node.name, question: () => node.questionToken, type: () => node.type })) yield ordinary(slot);
   yield* initializer("initializer");
 };
+
+function prepareParameterStructure<P extends Phase, Stop>(node: ParameterDeclaration<P>, ordinal: number, admitModifiers: () => Stop | null):
+  SyntaxCopyResult<ParameterSyntaxReceipt<P>, Stop> {
+  const modifiers = node.modifiers;
+  const stop = modifiers === null ? null : admitModifiers();
+  if (stop !== null) return { kind: "refused", stop };
+  let list: RetainedSyntaxList<ModifierLike<P>> | undefined;
+  let length = 0;
+  let dots: DotDotDotToken<P> | null | undefined;
+  let name: BindingName<P> | undefined;
+  let question: QuestionToken<P> | null | undefined;
+  let type: TypeNode<P> | null | undefined;
+  const slots = parameterFields<P>({
+    modifiers: () => modifiers === null ? [] : readRetainedList<P, ModifierLike<P>>("modifiers", modifiers, (admitted, count) => {
+      list = admitted;
+      length = count;
+    }),
+    dots: () => (dots = node.dotDotDotToken), name: () => (name = node.name),
+    question: () => (question = node.questionToken), type: () => (type = node.type),
+  });
+  return { kind: "copied", value: { kind: "formal-header", ordinal, header: syntaxHeader(node), slots,
+    modifiers: read => modifiers === null ? null : materializeList(requirePresent(list, missingStructure), length, read),
+    dotDotDotToken: () => requirePresent(dots, missingStructure), name: () => requirePresent(name, missingStructure),
+    questionToken: () => requirePresent(question, missingStructure), type: () => requirePresent(type, missingStructure),
+  } };
+}
 
 export const iterateFunctionHeaderSlots: IterateFunctionHeaderSlots = function* <P extends Phase, Slot>(node: FunctionDeclarationHeader<P> | FunctionExpression<P>,
   ordinary: (slot: SyntaxChildSlot<P>) => Slot, parameters: (field: "parameters") => Iterable<Slot>, body: (field: "body") => Iterable<Slot>) {
@@ -335,17 +397,17 @@ function* functionFields<P extends Phase, Slot>(ordinary: (slot: SyntaxChildSlot
   yield* body("body");
 }
 
-export const prepareFunctionHeader: PrepareFunctionHeader = <P extends Phase, Slot, Stop>(node: FunctionDeclarationHeader<P>,
+export const prepareFunctionHeader: PrepareFunctionHeader = <P extends Phase, Slot, Stop>(node: FunctionDeclarationFields<P>,
   ordinary: (slot: SyntaxChildSlot<P>) => Slot, parameters: (field: "parameters") => Iterable<Slot>,
-  body: (field: "body") => Iterable<Slot>, admitList: () => Stop | null, admitParameters: () => Stop | null,
+  body: (field: "body") => Iterable<Slot>, admitList: (field: "modifiers" | "typeParameters" | "parameters") => Stop | null,
 ): SyntaxCopyResult<PreparedFunctionHeader<P, Slot>, Stop> => {
   const modifiers = node.modifiers;
-  const modifierStop = modifiers === null ? null : admitList();
+  const modifierStop = modifiers === null ? null : admitList("modifiers");
   if (modifierStop !== null) return { kind: "refused", stop: modifierStop };
   const typeParameters = node.typeParameters;
-  const typeParameterStop = typeParameters === null ? null : admitList();
+  const typeParameterStop = typeParameters === null ? null : admitList("typeParameters");
   if (typeParameterStop !== null) return { kind: "refused", stop: typeParameterStop };
-  const parameterStop = admitParameters();
+  const parameterStop = admitList("parameters");
   if (parameterStop !== null) return { kind: "refused", stop: parameterStop };
   const header = syntaxHeader(node);
   let retainedModifiers: RetainedSyntaxList<ModifierLike<P>> | undefined;
@@ -384,6 +446,28 @@ export const prepareFunctionHeader: PrepareFunctionHeader = <P extends Phase, Sl
     },
   } };
 };
+
+function prepareFunctionStructure<P extends Phase, Stop>(node: FunctionDeclaration<P> | FunctionExpression<P>, ordinal: number,
+  admitList: (field: "modifiers" | "typeParameters" | "parameters") => Stop | null,
+): SyntaxCopyResult<FunctionSyntaxReceipt<P>, Stop> {
+  let list: RetainedSyntaxList<ParameterDeclaration<P>> | undefined;
+  let length = 0;
+  let body: BlockOrExpression<P> | null | undefined;
+  const prepared = prepareFunctionHeader<P, SyntaxChildSlot<P>, Stop>(node, sameSlot<P>,
+    field => readRetainedList<P, ParameterDeclaration<P>>(field, node.parameters, (admitted, count) => {
+      list = admitted;
+      length = count;
+    }),
+    field => children<P, typeof node>([field, "nullable", () => (body = node.body)]), admitList);
+  if (prepared.kind === "refused") return prepared;
+  const { slots, finish } = prepared.value;
+  return { kind: "copied", value: { kind: "function-header", ordinal, slots,
+    finish: (formal, expression, modifier, typeParameter, type, name) => {
+      const original = requirePresent(body, missingStructure);
+      return finish(materializeList(requirePresent(list, missingStructure), length, formal),
+        original === null ? null : expression(original), modifier, typeParameter, type, name, token => token);
+    } } };
+}
 
 export const iterateChildrenOfSyntax: IterateChildrenOfSyntax = function* <PhaseType extends NullableInitializerPhase<PhaseType>>(
   node: SyntaxNode<PhaseType>,

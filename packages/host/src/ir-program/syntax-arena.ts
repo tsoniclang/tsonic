@@ -1,9 +1,9 @@
 import type { TirBodyRoot, TirChapterSyntax, TirChapterSyntaxSlot, TirFormalInitializer, TirModuleRoot,
   TirReadyCallable, TirTypedSyntax, TypedPhase } from "../ir-tir/contract.js";
-import { admitFormalInitializer, chapterStatementSyntax, chapterSyntaxSlots, formalInitializerSyntax } from "../ir-tir/index.js";
+import { admitFormalInitializer, chapterStatementSyntax, chapterSyntaxSlots, formalInitializerSlot, formalInitializerSyntax } from "../ir-tir/index.js";
 import type { ModuleBodies } from "./contract.js";
 import type { TypeReferenceRewrite } from "./canonical-types.js";
-import type { CheckedPhase, CheckedUnopenedDeclaration, Expression, HirNode, RetainedSyntaxNode, SourceFile,
+import type { CheckedPhase, CheckedUnopenedDeclaration, Expression, HirNode, ParameterSyntaxReceipt, RetainedSyntaxNode, SourceFile,
   SyntaxChildSlot, SyntaxCopyResult, SyntaxImage, SyntaxMaterialization, SyntaxNode, SyntaxPhaseCopy, SyntaxStructureReceipt } from "../ir-hir/contract.js";
 import { prepareSyntaxCopy } from "../ir-hir/index.js";
 import type { InvariantFailure } from "../diag/contract.js";
@@ -51,6 +51,7 @@ interface ChapterFormalReceipt {
   readonly kind: "formal";
   readonly ordinal: number;
   readonly initializer: TirFormalInitializer;
+  readonly header: ParameterSyntaxReceipt<TypedPhase>;
 }
 
 export interface ChapterSyntaxInventory {
@@ -98,10 +99,12 @@ function pathText(path: ChapterPath): string {
   return segments.join("");
 }
 
-function* preparedSlots(slots: Iterable<SyntaxChildSlot<TypedPhase>>): Generator<TirChapterSyntaxSlot> {
-  for (const slot of slots) yield { kind: "syntax", fields: slot.fields, read: () => ({
-    kind: "ordinary", node: slot.read(),
-  }) };
+function* preparedSlots(slots: Iterable<SyntaxChildSlot<TypedPhase>>, subject: TirTypedSyntax): Generator<TirChapterSyntaxSlot> {
+  for (const slot of slots) yield { kind: "syntax", fields: slot.fields, read: () => {
+    const node = slot.read();
+    return node.kind === "Parameter" ? { kind: "formal", node } : { kind: "ordinary", node };
+  } };
+  if (subject.kind === "formal") yield formalInitializerSlot(subject.node);
 }
 
 function walkChapterSyntax<Stop, Value>(
@@ -138,9 +141,9 @@ function walkChapterSyntax<Stop, Value>(
           const initializer = admitFormalInitializer(slot, () => admission.formal(path), () => admission.edge(path, slot));
           if (initializer.kind === "refused") return initializer.stop;
           if (retainFormals) {
-            const ordinal = wires.get(formal);
-            if (typeof ordinal !== "number") return throwInvariant(missingParameter);
-            wires.set(formal, { kind: "formal", ordinal, initializer: initializer.value });
+            const header = wires.get(formal);
+            if (typeof header !== "object" || header.kind !== "formal-header") return throwInvariant(missingParameter);
+            wires.set(formal, { kind: "formal", ordinal: header.ordinal, initializer: initializer.value, header });
           }
           next = formalInitializerSyntax(initializer.value);
         } else {
@@ -183,7 +186,7 @@ function walkChapterSyntax<Stop, Value>(
       active.add(subject.node);
       typed.push(subject);
       const slots = shape === null ? chapterSyntaxSlots(subject)
-        : shape.kind === "module" || shape.kind === "callable" ? shape.slots : preparedSlots(shape.slots);
+        : shape.kind === "module" || shape.kind === "callable" ? shape.slots : preparedSlots(shape.slots, subject);
       pending.push({ kind: "children", subject, cursor: slots[Symbol.iterator](), path: frame.path });
     }
   }
@@ -270,7 +273,7 @@ export function prepareChapterNodeCopy<Image, Stop extends { readonly kind: "res
 
 function structureReceipt(wires: ChapterWires, node: RetainedSyntaxNode<TypedPhase>): SyntaxStructureReceipt<TypedPhase> {
   const entry = wires.get(node);
-  if (entry !== undefined && typeof entry !== "number" && entry.kind !== "formal" && entry.kind !== "module" && entry.kind !== "callable")
-    return entry;
+  if (entry !== undefined && typeof entry !== "number" && entry.kind !== "module" && entry.kind !== "callable")
+    return entry.kind === "formal" ? entry.header : entry;
   return throwInvariant({ owner: "ir-program", query: null, origin: node.origin, message: "Syntax needs its actual paid chapter receipt." });
 }

@@ -9,11 +9,11 @@ import type {
   PropertyAssignment, ShorthandPropertyAssignment, DeleteExpression, TypeOfExpression, VoidExpression,
   AwaitExpression, TypeAssertion, ExpressionWithTypeArguments, TemplateHead, TemplateMiddle,
   TemplateTail, PartiallyEmittedExpression, SyntheticReferenceExpression,
-  ApplicationSyntaxReceipt, CallOrNewExpression, Expression, Phase, SingleExpressionSyntax, SyntaxPhaseCopy,
+  ApplicationSyntaxReceipt, CallOrNewExpression, Expression, FunctionSyntaxReceipt, Phase, SingleExpressionSyntax, SyntaxPhaseCopy,
 } from "./contract.js";
 import { throwInvariant } from "../diag/index.js";
 import type { SyntaxCopyPorts, SyntaxPlan } from "./copy-node.js";
-import { holdSyntaxPayload, copyNodeList, memoSyntaxPlan, syntaxHeader, withSyntaxPayload } from "./copy-node.js";
+import { holdSyntaxPayload, copyNodeList, finishFunctionSyntax, memoSyntaxPlan, syntaxHeader, withSyntaxPayload } from "./copy-node.js";
 
 export interface ExpressionsPlans<P extends Phase, Stop, Image> {
   readonly Identifier: (node: Identifier<P>) => SyntaxPlan<Identifier<P>, Stop, Image>;
@@ -70,7 +70,8 @@ export interface ExpressionsPlans<P extends Phase, Stop, Image> {
 export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: SyntaxPhaseCopy<P, Stop, Image>,
   ports: () => SyntaxCopyPorts<P, Stop, Image>, binaryOf: (node: BinaryExpression<P>) => BinarySyntaxReceipt<P>,
   expressionOf: (node: SingleExpressionSyntax<P>) => Expression<P>,
-  applicationOf: (node: CallOrNewExpression<P>) => ApplicationSyntaxReceipt<P>): ExpressionsPlans<P, Stop, Image> {
+  applicationOf: (node: CallOrNewExpression<P>) => ApplicationSyntaxReceipt<P>,
+  functionOf: (node: FunctionExpression<P>) => FunctionSyntaxReceipt<P>): ExpressionsPlans<P, Stop, Image> {
   const Identifier = new Map<Identifier<P>, SyntaxPlan<Identifier<P>, Stop, Image>>();
   const PrivateIdentifier = new Map<PrivateIdentifier<P>, SyntaxPlan<PrivateIdentifier<P>, Stop, Image>>();
   const QualifiedName = new Map<QualifiedName<P>, SyntaxPlan<QualifiedName<P>, Stop, Image>>();
@@ -336,23 +337,8 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
         tsonic,
       });
     })),
-    FunctionExpression: node => memoSyntaxPlan(FunctionExpression, node, () => withSyntaxPayload(phase.FunctionExpression, node.tsonic, () => {
-      const header = syntaxHeader(node);
-      const { kind, asteriskToken } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item).read()),
-        typeParameters: node.typeParameters === null ? null : copyNodeList(node.typeParameters, item => ports().TypeParameterDeclaration(item).read()),
-        parameters: copyNodeList(node.parameters, item => ports().ParameterDeclaration(item).read()),
-        type: node.type === null ? null : ports().TypeNode(node.type).read(),
-        fullSignature: node.fullSignature === null ? null : ports().TypeNode(node.fullSignature).read(),
-        asteriskToken,
-        body: node.body === null ? null : ports().BlockOrExpression(node.body).read(),
-        name: node.name === null ? null : ports().Identifier(node.name).read(),
-        tsonic,
-      });
-    })),
+    FunctionExpression: node => memoSyntaxPlan(FunctionExpression, node, () => withSyntaxPayload(phase.FunctionExpression, node.tsonic, () => tsonic =>
+      ({ kind: "FunctionExpression", ...finishFunctionSyntax(functionOf(node), ports()), tsonic }))),
     AsExpression: node => memoSyntaxPlan(AsExpression, node, () => withSyntaxPayload(phase.AsExpression, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;

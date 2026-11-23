@@ -4862,6 +4862,16 @@ test("Instantiate consumes the actual TIR root and formal slots exactly once aft
   assert.equal(template.yielded === null && template.sent === null, true);
   assert.equal(Object.values(template.lexicalBindings).every(family => family.length === 0), true);
   const reads = [];
+  const syntaxReads = [];
+  const expectedBody = structuredClone(template);
+  const first = template.params[0];
+  for (const field of ["modifiers", "dotDotDotToken", "name", "questionToken", "type", "initializer"]) {
+    const original = first[field];
+    Object.defineProperty(first, field, { get() {
+      syntaxReads.push(field);
+      return original;
+    } });
+  }
   const formals = new Array(template.params.length);
   for (const [index, formal] of template.params.entries())
     Object.defineProperty(formals, index, { get() { reads.push(`formal ${index}`); return formal; } });
@@ -4883,11 +4893,13 @@ test("Instantiate consumes the actual TIR root and formal slots exactly once aft
     reads.length = 0;
     assert.deepEqual(invoke(maximum), { kind: "resource-limit", dimension: "work", maximum });
     assert.deepEqual(reads, expected, `paid read prefix at ${maximum}`);
+    assert.deepEqual(syntaxReads, [], "formal contents have not been admitted");
   }
   reads.length = 0;
   assert.deepEqual(invoke(limits.maximumWork), { kind: "instantiated", types: index.types,
-    artifact: { kind: "tir", body: { ...template, bindings: { kind: "instantiated", bindings } } } });
+    artifact: { kind: "tir", body: { ...expectedBody, bindings: { kind: "instantiated", bindings } } } });
   assert.deepEqual(reads, ["formal header", "formal 0", "formal 1", "root"], "the projected output never rereads raw roots");
+  assert.deepEqual(syntaxReads, ["modifiers", "dotDotDotToken", "name", "questionToken", "type", "initializer"]);
 });
 
 test("Program metadata switch pays before reading the actual case constant", async () => {

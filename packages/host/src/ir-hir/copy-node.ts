@@ -9,7 +9,7 @@ import type {
   DoStatement, ElementAccessExpression, EmptyStatement, EntityName, EnumDeclaration,
   EnumMember, ExportAssignment, ExportDeclaration, ExportSpecifier, Expression,
   ExpressionStatement, ExpressionWithTypeArguments, ExternalModuleReference, ForInStatement, ForInitializer,
-  ForOfStatement, ForStatement, FunctionDeclaration, FunctionExpression, FunctionTypeNode,
+  ForOfStatement, ForStatement, FunctionDeclaration, FunctionExpression, FunctionSyntaxReceipt, FunctionTypeNode,
   GetAccessorDeclaration, HeritageClause, Identifier, IfStatement, ImportAttribute,
   ImportAttributeName, ImportAttributes, ImportClause, ImportDeclaration, ImportEqualsDeclaration,
   ImportSpecifier, ImportTypeNode, IndexSignatureDeclaration, IndexedAccessTypeNode, InferTypeNode,
@@ -314,6 +314,12 @@ export function syntaxHeader(node: NodeHeader): NodeHeader {
 
 export function copyNodeList<Value>(list: NodeList<Value>, copy: (value: Value) => Value): NodeList<Value> {
   return { loc: list.loc, nodes: list.nodes.map(copy) };
+}
+
+export function finishFunctionSyntax<P extends Phase, Stop, Image>(shape: FunctionSyntaxReceipt<P>, ports: SyntaxCopyPorts<P, Stop, Image>) {
+  return shape.finish(formal => ports.ParameterDeclaration(formal).read(), body => ports.BlockOrExpression(body).read(),
+    modifier => ports.ModifierLike(modifier).read(), parameter => ports.TypeParameterDeclaration(parameter).read(),
+    type => ports.TypeNode(type).read(), name => ports.Identifier(name).read());
 }
 
 const unmaterialized: InvariantFailure = { owner: "ir-hir", query: null, origin: null,

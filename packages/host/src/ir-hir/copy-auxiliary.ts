@@ -9,30 +9,13 @@ import type {
   JSDocPrivateTag, JSDocProtectedTag, JSDocReadonlyTag, JSDocOverrideTag, JSDocDeprecatedTag,
   JSDocSeeTag, JSDocImplementsTag, JSDocAugmentsTag, JSDocSatisfiesTag, JSDocThrowsTag,
   JSDocThisTag, JSDocImportTag, JSDocCallbackTag, JSDocOverloadTag, JSDocTypedefTag,
-  JSDocSignature, JSDocNameReference, SourceFile, SourceFileHeader, ModuleDeclaration, ImportEqualsDeclaration,
+  JSDocSignature, JSDocNameReference, SourceFile, SourceFileSyntaxReceipt, ModuleDeclaration, ImportEqualsDeclaration,
   ExportDeclaration, ImportTypeNode, ImportClause, ImportSpecifier, JSDocText,
   JSDocLink, JSDocLinkPlain, JSDocLinkCode, JSDocTypeLiteral, JSDocParameterOrPropertyTag,
-  Expression, NodeList, Phase, SingleExpressionSyntax, Statement, SyntaxPhaseCopy,
+  Expression, Phase, SingleExpressionSyntax, SyntaxPhaseCopy,
 } from "./contract.js";
 import type { SyntaxCopyPorts, SyntaxPlan } from "./copy-node.js";
 import { holdSyntaxPayload, copyNodeList, memoSyntaxPlan, syntaxHeader, withSyntaxPayload } from "./copy-node.js";
-
-export function copySourceFileHeader<P extends Phase, Statements>(
-  node: SourceFileHeader<P>, statements: () => Statements, tsonic: P["SourceFile"],
-): SourceFileHeader<P> & { readonly statements: Statements } {
-  return {
-    ...syntaxHeader(node),
-    kind: node.kind,
-    statements: statements(),
-    endOfFileToken: node.endOfFileToken,
-    languageVariant: node.languageVariant,
-    scriptKind: node.scriptKind,
-    commentDirectives: node.commentDirectives,
-    pragmas: node.pragmas,
-    checkJsDirective: node.checkJsDirective,
-    tsonic,
-  };
-}
 
 export interface AuxiliaryPlans<P extends Phase, Stop, Image> {
   readonly ImportDeclaration: (node: ImportDeclaration<P>) => SyntaxPlan<ImportDeclaration<P>, Stop, Image>;
@@ -103,7 +86,8 @@ export interface AuxiliaryPlans<P extends Phase, Stop, Image> {
 }
 
 export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: SyntaxPhaseCopy<P, Stop, Image>,
-  ports: () => SyntaxCopyPorts<P, Stop, Image>, expressionOf: (node: SingleExpressionSyntax<P>) => Expression<P>):
+  ports: () => SyntaxCopyPorts<P, Stop, Image>, expressionOf: (node: SingleExpressionSyntax<P>) => Expression<P>,
+  sourceOf: (node: SourceFile<P>) => SourceFileSyntaxReceipt<P>):
   AuxiliaryPlans<P, Stop, Image> {
   const ImportDeclaration = new Map<ImportDeclaration<P>, SyntaxPlan<ImportDeclaration<P>, Stop, Image>>();
   const ExternalModuleReference = new Map<ExternalModuleReference<P>, SyntaxPlan<ExternalModuleReference<P>, Stop, Image>>();
@@ -753,8 +737,7 @@ export function createAuxiliaryPlans<P extends Phase, Stop, Image>(phase: Syntax
       });
     })),
     SourceFile: node => memoSyntaxPlan(SourceFile, node, () => withSyntaxPayload(phase.SourceFile, node.tsonic, () => tsonic =>
-      copySourceFileHeader<P, NodeList<Statement<P>>>(node,
-        () => copyNodeList(node.statements, item => ports().Statement(item).read()), tsonic))),
+      ({ kind: "SourceFile", ...sourceOf(node).finish(item => ports().Statement(item).read()), tsonic }))),
     ModuleDeclaration: node => memoSyntaxPlan(ModuleDeclaration, node, () => withSyntaxPayload(phase.ModuleDeclaration, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind, asteriskToken, keyword } = node;

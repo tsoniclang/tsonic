@@ -658,6 +658,7 @@ export type ChapterSyntaxSlots = (subject: TirTypedSyntax) => Iterable<TirChapte
 export type ReadChapterSyntaxSlot = (slot: TirChapterSyntaxSlot) => TirChapterSyntax | null;
 export type ChapterStatementSyntax = (statement: TirModuleStatement) => TirChapterSyntax;
 export type FormalInitializerSyntax = (initializer: TirFormalInitializer) => TirChapterSyntax | null;
+export type FormalInitializerSlot = (formal: TirFormal) => TirFormalInitializerSlot;
 export type AdmitFormalInitializer = <Stop>(
   slot: TirFormalInitializerSlot, field: () => Stop | null, edge: () => Stop | null,
 ) => { readonly kind: "complete"; readonly value: TirFormalInitializer } | { readonly kind: "refused"; readonly stop: Stop };
