@@ -14,6 +14,7 @@ const key = { kind: "body", execution };
 const account = (maximumWork = 100000, maximumResultEntries = 100000) => createAccount({ maximumWork, maximumResultEntries });
 const unexpected = () => { throw new Error("This constructed scalar unit has no selected dependency."); };
 const node = (kind, id, fields) => ({ kind, id, flags: [], parent: null, loc: { pos: 0, end: 0 }, ...fields });
+const readyStatement = node => ({ kind: "ready-statement", node });
 const root = statements => node("SourceFile", 0, { statements: { nodes: statements }, endOfFileToken: node("EndOfFile", 1, { tsonic: null }),
   tsonic: { module, template: null } });
 const tir = selectedRoot => ({ body: execution.instance.body, bindings, params: [], root: selectedRoot });
@@ -28,10 +29,11 @@ test("constructed dependency unit discovers actual offered activation rows and s
     body: encodeBodyId({ owner: definition, role: "function", ordinal: 0 }) }, provided: 2 } };
   const nested = node("Block", 3, {});
   Object.defineProperty(nested, "statements", { get() { assert.fail("The creating body never executes nested function statements."); } });
-  const declaration = node("FunctionDeclaration", 2, { modifiers: null, asteriskToken: null, name: null, typeParameters: null,
+  const closure = node("FunctionExpression", 2, { modifiers: null, asteriskToken: null, name: null, typeParameters: null,
     parameters: { nodes: [] }, type: null, fullSignature: null,
     body: nested,
-    tsonic: { definition, parameters: [], signatures: [], template: { body: selected.execution.instance.body } } });
+    tsonic: { callable: { definition, template: { body: selected.execution.instance.body } } } });
+  const statement = node("ExpressionStatement", 4, { expression: closure, tsonic: null });
   const current = account();
   let reads = 0;
   const result = dependenciesOf({ ...dependencyDeps(current), callableEntriesAt: (at, requested) => {
@@ -39,11 +41,15 @@ test("constructed dependency unit discovers actual offered activation rows and s
     assert.deepEqual(at, { body: execution.instance.body, node: 2 });
     assert.equal(requested, definition);
     return [selected];
-  } }, { execution, tir: tir(root([declaration])) });
+  } }, { execution, tir: tir(root([readyStatement(statement)])) });
   assert.equal(result.kind, "complete");
   assert.equal(reads, 1);
   assert.deepEqual(result.value.operations, [key, selected]);
   assert.deepEqual(result.value.dependencies, [{ dependent: execution, at: { body: execution.instance.body, node: 2 }, reason: "activation", target: selected }]);
+  const declaration = { ...closure, kind: "FunctionDeclaration",
+    tsonic: { definition, parameters: [], signatures: [], template: { body: selected.execution.instance.body } } };
+  assert.deepEqual(dependenciesOf(dependencyDeps(account()), { execution, tir: tir(root([{ kind: "ready-callable", node: declaration }])) }),
+    { kind: "complete", value: { operations: [key], dependencies: [] } });
 });
 
 test("constructed dependency unit preserves original stop before syntax or selected-reader work", () => {
@@ -60,17 +66,17 @@ test("constructed dependency unit preserves original stop before syntax or selec
 test("constructed naming unit distinguishes actual noncallable evidence from a missing selected association", () => {
   const value = node("Identifier", 2, { text: "original", tsonic: { role: "value", resolution: { kind: "definition", definition, aliases: [] } } });
   const statement = node("ExpressionStatement", 3, { expression: value, tsonic: null });
-  const input = { execution, tir: tir(root([statement])) };
+  const input = { execution, tir: tir(root([readyStatement(statement)])) };
   assert.throws(() => dependenciesOf({ ...dependencyDeps(account()), callableEntriesAt: () => null }, input), /complete ready operation/);
   assert.deepEqual(dependenciesOf({ ...dependencyDeps(account()), callableEntriesAt: () => [] }, input),
     { kind: "complete", value: { operations: [key], dependencies: [] } });
 });
 
 test("constructed dependency ready readers preserve their original refusal before absence or returned row reads", () => {
-  const resolved = { decision: { api: { declaration: definition } }, activation: execution.instance };
+  const resolved = { decision: { api: { declaration: definition }, advertised: { declaration: definition } }, activation: execution.instance };
   const application = arguments_ => ({ callee: resolved, arguments: arguments_ });
   const selected = decision => ({ kind: "decided", decision });
-  const callable = node("FunctionDeclaration", 2, { body: node("Block", 3, {}), tsonic: { definition } });
+  const callable = node("FunctionExpression", 2, { body: node("Block", 3, {}), tsonic: { callable: { definition } } });
   const name = node("Identifier", 2, { tsonic: { role: "value", resolution: { kind: "definition", definition } } });
   const call = arguments_ => node("CallExpression", 2, { tsonic: { application: selected(application(arguments_)) } });
   const operation = node("PrefixUnaryExpression", 2, { tsonic: { role: "value", operation: selected({ decision: { operation: { kind: "core" } } }) } });
@@ -91,7 +97,7 @@ test("constructed dependency ready readers preserve their original refusal befor
       stopped = refuseAccount(current, refusal);
       return absent ? null : unread;
     } };
-    const statements = [syntax];
+    const statements = [readyStatement(syntax)];
     Object.defineProperty(statements, 1, { get() { assert.fail("No later syntax is read after ready-input refusal."); } });
     assert.equal(dependenciesOf(deps, { execution, tir: tir(root(statements)) }), stopped);
     assert.equal(reads, 1, reader);
