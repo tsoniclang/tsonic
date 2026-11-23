@@ -1,12 +1,7 @@
-import type { Diagnostic, Result } from "../diag/contract.js";
-import type { DefId, SourceNodeRef, TyId } from "../ids/contract.js";
-import type { ArtifactBindings, BodyInstance, ConstantContext, ConstValue, MemberInventory, TypeOf, TypeTable } from "../ir-types/contract.js";
-import type {
-  CapturedFact, CheckedPhase, Declaration, HirMemoryFieldCapture, HirMemoryLayoutCapture, HirObservationCapture,
-} from "../ir-hir/contract.js";
-import type {
-  AnalysisLimits, BodyObservations, MetadataKey, MetadataRecord,
-} from "../ir-facts/contract.js";
+import type { Diagnostic, ErrorValue, UnitRef, UnitResult } from "../diag/contract.js";
+import type { Origin, SourceNodeRef, TyId } from "../ids/contract.js";
+import type { ConstValue, ConstantReference, MemberStorageSelection, TypeTerm } from "../ir-types/contract.js";
+import type { MetadataKey, MetadataRecord } from "../ir-facts/contract.js";
 import type { Step } from "../step/contract.js";
 
 export interface MetadataLimits {
@@ -14,38 +9,97 @@ export interface MetadataLimits {
   readonly maximumGeometryBits: number;
 }
 
-export interface MetadataDeps {
-  readonly itemOf: (definition: DefId) => Declaration<CheckedPhase>;
-  readonly capturedMetadataOf: (
-    key: MetadataKey,
-  ) => CapturedFact<HirMemoryLayoutCapture | HirMemoryFieldCapture | null>;
-  readonly constValue: (initializer: BodyInstance, context: ConstantContext) => ConstValue;
-  readonly membersOf: (type: TyId) => MemberInventory;
-  readonly typeOf: TypeOf;
-  readonly limits: AnalysisLimits;
-  readonly metadataLimits: MetadataLimits;
+interface LayoutSite {
+  readonly key: MetadataKey;
+  readonly occurrence: SourceNodeRef;
+  readonly origin: Origin;
 }
 
-export interface ObservationDeclaration {
-  readonly source: SourceNodeRef;
-  readonly definition: DefId;
+interface LayoutMeasures<Value> {
+  readonly byteSize: Value;
+  readonly byteAlignment: Value;
+  readonly stride: Value;
 }
 
-export interface ObservationsInput {
-  readonly instance: BodyInstance;
-  readonly captures: readonly HirObservationCapture[];
-  readonly declarations: readonly ObservationDeclaration[];
-  readonly types: TypeTable;
+export interface ReadyDataLayout extends LayoutSite {
+  readonly kind: "data-layout";
+  readonly fingerprint: string;
+  readonly byteOrder: "little" | "big";
+  readonly addressWidth: 32 | 64;
+}
+
+interface LayoutSource extends LayoutSite {
+  readonly source: TyId;
+  readonly abi: MetadataKey;
+  readonly measures: LayoutMeasures<ConstantReference>;
+}
+
+interface FieldSelection {
+  readonly owner: TyId;
+  readonly value: TyId;
+  readonly selector: SourceNodeRef;
+  readonly selection: SourceNodeRef;
+  readonly member: MemberStorageSelection;
+}
+
+export type AuthoredLayoutDeclaration =
+  | (LayoutSource & { readonly kind: "value"; readonly fields: readonly MetadataKey[] })
+  | (LayoutSource & { readonly kind: "array"; readonly element: MetadataKey; readonly length: ConstantReference;
+      readonly runtimeBase: "number" | "bigint" })
+  | (LayoutSite & FieldSelection & { readonly kind: "field"; readonly child: MetadataKey;
+      readonly byteOffset: ConstantReference; readonly byteAlignment: ConstantReference });
+
+export type LayoutDeclaration = ReadyDataLayout | AuthoredLayoutDeclaration;
+
+export interface ReadyLayoutField extends LayoutSite, FieldSelection {
+  readonly kind: "field";
+  readonly child: ReadyMemoryLayout;
+  readonly byteOffset: bigint;
+  readonly byteAlignment: bigint;
+}
+
+interface ReadyLayoutSource extends LayoutSite, LayoutMeasures<bigint> {
+  readonly source: TyId;
+  readonly abi: ReadyDataLayout;
+}
+
+export type ReadyMemoryLayout =
+  | (ReadyLayoutSource & { readonly kind: "value"; readonly fields: readonly ReadyLayoutField[] })
+  | (ReadyLayoutSource & { readonly kind: "array"; readonly element: ReadyMemoryLayout;
+      readonly length: bigint; readonly runtimeBase: "number" | "bigint" });
+
+export type ReadyLayout = ReadyDataLayout | ReadyMemoryLayout | ReadyLayoutField;
+
+export type LayoutRequest =
+  | { readonly kind: "constant"; readonly reference: ConstantReference }
+  | { readonly kind: "descriptor"; readonly key: MetadataKey };
+
+export type LayoutAnswer = (
+  | { readonly kind: "constant"; readonly value: ConstValue }
+  | { readonly kind: "descriptor"; readonly value: ReadyLayout }
+  | { readonly kind: "not-constant"; readonly origin: Origin }
+  | { readonly kind: "grounded-error"; readonly unit: UnitRef }
+) & { readonly request: LayoutRequest };
+
+type LayoutRefusal = Extract<UnitResult<never>, { readonly kind: "refused" }>;
+
+export interface LayoutDeps {
+  readonly admit: (work: number, records: number) => LayoutRefusal | null;
+  readonly limit: (origin: Origin, axis: "work" | "geometry-bits", maximum: number) => LayoutRefusal;
+  readonly matchesKey: (requested: MetadataKey, delivered: MetadataKey) =>
+    { readonly kind: "complete"; readonly matches: boolean } | LayoutRefusal;
+  readonly typeOf: (type: TyId) => TypeTerm | null;
   readonly limits: MetadataLimits;
 }
 
-export type MetadataOf = (
-  deps: MetadataDeps,
-  definition: DefId,
-  bindings: ArtifactBindings,
-) => Result<MetadataRecord | null>;
+export interface LayoutPause {
+  readonly declaration: AuthoredLayoutDeclaration;
+  readonly requests: readonly [LayoutRequest, ...LayoutRequest[]];
+  readonly work: number;
+}
 
-export type ObservationsOf = (input: ObservationsInput) => Step<Result<BodyObservations>, MetadataKey, ObservationsInput, Diagnostic>;
-
-export type ResumeObservations = (input: ObservationsInput,
-  answers: readonly Result<MetadataRecord | null>[]) => Result<BodyObservations>;
+export type LayoutStep = Step<UnitResult<ReadyLayout | ErrorValue>, LayoutRequest, LayoutPause, Diagnostic>;
+export type LayoutOf = (deps: LayoutDeps, declaration: LayoutDeclaration) => LayoutStep;
+export type ResumeLayout = (deps: LayoutDeps, paused: LayoutPause, answers: readonly LayoutAnswer[]) => LayoutStep;
+export type MaterializeMetadata = (deps: LayoutDeps, layout: ReadyLayout) =>
+  { readonly kind: "complete"; readonly value: MetadataRecord } | LayoutRefusal;

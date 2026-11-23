@@ -511,7 +511,8 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
       "analysis-barrier.ts", "analysis-stop.ts", "enum-constants.ts", "index.ts", "publication.ts", "required-executions.ts", "source-barrier.ts", "typed-barrier.ts"].map(name => `${host}/pipeline/${name}`),
     ...["index.ts", "production.ts"].map(name => `${host}/validate/${name}`),
     ...["index.ts", "lower.ts", "state.ts", "model.ts", "operands.ts", "control.ts", "calls.ts", "bindings.ts"].map(name => `${host}/lower-mir/${name}`),
-    ...["budget.ts", "comparison.ts", "conversions.ts", "data.ts", "index.ts", "integer.ts", "machine.ts", "pause.ts"].map(name => `${host}/evaluate/${name}`)].sort();
+    ...["budget.ts", "comparison.ts", "conversions.ts", "data.ts", "index.ts", "integer.ts", "machine.ts", "pause.ts"].map(name => `${host}/evaluate/${name}`),
+    ...["index.ts", "materialize.ts"].map(name => `${host}/metadata/${name}`)].sort();
   assert.equal(JSON.stringify(inventory), JSON.stringify(expectedInventory), "the complete actual current root equals the explicit reviewed inventory");
   const graph = deps.graph(files);
   for (const module of modules) await context.test(module.name, async () => {
