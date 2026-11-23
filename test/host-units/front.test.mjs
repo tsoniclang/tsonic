@@ -3025,11 +3025,13 @@ test("K-3341 first refusal precedes the actual structural member read and retain
   const under = value => captureBeforeMemberRead(OpenedProgram, sourceText, value, () => { reads += 1; throw boundary; });
   const refusal = maximum => ({ kind: "refused", diagnostics: [diag.resourceLimitDiagnostic({ owner: "front", limit: "front.maximumCapturedFactsPerModule", maximum,
     site: { kind: "file", path: "/project/src/main.ts" }, unit: { request: { query: "captureModule", key: module }, position: { kind: "result" } } })] });
-  for (const value of [0, 1, 4, 5, 8]) {
+  const effectiveParameters = 1 + 2 * 2;
+  const exact = 9 + effectiveParameters;
+  for (const value of [0, 1, effectiveParameters, effectiveParameters + 1, effectiveParameters + 4, exact - 1]) {
     assert.deepEqual(under(value), refusal(value), `maximum ${value}`);
     assert.equal(reads, 0, "a refused capture never makes the later actual structural type lookup");
   }
-  assert.throws(() => under(9), error => error === boundary);
+  assert.throws(() => under(exact), error => error === boundary);
   assert.equal(reads, 1);
 });
 

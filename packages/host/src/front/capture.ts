@@ -315,7 +315,8 @@ interface CaptureScope extends CaptureAdmission {
   readonly file: SourceFile;
   readonly numericLiterals: Map<Node, RawNumericLiteral>;
   readonly checked: OpenedProgramView;
-  readonly checker: Omit<TypeCheckerQueries, "getTypeAtLocation" | "getTypeFromTypeNode" | "getContextualType" | "getReturnTypeOfSignature">;
+  readonly checker: Omit<TypeCheckerQueries, "getTypeAtLocation" | "getTypeFromTypeNode" | "getContextualType" |
+    "getReturnTypeOfSignature" | "getResolvedStorageInfo">;
   readonly shape: Omit<TypeShapeQueries, "getTypeFromTypeNode" | "getReturnTypeOfSignature" | "getSignatureParameterInfos">;
   readonly ownNodes: ReadonlyMap<Node, NodeId>;
   readonly emptyCoreInventory: boolean;
@@ -3615,8 +3616,14 @@ function captureSignatureTail(scope: CaptureScope, draft: SignatureDraft): void 
 
 function capturedStorage(scope: CaptureScope, node: Node, occurrence: RawNodeRef): RawStorageCapture | null {
   if (!admit(scope, "facts")) return null;
-  const selected = scope.checker.getResolvedStorageInfo(node);
-  if (selected === undefined) return { node: occurrence, fact: notProvided() };
+  const outcome = scope.checker.acquireResolvedStorage(node, nativeCaptureAdmission(scope));
+  if (outcome.kind === "refused") {
+    if (outcome.stop !== scope.meter.refusal)
+      return throwInvariant(invariant("A storage acquisition must retain its actual first capture refusal."));
+    return null;
+  }
+  if (outcome.kind === "unavailable") return { node: occurrence, fact: notProvided() };
+  const selected = outcome.value;
   const expression = referenceTo(scope, scope.program, selected.expression);
   if (scope.meter.refusal !== null) return null;
   const storageExpression = referenceTo(scope, scope.program, selected.storageExpression);

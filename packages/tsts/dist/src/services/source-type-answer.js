@@ -10,11 +10,35 @@ import { TypeMapper_Kind, TypeMapper_Map, TypeMapperKindArray, TypeMapperKindSim
 import { admitNativeChecker } from "../internal/checker/resource-admission.js";
 import { borrowedSourceTypeAnswer, completedAnnotationSource, originalSignatureDeclaration, signatureReturnAnswer, sourceTypeAnswer } from "../internal/checker/checker/source-type-answers.js";
 import { acquireLeasedChecker, withCheckerById, withSourceFileChecker } from "./checker-ownership.js";
-export function admitSourceTypeAnswer(answer, admits) {
+export function admitSourceTypeAnswer(answer, admits, checker) {
     if (admits === undefined || answer.causes.length === 0)
         return answer;
-    const causes = answer.causes.filter(admits);
-    return causes.length === answer.causes.length ? answer : { ...answer, causes };
+    let causes;
+    for (let position = 0; position < answer.causes.length; position += 1) {
+        admitNativeChecker(checker, "work");
+        const cause = answer.causes[position];
+        if (cause === undefined)
+            throw new Error("A source-type answer requires a dense diagnostic vector.");
+        if (!admits(cause)) {
+            if (causes !== undefined)
+                continue;
+            admitNativeChecker(checker, "retained");
+            causes = [];
+            for (let prefix = 0; prefix < position; prefix += 1) {
+                admitNativeChecker(checker, "work");
+                admitNativeChecker(checker, "retained");
+                causes.push(answer.causes[prefix]);
+            }
+        }
+        else if (causes !== undefined) {
+            admitNativeChecker(checker, "retained");
+            causes.push(cause);
+        }
+    }
+    if (causes === undefined)
+        return answer;
+    admitNativeChecker(checker, "retained");
+    return { ...answer, causes };
 }
 function selectedSignatureReturn(checker, signature, type, admits) {
     const answer = signatureReturnAnswer(checker, signature, type, admits);
@@ -50,7 +74,7 @@ function readHead(checker, request, admits) {
         case "contextual": {
             const output = { value: undefined };
             const type = Checker_getContextualType(checker, request.node, request.flags ?? ContextFlagsNone, output);
-            return output.value?.type === type && output.value !== undefined ? admitSourceTypeAnswer(output.value, admits)
+            return output.value?.type === type && output.value !== undefined ? admitSourceTypeAnswer(output.value, admits, checker)
                 : type === undefined ? undefined : { type, causes: [] };
         }
     }
@@ -79,7 +103,7 @@ export function resolveSourceTypeAnswer(program, options, answer) {
     const result = settleSourceTypeAnswer(program, options, answer, null);
     return result.kind === "complete" ? result.value : undefined;
 }
-function settleSourceTypeAnswer(program, options, answer, admit) {
+export function settleSourceTypeAnswer(program, options, answer, admit) {
     if (answer === undefined)
         return { kind: "unavailable" };
     if (answer.borrowedFrom === undefined)

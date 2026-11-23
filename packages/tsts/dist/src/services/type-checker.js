@@ -7,14 +7,15 @@ import { Node_Name } from "../internal/ast/spine.js";
 import { readTypeIndexInfo } from "./type-members.js";
 import { readInvocationReturnType } from "./signature-returns.js";
 import { sourceModuleLink } from "./source-module-link.js";
-import { withOwnedChecker, withCheckerById, withSourceFileChecker } from "./checker-ownership.js";
+import { acquireLeasedChecker, withOwnedChecker, withCheckerById, withSourceFileChecker } from "./checker-ownership.js";
 import { sourceTypeAnswer } from "../internal/checker/checker/source-type-answers.js";
-import { admitSourceTypeAnswer, querySourceType, readSourceType, resolveSourceTypeAnswer } from "./source-type-answer.js";
+import { admitSourceTypeAnswer, querySourceType, readSourceType, settleSourceTypeAnswer } from "./source-type-answer.js";
+import { admitNativeChecker } from "../internal/checker/resource-admission.js";
 import { NodeFlagsOptionalChain, SymbolFlagsAlias, SymbolFlagsNamespace, SymbolFlagsType, SymbolFlagsValue, } from "../internal/ast/generated/flags.js";
 import { IsElementAccessExpression, IsAwaitExpression, IsExportDeclaration, IsExportSpecifier, IsGetAccessorDeclaration, IsIdentifier, IsImportSpecifier, IsNamespaceExport, IsNamespaceImport, IsObjectLiteralExpression, IsMethodDeclaration, IsMethodSignatureDeclaration, IsPropertyAccessExpression, IsPropertyAssignment, IsPropertyDeclaration, IsPropertySignatureDeclaration, IsSetAccessorDeclaration, IsShorthandPropertyAssignment, } from "../internal/ast/generated/predicates.js";
-import { GetSourceFileOfNode, GetContainingFunction, IsCallOrNewExpression, IsFunctionLike, IsObjectLiteralMethod, IsPropertyName, IsDynamicName, IsImportCall, IsInExpressionContext, IsRightSideOfQualifiedNameOrPropertyAccess, ModuleExportNameIsDefault, OEKAssertions, OEKParentheses, SkipOuterExpressions, SkipParentheses, } from "../internal/ast/utilities.js";
+import { GetSourceFileOfNode, GetContainingFunction, IsCallOrNewExpression, IsFunctionLike, IsObjectLiteralMethod, IsOuterExpression, IsPropertyName, IsDynamicName, IsImportCall, IsInExpressionContext, IsRightSideOfQualifiedNameOrPropertyAccess, ModuleExportNameIsDefault, OEKAssertions, OEKParentheses, SkipOuterExpressions, SkipParentheses, } from "../internal/ast/utilities.js";
 import { Program_GetSourceFile, Program_GetTypeChecker, Program_HasUsableCheckerSession, Program_IsSourceFileDefaultLibrary } from "../internal/compiler/program.js";
-import { CheckerLifetimeAPI, WithCheckerLifetime } from "../internal/core/context.js";
+import { CheckerLifetimeAPI, CheckerLifetimeDiagnostics, WithCheckerLifetime } from "../internal/core/context.js";
 import { getExtensionHost } from "../extensions/host.js";
 import { Checker_GetPropertyOfType, Checker_GetPropertiesOfType, Checker_ResolveName, Checker_GetSignaturesOfType, Checker_GetTypeOfPropertyOfType, } from "../internal/checker/exports.js";
 import { Checker_finalizeResolvedCallEvidence, Checker_getResolvedCallSelectionEvidence, Checker_getResolvedSignature, } from "../internal/checker/checker/signatures.js";
@@ -42,6 +43,46 @@ export function createTypeCheckerQueries(program, defaultOptions) {
     const objectLiteralElementInfos = new WeakMap();
     const objectLiteralElementSymbols = new WeakMap();
     const storageInfos = new WeakMap();
+    const readStorage = (node, admit) => {
+        if (node === undefined)
+            return { kind: "unavailable" };
+        const context = defaultOptions.context ?? Background();
+        let known;
+        const head = withSourceFileChecker(program, defaultOptions.sourceFile, GetSourceFileOfNode(node), context, (checker) => {
+            const read = () => {
+                admitNativeChecker(checker, "work");
+                known = storageInfos.get(node);
+                const selected = known ?? getResolvedSourceStorageInfo(checker, node);
+                if (selected === undefined)
+                    return undefined;
+                const type = admitSourceTypeAnswer(selected.type, defaultOptions.admitsCheckerDiagnostic, checker);
+                if (type === selected.type)
+                    return selected;
+                admitNativeChecker(checker, "retained");
+                return Object.freeze({ ...selected, type });
+            };
+            return admit === null ? { kind: "complete", value: read() }
+                : acquireLeasedChecker(checker, WithCheckerLifetime(context, CheckerLifetimeDiagnostics), admit, read);
+        });
+        if (head === undefined || head.kind === "unavailable")
+            return { kind: "unavailable" };
+        if (head.kind === "refused")
+            return head;
+        const selected = head.value;
+        if (selected === undefined)
+            return { kind: "unavailable" };
+        const type = settleSourceTypeAnswer(program, defaultOptions, selected.type, admit);
+        if (type.kind !== "complete")
+            return type;
+        if (selected === known && type.value === selected.type)
+            return { kind: "complete", value: selected };
+        const stop = admit?.("retained", type.value === selected.type ? 1 : 2) ?? null;
+        if (stop !== null)
+            return { kind: "refused", stop };
+        const completed = type.value === selected.type ? selected : Object.freeze({ ...selected, type: type.value });
+        storageInfos.set(node, completed);
+        return { kind: "complete", value: completed };
+    };
     const callableCompletionInfos = new WeakMap();
     const flowConditionInfos = new WeakMap();
     const generatorInfos = new WeakMap();
@@ -218,16 +259,10 @@ export function createTypeCheckerQueries(program, defaultOptions) {
         getResolvedIterationInfo: (node) => memoizeResolvedNodeQuery(iterationInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => Checker_getResolvedSourceIterationInfo(checker, node))),
         getResolvedObjectLiteralElementInfo: (node) => memoizeResolvedNodeQuery(objectLiteralElementInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => getResolvedSourceObjectLiteralElementInfo(checker, node, objectLiteralElementSymbols))),
         getResolvedStorageInfo: (node) => {
-            const selected = memoizeResolvedNodeQuery(storageInfos, node, () => withCheckedFile(program, GetSourceFileOfNode(node), defaultOptions, (checker) => getResolvedSourceStorageInfo(checker, node)));
-            if (node === undefined || selected === undefined)
-                return undefined;
-            const type = resolveSourceTypeAnswer(program, defaultOptions, admitSourceTypeAnswer(selected.type, defaultOptions.admitsCheckerDiagnostic));
-            if (type === undefined || type === selected.type)
-                return selected;
-            const published = Object.freeze({ ...selected, type });
-            storageInfos.set(node, published);
-            return published;
+            const result = readStorage(node, null);
+            return result.kind === "complete" ? result.value : undefined;
         },
+        acquireResolvedStorage: readStorage,
         getResolvedCallableCompletionInfo: (node) => memoizeResolvedNodeQuery(callableCompletionInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => resolveSourceCallableCompletionInfo(checker, node))),
         getResolvedFlowConditionInfo: (node) => memoizeResolvedNodeQuery(flowConditionInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => resolveSourceFlowConditionInfo(checker, node))),
         getResolvedGeneratorInfo: (node) => memoizeResolvedNodeQuery(generatorInfos, node, () => withCheckerForNode(program, node, defaultOptions, (checker) => resolveSourceGeneratorInfo(checker, node))),
@@ -402,7 +437,14 @@ function getResolvedSourceStorageInfo(checker, expression) {
     if (checker === undefined || expression === undefined) {
         return undefined;
     }
-    const storageExpression = SkipOuterExpressions(expression, (OEKAssertions | OEKParentheses));
+    let storageExpression = expression;
+    const kinds = (OEKAssertions | OEKParentheses);
+    for (; storageExpression !== undefined;) {
+        admitNativeChecker(checker, "work");
+        if (!IsOuterExpression(storageExpression, kinds))
+            break;
+        storageExpression = Node_Expression(storageExpression);
+    }
     if (storageExpression === undefined
         || (storageExpression.Flags & NodeFlagsOptionalChain) !== 0) {
         return undefined;
@@ -427,6 +469,7 @@ function getResolvedSourceStorageInfo(checker, expression) {
             writable = !Checker_isAssignmentToReadonlyEntity(checker, storageExpression, symbol, AssignmentKindDefinite);
         }
         const declaration = getPrimarySymbolDeclaration(symbol);
+        admitNativeChecker(checker, "retained");
         return Object.freeze({
             expression,
             storageExpression,
@@ -442,6 +485,7 @@ function getResolvedSourceStorageInfo(checker, expression) {
         if (selected === undefined || type === undefined) {
             return undefined;
         }
+        admitNativeChecker(checker, "retained");
         return Object.freeze({
             expression,
             storageExpression,
@@ -461,6 +505,7 @@ function getResolvedSourceStorageInfo(checker, expression) {
         if (selected === undefined || type === undefined) {
             return undefined;
         }
+        admitNativeChecker(checker, "retained");
         return Object.freeze({
             expression,
             storageExpression,

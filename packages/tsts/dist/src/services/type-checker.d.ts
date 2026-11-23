@@ -8,7 +8,7 @@ import type { ResolvedSourceModuleLink } from "./source-module-link.js";
 export type { ResolvedSourceModuleLink } from "./source-module-link.js";
 import type { SourceTypeRequest } from "./source-type-answer.js";
 export type { SourceTypeRequest } from "./source-type-answer.js";
-import type { NativeCheckerAdmission, NativeCheckerResult } from "../internal/checker/resource-admission.js";
+import { type NativeCheckerAdmission, type NativeCheckerResult } from "../internal/checker/resource-admission.js";
 import type { CheckerDiagnosticMembership, ResolvedSourceTypeInfo } from "../internal/checker/checker/source-type-answers.js";
 export type { ResolvedSourceTypeInfo } from "../internal/checker/checker/source-type-answers.js";
 import type { TypeIndexInfo } from "./type-shape.js";
@@ -177,6 +177,7 @@ export interface TypeCheckerQueries {
     readonly getResolvedIterationInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceIterationInfo>;
     readonly getResolvedObjectLiteralElementInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceObjectLiteralElementInfo>;
     readonly getResolvedStorageInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceStorageInfo>;
+    readonly acquireResolvedStorage: <Stop extends object>(node: GoPtr<Node>, admit: NativeCheckerAdmission<Stop>) => NativeCheckerResult<ResolvedSourceStorageInfo, Stop>;
     readonly getResolvedCallableCompletionInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceCallableCompletionInfo>;
     readonly getResolvedFlowConditionInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceFlowConditionInfo>;
     readonly getResolvedGeneratorInfo: (node: GoPtr<Node>) => GoPtr<ResolvedSourceGeneratorInfo>;
