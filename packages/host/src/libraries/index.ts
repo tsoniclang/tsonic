@@ -1,14 +1,16 @@
 import type {
-  BindRoles, AdmitGuarantees, LibraryExportKey, LibraryRoleOf, LibraryRolesOf, VerifyAuthoredSummaries,
+  BindRoles, BindProviderLibraries, AdmitGuarantees, LibraryExportKey, LibraryRoleOf, LibraryRolesOf, VerifyAuthoredSummaries,
   VerifyBoundLibraries, VerifyLibraries, VerifyLibraryCatalogue,
 } from "./contract.js";
 import { bindCatalogueRoles, roleOf, rolesOf } from "./roles.js";
+import { bindProviderLibraries as bindProvider } from "./provider-catalogue.js";
 import { admitGuarantees as admit } from "./admit-guarantees.js";
 import { checkLibraryCatalogue, exportKey } from "./verify-catalogue.js";
 import { checkAuthoredSummaries } from "./verify-summaries.js";
 import { checkBoundLibraries, checkLibraries } from "./verify-bound.js";
 
 export const bindRoles: BindRoles = bindCatalogueRoles;
+export const bindProviderLibraries: BindProviderLibraries = bindProvider;
 export const admitGuarantees: AdmitGuarantees = admit;
 export const libraryExportKey: LibraryExportKey = exportKey;
 export const libraryRolesOf: LibraryRolesOf = rolesOf;

@@ -13,6 +13,7 @@ import type {
 } from "./contract.js";
 import type { RawComputedMemberKey, RawConditionalBranch, RawConstraint, RawFieldMarker, RawMarkers, RawMemberHeader, RawNumericLiteral } from "./contract.js";
 import { ExtensionTable, OpenedProgram } from "./handles.js";
+import { projectProviderModel } from "./provider-model.js";
 import type { FileNumbering, FileSyntaxEntry } from "./handles.js";
 import { captureNode, expressionKinds, typeNodeKinds } from "./syntax-capture.js";
 import type { SyntaxCaptureContext } from "./syntax-support.js";
@@ -2500,14 +2501,10 @@ function closedCoreInventory(program: CheckedProgram): Pick<CaptureScope,
   "emptyCoreInventory" | "emptyObservationInventory" | "closedOrdinaryPassing" | "closedOrdinaryExtent"> {
   const contributions = OpenedProgram.contributions(program);
   const table = OpenedProgram.table(program);
-  let noRoles = OpenedProgram.libraryData(program).every(entry => entry.roles.length === 0);
-  if (noRoles) for (const entry of ExtensionTable.providers(table).values()) {
-    if (entry.roles.length !== 0) { noRoles = false; break; }
-  }
-  const closedOrdinaryPassing = noRoles &&
-    contributions.safetyProviders.length === 0 && contributions.compilerExtensions.length === 0 &&
+  const noRoles = OpenedProgram.libraryData(program).every(entry => entry.roles.length === 0);
+  const closedOrdinaryPassing = contributions.safetyProviders.length === 0 && contributions.compilerExtensions.length === 0 &&
     ExtensionTable.entries(table).every(entry => entry.kind === "semantics-module" || entry.kind === "declaration-provider");
-  const closedCore = closedOrdinaryPassing && contributions.declarationProviders.length === 0 &&
+  const closedCore = noRoles && closedOrdinaryPassing && contributions.declarationProviders.length === 0 &&
     ExtensionTable.entries(table).every(entry => entry.kind === "semantics-module");
   const semantics = ExtensionTable.semantics(table);
   const emptySemantics = semantics.every(module => module.exports.length === 0);
@@ -2516,7 +2513,7 @@ function closedCoreInventory(program: CheckedProgram): Pick<CaptureScope,
     closedOrdinaryExtent: closedOrdinaryPassing && semantics.every(module =>
       module.exports.every(entry => entry.kind !== "type-marker" || entry.marker !== "fixed-array")),
     emptyCoreInventory: closedCore && emptySemantics,
-    emptyObservationInventory: closedOrdinaryPassing && emptySemantics && contributions.dataLayouts.length === 0,
+    emptyObservationInventory: noRoles && closedOrdinaryPassing && emptySemantics && contributions.dataLayouts.length === 0,
   };
 }
 
@@ -3946,11 +3943,22 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
   const diagnosticCoverage = captureDiagnosticCoverage(scope, checkerDiagnostics);
   if (diagnosticCoverage === null) return { kind: "refused", diagnostics: captureRefusal(scope.meter.refusal
     ?? throwInvariant(invariant("Backing evidence capture must retain its first resource refusal.")), checkerDiagnostics) };
+  let publicLibraryModule: RawModule["publicLibraryModule"] = null;
+  if (input.origin.kind === "session-document" && input.origin.document.artifact === "public") {
+    if (!admit(scope, "edges")) return { kind: "refused", diagnostics: captureRefusal(scope.meter.refusal
+      ?? throwInvariant(invariant("Provider model admission must retain its first resource refusal.")), checkerDiagnostics) };
+    const model = input.providerModel;
+    if (model === null) return throwInvariant(invariant("A public provider document must retain its actual admitted model."));
+    const projected = projectProviderModel({ admit: kind => admit(scope, kind), literals: deps.literalCapture }, input.origin.document, model, tree.origin);
+    if (projected.kind === "refused") return { kind: "refused", diagnostics: captureRefusal(projected.diagnostic ?? scope.meter.refusal
+      ?? throwInvariant(invariant("Provider model projection must retain its first resource refusal.")), checkerDiagnostics) };
+    publicLibraryModule = projected.module;
+  }
   const raw: RawModule = {
     module, tree,
     types: { types: scope.tables.types, components: scope.tables.components, signatures: scope.tables.signatures, members: scope.tables.members,
       symbols: scope.tables.symbols, candidates: scope.tables.candidates, dataLayouts: [], memoryLayouts: [], memoryFields: [] },
-    checkerViews: views, calls, callableAssociations: associations, providerDeclarations, references, links, exports, bindings,
+    checkerViews: views, calls, callableAssociations: associations, providerDeclarations, publicLibraryModule, references, links, exports, bindings,
     implementations: [], heritage: [], constructors: [], enums: [], propertyNames, memberUses, protocols: [], storage, core,
     checkerDiagnostics, diagnosticCoverage,
   };

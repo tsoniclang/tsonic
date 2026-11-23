@@ -1,8 +1,8 @@
-import type { CheckedSourceProgram, CompilerExtension, Node, SourceDeclarationProvider, SourceFile, SourceSemanticsModule } from "@tsonic/tsts";
+import type { CheckedSourceProgram, CompilerExtension, Node, ProviderDeclarationModel, SourceDeclarationProvider, SourceFile, SourceSemanticsModule } from "@tsonic/tsts";
 import type { Diagnostic } from "../diag/contract.js";
 import { throwInvariant } from "../diag/index.js";
 import type { ModuleId, NodeId } from "../ids/contract.js";
-import type { ExtensionReference, ExtensionReferenceEntry, LibraryRoleEntry, PackageLibraryData, ProjectSnapshot } from "../snapshot/contract.js";
+import type { ExtensionReference, ExtensionReferenceEntry, PackageLibraryData, ProjectSnapshot } from "../snapshot/contract.js";
 import type { ProgramModule, ProgramModuleSet } from "./program-data.js";
 
 export interface OpenedFile {
@@ -10,6 +10,7 @@ export interface OpenedFile {
   readonly origin: ProgramModule;
   readonly text: string;
   readonly displacement: number;
+  readonly providerModel: ProviderDeclarationModel | null;
 }
 
 /** One file's numbering: its nodes in identity order (preorder) and each node's identity. */
@@ -28,7 +29,6 @@ export interface FileSyntaxEntry {
 export interface ProviderRegistration {
   readonly reference: ExtensionReference;
   readonly provider: SourceDeclarationProvider;
-  readonly roles: readonly LibraryRoleEntry[];
 }
 
 /**

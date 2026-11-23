@@ -2,12 +2,12 @@ import type { DeclsModule, DefinitionDescription, DefinitionExport } from "../de
 import type { Result } from "../diag/contract.js";
 import { throwInvariant } from "../diag/index.js";
 import type { DefId, DefinitionPath, ModuleId, NodeId } from "../ids/contract.js";
-import { decodeBodyId } from "../ids/index.js";
+import { decodeBodyId, decodeModuleId } from "../ids/index.js";
 import type { LowerDeps, ModuleDefinitions, ModuleExports, ModuleSourceOccurrence, RawModule, RawNodeRef } from "../front/contract.js";
 import type { HirBindingViews, HirDeclarationScopes, HirModule } from "../ir-hir/contract.js";
 import { createModuleBindingViews, deriveDeclarationScopes, indexSyntaxTree, resolveModuleExport, verifyHir } from "../ir-hir/index.js";
-import type { Libraries, LibraryCatalogue } from "../libraries/contract.js";
-import { admitGuarantees, bindRoles } from "../libraries/index.js";
+import type { Libraries, ProviderLibraryModel, ProviderLibraryOrigin, ProviderLibraryText } from "../libraries/contract.js";
+import { admitGuarantees, bindProviderLibraries } from "../libraries/index.js";
 import type { NominalDefinition, TypeInterner, TypePublicationWork } from "../ir-types/contract.js";
 import { createTypeInterner, createTypePublicationWork, viewTypes } from "../ir-types/index.js";
 import type { PackageModule } from "../snapshot/contract.js";
@@ -37,7 +37,8 @@ export interface SourceBarrier extends HirBindingViews {
 
 export function captureSourceBarrier(inputs: HostAnalysisInputs): Result<SourceBarrier> {
   const front = pipelineWiring.front;
-  const capture = { extensions: inputs.extensions, navigationCapture: inputs.limits.navigationCapture };
+  const capture = { extensions: inputs.extensions, navigationCapture: inputs.limits.navigationCapture,
+    literalCapture: inputs.limits.evaluation };
   const opened = front.openCheckedProgram(capture, inputs.snapshot);
   if (opened.kind === "refused") return opened;
   const set = front.captureProgramModules(capture, opened.value);
@@ -170,12 +171,39 @@ export function captureSourceBarrier(inputs: HostAnalysisInputs): Result<SourceB
     const described = pipelineWiring.decls.describeDefinitions(module, declarationScopes, names);
     for (const row of described.definitions) descriptions.set(row.definition, row);
   }
-  if (inputs.snapshot.source.input.packages.libraryData.length !== 0)
-    return fail("Library binding requires the actual checked export groups and selected endpoints.");
-  const catalogue: LibraryCatalogue = { sources: [] };
-  const bound = bindRoles(catalogue, () => fail("A selected library role requires its actual checked export group and endpoint."));
+  const libraryModels: ProviderLibraryModel[] = [];
+  const libraryTexts: ProviderLibraryText[] = [];
+  const libraryOrigins: ProviderLibraryOrigin[] = [];
+  for (const entry of set.modules) {
+    if (entry.kind !== "session-document") continue;
+    const { document } = entry;
+    const captured = raw.get(document.module);
+    const location = decodeModuleId(document.module);
+    if (captured === undefined || location.kind !== "decoded" || location.value.package !== document.package)
+      return fail("A provider library must retain its opened source document and registering package.");
+    libraryTexts.push({ package: document.package, identity: document.provider, fileName: location.value.path, sourceText: document.text });
+    if (document.artifact === "public") {
+      const model = captured.publicLibraryModule;
+      if (model?.identity !== document.provider || captured.providerDeclarations.length !== 0)
+        return fail("The actual public provider document supplies a model, not a canonical declaration.");
+      libraryModels.push({ package: document.package, model });
+      continue;
+    }
+    if (captured.publicLibraryModule !== null) return fail("A canonical declaration cannot supply a second public model.");
+    for (const row of captured.providerDeclarations) {
+      const definition = definitionOf(row.node);
+      const source = sources.nodeOf({ kind: "item", value: { owner: definition, node: row.node.node } });
+      if (row.node.module !== document.module || row.identity.module !== document.provider || source === null
+        || source.origin.module !== document.module || source.tsonic === null || !("core" in source.tsonic)
+        || source.tsonic.core.provider.kind !== "available" || source.tsonic.core.provider.value !== definition)
+        return fail("A native declaration receipt must name its original qualified checked declaration.");
+      libraryOrigins.push({ package: document.package, identity: row.identity, definition });
+    }
+  }
+  const bound = bindProviderLibraries({ models: libraryModels, texts: libraryTexts, origins: libraryOrigins },
+    inputs.snapshot.source.input.packages.libraryData);
   if (bound.kind === "refused") return bound;
-  const admitted = admitGuarantees(bound.value, [], []);
+  const admitted = admitGuarantees(bound.value.bound, bound.value.declaredSummaries, []);
   if (admitted.kind === "refused") return admitted;
   return { kind: "ok", diagnostics: opened.diagnostics,
     value: { checked: sources, modules, types, typeWork, descriptions, definitionPaths: paths, nominalOf, libraries: admitted.value, bindingOf: views.bindingOf } };

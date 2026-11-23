@@ -1,8 +1,8 @@
-import type { DefId, LibraryExportIdentity, LibraryModuleIdentity, LibraryTypeId } from "../ids/contract.js";
+import type { DefId, LibraryExportIdentity, LibraryModuleIdentity, LibraryTypeId, PackageId } from "../ids/contract.js";
 import type { Result, Violation } from "../diag/contract.js";
 import type { BindingScope, BindingVector, ExactRational, LiteralTypeValue, NativePrimitive, PassingMode, Signature, SignatureRequest } from "../ir-types/contract.js";
 import type { MemberSelection } from "../ir-tir/contract.js";
-import type { LibraryAuthoredSummary, LibraryRole, LibraryRoleEntry } from "../snapshot/contract.js";
+import type { LibraryAuthoredSummary, LibraryRole, LibraryRoleEntry, PackageLibraryData } from "../snapshot/contract.js";
 
 export type WellKnownSymbol =
   | "asyncDispose" | "asyncIterator" | "dispose" | "hasInstance" | "isConcatSpreadable"
@@ -95,7 +95,8 @@ export interface LibraryDeclaration {
 
 export interface LibraryNamedImport {
   readonly exportedName: string;
-  readonly kind: "type" | "value" | "namespace";
+  readonly localName: string | null;
+  readonly kind: "type" | "value" | "unknown";
 }
 
 export interface LibraryImport {
@@ -106,11 +107,14 @@ export interface LibraryImport {
   readonly namedImports: readonly LibraryNamedImport[];
 }
 
-export interface LibraryModule {
+export interface LibraryModuleModel {
   readonly identity: LibraryModuleIdentity;
   readonly types: readonly LibraryType[];
   readonly imports: readonly LibraryImport[];
   readonly exports: readonly LibraryDeclaration[];
+}
+
+export interface LibraryModule extends LibraryModuleModel {
   readonly roles: readonly LibraryRoleEntry[];
 }
 
@@ -154,8 +158,37 @@ export interface Libraries {
 
 export type BindRoles = (
   catalogue: LibraryCatalogue,
-  definitionOfExport: (identity: LibraryExportIdentity) => DefId,
+  definitionOfExport: (identity: LibraryExportIdentity) => DefId | null,
 ) => Result<BoundLibraries>;
+
+export interface ProviderLibraryModel {
+  readonly package: PackageId;
+  readonly model: LibraryModuleModel;
+}
+
+export interface ProviderLibraryText {
+  readonly package: PackageId;
+  readonly identity: LibraryModuleIdentity;
+  readonly fileName: string;
+  readonly sourceText: string;
+}
+
+export interface ProviderLibraryOrigin {
+  readonly package: PackageId;
+  readonly identity: LibraryExportIdentity;
+  readonly definition: DefId;
+}
+
+export interface ProviderLibraryCapture {
+  readonly models: readonly ProviderLibraryModel[];
+  readonly texts: readonly ProviderLibraryText[];
+  readonly origins: readonly ProviderLibraryOrigin[];
+}
+
+export type BindProviderLibraries = (capture: ProviderLibraryCapture, data: readonly PackageLibraryData[]) => Result<{
+  readonly bound: BoundLibraries;
+  readonly declaredSummaries: readonly LibraryAuthoredSummary[];
+}>;
 
 export type NativeExportAssociation = { readonly identity: LibraryExportIdentity;
   readonly member: MemberSelection | null } & (

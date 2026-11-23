@@ -9,6 +9,7 @@ export const navigationCapture = { maximumCallableExpressionDepth: 64, maximumCa
   maximumCallableReceiverDeclarations: 64, maximumCallableReceiverSteps: 64, maximumCallableMemberReferences: 64, maximumLexicalEnvironmentSteps: 64,
   maximumLexicalEvaluationSteps: 64, maximumSyntaxDepth: 256, maximumCapturedNodesPerModule: 100000, maximumCapturedFactsPerModule: 100000,
   maximumCapturedEdgesPerModule: 100000 };
+const literalCapture = { maximumIntermediateBits: 4096, maximumResultBits: 4096, maximumArithmeticWork: 100000 };
 const byId = (left, right) => left.id < right.id ? -1 : 1;
 
 export function rawComponentPath(components, component) {
@@ -97,7 +98,7 @@ export async function loadFrontFixture() {
 
   /** Opens the snapshot through Front (after the snapshot verifier accepts it) and captures the program's module set. */
   function openAndCapture(snapshot, registrations = []) {
-    const deps = { extensions: front.createCheckerExtensions(registrations), navigationCapture };
+    const deps = { extensions: front.createCheckerExtensions(registrations), navigationCapture, literalCapture };
     assert.deepEqual(snapshots.verifySnapshot(snapshot, front.extensionReferencesOf(deps.extensions)), [], "the case's snapshot is one the snapshot verifier accepts");
     const opened = front.openCheckedProgram(deps, snapshot);
     assert.equal(opened.kind, "ok");
@@ -130,7 +131,7 @@ export async function loadFrontFixture() {
       sourceTextOf: () => sourceText, types: interner,
       typeExpansion: { maximumDepth: 64, maximumVisits: 10000, maximumUnionMembers: 1000, maximumIntersectionMembers: 1000 },
       typeWork: types.createTypePublicationWork({ maximumWork: 100000, maximumCreatedRecords: 100000, ...typeLimits }),
-      literalCapture: { maximumIntermediateBits: 4096, maximumResultBits: 4096, maximumArithmeticWork: 100000 },
+      literalCapture,
     };
   }
 

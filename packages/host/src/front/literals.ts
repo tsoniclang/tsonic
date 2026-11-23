@@ -10,7 +10,7 @@ export interface LiteralStop {
 }
 
 export type LiteralResult<Value> = { readonly kind: "complete"; readonly value: Value } | LiteralStop;
-export type LiteralLoweringQuery = "lowerModule" | "lowerModuleExports";
+export type LiteralLoweringQuery = "captureModule" | "lowerModule" | "lowerModuleExports";
 type ParsedNumber = LiteralResult<Extract<LiteralTypeValue, { readonly kind: "number" }>>;
 
 type LiteralLimit = keyof LiteralCaptureLimits;
@@ -124,11 +124,11 @@ function reduce(work: LiteralWork, numerator: SizedInteger, denominator: SizedIn
   return { numerator: reducedNumerator, denominator: sized(denominator.value / divisor.value) };
 }
 
-export function captureNumericLiteral(limits: LiteralCaptureLimits, literal: RawNumericLiteral): ParsedNumber {
+export function captureNumericLiteral(limits: LiteralCaptureLimits, literal: RawNumericLiteral, query: LiteralLoweringQuery = "lowerModule"): ParsedNumber {
   validateLimits(limits);
   const { token, origin } = literal;
   const work: LiteralWork = { maximumIntermediateBits: limits.maximumIntermediateBits, remaining: limits.maximumArithmeticWork };
-  if (!charge(work, token.length)) return stop(origin, origin.module, "maximumArithmeticWork", limits.maximumArithmeticWork);
+  if (!charge(work, token.length)) return stop(origin, origin.module, "maximumArithmeticWork", limits.maximumArithmeticWork, query);
   const negative = token.startsWith("-");
   const unsigned = negative || token.startsWith("+") ? token.slice(1) : token;
   const prefix = unsigned.slice(0, 2).toLowerCase();
@@ -163,29 +163,29 @@ export function captureNumericLiteral(limits: LiteralCaptureLimits, literal: Raw
   const coefficientBits = coefficientBound(coefficient, radixBits, limits.maximumIntermediateBits);
   if (limits.maximumIntermediateBits === 0 || exponent > Math.floor((limits.maximumIntermediateBits - 1) / 3)
     || coefficientBits === null)
-    return stop(origin, origin.module, "maximumIntermediateBits", limits.maximumIntermediateBits);
-  if (!zero && !charge(work, coefficientBits)) return stop(origin, origin.module, "maximumArithmeticWork", limits.maximumArithmeticWork);
+    return stop(origin, origin.module, "maximumIntermediateBits", limits.maximumIntermediateBits, query);
+  if (!zero && !charge(work, coefficientBits)) return stop(origin, origin.module, "maximumArithmeticWork", limits.maximumArithmeticWork, query);
 
   const magnitude = zero ? 0n : BigInt(radixBits === 0 ? coefficient : prefix + coefficient);
   let numerator = radixBits === 0 && coefficient.length > 1 ? sized(magnitude) : { value: magnitude, bits: coefficientBits };
   let denominator: SizedInteger = { value: 1n, bits: 1 };
   if (scale !== 0) {
     const power = powerOfTen(work, exponent);
-    if (typeof power === "string") return stop(origin, origin.module, power, limits[power]);
+    if (typeof power === "string") return stop(origin, origin.module, power, limits[power], query);
     if (scale > 0) {
       const scaled = multiply(work, numerator, power);
-      if (typeof scaled === "string") return stop(origin, origin.module, scaled, limits[scaled]);
+      if (typeof scaled === "string") return stop(origin, origin.module, scaled, limits[scaled], query);
       numerator = scaled;
     } else {
       const reduced = reduce(work, numerator, power);
-      if (typeof reduced === "string") return stop(origin, origin.module, reduced, limits[reduced]);
+      if (typeof reduced === "string") return stop(origin, origin.module, reduced, limits[reduced], query);
       ({ numerator, denominator } = reduced);
     }
   }
   if (denominator.bits > limits.maximumResultBits - numerator.bits)
-    return stop(origin, origin.module, "maximumResultBits", limits.maximumResultBits);
+    return stop(origin, origin.module, "maximumResultBits", limits.maximumResultBits, query);
   const negate = negative && !zero;
-  if (negate && !charge(work, numerator.bits)) return stop(origin, origin.module, "maximumArithmeticWork", limits.maximumArithmeticWork);
+  if (negate && !charge(work, numerator.bits)) return stop(origin, origin.module, "maximumArithmeticWork", limits.maximumArithmeticWork, query);
   return { kind: "complete", value: { kind: "number", value: { numerator: negate ? -numerator.value : numerator.value,
     denominator: denominator.value, negativeZero: negative && zero } } };
 }

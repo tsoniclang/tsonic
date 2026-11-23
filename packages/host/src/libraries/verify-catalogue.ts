@@ -351,8 +351,11 @@ function verifyScopes(types: ReadonlyMap<LibraryTypeId, LibraryType>,
 }
 
 export function checkLibraryCatalogue(catalogue: LibraryCatalogue): readonly LibraryViolation[] {
+  return checkIndexedLibraryCatalogue(catalogue, catalogueIndex(catalogue));
+}
+
+export function checkIndexedLibraryCatalogue(catalogue: LibraryCatalogue, index: CatalogueIndex): readonly LibraryViolation[] {
   const output: LibraryViolation[] = [];
-  const index = catalogueIndex(catalogue);
   const sources = new Set<string>();
   const modules = new Set<string>();
   for (const source of catalogue.sources) {

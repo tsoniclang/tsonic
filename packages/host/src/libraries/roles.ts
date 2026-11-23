@@ -3,6 +3,7 @@ import type { Diagnostic, Result } from "../diag/contract.js";
 import { hostDiagnosticCode } from "../diag/index.js";
 import type { LibraryRole, LibraryRoleEntry } from "../snapshot/contract.js";
 import type { BoundLibraries, LibraryCatalogue, LibraryRoleBinding } from "./contract.js";
+import type { CatalogueIndex } from "./verify-catalogue.js";
 import { catalogueIndex, compareExports, compareText, exportKey, moduleKey } from "./verify-catalogue.js";
 
 function roleDiagnostic(identity: LibraryExportIdentity): Diagnostic {
@@ -13,8 +14,12 @@ function roleDiagnostic(identity: LibraryExportIdentity): Diagnostic {
 }
 
 export function bindCatalogueRoles(catalogue: LibraryCatalogue,
-  definitionOfExport: (identity: LibraryExportIdentity) => DefId): Result<BoundLibraries> {
-  const index = catalogueIndex(catalogue);
+  definitionOfExport: (identity: LibraryExportIdentity) => DefId | null): Result<BoundLibraries> {
+  return bindIndexedRoles(catalogue, catalogueIndex(catalogue), definitionOfExport);
+}
+
+export function bindIndexedRoles(catalogue: LibraryCatalogue, index: CatalogueIndex,
+  definitionOfExport: (identity: LibraryExportIdentity) => DefId | null): Result<BoundLibraries> {
   const groups = new Map<string, { readonly entry: LibraryRoleEntry; count: number; local: boolean }>();
   for (const source of catalogue.sources) {
     for (const module of source.modules) {
@@ -39,9 +44,11 @@ export function bindCatalogueRoles(catalogue: LibraryCatalogue,
     const declared = index.exports.get(exportKey(entry.identity));
     if (group.count !== 1 || !group.local || declared === undefined || declared === null) {
       diagnostics.push(roleDiagnostic(entry.identity));
-    } else {
-      sourceRoles.push({ identity: entry.identity, role: entry.role, definition: definitionOfExport(entry.identity) });
+      continue;
     }
+    const definition = definitionOfExport(entry.identity);
+    if (definition === null) diagnostics.push(roleDiagnostic(entry.identity));
+    else sourceRoles.push({ identity: entry.identity, role: entry.role, definition });
   }
   const first = diagnostics[0];
   return first === undefined ? { kind: "ok", value: { sources: catalogue.sources, sourceRoles }, diagnostics: [] }

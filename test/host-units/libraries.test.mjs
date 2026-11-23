@@ -20,7 +20,7 @@ const repository = fileURLToPath(new URL("../../", import.meta.url));
 const tooling = process.env.TSONIC_HOST_TOOLING_ROOT ?? repository;
 const sourceDirectory = "packages/host/src/libraries";
 const emittedDirectory = resolve(repository, "packages/host/dist/libraries");
-const runtimeNames = ["index", "verify-catalogue", "roles", "admit-guarantees", "verify-summaries", "verify-bound"];
+const runtimeNames = ["index", "verify-catalogue", "roles", "admit-guarantees", "verify-summaries", "verify-bound", "provider-catalogue"];
 const ownedSources = ["contract", ...runtimeNames].map(name => `${sourceDirectory}/${name}.ts`);
 const runtimeFiles = runtimeNames.map(name => resolve(emittedDirectory, `${name}.js`));
 const coverageSession = new Session();
@@ -300,11 +300,73 @@ function isolationInputs(deps) {
   return { owner, interfaces, production: [...production].sort() };
 }
 
-test("the public index has exactly the nine approved typed value ports and exact source owners", () => {
-  assert.deepEqual(Object.keys(product).sort(), ["admitGuarantees", "bindRoles", "libraryExportKey", "libraryRoleOf", "libraryRolesOf",
+test("the public index has exactly the approved typed value ports and exact source owners", () => {
+  assert.deepEqual(Object.keys(product).sort(), ["admitGuarantees", "bindProviderLibraries", "bindRoles", "libraryExportKey", "libraryRoleOf", "libraryRolesOf",
     "verifyAuthoredSummaries", "verifyBoundLibraries", "verifyLibraries", "verifyLibraryCatalogue"]);
   assert.deepEqual(readdirSync(resolve(repository, sourceDirectory)).filter(name => name.endsWith(".ts")).sort(),
     ownedSources.map(path => basename(path)).sort());
+});
+
+test("provider catalogue binds package claims only to actual public export origins", () => {
+  const packageId = encodePackageId("/provider");
+  const foreign = encodePackageId("/foreign");
+  const module = moduleValue({ exports: [declaration({ signatures: [signature()] })] });
+  const exportRow = exportIdentity(module.identity);
+  const text = { package: packageId, identity: module.identity, fileName: "/provider/virtual.d.ts", sourceText: "declare function value(): void;" };
+  const origin = { package: packageId, identity: exportRow, definition: definitionId("export") };
+  const capture = { models: [{ package: packageId, model: module }], texts: [text], origins: [origin] };
+  const role = { package: packageId, path: "/provider/library.json",
+    roles: [{ identity: exportRow, role: "default-value" }], declaredSummaries: [] };
+  const proof = product.bindProviderLibraries(capture, [role]);
+  assert.equal(proof.kind, "ok");
+  assert.deepEqual(proof.value.bound.sourceRoles, [{ ...role.roles[0], definition: origin.definition }]);
+  assert.deepEqual(proof.value.bound.sources[0].declarations,
+    [{ fileName: text.fileName, sourceText: text.sourceText, module: module.identity }]);
+  assert.deepEqual(product.bindProviderLibraries(capture, []).value.bound.sourceRoles, []);
+  const summarized = authoredSummary({ ...exportRow, signatureId: "signature" });
+  assert.equal(product.bindProviderLibraries(capture, [{ ...role, declaredSummaries: [summarized] }])
+    .value.declaredSummaries[0] === summarized, true);
+  for (const [actual, data, message] of [
+    [{ ...capture, models: [...capture.models, capture.models[0]] }, [], "one public model"],
+    [{ ...capture, texts: [{ ...text, package: foreign }] }, [], "actual registered package and public model"],
+    [{ ...capture, origins: [{ ...origin, package: foreign }] }, [], "independently checked origin"],
+    [{ ...capture, origins: [origin, origin] }, [], "independently checked origin"],
+    [{ ...capture, origins: [{ ...origin, identity: { ...exportRow, exportId: "unknown" } }] }, [], "name an export"],
+    [capture, [{ ...role, package: foreign }], "role must be assigned"],
+    [capture, [{ ...role, package: foreign, roles: [], declaredSummaries: [summarized] }], "guarantee must be authored"],
+    [capture, [{ ...role, roles: [{ ...role.roles[0], identity: { ...exportRow, exportId: "unknown" } }] }], "invalid declaration"],
+    [{ ...capture, origins: [] }, [role], "does not resolve"],
+  ]) {
+    const result = product.bindProviderLibraries(actual, data);
+    assert.equal(result.kind, "refused");
+    assert.equal(result.diagnostics[0].message.includes(message), true);
+  }
+});
+
+test("provider catalogue orders distinct packages, modules, roles and guarantees without collapsing identities", () => {
+  const primary = encodePackageId("/primary");
+  const another = encodePackageId("/another");
+  const first = moduleValue({ identity: identity({ providerId: "first" }),
+    exports: [declaration({ signatures: [signature({ id: "z" }), signature({ id: "a" })] })] });
+  const last = moduleValue({ identity: identity({ providerId: "last" }), exports: [declaration()] });
+  const other = moduleValue({ identity: identity({ providerId: "other" }), exports: [declaration()] });
+  const finalRole = { identity: exportIdentity(first.identity, "export", null, "z"), role: "default-value" };
+  const initialRole = { identity: exportIdentity(first.identity, "export", null, "a"), role: "allocate" };
+  const authored = [authoredSummary(finalRole.identity), authoredSummary(initialRole.identity)];
+  const definitionOf = identity => definitionId(identity.signatureId);
+  const origins = [finalRole, initialRole].map(({ identity }) => ({ package: primary, identity, definition: definitionOf(identity) }));
+  const result = product.bindProviderLibraries({
+    models: [{ package: primary, model: last }, { package: another, model: other }, { package: primary, model: first }],
+    texts: [{ package: primary, identity: last.identity, fileName: "/primary/z.d.ts", sourceText: "" },
+      { package: primary, identity: first.identity, fileName: "/primary/a.d.ts", sourceText: "" }],
+    origins,
+  }, [{ package: primary, path: "/primary/library.json", roles: [finalRole, initialRole], declaredSummaries: authored }]);
+  assert.equal(result.kind, "ok");
+  assert.deepEqual(result.value.bound.sources.map(source => source.id), [another, primary]);
+  assert.deepEqual(result.value.bound.sources[1].modules.map(module => module.identity), [first.identity, last.identity]);
+  assert.deepEqual(result.value.bound.sources[1].declarations.map(document => document.fileName), ["/primary/a.d.ts", "/primary/z.d.ts"]);
+  assert.deepEqual(result.value.bound.sourceRoles, [initialRole, finalRole].map(role => ({ ...role, definition: definitionOf(role.identity) })));
+  assert.deepEqual(result.value.declaredSummaries, [authored[1], authored[0]]);
 });
 
 for (const [level, name] of [["verifier", "empty-catalogue"], ["verifier", "duplicate-source"], ["function", "empty-role-binding"]]) {
@@ -387,7 +449,7 @@ test("every factual type arm/native primitive/passing mode/property/visibility a
   const input = catalogue([moduleValue({ types, exports: declarations, imports: [
     { moduleSpecifier: "first", defaultImport: null, namespaceImport: null, typeOnly: true, namedImports: [] },
     { moduleSpecifier: "second", defaultImport: "default", namespaceImport: "namespace", typeOnly: false,
-      namedImports: ["type", "value", "namespace"].map(kind => ({ exportedName: kind, kind })) },
+      namedImports: ["type", "value", "unknown"].map(kind => ({ exportedName: kind, localName: null, kind })) },
   ] })]);
   assert.deepEqual(product.verifyLibraryCatalogue((input)), []);
 });

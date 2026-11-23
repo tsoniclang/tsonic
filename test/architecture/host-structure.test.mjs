@@ -263,7 +263,7 @@ export type ${operation} = (deps: ${environment}, input: ${input}) => ${value};\
 
 test("front's sole SDK-value port is the complete tagged ExtensionOf return union", () => {
   const imports = 'import type { CompilerExtension as Compiler, SourceDeclarationProvider, SourceSemanticsModule } from "@tsonic/tsts"; import type { LibraryRoleEntry as Role } from "../snapshot/contract.js";';
-  const union = '{ readonly kind: "compiler-extension"; readonly value: Compiler } | { readonly kind: "declaration-provider"; readonly value: SourceDeclarationProvider; readonly roles: readonly Role[] } | { readonly kind: "semantics-module"; readonly value: SourceSemanticsModule }';
+  const union = '{ readonly kind: "compiler-extension"; readonly value: Compiler } | { readonly kind: "declaration-provider"; readonly value: SourceDeclarationProvider } | { readonly kind: "semantics-module"; readonly value: SourceSemanticsModule }';
   const snapshot = [file("snapshot", "contract.ts"), 'export interface LibraryRoleEntry { readonly role: string; }'];
   const contract = file("front", "contract.ts");
   expect([snapshot, [contract, `${imports}\nexport type Payload = ${union};\nexport type ExtensionOf = (table: number, reference: number) => Payload;`]], []);
@@ -274,12 +274,11 @@ test("front's sole SDK-value port is the complete tagged ExtensionOf return unio
   }
   expect([snapshot, [contract, `${imports}\nexport type Exposed = Compiler;`]], [at("forbidden-import", contract, 2)]);
   for (const [label, declaration, preamble] of [
-    ["missing", union.replace("; readonly roles: readonly Role[]", ""), imports],
-    ["mutable vector", union.replace("roles: readonly Role[]", "roles: Role[]"), imports],
-    ["mutable field", union.replace("readonly roles:", "roles:"), imports],
-    ["extra provider field", union.replace("readonly roles: readonly Role[]", "readonly roles: readonly Role[]; readonly extra: number"), imports],
+    ["retired provider roles", union.replace("readonly value: SourceDeclarationProvider", "readonly value: SourceDeclarationProvider; readonly roles: readonly Role[]"), imports],
+    ["mutable provider payload", union.replace("readonly value: SourceDeclarationProvider", "value: SourceDeclarationProvider"), imports],
+    ["optional provider payload", union.replace("readonly value: SourceDeclarationProvider", "readonly value?: SourceDeclarationProvider"), imports],
+    ["extra provider field", union.replace("readonly value: SourceDeclarationProvider", "readonly value: SourceDeclarationProvider; readonly extra: number"), imports],
     ["extra other arm field", union.replace("readonly value: Compiler", "readonly value: Compiler; readonly roles: readonly Role[]"), imports],
-    ["wrong owner", union, imports.replace('import type { LibraryRoleEntry as Role } from "../snapshot/contract.js";', "interface Role { readonly role: string; }")],
   ]) {
     const findings = inspect([snapshot, [contract, `${preamble}\nexport type ExtensionOf = (table: number, reference: number) => ${declaration};`]]);
     assert.equal(findings.some(finding => finding.code === "forbidden-import" && finding.path === contract && finding.line === 2), true, label);

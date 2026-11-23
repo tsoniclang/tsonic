@@ -3,8 +3,8 @@ import type { DefId, DefinitionSegment, LibraryExportIdentity, LibraryModuleIden
   RawDataLayoutId, RawMemberTableId, RawMemoryFieldId, RawMemoryLayoutId, RawSignatureId, RawSymbolId, RawTypeId, TyId } from "../ids/contract.js";
 import type { IntrinsicMemberOrigin, NativePrimitive, PassingMode, TypeEvidence, TypeExpansionLimits, TypeInterner, TypePublicationWork } from "../ir-types/contract.js";
 import type { HirModule, HirModuleBinding, HirModuleExport, IntrinsicValueResolution, ModuleEvaluation, SourceFile, SyntaxKind, SyntaxPhase } from "../ir-hir/contract.js";
-import type { WellKnownSymbol } from "../libraries/contract.js";
-import type { ExtensionReferenceEntry, LibraryRoleEntry, PreparedSource, ProjectSnapshot, SourcePreparationInput } from "../snapshot/contract.js";
+import type { LibraryModuleModel, WellKnownSymbol } from "../libraries/contract.js";
+import type { ExtensionReferenceEntry, PreparedSource, ProjectSnapshot, SourcePreparationInput } from "../snapshot/contract.js";
 import type { ExtensionTable, OpenedProgram } from "./handles.js";
 import type { ProgramModuleSet } from "./program-data.js";
 export type { ProgramModule, ProgramModuleSet, SessionDocument } from "./program-data.js";
@@ -16,8 +16,7 @@ export type CheckedProgram = OpenedProgram;
 
 export type CheckerExtensionValue =
   | { readonly kind: "compiler-extension"; readonly value: CompilerExtension }
-  | { readonly kind: "declaration-provider"; readonly value: SourceDeclarationProvider;
-      readonly roles: readonly LibraryRoleEntry[] }
+  | { readonly kind: "declaration-provider"; readonly value: SourceDeclarationProvider }
   | { readonly kind: "semantics-module"; readonly value: SourceSemanticsModule };
 
 export type ExtensionOf = (table: CheckerExtensions, reference: ExtensionReference) => CheckerExtensionValue;
@@ -56,6 +55,7 @@ export interface LiteralCaptureLimits {
 export interface CaptureDeps {
   readonly extensions: CheckerExtensions;
   readonly navigationCapture: NavigationCaptureLimits;
+  readonly literalCapture: LiteralCaptureLimits;
 }
 
 export interface PreparationDeps {
@@ -808,6 +808,7 @@ export interface RawModule {
   readonly calls: readonly RawCallSelection[];
   readonly callableAssociations: readonly RawCallableAssociation[];
   readonly providerDeclarations: readonly RawProviderDeclaration[];
+  readonly publicLibraryModule: LibraryModuleModel | null;
   readonly references: readonly RawReference[];
   readonly links: readonly RawModuleLink[];
   readonly exports: readonly RawModuleExport[];

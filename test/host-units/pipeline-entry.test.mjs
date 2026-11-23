@@ -8636,7 +8636,7 @@ test("actual checker session declarations survive all Host barriers without runn
     getDeclarationModel: () => ({ moduleSpecifier: specifier, providerModuleId,
       exports: [{ id: "Value", name: "Value", kind: "value", type: { kind: "number" } }] }),
   };
-  const extensions = fixture.front.createCheckerExtensions([{ reference, value: { kind: "declaration-provider", value: provider, roles: [] } }]);
+  const extensions = fixture.front.createCheckerExtensions([{ reference, value: { kind: "declaration-provider", value: provider } }]);
   const sourceFiles = { "main.ts": 'import type { Value } from "native:thing"; export type Ready = boolean; '
     + 'export const ready: boolean = true; export const other: boolean = false;' };
   const libraries = [{ name: "lib.es5.d.ts", text: ["Boolean", "Function", "CallableFunction", "NewableFunction", "IArguments",
@@ -8691,7 +8691,7 @@ test("actual checker session declarations survive all Host barriers without runn
       { id: "Value.number", parameters: [], returnType: { kind: "number" } },
     ] }] }) };
   const overloadedInput = { ...input, snapshot: snapshotOf({ "main.ts": 'import type { Value } from "native:thing"; export type Ready = typeof Value;' }),
-    extensions: fixture.front.createCheckerExtensions([{ reference, value: { kind: "declaration-provider", value: overloaded, roles: [] } }]) };
+    extensions: fixture.front.createCheckerExtensions([{ reference, value: { kind: "declaration-provider", value: overloaded } }]) };
   const checkedOverloads = captureSourceBarrier(overloadedInput);
   assert.equal(checkedOverloads.kind, "ok");
   const overloadOwner = checkedOverloads.value.modules.find(row => fixture.ids.decodeModuleId(row.module.module).value.package === packageId

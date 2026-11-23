@@ -356,7 +356,7 @@ function declarationProvider(id, specifier, providerModuleId, rangeStart = 9_900
     getDeclarationModel: () => ({ moduleSpecifier: specifier, providerModuleId, exports: [{ id: "Value", name: "Value", kind: "value", type: { kind: "number" } }] }) };
 }
 const reference = (root, exportId = "provider") => ({ package: packageOf(root), moduleSpecifier: "./plugin.js", exportId, version: "1" });
-const providerRegistration = (root, provider) => ({ reference: reference(root), value: { kind: "declaration-provider", value: provider, roles: [] } });
+const providerRegistration = (root, provider) => ({ reference: reference(root), value: { kind: "declaration-provider", value: provider } });
 
 const plainSources = { "main.mts": "import { twice } from \"./util.mjs\";\nexport const xs: number[] = [twice(1)];\n",
   "util.mts": "export function twice(value: number): number { return value * 2; }\n" };
@@ -564,6 +564,47 @@ test("provider session files share the actual opened source domain and retain re
   assert.equal(providerReads, 0, "no provider fact is read after the original capture refusal");
 });
 
+test("provider catalogue capture retains exact literals without re-entering the provider", async () => {
+  const { OpenedProgram } = await import("../../packages/host/dist/front/handles.js");
+  let materializations = 0;
+  const shared = { kind: "boolean" };
+  const provider = { ...declarationProvider("test.provider.literals", "native:exact", "native.exact"),
+    getDeclarationModel: () => {
+      materializations += 1;
+      return { moduleSpecifier: "native:exact", providerModuleId: "native.exact", exports: [
+        { id: "Exact", name: "Exact", kind: "type", type: { kind: "tuple", elementTypes: [shared,
+          { kind: "literal", value: 0.125 }, shared, { kind: "bigint-literal", value: "-9007199254740993" }, { kind: "undefined" }] } },
+      ] };
+    } };
+  const registration = providerRegistration("/provider-one", provider);
+  const snapshot = projectSnapshot({ sourceFiles: { "main.ts": 'import type { Exact } from "native:exact"; export type Used = Exact;' },
+    libraries: [{ name: "lib.es5.d.ts", text: sdk.barebonesLibContent }],
+    providerPackages: [{ root: "/provider-one", name: "provider-one-pkg" }], declarationProviders: [registration.reference] });
+  const opened = openAndCapture(snapshot, [registration]);
+  const before = materializations;
+  const document = opened.set.modules.find(entry => entry.kind === "session-document" && entry.document.artifact === "public").document;
+  const actualModel = OpenedProgram.file(opened.program, document.module).providerModel;
+  const captured = front.captureModule(opened.deps, opened.program, document.module);
+  assert.equal(captured.kind, "ok");
+  const catalogue = captured.value.publicLibraryModule;
+  const [definition] = catalogue.exports;
+  const tuple = catalogue.types[definition.type];
+  assert.equal(tuple.kind, "tuple");
+  assert.deepEqual(catalogue.types.map(row => row.id), catalogue.types.map((unused, index) => index));
+  const [earlier, rational, later, bigint, absence] = tuple.elementTypes;
+  const original = actualModel.exports[0].type.elementTypes;
+  assert.equal(earlier === later, original[0] === original[2]);
+  assert.deepEqual(catalogue.types[rational].value, { kind: "number", value: { numerator: 1n, denominator: 8n, negativeZero: false } });
+  assert.deepEqual(catalogue.types[bigint].value, { kind: "bigint", value: -9007199254740993n });
+  assert.equal(catalogue.types[absence].kind, "absence");
+  const refused = front.captureModule({ ...opened.deps, literalCapture: { ...opened.deps.literalCapture, maximumArithmeticWork: 0 } },
+    opened.program, document.module);
+  assert.equal(refused.kind, "refused");
+  assert.equal(refused.diagnostics.at(-1).site.origin.module, document.module);
+  assert.deepEqual(refused.diagnostics.at(-1).evidence.slice(0, 2), ["front.literalCapture.maximumArithmeticWork", "captureModule"]);
+  assert.equal(materializations, before);
+});
+
 test("provider overloads supply their own ABI while ordinary captured declarations keep their closed defaults", async () => {
   const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
@@ -596,6 +637,17 @@ test("provider overloads supply their own ABI while ordinary captured declaratio
   }
   const result = captureSourceBarrier({ ...analysisInput(fixture, "sdk-minimal"), snapshot, extensions: opened.deps.extensions });
   assert.equal(result.kind, "ok");
+  const [library] = result.value.libraries.sources;
+  assert.equal(library.id, registration.reference.package);
+  assert.equal(library.declarations.length, 2);
+  const [model] = library.modules;
+  assert.deepEqual(model.identity, owner.document.provider);
+  const [libraryRead] = model.exports;
+  assert.deepEqual([libraryRead.id, libraryRead.exportName], ["ReadNative", "read"]);
+  assert.deepEqual(libraryRead.signatures.map(signature => [signature.id, signature.parameters[0].passingMode,
+    model.types[signature.parameters[0].type].kind, model.types[signature.returnType].kind]), [
+    ["ReadNative.number", "by-value", "number", "number"], ["ReadNative.bool", "by-value", "boolean", "boolean"],
+  ]);
   const actual = result.value.modules.find(row => row.module.module === owner.document.module);
   assert.equal(actual !== undefined, true);
   const types = signatures.flatMap(({ node }) => {
@@ -624,6 +676,37 @@ test("provider overloads supply their own ABI while ordinary captured declaratio
   const checkedProvider = program.value.modules.find(row => row.module === owner.document.module);
   assert.equal(checkedProvider?.tree.kind, "checked-root");
   assert.equal(checkedProvider.bodies.length, 0);
+
+  const declarationRow = raw.value.providerDeclarations.find(row => row.identity.signatureId === null && row.identity.memberId === null);
+  assert.ok(declarationRow);
+  const declaration = actual.module.items.find(row => row.node === declarationRow.node.node);
+  assert.ok(declaration);
+  function withClaims(packageId, identity) {
+    const path = packageId === registration.reference.package ? "/provider-one/library.json" : "/project/library.json";
+    const packages = { ...snapshot.source.input.packages,
+      packages: snapshot.source.input.packages.packages.map(entry => entry.id === packageId ? { ...entry, libraryEntry: path } : entry),
+      files: [...snapshot.source.input.packages.files, { kind: "physical", path, realPath: path, text: "{}" }]
+        .sort((left, right) => left.path < right.path ? -1 : 1),
+      libraryData: [{ package: packageId, path, roles: [{ identity, role: "default-value" }], declaredSummaries: [] }],
+    };
+    const prepared = front.prepareSourceImports({ navigationCapture }, { ...snapshot.source.input, packages });
+    assert.equal(prepared.kind, "ok");
+    const input = { ...snapshot, source: prepared.value };
+    assert.deepEqual(fixture.snapshots.verifySnapshot(input, front.extensionReferencesOf(opened.deps.extensions)), []);
+    return captureSourceBarrier({ ...analysisInput(fixture, "sdk-minimal"), snapshot: input, extensions: opened.deps.extensions });
+  }
+  const claimed = withClaims(registration.reference.package, declarationRow.identity);
+  assert.equal(claimed.kind, "ok", JSON.stringify(claimed.diagnostics));
+  assert.deepEqual(claimed.value.libraries.sourceRoles, [
+    { identity: declarationRow.identity, role: "default-value", definition: declaration.definition },
+  ]);
+  const crossed = withClaims(snapshot.source.input.packages.rootPackage, declarationRow.identity);
+  assert.equal(crossed.kind, "refused");
+  assert.equal(crossed.diagnostics[0].code.rendered, "TSONIC_PROVIDER_LIBRARY_INVALID");
+  assert.equal(crossed.diagnostics[0].site.path, "/project/library.json");
+  const alias = withClaims(registration.reference.package, { ...declarationRow.identity, exportId: libraryRead.exportName });
+  assert.equal(alias.kind, "refused");
+  assert.equal(alias.diagnostics[0].code.rendered, "TSONIC_PROVIDER_LIBRARY_INVALID");
 });
 
 /**

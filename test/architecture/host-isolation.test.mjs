@@ -342,15 +342,14 @@ test("HIR named headers require the matching same-Phase syntax owner", async () 
   }
 });
 
-const sdkRoles = 'export interface LibraryRoleEntry { readonly role: string; }';
-const sdkContract = 'import type { CompilerExtension, SourceDeclarationProvider, SourceSemanticsModule } from "@tsonic/tsts";\nimport type { LibraryRoleEntry } from "../snapshot/contract.js";\nexport type CheckerExtensions = object & { readonly identityKind: "checker-extensions" };\nexport type CheckerExtensionValue = { readonly kind: "compiler-extension"; readonly value: CompilerExtension } | { readonly kind: "declaration-provider"; readonly value: SourceDeclarationProvider; readonly roles: readonly LibraryRoleEntry[] } | { readonly kind: "semantics-module"; readonly value: SourceSemanticsModule };\nexport type ExtensionOf = (table: CheckerExtensions, reference: number) => CheckerExtensionValue;';
+const sdkContract = 'import type { CompilerExtension, SourceDeclarationProvider, SourceSemanticsModule } from "@tsonic/tsts";\nexport type CheckerExtensions = object & { readonly identityKind: "checker-extensions" };\nexport type CheckerExtensionValue = { readonly kind: "compiler-extension"; readonly value: CompilerExtension } | { readonly kind: "declaration-provider"; readonly value: SourceDeclarationProvider } | { readonly kind: "semantics-module"; readonly value: SourceSemanticsModule };\nexport type ExtensionOf = (table: CheckerExtensions, reference: number) => CheckerExtensionValue;';
 
 test("front uses actual pinned SDK declarations and the sole closed ExtensionOf contract value port", async () => {
   const contract = path("front");
   const entry = path("front", "capture.ts");
-  await fixture([[contract, sdkContract], [path("snapshot"), sdkRoles],
+  await fixture([[contract, sdkContract],
     [entry, 'import type { Type } from "@tsonic/tsts"; export function flags(deps: { readonly type: Type }, input: number): number { return deps.type.flags + input; }']], async ({ root, deps }) => {
-    const report = await compileIsolated(deps, module("front"), { root, sourceFiles: [contract, entry], interfaceSources: [path("snapshot")], declarationSources: [path("snapshot")], outputDirectory: ".temp/isolation" });
+    const report = await compileIsolated(deps, module("front"), { root, sourceFiles: [contract, entry], interfaceSources: [], declarationSources: [], outputDirectory: ".temp/isolation" });
     assert.equal(report.status, "passed", label(report));
     assert.equal(report.loadedInventory.some(file => file.includes("/packages/tsts/dist/")), true);
   });
@@ -359,12 +358,12 @@ test("front uses actual pinned SDK declarations and the sole closed ExtensionOf 
 test("real pipeline isolation emits only permitted component query types and the identical front brand", async () => {
   const contract = path("pipeline");
   const entry = path("pipeline", "index.ts");
-  await fixture([[path("front"), sdkContract], [path("snapshot"), sdkRoles], [path("infer"), 'export type Infer = (deps: { readonly bias: number }, input: number) => number;'],
+  await fixture([[path("front"), sdkContract], [path("infer"), 'export type Infer = (deps: { readonly bias: number }, input: number) => number;'],
     [contract, 'import type { CheckerExtensions } from "../front/contract.js";\nexport type { CheckerExtensions } from "../front/contract.js";\nimport type { Infer } from "../infer/contract.js";\nexport interface Input { readonly extensions: CheckerExtensions; readonly infer: Infer; readonly value: number; }\nexport type Run = (input: Input) => number;'],
     [entry, 'import type { Run } from "./contract.js"; export const run: Run = input => input.infer({ bias: 1 }, input.value);']], async ({ root, deps }) => {
-    const report = await compileIsolated(deps, module("pipeline"), { root, sourceFiles: [contract, entry], interfaceSources: [path("front"), path("snapshot"), path("infer")], declarationSources: [path("front"), path("snapshot"), path("infer")], outputDirectory: ".temp/isolation" });
+    const report = await compileIsolated(deps, module("pipeline"), { root, sourceFiles: [contract, entry], interfaceSources: [path("front"), path("infer")], declarationSources: [path("front"), path("infer")], outputDirectory: ".temp/isolation" });
     assert.equal(report.status, "passed", label(report));
-    assert.equal(report.provenance.length, 3);
+    assert.equal(report.provenance.length, 2);
     assert.equal(report.loadedInventory.some(file => file.endsWith(`/isolated/${host}/front/contract.d.ts`)), true);
     assert.equal(report.loadedInventory.every(file => report.expectedInventory.includes(file)), true);
     assert.equal(report.loadedInventory.some(file => file.includes("/isolated/") && file.endsWith("/front/contract.ts")), false);
@@ -490,7 +489,7 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
       "relations-data.ts", "summary-data.ts", "summary-equals.ts", "verification.ts", "verify-bindings.ts", "verify-body-nodes.ts", "verify-cells.ts",
       "verify-initialization.ts", "verify-liveness.ts", "verify-position.ts"].map(name => `${host}/ir-facts/${name}`),
     ...["index.ts", "roles.ts", "verify-catalogue.ts", "admit-guarantees.ts", "verify-summaries.ts",
-      "verify-bound.ts"].map(name => `${host}/libraries/${name}`),
+      "verify-bound.ts", "provider-catalogue.ts"].map(name => `${host}/libraries/${name}`),
     ...["index.ts", "bind-declared.ts", "translate-native.ts", "unknown-declared.ts", "components.ts", "dependencies.ts", "converge.ts"].map(name => `${host}/summaries/${name}`),
     ...["index.ts", "round.ts", "storage.ts", "source.ts", "proof.ts", "calls.ts", "captures.ts", "exits.ts",
       "field-reads.ts", "initialization.ts", "places.ts", "static-calls.ts", "value-flow.ts", "values.ts", "writes.ts"].map(name => `${host}/analyses/body/${name}`),
@@ -500,7 +499,7 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
     ...["database.ts", "index.ts", "memo.ts"].map(name => `${host}/query/${name}`),
     ...["bindings.ts", "capture.ts", "checker.ts", "diagnostics.ts", "handles.ts", "identities.ts", "index.ts",
       "literals.ts", "lower.ts", "lower-calls.ts", "lower-exports.ts", "lower-imports.ts", "lower-members.ts", "checked-declarations.ts", "source-bodies.ts",
-      "type-conversion.ts", "options.ts", "program-data.ts", "syntax-capture.ts", "syntax-support.ts"].map(name => `${host}/front/${name}`),
+      "type-conversion.ts", "options.ts", "program-data.ts", "provider-model.ts", "syntax-capture.ts", "syntax-support.ts"].map(name => `${host}/front/${name}`),
     ...["definitions.ts", "index.ts", "placement.ts", "signatures.ts", "cycles.ts", "members.ts", "type-production.ts"].map(name => `${host}/decls/${name}`),
     ...["embed.ts", "errors.ts", "frontier.ts", "index.ts", "literal-default.ts", "literal-fit.ts", "member-pause.ts", "operators.ts", "schemes.ts", "variables.ts",
       "candidates.ts", "captures.ts", "type-pattern.ts"].map(name => `${host}/rules/${name}`),

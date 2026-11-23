@@ -52,8 +52,7 @@ export function createExtensionTable(registrations: readonly CheckerRegistration
         // A second registration of one provider identity is not recorded here. The table refuses nothing: it is the
         // session that reports two extensions of one identity, and then no program is opened on this table.
         if (!providers.has(providerKey(registration.value.value.identity))) {
-          providers.set(providerKey(registration.value.value.identity), { reference: registration.reference,
-            provider: registration.value.value, roles: registration.value.roles });
+          providers.set(providerKey(registration.value.value.identity), { reference: registration.reference, provider: registration.value.value });
         }
         extensions.push(providerExtension(registration.value.value));
         break;
@@ -212,7 +211,7 @@ function programFiles(checked: CheckedSourceProgram, table: CheckerExtensions, i
     const module = inputs.modules.get(path);
     if (module !== undefined) {
       const text = requirePresent(inputs.files.get(path), invariant("A snapshot module of the opened program has no captured text."));
-      add(module, { file, origin: { kind: "snapshot", module }, text });
+      add(module, { file, origin: { kind: "snapshot", module }, text, providerModel: null });
       return;
     }
     const document = checked.sourceFacts.getVirtualDeclarationDocument(name);
@@ -229,7 +228,8 @@ function programFiles(checked: CheckedSourceProgram, table: CheckerExtensions, i
       artifact: document.artifactKind,
       text: document.sourceText,
     };
-    add(session.module, { file, origin: { kind: "session-document", document: session }, text: session.text });
+    add(session.module, { file, origin: { kind: "session-document", document: session }, text: session.text,
+      providerModel: session.artifact === "public" ? document.declarationModel : null });
   });
   return [...found.entries()].sort((left, right) => left[0] < right[0] ? -1 : 1).map(entry => entry[1]);
 }
