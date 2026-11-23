@@ -24,7 +24,8 @@ import {
 import { publicationRewrite, rewriteConstant } from "./canonical-types.js";
 import { projectExecution, projectInstance, projectMetadata, projectSummary, projectSummaryKey } from "./canonical-facts.js";
 import { prepareModuleSyntax } from "./canonical-syntax.js";
-import type { ReadChapterChecked, RememberProgramBody } from "./canonical-syntax.js";
+import type { RememberProgramBody } from "./canonical-syntax.js";
+import type { CheckedChapterImage } from "./syntax-arena.js";
 import { admitCheckedProjection, chargeInstantiationWork, ProgramWork } from "./work.js";
 import { prepareCoreProjection } from "./instantiate-phase.js";
 
@@ -242,12 +243,26 @@ export const canonicalizeProgram: CanonicalizeProgram = (program, publication, r
     if (projected.kind === "refused") return projected.stop;
     content = projected.value;
   }
-  const checkedOf: ReadChapterChecked = source => requirePresent(content?.syntax.nodeOf(source) ?? undefined, dense);
-  const value = { index: index.value, modules: preparedModules.map(row => {
-    const selected = row.module.materialize(checkedOf, row.bodies);
-    ready.trees.set(row.module.originalTree, selected.tree);
-    return selected;
-  }) };
+  const checked: CheckedChapterImage = {
+    expressionOf: source => {
+      const result = content?.syntax.bodyRootOf(source);
+      return requirePresent(result !== null && result?.kind !== "SourceFile" && result?.kind !== "Block" ? result : undefined, dense);
+    },
+    declarationOf: source => {
+      const result = content?.syntax.statementOf(source);
+      return requirePresent(result?.kind === "FunctionDeclaration" || result?.kind === "TypeAliasDeclaration" || result?.kind === "InterfaceDeclaration"
+        ? result : undefined, dense);
+    },
+    sourceFileOf: source => requirePresent(content?.syntax.sourceFileOf(source) ?? undefined, dense),
+  };
+  const finalModules = [];
+  for (const row of preparedModules) {
+    const selected = row.module.materialize(checked, row.bodies);
+    if (selected.kind === "refused") return selected.stop;
+    ready.trees.set(row.module.originalTree, selected.value.tree);
+    finalModules.push(selected.value);
+  }
+  const value = { index: index.value, modules: finalModules };
   const image: ProgramIdentityImage = {
     treeOf: source => ready.trees.get(source) ?? null,
     tirOf: source => ready.tir.get(source) ?? null, mirOf: source => ready.mir.get(source) ?? null,

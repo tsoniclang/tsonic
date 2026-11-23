@@ -6335,7 +6335,10 @@ test("authored bare return preserves selected void completion and skips the unta
   const module = modules.find(row => row.module === input.snapshot.entryPoint);
   const deps = { types, typeOf: id => types.terms[id], signatureOf: id => types.signatures[id],
     selectedNativeFacts: input.snapshot.nativeFacts, limits: input.limits.evaluation };
-  for (const [ordinal, declaration] of module.tree.statements.nodes.entries()) {
+  assert.equal(module.tree.kind, "ready-root");
+  for (const [ordinal, slot] of module.tree.root.statements.nodes.entries()) {
+    assert.equal(slot.kind, "ready-callable");
+    const declaration = slot.node;
     const body = module.bodies.find(row => row.kind === "selected" && row.instance.body === declaration.tsonic.signatures[0].body);
     const completion = body.tir.completion;
     assert.deepEqual(types.terms[completion], { kind: "intrinsic", intrinsic: "void" });

@@ -5031,6 +5031,9 @@ export interface SyntaxPhaseCopy<P extends Phase, Stop, Image> {
 
 export interface SyntaxImage<P extends Phase> {
   readonly nodeOf: (node: SyntaxNode<P>) => SyntaxNode<P> | null;
+  readonly statementOf: (node: Statement<P>) => Statement<P> | null;
+  readonly typeNodeOf: (node: TypeNode<P>) => TypeNode<P> | null;
+  readonly modifierOf: (node: ModifierLike<P>) => ModifierLike<P> | null;
   readonly sourceFileOf: (node: SourceFile<P>) => SourceFile<P> | null;
   readonly bodyRootOf: (node: BodyRoot<P>) => BodyRoot<P> | null;
   readonly parameterOf: (node: ParameterDeclaration<P>) => ParameterDeclaration<P> | null;

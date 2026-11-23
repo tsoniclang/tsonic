@@ -197,7 +197,7 @@ function verifySyntaxIdentities(module: ModuleBodies, input: TirVerifierInput | 
   }
   inventoryChapterSyntax<never>(moduleChapterRoots(module, "ModuleBodies"),
     { root: () => null, node: () => ({ kind: "copied", value: null }), edge: () => null, formal: () => null,
-      statement: () => {}, close: completed });
+      close: completed });
   for (const published of module.bodies) {
     const site: ProgramSite = { kind: "body", instance: published.instance };
     const root = published.tir.root;

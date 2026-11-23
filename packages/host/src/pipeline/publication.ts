@@ -8,7 +8,7 @@ import type {
   BodyRecord, HostProgram, ModuleBodies, ProgramEvidence, ProgramIdentityImage, ProgramIndex, ProgramVerificationContext,
   ProgramVerificationWork, SignatureRecord,
 } from "../ir-program/contract.js";
-import { admitProgramReadyRow, canonicalizeProgram, createProgramVerificationWork, projectProgramEvidence, verifyModuleBodies, verifyProgramIndex } from "../ir-program/index.js";
+import { admitProgramReadyRow, canonicalizeProgram, createProgramVerificationWork, verifyModuleBodies, verifyProgramIndex } from "../ir-program/index.js";
 import type { BindingScope, BodyInstance, MemberInventory } from "../ir-types/contract.js";
 import { executionKey, exportTypes, instanceKey, nativeFactsKey, signatureRequestKey, viewTypes } from "../ir-types/index.js";
 import type { InferenceDeclaration } from "../ir-infer/contract.js";
@@ -316,15 +316,13 @@ export function publishHostProgram(inputs: HostAnalysisInputs, typed: TypedSourc
   })] });
   if (publication.kind === "resource-limit") return refusal(publication.dimension, publication.maximum);
   const resources = createProgramVerificationWork(inputs.limits.instantiation, account);
-  const projected = canonicalizeProgram({ index: { ...index, summaries: summaryRows }, modules }, publication.value, resources);
+  const projected = canonicalizeProgram({ index: { ...index, summaries: summaryRows }, modules }, publication.value, resources,
+    { kind: "with-evidence", read: typed.programEvidence });
   if (projected.kind === "refused") return projected;
   if (projected.kind === "resource-limit") return refusal(projected.dimension, projected.maximum);
-  const originals = typed.programEvidence(account);
-  if (originals.kind !== "complete") return analysisStop(originals, unit);
-  const evidence = projectProgramEvidence(originals.value, publication.value, resources);
-  if (evidence.kind === "refused") return evidence;
-  if (evidence.kind === "resource-limit") return refusal(evidence.dimension, evidence.maximum);
-  const ready = finalContext(inputs, typed, analysis, projected.value, projected.image, evidence.value, conditionRefusal,
+  if (projected.kind === "evidence-input-stop") return analysisStop(projected.stop, unit);
+  if (projected.mode !== "with-evidence") return fail("Publication requires its actual independent verification evidence.");
+  const ready = finalContext(inputs, typed, analysis, projected.value, projected.image, projected.evidence, conditionRefusal,
     resources, account, selectedNativeFactsKey);
   if (ready.kind !== "complete") {
     if (ready.kind === "resource-limit" && ready.dimension === "created-records") return refusal(ready.dimension, ready.maximum);

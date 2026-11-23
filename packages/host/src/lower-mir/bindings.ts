@@ -96,6 +96,7 @@ export function prepareCaseLocals(lowering: Lowering, block: CaseBlock<TypedPhas
 }
 
 export function prepareFunctionLocals(lowering: Lowering): boolean {
+  if (lowering.body.root.kind === "SourceFile") return true;
   const pending: TirNode[] = [lowering.body.root];
   for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
     if (node.kind === "VariableDeclarationList") {

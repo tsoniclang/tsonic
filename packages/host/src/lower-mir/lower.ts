@@ -87,7 +87,7 @@ function enter(lowering: Lowering, root: TirBody["root"]): boolean {
     if (row.passing === null)
       return callerDefect("a parameter requires its actual executing body local and passing", header.origin);
     if (row.role === "rest") return notLoweredYet("a parameter of role rest", root.origin);
-    if (header.initializer !== null && row.initializer === null)
+    if (header.initializer.kind !== "none" && row.initializer === null)
       return notLoweredYet("a parameter initializer without its placed execution", header.origin);
     if (row.role === "this" && lowering.receiver !== null) return callerDefect("two selected receiver parameter rows", root.origin);
     const role: MirLocalRole = row.role === "this" ? { kind: "receiver" } : { kind: "parameter", index: parameters };
@@ -189,8 +189,10 @@ function walk(lowering: Lowering): boolean {
 
 function moduleStatement(lowering: Lowering, pending: Extract<Work, { readonly kind: "module" }>): boolean {
   if (pending.position === pending.node.statements.nodes.length) return true;
-  const node = requirePresent(pending.node.statements.nodes[pending.position], failure("a module statement list has a hole", pending.node.origin));
+  const slot = requirePresent(pending.node.statements.nodes[pending.position], failure("a module statement list has a hole", pending.node.origin));
   lowering.work.push({ ...pending, position: pending.position + 1 });
+  if (slot.kind !== "ready-statement") return true;
+  const node = slot.node;
   if (node.kind !== "FunctionDeclaration" && node.kind !== "ImportDeclaration" && node.kind !== "ExportDeclaration")
     lowering.work.push({ kind: "statement", node });
   return true;

@@ -573,7 +573,7 @@ export interface ChapterTextContext {
 export function createSyntaxText(module: ModuleBodies) {
   const inventory = inventoryChapterSyntax<never>(moduleChapterRoots(module, "ModuleBodies"),
     { root: () => null, node: () => ({ kind: "copied", value: null }), edge: () => null, formal: () => null,
-      statement: () => {}, close: () => {} }).value;
+      close: () => {} }).value;
   const checked = printCheckedDeclarations(inventory.checkedRoots);
   const missingWire: InvariantFailure = {
     owner: "ir-program",

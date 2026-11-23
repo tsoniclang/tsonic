@@ -3,7 +3,7 @@ import { throwInvariant } from "../diag/index.js";
 import type { BodyId, DefId } from "../ids/contract.js";
 import type { BodyInstance } from "../ir-types/contract.js";
 import type { CheckedPhase, Expression, FunctionDeclaration, ParameterDeclaration, SourceFile, Statement, VariableDeclaration } from "../ir-hir/contract.js";
-import type { TirBody, TypedBodyTemplate, TypedParameter, TypedPhase } from "../ir-tir/contract.js";
+import type { TirBody, TirModuleRoot, TirModuleStatement, TirReadyCallable, TypedBodyTemplate, TypedParameter, TypedPhase } from "../ir-tir/contract.js";
 import { typePublicationRefusalOf } from "../ir-types/index.js";
 import type { ElaborateDeps, ElaborationCause, ElaborationChild, ElaborationNoResult } from "./contract.js";
 import { declarationAlias, declarationFunction, declarationInterface, declarationModifiers as modifiers, declarationName as name, declarationType as annotation } from "./declarations.js";
@@ -30,10 +30,11 @@ export function elaborateParameter<State>(deps: ElaborateDeps<State>, node: Para
   return { kind: "ok", diagnostics: [], value: { ...node, modifiers: modifiers(node.modifiers),
     dotDotDotToken: node.dotDotDotToken === null ? null : { ...node.dotDotDotToken, tsonic: null },
     questionToken: node.questionToken === null ? null : { ...node.questionToken, tsonic: null },
-    name: name(node.name, selected.storage), type: type.value, initializer, tsonic: selected } };
+    name: name(node.name, selected.storage), type: type.value, initializer: initializer === null ? { kind: "none" }
+      : { kind: "ready-default", root: initializer }, tsonic: selected } };
 }
 
-function callable<State>(deps: ElaborateDeps<State>, node: FunctionDeclaration<CheckedPhase>, body: TirBody): Result<FunctionDeclaration<TypedPhase>> {
+function callable<State>(deps: ElaborateDeps<State>, node: FunctionDeclaration<CheckedPhase>, body: TirBody): Result<TirReadyCallable> {
   const checked = node.tsonic;
   if (body.body !== checked.body || body.owner !== checked.definition || body.root.kind !== "Block")
     return defect("A module function requires its actual completed callable body.");
@@ -105,8 +106,8 @@ export function elaborateModuleSyntax<State>(deps: ElaborateDeps<State>, root: S
   children: ReadonlyMap<BodyId, ElaborationChild>, instance: BodyInstance,
   typing: ElaborationNoResult | { readonly kind: "ready"; readonly template: TypedBodyTemplate;
     readonly statementOf: (statement: Statement<CheckedPhase>) => Statement<TypedPhase> | ElaborationNoResult },
-): Result<SourceFile<TypedPhase>> | ElaborationNoResult {
-  const statements: Statement<TypedPhase>[] = [];
+): Result<TirModuleRoot> | ElaborationNoResult {
+  const statements: TirModuleStatement[] = [];
   let diagnostics: [Diagnostic, ...Diagnostic[]] | null = null;
   const causes: ElaborationCause[] = typing.kind === "no-result" ? [...typing.causes] : [];
   const append = (earned: readonly Diagnostic[]): void => {
@@ -124,15 +125,18 @@ export function elaborateModuleSyntax<State>(deps: ElaborateDeps<State>, root: S
       if (selected.kind === "no-result") {
         causes.push(...selected.causes);
         append(selected.diagnostics);
-      } else statements.push(selected);
+      } else {
+        if (selected.kind === "FunctionDeclaration") return defect("An executable module statement cannot supply a callable declaration.");
+        statements.push({ kind: "ready-statement", node: selected });
+      }
       continue;
     }
-    let selected: Result<Statement<TypedPhase>>;
+    let selected: Result<Extract<TirModuleStatement, { kind: "ready-statement" }>["node"]>;
     switch (statement.kind) {
       case "ImportDeclaration": case "ExportDeclaration": {
         const refusal = moduleLinkRefusal(deps, statement);
         if (refusal === null) {
-          statements.push(statement.kind === "ExportDeclaration" ? elaborateExport(statement) : elaborateImport(statement));
+          statements.push({ kind: "ready-statement", node: statement.kind === "ExportDeclaration" ? elaborateExport(statement) : elaborateImport(statement) });
           continue;
         }
         selected = { kind: "refused", diagnostics: refusal };
@@ -147,7 +151,12 @@ export function elaborateModuleSyntax<State>(deps: ElaborateDeps<State>, root: S
           causes.push(...child.causes);
           continue;
         }
-        selected = callable(deps, statement, child);
+        const ready = callable(deps, statement, child);
+        if (ready.kind === "ok") {
+          statements.push({ kind: "ready-callable", node: ready.value });
+          continue;
+        }
+        selected = ready;
         break;
       }
       case "InterfaceDeclaration": selected = declarationInterface(deps, statement); break;
@@ -160,7 +169,7 @@ export function elaborateModuleSyntax<State>(deps: ElaborateDeps<State>, root: S
       append(selected.diagnostics);
       continue;
     }
-    statements.push(selected.value);
+    statements.push({ kind: "ready-statement", node: selected.value });
   }
   const [cause, ...others] = causes;
   if (cause !== undefined) return { kind: "no-result", instance, causes: [cause, ...others], diagnostics: diagnostics ?? [] };

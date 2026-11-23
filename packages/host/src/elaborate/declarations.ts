@@ -328,7 +328,7 @@ function formal(node: Hir.ParameterDeclaration<Checked>, owner: DefId, parameter
   return { ...node, modifiers: declarationModifiers(node.modifiers),
     dotDotDotToken: node.dotDotDotToken === null ? null : { ...node.dotDotDotToken, tsonic: null },
     questionToken: node.questionToken === null ? null : { ...node.questionToken, tsonic: null },
-    name: declarationName(node.name, parameter.type), type: read(node.type), initializer: null,
+    name: declarationName(node.name, parameter.type), type: read(node.type), initializer: { kind: "none" },
     tsonic: { declaration: checked.declaration.definition, local: null, storage: parameter.type, passing: parameter.passing,
       initializer: null, role: parameter.kind } };
 }
@@ -376,7 +376,7 @@ function callable<State>(deps: ElaborateDeps<State>, node: BodylessCallable, rea
   return { ...common, kind: node.kind };
 }
 
-export function declarationFunction<State>(deps: ElaborateDeps<State>, node: Hir.FunctionDeclaration<Checked>): Result<Hir.FunctionDeclaration<TypedPhase>> {
+export function declarationFunction<State>(deps: ElaborateDeps<State>, node: Hir.FunctionDeclaration<Checked>): Result<Hir.FunctionDeclaration<TypedPhase> & { readonly body: null }> {
   if (node.body !== null || node.asteriskToken !== null) return fail("A bodyless function retains its actual nonexecuting declaration.");
   const projected = projectDeclaration(deps, node);
   if (projected.kind === "refused") return projected;
@@ -399,7 +399,7 @@ function indexDeclaration(node: Hir.IndexSignatureDeclaration<Checked>, readType
   const read = node.type.tsonic.type.value;
   const typed: Hir.ParameterDeclaration<TypedPhase> = { ...parameter, name: declarationName(parameter.name, key),
     type: readType(parameter.type), modifiers: declarationModifiers(parameter.modifiers),
-    initializer: null, questionToken: null, dotDotDotToken: null,
+    initializer: { kind: "none" }, questionToken: null, dotDotDotToken: null,
     tsonic: { declaration: parameter.tsonic.declaration.definition, local: null, storage: key,
       passing: null, initializer: null, role: "required" } };
   return { ...node, modifiers: declarationModifiers(node.modifiers), typeParameters: null,

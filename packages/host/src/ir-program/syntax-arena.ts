@@ -1,8 +1,9 @@
-import type { TirBodyRoot, TirChapterSyntax, TirChapterSyntaxSlot, TirFormalInitializer, TirModuleRoot, TirModuleStatement,
-  TirTypedSyntax, TypedPhase } from "../ir-tir/contract.js";
+import type { TirBodyRoot, TirChapterSyntax, TirChapterSyntaxSlot, TirFormalInitializer, TirModuleRoot,
+  TirReadyCallable, TirTypedSyntax, TypedPhase } from "../ir-tir/contract.js";
 import { admitFormalInitializer, chapterStatementSyntax, chapterSyntaxSlots, formalInitializerSyntax } from "../ir-tir/index.js";
 import type { ModuleBodies } from "./contract.js";
-import type { BinaryExpression, BinarySyntaxReceipt, Block, BlockSyntaxReceipt, CheckedPhase, Expression, HirNode,
+import type { TypeReferenceRewrite } from "./canonical-types.js";
+import type { BinaryExpression, BinarySyntaxReceipt, Block, BlockSyntaxReceipt, CheckedPhase, CheckedUnopenedDeclaration, Expression, HirNode, SourceFile,
   SyntaxChildSlot, SyntaxCopyResult, SyntaxImage, SyntaxMaterialization, SyntaxNode, SyntaxPhaseCopy } from "../ir-hir/contract.js";
 import { prepareSyntaxCopy } from "../ir-hir/index.js";
 import type { InvariantFailure } from "../diag/contract.js";
@@ -21,13 +22,31 @@ interface ChapterPath {
 interface ChapterSyntaxAdmission<Stop> {
   readonly root: (path: ChapterPath) => Stop | null;
   readonly node: (path: ChapterPath, subject: TirChapterSyntax, ordinal: number) => SyntaxCopyResult<ChapterNodeShape | null, Stop>;
-  readonly edge: (path: ChapterPath) => Stop | null;
+  readonly edge: (path: ChapterPath, slot: TirChapterSyntaxSlot) => Stop | null;
   readonly formal: (path: ChapterPath) => Stop | null;
-  readonly statement: (module: TirModuleRoot, statement: TirModuleStatement) => void;
   readonly close: (subject: TirTypedSyntax) => void;
 }
 
-export type ChapterNodeShape = BlockSyntaxReceipt<TypedPhase> | BinarySyntaxReceipt<TypedPhase>;
+export type ChapterNodeShape = BlockSyntaxReceipt<TypedPhase> | BinarySyntaxReceipt<TypedPhase> |
+  PreparedChapterHeader;
+
+export interface CheckedChapterImage {
+  readonly expressionOf: (source: Expression<CheckedPhase>) => Expression<CheckedPhase>;
+  readonly declarationOf: (source: CheckedUnopenedDeclaration) => CheckedUnopenedDeclaration;
+  readonly sourceFileOf: (source: SourceFile<CheckedPhase>) => SourceFile<CheckedPhase>;
+}
+
+export interface HeaderOperands {
+  readonly references: TypeReferenceRewrite;
+  readonly typed: SyntaxImage<TypedPhase>;
+  readonly checked: CheckedChapterImage;
+  readonly callableOf: (source: TirReadyCallable) => TirReadyCallable;
+}
+
+export type PreparedChapterHeader =
+  { readonly ordinal: number; readonly slots: Iterable<TirChapterSyntaxSlot> } &
+  ({ readonly kind: "module"; readonly finish: (operands: HeaderOperands) => TirModuleRoot } |
+   { readonly kind: "callable"; readonly finish: (operands: HeaderOperands) => TirReadyCallable });
 
 interface ChapterFormalReceipt {
   readonly kind: "formal";
@@ -117,7 +136,7 @@ function walkChapterSyntax<Stop, Value>(
           const formal = frame.subject.node;
           if (formal.kind !== "Parameter") return throwInvariant({ owner: "ir-program", query: null, origin: formal.origin,
             message: "Only the actual formal can retain its initializer slot." });
-          const initializer = admitFormalInitializer(slot, () => admission.formal(path), () => admission.edge(path));
+          const initializer = admitFormalInitializer(slot, () => admission.formal(path), () => admission.edge(path, slot));
           if (initializer.kind === "refused") return initializer.stop;
           if (retainFormals) {
             const ordinal = wires.get(formal);
@@ -126,14 +145,13 @@ function walkChapterSyntax<Stop, Value>(
           }
           next = formalInitializerSyntax(initializer.value);
         } else {
-          const edge = admission.edge(path);
+          const edge = admission.edge(path, slot);
           if (edge !== null) return edge;
           if (slot.kind === "statement") {
             const module = frame.subject;
             if (module.kind !== "module-root") return throwInvariant({ owner: "ir-program", query: null, origin: module.node.origin,
               message: "Only the actual module role can retain its authored statement slot." });
             const statement = slot.read();
-            admission.statement(module.node, statement);
             next = chapterStatementSyntax(statement);
           } else next = slot.read();
         }
@@ -165,7 +183,8 @@ function walkChapterSyntax<Stop, Value>(
       wires.set(subject.node, shape ?? typed.length);
       active.add(subject.node);
       typed.push(subject);
-      const slots = shape === null ? chapterSyntaxSlots(subject) : preparedSlots(shape.slots);
+      const slots = shape === null ? chapterSyntaxSlots(subject)
+        : shape.kind === "module" || shape.kind === "callable" ? shape.slots : preparedSlots(shape.slots);
       pending.push({ kind: "children", subject, cursor: slots[Symbol.iterator](), path: frame.path });
     }
   }
@@ -184,16 +203,15 @@ export function inventoryChapterSyntax<Stop>(
 
 interface ChapterNodeCopyAdmission<Stop> {
   readonly root: (path: ChapterPath) => Stop | null;
-  readonly edge: (path: ChapterPath) => Stop | null;
+  readonly edge: (path: ChapterPath, slot: TirChapterSyntaxSlot) => Stop | null;
   readonly formal: (path: ChapterPath) => Stop | null;
-  readonly statement: (module: TirModuleRoot, statement: TirModuleStatement) => void;
-  readonly close: (subject: TirTypedSyntax) => void;
   readonly prepare: (subject: TirChapterSyntax, ordinal: number, copy: (node: SyntaxNode<TypedPhase>) => Stop | null) =>
     SyntaxCopyResult<ChapterNodeShape | null, Stop>;
 }
 
 export interface PreparedChapterNodeCopy<Image, Stop> {
   readonly checkedRoots: readonly HirNode[];
+  readonly headerOf: (node: TirTypedSyntax["node"]) => PreparedChapterHeader | null;
   readonly materialize: (image: Image, checkedDefault: ReadCheckedDefault) => SyntaxCopyResult<SyntaxImage<TypedPhase>, Stop>;
 }
 
@@ -203,17 +221,18 @@ export function prepareChapterNodeCopy<Image, Stop extends { readonly kind: "res
 ): SyntaxCopyResult<PreparedChapterNodeCopy<Image, Stop>, Stop> {
   let checked: ReadCheckedDefault | undefined;
   let inventory: ChapterSyntaxInventory | undefined;
+  let headerWires: ChapterWires | undefined;
   const prepared = prepareSyntaxCopy<TypedPhase, Stop, Image>(phase, beforeNode, copy => {
     const postorder: SyntaxNode<TypedPhase>[] = [];
     const discovered = walkChapterSyntax(roots, {
-      root: admission.root, edge: admission.edge, formal: admission.formal, statement: admission.statement,
+      root: admission.root, edge: admission.edge, formal: admission.formal,
       node: (_path, subject, ordinal) => admission.prepare(subject, ordinal, copy),
       close: subject => {
         if (subject.kind === "ordinary" || subject.kind === "formal") postorder.push(subject.node);
-        admission.close(subject);
       },
     }, true, (value, wires): SyntaxMaterialization<TypedPhase, Image> => {
       inventory = value;
+      headerWires = wires;
       return {
         postorder, wireOf: value.wireOf,
         blockOf: node => blockReceipt(wires, node),
@@ -233,6 +252,10 @@ export function prepareChapterNodeCopy<Image, Stop extends { readonly kind: "res
   });
   if (prepared.kind === "refused") return prepared;
   return { kind: "copied", value: { checkedRoots: requirePresent(inventory, missingParameter).checkedRoots,
+    headerOf: node => {
+      const row = requirePresent(headerWires, missingParameter).get(node);
+      return typeof row === "object" && (row.kind === "module" || row.kind === "callable") ? row : null;
+    },
     materialize: (image, checkedDefault) => {
       checked ??= checkedDefault;
       return prepared.value(image);

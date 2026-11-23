@@ -339,7 +339,7 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
       ?? fail("Every required source body has one authentic template."));
     const moduleBody = own.find(body => body.root.kind === "SourceFile");
     if (moduleBody === undefined || moduleBody.root.kind !== "SourceFile") return fail("A typed module retains its actual canonical SourceFile root.");
-    modules.set(module.module.module, { module: module.module.module, tree: moduleBody.root, bodies: own });
+    modules.set(module.module.module, { module: module.module.module, tree: { kind: "ready-root", root: moduleBody.root }, bodies: own });
   }
   for (const { body } of bodies.values()) {
     if (body.bindings.kind !== "instantiated") continue;

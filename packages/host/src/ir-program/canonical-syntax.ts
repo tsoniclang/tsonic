@@ -1,7 +1,7 @@
 import type { HirNode, SyntaxCopyResult } from "../ir-hir/contract.js";
 import type { TirBody, TirChapterTree } from "../ir-tir/contract.js";
 import type { InstantiationStop } from "./work.js";
-import type { PreparedTypedSyntax } from "./instantiate-syntax.js";
+import type { PreparedTypedSyntax, ProjectedChapter } from "./instantiate-syntax.js";
 import { prepareTypedChapter } from "./instantiate-syntax.js";
 import type { AdmittedTirSyntax } from "./instantiate-tir.js";
 import { inventoryTirBody } from "./instantiate-tir.js";
@@ -14,7 +14,7 @@ import { copiedProjection, projectRead, projectRecord, projectRows } from "./pro
 import type { InvariantFailure } from "../diag/contract.js";
 import { requirePresent } from "../diag/index.js";
 import { typedSyntaxPhaseCopy } from "./canonical-phase.js";
-import type { ChapterRootSlot } from "./syntax-arena.js";
+import type { ChapterRootSlot, CheckedChapterImage } from "./syntax-arena.js";
 import { chapterBodyRoot } from "./syntax-arena.js";
 import type { BodyInstance } from "../ir-types/contract.js";
 
@@ -24,33 +24,25 @@ const missingSyntax: InvariantFailure = { owner: "ir-program", query: null, orig
 export function rewriteBodySyntax(
   rewrite: TypeReferenceRewrite, roots: AdmittedTirSyntax, syntax: PreparedTypedSyntax,
 ): SyntaxCopyResult<Pick<TirBody, "root" | "params">, InstantiationStop> {
-  const projected = syntax.materialize(rewrite);
+  const projected = syntax.materialize(rewrite, { expressionOf: source => source, declarationOf: source => source, sourceFileOf: source => source });
   if (projected.kind === "refused") return projected;
   const image = projected.value;
   for (const [index, parameter] of roots.params.entries())
-    roots.params[index] = requirePresent(image.parameterOf(parameter) ?? undefined, missingSyntax);
-  return { kind: "copied", value: { root: requirePresent(image.bodyRootOf(roots.root) ?? undefined, missingSyntax), params: roots.params } };
+    roots.params[index] = image.formalOf(parameter);
+  return { kind: "copied", value: { root: image.bodyRootOf(roots.root), params: roots.params } };
 }
 
 export interface PreparedPublishedBody {
   readonly instance: BodyInstance;
-  readonly materialize: (syntax: ResolvedChapterSyntax) => PublishedBody;
+  readonly materialize: (syntax: ProjectedChapter) => PublishedBody;
 }
 
 export interface PreparedModuleSyntax {
   readonly checkedRoots: readonly HirNode[];
   readonly originalTree: TirChapterTree;
-  readonly bodies: readonly PreparedPublishedBody[];
-  readonly materialize: (checked: ReadChapterChecked, bodies: readonly PreparedPublishedBody[]) => ModuleBodies;
+  readonly bodies: PreparedPublishedBody[];
+  readonly materialize: (checked: CheckedChapterImage, bodies: readonly PreparedPublishedBody[]) => ProjectionResult<ModuleBodies>;
 }
-
-export type ReadChapterChecked = (node: HirNode) => HirNode;
-
-export type ResolvedChapterSyntax = {
-  readonly bodyRootOf: (node: TirBody["root"]) => TirBody["root"];
-  readonly formalOf: (node: TirBody["params"][number]) => TirBody["params"][number];
-  readonly treeOf: (tree: TirChapterTree) => TirChapterTree;
-};
 
 export type RememberProgramBody = (
   original: TirBody, source: PublishedBody, selected: Omit<Extract<PublishedBody, { readonly kind: "selected" }>, "tir"> | null,
@@ -72,10 +64,12 @@ export function prepareModuleSyntax(scan: ProjectionInventory, rewrite: TypeRefe
     if (rows.kind === "refused") return rows;
     const admittedRows = rows.value;
     const originalTree = module.tree;
+    const sourceTree: TirChapterTree = originalTree.kind === "checked-root" ? { kind: "checked-root", root: originalTree.root }
+      : { kind: "ready-root", root: originalTree.root };
     const moduleId = module.module;
     function* slots(): Generator<ChapterRootSlot> {
-      yield { read: () => originalTree.kind === "checked-root" ? { kind: "checked", node: originalTree.root }
-        : { kind: "module-root", node: originalTree.root }, path: at + ".tree" };
+      yield { read: () => sourceTree.kind === "checked-root" ? { kind: "checked", node: sourceTree.root }
+        : { kind: "module-root", node: sourceTree.root }, path: at + ".tree" };
       for (const [position, { body }] of admittedRows.entries()) {
         const path = at + ".bodies[" + position + "].tir";
         yield { read: () => chapterBodyRoot(body.roots.root), path: path + ".root" };
@@ -110,8 +104,14 @@ export function prepareModuleSyntax(scan: ProjectionInventory, rewrite: TypeRefe
     }
     return copiedProjection({ checkedRoots: syntax.value.checkedRoots, originalTree, bodies,
       materialize: (checked, ranked) => {
-        const image = syntax.value.materialize(rewrite, checked);
-        return { module: moduleId, tree: image.treeOf(originalTree), bodies: ranked.map(body => body.materialize(image)) };
+        const projected = syntax.value.materialize(rewrite, checked);
+        if (projected.kind === "refused") return projected;
+        const image = projected.value;
+        const root = sourceTree.kind === "ready-root" ? image.bodyRootOf(sourceTree.root) : null;
+        const tree: TirChapterTree = sourceTree.kind === "checked-root"
+          ? { kind: "checked-root", root: checked.sourceFileOf(sourceTree.root) }
+          : { kind: "ready-root", root: requirePresent(root?.kind === "SourceFile" ? root : undefined, missingSyntax) };
+        return copiedProjection({ module: moduleId, tree, bodies: ranked.map(body => body.materialize(image)) });
       },
     });
   });

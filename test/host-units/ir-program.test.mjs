@@ -32,13 +32,13 @@ import { programForEvidence } from "./fixtures/program-executions.mjs";
 const repository = fileURLToPath(new URL("../../", import.meta.url));
 const runtimeNames = [
   "index", "canonical", "canonical-types", "canonical-tir",
-  "canonical-facts", "canonical-syntax", "print", "parse", "verify-index", "verify-module", "instantiate",
+  "canonical-facts", "canonical-syntax", "chapter-projection", "print", "parse", "verify-index", "verify-module", "instantiate",
   "canonical-phase", "syntax-arena",
   "text-module-bindings", "verify-module-bindings", "text-values", "text-types", "text-inference", "text-phase", "print-syntax-statements",
   "print-syntax-expressions", "print-syntax-types", "print-syntax-auxiliary",
   "text-core", "text-causes", "text-tir", "text-phase-declarations", "print-syntax",
   "parse-values", "parse-types", "parse-diagnostics",
-  "syntax-edges", "program-values", "verify-structure", "parse-core", "parse-inference",
+  "program-values", "verify-structure", "parse-core", "parse-inference",
   "parse-tir", "parse-phase-declarations", "parse-phase",
   "parse-syntax-values", "parse-syntax-statements", "parse-syntax-expressions", "parse-syntax-types",
   "parse-syntax-auxiliary", "parse-syntax-jsdoc", "parse-syntax-references", "parse-syntax", "instantiate-phase",

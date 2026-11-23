@@ -472,6 +472,9 @@ export const prepareSyntaxCopy: PrepareSyntaxCopy = <P extends Phase, Stop, Imag
     for (const node of postorder) planSyntaxNode(requirePresent(prepared, missingPreparation), node).materialize(image);
     return copied({
       nodeOf: node => prepared === undefined || wireOf(node) === undefined ? null : prepared.SyntaxNode(node).read(),
+      statementOf: node => prepared === undefined || wireOf(node) === undefined ? null : prepared.Statement(node).read(),
+      typeNodeOf: node => prepared === undefined || wireOf(node) === undefined ? null : prepared.TypeNode(node).read(),
+      modifierOf: node => prepared === undefined || wireOf(node) === undefined ? null : prepared.ModifierLike(node).read(),
       sourceFileOf: node => prepared === undefined || wireOf(node) === undefined ? null : prepared.SourceFile(node).read(),
       bodyRootOf: node => prepared === undefined || wireOf(node) === undefined ? null : prepared.BodyRoot(node).read(),
       parameterOf: node => prepared === undefined || wireOf(node) === undefined ? null : prepared.ParameterDeclaration(node).read(),

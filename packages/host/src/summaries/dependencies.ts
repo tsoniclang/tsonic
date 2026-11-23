@@ -2,11 +2,11 @@ import type { DataflowStop } from "../dataflow/contract.js";
 import { accountFailure, chargeResultEntries, chargeWork } from "../dataflow/index.js";
 import type { BodyId, DefId, NodeRef } from "../ids/contract.js";
 import { encodeKey } from "../ids/index.js";
-import { iterateChildrenOfSyntax } from "../ir-hir/index.js";
 import type { ExecutionDependency, SummaryKey } from "../ir-facts/contract.js";
 import { admitSummaryIdentity, summaryKey } from "../ir-facts/index.js";
 import type { RuleOutcome } from "../ir-infer/contract.js";
-import type { ResolvedCallee, TirApplication, TirNode, TirProtocol, TypedOperation } from "../ir-tir/contract.js";
+import type { ResolvedCallee, TirApplication, TirChapterSyntaxSlot, TirNode, TirProtocol, TirTypedSyntax, TypedOperation } from "../ir-tir/contract.js";
+import { chapterSyntaxSlots, readChapterSyntaxSlot, tirBodySyntaxOf } from "../ir-tir/index.js";
 import { sameInstance } from "../ir-types/index.js";
 import type { DependenciesOf } from "./contract.js";
 
@@ -15,12 +15,12 @@ function selected<Value>(outcome: RuleOutcome<Value>): Value {
   return outcome.decision;
 }
 
-function callableBody(node: TirNode): TirNode | null {
+function callableSyntax(node: TirNode): boolean {
   switch (node.kind) {
     case "FunctionDeclaration": case "FunctionExpression": case "ArrowFunction":
     case "MethodDeclaration": case "Constructor": case "GetAccessor": case "SetAccessor":
-      return node.body;
-    default: return null;
+      return true;
+    default: return false;
   }
 }
 
@@ -137,16 +137,15 @@ export const dependenciesOf: DependenciesOf = (deps, input) => {
     }
     return null;
   };
-  const visit = (node: TirNode): DataflowStop | null => {
+  let selectedTarget: DefId | null = null;
+  const visit = (node: TirNode, accountedTarget: DefId | null): DataflowStop | null => {
     const at: NodeRef = { body: input.tir.body, node: node.id };
     switch (node.kind) {
-      case "FunctionDeclaration": case "MethodDeclaration": case "Constructor":
-      case "GetAccessor": case "SetAccessor":
-        return node.body === null ? null : callable(at, node.tsonic.definition);
       case "ArrowFunction": case "FunctionExpression": return callable(at, node.tsonic.callable.definition);
       case "Identifier": case "PrivateIdentifier": case "QualifiedName": {
         const name = node.tsonic;
         if ((name.role === "value" || name.role === "shorthand-value") && name.resolution.kind === "definition") {
+          if (accountedTarget === name.resolution.definition) return null;
           const lookup = chargeWork(account, 1);
           if (lookup !== null) return lookup;
           const values = deps.callableEntriesAt(at, name.resolution.definition);
@@ -157,8 +156,10 @@ export const dependenciesOf: DependenciesOf = (deps, input) => {
       case "CallExpression": case "TaggedTemplateExpression": case "NewExpression": {
         const phase = node.tsonic;
         if (!("application" in phase)) return null;
-        const stop = application(at, selected(phase.application), node.kind === "NewExpression" ? "constructor" : "call");
+        const applied = selected(phase.application);
+        const stop = application(at, applied, node.kind === "NewExpression" ? "constructor" : "call");
         if (stop !== null) return stop;
+        selectedTarget = applied.callee.decision.advertised.declaration;
         if (node.kind === "NewExpression") {
           const lookup = chargeWork(account, 1);
           if (lookup !== null) return lookup;
@@ -176,7 +177,7 @@ export const dependenciesOf: DependenciesOf = (deps, input) => {
         if (getter !== null) return getter;
         return value.role === "assignment-target" && member.setter !== null ? callee(at, member.setter, "setter") : null;
       }
-      case "VariableDeclaration": case "Parameter":
+      case "VariableDeclaration":
         return node.tsonic.initializer === null ? null : initializer(at, node.tsonic.initializer);
       case "PropertyDeclaration": case "EnumMember":
         return node.tsonic.initializer === null ? null : initializer(at, node.tsonic.initializer);
@@ -230,21 +231,24 @@ export const dependenciesOf: DependenciesOf = (deps, input) => {
     if (parameterIndex !== signature.parameters.length)
       throw new TypeError("Execution headers retain every actual selected ordinary formal.");
   }
-  const stack: { readonly children: Generator<TirNode, void, undefined>; readonly callable: TirNode | null;
-    readonly placed: TirNode | null }[] = [];
-  let currentNode: TirNode | null = input.tir.root;
-  while (currentNode !== null || stack.length !== 0) {
-    if (currentNode !== null) {
+  const stack: { readonly children: Iterator<TirChapterSyntaxSlot>; readonly callable: boolean; readonly placed: boolean;
+    readonly target: DefId | null; readonly targetField: string }[] = [];
+  let subject: TirTypedSyntax | null = tirBodySyntaxOf(input.tir.root);
+  let accountedTarget: DefId | null = null;
+  while (subject !== null || stack.length !== 0) {
+    if (subject !== null) {
       const admission = chargeWork(account, 1) ?? chargeResultEntries(account, 4);
       if (admission !== null) return admission;
-      const stop = visit(currentNode);
+      selectedTarget = null;
+      const node: TirNode | null = subject.kind === "ordinary" ? subject.node : null;
+      const stop = node === null ? null : visit(node, accountedTarget);
       if (stop !== null) return stop;
-      const callable = callableBody(currentNode);
-      const placed = (currentNode.kind === "VariableDeclaration" || currentNode.kind === "Parameter"
-        || currentNode.kind === "PropertyDeclaration" || currentNode.kind === "EnumMember") && currentNode.tsonic.initializer !== null
-        ? currentNode.initializer : null;
-      stack.push({ children: iterateChildrenOfSyntax(currentNode), callable, placed });
-      currentNode = null;
+      const placed = subject.kind === "formal" || (node?.kind === "VariableDeclaration" || node?.kind === "PropertyDeclaration"
+        || node?.kind === "EnumMember") && node.tsonic.initializer !== null;
+      stack.push({ children: chapterSyntaxSlots(subject)[Symbol.iterator](), callable: node !== null && callableSyntax(node),
+        placed, target: node?.kind === "ParenthesizedExpression" ? accountedTarget : selectedTarget,
+        targetField: node?.kind === "TaggedTemplateExpression" ? "tag" : "expression" });
+      subject = null;
     }
     const frame = stack[stack.length - 1];
     if (frame === undefined) throw new TypeError("Dependency traversal retains an actual charged frame.");
@@ -252,8 +256,14 @@ export const dependenciesOf: DependenciesOf = (deps, input) => {
     if (read !== null) return read;
     const child = frame.children.next();
     if (child.done) stack.pop();
-    else if (child.value !== frame.callable && child.value !== frame.placed
-      && !(frame.callable !== null && child.value.kind === "Parameter")) currentNode = child.value;
+    else {
+      const field = child.value.fields[0];
+      if (frame.placed && field === "initializer" || frame.callable && (field === "parameters" || field === "body")) continue;
+      const next = readChapterSyntaxSlot(child.value);
+      if (next === null || next.kind === "checked" || next.kind === "ready-callable") continue;
+      accountedTarget = field === frame.targetField ? frame.target : null;
+      subject = next;
+    }
   }
   return { kind: "complete", value: { operations, dependencies } };
 };

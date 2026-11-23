@@ -1,10 +1,10 @@
 import type { InvariantFailure } from "../diag/contract.js";
 import { throwInvariant } from "../diag/index.js";
 import type { BlockId, BodyId, LocalId, LocalRef, NodeId, Origin, PlaceId, TyId } from "../ids/contract.js";
-import type { BinaryExpression, CallExpression, ConditionalExpression, DoStatement, Expression, ForStatement, IfStatement, LabeledStatement, NewExpression, NodeHeader, ReturnStatement, SourceFile, Statement, SwitchStatement, ThrowStatement, VariableDeclaration, VariableDeclarationList, WhileStatement } from "../ir-hir/contract.js";
+import type { BinaryExpression, CallExpression, ConditionalExpression, DoStatement, Expression, ForStatement, IfStatement, LabeledStatement, NewExpression, NodeHeader, ReturnStatement, Statement, SwitchStatement, ThrowStatement, VariableDeclaration, VariableDeclarationList, WhileStatement } from "../ir-hir/contract.js";
 import type { CaseClause, CaseOrDefaultClause, DefaultClause } from "../ir-hir/contract.js";
 import type { MirOperand, MirSite } from "../ir-mir/contract.js";
-import type { MemberSelection, TirApplication, TirBody, TirDemand, TypedOperation, TypedValueOccurrence, TypedPhase, TypedValue } from "../ir-tir/contract.js";
+import type { MemberSelection, TirApplication, TirBody, TirDemand, TirModuleRoot, TypedOperation, TypedValueOccurrence, TypedPhase, TypedValue } from "../ir-tir/contract.js";
 import type { InternalBodyInput, LowerMirDeps } from "./contract.js";
 import type { LowerState, ReadAnchor } from "./state.js";
 
@@ -51,7 +51,7 @@ export interface SwitchTarget<Clause extends CaseOrDefaultClause<TypedPhase> = C
 }
 
 export type Work =
-  | { readonly kind: "module"; readonly node: SourceFile<TypedPhase>; readonly position: number }
+  | { readonly kind: "module"; readonly node: TirModuleRoot; readonly position: number }
   | { readonly kind: "statement"; readonly node: Statement<TypedPhase> }
   | { readonly kind: "expression"; readonly node: Expression<TypedPhase> }
   | { readonly kind: "conditional"; readonly node: ConditionalExpression<TypedPhase> }
