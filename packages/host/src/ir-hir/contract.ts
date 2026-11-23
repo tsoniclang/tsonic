@@ -4907,6 +4907,44 @@ export interface ReturnSyntaxReceipt<P extends Phase> {
   readonly expression: () => Expression<P> | null;
 }
 
+export type UnarySyntax<P extends Phase> = PrefixUnaryExpression<P> | PostfixUnaryExpression<P>;
+export type AnnotatedExpressionSyntax<P extends Phase> = AsExpression<P> | SatisfiesExpression<P>;
+
+export interface UnarySyntaxReceipt<P extends Phase> {
+  readonly kind: "unary";
+  readonly ordinal: number;
+  readonly slots: Iterable<SyntaxChildSlot<P>>;
+  readonly operand: () => Expression<P>;
+}
+
+export interface AnnotatedExpressionSyntaxReceipt<P extends Phase> {
+  readonly kind: "annotated-expression";
+  readonly ordinal: number;
+  readonly slots: Iterable<SyntaxChildSlot<P>>;
+  readonly expression: () => Expression<P>;
+  readonly type: () => TypeNode<P>;
+}
+
+export interface ConditionalSyntaxReceipt<P extends Phase> {
+  readonly kind: "conditional";
+  readonly ordinal: number;
+  readonly slots: Iterable<SyntaxChildSlot<P>>;
+  readonly condition: () => Expression<P>;
+  readonly question: () => QuestionToken<P>;
+  readonly whenTrue: () => Expression<P>;
+  readonly colon: () => ColonToken<P>;
+  readonly whenFalse: () => Expression<P>;
+}
+
+export interface IfSyntaxReceipt<P extends Phase> {
+  readonly kind: "if";
+  readonly ordinal: number;
+  readonly slots: Iterable<SyntaxChildSlot<P>>;
+  readonly expression: () => Expression<P>;
+  readonly thenStatement: () => Statement<P>;
+  readonly elseStatement: () => Statement<P> | null;
+}
+
 export interface ApplicationSyntaxReceipt<P extends Phase> {
   readonly kind: "application";
   readonly ordinal: number;
@@ -4950,9 +4988,11 @@ export interface FunctionSyntaxReceipt<P extends Phase> {
 }
 
 export type RetainedSyntaxNode<P extends Phase> = Block<P> | BinaryExpression<P> | ReturnStatement<P> | SingleExpressionSyntax<P>
-  | CallOrNewExpression<P> | ParameterDeclaration<P> | SourceFile<P> | FunctionDeclaration<P> | FunctionExpression<P>;
+  | CallOrNewExpression<P> | ParameterDeclaration<P> | SourceFile<P> | FunctionDeclaration<P> | FunctionExpression<P>
+  | UnarySyntax<P> | AnnotatedExpressionSyntax<P> | ConditionalExpression<P> | IfStatement<P>;
 export type SyntaxStructureReceipt<P extends Phase> = BlockSyntaxReceipt<P> | BinarySyntaxReceipt<P> | ReturnSyntaxReceipt<P>
-  | SingleExpressionReceipt<P> | ApplicationSyntaxReceipt<P> | ParameterSyntaxReceipt<P> | SourceFileSyntaxReceipt<P> | FunctionSyntaxReceipt<P>;
+  | SingleExpressionReceipt<P> | ApplicationSyntaxReceipt<P> | ParameterSyntaxReceipt<P> | SourceFileSyntaxReceipt<P> | FunctionSyntaxReceipt<P>
+  | UnarySyntaxReceipt<P> | AnnotatedExpressionSyntaxReceipt<P> | ConditionalSyntaxReceipt<P> | IfSyntaxReceipt<P>;
 export type SyntaxChildListField = "modifiers" | "typeParameters" | "parameters" | "typeArguments" | "arguments" | "statements";
 export type PrepareSyntaxStructure = <P extends Phase, Stop>(
   node: SyntaxNode<P>, ordinal: number, reserve: (node: RetainedSyntaxNode<P>) => Stop | null,
@@ -4968,7 +5008,7 @@ export interface SyntaxForest<P extends Phase> {
   readonly nodes: () => Iterable<SyntaxNode<P>>;
   readonly wireOf: (node: SyntaxNode<P>) => number | undefined;
   readonly structureOf: (node: SyntaxNode<P>) => "block" | "binary" | "return" | "single-expression" | "application" |
-    "formal-header" | "source-header" | "function-header" | null;
+    "formal-header" | "source-header" | "function-header" | "unary" | "annotated-expression" | "conditional" | "if" | null;
   readonly firstRootSize: number;
   readonly copy: <Stop, Image>(start: () => SyntaxCopyResult<SyntaxPhaseCopy<P, Stop, Image>, Stop>,
     beforeNode: (node: SyntaxNode<P>) => Stop | null, image: Image) => SyntaxCopyResult<SyntaxImage<P>, Stop>;

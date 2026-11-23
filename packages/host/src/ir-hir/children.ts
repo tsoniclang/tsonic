@@ -6,7 +6,9 @@ import type { IterateFunctionHeaderSlots, IterateParameterHeaderSlots, IterateSo
   PreparedFunctionHeader, PreparedSourceFileHeader, PrepareFunctionHeader, PrepareSourceFileHeader, SourceFileHeader,
   SyntaxChildSlot, TypeParameterDeclaration } from "./contract.js";
 import type { ApplicationSyntaxReceipt, BinaryExpression, BinaryOperatorToken, BinarySyntaxReceipt, Block, BlockSyntaxReceipt,
+  AnnotatedExpressionSyntax, AnnotatedExpressionSyntaxReceipt, ColonToken, ConditionalExpression, ConditionalSyntaxReceipt,
   BindingName, BlockOrExpression, CallOrNewExpression, DotDotDotToken, Expression, FunctionSyntaxReceipt,
+  IfStatement, IfSyntaxReceipt, UnarySyntax, UnarySyntaxReceipt,
   ModifierLike, ModifierList, ParameterSyntaxReceipt, SourceFile, SourceFileSyntaxReceipt, SyntaxChildListField,
   PrepareSyntaxStructure, QuestionDotToken, QuestionToken, RetainedSyntaxNode,
   ReturnStatement, ReturnSyntaxReceipt, SingleExpressionReceipt, SingleExpressionSyntax,
@@ -201,6 +203,69 @@ function prepareReturnStructure<P extends Phase>(node: ReturnStatement<P>, ordin
     expression: () => requirePresent(expression, missingStructure) };
 }
 
+function heldChild<Value>(source: () => Value): { readonly pull: () => Value; readonly read: () => Value } {
+  let held: Value | undefined;
+  return { pull: () => (held = source()), read: () => requirePresent(held, missingStructure) };
+}
+
+function unarySlots<P extends Phase>(operand: () => Expression<P>): Iterable<SyntaxChildSlot<P>> {
+  return children<P, UnarySyntax<P>>(["operand", "required", operand]);
+}
+
+function prepareUnary<P extends Phase>(node: UnarySyntax<P>, ordinal: number): UnarySyntaxReceipt<P> {
+  const operand = heldChild(() => node.operand);
+  return { kind: "unary", ordinal, slots: unarySlots<P>(operand.pull), operand: operand.read };
+}
+
+function annotatedExpressionSlots<P extends Phase>(expression: () => Expression<P>, type: () => TypeNode<P>): Iterable<SyntaxChildSlot<P>> {
+  return children<P, AnnotatedExpressionSyntax<P>>(["expression", "required", expression], ["type", "required", type]);
+}
+
+function prepareAnnotatedExpression<P extends Phase>(node: AnnotatedExpressionSyntax<P>, ordinal: number): AnnotatedExpressionSyntaxReceipt<P> {
+  const expression = heldChild(() => node.expression);
+  const type = heldChild(() => node.type);
+  return { kind: "annotated-expression", ordinal, slots: annotatedExpressionSlots<P>(expression.pull, type.pull),
+    expression: expression.read, type: type.read };
+}
+
+interface ConditionalFields<P extends Phase> {
+  readonly condition: () => Expression<P>;
+  readonly question: () => QuestionToken<P>;
+  readonly whenTrue: () => Expression<P>;
+  readonly colon: () => ColonToken<P>;
+  readonly whenFalse: () => Expression<P>;
+}
+
+function conditionalSlots<P extends Phase>(fields: ConditionalFields<P>): Iterable<SyntaxChildSlot<P>> {
+  return children<P, ConditionalExpression<P>>(["condition", "required", fields.condition], ["questionToken", "required", fields.question],
+    ["whenTrue", "required", fields.whenTrue], ["colonToken", "required", fields.colon], ["whenFalse", "required", fields.whenFalse]);
+}
+
+function prepareConditional<P extends Phase>(node: ConditionalExpression<P>, ordinal: number): ConditionalSyntaxReceipt<P> {
+  const condition = heldChild(() => node.condition);
+  const question = heldChild(() => node.questionToken);
+  const whenTrue = heldChild(() => node.whenTrue);
+  const colon = heldChild(() => node.colonToken);
+  const whenFalse = heldChild(() => node.whenFalse);
+  return { kind: "conditional", ordinal, slots: conditionalSlots<P>({
+    condition: condition.pull, question: question.pull, whenTrue: whenTrue.pull, colon: colon.pull, whenFalse: whenFalse.pull,
+  }), condition: condition.read, question: question.read, whenTrue: whenTrue.read, colon: colon.read, whenFalse: whenFalse.read };
+}
+
+function ifSlots<P extends Phase>(expression: () => Expression<P>, thenStatement: () => Statement<P>, elseStatement: () => Statement<P> | null):
+  Iterable<SyntaxChildSlot<P>> {
+  return children<P, IfStatement<P>>(["expression", "required", expression], ["thenStatement", "required", thenStatement],
+    ["elseStatement", "nullable", elseStatement]);
+}
+
+function prepareIf<P extends Phase>(node: IfStatement<P>, ordinal: number): IfSyntaxReceipt<P> {
+  const expression = heldChild(() => node.expression);
+  const thenStatement = heldChild(() => node.thenStatement);
+  const elseStatement = heldChild(() => node.elseStatement);
+  return { kind: "if", ordinal, slots: ifSlots<P>(expression.pull, thenStatement.pull, elseStatement.pull),
+    expression: expression.read, thenStatement: thenStatement.read, elseStatement: elseStatement.read };
+}
+
 function* applicationSlots<P extends Phase>(node: CallOrNewExpression<P>,
   expression: (value: Expression<P>) => Expression<P>,
   questionDot: (value: QuestionDotToken<P> | null) => QuestionDotToken<P> | null,
@@ -262,7 +327,9 @@ export const prepareSyntaxStructure: PrepareSyntaxStructure = <P extends Phase, 
 ) => {
   if (node.kind !== "Block" && node.kind !== "BinaryExpression" && node.kind !== "ReturnStatement" &&
       node.kind !== "CallExpression" && node.kind !== "NewExpression" && node.kind !== "Parameter" &&
-      node.kind !== "SourceFile" && node.kind !== "FunctionDeclaration" && node.kind !== "FunctionExpression" && !isSingleExpressionSyntax<P>(node))
+      node.kind !== "SourceFile" && node.kind !== "FunctionDeclaration" && node.kind !== "FunctionExpression" &&
+      node.kind !== "PrefixUnaryExpression" && node.kind !== "PostfixUnaryExpression" && node.kind !== "AsExpression" &&
+      node.kind !== "SatisfiesExpression" && node.kind !== "ConditionalExpression" && node.kind !== "IfStatement" && !isSingleExpressionSyntax<P>(node))
     return { kind: "copied", value: null };
   const stop = reserve(node);
   if (stop !== null) return { kind: "refused", stop };
@@ -278,6 +345,10 @@ export const prepareSyntaxStructure: PrepareSyntaxStructure = <P extends Phase, 
   }
   if (node.kind === "FunctionDeclaration" || node.kind === "FunctionExpression")
     return prepareFunctionStructure<P, Stop>(node, ordinal, field => admitList(node, field));
+  if (node.kind === "PrefixUnaryExpression" || node.kind === "PostfixUnaryExpression") return { kind: "copied", value: prepareUnary<P>(node, ordinal) };
+  if (node.kind === "AsExpression" || node.kind === "SatisfiesExpression") return { kind: "copied", value: prepareAnnotatedExpression<P>(node, ordinal) };
+  if (node.kind === "ConditionalExpression") return { kind: "copied", value: prepareConditional<P>(node, ordinal) };
+  if (node.kind === "IfStatement") return { kind: "copied", value: prepareIf<P>(node, ordinal) };
   return { kind: "copied", value: prepareSingleExpression<P>(node, ordinal) };
 };
 
@@ -518,7 +589,7 @@ function ordinarySlots<PhaseType extends Phase>(
     case "ReturnStatement":
       return returnSlots<PhaseType>(node, child => child);
     case "IfStatement":
-      return children<PhaseType, typeof node>(["expression", "required", () => node.expression], ["thenStatement", "required", () => node.thenStatement], ["elseStatement", "nullable", () => node.elseStatement]);
+      return ifSlots<PhaseType>(() => node.expression, () => node.thenStatement, () => node.elseStatement);
     case "DoStatement":
       return children<PhaseType, typeof node>(["statement", "required", () => node.statement], ["expression", "required", () => node.expression]);
     case "WhileStatement":
@@ -640,7 +711,7 @@ function ordinarySlots<PhaseType extends Phase>(
       });
     case "PrefixUnaryExpression":
     case "PostfixUnaryExpression":
-      return children<PhaseType, typeof node>(["operand", "required", () => node.operand]);
+      return unarySlots<PhaseType>(() => node.operand);
     case "YieldExpression":
       return children<PhaseType, typeof node>(["asteriskToken", "nullable", () => node.asteriskToken], ["expression", "nullable", () => node.expression]);
     case "ArrowFunction":
@@ -648,9 +719,10 @@ function ordinarySlots<PhaseType extends Phase>(
         ["type", "nullable", () => node.type], ["fullSignature", "nullable", () => node.fullSignature], ["asteriskToken", "nullable", () => node.asteriskToken], ["equalsGreaterThanToken", "required", () => node.equalsGreaterThanToken], ["body", "nullable", () => node.body]);
     case "AsExpression":
     case "SatisfiesExpression":
-      return children<PhaseType, typeof node>(["expression", "required", () => node.expression], ["type", "required", () => node.type]);
+      return annotatedExpressionSlots<PhaseType>(() => node.expression, () => node.type);
     case "ConditionalExpression":
-      return children<PhaseType, typeof node>(["condition", "required", () => node.condition], ["questionToken", "required", () => node.questionToken], ["whenTrue", "required", () => node.whenTrue], ["colonToken", "required", () => node.colonToken], ["whenFalse", "required", () => node.whenFalse]);
+      return conditionalSlots<PhaseType>({ condition: () => node.condition, question: () => node.questionToken, whenTrue: () => node.whenTrue,
+        colon: () => node.colonToken, whenFalse: () => node.whenFalse });
     case "PropertyAccessExpression":
       return children<PhaseType, typeof node>(["expression", "required", () => node.expression], ["questionDotToken", "nullable", () => node.questionDotToken], ["name", "required", () => node.name]);
     case "ElementAccessExpression":

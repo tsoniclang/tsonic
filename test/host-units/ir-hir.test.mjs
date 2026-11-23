@@ -1241,6 +1241,76 @@ test("Checked module, callable and formal receipts retain each acquired structur
     "formal list range", "formal list row", "type", "fullSignature", "body", "endOfFileToken"]);
 });
 
+test("Checked branch, operand and annotation slots are read once before the completed image", async () => {
+  const { createInstantiationMeter, admitCheckedProjection, chargeInstantiationWork } = await import("../../packages/host/dist/ir-program/work.js");
+  const { accountFailure, remainingWork } = await import("../../packages/host/dist/dataflow/index.js");
+  const fixture = await loadFrontFixture();
+  const { checked } = fixture.checkedModuleOf(
+    "export function choose(flag: boolean): boolean { if (flag) return !flag; return (flag ? false : true) as boolean; }");
+  const block = checked.tree.statements.nodes[0].body;
+  const branch = block.statements.nodes[0];
+  const unary = branch.thenStatement.expression;
+  const annotated = block.statements.nodes[1].expression;
+  const conditional = annotated.expression.expression;
+  assert.deepEqual([branch.kind, unary.kind, annotated.kind, conditional.kind],
+    ["IfStatement", "PrefixUnaryExpression", "AsExpression", "ConditionalExpression"]);
+  const reads = [];
+  let sealed = false;
+  const watch = (node, field, label) => {
+    const original = node[field];
+    Object.defineProperty(node, field, { get() {
+      assert.equal(sealed, false, `${label} was read after discovery`);
+      reads.push(label);
+      return original;
+    } });
+    return original;
+  };
+  const condition = watch(branch, "expression", "if condition");
+  const then = watch(branch, "thenStatement", "then");
+  watch(unary, "operand", "unary operand");
+  watch(branch, "elseStatement", "else");
+  watch(annotated, "expression", "annotated expression");
+  const type = watch(annotated, "type", "annotation");
+  for (const field of ["condition", "questionToken", "whenTrue", "colonToken", "whenFalse"])
+    watch(conditional, field, field);
+  const defaults = { maximumWork: 10000, maximumCreatedRecords: 10000, maximumBindingVectorsPerArtifact: 1,
+    typeExpansion: { maximumDepth: 10, maximumVisits: 1000, maximumUnionMembers: 100, maximumIntersectionMembers: 100 } };
+  const hold = value => ({ kind: "copied", value });
+  const run = limits => {
+    sealed = false;
+    reads.length = 0;
+    const meter = createInstantiationMeter(limits);
+    const unit = () => chargeInstantiationWork(meter);
+    const admit = (work, records) => admitCheckedProjection(meter, work, records);
+    const forest = product.walkSyntaxForest([{ path: "module", read: () => checked.tree }], {
+      root: unit, edge: unit, node: unit, list: unit,
+      parameter: () => admit(1, 1), structure: node => admit(node.kind === "Block" ? 9 : 7, 2),
+    });
+    if (forest.kind !== "complete") return { result: { kind: "refused", stop: forest }, stop: meter.failure ?? accountFailure(meter.account) };
+    sealed = true;
+    const result = product.copyCheckedContent(forest.value,
+      { admit, syntaxNode: () => admit(1, 1), type: hold, signature: hold, bindings: hold, parameter: hold, component: hold, core: hold });
+    return { result, stop: meter.failure ?? accountFailure(meter.account), work: limits.maximumWork - remainingWork(meter.account), records: meter.created };
+  };
+  const earned = run(defaults);
+  assert.equal(earned.result.kind, "copied");
+  const image = earned.result.value.syntax;
+  const copied = image.nodeOf(branch);
+  assert.equal(copied.expression === image.nodeOf(condition) && copied.thenStatement === image.nodeOf(then), true);
+  assert.equal(copied.elseStatement, null);
+  assert.equal(image.nodeOf(annotated).type === image.nodeOf(type), true);
+  const full = ["if condition", "then", "unary operand", "else", "annotated expression",
+    "condition", "questionToken", "whenTrue", "colonToken", "whenFalse", "annotation"];
+  assert.deepEqual(reads, full);
+  for (const [field, value] of [["maximumWork", earned.work], ["maximumCreatedRecords", earned.records]]) {
+    for (let maximum = 0; maximum < value; maximum += 1) {
+      const refused = run({ ...defaults, [field]: maximum });
+      assert.equal(refused.result.kind === "refused" && refused.result.stop === refused.stop, true, `${field}:${maximum}`);
+      assert.deepEqual(reads, full.slice(0, reads.length), `${field}:${maximum}`);
+    }
+  }
+});
+
 test("Block and Binary materialize only actual paid fields, not post-admission getters", async () => {
   const { createInstantiationMeter, admitCheckedProjection, chargeInstantiationWork } = await import("../../packages/host/dist/ir-program/work.js");
   const { createProjectionInventory, inventoryRecord } = await import("../../packages/host/dist/ir-program/program-values.js");

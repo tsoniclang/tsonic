@@ -3994,8 +3994,11 @@ test("actual TIR node prepare reads its lexical payload once before later siblin
   const statementFields = 2;
   const preparedPlanIndex = 1;
   const ordinaryNodes = 21;
-  assert.equal(work, 428 + copyPlan + moduleReceipt + statementRecord + statementFields - 1 + preparedPlanIndex + ordinaryNodes);
-  assert.equal(created, 61 + copyPlan + moduleReceipt + statementRecord + preparedPlanIndex + ordinaryNodes);
+  const expressionStatementReceipt = 1;
+  const castReceipt = 1;
+  const retained = preparedPlanIndex + ordinaryNodes + expressionStatementReceipt + castReceipt;
+  assert.equal(work, 428 + copyPlan + moduleReceipt + statementRecord + statementFields - 1 + retained);
+  assert.equal(created, 61 + copyPlan + moduleReceipt + statementRecord + retained);
   const [[first, requiredFirst], [second, requiredSecond]] = full.reads;
   assert.deepEqual([first, second], ["first payload", "next sibling"]);
   assert.equal(requiredFirst < requiredSecond && requiredSecond < work, true);

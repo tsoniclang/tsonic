@@ -112,14 +112,26 @@ function createSyntaxPlans<P extends Phase, Stop, Image>(phase: SyntaxPhaseCopy<
   }, expressionOf, node => {
     const receipt = structure(node);
     return receipt.kind === "formal-header" ? receipt : throwInvariant(missingPreparation);
-  }, functionOf);
+  }, functionOf, node => {
+    const receipt = structure(node);
+    return receipt.kind === "if" ? receipt : throwInvariant(missingPreparation);
+  });
   const expressions = createExpressionsPlans(phase, () => ports, node => {
     const receipt = structure(node);
     return receipt.kind === "binary" ? receipt : throwInvariant(missingPreparation);
   }, expressionOf, node => {
     const receipt = structure(node);
     return receipt.kind === "application" ? receipt : throwInvariant(missingPreparation);
-  }, functionOf);
+  }, functionOf, node => {
+    const receipt = structure(node);
+    return receipt.kind === "unary" ? receipt : throwInvariant(missingPreparation);
+  }, node => {
+    const receipt = structure(node);
+    return receipt.kind === "annotated-expression" ? receipt : throwInvariant(missingPreparation);
+  }, node => {
+    const receipt = structure(node);
+    return receipt.kind === "conditional" ? receipt : throwInvariant(missingPreparation);
+  });
   const types = createTypesPlans(phase, () => ports);
   const auxiliary = createAuxiliaryPlans(phase, () => ports, expressionOf, node => {
     const receipt = structure(node);

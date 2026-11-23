@@ -1,5 +1,5 @@
 import type {
-  EmptyStatement, IfStatement, DoStatement, WhileStatement, ForStatement,
+  EmptyStatement, IfStatement, IfSyntaxReceipt, DoStatement, WhileStatement, ForStatement,
   ForInStatement, ForOfStatement, BreakStatement, ContinueStatement, ReturnStatement,
   WithStatement, SwitchStatement, CaseBlock, CaseClause, DefaultClause,
   ThrowStatement, TryStatement, CatchClause, DebuggerStatement, LabeledStatement,
@@ -75,7 +75,7 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
   blockOf: (node: Block<P>) => BlockSyntaxReceipt<P>, returned: (node: ReturnStatement<P>) => Expression<P> | null,
   expressionOf: (node: SingleExpressionSyntax<P>) => Expression<P>,
   parameterOf: (node: ParameterDeclaration<P>) => ParameterSyntaxReceipt<P>,
-  functionOf: (node: FunctionDeclaration<P>) => FunctionSyntaxReceipt<P>):
+  functionOf: (node: FunctionDeclaration<P>) => FunctionSyntaxReceipt<P>, ifOf: (node: IfStatement<P>) => IfSyntaxReceipt<P>):
   StatementsPlans<P, Stop, Image> {
   const EmptyStatement = new Map<EmptyStatement<P>, SyntaxPlan<EmptyStatement<P>, Stop, Image>>();
   const IfStatement = new Map<IfStatement<P>, SyntaxPlan<IfStatement<P>, Stop, Image>>();
@@ -141,15 +141,14 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
     })),
     IfStatement: node => memoSyntaxPlan(IfStatement, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
-      const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        expression: ports().Expression(node.expression).read(),
-        thenStatement: ports().Statement(node.thenStatement).read(),
-        elseStatement: node.elseStatement === null ? null : ports().Statement(node.elseStatement).read(),
-        tsonic,
-      });
+      return tsonic => {
+        const shape = ifOf(node);
+        const expression = ports().Expression(shape.expression()).read();
+        const thenStatement = ports().Statement(shape.thenStatement()).read();
+        const alternative = shape.elseStatement();
+        return { ...header, kind: "IfStatement", expression, thenStatement,
+          elseStatement: alternative === null ? null : ports().Statement(alternative).read(), tsonic };
+      };
     })),
     DoStatement: node => memoSyntaxPlan(DoStatement, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
