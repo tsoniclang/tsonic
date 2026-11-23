@@ -95,8 +95,7 @@ test("bare choose(false) embeds its actual literal in the selected formal and re
   const callerEdges = index.dependencyInventory.dependencies.filter(edge => edge.dependent.instance.body === caller.instance.body);
   assert.deepEqual(callerEdges.filter(edge => edge.reason === "call").map(edge => edge.target), [alternative.summary]);
   assert.equal(callerEdges.some(edge => edge.reason === "initializer"), false);
-  assert.deepEqual(callerEdges.filter(edge => edge.reason === "activation").map(edge => edge.target),
-    [alternative.summary, { kind: "body", execution: { instance: callee.instance, provided: 0 } }]);
+  assert.deepEqual(callerEdges.filter(edge => edge.reason === "activation"), []);
 });
 
 test("actual string literals select the present optional alternative and keep their payload through verified MIR", async () => {

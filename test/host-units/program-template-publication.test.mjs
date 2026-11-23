@@ -14,14 +14,16 @@ test("canonical Program publishes authentic templates without executable artifac
   const fixture = publicationFixture();
   assert.deepEqual(verifyProgramIndex(fixture.index, fixture.context), { kind: "complete", violations: [] });
   assert.deepEqual(verifyModuleBodies(fixture.index, fixture.module, fixture.context), { kind: "complete", violations: [] });
-  assert.equal(fixture.template.tir.root, fixture.module.tree);
+  assert.equal(fixture.module.tree.kind, "ready-root");
+  assert.equal(fixture.template.tir.root, fixture.module.tree.root);
   for (const field of ["mir", "facts", "observations"]) assert.equal(Object.hasOwn(fixture.template, field), false);
   for (const field of ["mirLocalCount", "mirConstantCount", "mirPlaceCount", "mirBlockCount"])
     assert.equal(Object.hasOwn(fixture.index.bodies[0], field), false);
   const text = printModuleBodies(fixture.index, fixture.module);
   const parsed = parseModuleBodies(fixture.index, text);
   assert.equal(parsed.kind, "parsed");
-  assert.equal(parsed.value.bodies[0].tir.root, parsed.value.tree);
+  assert.equal(parsed.value.tree.kind, "ready-root");
+  assert.equal(parsed.value.bodies[0].tir.root, parsed.value.tree.root);
   assert.deepEqual(parsed.value, fixture.module);
   const indexText = printProgramIndex(fixture.index);
   assert.deepEqual(parseProgramIndex(indexText), { kind: "parsed", value: fixture.index });
@@ -29,7 +31,7 @@ test("canonical Program publishes authentic templates without executable artifac
     table: fixture.index.types, types: [0], signatures: [0],
   });
   assert.deepEqual(rewritten, { index: fixture.index, modules: [fixture.module] });
-  assert.equal(rewritten.modules[0].bodies[0].tir.root, rewritten.modules[0].tree);
+  assert.equal(rewritten.modules[0].bodies[0].tir.root, rewritten.modules[0].tree.root);
 });
 
 test("a template-only module verifies without requesting observations, MIR or execution Facts", () => {
@@ -104,7 +106,7 @@ test("Program index-origin transport preserves actual source occurrences and rem
     { kind: "shape", members: [], indexes: [1, 2].map(key => ({ origin, key, read: 1, write: null, readonly: true })),
       calls: [], constructs: [] }] };
   fixture.index.types = types;
-  const root = fixture.module.tree;
+  const root = fixture.module.tree.root;
   const literal = { id: 2, parent: null, origin: root.origin, loc: root.loc, flags: [],
     kind: "StringLiteral", text: "index", tokenFlags: [], tsonic: { role: "value", value: "index", type: 1,
       convertedType: 1, conversion: { kind: "identity" }, evidenceIndex: null, demand: { kind: "always" },
@@ -119,7 +121,9 @@ test("Program index-origin transport preserves actual source occurrences and rem
     { ...types.terms[3], indexes: [{ ...types.terms[3].indexes[1], key: 1, read: 2 },
       { ...types.terms[3].indexes[0], key: 2, read: 2 }] }] }, types: [0, 2, 1, 3], signatures: [0] };
   const rewritten = projectFixtureProgram({ index: fixture.index, modules: [module] }, publication);
-  const selected = rewritten.modules[0].tree.statements.nodes[0].expression.tsonic.narrowing.proof.steps[0];
+  const statement = rewritten.modules[0].tree.root.statements.nodes[0];
+  assert.equal(statement.kind, "ready-statement");
+  const selected = statement.node.expression.tsonic.narrowing.proof.steps[0];
   assert.deepEqual(selected.from.path, [{ kind: "index-key", origin, key: 2 }, { kind: "index-value", origin, key: 1 }]);
   assert.deepEqual(selected.to, selected.from);
   assert.deepEqual(rewritten.index.types.terms[3].indexes.map(row => [row.origin, row.key]), [[origin, 1], [origin, 2]]);
@@ -128,7 +132,9 @@ test("Program index-origin transport preserves actual source occurrences and rem
   const limits = { ...ProgramWork.state(fixture.context.resources).limits, maximumWork: 100000, maximumCreatedRecords: 100000 };
   const result = instantiate(fixture.index, templates, { kind: "tir", body: fixture.bodyId }, bindings, limits);
   assert.equal(result.kind, "instantiated");
-  assert.deepEqual(result.artifact.body.root.statements.nodes[0].expression.tsonic.narrowing.proof.steps[0].from.path, component.path);
+  const instantiatedStatement = result.artifact.body.root.statements.nodes[0];
+  assert.equal(instantiatedStatement.kind, "ready-statement");
+  assert.deepEqual(instantiatedStatement.node.expression.tsonic.narrowing.proof.steps[0].from.path, component.path);
   for (const field of ["maximumWork", "maximumCreatedRecords"]) for (const maximum of [0, 1, 2]) {
     const stopped = instantiate(fixture.index, templates, { kind: "tir", body: fixture.bodyId }, bindings,
       { ...limits, [field]: maximum });
