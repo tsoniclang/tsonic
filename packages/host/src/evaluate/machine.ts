@@ -10,10 +10,10 @@ import { nativeCarrierOf, sameInstance } from "../ir-types/index.js";
 import type { Evaluate, EvaluateDeps, EvaluationStep, ResumeEvaluate } from "./contract.js";
 import type { EvaluationResult } from "./data.js";
 import type { Cell, Frame, Machine as EvaluationMachine, ReadyCall, Task } from "./pause.js";
-import { arithmetic, evaluationFault, limit, selectedOptionalDomain, step, validateLimits, valueFits } from "./budget.js";
+import { arithmetic, evaluationFault, limit, selectedFloatingFormat, selectedOptionalDomain, step, validateLimits, valueFits } from "./budget.js";
 import { EvaluationSuspension } from "./pause.js";
 import { nativeNumericOperation } from "./integer.js";
-import { selectedConversion } from "./conversions.js";
+import { packFloat64Literal, selectedConversion } from "./conversions.js";
 
 type Machine = EvaluationMachine<EvaluateDeps>;
 
@@ -87,7 +87,20 @@ function read(machine: Machine, operand: MirOperand, site: MirSite): void {
   const selected = constant.value;
   switch (selected.kind) {
     case "literal":
-      if (selected.value.kind === "number") put(machine, { kind: "number", value: selected.value.value, type: constant.type }, site);
+      if (selected.value.kind === "number") {
+        if (!arithmetic(machine, 1, site.origin)) return;
+        if (!Number.isSafeInteger(constant.type) || constant.type < 0 || Object.is(constant.type, -0)
+          || constant.type >= machine.deps.types.terms.length)
+          return fail("A numeric literal requires its actual ready type domain.", site.origin);
+        const type = machine.deps.typeOf(constant.type);
+        if (type === undefined) return fail("A numeric literal requires a complete ready type row.", site.origin);
+        if (type.kind === "primitive" && type.primitive === "float64") {
+          const format = selectedFloatingFormat(machine, type.primitive, site.origin);
+          if (format === null) return;
+          const bits = packFloat64Literal(machine, selected.value.value, selected.value.value, site, format);
+          if (bits !== null) put(machine, { kind: "floating", type: constant.type, bits }, site);
+        } else put(machine, { kind: "number", value: selected.value.value, type: constant.type }, site);
+      }
       else if (selected.value.kind === "bigint") put(machine, { kind: "bigint", value: selected.value.value, type: constant.type }, site);
       else put(machine, { ...selected.value, type: constant.type }, site);
       return;

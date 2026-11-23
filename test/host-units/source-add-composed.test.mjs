@@ -131,6 +131,32 @@ test("verified enum evaluation publishes named numeric and text constants withou
   assert.deepEqual(refused.diagnostics[0].arguments, [{ kind: "text", value: "evaluation.maximumSteps" }, { kind: "number", value: 0 }]);
 });
 
+test("authored fractional enum members use the selected exact Float64 literal format", async () => {
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const analyze = text => {
+    const input = analysisInput(fixture, "sdk-minimal", text);
+    return { result: analyzeHostProgram(input), entryPoint: input.snapshot.entryPoint };
+  };
+  const authored = analyze("export enum Measure { Ratio=1.5, Scaled=125e-2 }");
+  assert.equal(authored.result.kind, "ok", JSON.stringify(authored.result.diagnostics));
+  const { index, modules } = authored.result.value;
+  const chapter = modules.find(module => module.module === authored.entryPoint);
+  const named = chapter.tree.root.statements.nodes[0].node;
+  const expectedBits = new Map([["Ratio", 0x3ff8000000000000n], ["Scaled", 0x3ff4000000000000n]]);
+  for (const member of named.members.nodes) {
+    const row = index.constants.find(record => record.reference.member === member.tsonic.definition);
+    assert.equal(row.reference.context, "enum-member");
+    assert.deepEqual(index.types.terms[row.value.type], { kind: "primitive", primitive: "float64" });
+    assert.equal(row.value.kind, "floating");
+    assert.equal(row.value.bits, expectedBits.get(member.name.text));
+  }
+  const implicit = analyze("export enum Measure { Ratio=1.5, Next }");
+  assert.equal(implicit.result.kind, "refused");
+  assert.equal("value" in implicit.result, false);
+  assert.equal(implicit.result.diagnostics.at(-1).source, "decls");
+  assert.equal(implicit.result.diagnostics.at(-1).message, "An implicit enum member requires a completed integral predecessor.");
+});
+
 for (const resultAnnotation of [": number", ""])
 test(`real SDK source add with ${resultAnnotation === "" ? "inferred" : "annotated"} result passes HIR, genuine Decls/Rules/Infer, composed TIR and actual LowerMir/MIR`, () => {
   const source = `export function add(a: number, b: number)${resultAnnotation} { return a + b; }\n`;

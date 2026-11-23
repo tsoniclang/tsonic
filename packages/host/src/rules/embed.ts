@@ -5,7 +5,7 @@ import { exactFloat64LiteralFit, optionalValueDomainOf, readType } from "../ir-t
 import type { RulesDeps } from "./contract.js";
 import { at, notDecidedYet, termName } from "./frontier.js";
 
-function fitsFloat64(deps: RulesDeps, value: ExactRational): boolean {
+export function fitsFloat64(deps: RulesDeps, value: ExactRational): boolean {
   const format = deps.selectedNativeFacts.floatingFormats.find(candidate => candidate.carrier === "float64");
   return format !== undefined && exactFloat64LiteralFit(value, format);
 }

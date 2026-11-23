@@ -70,6 +70,36 @@ test("real lowered and verified literal returns the exact typed value", () => {
     diagnostics: [], positions: [{ position: { kind: "result" }, error: null }], emissions: [] } }, "exact native boolean and semantic result position");
 });
 
+test("a verified native Float64 literal materializes its exact direct-return bits within the original account", () => {
+  const value = fixture("evaluate-native-float-literal", T.float64, builder => {
+    const literal = builder.num("0", T.float64);
+    return builder.block(builder.returns({ ...literal, text: "1.5",
+      tsonic: { ...literal.tsonic, value: { numerator: 3n, denominator: 2n, negativeZero: false } } }));
+  });
+  const materialization = 1024 + 1075 + 64;
+  const packing = 1 + 1 + materialization;
+  const complete = packing + 2 + 2;
+  for (const maximum of [0, 1, 2, packing - 1, packing, packing + 1, packing + 2, complete - 1, complete]) {
+    const reads = [];
+    const formats = new Proxy(value.deps.selectedNativeFacts.floatingFormats, { get(target, key, receiver) {
+      if (key === "0") reads.push("format");
+      return Reflect.get(target, key, receiver);
+    } });
+    const deps = { ...value.deps, selectedNativeFacts: { ...value.deps.selectedNativeFacts, floatingFormats: formats },
+      limits: { ...limits, maximumArithmeticWork: maximum }, typeOf: type => { reads.push(type); return value.deps.typeOf(type); } };
+    const actual = product.evaluate(deps, value.entry, value.body, [], "compile-time", value.unit);
+    assert.deepEqual(reads, [[1, T.float64], [2, "format"], [packing + 1, T.float64], [packing + 2, "format"],
+      [packing + 3, T.float64], [packing + 4, "format"]].filter(([boundary]) => boundary <= maximum).map(([, value]) => value));
+    if (maximum === complete) assert.deepEqual(actual.value.value,
+      { kind: "value", value: { kind: "floating", type: T.float64, bits: 0x3ff8000000000000n } });
+    else {
+      assert.equal(actual.value.kind, "refused");
+      assert.deepEqual(actual.value.diagnostics[0].arguments,
+        [{ kind: "text", value: "evaluation.maximumArithmeticWork" }, { kind: "number", value: maximum }]);
+    }
+  }
+});
+
 function embeddingFixture(name, source, target, operand, embeddingKind, parameters = []) {
   return fixture(name, target, builder => {
     const node = operand(builder);
@@ -112,7 +142,8 @@ test("selected Float64 literal fit materializes finite encodings and pays before
     ["last-normal", `${((1n << 53n) - 1n) << 971n}`, ((1n << 53n) - 1n) << 971n, 1n, false, 0x7fefffffffffffffn],
   ];
   const materialization = 1024 + 1075 + 64;
-  const required = 4 + materialization + 6;
+  const literalTypeRead = 1;
+  const required = literalTypeRead + 4 + materialization + 6;
   for (const [name, token, numerator, denominator, negativeZero, bits] of cases) {
     const exact = { numerator, denominator, negativeZero };
     const literal = { kind: "number", token, value: exact };
@@ -136,8 +167,9 @@ test("selected Float64 literal fit materializes finite encodings and pays before
       const answer = run({ ...selected.deps, selectedNativeFacts, limits: { ...allowed, maximumArithmeticWork: maximum },
         typeOf: id => { reads.push(id); return selected.deps.typeOf(id); } });
       assert.equal(answer.value.kind, maximum === required ? "ok" : "refused", `exact packing work ${maximum}`);
-      assert.deepEqual(reads, [[2, source], [3, T.float64], [4, "format"],
+      assert.deepEqual(reads, [[literalTypeRead, source], ...[[2, source], [3, T.float64], [4, "format"],
         ...[5, 7, 9].flatMap(position => [[position + materialization, T.float64], [position + materialization + 1, "format"]])]
+        .map(([position, value]) => [position + literalTypeRead, value])]
         .filter(([boundary]) => boundary <= maximum).map(([, value]) => value));
       if (maximum < required) assert.equal(answer.value.diagnostics[0].arguments[0].value, "evaluation.maximumArithmeticWork");
     }
@@ -175,7 +207,7 @@ test("payload-preserving literal fit may use an integer alternative after a floa
   const typed = product.evaluate({ ...direct.deps, typeOf: id => { reads.push(id); return direct.deps.typeOf(id); } },
     direct.entry, direct.body, [], "compile-time", direct.unit);
   same(typed.value.value, { kind: "value", value: { kind: "number", type: integer, value: literal.value } }, "the same carrier keeps its integer value");
-  assert.deepEqual(reads, [source, integer]);
+  assert.deepEqual(reads, [source, source, integer]);
   const target = declareType("evaluation.literalWidening.numericChoice", { kind: "union", members: [T.float64, integer] });
   const value = literalWidening("evaluate-literal-widening.numericChoice", source, target, literal);
   same(value.start().value.value, { kind: "value", value: { kind: "number", type: target, value: literal.value } },
@@ -374,7 +406,7 @@ test("intermediate and result limits count the exact rational transport without 
   const value = fixture("evaluate-rational-size", T.int32, b => b.block(b.returns(b.num("7", T.int32))));
   for (const field of ["maximumIntermediateBits", "maximumResultBits"]) {
     for (let maximum = 0; maximum <= 4; maximum += 1) {
-      const result = value.start({ ...limits, [field]: maximum, maximumArithmeticWork: 0 });
+      const result = value.start({ ...limits, [field]: maximum, maximumArithmeticWork: 1 });
       assert.equal(result.kind, "done");
       assert.equal(result.value.kind, maximum < 4 ? "refused" : "ok", `${field}:${maximum}`);
       if (maximum === 4) same(result.value.value.value, { kind: "number", type: T.int32,
@@ -604,7 +636,8 @@ test("selected Float64 comparisons pack actual literal operands in order under o
   const facts = { ...nativeFactsFixture(), floatingFormats: [other, format] };
   const owner = fixture("evaluate.floatComparison.literal.order", T.bool, builder =>
     comparison(builder, node(builder, first, left), node(builder, second, right), [left, right]), [], facts);
-  const exact = 7 + 2 * materialization + 7 * 64;
+  const literalTypeReads = 2;
+  const exact = literalTypeReads + 7 + 2 * materialization + 7 * 64;
   const attempt = (deps, body = owner.body) => product.evaluate(deps, owner.entry, body, [], "compile-time", owner.unit);
   for (let maximum = 0; maximum <= exact; maximum += 1) {
     const reads = [];
@@ -614,7 +647,8 @@ test("selected Float64 comparisons pack actual literal operands in order under o
     } });
     const actual = attempt({ ...owner.deps, selectedNativeFacts: { ...facts, floatingFormats },
       typeOf: id => { reads.push(id); return owner.deps.typeOf(id); }, limits: { ...limits, maximumArithmeticWork: maximum } });
-    assert.deepEqual(reads, [[2, left], [3, T.float64], [4, "format:0"], [5, "format:1"], [7 + materialization, right]]
+    assert.deepEqual(reads, [[1, left], [2, right], ...[[2, left], [3, T.float64], [4, "format:0"], [5, "format:1"],
+      [7 + materialization, right]].map(([position, value]) => [position + literalTypeReads, value])]
       .filter(([cut]) => cut <= maximum).map(([, value]) => value), `literal comparison reads at ${maximum}`);
     if (maximum === exact) assert.deepEqual(actual.value.value, { kind: "value", value: { kind: "boolean", type: T.bool, value: false } });
     else {
@@ -631,7 +665,7 @@ test("selected Float64 comparisons pack actual literal operands in order under o
     const type = owner.deps.typeOf(id);
     return id === left ? { ...type, base: T.int32 } : type;
   } }), /both actual operand carriers/u);
-  assert.deepEqual(reads, [left, T.int32]);
+  assert.deepEqual(reads, [left, right, left, T.int32]);
   for (const contrary of [literal("0.1", 1n, 10n), literal("9007199254740993", 9007199254740993n, 1n)]) {
     const misplaced = { ...owner.body, constants: owner.body.constants.map(row => row.type === left ? { ...row, value: { kind: "literal", value: contrary } } : row) };
     const observed = [];
@@ -640,7 +674,7 @@ test("selected Float64 comparisons pack actual literal operands in order under o
       const type = owner.deps.typeOf(id);
       return id === left ? { ...type, value: { kind: "number", value: contrary.value } } : type;
     } }, misplaced), /unchanged, exactly representable literal payload/u);
-    assert.deepEqual(observed, [left, T.float64]);
+    assert.deepEqual(observed, [left, right, left, T.float64]);
     assert.throws(() => attempt({ ...owner.deps, limits: enough }, misplaced), /unchanged, exactly representable literal payload/u);
   }
   for (const [name, value, match, miss] of [
@@ -734,7 +768,7 @@ test("integer comparison geometry, row reads and comparisons share one exact pre
   const decision = selected({ kind: "native-operator", operator: "<", carrier }, [type, type], T.bool);
   const value = fixture("evaluate-integer-account", T.bool, b => b.block(b.returns(
     b.comparison(b.num("1", type), "LessThanToken", b.num("2", type), decision))));
-  const required = 2 + 3 * 8 + 2 + 4 * 8 + 8;
+  const required = 2 + (2 + 3 * 8 + 2 + 4 * 8 + 8);
   for (let maximum = 0; maximum <= required; maximum += 1) {
     const result = value.start({ ...limits, maximumArithmeticWork: maximum });
     assert.equal(result.value.kind, maximum < required ? "refused" : "ok", `same invocation work ${maximum}`);
@@ -1024,11 +1058,12 @@ test("left shift evaluates inside the native widths, with independent count and 
 
 test("left shift stops at every smaller arithmetic allowance before a native result", () => {
   const [signedByte, signedWord] = comparisonTypes;
-  for (const [label, source, left, count, law, expected, exact] of [
+  for (const [label, source, left, count, law, expected, operationWork] of [
     ["wrap", signedByte, -1n, 7n, "wrap", -128n, 103],
     ["abort", signedByte, -1n, 7n, "abort", -128n, 119],
     ["narrow", signedWord, 0n, 8n, "abort", 0n, 673],
   ]) {
+    const exact = 2 + operationWork;
     const value = leftShiftFixture(`evaluate.left-shift.work.${label}`, source, signedByte, left, count, law, { kind: "mask", mask: 7n });
     const complete = value.run();
     assert.equal(complete.value.value.value.value.numerator, expected);
@@ -1064,12 +1099,13 @@ test("zero-fill right shift keeps the selected carrier width and preserves a zer
   const [[carrier, type], , unsigned, native] = comparisonTypes;
   const mask = { kind: "mask", mask: 7n };
   const facts = nativeFactsFixture();
-  for (const [left, count, expected, exact] of [
+  for (const [left, count, expected, operationWork] of [
     [-128n, 0n, -128n, 86],
     [-1n, 1n, 127n, 102],
     [-56n, 8n, -56n, 110],
     [-56n, -1n, 1n, 118],
   ]) {
+    const exact = 2 + operationWork;
     const value = shiftFixture(`evaluate-zero-fill.${left}.${count}`, carrier, type, left, count, mask, facts, ">>>");
     const successful = value.run();
     assert.deepEqual(successful.value.value, { kind: "value", value: { kind: "number", type,
@@ -1203,10 +1239,11 @@ test("integer remainder zero follows its own selected failure without borrowing 
 
 test("integer remainder admits every width-dependent operation before the original finite allowance", () => {
   const [carrier, type] = comparisonTypes[0];
-  for (const [left, right, sign, needed] of [[-7n, 3n, "dividend", 134], [-6n, 3n, "divisor", 142],
+  for (const [left, right, sign, operationWork] of [[-7n, 3n, "dividend", 134], [-6n, 3n, "divisor", 142],
     [-6n, 3n, "nonnegative", 142], [7n, 3n, "divisor", 158], [-7n, 3n, "divisor", 166],
     [7n, 3n, "nonnegative", 150], [-7n, 3n, "nonnegative", 166], [-7n, -3n, "nonnegative", 174]]) {
     const value = remainderFixture(`evaluate-remainder.work.${left}.${right}.${sign}`, carrier, type, left, right, sign);
+    const needed = 2 + operationWork;
     for (let maximum = 0; maximum <= needed; maximum += 1) {
       const result = value.run({ ...value.deps, limits: { ...value.deps.limits, maximumArithmeticWork: maximum } });
       assert.equal(result.value.kind, maximum < needed ? "refused" : "ok", `actual remainder work ${left}/${right}/${sign}/${maximum}`);
@@ -1214,7 +1251,8 @@ test("integer remainder admits every width-dependent operation before the origin
         [{ kind: "text", value: "evaluation.maximumArithmeticWork" }, { kind: "number", value: maximum }], "original remainder allowance");
     }
   }
-  for (const [law, needed] of [["abort", 70], ["unwind", 71]]) {
+  for (const [law, operationWork] of [["abort", 70], ["unwind", 71]]) {
+    const needed = 2 + operationWork;
     const zero = remainderFixture(`evaluate-remainder.zero-work.${law}`, carrier, type, 1n, 0n, "dividend", law);
     for (let maximum = 0; maximum <= needed; maximum += 1)
       assert.equal(zero.run({ ...zero.deps, limits: { ...zero.deps.limits, maximumArithmeticWork: maximum } }).value.kind,
@@ -1304,7 +1342,8 @@ test("selected bitwise integer operations retain their full native carrier inste
 
 test("integer bitwise operations pay each represented operand width before the original allowance boundary", () => {
   const [carrier, type] = comparisonTypes[0];
-  for (const [operator, right, needed] of [["&", 3n, 77], ["|", 3n, 77], ["^", 3n, 77], ["~", null, 52]]) {
+  for (const [operator, right, operationWork] of [["&", 3n, 77], ["|", 3n, 77], ["^", 3n, 77], ["~", null, 52]]) {
+    const needed = (right === null ? 1 : 2) + operationWork;
     const value = bitwiseFixture(`evaluate-bitwise.work.${operator}`, carrier, type, operator, 5n, right);
     for (let maximum = 0; maximum <= needed; maximum += 1) {
       const result = value.run({ ...value.deps, limits: { ...value.deps.limits, maximumArithmeticWork: maximum } });
@@ -1419,11 +1458,12 @@ test("integer division keeps zero and signed quotient overflow on their distinct
 
 test("integer division precharges every quotient, residual, rounding and row read on the same finite allowance", () => {
   const [carrier, type] = comparisonTypes[0];
-  for (const [left, right, rounding, needed] of [[8n, 2n, "toward-zero", 142], [6n, 3n, "floor", 214],
+  for (const [left, right, rounding, operationWork] of [[8n, 2n, "toward-zero", 142], [6n, 3n, "floor", 214],
     [-7n, 3n, "floor", 238], [7n, 3n, "floor", 230], [8n, 3n, "nearest-even", 262],
     [-8n, 3n, "nearest-even", 270], [8n, -3n, "nearest-even", 270], [-8n, -3n, "nearest-even", 278],
     [1n, 2n, "nearest-even", 263], [3n, 2n, "nearest-even", 271], [-128n, -1n, "toward-zero", 86]]) {
     const value = divisionFixture(`evaluate-division.work.${left}.${right}.${rounding}`, carrier, type, left, right, rounding);
+    const needed = 2 + operationWork;
     for (let maximum = 0; maximum <= needed; maximum += 1) {
       const result = value.run({ ...value.deps, limits: { ...value.deps.limits, maximumArithmeticWork: maximum } });
       assert.equal(result.value.kind, maximum < needed ? "refused" : "ok", `actual quotient work ${left}/${right}/${maximum}`);
@@ -1431,7 +1471,8 @@ test("integer division precharges every quotient, residual, rounding and row rea
         [{ kind: "text", value: "evaluation.maximumArithmeticWork" }, { kind: "number", value: maximum }], "original quotient allowance");
     }
   }
-  for (const [law, needed] of [["abort", 70], ["unwind", 71]]) {
+  for (const [law, operationWork] of [["abort", 70], ["unwind", 71]]) {
+    const needed = 2 + operationWork;
     const zero = divisionFixture(`evaluate-division.zero-work.${law}`, carrier, type, 1n, 0n, "toward-zero", law);
     for (let maximum = 0; maximum <= needed; maximum += 1)
       assert.equal(zero.run({ ...zero.deps, limits: { ...zero.deps.limits, maximumArithmeticWork: maximum } }).value.kind,
@@ -1542,7 +1583,8 @@ test("integer multiplication applies the complete product's selected result and 
 
 test("integer multiplication admits quadratic work and temporary magnitude before building a product", () => {
   const [carrier, type] = comparisonTypes[0];
-  for (const [left, right, needed] of [[3n, 2n, 158], [127n, 2n, 166], [-127n, 2n, 150]]) {
+  for (const [left, right, operationWork] of [[3n, 2n, 158], [127n, 2n, 166], [-127n, 2n, 150]]) {
+    const needed = 2 + operationWork;
     const value = multiplicationFixture(`evaluate-multiplication.work.${left}`, carrier, type, left, right);
     for (let maximum = 0; maximum <= needed; maximum += 1) {
       const result = value.run({ ...value.deps, limits: { ...value.deps.limits, maximumArithmeticWork: maximum } });
@@ -1557,9 +1599,10 @@ test("integer multiplication admits quadratic work and temporary magnitude befor
       assert.equal(value.run({ ...value.deps, limits: { ...value.deps.limits, [dimension]: maximum } }).value.kind,
         maximum < needed ? "refused" : "ok");
   const narrowed = multiplicationFixture("evaluate-multiplication.output-work", "int32", T.int32, 1000n, 0n, "unwind", type, carrier);
-  for (let maximum = 0; maximum <= 1408; maximum += 1)
+  const narrowedWork = 2 + 1408;
+  for (let maximum = 0; maximum <= narrowedWork; maximum += 1)
     assert.equal(narrowed.run({ ...narrowed.deps, limits: { ...narrowed.deps.limits, maximumArithmeticWork: maximum } }).value.kind,
-      maximum < 1408 ? "refused" : "ok");
+      maximum < narrowedWork ? "refused" : "ok");
   const rows = [];
   rows.length = 10000;
   Object.defineProperty(rows, 0, { get() { assert.fail("No unadmitted multiplication law payload."); } });
@@ -1642,7 +1685,8 @@ test("integer subtraction bounds complete results under supplied widening, narro
 
 test("integer subtraction admits each represented operation on the original arithmetic and bit allowances", () => {
   const [carrier, type] = comparisonTypes[0];
-  for (const [left, right, needed] of [[3n, 2n, 86], [-128n, 1n, 86], [127n, -1n, 94]]) {
+  for (const [left, right, operationWork] of [[3n, 2n, 86], [-128n, 1n, 86], [127n, -1n, 94]]) {
+    const needed = 2 + operationWork;
     const value = subtractionFixture(`evaluate-subtraction.work.${left}.${right}`, carrier, type, left, right);
     for (let maximum = 0; maximum <= needed; maximum += 1) {
       const result = value.run({ ...value.deps, limits: { ...value.deps.limits, maximumArithmeticWork: maximum } });
@@ -1657,9 +1701,10 @@ test("integer subtraction admits each represented operation on the original arit
       assert.equal(value.run({ ...value.deps, limits: { ...value.deps.limits, [dimension]: maximum } }).value.kind,
         maximum < needed ? "refused" : "ok");
   const narrowed = subtractionFixture("evaluate-subtraction.output-work", "int32", T.int32, 1000n, 999n, "unwind", type, carrier);
-  for (let maximum = 0; maximum <= 352; maximum += 1)
+  const narrowedWork = 2 + 352;
+  for (let maximum = 0; maximum <= narrowedWork; maximum += 1)
     assert.equal(narrowed.run({ ...narrowed.deps, limits: { ...narrowed.deps.limits, maximumArithmeticWork: maximum } }).value.kind,
-      maximum < 352 ? "refused" : "ok");
+      maximum < narrowedWork ? "refused" : "ok");
   const rows = [];
   rows.length = 10000;
   Object.defineProperty(rows, 0, { get() { assert.fail("No subtraction row payload after refusal."); } });
@@ -1725,7 +1770,7 @@ test("native unary integer identity retains exact supplied carriers without read
 test("unary integer identity admits exact geometry and operand validation before every allowance cut", () => {
   const [carrier, type] = comparisonTypes[0];
   const value = identityFixture("evaluate-unary-identity.work", carrier, type, 1n);
-  const required = 1 + 1 + 3 * 8 + 1 + 1 + 2 * 8;
+  const required = 1 + (1 + 1 + 3 * 8 + 1 + 1 + 2 * 8);
   for (let maximum = 0; maximum <= required; maximum += 1) {
     const result = value.run({ ...value.deps, limits: { ...value.deps.limits, maximumArithmeticWork: maximum } });
     assert.equal(result.value.kind, maximum < required ? "refused" : "ok", `identity work:${maximum}`);
@@ -1792,7 +1837,8 @@ test("integer negation retains supplied result geometry and real failure arms wi
 
 test("integer negation pays exact row, geometry, comparison and wrapping work before every original allowance cut", () => {
   const [carrier, type] = comparisonTypes[0];
-  for (const [operand, needed] of [[1n, 69], [-128n, 77]]) {
+  for (const [operand, operationWork] of [[1n, 69], [-128n, 77]]) {
+    const needed = 1 + operationWork;
     const value = negationFixture(`evaluate-negation.work.${operand}`, carrier, type, operand);
     for (let maximum = 0; maximum <= needed; maximum += 1) {
       const result = value.run({ ...value.deps, limits: { ...value.deps.limits, maximumArithmeticWork: maximum } });
@@ -1870,7 +1916,8 @@ test("selected integer addition applies supplied wrapping laws exactly beyond do
 
 test("integer addition admits each original operation before its exact work and stops before later row reads", () => {
   const [carrier, type] = comparisonTypes[0];
-  for (const [index, left, right, required] of [[0, 1n, 2n, 94], [1, 127n, 1n, 110], [2, -128n, -1n, 110]]) {
+  for (const [index, left, right, operationWork] of [[0, 1n, 2n, 94], [1, 127n, 1n, 110], [2, -128n, -1n, 110]]) {
+    const required = 2 + operationWork;
     const value = additionFixture(`evaluate-addition.account.${index}`, carrier, type, left, right);
     for (let maximumArithmeticWork = 0; maximumArithmeticWork <= required; maximumArithmeticWork += 1) {
       const result = value.run({ ...value.deps, limits: { ...value.deps.limits, maximumArithmeticWork } });
@@ -1940,7 +1987,7 @@ test("integer addition keeps malformed and unavailable actual ready inputs disti
   assert.throws(() => value.run({ ...value.deps, selectedNativeFacts: { ...value.deps.selectedNativeFacts,
     integerOverflow: [{ carrier, operation: "add", result: "bool", law: "wrap" }] } }, changeResult(T.bool)), /actual selected integer result geometry/u);
   const wider = additionFixture("evaluate-addition.widened-bounds", carrier, type, 1n, 2n, "wrap", T.int32, "int32");
-  const work = 1 + 1 + (2 + 3 * 8) + 2 * (1 + 2 * 8) + (2 + 3 * 32) + 2 * 32 + 4 * 32;
+  const work = 2 + (1 + 1 + (2 + 3 * 8) + 2 * (1 + 2 * 8) + (2 + 3 * 32) + 2 * 32 + 4 * 32);
   for (let maximumArithmeticWork = 0; maximumArithmeticWork <= work; maximumArithmeticWork += 1)
     assert.equal(wider.run({ ...wider.deps, limits: { ...wider.deps.limits, maximumArithmeticWork } }).value.kind,
       maximumArithmeticWork < work ? "refused" : "ok", `widened addition original work ${maximumArithmeticWork}`);
@@ -1971,7 +2018,8 @@ test("an escaping native overflow respects its actual caller handlers and the sa
       assert.equal(result.value.diagnostics[0].site.origin.start, child.body.blocks.find(block => block.terminator.kind === "invoke").terminator.origin.start);
     }
   }
-  for (const [law, work] of [["unwind", 87], ["abort", 86]]) {
+  for (const [law, operationWork] of [["unwind", 87], ["abort", 86]]) {
+    const work = 2 + operationWork;
     const value = additionFixture(`evaluate-addition.failure-account.${law}`, carrier, type, 127n, 1n, law);
     for (let maximumArithmeticWork = 0; maximumArithmeticWork <= work; maximumArithmeticWork += 1) {
       const result = value.run({ ...value.deps, limits: { ...value.deps.limits, maximumArithmeticWork } });
@@ -2013,7 +2061,8 @@ test("narrow selected arithmetic charges original row, geometry, conversion and 
     [-1000n, 1n, "unwind", 417, true], [1000n, -1n, "unwind", 449, true],
     [128n, 1n, "unwind", 385, true], [1n, 128n, "unwind", 417, true], [127n, 1n, "unwind", 441, true],
   ];
-  for (const [index, [left, right, law, required, failed]] of rows.entries()) {
+  for (const [index, [left, right, law, operationWork, failed]] of rows.entries()) {
+    const required = 2 + operationWork;
     const value = additionFixture(`evaluate-addition.narrow-budget.${index}`, "int32", T.int32, left, right, law, type, carrier);
     for (let maximumArithmeticWork = 0; maximumArithmeticWork <= required; maximumArithmeticWork += 1) {
       const result = value.run({ ...value.deps, limits: { ...value.deps.limits, maximumArithmeticWork } });
@@ -2050,12 +2099,12 @@ test("integer comparisons preserve ready-domain defects, literal-base provenance
   const seen = [];
   const deps = { ...value.deps, types: types.viewTypes(interner), typeOf: selected => { seen.push(selected); return types.readType(interner, selected); } };
   assert.equal(run(deps, body).value.kind, "ok");
-  same(seen, [literal, type, literal, type], "both actual operands follow their literal base, each charged in the same domain");
-  const originalWork = 2 + 3 * 8;
+  same(seen, [literal, literal, literal, type, literal, type], "two actual literal acquisitions, then both operands follow their own literal base");
+  const originalWork = 2 + (2 + 3 * 8);
   seen.length = 0;
   const refused = run({ ...deps, limits: { ...limits, maximumArithmeticWork: originalWork } }, body);
   assert.equal(refused.value.kind, "refused");
-  assert.equal(seen.length, 0, "a refused primitive endpoint charge stops before its actual row lookup");
+  same(seen, [literal, literal], "a refused primitive endpoint charge stops before its actual row lookup");
   for (const literal of [
     { kind: "boolean", value: true },
     { kind: "number", value: { numerator: 1n, denominator: 2n, negativeZero: false } },

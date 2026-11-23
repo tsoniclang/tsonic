@@ -2,6 +2,7 @@ import type { ConstraintScheme, DefaultConstraint, VariableRule } from "../ir-in
 import type { CategoryEvidence } from "../ir-types/contract.js";
 import { internType, nativeIntegerGeometryOf } from "../ir-types/index.js";
 import type { RulesDeps } from "./contract.js";
+import { fitsFloat64 } from "./embed.js";
 import { callerDefect, notDecidedYet } from "./frontier.js";
 
 export function literalVariableRule(deps: RulesDeps): VariableRule {
@@ -16,15 +17,18 @@ export function literalVariableRule(deps: RulesDeps): VariableRule {
         return notDecidedYet("a literal default with separately supplied bounds", null);
       const authored = variable.value;
       if (authored.kind !== "number") return notDecidedYet("the native default for a non-number literal", null);
-      if (!/^(?:[0-9][0-9_]*|0[xX][0-9a-fA-F_]+|0[bB][01_]+|0[oO][0-7_]+)$/u.test(authored.token))
-        return notDecidedYet("the native materialization of a fractional or exponent literal", null);
-      const geometry = nativeIntegerGeometryOf("int64", deps.selectedNativeFacts, () => true);
-      if (geometry.kind !== "integer") return callerDefect("the signed integral literal default requires the actual int64 domain", null);
-      const { numerator, denominator, negativeZero } = authored.value;
-      if (denominator !== 1n || negativeZero) return callerDefect("an authored integral token must retain its exact integral value", null);
-      if (numerator < geometry.minimum || numerator > geometry.maximum)
-        return notDecidedYet("an authored integral literal outside its selected int64 range", null);
-      const type = internType(deps.types, { kind: "primitive", primitive: "int64" });
+      const integral = /^(?:[0-9][0-9_]*|0[xX][0-9a-fA-F_]+|0[bB][01_]+|0[oO][0-7_]+)$/u.test(authored.token);
+      if (integral) {
+        const geometry = nativeIntegerGeometryOf("int64", deps.selectedNativeFacts, () => true);
+        if (geometry.kind !== "integer") return callerDefect("the signed integral literal default requires the actual int64 domain", null);
+        const { numerator, denominator, negativeZero } = authored.value;
+        if (denominator !== 1n || negativeZero) return callerDefect("an authored integral token must retain its exact integral value", null);
+        if (numerator < geometry.minimum || numerator > geometry.maximum)
+          return notDecidedYet("an authored integral literal outside its selected int64 range", null);
+      } else if (!fitsFloat64(deps, authored.value)) {
+        return notDecidedYet("an authored fractional or exponent literal without an exact native Float64 fit", null);
+      }
+      const type = internType(deps.types, { kind: "primitive", primitive: integral ? "int64" : "float64" });
       const category: CategoryEvidence = { kind: "known", category: "number" };
       return { kind: "ok", diagnostics: [], value: { error: null, value: {
         type, component: { kind: "body", value: variable.occurrence }, category,
