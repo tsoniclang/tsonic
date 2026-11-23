@@ -3495,12 +3495,14 @@ test("final publication constructs its candidate before requesting independent c
     const actual = source.value.modules.find(row => row.module.module === input.snapshot.entryPoint).module;
     const node = indexSyntaxTree(actual.tree).find(value => value.kind === "PrefixUnaryExpression");
     const original = node.operand;
+    const originalRoot = actual.bodies.find(row => row.root.kind === "Block").root;
     const publication = typeProduct.exportTypes(source.value.types, input.limits.instantiation);
     assert.equal(publication.kind, "complete");
     const resources = product.createProgramVerificationWork({ ...input.limits.instantiation, maximumCreatedRecords }, account);
     const meter = ProgramWork.state(resources);
     let atEvidence = null;
     let acquisitions = 0;
+    let lateDiscriminators = 0;
     Object.defineProperty(node, "operand", { get() {
       assert.equal(atEvidence, null, "no candidate operand is acquired after the independent producer opens");
       acquisitions += 1;
@@ -3513,13 +3515,20 @@ test("final publication constructs its candidate before requesting independent c
       assert.equal(owner === account, true);
       assert.equal(atEvidence, null);
       atEvidence = meter.created;
-      return typed.value.programEvidence(owner);
+      const evidence = typed.value.programEvidence(owner);
+      const kind = originalRoot.kind;
+      Object.defineProperty(originalRoot, "kind", { get() {
+        lateDiscriminators += 1;
+        return kind;
+      } });
+      return evidence;
     } });
-    return { result, acquisitions, atEvidence, stop: meter.failure, original: original.id };
+    return { result, acquisitions, lateDiscriminators, atEvidence, stop: meter.failure, original: original.id };
   };
   const full = run(input.limits.instantiation.maximumCreatedRecords);
   assert.equal(full.result.kind, "complete");
   assert.equal(full.atEvidence !== null && full.acquisitions > 0, true);
+  assert.equal(full.lateDiscriminators, 0, "ready body evidence must not dispatch on its already-admitted original node");
   const tree = full.result.value.modules[0].tree.root;
   assert.equal(full.result.evidence.checked.some(row => row.module.tree === tree), true);
   assert.equal(indexSyntaxTree(tree).find(value => value.kind === "PrefixUnaryExpression").operand.id, full.original);
@@ -3841,8 +3850,10 @@ test("actual TIR node prepare reads its lexical payload once before later siblin
   const moduleReceipt = 1;
   const statementRecord = 1;
   const statementFields = 2;
-  assert.equal(work, 428 + copyPlan + moduleReceipt + statementRecord + statementFields - 1);
-  assert.equal(created, 61 + copyPlan + moduleReceipt + statementRecord);
+  const preparedPlanIndex = 1;
+  const ordinaryNodes = 21;
+  assert.equal(work, 428 + copyPlan + moduleReceipt + statementRecord + statementFields - 1 + preparedPlanIndex + ordinaryNodes);
+  assert.equal(created, 61 + copyPlan + moduleReceipt + statementRecord + preparedPlanIndex + ordinaryNodes);
   const [[first, requiredFirst], [second, requiredSecond]] = full.reads;
   assert.deepEqual([first, second], ["first payload", "next sibling"]);
   assert.equal(requiredFirst < requiredSecond && requiredSecond < work, true);

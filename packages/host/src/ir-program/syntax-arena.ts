@@ -212,6 +212,7 @@ interface ChapterNodeCopyAdmission<Stop> {
 export interface PreparedChapterNodeCopy<Image, Stop> {
   readonly checkedRoots: readonly HirNode[];
   readonly headerOf: (node: TirTypedSyntax["node"]) => PreparedChapterHeader | null;
+  readonly ordinaryOf: (node: TirTypedSyntax["node"]) => SyntaxNode<TypedPhase> | null;
   readonly materialize: (image: Image, checkedDefault: ReadCheckedDefault) => SyntaxCopyResult<SyntaxImage<TypedPhase>, Stop>;
 }
 
@@ -226,7 +227,7 @@ export function prepareChapterNodeCopy<Image, Stop extends { readonly kind: "res
     const postorder: SyntaxNode<TypedPhase>[] = [];
     const discovered = walkChapterSyntax(roots, {
       root: admission.root, edge: admission.edge, formal: admission.formal,
-      node: (_path, subject, ordinal) => admission.prepare(subject, ordinal, copy),
+      node: (_path, subject, ordinal) => admission.prepare(subject, ordinal, node => copy(node, ordinal)),
       close: subject => {
         if (subject.kind === "ordinary" || subject.kind === "formal") postorder.push(subject.node);
       },
@@ -251,10 +252,16 @@ export function prepareChapterNodeCopy<Image, Stop extends { readonly kind: "res
     return discovered.kind === "complete" ? { kind: "copied", value: discovered.value } : { kind: "refused", stop: discovered };
   });
   if (prepared.kind === "refused") return prepared;
-  return { kind: "copied", value: { checkedRoots: requirePresent(inventory, missingParameter).checkedRoots,
+  const admitted = requirePresent(inventory, missingParameter);
+  return { kind: "copied", value: { checkedRoots: admitted.checkedRoots,
     headerOf: node => {
       const row = requirePresent(headerWires, missingParameter).get(node);
       return typeof row === "object" && (row.kind === "module" || row.kind === "callable") ? row : null;
+    },
+    ordinaryOf: node => {
+      const ordinal = admitted.wireOf(node);
+      const original = ordinal === undefined ? undefined : admitted.typed[ordinal];
+      return original?.kind === "ordinary" && original.node === node ? original.node : null;
     },
     materialize: (image, checkedDefault) => {
       checked ??= checkedDefault;

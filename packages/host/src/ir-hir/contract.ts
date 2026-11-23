@@ -5047,7 +5047,7 @@ export interface SyntaxImage<P extends Phase> {
   readonly typeNodeOf: (node: TypeNode<P>) => TypeNode<P> | null;
   readonly modifierOf: (node: ModifierLike<P>) => ModifierLike<P> | null;
   readonly sourceFileOf: (node: SourceFile<P>) => SourceFile<P> | null;
-  readonly bodyRootOf: (node: BodyRoot<P>) => BodyRoot<P> | null;
+  readonly bodyRootOf: (node: SyntaxNode<P>) => BodyRoot<P> | null;
   readonly parameterOf: (node: ParameterDeclaration<P>) => ParameterDeclaration<P> | null;
 }
 
@@ -5074,7 +5074,7 @@ export type FinishSyntaxCopy<P extends Phase, Stop, Image> = (image: Image) => S
 
 export type PrepareSyntaxCopy = <P extends Phase, Stop, Image>(
   phase: SyntaxPhaseCopy<P, Stop, Image>, beforeNode: (node: SyntaxNode<P>) => Stop | null,
-  discover: (prepare: (node: SyntaxNode<P>) => Stop | null) => SyntaxCopyResult<SyntaxMaterialization<P, Image>, Stop>,
+  discover: (prepare: (node: SyntaxNode<P>, ordinal: number) => Stop | null) => SyntaxCopyResult<SyntaxMaterialization<P, Image>, Stop>,
 ) => SyntaxCopyResult<FinishSyntaxCopy<P, Stop, Image>, Stop>;
 
 export interface CheckedProjection<Stop> {

@@ -1,7 +1,7 @@
 import type {
   Phase, PreparedSyntaxSlot, SyntaxCopyResult, SyntaxNode, ArrayLiteralExpression, ArrayTypeNode, ArrowFunction, AsExpression, AwaitExpression,
   BigIntLiteral, BinaryExpression, BindingElement, BindingName, BindingPattern,
-  Block, BlockOrExpression, BodyRoot, BreakStatement, CallExpression,
+  Block, BlockOrExpression, BreakStatement, CallExpression,
   CallSignatureDeclaration, CaseBlock, CaseClause, CaseOrDefaultClause, CatchClause,
   ClassDeclaration, ClassElement, ClassExpression, ClassStaticBlockDeclaration, ComputedPropertyName,
   ConditionalExpression, ConditionalTypeNode, ConstructSignatureDeclaration, ConstructorDeclaration, ConstructorTypeNode,
@@ -302,7 +302,6 @@ export interface SyntaxCopyPorts<P extends Phase, Stop, Image> {
   readonly NamedExportBindings: (node: NamedExportBindings<P>) => SyntaxPlan<NamedExportBindings<P>, Stop, Image>;
   readonly NamedImportBindings: (node: NamedImportBindings<P>) => SyntaxPlan<NamedImportBindings<P>, Stop, Image>;
   readonly ModifierLike: (node: ModifierLike<P>) => SyntaxPlan<ModifierLike<P>, Stop, Image>;
-  readonly BodyRoot: (node: BodyRoot<P>) => SyntaxPlan<BodyRoot<P>, Stop, Image>;
   readonly SyntaxNode: (node: SyntaxNode<P>) => SyntaxPlan<SyntaxNode<P>, Stop, Image>;
   readonly LiteralKeywordExpression: (node: KeywordExpression<P, "TrueKeyword" | "FalseKeyword" | "NullKeyword">) => SyntaxPlan<KeywordExpression<P, "TrueKeyword" | "FalseKeyword" | "NullKeyword">, Stop, Image>;
 }
@@ -344,8 +343,11 @@ export function memoSyntaxPlan<Source extends NodeHeader, Value extends NodeHead
   return plan;
 }
 
-export function planSyntaxNode<P extends Phase, Stop, Image>(ports: SyntaxCopyPorts<P, Stop, Image>, node: SyntaxNode<P>): SyntaxPlan<SyntaxNode<P>, Stop, Image> {
-  switch (node.kind) {
+export function planSyntaxNode<P extends Phase, Stop, Image>(ports: SyntaxCopyPorts<P, Stop, Image>, node: SyntaxNode<P>,
+  kindOf: (kind: SyntaxNode<P>["kind"]) => void): SyntaxPlan<SyntaxNode<P>, Stop, Image> {
+  const kind = node.kind;
+  kindOf(kind);
+  switch (kind) {
     case "Identifier": return ports.Identifier(node);
     case "PrivateIdentifier": return ports.PrivateIdentifier(node);
     case "QualifiedName": return ports.QualifiedName(node);

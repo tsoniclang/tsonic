@@ -547,11 +547,11 @@ export const copyCheckedContent: CopyCheckedContent = <Stop>(
 ): SyntaxCopyResult<CheckedContentImage<Stop>, Stop> => {
   let projector: ReturnType<typeof checkedProjector<Stop>> | undefined;
   const syntax = forest.copy<Stop, null>(() => {
-    const stop = project.admit(1, 1);
+    const stop = project.admit(2, 2);
     if (stop !== null) return { kind: "refused", stop };
     projector = checkedProjector(project);
     return copied(projector.phase);
-  }, node => project.syntaxNode(node), null);
+  }, node => project.admit(1, 1) ?? project.syntaxNode(node), null);
   return following(syntax, image => copied(checkedContentImage(requirePresent(projector, missingEvidence), image)));
 };
 
@@ -575,15 +575,15 @@ export const projectCheckedContent: ProjectCheckedContent = <Stop, SupplyStop>(
     const walked = forest.append(roots);
     if (walked !== null) return walked;
     if (copy === undefined) {
-      const setup = project.admit(1, 1);
+      const setup = project.admit(2, 2);
       if (setup !== null) return setup;
       projector = checkedProjector(project);
       const originals = forest;
       copy = createSyntaxCopyState<CheckedPhase, Stop, null>(projector.phase,
-        node => originals.structureOf(node) === null ? project.syntaxNode(node) : null, originals);
+        node => project.admit(1, 1) ?? (originals.structureOf(node) === null ? project.syntaxNode(node) : null), originals);
     }
     for (; settled < forest.nodes.length; settled += 1) {
-      const stopped = copy.prepare(requirePresent(forest.nodes[settled], missingEvidence));
+      const stopped = copy.prepare(requirePresent(forest.nodes[settled], missingEvidence), settled);
       if (stopped !== null) return stopped;
     }
     const order = forest.postorder;

@@ -1,9 +1,9 @@
-import type { BinaryExpression, BinarySyntaxReceipt, Block, BlockSyntaxReceipt, CopySyntaxForest,
+import type { BinaryExpression, BinarySyntaxReceipt, Block, BlockSyntaxReceipt, BodyRoot, CopySyntaxForest, ModifierLike, Statement, TypeNode,
   FinishSyntaxCopy, Phase, PrepareSyntaxCopy, SyntaxCopyResult, SyntaxForest, SyntaxImage,
   SyntaxInitializerImage, SyntaxMaterialization, SyntaxNode, SyntaxPhaseCopy } from "./contract.js";
 import type { InvariantFailure } from "../diag/contract.js";
 import { requirePresent, throwInvariant } from "../diag/index.js";
-import type { SyntaxCopyPorts } from "./copy-node.js";
+import type { SyntaxCopyPorts, SyntaxPlan } from "./copy-node.js";
 import { borrowedSyntaxPlan, copied, planSyntaxNode } from "./copy-node.js";
 import { createStatementsPlans } from "./copy-statements.js";
 import { createExpressionsPlans } from "./copy-expressions.js";
@@ -14,6 +14,82 @@ const missingPreparation: InvariantFailure = { owner: "ir-hir", query: null, ori
   message: "Every admitted syntax node must have its own prepared projection." };
 const consumedPreparation: InvariantFailure = { owner: "ir-hir", query: null, origin: null,
   message: "An admitted syntax forest owns one consuming materialization." };
+const forgetKind = () => undefined;
+
+interface AdmittedPlan<P extends Phase, Stop, Image> {
+  readonly original: SyntaxNode<P>;
+  readonly kind: SyntaxNode<P>["kind"];
+  readonly plan: SyntaxPlan<SyntaxNode<P>, Stop, Image>;
+}
+
+function statementRole<P extends Phase>(_node: SyntaxNode<P>, kind: SyntaxNode<P>["kind"]): _node is Statement<P> {
+  switch (kind) {
+    case "EmptyStatement": case "IfStatement": case "DoStatement": case "WhileStatement":
+    case "ForStatement": case "ForInStatement": case "ForOfStatement": case "BreakStatement":
+    case "ContinueStatement": case "ReturnStatement": case "WithStatement": case "SwitchStatement":
+    case "ThrowStatement": case "TryStatement": case "DebuggerStatement": case "LabeledStatement":
+    case "ExpressionStatement": case "Block": case "VariableStatement": case "MissingDeclaration":
+    case "FunctionDeclaration": case "ClassDeclaration": case "InterfaceDeclaration":
+    case "TypeAliasDeclaration": case "JSTypeAliasDeclaration": case "EnumDeclaration":
+    case "ModuleBlock": case "NotEmittedStatement": case "ImportDeclaration": case "JSImportDeclaration":
+    case "ExportAssignment": case "NamespaceExportDeclaration": case "ModuleDeclaration":
+    case "ImportEqualsDeclaration": case "ExportDeclaration":
+      return true;
+    default: return false;
+  }
+}
+
+function typeRole<P extends Phase>(_node: SyntaxNode<P>, kind: SyntaxNode<P>["kind"]): _node is TypeNode<P> {
+  switch (kind) {
+    case "AnyKeyword": case "BigIntKeyword": case "BooleanKeyword": case "IntrinsicKeyword":
+    case "NeverKeyword": case "NumberKeyword": case "ObjectKeyword": case "StringKeyword":
+    case "SymbolKeyword": case "UndefinedKeyword": case "UnknownKeyword": case "VoidKeyword":
+    case "UnionType": case "IntersectionType": case "ConditionalType": case "TypeOperator":
+    case "InferType": case "ArrayType": case "IndexedAccessType": case "TypeReference":
+    case "LiteralType": case "ThisType": case "TypePredicate": case "TypeQuery": case "MappedType":
+    case "TypeLiteral": case "TupleType": case "NamedTupleMember": case "OptionalType": case "RestType":
+    case "ParenthesizedType": case "FunctionType": case "ConstructorType": case "TemplateLiteralType":
+    case "TemplateLiteralTypeSpan": case "JSDocTypeExpression": case "JSDocNonNullableType":
+    case "JSDocNullableType": case "JSDocAllType": case "JSDocVariadicType": case "JSDocOptionalType":
+    case "JSDocSignature": case "JSDocNameReference": case "ImportType": case "JSDocTypeLiteral":
+      return true;
+    default: return false;
+  }
+}
+
+function modifierRole<P extends Phase>(_node: SyntaxNode<P>, kind: SyntaxNode<P>["kind"]): _node is ModifierLike<P> {
+  switch (kind) {
+    case "AbstractKeyword": case "AccessorKeyword": case "AsyncKeyword": case "ConstKeyword":
+    case "DeclareKeyword": case "DefaultKeyword": case "ExportKeyword": case "InKeyword":
+    case "PrivateKeyword": case "ProtectedKeyword": case "PublicKeyword": case "ReadonlyKeyword":
+    case "OutKeyword": case "OverrideKeyword": case "StaticKeyword": case "Decorator":
+      return true;
+    default: return false;
+  }
+}
+
+function rootRole<P extends Phase>(_node: SyntaxNode<P>, kind: SyntaxNode<P>["kind"]): _node is BodyRoot<P> {
+  switch (kind) {
+    case "Block": case "SourceFile": case "Identifier": case "PrivateIdentifier": case "ClassExpression":
+    case "OmittedExpression": case "NullKeyword": case "TrueKeyword": case "FalseKeyword":
+    case "ThisKeyword": case "SuperKeyword": case "ImportKeyword": case "StringLiteral":
+    case "NumericLiteral": case "BigIntLiteral": case "RegularExpressionLiteral":
+    case "NoSubstitutionTemplateLiteral": case "BinaryExpression": case "PrefixUnaryExpression":
+    case "PostfixUnaryExpression": case "YieldExpression": case "ArrowFunction":
+    case "FunctionExpression": case "AsExpression": case "SatisfiesExpression":
+    case "ConditionalExpression": case "PropertyAccessExpression": case "ElementAccessExpression":
+    case "CallExpression": case "NewExpression": case "MetaProperty": case "NonNullExpression":
+    case "SpreadElement": case "TemplateExpression": case "TaggedTemplateExpression":
+    case "ParenthesizedExpression": case "ArrayLiteralExpression": case "ObjectLiteralExpression":
+    case "DeleteExpression": case "TypeOfExpression": case "VoidExpression": case "AwaitExpression":
+    case "TypeAssertionExpression": case "ExpressionWithTypeArguments": case "PartiallyEmittedExpression":
+    case "JsxElement": case "JsxAttributes": case "JsxNamespacedName": case "JsxOpeningElement":
+    case "JsxSelfClosingElement": case "JsxFragment": case "JsxOpeningFragment":
+    case "JsxClosingFragment": case "JsxExpression": case "JsxText": case "SyntheticReferenceExpression":
+      return true;
+    default: return false;
+  }
+}
 
 function createSyntaxPlans<P extends Phase, Stop, Image>(phase: SyntaxPhaseCopy<P, Stop, Image>,
   initializer: SyntaxInitializerImage<P, Image>,
@@ -25,7 +101,7 @@ function createSyntaxPlans<P extends Phase, Stop, Image>(phase: SyntaxPhaseCopy<
   const auxiliary = createAuxiliaryPlans(phase, () => ports);
   const ports: SyntaxCopyPorts<P, Stop, Image> = {
     ...statements, ...expressions, ...types, ...auxiliary,
-    SyntaxNode: node => planSyntaxNode(ports, node),
+    SyntaxNode: node => planSyntaxNode(ports, node, forgetKind),
     EntityName: node => {
       switch (node.kind) {
         case "Identifier": return ports.Identifier(node);
@@ -420,12 +496,6 @@ function createSyntaxPlans<P extends Phase, Stop, Image>(phase: SyntaxPhaseCopy<
         case "Decorator": return ports.Decorator(node);
       }
     },
-    BodyRoot: node => {
-      switch (node.kind) {
-        case "SourceFile": return ports.SourceFile(node);
-      }
-      return ports.BlockOrExpression(node);
-    },
   };
   return ports;
 }
@@ -436,34 +506,47 @@ export function createSyntaxCopyState<P extends Phase, Stop, Image>(
 ) {
   let ports: SyntaxCopyPorts<P, Stop, Image> | undefined;
   let failure: Stop | null = null;
-  function prepare(node: SyntaxNode<P>): Stop | null {
+  const plans = new Map<number, AdmittedPlan<P, Stop, Image>>();
+  function prepare(node: SyntaxNode<P>, ordinal: number): Stop | null {
     if (failure !== null) return failure;
     const stop = beforeNode(node);
     if (stop !== null) {
       failure = stop;
       return stop;
     }
+    if (!Number.isSafeInteger(ordinal) || ordinal < 0 || plans.has(ordinal)) return throwInvariant(missingPreparation);
     ports ??= createSyntaxPlans(phase, source.copyInitializer, source.blockOf, source.binaryOf);
-    failure = planSyntaxNode(ports, node).prepare();
+    let kind: SyntaxNode<P>["kind"] | undefined;
+    const plan = planSyntaxNode(ports, node, selected => { kind = selected; });
+    failure = plan.prepare();
+    if (failure === null) plans.set(ordinal, { original: node, kind: requirePresent(kind, missingPreparation), plan });
     return failure;
   }
+  function admitted(node: SyntaxNode<P>, end: number): AdmittedPlan<P, Stop, Image> | null {
+    const ordinal = source.wireOf(node);
+    if (ordinal === undefined || ordinal >= end) return null;
+    const row = plans.get(ordinal);
+    return row?.original === node ? row : throwInvariant(missingPreparation);
+  }
   function materialize(order: Iterable<SyntaxNode<P>>, image: Image): void {
-    for (const node of order) planSyntaxNode(requirePresent(ports, missingPreparation), node).materialize(image);
+    for (const node of order) requirePresent(admitted(node, Infinity) ?? undefined, missingPreparation).plan.materialize(image);
   }
   function imageThrough(end: number): SyntaxImage<P> {
-    const current = ports;
-    const includes = (node: SyntaxNode<P>): boolean => {
-      const ordinal = source.wireOf(node);
-      return ordinal !== undefined && ordinal < end;
+    const byRole = <Value extends SyntaxNode<P>>(node: SyntaxNode<P>,
+      matches: (candidate: SyntaxNode<P>, kind: SyntaxNode<P>["kind"]) => candidate is Value): Value | null => {
+      const row = admitted(node, end);
+      if (row === null) return null;
+      const candidate = row.plan.read();
+      return matches(candidate, row.kind) ? candidate : throwInvariant(missingPreparation);
     };
     return {
-      nodeOf: node => current === undefined || !includes(node) ? null : current.SyntaxNode(node).read(),
-      statementOf: node => current === undefined || !includes(node) ? null : current.Statement(node).read(),
-      typeNodeOf: node => current === undefined || !includes(node) ? null : current.TypeNode(node).read(),
-      modifierOf: node => current === undefined || !includes(node) ? null : current.ModifierLike(node).read(),
-      sourceFileOf: node => current === undefined || !includes(node) ? null : current.SourceFile(node).read(),
-      bodyRootOf: node => current === undefined || !includes(node) ? null : current.BodyRoot(node).read(),
-      parameterOf: node => current === undefined || !includes(node) ? null : current.ParameterDeclaration(node).read(),
+      nodeOf: node => admitted(node, end)?.plan.read() ?? null,
+      statementOf: node => byRole(node, statementRole<P>),
+      typeNodeOf: node => byRole(node, typeRole<P>),
+      modifierOf: node => byRole(node, modifierRole<P>),
+      sourceFileOf: node => byRole(node, (_candidate, kind): _candidate is Extract<SyntaxNode<P>, { readonly kind: "SourceFile" }> => kind === "SourceFile"),
+      bodyRootOf: node => byRole(node, rootRole<P>),
+      parameterOf: node => byRole(node, (_candidate, kind): _candidate is Extract<SyntaxNode<P>, { readonly kind: "Parameter" }> => kind === "Parameter"),
     };
   }
   return { prepare, materialize, imageThrough, stop: () => failure };
@@ -471,7 +554,7 @@ export function createSyntaxCopyState<P extends Phase, Stop, Image>(
 
 export const prepareSyntaxCopy: PrepareSyntaxCopy = <P extends Phase, Stop, Image>(
   phase: SyntaxPhaseCopy<P, Stop, Image>, beforeNode: (node: SyntaxNode<P>) => Stop | null,
-  discover: (prepare: (node: SyntaxNode<P>) => Stop | null) =>
+  discover: (prepare: (node: SyntaxNode<P>, ordinal: number) => Stop | null) =>
     SyntaxCopyResult<SyntaxMaterialization<P, Image>, Stop>,
 ): SyntaxCopyResult<FinishSyntaxCopy<P, Stop, Image>, Stop> => {
   let supplied: SyntaxMaterialization<P, Image> | undefined;
@@ -483,7 +566,7 @@ export const prepareSyntaxCopy: PrepareSyntaxCopy = <P extends Phase, Stop, Imag
     blockOf: node => requirePresent(supplied, missingPreparation).blockOf(node),
     binaryOf: node => requirePresent(supplied, missingPreparation).binaryOf(node),
   });
-  const prepare = (node: SyntaxNode<P>): Stop | null => discovering ? state.prepare(node) : throwInvariant(consumedPreparation);
+  const prepare = (node: SyntaxNode<P>, ordinal: number): Stop | null => discovering ? state.prepare(node, ordinal) : throwInvariant(consumedPreparation);
   const discovery = discover(prepare);
   discovering = false;
   const failure = state.stop();
@@ -512,7 +595,7 @@ export function bindSyntaxForest<P extends Phase>(nodes: readonly SyntaxNode<P>[
     if (setup.kind === "refused") return setup;
     const prepared = prepareSyntaxCopy<P, Stop, Image>(setup.value, beforeNode, prepare => {
       for (const node of nodes) {
-        const stop = prepare(node);
+        const stop = prepare(node, requirePresent(wireOf(node), missingPreparation));
         if (stop !== null) return { kind: "refused", stop };
       }
       return copied({ postorder, wireOf, blockOf, binaryOf, copyInitializer });

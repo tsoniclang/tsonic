@@ -56,9 +56,10 @@ export function prepareTypedChapter(scan: ProjectionInventory, roots: Iterable<C
       bodyRootOf: source => {
         const header = plan.headerOf(source);
         if (header?.kind === "module") return header.finish(operands);
-        if (source.kind === "SourceFile") return throwInvariant(missingImage);
-        const image = typed.bodyRootOf(source);
-        return image !== null && image.kind !== "SourceFile" ? image : throwInvariant(missingImage);
+        const original = plan.ordinaryOf(source);
+        if (original === null) return throwInvariant(missingImage);
+        const root = typed.bodyRootOf(original);
+        return root !== null && root.kind !== "SourceFile" ? root : throwInvariant(missingImage);
       },
       formalOf: source => requirePresent(typed.parameterOf(source) ?? undefined, missingImage),
     } };
@@ -613,11 +614,13 @@ interface TypedChapterRoles {
 export function prepareTypedNodeCopy(scan: ProjectionInventory, roots: Iterable<ChapterRootSlot>,
   phase: SyntaxPhaseCopy<TypedPhase, InstantiationStop, TypeReferenceRewrite>, roles: TypedChapterRoles,
 ): SyntaxCopyResult<PreparedChapterNodeCopy<TypeReferenceRewrite, InstantiationStop>, InstantiationStop> {
-  const setup = inventoryRecord(scan, 0);
+  const setup = inventoryRecord(scan, 0) ?? inventoryRecord(scan, 0);
   if (setup !== null) return { kind: "refused", stop: setup };
   let position = 0;
   let shape: BlockSyntaxReceipt<TypedPhase> | BinarySyntaxReceipt<TypedPhase> | null = null;
   return prepareChapterNodeCopy<TypeReferenceRewrite, InstantiationStop>(roots, phase, node => {
+    const indexed = inventoryRecord(scan, 0);
+    if (indexed !== null) return indexed;
     if (node.kind !== "Block" && node.kind !== "BinaryExpression") return admitSyntaxHeader(scan, node);
     const result = prepareTypedStructure(scan, node, position);
     if (result.kind === "refused") return result.stop;
