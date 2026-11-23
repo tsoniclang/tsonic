@@ -802,10 +802,11 @@ test("provider overloads supply their own ABI while ordinary captured declaratio
   assert.deepEqual(verifyMir(mir.value, mirVerificationContext(run, body, entries)), { kind: "complete", violations: [] });
   const call = mir.value.blocks.map(row => row.terminator).find(row => row.kind === "call" && row.tir.node === edge.at.node);
   assert.ok(call);
-  const opaque = bindDeclaredSummary({ signature: ready.placement.signature, parameters: ready.parameters,
+  const opaque = bindDeclaredSummary(account, { signature: ready.placement.signature, parameters: ready.parameters,
     source: ready.source, callables: [] }, { kind: "unknown", execution: ready.execution, scope: ready.scope,
     suspends: false, bindingDependent: false });
-  assert.equal(opaque.kind, "ok");
+  assert.equal(opaque.kind, "complete");
+  assert.equal(opaque.value.kind, "ok");
   const reads = [];
   const deps = { account, signatureOf: id => readSignature(interner, id), declaredAt: at => {
     reads.push(at.node);
@@ -815,14 +816,14 @@ test("provider overloads supply their own ABI while ordinary captured declaratio
     reads.push("summary");
     assert.equal(key, edge.target);
     assert.equal(admittedKey, summaryKey(key));
-    return { value: opaque.value, unit };
+    return { value: opaque.value.value, unit };
   } };
   const cut = createAccount({ ...callInput.limits.dataflow, maximumWork: 1 });
   assert.equal(callSummary({ ...deps, account: cut }, mir.value, call), accountFailure(cut));
   assert.deepEqual(reads, []);
   const accepted = callSummary(deps, mir.value, call);
   assert.equal(accepted.kind, "complete");
-  assert.equal(accepted.value, opaque.value);
+  assert.equal(accepted.value, opaque.value.value);
   assert.deepEqual(reads, [edge.at.node, "summary"]);
   assert.throws(() => callSummary({ ...deps, declaredAt: () => ({ ...edge.target, execution: { ...ready.execution, provided: 0 } }),
     summaryOf: () => assert.fail("A crossed provided entry must not read a Summary.") }, mir.value, call), /actual selected binding environment and provided entry/u);

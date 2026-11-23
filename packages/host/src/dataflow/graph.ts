@@ -1,6 +1,6 @@
 import type { BlockId } from "../ids/contract.js";
 import type { MirBlock, MirBody, MirSwitchTarget, MirTerminator, MirUnwind } from "../ir-mir/contract.js";
-import type { DataflowAccount, DataflowResult, DirectedGraph } from "./contract.js";
+import type { DataflowAccount, DataflowResult, DataflowStop, DirectedGraph, OrderRows } from "./contract.js";
 import { takeWork, takeEntries } from "./account.js";
 
 export interface GraphNode<Value> {
@@ -24,7 +24,7 @@ export function graphNode<Value>(graph: GraphView<Value>, index: number, name: s
   return requireCallerValue(graph.byIndex.get(index), `${name} ${index}`);
 }
 
-export function sortRecords<Value>(values: readonly Value[], compare: (left: Value, right: Value) => number,
+export function sortRecords<Value>(values: readonly Value[], compare: (left: Value, right: Value) => number | DataflowStop,
   account: DataflowAccount): DataflowResult<Value[]> {
   const stop = takeWork(account, values.length);
   if (stop !== null) return stop;
@@ -41,8 +41,13 @@ export function sortRecords<Value>(values: readonly Value[], compare: (left: Val
       const middle = right;
       const end = Math.min(start + 2 * width, rows.length);
       while (left < middle || right < end) {
-        if (right === end || left < middle && compare(requireCallerValue(rows[left], "sort left"), requireCallerValue(rows[right], "sort right")) <= 0)
-          sorted.push(requireCallerValue(rows[left++], "sort left"));
+        let comparison = left < middle ? 0 : 1;
+        if (left < middle && right < end) {
+          const compared = compare(requireCallerValue(rows[left], "sort left"), requireCallerValue(rows[right], "sort right"));
+          if (typeof compared !== "number") return compared;
+          comparison = compared;
+        }
+        if (comparison <= 0) sorted.push(requireCallerValue(rows[left++], "sort left"));
         else sorted.push(requireCallerValue(rows[right++], "sort right"));
       }
     }
@@ -51,6 +56,11 @@ export function sortRecords<Value>(values: readonly Value[], compare: (left: Val
   }
   return { kind: "complete", value: rows };
 }
+
+export const orderRows: OrderRows = (values, compare, account) => {
+  const room = takeEntries(account, 2 + 2 * values.length);
+  return room ?? sortRecords(values, compare, account);
+};
 
 function graphFromRows<Value extends {}>(
   rows: Iterable<readonly [number, Value]>,

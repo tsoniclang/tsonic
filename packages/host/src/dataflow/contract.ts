@@ -49,6 +49,9 @@ export type DataflowResult<Value> =
   | { readonly kind: "complete"; readonly value: Value }
   | DataflowStop;
 
+export type OrderRows = <Value>(values: readonly Value[], compare: (left: Value, right: Value) => number | DataflowStop,
+  account: DataflowAccount) => DataflowResult<readonly Value[]>;
+
 export interface FlowSolution<State> {
   readonly entry: readonly State[];
   readonly exit: readonly State[];

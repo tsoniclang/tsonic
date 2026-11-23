@@ -32,7 +32,8 @@ export type DeclaredSummaryInput = { readonly execution: DeclaredExecution } & (
   | { readonly kind: "unknown"; readonly scope: BindingScope; readonly bindingDependent: boolean; readonly suspends: boolean }
 );
 
-export type BindDeclaredSummary = (deps: DeclaredSummaryDeps, input: DeclaredSummaryInput) => Result<Summary>;
+export type BindDeclaredSummary = (account: DataflowAccount, deps: DeclaredSummaryDeps,
+  input: DeclaredSummaryInput) => DataflowResult<Result<Summary>>;
 
 export interface ComponentDeps {
   readonly account: DataflowAccount;

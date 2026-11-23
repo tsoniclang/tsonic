@@ -1107,8 +1107,27 @@ test("graph projection charges every row and edge before output growth and respe
   }
 });
 
+test("owned row order stays stable and returns the exact first comparison stop", () => {
+  const rows = [3, 3, 0, 1].map((key, index) => ({ key, index }));
+  const limits = { maximumWork: 100, maximumResultEntries: 2 + 2 * rows.length };
+  const sorted = product.orderRows(rows, (left, right) => left.key - right.key, product.createAccount(limits));
+  assert.equal(sorted.kind, "complete");
+  assert.equal(sorted.value.every((row, index) => row === rows[[2, 3, 0, 1][index]]), true);
+  const cheap = product.createAccount({ ...limits, maximumResultEntries: limits.maximumResultEntries - 1 });
+  assert.equal(product.orderRows(rows, () => assert.fail("The sort must reserve before comparing."), cheap), product.accountFailure(cheap));
+  const account = product.createAccount({ ...limits, maximumWork: 8 });
+  let reads = 0;
+  const stopped = product.orderRows(rows, () => {
+    reads += 1;
+    return product.chargeWork(account, 1) ?? 0;
+  }, account);
+  assert.equal(stopped, product.accountFailure(account));
+  assert.equal(stopped.dimension, "work");
+  assert.equal(reads, 1);
+});
+
 test("exact account-owned public inventory and complete nine-source owner compile in fresh strict isolation", async () => {
-  complete(Object.keys(product).sort(), ["dominators", "graphOfMir", "naturalLoops", "orderGraph", "predecessors", "solve",
+  complete(Object.keys(product).sort(), ["dominators", "graphOfMir", "naturalLoops", "orderGraph", "orderRows", "predecessors", "solve",
     "stronglyConnectedComponents", "createAccount", "chargeWork", "chargeResultEntries", "accountFailure", "remainingWork", "refuseAccount"].sort(), "no legacy public path or unreceived runtime port");
   const deps = isolationDeps(tooling, quarantineRoots);
   const module = hostCatalogue.find(module => module.name === "dataflow");

@@ -4,13 +4,21 @@ import { test } from "node:test";
 import { isDeepStrictEqual } from "node:util";
 import { encodeBodyId, encodeDefId, encodeModuleId, encodePackageId } from "../../packages/host/dist/ids/index.js";
 import { admitGuarantees } from "../../packages/host/dist/libraries/index.js";
-import { bindDeclaredSummary } from "../../packages/host/dist/summaries/index.js";
+import { bindDeclaredSummary as bindWithAccount } from "../../packages/host/dist/summaries/index.js";
+import { accountFailure, createAccount } from "../../packages/host/dist/dataflow/index.js";
 import { rigidBindings, signatureRequestKey } from "../../packages/host/dist/ir-types/index.js";
 import { constructedNativeCells, constructedNativeRelations } from "./fixtures/native-cells.mjs";
 
 const definition = name => encodeDefId({ module: encodeModuleId({ package: encodePackageId("summary-kernel"), path: "api.ts" }), segments: [{ name, ordinal: 0 }] });
 const empty = () => ({ classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] });
 const scope = () => ({ classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] });
+const limits = { maximumWork: 1000000, maximumResultEntries: 1000000 };
+
+function bindDeclaredSummary(deps, input) {
+  const result = bindWithAccount(createAccount(limits), deps, input);
+  assert.equal(result.kind, "complete");
+  return result.value;
+}
 
 function fixture(parameters = []) {
   const declaration = definition("operation");
@@ -44,6 +52,39 @@ function summary(deps, input) {
   assert.equal(result.kind, "ok", "the actual selected native/unknown binding kernel completed");
   return result.value;
 }
+
+test("declared summaries have no visible prefix at any work or created-record cut", async () => {
+  const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
+  const formal = { declaration: definition("parameter"), kind: "required", type: 0, passing: "by-value", initializer: null, acceptsOmission: false };
+  const selected = fixture([formal]);
+  for (const input of [selected.input, { kind: "unknown", execution: selected.input.execution, scope: scope(),
+    suspends: false, bindingDependent: false }]) {
+    const account = createAccount(limits);
+    const complete = bindWithAccount(account, selected.deps, input);
+    assert.equal(complete.kind, "complete");
+    assert.equal(complete.value.kind, "ok");
+    const { work, entries } = InvocationAccount.stateOf(account);
+    const exact = { maximumWork: work, maximumResultEntries: entries };
+    assert.deepEqual(bindWithAccount(createAccount(exact), selected.deps, input), complete);
+    for (const [field, dimension] of [["maximumWork", "work"], ["maximumResultEntries", "result-entries"]]) {
+      for (let maximum = 0; maximum < exact[field]; maximum += 1) {
+        const bounded = createAccount({ ...limits, [field]: maximum });
+        const result = bindWithAccount(bounded, selected.deps, input);
+        assert.equal(result.kind, "resource-limit");
+        assert.equal(result.dimension, dimension);
+        assert.equal(result.maximum, maximum);
+        assert.equal(result, accountFailure(bounded));
+        assert.equal(bindWithAccount(bounded, { get signature() { assert.fail("No read after the original stop."); } }, input), result);
+      }
+    }
+    const unopened = createAccount({ ...limits, maximumWork: 4 });
+    const parameters = [formal];
+    Object.defineProperty(parameters, 0, { get() { assert.fail("The first formal is not read before its work admission."); } });
+    const result = bindWithAccount(unopened, { ...selected.deps, signature: { ...selected.signature, parameters } }, input);
+    assert.equal(result, accountFailure(unopened));
+    assert.equal(result.dimension, "work");
+  }
+});
 
 test("Libraries admits a raw guarantee once without publishing any premature semantic Summary", () => {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true);

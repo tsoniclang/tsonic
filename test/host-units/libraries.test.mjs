@@ -191,10 +191,20 @@ const authoredOriginOf = associations => identity => {
   return rows.length === 1 ? rows[0].request.definition : null;
 };
 
+async function useDeclaredBinding() {
+  const { createAccount } = await import("../../packages/host/dist/dataflow/index.js");
+  const { bindDeclaredSummary } = await import("../../packages/host/dist/summaries/index.js");
+  return (deps, input) => {
+    const result = bindDeclaredSummary(createAccount({ maximumWork: 1000000, maximumResultEntries: 1000000 }), deps, input);
+    assert.equal(result.kind, "complete");
+    return result.value;
+  };
+}
+
 async function bindNativeBatch(bound, declared, associations, suppliedRelations = null) {
   const admitted = product.admitGuarantees(bound, declared, authoredOriginOf(associations));
   if (admitted.kind === "refused") return admitted;
-  const { bindDeclaredSummary } = await import("../../packages/host/dist/summaries/index.js");
+  const bindDeclaredSummary = await useDeclaredBinding();
   const summaries = [];
   const diagnostics = [];
   for (const guarantee of admitted.value.guarantees) {
@@ -1484,7 +1494,7 @@ test("authored guarantee origins and selected alias agreement are independent ex
   const origin = authoredOriginOf([a]);
   const admitted = product.admitGuarantees(bound, [firstRaw], origin);
   assert.equal(admitted.kind, "ok");
-  const { bindDeclaredSummary } = await import("../../packages/host/dist/summaries/index.js");
+  const bindDeclaredSummary = await useDeclaredBinding();
   const execution = summaryExecutionKey(a).execution;
   const source = { kind: "item", value: { owner: binding.request.definition, node: nodeId(0) } };
   const deps = { signature: binding.signature, parameters: [], source, callables: [] };
@@ -2212,7 +2222,7 @@ test("the complete actual libraries module passes fresh strict isolation against
 });
 
 test("late native specialization retains every bound and rigid family and refuses a different selected complete environment", async () => {
-  const { bindDeclaredSummary } = await import("../../packages/host/dist/summaries/index.js");
+  const bindDeclaredSummary = await useDeclaredBinding();
   const { input, summary } = summaryInput();
   const owner = definitionId("method");
   const nominal = definitionId("class");

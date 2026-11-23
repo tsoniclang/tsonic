@@ -490,7 +490,7 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
       "verify-initialization.ts", "verify-liveness.ts", "verify-position.ts"].map(name => `${host}/ir-facts/${name}`),
     ...["index.ts", "roles.ts", "verify-catalogue.ts", "admit-guarantees.ts", "verify-summaries.ts",
       "verify-bound.ts", "provider-catalogue.ts"].map(name => `${host}/libraries/${name}`),
-    ...["index.ts", "bind-declared.ts", "translate-native.ts", "unknown-declared.ts", "components.ts", "dependencies.ts", "converge.ts"].map(name => `${host}/summaries/${name}`),
+    ...["index.ts", "bind-declared.ts", "declared-work.ts", "translate-native.ts", "unknown-declared.ts", "components.ts", "dependencies.ts", "converge.ts"].map(name => `${host}/summaries/${name}`),
     ...["index.ts", "round.ts", "storage.ts", "source.ts", "proof.ts", "calls.ts", "captures.ts", "exits.ts",
       "field-effects.ts", "initialization.ts", "places.ts", "static-calls.ts", "value-flow.ts", "values.ts", "writes.ts"].map(name => `${host}/analyses/body/${name}`),
     ...["index.ts", "model.ts", "storage-use.ts"].map(name => `${host}/analyses/liveness/${name}`),
