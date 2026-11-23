@@ -147,45 +147,22 @@ function admitSyntaxHeader(scan: ProjectionInventory, node: SyntaxNode<TypedPhas
     case "BindingElement":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11);
     case "MissingDeclaration":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "FunctionDeclaration":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 15);
     case "ClassDeclaration":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 12)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
-        ?? (node.typeParameters === null ? null : inventoryRecord(scan, 2))
-        ?? (node.heritageClauses === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryRecord(scan, 2);
     case "ClassExpression":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 12)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
-        ?? (node.typeParameters === null ? null : inventoryRecord(scan, 2))
-        ?? (node.heritageClauses === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryRecord(scan, 2);
-    case "HeritageClause":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? inventoryRecord(scan, 2);
     case "InterfaceDeclaration":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 12)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
-        ?? (node.typeParameters === null ? null : inventoryRecord(scan, 2))
-        ?? (node.heritageClauses === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryRecord(scan, 2);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 12);
+    case "HeritageClause":
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "TypeAliasDeclaration":     case "JSTypeAliasDeclaration":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
-        ?? (node.typeParameters === null ? null : inventoryRecord(scan, 2));
     case "EnumMember":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11);
     case "EnumDeclaration":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryRecord(scan, 2);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10);
     case "ModuleBlock":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8)
-        ?? inventoryRecord(scan, 2);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "NotEmittedStatement":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 7);
     case "NotEmittedTypeElement":

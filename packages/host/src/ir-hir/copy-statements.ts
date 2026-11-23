@@ -12,15 +12,15 @@ import type {
   SemicolonClassElement, ClassStaticBlockDeclaration,
   Expression, Phase, SingleExpressionSyntax, SyntaxInitializerImage, SyntaxPhaseCopy,
   BindingElementSyntaxReceipt, BindingPatternSyntaxReceipt, VariableDeclarationSyntaxReceipt, VariableListSyntaxReceipt,
-  VariableStatementSyntaxReceipt, ControlSyntax, ControlSyntaxReceipt, SyntaxStructureReceipt,
+  VariableStatementSyntaxReceipt, ControlSyntax, DeclarationStructureSyntax, SyntaxStructureReceipt,
 } from "./contract.js";
 import type { InvariantFailure } from "../diag/contract.js";
 import type { SyntaxCopyPorts, SyntaxPlan } from "./copy-node.js";
 import { copied, holdSyntaxPayload, copyNodeList, finishFunctionSyntax, memoSyntaxPlan, syntaxHeader, withSyntaxPayload } from "./copy-node.js";
 import { throwInvariant } from "../diag/index.js";
 
-const missingControl: InvariantFailure = { owner: "ir-hir", query: null, origin: null,
-  message: "A control statement requires its admitted field receipt." };
+const missingStructure: InvariantFailure = { owner: "ir-hir", query: null, origin: null,
+  message: "A statement requires its actual admitted field receipt." };
 
 export interface StatementsPlans<P extends Phase, Stop, Image> {
   readonly EmptyStatement: (node: EmptyStatement<P>) => SyntaxPlan<EmptyStatement<P>, Stop, Image>;
@@ -88,7 +88,7 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
   variableListOf: (node: VariableDeclarationList<P>) => VariableListSyntaxReceipt<P>,
   patternOf: (node: BindingPattern<P>) => BindingPatternSyntaxReceipt<P>,
   bindingOf: (node: BindingElement<P>) => BindingElementSyntaxReceipt<P>,
-  controlOf: (node: ControlSyntax<P>) => SyntaxStructureReceipt<P>):
+  structureOf: (node: ControlSyntax<P> | DeclarationStructureSyntax<P>) => SyntaxStructureReceipt<P>):
   StatementsPlans<P, Stop, Image> {
   const EmptyStatement = new Map<EmptyStatement<P>, SyntaxPlan<EmptyStatement<P>, Stop, Image>>();
   const IfStatement = new Map<IfStatement<P>, SyntaxPlan<IfStatement<P>, Stop, Image>>();
@@ -142,12 +142,12 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
   const PropertyDeclaration = new Map<PropertyDeclaration<P>, SyntaxPlan<PropertyDeclaration<P>, Stop, Image>>();
   const SemicolonClassElement = new Map<SemicolonClassElement<P>, SyntaxPlan<SemicolonClassElement<P>, Stop, Image>>();
   const ClassStaticBlockDeclaration = new Map<ClassStaticBlockDeclaration<P>, SyntaxPlan<ClassStaticBlockDeclaration<P>, Stop, Image>>();
-  function control<Kind extends ControlSyntaxReceipt<P>["kind"]>(node: ControlSyntax<P>, kind: Kind) {
-    const receipt = controlOf(node);
-    function matches(value: SyntaxStructureReceipt<P>): value is Extract<ControlSyntaxReceipt<P>, { readonly kind: Kind }> {
+  function structure<Kind extends SyntaxStructureReceipt<P>["kind"]>(node: ControlSyntax<P> | DeclarationStructureSyntax<P>, kind: Kind) {
+    const receipt = structureOf(node);
+    function matches(value: SyntaxStructureReceipt<P>): value is Extract<SyntaxStructureReceipt<P>, { readonly kind: Kind }> {
       return value.kind === kind;
     }
-    return matches(receipt) ? receipt : throwInvariant(missingControl);
+    return matches(receipt) ? receipt : throwInvariant(missingStructure);
   }
 
   function nullable<Source, Destination>(value: Source | null, read: (source: Source) => Destination): Destination | null {
@@ -178,7 +178,7 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       const header = syntaxHeader(node);
       const { kind } = node;
       return tsonic => {
-        const fields = control(node, "tested-statement");
+        const fields = structure(node, "tested-statement");
         return { ...header, kind, statement: ports().Statement(fields.statement()), expression: ports().Expression(fields.expression()), tsonic };
       };
     })),
@@ -186,7 +186,7 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       const header = syntaxHeader(node);
       const { kind } = node;
       return tsonic => {
-        const fields = control(node, "tested-statement");
+        const fields = structure(node, "tested-statement");
         return { ...header, kind, statement: ports().Statement(fields.statement()), expression: ports().Expression(fields.expression()), tsonic };
       };
     })),
@@ -194,7 +194,7 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       const header = syntaxHeader(node);
       const { kind } = node;
       return tsonic => {
-        const fields = control(node, "for");
+        const fields = structure(node, "for");
         return { ...header, kind, statement: ports().Statement(fields.statement()),
           initializer: nullable(fields.initializer(), ports().ForInitializer), condition: nullable(fields.condition(), ports().Expression),
           incrementor: nullable(fields.incrementor(), ports().Expression), tsonic };
@@ -204,9 +204,9 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       const header = syntaxHeader(node);
       const { kind } = node;
       return tsonic => {
-        const fields = control(node, "for-in-or-of");
+        const fields = structure(node, "for-in-or-of");
         const awaitModifier = fields.awaitModifier();
-        if (awaitModifier !== null) return throwInvariant(missingControl);
+        if (awaitModifier !== null) return throwInvariant(missingStructure);
         return { ...header, kind, awaitModifier, initializer: ports().ForInitializer(fields.initializer()),
           expression: ports().Expression(fields.expression()), statement: ports().Statement(fields.statement()), tsonic };
       };
@@ -215,7 +215,7 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       const header = syntaxHeader(node);
       const { kind } = node;
       return tsonic => {
-        const fields = control(node, "for-in-or-of");
+        const fields = structure(node, "for-in-or-of");
         return { ...header, kind, awaitModifier: fields.awaitModifier(),
           initializer: ports().ForInitializer(fields.initializer()), expression: ports().Expression(fields.expression()),
           statement: ports().Statement(fields.statement()), tsonic };
@@ -225,14 +225,14 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       const header = syntaxHeader(node);
       const { kind } = node;
       return tsonic => ({
-        ...header, kind, label: nullable(control(node, "jump").label(), label => ports().Identifier(label).read()), tsonic,
+        ...header, kind, label: nullable(structure(node, "jump").label(), label => ports().Identifier(label).read()), tsonic,
       });
     })),
     ContinueStatement: node => memoSyntaxPlan(ContinueStatement, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
       return tsonic => ({
-        ...header, kind, label: nullable(control(node, "jump").label(), label => ports().Identifier(label).read()), tsonic,
+        ...header, kind, label: nullable(structure(node, "jump").label(), label => ports().Identifier(label).read()), tsonic,
       });
     })),
     ReturnStatement: node => memoSyntaxPlan(ReturnStatement, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
@@ -247,7 +247,7 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       const header = syntaxHeader(node);
       const { kind } = node;
       return tsonic => {
-        const fields = control(node, "tested-statement");
+        const fields = structure(node, "tested-statement");
         return { ...header, kind, expression: ports().Expression(fields.expression()), statement: ports().Statement(fields.statement()), tsonic };
       };
     })),
@@ -255,22 +255,22 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       const header = syntaxHeader(node);
       const { kind } = node;
       return tsonic => {
-        const fields = control(node, "switch");
+        const fields = structure(node, "switch");
         return { ...header, kind, expression: ports().Expression(fields.expression()), caseBlock: ports().CaseBlock(fields.caseBlock()).read(), tsonic };
       };
     })),
     CaseBlock: node => memoSyntaxPlan(CaseBlock, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({ ...header, kind, clauses: control(node, "case-block").clauses(ports().CaseOrDefaultClause), tsonic });
+      return tsonic => ({ ...header, kind, clauses: structure(node, "case-block").clauses(ports().CaseOrDefaultClause), tsonic });
     })),
     CaseClause: node => memoSyntaxPlan(CaseClause, node, () => withSyntaxPayload(phase.CaseClause, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
       return tsonic => {
-        const fields = control(node, "case-clause");
+        const fields = structure(node, "case-clause");
         const expression = fields.expression();
-        if (expression === null) return throwInvariant(missingControl);
+        if (expression === null) return throwInvariant(missingStructure);
         return { ...header, kind, expression: ports().Expression(expression), statements: fields.statements(ports().Statement), tsonic };
       };
     })),
@@ -278,9 +278,9 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       const header = syntaxHeader(node);
       const { kind } = node;
       return tsonic => {
-        const fields = control(node, "case-clause");
+        const fields = structure(node, "case-clause");
         const expression = fields.expression();
-        if (expression !== null) return throwInvariant(missingControl);
+        if (expression !== null) return throwInvariant(missingStructure);
         return { ...header, kind, expression, statements: fields.statements(ports().Statement), tsonic };
       };
     })),
@@ -298,7 +298,7 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       const header = syntaxHeader(node);
       const { kind } = node;
       return tsonic => {
-        const fields = control(node, "try");
+        const fields = structure(node, "try");
         return { ...header, kind, tryBlock: ports().Block(fields.tryBlock()).read(),
           catchClause: nullable(fields.catchClause(), clause => ports().CatchClause(clause).read()),
           finallyBlock: nullable(fields.finallyBlock(), block => ports().Block(block).read()), tsonic };
@@ -308,7 +308,7 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       const header = syntaxHeader(node);
       const { kind } = node;
       return tsonic => {
-        const fields = control(node, "catch");
+        const fields = structure(node, "catch");
         return { ...header, kind, variableDeclaration: nullable(fields.variableDeclaration(), declaration => ports().VariableDeclaration(declaration).read()),
           block: ports().Block(fields.block()).read(), tsonic };
       };
@@ -326,7 +326,7 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       const header = syntaxHeader(node);
       const { kind } = node;
       return tsonic => {
-        const fields = control(node, "labeled");
+        const fields = structure(node, "labeled");
         return { ...header, kind, label: ports().Identifier(fields.label()).read(), statement: ports().Statement(fields.statement()), tsonic };
       };
     })),
@@ -420,10 +420,7 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       const header = syntaxHeader(node);
       const { kind } = node;
       return tsonic => ({
-        ...header,
-        kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
-        tsonic,
+        ...header, kind, modifiers: structure(node, "missing-declaration").modifiers(ports().ModifierLike), tsonic,
       });
     })),
     FunctionDeclaration: node => memoSyntaxPlan(FunctionDeclaration, node, () => withSyntaxPayload(phase.FunctionDeclaration, node.tsonic, () => tsonic =>
@@ -431,103 +428,71 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
     ClassDeclaration: node => memoSyntaxPlan(ClassDeclaration, node, () => withSyntaxPayload(phase.ClassDeclaration, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
-        name: node.name === null ? null : ports().Identifier(node.name).read(),
-        typeParameters: node.typeParameters === null ? null : copyNodeList(node.typeParameters, item => ports().TypeParameterDeclaration(item).read()),
-        heritageClauses: node.heritageClauses === null ? null : copyNodeList(node.heritageClauses, item => ports().HeritageClause(item).read()),
-        members: copyNodeList(node.members, item => ports().ClassElement(item)),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "class");
+        return { ...header, kind, modifiers: fields.modifiers(ports().ModifierLike),
+          name: nullable(fields.name(), name => ports().Identifier(name).read()),
+          typeParameters: fields.typeParameters(parameter => ports().TypeParameterDeclaration(parameter).read()),
+          heritageClauses: fields.heritageClauses(clause => ports().HeritageClause(clause).read()), members: fields.members(ports().ClassElement), tsonic };
+      };
     })),
     ClassExpression: node => memoSyntaxPlan(ClassExpression, node, () => withSyntaxPayload(phase.ClassExpression, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
-        name: node.name === null ? null : ports().Identifier(node.name).read(),
-        typeParameters: node.typeParameters === null ? null : copyNodeList(node.typeParameters, item => ports().TypeParameterDeclaration(item).read()),
-        heritageClauses: node.heritageClauses === null ? null : copyNodeList(node.heritageClauses, item => ports().HeritageClause(item).read()),
-        members: copyNodeList(node.members, item => ports().ClassElement(item)),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "class");
+        return { ...header, kind, modifiers: fields.modifiers(ports().ModifierLike),
+          name: nullable(fields.name(), name => ports().Identifier(name).read()),
+          typeParameters: fields.typeParameters(parameter => ports().TypeParameterDeclaration(parameter).read()),
+          heritageClauses: fields.heritageClauses(clause => ports().HeritageClause(clause).read()), members: fields.members(ports().ClassElement), tsonic };
+      };
     })),
     HeritageClause: node => memoSyntaxPlan(HeritageClause, node, () => withSyntaxPayload(phase.HeritageClause, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind, token } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        token,
-        types: copyNodeList(node.types, item => ports().ExpressionWithTypeArguments(item).read()),
-        tsonic,
-      });
+      return tsonic => ({ ...header, kind, token, types: structure(node, "heritage").types(type => ports().ExpressionWithTypeArguments(type).read()), tsonic });
     })),
     InterfaceDeclaration: node => memoSyntaxPlan(InterfaceDeclaration, node, () => withSyntaxPayload(phase.InterfaceDeclaration, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
-        name: ports().Identifier(node.name).read(),
-        typeParameters: node.typeParameters === null ? null : copyNodeList(node.typeParameters, item => ports().TypeParameterDeclaration(item).read()),
-        heritageClauses: node.heritageClauses === null ? null : copyNodeList(node.heritageClauses, item => ports().HeritageClause(item).read()),
-        members: copyNodeList(node.members, item => ports().TypeElement(item)),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "interface");
+        return { ...header, kind, modifiers: fields.modifiers(ports().ModifierLike), name: ports().Identifier(fields.name()).read(),
+          typeParameters: fields.typeParameters(parameter => ports().TypeParameterDeclaration(parameter).read()),
+          heritageClauses: fields.heritageClauses(clause => ports().HeritageClause(clause).read()), members: fields.members(ports().TypeElement), tsonic };
+      };
     })),
     TypeAliasDeclaration: node => memoSyntaxPlan(TypeAliasDeclaration, node, () => withSyntaxPayload(phase.TypeAliasDeclaration, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
-        name: ports().Identifier(node.name).read(),
-        typeParameters: node.typeParameters === null ? null : copyNodeList(node.typeParameters, item => ports().TypeParameterDeclaration(item).read()),
-        type: ports().TypeNode(node.type),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "type-alias");
+        return { ...header, kind, modifiers: fields.modifiers(ports().ModifierLike), name: ports().Identifier(fields.name()).read(),
+          typeParameters: fields.typeParameters(parameter => ports().TypeParameterDeclaration(parameter).read()), type: ports().TypeNode(fields.type()), tsonic };
+      };
     })),
     EnumMember: node => memoSyntaxPlan(EnumMember, node, () => withSyntaxPayload(phase.EnumMember, node.tsonic, () => {
       const header = syntaxHeader(node);
-      const { kind, postfixToken } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
-        name: ports().PropertyName(node.name),
-        postfixToken,
-        initializer: node.initializer === null ? null : ports().Expression(node.initializer),
-        tsonic,
-      });
+      const { kind } = node;
+      return tsonic => {
+        const fields = structure(node, "enum-member");
+        return { ...header, kind, modifiers: fields.modifiers(ports().ModifierLike), name: ports().PropertyName(fields.name()),
+          postfixToken: fields.postfix(), initializer: nullable(fields.initializer(), ports().Expression), tsonic };
+      };
     })),
     EnumDeclaration: node => memoSyntaxPlan(EnumDeclaration, node, () => withSyntaxPayload(phase.EnumDeclaration, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
-        name: ports().Identifier(node.name).read(),
-        members: copyNodeList(node.members, item => ports().EnumMember(item).read()),
-        tsonic,
-      });
+      return tsonic => {
+        const fields = structure(node, "enum");
+        return { ...header, kind, modifiers: fields.modifiers(ports().ModifierLike),
+          name: ports().Identifier(fields.name()).read(), members: fields.members(member => ports().EnumMember(member).read()), tsonic };
+      };
     })),
     ModuleBlock: node => memoSyntaxPlan(ModuleBlock, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
       const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        statements: copyNodeList(node.statements, item => ports().Statement(item)),
-        tsonic,
-      });
+      return tsonic => ({ ...header, kind, statements: structure(node, "module-block").statements(ports().Statement), tsonic });
     })),
     NotEmittedStatement: node => memoSyntaxPlan(NotEmittedStatement, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);

@@ -21,6 +21,9 @@ import { syntaxHeader } from "./copy-node.js";
 import type { AwaitKeyword, CaseBlock, CaseClause, CaseOrDefaultClause, CatchClause, ControlSyntax, ControlSyntaxReceipt,
   DefaultClause, DoStatement, ForInitializer, ForInOrOfStatement, ForStatement, LabeledStatement, SwitchStatement,
   TryStatement, WhileStatement, WithStatement } from "./contract.js";
+import type { ClassDeclaration, ClassElement, ClassExpression, DeclarationStructureReceipt, DeclarationStructureSyntax, EnumDeclaration,
+  EnumMember, ExclamationToken, ExpressionWithTypeArguments, HeritageClause, InterfaceDeclaration, PropertyName, TypeAliasDeclaration,
+  TypeElement } from "./contract.js";
 export type { SyntaxChildSlot } from "./contract.js";
 
 const emptyChildren: readonly never[] = ([]);
@@ -365,6 +368,126 @@ function prepareControl<P extends Phase, Stop>(node: ControlSyntax<P>, ordinal: 
   }
 }
 
+function heldOptionalList<P extends Phase, Value extends SyntaxNode<P>>(field: string, source: NodeList<Value> | null) {
+  const present = source === null ? null : heldList<P, Value>(field, () => source);
+  return { slots: () => present?.slots() ?? [], finish: (read: (node: Value) => Value) => present?.finish(read) ?? null };
+}
+
+function isDeclarationStructure<P extends Phase>(node: SyntaxNode<P>): node is DeclarationStructureSyntax<P> {
+  switch (node.kind) {
+    case "ClassDeclaration": case "ClassExpression": case "InterfaceDeclaration": case "HeritageClause":
+    case "TypeAliasDeclaration": case "JSTypeAliasDeclaration": case "EnumDeclaration": case "EnumMember":
+    case "ModuleBlock": case "MissingDeclaration": return true;
+    default: return false;
+  }
+}
+
+type ClassSyntax<P extends Phase> = ClassDeclaration<P> | ClassExpression<P>;
+
+function* declarationSlots<P extends Phase>(modifiers: () => Iterable<SyntaxChildSlot<P>>,
+  name: () => Iterable<SyntaxChildSlot<P>>, ...rest: readonly (() => Iterable<SyntaxChildSlot<P>>)[]): Generator<SyntaxChildSlot<P>> {
+  yield* modifiers();
+  yield* name();
+  for (const slots of rest) yield* slots();
+}
+
+function classNameSlots<P extends Phase>(name: () => Identifier<P> | null) {
+  return children<P, ClassSyntax<P>>(["name", "nullable", name]);
+}
+
+function declarationNameSlots<P extends Phase>(name: () => Identifier<P>) {
+  return children<P, InterfaceDeclaration<P> | TypeAliasDeclaration<P> | EnumDeclaration<P>>(["name", "required", name]);
+}
+
+function aliasTypeSlots<P extends Phase>(type: () => TypeNode<P>) {
+  return children<P, TypeAliasDeclaration<P>>(["type", "required", type]);
+}
+
+function enumMemberSlots<P extends Phase>(name: () => PropertyName<P>, postfix: () => QuestionToken<P> | ExclamationToken<P> | null,
+  initializer: () => Expression<P> | null) {
+  return children<P, EnumMember<P>>(["name", "required", name], ["postfixToken", "nullable", postfix], ["initializer", "nullable", initializer]);
+}
+
+function prepareDeclaration<P extends Phase, Stop>(node: DeclarationStructureSyntax<P>, ordinal: number,
+  admitList: (field: SyntaxChildListField) => Stop | null): SyntaxCopyResult<DeclarationStructureReceipt<P>, Stop> {
+  switch (node.kind) {
+    case "ModuleBlock": {
+      const stop = admitList("statements");
+      if (stop !== null) return { kind: "refused", stop };
+      const statements = heldList<P, Statement<P>>("statements", () => node.statements);
+      return { kind: "copied", value: { kind: "module-block", ordinal, slots: statements.slots(), statements: statements.finish } };
+    }
+    case "HeritageClause": {
+      const stop = admitList("types");
+      if (stop !== null) return { kind: "refused", stop };
+      const types = heldList<P, ExpressionWithTypeArguments<P>>("types", () => node.types);
+      return { kind: "copied", value: { kind: "heritage", ordinal, slots: types.slots(), types: types.finish } };
+    }
+  }
+  const rawModifiers = node.modifiers;
+  if (rawModifiers !== null) {
+    const stop = admitList("modifiers");
+    if (stop !== null) return { kind: "refused", stop };
+  }
+  const modifiers = heldOptionalList<P, ModifierLike<P>>("modifiers", rawModifiers);
+  if (node.kind === "MissingDeclaration")
+    return { kind: "copied", value: { kind: "missing-declaration", ordinal, slots: modifiers.slots(), modifiers: modifiers.finish } };
+  if (node.kind === "EnumMember") {
+    const name = heldChild(() => node.name);
+    const postfix = heldChild(() => node.postfixToken);
+    const initializer = heldChild(() => node.initializer);
+    return { kind: "copied", value: { kind: "enum-member", ordinal,
+      slots: declarationSlots<P>(modifiers.slots, () => enumMemberSlots<P>(name.pull, postfix.pull, initializer.pull)),
+      modifiers: modifiers.finish, name: name.read, postfix: postfix.read, initializer: initializer.read } };
+  }
+  if (node.kind === "EnumDeclaration") {
+    const stop = admitList("members");
+    if (stop !== null) return { kind: "refused", stop };
+    const name = heldChild(() => node.name);
+    const members = heldList<P, EnumMember<P>>("members", () => node.members);
+    return { kind: "copied", value: { kind: "enum", ordinal,
+      slots: declarationSlots<P>(modifiers.slots, () => declarationNameSlots<P>(name.pull), members.slots),
+      modifiers: modifiers.finish, name: name.read, members: members.finish } };
+  }
+  const rawParameters = node.typeParameters;
+  if (rawParameters !== null) {
+    const stop = admitList("typeParameters");
+    if (stop !== null) return { kind: "refused", stop };
+  }
+  const typeParameters = heldOptionalList<P, TypeParameterDeclaration<P>>("typeParameters", rawParameters);
+  const common = { ordinal, modifiers: modifiers.finish, typeParameters: typeParameters.finish };
+  if (node.kind === "TypeAliasDeclaration" || node.kind === "JSTypeAliasDeclaration") {
+    const name = heldChild(() => node.name);
+    const type = heldChild(() => node.type);
+    return { kind: "copied", value: { ...common, kind: "type-alias",
+      slots: declarationSlots<P>(modifiers.slots, () => declarationNameSlots<P>(name.pull), typeParameters.slots, () => aliasTypeSlots<P>(type.pull)),
+      name: name.read, type: type.read } };
+  }
+  if (node.kind !== "ClassDeclaration" && node.kind !== "ClassExpression" && node.kind !== "InterfaceDeclaration")
+    return throwInvariant(missingStructure);
+  const rawHeritage = node.heritageClauses;
+  if (rawHeritage !== null) {
+    const stop = admitList("heritageClauses");
+    if (stop !== null) return { kind: "refused", stop };
+  }
+  const stop = admitList("members");
+  if (stop !== null) return { kind: "refused", stop };
+  const heritage = heldOptionalList<P, HeritageClause<P>>("heritageClauses", rawHeritage);
+  const aggregate = { ...common, heritageClauses: heritage.finish };
+  if (node.kind === "InterfaceDeclaration") {
+    const name = heldChild(() => node.name);
+    const members = heldList<P, TypeElement<P>>("members", () => node.members);
+    return { kind: "copied", value: { ...aggregate, kind: "interface",
+      slots: declarationSlots<P>(modifiers.slots, () => declarationNameSlots<P>(name.pull), typeParameters.slots, heritage.slots, members.slots),
+      name: name.read, members: members.finish } };
+  }
+  const name = heldChild(() => node.name);
+  const members = heldList<P, ClassElement<P>>("members", () => node.members);
+  return { kind: "copied", value: { ...aggregate, kind: "class",
+    slots: declarationSlots<P>(modifiers.slots, () => classNameSlots<P>(name.pull), typeParameters.slots, heritage.slots, members.slots),
+    name: name.read, members: members.finish } };
+}
+
 function unarySlots<P extends Phase>(operand: () => Expression<P>): Iterable<SyntaxChildSlot<P>> {
   return children<P, UnarySyntax<P>>(["operand", "required", operand]);
 }
@@ -617,6 +740,10 @@ export const prepareSyntaxStructure: PrepareSyntaxStructure = <P extends Phase, 
   node: SyntaxNode<P>, ordinal: number, reserve: (node: RetainedSyntaxNode<P>) => Stop | null,
   admitList: (node: RetainedSyntaxNode<P>, field: SyntaxChildListField) => Stop | null,
 ) => {
+  if (isDeclarationStructure<P>(node)) {
+    const stop = reserve(node);
+    return stop === null ? prepareDeclaration<P, Stop>(node, ordinal, field => admitList(node, field)) : { kind: "refused", stop };
+  }
   if (node.kind !== "Block" && node.kind !== "BinaryExpression" && node.kind !== "ReturnStatement" &&
       node.kind !== "CallExpression" && node.kind !== "NewExpression" && node.kind !== "Parameter" &&
       node.kind !== "SourceFile" && node.kind !== "FunctionDeclaration" && node.kind !== "FunctionExpression" &&
@@ -963,20 +1090,30 @@ function ordinarySlots<PhaseType extends Phase>(
         field => children<PhaseType, typeof node>([field, "nullable", () => node.body]));
     case "ClassDeclaration":
     case "ClassExpression":
-      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["name", "nullable", () => node.name], ["typeParameters", "list", () => node.typeParameters],
-        ["heritageClauses", "list", () => node.heritageClauses], ["members", "list", () => node.members]);
+      return declarationSlots<PhaseType>(() => children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers]),
+        () => classNameSlots<PhaseType>(() => node.name),
+        () => children<PhaseType, typeof node>(["typeParameters", "list", () => node.typeParameters], ["heritageClauses", "list", () => node.heritageClauses],
+          ["members", "list", () => node.members]));
     case "InterfaceDeclaration":
-      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["name", "required", () => node.name], ["typeParameters", "list", () => node.typeParameters],
-        ["heritageClauses", "list", () => node.heritageClauses], ["members", "list", () => node.members]);
+      return declarationSlots<PhaseType>(() => children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers]),
+        () => declarationNameSlots<PhaseType>(() => node.name),
+        () => children<PhaseType, typeof node>(["typeParameters", "list", () => node.typeParameters], ["heritageClauses", "list", () => node.heritageClauses],
+          ["members", "list", () => node.members]));
     case "HeritageClause":
       return children<PhaseType, typeof node>(["types", "list", () => node.types]);
     case "TypeAliasDeclaration":
     case "JSTypeAliasDeclaration":
-      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["name", "required", () => node.name], ["typeParameters", "list", () => node.typeParameters], ["type", "required", () => node.type]);
+      return declarationSlots<PhaseType>(() => children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers]),
+        () => declarationNameSlots<PhaseType>(() => node.name),
+        () => children<PhaseType, typeof node>(["typeParameters", "list", () => node.typeParameters]),
+        () => aliasTypeSlots<PhaseType>(() => node.type));
     case "EnumMember":
-      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["name", "required", () => node.name], ["postfixToken", "nullable", () => node.postfixToken], ["initializer", "nullable", () => node.initializer]);
+      return declarationSlots<PhaseType>(() => children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers]),
+        () => enumMemberSlots<PhaseType>(() => node.name, () => node.postfixToken, () => node.initializer));
     case "EnumDeclaration":
-      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["name", "required", () => node.name], ["members", "list", () => node.members]);
+      return declarationSlots<PhaseType>(() => children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers]),
+        () => declarationNameSlots<PhaseType>(() => node.name),
+        () => children<PhaseType, typeof node>(["members", "list", () => node.members]));
     case "ImportDeclaration":
     case "JSImportDeclaration":
       return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["importClause", "nullable", () => node.importClause], ["moduleSpecifier", "required", () => node.moduleSpecifier], ["attributes", "nullable", () => node.attributes]);

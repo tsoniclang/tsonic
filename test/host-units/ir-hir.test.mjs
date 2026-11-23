@@ -1468,6 +1468,91 @@ test("Checked control flow seals authored operands, clause lists and exception r
   }
 });
 
+test("Checked declaration recipes retain the actual interface, alias and enum lists and operands", async () => {
+  const { createInstantiationMeter, admitCheckedProjection, chargeInstantiationWork } = await import("../../packages/host/dist/ir-program/work.js");
+  const { accountFailure, remainingWork } = await import("../../packages/host/dist/dataflow/index.js");
+  const fixture = await loadFrontFixture();
+  const { checked } = fixture.checkedModuleOf(
+    "export interface Header<Flag> { value: Flag; } export type Actual<Flag> = Header<Flag>; export enum Steps { Zero, One = Zero + 1 }");
+  const [record, alias, enumeration] = checked.tree.statements.nodes;
+  const formals = record.typeParameters;
+  const recordMembers = record.members;
+  const members = enumeration.members;
+  const initialized = members.nodes[1];
+  const reads = [];
+  const expect = [];
+  let sealed = false;
+  const watch = (owner, field, label) => {
+    const original = owner[field];
+    expect.push(label);
+    Object.defineProperty(owner, field, { get() {
+      assert.equal(sealed, false, label);
+      reads.push(label);
+      return original;
+    } });
+    return original;
+  };
+  watch(record, "modifiers", "interface modifiers");
+  watch(record, "typeParameters", "interface formal presence");
+  watch(record, "heritageClauses", "interface heritage presence");
+  const recordName = watch(record, "name", "interface name");
+  watch(formals, "loc", "interface formal range");
+  const formal = watch(formals.nodes, 0, "interface formal row");
+  watch(record, "members", "interface member list");
+  const member = watch(recordMembers.nodes, 0, "interface member row");
+  watch(alias, "modifiers", "alias modifiers");
+  watch(alias, "typeParameters", "alias formal presence");
+  watch(alias, "name", "alias name");
+  const type = watch(alias, "type", "aliased type");
+  watch(enumeration, "modifiers", "enum modifiers");
+  watch(enumeration, "name", "enum name");
+  watch(enumeration, "members", "enum member list");
+  watch(members, "loc", "enum member range");
+  watch(members.nodes, 0, "implicit member");
+  watch(members.nodes, 1, "explicit member");
+  watch(initialized, "modifiers", "member modifiers");
+  watch(initialized, "name", "member name");
+  watch(initialized, "postfixToken", "member postfix");
+  const initializer = watch(initialized, "initializer", "member initializer");
+  const limits = { maximumWork: 10000, maximumCreatedRecords: 10000, maximumBindingVectorsPerArtifact: 1,
+    typeExpansion: { maximumDepth: 10, maximumVisits: 1000, maximumUnionMembers: 100, maximumIntersectionMembers: 100 } };
+  const hold = value => ({ kind: "copied", value });
+  const run = bounds => {
+    sealed = false;
+    reads.length = 0;
+    const meter = createInstantiationMeter(bounds);
+    const unit = () => chargeInstantiationWork(meter);
+    const admit = (work, records) => admitCheckedProjection(meter, work, records);
+    const ready = product.walkSyntaxForest([{ path: "module", read: () => checked.tree }], {
+      root: unit, edge: unit, node: unit, parameter: () => admit(1, 1),
+      structure: () => admit(7, 2), list: () => admit(3, 1),
+    });
+    const stop = () => meter.failure ?? accountFailure(meter.account);
+    if (ready.kind !== "complete") return { result: { kind: "refused", stop: ready }, stop: stop() };
+    sealed = true;
+    const result = product.copyCheckedContent(ready.value,
+      { admit, syntaxNode: () => admit(1, 1), type: hold, signature: hold, bindings: hold, parameter: hold, component: hold, core: hold });
+    return { result, stop: stop(), work: bounds.maximumWork - remainingWork(meter.account), records: meter.created };
+  };
+  const earned = run(limits);
+  assert.equal(earned.result.kind, "copied");
+  assert.deepEqual(reads, expect);
+  const image = earned.result.value.syntax;
+  const copied = image.statementOf(record);
+  assert.equal(copied.name === image.nodeOf(recordName) && copied.typeParameters.nodes[0] === image.nodeOf(formal), true);
+  assert.equal(copied.members.nodes[0] === image.nodeOf(member) && copied.heritageClauses === null, true);
+  assert.equal(image.statementOf(alias).type === image.nodeOf(type), true);
+  const memberImage = image.statementOf(enumeration).members.nodes[1];
+  assert.equal(memberImage === image.nodeOf(initialized) && memberImage.initializer === image.nodeOf(initializer), true);
+  for (const [field, value] of [["maximumWork", earned.work], ["maximumCreatedRecords", earned.records]]) {
+    for (let maximum = 0; maximum < value; maximum += 1) {
+      const denied = run({ ...limits, [field]: maximum });
+      assert.equal(denied.result.kind === "refused" && denied.result.stop === denied.stop, true, `${field}:${maximum}`);
+      assert.deepEqual(reads, expect.slice(0, reads.length), `${field}:${maximum}`);
+    }
+  }
+});
+
 test("Block and Binary materialize only actual paid fields, not post-admission getters", async () => {
   const { createInstantiationMeter, admitCheckedProjection, chargeInstantiationWork } = await import("../../packages/host/dist/ir-program/work.js");
   const { createProjectionInventory, inventoryRecord } = await import("../../packages/host/dist/ir-program/program-values.js");

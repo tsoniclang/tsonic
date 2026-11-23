@@ -5060,6 +5060,42 @@ export type ControlSyntaxReceipt<P extends Phase> = {
   | { readonly kind: "labeled"; readonly label: () => Identifier<P>; readonly statement: () => Statement<P> }
 );
 
+export type DeclarationStructureSyntax<P extends Phase> = ClassDeclaration<P> | ClassExpression<P> | InterfaceDeclaration<P>
+  | HeritageClause<P> | TypeAliasDeclaration<P> | EnumDeclaration<P> | EnumMember<P> | ModuleBlock<P> | MissingDeclaration<P>;
+
+export interface ModifiedSyntaxFields<P extends Phase> {
+  readonly modifiers: (read: (value: ModifierLike<P>) => ModifierLike<P>) => ModifierList<P> | null;
+}
+
+export interface TypeParametersSyntaxFields<P extends Phase> {
+  readonly typeParameters: (read: (value: TypeParameterDeclaration<P>) => TypeParameterDeclaration<P>) =>
+    NodeList<TypeParameterDeclaration<P>> | null;
+}
+
+export interface AggregateSyntaxFields<P extends Phase> extends ModifiedSyntaxFields<P>, TypeParametersSyntaxFields<P> {
+  readonly heritageClauses: (read: (value: HeritageClause<P>) => HeritageClause<P>) => NodeList<HeritageClause<P>> | null;
+}
+
+export type DeclarationStructureReceipt<P extends Phase> = {
+  readonly ordinal: number;
+  readonly slots: Iterable<SyntaxChildSlot<P>>;
+} & (
+  | ({ readonly kind: "class"; readonly name: () => Identifier<P> | null;
+      readonly members: (read: (value: ClassElement<P>) => ClassElement<P>) => NodeList<ClassElement<P>> } & AggregateSyntaxFields<P>)
+  | ({ readonly kind: "interface"; readonly name: () => Identifier<P>;
+      readonly members: (read: (value: TypeElement<P>) => TypeElement<P>) => NodeList<TypeElement<P>> } & AggregateSyntaxFields<P>)
+  | { readonly kind: "heritage"; readonly types: (read: (value: ExpressionWithTypeArguments<P>) => ExpressionWithTypeArguments<P>) =>
+      NodeList<ExpressionWithTypeArguments<P>> }
+  | ({ readonly kind: "type-alias"; readonly name: () => Identifier<P>; readonly type: () => TypeNode<P> }
+      & ModifiedSyntaxFields<P> & TypeParametersSyntaxFields<P>)
+  | ({ readonly kind: "enum"; readonly name: () => Identifier<P>;
+      readonly members: (read: (value: EnumMember<P>) => EnumMember<P>) => NodeList<EnumMember<P>> } & ModifiedSyntaxFields<P>)
+  | ({ readonly kind: "enum-member"; readonly name: () => PropertyName<P>; readonly postfix: () => QuestionToken<P> | ExclamationToken<P> | null;
+      readonly initializer: () => Expression<P> | null } & ModifiedSyntaxFields<P>)
+  | { readonly kind: "module-block"; readonly statements: (read: (value: Statement<P>) => Statement<P>) => NodeList<Statement<P>> }
+  | ({ readonly kind: "missing-declaration" } & ModifiedSyntaxFields<P>)
+);
+
 export interface ApplicationSyntaxReceipt<P extends Phase> {
   readonly kind: "application";
   readonly ordinal: number;
@@ -5106,15 +5142,16 @@ export type RetainedSyntaxNode<P extends Phase> = Block<P> | BinaryExpression<P>
   | CallOrNewExpression<P> | ParameterDeclaration<P> | SourceFile<P> | FunctionDeclaration<P> | FunctionExpression<P>
   | UnarySyntax<P> | AnnotatedExpressionSyntax<P> | ConditionalExpression<P> | IfStatement<P>
   | PropertyAccessExpression<P> | ElementAccessExpression<P> | ArrayLiteralExpression<P> | ObjectLiteralExpression<P>
-  | VariableStatement<P> | VariableDeclaration<P> | VariableDeclarationList<P> | BindingPattern<P> | BindingElement<P> | ControlSyntax<P>;
+  | VariableStatement<P> | VariableDeclaration<P> | VariableDeclarationList<P> | BindingPattern<P> | BindingElement<P> | ControlSyntax<P>
+  | DeclarationStructureSyntax<P>;
 export type SyntaxStructureReceipt<P extends Phase> = BlockSyntaxReceipt<P> | BinarySyntaxReceipt<P> | ReturnSyntaxReceipt<P>
   | SingleExpressionReceipt<P> | ApplicationSyntaxReceipt<P> | ParameterSyntaxReceipt<P> | SourceFileSyntaxReceipt<P> | FunctionSyntaxReceipt<P>
   | UnarySyntaxReceipt<P> | AnnotatedExpressionSyntaxReceipt<P> | ConditionalSyntaxReceipt<P> | IfSyntaxReceipt<P>
   | PropertySyntaxReceipt<P> | ElementSyntaxReceipt<P> | ArraySyntaxReceipt<P> | ObjectSyntaxReceipt<P>
   | VariableStatementSyntaxReceipt<P> | VariableDeclarationSyntaxReceipt<P> | VariableListSyntaxReceipt<P>
-  | BindingPatternSyntaxReceipt<P> | BindingElementSyntaxReceipt<P> | ControlSyntaxReceipt<P>;
+  | BindingPatternSyntaxReceipt<P> | BindingElementSyntaxReceipt<P> | ControlSyntaxReceipt<P> | DeclarationStructureReceipt<P>;
 export type SyntaxChildListField = "modifiers" | "typeParameters" | "parameters" | "typeArguments" | "arguments" | "statements"
-  | "elements" | "properties" | "declarations" | "clauses";
+  | "elements" | "properties" | "declarations" | "clauses" | "types" | "members" | "heritageClauses";
 export type PrepareSyntaxStructure = <P extends Phase, Stop>(
   node: SyntaxNode<P>, ordinal: number, reserve: (node: RetainedSyntaxNode<P>) => Stop | null,
   admitList: (node: RetainedSyntaxNode<P>, field: SyntaxChildListField) => Stop | null,
@@ -5132,7 +5169,8 @@ export interface SyntaxForest<P extends Phase> {
     "formal-header" | "source-header" | "function-header" | "unary" | "annotated-expression" | "conditional" | "if" |
     "property-access" | "element-access" | "array-literal" | "object-literal" | "variable-statement" | "variable-declaration" |
     "variable-list" | "binding-pattern" | "binding-element" | "tested-statement" | "for" | "for-in-or-of" | "jump" | "switch" |
-    "case-block" | "case-clause" | "try" | "catch" | "labeled" | null;
+    "case-block" | "case-clause" | "try" | "catch" | "labeled" | "class" | "interface" | "heritage" | "type-alias" |
+    "enum" | "enum-member" | "module-block" | "missing-declaration" | null;
   readonly firstRootSize: number;
   readonly copy: <Stop, Image>(start: () => SyntaxCopyResult<SyntaxPhaseCopy<P, Stop, Image>, Stop>,
     beforeNode: (node: SyntaxNode<P>) => Stop | null, image: Image) => SyntaxCopyResult<SyntaxImage<P>, Stop>;
