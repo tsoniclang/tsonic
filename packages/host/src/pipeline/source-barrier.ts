@@ -6,8 +6,8 @@ import { decodeBodyId, decodeModuleId } from "../ids/index.js";
 import type { LowerDeps, ModuleDefinitions, ModuleExports, ModuleSourceOccurrence, RawModule, RawNodeRef } from "../front/contract.js";
 import type { HirBindingViews, HirDeclarationScopes, HirModule } from "../ir-hir/contract.js";
 import { createModuleBindingViews, deriveDeclarationScopes, indexSyntaxTree, resolveModuleExport, verifyHir } from "../ir-hir/index.js";
-import type { Libraries, ProviderLibraryModel, ProviderLibraryOrigin, ProviderLibraryText } from "../libraries/contract.js";
-import { admitGuarantees, bindProviderLibraries } from "../libraries/index.js";
+import type { AdmittedNativeGuarantee, Libraries, ProviderLibraryModel, ProviderLibraryOrigin, ProviderLibraryText } from "../libraries/contract.js";
+import { bindProviderLibraries } from "../libraries/index.js";
 import type { NominalDefinition, TypeInterner, TypePublicationWork } from "../ir-types/contract.js";
 import { createTypeInterner, createTypePublicationWork, viewTypes } from "../ir-types/index.js";
 import type { PackageModule } from "../snapshot/contract.js";
@@ -33,6 +33,7 @@ export interface SourceBarrier extends HirBindingViews {
   readonly definitionPaths: ReadonlyMap<DefId, DefinitionPath>;
   readonly nominalOf: (definition: DefId) => NominalDefinition | null;
   readonly libraries: Libraries;
+  readonly nativeGuaranteeOf: (declaration: DefId) => AdmittedNativeGuarantee | null;
 }
 
 export function captureSourceBarrier(inputs: HostAnalysisInputs): Result<SourceBarrier> {
@@ -200,11 +201,15 @@ export function captureSourceBarrier(inputs: HostAnalysisInputs): Result<SourceB
       libraryOrigins.push({ package: document.package, identity: row.identity, definition });
     }
   }
-  const bound = bindProviderLibraries({ models: libraryModels, texts: libraryTexts, origins: libraryOrigins },
+  const admitted = bindProviderLibraries({ models: libraryModels, texts: libraryTexts, origins: libraryOrigins },
     inputs.snapshot.source.input.packages.libraryData);
-  if (bound.kind === "refused") return bound;
-  const admitted = admitGuarantees(bound.value.bound, bound.value.declaredSummaries, []);
   if (admitted.kind === "refused") return admitted;
+  const nativeGuarantees = admitted.value.guarantees.length === 0 ? null : new Map<DefId, AdmittedNativeGuarantee>();
+  if (nativeGuarantees !== null) for (const guarantee of admitted.value.guarantees) {
+    if (nativeGuarantees.has(guarantee.declaration)) return fail("An actual canonical provider signature owns one authored guarantee.");
+    nativeGuarantees.set(guarantee.declaration, guarantee);
+  }
   return { kind: "ok", diagnostics: opened.diagnostics,
-    value: { checked: sources, modules, types, typeWork, descriptions, definitionPaths: paths, nominalOf, libraries: admitted.value, bindingOf: views.bindingOf } };
+    value: { checked: sources, modules, types, typeWork, descriptions, definitionPaths: paths, nominalOf, libraries: admitted.value,
+      nativeGuaranteeOf: declaration => nativeGuarantees?.get(declaration) ?? null, bindingOf: views.bindingOf } };
 }

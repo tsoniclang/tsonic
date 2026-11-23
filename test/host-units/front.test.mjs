@@ -681,32 +681,46 @@ test("provider overloads supply their own ABI while ordinary captured declaratio
   assert.ok(declarationRow);
   const declaration = actual.module.items.find(row => row.node === declarationRow.node.node);
   assert.ok(declaration);
-  function withClaims(packageId, identity) {
+  function claimedInput(base, extensions, packageId, roles, declaredSummaries) {
     const path = packageId === registration.reference.package ? "/provider-one/library.json" : "/project/library.json";
-    const packages = { ...snapshot.source.input.packages,
-      packages: snapshot.source.input.packages.packages.map(entry => entry.id === packageId ? { ...entry, libraryEntry: path } : entry),
-      files: [...snapshot.source.input.packages.files, { kind: "physical", path, realPath: path, text: "{}" }]
+    const packages = { ...base.source.input.packages,
+      packages: base.source.input.packages.packages.map(entry => entry.id === packageId ? { ...entry, libraryEntry: path } : entry),
+      files: [...base.source.input.packages.files, { kind: "physical", path, realPath: path, text: "{}" }]
         .sort((left, right) => left.path < right.path ? -1 : 1),
-      libraryData: [{ package: packageId, path, roles: [{ identity, role: "default-value" }], declaredSummaries: [] }],
+      libraryData: [{ package: packageId, path, roles, declaredSummaries }],
     };
-    const prepared = front.prepareSourceImports({ navigationCapture }, { ...snapshot.source.input, packages });
+    const prepared = front.prepareSourceImports({ navigationCapture }, { ...base.source.input, packages });
     assert.equal(prepared.kind, "ok");
-    const input = { ...snapshot, source: prepared.value };
-    assert.deepEqual(fixture.snapshots.verifySnapshot(input, front.extensionReferencesOf(opened.deps.extensions)), []);
-    return captureSourceBarrier({ ...analysisInput(fixture, "sdk-minimal"), snapshot: input, extensions: opened.deps.extensions });
+    const input = { ...base, source: prepared.value };
+    assert.deepEqual(fixture.snapshots.verifySnapshot(input, front.extensionReferencesOf(extensions)), []);
+    return { ...analysisInput(fixture, "sdk-minimal"), snapshot: input, extensions };
   }
-  const claimed = withClaims(registration.reference.package, declarationRow.identity);
+  const withClaims = (packageId, roles, declaredSummaries) =>
+    captureSourceBarrier(claimedInput(snapshot, opened.deps.extensions, packageId, roles, declaredSummaries));
+  const role = identity => ({ identity, role: "default-value" });
+  const claimed = withClaims(registration.reference.package, [role(declarationRow.identity)], []);
   assert.equal(claimed.kind, "ok", JSON.stringify(claimed.diagnostics));
   assert.deepEqual(claimed.value.libraries.sourceRoles, [
     { identity: declarationRow.identity, role: "default-value", definition: declaration.definition },
   ]);
-  const crossed = withClaims(snapshot.source.input.packages.rootPackage, declarationRow.identity);
+  const crossed = withClaims(snapshot.source.input.packages.rootPackage, [role(declarationRow.identity)], []);
   assert.equal(crossed.kind, "refused");
   assert.equal(crossed.diagnostics[0].code.rendered, "TSONIC_PROVIDER_LIBRARY_INVALID");
   assert.equal(crossed.diagnostics[0].site.path, "/project/library.json");
-  const alias = withClaims(registration.reference.package, { ...declarationRow.identity, exportId: libraryRead.exportName });
+  const alias = withClaims(registration.reference.package, [role({ ...declarationRow.identity, exportId: libraryRead.exportName })], []);
   assert.equal(alias.kind, "refused");
   assert.equal(alias.diagnostics[0].code.rendered, "TSONIC_PROVIDER_LIBRARY_INVALID");
+  const guarantee = { identity: signatures[1].identity, projections: [], producers: [],
+    origins: [{ id: 0, kind: "complete", producers: [], includesAbsence: false }], boundaries: [],
+    parameters: [], captures: [], result: 0, thrown: 0, writes: [], retention: [], callbacks: [], invocationOnlyParameters: [],
+    suspends: false, bindingDependent: false };
+  const withoutCall = withClaims(registration.reference.package, [], [guarantee]);
+  assert.equal(withoutCall.kind, "ok");
+  assert.equal(withoutCall.value.libraries.guarantees[0].statement, guarantee);
+  assert.equal(withoutCall.value.libraries.guarantees[0].declaration, types[1].declaration);
+  const wrongPackage = withClaims(snapshot.source.input.packages.rootPackage, [], [guarantee]);
+  assert.equal(wrongPackage.kind, "refused");
+  assert.equal(wrongPackage.diagnostics[0].site.path, "/project/library.json");
 
   const callSnapshot = projectSnapshot({ sourceFiles: { "main.ts":
     'import { read } from "native:thing"; export function use(input:boolean):boolean { return read(input); }' }, libraries,
@@ -752,6 +766,7 @@ test("provider overloads supply their own ABI while ordinary captured declaratio
   assert.equal(ready.execution, operation.execution);
   assert.equal(ready.placement.signature, readSignature(captured.value.types, candidate.appliedSignature.value));
   assert.equal(ready.placement.request, operation.execution.request);
+  assert.equal(ready.guarantee, null);
   assert.deepEqual(ready.source, { kind: "item", value: { owner: chosen.tsonic.definition, node: chosen.id } });
   assert.deepEqual(typed.value.required.dependencies.filter(row => row.at.node === selected.invocation.node).map(row => row.reason), ["call"]);
   const stats = typed.value.database.stats();
@@ -761,6 +776,19 @@ test("provider overloads supply their own ABI while ordinary captured declaratio
   assert.equal(evidence.kind, "complete");
   assert.equal(evidence.value.signatures.filter(row => row === ready.placement).length, 1);
   assert.deepEqual(typed.value.database.stats(), stats);
+
+  const siblingGuarantee = { ...guarantee, identity: signatures[0].identity };
+  for (const [declarations, chosenStatement] of [[[siblingGuarantee], null], [[siblingGuarantee, guarantee], guarantee]]) {
+    const input = claimedInput(callSnapshot, callSession.deps.extensions, registration.reference.package, [], declarations);
+    const claimed = captureSourceBarrier(input);
+    assert.equal(claimed.kind, "ok");
+    const typed = typeSourceBarrier(input, claimed.value, createAccount(input.limits.dataflow));
+    assert.equal(typed.kind, "ok");
+    const [selection] = typed.value.required.declared.values();
+    assert.equal(selection.guarantee, claimed.value.libraries.guarantees.find(row => row.statement === chosenStatement) ?? null);
+    assert.equal(selection.guarantee?.statement ?? null, chosenStatement);
+    assert.equal(selection.execution.request.definition, chosen.tsonic.definition);
+  }
 });
 
 /**

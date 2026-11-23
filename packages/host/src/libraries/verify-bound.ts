@@ -1,11 +1,9 @@
 import type { LibraryRoleEntry } from "../snapshot/contract.js";
 import type { LibraryExportIdentity } from "../ids/contract.js";
-import type { LibrarySignature, BoundLibraries, Libraries, LibraryRoleVerificationContext, LibraryVerificationContext } from "./contract.js";
+import type { LibrarySignature, BoundLibraries, Libraries, LibraryRoleVerificationContext } from "./contract.js";
 import { catalogueIndex, checkLibraryCatalogue, compareExports, exportKey, orderedViolations, violation } from "./verify-catalogue.js";
 import { validateAuthoredSummary } from "./verify-summaries.js";
 import type { LibraryViolation } from "./verify-catalogue.js";
-import { signatureRequestKey } from "../ir-types/index.js";
-import { associationIndex } from "./admit-guarantees.js";
 
 export function checkBoundLibraries(libraries: BoundLibraries,
   context: LibraryRoleVerificationContext): readonly LibraryViolation[] {
@@ -54,10 +52,9 @@ export function checkBoundLibraries(libraries: BoundLibraries,
   return orderedViolations(output);
 }
 
-export function checkLibraries(libraries: Libraries, context: LibraryVerificationContext): readonly LibraryViolation[] {
+export function checkLibraries(libraries: Libraries, context: LibraryRoleVerificationContext): readonly LibraryViolation[] {
   const output: LibraryViolation[] = [...checkBoundLibraries(libraries, context)];
   const index = catalogueIndex({ sources: libraries.sources });
-  const associations = associationIndex(context.associations);
   const callbacks = new Map<string, readonly LibrarySignature[]>();
   let previous: LibraryExportIdentity | null = null;
   for (const admitted of libraries.guarantees) {
@@ -67,23 +64,13 @@ export function checkLibraries(libraries: Libraries, context: LibraryVerificatio
     }
     previous = identity;
     const entry = index.exports.get(exportKey(identity));
-    const association = associations.exports.get(exportKey(identity));
-    if (entry === undefined || entry === null || entry.signature === null || association === undefined
-      || association === null || association.kind !== "callable") {
+    if (entry === undefined || entry === null || entry.signature === null) {
       output.push(violation("declared-summary-identity-resolves", { kind: "export", identity }));
       continue;
     }
     validateAuthoredSummary(admitted.statement, index, output, callbacks);
-    if (association.guarantee === null || exportKey(association.guarantee) !== exportKey(identity)
-      || associations.requests.get(signatureRequestKey(association.request)) === null) {
-      output.push(violation("summary-binding-origin-exact", { kind: "export", identity }));
-    }
-    if (!context.definitionExists(admitted.declaration) || admitted.declaration !== association.request.definition) {
+    if (!context.definitionExists(admitted.declaration) || admitted.declaration !== context.definitionOfExport(identity)) {
       output.push(violation("summary-binding-definition-exact", { kind: "export", identity }));
-    }
-    if ((identity.memberId !== null) !== (association.member !== null)
-      || association.signature.declaration !== null && association.signature.declaration !== admitted.declaration) {
-      output.push(violation("summary-binding-signature-exact", { kind: "export", identity }));
     }
   }
   return orderedViolations(output);

@@ -9,6 +9,7 @@ import { admitArtifactIdentity, admitSummaryIdentity, summaryKey } from "../ir-f
 import type { TirBody } from "../ir-tir/contract.js";
 import type { BindingScope, BodyInstance, DeclaredExecution, Execution, Signature, SignatureRequest } from "../ir-types/contract.js";
 import { artifactBindingsKey, instanceKey, readSignature } from "../ir-types/index.js";
+import type { AdmittedNativeGuarantee } from "../libraries/contract.js";
 import type { SourceBarrier } from "./source-barrier.js";
 import type { CheckedSourceViews } from "./checked-inputs.js";
 import { analysisStop } from "./analysis-stop.js";
@@ -26,6 +27,7 @@ export interface ReadyDeclaredExecution {
   readonly source: SourceNodeRef;
   readonly scope: BindingScope;
   readonly parameters: readonly ParameterMapping[];
+  readonly guarantee: AdmittedNativeGuarantee | null;
 }
 
 export interface RequiredExecutions {
@@ -275,12 +277,18 @@ export function prepareRequiredExecutions(source: SourceBarrier, sources: Checke
             const identity = summaryKey(key);
             const previous = declaredOf(identity);
             if (previous !== undefined) return { kind: "declared", execution: previous.execution };
+            const claim = chargeWork(account, selected.declaration.length);
+            if (claim !== null) return null;
+            const guarantee = source.nativeGuaranteeOf(selected.declaration);
+            if (guarantee !== null && (!("core" in endpoint) || endpoint.core.provider.kind !== "available"
+              || endpoint.core.provider.value !== guarantee.declaration))
+              return fail("A selected native guarantee borrows its actual checked canonical declaration.");
             const retain = chargeResultEntries(account, declared === null ? 8 : 7);
             if (retain !== null) return null;
             declared ??= new Map();
             const ready: DeclaredExecution = { request: { ...request, bindings: { kind: "instantiated", bindings: decision.bindings } }, provided };
             declared.set(identity, { execution: ready, placement: { request: ready.request, signature: actual },
-              source: site, scope, parameters: decision.parameters });
+              source: site, scope, parameters: decision.parameters, guarantee });
             return { kind: "declared", execution: ready };
           }
           ordinal += 1;

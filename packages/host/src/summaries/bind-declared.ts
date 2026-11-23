@@ -85,9 +85,17 @@ export const bindDeclaredSummary: BindDeclaredSummary = (deps, input) => {
   validateSelection(deps, input);
   if (input.kind === "unknown") return { kind: "ok", value: unknownDeclaredSummary(deps, input), diagnostics: [] };
   const associated = new Map<string, NativeExportAssociation | null>();
+  const request = signatureRequestKey(input.execution.request);
+  const guarantee = libraryExportKey(input.guarantee.statement.identity);
   for (const association of input.associations) {
     const key = libraryExportKey(association.identity);
     associated.set(key, associated.has(key) ? null : association);
+    if (association.kind !== "callable") continue;
+    if (association.guarantee === undefined)
+      throw new TypeError("A native callable association requires ready canonical guarantee-origin evidence");
+    if (signatureRequestKey(association.request) === request
+      && (association.guarantee === null || libraryExportKey(association.guarantee) !== guarantee
+        || association.signature.id !== deps.signature.id)) return failure(input);
   }
   const values = new Map<string, ExportValue | null>();
   const environments = new Map<string, number>();
@@ -121,9 +129,9 @@ export const bindDeclaredSummary: BindDeclaredSummary = (deps, input) => {
   const selected = lookup(input.guarantee.statement.identity);
   if (selected === null || selected.association.kind !== "callable"
     || selected.association.guarantee === null
-    || libraryExportKey(selected.association.guarantee) !== libraryExportKey(input.guarantee.statement.identity)
+    || libraryExportKey(selected.association.guarantee) !== guarantee
     || selected.association.request.definition !== input.guarantee.declaration
-    || signatureRequestKey(selected.association.request) !== signatureRequestKey(input.execution.request)
+    || signatureRequestKey(selected.association.request) !== request
     || selected.association.signature.id !== deps.signature.id
     || selected.association.signature.declaration !== null
       && selected.association.signature.declaration !== input.execution.request.definition) return failure(input);

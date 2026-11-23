@@ -48,7 +48,7 @@ function summary(deps, input) {
 test("Libraries admits a raw guarantee once without publishing any premature semantic Summary", () => {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true);
   const value = fixture();
-  const result = admitGuarantees(value.bound, [value.statement], [value.association]);
+  const result = admitGuarantees(value.bound, [value.statement], origin => origin === value.identity ? value.declaration : null);
   assert.equal(result.kind, "ok");
   assert.equal(result.value.sources === value.bound.sources, true);
   assert.equal(result.value.sourceRoles === value.bound.sourceRoles, true);

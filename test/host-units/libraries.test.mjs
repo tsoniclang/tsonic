@@ -186,8 +186,13 @@ const readyAssociation = (identity, selected, guarantee = identity) => selected.
 const summaryExecutionKey = selected => ({ kind: "declared", execution: { request: selected.request,
   provided: selected.signature.parameters.filter(parameter => parameter.kind !== "rest").length } });
 
+const authoredOriginOf = associations => identity => {
+  const rows = associations.filter(row => row.kind === "callable" && identityKey(row.identity) === identityKey(identity));
+  return rows.length === 1 ? rows[0].request.definition : null;
+};
+
 async function bindNativeBatch(bound, declared, associations, suppliedRelations = null) {
-  const admitted = product.admitGuarantees(bound, declared, associations);
+  const admitted = product.admitGuarantees(bound, declared, authoredOriginOf(associations));
   if (admitted.kind === "refused") return admitted;
   const { bindDeclaredSummary } = await import("../../packages/host/dist/summaries/index.js");
   const summaries = [];
@@ -319,13 +324,17 @@ test("provider catalogue binds package claims only to actual public export origi
     roles: [{ identity: exportRow, role: "default-value" }], declaredSummaries: [] };
   const proof = product.bindProviderLibraries(capture, [role]);
   assert.equal(proof.kind, "ok");
-  assert.deepEqual(proof.value.bound.sourceRoles, [{ ...role.roles[0], definition: origin.definition }]);
-  assert.deepEqual(proof.value.bound.sources[0].declarations,
+  assert.deepEqual(proof.value.sourceRoles, [{ ...role.roles[0], definition: origin.definition }]);
+  assert.deepEqual(proof.value.sources[0].declarations,
     [{ fileName: text.fileName, sourceText: text.sourceText, module: module.identity }]);
-  assert.deepEqual(product.bindProviderLibraries(capture, []).value.bound.sourceRoles, []);
+  assert.deepEqual(product.bindProviderLibraries(capture, []).value.sourceRoles, []);
   const summarized = authoredSummary({ ...exportRow, signatureId: "signature" });
-  assert.equal(product.bindProviderLibraries(capture, [{ ...role, declaredSummaries: [summarized] }])
-    .value.declaredSummaries[0] === summarized, true);
+  const signatureOrigin = { ...origin, identity: summarized.identity, definition: definitionId("signature") };
+  const claimed = [{ ...role, declaredSummaries: [summarized] }];
+  const admitted = product.bindProviderLibraries({ ...capture, origins: [origin, signatureOrigin] }, claimed);
+  assert.equal(admitted.value.guarantees[0].statement, summarized);
+  assert.equal(admitted.value.guarantees[0].declaration, signatureOrigin.definition);
+  assert.deepEqual(product.bindProviderLibraries(capture, claimed), { kind: "refused", diagnostics: [summaryError(summarized.identity)] });
   for (const [actual, data, message] of [
     [{ ...capture, models: [...capture.models, capture.models[0]] }, [], "one public model"],
     [{ ...capture, texts: [{ ...text, package: foreign }] }, [], "actual registered package and public model"],
@@ -362,11 +371,11 @@ test("provider catalogue orders distinct packages, modules, roles and guarantees
     origins,
   }, [{ package: primary, path: "/primary/library.json", roles: [finalRole, initialRole], declaredSummaries: authored }]);
   assert.equal(result.kind, "ok");
-  assert.deepEqual(result.value.bound.sources.map(source => source.id), [another, primary]);
-  assert.deepEqual(result.value.bound.sources[1].modules.map(module => module.identity), [first.identity, last.identity]);
-  assert.deepEqual(result.value.bound.sources[1].declarations.map(document => document.fileName), ["/primary/a.d.ts", "/primary/z.d.ts"]);
-  assert.deepEqual(result.value.bound.sourceRoles, [initialRole, finalRole].map(role => ({ ...role, definition: definitionOf(role.identity) })));
-  assert.deepEqual(result.value.declaredSummaries, [authored[1], authored[0]]);
+  assert.deepEqual(result.value.sources.map(source => source.id), [another, primary]);
+  assert.deepEqual(result.value.sources[1].modules.map(module => module.identity), [first.identity, last.identity]);
+  assert.deepEqual(result.value.sources[1].declarations.map(document => document.fileName), ["/primary/a.d.ts", "/primary/z.d.ts"]);
+  assert.deepEqual(result.value.sourceRoles, [initialRole, finalRole].map(role => ({ ...role, definition: definitionOf(role.identity) })));
+  assert.deepEqual(result.value.guarantees, [authored[1], authored[0]].map(statement => ({ statement, declaration: definitionOf(statement.identity) })));
 });
 
 for (const [level, name] of [["verifier", "empty-catalogue"], ["verifier", "duplicate-source"], ["function", "empty-role-binding"]]) {
@@ -1440,25 +1449,26 @@ test("legal aliases use one admitted native guarantee origin independent of enco
     retention: [{ source: 0, into: { kind: "callback", at: at(1) } }],
   });
   const aliases = [readyAssociation(first, binding, first), readyAssociation(second, binding, first)];
+  const origin = identity => identityKey(identity) === identityKey(first) ? binding.request.definition : null;
   for (const associations of [aliases, [...aliases].reverse()]) {
-    const admitted = product.admitGuarantees(bound, [raw], associations);
+    const admitted = product.admitGuarantees(bound, [raw], origin);
     assert.equal(admitted.kind, "ok");
     assert.equal(admitted.value.guarantees.length, 1, "one authored origin is admitted, not one copy per alias");
     assert.equal(admitted.value.guarantees[0].statement === raw, true);
     assert.deepEqual(product.verifyLibraries(admitted.value, { definitionExists: () => true,
-      definitionOfExport: () => { throw new Error("No roles."); }, associations }), []);
+      definitionOfExport: origin }), []);
     assert.deepEqual(await bindNativeBatch(bound, [raw], associations), { kind: "ok", value: [expected], diagnostics: [] });
-    assert.deepEqual(product.admitGuarantees(bound, [raw, authoredSummary(second)], associations),
+    assert.deepEqual(product.admitGuarantees(bound, [raw, authoredSummary(second)], origin),
       { kind: "refused", diagnostics: [summaryError(second)] }, "a second alias statement cannot replace or duplicate the canonical origin");
   }
   for (const identities of [[first, second], [second, first]]) {
     const absent = identities.map(identity => readyAssociation(identity, binding, null));
-    assert.deepEqual(product.admitGuarantees(bound, [], absent),
+    assert.deepEqual(product.admitGuarantees(bound, [], authoredOriginOf(absent)),
       { kind: "ok", value: { ...bound, guarantees: [] }, diagnostics: [] }, "genuine no-guarantee aliases retain their known absence");
   }
 });
 
-test("contradictory, missing and unavailable native alias origins never become first-row selection or known absence", () => {
+test("authored guarantee origins and selected alias agreement are independent exact checks", async () => {
   const module = identity();
   const first = exportIdentity(module, "a", null, "signature");
   const second = exportIdentity(module, "z", null, "signature");
@@ -1471,14 +1481,19 @@ test("contradictory, missing and unavailable native alias origins never become f
   const secondRaw = authoredSummary(second);
   const a = readyAssociation(first, binding);
   const z = readyAssociation(second, binding);
-  const context = associations => ({ associations, definitionExists: () => true,
-    definitionOfExport: () => { throw new Error("No roles."); } });
-  const current = { ...bound, guarantees: [{ statement: firstRaw, declaration: binding.request.definition }] };
+  const origin = authoredOriginOf([a]);
+  const admitted = product.admitGuarantees(bound, [firstRaw], origin);
+  assert.equal(admitted.kind, "ok");
+  const { bindDeclaredSummary } = await import("../../packages/host/dist/summaries/index.js");
+  const execution = summaryExecutionKey(a).execution;
+  const source = { kind: "item", value: { owner: binding.request.definition, node: nodeId(0) } };
+  const deps = { signature: binding.signature, parameters: [], source, callables: [] };
+  const bind = associations => bindDeclaredSummary(deps, { kind: "native", guarantee: admitted.value.guarantees[0],
+    associations, execution, relations: constructedNativeRelations(execution, source),
+    cells: constructedNativeCells(execution, firstRaw, source) });
+  const exactFailure = { kind: "refused", diagnostics: [lateSummaryError(a.request)] };
   for (const associations of [[a, z], [z, a], [a, z, { ...a }]]) {
-    for (const declared of [[firstRaw, secondRaw], [secondRaw, firstRaw]]) {
-      assert.deepEqual(product.admitGuarantees(bound, declared, associations),
-        { kind: "refused", diagnostics: [summaryError(first), summaryError(second)] });
-    }
+    assert.deepEqual(bind(associations), exactFailure);
   }
   for (const associations of [
     [a, { ...z, guarantee: null }],
@@ -1486,29 +1501,22 @@ test("contradictory, missing and unavailable native alias origins never become f
     [a, { ...z, guarantee: first, signature: { ...binding.signature, id: sigId(1) } }],
     [a, { ...z, guarantee: first, signature: { ...binding.signature, id: sigId(1) } }, { ...z, guarantee: first }],
   ]) {
-    assert.deepEqual(product.admitGuarantees(bound, [firstRaw], associations),
-      { kind: "refused", diagnostics: [summaryError(first)] });
-    assert.equal(product.verifyLibraries(current, context(associations)).some(row => row.rule === "summary-binding-origin-exact"), true);
+    assert.deepEqual(bind(associations), exactFailure);
   }
   for (const selected of [{ ...a, guarantee: null }, { ...a, guarantee: second }]) {
-    assert.equal(product.verifyLibraries(current, context([selected])).some(row => row.rule === "summary-binding-origin-exact"), true);
+    assert.deepEqual(bind([selected]), exactFailure);
   }
-  assert.deepEqual(product.admitGuarantees(bound, [], [a, { ...z, guarantee: first }]),
-    { kind: "refused", diagnostics: [summaryError(first)] }, "a supplied guarantee reference must resolve its authored origin");
-  for (const associations of [[a, z], [z, a]]) {
-    assert.deepEqual(product.admitGuarantees(bound, [], associations),
-      { kind: "refused", diagnostics: [summaryError(first), summaryError(second)] },
-      "missing authored origins are reported once each in canonical native order");
+  for (const declared of [[firstRaw, secondRaw], [secondRaw, firstRaw]]) {
+    assert.deepEqual(product.admitGuarantees(bound, declared, () => null),
+      { kind: "refused", diagnostics: [summaryError(first), summaryError(second)] });
+    assert.deepEqual(product.admitGuarantees(bound, declared, origin),
+      { kind: "refused", diagnostics: [summaryError(second)] });
   }
   const independent = readyAssociation(second, exportBinding(definitionId("independent")));
-  for (const associations of [[a, independent], [independent, a]]) {
-    assert.deepEqual(product.admitGuarantees(bound, [firstRaw], associations),
-      { kind: "refused", diagnostics: [summaryError(second)] }, "a valid independent origin cannot hide another supplied missing origin");
-  }
-  assert.deepEqual(product.admitGuarantees(bound, [firstRaw], [{ ...z, guarantee: first }]),
-    { kind: "refused", diagnostics: [summaryError(first)] }, "the canonical native origin requires its actual ready checked association");
+  assert.equal(bind([a, independent]).kind, "ok");
+  assert.deepEqual(bind([{ ...z, guarantee: first }]), exactFailure);
   const { guarantee, ...unavailable } = a;
-  assert.throws(() => product.admitGuarantees(bound, [], [unavailable]), /ready canonical guarantee-origin evidence/u);
+  assert.throws(() => bind([unavailable]), /ready canonical guarantee-origin evidence/u);
 });
 
 test("summary member exactness has precisely the four presence/unresolved controls and no MemberSelection replay", async () => {
@@ -1521,9 +1529,9 @@ test("summary member exactness has precisely the four presence/unresolved contro
   const binding = (exportBinding(definitionId("api"), { member: actualMember }));
   assert.deepEqual(await bindNativeBatch(input, ([authoredSummary(memberIdentity)]), [readyAssociation(memberIdentity, binding)]), { kind: "ok", value: [emptySummary(binding)], diagnostics: [] });
   assert.deepEqual(await bindNativeBatch(input, ([authoredSummary(memberIdentity)]), [readyAssociation(memberIdentity, { ...binding, member: null })]),
-    { kind: "refused", diagnostics: [summaryError(memberIdentity)] });
+    { kind: "refused", diagnostics: [lateSummaryError(binding.request)] });
   assert.deepEqual(await bindNativeBatch(input, ([authoredSummary(rootIdentity)]), [readyAssociation(rootIdentity, binding)]),
-    { kind: "refused", diagnostics: [summaryError(rootIdentity)] });
+    { kind: "refused", diagnostics: [lateSummaryError(binding.request)] });
   assert.deepEqual(await bindNativeBatch(input, ([authoredSummary(memberIdentity)]), []),
     { kind: "refused", diagnostics: [summaryError(memberIdentity)] });
 });
@@ -2130,25 +2138,28 @@ test("binding remaps the complete relational graph into signature-order formals 
 
 test("native guarantee admission preserves source/role vectors without constructing execution summaries", () => {
   const bound = { sources: [], sourceRoles: [] };
-  assert.deepEqual(product.admitGuarantees(bound, [], []), { kind: "ok", value: { ...bound, guarantees: [] }, diagnostics: [] });
+  assert.deepEqual(product.admitGuarantees(bound, [], () => assert.fail("No unclaimed origin is demanded.")),
+    { kind: "ok", value: { ...bound, guarantees: [] }, diagnostics: [] });
   const { input, summary } = summaryInput();
   const selected = readyAssociation(summary.identity, exportBinding(definitionId("api")));
   const staged = { sources: input.sources, sourceRoles: [] };
-  const actual = product.admitGuarantees(staged, [summary], [selected]);
+  const origin = authoredOriginOf([selected]);
+  const actual = product.admitGuarantees(staged, [summary], origin);
   const role = { identity: summary.identity, definition: selected.request.definition };
-  assert.deepEqual(product.admitGuarantees({ ...staged, sourceRoles: [role, role] }, [summary], [selected]),
+  assert.deepEqual(product.admitGuarantees({ ...staged, sourceRoles: [role, role] }, [summary], origin),
     { kind: "refused", diagnostics: [summaryError(summary.identity)] });
   assert.deepEqual(actual, { kind: "ok", value: { ...staged, guarantees: [{ statement: summary, declaration: selected.request.definition }] }, diagnostics: [] });
   assert.equal(actual.value.sources === staged.sources && actual.value.sourceRoles === staged.sourceRoles, true);
   assert.equal("declaredSummaries" in actual.value, false, "Libraries never publishes a premature Facts.Summary");
   for (const associations of [[], [selected, selected], [{ ...selected, kind: "noncallable", declaration: selected.request.definition,
     bindings: selected.request.bindings.bindings }]]) {
-    assert.deepEqual(product.admitGuarantees(staged, [summary], associations), { kind: "refused", diagnostics: [summaryError(summary.identity)] });
+    assert.deepEqual(product.admitGuarantees(staged, [summary], authoredOriginOf(associations)),
+      { kind: "refused", diagnostics: [summaryError(summary.identity)] });
   }
-  assert.deepEqual(product.admitGuarantees(staged, [summary, summary], [selected]), { kind: "refused", diagnostics: [summaryError(summary.identity)] });
+  assert.deepEqual(product.admitGuarantees(staged, [summary, summary], origin), { kind: "refused", diagnostics: [summaryError(summary.identity)] });
 });
 
-test("final admitted guarantees retain native identity, exact selected declaration and canonical authored order", () => {
+test("final admitted guarantees retain native identity, exact authored declaration and canonical order", () => {
   const { input, summary } = summaryInput();
   const first = summary.identity;
   const second = exportIdentity(first.module, "second", null, "signature");
@@ -2161,28 +2172,20 @@ test("final admitted guarantees retain native identity, exact selected declarati
   const a = { statement: summary, declaration: firstSelected.request.definition };
   const b = { statement: authoredSummary(second), declaration: secondSelected.request.definition };
   const current = { sources, sourceRoles: [], guarantees: [a, b] };
-  const context = { definitionExists: () => true, definitionOfExport: () => { throw new Error("No roles."); },
-    associations: [firstSelected, secondSelected] };
+  const context = { definitionExists: () => true, definitionOfExport: authoredOriginOf([firstSelected, secondSelected]) };
   assert.deepEqual(product.verifyLibraries(current, context), []);
   assert.deepEqual(product.verifyLibraries({ ...current, guarantees: [b, a] }, context),
     [finding("declared-summaries-order", { kind: "export", identity: first })]);
   assert.deepEqual(product.verifyLibraries({ ...current, guarantees: [a, a] }, context),
     [finding("declared-summaries-order", { kind: "export", identity: first })]);
   for (const changed of [{ ...context, definitionExists: () => false },
-    { ...context, associations: [{ ...firstSelected, request: { ...firstSelected.request, definition: secondSelected.request.definition } }] }]) {
+    { ...context, definitionOfExport: () => secondSelected.request.definition }, { ...context, definitionOfExport: () => null }]) {
     assert.equal(product.verifyLibraries({ ...current, guarantees: [a] }, changed).some(row => row.rule === "summary-binding-definition-exact"), true);
   }
-  for (const associations of [[], [firstSelected, firstSelected], [{ ...firstSelected, kind: "noncallable",
-    declaration: firstSelected.request.definition, bindings: emptyBindings() }]]) {
-    assert.deepEqual(product.verifyLibraries({ ...current, guarantees: [a] }, { ...context, associations }),
-      [finding("declared-summary-identity-resolves", { kind: "export", identity: first })]);
-  }
-  for (const selected of [{ ...firstSelected, member: selectedMember() }, { ...firstSelected,
-    signature: { ...firstSelected.signature, declaration: secondSelected.request.definition } }]) {
-    assert.deepEqual(product.verifyLibraries({ ...current, guarantees: [a] }, { ...context, associations: [selected] }),
-      [finding("summary-binding-signature-exact", { kind: "export", identity: first })]);
-  }
-  assert.deepEqual(product.verifyLibraries({ sources: [], sourceRoles: [], guarantees: [] }, { ...context, associations: [] }), []);
+  const missing = { ...first, signatureId: "unprovided" };
+  assert.deepEqual(product.verifyLibraries({ ...current, guarantees: [{ ...a, statement: { ...a.statement, identity: missing } }] }, context),
+    [finding("declared-summary-identity-resolves", { kind: "export", identity: missing })]);
+  assert.deepEqual(product.verifyLibraries({ sources: [], sourceRoles: [], guarantees: [] }, context), []);
 });
 
 test("the complete actual libraries module passes fresh strict isolation against genuine dependency value declarations", async () => {
@@ -2229,7 +2232,7 @@ test("late native specialization retains every bound and rigid family and refuse
   input.sources[0].modules[0].exports[0].signatures[0].typeParameters = [0, 1].map(index => ({
     name: `method-T${index}`, constraints: [], defaultType: null, variance: "invariant",
   }));
-  const admitted = product.admitGuarantees({ sources: input.sources, sourceRoles: [] }, [summary], [selected]);
+  const admitted = product.admitGuarantees({ sources: input.sources, sourceRoles: [] }, [summary], authoredOriginOf([selected]));
   assert.equal(admitted.kind, "ok");
   const deps = { signature: selected.signature, parameters: [], callables: [], source: { kind: "item", value: { owner, node: nodeId(0) } } };
   const execution = summaryExecutionKey(selected).execution;
@@ -2267,14 +2270,14 @@ import type * as Port from "./libraries/contract.js";
 import type { LibraryAuthoredSummary, LibraryRole } from "./snapshot/contract.js";
 import type { LibraryExportIdentity } from "./ids/contract.js";
 export function inspect(catalogue: Port.LibraryCatalogue, bound: Port.BoundLibraries, libraries: Port.Libraries,
-  declared: readonly LibraryAuthoredSummary[], context: Port.LibraryVerificationContext,
+  declared: readonly LibraryAuthoredSummary[], context: Port.LibraryRoleVerificationContext,
   identity: LibraryExportIdentity, role: LibraryRole): void {
   const ports: readonly [Port.BindRoles, Port.AdmitGuarantees, Port.LibraryExportKey, Port.LibraryRolesOf, Port.LibraryRoleOf,
     Port.VerifyLibraryCatalogue, Port.VerifyAuthoredSummaries, Port.VerifyBoundLibraries, Port.VerifyLibraries] = [
     Libraries.bindRoles, Libraries.admitGuarantees, Libraries.libraryExportKey, Libraries.libraryRolesOf, Libraries.libraryRoleOf,
     Libraries.verifyLibraryCatalogue, Libraries.verifyAuthoredSummaries, Libraries.verifyBoundLibraries, Libraries.verifyLibraries];
   const roles = Libraries.bindRoles(catalogue, context.definitionOfExport);
-  const summaries = Libraries.admitGuarantees(bound, declared, context.associations);
+  const summaries = Libraries.admitGuarantees(bound, declared, context.definitionOfExport);
   if (roles.kind === "ok") void roles.value.sourceRoles;
   else void roles.diagnostics;
   if (summaries.kind === "ok") void summaries.value.guarantees;

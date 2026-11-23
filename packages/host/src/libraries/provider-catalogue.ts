@@ -4,6 +4,7 @@ import type { PackageId } from "../ids/contract.js";
 import type { LibraryAuthoredSummary, LibraryRoleEntry } from "../snapshot/contract.js";
 import type { BindProviderLibraries, LibraryModule, LibraryText, ProviderLibraryModel, ProviderLibraryOrigin, SourceLibrary } from "./contract.js";
 import { bindIndexedRoles } from "./roles.js";
+import { admitIndexedGuarantees } from "./admit-guarantees.js";
 import { catalogueIndex, checkIndexedLibraryCatalogue, compareExports, compareModules, compareText, exportKey, moduleKey } from "./verify-catalogue.js";
 
 function diagnostic(evidence: string, path: string | null, message: string): Diagnostic {
@@ -95,8 +96,8 @@ export const bindProviderLibraries: BindProviderLibraries = (capture, data) => {
       diagnostic(key, null, "A canonical provider declaration must name an export in its actual public model."),
     ] };
   }
-  const bound = bindIndexedRoles(projected, index, identity => origins.get(exportKey(identity))?.definition ?? null);
+  const definitionOfExport = (identity: ProviderLibraryOrigin["identity"]) => origins.get(exportKey(identity))?.definition ?? null;
+  const bound = bindIndexedRoles(projected, index, definitionOfExport);
   if (bound.kind === "refused") return bound;
-  declaredSummaries.sort((left, right) => compareExports(left.identity, right.identity));
-  return { kind: "ok", value: { bound: bound.value, declaredSummaries }, diagnostics: [] };
+  return admitIndexedGuarantees(bound.value, index, declaredSummaries, definitionOfExport);
 };
