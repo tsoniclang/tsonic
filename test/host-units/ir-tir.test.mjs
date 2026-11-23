@@ -52,6 +52,10 @@ let verifyBody;
 let verifyChapter;
 let admitFixtureRead;
 let sameSyntaxFields;
+let structureOf;
+
+const readyStatement = node => ({ kind: "ready-statement", node });
+const readyChapter = root => ({ kind: "ready-root", root });
 
 function writeValueEvidence(path, root) {
   const output = openSync(path, "wx");
@@ -122,6 +126,9 @@ before(async () => {
   verifyChapter = await tirFixtureVerifier(product.verifyTirModule);
   admitFixtureRead = await tirFixtureAdmission();
   ({ sameSyntaxFields } = await import("../../packages/host/dist/ir-tir/syntax-compare.js"));
+  const { inspectTirStructure } = await import("../../packages/host/dist/ir-tir/verify-occurrences.js");
+  const { createTirLayouts } = await import("../../packages/host/dist/ir-tir/text-model.js");
+  structureOf = body => inspectTirStructure(body, createTirLayouts(), new Set());
 });
 
 await import("./source-add-composed.test.mjs");
@@ -156,7 +163,7 @@ const bodyScopes = (input, body) => {
   return scopes;
 };
 
-function bodylessModuleScenario() {
+function typeAliasModuleScenario(ready = false) {
   const definition = "D[M[P[p];m];Alias]";
   const declaration = { kind: "definition", definition };
   const name = { ...header(2, 1), kind: "Identifier", text: "Alias",
@@ -165,9 +172,6 @@ function bodylessModuleScenario() {
   const alias = { ...header(1, 0), kind: "TypeAliasDeclaration", modifiers: null, name, typeParameters: null, type: keyword,
     tsonic: { definition, parameters: [], type: 0 } };
   const end = { ...header(4, 0), kind: "EndOfFile", tsonic: null };
-  const tree = { ...header(0), kind: "SourceFile", statements: nodeList([alias]), endOfFileToken: end,
-    languageVariant: "Standard", scriptKind: "TS", commentDirectives: [], pragmas: [], checkJsDirective: null,
-    tsonic: { module: moduleId, template: null } };
   const sourceName = { ...header(2, 1), kind: "Identifier", text: "Alias",
     tsonic: { core: emptyCore(), role: "declaration-name", declaration } };
   const sourceKeyword = { ...header(3, 1), kind: "StringKeyword",
@@ -178,28 +182,32 @@ function bodylessModuleScenario() {
   const sourceEnd = { ...header(4, 0), kind: "EndOfFile", tsonic: null };
   const sourceTree = { ...header(0), kind: "SourceFile", statements: nodeList([sourceAlias]), endOfFileToken: sourceEnd,
     languageVariant: "Standard", scriptKind: "TS", commentDirectives: [], pragmas: [], checkJsDirective: null,
-    tsonic: { core: emptyCore(), parent: null, attributes: [], memory: available(null), definition: ownerId, body: null } };
-  const source = { module: moduleId, tree: sourceTree,
-    bodies: [], exports: [], bindings: [], moduleLinks: [], checkerDiagnostics: [], obligations: [],
-    items: [{ definition: ownerId, node: 0 }, { definition, node: 1 }] };
-  const module = { module: moduleId, tree, bodies: [] };
+    tsonic: { core: emptyCore(), parent: null, attributes: [], memory: available(null), definition: ownerId, body: bodyId } };
+  const body = emptyModuleBody();
+  body.root.statements = nodeList([readyStatement(alias)]);
+  body.root.endOfFileToken = end;
+  const input = emptyVerificationInput(body, [sourceAlias, sourceName, sourceKeyword, sourceEnd]);
+  input.source.tree = sourceTree;
+  input.source.bodies[0].root = sourceTree;
+  input.source.items.push({ definition, node: 1 });
+  if (!ready) {
+    input.module.tree = { kind: "checked-root", root: sourceTree };
+    input.module.bodies.length = 0;
+    input.bodyOf = () => null;
+  }
   const nodes = new Map([sourceTree, sourceAlias, sourceName, sourceKeyword, sourceEnd].map(node => [node.id, node]));
   const queries = [];
   const scopes = [];
-  const input = { source, module, types: { terms: [{ kind: "intrinsic", intrinsic: "unknown" }], signatures: [] },
-    bindingScopesOf: target => {
-      queries.push(structuredClone(target));
-      return completeScopes(target.kind === "module" && target.module === moduleId ? scopes : null);
-    },
-    declarationOf: selected => selected === definition || selected === ownerId
-      ? { scope: emptyScope(), parameterCount: 0, endpoints: [] } : null,
-    staticStorageOf: () => null,
-    memberTableOf: () => { throw new Error("a type-only module has no selected member occurrence"); },
-    bodyOf: () => null, nominalOf: () => null,
-    nodeOf: reference => reference.kind === "item" && reference.value.owner === definition
-      ? nodes.get(reference.value.node) ?? null : null,
-    localExists: () => false, diagnostics: [] };
-  return { input, module, alias, keyword, definition, queries, scopes };
+  const bodyScopesOf = input.bindingScopesOf;
+  input.bindingScopesOf = (target, subject, visit) => {
+    queries.push(structuredClone(target));
+    return target.kind === "module" ? completeScopes(target.module === moduleId ? scopes : null) : bodyScopesOf(target, subject, visit);
+  };
+  input.declarationOf = selected => selected === definition || selected === ownerId
+    ? { scope: emptyScope(), parameterCount: 0, endpoints: [] } : null;
+  input.nodeOf = reference => (reference.kind === "body" ? reference.value.body === bodyId
+    : reference.value.owner === definition || reference.value.owner === ownerId) ? nodes.get(reference.value.node) ?? null : null;
+  return { input, module: input.module, body, alias, keyword, definition, queries, scopes };
 }
 
 const bodyViolation = (rule, detail, body = bodyId) => ({ rule, site: { kind: "body", body }, detail: [{ kind: "text", value: detail }] });
@@ -248,7 +256,7 @@ function genericFunctionScenario(nodes = { callable: 2, typeParameter: 3, typeNa
     const valueName = { ...header(nodes.parameterName, nodes.parameter), kind: "Identifier", text: "v",
       tsonic: { role: "declaration-name", declaration, storage } };
     const valueParameter = { ...header(nodes.parameter, nodes.callable), kind: "Parameter", modifiers: null, dotDotDotToken: null,
-      name: valueName, questionToken: null, type: null, initializer: null,
+      name: valueName, questionToken: null, type: null, initializer: { kind: "none" },
       tsonic: { declaration: valueDefinition, local, storage, passing: "by-value", initializer: null, role: "required" } };
     const value = { ...header(nodes.value, nodes.return), kind: "Identifier", text: "v",
       tsonic: { ...typedValue(storage), role: "value", resolution: { kind: "local", local } } };
@@ -290,7 +298,7 @@ function genericFunctionScenario(nodes = { callable: 2, typeParameter: 3, typeNa
       lexicalBindings: bound(storage), signature: storage, completion: storage, root,
       params: root.parameters.nodes, locals: [{ ...functionTemplate.locals[0], storage }] };
   });
-  outer.root.statements = nodeList([{ ...header(1, 0), kind: "ExpressionStatement", expression: functionTemplate.root, tsonic: null }]);
+  outer.root.statements = nodeList([readyStatement({ ...header(1, 0), kind: "ExpressionStatement", expression: functionTemplate.root, tsonic: null })]);
   outer.root.endOfFileToken = { ...header(nodes.end, 0), kind: "EndOfFile", tsonic: null };
   outer.nestedBodies = [functionBody];
   const initial = emptyVerificationInput(outer);
@@ -306,7 +314,7 @@ function genericFunctionScenario(nodes = { callable: 2, typeParameter: 3, typeNa
   initial.source.bodies.push(originalFunction);
   initial.source.items.push({ definition, node: nodes.callable }, { definition: typeDefinition, node: nodes.typeParameter },
     { definition: valueDefinition, node: nodes.parameter });
-  const module = { module: moduleId, tree: outer.root, bodies: [outer, functionTemplate, ...instances] };
+  const module = { module: moduleId, tree: readyChapter(outer.root), bodies: [outer, functionTemplate, ...instances] };
   const signature = (id, type, typeParameters) => ({ id, declaration: definition,
     owner: { kind: "body", value: { body: functionBody, node: nodes.callable } }, composition: null, kind: "call", typeParameters,
     receiver: null, parameters: [{ declaration: valueDefinition, kind: "required", type, passing: "by-value", initializer: null, acceptsOmission: false }], result: type });
@@ -413,7 +421,7 @@ function nestedDeclarationScenario(bodyless) {
     name: valueName, initializer: null, tsonic: { role: "binding", declaration: { kind: "local", local: local(1) }, storage: 1, initializer: null } };
   const pattern = { ...header(4, 3), kind: "ArrayBindingPattern", elements: nodeList([element]), tsonic: { storage: 2 } };
   const parameter = { ...header(3, 1), kind: "Parameter", modifiers: null, dotDotDotToken: null, name: pattern,
-    questionToken: null, type: null, initializer: null, tsonic: { declaration: parameterDefinition, local: local(0),
+    questionToken: null, type: null, initializer: { kind: "none" }, tsonic: { declaration: parameterDefinition, local: local(0),
       storage: 2, passing: "by-value", initializer: null, role: "required" } };
   const returned = { ...header(10, 9), kind: "Identifier", text: "value",
     tsonic: { ...typedValue(1), role: "value", resolution: { kind: "local", local: local(1) } } };
@@ -428,7 +436,7 @@ function nestedDeclarationScenario(bodyless) {
     tsonic: { definition, parameters: [], signatures: [endpoint], attributes: [],
       template: bodyless ? null : { body: nestedBody, lexicalBindings: emptyBindings(), dependence: "parametric" } } };
   const end = { ...header(bodyless ? 4 : 11, 0), kind: "EndOfFile", tsonic: null };
-  body.root.statements = nodeList([declaration]);
+  body.root.statements = nodeList([bodyless ? readyStatement(declaration) : { kind: "ready-callable", node: declaration }]);
   body.root.endOfFileToken = end;
   body.nestedBodies = bodyless ? [] : [nestedBody];
   const input = emptyVerificationInput(body);
@@ -444,6 +452,7 @@ function nestedDeclarationScenario(bodyless) {
   };
   if (!bodyless) {
     const sourceParameter = sourceDeclaration.parameters.nodes[0];
+    sourceParameter.initializer = null;
     sourceParameter.tsonic = { core: emptyCore(), parent: definition, attributes: [], memory: available(null),
       declaration: { kind: "local", local: local(0) }, declaredType: available(2), inferredTypeBound: null, initializer: null };
     sourceParameter.name.tsonic = { core: emptyCore(), declaration: null, declaredType: available(2) };
@@ -510,12 +519,8 @@ test("ready chapter callable and body share the actual pattern formal and reject
   const fixture = nestedDeclarationScenario(false);
   const module = fixture.input.module;
   const nested = module.bodies[1];
-  const formal = { ...fixture.parameter, initializer: { kind: "none" } };
-  const [source] = fixture.body.root.statements.nodes;
-  const callable = { ...source, parameters: { ...source.parameters, nodes: [formal] } };
-  nested.params = [formal];
-  fixture.body.root.statements.nodes[0] = { kind: "ready-callable", node: callable };
-  module.tree = { kind: "ready-root", root: fixture.body.root };
+  const [{ node: callable }] = fixture.body.root.statements.nodes;
+  const formal = fixture.parameter;
   const bodyScopesOf = fixture.input.bindingScopesOf;
   fixture.input.bindingScopesOf = (target, subject, visit) => target.kind === "module" && target.module === module.module && module === subject
     ? completeScopes([]) : bodyScopesOf(target, subject, visit);
@@ -597,7 +602,7 @@ function siblingIdentityScenario(sourceShared, typedShared) {
   const firstTyped = { ...first };
   const secondTyped = typedShared ? firstTyped : { ...second };
   const end = { ...header(sourceShared ? 2 : 3, 0), kind: "EndOfFile", tsonic: null };
-  body.root.statements = nodeList([firstTyped, secondTyped]);
+  body.root.statements = nodeList([readyStatement(firstTyped), readyStatement(secondTyped)]);
   body.root.endOfFileToken = { ...end };
   const input = emptyVerificationInput(body, [first, second, end]);
   input.source.tree.statements = nodeList([first, second]);
@@ -618,7 +623,7 @@ function layeredSyntaxScenario(depth) {
       multiLine: false, tsonic: null });
   }
   const end = { ...header(depth + 1, 0), kind: "EndOfFile", tsonic: null };
-  body.root.statements = nodeList([typed[0]]);
+  body.root.statements = nodeList([readyStatement(typed[0])]);
   body.root.endOfFileToken = { ...end };
   const input = emptyVerificationInput(body, [...source, end]);
   input.source.tree.statements = nodeList([source[0]]);
@@ -742,7 +747,7 @@ function callScenario(mode = "sync") {
     questionDotToken: null, typeArguments: null, arguments: nodeList([value]),
     tsonic: { ...typedValue(result), application: { kind: "decided", decision: { callee, receiver: null,
       arguments: [{ kind: "provided", parameter: 0, expression: argument }] } }, operation: null } };
-  fixture.outer.root.statements.nodes[0].expression = call;
+  fixture.outer.root.statements.nodes[0].node.expression = call;
   const captured = { kind: "call", receiver: null, arguments: [{ kind: "value", expression: argument }], typeArguments: [],
     candidates: available(0), resolvedSignature: available(2) };
   const checkedArgument = { ...header(argument, 2), kind: "StringLiteral", text: "s", tokenFlags: [],
@@ -840,7 +845,7 @@ function genericObjectScenario() {
 function contextualLiteralScenario() {
   const fixture = memberScenario("property");
   const original = fixture.input.source.tree.statements.nodes[0].expression;
-  const typed = fixture.body.root.statements.nodes[0].expression;
+  const typed = fixture.body.root.statements.nodes[0].node.expression;
   const key = { kind: "text", value: "y" };
   const provenance = { kind: "mapped", owner: { kind: "body", value: { body: bodyId, node: 2 } }, key };
   const decision = { ...fixture.decision, key, origins: [provenance], bindings: emptyBindings() };
@@ -972,7 +977,7 @@ function argumentScenario(form = "whole", passing = "by-value") {
   const statement = { ...header(1, 0), kind: "ExpressionStatement", expression: call, tsonic: null };
   const checkedStatement = { ...header(1, 0), kind: "ExpressionStatement", expression: checkedCall, tsonic: null };
   const end = omitted ? 4 : values ? 8 : 6;
-  body.root.statements = nodeList([statement]);
+  body.root.statements = nodeList([readyStatement(statement)]);
   body.root.endOfFileToken = { ...header(end, 0), kind: "EndOfFile", tsonic: null };
   input.source.tree.statements = nodeList([checkedStatement]);
   input.source.tree.endOfFileToken = { ...header(end, 0), kind: "EndOfFile", tsonic: null };
@@ -1026,7 +1031,7 @@ function expressionScenario(checked, typed, children, end, terms) {
   const statement = { ...header(1, 0), kind: "ExpressionStatement", expression: typed, tsonic: null };
   const originalStatement = { ...header(1, 0), kind: "ExpressionStatement", expression: checked, tsonic: null };
   const originalEnd = { ...header(end, 0), kind: "EndOfFile", tsonic: null };
-  body.root.statements = nodeList([statement]);
+  body.root.statements = nodeList([readyStatement(statement)]);
   body.root.endOfFileToken = { ...header(end, 0), kind: "EndOfFile", tsonic: null };
   const input = emptyVerificationInput(body, [originalStatement, checked, ...children, originalEnd]);
   input.source.tree.statements = nodeList([originalStatement]);
@@ -1112,7 +1117,7 @@ function nestedPartScenario(holder) {
     install = operation => { node.tsonic.calculation = { kind: "decided", decision: operation }; };
   } else if (holder === "protocol") {
     fixture = argumentScenario("empty");
-    node = fixture.body.root.statements.nodes[0].expression.arguments.nodes[0];
+    node = fixture.body.root.statements.nodes[0].node.expression.arguments.nodes[0];
     install = operation => { node.tsonic.protocol.decision.steps = [{ role: "value", operation, callee: null }]; };
   } else {
     const body = emptyModuleBody();
@@ -1123,7 +1128,7 @@ function nestedPartScenario(holder) {
     const typedStatement = { ...header(1, 0), kind: "VariableStatement", modifiers: null, declarationList: node, tsonic: null };
     const checkedStatement = { ...header(1, 0), kind: "VariableStatement", modifiers: null, declarationList: checked, tsonic: null };
     const end = { ...header(3, 0), kind: "EndOfFile", tsonic: null };
-    body.root.statements = nodeList([typedStatement]);
+    body.root.statements = nodeList([readyStatement(typedStatement)]);
     body.root.endOfFileToken = end;
     const input = emptyVerificationInput(body, [checkedStatement, checked, end]);
     input.source.tree.statements = nodeList([checkedStatement]);
@@ -1176,6 +1181,14 @@ function assertBodyRoundTrip(body, expected, name) {
   assertCompleteValue(parsed.value, body, `${name} complete independently authored value`, compareCaseValues);
 }
 
+function openTypedWire(bodyHeader) {
+  return `${bodyHeader}\nCheckedDeclarations()\nTypedDeclarations(\n`;
+}
+
+function typedWire(bodyHeader, definitions) {
+  return openTypedWire(bodyHeader) + definitions.join("\n") + "\n)\n";
+}
+
 function syntaxPayloadCase(payload, definitions) {
   const body = emptyModuleBody();
   const last = definitions.length + 4;
@@ -1186,7 +1199,7 @@ function syntaxPayloadCase(payload, definitions) {
   const expression = { ...header(last, 0), kind: "Identifier", text: "value",
     tsonic: { ...typedValue(), role: "value", resolution: { kind: "definition", definition: ownerId, aliases: [] } } };
   body.root = { ...header(0), kind: "TypeAssertionExpression", type, expression, tsonic: typedValue() };
-  const expected = [readFileSync(resolve(repository, functionDirectory, "empty-module.input.tir"), "utf8").split("\n")[0],
+  const expected = typedWire(readFileSync(resolve(repository, functionDirectory, "empty-module.input.tir"), "utf8").split("\n")[0], [
     `n:0=TypeAssertionExpression(${syntaxHeaderWire(0, null)}, type=n:1, expression=n:${last}, tsonic=TypedValue(${valueWire}))`,
     `n:1=JSDocTypeLiteral(${syntaxHeaderWire(1, 0)}, jsDocPropertyTags=[n:2], isArrayType=false, tsonic=null)`,
     `n:2=JSDocTypeTag(${syntaxHeaderWire(2, 1)}, tagName=n:3, comment=null, typeExpression=n:4, tsonic=null)`,
@@ -1194,7 +1207,7 @@ function syntaxPayloadCase(payload, definitions) {
     ...definitions.map((definition, position) => `n:${position + 4}=${definition}`),
     `n:${last}=Identifier(${syntaxHeaderWire(last, 0)}, text="value", tsonic=TypedName(${valueWire}, role="value", ` +
       `resolution=definition(definition=def:"${ownerId}", aliases=[])))`,
-  ].join("\n") + "\n";
+  ]);
   return { body, expected };
 }
 
@@ -1207,7 +1220,7 @@ function assertExpressionRoundTrip(kind, fields, fieldsWire, phase, phaseWire) {
   const body = emptyModuleBody();
   body.root = { ...header(0), kind, ...fields, tsonic: phase };
   const bodyHeader = readFileSync(resolve(repository, functionDirectory, "empty-module.input.tir"), "utf8").split("\n")[0];
-  const expected = `${bodyHeader}\nn:0=${kind}(${headerWire}${fieldsWire.length === 0 ? "" : `, ${fieldsWire}`}, tsonic=${phaseWire})\n`;
+  const expected = typedWire(bodyHeader, [`n:0=${kind}(${headerWire}${fieldsWire.length === 0 ? "" : `, ${fieldsWire}`}, tsonic=${phaseWire})`]);
   assertCompleteValue(product.printTir(body), expected, `${kind} complete independently authored spelling`, sameWire);
   const parsed = product.parseTir(expected);
   assert.equal(parsed.kind, "parsed");
@@ -1235,7 +1248,9 @@ for (const path of [...functionCases, ...verifierCases]) {
   });
 }
 test("exact annotated runtime ports include the owning operation projection and retire the second binding walk", () => {
-  assertCompleteValue(Object.keys(product).sort(), ["memberSelectionKey", "parseTir", "printTir", "tirOperationsOf", "verifyTir", "verifyTirModule"]);
+  assertCompleteValue(Object.keys(product).sort(), ["admitFormalInitializer", "bodyOccurrenceSlots", "chapterStatementSyntax", "chapterSyntaxSlots",
+    "formalInitializerSyntax", "indexChapterSyntax", "memberSelectionKey", "parseTir", "printTir", "readChapterSyntaxSlot", "tirBodySyntaxOf",
+    "tirOperationsOf", "verifyTir", "verifyTirModule"]);
 });
 
 test("operation projection retains the actual ready body domain", () => {
@@ -1479,18 +1494,18 @@ test("nonexecuting declaration-name payloads have one exact syntax-only codec ac
   const expression = { ...header(1, 0), kind: "Identifier", text: "source", tsonic: marker };
   const name = { ...header(2, 0), kind: "Identifier", text: "key", tsonic: marker };
   body.root = { ...header(0), kind: "PropertyAccessExpression", expression, questionDotToken: null, name, tsonic: marker };
-  const expected = [readFileSync(resolve(repository, functionDirectory, "empty-module.input.tir"), "utf8").split("\n")[0],
+  const expected = typedWire(readFileSync(resolve(repository, functionDirectory, "empty-module.input.tir"), "utf8").split("\n")[0], [
     `n:0=PropertyAccessExpression(${headerWire}, expression=n:1, questionDotToken=null, name=n:2, tsonic=${wire})`,
     `n:1=Identifier(${syntaxHeaderWire(1, 0)}, text="source", tsonic=${wire})`,
     `n:2=Identifier(${syntaxHeaderWire(2, 0)}, text="key", tsonic=${wire})`,
-  ].join("\n") + "\n";
+  ]);
   assertBodyRoundTrip(body, expected, "one nonexecuting member-name payload");
   const wrapper = emptyModuleBody();
   wrapper.root = { ...header(0), kind: "ParenthesizedExpression", expression, tsonic: marker };
-  const wrapperWire = [expected.split("\n")[0],
+  const wrapperWire = typedWire(expected.split("\n")[0], [
     `n:0=ParenthesizedExpression(${headerWire}, expression=n:1, tsonic=${wire})`,
     `n:1=Identifier(${syntaxHeaderWire(1, 0)}, text="source", tsonic=${wire})`,
-  ].join("\n") + "\n";
+  ]);
   assertBodyRoundTrip(wrapper, wrapperWire, "parenthesized syntax retains the same nonexecuting marker");
 });
 
@@ -1586,7 +1601,7 @@ test("bodyless parameter verification retains the exact checked formal, selected
   const { verifyBodylessParameters } = await import("../../packages/host/dist/ir-tir/verify-instances.js");
   const fixture = () => {
     const current = nestedDeclarationScenario(false);
-    const parent = current.body.root.statements.nodes[0];
+    const parent = current.body.root.statements.nodes[0].node;
     const checked = current.input.source.tree.statements.nodes[0];
     const parameter = parent.parameters.nodes[0];
     const original = checked.parameters.nodes[0];
@@ -1766,6 +1781,7 @@ test("native syntax comparison checks every declared ordinary field without disc
   const kinds = [...canonical.keys()];
   assert.equal(kinds.length, syntaxFieldMutations.size, "the actual independent constructor and declared-field families agree completely");
   const exercised = new Set();
+  const headerFields = (kind, fields) => kind !== "Parameter" ? fields : fields.filter(field => !field.name.startsWith("initializer."));
   for (const { node } of rows) {
     const fields = syntaxFieldMutations.get(node.kind);
     assert.equal(fields !== undefined, true, `${node.kind}: complete field relation`);
@@ -1775,7 +1791,7 @@ test("native syntax comparison checks every declared ordinary field without disc
     `${node.kind}: independently verified headers are not ordinary syntax fields`);
     assert.equal(sameSyntaxFields(node, canonical.get(kinds[(kinds.indexOf(node.kind) + 1) % kinds.length])), false,
       `${node.kind}: different actual syntax constructor`);
-    for (const field of fields) {
+    for (const field of headerFields(node.kind, fields)) {
       if (!field.when(node)) continue;
       const changed = field.change(node, alternateNode);
       assert.equal(sameSyntaxFields(node, changed), false, `${node.kind}/${field.name}: genuine declared-field mismatch`);
@@ -1783,7 +1799,7 @@ test("native syntax comparison checks every declared ordinary field without disc
       exercised.add(`${node.kind}/${field.name}`);
     }
   }
-  const required = [...syntaxFieldMutations].flatMap(([kind, fields]) => fields.map(field => `${kind}/${field.name}`)).sort();
+  const required = [...syntaxFieldMutations].flatMap(([kind, fields]) => headerFields(kind, fields).map(field => `${kind}/${field.name}`)).sort();
   assertCompleteValue([...exercised].sort(), required, "every contract-derived field mutation has an actual complete fixture");
   const flagged = { ...source, flags: ["Let", "Const"] };
   assert.equal(sameSyntaxFields(source, flagged), false);
@@ -1827,8 +1843,8 @@ test("actual source metadata preserves directives, dynamic pragma names, comment
       { name: "types", value: { pos: 6, end: 8, name: "types", value: "ambient" } }] }];
   body.root.checkJsDirective = { enabled: false, range: { pos: 11, end: 15, kind: "MultiLineCommentTrivia", hasTrailingNewLine: false } };
   const baseline = readFileSync(resolve(repository, functionDirectory, "empty-module.input.tir"), "utf8");
-  const expected = baseline.replace(`n:0=SourceFile(id=n:0, origin=Origin(module=mod:"${moduleId}", start=0, length=0, derived=[])`,
-    `n:0=SourceFile(id=n:0, origin=Origin(module=mod:"${moduleId}", start=0, length=0, ` +
+  const expected = baseline.replace(`n:0=TirModuleRoot(id=n:0, origin=Origin(module=mod:"${moduleId}", start=0, length=0, derived=[])`,
+    `n:0=TirModuleRoot(id=n:0, origin=Origin(module=mod:"${moduleId}", start=0, length=0, ` +
       'derived=[lowering(pass="elaborate"), expansion(expansion=exp:"expansion")])')
     .replace("commentDirectives=[], pragmas=[], checkJsDirective=null", 'commentDirectives=[' +
       'CommentDirective(loc=TextRange(pos=1, end=2), kind="ExpectError"), CommentDirective(loc=TextRange(pos=3, end=4), kind="Ignore")], ' +
@@ -1877,9 +1893,9 @@ test("F4 every lexical string escape has a complete public document and exact fa
   const body = emptyModuleBody();
   body.root = { ...header(0), kind: "StringLiteral", text: "/", tokenFlags: [],
     tsonic: { ...typedValue(), role: "value", value: "/" } };
-  const prefix = readFileSync(resolve(repository, functionDirectory, "empty-module.input.tir"), "utf8").split("\n")[0] +
-    `\nn:0=StringLiteral(${syntaxHeaderWire(0, null)}, text=`;
-  const suffix = `, tokenFlags=[], tsonic=TypedString(${valueWire}, role="value", value="/"))\n`;
+  const bodyHeader = readFileSync(resolve(repository, functionDirectory, "empty-module.input.tir"), "utf8").split("\n")[0];
+  const prefix = openTypedWire(bodyHeader) + `n:0=StringLiteral(${syntaxHeaderWire(0, null)}, text=`;
+  const suffix = `, tokenFlags=[], tsonic=TypedString(${valueWire}, role="value", value="/"))\n)\n`;
   const canonical = prefix + '"/"' + suffix;
   const escaped = prefix + '"\\/"' + suffix;
   assertCompleteValue(product.parseTir(escaped), { kind: "parsed", value: body }, "complete escaped solidus", compareCaseValues);
@@ -2368,14 +2384,14 @@ function codecParameter(identity, parent) {
   return { ...header(identity, parent), kind: "Parameter", modifiers: nodeList(),
     dotDotDotToken: { ...header(identity + 1, identity), kind: "DotDotDotToken", tsonic: null },
     name: codecName(identity + 2, identity), questionToken: { ...header(identity + 3, identity), kind: "QuestionToken", tsonic: null },
-    type: codecType(identity + 4, identity), initializer: codecName(identity + 5, identity),
+    type: codecType(identity + 4, identity), initializer: { kind: "ready-default", root: codecName(identity + 5, identity) },
     tsonic: { declaration: ownerId, local: { body: bodyId, local: 0 }, storage: 0, passing: "by-value", initializer: bodyId, role: "default" } };
 }
 
 function codecParameterDefinitions(identity, parent) {
   return [
-    `Parameter(${syntaxHeaderWire(identity, parent)}, modifiers=ModifierList(loc=TextRange(pos=0, end=0), nodes=[]), dotDotDotToken=n:${identity + 1}, name=n:${identity + 2}, ` +
-      `questionToken=n:${identity + 3}, type=n:${identity + 4}, initializer=n:${identity + 5}, ` +
+    `TirFormal(${syntaxHeaderWire(identity, parent)}, modifiers=ModifierList(loc=TextRange(pos=0, end=0), nodes=[]), dotDotDotToken=n:${identity + 1}, name=n:${identity + 2}, ` +
+      `questionToken=n:${identity + 3}, type=n:${identity + 4}, initializer=ready-default(root=n:${identity + 5}), ` +
       `tsonic=TypedParameter(declaration=def:"${ownerId}", local=${localWire}, storage=t:0, passing="by-value", initializer=body:"${bodyId}", role="default"))`,
     `DotDotDotToken(${syntaxHeaderWire(identity + 1, identity)}, tsonic=null)`, codecNameWire(identity + 2, identity),
     `QuestionToken(${syntaxHeaderWire(identity + 3, identity)}, tsonic=null)`, codecTypeWire(identity + 4, identity),
@@ -2544,7 +2560,7 @@ test("TIR captured facts preserve all original cause positions without substitut
   const parsed = product.parseTir(text);
   assert.equal(parsed.kind, "parsed", parsed.kind === "parsed" ? undefined
     : JSON.stringify({ ...parsed, near: text.slice(Math.max(0, parsed.offset - 70), parsed.offset + 70) }));
-  assert.deepEqual(parsed.value.root.statements.nodes[0].expression.tsonic.operation.deferred.invocation.input.captured.provider.causes, causes);
+  assert.deepEqual(parsed.value.root.statements.nodes[0].node.expression.tsonic.operation.deferred.invocation.input.captured.provider.causes, causes);
   assert.equal(product.parseTir(text.replace("causes=[diagnostic(", "removedCauses=[diagnostic(")).kind, "invalid-text");
   assert.equal(product.parseTir(text.replace("execution-source-node(execution=", "execution-source-node(removed=")).kind, "invalid-text");
   assert.equal(product.parseTir(text.replace('execution-source-node(execution="opaque provided count 2", node=NodeRef(',
@@ -2585,7 +2601,7 @@ for (const captureKind of ["core", "markers", "field-binding", "record-binding"]
     fixture.typed.tsonic.operation = { kind: "deferred", deferred: { invocation: { rule: "core", input }, result: 1 } };
     const parsed = product.parseTir(product.printTir(fixture.body));
     assert.equal(parsed.kind, "parsed");
-    assert.deepEqual(parsed.value.root.statements.nodes[0].expression.tsonic.operation.deferred.invocation.input.captured, captured);
+    assert.deepEqual(parsed.value.root.statements.nodes[0].node.expression.tsonic.operation.deferred.invocation.input.captured, captured);
   });
 }
 
@@ -3631,13 +3647,14 @@ test("a real missing declaration retains its explicit empty modifier record", ()
 test("the actual Block multiLine field is required before its phase and never silently discarded", () => {
   const body = emptyModuleBody();
   body.root = { ...header(0), kind: "Block", statements: nodeList(), multiLine: true, tsonic: null };
-  const expected = readFileSync(resolve(repository, functionDirectory, "empty-module.input.tir"), "utf8").split("\n")[0] +
-    `\nn:0=Block(${syntaxHeaderWire(0, null)}, statements=NodeList(loc=TextRange(pos=0, end=0), nodes=[]), multiLine=true, tsonic=null)\n`;
+  const bodyHeader = readFileSync(resolve(repository, functionDirectory, "empty-module.input.tir"), "utf8").split("\n")[0];
+  const expected = typedWire(bodyHeader, [
+    `n:0=Block(${syntaxHeaderWire(0, null)}, statements=NodeList(loc=TextRange(pos=0, end=0), nodes=[]), multiLine=true, tsonic=null)`,
+  ]);
   assertBodyRoundTrip(body, expected, "Block complete multiLine field");
   const text = expected.replace(", multiLine=true", "");
   const offset = text.indexOf("tsonic=null", text.indexOf("n:0=Block("));
-  assertCompleteValue(product.parseTir(text), { kind: "invalid-text", offset, line: 2,
-    column: offset - text.lastIndexOf("\n", offset), expected: ["multiLine"], found: "tsonic" });
+  assertInvalidText(text, offset, ["multiLine"], "tsonic");
 });
 for (const kind of ["FunctionDeclaration", "FunctionExpression", "Constructor"]) {
   test(`actual ${kind} retains its complete callable or closure record and all declaration children`, () => {
@@ -3752,13 +3769,17 @@ test("a labelled statement preserves both the label's reference and the owner's 
   ], "label");
 });
 test("actual case/default clauses keep their correlated expression domains and nonempty statement lists", () => {
-  const caseClause = { ...header(7, 6), kind: "CaseClause", expression: codecName(8, 7), statements: nodeList([codecEmptyStatement(9, 7)]), tsonic: null };
+  const operation = { kind: "native-operator", operator: "===", carrier: "float64" };
+  const caseClause = { ...header(7, 6), kind: "CaseClause", expression: codecName(8, 7), statements: nodeList([codecEmptyStatement(9, 7)]),
+    tsonic: { operation: { kind: "decided", decision: { permissionScope: null,
+      decision: { kind: "selected", operation, operands: [0, 0], result: 1, execution: { kind: "pure" } } } } } };
   const defaultClause = { ...header(10, 6), kind: "DefaultClause", expression: null, statements: nodeList([codecEmptyStatement(11, 10)]), tsonic: null };
   assertSyntaxPayload({ ...header(4, 2), kind: "SwitchStatement", expression: codecName(5, 4), caseBlock: { ...header(6, 4),
     kind: "CaseBlock", clauses: nodeList([caseClause, defaultClause]), tsonic: null }, tsonic: null }, [
     `SwitchStatement(${syntaxHeaderWire(4, 2)}, expression=n:5, caseBlock=n:6, tsonic=null)`, codecNameWire(5, 4),
     `CaseBlock(${syntaxHeaderWire(6, 4)}, clauses=NodeList(loc=TextRange(pos=0, end=0), nodes=[n:7, n:10]), tsonic=null)`,
-    `CaseClause(${syntaxHeaderWire(7, 6)}, expression=n:8, statements=NodeList(loc=TextRange(pos=0, end=0), nodes=[n:9]), tsonic=null)`,
+    `CaseClause(${syntaxHeaderWire(7, 6)}, expression=n:8, statements=NodeList(loc=TextRange(pos=0, end=0), nodes=[n:9]), ` +
+      'tsonic=TypedCase(operation=decided(decision=TypedOperation(decision=selected(operation=native-operator(operator="===", carrier="float64"), operands=[t:0, t:0], result=t:1, execution=pure()), permissionScope=null))))',
     codecNameWire(8, 7), codecEmptyStatementWire(9, 7),
     `DefaultClause(${syntaxHeaderWire(10, 6)}, expression=null, statements=NodeList(loc=TextRange(pos=0, end=0), nodes=[n:11]), tsonic=null)`,
     codecEmptyStatementWire(11, 10),
@@ -4370,10 +4391,10 @@ test("source preservation distinguishes an unlabelled switch break from its encl
     caseBlock: { ...header(6, 4), kind: "CaseBlock", clauses: nodeList([branch]), tsonic: null }, tsonic: null };
   const loop = { ...header(1, 0), kind: "WhileStatement", expression: { ...header(2, 1), kind: "TrueKeyword", tsonic: typedValue() },
     statement: { ...header(3, 1), kind: "Block", statements: nodeList([choice]), multiLine: false, tsonic: null }, tsonic: null };
-  body.root.statements = nodeList([loop]);
+  body.root.statements = nodeList([readyStatement(loop)]);
   body.root.endOfFileToken = { ...header(10, 0), kind: "EndOfFile", tsonic: null };
   const { source, module } = emptyVerificationInput(body);
-  source.tree.statements = structuredClone(body.root.statements);
+  source.tree.statements = { ...body.root.statements, nodes: structuredClone(body.root.statements.nodes.map(slot => slot.node)) };
   source.tree.endOfFileToken = { ...body.root.endOfFileToken };
   const authored = source.tree.statements.nodes[0];
   authored.expression.tsonic = { core: emptyCore(), role: "value", value: checkedValue(0) };
@@ -4403,10 +4424,10 @@ test("source preservation checks a labelled break against the actual checked lab
     statement: { ...header(6, 4), kind: "Block", statements: nodeList([stop]), multiLine: false, tsonic: null } };
   const outer = { ...header(1, 0), kind: "LabeledStatement", label: name(2, 1, "outer", 1), tsonic: { target: target(1) },
     statement: { ...header(3, 1), kind: "Block", statements: nodeList([inner]), multiLine: false, tsonic: null } };
-  body.root.statements = nodeList([outer]);
+  body.root.statements = nodeList([readyStatement(outer)]);
   body.root.endOfFileToken = { ...header(9, 0), kind: "EndOfFile", tsonic: null };
   const { source, module } = emptyVerificationInput(body);
-  source.tree.statements = structuredClone(body.root.statements);
+  source.tree.statements = { ...body.root.statements, nodes: structuredClone(body.root.statements.nodes.map(slot => slot.node)) };
   source.tree.endOfFileToken = { ...body.root.endOfFileToken };
   const checkedOuter = source.tree.statements.nodes[0];
   const checkedInner = checkedOuter.statement.statements.nodes[0];
@@ -4463,7 +4484,7 @@ test("a hole cannot claim the adjacent genuine named element's binding record", 
 });
 
 test("a bodyless type-only module verifies its real tree without constructing a body", () => {
-  const fixture = bodylessModuleScenario();
+  const fixture = typeAliasModuleScenario();
   assertCompleteValue(verifyChapter(fixture.input, fixture.module), []);
   assertCompleteValue(fixture.queries, [{ kind: "module", module: moduleId }]);
 });
@@ -4471,7 +4492,7 @@ test("a bodyless type-only module verifies its real tree without constructing a 
 for (const changed of ["publication-module", "source-module", "publication-tree"]) {
   test(`module identity independently rejects a different actual ${changed}`, async () => {
     const { encodeModuleId, encodePackageId } = await import("../../packages/host/dist/ids/index.js");
-    const fixture = bodylessModuleScenario();
+    const fixture = typeAliasModuleScenario();
     const otherModule = encodeModuleId({ package: encodePackageId("other"), path: "other" });
     const input = { ...fixture.input,
       module: changed === "publication-module" ? { ...fixture.module, module: otherModule }
@@ -4485,13 +4506,15 @@ for (const changed of ["publication-module", "source-module", "publication-tree"
   });
 }
 
-test("module scalar parent references resolve in the actual source arena without body collateral", () => {
-  const fixture = bodylessModuleScenario();
-  fixture.module.tree.parent = 99;
-  assertCompleteValue(verifyChapter(fixture.input, fixture.module), [nodeViolation("node-reference", 0,
-    "node identity does not name an actual node in its module arena")]);
-  fixture.module.tree.parent = null;
-  assertCompleteValue(verifyChapter(fixture.input, fixture.module), []);
+test("ready module scalar parent references resolve in the actual source arena", () => {
+  const fixture = typeAliasModuleScenario(true);
+  fixture.body.root.parent = 99;
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [
+    nodeViolation("parent-reference", 0, "typed node parent differs from the real authored parent"),
+    nodeViolation("node-reference", 0, "node identity does not name an actual node in its module arena"),
+  ]);
+  fixture.body.root.parent = null;
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
 });
 
 test("the closed typed source-file parser rejects an undeclared checker field", () => {
@@ -4516,46 +4539,47 @@ test("closed typed source-file fields reject arbitrary UTF16 names in either tex
 
 test("module repeated missing declarations share the actual nullable cache and singleton diagnostic", async () => {
   const { encodeDefId } = await import("../../packages/host/dist/ids/index.js");
-  const fixture = bodylessModuleScenario();
+  const fixture = typeAliasModuleScenario(true);
   const missing = encodeDefId({ module: moduleId, segments: [{ name: "missing", ordinal: 0 }] });
   const actual = fixture.input.declarationOf;
   const queries = [];
   fixture.input.declarationOf = definition => { queries.push(definition); return actual(definition); };
   fixture.keyword.tsonic.declarations = [missing, missing];
-  assertCompleteValue(verifyChapter(fixture.input, fixture.module), [nodeViolation("cross-owner-qualified", 3,
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("cross-owner-qualified", 3,
     "definition reference does not name an actual declaration")]);
-  assertCompleteValue(queries, [fixture.definition, missing]);
+  assertCompleteValue(queries, [ownerId, fixture.definition, missing]);
   queries.length = 0;
   fixture.keyword.tsonic.declarations = [fixture.definition, fixture.definition];
-  assertCompleteValue(verifyChapter(fixture.input, fixture.module), []);
-  assertCompleteValue(queries, [fixture.definition]);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
+  assertCompleteValue(queries, [ownerId, fixture.definition]);
   queries.length = 0;
   fixture.keyword.tsonic.declarations = [];
-  assertCompleteValue(verifyChapter(fixture.input, fixture.module), []);
-  assertCompleteValue(queries, [fixture.definition]);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
+  assertCompleteValue(queries, [ownerId, fixture.definition]);
 });
 
-test("the module verifier owns an invalid type payload outside every published body", () => {
-  const fixture = bodylessModuleScenario();
+test("the ready module's body verifier owns its invalid type payload", () => {
+  const fixture = typeAliasModuleScenario(true);
   fixture.alias.tsonic.type = 9;
-  assertCompleteValue(verifyChapter(fixture.input, fixture.module), [nodeViolation("type-closed", 1,
+  assertCompleteValue(verifyChapter(fixture.input, fixture.module), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("type-closed", 1,
     "typed reference does not reach a present closed type/signature graph")]);
   fixture.alias.tsonic.type = 0;
-  assertCompleteValue(verifyChapter(fixture.input, fixture.module), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
 });
 
 test("module definition payloads resolve through the actual declaration reader", () => {
-  const fixture = bodylessModuleScenario();
+  const fixture = typeAliasModuleScenario(true);
   fixture.keyword.tsonic.declarations = ["D[M[P[foreign];types];missing]"];
-  assertCompleteValue(verifyChapter(fixture.input, fixture.module), [nodeViolation("cross-owner-qualified", 3,
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("cross-owner-qualified", 3,
     "definition reference does not name an actual declaration")]);
   fixture.keyword.tsonic.declarations = [fixture.definition];
-  assertCompleteValue(verifyChapter(fixture.input, fixture.module), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
 });
 
 test("a module retains the actual qualified signature-owner finding and its complete corrected opposite", () => {
-  const fixture = bodylessModuleScenario();
-  const signature = { id: 0, declaration: fixture.definition, owner: { kind: "item", value: { owner: fixture.definition, node: 99 } },
+  const fixture = typeAliasModuleScenario();
+  const signature = { id: 1, declaration: fixture.definition, owner: { kind: "item", value: { owner: fixture.definition, node: 99 } },
     composition: null, kind: "call", typeParameters: [], receiver: null, parameters: [], result: 0 };
   fixture.input.types.signatures.push(signature);
   assertCompleteValue(verifyChapter(fixture.input, fixture.module), [nodeViolation("cross-owner-qualified", 0,
@@ -4583,7 +4607,7 @@ test("module verification stops before a genuine published body and leaves its r
 });
 
 test("unknown module binding context is not treated as the known empty occurrence vector", () => {
-  const fixture = bodylessModuleScenario();
+  const fixture = typeAliasModuleScenario();
   fixture.input.bindingScopesOf = () => completeScopes(null);
   assertCompleteValue(verifyChapter(fixture.input, fixture.module), [nodeViolation("binding-vector-complete", 0,
     "binding target has no actual supplied scope inventory")]);
@@ -4592,7 +4616,7 @@ test("unknown module binding context is not treated as the known empty occurrenc
 });
 
 test("an extra module scope remains a complete node-site finding, not a guessed body scope", () => {
-  const fixture = bodylessModuleScenario();
+  const fixture = typeAliasModuleScenario();
   fixture.scopes.push(emptyScope());
   assertCompleteValue(verifyChapter(fixture.input, fixture.module), [nodeViolation("binding-vector-complete", 0,
     "supplied binding scope has no corresponding actual vector")]);
@@ -4601,7 +4625,7 @@ test("an extra module scope remains a complete node-site finding, not a guessed 
 });
 
 test("a genuine sparse published-body vector is an exact module-path caller defect", () => {
-  const fixture = bodylessModuleScenario();
+  const fixture = typeAliasModuleScenario();
   fixture.module.bodies = Array(1);
   assert.throws(() => verifyChapter(fixture.input, fixture.module), { name: "TypeError",
     message: 'ir-tir: sparse vector at $module["bodies"][0]' });
@@ -4971,7 +4995,7 @@ for (const variant of ["outer", "template", "string", "int32"]) {
     assertCompleteValue(verifyBody(fixture.inputFor(selected), selected), []);
     assert.equal(fixture.outer.dependence, "parametric");
     assert.equal(fixture.functionTemplate.dependence, "binding-dependent");
-    assert.equal(fixture.functionTemplate.root === fixture.module.tree.statements.nodes[0].expression, true);
+    assert.equal(fixture.functionTemplate.root === fixture.module.tree.root.statements.nodes[0].node.expression, true);
     assert.equal(fixture.instances[0].root === fixture.instances[1].root, false);
     assert.equal(fixture.instances[0].root.id, fixture.instances[1].root.id);
     assert.equal(fixture.instances[0].root.body.statements.nodes[0].expression.tsonic.type, 2);
@@ -5171,12 +5195,12 @@ test("an enclosing capture's logical capture is read from the creating body's ow
       template: { ...callable.template, lexicalBindings: instance.lexicalBindings } } } };
     return { ...fixture.outer, bindings: { kind: "instantiated", bindings: instance.lexicalBindings },
       captures: [{ local: foreignSecond, capture: "captured-value" }, { local: foreign, capture }],
-      root: { ...fixture.outer.root, statements: nodeList([{ ...fixture.outer.root.statements.nodes[0], expression: closureNode }]) } };
+      root: { ...fixture.outer.root, statements: nodeList([readyStatement({ ...fixture.outer.root.statements.nodes[0].node, expression: closureNode })]) } };
   };
   // Artifacts of the creating body that do not create the instance: no closure node for it, a closure with no template, a
   // template of another body. None of them is read.
   const withExpression = expression => ({ ...creatorFor(first, "captured-location"),
-    root: { ...fixture.outer.root, statements: nodeList([{ ...fixture.outer.root.statements.nodes[0], expression }]) } });
+    root: { ...fixture.outer.root, statements: nodeList([readyStatement({ ...fixture.outer.root.statements.nodes[0].node, expression })]) } });
   const noClosure = { ...creatorFor(first, "captured-location"), root: { ...fixture.outer.root, statements: nodeList([]) } };
   const noTemplate = withExpression({ ...first.root, tsonic: { ...first.root.tsonic, callable: { ...first.root.tsonic.callable, template: null } } });
   const otherBody = withExpression({ ...first.root, tsonic: { ...first.root.tsonic, callable: { ...first.root.tsonic.callable,
@@ -5288,8 +5312,8 @@ test("two contextual property components in one literal retain distinct authenti
   assertCompleteValue(fixture.queries, fixture.facts.map(fact => ({ instance: fact.instance, occurrence: fact.occurrence })));
   assert.equal(fixture.facts[0].table.receiver, 1);
   assert.equal(fixture.facts[1].table.receiver, 2);
-  assert.equal(fixture.body.root.statements.nodes[0].expression.tsonic.type, 0);
-  assert.equal(fixture.body.root.statements.nodes[0].expression.tsonic.convertedType, 0);
+  assert.equal(fixture.body.root.statements.nodes[0].node.expression.tsonic.type, 0);
+  assert.equal(fixture.body.root.statements.nodes[0].node.expression.tsonic.convertedType, 0);
 });
 
 test("swapping contextual property associations is not repaired from the enclosing literal type", () => {
@@ -5551,14 +5575,16 @@ test("one typed arena node cannot collapse two different authentic authored sibl
   const fixture = siblingIdentityScenario(false, true);
   assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("authored-node-ids-preserved", 1,
     "typed node identity differs from the actual authored node at this position")]);
-  fixture.body.root.statements.nodes[1] = { ...fixture.second };
+  fixture.body.root.statements.nodes[1] = readyStatement({ ...fixture.second });
   assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
 });
 test("two typed arena objects cannot replace one actually shared authored sibling", () => {
   const fixture = siblingIdentityScenario(true, false);
-  assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("no-inserted-nodes", 1,
-    "typed syntax duplicates an actual authored arena node")]);
-  fixture.body.root.statements.nodes[1] = fixture.firstTyped;
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [
+    nodeViolation("module-node-identity", 1, "chapter has conflicting authored occurrences"),
+    nodeViolation("no-inserted-nodes", 1, "typed syntax duplicates an actual authored arena node"),
+  ]);
+  fixture.body.root.statements.nodes[1] = readyStatement(fixture.firstTyped);
   assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
 });
 
@@ -5677,12 +5703,12 @@ test("binding verification reads only the actual owning formal inventory, not un
   Object.defineProperty(fixture.originalFunction, "params", { get: () => { reads++; return actual; } });
   const findings = [];
   const emit = (rule, node, detail) => findings.push({ rule, node: node?.id ?? null, detail });
-  const nodes = walkSyntaxTree(body.root, []);
-  verifyBindingSlots(body, nodes, fixture.functionNodes, sources, input.module.bodies, input.bodyOf, input.nodeOf, emit, admitFixtureRead());
+  const structure = structureOf(body);
+  verifyBindingSlots(body, structure, fixture.functionNodes, sources, input.module.bodies, input.bodyOf, input.nodeOf, emit, admitFixtureRead());
   assert.deepEqual(findings, []);
   assert.equal(reads, 1, "the same ready owning parameter row inventory is indexed once");
   sources.delete(body.body);
-  verifyBindingSlots(body, nodes, fixture.functionNodes, sources, input.module.bodies, input.bodyOf, input.nodeOf, emit, admitFixtureRead());
+  verifyBindingSlots(body, structure, fixture.functionNodes, sources, input.module.bodies, input.bodyOf, input.nodeOf, emit, admitFixtureRead());
   assert.equal(findings.some(value => value.rule === "parameter-order"), true,
     "a missing owning inventory is not silently accepted as a parameter match");
 });
@@ -5720,7 +5746,7 @@ test("capture binding verification indexes each demanded owner's formal local re
     const findings = [];
     const emit = (rule, node) => findings.push({ rule, node: node?.id ?? null });
     const sources = new Map(input.source.bodies.map(source => [source.body, source]));
-    verifyBindingSlots(body, [body.root], fixture.functionNodes, sources, input.module.bodies, input.bodyOf, input.nodeOf, emit, admitFixtureRead());
+    verifyBindingSlots(body, structureOf(body), fixture.functionNodes, sources, input.module.bodies, input.bodyOf, input.nodeOf, emit, admitFixtureRead());
     assert.deepEqual(findings, []);
     assert.equal(inventoryReads, 1, "all captured formals borrow the same actual demanded-owner inventory");
     assert.equal(localReads, count * 2, "one formal index read and one exact local match per captured formal");
@@ -5728,14 +5754,14 @@ test("capture binding verification indexes each demanded owner's formal local re
       findings.length = 0;
       body.root.tsonic.closure = deferred(saved.map((capture, position) => position === index
         ? { ...capture, incoming: position === count ? { kind: "parameter", passing: "by-value" } : { kind: "binding" } } : capture));
-      verifyBindingSlots(body, [body.root], fixture.functionNodes, sources, input.module.bodies, input.bodyOf, input.nodeOf, emit, admitFixtureRead());
+      verifyBindingSlots(body, structureOf(body), fixture.functionNodes, sources, input.module.bodies, input.bodyOf, input.nodeOf, emit, admitFixtureRead());
       assert.equal(findings.some(finding => finding.rule === "closure-capture-binding"), true,
         "a pattern-bound child remains its own binding and a real formal retains its exact passing evidence");
     }
     findings.length = 0;
     body.root.tsonic.closure = deferred(saved.map((capture, index) => index === 0
       ? { ...capture, local: { ...capture.local, local: -0 }, incoming: { kind: "parameter", passing: "move" } } : capture));
-    verifyBindingSlots(body, [body.root], fixture.functionNodes, sources, input.module.bodies, input.bodyOf, input.nodeOf, emit, admitFixtureRead());
+    verifyBindingSlots(body, structureOf(body), fixture.functionNodes, sources, input.module.bodies, input.bodyOf, input.nodeOf, emit, admitFixtureRead());
     assert.equal(findings.some(finding => finding.rule === "capture-qualified"), true);
     assert.equal(findings.some(finding => finding.rule === "closure-capture-binding"), false,
       "a nonidentical local index cannot borrow another formal's passing evidence");
@@ -5764,7 +5790,7 @@ test("a genuine default initializer retains syntax but not callable-body semanti
   fixture.itemNodes.get(fixture.valueDefinition).set(7, checked);
   for (const callable of [body, ...fixture.instances]) {
     const parameter = callable.params[0];
-    parameter.initializer = callable === body ? selected : structuredClone(selected);
+    parameter.initializer = { kind: "ready-default", root: callable === body ? selected : structuredClone(selected) };
     parameter.tsonic.role = "default";
     parameter.tsonic.initializer = defaultBody;
     parameter.tsonic.storage = storage;
@@ -5829,7 +5855,7 @@ test("placed initializer modes use the actual authored creator and qualified inc
   const sources = new Map([[outer.body, outer]]);
   const verify = () => {
     const findings = [];
-    verifyBindingSlots(body, [root], originals, sources, input.module.bodies, input.bodyOf, input.nodeOf,
+    verifyBindingSlots(body, structureOf(body), originals, sources, input.module.bodies, input.bodyOf, input.nodeOf,
       (rule, node) => findings.push({ rule, node: node?.id ?? null }), admitFixtureRead());
     return findings;
   };
@@ -5845,7 +5871,7 @@ test("placed initializer modes use the actual authored creator and qualified inc
   const previous = outer.locals[0];
   outer.locals[0] = { ...previous, role: "capture", capturedFrom: { body: fixture.outer.body, local: 0 } };
   assert.deepEqual(checkTirAdmissionCuts(admitFixtureRead, (admit, read) =>
-    verifyBindingSlots(body, [root], originals, sources, input.module.bodies, input.bodyOf,
+    verifyBindingSlots(body, structureOf(body), originals, sources, input.module.bodies, input.bodyOf,
       reference => { read("nodeOf"); return input.nodeOf(reference); },
       (_rule, _node, detail) => assert.fail(detail), admit)), ["nodeOf"]);
   outer.locals[0] = previous;
@@ -5916,27 +5942,27 @@ function parameterCodecFixture(passing, role, initializer, localRecord) {
   body.params = [{ ...header(2, 99), kind: "Parameter", modifiers: null, dotDotDotToken: null,
     name: { ...header(3, 2), kind: "Identifier", text: name,
       tsonic: { role: "declaration-name", declaration: { kind: "local", local }, storage: 0 } },
-    questionToken: null, type: null, initializer: initializer === null ? null : value,
+    questionToken: null, type: null, initializer: initializer === null ? { kind: "none" } : { kind: "ready-default", root: value },
     tsonic: { local, declaration: ownerId, role, passing, initializer, storage: 0 } }];
   const shift = initializer === null ? 2 : 3;
-  const lines = readFileSync(resolve(repository, functionDirectory, "empty-module.input.tir"), "utf8").trimEnd().split("\n");
-  lines[0] = lines[0].replace("params=[]", "params=[n:0]").replace("root=n:0", `root=n:${shift}`);
-  lines[1] = lines[1].replace(/^n:0=/u, `n:${shift}=`).replace("endOfFileToken=n:1", `endOfFileToken=n:${shift + 1}`);
-  lines[2] = lines[2].replace(/^n:1=/u, `n:${shift + 1}=`);
+  const [bodyHeader, , , rootDefinition, endDefinition] = readFileSync(resolve(repository, functionDirectory, "empty-module.input.tir"), "utf8").split("\n");
+  let frame = bodyHeader.replace("params=[]", "params=[n:0]").replace("root=n:0", `root=n:${shift}`);
+  const rootWire = rootDefinition.replace(/^n:0=/u, `n:${shift}=`).replace("endOfFileToken=n:1", `endOfFileToken=n:${shift + 1}`);
+  const endWire = endDefinition.replace(/^n:1=/u, `n:${shift + 1}=`);
   if (localRecord) {
     body.locals = [{ id: 0, declaration: { kind: "item", value: { owner: ownerId, node: 2 } },
       name, role: "parameter", capturedFrom: null, mutable: true, storage: 0 }];
-    lines[0] = lines[0].replace("locals=[]", `locals=[TirLocal(id=l:0, declaration=item(value=ItemNodeRef(owner=def:"${ownerId}", node=n:2)), ` +
+    frame = frame.replace("locals=[]", `locals=[TirLocal(id=l:0, declaration=item(value=ItemNodeRef(owner=def:"${ownerId}", node=n:2)), ` +
       `name="${name}", role="parameter", capturedFrom=null, mutable=true, storage=t:0)]`);
   }
   const definitions = [
-    `n:0=Parameter(${syntaxHeaderWire(2, 99)}, modifiers=null, dotDotDotToken=null, name=n:1, questionToken=null, type=null, ` +
-      `initializer=${initializer === null ? "null" : "n:2"}, tsonic=TypedParameter(declaration=def:"${ownerId}", local=${localWire}, storage=t:0, ` +
+    `n:0=TirFormal(${syntaxHeaderWire(2, 99)}, modifiers=null, dotDotDotToken=null, name=n:1, questionToken=null, type=null, ` +
+      `initializer=${initializer === null ? "none()" : "ready-default(root=n:2)"}, tsonic=TypedParameter(declaration=def:"${ownerId}", local=${localWire}, storage=t:0, ` +
       `passing="${passing}", initializer=${initializer === null ? "null" : `body:"${initializer}"`}, role="${role}"))`,
     `n:1=Identifier(${syntaxHeaderWire(3, 2)}, text="${name}", tsonic=TypedName(role="declaration-name", declaration=local(local=${localWire}), storage=t:0))`,
   ];
   if (initializer !== null) definitions.push(`n:2=NullKeyword(${syntaxHeaderWire(4, 2)}, tsonic=TypedKeyword(${valueWire}, role="value"))`);
-  return { body, expected: [lines[0], ...definitions, ...lines.slice(1)].join("\n") + "\n" };
+  return { body, expected: typedWire(frame, [...definitions, rootWire, endWire]) };
 }
 
 for (const passing of ["by-value", "byref-readonly", "byref-readwrite", "byref-writeonly-must-init", "borrow-shared", "borrow-mut", "move"]) {
@@ -6027,7 +6053,7 @@ test("dropping an empty spread retains both actual transport and empty-source fi
 
 test("several real tuple components join once to their retained whole rest spread", () => {
   const fixture = argumentScenario("whole");
-  const call = fixture.body.root.statements.nodes[0].expression;
+  const call = fixture.body.root.statements.nodes[0].node.expression;
   const application = call.tsonic.application.decision;
   const decision = application.callee.decision;
   const signature = fixture.input.types.signatures[1];
@@ -6228,7 +6254,7 @@ test("an actual refinement result retains the finalized value endpoint", () => {
 
 test("an error resolution needs the actual current source error diagnostic, not merely an integer", () => {
   const fixture = memberScenario("property-access");
-  const receiver = fixture.body.root.statements.nodes[0].expression.expression;
+  const receiver = fixture.body.root.statements.nodes[0].node.expression.expression;
   receiver.tsonic.resolution = { kind: "error", diagnostic: 0 };
   assertCompleteValue(verifyBody(fixture.input, fixture.body), [nodeViolation("error-diagnostic", 3,
     "error resolution does not select an actual error diagnostic at its source origin")]);
@@ -6254,7 +6280,7 @@ test("a genuine wrong binary role is rejected independently of phase-record cons
 
 test("a property-name cannot replace an actual authored value occurrence", () => {
   const fixture = memberScenario("property-access");
-  fixture.body.root.statements.nodes[0].expression.expression.tsonic = { role: "property-name", key: { kind: "text", value: "x" } };
+  fixture.body.root.statements.nodes[0].node.expression.expression.tsonic = { role: "property-name", key: { kind: "text", value: "x" } };
   assertCompleteValue(verifyBody(fixture.input, fixture.body), [
     nodeViolation("occurrence-role", 3, "typed occurrence does not retain its authored occurrence role"),
     nodeViolation("name-role-position", 3, "name role does not match its original syntactic position"),
@@ -6297,7 +6323,7 @@ test("body evidence ordering follows actual own-body occurrence order, not arbit
 for (const mismatch of ["kind", "asynchronous", "thrown"]) {
   test(`a real spread protocol retains its supplied structural ${mismatch} fact`, () => {
     const fixture = argumentScenario("empty");
-    const spread = fixture.body.root.statements.nodes[0].expression.arguments.nodes[0];
+    const spread = fixture.body.root.statements.nodes[0].node.expression.arguments.nodes[0];
     const protocol = spread.tsonic.protocol.decision;
     if (mismatch === "kind") protocol.kind = "iterate";
     if (mismatch === "asynchronous") protocol.asynchronous = true;
@@ -6311,8 +6337,8 @@ for (const mismatch of ["kind", "asynchronous", "thrown"]) {
 
 test("a protocol step retains its genuine bodyless API result without inventing required roles", () => {
   const fixture = argumentScenario("empty");
-  const spread = fixture.body.root.statements.nodes[0].expression.arguments.nodes[0];
-  const callee = fixture.body.root.statements.nodes[0].expression.tsonic.application.decision.callee;
+  const spread = fixture.body.root.statements.nodes[0].node.expression.arguments.nodes[0];
+  const callee = fixture.body.root.statements.nodes[0].node.expression.tsonic.application.decision.callee;
   const operation = { permissionScope: null, decision: { kind: "selected", operation: { kind: "library",
     declaration: callee.decision.api.declaration, bindings: emptyBindings() }, operands: [], result: 0,
     execution: { kind: "invocation", writesStorage: true, failure: "unwind" } } };
@@ -6326,7 +6352,7 @@ test("a protocol step retains its genuine bodyless API result without inventing 
 
 test("the saved protocol operation checks its own closed step results and canonical unknown", () => {
   const fixture = argumentScenario("empty");
-  const call = fixture.body.root.statements.nodes[0].expression;
+  const call = fixture.body.root.statements.nodes[0].node.expression;
   const application = call.tsonic.application.decision.callee.decision;
   const identity = { kind: "protocol", protocol: "spread", asynchronous: false,
     steps: [{ role: "next", operation: { kind: "call", application }, operands: [5], result: 0 }],
@@ -6354,7 +6380,7 @@ test("syntax wire bindings do not alias duplicate, negative-zero or nonfinite se
     const spelling = Object.is(identity, -0) ? "-0" : Number.isNaN(identity) ? "NaN" :
       identity === Infinity ? "+Infinity" : identity === -Infinity ? "-Infinity" : String(identity);
     const authored = readFileSync(resolve(repository, functionDirectory, "empty-module.input.tir"), "utf8")
-      .replace("SourceFile(id=n:0", `SourceFile(id=n:${spelling}`)
+      .replace("TirModuleRoot(id=n:0", `TirModuleRoot(id=n:${spelling}`)
       .replace("EndOfFile(id=n:1", `EndOfFile(id=n:${spelling}`)
       .replace("parent=n:0", `parent=n:${spelling}`);
     assertCompleteValue(text, authored, `complete wire vector for semantic ID ${spelling}`, sameWire);
@@ -6433,13 +6459,13 @@ for (const target of [0, 9]) {
 }
 for (const target of [0, 9]) {
   test(`a late declaration stream fault outranks a pending ${target === 0 ? "backward cycle" : "forward dangling"} target`, () => {
-    const text = completeEmptyWire.split("\n")[0] + "\n" + blockDeclarationWire(0, [target]) + "n:1=@";
+    const text = openTypedWire(completeEmptyWire.split("\n")[0]) + blockDeclarationWire(0, [target]) + "n:1=@";
     assertCompleteValue(product.parseTir(text), invalidTextAt(text, text.indexOf("@"), ["record", "string", "number", "["], "@"));
   });
 }
 for (const children of [[0, 9], [9, 0]]) {
   test(`clean EOF chooses the first token among actual cycle/dangling references ${children.join("/")}`, () => {
-    const text = completeEmptyWire.split("\n")[0] + "\n" + blockDeclarationWire(0, children);
+    const text = openTypedWire(completeEmptyWire.split("\n")[0]) + blockDeclarationWire(0, children) + ")\n";
     const offset = text.indexOf("nodes=[") + "nodes=[".length;
     const first = children[0];
     assertCompleteValue(product.parseTir(text), invalidTextAt(text, offset,
@@ -6450,10 +6476,10 @@ for (const danglingFirst of [false, true]) {
   test(`clean EOF chooses the first token among wrong-family and dangling references, dangling first=${danglingFirst}`, () => {
     const child = danglingFirst ? 9 : 1;
     const end = danglingFirst ? 0 : 9;
-    const text = completeEmptyWire.replace("nodes=[]", `nodes=[n:${child}]`).replace("endOfFileToken=n:1", `endOfFileToken=n:${end}`);
-    const offset = text.indexOf("nodes=[") + "nodes=[".length;
+    const text = completeEmptyWire.replace("nodes=[]", `nodes=[ready-statement(node=n:${child})]`).replace("endOfFileToken=n:1", `endOfFileToken=n:${end}`);
+    const offset = text.indexOf("ready-statement(node=") + "ready-statement(node=".length;
     assertCompleteValue(product.parseTir(text), invalidTextAt(text, offset,
-      danglingFirst ? ["declared syntax node"] : ["Statement"], `n:${child}`));
+      danglingFirst ? ["declared syntax node"] : ["ReadyStatement"], `n:${child}`));
   });
 }
 test("wrong-family wins an actual same-token child-cycle tie", () => {
@@ -6462,8 +6488,8 @@ test("wrong-family wins an actual same-token child-cycle tie", () => {
   assertCompleteValue(product.parseTir(text), invalidTextAt(text, offset, ["EndOfFile"], "n:0"));
 });
 test("clean EOF reports the first text-prefix cycle closure, not the first DFS backedge", () => {
-  const text = completeEmptyWire.split("\n")[0] + "\n" + blockDeclarationWire(0, [1]) +
-    blockDeclarationWire(1, [2, 0]) + blockDeclarationWire(2, [0]);
+  const text = openTypedWire(completeEmptyWire.split("\n")[0]) + blockDeclarationWire(0, [1]) +
+    blockDeclarationWire(1, [2, 0]) + blockDeclarationWire(2, [0]) + ")\n";
   const offset = text.indexOf("nodes=[n:2, n:0]") + "nodes=[n:2, ".length;
   assertCompleteValue(product.parseTir(text), invalidTextAt(text, offset, ["acyclic syntax reference"], "n:0"));
 });
@@ -6495,18 +6521,18 @@ for (const [name, suffix, relativeOffset, expected, found] of [
   ["unreachable declared node", `n:2=EndOfFile(${syntaxHeaderWire(2, null)}, tsonic=null)`, 2, ["wire traversal position"], "2"],
 ]) {
   test(`complete wire-binding failure: ${name}`, () => {
-    assertCompleteValue(product.parseTir(completeEmptyWire + suffix), { kind: "invalid-text",
-      offset: completeEmptyWire.length + relativeOffset, line: 4, column: relativeOffset + 1, expected, found });
+    const prefix = completeEmptyWire.slice(0, -")\n".length);
+    const text = prefix + suffix + (name === "unreachable declared node" ? "\n)\n" : "");
+    assertInvalidText(text, prefix.length + relativeOffset, expected, found);
   });
 }
 test("record separators require the actual newline even when every earlier wire reference is defined", () => {
-  const prefix = completeEmptyWire.slice(0, -1);
-  assertCompleteValue(product.parseTir(prefix + "n:2="), { kind: "invalid-text", offset: prefix.length,
-    line: 3, column: prefix.length - prefix.lastIndexOf("\n"), expected: ["newline"], found: "n" });
+  const prefix = completeEmptyWire.slice(0, -"\n)\n".length);
+  assertInvalidText(prefix + "n:2=", prefix.length, ["newline"], "n");
 });
 for (const [name, selected, expected] of [
   ["unresolved root", "n:2", ["declared syntax node"]],
-  ["wrong root family", "n:1", ["BodyRoot"]],
+  ["wrong root family", "n:1", ["TirBodyRoot"]],
 ]) {
   test(`the actual earlier ${name} reference wins over later declaration positions`, () => {
     const frame = completeEmptyWire.slice(0, completeEmptyWire.indexOf("root=")) + "root=";
@@ -6522,8 +6548,7 @@ for (const [name, selected, expected] of [
   test(`the actual earlier ${name} retains its exact owning field coordinate`, () => {
     const position = completeEmptyWire.indexOf("endOfFileToken=") + "endOfFileToken=".length;
     const text = completeEmptyWire.slice(0, position) + selected + completeEmptyWire.slice(position + 3);
-    assertCompleteValue(product.parseTir(text), { kind: "invalid-text", offset: position, line: 2,
-      column: position - completeEmptyWire.lastIndexOf("\n", position), expected, found: selected });
+    assertInvalidText(text, position, expected, selected);
   });
 }
 test("declared syntax identity preserves legal shared children without inline-value expansion", () => {
@@ -6532,9 +6557,9 @@ test("declared syntax identity preserves legal shared children without inline-va
     const child = { ...header(1, 0), kind: "Block", statements: nodeList(), multiLine: false, tsonic: null };
     root.statements.nodes.push(child, child);
     body.root = root;
-    const expected = completeEmptyWire.split("\n")[0] + "\n" +
+    const expected = openTypedWire(completeEmptyWire.split("\n")[0]) +
       `n:0=Block(${headerWire}, statements=NodeList(loc=TextRange(pos=0, end=0), nodes=[n:1, n:1]), multiLine=false, tsonic=null)\n` +
-      `n:1=Block(${syntaxHeaderWire(1, 0)}, statements=NodeList(loc=TextRange(pos=0, end=0), nodes=[]), multiLine=false, tsonic=null)\n`;
+      `n:1=Block(${syntaxHeaderWire(1, 0)}, statements=NodeList(loc=TextRange(pos=0, end=0), nodes=[]), multiLine=false, tsonic=null)\n)\n`;
     assertCompleteValue(product.printTir(body), expected, "entire independently authored identity graph wire", sameWire);
     const parsed = product.parseTir(expected);
     assert.equal(parsed.kind, "parsed");
@@ -6551,36 +6576,37 @@ test("actual child cycles fail both typed ports at the child path and text at it
     message: 'ir-tir: syntax cycle at $syntax["statements"]["nodes"][0]' });
   assert.throws(() => verifyBody(emptyVerificationInput(body), body), { name: "TypeError",
     message: 'ir-tir: syntax cycle at $body["root"]["statements"]["nodes"][0]' });
-  const text = completeEmptyWire.split("\n")[0] + "\n" +
-    `n:0=Block(${headerWire}, statements=NodeList(loc=TextRange(pos=0, end=0), nodes=[n:0]), multiLine=false, tsonic=null)\n`;
+  const text = openTypedWire(completeEmptyWire.split("\n")[0]) +
+    `n:0=Block(${headerWire}, statements=NodeList(loc=TextRange(pos=0, end=0), nodes=[n:0]), multiLine=false, tsonic=null)\n)\n`;
   const offset = text.indexOf("nodes=[n:0]") + "nodes=[".length;
-  assertCompleteValue(product.parseTir(text), { kind: "invalid-text", offset, line: 2,
-    column: offset - text.lastIndexOf("\n", offset), expected: ["acyclic syntax reference"], found: "n:0" });
+  assertInvalidText(text, offset, ["acyclic syntax reference"], "n:0");
 });
 
 test("layered legal sharing has one complete arena declaration and verification visit per actual node", () => {
   const depth = 128;
   const fixture = layeredSyntaxScenario(depth);
   const lines = completeEmptyWire.trimEnd().split("\n");
-  const expected = lines[0] + "\n" + lines[1].replace("nodes=[]", "nodes=[n:1]")
+  const expected = openTypedWire(lines[0]) + lines[3].replace("nodes=[]", "nodes=[ready-statement(node=n:1)]")
     .replace("endOfFileToken=n:1", `endOfFileToken=n:${depth + 1}`) + "\n" +
     Array.from({ length: depth }, (_, position) => {
       const id = position + 1;
       const children = id === depth ? "[]" : `[n:${id + 1}, n:${id + 1}]`;
       return `n:${id}=Block(${syntaxHeaderWire(id, id - 1)}, statements=NodeList(loc=TextRange(pos=0, end=0), ` +
         `nodes=${children}), multiLine=false, tsonic=null)\n`;
-    }).join("") + `n:${depth + 1}=EndOfFile(${syntaxHeaderWire(depth + 1, 0)}, tsonic=null)\n`;
+    }).join("") + `n:${depth + 1}=EndOfFile(${syntaxHeaderWire(depth + 1, 0)}, tsonic=null)\n)\n`;
   assertCompleteValue(product.printTir(fixture.body), expected, "complete source-sized128-node shared arena wire", sameWire);
   const parsed = product.parseTir(expected);
   assert.equal(parsed.kind, "parsed");
-  for (let level = 0, node = parsed.value.root.statements.nodes[0]; level < depth - 1; level++) {
+  for (let level = 0, node = parsed.value.root.statements.nodes[0].node; level < depth - 1; level++) {
     assert.equal(node.statements.nodes[0] === node.statements.nodes[1], true, `shared arena identity at${level}`);
     node = node.statements.nodes[0];
   }
   const normalizeRoot = root => ({ ...root, statements: { ...root.statements, nodes: root.statements.nodes.map(node => node.id) } });
-  assertCompleteValue({ ...parsed.value, root: normalizeRoot(parsed.value.root) },
-    { ...fixture.body, root: normalizeRoot(fixture.body.root) }, "complete body/root fields and root child identities", compareCaseValues);
-  for (let level = 0, node = parsed.value.root.statements.nodes[0]; level < depth; level++) {
+  const normalizeModule = root => ({ ...root, statements: { ...root.statements,
+    nodes: root.statements.nodes.map(slot => ({ kind: slot.kind, node: slot.node.id })) } });
+  assertCompleteValue({ ...parsed.value, root: normalizeModule(parsed.value.root) },
+    { ...fixture.body, root: normalizeModule(fixture.body.root) }, "complete body/root fields and root child identities", compareCaseValues);
+  for (let level = 0, node = parsed.value.root.statements.nodes[0].node; level < depth; level++) {
     assertCompleteValue(normalizeRoot(node), normalizeRoot(fixture.typed[level]), `entire arena node${level}`, compareCaseValues);
     node = node.statements.nodes[0];
   }
@@ -6589,7 +6615,7 @@ test("layered legal sharing has one complete arena declaration and verification 
 
 test("shared syntax uses first arena order for complete evidence vectors, never last incoming edge order", () => {
   const fixture = siblingIdentityScenario(false, false);
-  fixture.body.root.statements.nodes.push(fixture.firstTyped);
+  fixture.body.root.statements.nodes.push(readyStatement(fixture.firstTyped));
   fixture.input.source.tree.statements.nodes.push(fixture.input.source.tree.statements.nodes[0]);
   const at = node => ({ ...typeEvidence({ kind: "dynamic" }), component: { kind: "body", value: { body: bodyId, node } } });
   fixture.body.evidence = [at(1), at(2)];
@@ -6652,9 +6678,9 @@ const firstPositionCases = [
   ["earlier-type-later-missing-comma", "TirBody(body=null owner=null)", 13, ["body"], "null"],
   ["earlier-type-later-empty-field", "TirBody(body=null,)", 13, ["body"], "null"],
   ["array-eof", beforeParams + '[', beforeParams.length + 1, ["value", "]"], null],
-  ["array-element-before-eof", beforeParams + '[null', beforeParams.length + 1, ["$ParameterDeclaration"], "null"],
+  ["array-element-before-eof", beforeParams + '[null', beforeParams.length + 1, ["$TirFormal"], "null"],
   ["array-closed-record-before-eof", beforeParams + '[' + completeParameter, beforeParams.length + completeParameter.length + 1, [",", "]"], null],
-  ["array-trailing-comma", beforeParams + '[' + completeParameter + ',])', beforeParams.length + completeParameter.length + 2, ["$ParameterDeclaration"], "]"],
+  ["array-trailing-comma", beforeParams + '[' + completeParameter + ',])', beforeParams.length + completeParameter.length + 2, ["$TirFormal"], "]"],
 ];
 for (const [name, text, offset, expected, found] of firstPositionCases) {
   test(`first actual lexical/frame/typed error: ${name}`, () => {
@@ -6667,7 +6693,7 @@ test("the removed scalar TirParam record is not a selected parameter occurrence"
   const text = completeEmptyWire.replace("params=[]", `params=[${retired}]`);
   const offset = text.indexOf("TirParam(");
   assertCompleteValue(product.parseTir(text), { kind: "invalid-text", offset, line: 1, column: offset + 1,
-    expected: ["$ParameterDeclaration"], found: "TirParam" });
+    expected: ["$TirFormal"], found: "TirParam" });
 });
 
 const beforeArtifact = `TirBody(body=body:"${bodyId}", owner=def:"${ownerId}", `;
@@ -6961,7 +6987,7 @@ test("all numeric and bigint roles preserve exact rationals and integers beyond 
 for (const holder of ["property-access", "element-access", "property", "shorthand"]) {
   test(`deferred ${holder} makes no selected-member query`, () => {
     const fixture = memberScenario(holder);
-    const root = fixture.body.root.statements.nodes[0].expression;
+    const root = fixture.body.root.statements.nodes[0].node.expression;
     const actual = holder === "property" || holder === "shorthand" ? root.properties.nodes[0].tsonic : root.tsonic;
     const deferred = { kind: "deferred", deferred: { result: 0, invocation: { rule: "member", input: {
       context: { occurrence: { body: bodyId, node: fixture.memberNode }, origin: origin(), bindings: emptyBindings() },
@@ -7010,7 +7036,7 @@ function attachActualGetter(fixture) {
 
 function assignmentMemberScenario(access) {
   const fixture = memberScenario("property-access");
-  const member = fixture.body.root.statements.nodes[0].expression;
+  const member = fixture.body.root.statements.nodes[0].node.expression;
   const sourceMember = fixture.input.source.tree.statements.nodes[0].expression;
   member.parent = 10;
   sourceMember.parent = 10;
@@ -7030,7 +7056,7 @@ function assignmentMemberScenario(access) {
   const original = { ...header(10, 1), kind: "BinaryExpression", modifiers: null, left: sourceMember, type: null,
     operatorToken: sourceOperator, right: sourceValue, tsonic: { core: emptyCore(), role: "assignment", value: checkedValue(),
       target: { kind: "unavailable", reason: "not-provided", causes: [] } } };
-  fixture.body.root.statements.nodes[0].expression = typed;
+  fixture.body.root.statements.nodes[0].node.expression = typed;
   fixture.input.source.tree.statements.nodes[0].expression = original;
   const nodeOf = fixture.input.nodeOf;
   const nodes = new Map([[10, original], [11, sourceOperator], [12, sourceValue]]);
@@ -7101,7 +7127,7 @@ for (const holder of ["property-access", "element-access", "property", "shorthan
         fixture.table.receiver = 2;
         fixture.table.members = [];
         if (holder === "property-access" || holder === "element-access") {
-          const actualReceiver = fixture.body.root.statements.nodes[0].expression.expression;
+          const actualReceiver = fixture.body.root.statements.nodes[0].node.expression.expression;
           actualReceiver.tsonic.type = 2;
           actualReceiver.tsonic.convertedType = 2;
           fixture.input.source.tree.statements.nodes[0].expression.expression.tsonic.value.views.read = available(2);
@@ -7157,20 +7183,20 @@ for (const flags of [[], ["Ambient"]]) {
     test(`F1 complete Block flags=${flags.join("/")} multiLine=${multiLine}`, () => {
       const body = emptyModuleBody();
       body.root = { ...header(0), flags, kind: "Block", statements: nodeList(), multiLine, tsonic: null };
-      const expected = readFileSync(resolve(repository, functionDirectory, "empty-module.input.tir"), "utf8").split("\n")[0] +
-        `\nn:0=Block(${syntaxHeaderWire(0, null, flags)}, statements=NodeList(loc=TextRange(pos=0, end=0), nodes=[]), ` +
-        `multiLine=${multiLine}, tsonic=null)\n`;
+      const bodyHeader = readFileSync(resolve(repository, functionDirectory, "empty-module.input.tir"), "utf8").split("\n")[0];
+      const expected = typedWire(bodyHeader, [
+        `n:0=Block(${syntaxHeaderWire(0, null, flags)}, statements=NodeList(loc=TextRange(pos=0, end=0), nodes=[]), multiLine=${multiLine}, tsonic=null)`,
+      ]);
       assertBodyRoundTrip(body, expected, "F1 entire declared Block");
       const text = expected.replace(`, multiLine=${multiLine}`, "");
       const offset = text.indexOf("tsonic=null", text.indexOf("n:0=Block("));
-      assertCompleteValue(product.parseTir(text), { kind: "invalid-text", offset, line: 2,
-        column: offset - text.lastIndexOf("\n", offset), expected: ["multiLine"], found: "tsonic" });
+      assertInvalidText(text, offset, ["multiLine"], "tsonic");
     });
   }
 }
 
 test("C2996 module node sites belong to the subject tree, not its conflicting publication label", () => {
-  const fixture = bodylessModuleScenario();
+  const fixture = typeAliasModuleScenario();
   fixture.module.module = "M[P[p];other]";
   fixture.input.bindingScopesOf = target => completeScopes(target.kind === "module" && target.module === "M[P[p];other]" ? [] : null);
   assertCompleteValue(verifyChapter(fixture.input, fixture.module), [nodeViolation("module-node-identity", 0,
@@ -7741,7 +7767,7 @@ test("F4 different actual child kinds retain both parent and child shape finding
 test("F4 a genuinely inserted authored child retains the displaced EOF and all source cofindings", () => {
   const body = emptyModuleBody();
   const input = emptyVerificationInput(body);
-  body.root.statements.nodes.push({ ...header(2, 0), kind: "EmptyStatement", tsonic: null });
+  body.root.statements.nodes.push(readyStatement({ ...header(2, 0), kind: "EmptyStatement", tsonic: null }));
   assertCompleteValue(verifyBody(input, body), [
     nodeViolation("kind-children-shape", 0, "typed syntax does not retain the authored kind, fields and child presence"),
     nodeViolation("no-inserted-nodes", 1, "typed syntax adds an authored child position"),
@@ -7877,6 +7903,7 @@ test("F4 a real outside-body source node provides no disposal capture for this u
   ]);
   list.id = fixture.nodes.end;
   assertCompleteValue(verifyBody(input, body), [
+    nodeViolation("module-node-identity", fixture.nodes.end, "chapter has conflicting authored occurrences"),
     nodeViolation("authored-node-ids-preserved", fixture.nodes.end, "typed node identity differs from the actual authored node at this position"),
     nodeViolation("node-in-body-range", fixture.nodes.end, "typed syntax contains a real or invented node outside its actual original body subtree"),
   ]);
@@ -7951,7 +7978,7 @@ test("F4 a genuine namespace definition owns its authentic nested Block template
       memory: available(null), definition, members: [] } };
   const end = { ...header(5, 0), kind: "EndOfFile", tsonic: null };
   const sourceEnd = { ...header(5, 0), kind: "EndOfFile", tsonic: null };
-  body.root.statements = nodeList([namespace]);
+  body.root.statements = nodeList([readyStatement(namespace)]);
   body.root.endOfFileToken = end;
   body.nestedBodies = [nestedId];
   const nested = { ...emptyModuleBody(), body: nestedId, owner: definition, root: block, signature: 1 };
@@ -8076,10 +8103,10 @@ test("F4 complete header precedes the actual declaration lexical and scalar fail
   const expected = readFileSync(resolve(repository, functionDirectory, "empty-module.input.tir"), "utf8");
   const header = expected.split("\n")[0];
   const negative = expected.replace("root=n:0", "root=n:-1");
-  assertInvalidText(negative, negative.indexOf("root=n:") + 5, ["$BodyRoot"], "n:-1");
-  const number = header + "\nn:-";
+  assertInvalidText(negative, negative.indexOf("root=n:") + 5, ["$TirBodyRoot"], "n:-1");
+  const number = openTypedWire(header) + "n:-";
   assertInvalidText(number, number.length - 1, ["number"], "-");
-  const scalar = header + "\nn:0=0";
+  const scalar = openTypedWire(header) + "n:0=0";
   assertInvalidText(scalar, scalar.length - 1, ["$SyntaxNode"], "0");
   assertBodyRoundTrip(emptyModuleBody(), expected, "complete declaration positive");
 });
@@ -8129,8 +8156,8 @@ for (const kind of ["PrivateIdentifier"]) {
   });
 }
 
-test("F4 QualifiedName uses its genuine EntityName slot and complete module-site role vector", () => {
-  const fixture = bodylessModuleScenario();
+test("F4 QualifiedName uses its genuine EntityName slot and complete body role vector", () => {
+  const fixture = typeAliasModuleScenario(true);
   const sourceAlias = fixture.input.source.tree.statements.nodes[0];
   const sourceName = (id, text) => ({ ...header(id, 4), kind: "Identifier", text, tsonic: { core: emptyCore(), role: "type-name",
     resolution: { kind: "definition", definition: fixture.definition, aliases: [] } } });
@@ -8145,17 +8172,17 @@ test("F4 QualifiedName uses its genuine EntityName slot and complete module-site
   fixture.alias.type = { ...header(3, 1), kind: "TypeReference", typeArguments: null, typeName: typed,
     tsonic: { type: 0, declarations: [fixture.definition] } };
   fixture.input.source.tree.endOfFileToken = { ...header(7, 0), kind: "EndOfFile", tsonic: null };
-  fixture.module.tree.endOfFileToken = { ...header(7, 0), kind: "EndOfFile", tsonic: null };
+  fixture.body.root.endOfFileToken = { ...header(7, 0), kind: "EndOfFile", tsonic: null };
   const nodes = new Map([sourceAlias.type, source, source.left, source.right, fixture.input.source.tree.endOfFileToken].map(node => [node.id, node]));
   const nodeOf = fixture.input.nodeOf;
   fixture.input.nodeOf = reference => reference.kind === "item" && reference.value.owner === fixture.definition
     ? nodes.get(reference.value.node) ?? nodeOf(reference) : nodeOf(reference);
-  assertCompleteValue(verifyChapter(fixture.input, fixture.module), [
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), [
     nodeViolation("occurrence-role", 4, "typed occurrence does not retain its authored occurrence role"),
     nodeViolation("name-role-position", 4, "name role does not match its original syntactic position"),
   ]);
   typed.tsonic = { role: "type-name", type: 0, declarations: [fixture.definition] };
-  assertCompleteValue(verifyChapter(fixture.input, fixture.module), []);
+  assertCompleteValue(verifyBody(fixture.input, fixture.body), []);
 });
 
 function foreignMemberScenario(kind) {
@@ -8283,7 +8310,7 @@ for (const [numerator, negativeZero] of [[1n, false], [0n, false], [0n, true]]) 
     const fixture = memberScenario("element-access");
     const exact = { numerator, denominator: 1n, negativeZero };
     const text = negativeZero ? "-0" : String(numerator);
-    const member = fixture.body.root.statements.nodes[0].expression;
+    const member = fixture.body.root.statements.nodes[0].node.expression;
     const sourceMember = fixture.input.source.tree.statements.nodes[0].expression;
     Object.assign(member.argumentExpression, { kind: "NumericLiteral", text,
       tsonic: { ...typedValue(), role: "value", value: exact } });
@@ -8317,7 +8344,7 @@ test("F4 an actual named value without its real local slot keeps every storage c
   const statement = { ...header(1, 0), kind: "VariableStatement", modifiers: null, declarationList: list, tsonic: null };
   const sourceStatement = { ...header(1, 0), kind: "VariableStatement", modifiers: null, declarationList: sourceList, tsonic: null };
   const end = { ...header(5, 0), kind: "EndOfFile", tsonic: null };
-  body.root.statements = nodeList([statement]);
+  body.root.statements = nodeList([readyStatement(statement)]);
   body.root.endOfFileToken = { ...end };
   const input = emptyVerificationInput(body, [sourceStatement, sourceList, sourceVariable, sourceName, end]);
   input.source.tree.statements = nodeList([sourceStatement]);
@@ -8341,7 +8368,7 @@ test("F4 an actual named value without its real local slot keeps every storage c
 
 test("F4 an actual symbol member key uses its real declaration and authored identifier", () => {
   const fixture = foreignMemberScenario("declared");
-  const member = fixture.body.root.statements.nodes[0].expression;
+  const member = fixture.body.root.statements.nodes[0].node.expression;
   const sourceMember = fixture.input.source.tree.statements.nodes[0].expression;
   const key = { kind: "symbol", declaration: fixture.fieldDefinition };
   const symbolType = fixture.input.types.terms.length;
@@ -8744,12 +8771,12 @@ test("header binding verification reads only its actual owning checked and publi
   Object.defineProperty(fixture.originalFunction, "params", { get: () => { reads++; return actual; } });
   const findings = [];
   const emit = (rule, node, detail) => findings.push({ rule, node: node?.id ?? null, detail });
-  const nodes = walkSyntaxTree(body.root, []);
-  verifyBindingSlots(body, nodes, fixture.functionNodes, sources, input.module.bodies, input.bodyOf, input.nodeOf, emit, admitFixtureRead());
+  const structure = structureOf(body);
+  verifyBindingSlots(body, structure, fixture.functionNodes, sources, input.module.bodies, input.bodyOf, input.nodeOf, emit, admitFixtureRead());
   assert.deepEqual(findings, []);
   assert.equal(reads, 1, "the actual owning formal inventory is indexed once");
   sources.delete(body.body);
-  verifyBindingSlots(body, nodes, fixture.functionNodes, sources, input.module.bodies, input.bodyOf, input.nodeOf, emit, admitFixtureRead());
+  verifyBindingSlots(body, structure, fixture.functionNodes, sources, input.module.bodies, input.bodyOf, input.nodeOf, emit, admitFixtureRead());
   assert.equal(findings.some(value => value.rule === "parameter-order"), true,
     "a missing owning inventory is not silently accepted");
 });
@@ -8764,19 +8791,21 @@ test("nested header ownership reads only the exact parametric callable publicati
     const input = fixture.inputFor(body);
     const callable = kind === "FunctionExpression" ? nested.root
       : { ...nested.root, kind, tsonic: nested.root.tsonic.callable };
-    const nodes = [callable, ...walkSyntaxTree(nested.params[0], [])];
+    body.root.statements.nodes[0] = kind === "FunctionDeclaration" ? { kind: "ready-callable", node: callable }
+      : readyStatement({ ...body.root.statements.nodes[0].node, expression: callable });
+    const structure = structureOf(body);
     const sources = new Map(input.source.bodies.map(source => [source.body, source]));
     const findings = [];
     const emit = (rule, node) => findings.push({ rule, node: node?.id ?? null });
     const queries = [];
     let publication = nested;
     const bodyOf = instance => { queries.push(instance); return publication; };
-    const verify = () => verifyBindingSlots(body, nodes, fixture.functionNodes, sources, input.module.bodies, bodyOf, input.nodeOf, emit, admitFixtureRead());
+    const verify = () => verifyBindingSlots(body, structure, fixture.functionNodes, sources, input.module.bodies, bodyOf, input.nodeOf, emit, admitFixtureRead());
     verify();
     assert.deepEqual(findings, [], kind);
     assert.deepEqual(queries, [{ body: nested.body, bindings: { kind: "parametric" } }]);
     assert.deepEqual(checkTirAdmissionCuts(admitFixtureRead, (admit, read) =>
-      verifyBindingSlots(body, nodes, fixture.functionNodes, sources, input.module.bodies, instance => {
+      verifyBindingSlots(body, structure, fixture.functionNodes, sources, input.module.bodies, instance => {
         read("bodyOf");
         return bodyOf(instance);
       }, input.nodeOf, emit, admit)), ["bodyOf"]);
@@ -8836,7 +8865,7 @@ test("capture binding verification indexes each demanded owner's formal local re
     const findings = [];
     const emit = (rule, node) => findings.push({ rule, node: node?.id ?? null });
     const sources = new Map(input.source.bodies.map(source => [source.body, source]));
-    const verify = () => verifyBindingSlots(body, [body.root], fixture.functionNodes, sources, input.module.bodies, input.bodyOf, input.nodeOf, emit, admitFixtureRead());
+    const verify = () => verifyBindingSlots(body, structureOf(body), fixture.functionNodes, sources, input.module.bodies, input.bodyOf, input.nodeOf, emit, admitFixtureRead());
     verify();
     assert.deepEqual(findings, []);
     assert.equal(inventoryReads, 1, "all captured formals borrow the same actual demanded-owner inventory");
@@ -8875,5 +8904,5 @@ test("the removed scalar TirParam record is not a selected parameter occurrence"
   const text = completeEmptyWire.replace("params=[]", `params=[${retired}]`);
   const offset = text.indexOf("TirParam(");
   assertCompleteValue(product.parseTir(text), { kind: "invalid-text", offset, line: 1, column: offset + 1,
-    expected: ["$ParameterDeclaration"], found: "TirParam" });
+    expected: ["$TirFormal"], found: "TirParam" });
 });

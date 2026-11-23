@@ -6,7 +6,7 @@ import type { Origin } from "../ids/contract.js";
 import type { ApplicationDecision, DeferredDecision, MemberDecision, OperationDecision, RuleOutcome } from "../ir-infer/contract.js";
 import type { BodyInstance, TypeEvidence, TypeTable } from "../ir-types/contract.js";
 import { isNativeBinaryFloatPrimitive, isNativeIntegerPrimitive, nativeCarrierOf } from "../ir-types/index.js";
-import type { MemberSelection, ResolvedCallee, TirApplication, TirBody, TirMemberOccurrence, TirModule, TirNode, TirProtocol, TirReadyCallable, TirRule, TypedBodyTemplate, TypedOperation, TypedPhase, TypedValue } from "./contract.js";
+import type { MemberSelection, ResolvedCallee, TirApplication, TirBody, TirMemberOccurrence, TirModule, TirNode, TirProtocol, TirRule, TirTypedSyntax, TypedBodyTemplate, TypedOperation, TypedPhase, TypedValue } from "./contract.js";
 import type { TirLayouts, TirReference, TirRecordAssociation, TirRecordLayout, TirScalarValue, TirTypedWork, TirValuePath } from "./text-layouts.js";
 import { enterTirInline, roleSyntaxReference, tirPathText } from "./text-layouts.js";
 import { requirePresent } from "../diag/index.js";
@@ -28,9 +28,9 @@ export interface TirRecordVisit {
   readonly value: object;
   readonly association: TirRecordAssociation | null;
   readonly bindingOwner: DefId | null;
-  readonly node: TirNode | null;
+  readonly node: TirOccurrenceSite | null;
   readonly syntax: TirNode | null;
-  readonly readyCallable: TirReadyCallable | null;
+  readonly role: TirChapterHeader | null;
   readonly phase: boolean;
   readonly path: TirValuePath | null;
 }
@@ -40,7 +40,7 @@ export interface TirScalarVisit {
   readonly ownerType: string | null;
   readonly value: TirScalarValue;
   readonly reference: TirReference | null;
-  readonly node: TirNode | null;
+  readonly node: TirOccurrenceSite | null;
   readonly path: TirValuePath | null;
 }
 
@@ -68,13 +68,15 @@ export interface TirTypeGraph {
   readonly signatureOffset: number;
 }
 
+type TirChapterHeader = Extract<TirTypedSyntax, { readonly kind: "module-root" | "ready-callable" }>;
+
 type TirVisitWork =
   | { readonly kind: "exit"; readonly value: object }
   | { readonly kind: "syntax-exit"; readonly value: object }
-  | { readonly kind: "value"; readonly value: TirTypedWork; readonly node: TirNode | null;
+  | { readonly kind: "value"; readonly value: TirTypedWork; readonly node: TirOccurrenceSite | null;
       readonly phase: boolean; readonly path: TirValuePath | null; readonly ownerType: string | null;
       readonly bindingOwner: DefId | null;
-      readonly readyCallable: TirReadyCallable | null;
+      readonly role: Exclude<TirTypedSyntax, { readonly kind: "ordinary" }> | null;
       readonly members: TirMemberCursor | null };
 
 export const inspectTirStructure = (
@@ -90,7 +92,7 @@ export const inspectTirStructure = (
   const input = body ? layouts.bodyWork(subject) : subject.tree.kind === "checked-root" || stopBefore.has(root.id) ? null
     : roleSyntaxReference("$TirModuleRoot", { kind: "module-root", node: subject.tree.root });
   const pending: TirVisitWork[] = input === null ? [] : [{ kind: "value",
-    value: input, node: null, phase: false, path: null, ownerType: null, bindingOwner: null, readyCallable: null, members: null }];
+    value: input, node: null, phase: false, path: null, ownerType: null, bindingOwner: null, role: null, members: null }];
   const inline = new Set<object>();
   const syntaxActive = new Set<object>();
   const syntaxCompleted = new Set<object>();
@@ -121,10 +123,11 @@ export const inspectTirStructure = (
         if ((node !== root || !body) && stopBefore.has(node.id)) continue;
         if (syntaxActive.has(node)) throw new TypeError(`ir-tir: syntax cycle at ${tirPathText(work.path, rootPath)}`);
         if (syntaxCompleted.has(node)) continue;
+        const formal = value.value.kind === "formal" ? value.value.node : null;
+        if (formal !== null) nodes.push(formal);
         syntaxActive.add(node);
         pending.push({ kind: "syntax-exit", value: node });
-        pending.push({ ...work, value: layouts.roleWork(value.value), node: null,
-          readyCallable: value.value.kind === "ready-callable" ? value.value.node : null, members: null });
+        pending.push({ ...work, value: layouts.roleWork(value.value), node, role: value.value, members: null });
         break;
       }
       case "sequence":
@@ -150,7 +153,8 @@ export const inspectTirStructure = (
           pending.push({ kind: "syntax-exit", value: value.syntax });
         }
         records.push({ type: value.type, layout: value.layout, value: value.value, association: value.association, bindingOwner,
-          node, syntax: value.syntax, readyCallable: work.readyCallable, phase: work.phase, path: work.path });
+          node, syntax: work.role?.kind === "formal" ? work.role.node : value.syntax,
+          role: work.role?.kind === "formal" ? null : work.role, phase: work.phase, path: work.path });
         const association = value.association;
         if (association?.kind === "member-selection") {
           const actual = requirePresent(members ?? undefined, { owner: "ir-tir", query: null, origin: null,
@@ -171,7 +175,7 @@ export const inspectTirStructure = (
         const fields = value.fields();
         for (let position = fields.length - 1, field = fields[position]; field !== undefined; field = fields[--position]) {
           pending.push({ kind: "value", value: field.work, node, phase: work.phase || field.name === "tsonic",
-            path: { parent: work.path, field: field.name }, ownerType: value.layout.label, bindingOwner, readyCallable: null, members });
+            path: { parent: work.path, field: field.name }, ownerType: value.layout.label, bindingOwner, role: null, members });
         }
         break;
       }
@@ -229,16 +233,16 @@ export interface TirSemanticInventory {
   readonly protocols: readonly { readonly value: TirProtocol; readonly node: TirNode; readonly ordinal: number | null }[];
   readonly deferred: readonly { readonly value: DeferredDecision; readonly node: TirNode }[];
   readonly initializers: readonly { readonly value: BodyInstance; readonly node: TirNode | null }[];
-  readonly templates: readonly { readonly value: TypedBodyTemplate; readonly node: TirNode }[];
+  readonly templates: readonly { readonly value: TypedBodyTemplate; readonly node: TirOccurrenceSite }[];
 }
 
-export const collectTirSemantics = (nodes: readonly TirNode[]): TirSemanticInventory => {
+export const collectTirSemantics = (structure: TirStructure): TirSemanticInventory => {
   const applications: TirApplicationUse[] = [];
   const operations: { value: TypedOperation; node: TirNode }[] = [];
   const protocols: { value: TirProtocol; node: TirNode; ordinal: number | null }[] = [];
   const deferred: { value: DeferredDecision; node: TirNode }[] = [];
   const initializers: { value: BodyInstance; node: TirNode | null }[] = [];
-  const templates: { value: TypedBodyTemplate; node: TirNode }[] = [];
+  const templates: { value: TypedBodyTemplate; node: TirOccurrenceSite }[] = [];
   const pending: TirSemanticWork[] = [];
   const initializer = (value: BodyInstance, node: TirNode | null): void => {
     initializers.push({ value, node });
@@ -255,10 +259,15 @@ export const collectTirSemantics = (nodes: readonly TirNode[]): TirSemanticInven
     pending.push(value.kind === "decided" ? { kind: "protocol", value: value.decision, node, ordinal }
       : { kind: "deferred", value: value.deferred, node });
   };
-  const template = (value: TypedBodyTemplate | null, node: TirNode): void => {
+  const template = (value: TypedBodyTemplate | null, node: TirOccurrenceSite): void => {
     if (value !== null) templates.push({ value, node });
   };
-  for (const node of nodes) {
+  for (const { syntax: node, role } of structure.records) {
+    if (role !== null) {
+      template(role.node.tsonic.template, role.node);
+      continue;
+    }
+    if (node === null) continue;
     const phase = node.tsonic;
     if (phase === null) continue;
     const value = typedValueOf(node);

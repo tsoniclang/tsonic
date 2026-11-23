@@ -54,7 +54,7 @@ export function expectedComposedAdd(hir, run) {
       return { ...header(node), kind: "Parameter", modifiers: null, dotDotDotToken: null, questionToken: null,
         name: { ...header(node.name), kind: "Identifier", text: node.name.text,
           tsonic: { role: "declaration-name", declaration: node.name.tsonic.declaration, storage: F } },
-        type: { ...header(node.type), kind: "NumberKeyword", tsonic: { type: F, declarations: [] } }, initializer: null,
+        type: { ...header(node.type), kind: "NumberKeyword", tsonic: { type: F, declarations: [] } }, initializer: { kind: "none" },
         tsonic: { local: { body: hir.body, local: row.local }, declaration: row.declaration, role: "required",
           passing: "by-value", initializer: null, storage: F } };
     }),

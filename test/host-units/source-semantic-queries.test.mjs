@@ -274,7 +274,7 @@ test("enclosing typing stops before another root after the actual Query or Types
   const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
   const { createAccount } = await import("../../packages/host/dist/dataflow/index.js");
   const { usedPublicationWork } = await import("../../packages/host/dist/ir-types/work.js");
-  const input = analysisInput(fixture, "sdk-minimal", `export function first(value: boolean): boolean { return value; }
+  const input = analysisInput(fixture, "sdk-minimal", `export function first() { return 1; }
 export function later(value: boolean): boolean { return !value; }`);
   const ample = captureSourceBarrier(input);
   assert.equal(ample.kind, "ok");
@@ -356,7 +356,7 @@ export function later(value: boolean): boolean { return !value; }`);
     assert.equal(healthy.kind, "ok");
     assert.equal(typeSourceBarrier(input, healthy.value, createAccount(input.limits.dataflow)).kind, "ok");
     assert.ok(prefix > 0 && selectedRequest !== null);
-    const selected = { ...input, limits: { ...input.limits, query: { maximumRecords: 10 },
+    const selected = { ...input, limits: { ...input.limits, query: { maximumRecords: 9 },
       instantiation: { ...input.limits.instantiation, maximumWork: prefix } } };
     const captured = captureSourceBarrier(selected);
     assert.equal(captured.kind, "ok");
@@ -385,8 +385,8 @@ export function later(value: boolean): boolean { return !value; }`);
     const stopped = typeSourceBarrier(selected, source, createAccount(input.limits.dataflow));
     assert.equal(stopped.kind, "refused");
     assert.equal("value" in stopped, false);
-    assert.equal(groups.length, 2);
-    assert.equal(groups[1].bodies.includes(caller.tsonic.body), true);
+    assert.equal(groups.length, 1);
+    assert.equal(groups[0].bodies.includes(caller.tsonic.body), true);
     assert.deepEqual(stopped.diagnostics.map(row => row.source), ["ir-types", "query"]);
     assert.strictEqual(typePublicationRefusalOf(source.typeWork), producerStop);
     assert.strictEqual(stopped.diagnostics[0], producerStop.diagnostics[0]);
@@ -625,7 +625,8 @@ test("real bodyless call, method, construct and index formals retain definitions
   const module = [...bodies.values()].find(body => body.root.kind === "SourceFile");
   const publication = { module: program.checked.module, tree: { kind: "ready-root", root: module.root },
     bodies: program.checked.bodies.map(body => bodies.get(body.body)) };
-  const declaration = module.root.statements.nodes[1];
+  const { kind: role, node: declaration } = module.root.statements.nodes[1];
+  assert.equal(role, "ready-statement");
   assert.equal(declaration.kind, "InterfaceDeclaration");
   assert.deepEqual(declaration.members.nodes.slice(0, 4).map(member => member.parameters.nodes[0].tsonic.local), [null, null, null, null]);
   assert.deepEqual(declaration.members.nodes.slice(0, 4).map(member => member.parameters.nodes[0].tsonic.passing), ["by-value", "by-value", "by-value", null]);
@@ -644,7 +645,7 @@ test("real bodyless call, method, construct and index formals retain definitions
   assert.equal(verifyBody(verifier, module).length, 0);
   const decoded = tir.parseTir(tir.printTir(module));
   assert.equal(decoded.kind, "parsed");
-  assert.deepEqual(decoded.value.root.statements.nodes[1].members.nodes.slice(0, 4).map(member => member.parameters.nodes[0].tsonic.local), [null, null, null, null]);
+  assert.deepEqual(decoded.value.root.statements.nodes[1].node.members.nodes.slice(0, 4).map(member => member.parameters.nodes[0].tsonic.local), [null, null, null, null]);
   for (let index = 0; index < 4; index++) {
     const parameter = declaration.members.nodes[index].parameters.nodes[0];
     const local = parameter.tsonic.local;
@@ -664,7 +665,7 @@ test("real bodyless call, method, construct and index formals retain definitions
   assert.equal(empty.expression.tsonic.role, "declaration-name-expression");
   assert.equal(unresolved.expression.tsonic.role, "declaration-name-expression");
   assert.equal("type" in unresolved.expression.tsonic, false);
-  assert.deepEqual(decoded.value.root.statements.nodes[1].members.nodes[5].name.tsonic, unresolved.tsonic);
+  assert.deepEqual(decoded.value.root.statements.nodes[1].node.members.nodes[5].name.tsonic, unresolved.tsonic);
   const original = unresolved.tsonic;
   unresolved.tsonic = { kind: "declaration", key: { kind: "available", value: { kind: "text", value: "fabricated" } } };
   assert.equal(verifyBody(verifier, module).some(violation => violation.rule === "occurrence-role"), true);
@@ -1230,7 +1231,8 @@ test("real explicit and inferred calls retain their original endpoint, applied c
     scope: program.descriptions.get(moduleSource.owner).generics, body: moduleSource,
     typing: readyTyping(moduleSolved.value.constraints.constraints[0], moduleSolved.value.solution), nestedBodies: [typed.value], initializers: [] });
   assert.equal(moduleTyped.kind, "ok");
-  const declaration = moduleTyped.value.root.statements.nodes[1];
+  const { kind: role, node: declaration } = moduleTyped.value.root.statements.nodes[1];
+  assert.equal(role, "ready-statement");
   assert.equal(declaration.body, null);
   assert.equal(declaration.tsonic.template, null);
   assert.equal(declaration.parameters.nodes[0].tsonic.local, null);
@@ -1324,7 +1326,7 @@ for (const annotation of ["boolean", null]) test(`real ${annotation ?? "inferred
   assert.equal(selected.value.root.id, variable.initializer.id);
   assert.equal(selected.value.root.kind, "FalseKeyword");
   assert.equal(types.readSignature(program.interner, selected.value.signature).result, selected.value.completion);
-  const assembled = moduleBody.root.statements.nodes[1].declarationList.declarations.nodes[0];
+  const assembled = moduleBody.root.statements.nodes[1].node.declarationList.declarations.nodes[0];
   assert.equal(assembled.initializer === template.root, true);
   assert.equal(assembled.tsonic.initializer, selected.value.body);
   assert.equal(assembled.tsonic.storage, selected.value.completion);
@@ -1341,7 +1343,7 @@ for (const annotation of ["boolean", null]) test(`real ${annotation ?? "inferred
     selectedBodies.set(source.body, replay.value);
   }
   const selectedModule = selectedBodies.get(moduleSource.body);
-  const selectedVariable = selectedModule.root.statements.nodes[1].declarationList.declarations.nodes[0];
+  const selectedVariable = selectedModule.root.statements.nodes[1].node.declarationList.declarations.nodes[0];
   assert.equal(selectedVariable.initializer === selected.value.root, true);
   assert.equal(selectedVariable.tsonic.initializer, selected.value.body);
   assert.equal(types.artifactBindingsKey(selectedModule.bindings), types.artifactBindingsKey(selected.value.bindings));
@@ -1700,7 +1702,8 @@ test(`real ${annotation === null ? "inferred" : "annotated"} ${authored} default
     assert.throws(() => wiring.elaborate.elaborate(deps, { ...inputOf(callableSource), initializers: [wrong] }), /checked owner, expression and selected result/u);
   assert.throws(() => wiring.elaborate.elaborate(deps, { ...inputOf(callableSource), initializers: [initializer, initializer] }), /unique completed body/u);
   const callable = elaborate(callableSource);
-  assert.equal(callable.params[0].initializer === initializer.root, true, "one initializer syntax node, never callable replay");
+  assert.equal(callable.params[0].initializer.kind, "ready-default");
+  assert.equal(callable.params[0].initializer.root === initializer.root, true, "one initializer syntax node, never callable replay");
   assert.equal(callable.params[0].tsonic.initializer, initializer.body);
   assert.equal(callable.params[0].tsonic.role, "default");
   assert.equal("acceptsOmission" in callable.params[0].tsonic, false);
@@ -1708,7 +1711,7 @@ test(`real ${annotation === null ? "inferred" : "annotated"} ${authored} default
   assert.equal(signature.parameters[0].acceptsOmission, true);
   assert.equal(signature.parameters[0].initializer, initializer.body);
   const outer = elaborate(program.checked.bodies.find(body => body.root.kind === "SourceFile"));
-  assert.equal(outer.root.statements.nodes[0].parameters.nodes[0] === callable.params[0], true);
+  assert.equal(outer.root.statements.nodes[0].node.parameters.nodes[0] === callable.params[0], true);
   if (annotation === "string") assert.equal(initializer.root.tsonic.value, expected);
   const publication = { module: program.checked.module, tree: { kind: "ready-root", root: outer.root }, bodies: [...typed.values()] };
   const verifier = { source: program.checked, module: publication, types: types.viewTypes(program.interner),
@@ -1744,12 +1747,15 @@ test(`real ${annotation === null ? "inferred" : "annotated"} ${authored} default
   assert.equal(selectedInitializer.root === initializer.root, false, "selected default replays its own checked input, not the callable syntax");
   assert.throws(() => select(callableSource, [initializer]), /same actual bindings/u);
   const selectedCallable = select(callableSource, [selectedInitializer]);
-  assert.equal(selectedCallable.params[0].initializer === selectedInitializer.root, true);
+  assert.equal(selectedCallable.params[0].initializer.kind, "ready-default");
+  assert.equal(selectedCallable.params[0].initializer.root === selectedInitializer.root, true);
   const selectedPublication = { ...publication, bodies: [...publication.bodies, selectedInitializer, selectedCallable] };
   const selectedVerifier = { ...verifier, module: selectedPublication,
     bodyOf: instance => instance.bindings.kind === "parametric" ? verifier.bodyOf(instance)
       : types.artifactBindingsKey(instance.bindings) !== types.artifactBindingsKey(bindings) ? null
       : instance.body === selectedInitializer.body ? selectedInitializer : instance.body === selectedCallable.body ? selectedCallable : null,
+    requiredEntriesOf: instance => [selectedInitializer, selectedCallable].some(actual => actual.body === instance.body &&
+      types.artifactBindingsKey(actual.bindings) === types.artifactBindingsKey(instance.bindings)) ? [0] : null,
     bindingScopesOf: (target, subject, visit) => target.kind === "body" && target.instance.bindings.kind === "instantiated"
       ? { kind: "complete", scopes: [program.descriptions.get(program.domain.bodyOf.get(target.instance.body).owner).generics,
         program.descriptions.get(program.domain.bodyOf.get(target.instance.body).owner).generics] }

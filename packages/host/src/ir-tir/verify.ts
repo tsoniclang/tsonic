@@ -5,7 +5,7 @@ import type { Diagnostic, Violation } from "../diag/contract.js";
 import { checkedVariableStorageOf, childrenOfSyntax, hasOverloadEndpoints, indexSyntaxTree, readWriteRootStorageOf, resolveModuleBinding, walkSyntaxTree, writableRootStorageOf } from "../ir-hir/index.js";
 import type { BindingVerificationInput, BodyInstance, TypeEvidence, TypeRule, TypeTable } from "../ir-types/contract.js";
 import { sameInstance, verifyTypes } from "../ir-types/index.js";
-import type { TirBindingTarget, TirBody, TirChapterSyntax, TirModule, TirNode, TirNodeSite, TirOperationsOf, TirReadyReadAdmission, TirRule, TirSite, TirSyntaxOccurrence, TirTypedSyntax, TirVerificationResult, TirVerifierInput, TypedPhase, VerifyTir, VerifyTirModule } from "./contract.js";
+import type { TirBindingTarget, TirBody, TirChapterSyntax, TirModule, TirNodeSite, TirOperationsOf, TirReadyReadAdmission, TirRule, TirSite, TirSyntaxOccurrence, TirTypedSyntax, TirVerificationResult, TirVerifierInput, TypedPhase, VerifyTir, VerifyTirModule } from "./contract.js";
 import type { TirOccurrenceEmit, TirOccurrenceSite, TirStructure, TirTypeGraph } from "./verify-occurrences.js";
 import { applicationOf, collectTirSemantics, inspectTirStructure, sameLocalReference, sameSourceReference, typedValueOf, verifyDeferredParameters, verifyOccurrenceOperation, verifyOccurrenceRole, verifyOperationShape, verifySwitchOperations, verifyValueEndpoints } from "./verify-occurrences.js";
 import type { TirDeclarationInventory, TirMemberInventory } from "./verify-applications.js";
@@ -13,7 +13,7 @@ import { declarationEndpoints, indexMembers, verifyActivation, verifyArgumentTra
 import { publicationMembership, sameBindingScope, sameParameterSelection, verifyBindingSlots, verifyBodylessParameters, verifyCanonicalTemplates, verifyControlledContexts, verifyDeclarationNames, verifyNestedPublication, verifyPublishedInstance, verifyQualifiedReferences } from "./verify-instances.js";
 import { sameSyntaxFields } from "./syntax-compare.js";
 import { sameSourceFileHeader } from "./syntax-compare-values.js";
-import { sameTextRange1 } from "./syntax-compare-common.js";
+import { sameTextRange1, sameVector } from "./syntax-compare-common.js";
 import { chapterSyntaxSlots, indexChapterSyntax, readChapterSyntaxSlot, tirBodySyntaxOf } from "./chapter-syntax.js";
 import { createTirLayouts } from "./text-model.js";
 
@@ -43,7 +43,7 @@ interface IndexedTypeViolation {
 
 interface MappedTypeViolation extends IndexedTypeViolation {
   readonly target: TirRule;
-  readonly node: TirNode | null;
+  readonly node: TirOccurrenceSite | null;
 }
 
 const indexTypeViolation = (
@@ -87,9 +87,12 @@ function* chapterRoots(module: TirModule): Generator<TirChapterSyntax> {
 function sameChapterFields(subject: TirTypedSyntax, checked: HirNode): boolean {
   switch (subject.kind) {
     case "ordinary": return sameSyntaxFields(subject.node, checked);
-    case "module-root": return checked.kind === "SourceFile" && sameSourceFileHeader<TypedPhase, CheckedPhase>(subject.node, checked)
+    case "module-root": return checked.kind === "SourceFile"
+      && sameVector(subject.node.flags, checked.flags, Object.is)
+      && sameSourceFileHeader<TypedPhase, CheckedPhase>(subject.node, checked)
       && sameTextRange1(subject.node.statements.loc, checked.statements.loc);
     case "ready-callable": return checked.kind === "FunctionDeclaration" && checked.body !== null
+      && sameVector(subject.node.flags, checked.flags, Object.is)
       && sameTextRange1(subject.node.parameters.loc, checked.parameters.loc)
       && (subject.node.name === null) === (checked.name === null)
       && (subject.node.modifiers === null) === (checked.modifiers === null)
@@ -528,9 +531,9 @@ const verifyTypePayload = <Stop extends object>(
   const scopes = supplied.scopes;
   if (scopes === null) emit("binding-vector-complete", null, "binding target has no actual supplied scope inventory");
   const bindingInputs: BindingVerificationInput[] = [];
-  const bindingSites: (TirNode | null)[] = [];
+  const bindingSites: (TirOccurrenceSite | null)[] = [];
   const evidence: TypeEvidence[] = [];
-  const evidenceSites: (TirNode | null)[] = [];
+  const evidenceSites: (TirOccurrenceSite | null)[] = [];
   let vectorPosition = 0;
   for (const record of structure.records) {
     if (record.association?.kind === "binding") {
@@ -592,7 +595,7 @@ export const tirOperationsOf: TirOperationsOf = (input, instance) => {
   if (body === null) throw new TypeError("The operation inventory requires its actual verified typed body.");
   const boundary = readSourceBoundary(body.body, input.source, input.nodeOf);
   const structure = inspectTirStructure(body, createTirLayouts(), boundary.nestedRoots);
-  return collectTirSemantics(structure.nodes).operations.map(({ value, node }) =>
+  return collectTirSemantics(structure).operations.map(({ value, node }) =>
     ({ operation: value, node: { body: body.body, node: node.id }, origin: node.origin }));
 };
 
@@ -677,7 +680,7 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
   const inventory = verifySourcePreservation(body, input.source, input.module, boundary, emit);
   verifyBodylessParameters(input, structure.nodes, inventory.sourceNodes, emit);
   verifyDeclarationNames(structure.nodes, inventory.sourceNodes, emit);
-  const semantics = collectTirSemantics(structure.nodes);
+  const semantics = collectTirSemantics(structure);
   verifyBodyRecords(body, inventory.original, emit);
   const typeGraph = verifyClosedReferences(body.root, structure, input.types, input.diagnostics, emit);
   verifyQualifiedReferences(input, body, structure, emit);
@@ -768,7 +771,10 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
   }
   let previousEvidence = -1;
   const nodeOrder = new Map<NodeId, number>();
-  for (const [position, node] of structure.nodes.entries()) nodeOrder.set(node.id, position);
+  for (const [position, { syntax, role }] of structure.records.entries()) {
+    const node = syntax ?? role?.node;
+    if (node !== undefined) nodeOrder.set(node.id, position);
+  }
   for (const evidence of body.evidence) {
     const reference = evidence.component;
     const order = reference.kind === "body" && reference.value.body === body.body ? nodeOrder.get(reference.value.node) : undefined;

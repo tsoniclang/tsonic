@@ -281,7 +281,7 @@ test(`real SDK source add with ${resultAnnotation === "" ? "inferred" : "annotat
     parameter => { parameter.name.tsonic.storage = actualModule.completion; },
   ]) {
     const changed = structuredClone(publication);
-    mutate(changed.tree.statements.nodes[0].parameters.nodes[0]);
+    mutate(changed.tree.root.statements.nodes[0].node.parameters.nodes[0]);
     const changedBodyOf = new Map(changed.bodies.map(body => [body.body, body]));
     const changedVerifier = { ...verifier, module: changed,
       bodyOf: instance => instance.bindings.kind === "parametric" ? changedBodyOf.get(instance.body) ?? null : null };

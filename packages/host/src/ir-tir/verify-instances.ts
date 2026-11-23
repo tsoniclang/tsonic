@@ -215,6 +215,8 @@ export const verifyNestedPublication = (
   headers: readonly (ParameterDeclaration<CheckedPhase> | null)[], emit: TirOccurrenceEmit,
 ): ReadonlySet<NodeId> => {
   const { originals, templates } = verifyCanonicalTemplates(input, input.module, moduleNodes, emit);
+  if (original !== undefined && body.bindings.kind === "instantiated" && !templates.has(body.body))
+    emit("template-shared-once", null, "actual source body has no canonical parametric template in the publication");
   const ownNodes = new Map<NodeId, TirSyntaxOccurrence>();
   for (const node of actualNodes) ownNodes.set(node.id, node);
   for (const template of semantics.templates) {
@@ -509,7 +511,7 @@ export const verifyBindingSlots = <Stop extends object>(
   };
   for (const parameter of body.params) registerParameter(parameter, body);
   for (const record of structure.records) {
-    const node = record.readyCallable ?? record.syntax;
+    const node = record.role?.kind === "ready-callable" ? record.role.node : record.syntax;
     if (node === null || node.kind !== "FunctionDeclaration" && node.kind !== "MethodDeclaration" && node.kind !== "Constructor"
       && node.kind !== "GetAccessor" && node.kind !== "SetAccessor" && node.kind !== "ArrowFunction" && node.kind !== "FunctionExpression") continue;
     const callable = node.kind === "ArrowFunction" || node.kind === "FunctionExpression" ? node.tsonic.callable : node.tsonic;
