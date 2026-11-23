@@ -57,6 +57,7 @@ test(`real SDK source add with ${resultAnnotation === "" ? "inferred" : "annotat
   };
   const inputs = { modules: [{ module: checked, nodes }], types: interner, typeWork, typeExpansion: EXPANSION };
   const deps = pipeline.inferDepsOf({ typeWork, structuralCuts: domain.sources.structuralCuts, cuts: domain.sources.cuts, checkedNodeOf: domain.nodeOf,
+    bindingScopeOf: definition => descriptions.get(definition)?.generics ?? assert.fail("actual checked scope required"),
     rules: { libraries: { sources: [], sourceRoles: [], guarantees: [] }, types: interner,
       selectedNativeFacts: snapshot.nativeFacts, typeExpansion: EXPANSION },
     hirBody: body => domain.bodyOf.get(body) ?? assert.fail("the requested body is not in the ready module"),

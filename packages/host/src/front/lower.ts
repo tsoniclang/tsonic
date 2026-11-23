@@ -22,7 +22,7 @@ import { captureNumericLiteral } from "./literals.js";
 import type { LiteralResult } from "./literals.js";
 import { expressionKinds, typeNodeKinds } from "./syntax-capture.js";
 import { numericTypeSpelling, writtenCompoundAssignmentKinds } from "./syntax-support.js";
-import { lowerCheckedAlias, lowerCheckedBodylessFunction, lowerCheckedInterface, lowerCheckedModifiers, lowerCheckedType } from "./checked-declarations.js";
+import { lowerCheckedAlias, lowerCheckedBodylessFunction, lowerCheckedInterface, lowerCheckedModifiers, lowerCheckedType, typeParameters } from "./checked-declarations.js";
 import type { DeclarationLowering, TypeReader } from "./checked-declarations.js";
 
 type Syntax = Hir.SyntaxPhase;
@@ -62,7 +62,7 @@ function unwrittenForm(node: Hir.SyntaxNode<Syntax>, declarationName: boolean): 
   switch (node.kind) {
     case "FunctionDeclaration":
       return node.body === null ? node.modifiers?.nodes.some(modifier => modifier.kind === "DeclareKeyword") === true
-        ? null : "FunctionDeclaration without a body or explicit declaration" : node.typeParameters !== null ? "FunctionDeclaration with type parameters" : null;
+        ? null : "FunctionDeclaration without a body or explicit declaration" : null;
     case "Parameter": return node.dotDotDotToken !== null ? "rest Parameter" : null;
     case "GetAccessor": case "SetAccessor": return node.body !== null || node.asteriskToken !== null ? `${node.kind} with an execution body or generator marker` : null;
     case "LiteralType":
@@ -1099,6 +1099,10 @@ function functionDeclaration(lowering: Lowering, node: Hir.FunctionDeclaration<S
   const bodyNode = node.body;
   if (bodyNode === null || bodyNode.kind !== "Block") return throwInvariant(invariant("A function of a written form has no block body."));
   const body = encodeBodyId({ owner: definition, role: "function", ordinal: 0 });
+  const declarations = declarationLowering(lowering);
+  const own = typeParameters(declarations, node.typeParameters, definition,
+    (type, typeOwner) => lowerCheckedType(declarations, type, typeOwner));
+  if (own.kind !== "complete") return own;
   // The checked signature: the checker's own parameter and result types from capture's signature row, never another slot's.
   const association = lowering.associations.get(node.id);
   const advertised = association?.advertised[0];
@@ -1164,11 +1168,12 @@ function functionDeclaration(lowering: Lowering, node: Hir.FunctionDeclaration<S
     root: loweredBody, captures: [], scopes: [], asynchronous: false, generator: false, candidateLists: lowering.candidateLists.get(body) ?? [], nestedBodies: [],
   });
   const name = node.name;
-  return { kind: "complete", value: { ...headerOf(node), kind: "FunctionDeclaration", modifiers: lowerCheckedModifiers(node.modifiers), typeParameters: null,
+  return { kind: "complete", value: { ...headerOf(node), kind: "FunctionDeclaration", modifiers: lowerCheckedModifiers(node.modifiers), typeParameters: own.value,
     parameters: { loc: node.parameters.loc, nodes: parameters.map(parameter => parameter.lowered) }, type: returnType === null ? null : returnType.value.node, fullSignature: null, asteriskToken: null,
     body: loweredBody,
     name: name === null ? null : { ...headerOf(name), kind: "Identifier", text: name.text, tsonic: { core: coreOf(lowering, name.id), role: "declaration-name", declaration: targetOf(lowering, node.id) } },
-    tsonic: { core: coreOf(lowering, node.id), parent: owner, attributes: [], memory: memoryOf(lowering, node.id), definition, parameters: [],
+    tsonic: { core: coreOf(lowering, node.id), parent: owner, attributes: [], memory: memoryOf(lowering, node.id), definition,
+      parameters: own.value?.nodes.map(parameter => parameter.tsonic.parameter) ?? [],
       // One API body endpoint with its real body: a written function is not overloaded (an overload family is refused
       // by the written-kinds check, as a FunctionDeclaration without a body), so it has no advertised row (K-3312.1).
       signatures: [{ declaration: definition, role: "api-body", signature: signature.value, body }], body } } };

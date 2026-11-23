@@ -37,7 +37,7 @@ function selectCandidate(deps: RulesDeps, input: Omit<CandidateInput, "context">
   if (input.arguments.length > signature.parameters.length)
     return notDecidedYet("the actual selected extra or rest formal transport", origin);
   const callee = readType(deps.types, input.callee.type);
-  const valueSignature = candidate.api.body === null && original.typeParameters.length !== 0 ? original.id : signature.id;
+  const valueSignature = original.typeParameters.length !== 0 ? original.id : signature.id;
   if (callee.kind !== "callable" || !callee.calls.includes(valueSignature))
     return callerDefect("the callee must contain its actual callable value signature", origin);
   const parameters: ParameterMapping[] = [];

@@ -49,20 +49,27 @@ function isTypeNode(node: Hir.SyntaxNode<Checked>): node is Hir.TypeNode<Checked
   return node.tsonic !== null && "referencedDefinitions" in node.tsonic;
 }
 
-function projectDeclaration<State>(deps: ElaborateDeps<State>, root: Hir.SyntaxNode<Checked>): Result<DeclarationProjection> {
+function projectDeclaration<State>(deps: ElaborateDeps<State>, roots: readonly Hir.SyntaxNode<Checked>[]): Result<DeclarationProjection> {
   const completed = new Map<NodeId, Hir.TypeNode<TypedPhase>>();
   const members = new Map<NodeId, Hir.TypeElement<TypedPhase>>();
   const enter = (node: Hir.SyntaxNode<Checked>) => {
     if (node.kind === "GetAccessor" || node.kind === "SetAccessor") accessorBoundary(node);
     return { node, children: iterateChildrenOfSyntax(node) };
   };
-  const pending = [enter(root)];
+  const pending: ReturnType<typeof enter>[] = [];
+  let rootIndex = 0;
+  const take = () => {
+    const frame = pending.pop();
+    if (frame !== undefined) return frame;
+    const root = roots[rootIndex++];
+    return root === undefined ? undefined : enter(root);
+  };
   const child = (node: Hir.TypeNode<Checked>): Hir.TypeNode<TypedPhase> => completed.get(node.id)
     ?? fail("A declaration annotation requires its completed actual type child.");
   const memberOf = (node: Hir.TypeElement<Checked>): Hir.TypeElement<TypedPhase> => members.get(node.id)
     ?? fail("A declaration retains its actual completed typed member.");
   const read: TypeReader = node => node === null ? null : child(node);
-  for (let frame = pending.pop(); frame !== undefined; frame = pending.pop()) {
+  for (let frame = take(); frame !== undefined; frame = take()) {
     const node = frame.node;
     if (isTypeNode(node) && node.tsonic.type.kind === "unavailable") {
       if (node.tsonic.type.reason !== "checker-error")
@@ -241,7 +248,7 @@ function projectDeclaration<State>(deps: ElaborateDeps<State>, root: Hir.SyntaxN
 
 export function declarationType<State>(deps: ElaborateDeps<State>, root: Hir.TypeNode<Checked> | null): Result<Hir.TypeNode<TypedPhase> | null> {
   if (root === null) return { kind: "ok", diagnostics: [], value: null };
-  const projected = projectDeclaration(deps, root);
+  const projected = projectDeclaration(deps, [root]);
   return projected.kind === "refused" ? projected : { kind: "ok", diagnostics: [], value: projected.value.typeOf(root) };
 }
 
@@ -254,6 +261,23 @@ function declarationParameter(node: Hir.TypeParameterDeclaration<Checked>, read:
 
 function typeParameters(input: Hir.TypeParameterList<Checked> | null, read: TypeReader): Hir.TypeParameterList<TypedPhase> | null {
   return input === null ? null : { ...input, nodes: input.nodes.map(node => declarationParameter(node, read)) };
+}
+
+export function callableTypeHeader<State>(deps: ElaborateDeps<State>, node: Hir.FunctionDeclaration<Checked>):
+  Result<Pick<Hir.FunctionDeclaration<TypedPhase>, "typeParameters" | "type" | "fullSignature">> {
+  const roots: Hir.TypeNode<Checked>[] = [];
+  if (node.typeParameters !== null) for (const parameter of node.typeParameters.nodes) {
+    if (parameter.constraint !== null) roots.push(parameter.constraint);
+    if (parameter.defaultType !== null) roots.push(parameter.defaultType);
+  }
+  if (node.type !== null) roots.push(node.type);
+  if (node.fullSignature !== null) roots.push(node.fullSignature);
+  const projected = projectDeclaration(deps, roots);
+  if (projected.kind === "refused") return projected;
+  const read: TypeReader = annotation => annotation === null ? null : projected.value.typeOf(annotation);
+  return { kind: "ok", diagnostics: [], value: {
+    typeParameters: typeParameters(node.typeParameters, read), type: read(node.type), fullSignature: read(node.fullSignature),
+  } };
 }
 
 function propertyName(node: Hir.PropertyName<Checked>): Hir.PropertyName<TypedPhase> {
@@ -378,7 +402,7 @@ function callable<State>(deps: ElaborateDeps<State>, node: BodylessCallable, rea
 
 export function declarationFunction<State>(deps: ElaborateDeps<State>, node: Hir.FunctionDeclaration<Checked>): Result<Hir.FunctionDeclaration<TypedPhase> & { readonly body: null }> {
   if (node.body !== null || node.asteriskToken !== null) return fail("A bodyless function retains its actual nonexecuting declaration.");
-  const projected = projectDeclaration(deps, node);
+  const projected = projectDeclaration(deps, [node]);
   if (projected.kind === "refused") return projected;
   return { kind: "ok", diagnostics: [], value: { ...node, ...bodylessHeader(deps, node, type => type === null ? null : projected.value.typeOf(type)),
     name: node.name === null ? null : declarationName(node.name, null), modifiers: declarationModifiers(node.modifiers),
@@ -426,7 +450,7 @@ function typeElement<State>(deps: ElaborateDeps<State>, member: Hir.TypeElement<
 
 export function declarationInterface<State>(deps: ElaborateDeps<State>, node: Hir.InterfaceDeclaration<Checked>): Result<Hir.InterfaceDeclaration<TypedPhase>> {
   if (node.heritageClauses !== null) return fail("Interface heritage requires its actual selected declared type projection.");
-  const projected = projectDeclaration(deps, node);
+  const projected = projectDeclaration(deps, [node]);
   if (projected.kind === "refused") return projected;
   const checked = node.tsonic;
   const unit = { query: "elaborate", key: checked.definition };
@@ -449,7 +473,7 @@ export function declarationInterface<State>(deps: ElaborateDeps<State>, node: Hi
 }
 
 export function declarationAlias<State>(deps: ElaborateDeps<State>, node: Hir.TypeAliasDeclaration<Checked>): Result<Hir.TypeAliasDeclaration<TypedPhase>> {
-  const projected = projectDeclaration(deps, node);
+  const projected = projectDeclaration(deps, [node]);
   if (projected.kind === "refused") return projected;
   if (node.tsonic.type.kind !== "available") return fail("A type alias requires its actual checked type or original error.");
   return { kind: "ok", diagnostics: [], value: { ...node, name: declarationName(node.name, null), modifiers: declarationModifiers(node.modifiers),

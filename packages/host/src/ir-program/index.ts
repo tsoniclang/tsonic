@@ -8,11 +8,12 @@ import type {
   ParseProgramIndex,
   PrintModuleBodies,
   PrintProgramIndex,
+  SpecializeTir,
   VerifyModuleBodies,
   VerifyProgramIndex,
 } from "./contract.js";
 import { canonicalizeProgram as canonicalize } from "./canonical.js";
-import { instantiate as instantiateArtifact } from "./instantiate.js";
+import { instantiate as instantiateArtifact, specializeTir as specialize } from "./instantiate.js";
 import { parseModuleBodies as parseModule, parseProgramIndex as parseIndex } from "./parse.js";
 import { printModuleBodies as printModule, printProgramIndex as printIndex } from "./print.js";
 import { verifyProgramIndex as verifyIndex } from "./verify-index.js";
@@ -31,3 +32,4 @@ export const parseModuleBodies: ParseModuleBodies = parseModule;
 export const verifyProgramIndex: VerifyProgramIndex = verifyIndex;
 export const verifyModuleBodies: VerifyModuleBodies = verifyModule;
 export const instantiate: Instantiate = instantiateArtifact;
+export const specializeTir: SpecializeTir = specialize;

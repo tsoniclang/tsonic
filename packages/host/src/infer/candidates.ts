@@ -36,8 +36,8 @@ export function candidateEndpoint(deps: InferenceInputs, candidate: HirCandidate
   if (candidate.appliedSignature.value !== endpoint.signature) {
     const original = readSignature(deps.types, endpoint.signature);
     const applied = readSignature(deps.types, candidate.appliedSignature.value);
-    if (endpoint.body !== null || original.typeParameters.length === 0)
-      return notInferredYet("ConstraintsOf", "the authoritative applied signature of an executable or non-generic candidate", null);
+    if (original.typeParameters.length === 0)
+      return notInferredYet("ConstraintsOf", "the authoritative applied signature of a non-generic candidate", null);
     const bindings = candidate.bindings.value;
     if (original.declaration !== endpoint.declaration || applied.declaration !== endpoint.declaration
       || applied.typeParameters.length !== 0 || original.kind !== applied.kind

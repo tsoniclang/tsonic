@@ -24,6 +24,71 @@ test(`public Host analysis source barrier captures the complete actual ${library
   assert.equal(result.value.modules.some(module => module.module.module === fixture.moduleOf(fixture.packageOf("/project"), "src/main.ts")), true);
 });
 
+test("two concrete uses of an executable foreign generic retain their own selected signatures and bodies", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const root = "/project/node_modules/dependency";
+  const module = fixture.moduleOf(fixture.packageOf(root), "index.ts");
+  const callers = [
+    "export function first(value:boolean):boolean { return echo(value); }",
+    "export function second(value:string):string { return echo<string>(value); }",
+  ];
+  for (const order of [callers, [...callers].reverse()]) {
+    const source = 'import { echo } from "dependency"; ' + order.join(" ");
+    const input = analysisInput(fixture, "sdk-minimal", source);
+    input.snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source },
+      libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
+      extraFiles: { [root + "/package.json"]: JSON.stringify({ name: "dependency", version: "1.0.0", types: "index.ts" }) },
+      otherPackages: [{ root, name: "dependency", modules: { "index.ts": ["source",
+        "export function echo<T>(value:T):T { const copy:T = value; return copy; }", false] } }] });
+    const result = analyzeHostProgram(input);
+    assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+    const { index, modules } = result.value;
+    const chapter = modules.find(row => row.module === module);
+    const main = modules.find(row => row.module === input.snapshot.entryPoint);
+    const publishedCallers = main.bodies.filter(row => row.kind === "selected" && row.tir.root.kind === "Block");
+    assert.equal(publishedCallers.length, 2);
+    for (const row of publishedCallers) {
+      const expression = row.tir.root.statements.nodes[0].expression;
+      const callee = expression.tsonic.application.decision.callee;
+      assert.equal(callee.activation.bindings.bindings === callee.decision.implementationBindings, true);
+    }
+    const template = chapter.bodies.find(row => row.kind === "template" && row.tir.params.length === 1);
+    const generic = index.types.signatures[template.tir.signature];
+    assert.equal(generic.typeParameters.length, 1);
+    const [parameter] = generic.typeParameters;
+    assert.deepEqual(template.tir.lexicalBindings.methodBindings, [{ kind: "rigid", parameter: parameter.declaration }]);
+    const selected = chapter.bodies.filter(row => row.kind === "selected" && row.instance.body === template.instance.body);
+    assert.equal(selected.length, 2);
+    const carriers = [];
+    for (const row of selected) {
+      const [binding] = row.instance.bindings.bindings.methodBindings;
+      assert.equal(binding.kind, "bound");
+      assert.equal(binding.parameter, parameter.declaration);
+      const signature = index.types.signatures[row.tir.signature];
+      assert.equal(signature.typeParameters.length, 0);
+      assert.equal(signature.parameters[0].type, binding.type);
+      assert.equal(signature.result, row.tir.completion);
+      assert.equal(signature.result, binding.type);
+      assert.equal(row.tir.params[0].tsonic.storage, binding.type);
+      assert.deepEqual(row.mir.entries.map(entry => entry.provided), [1]);
+      assert.deepEqual(row.facts.map(facts => facts.execution), [{ instance: row.instance, provided: 1 }]);
+      const initializer = chapter.bodies.find(candidate => candidate.kind === "selected"
+        && candidate.instance.body !== row.instance.body && candidate.tir.root.kind === "Identifier"
+        && candidate.tir.completion === binding.type);
+      assert.notEqual(initializer, undefined);
+      const placed = index.types.signatures[initializer.tir.signature];
+      assert.equal(placed.declaration, null);
+      assert.deepEqual(placed.owner, { kind: "body", value: { body: initializer.instance.body, node: initializer.tir.root.id } });
+      assert.deepEqual(initializer.mir.entries.map(entry => entry.provided), [0]);
+      const type = index.types.terms[binding.type];
+      carriers.push(type.kind === "primitive" ? type.primitive : type.kind);
+    }
+    assert.deepEqual(carriers.sort(), ["bool", "string"]);
+    assert.equal(new Set(selected.map(row => row.tir.signature)).size, 2);
+  }
+});
+
 test("checked Source verifies the actual foreign generic scope before declaration description", async () => {
   const fixture = await loadFrontFixture();
   const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");

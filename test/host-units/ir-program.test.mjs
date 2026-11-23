@@ -824,8 +824,48 @@ test("Program type publication borrows the real captured location and entry prod
 test("ir-program public values are exactly its locked ports", () => {
   assert.deepEqual(Object.keys(product).sort(), [
     "admitProgramReadyRow", "canonicalizeProgram", "createProgramVerificationWork", "instantiate", "parseModuleBodies", "parseProgramIndex",
-    "printModuleBodies", "printProgramIndex", "tirReadyReadAdmission", "verifyModuleBodies", "verifyProgramIndex",
+    "printModuleBodies", "printProgramIndex", "specializeTir", "tirReadyReadAdmission", "verifyModuleBodies", "verifyProgramIndex",
   ].sort());
+});
+
+test("paid generic body projection rejects a crossed real placement and never reads past an original stop", async () => {
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const fixture = await loadFrontFixture();
+  const input = analysisInput(fixture, "sdk-minimal", `function echo<T>(value:T):T { return value; }
+export function first(value:boolean):boolean { return echo(value); }
+export function second(value:string):string { return echo<string>(value); }`);
+  const checked = captureSourceBarrier(input);
+  assert.equal(checked.kind, "ok");
+  const account = createAccount(input.limits.dataflow);
+  const typed = typeSourceBarrier(input, checked.value, account);
+  assert.equal(typed.kind, "ok");
+  const bodies = [...typed.value.bodies.values()];
+  const template = bodies.find(body => body.bindings.kind === "parametric" && body.lexicalBindings.methodBindings.length === 1);
+  const choices = bodies.filter(body => body.body === template.body && body.bindings.kind === "instantiated");
+  assert.equal(choices.length, 2);
+  const instanceOf = body => ({ body: body.body, bindings: body.bindings });
+  const instance = instanceOf(choices[0]);
+  const original = typed.value.placedSignatureOf(instanceOf(template));
+  const selected = typed.value.placedSignatureOf(instance);
+  const crossed = typed.value.placedSignatureOf(instanceOf(choices[1]));
+  const resources = product.createProgramVerificationWork(input.limits.instantiation, account);
+  const specialize = (placement, resources) =>
+    product.specializeTir(template, instance, placement, typed.value.source.types, resources);
+  assert.throws(() => specialize({ kind: "endpoint", template: original, selected: crossed }, resources),
+    /actual substitution-ready template and placed signature/u);
+  const placement = { kind: "endpoint", template: original, selected };
+  const complete = specialize(placement, resources);
+  assert.equal(complete.kind, "complete");
+  assert.deepEqual(complete.value, choices[0]);
+  assert.notStrictEqual(complete.value.root, choices[0].root);
+  assert.equal(complete.value.bindings === instance.bindings, true);
+  const exhausted = createAccount({ ...input.limits.dataflow, maximumWork: 0 });
+  const stopped = product.createProgramVerificationWork(input.limits.instantiation, exhausted);
+  const poison = { get body() { assert.fail("a stopped projection reads no source body"); } };
+  const refusal = product.specializeTir(poison, instance, placement, typed.value.source.types, stopped);
+  assert.equal(refusal.kind === "resource-limit" && refusal === accountFailure(exhausted), true);
+  assert.strictEqual(product.specializeTir(poison, instance, placement, typed.value.source.types, stopped), refusal);
 });
 
 test("Program completed evidence growth borrows the existing work and created-record allowance", () => {

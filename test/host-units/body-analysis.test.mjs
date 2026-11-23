@@ -14,7 +14,6 @@ import { lowerToMir } from "../../packages/host/dist/lower-mir/index.js";
 import { verifyMir } from "../../packages/host/dist/ir-mir/index.js";
 import { analyzeStorageUse } from "../../packages/host/dist/analyses/liveness/index.js";
 import { accountFailure, createAccount, refuseAccount, remainingWork } from "../../packages/host/dist/dataflow/index.js";
-import { iterateChildrenOfSyntax } from "../../packages/host/dist/ir-hir/index.js";
 import { verifyFacts, verifySummary, printFacts, parseFacts, printSummary, parseSummary, escapeTargetKey } from "../../packages/host/dist/ir-facts/index.js";
 import { resourceLimitDiagnostic } from "../../packages/host/dist/diag/index.js";
 import { checkRepeatedStaticInitialization } from "./fixtures/program-static-exposure.mjs";
@@ -4946,7 +4945,8 @@ test("the module proof checks each published static exposure and propagates orig
     .find(body => body.kind === "selected" && body.instance.body === execution.instance.body);
   const summary = program.value.index.summaries.find(row => row.key.kind === "body"
     && row.key.execution.instance.body === execution.instance.body);
-  const declarations = record.tir.root.statements.nodes.flatMap(row => row.declarationList.declarations.nodes);
+  const declarations = record.tir.root.statements.nodes.flatMap(row => row.kind === "ready-statement" && row.node.kind === "VariableStatement"
+    ? row.node.declarationList.declarations.nodes : []);
   const originOf = node => declarations
     .find(declaration => node.kind === "item" && declaration.id === node.value.node)?.origin ?? null;
   const reference = cell => ({ owner: { kind: "summary", key: summary.key }, cell });
@@ -5050,7 +5050,8 @@ test("the module proof discharges a constructed static need only from an earlier
       assert.equal(definition, cell.role.declaration.definition);
       return program.value.modules.find(module => module.module === expression.origin.module).bodies
         .find(body => body.tir.root.kind === "SourceFile").tir.root.statements.nodes
-        .find(statement => statement.kind === "VariableStatement").declarationList.declarations.nodes[0].origin;
+        .find(statement => statement.kind === "ready-statement" && statement.node.kind === "VariableStatement").node
+        .declarationList.declarations.nodes[0].origin;
     },
   };
   const ordered = { modules: [first, writer], entries: [reader], storage: [] };
@@ -5333,41 +5334,30 @@ test("actual nested callable source roots never traverse a separately owned body
   assert.equal([...open.value.values()].includes(child.root), true, "only an actual separate-body boundary excludes child syntax");
 });
 
-test("a module owns neither its nested callable headers nor their separately executing defaults", () => {
-  const name = "body-round.nested-header";
-  const childName = `${name}.function`;
-  const child = builders(childName);
-  const declaration = def(`${childName}.flag`);
-  const initializer = bodyId(`${childName}.flag`, "default");
-  const parameter = { kind: "Parameter", modifiers: null, dotDotDotToken: null,
-    name: child.declName("flag", 0), questionToken: null, type: null,
-    initializer: child.keyword("TrueKeyword", T.bool),
-    tsonic: { declaration, local: child.localRef(0), storage: T.bool, passing: "by-value", initializer, role: "default" } };
-  const callable = { kind: "FunctionDeclaration", modifiers: null, typeParameters: null,
-    parameters: { $list: true, nodes: [parameter] }, type: null, fullSignature: null, asteriskToken: null,
-    name: null, body: child.block(child.returns(child.id("flag", 0, T.bool))),
-    tsonic: { definition: def(childName), parameters: [], signatures: [], attributes: [],
-      template: { body: child.body, lexicalBindings: { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] },
-        dependence: "parametric" } } };
-  const program = typedBody(name, { role: "module", signature: signature(name, [], T.void), completion: T.void,
-    nestedBodies: [child.body],
-    root: { kind: "SourceFile", statements: { $list: true, nodes: [callable] },
-      endOfFileToken: { kind: "EndOfFile", tsonic: null }, languageVariant: "Standard", scriptKind: "TS",
-      commentDirectives: [], pragmas: [], checkJsDirective: null, tsonic: { module: "M[P[p];m]", template: null } } });
-  const selected = program.tir.root.statements.nodes[0];
+test("a module owns neither its nested callable headers nor their separately executing defaults", async () => {
+  const { analyzeOptionalSource } = await import("./fixtures/optional-default.mjs");
+  const program = await analyzeOptionalSource("export function child(flag: boolean = true): boolean { return flag; }");
+  assert.equal(program.kind, "ok");
+  const [execution] = program.value.index.initialization.modules;
+  const outer = program.value.modules.flatMap(module => module.bodies)
+    .find(body => body.kind === "selected" && sameInstance(body.instance, execution.instance));
+  assert.equal(outer.tir.root.kind, "SourceFile");
+  const [slot] = outer.tir.root.statements.nodes;
+  assert.equal(slot.kind, "ready-callable");
+  const selected = slot.node;
   const header = selected.parameters.nodes[0];
-  const current = fixture(program);
-  const pair = checkedPair(current, analyzeBodyRound(current.deps, current.input));
-  assert.deepEqual(pair.facts.refinements.integers, [], "only the callee's unexecuted subtree contains values");
-  assert.equal(pair.summary.returns, true, "the actual module returns without running a nested function/default");
+  assert.equal(header.initializer.kind, "ready-default");
+  assert.deepEqual(outer.facts[0].refinements.integers, [], "only the callee's unexecuted subtree contains values");
+  const summary = program.value.index.summaries.find(row => row.key.kind === "body" && sameInstance(row.key.execution.instance, outer.instance));
+  assert.equal(summary.returns, true, "the actual module returns without running a nested function/default");
   Object.defineProperty(header, "initializer", { get() { throw new Error("the outer module cannot read a child's default syntax"); } });
-  const result = sourceOccurrences(program.tir, createAccount(limits));
+  const result = sourceOccurrences(outer.tir, createAccount(limits));
   assert.equal(result.kind, "complete");
   assert.equal(result.value.get(selected.id), selected);
   assert.equal(result.value.has(header.id), false);
   assert.equal(result.value.has(header.name.id), false);
   assert.equal(result.value.has(selected.body.id), false);
-  const syntax = bodyNodes(program.tir, createAccount(limits));
+  const syntax = bodyNodes(outer.tir, createAccount(limits));
   assert.equal(syntax.kind, "complete");
   assert.equal(syntax.value.nodes.has(header.id), false);
   assert.equal(syntax.value.valueNodes.size, 0);

@@ -1,4 +1,5 @@
 import type { InvariantFailure } from "../diag/contract.js";
+import type { SigId } from "../ids/contract.js";
 import { requirePresent } from "../diag/index.js";
 import type { TirBody } from "../ir-tir/contract.js";
 import type { ArtifactBindings } from "../ir-types/contract.js";
@@ -15,9 +16,12 @@ export interface AdmittedTirSyntax {
   readonly params: TirBody["params"][number][];
 }
 
+export type ArtifactPlacement = { readonly kind: "structural" } | { readonly kind: "selected"; readonly signature: SigId };
+
 export interface PreparedTirBody {
   readonly roots: AdmittedTirSyntax;
-  readonly project: (rewrite: TypeReferenceRewrite, root: TirBody["root"], params: TirBody["params"], bindings: ArtifactBindings) => TirBody;
+  readonly project: (rewrite: TypeReferenceRewrite, root: TirBody["root"], params: TirBody["params"], bindings: ArtifactBindings,
+    placement: ArtifactPlacement) => TirBody;
 }
 
 const missingParameter: InvariantFailure = { owner: "ir-program", query: null, origin: null,
@@ -66,9 +70,10 @@ export function inventoryTirBody(scan: ProjectionInventory, value: TirBody):
   const { root, body, owner, dependence, nestedBodies, captures, scopes, asynchronous, generator } = value;
   return { kind: "complete", value: {
     roots: { root, params },
-    project: (rewrite, root, params, bindings) => ({
+    project: (rewrite, root, params, bindings, placement) => ({
       root, params, bindings, body, owner, dependence, nestedBodies, captures, scopes, asynchronous, generator,
-      lexicalBindings: lexical.value(rewrite), signature: rewrite.signature(signature), completion: rewrite.type(completion),
+      lexicalBindings: lexical.value(rewrite), signature: placement.kind === "selected" ? placement.signature : rewrite.signature(signature),
+      completion: rewrite.type(completion),
       yielded: yielded === null ? null : rewrite.type(yielded), sent: sent === null ? null : rewrite.type(sent),
       locals: locals(rewrite), evidence: evidence(rewrite),
     }),

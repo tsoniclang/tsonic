@@ -436,6 +436,16 @@ function prepareBindingFamilies(scan: ProjectionInventory, bindings: BindingVect
 }
 
 export function prepareArtifactBindings(scan: ProjectionInventory, value: ArtifactBindings): PreparedReferenceProjection<ArtifactBindings> {
+  const prepared = prepareArtifactBindingsWith(scan, value, source => {
+    const bindings = prepareBindingsProjection(scan, source);
+    return bindings.kind === "refused" ? bindings : { kind: "copied", value: rewrite => bindings.value(rewrite) };
+  });
+  return prepared.kind === "refused" ? prepared : { kind: "copied", value: rewrite => prepared.value(rewrite, undefined) };
+}
+
+export function prepareArtifactBindingsWith<Context>(scan: ProjectionInventory, value: ArtifactBindings,
+  prepare: (bindings: BindingVector) => SyntaxCopyResult<(rewrite: TypeReferenceRewrite, context: Context) => BindingVector, InstantiationStop>,
+): SyntaxCopyResult<(rewrite: TypeReferenceRewrite, context: Context) => ArtifactBindings, InstantiationStop> {
   switch (value.kind) {
     case "parametric": {
       const stop = inventoryFields(scan, 1);
@@ -444,9 +454,9 @@ export function prepareArtifactBindings(scan: ProjectionInventory, value: Artifa
     case "instantiated": {
       const stop = inventoryRecord(scan, 2);
       if (stop !== null) return { kind: "refused", stop };
-      const bindings = prepareBindingsProjection(scan, value.bindings);
-      return bindings.kind === "refused" ? bindings : { kind: "copied", value: rewrite => ({
-        kind: "instantiated", bindings: bindings.value(rewrite),
+      const bindings = prepare(value.bindings);
+      return bindings.kind === "refused" ? bindings : { kind: "copied", value: (rewrite, context) => ({
+        kind: "instantiated", bindings: bindings.value(rewrite, context),
       }) };
     }
   }
@@ -455,12 +465,22 @@ export function prepareArtifactBindings(scan: ProjectionInventory, value: Artifa
 export function prepareInstance(scan: ProjectionInventory, value: BodyInstance,
   selected: ArtifactBindings | null,
 ): PreparedReferenceProjection<BodyInstance> {
+  const prepared = prepareInstanceWith(scan, value, bindings => {
+    const admitted = prepareArtifactBindings(scan, bindings);
+    return admitted.kind === "refused" ? admitted : { kind: "copied", value: rewrite => selected ?? admitted.value(rewrite) };
+  });
+  return prepared.kind === "refused" ? prepared : { kind: "copied", value: rewrite => prepared.value(rewrite, undefined) };
+}
+
+export function prepareInstanceWith<Context>(scan: ProjectionInventory, value: BodyInstance,
+  prepare: (bindings: ArtifactBindings) => SyntaxCopyResult<(rewrite: TypeReferenceRewrite, context: Context) => ArtifactBindings, InstantiationStop>,
+): SyntaxCopyResult<(rewrite: TypeReferenceRewrite, context: Context) => BodyInstance, InstantiationStop> {
   const stop = inventoryRecord(scan, 2);
   if (stop !== null) return { kind: "refused", stop };
-  const bindings = prepareArtifactBindings(scan, value.bindings);
+  const bindings = prepare(value.bindings);
   if (bindings.kind === "refused") return bindings;
   const body = value.body;
-  return { kind: "copied", value: rewrite => ({ body, bindings: selected ?? bindings.value(rewrite) }) };
+  return { kind: "copied", value: (rewrite, context) => ({ body, bindings: bindings.value(rewrite, context) }) };
 }
 
 export function prepareParameterProjection(scan: ProjectionInventory, read: () => TypeParameter): PreparedReferenceProjection<TypeParameter> {

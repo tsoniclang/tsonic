@@ -257,7 +257,7 @@ function typeParameter(context: DeclarationLowering, node: Hir.TypeParameterDecl
     tsonic: { ...facts(context, node, owner), definition: declaration, parameter } } };
 }
 
-function typeParameters(context: DeclarationLowering, source: Hir.TypeParameterList<Syntax> | null,
+export function typeParameters(context: DeclarationLowering, source: Hir.TypeParameterList<Syntax> | null,
   owner: DefId, typeOf: TypeReader): ConversionResult<Hir.TypeParameterList<Checked> | null> {
   if (source === null) return { kind: "complete", value: null };
   const nodes: Hir.TypeParameterDeclaration<Checked>[] = [];

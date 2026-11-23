@@ -236,7 +236,9 @@ export const createBodyText = (kernel: TirTextKernel, read: BodyTextReads): Body
     .finish((field_diagnostic) => ({ kind: "error", diagnostic: field_diagnostic })));
   const work_ResolvedCallee: TirRecordCodec<ResolvedCallee> = defineRecord<ResolvedCallee>("ResolvedCallee", "ResolvedCallee", null, "ResolvedCallee", null, null, fields => fields
     .field("decision", "ApplicationDecision", value => read.work_ApplicationDecision.write(value.decision), lazyReader(() => read.work_ApplicationDecision.reader))
-    .field("activation", "?BodyInstance", value => nullableWork(value.activation, actual => read.work_BodyInstance.write(actual)), nullableReader(lazyReader(() => read.work_BodyInstance.reader)))
+    .field("activation", "?BodyInstance", value => nullableWork(value.activation,
+      actual => withBindingOwner(read.work_BodyInstance.write(actual), value.decision.api.declaration)),
+    nullableReader(lazyReader(() => read.work_BodyInstance.reader)))
     .finish((field_decision, field_activation) => ({ decision: field_decision, activation: field_activation })));
   const work_MemberSelection: TirRecordCodec<MemberSelection> = defineRecord<MemberSelection>("MemberSelection", "MemberSelection", null, "MemberSelection", null, value => ({ kind: "member-selection", value }), fields => fields
     .field("decision", "MemberDecision", value => read.work_MemberDecision.write(value.decision), lazyReader(() => read.work_MemberDecision.reader))

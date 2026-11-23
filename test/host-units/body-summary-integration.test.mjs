@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createAccount, accountFailure, chargeWork, remainingWork } from "../../packages/host/dist/dataflow/index.js";
 import { executionKey } from "../../packages/host/dist/ir-types/index.js";
-import { iterateChildrenOfSyntax } from "../../packages/host/dist/ir-hir/index.js";
+import { bodyOccurrenceSlots, indexChapterSyntax, tirBodySyntaxOf } from "../../packages/host/dist/ir-tir/index.js";
 import { lowerToMir } from "../../packages/host/dist/lower-mir/index.js";
 import { verifyMir } from "../../packages/host/dist/ir-mir/index.js";
 import { analyzeStorageUse } from "../../packages/host/dist/analyses/liveness/index.js";
@@ -31,11 +31,10 @@ function prepared(name) {
   assert.equal(lowered.kind, "ok");
   assert.deepEqual(verifyMir(lowered.value, verificationContext(program)), { kind: "complete", violations: [] });
   const nodes = new Map();
-  const pending = [program.tir.root, ...program.tir.params];
-  for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
-    nodes.set(node.id, node);
-    for (const child of iterateChildrenOfSyntax(node)) pending.push(child);
-  }
+  const roots = [tirBodySyntaxOf(program.tir.root), ...program.tir.params.map(node => ({ kind: "formal", node }))];
+  const nested = new Set(program.tir.nestedBodies);
+  for (const subject of indexChapterSyntax(roots, node => bodyOccurrenceSlots(node, id => nested.has(id))))
+    if (subject.kind !== "checked") nodes.set(subject.node.id, subject.node);
   const verification = { types: TABLE, limits, diagnostics: [],
     tirBody: instance => instance.body === program.tir.body ? program.tir : null,
     mirBody: instance => instance.body === lowered.value.body ? lowered.value : null,
@@ -136,16 +135,19 @@ test("two real calls to the same outside execution retain and charge only one de
   assert.ok(selected);
   const { deps, input } = selected;
   const member = { kind: "body", execution: input.members[0].execution };
-  const rows = input.inventory.components[input.component].rows.map(index => input.inventory.dependencies[index]);
+  const component = input.inventory.components[input.component];
+  const operation = input.inventory.operations[component.members[0]];
+  const rows = component.rows.map(index => input.inventory.dependencies[index]);
   assert.equal(input.members.length, 1);
   assert.equal(input.outside.length, 1);
   assert.equal(rows.filter(row => row.reason === "call").length, 2);
   const outside = input.outside[0];
   assert.equal(rows.every(row => summaryKey(row.target) === summaryKey(outside.key)), true);
   const identities = createAccount(flowLimits);
-  for (const key of [member, member, ...rows.flatMap(row => [{ kind: "body", execution: row.dependent }, row.target]),
+  const memberReads = operation.execution === member.execution ? [operation] : [operation, member];
+  for (const key of [...memberReads, ...rows.flatMap(row => [{ kind: "body", execution: row.dependent }, row.target]),
     outside.key, outside.answer.value.key]) assert.equal(admitSummaryIdentity(key, identities), null);
-  const exact = 5 + 1 + 1 + 1 + InvocationAccount.stateOf(identities).entries;
+  const exact = 6 + 2 + 1 + 1 + 1 + InvocationAccount.stateOf(identities).entries;
   const run = account => convergeComponent({ ...deps, resources: { ...deps.resources, account } }, { ...input, maximumIterations: 0 });
   const enough = createAccount({ ...flowLimits, maximumResultEntries: exact });
   assert.equal(run(enough) === input.iterationRefusal, true, "only one retained entry for the repeated outside key");

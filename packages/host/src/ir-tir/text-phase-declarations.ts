@@ -18,7 +18,7 @@ import type {
   ClosureDecision, DeferredDecision, RefinementDecision, RuleOutcome
 } from "../ir-infer/contract.js";
 import type { TirTextKernel, TirTypedRecordWork } from "./text-layouts.js";
-import { scalarWork, referenceWork, syntaxReference, nullableWork, sequenceWork } from "./text-layouts.js";
+import { scalarWork, referenceWork, syntaxReference, nullableWork, sequenceWork, withBindingOwner } from "./text-layouts.js";
 
 export interface PhaseDeclarationsTextReads {
   readonly work_BindingVector: TirRecordCodec<BindingVector>;
@@ -140,7 +140,8 @@ export const createPhaseDeclarationsText = (kernel: TirTextKernel, read: PhaseDe
     .field("definition", "def", value => referenceWork("def", value.definition), definitionReader)
     .field("parameters", "[TypeParameter]", value => sequenceWork("[TypeParameter]", value.parameters, actual => read.work_TypeParameter.write(actual)), sequenceReader("[TypeParameter]", lazyReader(() => read.work_TypeParameter.reader)))
     .field("signatures", "[HirCallableEndpoint]", value => sequenceWork("[HirCallableEndpoint]", value.signatures, actual => read.work_HirCallableEndpoint.write(actual)), sequenceReader("[HirCallableEndpoint]", lazyReader(() => read.work_HirCallableEndpoint.reader)))
-    .field("template", "?TypedBodyTemplate", value => nullableWork(value.template, actual => work_TypedBodyTemplate.write(actual)), nullableReader(lazyReader(() => work_TypedBodyTemplate.reader)))
+    .field("template", "?TypedBodyTemplate", value => nullableWork(value.template,
+      actual => withBindingOwner(work_TypedBodyTemplate.write(actual), value.definition)), nullableReader(lazyReader(() => work_TypedBodyTemplate.reader)))
     .field("attributes", "[HirAttribute]", value => sequenceWork("[HirAttribute]", value.attributes, actual => read.work_HirAttribute.write(actual)), sequenceReader("[HirAttribute]", lazyReader(() => read.work_HirAttribute.reader)))
     .finish((field_definition, field_parameters, field_signatures, field_template, field_attributes) => ({
       definition: field_definition, parameters: field_parameters, signatures: field_signatures, template: field_template,

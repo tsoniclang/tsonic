@@ -745,6 +745,7 @@ function ready(source, scope = "post-forms owner") {
   const rulesDeps = { libraries: { sources: [], sourceRoles: [], guarantees: [] }, types: interner,
     selectedNativeFacts: snapshot.nativeFacts, typeExpansion: EXPANSION };
   const inference = inferStep.inferDepsOf({ typeWork, structuralCuts: sources.structuralCuts, cuts: sources.cuts, checkedNodeOf: sources.nodeOf, rules: rulesDeps,
+    bindingScopeOf: definition => descriptions.get(definition)?.generics ?? assert.fail("actual checked scope required"),
     hirBody: body => domain.bodyOf.get(body) ?? assert.fail("actual checked body"),
     checkerDiagnosticsOf: module => module === checked.module ? checked.checkerDiagnostics : assert.fail("actual diagnostic module"),
     itemOf: definition => items.get(definition) ?? assert.fail("actual checked declaration"), bindings: [checked.bindings], ...fixture.hir.createModuleBindingViews([checked.bindings]), limits: LIMITS, graph: GRAPH });

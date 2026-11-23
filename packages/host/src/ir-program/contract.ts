@@ -1,7 +1,7 @@
 import type { TextParseResult, Violation } from "../diag/contract.js";
 import type { DefId, DefinitionPath, ItemNodeRef, ModuleId, ModulePath, SigId, TyId } from "../ids/contract.js";
 import type {
-  ArtifactBindings, BindingVector, BodyInstance, MemberInventory, SelectedNativeFacts, SignatureEndpoint, SignatureRequest, TypePublication, TypeTable,
+  ArtifactBindings, BindingVector, BodyInstance, MemberInventory, SelectedNativeFacts, SignatureEndpoint, SignatureRequest, TypeInterner, TypePublication, TypeTable,
 } from "../ir-types/contract.js";
 import type { CheckedModuleImage, HirModule } from "../ir-hir/contract.js";
 import type { PlacedSignature } from "../ir-infer/contract.js";
@@ -108,6 +108,12 @@ export type ParseProgramIndex = (text: string) => TextParseResult<ProgramIndex>;
 export type PrintModuleBodies = (index: ProgramIndex, module: ModuleBodies) => string;
 export type ParseModuleBodies = (index: ProgramIndex, text: string) => TextParseResult<ModuleBodies>;
 export type ProgramVerificationWork = ProgramWork;
+export type TirSpecializationPlacement =
+  | { readonly kind: "endpoint"; readonly template: PlacedSignature; readonly selected: PlacedSignature }
+  | { readonly kind: "execution"; readonly template: PlacedSignature };
+export type SpecializeTir = (template: TirBody, instance: BodyInstance, placement: TirSpecializationPlacement,
+  types: TypeInterner, resources: ProgramVerificationWork) =>
+  { readonly kind: "complete"; readonly value: TirBody } | Extract<InstantiationResult, { readonly kind: "resource-limit" | "refused" }>;
 export type CreateProgramVerificationWork = (limits: ProgramVerificationLimits, account: DataflowAccount) => ProgramVerificationWork;
 export type AdmitProgramReadyRow = (resources: ProgramVerificationWork, work: number, records: number) => InstantiationAllocationStop | null;
 export type CreateTirReadyReadAdmission = (account: DataflowAccount) => TirReadyReadAdmission<DataflowStop>;

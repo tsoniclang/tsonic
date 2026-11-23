@@ -5,7 +5,7 @@ import type { CallExpression, CapturedFact, Expression, HirApplication, HirBody,
 import type { CallConstraint, DefaultConstraint, FlowConstraint, InferenceCandidateList, InferenceGroup, InferenceValue, InferenceVariable, InferredPartType, InferredSignaturePart, LiteralConstraint, LiteralConstructionConstraint, LiteralPart, MemberConstraint, OperatorConstraint } from "../ir-infer/contract.js";
 import type { ConstraintsOf, ConstraintsPaused, ConstraintsRequest, GroupConstraints, InferenceInputs, InferStep, ResumeConstraintsOf, SelectionConstraintOrigin } from "./contract.js";
 import { requirePresent, resourceLimitDiagnostic } from "../diag/index.js";
-import { admitTypePublicationStep, internType, internTypeGraph, optionalValueDomainOf, readSignature, readType,
+import { admitTypePublicationStep, internType, internTypeGraph, optionalValueDomainOf, readSignature, readType, rigidBindings,
   refuseTypeConstruction, signatureRequestKey, viewTypes } from "../ir-types/index.js";
 import { inferredPartKey, inferredPartsOf } from "../ir-infer/index.js";
 import { binaryOperatorOf, checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, writableRootStorageOf } from "../ir-hir/index.js";
@@ -41,6 +41,7 @@ type DraftConstraint =
 
 interface Draft {
   readonly body: HirBody;
+  readonly bindings: BindingVector;
   readonly candidates: ReadonlyMap<CandidateListId, InferenceCandidateList>;
   readonly variables: InferenceVariable[];
   readonly constraints: DraftConstraint[];
@@ -241,7 +242,7 @@ function generate(deps: InferenceInputs, group: InferenceGroup, signatures: Read
   const drafts: Draft[] = group.bodies.map((reference, position) => {
     const body = deps.hirBody(reference);
     const candidates = readyCandidates(generation, present(eligibleCandidates[position], "the body's eligible candidate rows"));
-    return { body, candidates: new Map(candidates.map(list => [list.id, list])),
+    return { body, bindings: rigidBindings(deps.bindingScopeOf(body.owner)), candidates: new Map(candidates.map(list => [list.id, list])),
       variables: [], constraints: [], evidence: [] };
   });
   for (const draft of drafts) {
@@ -638,7 +639,7 @@ function leave(walk: Walk, node: HirNode, readWriteTarget: boolean, caseSubject?
     const occurrence = refOf(walk, node);
     walk.generation.selectionOrigins.push({ occurrence, origin: node.origin });
     walk.draft.constraints.push({ kind: "member", occurrence, receiver,
-      key: node.name.tsonic.key.value, access: "read", result, origins: node.tsonic.origins.value, bindings: TEMPLATE });
+      key: node.name.tsonic.key.value, access: "read", result, origins: node.tsonic.origins.value, bindings: walk.draft.bindings });
     walk.draft.evidence.push({ type: receiver, node: node.expression, component: { kind: "body", value: refOf(walk, node.expression) } },
       { type: result, node, component: { kind: "body", value: refOf(walk, node) } });
     walk.typeOf.set(node.id, result);
@@ -910,7 +911,7 @@ function localType(walk: Walk, node: Extract<HirNode, { readonly kind: "Identifi
         if (endpoints !== null) return refuseTypeConstruction(deps.typeWork, endpoints, node.origin, unit);
       }
       for (const endpoint of endpointsOf(item, definition)) {
-        if (endpoint.body === null && readSignature(walk.generation.deps.types, endpoint.signature).typeParameters.length !== 0) {
+        if (readSignature(walk.generation.deps.types, endpoint.signature).typeParameters.length !== 0) {
           signatures.push(endpoint.signature);
           continue;
         }
@@ -1021,7 +1022,7 @@ function returnComponent(walk: Walk, type: Slot): SourceNodeRef {
 }
 
 function flow(walk: Walk, source: HirNode, from: Slot, to: Slot, role: FlowConstraint["role"], target: SourceNodeRef): void {
-  walk.draft.constraints.push({ kind: "flow", occurrence: refOf(walk, source), from, to, role, bindings: TEMPLATE });
+  walk.draft.constraints.push({ kind: "flow", occurrence: refOf(walk, source), from, to, role, bindings: walk.draft.bindings });
   walk.draft.evidence.push({ type: from, node: source, component: { kind: "body", value: refOf(walk, source) } },
     { type: to, node: source, component: target });
 }
@@ -1042,7 +1043,7 @@ function evidenceOf(deps: InferenceInputs, group: InferenceGroup, type: TyId, no
   const term = readType(deps.types, type);
   if ((term.kind === "error") !== (error !== null))
     return notInferredYet(PORT, "the actual checked error association of a constraint type position", node.origin);
-  if (term.kind === "open" || term.kind === "error" || term.kind === "shape")
+  if (term.kind === "open" || term.kind === "error" || term.kind === "shape" || term.kind === "param")
     return { value: { type, component, category: { kind: "dynamic" }, numeric: null, sum: null, nominal: null, pointer: null }, error };
   if (term.kind === "callable") return { value: { type, component, category: { kind: "known", category: "callable" },
     numeric: null, sum: null, nominal: null, pointer: null }, error: null };
@@ -1088,7 +1089,9 @@ function readyCandidates(state: Generation, lists: readonly HirCandidateList[]):
     if (candidate.bindings.kind !== "available") return callerDefect(PORT, "a candidate must retain its complete bindings");
     const request = endpointRequest(state.deps, endpoint, { kind: "instantiated", bindings: candidate.bindings.value });
     const signature = present(state.signatures.get(signatureRequestKey(request)), "the actual authoritative candidate signature");
-    if (endpoint.body === null && (candidate.appliedSignature.kind !== "available" || signature.id !== candidate.appliedSignature.value))
+    const endpointSignature = readSignature(state.deps.types, endpoint.signature);
+    if ((endpoint.body === null || endpointSignature.typeParameters.length !== 0)
+      && (candidate.appliedSignature.kind !== "available" || signature.id !== candidate.appliedSignature.value))
       return callerDefect(PORT, "the authoritative applied signature differs from the checked declared application");
     return { ...candidate, endpoints: { kind: "available", value: { advertised: endpoint, advertisedSignature: signature.id,
       api: endpoint, apiSignature: signature.id } } };

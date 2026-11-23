@@ -6,7 +6,7 @@ import { checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorO
 import type { ApplicationDecision, BodyTyping, EmbeddingDecision, FlowRole, InferredSignaturePart, MemberDecision, RuleOutcome } from "../ir-infer/contract.js";
 import type { TargetAccess, TirArgument, TirBody, TirLocal, TirResolution, TirSelection, TypedBinary, TypedOperation, TypedPhase, TypedValue } from "../ir-tir/contract.js";
 import type { BodyInstance, LiteralValue } from "../ir-types/contract.js";
-import { artifactBindingsKey, optionalValueDomainOf, readType } from "../ir-types/index.js";
+import { artifactBindingsKey, optionalValueDomainOf, readType, rigidBindings } from "../ir-types/index.js";
 import type { ElaborateDeps, ElaborateInput, ElaborationChild, ElaborationNoResult, ElaborationResult } from "./contract.js";
 import { elaborateModuleSyntax, elaborateParameter, elaborateVariable, isInlineModuleStatement } from "./module.js";
 import { declarationAlias, declarationInterface, declarationModifiers, declarationType } from "./declarations.js";
@@ -113,9 +113,10 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
   const rootOrigin = root.origin;
   if (instance.body !== body.body) callerDefect("the instance names another body than the checked body", rootOrigin);
   const scope = input.scope;
-  if (scope.classParameters.length !== 0 || scope.methodParameters.length !== 0 || scope.capturedParameters.length !== 0 || scope.selfOwners.length !== 0)
-    notElaboratedYet("substitution and decision replay over a nonempty qualified binding scope", rootOrigin);
+  const scopeUsesBindings = scope.classParameters.length !== 0 || scope.methodParameters.length !== 0
+    || scope.capturedParameters.length !== 0 || scope.selfOwners.length !== 0;
   if (instance.bindings.kind === "instantiated") {
+    if (scopeUsesBindings) notElaboratedYet("substitution and decision replay over a nonempty qualified binding scope", rootOrigin);
     if (template === null) return callerDefect("a bound instance without its template", rootOrigin);
     const bindings = instance.bindings.bindings;
     if (bindings.classBindings.length !== 0 || bindings.methodBindings.length !== 0 || bindings.capturedBindings.length !== 0 || bindings.selfBindings.length !== 0)
@@ -276,7 +277,10 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
   }
 
   const signature = deps.signatureOf(typing.signature);
-  if (signature.typeParameters.length !== 0) notElaboratedYet("a generic signature", rootOrigin);
+  if (signature.typeParameters.length !== 0 && (instance.bindings.kind !== "parametric"
+    || signature.typeParameters.length !== scope.methodParameters.length
+    || signature.typeParameters.some((parameter, ordinal) => parameter.declaration !== scope.methodParameters[ordinal])))
+    callerDefect("the signature must retain the actual ordered callable binders", rootOrigin);
   if (signature.parameters.length !== body.params.length) callerDefect("the signature and the body differ in their parameter count", rootOrigin);
   const storageOf: (TyId | undefined)[] = [];
   const params: ParameterDeclaration<TypedPhase>[] = [];
@@ -946,9 +950,12 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
           const provided = node.arguments.nodes.length;
           if (node.questionDotToken !== null || provided > application.parameters.length)
             return notElaboratedYet("the selected argument and receiver transport of this call", node.origin);
+          const implementation = application.implementationBindings;
+          const parametricSelection = instance.bindings.kind === "parametric" && implementation.classBindings.length === 0
+            && implementation.methodBindings.length === 0 && implementation.capturedBindings.length === 0
+            && implementation.selfBindings.length === 0;
           const activation: BodyInstance | null = application.api.body === null ? null : { body: application.api.body,
-            bindings: instance.bindings.kind === "parametric" ? instance.bindings
-              : { kind: "instantiated", bindings: application.implementationBindings } };
+            bindings: parametricSelection ? instance.bindings : { kind: "instantiated", bindings: implementation } };
           const formals = provided === application.parameters.length ? null : deps.signatureOf(application.completion.signature).parameters;
           const arguments_ = application.parameters.map((mapping, parameter): TirArgument => {
             if (parameter >= provided) {
@@ -1082,10 +1089,10 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
     if (refusal !== undefined) return refusal;
   }
 
-  const lexicalBindings = instance.bindings.kind === "instantiated" ? instance.bindings.bindings
-    : { classBindings: [], methodBindings: [], capturedBindings: [], selfBindings: [] };
+  const lexicalBindings = instance.bindings.kind === "instantiated" ? instance.bindings.bindings : rigidBindings(scope);
+  const dependence = "parametric";
   const moduleRoot = root.kind === "SourceFile" ? elaborateModuleSyntax(deps, root, childStates, instance, {
-    kind: "ready", template: { body: body.body, lexicalBindings, dependence: "parametric" },
+    kind: "ready", template: { body: body.body, lexicalBindings, dependence },
     statementOf: statement => blocked.get(statement.id) ?? statementOf(statement),
   }) : null;
   if (moduleRoot !== null && moduleRoot.kind !== "ok") return moduleRoot;
@@ -1113,7 +1120,7 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
   return { kind: "ok", diagnostics: [], value: {
     body: body.body, owner: body.owner, bindings: instance.bindings,
     lexicalBindings,
-    dependence: "parametric", signature: typing.signature, completion: typing.completion, yielded: typing.yielded, sent: typing.sent,
+    dependence, signature: typing.signature, completion: typing.completion, yielded: typing.yielded, sent: typing.sent,
     params, locals, root: typedRoot, nestedBodies: body.nestedBodies, captures: typing.captures, scopes: body.scopes, evidence: [],
     asynchronous: body.asynchronous, generator: body.generator } };
 }

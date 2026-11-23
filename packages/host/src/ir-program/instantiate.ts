@@ -1,19 +1,20 @@
 import type { ArtifactBindings, BindingVector, BodyInstance, TypeExpansionLimits, TypeInterner, TypeTable,
   TypeTableAdmissionWork, TypeTransform } from "../ir-types/contract.js";
-import type { ArtifactReference, Instantiate, InstantiatedArtifact, InstantiationResult, ModuleBodies, ProgramIndex } from "./contract.js";
-import { hostDiagnosticCode, requirePresent } from "../diag/index.js";
+import type { ArtifactReference, Instantiate, InstantiatedArtifact, InstantiationResult, ModuleBodies, ProgramIndex, SpecializeTir } from "./contract.js";
+import { hostDiagnosticCode, requirePresent, throwInvariant } from "../diag/index.js";
 import type { InvariantFailure } from "../diag/contract.js";
 import type { BodyFacts } from "../ir-facts/contract.js";
-import { admitTypeTable, bindingVectorKey, substitute, substituteSignature, viewTypes } from "../ir-types/index.js";
+import { admitTypeTable, bindingVectorKey, readSignature, substitute, substituteSignature, viewTypes } from "../ir-types/index.js";
 import type { InstantiationAllocationStop, InstantiationMeter, InstantiationStop } from "./work.js";
 import type { TypeReferenceRewrite } from "./canonical-types.js";
 import type { SyntaxCopyResult } from "../ir-hir/contract.js";
 import { admitBindingVector, createBindingLookup, createProjectionInventory, drainProjectionInventory, inventoryRecord, summaryBindingsOf, summaryReferenceKey, summaryReferenceOf } from "./program-values.js";
-import { chargeInstantiationWork, createInstantiationMeter } from "./work.js";
+import { chargeInstantiationWork, createInstantiationMeter, ProgramWork } from "./work.js";
 import type { ProjectionInventory } from "./program-values.js";
 import { foreignTypeDetail, programTypeWork } from "./verification-work.js";
 import { prepareSummary } from "./instantiate-facts.js";
 import { inventoryTirBody } from "./instantiate-tir.js";
+import type { ArtifactPlacement } from "./instantiate-tir.js";
 import { inventoryBodySyntax } from "./instantiate-syntax.js";
 import { rewriteBodySyntax } from "./canonical-syntax.js";
 import { typedSyntaxPhaseCopy } from "./canonical-phase.js";
@@ -166,7 +167,7 @@ type ArtifactProjection = {
 };
 
 function prepareArtifact(scan: ProjectionInventory, artifact: ParametricArtifact,
-  bindings: ArtifactBindings,
+  bindings: ArtifactBindings, placement: ArtifactPlacement,
 ): ArtifactProjection | InstantiationStop {
   const environment = inventoryRecord(scan, 2);
   if (environment !== null) return environment;
@@ -182,7 +183,7 @@ function prepareArtifact(scan: ProjectionInventory, artifact: ParametricArtifact
         project: rewrite => {
           const selected = rewriteBodySyntax(rewrite, prepared.roots, syntax.value);
           return selected.kind === "refused" ? selected : { kind: "copied", value: { kind: "tir",
-            body: prepared.project(rewrite, selected.value.root, selected.value.params, bindings),
+            body: prepared.project(rewrite, selected.value.root, selected.value.params, bindings, placement),
           } };
         },
       };
@@ -275,14 +276,22 @@ export const instantiate: Instantiate = (index, module, artifact, bindings, limi
   if (admitted.kind !== "complete") return admitted;
   const interner = admitted.types;
   if (selected.kind === "exact") return { kind: "instantiated", artifact: selected.artifact, types: viewTypes(interner) };
+  return projectArtifact(meter, interner, selected.artifact, { kind: "instantiated", bindings }, { kind: "structural" });
+};
+
+function projectArtifact(meter: InstantiationMeter, interner: TypeInterner, artifact: ParametricArtifact,
+  instance: Extract<ArtifactBindings, { readonly kind: "instantiated" }>, placement: ArtifactPlacement):
+  Extract<InstantiationResult, { readonly kind: "instantiated" | "resource-limit" | "refused" }> {
+  const bindings = instance.bindings;
+  const typeWork = programTypeWork(meter);
   const lookup = createBindingLookup(meter, bindings);
   if (lookup.kind !== "complete") return lookup;
   const scan = createProjectionInventory(meter, lookup.lookup, () => {
     throw new TypeError("Inline cycle in instantiation TypeComponent");
   });
-  const projection = prepareArtifact(scan, selected.artifact, { kind: "instantiated", bindings });
+  const projection = prepareArtifact(scan, artifact, instance, placement);
   if (projection.kind !== "complete") return projection;
-  const expansion: TypeExpansionLimits = limits.typeExpansion;
+  const expansion: TypeExpansionLimits = meter.limits.typeExpansion;
   const types = substituteReferences(meter, scan.types, roots => substitute(interner, roots, bindings, expansion, typeWork));
   if (types.kind !== "complete") return types;
   const signatures = substituteReferences(meter, scan.signatures, roots => substituteSignature(interner, roots, bindings, expansion, "lexical", typeWork));
@@ -298,4 +307,39 @@ export const instantiate: Instantiate = (index, module, artifact, bindings, limi
     artifact: projected.value,
     types: viewTypes(interner),
   };
+}
+
+const wrongSpecialization: InvariantFailure = { owner: "ir-program", query: null, origin: null,
+  message: "A selected Typed projection needs its actual substitution-ready template and placed signature." };
+
+export const specializeTir: SpecializeTir = (template, instance, placement, types, resources) => {
+  const meter = ProgramWork.state(resources);
+  const initial = chargeInstantiationWork(meter);
+  if (initial !== null) return initial;
+  const original = placement.template;
+  if (instance.body !== template.body || instance.bindings.kind !== "instantiated" || template.bindings.kind !== "parametric"
+    || template.dependence !== "parametric" || original.signature.id !== template.signature
+    || readSignature(types, template.signature) !== original.signature)
+    return throwInvariant(wrongSpecialization);
+  let artifactPlacement: ArtifactPlacement;
+  if (placement.kind === "execution") {
+    const owner = original.signature.owner;
+    if (original.request !== null || original.signature.declaration !== null || owner?.kind !== "body"
+      || owner.value.body !== template.body || owner.value.node !== template.root.id)
+      return throwInvariant(wrongSpecialization);
+    artifactPlacement = { kind: "structural" };
+  } else {
+    const selected = placement.selected;
+    if (original.request === null || original.request.definition !== template.owner || original.request.bindings.kind !== "parametric"
+      || original.signature.declaration !== template.owner || selected.request?.bindings !== instance.bindings
+      || selected.request.definition !== template.owner || selected.request.endpoint !== original.request.endpoint
+      || selected.request.ordinal !== original.request.ordinal || selected.signature.declaration !== template.owner
+      || readSignature(types, selected.signature.id) !== selected.signature)
+      return throwInvariant(wrongSpecialization);
+    artifactPlacement = { kind: "selected", signature: selected.signature.id };
+  }
+  const projected = projectArtifact(meter, types, { kind: "tir", body: template }, instance.bindings, artifactPlacement);
+  if (projected.kind !== "instantiated") return projected;
+  if (projected.artifact.kind !== "tir") return throwInvariant(wrongSpecialization);
+  return { kind: "complete", value: projected.artifact.body };
 };

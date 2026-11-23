@@ -6,7 +6,7 @@ import type { CheckedPhase, Expression, FunctionDeclaration, ParameterDeclaratio
 import type { TirBody, TirModuleRoot, TirModuleStatement, TirReadyCallable, TypedBodyTemplate, TypedParameter, TypedPhase } from "../ir-tir/contract.js";
 import { typePublicationRefusalOf } from "../ir-types/index.js";
 import type { ElaborateDeps, ElaborationCause, ElaborationChild, ElaborationNoResult } from "./contract.js";
-import { declarationAlias, declarationFunction, declarationInterface, declarationModifiers as modifiers, declarationName as name, declarationType as annotation } from "./declarations.js";
+import { callableTypeHeader, declarationAlias, declarationFunction, declarationInterface, declarationModifiers as modifiers, declarationName as name, declarationType as annotation } from "./declarations.js";
 import { elaborateExport, elaborateImport, moduleLinkRefusal } from "./imports.js";
 
 function defect(message: string): never {
@@ -39,8 +39,6 @@ function callable<State>(deps: ElaborateDeps<State>, node: FunctionDeclaration<C
   const checked = node.tsonic;
   if (body.body !== checked.body || body.owner !== checked.definition || body.root.kind !== "Block")
     return defect("A module function requires its actual completed callable body.");
-  if (node.typeParameters !== null && node.typeParameters.nodes.length !== 0)
-    return defect("not elaborated yet: a generic module callable declaration.");
   if (node.name === null) return defect("not elaborated yet: an unnamed module callable.");
   const [endpoint] = checked.signatures;
   if (checked.signatures.length !== 1 || endpoint?.body !== body.body || endpoint.declaration !== checked.definition || endpoint.role !== "api-body")
@@ -50,18 +48,15 @@ function callable<State>(deps: ElaborateDeps<State>, node: FunctionDeclaration<C
     return defect("The typed body must retain its actual placed signature and completion.");
   if (node.parameters.nodes.length !== body.params.length)
     return defect("The selected callable header must retain exactly its actual parameter inventory.");
-  const type = annotation(deps, node.type);
-  if (type.kind === "refused") return type;
-  const signatureType = annotation(deps, node.fullSignature);
-  if (signatureType.kind === "refused") return signatureType;
-  return { kind: "ok", diagnostics: [], value: { ...node, name: name(node.name, null), modifiers: modifiers(node.modifiers), typeParameters: null,
+  const header = callableTypeHeader(deps, node);
+  if (header.kind === "refused") return header;
+  return { kind: "ok", diagnostics: [], value: { ...node, ...header.value, name: name(node.name, null), modifiers: modifiers(node.modifiers),
     parameters: { ...node.parameters, nodes: node.parameters.nodes.map((item, index) => {
       const selected = body.params[index];
       if (selected === undefined || selected.id !== item.id || selected.parent !== item.parent)
         return defect("The selected callable must reuse its actual typed parameter occurrences.");
       return selected;
     }) },
-    type: type.value, fullSignature: signatureType.value,
     asteriskToken: node.asteriskToken === null ? null : { ...node.asteriskToken, tsonic: null }, body: body.root,
     tsonic: { definition: checked.definition, parameters: checked.parameters, signatures: checked.signatures,
       template: templateOf(body), attributes: checked.attributes } } };

@@ -901,6 +901,7 @@ await suite.test("Program inventories only the two actual fields of a resolved n
   assert.ok(terminator);
   const callee = terminator.callee.resolution;
   assert.notEqual(callee.activation, null);
+  assert.equal(callee.activation.bindings.bindings === callee.decision.implementationBindings, true);
   assert.equal(module.bodies.some(body => body.kind === "selected" && isDeepStrictEqual(body.instance, callee.activation)), true);
   const identity = value => value;
   const lookup = { parameterBinding: identity, selfBinding: identity };
@@ -910,30 +911,44 @@ await suite.test("Program inventories only the two actual fields of a resolved n
     const stop = visit(scan) ?? drainProjectionInventory(scan);
     return { stop, work: limits.maximumWork - remainingWork(meter.account), created: meter.created };
   };
-  const nested = run(scan => {
-    const decision = prepareApplication(scan, callee.decision);
-    if (decision.kind === "refused") return decision.stop;
-    const activation = prepareInstance(scan, callee.activation, null);
-    return activation.kind === "refused" ? activation.stop : null;
+  const decision = run(scan => {
+    const result = prepareApplication(scan, callee.decision);
+    return result.kind === "refused" ? result.stop : null;
   });
-  assert.equal(nested.stop, null);
+  const independent = { ...callee, activation: structuredClone(callee.activation) };
+  const different = run(scan => {
+    const result = prepareInstance(scan, independent.activation, null);
+    return result.kind === "refused" ? result.stop : null;
+  });
+  assert.equal(decision.stop, null);
+  assert.equal(different.stop, null);
   const prepared = createProjectionInventory(createInstantiationMeter(input.limits.instantiation), lookup, path => assert.fail(path));
   const calleePlan = prepareCallee(prepared, callee);
   assert.equal(calleePlan.kind, "copied");
   assert.equal(drainProjectionInventory(prepared), null);
   const actual = calleePlan.value({ type: identity, signature: identity });
   assert.equal(isDeepStrictEqual(actual, callee), true);
-  const visit = scan => {
-    const result = prepareCallee(scan, callee);
+  assert.equal(actual.activation.bindings.bindings === actual.decision.implementationBindings, true);
+  const visit = source => scan => {
+    const result = prepareCallee(scan, source);
     return result.kind === "refused" ? result.stop : null;
   };
-  const work = nested.work + 3;
-  const created = nested.created + 1;
-  assert.deepEqual(run(visit, { ...input.limits.instantiation, maximumWork: work, maximumCreatedRecords: created }),
+  const work = decision.work + 3 + 3 + 3;
+  const created = decision.created + 1 + 1 + 1;
+  assert.deepEqual(run(visit(callee), { ...input.limits.instantiation, maximumWork: work, maximumCreatedRecords: created }),
     { stop: null, work, created });
+  assert.deepEqual(run(visit(independent)), { stop: null, work: decision.work + different.work + 3,
+    created: decision.created + different.created + 1 });
+  const other = createProjectionInventory(createInstantiationMeter(input.limits.instantiation), lookup, path => assert.fail(path));
+  const independentPlan = prepareCallee(other, independent);
+  assert.equal(independentPlan.kind, "copied");
+  assert.equal(drainProjectionInventory(other), null);
+  const separate = independentPlan.value({ type: identity, signature: identity });
+  assert.equal(isDeepStrictEqual(separate, actual), true);
+  assert.equal(separate.activation.bindings.bindings === separate.decision.implementationBindings, false);
   for (const [field, dimension, required] of [["maximumWork", "work", work], ["maximumCreatedRecords", "created-records", created]]) {
     for (let maximum = 0; maximum < required; maximum += 1)
-      assert.deepEqual(run(visit, { ...input.limits.instantiation, [field]: maximum }).stop, { kind: "resource-limit", dimension, maximum });
+      assert.deepEqual(run(visit(callee), { ...input.limits.instantiation, [field]: maximum }).stop, { kind: "resource-limit", dimension, maximum });
   }
 });
 

@@ -9,7 +9,7 @@ import type {
 import type {
   CapturedFact, HirCapturedType, HirCoreCapture, HirFieldBindingCapture, HirFieldMarkerCapture, HirMarkersCapture, HirPointerTypeCapture, HirRecordBindingCapture, PreparedSyntaxSlot, SyntaxCopyResult,
 } from "../ir-hir/contract.js";
-import type { BodyInstance, TypeEvidence } from "../ir-types/contract.js";
+import type { BindingVector, TypeEvidence } from "../ir-types/contract.js";
 import type { TyId } from "../ids/contract.js";
 import type { TypeReferenceRewrite } from "./canonical-types.js";
 import type { InvariantFailure } from "../diag/contract.js";
@@ -18,7 +18,7 @@ import type { PreparedReferenceProjection, ProjectionInventory } from "./program
 import type { InstantiationStop } from "./work.js";
 import {
   deferComponentProjection, deferProjection, inventoryFields, inventoryRecord, inventorySignature, inventoryType,
-  prepareBindingsProjection, prepareEndpoint, prepareEvidenceProjection, prepareInstance, prepareProjectionRows,
+  prepareArtifactBindingsWith, prepareBindingsProjection, prepareEndpoint, prepareEvidenceProjection, prepareInstance, prepareInstanceWith, prepareProjectionRows,
 } from "./program-values.js";
 import { chargeInstantiationWork, reserveInstantiationRecord } from "./work.js";
 
@@ -114,6 +114,12 @@ function prepareMember(scan: ProjectionInventory, value: MemberDecision): Prepar
 }
 
 export function prepareApplication(scan: ProjectionInventory, value: ApplicationDecision): PreparedReferenceProjection<ApplicationDecision> {
+  return prepareApplicationWith(scan, value, (_bindings, decision) => ({ kind: "copied", value: decision }));
+}
+
+function prepareApplicationWith<Output>(scan: ProjectionInventory, value: ApplicationDecision,
+  finish: (implementation: BindingVector, decision: PhaseProject<ApplicationDecision>) => PreparedPhase<Output>,
+): PreparedPhase<Output> {
   const header = inventoryRecord(scan, 9);
   if (header !== null) return { kind: "refused", stop: header };
   const parameters = prepareProjectionRows<ParameterMapping, ParameterMapping>(scan, value.parameters, read => {
@@ -141,7 +147,8 @@ export function prepareApplication(scan: ProjectionInventory, value: Application
   if (api.kind === "refused") return api;
   const bindings = prepareBindingsProjection(scan, value.bindings);
   if (bindings.kind === "refused") return bindings;
-  const implementation = prepareBindingsProjection(scan, value.implementationBindings);
+  const originalImplementation = value.implementationBindings;
+  const implementation = prepareBindingsProjection(scan, originalImplementation);
   if (implementation.kind === "refused") return implementation;
   const completionHeader = inventoryRecord(scan, 4);
   if (completionHeader !== null) return { kind: "refused", stop: completionHeader };
@@ -162,13 +169,13 @@ export function prepareApplication(scan: ProjectionInventory, value: Application
   const resultStop = inventoryType(scan, result);
   if (resultStop !== null) return { kind: "refused", stop: resultStop };
   const { candidate, activation } = value;
-  return { kind: "copied", value: rewrite => ({
+  return finish(originalImplementation, rewrite => ({
     candidate, activation, advertised: advertised.value(rewrite), api: api.value(rewrite),
     bindings: bindings.value(rewrite), implementationBindings: implementation.value(rewrite), parameters: parameters(rewrite),
     completion: { signature: rewrite.signature(signature), completion: rewrite.type(completion),
       yielded: yielded === null ? null : rewrite.type(yielded), sent: sent === null ? null : rewrite.type(sent) },
     result: rewrite.type(result),
-  }) };
+  }));
 }
 
 function prepareProtocolStep(scan: ProjectionInventory, read: () => ProtocolStepDecision): PreparedPhase<ProtocolStepDecision> {
@@ -512,13 +519,18 @@ export function prepareOutcome<Decision>(scan: ProjectionInventory, read: () => 
 export function prepareCallee(scan: ProjectionInventory, value: ResolvedCallee): PreparedReferenceProjection<ResolvedCallee> {
   const header = inventoryRecord(scan, 2);
   if (header !== null) return { kind: "refused", stop: header };
-  const decision = prepareApplication(scan, value.decision);
-  if (decision.kind === "refused") return decision;
-  const rawActivation = value.activation;
-  const activation: PreparedReferenceProjection<BodyInstance | null> = rawActivation === null
-    ? { kind: "copied", value: () => null } : prepareInstance(scan, rawActivation, null);
-  if (activation.kind === "refused") return activation;
-  return { kind: "copied", value: rewrite => ({ decision: decision.value(rewrite), activation: activation.value(rewrite) }) };
+  return prepareApplicationWith<ResolvedCallee>(scan, value.decision, (source, decision) => {
+    const original = value.activation;
+    if (original === null) return { kind: "copied", value: rewrite => ({ decision: decision(rewrite), activation: null }) };
+    const activation = prepareInstanceWith<BindingVector>(scan, original, bindings =>
+      prepareArtifactBindingsWith<BindingVector>(scan, bindings, vector =>
+        vector === source ? { kind: "copied", value: (_rewrite, implementation) => implementation } : prepareBindingsProjection(scan, vector)));
+    if (activation.kind === "refused") return activation;
+    return { kind: "copied", value: rewrite => {
+      const selected = decision(rewrite);
+      return { decision: selected, activation: activation.value(rewrite, selected.implementationBindings) };
+    } };
+  });
 }
 
 export function prepareSelection(scan: ProjectionInventory, value: MemberSelection): PreparedReferenceProjection<MemberSelection> {

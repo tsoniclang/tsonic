@@ -33,6 +33,7 @@ function ready(source) {
     .map(item => [item.definition, item]));
   const typeWork = fixtureTypeWork(fixture.types);
   const deps = pipeline.inferDepsOf({ structuralCuts: domain.sources.structuralCuts, cuts: domain.sources.cuts, checkedNodeOf: domain.nodeOf, typeWork,
+    bindingScopeOf: definition => scopes.bindingScopeOf(definition) ?? assert.fail("actual checked scope required"),
     rules: { libraries: { sources: [], sourceRoles: [], guarantees: [] },
     types: interner, selectedNativeFacts: snapshot.nativeFacts, typeExpansion: EXPANSION }, hirBody: body => domain.bodyOf.get(body) ?? assert.fail("actual body required"),
     itemOf: definition => items.get(definition) ?? assert.fail("actual declaration required"), bindings: [checked.bindings], ...fixture.hir.createModuleBindingViews([checked.bindings]), limits: LIMITS, graph: GRAPH });

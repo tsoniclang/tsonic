@@ -97,7 +97,7 @@ export function prepareModuleSyntax(scan: ProjectionInventory, rewrite: TypeRefe
       bodies.push({ instance, materialize: image => {
         const roots = body.roots;
         for (const [index, parameter] of roots.params.entries()) roots.params[index] = image.formalOf(parameter);
-        const tir = body.project(rewrite, image.bodyRootOf(roots.root), roots.params, instance.bindings);
+        const tir = body.project(rewrite, image.bodyRootOf(roots.root), roots.params, instance.bindings, { kind: "structural" });
         ready.value(tir);
         return arm === null ? { kind: "template", instance, tir } : { ...arm, tir };
       } });

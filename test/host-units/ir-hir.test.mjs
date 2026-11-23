@@ -966,7 +966,7 @@ test("HIR public index has exactly the current complete data and binding operati
   assert.deepStrictEqual(Object.keys(product).sort(), [
     "binaryOperatorOf", "callableEndpointKey", "checkedGroupingFrontierOf", "checkedParameterHeadersOf", "checkedVariableStorageOf", "childrenOfSyntax", "compoundAssignmentOperatorOf",
     "copyCheckedContent", "copyCheckedModule", "copySyntaxForest", "createModuleBindingViews", "deriveDeclarationScopes", "hasOverloadEndpoints", "indexSyntaxTree", "isModuleBindingKind", "isTypeOnlyExportStar",
-    "iterateChildrenOfSyntax", "iterateFunctionHeaderSlots", "iterateParameterHeaderSlots", "iterateSourceFileHeaderSlots", "iterateSyntaxChildEdges", "iterateSyntaxChildSlots", "orderPragmaArguments", "parseCheckedDeclarations", "parseHir", "prefixOperatorOf", "prepareBinaryStructure", "prepareBlockStructure", "prepareSyntaxCopy", "printCheckedDeclarations", "printHir",
+    "iterateChildrenOfSyntax", "iterateFunctionHeaderSlots", "iterateParameterHeaderSlots", "iterateSourceFileHeaderSlots", "iterateSyntaxChildEdges", "iterateSyntaxChildSlots", "orderPragmaArguments", "parseCheckedDeclarations", "parseHir", "prefixOperatorOf", "prepareBinaryStructure", "prepareBlockStructure", "prepareFunctionHeader", "prepareSourceFileHeader", "prepareSyntaxCopy", "printCheckedDeclarations", "printHir",
     "readWriteRootStorageOf", "resolveModuleBinding", "resolveModuleExport", "selectedEndpointRoleFaults", "shortCircuitOperatorOf", "unparenthesizedExpression", "verifyHir",
     "walkSyntaxForest", "walkSyntaxTree", "writableRootStorageOf",
   ]);

@@ -1,5 +1,5 @@
 import type { Diagnostic, Result } from "../diag/contract.js";
-import { orderDiagnostics, throwInvariant } from "../diag/index.js";
+import { orderDiagnostics, resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
 import type { BodyId, DefId, ModuleId, SourceNodeRef } from "../ids/contract.js";
 import type { DataflowAccount, DataflowResult } from "../dataflow/contract.js";
 import { chargeResultEntries, chargeWork } from "../dataflow/index.js";
@@ -7,9 +7,9 @@ import type { CheckedPhase, CheckedTypingCut, Declaration, HirBody, HirNode, Sou
 import type { InferenceDeclaration, InferenceGroup, InferSite, PlacedSignature } from "../ir-infer/contract.js";
 import { inferenceBindingSites, inferredPartKey } from "../ir-infer/index.js";
 import type { BindingScope, BodyInstance, SignatureRequest } from "../ir-types/contract.js";
-import { instanceKey, readSignature, readType, signatureRequestKey, typePublicationRefusalOf, viewTypes } from "../ir-types/index.js";
-import type { ProgramEvidenceInput, ProgramMemberEvidence, ProgramStaticStorageEvidence } from "../ir-program/contract.js";
-import { tirReadyReadAdmission } from "../ir-program/index.js";
+import { instanceKey, readSignature, readType, signatureRequestKey, typePublicationRefusalOf, verifyBindings, viewTypes } from "../ir-types/index.js";
+import type { ProgramEvidenceInput, ProgramMemberEvidence, ProgramStaticStorageEvidence, ProgramVerificationWork, TirSpecializationPlacement } from "../ir-program/contract.js";
+import { createProgramVerificationWork, specializeTir, tirReadyReadAdmission } from "../ir-program/index.js";
 import type { StaticStorageOf, TirBindingOwnerVisit, TirBindingTarget, TirBody, TirModule, TirVerifierInput } from "../ir-tir/contract.js";
 import { verifyTir, verifyTirModule } from "../ir-tir/index.js";
 import type { HostAnalysisInputs } from "./contract.js";
@@ -161,7 +161,7 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
       endpoints: item.tsonic !== null && "signatures" in item.tsonic ? item.tsonic.signatures : [] };
   };
   const inference = inferDepsOf({ rules: { libraries: source.libraries, types: source.types, selectedNativeFacts: inputs.snapshot.nativeFacts,
-    typeExpansion: inputs.limits.instantiation.typeExpansion }, hirBody: bodyOf, itemOf,
+    typeExpansion: inputs.limits.instantiation.typeExpansion }, hirBody: bodyOf, itemOf, bindingScopeOf: scopeOf,
     checkerDiagnosticsOf, checkedNodeOf: sources.nodeOf, typeWork: source.typeWork,
     bindings: source.modules.map(module => module.module.bindings), bindingOf: source.bindingOf, limits: inputs.limits.inference,
     graph: inputs.limits.dataflow, structuralCuts: sources.structuralCuts, cuts });
@@ -255,13 +255,16 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
   const initialization = planModuleInitialization(inputs.snapshot.entryPoint, source, exposure.value.selections, account);
   if (initialization.kind !== "complete") return analysisStop(initialization, unit);
   const attachments: { readonly key: string; readonly complete: (ready: TirBody) => Result<void> }[] = [];
-  const unopenedChild = (parent: HirBody, child: BodyId): HirBody | null => {
-    if (project.has(parent.root.origin.module)) return null;
+  const scoped = (scope: BindingScope): boolean => scope.classParameters.length !== 0 || scope.methodParameters.length !== 0
+    || scope.capturedParameters.length !== 0 || scope.selfOwners.length !== 0;
+  const unopenedChild = (parent: HirBody, child: BodyId, bindings: BodyInstance["bindings"]): HirBody | null => {
+    const inProject = project.has(parent.root.origin.module);
+    if (inProject && bindings.kind === "parametric") return null;
     const checked = bodyOf(child);
     const item = items.get(checked.owner);
-    if (item?.kind === "Parameter" && item.initializer === checked.root && item.tsonic.initializer === child) return checked;
+    if (!inProject && item?.kind === "Parameter" && item.initializer === checked.root && item.tsonic.initializer === child) return checked;
     return parent.root.kind === "SourceFile" && item?.kind === "FunctionDeclaration"
-      && item.body === checked.root && item.tsonic.body === child ? checked : null;
+      && item.body === checked.root && item.tsonic.body === child && (!inProject || scoped(scopeOf(checked.owner))) ? checked : null;
   };
   const checkedChildOf = (child: HirBody, instance: BodyInstance, key: string): Extract<ElaborationChild, { kind: "checked" }> =>
     ({ kind: "checked", body: child, instance, onRequired: complete => {
@@ -289,8 +292,7 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
             continue;
           }
           const scope = scopeOf(checked.owner);
-          if (mode === "instantiated" && (scope.classParameters.length !== 0 || scope.methodParameters.length !== 0
-            || scope.capturedParameters.length !== 0 || scope.selfOwners.length !== 0)) continue;
+          if (mode === "instantiated" && scoped(scope)) continue;
           const stopped = solve(checked.body);
           if (stopped !== null) return stopped;
           const publication = groupOf.get(checked.body)?.result;
@@ -310,7 +312,7 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
             for (let index = children.length - 1; index >= 0; index -= 1) {
               const child = children[index];
               if (child === undefined) return fail("The checked nested body inventory is dense.");
-              if (unopenedChild(checked, child) === null) pending.push({ kind: "visit", body: child });
+              if (unopenedChild(checked, child, bindings) === null) pending.push({ kind: "visit", body: child });
             }
           }
           continue;
@@ -318,7 +320,7 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
         const { body: checked, instance, key, scope, publication, template } = next;
         const nestedBodies = checked.nestedBodies.map((body): ElaborationChild => {
           const child = { body, bindings };
-          const checkedChild = unopenedChild(checked, body);
+          const checkedChild = unopenedChild(checked, body, bindings);
           const childKey = instanceKey(child);
           if (checkedChild !== null && !bodies.has(childKey) && !refusedInstances.has(childKey))
             return checkedChildOf(checkedChild, child, childKey);
@@ -382,12 +384,49 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
     if (first === undefined) return fail("A typing refusal must retain its actual diagnostic.");
     return { kind: "refused", diagnostics: [first, ...remaining] };
   }
+  let replayResources: ProgramVerificationWork | null = null;
   const requireBody = (instance: BodyInstance): Result<TirBody> => {
     const key = instanceKey(instance);
     const existing = bodies.get(key);
     if (existing !== undefined) return { kind: "ok", diagnostics: [], value: existing.body };
-    const stop = produce([instance.body], parametric) ?? produce([instance.body], instance.bindings);
+    const stop = produce([instance.body], parametric);
     if (stop !== null) return stop;
+    if (refusedInstances.has(key)) return refusal();
+    if (instance.bindings.kind === "instantiated") {
+      const scope = scopeOf(bodyOf(instance.body).owner);
+      if (scoped(scope)) {
+        const source = bodies.get(instanceKey({ body: instance.body, bindings: parametric }));
+        if (source === undefined) return refusal();
+        const request = source.placed.request;
+        const verified = verifyBindings([{ vector: instance.bindings.bindings, scope }], viewTypes(elaboration.types).terms.length,
+          (work, scratch) => chargeWork(account, work + scratch));
+        if (verified.kind === "resource-stop") return analysisStop(verified.stop, unit);
+        if (verified.violations.length !== 0) return fail("A required specialization needs its actual complete checked bindings.");
+        let placement: TirSpecializationPlacement;
+        if (request === null) placement = { kind: "execution", template: source.placed };
+        else {
+          const selectedRequest = { ...request, bindings: instance.bindings };
+          const selected = database.run(queries.declaredSignatureOf, selectedRequest);
+          const stopped = typesRefusal();
+          if (stopped !== null) return selected.kind === "refused" ? refusal(selected, stopped) : refusal(stopped);
+          if (selected.kind === "refused") return refusal(selected);
+          placement = { kind: "endpoint", template: source.placed, selected: { request: selectedRequest, signature: selected.value } };
+        }
+        replayResources ??= createProgramVerificationWork(inputs.limits.instantiation, account);
+        const specialized = specializeTir(source.body, instance, placement, elaboration.types, replayResources);
+        if (specialized.kind === "refused") return refusal(specialized);
+        if (specialized.kind === "resource-limit") return refusal({ kind: "refused", diagnostics: [resourceLimitDiagnostic({
+          owner: "ir-program", limit: specialized.dimension, maximum: specialized.maximum,
+          site: { kind: "source", origin: source.body.root.origin }, unit: { request: unit, position: { kind: "result" } },
+        })] });
+        const placed = placement.kind === "endpoint" ? placement.selected
+          : { request: null, signature: readSignature(elaboration.types, specialized.value.signature) };
+        bodies.set(key, { placed, body: specialized.value, scopes: null });
+        return { kind: "ok", diagnostics: [], value: specialized.value };
+      }
+    }
+    const selectionStop = produce([instance.body], instance.bindings);
+    if (selectionStop !== null) return selectionStop;
     if (refusedInstances.has(key)) return refusal();
     const ready = bodies.get(key);
     if (ready === undefined) return fail("A required execution needs its actual bound local Typed producer.");
