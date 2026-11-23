@@ -8769,6 +8769,30 @@ test("actual checker session declarations survive all Host barriers without runn
   const results = definitions.map(definition => table.terms[table.signatures.find(signature => signature.declaration === definition).result]);
   assert.deepEqual(results, [{ kind: "primitive", primitive: "bool" }, { kind: "primitive", primitive: "float64" }]);
   assert.equal(published.value.index.initialization.modules.length, 1);
+
+  const ordinaryInput = { ...overloadedInput, snapshot: snapshotOf({ "main.ts": 'import type { Value } from "native:thing"; '
+    + "type Imported = typeof Value; function echo(flag: boolean): boolean { return flag; } "
+    + "export function use(flag: boolean): boolean { return echo(flag); }" }) };
+  const ordinary = captureSourceBarrier(ordinaryInput);
+  assert.equal(ordinary.kind, "ok", JSON.stringify(ordinary.diagnostics));
+  const ordinaryModule = ordinary.value.modules.find(row => row.module.module === ordinaryInput.snapshot.entryPoint).module;
+  const ordinaryCall = ordinaryModule.tree.statements.nodes.at(-1).body.statements.nodes[0].expression;
+  assert.deepEqual(ordinaryCall.tsonic.core.provider, { kind: "available", value: null });
+  const ordinaryProgram = analyzeHostProgram(ordinaryInput);
+  assert.equal(ordinaryProgram.kind, "ok", JSON.stringify(ordinaryProgram.diagnostics));
+
+  const singleton = { ...provider, getDeclarationModel: () => ({ moduleSpecifier: specifier, providerModuleId,
+    exports: [{ id: "Value", name: "Value", kind: "function", signatures: [
+      { id: "Value.boolean", parameters: [], returnType: { kind: "boolean" } },
+    ] }] }) };
+  const nativeInput = { ...input, snapshot: snapshotOf({ "main.ts": 'import { Value } from "native:thing"; '
+    + "export function use(): boolean { return Value(); }" }),
+    extensions: fixture.front.createCheckerExtensions([{ reference, value: { kind: "declaration-provider", value: singleton } }]) };
+  const native = captureSourceBarrier(nativeInput);
+  assert.equal(native.kind, "ok", JSON.stringify(native.diagnostics));
+  const nativeModule = native.value.modules.find(row => row.module.module === nativeInput.snapshot.entryPoint).module;
+  const nativeCall = nativeModule.tree.statements.nodes.at(-1).body.statements.nodes[0].expression;
+  assert.notDeepEqual(nativeCall.tsonic.core.provider, { kind: "available", value: null });
 });
 
 test("a wrong-arity overload call returns the original checker diagnostic without selecting a candidate", async () => {

@@ -321,10 +321,13 @@ interface CaptureScope extends CaptureAdmission {
   readonly emptyObservationInventory: boolean;
   readonly closedOrdinaryPassing: boolean;
   readonly closedOrdinaryExtent: boolean;
+  readonly closedOrdinaryApplication: boolean;
   readonly diagnosticRoots: Map<CheckerDiagnostic, CheckerDiagnosticRef>;
-  readonly markerApplications: Map<NodeId, NonNullable<Extract<RawMarkers["application"], { readonly kind: "available" }>["value"]>>;
+  readonly callCore: Map<NodeId, CallCore>;
   readonly tables: CaptureTables;
 }
+
+type CallCore = NonNullable<Extract<RawMarkers["application"], { readonly kind: "available" }>["value"]> | "ordinary";
 
 type OpenedProgramView = ReturnType<typeof OpenedProgram.checked>;
 
@@ -2498,22 +2501,23 @@ function snapshotDeclaration(program: CheckedProgram, reference: RawNodeRef): bo
 }
 
 function closedCoreInventory(program: CheckedProgram): Pick<CaptureScope,
-  "emptyCoreInventory" | "emptyObservationInventory" | "closedOrdinaryPassing" | "closedOrdinaryExtent"> {
+  "emptyCoreInventory" | "emptyObservationInventory" | "closedOrdinaryPassing" | "closedOrdinaryExtent" | "closedOrdinaryApplication"> {
   const contributions = OpenedProgram.contributions(program);
   const table = OpenedProgram.table(program);
   const noRoles = OpenedProgram.libraryData(program).every(entry => entry.roles.length === 0);
   const closedOrdinaryPassing = contributions.safetyProviders.length === 0 && contributions.compilerExtensions.length === 0 &&
     ExtensionTable.entries(table).every(entry => entry.kind === "semantics-module" || entry.kind === "declaration-provider");
-  const closedCore = noRoles && closedOrdinaryPassing && contributions.declarationProviders.length === 0 &&
-    ExtensionTable.entries(table).every(entry => entry.kind === "semantics-module");
   const semantics = ExtensionTable.semantics(table);
   const emptySemantics = semantics.every(module => module.exports.length === 0);
+  const closedOrdinaryApplication = noRoles && closedOrdinaryPassing && emptySemantics;
   return {
     closedOrdinaryPassing,
+    closedOrdinaryApplication,
     closedOrdinaryExtent: closedOrdinaryPassing && semantics.every(module =>
       module.exports.every(entry => entry.kind !== "type-marker" || entry.marker !== "fixed-array")),
-    emptyCoreInventory: closedCore && emptySemantics,
-    emptyObservationInventory: noRoles && closedOrdinaryPassing && emptySemantics && contributions.dataLayouts.length === 0,
+    emptyCoreInventory: closedOrdinaryApplication && contributions.declarationProviders.length === 0 &&
+      ExtensionTable.entries(table).every(entry => entry.kind === "semantics-module"),
+    emptyObservationInventory: closedOrdinaryApplication && contributions.dataLayouts.length === 0,
   };
 }
 
@@ -2584,8 +2588,8 @@ function capturedMarkers(scope: CaptureScope, node: Node, occurrence: NodeId): R
   }
   let application: RawMarkers["application"] = available(null);
   if ((structure !== undefined || field !== undefined) && scope.checked.ast.kindName(node) === "KindCallExpression") {
-    const selected = scope.markerApplications.get(occurrence);
-    application = selected !== undefined && (selected.role === "struct" ? structure !== undefined : field !== undefined)
+    const selected = scope.callCore.get(occurrence);
+    application = selected !== undefined && selected !== "ordinary" && (selected.role === "struct" ? structure !== undefined : field !== undefined)
       ? available(selected) : { kind: "unavailable", reason: "incomplete-association", causes: [] };
   }
   return { struct: capturedStruct, field: capturedField, defaultValue: capturedDefault, jsString, application };
@@ -3679,7 +3683,18 @@ function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef): R
       if (declaration !== undefined && declaration !== null && scope.checked.ast.as.AsCallExpression(node)?.Expression === application.callee.expression
         && admittedTypeUse(scope, declaration) === application.signatureShape.declaration) {
         if (!admit(scope, "facts")) return null;
-        scope.markerApplications.set(invocation.node, { role: marker.marker, declaration });
+        scope.callCore.set(invocation.node, { role: marker.marker, declaration });
+      }
+    } else if (marker === undefined && scope.closedOrdinaryApplication && application.kind === "call") {
+      if (!admit(scope, "edges")) return null;
+      const declaration = scope.tables.signatures[original]?.declaration;
+      if (declaration !== undefined && declaration !== null && snapshotDeclaration(scope.program, declaration)) {
+        if (!admit(scope, "edges")) return null;
+        const callable = admittedTypeUse(scope, declaration);
+        if (callable !== undefined && callable === application.signatureShape.declaration && scope.checked.ast.body(callable) !== undefined) {
+          if (!admit(scope, "facts")) return null;
+          scope.callCore.set(invocation.node, "ordinary");
+        }
       }
     }
   }
@@ -3718,7 +3733,7 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
   if (tree.kind !== "SourceFile") return throwInvariant(invariant("A module's captured tree is not a source file."));
   const queries = checked.getSourceFileQueries(file);
   const scope: CaptureScope = { ...admission, program, file, numericLiterals, checked, checker: queries.checker,
-    shape: queries.typeShape, ownNodes, ...closedCoreInventory(program), diagnosticRoots: new Map(), markerApplications: new Map(),
+    shape: queries.typeShape, ownNodes, ...closedCoreInventory(program), diagnosticRoots: new Map(), callCore: new Map(),
     tables: { types: [], components: [], signatures: [], members: [], candidates: [], symbols: [], completedSourceReferences: new Map(),
       symbolIds: new Map(), signatureIds: new Map(),
       qualifiedSignatures: new Map(), activeTypes: new Map(), activeQualifiedTypes: new Map(), activeReceiverKeys: null,
@@ -3911,7 +3926,8 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
     const literal = ast.is.IsLiteralKind(node.Kind) || kind === "KindTrueKeyword" || kind === "KindFalseKeyword" || kind === "KindNullKeyword";
     const empty = coreFacts(reference, scope.emptyCoreInventory, literal || scope.emptyObservationInventory);
     const base = markers === undefined ? empty : { ...empty, markers: available(markers) };
-    const row = provider === undefined ? base : { ...base, provider: available(provider.identity) };
+    const row = provider !== undefined ? { ...base, provider: available(provider.identity) }
+      : kind === "KindCallExpression" && scope.callCore.get(id) === "ordinary" ? { ...base, provider: available(null) } : base;
     const passing = kind === "KindParameter" ? declarationPassing(scope, node) : undefined;
     core.push(passing === undefined ? row : { ...row, argumentPassing: available(passing) });
   }
