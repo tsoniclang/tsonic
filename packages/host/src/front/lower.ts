@@ -78,9 +78,12 @@ function unwrittenForm(node: Hir.SyntaxNode<Syntax>, declarationName: boolean): 
       : node.exclamationToken !== null ? "definite-assignment VariableDeclaration" : null;
     case "VariableDeclarationList": return node.flags.includes("AwaitUsing") ? "await using declaration"
       : node.flags.includes("Using") ? "using declaration" : null;
-    case "BinaryExpression":
-      return writtenCompoundAssignmentKinds.includes(node.operatorToken.kind) && unparenthesizedExpression(node.left).kind !== "Identifier"
-        ? "compound assignment with a non-identifier target" : null;
+    case "BinaryExpression": {
+      if (!writtenCompoundAssignmentKinds.includes(node.operatorToken.kind)) return null;
+      const target = unparenthesizedExpression(node.left);
+      return target.kind === "Identifier" || target.kind === "PropertyAccessExpression"
+        ? null : "compound assignment without a selected name or property target";
+    }
     case "CallExpression":
       return node.questionDotToken !== null ? "optional CallExpression" : null;
     case "ForStatement": {

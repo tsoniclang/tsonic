@@ -220,7 +220,7 @@ export interface RuleInputsSchemas {
 export function createRuleInputsSchemas(captureValues: CaptureValuesSchemas, captures: CapturesSchemas, constraints: ConstraintsSchemas, data: DataSchemas, evidence: EvidenceSchemas): RuleInputsSchemas {
   const { diagnosticSchema, hirCallableEndpointSchema } = captureValues;
   const { hirCoreCaptureSchema } = captures;
-  const { accessRoleSchema, captureSourceSchema, constructionKindSchema, flowRoleSchema, operatorSchema } = constraints;
+  const { accessRoleSchema, memberAccessRoleSchema, captureSourceSchema, constructionKindSchema, flowRoleSchema, operatorSchema } = constraints;
   const { bindingVectorSchema, booleanSchema, defSchema, literalValueSchema, localRefSchema, memberKeySchema, memberOriginSchema, nodeRefSchema, numberSchema, originSchema, sigSchema } = data;
   const { typeEvidenceSchema } = evidence;
   const ruleContextSchema = recordSchema<RuleContext>("RuleContext", "RuleContext", read => {
@@ -256,7 +256,7 @@ export function createRuleInputsSchemas(captureValues: CaptureValuesSchemas, cap
     const context = read("context", () => ruleContextSchema, value => value.context);
     const receiver = read("receiver", () => typeEvidenceSchema, value => value.receiver);
     const key = read("key", () => memberKeySchema, value => value.key);
-    const access = read("access", () => accessRoleSchema, value => value.access);
+    const access = read("access", () => memberAccessRoleSchema, value => value.access);
     const origins = read("origins", () => arraySchema(memberOriginSchema), value => value.origins);
     return { fields: [context, receiver, key, access, origins], value: () => ({ context: context.value(), receiver: receiver.value(), key: key.value(), access: access.value(), origins: origins.value() }) };
   });

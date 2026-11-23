@@ -2,7 +2,7 @@ import type { BodyId, CandidateListId, DefId, NodeId, SourceNodeRef, TyId } from
 import { encodeKey } from "../ids/index.js";
 import type { CheckedPhase, HirApplication, HirBody, HirCandidate, HirModule, HirNode, ParameterDeclaration } from "../ir-hir/contract.js";
 import type { Diagnostic, Violation } from "../diag/contract.js";
-import { checkedSourceObjectFieldOf, checkedVariableStorageOf, childrenOfSyntax, hasOverloadEndpoints, indexSyntaxTree, readWriteRootStorageOf, resolveModuleBinding, walkSyntaxTree, writableRootStorageOf } from "../ir-hir/index.js";
+import { checkedMemberStorageOf, checkedSourceObjectFieldOf, checkedVariableStorageOf, childrenOfSyntax, hasOverloadEndpoints, indexSyntaxTree, readWriteRootStorageOf, resolveModuleBinding, walkSyntaxTree, writableRootStorageOf } from "../ir-hir/index.js";
 import type { BindingVerificationInput, BodyInstance, TypeEvidence, TypeRule, TypeTable } from "../ir-types/contract.js";
 import { sameInstance, verifyTypes } from "../ir-types/index.js";
 import type { TirBindingTarget, TirBody, TirChapterSyntax, TirModule, TirNodeSite, TirOperationsOf, TirReadyReadAdmission, TirRule, TirSite, TirSyntaxOccurrence, TirTypedSyntax, TirVerificationResult, TirVerifierInput, TypedPhase, VerifyTir, VerifyTirModule } from "./contract.js";
@@ -853,6 +853,16 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
     }
     const original = inventory.sourceNodes.get(member.node.id);
     if (member.occurrence.kind === "selection" && original?.kind === "PropertyAccessExpression" && inventory.original !== undefined) {
+      if (original.tsonic.role === "assignment-target" && original.tsonic.place.kind === "available"
+        && original.tsonic.place.value.base.kind === "receiver") {
+        const storage = checkedMemberStorageOf(original);
+        const selected = member.node.kind === "PropertyAccessExpression" && member.node.tsonic.role === "assignment-target"
+          ? member.node.tsonic.access : null;
+        if (storage === null || selected === null || selected.kind !== original.tsonic.access
+          || selected.storage !== storage.write || member.decision.write !== storage.write
+          || (selected.kind === "read-write" && (selected.read !== storage.read || member.decision.read !== storage.read)))
+          emit("access-location", member.node, "reference-held field assignment must retain its actual checked write and reached read types");
+      }
       let stopped: Stop | null = null;
       let missing = false;
       const read = (reference: SourceNodeRef) => {

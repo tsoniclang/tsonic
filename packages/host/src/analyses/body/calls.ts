@@ -224,7 +224,7 @@ export function applyScalarCall(deps: BodyRoundDeps, input: BodyRoundInput,
   operation: Extract<MirTerminator, { readonly kind: "call" }>, point: MirPoint,
   summary: Summary, arena: RelationalArena, context: ValueContextId,
   entries: readonly ValueEntryBinding[], cells: SummaryApplicationInput["cells"],
-  onParameterRead: (parameter: AppliedSummary["parameters"][number]) => DataflowStop | null): DataflowResult<AppliedSummary> {
+  onParameterEffect: (access: "read" | "write", parameter: AppliedSummary["parameters"][number]) => DataflowStop | null): DataflowResult<AppliedSummary> {
   const admission = chargeWork(deps.account, 2) ?? chargeResultEntries(deps.account, 24);
   if (admission !== null) return admission;
   if (summary.arena.cells.length !== cells.length)
@@ -264,12 +264,15 @@ export function applyScalarCall(deps: BodyRoundDeps, input: BodyRoundInput,
   for (const parameter of value.parameters) {
     const work = chargeWork(deps.account, 1);
     if (work !== null) return work;
-    if (parameter.source.reads.kind !== "complete"
-      || (parameter.source.reads.paths.length !== 0 && parameter.source.slot.kind !== "parameter")
-      || parameter.source.writes.kind !== "complete" || parameter.source.writes.paths.length !== 0)
+    if (parameter.source.reads.kind !== "complete" || parameter.source.writes.kind !== "complete"
+      || (parameter.source.reads.paths.length !== 0 || parameter.source.writes.paths.length !== 0) && parameter.source.slot.kind !== "parameter")
       return frontier(operation, "BodyAnalysis requires the actual parameter subobject read/write transport for these applied effects.");
     if (parameter.source.reads.paths.length !== 0) {
-      const stopped = onParameterRead(parameter);
+      const stopped = onParameterEffect("read", parameter);
+      if (stopped !== null) return stopped;
+    }
+    if (parameter.source.writes.paths.length !== 0) {
+      const stopped = onParameterEffect("write", parameter);
       if (stopped !== null) return stopped;
     }
   }

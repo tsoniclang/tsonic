@@ -23,7 +23,7 @@ const analysisLimits = { maximumProjectionDepth: 64, maximumOriginAlternatives: 
   maximumRelationalRecordsPerBody: 100000, maximumRelationalReferencesPerBody: 100000 };
 const scope = { classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] };
 const repository = fileURLToPath(new URL("../../", import.meta.url));
-const runtimeFiles = ["index", "round", "storage", "source", "proof", "calls", "values", "value-flow", "places", "field-reads", "static-calls", "captures", "initialization", "writes", "exits"].map(name => resolve(repository, `packages/host/dist/analyses/body/${name}.js`));
+const runtimeFiles = ["index", "round", "storage", "source", "proof", "calls", "values", "value-flow", "places", "field-effects", "static-calls", "captures", "initialization", "writes", "exits"].map(name => resolve(repository, `packages/host/dist/analyses/body/${name}.js`));
 const session = new Session();
 const post = (method, parameters = {}) => new Promise((done, reject) =>
   session.post(method, parameters, (error, value) => error === null ? done(value) : reject(error)));
@@ -4347,21 +4347,21 @@ test("applied reference results preserve sorted caller alternatives and refuse m
 });
 
 test("unsupported projections, parameter writes and external retention remain explicit call boundaries", async () => {
-  const { fieldReadEffects } = await import("../../packages/host/dist/analyses/body/field-reads.js");
+  const { fieldEffects } = await import("../../packages/host/dist/analyses/body/field-effects.js");
   const { current, pair, operation, point, summary } = referenceRound("body-round.reference-effects");
   const arena = pair.facts.arena;
   const context = pair.facts.origins.activations[0].context;
   const entries = [{ formal: 0, actual: arena.contexts[context].arguments[0].origins }];
   const apply = value => {
     const deps = { ...current.deps, account: createAccount(limits) };
-    const fields = fieldReadEffects(deps, new Set(), () => assert.fail("An unsupported read must not retain a projection."));
+    const fields = fieldEffects(deps, new Set(), () => assert.fail("An unsupported read must not retain a projection."));
     return applyScalarCall(deps, current.input, operation, point, value, arena, context, entries, [],
-      parameter => fields.call(parameter, value.arena, arena));
+      (access, parameter) => fields.call(access, parameter, value.arena, arena));
   };
   for (const field of ["reads", "writes"]) assert.throws(() => apply({ ...summary,
     arena: { ...summary.arena, projections: [{ id: 0, parent: null, projection: { kind: "element" } }] },
     parameters: summary.parameters.map(row => ({ ...row, [field]: { kind: "complete", paths: [0] } })),
-  }), field === "reads" ? /actual direct callee field projection/ : /parameter subobject read\/write transport/);
+  }), /actual direct callee field projection/);
   assert.throws(() => apply({ ...summary, retention: summary.retention.map(row => ({ ...row, into: { kind: "parameter", index: 0, path: null } })) }),
     /external retention transport/);
   assert.throws(() => apply({ ...summary, initialization: { ...summary.initialization,

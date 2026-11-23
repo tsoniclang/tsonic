@@ -5,7 +5,7 @@ import type { BinaryExpression, Expression, NodeHeader, ParameterDeclaration, St
 import { shortCircuitOperatorOf } from "../ir-hir/index.js";
 import type { MirBody, MirLocalRole, MirOperand, MirUnwind } from "../ir-mir/contract.js";
 import { localOwnershipOfMir } from "../ir-mir/index.js";
-import type { TirBody, TirLocal, TypedBinary, TypedPhase, TypedUnary, TypedValue } from "../ir-tir/contract.js";
+import type { TirBody, TirLocal, TypedBinary, TypedOperation, TypedPhase, TypedUnary, TypedValue } from "../ir-tir/contract.js";
 import type { LiteralValue } from "../ir-types/contract.js";
 import type { InternalBodyInput, LowerMirDeps } from "./contract.js";
 import type { ControlScope, Discard, Evaluated, Lowering, Work } from "./model.js";
@@ -163,6 +163,7 @@ function walk(lowering: Lowering): boolean {
         : next.kind === "argument-place" ? argumentPlace(lowering, next.node)
         : next.kind === "call" ? finishCall(lowering, next)
         : next.kind === "field-read" ? fieldRead(lowering, next)
+        : next.kind === "field-assignment" ? fieldAssignment(lowering, next)
         : next.kind === "void-result" ? pushLiteral(lowering, next.node, next.storage, { kind: "absence" })
         : next.kind === "operation" ? operation(lowering, next)
           : next.kind === "narrow" ? narrow(lowering, next.node, next.narrowing)
@@ -561,16 +562,34 @@ function assignment(lowering: Lowering, node: BinaryExpression<TypedPhase>, payl
     || selection.control !== node.left.id || selection.right !== node.right.id || payload.calculation !== null)
     return callerDefect("a conditional assignment differs from its actual selected control", node.origin);
   const target = assignmentTarget(node.left);
-  if (target.kind !== "Identifier") return notLoweredYet(`an assignment target of kind ${target.kind}`, target.origin);
+  if (target.kind !== "Identifier" && target.kind !== "PropertyAccessExpression")
+    return notLoweredYet(`an assignment target of kind ${target.kind}`, target.origin);
   const selected = target.tsonic;
   if (selected.role !== "assignment-target") return callerDefect("an assignment without a selected target", target.origin);
-  if (selected.resolution.kind === "error") return callerDefect("an error resolution", target.origin);
   if (selected.access.storage !== payload.storage) return callerDefect("an assignment with inconsistent selected storage", target.origin);
-  if (payload.calculation !== null && payload.calculation.kind !== "decided") return callerDefect("a deferred assignment operation", node.origin);
-  if ((payload.calculation !== null || selection !== null) && selected.access.kind !== "read-write")
+  const calculated = payload.calculation;
+  if (calculated !== null && calculated.kind !== "decided") return callerDefect("a deferred assignment operation", node.origin);
+  const calculation = calculated === null ? null : calculated.decision;
+  if ((calculation !== null || selection !== null) && selected.access.kind !== "read-write")
     return callerDefect(selection === null ? "a calculated assignment without a selected read" : "a conditional assignment without a selected read", target.origin);
   if (selected.access.kind === "read-write" && selected.access.narrowing !== null) return notLoweredYet("a narrowed assignment read", target.origin);
   const read = selected.access.kind === "read-write" ? selected.access.read : selected.access.storage;
+  if (target.kind === "PropertyAccessExpression") {
+    if (!("selection" in selected) || selected.selection.kind !== "decided")
+      return callerDefect("a field assignment requires its actual selected member", target.origin);
+    const member = selected.selection.decision;
+    const location = member.decision.location;
+    if (target.questionDotToken !== null || location.kind !== "data" || location.receiver !== "by-reference" || location.check.kind !== "none"
+      || member.getter !== null || member.setter !== null)
+      return notLoweredYet("a field assignment without a selected direct reference-held location", target.origin);
+    if (member.decision.write !== selected.access.storage || selected.access.kind === "read-write" && member.decision.read !== read)
+      return callerDefect("a field assignment differs from its actual selected field type", target.origin);
+    lowering.work.push({ kind: "field-assignment", node, target, member, storage: selected.access.storage, read,
+      value: payload, conditional: selection !== null, calculation }, { kind: "expression", node: target.expression });
+    return true;
+  }
+  if (!("resolution" in selected)) return callerDefect("a name assignment requires its selected resolution", target.origin);
+  if (selected.resolution.kind === "error") return callerDefect("an error resolution", target.origin);
   let local: LocalId | null = null;
   let place: PlaceId | null;
   if (selected.resolution.kind === "static") {
@@ -584,17 +603,22 @@ function assignment(lowering: Lowering, node: BinaryExpression<TypedPhase>, payl
     place = placeOfLocal(lowering.state, placed);
   } else return notLoweredYet(`an assignment resolved to a ${selected.resolution.kind}`, target.origin);
   if (place === null) return false;
+  return scheduleAssignment(lowering, node, target, place, local, payload, read, calculation, selection !== null);
+}
+
+function scheduleAssignment(lowering: Lowering, node: BinaryExpression<TypedPhase>, target: NodeHeader, place: PlaceId, local: LocalId | null,
+  payload: TypedValue, read: TyId, calculation: TypedOperation | null, conditional: boolean): boolean {
   value(lowering, payload, node);
   const write: Extract<Work, { readonly kind: "store" }> = { kind: "store", node, local, place, result: "new" };
-  if (payload.calculation !== null || selection !== null) {
+  if (calculation !== null || conditional) {
     const actual = readPlace(lowering, place, read, siteOf(lowering.body, target));
     if (actual === null) return false;
     pushOperand(lowering, actual);
-    if (selection !== null) return enterShortCircuit(lowering, node, write);
+    if (conditional) return enterShortCircuit(lowering, node, write);
   }
   lowering.work.push(write);
-  if (payload.calculation !== null) {
-    lowering.work.push({ kind: "operation", node, operation: payload.calculation.decision, form: "binary" });
+  if (calculation !== null) {
+    lowering.work.push({ kind: "operation", node, operation: calculation, form: "binary" });
   }
   lowering.work.push({ kind: "expression", node: node.right });
   return true;
@@ -694,21 +718,22 @@ function narrow(lowering: Lowering, node: NodeHeader, decision: Extract<NonNulla
   return true;
 }
 
-function fieldRead(lowering: Lowering, { node, member, storage, receiver }: Extract<Work, { readonly kind: "field-read" }>): boolean {
+function fieldPlace(lowering: Lowering, node: NodeHeader, member: Extract<Work, { readonly kind: "field-read" }>["member"], storage: TyId,
+  receiver: Extract<Work, { readonly kind: "field-read" }>["receiver"]): { readonly place: PlaceId; readonly base: PlaceId; readonly source: Evaluated | null } | null {
   const staticRoot = receiver.kind === "in-place" ? receiver.staticRoot : null;
   let source: Evaluated | null = null;
   let base: PlaceId;
   if (receiver.kind === "by-reference") {
-    const value = popOperand(lowering, failure("a field read was reached without its receiver", node.origin));
+    const value = popOperand(lowering, failure("a field access was reached without its receiver", node.origin));
     const holder = holdReceiver(lowering, value);
-    if (holder === null) return false;
+    if (holder === null) return null;
     base = holder;
   } else if (staticRoot !== null) base = staticRoot;
   else {
-    source = popOperand(lowering, failure("a field read was reached without its receiver", node.origin));
+    source = popOperand(lowering, failure("a field access was reached without its receiver", node.origin));
     if (source.kind === "shared-field") {
       source = saveRead(lowering, source);
-      if (source === null) return false;
+      if (source === null) return null;
     }
     if (source.operand.kind !== "place") return callerDefect("an in-place field read requires an evaluated storage place", node.origin);
     base = source.operand.place;
@@ -716,9 +741,21 @@ function fieldRead(lowering: Lowering, { node, member, storage, receiver }: Extr
   const site = siteOf(lowering.body, node);
   const place = newPlace(lowering.state,
     { kind: "place", place: base, projection: { kind: "field", member }, tir: site.tir }, storage, node.origin);
-  if (place === null) return false;
-  const result = { operand: { kind: "place", place } satisfies MirOperand, pendingRead: true, storage, site };
-  pushOperand(lowering, receiver.kind === "by-reference" || staticRoot !== null ? { ...result, kind: "shared-field", root: base }
+  return place === null ? null : { place, base, source };
+}
+
+function fieldAssignment(lowering: Lowering, pending: Extract<Work, { readonly kind: "field-assignment" }>): boolean {
+  const selected = fieldPlace(lowering, pending.target, pending.member, pending.storage, { kind: "by-reference" });
+  return selected !== null && scheduleAssignment(lowering, pending.node, pending.target, selected.place, null,
+    pending.value, pending.read, pending.calculation, pending.conditional);
+}
+
+function fieldRead(lowering: Lowering, { node, member, storage, receiver }: Extract<Work, { readonly kind: "field-read" }>): boolean {
+  const selected = fieldPlace(lowering, node, member, storage, receiver);
+  if (selected === null) return false;
+  const { place, base, source } = selected;
+  const result = { operand: { kind: "place", place } satisfies MirOperand, pendingRead: true, storage, site: siteOf(lowering.body, node) };
+  pushOperand(lowering, receiver.kind === "by-reference" || receiver.staticRoot !== null ? { ...result, kind: "shared-field", root: base }
     : source?.kind === "local-read" ? { ...result, kind: "local-read", root: source.root, local: source.local }
       : { ...result, kind: "plain" });
   return true;

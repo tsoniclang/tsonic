@@ -127,11 +127,13 @@ function resumeMember(deps: RulesDeps, owner: MemberOwner, paused: MemberSuspens
       if (comparison < 0) lower = middle + 1;
       else if (comparison > 0) upper = middle;
       else {
-        if (member.kind !== "property") return notDecidedYet("an accessor or method member read", origin);
-        if (!member.readOrigins.some(actual => actual.kind === "declared" && actual.declaration === phase.declaration))
+        if (member.kind !== "property") return notDecidedYet("an accessor or method member access", origin);
+        if (phase.access !== "write" && !member.readOrigins.some(actual => actual.kind === "declared" && actual.declaration === phase.declaration))
           return callerDefect("a member read must retain its original readable declaration", origin);
+        if (phase.access !== "read" && !member.writeOrigins.some(actual => actual.kind === "declared" && actual.declaration === phase.declaration))
+          return callerDefect("a member write must retain its original writable declaration", origin);
         return MemberSuspension.pause(owner, { kind: "type", request: { receiver: inventory.receiver, member: middle },
-          inventory: member, storage: phase.storage, bindings: phase.bindings }, destination, origin);
+          inventory: member, access: phase.access, storage: phase.storage, bindings: phase.bindings }, destination, origin);
       }
     }
     return callerDefect("the original member key is missing from its complete receiver inventory", origin);
@@ -139,22 +141,26 @@ function resumeMember(deps: RulesDeps, owner: MemberOwner, paused: MemberSuspens
   if (answers.length !== 1 || answer?.kind !== "memberTypeOf"
     || answer.request.receiver !== phase.request.receiver || answer.request.member !== phase.request.member)
     return callerDefect("a member read must resume with its actual selected member type", origin);
-  if (answer.value.read === null)
+  const { read, write } = answer.value;
+  if (phase.access !== "write" && read === null)
     return callerDefect("a selected readable member requires its actual read type", origin);
-  if ((readType(deps.types, answer.value.read).kind === "error") !== (answer.error !== null))
-    return callerDefect("a member read must retain the cause of its own actual type answer", origin);
+  if (phase.access !== "read" && write === null)
+    return callerDefect("a selected writable member requires its actual write type", origin);
+  const selected = phase.access === "write" ? write : read;
+  if (selected === null || (readType(deps.types, selected).kind === "error") !== (answer.error !== null))
+    return callerDefect("a member access must retain the cause of its own actual type answer", origin);
   if (answer.error !== null)
     return finishMember(deps, destination, { kind: "error", causes: [{ kind: "unit", unit: answer.origin }] });
   const storage = phase.storage;
   if (storage === null || phase.inventory.optional)
-    return notDecidedYet("the actual selected native receiver representation of this member read", origin);
+    return notDecidedYet("the actual selected native receiver representation of this member access", origin);
   const decision: MemberDecision = { key: phase.inventory.key, origins: phase.inventory.origins,
     selectedDeclarations: [storage.field], primary: storage.field, bindings: phase.bindings,
-    read: answer.value.read, write: answer.value.write, getter: null, setter: null,
+    read, write, getter: null, setter: null,
     location: { kind: "data", receiver: "by-reference", check: { kind: "none" } } };
   if (destination.kind === "member") return { kind: "done", value: ok({ kind: "member", value: { kind: "decided", decision } }) };
   const variable = variableOf(deps, destination.result, destination.occurrence, null);
-  const value = resultEvidence(deps, answer.value.read, destination.occurrence, []);
+  const value = resultEvidence(deps, selected, destination.occurrence, []);
   return { kind: "done", value: ok({ kind: "contribution", value: {
     bounds: variable === null ? [] : [bound(destination.key, variable, "producer", { value, error: null })],
     decision: { kind: "member", member: decision }, selectedCandidate: null,
@@ -164,17 +170,17 @@ function resumeMember(deps: RulesDeps, owner: MemberOwner, paused: MemberSuspens
 function decideMember(deps: RulesDeps, owner: MemberOwner, input: MemberInput, storage: SourceObjectField | null,
   destination: MemberDestination): MemberStep {
   const { access, receiver, key, origins, context } = input;
-  if (access !== "read") return notDecidedYet("a member write decision", context.origin);
+  if (access === "call") return notDecidedYet("a member call decision", context.origin);
   const origin = origins[0];
   if (origins.length !== 1 || origin?.kind !== "declared")
-    return notDecidedYet("a read without one original declared member origin", context.origin);
+    return notDecidedYet("a member access without one original declared member origin", context.origin);
   const term = readType(deps.types, receiver.type);
   if (term.kind === "open" || term.kind === "error")
     return callerDefect("member selection requires a finalized receiver whose original errors were handled", context.origin);
   if (storage !== null && (term.kind !== "shape" || storage.receiver !== receiver.type || storage.field !== origin.declaration
     || storage.occurrence.body !== context.occurrence.body || storage.occurrence.node !== context.occurrence.node))
-    return callerDefect("a compiler-owned object read requires its exact occurrence, receiver and field", context.origin);
-  return MemberSuspension.pause(owner, { kind: "inventory", receiver: receiver.type, key, declaration: origin.declaration,
+    return callerDefect("a compiler-owned object access requires its exact occurrence, receiver and field", context.origin);
+  return MemberSuspension.pause(owner, { kind: "inventory", receiver: receiver.type, key, declaration: origin.declaration, access,
     storage, bindings: context.bindings },
     destination, context.origin);
 }
@@ -206,7 +212,7 @@ function memberScheme(deps: RulesDeps, owner: MemberOwner): MemberContributionSc
   return {
     enumerate: input => {
       const { constraint, group, reference } = input;
-      if (constraint.access !== "read") return notDecidedYet("a member write contribution", null);
+      if (constraint.access === "call") return notDecidedYet("a member call contribution", null);
       const receiver = variableOf(deps, constraint.receiver, constraint.occurrence, group);
       const result = variableOf(deps, constraint.result, constraint.occurrence, group);
       return one({ node: constraint.occurrence, candidate: null, role: { kind: "member" } },

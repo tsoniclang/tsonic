@@ -1,7 +1,7 @@
-import type { DataflowStop } from "../../dataflow/contract.js";
+import type { DataflowResult, DataflowStop } from "../../dataflow/contract.js";
 import { accountFailure, chargeResultEntries, chargeWork, refuseAccount } from "../../dataflow/index.js";
 import { requirePresent, resourceLimitDiagnostic } from "../../diag/index.js";
-import type { BoundProducerId, LocalId, NodeId, OriginsId, PlaceId, ProducerId } from "../../ids/contract.js";
+import type { BoundProducerId, LocalId, NodeId, OriginsId, PlaceId, ProducerId, ProjectionPathId } from "../../ids/contract.js";
 import { boundProducerId, originsId, producerId, valueContextId } from "../../ids/index.js";
 import type { ArgumentTransport, BoundActivation, BoundInitializationRow, BoundProducer, CaptureBinding, CaptureLocation, InitializationFact, InitializationPoint, InitializationRow, IntegerFact, InvocationFact, LogicalCellRow, MirPoint, Origins, Producer, ReadOriginsFact, SubjectOriginsFact, Summary, ValueArgument, ValueContext, ValueEntryBinding, WriteFact } from "../../ir-facts/contract.js";
 import { admitSummaryIdentity } from "../../ir-facts/index.js";
@@ -17,7 +17,7 @@ import { assignedEntry, selectedCallAt, solveAssigned, statementOperands, termin
 import type { AssignedState } from "./storage.js";
 import { prepareCallCaptures } from "./captures.js";
 import { bodyFrontier, staticCells, readLocal, rootSlot } from "./places.js";
-import { fieldReadEffects, heldFieldReads } from "./field-reads.js";
+import { fieldEffects as createFieldEffects, heldFields } from "./field-effects.js";
 import type { StaticCells } from "./places.js";
 import { staticCallInventory } from "./static-calls.js";
 import type { StaticCalleeCells, StaticCallInventory } from "./static-calls.js";
@@ -109,7 +109,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
   }
   const preparedSource = fieldPlaces === null && staticPlaces === null ? null : sourceOccurrences(tir, account);
   if (preparedSource !== null && preparedSource.kind !== "complete") return preparedSource;
-  const fieldProjection = preparedSource === null || fieldPlaces === null ? null : heldFieldReads(deps, input, preparedSource.value, fieldPlaces);
+  const fieldProjection = preparedSource === null || fieldPlaces === null ? null : heldFields(deps, input, preparedSource.value, fieldPlaces);
   if (fieldProjection !== null && fieldProjection.kind !== "complete") return fieldProjection;
   const fieldReads = fieldProjection?.value ?? null;
   let objectFormals: Set<number> | null = null;
@@ -366,7 +366,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     return bodyFrontier("A held field needs its independently verified object formal.");
   const fieldSetup = objectFormals === null ? null : chargeResultEntries(account, 3);
   if (fieldSetup !== null) return fieldSetup;
-  const fieldEffects = objectFormals === null ? null : fieldReadEffects(deps, objectFormals, (records, references): DataflowStop | null => {
+  const fieldEffects = objectFormals === null ? null : createFieldEffects(deps, objectFormals, (records, references): DataflowStop | null => {
     const stop = bounded("maximumRelationalRecordsPerBody", records, arena.cells.length + arena.boundProducers.length
       + arena.producers.length + arena.contexts.length + arena.origins.length + arena.projections.length + lifetimeRecords)
       ?? bounded("maximumRelationalReferencesPerBody", references, contextReferences);
@@ -470,7 +470,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
         const held = requirePresent(arena.origins[requirePresent(currentOrigins[local], { owner: "analyses/body", query: null,
           origin: witness.origin, message: "A held receiver requires its actual local Origins." })], { owner: "analyses/body",
           query: null, origin: witness.origin, message: "A held reference requires its actual Origins row." });
-        const read = effect.read(field.member, held, boundProducers, producers);
+        const read = effect.observe("read", field.member, held, boundProducers, producers);
         if (read !== null) return read;
       }
       let occurrences = initialized.get(node);
@@ -607,7 +607,24 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
         if (result !== null) return result;
         index += 1;
       }
-      if (buildFacts && statement.kind === "assign") {
+      const field = statement.kind === "assign" ? fieldReads?.places.get(statement.place) : undefined;
+      if (buildFacts && statement.kind === "assign" && field !== undefined) {
+        if (statement.value.kind !== "use" || fieldEffects === null)
+          return bodyFrontier("A held field write requires its actual assigned value and projection inventory.");
+        const receiver = currentOrigins[field.holder];
+        const held = receiver === undefined ? undefined : arena.origins[receiver];
+        if (held === undefined) return bodyFrontier("A held field write requires its actual receiver Origins.");
+        const observed = fieldEffects.observe("write", field.member, held, boundProducers, producers);
+        if (observed !== null) return observed;
+        const growth = chargeResultEntries(account, 3);
+        if (growth !== null) return growth;
+        const selection = source.value.get(statement.tir.node);
+        const stored = selection?.kind === "BinaryExpression" && selection.tsonic.role === "assignment"
+          && selection.tsonic.calculation === null ? { body: statement.tir.body, node: selection.right.id } : statement.tir;
+        writes.push({ point: { block: block.id, statement: position }, node: statement.tir.node,
+          operation: "mutation", destination: "member", targets: held.producers, owner: null,
+          values: [{ source: stored, origins: originsOf(statement.value.operand), reason: null }], boundaries: [] });
+      } else if (buildFacts && statement.kind === "assign") {
         const value = statement.value;
         if (value.kind !== "use" && (value.kind !== "unary" && value.kind !== "binary" && value.kind !== "convert"
           || value.operation.decision.kind !== "selected" || value.operation.decision.execution.kind !== "pure"))
@@ -773,8 +790,8 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       if (environment.kind !== "complete") return environment;
       contexts.push({ id: context, receiver: null, arguments: arguments_, captures: environment.value });
       const applied = applyScalarCall(deps, input, terminator, point, summary, arena, context, entryBindings, cellBindings,
-        parameter => fieldEffects === null ? bodyFrontier("An applied field read has no verified caller reference producer.")
-          : fieldEffects.call(parameter, summary.arena, arena));
+        (access, parameter) => fieldEffects === null ? bodyFrontier("An applied field access has no verified caller reference producer.")
+          : fieldEffects.call(access, parameter, summary.arena, arena));
       if (applied.kind !== "complete") return applied;
       const unmet = callNeeds(summary, applied.value.initialization, terminator, cellBindings, assigned, point);
       if (unmet !== null) return unmet;
@@ -989,13 +1006,12 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
   const effects: Summary["parameters"][number][] = [];
   if (signature.receiver !== null) effects.push({ slot: { kind: "receiver" }, reads: { kind: "complete", paths: [] }, writes: { kind: "complete", paths: [] } });
   for (let index = 0; index < signature.parameters.length; index += 1) {
-    const selected = fieldEffects?.paths(index);
-    const retention = selected === undefined ? null : chargeWork(account, selected.size) ?? chargeResultEntries(account, selected.size + 1);
-    if (retention !== null) return retention;
-    const paths = selected === undefined ? null : orderedRows([...selected], (left, right) => left - right, account);
-    if (paths !== null && paths.kind !== "complete") return paths;
-    effects.push({ slot: { kind: "parameter", index }, reads: { kind: "complete", paths: paths?.value ?? [] },
-      writes: { kind: "complete", paths: [] } });
+    const read = effectPaths("read", index);
+    if (read.kind !== "complete") return read;
+    const write = effectPaths("write", index);
+    if (write.kind !== "complete") return write;
+    effects.push({ slot: { kind: "parameter", index }, reads: { kind: "complete", paths: read.value },
+      writes: { kind: "complete", paths: write.value } });
   }
   const value: BodyRoundValue = { facts: { execution, arena, liveness, initialization: { reads: initialization.value },
     refinements: { refinements: [], integers: integerRows.value, countedLoops: [] }, origins: { points: [], reads: readRows.value,
@@ -1005,4 +1021,11 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     fieldBindings: [], recordBindings: [], memoryBindings: [], selectedMemoryDeclarations: [], closedArrays: [] },
     summary: { ...summary, parameters: effects } };
   return { kind: "complete", value: { kind: "ok", value, diagnostics: [], emissions: [], positions: [{ position: { kind: "result" }, error: null }] } };
+
+  function effectPaths(access: "read" | "write", index: number): DataflowResult<readonly ProjectionPathId[]> {
+    const selected = fieldEffects?.paths(access, index);
+    if (selected === undefined) return { kind: "complete", value: [] };
+    const stopped = chargeWork(account, selected.size) ?? chargeResultEntries(account, selected.size + 1);
+    return stopped ?? orderedRows([...selected], (left, right) => left - right, account);
+  }
 }

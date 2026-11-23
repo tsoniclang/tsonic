@@ -4031,6 +4031,8 @@ export interface HirStoragePlace {
 
 export type WritableRootStorageOf = (place: CapturedFact<HirStoragePlace>, resolution: HirResolution) => TyId | null;
 export type ReadWriteRootStorageOf = (place: CapturedFact<HirStoragePlace>, resolution: HirResolution) => TyId | null;
+export type CheckedMemberStorageOf = (access: PropertyAccessExpression<CheckedPhase>) =>
+  { readonly read: TyId | null; readonly write: TyId } | null;
 export type CheckedVariableStorageOf = (declaration: VariableDeclaration<CheckedPhase>) => TyId | null;
 
 export type CheckedSourceObjectHoldingOf = (body: HirBody, local: LocalRef,

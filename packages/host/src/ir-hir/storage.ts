@@ -1,5 +1,6 @@
-import type { CheckedPhase, CheckedSourceObjectHoldingOf, CheckedSourceObjectFieldOf, CheckedVariableStorageOf, HirCoreCapture,
+import type { CheckedMemberStorageOf, CheckedPhase, CheckedSourceObjectHoldingOf, CheckedSourceObjectFieldOf, CheckedVariableStorageOf, HirCoreCapture,
   ReadWriteRootStorageOf, WritableRootStorageOf } from "./contract.js";
+import { compareMemberKeys } from "../ir-types/index.js";
 import { unparenthesizedExpression } from "./walk.js";
 
 function ordinaryObjectRepresentation(core: HirCoreCapture): boolean {
@@ -49,10 +50,16 @@ export const checkedSourceObjectHoldingOf: CheckedSourceObjectHoldingOf = (body,
 };
 
 export const checkedSourceObjectFieldOf: CheckedSourceObjectFieldOf = (body, access, nodeOf, itemOf, admitAlias) => {
-  if (access.questionDotToken !== null || access.tsonic.role !== "value" || access.tsonic.origins.kind !== "available"
+  if (access.questionDotToken !== null || access.tsonic.origins.kind !== "available"
     || access.tsonic.origins.value.length !== 1 || access.tsonic.accessor.kind !== "available" || access.tsonic.accessor.value !== null) return null;
   const origin = access.tsonic.origins.value[0];
   if (origin?.kind !== "declared") return null;
+  if (access.tsonic.role === "assignment-target") {
+    if (checkedMemberStorageOf(access) === null || access.tsonic.place.kind !== "available") return null;
+    const step = access.tsonic.place.value.step;
+    const chosen = step?.kind === "member" && step.origins.length === 1 ? step.origins[0] : undefined;
+    if (chosen?.kind !== "declared" || chosen.declaration !== origin.declaration) return null;
+  }
   const receiver = unparenthesizedExpression<CheckedPhase>(access.expression);
   if (receiver.kind !== "Identifier" || receiver.tsonic.role !== "value" || receiver.tsonic.resolution.kind !== "local") return null;
   const formal = checkedSourceObjectHoldingOf(body, receiver.tsonic.resolution.local, nodeOf, itemOf, admitAlias);
@@ -62,6 +69,19 @@ export const checkedSourceObjectFieldOf: CheckedSourceObjectFieldOf = (body, acc
     || field.tsonic.declaration.kind !== "definition" || field.tsonic.declaration.definition !== origin.declaration
     || !ordinaryObjectRepresentation(field.tsonic.core)) return null;
   return { ...formal, occurrence: { body: body.body, node: access.id }, field: origin.declaration };
+};
+
+export const checkedMemberStorageOf: CheckedMemberStorageOf = access => {
+  const target = access.tsonic;
+  if (target.role !== "assignment-target" || target.place.kind !== "available" || access.questionDotToken !== null
+    || access.name.kind !== "Identifier" || access.name.tsonic.role !== "property-name" || access.name.tsonic.key.kind !== "available")
+    return null;
+  const { base, step, read, write } = target.place.value;
+  if (base.kind !== "receiver" || base.node !== access.expression.id || step?.kind !== "member"
+    || compareMemberKeys(step.key, access.name.tsonic.key.value) !== 0 || write.kind !== "available" || write.value === null) return null;
+  return target.access === "read-write"
+    ? read.kind === "available" ? { read: read.value, write: write.value } : null
+    : read.kind === "unavailable" && read.reason === "not-provided" ? { read: null, write: write.value } : null;
 };
 
 export const checkedVariableStorageOf: CheckedVariableStorageOf = declaration => {

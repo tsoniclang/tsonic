@@ -49,6 +49,7 @@ export type InferenceVariable = { readonly id: number; readonly occurrence: Node
 
 export type FlowRole = "initialization" | "assignment" | "argument" | "return" | "receiver" | "yield" | "member-write";
 export type AccessRole = "read" | "write" | "call";
+export type MemberAccessRole = AccessRole | "read-write";
 export type ProtocolKind = "iterate" | "await" | "yield" | "delegate" | "dispose" | "spread" | "argument-passing" | "pointer";
 export type RuleIdentity = "embed" | "domain-fit" | "memory-equivalent" | "member" | "index"
   | "construct-literal" | "candidate" | "operator" | "literal-fit" | "protocol" | "refinement" | "library" | "core" | "closure";
@@ -90,7 +91,7 @@ export interface MemberConstraint {
   readonly occurrence: NodeRef;
   readonly receiver: TyId;
   readonly key: MemberKey;
-  readonly access: AccessRole;
+  readonly access: MemberAccessRole;
   readonly result: TyId;
   readonly origins: readonly MemberOrigin[];
   readonly bindings: BindingVector;
@@ -308,7 +309,7 @@ export interface MemberInput {
   readonly context: RuleContext;
   readonly receiver: TypeEvidence;
   readonly key: MemberKey;
-  readonly access: AccessRole;
+  readonly access: MemberAccessRole;
   readonly origins: readonly MemberOrigin[];
 }
 

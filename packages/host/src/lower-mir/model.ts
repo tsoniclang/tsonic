@@ -70,6 +70,9 @@ export type Work =
   | { readonly kind: "call"; readonly node: CallExpression<TypedPhase> | NewExpression<TypedPhase>; readonly application: TirApplication; readonly direct: boolean }
   | { readonly kind: "field-read"; readonly node: NodeHeader; readonly member: MemberSelection; readonly storage: TyId;
     readonly receiver: { readonly kind: "in-place"; readonly staticRoot: PlaceId | null } | { readonly kind: "by-reference" } }
+  | { readonly kind: "field-assignment"; readonly node: BinaryExpression<TypedPhase>; readonly target: NodeHeader;
+      readonly member: MemberSelection; readonly storage: TyId; readonly read: TyId;
+      readonly value: TypedValue; readonly calculation: TypedOperation | null; readonly conditional: boolean }
   | { readonly kind: "void-result"; readonly node: NodeHeader; readonly storage: TyId }
   | { readonly kind: "operation"; readonly node: NodeHeader; readonly operation: TypedOperation; readonly form: "unary" | "binary" }
   | { readonly kind: "operation"; readonly node: NodeHeader; readonly operation: TypedOperation; readonly form: "convert"; readonly to: TyId }

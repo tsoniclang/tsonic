@@ -1462,6 +1462,82 @@ test("real public Host analysis reads a declared structural field through its ac
   assert.deepEqual(caller.facts[0].arena.origins[fact.origins].producers, [], "a scalar field read is not the receiver reference");
 });
 
+test("a written ordinary field updates the referent and carries its exact parameter effect through a call", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
+    export type Box = { flag: boolean };
+    function write(other: Box, box: Box, value: boolean): boolean {
+      const alias = box;
+      alias.flag = value;
+      return box.flag;
+    }
+    export function forward(other: Box, box: Box, value: boolean): boolean { return write(other, box, value); }
+  `);
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const { index, modules } = result.value;
+  const chapter = modules.find(row => row.module === input.snapshot.entryPoint);
+  assert.equal(chapter.tree.kind, "ready-root");
+  const callables = new Map(chapter.tree.root.statements.nodes.filter(slot => slot.kind === "ready-callable")
+    .map(slot => [slot.node.name.text, slot.node.tsonic.definition]));
+  for (const name of ["write", "forward"]) {
+    const body = chapter.bodies.find(row => row.kind === "selected" && row.tir.owner === callables.get(name));
+    assert.ok(body);
+    const facts = body.facts.find(row => row.execution.provided === 3);
+    assert.ok(facts);
+    const summary = index.summaries.find(row => row.key.kind === "body"
+      && fixture.types.executionKey(row.key.execution) === fixture.types.executionKey(facts.execution));
+    assert.deepEqual(summary.parameters.map(parameter => parameter.writes.paths.length), [0, 1, 0]);
+    const [path] = summary.parameters[1].writes.paths;
+    assert.equal(summary.arena.projections[path].projection.kind, "field");
+    assert.deepEqual(summary.arena.projections[path].projection.member.decision.key, { kind: "text", value: "flag" });
+    if (name !== "write") continue;
+    const assignment = body.tir.root.statements.nodes[1].expression;
+    assert.equal(assignment.left.tsonic.access.kind, "write");
+    const [event] = facts.origins.writes.filter(row => row.destination === "member");
+    assert.equal(event.operation, "mutation");
+    assert.equal(event.node, assignment.id);
+    assert.deepEqual(event.values.map(value => value.source), [{ body: body.instance.body, node: assignment.right.id }]);
+    assert.deepEqual(event.targets.map(target => {
+      const producer = facts.arena.producers[facts.arena.boundProducers[target].producer];
+      return [producer.kind, producer.index, producer.path];
+    }), [["parameter", 1, null]]);
+    const statement = body.mir.blocks[event.point.block].statements[event.point.statement];
+    assert.equal(statement.kind, "assign");
+    assert.equal(body.mir.places[statement.place].base.projection.kind, "field");
+    assert.equal(facts.origins.reads.some(read => read.place === statement.place), false);
+  }
+});
+
+test("a conditional field assignment retains the same qualified read and write path", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(fixture, "sdk-minimal", `
+    export type Box = { flag: boolean };
+    export function update(box: Box, value: boolean): boolean { return box.flag ||= value; }
+  `);
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const { index, modules } = result.value;
+  const chapter = modules.find(row => row.module === input.snapshot.entryPoint);
+  const body = chapter.bodies.find(row => row.kind === "selected" && row.tir.root.kind === "Block");
+  const expression = body.tir.root.statements.nodes[0].expression;
+  assert.equal(expression.tsonic.selection.kind, "or");
+  assert.equal(expression.left.tsonic.access.kind, "read-write");
+  const facts = body.facts.find(row => row.execution.provided === 2);
+  const summary = index.summaries.find(row => row.key.kind === "body"
+    && fixture.types.executionKey(row.key.execution) === fixture.types.executionKey(facts.execution));
+  const [field] = summary.parameters[0].writes.paths;
+  assert.deepEqual(summary.parameters[0].reads.paths, [field]);
+  assert.deepEqual(summary.parameters[0].writes.paths, [field]);
+  assert.deepEqual(summary.parameters[1].writes.paths, []);
+  const [event] = facts.origins.writes.filter(row => row.destination === "member");
+  const statement = body.mir.blocks[event.point.block].statements[event.point.statement];
+  assert.equal(facts.origins.reads.some(read => read.place === statement.place), true);
+  assert.equal(body.mir.blocks.some(block => block.terminator.kind === "switch" && block.id !== event.point.block), true);
+});
+
 test("an immutable ordinary object alias reads the field of the original reference without becoming a formal", async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");

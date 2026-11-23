@@ -2,9 +2,9 @@ import type { InvariantFailure, Result } from "../diag/contract.js";
 import { requirePresent, throwInvariant } from "../diag/index.js";
 import type { BodyId, LocalId, NodeId, NodeRef, Origin, TyId } from "../ids/contract.js";
 import type { BinaryExpression, Block, CheckedPhase, Expression, HirBody, HirNode, Identifier, NodeHeader, ParameterDeclaration, Statement, TypeArgumentList, TypeNode, VariableDeclaration, VariableDeclarationList } from "../ir-hir/contract.js";
-import { checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, walkSyntaxTree, writableRootStorageOf } from "../ir-hir/index.js";
+import { checkedMemberStorageOf, checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, walkSyntaxTree, writableRootStorageOf } from "../ir-hir/index.js";
 import type { ApplicationDecision, BodyTyping, EmbeddingDecision, FlowRole, InferredSignaturePart, MemberDecision, RuleOutcome } from "../ir-infer/contract.js";
-import type { TargetAccess, TirApplication, TirArgument, TirBody, TirLocal, TirResolution, TirSelection, TypedBinary, TypedOperation, TypedPhase, TypedValue } from "../ir-tir/contract.js";
+import type { MemberSelection, TargetAccess, TirApplication, TirArgument, TirBody, TirLocal, TirResolution, TirSelection, TypedBinary, TypedMember, TypedOperation, TypedPhase, TypedValue } from "../ir-tir/contract.js";
 import type { BodyInstance, LiteralValue } from "../ir-types/contract.js";
 import { artifactBindingsKey, optionalValueDomainOf, readType, rigidBindings } from "../ir-types/index.js";
 import type { ElaborateDeps, ElaborateInput, ElaborateSelectedCall, ElaborationChild, ElaborationNoResult, ElaborationResult } from "./contract.js";
@@ -249,10 +249,11 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
       if (decision.kind !== "flow") return callerDefect(`a flow constraint solved by a decision of kind ${decision.kind}`, origin);
       flows[position] = { embedding: decision.embedding, destination: finalType(constraint.to, origin), role: constraint.role };
     } else if (constraint.kind === "member") {
-      if (constraint.access !== "read" || decision.kind !== "member" || members[position] !== undefined)
-        return callerDefect("a member read retains its one actual selected member decision", origin);
-      if (decision.member.read === null || decision.member.read !== finalType(constraint.result, origin))
-        return callerDefect("a selected member read retains its actual finalized result type", origin);
+      if (constraint.access === "call" || decision.kind !== "member" || members[position] !== undefined)
+        return callerDefect("a member access retains its one actual selected member decision", origin);
+      const result = constraint.access === "write" ? decision.member.write : decision.member.read;
+      if (result === null || result !== finalType(constraint.result, origin))
+        return callerDefect("a selected member access retains its actual finalized result type", origin);
       members[position] = decision.member;
     } else if (constraint.kind === "call") {
       if (applications[position] !== undefined)
@@ -534,10 +535,14 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
       const leaf = unparenthesizedExpression<CheckedPhase>(node.left);
       const name = leaf.kind === "Identifier" ? leaf.tsonic : null;
       const storageOf = reads ? readWriteRootStorageOf : writableRootStorageOf;
-      const selected = name?.role === "assignment-target" && name.access === (reads ? "read-write" : "write")
+      let selected = name?.role === "assignment-target" && name.access === (reads ? "read-write" : "write")
         && (logical === null || name.resolution.kind === "local") ? storageOf(node.tsonic.target, name.resolution) : null;
-      if (node.operatorToken.kind !== "EqualsToken" && !reads || selected === null || name?.role !== "assignment-target"
-        || storageOf(name.place, name.resolution) !== selected)
+      if (leaf.kind === "PropertyAccessExpression" && leaf.tsonic.role === "assignment-target") {
+        const member = checkedMemberStorageOf(leaf);
+        if (leaf.tsonic.place === node.tsonic.target && leaf.tsonic.access === (reads ? "read-write" : "write")
+          && member !== null && (!reads || member.read === member.write)) selected = member.write;
+      } else if (selected !== null && (name?.role !== "assignment-target" || storageOf(name.place, name.resolution) !== selected)) selected = null;
+      if (node.operatorToken.kind !== "EqualsToken" && !reads || selected === null)
         return notElaboratedYet(reads ? "an assignment without its checked read-write root target" : "a plain assignment without its checked writable root target", node.origin);
       if (logical !== null) demandRight(node, logical);
       const literal = unparenthesizedExpression<CheckedPhase>(node.right);
@@ -617,7 +622,7 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
       const right = expressionOf(node.right);
       const compound = compoundAssignmentOperatorOf(node.operatorToken.kind) !== null;
       const logical = shortCircuitOperatorOf(node.operatorToken.kind, "assignment");
-      if (target.kind !== "Identifier" || target.tsonic.role !== "assignment-target"
+      if ((target.kind !== "Identifier" && target.kind !== "PropertyAccessExpression") || target.tsonic.role !== "assignment-target"
         || target.tsonic.access.kind !== (compound || logical !== null ? "read-write" : "write"))
         return callerDefect("an assignment retains its actual typed storage access", node.origin);
       const access = target.tsonic.access;
@@ -953,17 +958,29 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
       }
       case "PropertyAccessExpression":
         if (building) {
-          const member = members[position] ?? compilerDefect("a property read has no actual selected member decision", node.origin);
-          if (node.questionDotToken !== null || node.tsonic.role !== "value" || node.name.kind !== "Identifier"
-            || node.name.tsonic.role !== "property-name" || member.read === null)
-            return callerDefect("a property read retains its actual checked nonoptional name and selected read type", node.origin);
+          const member = members[position] ?? compilerDefect("a property access has no actual selected member decision", node.origin);
+          if (node.questionDotToken !== null || node.name.kind !== "Identifier" || node.name.tsonic.role !== "property-name")
+            return callerDefect("a property access retains its actual checked nonoptional name", node.origin);
           if (member.getter !== null || member.setter !== null)
             return notElaboratedYet("the actual selected accessor application transport", node.origin);
+          const checked = node.tsonic;
+          const selection = { kind: "decided", decision: { decision: member, getter: null, setter: null } } satisfies RuleOutcome<MemberSelection>;
+          let tsonic: TypedMember;
+          if (checked.role === "assignment-target") {
+            const storage = checkedMemberStorageOf(node);
+            if (storage === null || member.write !== storage.write || storage.read !== null && member.read !== storage.read)
+              return callerDefect("a property target requires its actual selected writable type", node.origin);
+            const access: TargetAccess = storage.read === null ? { kind: "write", storage: storage.write }
+              : { kind: "read-write", storage: storage.write, read: storage.read, narrowing: null, evidenceIndex: null };
+            tsonic = { role: "assignment-target", selection, access };
+          } else {
+            if (member.read === null) return callerDefect("a property read requires its actual selected type", node.origin);
+            tsonic = { role: "value", ...valueOf(position, member.read, node.origin), selection };
+          }
           read.members.add(position);
           expressions[position] = { ...header(node), kind: "PropertyAccessExpression", expression: expressionOf(node.expression),
             questionDotToken: null, name: { ...header(node.name), kind: "Identifier", text: node.name.text,
-              tsonic: { role: "property-name", key: member.key } }, tsonic: { role: "value",
-              ...valueOf(position, member.read, node.origin), selection: { kind: "decided", decision: { decision: member, getter: null, setter: null } } } };
+              tsonic: { role: "property-name", key: member.key } }, tsonic };
         } else visit(node.expression);
         return;
       case "CallExpression":

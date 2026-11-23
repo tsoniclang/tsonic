@@ -188,7 +188,10 @@ export function transferAssigned(body: MirBody, statement: MirStatement, state: 
 
 function assignDestination(body: MirBody, place: PlaceId, state: AssignedState, account: DataflowAccount,
   statics: StaticSlots, clearsTaint: boolean): AssignedState {
-  if (chargeWork(account, 1 + state.written.size) !== null || chargeResultEntries(account, state.written.size + 2) !== null) return state;
+  if (chargeWork(account, 1) !== null) return state;
+  const target = body.places[place]?.base;
+  if (target?.kind === "place" && target.projection.kind === "field") return state;
+  if (chargeWork(account, state.written.size) !== null || chargeResultEntries(account, state.written.size + 2) !== null) return state;
   const local = rootSlot(body, place, statics);
   const written = new Set(state.written);
   written.add(local);

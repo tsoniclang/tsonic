@@ -12,7 +12,7 @@ import type { SelectedCall } from "./calls.js";
 import type { StaticCalleeCells } from "./static-calls.js";
 import { bodyFrontier, rootSlot } from "./places.js";
 import type { StaticSlots } from "./places.js";
-import type { HeldFieldReads } from "./field-reads.js";
+import type { HeldFields } from "./field-effects.js";
 import { selectedCallAt } from "./storage.js";
 import { appliedOrigins, joinOrigins, valueKind } from "./values.js";
 import type { AdmitOrigins, ValueOrigins } from "./values.js";
@@ -165,18 +165,21 @@ export function removeUnchangedContents(deps: BodyRoundDeps, output: Map<number,
   return null;
 }
 export function operandOrigins(input: BodyRoundInput, constants: readonly OriginsId[], state: readonly OriginsId[], operand: MirOperand,
-  statics: StaticSlots = null, fields: HeldFieldReads | null = null): OriginsId {
+  statics: StaticSlots = null, fields: HeldFields | null = null): OriginsId {
   if (operand.kind === "place" && fields?.places.has(operand.place) === true) return originsId(0);
   return requirePresent(operand.kind === "constant" ? constants[operand.constant] : state[rootSlot(input.mir, operand.place, statics)],
     { owner: "analyses/body", query: null, origin: null, message: "An executing operand retains its actual value-flow Origins." });
 }
 
 export function transferValue(deps: BodyRoundDeps, input: BodyRoundInput, constants: readonly OriginsId[],
-  initial: readonly OriginsId[], state: readonly OriginsId[], statement: MirStatement, statics: StaticSlots = null, fields: HeldFieldReads | null = null):
+  initial: readonly OriginsId[], state: readonly OriginsId[], statement: MirStatement, statics: StaticSlots = null, fields: HeldFields | null = null):
   DataflowResult<readonly OriginsId[]> {
   const prior = accountFailure(deps.account);
   if (prior !== null) return prior;
-  const work = chargeWork(deps.account, 1 + state.length) ?? chargeResultEntries(deps.account, state.length);
+  const step = chargeWork(deps.account, 1);
+  if (step !== null) return step;
+  if (statement.kind === "assign" && fields?.places.has(statement.place) === true) return { kind: "complete", value: state };
+  const work = chargeWork(deps.account, state.length) ?? chargeResultEntries(deps.account, state.length);
   if (work !== null) return work;
   const next = [...state];
   if (statement.kind === "assign") {
@@ -213,7 +216,7 @@ export function valueProblem(deps: BodyRoundDeps, input: BodyRoundInput, arena: 
   values: ValueOrigins, constants: readonly OriginsId[], initial: readonly OriginsId[], boundary: CurrentValues,
   reachable: readonly boolean[], admit: AdmitOrigins,
   captures: ReadonlyMap<BlockId, readonly CallCaptureTransport[]>, tracked: ReadonlySet<number>, calls: ReadonlyMap<BlockId, SelectedCall> | null,
-  statics: StaticSlots = null, staticCallees: StaticCalleeCells | null = null, cellSlots: readonly number[] = [], fields: HeldFieldReads | null = null,
+  statics: StaticSlots = null, staticCallees: StaticCalleeCells | null = null, cellSlots: readonly number[] = [], fields: HeldFields | null = null,
   objectValues: ReadonlySet<LocalId> | null = null): ForwardProblem<ValueState> {
   return {
     direction: "forward", boundary,
@@ -258,8 +261,9 @@ export function valueProblem(deps: BodyRoundDeps, input: BodyRoundInput, arena: 
       if (next.kind !== "complete") return state;
       const admission = chargeWork(deps.account, 1) ?? chargeResultEntries(deps.account, 1);
       if (admission !== null) return state;
-      const local = statement.kind === "assign" ? rootSlot(input.mir, statement.place, statics) : statement.local;
-      const changed = tracked.has(local) ? currentContent(deps, state.contents, local, statement.kind === "assign") : null;
+      const local = statement.kind === "assign" ? fields?.places.has(statement.place) === true
+        ? null : rootSlot(input.mir, statement.place, statics) : statement.local;
+      const changed = local !== null && tracked.has(local) ? currentContent(deps, state.contents, local, statement.kind === "assign") : null;
       if (changed !== null && changed.kind !== "complete") return state;
       return { origins: next.value, contents: changed === null ? state.contents : changed.value };
     },
@@ -326,7 +330,7 @@ export function solveValueOrigins(deps: BodyRoundDeps, input: BodyRoundInput, ar
   values: ValueOrigins, constants: readonly OriginsId[], initial: readonly OriginsId[], boundary: readonly OriginsId[],
   reachable: readonly boolean[], admit: AdmitOrigins,
   captures: ReadonlyMap<BlockId, readonly CallCaptureTransport[]>, cells: readonly number[], calls: ReadonlyMap<BlockId, SelectedCall> | null,
-  statics: StaticSlots, staticCallees: StaticCalleeCells | null, fields: HeldFieldReads | null, objectValues: ReadonlySet<LocalId> | null): DataflowResult<FlowSolution<ValueState>> {
+  statics: StaticSlots, staticCallees: StaticCalleeCells | null, fields: HeldFields | null, objectValues: ReadonlySet<LocalId> | null): DataflowResult<FlowSolution<ValueState>> {
   const work = chargeWork(deps.account, 1 + cells.length) ?? chargeResultEntries(deps.account, 4 + cells.length);
   if (work !== null) return work;
   const tracked = new Set(cells);

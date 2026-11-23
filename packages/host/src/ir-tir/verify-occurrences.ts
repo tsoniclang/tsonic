@@ -528,16 +528,21 @@ export const verifyOccurrenceOperation = (node: TirNode, table: TypeTable, emit:
     emit("operation-type", node, "a sequence must retain the actual right value endpoint");
   const compound = node.kind === "BinaryExpression" ? compoundAssignmentOperatorOf(node.operatorToken.kind) : null;
   const logical = node.kind === "BinaryExpression" ? shortCircuitOperatorOf(node.operatorToken.kind, "assignment") : null;
-  if (node.kind === "BinaryExpression" && (compound !== null || logical !== null) && node.tsonic.role === "assignment") {
+  if (node.kind === "BinaryExpression" && node.tsonic.role === "assignment") {
     const target = unparenthesizedExpression<TypedPhase>(node.left);
-    if (target.kind === "Identifier" && target.tsonic.role === "assignment-target"
-      && (target.tsonic.resolution.kind === "local" || compound !== null && target.tsonic.resolution.kind === "static")) {
+    if (target.kind === "PropertyAccessExpression" && target.tsonic.role === "assignment-target"
+      || (compound !== null || logical !== null) && target.kind === "Identifier" && target.tsonic.role === "assignment-target"
+        && (target.tsonic.resolution.kind === "local" || compound !== null && target.tsonic.resolution.kind === "static")) {
       const { calculation, storage } = node.tsonic;
       const access = target.tsonic.access;
       if (logical !== null) {
         if (calculation !== null || access.kind !== "read-write" || access.storage !== storage
           || typedValueOf(node.right)?.convertedType !== storage)
           emit("operation-type", node, "conditional assignment requires its read-write storage and only its selected RHS embedding");
+      } else if (compound === null) {
+        if (node.operatorToken.kind !== "EqualsToken" || calculation !== null || access.kind !== "write"
+          || access.storage !== storage || typedValueOf(node.right)?.convertedType !== storage)
+          emit("operation-type", node, "plain field assignment requires its original write-only storage and RHS embedding");
       } else if (calculation === null || access.kind !== "read-write" || access.storage !== storage)
         emit("operation-type", node, "compound assignment requires its checked read-write access and calculation");
       else if (calculation.kind === "decided") {

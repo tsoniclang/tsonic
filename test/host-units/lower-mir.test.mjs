@@ -2085,7 +2085,7 @@ test("assignment rejects unavailable selected inputs rather than inventing a tar
   const cases = [
     ["selection", node => { node.tsonic.selection = { kind: "and", control: node.left.id, right: node.right.id, disposition: "dynamic" }; }, true,
       "a conditional assignment differs from its actual selected control"],
-    ["target-kind", node => { node.left.kind = "PropertyAccessExpression"; }, false, "an assignment target of kind PropertyAccessExpression"],
+    ["target-kind", node => { node.left.kind = "PropertyAccessExpression"; }, true, "a field assignment requires its actual selected member"],
     ["role", node => { node.left.tsonic.role = "value"; }, true, "an assignment without a selected target"],
     ["error", node => { node.left.tsonic.resolution = { kind: "error", diagnostic: 0 }; }, true, "an error resolution"],
     ["definition", node => { node.left.tsonic.resolution = { kind: "definition", definition: def("assignment.global"), aliases: [] }; }, false, "an assignment resolved to a definition"],

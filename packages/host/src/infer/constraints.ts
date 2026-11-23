@@ -8,7 +8,7 @@ import { requirePresent, resourceLimitDiagnostic } from "../diag/index.js";
 import { admitTypePublicationStep, internType, internTypeGraph, optionalValueDomainOf, readSignature, readType, rigidBindings,
   refuseTypeConstruction, signatureRequestKey, viewTypes } from "../ir-types/index.js";
 import { inferredPartKey, inferredPartsOf } from "../ir-infer/index.js";
-import { binaryOperatorOf, checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, writableRootStorageOf } from "../ir-hir/index.js";
+import { binaryOperatorOf, checkedMemberStorageOf, checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, writableRootStorageOf } from "../ir-hir/index.js";
 import { callerDefect, notInferredYet, validateInferenceLimits } from "./frontier.js";
 import { checkedVoidCompletion, ownSignatureRequest } from "./own-signature.js";
 import { candidateEndpoint, endpointRequest, endpointsOf, unavailableCandidate } from "./candidates.js";
@@ -282,7 +282,7 @@ function generate(deps: InferenceInputs, group: InferenceGroup, signatures: Read
         const sequence = node.kind === "BinaryExpression" && node.tsonic.role === "sequence";
         if (frame.node.kind === "BinaryExpression" && (compound || frame.node.tsonic.role === "arithmetic" || frame.node.tsonic.role === "comparison")
           || frame.node.kind === "PrefixUnaryExpression" || frame.node.kind === "PostfixUnaryExpression" || frame.node.kind === "VoidExpression" || frame.node.kind === "CallExpression"
-          || frame.node.kind === "PropertyAccessExpression") {
+          || frame.node.kind === "PropertyAccessExpression" && frame.node.tsonic.role === "value") {
           const diagnostic = allocate(walk, { kind: "local", local: null, occurrence: refOf(walk, frame.node) });
           if (diagnostic !== null) return refused(diagnostic);
           walk.operators.set(frame.node.id, internType(deps.types,
@@ -633,15 +633,19 @@ function leave(walk: Walk, node: HirNode, readWriteTarget: boolean, caseSubject?
   }
   else if (node.kind === "ObjectLiteralExpression") objectConstruction(walk, node);
   else if (node.kind === "PropertyAccessExpression") {
-    if (node.questionDotToken !== null || node.tsonic.role !== "value" || node.tsonic.origins.kind !== "available"
+    const access = node.tsonic.role === "value" ? "read" : node.tsonic.access;
+    const storage = access === "read" ? null : checkedMemberStorageOf(node);
+    if (node.questionDotToken !== null || node.tsonic.origins.kind !== "available"
+      || access !== "read" && storage === null
       || node.name.kind !== "Identifier" || node.name.tsonic.role !== "property-name" || node.name.tsonic.key.kind !== "available")
       return notInferredYet(PORT, "the actual checked member key and declaration origins", node.origin);
-    const result = present(walk.operators.get(node.id), "the actual member result position");
+    const result = storage === null ? present(walk.operators.get(node.id), "the actual member result position")
+      : storage.read ?? storage.write;
     const receiver = typeAt(walk, node.expression);
     const occurrence = refOf(walk, node);
     walk.generation.selectionContexts.push({ kind: "member", occurrence, origin: node.origin });
     walk.draft.constraints.push({ kind: "member", occurrence, receiver,
-      key: node.name.tsonic.key.value, access: "read", result, origins: node.tsonic.origins.value, bindings: walk.draft.bindings });
+      key: node.name.tsonic.key.value, access, result, origins: node.tsonic.origins.value, bindings: walk.draft.bindings });
     walk.draft.evidence.push({ type: receiver, node: node.expression, component: { kind: "body", value: refOf(walk, node.expression) } },
       { type: result, node, component: { kind: "body", value: refOf(walk, node) } });
     walk.typeOf.set(node.id, result);
@@ -681,10 +685,18 @@ function leave(walk: Walk, node: HirNode, readWriteTarget: boolean, caseSubject?
       const leaf = unparenthesizedExpression<CheckedPhase>(node.left);
       const name = leaf.kind === "Identifier" ? leaf.tsonic : null;
       const storageOf = reads ? readWriteRootStorageOf : writableRootStorageOf;
-      const selected = name?.role === "assignment-target" && name.access === (reads ? "read-write" : "write")
-        && (!reads || compoundOperator !== null || name.resolution.kind === "local") ? storageOf(target, name.resolution) : null;
-      if (selected === null || name?.role !== "assignment-target" || storageOf(name.place, name.resolution) !== selected)
-        return notInferredYet(PORT, "the actual writable root assignment target", node.origin);
+      if (leaf.kind === "PropertyAccessExpression") {
+        const member = leaf.tsonic;
+        const storage = checkedMemberStorageOf(leaf);
+        if (member.role !== "assignment-target" || member.place !== target || member.access !== (reads ? "read-write" : "write")
+          || storage === null || (reads && storage.read !== storage.write))
+          return notInferredYet(PORT, "the actual selected writable member target", node.origin);
+      } else {
+        const selected = name?.role === "assignment-target" && name.access === (reads ? "read-write" : "write")
+          && (!reads || compoundOperator !== null || name.resolution.kind === "local") ? storageOf(target, name.resolution) : null;
+        if (selected === null || name?.role !== "assignment-target" || storageOf(name.place, name.resolution) !== selected)
+          return notInferredYet(PORT, "the actual writable root assignment target", node.origin);
+      }
       const storage = typeAt(walk, node.left);
       const targetComponent: SourceNodeRef = { kind: "body", value: refOf(walk, leaf) };
       const literal = unparenthesizedExpression<CheckedPhase>(node.right);
