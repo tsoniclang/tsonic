@@ -7062,10 +7062,14 @@ function assignmentMemberScenario(access) {
     tsonic: { ...typedValue(), role: "value", value: "assigned" } };
   const sourceValue = { ...header(12, 10), kind: "StringLiteral", text: "assigned", tokenFlags: [],
     tsonic: { core: emptyCore(), role: "value", value: checkedValue(), literal: { kind: "string", value: "assigned" } } };
-  const operator = { ...header(11, 10), kind: "EqualsToken", tsonic: null };
-  const sourceOperator = { ...header(11, 10), kind: "EqualsToken", tsonic: null };
+  const operatorKind = access === "write" ? "EqualsToken" : "PlusEqualsToken";
+  const operator = { ...header(11, 10), kind: operatorKind, tsonic: null };
+  const sourceOperator = { ...header(11, 10), kind: operatorKind, tsonic: null };
+  const calculation = access === "write" ? null : { kind: "decided", decision: { permissionScope: null,
+    decision: { kind: "selected", operation: { kind: "string-operator", operator: "+" }, operands: [0, 0],
+      result: 0, execution: { kind: "pure" } } } };
   const typed = { ...header(10, 1), kind: "BinaryExpression", modifiers: null, left: member, type: null,
-    operatorToken: operator, right: value, tsonic: { ...typedValue(), role: "assignment", storage: 0, calculation: null, selection: null } };
+    operatorToken: operator, right: value, tsonic: { ...typedValue(), role: "assignment", storage: 0, calculation, selection: null } };
   const original = { ...header(10, 1), kind: "BinaryExpression", modifiers: null, left: sourceMember, type: null,
     operatorToken: sourceOperator, right: sourceValue, tsonic: { core: emptyCore(), role: "assignment", value: checkedValue(),
       target: { kind: "unavailable", reason: "not-provided", causes: [] } } };
