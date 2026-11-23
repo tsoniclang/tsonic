@@ -287,7 +287,8 @@ function prepareType(graph: TypeGraph, handle: TypeHandle): PreparedType | Graph
     if (form.extent.kind !== "available" || form.extent.value !== null)
       throw new TypeError("front: declared type conversion requires its actual selected extent association");
     term = { kind: "declared", definition: deps.definitionOf(form.declaration), facet: form.facet, extent: null, arguments: argumentsOf };
-  } else if (form.kind === "tuple") {
+  } else if (form.kind === "enum") term = { kind: "enum", definition: deps.definitionOf(form.declaration) };
+  else if (form.kind === "tuple") {
     const elements = [];
     const work = graph.conversion.typeWork;
     for (let index = 0; index < form.elements.length; index += 1) {
@@ -416,7 +417,8 @@ function prepareType(graph: TypeGraph, handle: TypeHandle): PreparedType | Graph
   const category = scalar === "number" ? "number" : scalar === "string" ? "string" : scalar === "boolean" ? "boolean" : scalar === "bigint" ? "bigint"
     : scalar === "null" || scalar === "undefined" ? "absence" : scalar === "object" ? "object" : scalar === "symbol" ? "symbol" : null;
   const prepared: PreparedType = { handle, evidence: { type: handle.reference, component: source.occurrence,
-    category: category === null ? { kind: "dynamic" } : { kind: "known", category }, numeric: null, sum: null, nominal: null, pointer: null } };
+    category: category === null ? { kind: "dynamic" } : { kind: "known", category }, numeric: null, sum: null,
+    nominal: term.kind === "enum" ? term.definition : null, pointer: null } };
   graph.preparedTypes.push(prepared);
   handle.prepared = true;
   scheduleDependencies(graph, dependencies);

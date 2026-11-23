@@ -1,7 +1,7 @@
 import type { ArgumentPassingFact, Diagnostic as CheckerDiagnostic, FieldFact, Node, ResolvedAliasTarget, ResolvedCallSelectionEvidence, ResolvedSourceTypeInfo, Signature, SourceFile, Symbol as CheckerSymbol, Type, TypeCheckerQueries, TypeIndexInfo, TypeReferenceArgumentInfo, TypeShapeQueries } from "@tsonic/tsts";
 import type { NativeCheckerAdmission, ResolvedCallInferenceContribution, ResolvedCheckedComponentEvidence, ResolvedCheckerBackingConstraint, TypePropertyInfo, TypePropertyInventory } from "@tsonic/tsts";
 import { argumentPassingFactKey, defaultValueFactKey, fieldFactKey, providerVirtualDeclarationFactKey,
-  sourceMarkerFactKey, structFactKey, TypeFlagsConditional, TypeFlagsIndexedAccess, TypeFlagsUniqueESSymbol } from "@tsonic/tsts";
+  sourceMarkerFactKey, structFactKey, TypeFlagsConditional, TypeFlagsEnumLike, TypeFlagsIndexedAccess, TypeFlagsUniqueESSymbol } from "@tsonic/tsts";
 import type { Cause, CheckerDiagnosticRef, Diagnostic, InvariantFailure, Result } from "../diag/contract.js";
 import { resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
 import type { ModuleId, NodeId } from "../ids/contract.js";
@@ -11,7 +11,7 @@ import type { RawComponentId, RawSignatureId, RawSymbolId, RawTypeId } from "../
 import type {
   CaptureDeps, CheckedProgram, RawArgumentBinding, RawAuthoredArgument, RawBinding, RawBindingTarget, RawCallSelection, RawCallableAssociation, RawCandidateList, RawCoreCapture, RawCheckedType, RawCheckerViews, RawComponent, RawComponentStep, RawDiagnosticCoverage, RawFact, RawIndexSignature, RawInferenceContribution, RawLiteral, RawMember, RawMemberOrigin, RawMemberKey, RawMemberTable, RawMemberUse, RawModule, RawModuleExport, RawModuleLink, RawNodeRef, RawParameter, RawPropertyName, RawProviderDeclaration, RawReference, RawSignature, RawStorageCapture, RawSymbol, RawTypeArgument, RawTypeForm,
 } from "./contract.js";
-import type { RawComputedMemberKey, RawConditionalBranch, RawConstraint, RawFieldMarker, RawMarkers, RawMemberHeader, RawNumericLiteral } from "./contract.js";
+import type { RawComputedMemberKey, RawConditionalBranch, RawConstraint, RawEnum, RawEnumConstant, RawEnumMember, RawFieldMarker, RawMarkers, RawMemberHeader, RawNumericLiteral } from "./contract.js";
 import { ExtensionTable, OpenedProgram } from "./handles.js";
 import { projectProviderModel } from "./provider-model.js";
 import type { FileNumbering, FileSyntaxEntry } from "./handles.js";
@@ -2880,6 +2880,15 @@ function captureFacts(scope: CaptureScope): void {
         if (failed === null) return;
         form = failed;
       } else if (scope.shape.isError(type)) form = { kind: "unavailable", reason: "missing-original-component", causes: [] };
+      else if ((type.flags & TypeFlagsEnumLike) !== 0) {
+        if (!admit(scope, "edges")) return;
+        const owner = scope.shape.getEnumOwnerDeclaration(type);
+        if (owner === undefined) return throwInvariant(invariant("A checked enum type requires its native enum declaration owner."));
+        const declaration = referenceTo(scope, scope.program, owner);
+        if (scope.meter.refusal !== null) return;
+        if (declaration === null) return throwInvariant(invariant("A checked enum declaration belongs to the actual source domain."));
+        form = available({ kind: "enum", declaration });
+      }
       else {
         const numericUnion = exactNumericUnion(scope, next);
         if (numericUnion === null) return;
@@ -2981,6 +2990,48 @@ function captureFacts(scope: CaptureScope): void {
       storeRawType(scope, next, form, literal, alias);
     }
   }
+}
+
+function captureEnum(scope: CaptureScope, node: Node, declaration: RawNodeRef): RawEnum | null {
+  if (!admit(scope, "facts") || !admit(scope, "edges")) return null;
+  const name = scope.checked.ast.name(node);
+  const symbol = name === undefined ? undefined : scope.checker.getSymbolAtLocation(name);
+  if (symbol === undefined) return throwInvariant(invariant("A checked enum declaration has no native declaration symbol."));
+  const declared = scope.checker.getSymbolDeclarations(symbol);
+  const declarations: RawNodeRef[] = [];
+  for (let index = 0; index < declared.length; index += 1) {
+    if (!admit(scope, "edges")) return null;
+    const part = declared[index];
+    if (part === undefined) return throwInvariant(invariant("An enum declaration inventory is dense."));
+    if (scope.checked.ast.kindName(part) !== "KindEnumDeclaration") continue;
+    const reference = referenceTo(scope, scope.program, part);
+    if (scope.meter.refusal !== null) return null;
+    if (reference === null) return throwInvariant(invariant("An enum part must belong to the actual checked source domain."));
+    if (!admit(scope, "facts")) return null;
+    declarations.push(reference);
+  }
+  const members: RawEnumMember[] = [];
+  const authored = scope.checked.ast.members(node);
+  for (let index = 0; index < authored.length; index += 1) {
+    if (!admit(scope, "edges") || !admit(scope, "facts")) return null;
+    const member = authored[index];
+    if (member === undefined || scope.checked.ast.kindName(member) !== "KindEnumMember")
+      return throwInvariant(invariant("An enum member must be its checked declaration's actual authored occurrence."));
+    const reference = referenceTo(scope, scope.program, member);
+    if (scope.meter.refusal !== null) return null;
+    if (reference === null) return throwInvariant(invariant("A checked enum member belongs to the actual source domain."));
+    if (!admit(scope, "edges")) return null;
+    const value = scope.shape.getConstantValue(member);
+    let constant: RawFact<RawEnumConstant> = notProvided();
+    if (typeof value === "number") {
+      const initializer = scope.checked.ast.as.AsEnumMember(member)?.Initializer;
+      const token = initializer === undefined ? null : forwardedNumericToken(scope, initializer);
+      if (scope.meter.refusal !== null) return null;
+      constant = available({ kind: "number", checkerValue: value, authored: token });
+    } else if (typeof value === "string") constant = available({ kind: "string", value });
+    members.push({ declaration: reference, constant });
+  }
+  return { declaration, declarations, members };
 }
 
 function rawSymbol(scope: CaptureScope, symbol: CheckerSymbol): RawSymbolId | null {
@@ -3797,6 +3848,7 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
   const bindings: RawBinding[] = [];
   const propertyNames: RawPropertyName[] = [];
   const memberUses: RawMemberUse[] = [];
+  const enums: RawEnum[] = [];
   const storage: RawStorageCapture[] = [];
   let declarationNameRoot: NodeId | null = null;
   capture: for (const [index, node] of nodes.entries()) {
@@ -3854,7 +3906,12 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
       bindings.push({ binding: reference, target });
     }
     const bindingName = parent !== undefined && isModuleBindingKind(ast.kindName(parent).replace(/^Kind/u, ""), ast.name(parent) !== undefined);
-    if (kind === "KindVariableDeclaration") {
+    if (kind === "KindEnumDeclaration") {
+      const captured = captureEnum(scope, node, reference);
+      if (captured === null) break;
+      enums.push(captured);
+    }
+    if (kind === "KindVariableDeclaration" || kind === "KindEnumMember") {
       const read = rawType(scope, () => scope.checker.getTypeAtLocation(node), component(scope, reference, null), null);
       if (read === null) break;
       const name = ast.name(node);
@@ -4023,7 +4080,7 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
     types: { types: scope.tables.types, components: scope.tables.components, signatures: scope.tables.signatures, members: scope.tables.members,
       symbols: scope.tables.symbols, candidates: scope.tables.candidates, dataLayouts: [], memoryLayouts: [], memoryFields: [] },
     checkerViews: views, calls, callableAssociations: associations, providerDeclarations, publicLibraryModule, references, links, exports, bindings,
-    implementations: [], heritage: [], constructors: [], enums: [], propertyNames, memberUses, protocols: [], storage, core,
+    implementations: [], heritage: [], constructors: [], enums, propertyNames, memberUses, protocols: [], storage, core,
     checkerDiagnostics, diagnosticCoverage,
   };
   return { kind: "ok", value: raw, diagnostics: checkerDiagnostics };

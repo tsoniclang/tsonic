@@ -94,6 +94,7 @@ function environments(nodes: readonly HirNode[]): readonly BindingScope[] {
 }
 
 const INTERFACE_INSTANCE: NominalDefinition = { kind: "declared", facets: ["instance"] };
+const ENUM_INSTANCE: NominalDefinition = { kind: "enum", facets: ["instance"] };
 
 export const deriveDeclarationScopes: DeriveDeclarationScopes = (module, nodes) => {
   if (nodes[0] !== module.tree)
@@ -109,7 +110,8 @@ export const deriveDeclarationScopes: DeriveDeclarationScopes = (module, nodes) 
     },
     nominalOf: definition => {
       const node = declarations.get(definition);
-      return node !== undefined && nodes[node]?.kind === "InterfaceDeclaration" ? INTERFACE_INSTANCE : null;
+      const kind = node === undefined ? undefined : nodes[node]?.kind;
+      return kind === "InterfaceDeclaration" ? INTERFACE_INSTANCE : kind === "EnumDeclaration" ? ENUM_INSTANCE : null;
     },
   };
 };

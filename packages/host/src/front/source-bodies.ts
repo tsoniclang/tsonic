@@ -30,7 +30,7 @@ export function enterSourceBody(node: SyntaxNode<SyntaxPhase>, scope: SourceBody
     return { ...scope, boundary: { kind: "function", root: node.body,
       body: encodeBodyId({ owner: definition, role: "function", ordinal: 0 }), parent: scope.body } };
   }
-  if ((node.kind === "Parameter" || node.kind === "VariableDeclaration" && node.name.kind === "Identifier") && node.initializer !== null) {
+  if ((node.kind === "Parameter" || node.kind === "EnumMember" || node.kind === "VariableDeclaration" && node.name.kind === "Identifier") && node.initializer !== null) {
     const definition = definitions.get(node.id);
     if (definition === undefined) return throwInvariant({ owner: "front", query: null, origin: null,
       message: "An owned initializer has no checked definition identity." });
@@ -41,7 +41,8 @@ export function enterSourceBody(node: SyntaxNode<SyntaxPhase>, scope: SourceBody
       parent = scope.callableBody;
     }
     return { ...scope, boundary: { kind: "initializer", root: node.initializer, parent,
-      body: encodeBodyId({ owner: definition, role: node.kind === "Parameter" ? "default-argument" : "initializer", ordinal: 0 }) } };
+      body: encodeBodyId({ owner: definition, role: node.kind === "Parameter" ? "default-argument"
+        : node.kind === "EnumMember" ? "enum-member-initializer" : "initializer", ordinal: 0 }) } };
   }
   return { ...scope, boundary: null };
 }

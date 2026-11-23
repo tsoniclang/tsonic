@@ -1687,6 +1687,36 @@ test("wrong-arity overload capture retains all actual declarations and the origi
   assert.deepEqual(atExact.value.calls, source.raw.calls);
 });
 
+test("enum definitions retain their nominal owner and only the authored initializer bodies", async () => {
+  const types = await import("../../packages/host/dist/ir-types/index.js");
+  const source = checkedModuleOf('export enum Code { Start = 2, End = 5, Next } export enum Word { Yes = "yes" }');
+  const table = types.viewTypes(source.interner);
+  assert.equal(source.raw.enums.length, 2);
+  const [numeric, text] = source.raw.enums;
+  assert.deepEqual(numeric.members.map(member => member.constant.kind === "available" ? member.constant.value.checkerValue : null), [2, 5, 6]);
+  assert.deepEqual(text.members.map(member => member.constant), [{ kind: "available", value: { kind: "string", value: "yes" } }]);
+  for (const [index, declaration] of source.checked.tree.statements.nodes.entries()) {
+    assert.equal(declaration.kind, "EnumDeclaration");
+    assert.equal(declaration.id, source.raw.enums[index].declaration.node);
+    assert.deepEqual(declaration.tsonic.members, declaration.members.nodes.map(member => member.tsonic.declaration.definition));
+    for (const member of declaration.members.nodes) {
+      const nominal = member.tsonic.declaredType;
+      assert.equal(nominal.kind, "available");
+      assert.deepEqual(table.terms[nominal.value], { kind: "enum", definition: declaration.tsonic.definition });
+      const body = member.tsonic.initializer;
+      if (member.initializer === null) assert.equal(body, null, "an implicit initializer does not have an execution body");
+      else {
+        const execution = source.checked.bodies.find(row => row.body === body);
+        assert.ok(execution?.root === member.initializer && execution.owner === member.tsonic.declaration.definition);
+        const path = ids.decodeBodyId(execution.body);
+        assert.equal(path.kind, "decoded");
+        assert.equal(path.value.role, "enum-member-initializer");
+      }
+    }
+  }
+  assert.deepEqual(verifyChecked(source.checked, source.interner), []);
+});
+
 test("original checker roots render through the public SDK and survive raw and checked capture with original UTF-16 ranges", async () => {
   const types = await import("../../packages/host/dist/ir-types/index.js");
   const source = '\uFEFF// 😀\r\nexport function wrong(value: string): number { return value; }\r\nexport function other(value: string): number { return value; }\r\n';

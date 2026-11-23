@@ -5,8 +5,10 @@ import { readConditionalApplication, readTypeAliasApplication, resolveTypeAliasA
 import { Node_Symbol, Node_Type, SourceFile_FileName } from "../internal/ast/ast.js";
 import { AsConditionalTypeNode } from "../internal/ast/generated/casts.js";
 import { IsLiteralTypeNode } from "../internal/ast/generated/predicates.js";
+import { KindEnumDeclaration } from "../internal/ast/generated/kinds.js";
 import { Node_AsNode } from "../internal/ast/spine.js";
 import { GetSourceFileOfNode, IsFunctionLike } from "../internal/ast/utilities.js";
+import { SymbolFlagsEnum, SymbolFlagsEnumMember } from "../internal/ast/symbolflags.js";
 import { CheckFlagsOptionalParameter, CheckFlagsRestParameter, } from "../internal/ast/checkflags.js";
 import { Program_GetSourceFile, Program_GetTypeCheckerForFile, Program_HasUsableCheckerSession, Program_OfChecker, Program_SourceFiles } from "../internal/compiler/program.js";
 import { CheckerLifetimeDiagnostics, WithCheckerLifetime } from "../internal/core/context.js";
@@ -27,7 +29,7 @@ import { PseudoBigInt_String } from "../internal/jsnum/pseudobigint.js";
 import { Checker_getMinArgumentCount, Checker_isTypeIdenticalTo } from "../internal/checker/relater.js";
 import { Checker_GetConstantValue, } from "../internal/checker/services.js";
 import { Checker_TypeToString } from "../internal/checker/printer.js";
-import { ElementFlagsOptional, ElementFlagsRest, ElementFlagsVariadic, ObjectFlagsReference, ObjectFlagsClassOrInterface, SignatureKindCall, SignatureKindConstruct, StructuredType_Properties, TypeFlagsAny, TypeFlagsBigIntLike, TypeFlagsBigIntLiteral, TypeFlagsBooleanLike, TypeFlagsBooleanLiteral, TypeFlagsConditional, TypeFlagsESSymbolLike, TypeFlagsIntersection, TypeFlagsNever, TypeFlagsNonPrimitive, TypeFlagsNull, TypeFlagsNumberLike, TypeFlagsNumberLiteral, TypeFlagsObject, TypeFlagsStringLike, TypeFlagsStringLiteral, TypeFlagsStructuredType, TypeFlagsStructuredOrInstantiable, TypeFlagsUnion, TypeFlagsUnknown, TypeFlagsVoidLike, TypeFlagsUndefined, TypeFlagsVoid, Type_Target, Type_TargetTupleType, Type_AsConditionalType, Type_AsInterfaceType, Type_AsLiteralType, LiteralType_Value, InterfaceType_TypeParameters, Type_Types, Signature_ThisParameter, } from "../internal/checker/types.js";
+import { ElementFlagsOptional, ElementFlagsRest, ElementFlagsVariadic, ObjectFlagsReference, ObjectFlagsClassOrInterface, SignatureKindCall, SignatureKindConstruct, StructuredType_Properties, TypeFlagsAny, TypeFlagsBigIntLike, TypeFlagsBigIntLiteral, TypeFlagsBooleanLike, TypeFlagsBooleanLiteral, TypeFlagsConditional, TypeFlagsEnumLike, TypeFlagsESSymbolLike, TypeFlagsIntersection, TypeFlagsNever, TypeFlagsNonPrimitive, TypeFlagsNull, TypeFlagsNumberLike, TypeFlagsNumberLiteral, TypeFlagsObject, TypeFlagsStringLike, TypeFlagsStringLiteral, TypeFlagsStructuredType, TypeFlagsStructuredOrInstantiable, TypeFlagsUnion, TypeFlagsUnknown, TypeFlagsVoidLike, TypeFlagsUndefined, TypeFlagsVoid, Type_Target, Type_TargetTupleType, Type_AsConditionalType, Type_AsInterfaceType, Type_AsLiteralType, LiteralType_Value, InterfaceType_TypeParameters, Type_Types, Signature_ThisParameter, } from "../internal/checker/types.js";
 export function createTypeShapeQueries(program, defaultOptions) {
     if (program === undefined || defaultOptions.sourceFile === undefined) {
         throw new Error("Type-shape queries require one source file from the compiler program.");
@@ -156,6 +158,7 @@ export function createTypeShapeQueries(program, defaultOptions) {
         getSubstitutionComponents: (type) => withOwnedChecker(program, defaultOptions.sourceFile, type?.checker, defaultOptions.context ?? Background(), checker => readTypeSubstitutionComponents(checker, type)),
         getTupleInfo: (type) => withCheckerForType(program, type, defaultOptions, (checker) => getTypeTupleInfo(checker, type)),
         getObjectPropertyInfo: (type, name) => withObject(type, (checker, object) => readObjectPropertyInfo(checker, object, name)),
+        getEnumOwnerDeclaration: type => withCheckerForType(program, type, defaultOptions, () => enumOwnerDeclaration(type)),
         getObjectPropertyHeaders: (type, admit) => getObjectPropertyHeaders(program, type, defaultOptions, admit),
         getStructuredInventory: (type, admit) => getStructuredTypeInventory(program, type, defaultOptions, admit),
         getCallSignatures: (type) => withCheckerForType(program, type, defaultOptions, (checker) => Checker_GetSignaturesOfType(checker, type, SignatureKindCall)) ?? [],
@@ -196,6 +199,17 @@ export function createTypeShapeQueries(program, defaultOptions) {
 }
 function hasFlags(type, flags) {
     return type !== undefined && (type.flags & flags) !== 0;
+}
+function enumOwnerDeclaration(type) {
+    if (type === undefined || !hasFlags(type, TypeFlagsEnumLike) || type.data.AsType() !== type)
+        return undefined;
+    const symbol = type.symbol;
+    if (symbol === undefined)
+        return undefined;
+    const owner = (symbol.Flags & SymbolFlagsEnumMember) === 0 ? symbol : symbol.Parent;
+    const declaration = owner?.ValueDeclaration;
+    return owner !== undefined && (owner.Flags & SymbolFlagsEnum) !== 0 && declaration?.Kind === KindEnumDeclaration
+        ? declaration : undefined;
 }
 function readConditionalBranch(checker, node, completed) {
     if (completed !== undefined)

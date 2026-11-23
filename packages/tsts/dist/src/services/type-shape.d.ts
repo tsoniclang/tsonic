@@ -148,6 +148,7 @@ export interface TypeShapeQueries {
     readonly getSubstitutionComponents: (type: GoPtr<Type>) => TypeSubstitutionComponents | undefined;
     readonly getTupleInfo: (type: GoPtr<Type>) => TypeTupleInfo | undefined;
     readonly getObjectPropertyInfo: (type: GoPtr<Type>, name: string) => TypePropertyInfo | null | undefined;
+    readonly getEnumOwnerDeclaration: (type: GoPtr<Type>) => GoPtr<Node>;
     readonly getObjectPropertyHeaders: <Stop extends object>(type: GoPtr<Type>, admit: NativeCheckerAdmission<Stop>) => NativeCheckerResult<TypePropertyHeaderInventory, Stop>;
     readonly getStructuredInventory: <Stop extends object>(type: GoPtr<Type>, admit: NativeCheckerAdmission<Stop>) => NativeCheckerResult<StructuredTypeInventory, Stop>;
     readonly getCallSignatures: (type: GoPtr<Type>) => readonly GoPtr<Signature>[];

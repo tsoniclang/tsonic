@@ -22,7 +22,7 @@ import { captureNumericLiteral } from "./literals.js";
 import type { LiteralResult } from "./literals.js";
 import { expressionKinds, typeNodeKinds } from "./syntax-capture.js";
 import { numericTypeSpelling, writtenCompoundAssignmentKinds } from "./syntax-support.js";
-import { lowerCheckedAlias, lowerCheckedBodylessFunction, lowerCheckedInterface, lowerCheckedModifiers, lowerCheckedType, typeParameters } from "./checked-declarations.js";
+import { declarationName, lowerCheckedAlias, lowerCheckedBodylessFunction, lowerCheckedInterface, lowerCheckedModifiers, lowerCheckedType, propertyName, typeParameters } from "./checked-declarations.js";
 import type { DeclarationLowering, TypeReader } from "./checked-declarations.js";
 
 type Syntax = Hir.SyntaxPhase;
@@ -50,6 +50,7 @@ const writtenKinds: readonly string[] = ["SourceFile", "EndOfFile", "ExportKeywo
   "ExportDeclaration", "NamedExports", "ExportSpecifier", "NamespaceExport", "NumericLiteral", "StringLiteral", "NoSubstitutionTemplateLiteral", "TrueKeyword", "FalseKeyword", "NullKeyword",
   "ImportDeclaration", "ImportClause", "NamedImports", "ImportSpecifier", "NamespaceImport",
   "VariableStatement", "VariableDeclarationList", "VariableDeclaration", "InterfaceDeclaration", "TypeAliasDeclaration", "TypeLiteral", "TypeParameter", "PropertySignature",
+  "EnumDeclaration", "EnumMember", "ConstKeyword",
   "CallSignature", "ConstructSignature", "MethodSignature", "IndexSignature", "GetAccessor", "SetAccessor", "TypeReference", "TypeQuery", "UnionType", "IntersectionType",
   "ArrayType", "TupleType", "OptionalType", "TypeOperator", "IndexedAccessType", "ConditionalType", "InferType", "ThisType", "LiteralType", "ParenthesizedType",
   "TemplateLiteralType", "TemplateLiteralTypeSpan", "TemplateHead", "TemplateMiddle", "TemplateTail",
@@ -997,6 +998,7 @@ function buildStatement(lowering: Lowering, node: Hir.Statement<Syntax>, owner: 
       : functionDeclaration(lowering, node, owner);
     case "InterfaceDeclaration": return lowerCheckedInterface(declarationLowering(lowering), node, owner);
     case "TypeAliasDeclaration": return lowerCheckedAlias(declarationLowering(lowering), node, owner);
+    case "EnumDeclaration": return enumDeclaration(lowering, node, owner);
     case "ExportDeclaration": case "ImportDeclaration": {
       const inputs = {
       core: (node: NodeId) => coreOf(lowering, node), memory: (node: NodeId) => memoryOf(lowering, node), definition: (node: NodeId) => definitionOf(lowering, node),
@@ -1038,6 +1040,34 @@ function variableDeclaration(lowering: Lowering, node: Hir.VariableDeclaration<S
     tsonic: { core: coreOf(lowering, node.id), parent: owner, attributes: [], memory: memoryOf(lowering, node.id),
       declaration, declaredType: declared === null ? { kind: "available", value: null } : declared.value.type,
       inferredTypeBound: bound?.value ?? null, initializer: body } } };
+}
+
+function enumDeclaration(lowering: Lowering, node: Hir.EnumDeclaration<Syntax>, parent: DefId): ConversionResult<Hir.EnumDeclaration<Checked>> {
+  const context = declarationLowering(lowering);
+  const definition = definitionOf(lowering, node.id);
+  const members: Hir.EnumMember<Checked>[] = [];
+  const identities: DefId[] = [];
+  for (const member of node.members.nodes) {
+    const identity = definitionOf(lowering, member.id);
+    const name = propertyName(context, member.name, identity);
+    if (name.kind !== "complete") return name;
+    const type = typeFactOf(lowering, lowering.views.get(member.id)?.read
+      ?? { kind: "unavailable", reason: "missing-original-component", causes: [] });
+    if (type.kind !== "complete") return type;
+    const initializer = member.initializer === null ? null : expression(lowering, member.initializer);
+    const body = initializer === null ? null : encodeBodyId({ owner: identity, role: "enum-member-initializer", ordinal: 0 });
+    if (body !== null && initializer !== null) lowering.bodies.push({ body, owner: identity, params: [], locals: [], root: initializer,
+      captures: [], scopes: [], asynchronous: false, generator: false,
+      candidateLists: lowering.candidateLists.get(body) ?? [], nestedBodies: [] });
+    members.push({ ...headerOf(member), kind: "EnumMember", modifiers: lowerCheckedModifiers(member.modifiers),
+      name: name.value, postfixToken: member.postfixToken === null ? null : token(member.postfixToken), initializer,
+      tsonic: { core: coreOf(lowering, member.id), parent: definition, attributes: [], memory: memoryOf(lowering, member.id),
+        declaration: { kind: "definition", definition: identity }, declaredType: type.value, inferredTypeBound: null, initializer: body } });
+    identities.push(identity);
+  }
+  return { kind: "complete", value: { ...headerOf(node), kind: "EnumDeclaration", modifiers: lowerCheckedModifiers(node.modifiers),
+    name: declarationName(context, node.name, definition), members: { loc: node.members.loc, nodes: members },
+    tsonic: { core: coreOf(lowering, node.id), parent, attributes: [], memory: memoryOf(lowering, node.id), definition, members: identities } } };
 }
 
 function block(lowering: Lowering, node: Hir.Block<Syntax>): Hir.Block<Checked> {
@@ -1093,6 +1123,9 @@ function* checkedChildren(work: CheckedWork): Generator<CheckedWork, void, undef
     } else if (node.kind === "VariableStatement" && child === node.declarationList) {
       for (const declaration of node.declarationList.declarations.nodes)
         if (declaration.initializer !== null) yield { kind: "expression", node: declaration.initializer, owner };
+    } else if (node.kind === "EnumDeclaration" && child.kind === "EnumMember") {
+      if (child.name.kind === "ComputedPropertyName") yield { kind: "expression", node: child.name.expression, owner };
+      if (child.initializer !== null) yield { kind: "expression", node: child.initializer, owner };
     } else if (node.kind === "FunctionDeclaration") {
       if (child.kind === "Parameter") {
         for (const parameterChild of iterateChildrenOfSyntax(child))

@@ -44,7 +44,7 @@ export function lowerCheckedModifiers(source: Hir.ModifierList<Syntax> | null): 
   }) };
 }
 
-function declarationName(context: DeclarationLowering, node: Hir.Identifier<Syntax>, declaration: DefId): Hir.Identifier<Checked> {
+export function declarationName(context: DeclarationLowering, node: Hir.Identifier<Syntax>, declaration: DefId): Hir.Identifier<Checked> {
   return { ...header(node), kind: "Identifier", text: node.text,
     tsonic: { core: context.core(node.id), role: "declaration-name", declaration: { kind: "definition", definition: declaration } } };
 }
@@ -205,7 +205,7 @@ export function lowerCheckedType(context: DeclarationLowering, root: Hir.TypeNod
   return annotations.kind === "complete" ? annotations.value(root, owner) : annotations;
 }
 
-function propertyName(context: DeclarationLowering, node: Hir.PropertyName<Syntax>, declaration: DefId): ConversionResult<Hir.PropertyName<Checked>> {
+export function propertyName(context: DeclarationLowering, node: Hir.PropertyName<Syntax>, declaration: DefId): ConversionResult<Hir.PropertyName<Checked>> {
   if (node.kind === "Identifier") return { kind: "complete", value: declarationName(context, node, declaration) };
   if (node.kind === "ComputedPropertyName") {
     const key = context.property(node);
