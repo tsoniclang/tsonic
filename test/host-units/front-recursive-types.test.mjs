@@ -156,9 +156,18 @@ test("a finite raw graph preserves an independently failed alias's original publ
   assert.equal(raw.checkerDiagnostics[reference.diagnostic.index].message, fixture.sdk.flattenDiagnosticMessageText(original));
 });
 
-test("finite raw graph capture admits the exact existing fact and edge counts", async () => {
+const recursiveInventoryRows = 2;
+const capturedNativeFacts = recursiveInventoryRows * (3 + 2);
+const capturedNativeEdges = recursiveInventoryRows * (2 + 5);
+
+test("finite raw graph capture admits the exact fact and edge counts including native acquisition", async () => {
   const { fixture, raw, module, opened } = await captured("export type Link={next:Link};\n");
-  for (const [dimension, exact] of [["maximumCapturedFactsPerModule", 36], ["maximumCapturedEdgesPerModule", 13]]) {
+  const frontFacts = 36;
+  const frontEdges = 13 - recursiveInventoryRows;
+  for (const [dimension, exact] of [
+    ["maximumCapturedFactsPerModule", frontFacts + capturedNativeFacts],
+    ["maximumCapturedEdgesPerModule", frontEdges + capturedNativeEdges],
+  ]) {
     for (let maximum = 0; maximum < exact; maximum += 1) {
       const result = fixture.front.captureModule({ ...opened.deps,
         navigationCapture: { ...opened.deps.navigationCapture, [dimension]: maximum } }, opened.program, module);
@@ -194,13 +203,14 @@ test("finite raw graph capture returns the original limit before a later actual 
   OpenedProgram.libraryData(opened.program), OpenedProgram.contributions(opened.program));
   const run = maximum => fixture.front.captureModule({ ...opened.deps, navigationCapture: {
     ...opened.deps.navigationCapture, maximumCapturedFactsPerModule: maximum } }, guarded, module);
-  for (let maximum = 0; maximum < 28; maximum += 1) {
+  const beforeLater = 28 + capturedNativeFacts;
+  for (let maximum = 0; maximum < beforeLater; maximum += 1) {
     assert.deepEqual(run(maximum), { kind: "refused", diagnostics: [resourceLimitDiagnostic({ owner: "front",
       limit: "front.maximumCapturedFactsPerModule", maximum, site: { kind: "file", path: "/project/src/main.ts" },
       unit: { request: { query: "captureModule", key: module }, position: { kind: "result" } } })] });
     assert.equal(reads, 0, `the later actual annotation is unread at ${maximum}`);
   }
-  assert.throws(() => run(28), error => error === original);
+  assert.throws(() => run(beforeLater), error => error === original);
   assert.equal(reads, 1);
 });
 
