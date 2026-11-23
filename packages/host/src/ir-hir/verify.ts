@@ -15,6 +15,8 @@ import { checkedParameterHeadersOf, hasOverloadEndpoints, selectedEndpointRoleFa
 import { verifyExportBindings } from "./verify-export-bindings.js";
 import { hirChildPath, hirDataPathText } from "./walk.js";
 import type { HirDataPath } from "./walk.js";
+import type { InferredStorageBound, InferredStorageCandidate } from "./contract.js";
+import { collectInferredStorageSources } from "./storage-inputs.js";
 
 type NodeFrame = (
   | { readonly kind: "enter"; readonly node: HirNode; readonly parent: HirNodeEntry | null; readonly path: HirDataPath; readonly member: boolean }
@@ -374,6 +376,8 @@ function verifyProtocol(node: HirProtocolNode, site: HirSite, report: HirReport)
 function sourceAssociationViolations(module: HirModule, inventory: HirInventory, context: HirVerificationContext, paths: HirIdentityPaths,
   arenas: readonly HirCandidateArena[], requests: HirBindingRequest[], report: HirReport): void {
   const memberships = new Map<DefId, Set<DefId>>();
+  const storageCandidates: InferredStorageCandidate[] = [];
+  const storageBounds: { readonly bound: InferredStorageBound; readonly site: HirSite }[] = [];
   for (const { body, lists } of arenas) {
     const site: HirSite = { kind: "body", body: body.body };
     for (const list of lists) for (const candidate of list.candidates) {
@@ -471,6 +475,21 @@ function sourceAssociationViolations(module: HirModule, inventory: HirInventory,
       const expectsBound = node.kind === "VariableDeclaration" && node.type === null && node.initializer !== null;
       if ((node.tsonic.inferredTypeBound !== null) !== expectsBound)
         report("inferred-type-bound", site, "an inferred declaration bound must belong to its unannotated variable initializer");
+      const bound = node.tsonic.inferredTypeBound;
+      if (bound?.kind === "available" && typeof bound.value !== "number") {
+        const target = node.tsonic.declaration;
+        const body = target.kind === "local" ? inventory.bodies.get(target.local.body) : undefined;
+        const slot = target.kind === "local" ? body?.locals[target.local.local] : undefined;
+        if (!expectsBound || node.initializer === null || target.kind !== "local" || slot?.role !== "binding" ||
+          !slot.mutable || slot.declaration.kind !== "item" || slot.declaration.value.node !== node.id ||
+          inventory.entriesById.get(node.id)?.node !== node || slot.checkerSlot.kind !== "available" ||
+          slot.checkerSlot.value !== bound.value.type)
+          report("inferred-type-bound", site, "an inferred reference bound must name its actual mutable checked slot");
+        else {
+          storageCandidates.push({ local: target.local, type: bound.value.type, initializer: node.initializer });
+          storageBounds.push({ bound: bound.value, site });
+        }
+      }
       if (initializer !== null) {
         const body = inventory.bodies.get(initializer);
         if (body === undefined || body.root !== node.initializer)
@@ -520,6 +539,16 @@ function sourceAssociationViolations(module: HirModule, inventory: HirInventory,
     if (metadata !== null && "disposal" in metadata) for (const fact of metadata.disposal)
       if (fact.kind === "available" && fact.value.kind !== "dispose")
         report("protocol-kind", site, "disposal list must contain disposal protocols");
+  }
+  const closed = collectInferredStorageSources(storageCandidates, inventory.nodes, inventory.nodes.length, module.bodies,
+    signature => validHirIndex(signature) ? context.types.signatures[signature] ?? null : null, () => true);
+  if (closed === null) throw new TypeError("Checked verification did not refuse a storage input.");
+  for (const [index, { bound, site }] of storageBounds.entries()) {
+    const expected = closed[index];
+    const actual = bound.sources;
+    if (expected === undefined || (expected === null || actual === null ? expected !== actual
+      : expected.length !== actual.length || expected.some((source, position) => actual[position] !== source)))
+      report("inferred-type-bound", site, "an inferred reference bound must retain every actual cell input and no open replacement");
   }
 }
 

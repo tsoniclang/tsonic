@@ -23,6 +23,7 @@ const tooling = process.env.TSONIC_HOST_TOOLING_ROOT ?? repository;
 const runtimeNames = ["index","bindings","declaration-scopes","storage","verify-export-bindings","text-read-bindings","pragmas","endpoints","children","walk","print","parse","verify","verify-syntax","verify-bindings","verify-captures","text-syntax","text-data","text-construction","text-read-0","text-read-1","text-read-2","text-read-3","text-read-4","text-read-5","text-read-6","text-read-7","text-read-8","text-read-9","text-read-syntax-0","text-read-syntax-1","text-read-syntax-2","text-read-syntax-3","text-read-syntax-4","text-read-syntax-5","text-read-syntax-6","text-read-syntax-7","text-read-syntax-8","text-read-syntax-9","text-read-syntax-10","text-read-syntax-11","text-read-syntax-12","text-read-syntax-13","text-readers","text-read-scalars","text-causes"];
 runtimeNames.push("copy-auxiliary", "copy-expressions", "copy-node", "copy-statements", "copy-syntax", "copy-types", "checked-phase-copy", "grouping-frontier");
 runtimeNames.push("child-slot-storage", "control-slots", "declaration-slots", "documentation-slots", "expression-slots", "header-slots", "jsx-slots", "module-slots", "type-slots");
+runtimeNames.push("storage-inputs");
 const runtimeFiles = runtimeNames.map(name => resolve(repository, `packages/host/dist/ir-hir/${name}.js`));
 const ownedSources = ["contract", "capture-data", "binding-data", "text-read-model", ...runtimeNames].map(name => `packages/host/src/ir-hir/${name}.ts`);
 const inspector = new Session();
@@ -1237,7 +1238,7 @@ test("selected endpoint roles: an advertised row for an overloaded family, the s
 
 test("HIR public index has exactly the current complete data and binding operations", () => {
   assert.deepStrictEqual(Object.keys(product).sort(), [
-    "binaryOperatorOf", "callableEndpointKey", "checkedGroupingFrontierOf", "checkedMemberStorageOf", "checkedParameterHeadersOf", "checkedSourceObjectFieldOf", "checkedSourceObjectHoldingOf", "checkedVariableStorageOf", "childrenOfSyntax", "compoundAssignmentOperatorOf",
+    "binaryOperatorOf", "callableEndpointKey", "checkedGroupingFrontierOf", "checkedMemberStorageOf", "checkedParameterHeadersOf", "checkedSourceObjectFieldOf", "checkedSourceObjectHoldingOf", "checkedVariableStorageOf", "childrenOfSyntax", "collectInferredStorageSources", "compoundAssignmentOperatorOf",
     "copyCheckedContent", "copyCheckedModule", "copySyntaxForest", "createModuleBindingViews", "deriveDeclarationScopes", "hasOverloadEndpoints", "indexSyntaxTree", "isModuleBindingKind", "isTypeOnlyExportStar",
     "iterateChildrenOfSyntax", "iterateFunctionHeaderSlots", "iterateParameterHeaderSlots", "iterateSourceFileHeaderSlots", "iterateSyntaxChildEdges", "iterateSyntaxChildSlots", "orderPragmaArguments", "parseCheckedDeclarations", "parseHir", "prefixOperatorOf", "prepareFunctionHeader", "prepareSourceFileHeader", "prepareSyntaxCopy", "prepareSyntaxStructure", "printCheckedDeclarations", "printHir",
     "projectCheckedContent", "readWriteRootStorageOf", "resolveModuleBinding", "resolveModuleExport", "selectedEndpointRoleFaults", "shortCircuitOperatorOf", "unparenthesizedExpression", "verifyHir",

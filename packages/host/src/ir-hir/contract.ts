@@ -1,6 +1,6 @@
 import type { BodyId, BodyPath, CandidateListId, DefId, DefinitionPath, ItemNodeRef, LocalId, LocalRef, LibraryModuleIdentity, ModuleId, NodeId, NodeRef, Origin, SigId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { Diagnostic, ErrorValue, TextParseResult, UnitRef, Violation } from "../diag/contract.js";
-import type { ArtifactBindings, BindingScope, BindingVector, LiteralTypeValue, LiteralValue, MemberKey, MemberOrigin, NominalDefinition, PassingMode, SignatureEndpoint, SourceObjectHolding, SourceObjectField, TypeComponent, TypeParameter, TypeTable } from "../ir-types/contract.js";
+import type { ArtifactBindings, BindingScope, BindingVector, LiteralTypeValue, LiteralValue, MemberKey, MemberOrigin, NominalDefinition, PassingMode, Signature, SignatureEndpoint, SourceObjectHolding, SourceObjectField, TypeComponent, TypeParameter, TypeTable } from "../ir-types/contract.js";
 import type { HirBindingTarget, HirModuleBinding, HirModuleExport, HirBindingViews, HirBindingResolution } from "./binding-data.js";
 export type * from "./binding-data.js";
 import type { CapturedFact } from "./capture-data.js";
@@ -4390,9 +4390,30 @@ export interface CheckedTypeAlias extends CheckedDeclaration {
 export interface CheckedVariable extends CheckedDeclarationFacts {
   readonly declaration: DeclarationTarget;
   readonly declaredType: CapturedFact<TyId | null>;
-  readonly inferredTypeBound: CapturedFact<TyId> | null;
+  readonly inferredTypeBound: CapturedFact<TyId | InferredStorageBound> | null;
   readonly initializer: BodyId | null;
 }
+
+export interface InferredStorageBound {
+  readonly type: TyId;
+  readonly alias: DefId;
+  readonly sources: readonly LocalId[] | null;
+}
+
+export interface InferredStorageCandidate {
+  readonly local: LocalRef;
+  readonly type: TyId;
+  readonly initializer: Expression<CheckedPhase>;
+}
+
+export type CollectInferredStorageSources = (
+  candidates: readonly InferredStorageCandidate[],
+  nodes: Iterable<HirNode>,
+  nodeCount: number,
+  bodies: readonly HirBody[],
+  signatureOf: (signature: SigId) => Signature | null,
+  admit: (work: number) => boolean,
+) => readonly (readonly LocalId[] | null)[] | null;
 
 export interface EnumValueSource {
   readonly definition: DefId;

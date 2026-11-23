@@ -44,6 +44,17 @@ export function createReadGroup8(readers: () => HirTextReaders): HirReadGroup8 {
         value: () => ({ core: field_core.value(), parent: field_parent.value(), attributes: field_attributes.value(), memory: field_memory.value(),
           definition: field_definition.value(), nominal: field_nominal.value(), members: field_members.value() }) };
     });
+  const inferredStorageBound = recordReader<Hir.InferredStorageBound>("InferredStorageBound", read => {
+    const type = read("type", readers().identity_t);
+    const alias = read("alias", readers().identity_def);
+    const sources = read("sources", unionReader<readonly Ids.LocalId[] | null>(() =>
+      [readers().scalar_null, sequenceReader(readers().identity_l)]));
+    return { fields: [type, alias, sources], value: () => ({ type: type.value(), alias: alias.value(), sources: sources.value() }) };
+  });
+  const availableInferredBound = recordReader<{ readonly kind: "available"; readonly value: Ids.TyId | Hir.InferredStorageBound }>("available", read => {
+    const value = read("value", unionReader<Ids.TyId | Hir.InferredStorageBound>(() => [readers().identity_t, inferredStorageBound]));
+    return { fields: [value], value: () => ({ kind: "available", value: value.value() }) };
+  });
   const variableFields = (read: ReadField) => {
       const field_core = read("core", readers().record_84);
       const field_parent = read("parent", unionReader<Ids.DefId | null>(() => [readers().scalar_null, readers().identity_def]));
@@ -51,8 +62,8 @@ export function createReadGroup8(readers: () => HirTextReaders): HirReadGroup8 {
       const field_memory = read("memory", unionReader<Hir.CapturedFact<Hir.HirMemoryFieldCapture | Hir.HirMemoryLayoutCapture | null>>(() => [readers().record_157, readers().record_10]));
       const field_declaration = read("declaration", unionReader<Hir.DeclarationTarget>(() => [readers().record_146, readers().record_201]));
       const field_declaredType = read("declaredType", unionReader<Hir.CapturedFact<Ids.TyId | null>>(() => [readers().record_142, readers().record_10]));
-      const field_inferredTypeBound = read("inferredTypeBound", unionReader<Hir.CapturedFact<Ids.TyId> | null>(() =>
-        [readers().scalar_null, readers().record_9, readers().record_10]));
+      const field_inferredTypeBound = read("inferredTypeBound", unionReader<Hir.CheckedVariable["inferredTypeBound"]>(() =>
+        [readers().scalar_null, availableInferredBound, readers().record_10]));
       const field_initializer = read("initializer", unionReader<Ids.BodyId | null>(() => [readers().scalar_null, readers().identity_body]));
       return { fields: [field_core, field_parent, field_attributes, field_memory, field_declaration, field_declaredType, field_inferredTypeBound,
         field_initializer], value: () => ({ core: field_core.value(), parent: field_parent.value(), attributes: field_attributes.value(),

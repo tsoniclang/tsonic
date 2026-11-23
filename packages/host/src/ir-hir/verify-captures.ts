@@ -36,7 +36,7 @@ export function createHirSchema(): HirSchema {
   ]);
   const declaration: readonly HirField[] = ([...declarationFacts, ["definition", "DefId"]]);
   const variableFields: readonly HirField[] = [...declarationFacts, ["declaration", "DeclarationTarget"], ["declaredType", captured(hirNullable("TyId"))],
-    ["inferredTypeBound", hirNullable(captured("TyId"))], ["initializer", hirNullable("BodyId")]];
+    ["inferredTypeBound", hirNullable(captured(hirChoice("TyId", "InferredStorageBound")))], ["initializer", hirNullable("BodyId")]];
   const classMetadata: readonly HirField[] = ([
     ...declaration, ["parameters", hirArray("TypeParameterData")], ["heritage", hirArray("HirHeritage")], ["members", hirArray("DefId")],
   ]);
@@ -311,6 +311,7 @@ export function createHirSchema(): HirSchema {
     HirHeritage: hirRecord("HirHeritage", [["role", hirLiteral("extends", "implements")], ["type", "TyId"]]),
     CheckedTypeAlias: hirRecord("CheckedTypeAlias", [...declaration, ["parameters", hirArray("TypeParameterData")], ["type", captured("TyId")]]),
     CheckedVariable: hirRecord("CheckedVariable", variableFields),
+    InferredStorageBound: hirRecord("InferredStorageBound", [["type", "TyId"], ["alias", "DefId"], ["sources", hirNullable(hirArray("LocalId"))]]),
     CheckedEnumMember: hirRecord("CheckedEnumMember", [...variableFields, ["valueSource", hirNullable("EnumValueSource")]]),
     EnumValueSource: hirRecord("EnumValueSource", [["definition", "DefId"], ["body", "BodyId"]]),
     CheckedEnum: hirRecord("CheckedEnum", [...declaration, ["nominal", "DefId"], ["members", hirArray("DefId")]]),

@@ -220,7 +220,9 @@ function finishVariable<State>(frame: Frame<State>, index: number): Step<State> 
       || declaration.initializer?.id !== variable.occurrence.node || declaration.tsonic.initializer !== variable.occurrence.body
       || declaration.tsonic.inferredTypeBound === null)
       return callerDefect(PORT, "an inferred variable requires the bound at its actual checked initializer");
-    inferredTypeBound = declaration.tsonic.inferredTypeBound;
+    const bound = declaration.tsonic.inferredTypeBound;
+    inferredTypeBound = bound.kind === "unavailable" ? bound
+      : { kind: "available", value: typeof bound.value === "number" ? bound.value : bound.value.type };
   }
   const finalized = rule.finalize({ variable, producers: own.filter(filed => filed.bound.kind === "producer").map(filed => filed.bound),
     demands: own.filter(filed => filed.bound.kind === "demand").map(filed => filed.bound), inferredTypeBound,

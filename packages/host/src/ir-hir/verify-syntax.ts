@@ -128,7 +128,7 @@ type HirSchemaName = HirSyntaxName | "ModuleId" | "BodyId" | "NodeId" | "TyId" |
   | "CheckedName" | "CheckedBinary" | "CheckedUnary" | "CheckedKeyword" | "CheckedInstantiation"
   | "CheckedAggregate" | "CheckedApplication" | "CheckedMember" | "CheckedProtocol" | "CheckedClosure"
   | "CheckedType" | "DeclarationTarget" | "CheckedCallable" | "CheckedClass" | "CheckedClassExpression"
-  | "HirHeritage" | "CheckedTypeAlias" | "CheckedVariable" | "CheckedEnumMember" | "EnumValueSource" | "CheckedEnum" | "CheckedNamespace"
+  | "HirHeritage" | "CheckedTypeAlias" | "CheckedVariable" | "InferredStorageBound" | "CheckedEnumMember" | "EnumValueSource" | "CheckedEnum" | "CheckedNamespace"
   | "CheckedImport" | "CheckedExport" | "CheckedExportBinding" | "CheckedNamespaceExport" | "CheckedExportAssignment" | "CheckedStaticBlock"
   | "CheckedProperty" | "CheckedBinding" | "CheckedBindingList" | "CheckedIteration" | "CheckedModule"
   | "CheckedTypeParameter" | "HirLocal" | "HirParam" | "HirLexicalScope" | "HirBody" | "HirDeclarationEntry"
@@ -640,6 +640,7 @@ export interface HirSchema extends HirSyntaxSchema {
   readonly HirHeritage: HirShapeBody;
   readonly CheckedTypeAlias: HirShapeBody;
   readonly CheckedVariable: HirShapeBody;
+  readonly InferredStorageBound: HirShapeBody;
   readonly CheckedEnumMember: HirShapeBody;
   readonly EnumValueSource: HirShapeBody;
   readonly CheckedEnum: HirShapeBody;

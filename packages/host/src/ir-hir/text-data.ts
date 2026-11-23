@@ -653,7 +653,10 @@ function typeAliasData(value: Hir.CheckedTypeAlias): HirDataWork {
 function variableFields(value: Hir.CheckedVariable) {
   return [...declarationFactsFields(value), fieldData("declaration", declarationTargetData(value.declaration)),
     fieldData("declaredType", capturedData(value.declaredType, slot => nullableData(slot, typeData))),
-    fieldData("inferredTypeBound", nullableData(value.inferredTypeBound, bound => capturedData(bound, typeData))),
+    fieldData("inferredTypeBound", nullableData(value.inferredTypeBound, bound => capturedData(bound, operand =>
+      typeof operand === "number" ? typeData(operand) : recordData("InferredStorageBound", operand,
+        () => [fieldData("type", typeData(operand.type)), fieldData("alias", definitionData(operand.alias)),
+          fieldData("sources", nullableData(operand.sources, sources => arrayData(sources, localIdData)))])))),
     fieldData("initializer", nullableData(value.initializer, bodyData))];
 }
 

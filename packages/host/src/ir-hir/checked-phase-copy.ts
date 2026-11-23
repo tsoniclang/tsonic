@@ -1,4 +1,4 @@
-import type { TyId } from "../ids/contract.js";
+import type { LocalId, TyId } from "../ids/contract.js";
 import type {
   CapturedFact, CheckedClosure, CheckedContentImage, CheckedEnum, CheckedEnumMember, CheckedExport, CheckedExportAssignment, CheckedExportBinding, CheckedImport, CheckedModule,
   CheckedNamespace, CheckedNamespaceExport, CheckedProperty, CheckedStaticBlock, CheckedAggregate, CheckedApplication, CheckedBinary, CheckedBinding, CheckedBindingList, CheckedCallable,
@@ -316,7 +316,10 @@ function checkedProjector<Stop>(project: CheckedProjection<Stop>) {
     return admit(fields, 1, () => following(declarationPart(row), ready =>
       following(captured(row.declaredType, optionalType), declaredType => {
         const bound = row.inferredTypeBound;
-        return following(optional((fact: CapturedFact<TyId>) => captured(fact, project.type))(bound), inferredTypeBound =>
+        return following(optional((fact: NonNullable<CheckedVariable["inferredTypeBound"]>) => captured(fact, value =>
+          typeof value === "number" ? project.type(value) : admit(3, 1, () => following(project.type(value.type), type =>
+            following(optional((sources: readonly LocalId[]) =>
+              vector(sources, copied))(value.sources), sources => copied({ type, alias: value.alias, sources }))))))(bound), inferredTypeBound =>
           copied(complete({ ...ready, declaration: row.declaration, declaredType, inferredTypeBound, initializer: row.initializer })));
       })));
   }

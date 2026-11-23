@@ -24,6 +24,10 @@ import type { CheckedMemberStorageOf, CheckedSourceObjectHoldingOf, CheckedSourc
 import { checkedMemberStorageOf as memberStorage, checkedSourceObjectHoldingOf as objectHolding, checkedSourceObjectFieldOf as objectField, checkedVariableStorageOf as checkedStorage,
   readWriteRootStorageOf as readWriteStorage, writableRootStorageOf as writableStorage } from "./storage.js";
 import { checkedGroupingFrontierOf as groupingFrontier } from "./grouping-frontier.js";
+import type { CollectInferredStorageSources } from "./contract.js";
+import { collectInferredStorageSources as storageSources } from "./storage-inputs.js";
+
+export const collectInferredStorageSources: CollectInferredStorageSources = storageSources;
 
 export const resolveModuleBinding: ResolveModuleBinding = resolveBinding;
 export const isModuleBindingKind: IsModuleBindingKind = bindingKind;

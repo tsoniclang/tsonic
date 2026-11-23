@@ -3,10 +3,10 @@ import { resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
 import type { BodyId, DefId, LocalRef, NodeId, NodeRef, RawTypeId, SourceNodeRef, TyId } from "../ids/contract.js";
 import { candidateListId, encodeBodyId, localId } from "../ids/index.js";
 import type * as Hir from "../ir-hir/contract.js";
-import { binaryOperatorOf, iterateChildrenOfSyntax, prefixOperatorOf, shortCircuitOperatorOf, unparenthesizedExpression } from "../ir-hir/index.js";
+import { binaryOperatorOf, collectInferredStorageSources, iterateChildrenOfSyntax, prefixOperatorOf, shortCircuitOperatorOf, unparenthesizedExpression } from "../ir-hir/index.js";
 import type { MemberKey, MemberOrigin } from "../ir-types/contract.js";
 import type { PassingMode } from "../ir-types/contract.js";
-import { admitTypePublicationStep, readType } from "../ir-types/index.js";
+import { admitTypePublicationStep, readSignature, readType } from "../ir-types/index.js";
 import type { LowerDeps, ModuleDefinitions, ModuleDefinitionsInput, ModuleExports, RawCallSelection, RawCallableAssociation, RawCheckerViews, RawCoreCapture, RawEnum, RawFact, RawMemberUse, RawModule, RawModuleLink, RawNodeRef, RawNumericLiteral, RawPropertyName, RawReference, RawStorageCapture } from "./contract.js";
 import { moduleIdentities, sourceIdentityName, sourcePropertyNames } from "./identities.js";
 import { bindingOccurrence, lowerBindingFact, lowerBindingTarget, lowerBindings, lowerMemberKey, lowerMemberOrigin, sourceOccurrence } from "./bindings.js";
@@ -219,11 +219,17 @@ export function lowerExports(deps: LowerDeps, raw: RawModule): Result<ModuleExpo
   return lowered.kind === "complete" ? { kind: "ok", diagnostics: [], value: lowered.value } : publicationRefusal(raw, lowered);
 }
 
+interface StorageDraft {
+  readonly candidate: Hir.InferredStorageCandidate;
+  readonly bound: { readonly type: TyId; readonly alias: DefId; sources: Hir.InferredStorageBound["sources"] };
+}
+
 interface Lowering extends TypeConversion {
   readonly enums: ReadonlyMap<NodeId, RawEnum>;
   readonly bodyOf: ReadonlyMap<NodeId, BodyId>;
   readonly definitionAt: ReadonlyMap<NodeId, DefId>;
   readonly views: ReadonlyMap<NodeId, RawCheckerViews>;
+  readonly inferredStorage: Map<NodeId, StorageDraft | null>;
   readonly references: ReadonlyMap<NodeId, RawReference>;
   readonly propertyNames: ReadonlyMap<NodeId, RawPropertyName>;
   readonly memberUses: Map<NodeId, RawMemberUse>;
@@ -1060,9 +1066,19 @@ function variableDeclaration(lowering: Lowering, node: Hir.VariableDeclaration<S
   const declared = node.type === null ? null : typeNode(lowering, node.type, definition);
   if (declared !== null && declared.kind !== "complete") return declared;
   const initializer = node.initializer === null ? null : expression(lowering, node.initializer);
-  const bound = declared !== null || initializer === null ? null : typeFactOf(lowering, lowering.views.get(node.id)?.read
+  const checked = lowering.views.get(node.id);
+  const bound = declared !== null || initializer === null ? null : typeFactOf(lowering, checked?.read
     ?? { kind: "unavailable", reason: "missing-original-component", causes: [] });
   if (bound !== null && bound.kind !== "complete") return bound;
+  const inferred = bound?.value ?? null;
+  const alias = checked?.inferredStorageAlias ?? null;
+  let inferredTypeBound: Hir.CheckedVariable["inferredTypeBound"] = inferred;
+  if (lowering.inferredStorage.has(node.id) && declaration.kind === "local" && inferred?.kind === "available" &&
+    alias !== null && initializer !== null) {
+    const bound = { type: inferred.value, alias: lowering.deps.definitionOf(alias), sources: null };
+    lowering.inferredStorage.set(node.id, { candidate: { local: declaration.local, type: inferred.value, initializer }, bound });
+    inferredTypeBound = { kind: "available", value: bound };
+  }
   const body = initializer === null ? null : encodeBodyId({ owner: definition, role: "initializer", ordinal: 0 });
   if (body !== null && initializer !== null) lowering.bodies.push({ body, owner: definition, params: [], locals: [],
     root: initializer, captures: [], scopes: [], asynchronous: false, generator: false,
@@ -1072,7 +1088,7 @@ function variableDeclaration(lowering: Lowering, node: Hir.VariableDeclaration<S
     type: declared === null ? null : declared.value.node, initializer,
     tsonic: { core: coreOf(lowering, node.id), parent: owner, attributes: [], memory: memoryOf(lowering, node.id),
       declaration, declaredType: declared === null ? { kind: "available", value: null } : declared.value.type,
-      inferredTypeBound: bound?.value ?? null, initializer: body } } };
+      inferredTypeBound, initializer: body } } };
 }
 
 function enumDeclaration(lowering: Lowering, node: Hir.EnumDeclaration<Syntax>, parent: DefId): ConversionResult<Hir.EnumDeclaration<Checked>> {
@@ -1368,7 +1384,7 @@ export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<Hir.HirM
     views: new Map(raw.checkerViews.filter(view => view.node.module === raw.module).map(view => [view.node.node, view])),
     references: referenceTargets(raw), links: moduleLinks(raw), ...memberUsesOf(raw),
     propertyNames,
-    locals: new Map(structure.locals), variableLocals, bodies: [], expressions: new Map(), statements: new Map(),
+    locals: new Map(structure.locals), variableLocals, inferredStorage: new Map(), bodies: [], expressions: new Map(), statements: new Map(),
     calls: new Map(raw.calls.filter(call => call.invocation.module === raw.module).map(call => [call.invocation.node, call])), candidateLists: new Map(),
     associations: new Map(raw.callableAssociations.filter(entry => entry.declaration.module === raw.module).map(entry => [entry.declaration.node, entry])),
     authoredTypes: new Map(raw.types.types.flatMap((row): [NodeId, RawTypeId][] => row.authoredTypeNode !== null && row.authoredTypeNode.module === raw.module ? [[row.authoredTypeNode.node, row.id]] : [])),
@@ -1377,6 +1393,7 @@ export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<Hir.HirM
     if (node.name.kind !== "Identifier") return throwInvariant(invariant("A variable of a written form has no identifier name."));
     const checked = lowering.views.get(node.id);
     if (checked === undefined) return throwInvariant(invariant("A local variable requires its own captured checked type."));
+    if (mutable && checked.inferredStorageAlias !== null) lowering.inferredStorage.set(node.id, null);
     const checkerSlot = typeFactOf(lowering, checked.read);
     if (checkerSlot.kind !== "complete") return publicationRefusal(raw, checkerSlot);
     const rows = variableLocals.get(local.body) ?? [];
@@ -1407,6 +1424,22 @@ export function lowerRawModule(deps: LowerDeps, raw: RawModule): Result<Hir.HirM
       return throwInvariant(invariant("A captured local requires its actual qualified source storage row."));
     return { ...source, id: localId(body.locals.length + index), role: "capture", capturedFrom: reference };
   })] })).sort((left, right) => left.body < right.body ? -1 : left.body > right.body ? 1 : 0);
+  if (lowering.inferredStorage.size > 0) {
+    const drafts = [...lowering.inferredStorage.values()].filter(draft => draft !== null);
+    let stop: ReturnType<typeof admitTypePublicationStep> = null;
+    const sources = collectInferredStorageSources(drafts.map(draft => draft.candidate),
+      lowering.expressions.values(), lowering.expressions.size, bodies, signature => readSignature(deps.types, signature),
+      count => { stop ??= admitTypePublicationStep(deps.typeWork, count); return stop === null; });
+    if (sources === null) {
+      if (stop === null) return throwInvariant(invariant("Inferred storage refusal requires its actual work stop."));
+      return publicationRefusal(raw, stop);
+    }
+    for (const [index, draft] of drafts.entries()) {
+      const incoming = sources[index];
+      if (incoming === undefined) return throwInvariant(invariant("Inferred storage must close every owned candidate."));
+      draft.bound.sources = incoming;
+    }
+  }
   const items = [...definitionAt].filter(([node]) => node !== raw.tree.id).map(([node, definition]) => ({ definition, node }))
     .sort((left, right) => left.definition < right.definition ? -1 : left.definition > right.definition ? 1 : 0);
   const links: Hir.HirModuleLink[] = [];

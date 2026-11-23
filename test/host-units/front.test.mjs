@@ -57,6 +57,31 @@ test("native inferred storage keeps the exact alias of its binding, not its stru
   assert.deepEqual(declarations.map(alias), [{ module: raw.module, node: box.id }, { module: raw.module, node: other.id }, null, null]);
 });
 
+test("checked inferred storage retains all cell inputs across an ordinary by-value call and an actual replacement", async () => {
+  const hir = await import("../../packages/host/dist/ir-hir/index.js");
+  const { checked, interner } = checkedModuleOf(`
+    export type Box = { flag: boolean };
+    export function accept(box: Box): boolean { return box.flag; }
+    export function read(before: Box, after: Box): boolean {
+      let alias = before;
+      accept(alias);
+      alias = after;
+      return alias.flag;
+    }
+  `);
+  const declarationOf = value => value.tree.statements.nodes[2].body.statements.nodes[0].declarationList.declarations.nodes[0];
+  const bound = declarationOf(checked).tsonic.inferredTypeBound.value;
+  assert.equal(bound.alias, checked.tree.statements.nodes[0].tsonic.definition);
+  assert.deepEqual(bound.sources, [0, 1]);
+  assert.deepEqual(verifyChecked(checked, interner), []);
+  const decoded = hir.parseHir(hir.printHir(checked));
+  assert.equal(decoded.kind, "parsed");
+  assert.deepEqual(declarationOf(decoded.value).tsonic.inferredTypeBound.value, bound);
+  assert.deepEqual(verifyChecked(decoded.value, interner), []);
+  declarationOf(decoded.value).tsonic.inferredTypeBound.value.sources.pop();
+  assert.deepEqual(verifyChecked(decoded.value, interner).map(row => row.rule), ["inferred-type-bound"]);
+});
+
 before(async () => {
   assert.equal(process.env.TSONIC_TEST_ADMISSION !== undefined, true, "front tests run under the aggregate resource guard");
   session.connect();

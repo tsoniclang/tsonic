@@ -455,7 +455,7 @@ test("all actual Host modules pass S1 inspection and fresh whole-module declarat
       "child-slot-storage.ts", "control-slots.ts", "declaration-slots.ts", "documentation-slots.ts", "expression-slots.ts", "header-slots.ts", "jsx-slots.ts", "module-slots.ts", "type-slots.ts",
       "copy-auxiliary.ts", "copy-expressions.ts", "copy-node.ts", "copy-statements.ts", "copy-syntax.ts", "copy-types.ts", "checked-phase-copy.ts",
       "binding-data.ts", "bindings.ts", "capture-data.ts", "verify-export-bindings.ts", "text-read-bindings.ts", "text-causes.ts",
-      "verify-bindings.ts", "verify-captures.ts", "storage.ts", "text-data.ts", "text-syntax.ts", "text-construction.ts", "text-read-model.ts",
+      "verify-bindings.ts", "verify-captures.ts", "storage.ts", "storage-inputs.ts", "text-data.ts", "text-syntax.ts", "text-construction.ts", "text-read-model.ts",
       "text-readers.ts", "text-read-scalars.ts", ...Array.from({ length: 10 }, (unusedValue, position) => `text-read-${position}.ts`),
       ...Array.from({ length: 14 }, (unusedValue, position) => `text-read-syntax-${position}.ts`)].map(name => `${host}/ir-hir/${name}`),
     ...["index.ts", "print.ts", "parse.ts", "text-layouts.ts", "text-construction.ts", "text-syntax-construction.ts",

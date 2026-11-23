@@ -1589,8 +1589,13 @@ test("an immutable ordinary object alias reads the field of the original referen
       assert.equal(proof.field, access.tsonic.origins.value[0].declaration);
     }
   }
-  assert.throws(() => analyzeHostProgram(analysisInput(fixture, "sdk-minimal", source.replace("const alias", "let alias"))),
-    error => error.cause?.owner === "rules" && /native receiver representation/u.test(error.message));
+  const open = source.replace("const alias = value;", "let alias = value; alias = { flag: other.flag };");
+  const openCapture = captureSourceBarrier(analysisInput(fixture, "sdk-minimal", open));
+  assert.equal(openCapture.kind, "ok");
+  const openChecked = openCapture.value.checked;
+  const openBody = openChecked.bodies.get(caller.instance.body);
+  assert.equal(checkedSourceObjectFieldOf(openBody, openBody.root.statements.nodes.at(-1).expression, openChecked.nodeOf,
+    definition => openChecked.nodeOf(openChecked.declarationSourceOf(definition)), () => true), null);
 });
 
 test("a copied reference captured by a detached initializer preserves its value without creating a caller cell", async () => {
@@ -1621,12 +1626,12 @@ test("a copied reference captured by a detached initializer preserves its value 
   assert.deepEqual(summary.parameters[0].writes, { kind: "complete", paths: [] });
 });
 
-test("a mutable reference slot charges a field write to its saved receiver despite rebinding on the right", async () => {
+for (const annotation of [": Box", ""]) test(`a mutable reference slot${annotation === "" ? " inferred from its closed inputs" : ""} charges a field write to its saved receiver despite rebinding on the right`, async () => {
   const fixture = await loadFrontFixture();
   const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
   const source = "export type Box = { flag: boolean }; "
     + "export function swap(before: Box, after: Box, value: boolean): boolean { "
-    + "let alias: Box = before; alias = after; alias.flag = (alias = before, value); return alias.flag; }";
+    + `let alias${annotation} = before; alias = after; alias.flag = (alias = before, value); return alias.flag; }`;
   const input = analysisInput(fixture, "sdk-minimal", source);
   const result = analyzeHostProgram(input);
   assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));

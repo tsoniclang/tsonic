@@ -1,6 +1,6 @@
 import type { CheckedMemberStorageOf, CheckedPhase, CheckedSourceObjectHoldingOf, CheckedSourceObjectFieldOf, CheckedVariableStorageOf, HirCoreCapture,
   HirNode, ReadWriteRootStorageOf, TypeNode, WritableRootStorageOf } from "./contract.js";
-import type { DefId, TyId } from "../ids/contract.js";
+import type { DefId, LocalId, TyId } from "../ids/contract.js";
 import { compareMemberKeys } from "../ir-types/index.js";
 import { unparenthesizedExpression } from "./walk.js";
 
@@ -25,40 +25,84 @@ function ordinaryObjectDeclaration(annotation: TypeNode<CheckedPhase> | null, ty
 
 export const checkedSourceObjectHoldingOf: CheckedSourceObjectHoldingOf = (body, local, nodeOf, itemOf, admitAlias) => {
   if (local.body !== body.body) return null;
+  const initial = body.locals[local.local];
+  if (initial?.id !== local.local || initial.checkerSlot.kind !== "available") return null;
+  const type = initial.checkerSlot.value;
+  let inputs: LocalId[] | null = null;
+  let reached: Set<LocalId> | null = null;
+  let alias: DefId | null = null;
   let current = local.local;
-  let localRow = body.locals[current];
-  if (localRow?.id !== current || localRow.checkerSlot.kind !== "available") return null;
-  const type = localRow.checkerSlot.value;
-  while (localRow.role === "binding") {
-    if (!admitAlias() || localRow.declaration.kind !== "item") return null;
-    const declaration = nodeOf(localRow.declaration);
-    if (declaration?.kind !== "VariableDeclaration" || declaration.id !== localRow.declaration.value.node
-      || declaration.origin.module !== body.root.origin.module
-      || declaration.tsonic.declaration.kind !== "local" || declaration.tsonic.declaration.local.body !== local.body
-      || declaration.tsonic.declaration.local.local !== current || checkedVariableStorageOf(declaration) !== type) return null;
-    if (declaration.type !== null) {
-      const alias = ordinaryObjectDeclaration(declaration.type, type, itemOf);
-      return alias === null ? null : { local, declaration: alias, receiver: type };
+  let localRow = initial;
+  for (;;) {
+    let actual: DefId | null = null;
+    for (;;) {
+      if (reached?.has(current)) break;
+      if (localRow.declaration.kind !== "item") return null;
+      if (localRow.role === "parameter") {
+        const formal = nodeOf(localRow.declaration);
+        if (formal?.kind !== "Parameter" || formal.tsonic.parent !== body.owner || formal.tsonic.declaration.kind !== "local"
+          || formal.tsonic.declaration.local.body !== local.body || formal.tsonic.declaration.local.local !== current
+          || formal.dotDotDotToken !== null || formal.tsonic.declaredType.kind !== "available" || formal.tsonic.declaredType.value !== type) return null;
+        const passing = formal.tsonic.core.argumentPassing;
+        if (passing.kind !== "available" || passing.value !== null &&
+          (passing.value.role !== "declaration" || passing.value.mode !== "by-value")) return null;
+        actual = ordinaryObjectDeclaration(formal.type, type, itemOf);
+        if (actual === null) return null;
+        break;
+      }
+      if (localRow.role !== "binding" || !admitAlias()) return null;
+      const declaration = nodeOf(localRow.declaration);
+      if (declaration?.kind !== "VariableDeclaration" || declaration.id !== localRow.declaration.value.node
+        || declaration.origin.module !== body.root.origin.module
+        || declaration.tsonic.declaration.kind !== "local" || declaration.tsonic.declaration.local.body !== local.body
+        || declaration.tsonic.declaration.local.local !== current || checkedVariableStorageOf(declaration) !== type) return null;
+      if (declaration.type !== null) {
+        actual = ordinaryObjectDeclaration(declaration.type, type, itemOf);
+        if (actual === null) return null;
+        break;
+      }
+      if (declaration.initializer === null || declaration.tsonic.initializer === null) return null;
+      if (localRow.mutable) {
+        const bound = declaration.tsonic.inferredTypeBound;
+        if (bound?.kind !== "available" || typeof bound.value === "number" || bound.value.sources === null
+          || bound.value.sources.length === 0) return null;
+        actual = bound.value.alias;
+        if (alias !== null && alias !== actual) return null;
+        reached ??= new Set<LocalId>();
+        inputs ??= [];
+        for (let index = 0; index < bound.value.sources.length; index += 1) {
+          if (!admitAlias()) return null;
+          const source = bound.value.sources[index];
+          if (source === undefined) return null;
+          inputs.push(source);
+        }
+        break;
+      }
+      const initializer = unparenthesizedExpression<CheckedPhase>(declaration.initializer);
+      if (initializer.kind !== "Identifier" || initializer.tsonic.role !== "value" || initializer.tsonic.resolution.kind !== "local"
+        || initializer.tsonic.resolution.local.body !== local.body || initializer.tsonic.resolution.local.local >= current
+        || initializer.tsonic.value.views.read.kind !== "available" || initializer.tsonic.value.views.read.value !== type) return null;
+      current = initializer.tsonic.resolution.local.local;
+      if (!admitAlias()) return null;
+      const next = body.locals[current];
+      if (next?.id !== current || next.checkerSlot.kind !== "available" || next.checkerSlot.value !== type) return null;
+      localRow = next;
     }
-    if (localRow.mutable || declaration.initializer === null || declaration.tsonic.initializer === null) return null;
-    const initializer = unparenthesizedExpression<CheckedPhase>(declaration.initializer);
-    if (initializer.kind !== "Identifier" || initializer.tsonic.role !== "value" || initializer.tsonic.resolution.kind !== "local"
-      || initializer.tsonic.resolution.local.body !== local.body || initializer.tsonic.resolution.local.local >= current
-      || initializer.tsonic.value.views.read.kind !== "available" || initializer.tsonic.value.views.read.value !== type) return null;
-    current = initializer.tsonic.resolution.local.local;
+    if (actual !== null) {
+      alias ??= actual;
+      if (alias !== actual) return null;
+      reached?.add(current);
+    }
+    if (inputs === null || inputs.length === 0) break;
     if (!admitAlias()) return null;
-    localRow = body.locals[current];
-    if (localRow?.id !== current || localRow.checkerSlot.kind !== "available" || localRow.checkerSlot.value !== type) return null;
+    const incoming = inputs.pop();
+    if (incoming === undefined) return null;
+    current = incoming;
+    const next = body.locals[current];
+    if (next?.id !== current || next.checkerSlot.kind !== "available" || next.checkerSlot.value !== type) return null;
+    localRow = next;
   }
-  if (localRow.role !== "parameter" || localRow.declaration.kind !== "item") return null;
-  const formal = nodeOf(localRow.declaration);
-  if (formal?.kind !== "Parameter" || formal.tsonic.parent !== body.owner || formal.tsonic.declaration.kind !== "local"
-    || formal.tsonic.declaration.local.body !== local.body || formal.tsonic.declaration.local.local !== current
-    || formal.dotDotDotToken !== null || formal.tsonic.declaredType.kind !== "available" || formal.tsonic.declaredType.value !== type) return null;
-  const passing = formal.tsonic.core.argumentPassing;
-  if (passing.kind !== "available" || passing.value !== null && (passing.value.role !== "declaration" || passing.value.mode !== "by-value")) return null;
-  const declaration = ordinaryObjectDeclaration(formal.type, type, itemOf);
-  return declaration === null ? null : { local, declaration, receiver: type };
+  return alias === null ? null : { local, declaration: alias, receiver: type };
 };
 
 export const checkedSourceObjectFieldOf: CheckedSourceObjectFieldOf = (body, access, nodeOf, itemOf, admitAlias) => {
@@ -100,7 +144,8 @@ export const checkedVariableStorageOf: CheckedVariableStorageOf = declaration =>
   const { declaredType, inferredTypeBound } = declaration.tsonic;
   if (declaredType.kind !== "available") return null;
   if (declaredType.value !== null) return declaredType.value;
-  return inferredTypeBound?.kind === "available" ? inferredTypeBound.value : null;
+  return inferredTypeBound?.kind === "available"
+    ? typeof inferredTypeBound.value === "number" ? inferredTypeBound.value : inferredTypeBound.value.type : null;
 };
 
 export const writableRootStorageOf: WritableRootStorageOf = (place, resolution) => {
