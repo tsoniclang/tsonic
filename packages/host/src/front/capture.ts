@@ -1,5 +1,5 @@
 import type { ArgumentPassingFact, Diagnostic as CheckerDiagnostic, FieldFact, Node, ResolvedAliasTarget, ResolvedCallSelectionEvidence, ResolvedSourceTypeInfo, Signature, SourceFile, Symbol as CheckerSymbol, Type, TypeCheckerQueries, TypeIndexInfo, TypeReferenceArgumentInfo, TypeShapeQueries } from "@tsonic/tsts";
-import type { NativeCheckerAdmission, ResolvedCallInferenceContribution, ResolvedCheckedComponentEvidence, ResolvedCheckerBackingConstraint, TypePropertyInfo, TypePropertyInventory } from "@tsonic/tsts";
+import type { NativeCheckerAdmission, ResolvedCallInferenceContribution, ResolvedCheckedComponentEvidence, ResolvedCheckerBackingConstraint, SourceMarkerFact, TypePropertyInfo, TypePropertyInventory } from "@tsonic/tsts";
 import { argumentPassingFactKey, defaultValueFactKey, fieldFactKey, providerVirtualDeclarationFactKey,
   sourceMarkerFactKey, structFactKey, TypeFlagsConditional, TypeFlagsEnumLike, TypeFlagsIndexedAccess, TypeFlagsUniqueESSymbol } from "@tsonic/tsts";
 import type { Cause, CheckerDiagnosticRef, Diagnostic, InvariantFailure, Result } from "../diag/contract.js";
@@ -11,7 +11,7 @@ import type { RawComponentId, RawSignatureId, RawSymbolId, RawTypeId } from "../
 import type {
   CaptureDeps, CheckedProgram, RawArgumentBinding, RawAuthoredArgument, RawBinding, RawBindingTarget, RawCallSelection, RawCallableAssociation, RawCandidateList, RawCoreCapture, RawCheckedType, RawCheckerViews, RawComponent, RawComponentStep, RawDiagnosticCoverage, RawFact, RawIndexSignature, RawInferenceContribution, RawLiteral, RawMember, RawMemberOrigin, RawMemberKey, RawMemberTable, RawMemberUse, RawModule, RawModuleExport, RawModuleLink, RawNodeRef, RawParameter, RawPropertyName, RawProviderDeclaration, RawReference, RawSignature, RawStorageCapture, RawSymbol, RawTypeArgument, RawTypeForm,
 } from "./contract.js";
-import type { RawComputedMemberKey, RawConditionalBranch, RawConstraint, RawDataLayout, RawEnum, RawEnumConstant, RawEnumMember, RawFieldMarker, RawMarkers, RawMemberHeader, RawNumericLiteral } from "./contract.js";
+import type { RawApplication, RawComputedMemberKey, RawConditionalBranch, RawConstraint, RawDataLayout, RawEnum, RawEnumConstant, RawEnumMember, RawFieldMarker, RawLayoutQuery, RawMarkers, RawMemberHeader, RawMemoryMetadata, RawNumericLiteral } from "./contract.js";
 import { ExtensionTable, OpenedProgram } from "./handles.js";
 import { projectProviderModel } from "./provider-model.js";
 import type { FileNumbering, FileSyntaxEntry } from "./handles.js";
@@ -329,7 +329,27 @@ interface CaptureScope extends CaptureAdmission {
 
 type CallCore = NonNullable<Extract<RawMarkers["application"], { readonly kind: "available" }>["value"]>
   | { readonly role: "provider"; readonly receipt: RawProviderDeclaration }
+  | { readonly role: "layout-construction"; readonly capture: Extract<RawMemoryMetadata, { readonly kind: "layout-construction" }> }
+  | { readonly role: "layout-query"; readonly capture: RawLayoutQuery }
   | "ordinary";
+
+type LayoutRole =
+  | { readonly kind: "construction"; readonly construction: "value" | "array" | "field" }
+  | { readonly kind: "query"; readonly operation: RawLayoutQuery["operation"] };
+
+function layoutRole(marker: SourceMarkerFact | undefined): LayoutRole | null {
+  if (marker?.kind !== "call-marker") return null;
+  switch (marker.marker) {
+    case "memory-value-layout": return { kind: "construction", construction: "value" };
+    case "memory-array-layout": return { kind: "construction", construction: "array" };
+    case "memory-field-layout": return { kind: "construction", construction: "field" };
+    case "memory-size": return { kind: "query", operation: "size" };
+    case "memory-alignment": return { kind: "query", operation: "alignment" };
+    case "memory-stride": return { kind: "query", operation: "stride" };
+    case "memory-field-offset": return { kind: "query", operation: "field-offset" };
+    default: return null;
+  }
+}
 
 type OpenedProgramView = ReturnType<typeof OpenedProgram.checked>;
 
@@ -2632,7 +2652,7 @@ function capturedMarkers(scope: CaptureScope, node: Node, occurrence: NodeId): R
   let application: RawMarkers["application"] = available(null);
   if ((structure !== undefined || field !== undefined) && scope.checked.ast.kindName(node) === "KindCallExpression") {
     const selected = scope.callCore.get(occurrence);
-    application = selected !== undefined && selected !== "ordinary" && selected.role !== "provider"
+    application = selected !== undefined && selected !== "ordinary" && (selected.role === "struct" || selected.role === "field")
       && (selected.role === "struct" ? structure !== undefined : field !== undefined)
       ? available(selected) : { kind: "unavailable", reason: "incomplete-association", causes: [] };
   }
@@ -3797,8 +3817,10 @@ function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef): R
   if (result === null) return null;
   const candidates = rawCandidateListId(scope.tables.candidates.length);
   if (!admit(scope, "facts") || !admit(scope, "facts")) return null;
+  const rawApplication: RawApplication = { invocation, kind: application.kind, signature, callee, receiver: null,
+    classArguments: [], signatureArguments: capturedBindings.arguments };
   scope.tables.candidates.push({ id: candidates, candidates: [{ ordinal: 0,
-    application: { invocation, kind: application.kind, signature, callee, receiver: null, classArguments: [], signatureArguments: capturedBindings.arguments }, sourceArguments,
+    application: rawApplication, sourceArguments,
     arguments: available(bindings), inferenceContributions: capturedBindings.contributions,
     constraints: [], diagnostics: [], diagnosticCoverage: [] }] });
   captureFacts(scope);
@@ -3806,8 +3828,20 @@ function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef): R
   const completed = scope.tables.signatures[signature];
   if (completed === undefined) return throwInvariant(invariant("A selected call has no completed captured signature."));
   if (!scope.emptyCoreInventory) {
+    const layout = layoutRole(scope.checked.sourceFacts.getFact(node, sourceMarkerFactKey));
     const marker = scope.checked.sourceFacts.getFact(application.callee.expression, sourceMarkerFactKey);
-    if (marker?.kind === "call-marker" && (marker.marker === "struct" || marker.marker === "field")) {
+    if (layout !== null) {
+      if (!admit(scope, "edges")) return null;
+      const declaration = scope.tables.signatures[original]?.declaration;
+      if (declaration === undefined || declaration === null || scope.checked.ast.as.AsCallExpression(node)?.Expression !== application.callee.expression
+        || admittedTypeUse(scope, declaration) !== application.signatureShape.declaration)
+        return throwInvariant(invariant("A layout operation must retain the actual applicable selected call declaration."));
+      if (!admit(scope, "facts", 2)) return null;
+      const selectedLayout = { application: rawApplication, declaration, operands: sourceArguments };
+      scope.callCore.set(invocation.node, layout.kind === "construction"
+        ? { role: "layout-construction", capture: { ...selectedLayout, kind: "layout-construction", construction: layout.construction } }
+        : { role: "layout-query", capture: { ...selectedLayout, operation: layout.operation } });
+    } else if (marker?.kind === "call-marker" && (marker.marker === "struct" || marker.marker === "field")) {
       if (!admit(scope, "edges")) return null;
       const declaration = scope.tables.signatures[original]?.declaration;
       if (declaration !== undefined && declaration !== null && scope.checked.ast.as.AsCallExpression(node)?.Expression === application.callee.expression
@@ -4118,7 +4152,10 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
       }
     }
     const passing = kind === "KindParameter" ? declarationPassing(scope, node) : undefined;
-    core.push(passing === undefined ? row : { ...row, argumentPassing: available(passing) });
+    core.push(application !== undefined && application !== "ordinary"
+      ? application.role === "layout-construction" ? { ...row, metadata: available(application.capture) }
+        : application.role === "layout-query" ? { ...row, layoutQuery: available(application.capture) } : row
+      : passing === undefined ? row : { ...row, argumentPassing: available(passing) });
   }
   const exports: RawModuleExport[] = [];
   const moduleSymbol = scope.meter.refusal === null ? scope.checker.getSymbolAtLocation(file) : undefined;

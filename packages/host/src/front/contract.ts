@@ -753,8 +753,13 @@ export interface RawMemoryField {
 
 export type RawMemoryMetadata =
   | { readonly kind: "data-layout"; readonly occurrence: RawNodeRef; readonly dataLayout: RawDataLayoutId }
-  | { readonly kind: "memory-layout"; readonly layout: RawMemoryLayoutId }
-  | { readonly kind: "memory-field"; readonly field: RawMemoryFieldId };
+  | (RawLayoutApplication & { readonly kind: "layout-construction"; readonly construction: "value" | "array" | "field" });
+
+export interface RawLayoutApplication {
+  readonly application: RawApplication;
+  readonly declaration: RawNodeRef;
+  readonly operands: readonly RawAuthoredArgument[];
+}
 
 export interface RawFieldBinding {
   readonly occurrence: RawNodeRef;
@@ -780,17 +785,9 @@ export interface RawRecordBinding {
   readonly fields: readonly RawRecordFieldBinding[];
 }
 
-export type RawLayoutQuery = {
-  readonly occurrence: RawNodeRef;
-  readonly source: RawMemorySource;
-  readonly layoutExpression: RawNodeRef;
-  readonly layout: RawMemoryLayoutId;
-} & (
-  | { readonly operation: "size" | "alignment" | "stride" }
-  | { readonly operation: "field-offset"; readonly selector: RawNodeRef;
-      readonly selection: RawNodeRef; readonly primary: RawNodeRef | null;
-      readonly selectedDeclarations: readonly RawNodeRef[] }
-);
+export interface RawLayoutQuery extends RawLayoutApplication {
+  readonly operation: "size" | "alignment" | "stride" | "field-offset";
+}
 
 export interface RawCoreCapture {
   readonly node: RawNodeRef;

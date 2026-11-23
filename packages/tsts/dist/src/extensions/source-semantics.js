@@ -415,6 +415,16 @@ function recordSourceSemanticsCallMarker(facts, checker, callExpression, callInf
             if (callInfo !== undefined)
                 recordRawPointerOperation(facts, callExpression, callInfo, marker, evidence);
             return;
+        case "memory-value-layout":
+        case "memory-array-layout":
+        case "memory-field-layout":
+        case "memory-size":
+        case "memory-alignment":
+        case "memory-stride":
+        case "memory-field-offset":
+            if (callInfo?.kind === "applicable")
+                facts.set(callExpression, sourceMarkerFactKey, { kind: "call-marker", marker: marker.marker }, evidence);
+            return;
     }
 }
 function hasMarkerArgumentCount(callExpression, count) {

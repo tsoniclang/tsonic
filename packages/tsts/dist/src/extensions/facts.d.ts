@@ -19,7 +19,7 @@ export interface ExtensionCanonicalIdentity {
     readonly canonicalSymbolId?: string;
 }
 export type SourcePointerMutability = "readonly" | "readwrite" | "unspecified";
-export type SourceCallMarkerKind = "write-only-reference" | "read-write-reference" | "read-only-reference" | "shared-borrow" | "mutable-borrow" | "move" | "struct" | "field" | "attribute" | "default-value" | "address-of" | "allocate" | "load" | "store" | "equal-pointer" | "hash-pointer" | "bind-pointer" | "project-pointer" | "bind-raw-pointer" | "equal-raw-pointer" | "hash-raw-pointer" | "js-string";
+export type SourceCallMarkerKind = "write-only-reference" | "read-write-reference" | "read-only-reference" | "shared-borrow" | "mutable-borrow" | "move" | "struct" | "field" | "attribute" | "default-value" | "address-of" | "allocate" | "load" | "store" | "equal-pointer" | "hash-pointer" | "bind-pointer" | "project-pointer" | "bind-raw-pointer" | "equal-raw-pointer" | "hash-raw-pointer" | "memory-value-layout" | "memory-array-layout" | "memory-field-layout" | "memory-size" | "memory-alignment" | "memory-stride" | "memory-field-offset" | "js-string";
 export type SourceTypeMarkerKind = "pointer" | "function-pointer" | "raw-pointer" | "fixed-array" | "js-string";
 export type SourceMarkerFact = {
     readonly kind: "call-marker";

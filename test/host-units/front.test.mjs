@@ -401,6 +401,45 @@ function declarationProvider(id, specifier, providerModuleId, rangeStart = 9_900
 const reference = (root, exportId = "provider") => ({ package: packageOf(root), moduleSpecifier: "./plugin.js", exportId, version: "1" });
 const providerRegistration = (root, provider) => ({ reference: reference(root), value: { kind: "declaration-provider", value: provider } });
 
+test("layout capture retains the same selected application and authored operands without computing geometry", () => {
+  const specifier = "native:layout";
+  const providerModuleId = "native.layout";
+  const native = { ...declarationProvider("test.layout", specifier, providerModuleId),
+    getDeclarationModel: () => ({ moduleSpecifier: specifier, providerModuleId, exports: [
+      { id: "layout", name: "layout", kind: "function", signatures: [{ id: "layout.call",
+        parameters: [{ name: "abi", type: { kind: "boolean" } }, ...["size", "alignment", "stride"].map(name => ({ name, type: { kind: "number" } }))],
+        returnType: { kind: "number" } }] },
+      { id: "size", name: "size", kind: "function", signatures: [{ id: "size.call",
+        parameters: [{ name: "descriptor", type: { kind: "number" } }], returnType: { kind: "number" } }] },
+    ] }) };
+  const nativeRegistration = providerRegistration("/layout-provider", native);
+  const roles = { reference: reference("/layout-provider", "roles"), value: { kind: "semantics-module",
+    value: { moduleSpecifier: specifier, exports: [
+      { kind: "call-marker", exportName: "layout", marker: "memory-value-layout" },
+      { kind: "call-marker", exportName: "size", marker: "memory-size" },
+    ] } } };
+  const source = 'import { layout as make, size as measure } from "native:layout"; '
+    + "export const descriptor = make(true, 8, 8, 8); export const width = measure(descriptor);";
+  const snapshot = projectSnapshot({ sourceFiles: { "main.ts": source }, libraries: bundled(),
+    providerPackages: [{ root: "/layout-provider", name: "layout-provider" }],
+    declarationProviders: [nativeRegistration.reference], semanticModules: [roles.reference] });
+  const { deps, program } = openAndCapture(snapshot, [nativeRegistration, roles]);
+  const result = front.captureModule(deps, program, snapshot.entryPoint);
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const raw = result.value;
+  const [create, observe] = raw.calls;
+  const [make, measure] = [create, observe].map(call => raw.types.candidates[call.candidates].candidates[0]);
+  const construction = raw.core[create.invocation.node].metadata.value;
+  const query = raw.core[observe.invocation.node].layoutQuery.value;
+  assert.deepEqual([construction.kind, construction.construction, query.operation], ["layout-construction", "value", "size"]);
+  assert.equal(construction.application === make.application && query.application === measure.application, true);
+  assert.equal(construction.operands === make.sourceArguments && query.operands === measure.sourceArguments, true);
+  assert.deepEqual(construction.operands.map(row => row.expression.node),
+    raw.tree.statements.nodes[1].declarationList.declarations.nodes[0].initializer.arguments.nodes.map(node => node.id));
+  assert.equal(Object.hasOwn(construction, "byteSize"), false);
+  assert.equal(Object.hasOwn(query, "value"), false);
+});
+
 const plainSources = { "main.mts": "import { twice } from \"./util.mjs\";\nexport const xs: number[] = [twice(1)];\n",
   "util.mts": "export function twice(value: number): number { return value * 2; }\n" };
 const failure = message => ({ owner: "front", query: null, origin: null, message });

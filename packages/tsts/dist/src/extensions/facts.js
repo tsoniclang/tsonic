@@ -800,6 +800,13 @@ const sourceCallMarkerKinds = new Set([
     "bind-raw-pointer",
     "equal-raw-pointer",
     "hash-raw-pointer",
+    "memory-value-layout",
+    "memory-array-layout",
+    "memory-field-layout",
+    "memory-size",
+    "memory-alignment",
+    "memory-stride",
+    "memory-field-offset",
     "js-string",
 ]);
 const sourceTypeMarkerKinds = new Set([
