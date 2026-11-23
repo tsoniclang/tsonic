@@ -8048,15 +8048,31 @@ export function Checker_getIndexInfoWithReadonly(receiver, info, readonly) {
  * }
  */
 export function Checker_getUnionIndexInfos(receiver, types) {
+    admitNativeChecker(receiver, "work");
     const sourceInfos = Checker_getIndexInfosOfType(receiver, types[0]);
+    admitNativeChecker(receiver, "retained");
     const result = [];
-    for (const info of sourceInfos) {
-        const indexType = info.keyType;
-        if (Every(types, (t) => Checker_getIndexInfoOfType(receiver, t, indexType) !== undefined)) {
-            const valueType = Checker_getUnionType(receiver, Map(types, (t) => Checker_getIndexTypeOfType(receiver, t, indexType)));
-            const isReadonly = Some(types, (t) => Checker_getIndexInfoOfType(receiver, t, indexType).isReadonly);
-            result.push(Checker_newIndexInfo(receiver, indexType, valueType, isReadonly, undefined, []));
+    for (let index = 0; index < sourceInfos.length; index++) {
+        admitNativeChecker(receiver, "work");
+        const source = sourceInfos[index];
+        const indexType = source.keyType;
+        admitNativeChecker(receiver, "retained", 2);
+        const values = [source.valueType];
+        let isReadonly = source.isReadonly;
+        for (let member = 1; member < types.length; member++) {
+            admitNativeChecker(receiver, "work");
+            const selected = Checker_getIndexInfoOfType(receiver, types[member], indexType);
+            if (selected === undefined)
+                break;
+            admitNativeChecker(receiver, "retained");
+            values.push(selected.valueType);
+            isReadonly ||= selected.isReadonly;
         }
+        if (values.length !== types.length)
+            continue;
+        const valueType = Checker_getUnionType(receiver, values);
+        admitNativeChecker(receiver, "retained");
+        result.push(Checker_newIndexInfo(receiver, indexType, valueType, isReadonly, undefined, []));
     }
     return result;
 }
@@ -14072,30 +14088,56 @@ export function Checker_getTypeOfMappedSymbol(receiver, symbol_) {
 export function Checker_resolveUnionTypeMembers(receiver, t) {
     // The members and properties collections are empty for union types. To get all properties of a union
     // type use getPropertiesOfType (only the language service uses this).
-    const callInputs = Map(Type_Types(t), (type_) => {
-        if (type_ === receiver.globalFunctionType) {
-            return [receiver.unknownSignature];
-        }
-        return Checker_getSignaturesOfType(receiver, type_, SignatureKindCall);
-    });
-    let callSignatures = Checker_getUnionSignatures(receiver, callInputs);
-    for (const signature of callSignatures) {
-        if (signature?.composite?.isUnion && !callInputs.some(input => input.includes(signature)))
-            signature.derivation = { kind: "union-member", owner: t, signatureKind: "call", constituents: signature.composite.signatures };
-    }
+    const members = Type_Types(t);
+    let callSignatures = unionMemberSignatures(receiver, t, members, SignatureKindCall);
     if (callSignatures.length === 0) {
         callSignatures = Checker_getArrayMemberCallSignatures(receiver, t);
     }
-    const constructInputs = Map(Type_Types(t), (type_) => {
-        return Checker_getSignaturesOfType(receiver, type_, SignatureKindConstruct);
-    });
-    const constructSignatures = Checker_getUnionSignatures(receiver, constructInputs);
-    for (const signature of constructSignatures) {
-        if (signature?.composite?.isUnion && !constructInputs.some(input => input.includes(signature)))
-            signature.derivation = { kind: "union-member", owner: t, signatureKind: "construct", constituents: signature.composite.signatures };
-    }
-    const indexInfos = Checker_getUnionIndexInfos(receiver, Type_Types(t));
+    const constructSignatures = unionMemberSignatures(receiver, t, members, SignatureKindConstruct);
+    const indexInfos = Checker_getUnionIndexInfos(receiver, members);
     Checker_setStructuredTypeMembers(receiver, t, undefined, callSignatures, constructSignatures, indexInfos);
+}
+function unionMemberSignatures(receiver, owner, members, kind) {
+    admitNativeChecker(receiver, "retained");
+    const inputs = [];
+    for (let index = 0; index < members.length; index++) {
+        admitNativeChecker(receiver, "work");
+        const member = members[index];
+        admitNativeChecker(receiver, "retained");
+        if (kind === SignatureKindCall && member === receiver.globalFunctionType) {
+            admitNativeChecker(receiver, "retained", 2);
+            inputs.push([receiver.unknownSignature]);
+        }
+        else {
+            inputs.push(Checker_getSignaturesOfType(receiver, member, kind));
+        }
+    }
+    const signatures = Checker_getUnionSignatures(receiver, inputs);
+    for (let index = 0; index < signatures.length; index++) {
+        admitNativeChecker(receiver, "work");
+        const signature = signatures[index];
+        const composite = signature?.composite;
+        if (signature === undefined || composite?.isUnion !== true)
+            continue;
+        let inherited = false;
+        for (let arm = 0; arm < inputs.length && !inherited; arm++) {
+            admitNativeChecker(receiver, "work");
+            const offered = inputs[arm];
+            for (let position = 0; position < offered.length; position++) {
+                admitNativeChecker(receiver, "work");
+                if (offered[position] !== signature)
+                    continue;
+                inherited = true;
+                break;
+            }
+        }
+        if (!inherited) {
+            admitNativeChecker(receiver, "retained");
+            signature.derivation = { kind: "union-member", owner, signatureKind: kind === SignatureKindCall ? "call" : "construct",
+                constituents: composite.signatures };
+        }
+    }
+    return signatures;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.isArrayOrTupleSymbol","kind":"method","status":"implemented","sigHash":"353a3f61e9009b199c92a2440259ff97c2639211fdaeb15d30a2e576c229829f","bodyHash":"5a72446e7621963650ae95ac09c6387c177be8b0d1b3bec834ee5d87d3970202"}
@@ -16537,6 +16579,7 @@ export function Checker_newIndexType(receiver, target, indexFlags) {
  * }
  */
 export function Checker_newIndexInfo(receiver, keyType, valueType, isReadonly, declaration, components) {
+    admitNativeChecker(receiver, "retained");
     const info = Arena_New(receiver.indexInfoArena);
     info.keyType = keyType;
     info.valueType = valueType;
