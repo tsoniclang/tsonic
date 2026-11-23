@@ -2069,7 +2069,19 @@ test("actual selected capture entries distinguish a copied scalar value from an 
         assert.equal(completed, true, "the captured-location root need fits the exact existing-account allowance");
       }
     } else {
-      assert.throws(() => analyzeBodyRound({ ...current.deps, account: createAccount(limits) }, current.input), /distinct copied capture slot/);
+      current.related = [fixture(owner)];
+      const pair = checkedPair(current, analyzeBodyRound({ ...current.deps, account: createAccount(limits) }, current.input));
+      assert.deepEqual(pair.facts.arena.cells, []);
+      assert.deepEqual(pair.summary.arena.contexts[0].captures, [{ index: 0, origins: pair.summary.result }]);
+      assert.equal(pair.facts.initialization.reads[0].assigned, true);
+      assert.equal(pair.summary.initialization.points.some(point => point.kind === "need"), false);
+      assert.deepEqual(pair.summary.writes, []);
+      const alias = { ...pair.facts, arena: { ...pair.facts.arena, cells: [{ id: 0, role: { kind: "capture", index: 0 },
+        occurrence: { kind: "entry", execution: current.execution, local: captured.id }, lifetimes: [] }] } };
+      const rejected = verifyFacts(alias, current.input.mir, current.factsContext, createAccount(limits));
+      assert.equal(rejected.kind, "complete");
+      assert.equal(rejected.violations.some(violation => violation.rule === "cell-role-resolves"
+        && violation.detail[0]?.value === "A copied capture has no incoming caller cell."), true);
     }
     for (const dimension of ["maximumWork", "maximumResultEntries"]) {
       let firstComplete = null;
@@ -2780,7 +2792,8 @@ test("module static reads use one actual cell per declaration and preserve the d
     const read = [...nodes.values()].find(node => node.kind === "Identifier" && node.tsonic.resolution?.kind === "static");
     assert.ok(read);
     const changedReference = declaration => ({ ...read, tsonic: { ...read.tsonic, resolution: { ...read.tsonic.resolution, declaration } } });
-    const invoke = (input, source = nodes) => staticCells({ ...deps.environment, account: createAccount(limits) }, input, source);
+    const invoke = (input, source = nodes) => staticCells({ ...deps.environment, account: createAccount(limits) },
+      input, source, input.tir.captures.filter(capture => capture.capture === "captured-location").length);
     assert.throws(() => invoke({ ...members, mir: { ...member.mir, bindings: { kind: "parametric" } } }), /projection or static-cell producer/);
     assert.throws(() => invoke(members, new Map(nodes).set(read.id,
       changedReference({ ...read.tsonic.resolution.declaration, node: read.id }))), /actual declaration node and storage/);
@@ -2855,7 +2868,8 @@ test("called static reads bind the complete declaration identity and preserve th
   const run = (account, admit = () => null, declared = direct, overrides = {}) => staticCallInventory({
     account, types: index.types, typeOf: type => index.types.terms[type], staticTypeOf: () => index.types.terms.findIndex(type =>
       type.kind === "primitive" && type.primitive === "bool"), ...overrides,
-  }, { tir: actual.tir, mir: actual.mir }, declared, admit);
+  }, { tir: actual.tir, mir: actual.mir }, declared,
+  actual.tir.captures.filter(capture => capture.capture === "captured-location").length, admit);
   const exact = createAccount(limits);
   const current = run(exact);
   assert.equal(current.kind, "complete");
@@ -5221,7 +5235,7 @@ test("ready relation frontiers never fabricate projection, capture, absence or g
   const current = fixture(add("body-round.ready-frontiers", T.float64, plus("float64", T.float64)));
   const run = input => analyzeBodyRound({ ...current.deps, account: createAccount(limits) }, input);
   const capture = { local: { body: current.program.tir.body, local: 0 }, capture: "captured-location" };
-  assert.throws(() => run({ ...current.input, tir: { ...current.input.tir, captures: [capture] } }), /capture-to-cell association/);
+  assert.throws(() => run({ ...current.input, tir: { ...current.input.tir, captures: [capture] } }), /actual association for every selected captured execution slot/);
   const place = current.input.mir.places[0];
   assert.throws(() => run({ ...current.input, mir: { ...current.input.mir,
     places: [{ ...place, base: { kind: "static", definition: current.program.tir.owner } }, ...current.input.mir.places.slice(1)] } }),

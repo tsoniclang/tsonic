@@ -60,7 +60,14 @@ export const relationalUsage = (arena: RelationalArena, account: DataflowAccount
   for (const value of arena.contexts) {
     const work = chargeWork(account, 1);
     if (work !== null) return work;
-    references += (value.receiver === null ? 0 : 1) + value.arguments.length + value.captures.length * 2;
+    references += (value.receiver === null ? 0 : 1) + value.arguments.length;
+    const captures = value.captures;
+    for (let index = 0; index < captures.length; index += 1) {
+      const read = chargeWork(account, 1);
+      if (read !== null) return read;
+      const capture = captures[index];
+      if (capture !== undefined) references += "origins" in capture ? 1 : 2;
+    }
   }
   for (const origins of arena.origins) {
     const work = chargeWork(account, 1);
@@ -430,13 +437,23 @@ export const verifyRelationalArena = (
       { const stop = report("origin-alternatives-correlated", site, "A value context retains its actual receiver and parameter origins without mixing alternatives."); if (stop !== null) return stop; }
     }
     let previousCapture: number | null = null;
-    for (const capture of value.captures) {
-    const step = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
-    if (step !== null) return step;
-      if (!Number.isSafeInteger(capture.index) || capture.index < 0 || Object.is(capture.index, -0) ||
-        previousCapture !== null && compareNumbers(previousCapture, capture.index) >= 0 ||
-        !validIndex(capture.location, arena.boundProducers.length) || !Object.is(arena.boundProducers[capture.location]?.id, capture.location)
-        || !validIndex(capture.cell, arena.cells.length) || !Object.is(arena.cells[capture.cell]?.id, capture.cell)) {
+    const captures = value.captures;
+    for (let position = 0; position < captures.length; position += 1) {
+      const step = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
+      if (step !== null) return step;
+      const capture = captures[position];
+      if (capture === undefined) {
+        const stop = report("capture-locations-exact", site, "A value context retains its dense capture vector.");
+        if (stop !== null) return stop;
+        continue;
+      }
+      const validSubject = "origins" in capture
+        ? !("location" in capture) && !("cell" in capture) && validIndex(capture.origins, arena.origins.length)
+          && Object.is(arena.origins[capture.origins]?.id, capture.origins)
+        : validIndex(capture.location, arena.boundProducers.length) && Object.is(arena.boundProducers[capture.location]?.id, capture.location)
+          && validIndex(capture.cell, arena.cells.length) && Object.is(arena.cells[capture.cell]?.id, capture.cell);
+      if (!Number.isSafeInteger(capture.index) || capture.index < 0 || Object.is(capture.index, -0) || !validSubject ||
+        previousCapture !== null && compareNumbers(previousCapture, capture.index) >= 0) {
         { const stop = report("capture-locations-exact", site, "Captures retain distinct ordered indices, bound value subjects and their actual separately supplied logical cells."); if (stop !== null) return stop; }
       }
       previousCapture = capture.index;
@@ -449,8 +466,12 @@ export const verifyRelationalArena = (
         if (work !== null) return work;
         const capture = expected.captures[position];
         const selected = value.captures[position];
-        if (capture === undefined || selected === undefined || capture.index !== selected.index
-          || capture.location !== selected.location || capture.cell !== selected.cell) { captureMismatch = true; break; }
+        if (capture === undefined || selected === undefined || capture.index !== selected.index ||
+          ("origins" in capture ? !("origins" in selected) || capture.origins !== selected.origins
+            : "origins" in selected || capture.location !== selected.location || capture.cell !== selected.cell)) {
+          captureMismatch = true;
+          break;
+        }
       }
     }
     if (captureMismatch) {

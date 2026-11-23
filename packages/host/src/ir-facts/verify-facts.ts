@@ -683,7 +683,6 @@ if (!consumed.get(index)?.has(component)) {
       const dependent = activation === null ? context.bindingDependentOf(decision.api.declaration) : null;
       const environment: ArtifactBindings | null = activation !== null || dependent === true
         ? { kind: "instantiated", bindings: decision.implementationBindings } : dependent === null ? null : { kind: "parametric" };
-      // The captured locations of an invocation are the rows of its activation body; a callee without an activation has none.
       const actual = activation === null ? null : context.tirBody(activation);
       const captured = actual === null ? 0 : actual.captures.length;
       const activationValid = actual === null || activation === null || actual.body === activation.body && actual.owner === decision.api.declaration &&
@@ -703,13 +702,24 @@ if (parameter.kind === "argument") provided += 1;
         !selectedExecution || !Object.is(summary.execution.provided, provided) || !activationValid) { const stop = report("summary-reference-exact", site,
         "An invocation names the actual selected declaration and exact instantiated summary environment."); if (stop !== null) return stop; }
       const captureSet = new Set<string>();
-      if (actual !== null) for (const row of actual.captures) {
+      if (actual !== null) for (let position = 0; position < actual.captures.length; position += 1) {
     const step = chargeWork(account, 1);
     if (step !== null) return step;
 
+        const row = actual.captures[position];
         if (row === undefined || !context.localExists(row.local)) {
           { const stop = report("capture-locations-exact", site, "An invocation capture retains its actual qualified local location."); if (stop !== null) return stop; }
           continue;
+        }
+        if (receiver !== undefined) {
+          const read = chargeWork(account, 1);
+          if (read !== null) return read;
+          const selected = receiver.captures[position];
+          if (selected !== undefined && (selected.index !== position ||
+            (row.capture === "captured-value") !== ("origins" in selected))) {
+            const stop = report("capture-locations-exact", site, "A capture binds the actual selected caller value or location, never the other mode.");
+            if (stop !== null) return stop;
+          }
         }
         const output = chargeWork(account, row.local.body.length) ?? chargeResultEntries(account, 2);
         if (output !== null) return output;

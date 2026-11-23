@@ -9,7 +9,7 @@ import type {
 import type { CallbackInput, SummaryCallback } from "../snapshot/contract.js";
 import type {
   ArgumentTransport, BindingStorageFact, BodyFacts, BodyObservations, BoundActivation, BoundProducer, BoundRecordField,
-  CallbackEntry, CallbackExchange, DependencyComponent, ExecutionDependency, DependencyInventory, CaptureEffect, CaptureFact, CaptureLocation,
+  CallbackEntry, CallbackExchange, DependencyComponent, ExecutionDependency, DependencyInventory, CaptureBinding, CaptureEffect, CaptureFact,
   ClosedArrayFact, ClosedArrayReason, ConstructionAlternative, CountedLoopFact, EffectPaths,
   ErrorInvalidationFact, ErrorInvalidationReason, ErrorStorageFact, ErrorStorageFacts, EscapeFact, EscapeTarget, ExitContents,
   InitializationFact, InitializationFacts, InstanceRegion, IntegerFact, IntegerRange, InvocationAlternative, InvocationFact,
@@ -307,7 +307,9 @@ const projectionPath = (writer: Writer, value: ProjectionPath): void => record(w
   ["id", () => identity(writer, "path", value.id)], ["parent", () => nullable(writer, value.parent, item => identity(writer, "path", item))],
   ["projection", () => projection(writer, value.projection)],
 ]);
-const captureLocation = (writer: Writer, value: CaptureLocation): void => record(writer, "CaptureLocation", [
+const captureBinding = (writer: Writer, value: CaptureBinding): void => "origins" in value ? record(writer, "CapturedValue", [
+  ["index", () => scalar(writer, value.index)], ["origins", () => identity(writer, "origins", value.origins)],
+]) : record(writer, "CaptureLocation", [
   ["index", () => scalar(writer, value.index)], ["location", () => identity(writer, "bound", value.location)],
   ["cell", () => identity(writer, "cell", value.cell)],
 ]);
@@ -315,7 +317,7 @@ const valueContext = (writer: Writer, value: ValueContext): void => record(write
   ["id", () => identity(writer, "context", value.id)], ["receiver", () => nullable(writer, value.receiver, item => identity(writer, "origins", item))],
   ["arguments", () => sequence(writer, value.arguments, item => record(writer, item.kind, item.kind === "omitted"
     ? [] : [["origins", () => identity(writer, "origins", item.origins)]]))],
-  ["captures", () => sequence(writer, value.captures, item => captureLocation(writer, item))],
+  ["captures", () => sequence(writer, value.captures, item => captureBinding(writer, item))],
 ]);
 const boundProducer = (writer: Writer, value: BoundProducer): void => record(writer, "BoundProducer", [
   ["id", () => identity(writer, "bound", value.id)], ["producer", () => identity(writer, "producer", value.producer)],

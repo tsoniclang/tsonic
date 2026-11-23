@@ -69,8 +69,9 @@ export interface AppliedWrite {
 export interface AppliedContext {
   readonly receiver: AppliedOriginsValue | null;
   readonly arguments: readonly ({ readonly kind: "provided"; readonly origins: AppliedOriginsValue } | { readonly kind: "omitted" })[];
-  readonly captures: readonly { readonly index: number; readonly location: AppliedSubject;
-    readonly cell: AppliedCell & { readonly kind: "located" } }[];
+  readonly captures: readonly ({ readonly index: number; readonly location: AppliedSubject;
+    readonly cell: AppliedCell & { readonly kind: "located" } } |
+    { readonly index: number; readonly origins: AppliedOriginsValue })[];
 }
 
 export type AppliedCallback = { readonly subject: AppliedSubject } & (

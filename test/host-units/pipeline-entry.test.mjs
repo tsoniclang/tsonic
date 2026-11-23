@@ -1506,6 +1506,34 @@ test("an immutable ordinary object alias reads the field of the original referen
     error => error.cause?.owner === "rules" && /native receiver representation/u.test(error.message));
 });
 
+test("a copied reference captured by a detached initializer preserves its value without creating a caller cell", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const source = "export type Box = { flag: boolean }; "
+    + "export function read(box: Box): boolean { const alias = box; const second = alias; return second.flag; }";
+  const input = analysisInput(fixture, "sdk-minimal", source);
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const bodies = result.value.modules.find(module => module.module === input.snapshot.entryPoint).bodies;
+  const caller = bodies.find(row => row.kind === "selected" && row.tir.root.kind === "Block");
+  const operation = caller.mir.blocks.map(block => block.terminator)
+    .find(row => row.kind === "call" && row.callee.kind === "body" && row.callee.captures[0]?.capture === "captured-value");
+  const callee = bodies.find(row => row.kind === "selected" && row.instance.body === operation.callee.instance.body);
+  assert.equal(callee.tir.root.text, "alias");
+  const captured = callee.mir.locals.find(row => row.role.kind === "capture");
+  assert.equal(captured.mode, "captured-value");
+  const [facts] = caller.facts;
+  const [nested] = callee.facts;
+  assert.deepEqual(nested.arena.cells, []);
+  const subject = nested.arena.contexts[0].captures[0];
+  assert.deepEqual(Object.keys(subject).sort(), ["index", "origins"]);
+  const [context] = facts.arena.contexts.filter(value => "origins" in (value.captures[0] ?? {}));
+  assert.deepEqual(context.captures, [{ index: 0, origins: facts.arena.contexts[0].arguments[0].origins }]);
+  const summary = result.value.index.summaries.find(row => row.key.kind === "body" && row.key.execution.instance.body === caller.instance.body);
+  assert.equal(summary.parameters[0].reads.paths.length, 1);
+  assert.deepEqual(summary.parameters[0].writes, { kind: "complete", paths: [] });
+});
+
 test("applied field reads follow the actual forwarded object rather than the callee formal index", async () => {
   const { accountFailure, createAccount } = await import("../../packages/host/dist/dataflow/index.js");
   const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");

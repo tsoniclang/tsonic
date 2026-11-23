@@ -16,7 +16,7 @@ export interface StaticCallInventory {
   readonly slotOf: StaticCalleeCells;
 }
 
-export function staticCallInventory(deps: BodyRoundDeps, input: BodyRoundInput, direct: readonly LogicalCellRow[],
+export function staticCallInventory(deps: BodyRoundDeps, input: BodyRoundInput, direct: readonly LogicalCellRow[], locationCaptureCount: number,
   admit: (additional: number, absence: boolean) => DataflowStop | null): DataflowResult<StaticCallInventory> {
   const { account } = deps;
   const start = chargeWork(account, 1) ?? chargeResultEntries(account, 7);
@@ -70,7 +70,7 @@ export function staticCallInventory(deps: BodyRoundDeps, input: BodyRoundInput, 
           ?? chargeResultEntries(account, kind === "absence" ? 7 : 6);
         if (allocation !== null) return allocation;
         const position = direct.length + additional.length;
-        actual = { id: input.tir.captures.length + position, role: { kind: "static", declaration },
+        actual = { id: locationCaptureCount + position, role: { kind: "static", declaration },
           occurrence: { kind: "declared", at: { kind: "node", node: source } }, lifetimes: [] };
         if (kind === "absence") absent.add(input.mir.locals.length + position);
         byIdentity.set(key, actual);
@@ -88,7 +88,7 @@ export function staticCallInventory(deps: BodyRoundDeps, input: BodyRoundInput, 
   const cellOf: StaticCalleeCells = (summary, source) => selected.get(summary)?.get(source);
   const slotOf: StaticCalleeCells = (summary, source) => {
     const cell = cellOf(summary, source);
-    return cell === undefined ? undefined : input.mir.locals.length + cell - input.tir.captures.length;
+    return cell === undefined ? undefined : input.mir.locals.length + cell - locationCaptureCount;
   };
   return { kind: "complete", value: { additional, absent, include, cellOf, slotOf } };
 }

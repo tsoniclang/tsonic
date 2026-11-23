@@ -2,7 +2,7 @@ import type { DataflowResult, DataflowStop } from "../../dataflow/contract.js";
 import { accountFailure, chargeResultEntries, chargeWork } from "../../dataflow/index.js";
 import { requirePresent } from "../../diag/index.js";
 import type { BoundProducerId, LocalId, OriginsId } from "../../ids/contract.js";
-import type { AppliedSummary, EscapeFact, EscapeTarget, MirPoint, RelationalArena, SummaryRetention } from "../../ir-facts/contract.js";
+import type { AppliedSummary, CaptureLocation, EscapeFact, EscapeTarget, MirPoint, RelationalArena, SummaryRetention } from "../../ir-facts/contract.js";
 import { admitSummaryIdentity, escapeTargetKey, summaryPositionKey } from "../../ir-facts/index.js";
 import type { MirSite, MirTerminator } from "../../ir-mir/contract.js";
 import type { Execution } from "../../ir-types/contract.js";
@@ -61,7 +61,7 @@ export function retainValue(deps: BodyRoundDeps, execution: Execution, site: Mir
 
 export function retainCallCaptures(deps: BodyRoundDeps, input: BodyRoundInput,
   operation: Extract<MirTerminator, { readonly kind: "call" }>, point: MirPoint, applied: AppliedSummary,
-  captured: ReadonlyMap<number, number>, arena: RelationalArena,
+  captured: ReadonlyMap<number, CaptureLocation>, arena: RelationalArena,
   escapes: ValueEscape[], retention: ValueRetention[], copiedEntries: ReadonlySet<BoundProducerId> | null): DataflowStop | null {
   const prior = accountFailure(deps.account);
   if (prior !== null) return prior;
@@ -70,14 +70,14 @@ export function retainCallCaptures(deps: BodyRoundDeps, input: BodyRoundInput,
     if (read !== null) return read;
     if (row.into.kind !== "capture") continue;
     const capture = operation.callee.kind === "body" && row.into.path === null ? operation.callee.captures[row.into.index] : undefined;
-    if (capture === undefined || row.value.kind !== "caller")
+    if (capture?.capture !== "captured-location" || row.value.kind !== "caller")
       return bodyFrontier("BodyAnalysis requires the actual immediate capture target and value binding of this retained store.");
     const local: LocalId = readLocal(input.mir, { kind: "place", place: capture.place });
     const incoming = captured.get(local);
     if (incoming === undefined) continue;
     const target = chargeResultEntries(deps.account, 1);
     if (target !== null) return target;
-    const retained = retainValue(deps, input.execution, operation, point, { kind: "capture", index: incoming, path: null },
+    const retained = retainValue(deps, input.execution, operation, point, { kind: "capture", index: incoming.index, path: null },
       row.value.value.origins, arena, escapes, retention, copiedEntries);
     if (retained !== null) return retained;
   }

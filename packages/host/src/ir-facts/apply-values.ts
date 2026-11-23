@@ -72,6 +72,17 @@ export function applyValueOrigins(input: ValueApplicationInput, limits: ValueApp
       || producer.kind === "shared" || producer.kind === "cell-content";
     if (entry !== bindings.has(bound.id)) throw new TypeError("Summary application binds every actual entry producer and no created producer");
     const actual = bindings.get(bound.id);
+    if (producer.kind === "capture") {
+      const read = chargeWork(limits.account, 2);
+      if (read !== null) return read;
+      const original = input.summary.arena.contexts[bound.context]?.captures[producer.index];
+      const selected = context.captures[producer.index];
+      const copied = original !== undefined && "origins" in original;
+      if (copied ? original.index !== producer.index || selected === undefined || !("origins" in selected)
+        || selected.index !== producer.index || selected.origins !== actual?.id
+        : selected !== undefined && "origins" in selected)
+        throw new TypeError("A copied capture binds its actual caller value, not a storage location");
+    }
     subjects.push(actual === undefined ? { kind: "callee", value: { at: input.at, context: input.context,
       producer: { owner: summaryOwner, producer: bound.id } } } : { kind: "caller", value: { owner: callerOwner, origins: actual.id } });
   }

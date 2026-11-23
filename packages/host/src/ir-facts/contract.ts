@@ -20,7 +20,7 @@ export type { AppliedCallback, AppliedCell, AppliedContext, AppliedOriginsValue,
 export type { CallbackExchange, CaptureEffect, EffectPaths, EscapeTarget, ParameterEffect, ParameterSlot, PointerBackingOperation,
   Summary, SummaryAnswer, SummaryBacking, SummaryCompletion, SummaryRelations, SummaryResultCell, SummaryRetention, SummaryWrite } from "./summary-data.js";
 import type { ProducerRef, RelationalArena } from "./arena-data.js";
-export type { BoundProducer, CaptureLocation, OpenBoundary, OpenBoundaryRef, Origins, OriginsRef, Producer, ProducerRef, Projection, ProjectionPath, RelationalArena, ValueArgument, ValueContext } from "./arena-data.js";
+export type { BoundProducer, CaptureBinding, CaptureLocation, CapturedValue, OpenBoundary, OpenBoundaryRef, Origins, OriginsRef, Producer, ProducerRef, Projection, ProjectionPath, RelationalArena, ValueArgument, ValueContext } from "./arena-data.js";
 export type { Condition, ConditionLimits } from "./conditions-data.js";
 export type { BoundProducerRef, MirPoint, RelationalOwner, RelationalSite, StoreEdge, SummaryKey } from "./relations-data.js";
 export type { CreatedSlot, DeclaredCellInventory, LogicalCell, LogicalCellLifetime, LogicalCellOccurrence, LogicalCellRef, LogicalCellRow,

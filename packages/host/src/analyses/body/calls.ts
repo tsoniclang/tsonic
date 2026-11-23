@@ -2,10 +2,10 @@ import type { CallerRefusal, DataflowResult, DataflowStop } from "../../dataflow
 import { accountFailure, chargeResultEntries, chargeWork } from "../../dataflow/index.js";
 import type { UnitRef } from "../../diag/contract.js";
 import { requirePresent, resourceLimitDiagnostic, throwInvariant } from "../../diag/index.js";
-import type { AppliedSummary, BoundInitializationRow, CaptureLocation, MirPoint, RelationalArena, Summary, SummaryApplicationInput, SummaryKey, ValueArgument, ValueEntryBinding } from "../../ir-facts/contract.js";
+import type { AppliedSummary, BoundInitializationRow, CaptureBinding, CaptureLocation, MirPoint, RelationalArena, Summary, SummaryApplicationInput, SummaryKey, ValueArgument, ValueEntryBinding } from "../../ir-facts/contract.js";
 import { admitSummaryIdentity, applySummary, bindInitialization, summaryKey } from "../../ir-facts/index.js";
 import type { MirBody, MirOperand, MirTerminator } from "../../ir-mir/contract.js";
-import type { LocalId, OriginsId, ValueContextId } from "../../ids/contract.js";
+import type { LocalId, OriginsId, PlaceId, ValueContextId } from "../../ids/contract.js";
 import { valueContextId } from "../../ids/index.js";
 import type { BodyInstance, Signature } from "../../ir-types/contract.js";
 import type { BodyRoundDeps, BodyRoundInput, RoundCallRead, RoundLeast } from "./contract.js";
@@ -13,6 +13,10 @@ import { valueKind } from "./values.js";
 import { readLocal } from "./places.js";
 import { callWrites, primitiveExitLocals } from "./writes.js";
 import type { StaticCalleeCells } from "./static-calls.js";
+
+export type CallCaptureTransport = { readonly place: PlaceId } & (
+  | { readonly kind: "value" }
+  | { readonly kind: "location"; readonly binding: CaptureLocation });
 
 export interface CallError {
   readonly kind: "error";
@@ -69,11 +73,12 @@ export function callSummary(deps: BodyRoundDeps, body: MirBody,
   const admission = chargeWork(deps.account, 1) ?? chargeResultEntries(deps.account, 3);
   if (admission !== null) return admission;
   const instance = callInstance(operation);
-  if (operation.callee.kind === "body") for (const capture of operation.callee.captures) {
+  if (operation.callee.kind === "body") for (let index = 0; index < operation.callee.captures.length; index += 1) {
     const work = chargeWork(deps.account, 1);
     if (work !== null) return work;
-    if (capture?.capture !== "captured-location")
-      return frontier(operation, "BodyAnalysis requires the actual selected argument, receiver and capture transport for this call, including a distinct copied capture slot when selected.");
+    const capture = operation.callee.captures[index];
+    if (capture?.capture !== "captured-location" && capture?.capture !== "captured-value")
+      return frontier(operation, "BodyAnalysis requires the actual selected argument, receiver and capture transport for this call.");
   }
   if (operation.receiver !== null || operation.callee.kind === "body" && operation.arguments.length !== 0)
     return frontier(operation, "BodyAnalysis requires the actual selected argument, receiver and capture transport for this call.");
@@ -297,17 +302,43 @@ export type CallValueEffects =
   | { readonly kind: "primitive"; readonly contents: readonly number[] }
   | { readonly kind: "applied"; readonly value: AppliedSummary };
 
-export function callCellIndex(summary: Summary, source: number, captures: readonly CaptureLocation[],
+export function callCellIndex(summary: Summary, source: number, captures: readonly CallCaptureTransport[],
   statics: StaticCalleeCells | null): number | undefined {
   const role = summary.arena.cells[source]?.role;
-  if (role?.kind === "capture") return captures[role.index]?.cell;
+  if (role?.kind === "capture") {
+    const transport = captures[role.index];
+    return transport?.kind === "location" ? transport.binding.cell : undefined;
+  }
   return role?.kind === "static" && statics !== null ? statics(summary, source) : undefined;
+}
+
+export function callCaptureBindings(deps: BodyRoundDeps, operation: Extract<MirTerminator, { readonly kind: "call" }>,
+  selected: readonly CallCaptureTransport[],
+  copy: (place: Extract<MirOperand, { readonly kind: "place" }>) => OriginsId,
+): DataflowResult<readonly CaptureBinding[]> {
+  if (selected.length === 0) return { kind: "complete", value: [] };
+  const setup = chargeResultEntries(deps.account, 1);
+  if (setup !== null) return setup;
+  const captures: CaptureBinding[] = [];
+  for (let position = 0; position < selected.length; position += 1) {
+    const read = chargeWork(deps.account, 1) ?? chargeResultEntries(deps.account, 1);
+    if (read !== null) return read;
+    const capture = requirePresent(selected[position], { owner: "analyses/body", query: null, origin: operation.origin,
+      message: "A body call retains every actual prepared capture transport." });
+    if (capture.kind === "location") captures.push(capture.binding);
+    else {
+      const growth = chargeWork(deps.account, 1) ?? chargeResultEntries(deps.account, 2);
+      if (growth !== null) return growth;
+      captures.push({ index: position, origins: copy({ kind: "place", place: capture.place }) });
+    }
+  }
+  return { kind: "complete", value: captures };
 }
 
 export function callValueEffects(deps: BodyRoundDeps, input: BodyRoundInput,
   operation: Extract<MirTerminator, { readonly kind: "call" }>, point: MirPoint, summary: SelectedBodySummary,
   arena: RelationalArena, state: readonly OriginsId[], constants: readonly OriginsId[],
-  captures: readonly CaptureLocation[], statics: StaticCalleeCells | null, objectValues: ReadonlySet<LocalId> | null): DataflowResult<CallValueEffects> {
+  captures: readonly CallCaptureTransport[], statics: StaticCalleeCells | null, objectValues: ReadonlySet<LocalId> | null): DataflowResult<CallValueEffects> {
   let usePrimitiveContents = true;
   if (operation.destination !== null) {
     const read = chargeWork(deps.account, 1);
@@ -357,7 +388,7 @@ export function callValueEffects(deps: BodyRoundDeps, input: BodyRoundInput,
     if (work !== null) return work;
     const producer = summary.arena.producers[bound.producer];
     const captured = producer?.kind === "capture" && producer.path === null && operation.callee.kind === "body"
-      ? operation.callee.captures[producer.index] : undefined;
+      ? captures[producer.index] : undefined;
     if (captured !== undefined) {
       const local = readLocal(input.mir, { kind: "place", place: captured.place });
       entries.push({ formal: bound.id, actual: requirePresent(state[local], { owner: "analyses/body", query: null,
@@ -377,7 +408,10 @@ export function callValueEffects(deps: BodyRoundDeps, input: BodyRoundInput,
     cells.push({ kind: "cell", index: location });
   }
   const context = valueContextId(arena.contexts.length);
-  const caller = { ...arena, contexts: [...arena.contexts, { id: context, receiver: null, arguments: arguments_, captures }] };
+  const environment = callCaptureBindings(deps, operation, captures, place => requirePresent(state[readLocal(input.mir, place)], {
+    owner: "analyses/body", query: null, origin: operation.origin, message: "A copied capture retains its value at invocation." }));
+  if (environment.kind !== "complete") return environment;
+  const caller = { ...arena, contexts: [...arena.contexts, { id: context, receiver: null, arguments: arguments_, captures: environment.value }] };
   const applied = applyScalarCall(deps, input, operation, point, summary, caller, context, entries, cells, () => null);
   if (applied.kind !== "complete") return applied;
   const output = chargeResultEntries(deps.account, 1);

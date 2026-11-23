@@ -6,6 +6,7 @@ import { boundProducerId, producerId, valueContextId } from "../../ids/index.js"
 import type { BoundProducer, CaptureLocation, LogicalCellLifetime, LogicalCellRow, Producer, RelationalArena } from "../../ir-facts/contract.js";
 import type { TirSyntaxOccurrence } from "../../ir-tir/contract.js";
 import type { BodyRoundDeps, BodyRoundInput } from "./contract.js";
+import type { CallCaptureTransport } from "./calls.js";
 import type { Assigned, StorageLive } from "./storage.js";
 import { localSlotLifetimes, solveStorageLive } from "./storage.js";
 import { bodyFrontier, readLocal } from "./places.js";
@@ -20,9 +21,9 @@ type AdmitCaptures = (limit: "maximumRelationalRecordsPerBody" | "maximumRelatio
 
 export function prepareCallCaptures(deps: BodyRoundDeps, input: BodyRoundInput, arena: CaptureArena,
   source: ReadonlyMap<NodeId, TirSyntaxOccurrence>, entry: readonly Assigned[], reachable: readonly boolean[],
-  capturedLocals: ReadonlyMap<number, number>, captureLocations: readonly CaptureLocation[],
+  capturedLocals: ReadonlyMap<number, CaptureLocation>,
   cellLocals: number[], bounded: AdmitCaptures, contextReferences: number):
-  DataflowResult<{ readonly calls: ReadonlyMap<BlockId, readonly CaptureLocation[]>;
+  DataflowResult<{ readonly calls: ReadonlyMap<BlockId, readonly CallCaptureTransport[]>;
     readonly references: number; readonly lifetimes: number }> {
   const { account } = deps;
   const prior = accountFailure(account) ?? chargeWork(account, 1);
@@ -31,7 +32,7 @@ export function prepareCallCaptures(deps: BodyRoundDeps, input: BodyRoundInput, 
   if (setup !== null) return setup;
   const { execution, mir, tir } = input;
   const { cells, producers, boundProducers } = arena;
-  const calls = new Map<BlockId, readonly CaptureLocation[]>();
+  const calls = new Map<BlockId, readonly CallCaptureTransport[]>();
   const callerCaptures = new Map<LocalId, CaptureLocation>();
   let callerLocalSubjects: Map<LocalId, BoundProducerId> | null = null;
   let localSlots: { readonly lifetimes: ReadonlyMap<LocalId, readonly LogicalCellLifetime[]>;
@@ -43,13 +44,24 @@ export function prepareCallCaptures(deps: BodyRoundDeps, input: BodyRoundInput, 
     if (terminator.kind !== "call" || terminator.callee.kind !== "body") continue;
     const growth = chargeWork(account, 1) ?? chargeResultEntries(account, 2);
     if (growth !== null) return growth;
-    const callCaptures: CaptureLocation[] = [];
+    const callCaptures: CallCaptureTransport[] = [];
     for (let index = 0; index < terminator.callee.captures.length; index += 1) {
-      const captureWork = chargeWork(account, 1) ?? chargeResultEntries(account, 5);
+      const captureWork = chargeWork(account, 1);
       if (captureWork !== null) return captureWork;
       const capture = requirePresent(terminator.callee.captures[index], { owner: "analyses/body", query: null, origin: terminator.origin,
         message: "A selected body call retains every actual capture transport." });
-      const local = readLocal(mir, { kind: "place", place: capture.place });
+      const place = capture.place;
+      if (capture.capture === "captured-value") {
+        const growth = chargeResultEntries(account, 2)
+          ?? bounded("maximumRelationalReferencesPerBody", 1, contextReferences);
+        if (growth !== null) return growth;
+        contextReferences += 1;
+        callCaptures.push({ kind: "value", place });
+        continue;
+      }
+      const growth = chargeResultEntries(account, 6);
+      if (growth !== null) return growth;
+      const local = readLocal(mir, { kind: "place", place });
       const incoming = capturedLocals.get(local);
       const sourceWork = chargeWork(account, 2);
       if (sourceWork !== null) return sourceWork;
@@ -73,7 +85,7 @@ export function prepareCallCaptures(deps: BodyRoundDeps, input: BodyRoundInput, 
         if (!live || lifetimes === undefined)
           return bodyFrontier("BodyAnalysis requires the actual must-live-at-call relation for this captured local slot.");
       }
-      let binding = incoming !== undefined ? captureLocations[incoming] : callerCaptures.get(local);
+      let binding = incoming ?? callerCaptures.get(local);
       if (binding === undefined) {
         const growth = chargeWork(account, 2) ?? chargeResultEntries(account, 12);
         if (growth !== null) return growth;
@@ -138,7 +150,7 @@ export function prepareCallCaptures(deps: BodyRoundDeps, input: BodyRoundInput, 
       const references = bounded("maximumRelationalReferencesPerBody", 2, contextReferences);
       if (references !== null) return references;
       contextReferences += 2;
-      callCaptures.push({ index, location: binding.location, cell: binding.cell });
+      callCaptures.push({ kind: "location", place, binding: { index, location: binding.location, cell: binding.cell } });
     }
     calls.set(block.id, callCaptures);
   }

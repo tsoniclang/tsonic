@@ -140,6 +140,15 @@ export function verifyCells(arena: RelationalArena, owner: RelationalOwner,
         ? context.signatureIdOf(owner.key.execution.request) : context.tirBody(owner.key.execution.instance).signature
         : context.tirBody(owner.execution.instance).signature;
       const selected = signature === null || !validIndex(signature, context.types.signatures.length) ? undefined : context.types.signatures[signature];
+      if (reference.kind === "capture") {
+        const execution = owner.kind === "body" ? owner.execution : owner.key.kind === "body" ? owner.key.execution : null;
+        if (execution !== null) {
+          const read = chargeWork(account, 1);
+          if (read !== null) return read;
+          if (context.tirBody(execution.instance)?.captures[reference.index]?.capture === "captured-value")
+            return report("cell-role-resolves", "A copied capture has no incoming caller cell.");
+        }
+      }
       return reference.kind === "receiver" ? selected === undefined || selected.receiver === null
         ? report("cell-role-resolves", "A formal cell retains the actual receiver, parameter or capture inventory.") : null
         : reference.kind === "parameter" ? selected === undefined || !validIndex(reference.index, selected.parameters.length)

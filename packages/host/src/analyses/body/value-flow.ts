@@ -3,7 +3,8 @@ import { accountFailure, chargeResultEntries, chargeWork, solve } from "../../da
 import { requirePresent } from "../../diag/index.js";
 import type { BlockId, LocalId, OriginsId } from "../../ids/contract.js";
 import { originsId } from "../../ids/index.js";
-import type { AppliedSummary, CaptureLocation, RelationalArena } from "../../ir-facts/contract.js";
+import type { AppliedSummary, RelationalArena } from "../../ir-facts/contract.js";
+import type { CallCaptureTransport } from "./calls.js";
 import type { MirOperand, MirStatement, MirTerminator } from "../../ir-mir/contract.js";
 import type { BodyRoundDeps, BodyRoundInput } from "./contract.js";
 import { callValueEffects, isCallError, isLeastCall } from "./calls.js";
@@ -211,7 +212,7 @@ export function transferValue(deps: BodyRoundDeps, input: BodyRoundInput, consta
 export function valueProblem(deps: BodyRoundDeps, input: BodyRoundInput, arena: RelationalArena,
   values: ValueOrigins, constants: readonly OriginsId[], initial: readonly OriginsId[], boundary: CurrentValues,
   reachable: readonly boolean[], admit: AdmitOrigins,
-  captures: ReadonlyMap<BlockId, readonly CaptureLocation[]>, tracked: ReadonlySet<number>, calls: ReadonlyMap<BlockId, SelectedCall> | null,
+  captures: ReadonlyMap<BlockId, readonly CallCaptureTransport[]>, tracked: ReadonlySet<number>, calls: ReadonlyMap<BlockId, SelectedCall> | null,
   statics: StaticSlots = null, staticCallees: StaticCalleeCells | null = null, cellSlots: readonly number[] = [], fields: HeldFieldReads | null = null,
   objectValues: ReadonlySet<LocalId> | null = null): ForwardProblem<ValueState> {
   return {
@@ -324,7 +325,7 @@ export function valueProblem(deps: BodyRoundDeps, input: BodyRoundInput, arena: 
 export function solveValueOrigins(deps: BodyRoundDeps, input: BodyRoundInput, arena: RelationalArena,
   values: ValueOrigins, constants: readonly OriginsId[], initial: readonly OriginsId[], boundary: readonly OriginsId[],
   reachable: readonly boolean[], admit: AdmitOrigins,
-  captures: ReadonlyMap<BlockId, readonly CaptureLocation[]>, cells: readonly number[], calls: ReadonlyMap<BlockId, SelectedCall> | null,
+  captures: ReadonlyMap<BlockId, readonly CallCaptureTransport[]>, cells: readonly number[], calls: ReadonlyMap<BlockId, SelectedCall> | null,
   statics: StaticSlots, staticCallees: StaticCalleeCells | null, fields: HeldFieldReads | null, objectValues: ReadonlySet<LocalId> | null): DataflowResult<FlowSolution<ValueState>> {
   const work = chargeWork(deps.account, 1 + cells.length) ?? chargeResultEntries(deps.account, 4 + cells.length);
   if (work !== null) return work;

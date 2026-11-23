@@ -23,7 +23,7 @@ import type { Condition } from "./conditions-data.js";
 import type { InitializationEvent, InitializationPoint, InitializationRow, InitializationTable, InitializationWitness, SummaryPosition } from "./initialization-data.js";
 import type {
   ArgumentTransport, BindingStorageFact, BodyFacts, BodyObservations, BoundActivation, BoundProducer, BoundRecordField,
-  CallbackEntry, CallbackExchange, DependencyComponent, ExecutionDependency, DependencyInventory, CaptureEffect, CaptureFact, CaptureLocation,
+  CallbackEntry, CallbackExchange, DependencyComponent, ExecutionDependency, DependencyInventory, CaptureBinding, CaptureEffect, CaptureFact,
   ClosedArrayFact, ClosedArrayReason, ConstructionAlternative, CountedLoopFact, EffectPaths,
   ErrorInvalidationFact, ErrorInvalidationReason, ErrorStorageFact, ErrorStorageFacts, EscapeFact, EscapeTarget, ExitContents,
   InitializationFact, InitializationFacts, InstanceRegion, IntegerFact, IntegerRange, InvocationAlternative, InvocationFact,
@@ -462,11 +462,14 @@ const projectionPath: Decode<ProjectionPath> = (state, input) => then(fields(sta
     then(readField(state, values, "parent", (state, input) => nullable(state, input, path)), parentValue =>
     then(readField(state, values, "projection", projection), projectionValue =>
       finishRecord<ProjectionPath>(state, values, { id: idValue, parent: parentValue, projection: projectionValue })))));
-const captureLocation: Decode<CaptureLocation> = (state, input) => then(fields(state, input, "CaptureLocation"), values =>
+const captureBinding: Decode<CaptureBinding> = (state, input) =>
+  then(label(input, ["CaptureLocation", "CapturedValue"]), kind => then(fields(state, input, kind), values =>
     then(readField(state, values, "index", scalarNumber), indexValue =>
-    then(readField(state, values, "location", bound), locationValue =>
+    kind === "CapturedValue" ? then(readField(state, values, "origins", originsIdentity), origins =>
+      finishRecord<CaptureBinding>(state, values, { index: indexValue, origins }))
+    : then(readField(state, values, "location", bound), locationValue =>
     then(readField(state, values, "cell", (state, input) => numeric(state, input, "cell", value => value)), cell =>
-      finishRecord<CaptureLocation>(state, values, { index: indexValue, location: locationValue, cell })))));
+      finishRecord<CaptureBinding>(state, values, { index: indexValue, location: locationValue, cell }))))));
 const valueArgument: Decode<ValueContext["arguments"][number]> = (state, input) => then(label(input, ["provided", "omitted"]), kind =>
   then(fields(state, input, kind), values => kind === "omitted"
     ? finishRecord<ValueContext["arguments"][number]>(state, values, { kind })
@@ -476,7 +479,7 @@ const valueContext: Decode<ValueContext> = (state, input) => then(fields(state, 
     then(readField(state, values, "id", contextIdentity), idValue =>
     then(readField(state, values, "receiver", (state, input) => nullable(state, input, originsIdentity)), receiverValue =>
     then(readField(state, values, "arguments", (state, input) => sequence(state, input, valueArgument)), argumentsValue =>
-    then(readField(state, values, "captures", (state, input) => sequence(state, input, captureLocation)), capturesValue =>
+    then(readField(state, values, "captures", (state, input) => sequence(state, input, captureBinding)), capturesValue =>
       finishRecord<ValueContext>(state, values, { id: idValue, receiver: receiverValue, arguments: argumentsValue, captures: capturesValue }))))));
 const boundProducer: Decode<BoundProducer> = (state, input) => then(fields(state, input, "BoundProducer"), values =>
     then(readField(state, values, "id", bound), idValue =>

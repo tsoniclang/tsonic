@@ -30,7 +30,7 @@ export function rootSlot(body: MirBody, place: PlaceId, statics: StaticSlots): n
   return slot;
 }
 
-export function staticCells(deps: BodyRoundDeps, input: BodyRoundInput, source: ReadonlyMap<NodeId, TirSyntaxOccurrence>):
+export function staticCells(deps: BodyRoundDeps, input: BodyRoundInput, source: ReadonlyMap<NodeId, TirSyntaxOccurrence>, locationCaptureCount: number):
   DataflowResult<StaticCells> {
   const { mir, tir } = input;
   const { account } = deps;
@@ -131,7 +131,7 @@ export function staticCells(deps: BodyRoundDeps, input: BodyRoundInput, source: 
     const growth = chargeWork(account, 1) ?? chargeResultEntries(account, 6);
     if (growth !== null) return growth;
     slots.set(row.place, mir.locals.length + cells.length);
-    cells.push({ id: tir.captures.length + cells.length,
+    cells.push({ id: locationCaptureCount + cells.length,
       role: { kind: "static", declaration: { definition: row.declaration.owner, bindings: row.bindings } },
       occurrence: { kind: "declared", at: { kind: "node", node: { kind: "item", value: row.declaration } } },
       lifetimes: [] });

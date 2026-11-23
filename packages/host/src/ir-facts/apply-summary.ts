@@ -77,7 +77,7 @@ export function applySummary(input: SummaryApplicationInput, limits: SummaryAppl
     cells.push({ kind: "located", targets, same: null });
   }
   const contexts: AppliedContext[] = [];
-  const contextCells: Map<number, AppliedCell>[] = [];
+  const contextCaptures: Map<number, AppliedContext["captures"][number]>[] = [];
   for (const [index, context] of source.arena.contexts.entries()) {
     const stop = grow(limits);
     if (stop !== null) return stop;
@@ -89,7 +89,7 @@ export function applySummary(input: SummaryApplicationInput, limits: SummaryAppl
       argumentsValues.push(argument.kind === "provided" ? { kind: "provided", origins: pick(values.value.origins, argument.origins) } : { kind: "omitted" });
     }
     const captures: AppliedContext["captures"][number][] = [];
-    const captured = new Map<number, AppliedCell>();
+    const captured = new Map<number, AppliedContext["captures"][number]>();
     let previous = -1;
     for (const capture of context.captures) {
       const captureStop = grow(limits);
@@ -97,12 +97,14 @@ export function applySummary(input: SummaryApplicationInput, limits: SummaryAppl
       if (!Number.isSafeInteger(capture.index) || capture.index <= previous || Object.is(capture.index, -0))
         throw new TypeError("A captured environment retains its ordered actual source capture association");
       previous = capture.index;
-      const cell = located(pick(cells, capture.cell));
-      captures.push({ index: capture.index, location: pick(values.value.subjects, capture.location), cell });
-      captured.set(capture.index, cell);
+      const entry = "origins" in capture
+        ? { index: capture.index, origins: pick(values.value.origins, capture.origins) }
+        : { index: capture.index, location: pick(values.value.subjects, capture.location), cell: located(pick(cells, capture.cell)) };
+      captures.push(entry);
+      captured.set(capture.index, entry);
     }
     contexts.push({ receiver: context.receiver === null ? null : pick(values.value.origins, context.receiver), arguments: argumentsValues, captures });
-    contextCells.push(captured);
+    contextCaptures.push(captured);
   }
   const writes = (rows: readonly SummaryWrite[]): DataflowResult<readonly AppliedWrite[]> => {
     const allocation = grow(limits);
@@ -124,7 +126,7 @@ export function applySummary(input: SummaryApplicationInput, limits: SummaryAppl
   const unwound = writes(source.contentsOnUnwind);
   if (unwound.kind !== "complete") return unwound;
   const formalValues = new Map<string, AppliedSubject[]>();
-  const capturedCells = new Map<number, AppliedCell[]>();
+  const captureEffects = new Map<number, { readonly kind: "value" } | { readonly kind: "location"; readonly cells: AppliedCell[] }>();
   for (const bound of source.arena.boundProducers) {
     const stop = chargeWork(limits.account, 1);
     if (stop !== null) return stop;
@@ -137,13 +139,19 @@ export function applySummary(input: SummaryApplicationInput, limits: SummaryAppl
     if (group === undefined) { group = []; formalValues.set(key, group); }
     group.push(pick(values.value.subjects, bound.id));
     if (producer.kind === "capture") {
-      const found = pick(contextCells, bound.context).get(producer.index);
-      if (found === undefined) throw new TypeError("A bound capture has its actual context-to-cell association");
-      const cellGrowth = grow(limits);
+      const found = pick(contextCaptures, bound.context).get(producer.index);
+      if (found === undefined) throw new TypeError("A bound capture has its actual context capture association");
+      const previous = captureEffects.get(producer.index);
+      const cellGrowth = grow(limits, previous === undefined && "cell" in found ? 2 : 1);
       if (cellGrowth !== null) return cellGrowth;
-      let group = capturedCells.get(producer.index);
-      if (group === undefined) { group = []; capturedCells.set(producer.index, group); }
-      group.push(found);
+      if ("cell" in found) {
+        if (previous?.kind === "value") throw new TypeError("A capture retains its selected mode across contexts");
+        if (previous === undefined) captureEffects.set(producer.index, { kind: "location", cells: [found.cell] });
+        else previous.cells.push(found.cell);
+      } else {
+        if (previous?.kind === "location") throw new TypeError("A capture retains its selected mode across contexts");
+        if (previous === undefined) captureEffects.set(producer.index, { kind: "value" });
+      }
     }
   }
   const parameters: AppliedSummary["parameters"][number][] = [];
@@ -162,9 +170,10 @@ export function applySummary(input: SummaryApplicationInput, limits: SummaryAppl
     const stop = grow(limits);
     if (stop !== null) return stop;
     const actual = formalValues.get(`capture:${capture.index}`);
-    const locations = capturedCells.get(capture.index);
-    if (actual === undefined || locations === undefined) throw new TypeError("A capture effect retains its actual value and storage binding");
-    captures.push({ source: capture, values: actual, cells: locations });
+    const binding = captureEffects.get(capture.index);
+    if (actual === undefined || binding === undefined)
+      throw new TypeError("A capture effect retains its actual value and storage binding");
+    captures.push({ source: capture, values: actual, cells: binding.kind === "location" ? binding.cells : [] });
   }
   const sourceKey = values.value.key;
   const subject = (reference: BoundProducerRef): DataflowResult<AppliedSubject> => {

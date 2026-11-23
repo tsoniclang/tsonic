@@ -14,6 +14,8 @@ const declarationName = id => ({ kind: "Identifier", id, text: "inner",
 const parameterName = (id, node) => ({ kind: "Identifier", id, text: "value",
   tsonic: { role: "binding-name", binding: { kind: "body", value: { body: nested, node } } } });
 
+const ready = node => ({ kind: "ready-statement", node });
+
 function body(kind) {
   const parameter = { kind: "Parameter", id: 3 };
   Object.defineProperty(parameter, "tsonic", { get() { assert.fail("Nested parameter/default payload is not this execution's occurrence."); } });
@@ -26,8 +28,13 @@ function body(kind) {
     tsonic: kind === "FunctionExpression" || kind === "ArrowFunction"
       ? { callable: { template: { body: nested } } } : { template: { body: nested } } };
   const literal = { kind: "NumericLiteral", id: 7, text: "1", tokenFlags: [], tsonic: { convertedType: 0 } };
+  const creator = kind === "FunctionDeclaration" ? { kind: "ready-callable", node: declaration }
+    : kind === "FunctionExpression" || kind === "ArrowFunction"
+      ? ready({ kind: "ExpressionStatement", id: 10, tsonic: null, expression: declaration })
+      : ready({ kind: "ClassDeclaration", id: 10, tsonic: null, modifiers: null, name: declarationName(11),
+        typeParameters: null, heritageClauses: null, members: { nodes: [declaration] } });
   const root = { kind: "SourceFile", id: 0, tsonic: { module, template: null },
-    statements: { nodes: [declaration, { kind: "ExpressionStatement", id: 6, tsonic: null, expression: literal }] },
+    statements: { nodes: [creator, ready({ kind: "ExpressionStatement", id: 6, tsonic: null, expression: literal })] },
     endOfFileToken: { kind: "EndOfFile", id: 1, tsonic: null } };
   return { root, params: [], nestedBodies: [nested] };
 }
@@ -46,10 +53,12 @@ await suite.test("Facts source domain excludes each nested callable's parameters
 
 await suite.test("a signature without an implementation body does not hide its source parameter", () => {
   const input = body("FunctionDeclaration");
-  input.root.statements.nodes[0] = { kind: "MethodSignature", id: 2, tsonic: null, modifiers: null, name: declarationName(8),
+  const method = { kind: "MethodSignature", id: 2, tsonic: null, modifiers: null, name: declarationName(8),
     postfixToken: null, typeParameters: null, type: null, fullSignature: null,
     parameters: { nodes: [{ kind: "Parameter", id: 3, tsonic: null, modifiers: null,
-      dotDotDotToken: null, name: parameterName(9, 3), questionToken: null, type: null, initializer: null }] } };
+      dotDotDotToken: null, name: parameterName(9, 3), questionToken: null, type: null, initializer: { kind: "none" } }] } };
+  input.root.statements.nodes[0] = ready({ kind: "InterfaceDeclaration", id: 10, tsonic: null, modifiers: null, name: declarationName(11),
+    typeParameters: null, heritageClauses: null, members: { nodes: [method] } });
   const result = bodyNodes(input, account());
   assert.equal(result.kind, "complete");
   assert.equal(result.value.nodes.has(3), true);
@@ -59,17 +68,17 @@ await suite.test("a semantic initializer is separately owned even when it is not
   for (const listed of [false, true]) {
     const initializer = { kind: "TrueKeyword", id: 1 };
     Object.defineProperty(initializer, "tsonic", { get() { assert.fail("The placed initializer is not the caller's value occurrence."); } });
-    const root = { kind: "Parameter", id: 0, tsonic: { initializer: nested }, modifiers: null,
-      dotDotDotToken: null, name: parameterName(2, 0), questionToken: null, type: null, initializer };
-    const result = bodyNodes({ root, params: [], nestedBodies: listed ? [nested] : [] }, account());
+    const parameter = { kind: "Parameter", id: 0, tsonic: { initializer: nested }, modifiers: null,
+      dotDotDotToken: null, name: parameterName(2, 0), questionToken: null, type: null,
+      initializer: { kind: "ready-default", root: initializer } };
+    const root = { kind: "Block", id: 3, tsonic: null, statements: { nodes: [] } };
+    const result = bodyNodes({ root, params: [parameter], nestedBodies: listed ? [nested] : [] }, account());
     assert.equal(result.kind, "complete");
     assert.equal(result.value.nodes.has(0), true);
     assert.equal(result.value.nodes.has(1), false);
   }
-  const initializer = { kind: "TrueKeyword", id: 1, tsonic: { convertedType: 0 } };
-  const root = { kind: "Parameter", id: 0, tsonic: { initializer: null }, modifiers: null,
-    dotDotDotToken: null, name: parameterName(2, 0), questionToken: null, type: null, initializer };
-  const result = bodyNodes({ root, params: [], nestedBodies: [] }, account());
+  const origin = { kind: "TrueKeyword", id: 1, tsonic: { convertedType: 0 } };
+  const result = bodyNodes({ root: origin, params: [], nestedBodies: [] }, account());
   assert.equal(result.kind, "complete");
   assert.deepEqual([...result.value.valueNodes], [1]);
 });
@@ -96,12 +105,13 @@ await suite.test("Facts source domain retains actual selected headers without ex
   const { program, child } = scaled();
   const tir = program.tir;
   Object.defineProperty(child.tir.root, "tsonic", { get() { assert.fail("A parameter initializer remains a separate execution."); } });
-  const work = 1 + 1 + 2 + 10 + 18;
-  const rows = 4 + 1 + 2 + 20 + 18;
+  const pulls = 18 + 1;
+  const work = 1 + 1 + 2 + 10 + pulls;
+  const rows = 4 + 1 + 2 + 20 + pulls;
   const exact = account(work, rows);
   const result = bodyNodes(tir, exact);
   assert.equal(result.kind, "complete");
-  assert.equal(remainingWork(exact), 0, "entry + nested/header rows + ten syntax nodes + eighteen iterator pulls");
+  assert.equal(remainingWork(exact), 0, "entry + nested/header rows + ten syntax nodes + nineteen iterator pulls including the absent formal's tag");
   for (const parameter of tir.params) {
     assert.equal(result.value.nodes.get(parameter.id), parameter);
     assert.equal(result.value.nodes.get(parameter.name.id), parameter.name);

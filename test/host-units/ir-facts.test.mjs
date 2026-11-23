@@ -204,7 +204,7 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
     const id = 32 + local * 2;
     const reference = { body: selected.body, local };
     return { ...header(id), kind: "Parameter", modifiers: null, dotDotDotToken: null, questionToken: null,
-      type: null, initializer: null, name: { ...header(id + 1, id), kind: "Identifier", text: `parameter${local}`,
+      type: null, initializer: { kind: "none" }, name: { ...header(id + 1, id), kind: "Identifier", text: `parameter${local}`,
         tsonic: { role: "declaration-name", declaration: { kind: "local", local: reference }, storage: formal.type } },
       tsonic: { declaration: formal.declaration, local: reference, storage: formal.type, passing: formal.passing,
         initializer: formal.initializer, role: formal.kind } };
@@ -1447,7 +1447,7 @@ test("ir-facts: all current actual emitted ports, full closed logic and fresh de
       ...header(2, 1), kind: "ArrowFunction", modifiers: null, typeParameters: null, type: null, fullSignature: null, asteriskToken: null,
       parameters: { loc: { pos: 3, end: 6 }, nodes: [{ ...header(3, 2), kind: "Parameter", modifiers: null, dotDotDotToken: null, questionToken: null, type: null,
         name: { ...header(4, 3), kind: "Identifier", text: "argument", tsonic: { role: "declaration-name", declaration: { kind: "definition", definition: definitions.parameter }, storage: 0 } },
-        initializer: value(5, 3), tsonic: { declaration: definitions.parameter, local: { body: callableBody, local: 0 }, storage: 0, passing: "by-value", initializer: defaultBody } }] },
+        initializer: { kind: "ready-default", root: value(5, 3) }, tsonic: { declaration: definitions.parameter, local: { body: callableBody, local: 0 }, storage: 0, passing: "by-value", initializer: defaultBody } }] },
       equalsGreaterThanToken: { ...header(6, 2), kind: "EqualsGreaterThanToken", tsonic: null }, body: value(7, 2),
       tsonic: { ...typedValue(3), callable: { definition: definitions.callee, parameters: [], signatures: [
         { declaration: definitions.callee, role: "api-signature", signature: 1, body: callableBody },
