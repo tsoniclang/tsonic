@@ -4978,6 +4978,54 @@ export interface ObjectSyntaxReceipt<P extends Phase> {
   readonly properties: (read: (node: ObjectLiteralElementLike<P>) => ObjectLiteralElementLike<P>) => NodeList<ObjectLiteralElementLike<P>>;
 }
 
+export interface VariableStatementSyntaxReceipt<P extends Phase> {
+  readonly kind: "variable-statement";
+  readonly ordinal: number;
+  readonly slots: Iterable<SyntaxChildSlot<P>>;
+  readonly modifiers: (read: (node: ModifierLike<P>) => ModifierLike<P>) => ModifierList<P> | null;
+  readonly declarationList: () => VariableDeclarationList<P>;
+}
+
+export interface VariableDeclarationSyntaxFields<P extends Phase> {
+  readonly name: () => BindingName<P>;
+  readonly exclamationToken: () => ExclamationToken<P> | null;
+  readonly type: () => TypeNode<P> | null;
+  readonly initializer: () => Expression<P> | null;
+}
+
+export interface VariableDeclarationSyntaxReceipt<P extends Phase> extends VariableDeclarationSyntaxFields<P> {
+  readonly kind: "variable-declaration";
+  readonly ordinal: number;
+  readonly slots: Iterable<SyntaxChildSlot<P>>;
+}
+
+export interface VariableListSyntaxReceipt<P extends Phase> {
+  readonly kind: "variable-list";
+  readonly ordinal: number;
+  readonly slots: Iterable<SyntaxChildSlot<P>>;
+  readonly declarations: (read: (node: VariableDeclaration<P>) => VariableDeclaration<P>) => NodeList<VariableDeclaration<P>>;
+}
+
+export interface BindingPatternSyntaxReceipt<P extends Phase> {
+  readonly kind: "binding-pattern";
+  readonly ordinal: number;
+  readonly slots: Iterable<SyntaxChildSlot<P>>;
+  readonly elements: (read: (node: BindingElement<P>) => BindingElement<P>) => NodeList<BindingElement<P>>;
+}
+
+export interface BindingElementSyntaxFields<P extends Phase> {
+  readonly dotDotDotToken: () => DotDotDotToken<P> | null;
+  readonly propertyName: () => PropertyName<P> | null;
+  readonly name: () => BindingName<P> | null;
+  readonly initializer: () => Expression<P> | null;
+}
+
+export interface BindingElementSyntaxReceipt<P extends Phase> extends BindingElementSyntaxFields<P> {
+  readonly kind: "binding-element";
+  readonly ordinal: number;
+  readonly slots: Iterable<SyntaxChildSlot<P>>;
+}
+
 export interface ApplicationSyntaxReceipt<P extends Phase> {
   readonly kind: "application";
   readonly ordinal: number;
@@ -5023,13 +5071,16 @@ export interface FunctionSyntaxReceipt<P extends Phase> {
 export type RetainedSyntaxNode<P extends Phase> = Block<P> | BinaryExpression<P> | ReturnStatement<P> | SingleExpressionSyntax<P>
   | CallOrNewExpression<P> | ParameterDeclaration<P> | SourceFile<P> | FunctionDeclaration<P> | FunctionExpression<P>
   | UnarySyntax<P> | AnnotatedExpressionSyntax<P> | ConditionalExpression<P> | IfStatement<P>
-  | PropertyAccessExpression<P> | ElementAccessExpression<P> | ArrayLiteralExpression<P> | ObjectLiteralExpression<P>;
+  | PropertyAccessExpression<P> | ElementAccessExpression<P> | ArrayLiteralExpression<P> | ObjectLiteralExpression<P>
+  | VariableStatement<P> | VariableDeclaration<P> | VariableDeclarationList<P> | BindingPattern<P> | BindingElement<P>;
 export type SyntaxStructureReceipt<P extends Phase> = BlockSyntaxReceipt<P> | BinarySyntaxReceipt<P> | ReturnSyntaxReceipt<P>
   | SingleExpressionReceipt<P> | ApplicationSyntaxReceipt<P> | ParameterSyntaxReceipt<P> | SourceFileSyntaxReceipt<P> | FunctionSyntaxReceipt<P>
   | UnarySyntaxReceipt<P> | AnnotatedExpressionSyntaxReceipt<P> | ConditionalSyntaxReceipt<P> | IfSyntaxReceipt<P>
-  | PropertySyntaxReceipt<P> | ElementSyntaxReceipt<P> | ArraySyntaxReceipt<P> | ObjectSyntaxReceipt<P>;
+  | PropertySyntaxReceipt<P> | ElementSyntaxReceipt<P> | ArraySyntaxReceipt<P> | ObjectSyntaxReceipt<P>
+  | VariableStatementSyntaxReceipt<P> | VariableDeclarationSyntaxReceipt<P> | VariableListSyntaxReceipt<P>
+  | BindingPatternSyntaxReceipt<P> | BindingElementSyntaxReceipt<P>;
 export type SyntaxChildListField = "modifiers" | "typeParameters" | "parameters" | "typeArguments" | "arguments" | "statements"
-  | "elements" | "properties";
+  | "elements" | "properties" | "declarations";
 export type PrepareSyntaxStructure = <P extends Phase, Stop>(
   node: SyntaxNode<P>, ordinal: number, reserve: (node: RetainedSyntaxNode<P>) => Stop | null,
   admitList: (node: RetainedSyntaxNode<P>, field: SyntaxChildListField) => Stop | null,
@@ -5045,7 +5096,8 @@ export interface SyntaxForest<P extends Phase> {
   readonly wireOf: (node: SyntaxNode<P>) => number | undefined;
   readonly structureOf: (node: SyntaxNode<P>) => "block" | "binary" | "return" | "single-expression" | "application" |
     "formal-header" | "source-header" | "function-header" | "unary" | "annotated-expression" | "conditional" | "if" |
-    "property-access" | "element-access" | "array-literal" | "object-literal" | null;
+    "property-access" | "element-access" | "array-literal" | "object-literal" | "variable-statement" | "variable-declaration" |
+    "variable-list" | "binding-pattern" | "binding-element" | null;
   readonly firstRootSize: number;
   readonly copy: <Stop, Image>(start: () => SyntaxCopyResult<SyntaxPhaseCopy<P, Stop, Image>, Stop>,
     beforeNode: (node: SyntaxNode<P>) => Stop | null, image: Image) => SyntaxCopyResult<SyntaxImage<P>, Stop>;

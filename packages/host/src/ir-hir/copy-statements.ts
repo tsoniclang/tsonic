@@ -11,6 +11,8 @@ import type {
   IndexSignatureDeclaration, MethodSignatureDeclaration, MethodDeclaration, PropertySignatureDeclaration, PropertyDeclaration,
   SemicolonClassElement, ClassStaticBlockDeclaration,
   Expression, Phase, SingleExpressionSyntax, SyntaxInitializerImage, SyntaxPhaseCopy,
+  BindingElementSyntaxReceipt, BindingPatternSyntaxReceipt, VariableDeclarationSyntaxReceipt, VariableListSyntaxReceipt,
+  VariableStatementSyntaxReceipt,
 } from "./contract.js";
 import type { SyntaxCopyPorts, SyntaxPlan } from "./copy-node.js";
 import { copied, holdSyntaxPayload, copyNodeList, finishFunctionSyntax, memoSyntaxPlan, syntaxHeader, withSyntaxPayload } from "./copy-node.js";
@@ -75,7 +77,12 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
   blockOf: (node: Block<P>) => BlockSyntaxReceipt<P>, returned: (node: ReturnStatement<P>) => Expression<P> | null,
   expressionOf: (node: SingleExpressionSyntax<P>) => Expression<P>,
   parameterOf: (node: ParameterDeclaration<P>) => ParameterSyntaxReceipt<P>,
-  functionOf: (node: FunctionDeclaration<P>) => FunctionSyntaxReceipt<P>, ifOf: (node: IfStatement<P>) => IfSyntaxReceipt<P>):
+  functionOf: (node: FunctionDeclaration<P>) => FunctionSyntaxReceipt<P>, ifOf: (node: IfStatement<P>) => IfSyntaxReceipt<P>,
+  variableStatementOf: (node: VariableStatement<P>) => VariableStatementSyntaxReceipt<P>,
+  variableOf: (node: VariableDeclaration<P>) => VariableDeclarationSyntaxReceipt<P>,
+  variableListOf: (node: VariableDeclarationList<P>) => VariableListSyntaxReceipt<P>,
+  patternOf: (node: BindingPattern<P>) => BindingPatternSyntaxReceipt<P>,
+  bindingOf: (node: BindingElement<P>) => BindingElementSyntaxReceipt<P>):
   StatementsPlans<P, Stop, Image> {
   const EmptyStatement = new Map<EmptyStatement<P>, SyntaxPlan<EmptyStatement<P>, Stop, Image>>();
   const IfStatement = new Map<IfStatement<P>, SyntaxPlan<IfStatement<P>, Stop, Image>>();
@@ -363,27 +370,21 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
     })),
     VariableStatement: node => memoSyntaxPlan(VariableStatement, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);
-      const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        modifiers: node.modifiers === null ? null : copyNodeList(node.modifiers, item => ports().ModifierLike(item)),
-        declarationList: ports().VariableDeclarationList(node.declarationList).read(),
-        tsonic,
-      });
+      return tsonic => {
+        const shape = variableStatementOf(node);
+        const modifiers = shape.modifiers(item => ports().ModifierLike(item));
+        return { ...header, kind: "VariableStatement", modifiers, declarationList: ports().VariableDeclarationList(shape.declarationList()).read(), tsonic };
+      };
     })),
     VariableDeclaration: node => memoSyntaxPlan(VariableDeclaration, node, () => withSyntaxPayload(phase.VariableDeclaration, node.tsonic, () => {
       const header = syntaxHeader(node);
-      const { kind, exclamationToken } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        name: ports().BindingName(node.name),
-        exclamationToken,
-        type: node.type === null ? null : ports().TypeNode(node.type),
-        initializer: node.initializer === null ? null : ports().Expression(node.initializer),
-        tsonic,
-      });
+      return tsonic => {
+        const shape = variableOf(node);
+        const type = shape.type();
+        const initializer = shape.initializer();
+        return { ...header, kind: "VariableDeclaration", name: ports().BindingName(shape.name()), exclamationToken: shape.exclamationToken(),
+          type: type === null ? null : ports().TypeNode(type), initializer: initializer === null ? null : ports().Expression(initializer), tsonic };
+      };
     })),
     VariableDeclarationList: node => memoSyntaxPlan(VariableDeclarationList, node, () => withSyntaxPayload(phase.VariableDeclarationList, node.tsonic, () => {
       const header = syntaxHeader(node);
@@ -391,7 +392,7 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       return tsonic => ({
         ...header,
         kind,
-        declarations: copyNodeList(node.declarations, item => ports().VariableDeclaration(item).read()),
+        declarations: variableListOf(node).declarations(item => ports().VariableDeclaration(item).read()),
         tsonic,
       });
     })),
@@ -401,7 +402,7 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
       return tsonic => ({
         ...header,
         kind,
-        elements: copyNodeList(node.elements, item => ports().BindingElement(item).read()),
+        elements: patternOf(node).elements(item => ports().BindingElement(item).read()),
         tsonic,
       });
     })),
@@ -427,16 +428,16 @@ export function createStatementsPlans<P extends Phase, Stop, Image>(phase: Synta
     }),
     BindingElement: node => memoSyntaxPlan(BindingElement, node, () => withSyntaxPayload(phase.BindingElement, node.tsonic, () => {
       const header = syntaxHeader(node);
-      const { kind, dotDotDotToken } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        dotDotDotToken,
-        propertyName: node.propertyName === null ? null : ports().PropertyName(node.propertyName),
-        name: node.name === null ? null : ports().BindingName(node.name),
-        initializer: node.initializer === null ? null : ports().Expression(node.initializer),
-        tsonic,
-      });
+      return tsonic => {
+        const shape = bindingOf(node);
+        const property = shape.propertyName();
+        const name = shape.name();
+        const initializer = shape.initializer();
+        return { ...header, kind: "BindingElement", dotDotDotToken: shape.dotDotDotToken(),
+          propertyName: property === null ? null : ports().PropertyName(property),
+          name: name === null ? null : ports().BindingName(name),
+          initializer: initializer === null ? null : ports().Expression(initializer), tsonic };
+      };
     })),
     MissingDeclaration: node => memoSyntaxPlan(MissingDeclaration, node, () => withSyntaxPayload(holdSyntaxPayload, node.tsonic, () => {
       const header = syntaxHeader(node);

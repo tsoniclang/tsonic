@@ -9,12 +9,14 @@ import type { ApplicationSyntaxReceipt, BinaryExpression, BinaryOperatorToken, B
   AccessSyntaxFields, AnnotatedExpressionSyntax, AnnotatedExpressionSyntaxReceipt, ArrayLiteralExpression, ArraySyntaxReceipt,
   ColonToken, ConditionalExpression, ConditionalSyntaxReceipt, ElementAccessExpression, ElementSyntaxReceipt,
   BindingName, BlockOrExpression, CallOrNewExpression, DotDotDotToken, Expression, FunctionSyntaxReceipt,
+  BindingElement, BindingElementSyntaxFields, BindingElementSyntaxReceipt, BindingPattern, BindingPatternSyntaxReceipt,
   IfStatement, IfSyntaxReceipt, MemberName, ObjectLiteralElementLike, ObjectLiteralExpression, ObjectSyntaxReceipt,
   PropertyAccessExpression, PropertySyntaxReceipt, UnarySyntax, UnarySyntaxReceipt,
   ModifierLike, ModifierList, ParameterSyntaxReceipt, SourceFile, SourceFileSyntaxReceipt, SyntaxChildListField,
   PrepareSyntaxStructure, QuestionDotToken, QuestionToken, RetainedSyntaxNode,
   ReturnStatement, ReturnSyntaxReceipt, SingleExpressionReceipt, SingleExpressionSyntax,
-  Statement, SyntaxCopyResult, TextRange, TypeNode } from "./contract.js";
+  Statement, SyntaxCopyResult, TextRange, TypeNode, VariableDeclaration, VariableDeclarationList, VariableDeclarationSyntaxFields,
+  VariableDeclarationSyntaxReceipt, VariableListSyntaxReceipt, VariableStatement, VariableStatementSyntaxReceipt } from "./contract.js";
 import { syntaxHeader } from "./copy-node.js";
 export type { SyntaxChildSlot } from "./contract.js";
 
@@ -327,6 +329,82 @@ function prepareObject<P extends Phase>(node: ObjectLiteralExpression<P>, ordina
   return { kind: "object-literal", ordinal, slots, properties: read => materializeList(requirePresent(list, missingStructure), length, read) };
 }
 
+function* variableStatementSlots<P extends Phase>(modifiers: () => Iterable<SyntaxChildSlot<P>>,
+  declarationList: () => VariableDeclarationList<P>): Generator<SyntaxChildSlot<P>> {
+  yield* modifiers();
+  yield* children<P, VariableStatement<P>>(["declarationList", "required", declarationList]);
+}
+
+function prepareVariableStatement<P extends Phase, Stop>(node: VariableStatement<P>, ordinal: number, admitModifiers: () => Stop | null):
+  SyntaxCopyResult<VariableStatementSyntaxReceipt<P>, Stop> {
+  const modifiers = node.modifiers;
+  const stop = modifiers === null ? null : admitModifiers();
+  if (stop !== null) return { kind: "refused", stop };
+  let list: RetainedSyntaxList<ModifierLike<P>> | undefined;
+  let length = 0;
+  const declarations = heldChild(() => node.declarationList);
+  const slots = variableStatementSlots<P>(() => modifiers === null ? emptyChildren :
+    readRetainedList<P, ModifierLike<P>>("modifiers", modifiers, (value, count) => { list = value; length = count; }), declarations.pull);
+  return { kind: "copied", value: { kind: "variable-statement", ordinal, slots, declarationList: declarations.read,
+    modifiers: read => modifiers === null ? null : materializeList(requirePresent(list, missingStructure), length, read) } };
+}
+
+function variableDeclarationSlots<P extends Phase>(fields: VariableDeclarationSyntaxFields<P>): Iterable<SyntaxChildSlot<P>> {
+  return children<P, VariableDeclaration<P>>(["name", "required", fields.name], ["exclamationToken", "nullable", fields.exclamationToken],
+    ["type", "nullable", fields.type], ["initializer", "nullable", fields.initializer]);
+}
+
+function prepareVariableDeclaration<P extends Phase>(node: VariableDeclaration<P>, ordinal: number): VariableDeclarationSyntaxReceipt<P> {
+  const name = heldChild(() => node.name);
+  const exclamationToken = heldChild(() => node.exclamationToken);
+  const type = heldChild(() => node.type);
+  const initializer = heldChild(() => node.initializer);
+  return { kind: "variable-declaration", ordinal, slots: variableDeclarationSlots<P>({
+    name: name.pull, exclamationToken: exclamationToken.pull, type: type.pull, initializer: initializer.pull,
+  }), name: name.read, exclamationToken: exclamationToken.read, type: type.read, initializer: initializer.read };
+}
+
+function* variableListSlots<P extends Phase>(node: VariableDeclarationList<P>,
+  list: (field: "declarations", values: NodeList<VariableDeclaration<P>>) => Iterable<SyntaxChildSlot<P>>): Generator<SyntaxChildSlot<P>> {
+  yield* list("declarations", node.declarations);
+}
+
+function prepareVariableList<P extends Phase>(node: VariableDeclarationList<P>, ordinal: number): VariableListSyntaxReceipt<P> {
+  let list: RetainedSyntaxList<VariableDeclaration<P>> | undefined;
+  let length = 0;
+  const slots = variableListSlots<P>(node, (field, raw) => readRetainedList<P, VariableDeclaration<P>>(field, raw,
+    (value, count) => { list = value; length = count; }));
+  return { kind: "variable-list", ordinal, slots, declarations: read => materializeList(requirePresent(list, missingStructure), length, read) };
+}
+
+function* bindingPatternSlots<P extends Phase>(node: BindingPattern<P>,
+  list: (field: "elements", values: NodeList<BindingElement<P>>) => Iterable<SyntaxChildSlot<P>>): Generator<SyntaxChildSlot<P>> {
+  yield* list("elements", node.elements);
+}
+
+function prepareBindingPattern<P extends Phase>(node: BindingPattern<P>, ordinal: number): BindingPatternSyntaxReceipt<P> {
+  let list: RetainedSyntaxList<BindingElement<P>> | undefined;
+  let length = 0;
+  const slots = bindingPatternSlots<P>(node, (field, raw) => readRetainedList<P, BindingElement<P>>(field, raw,
+    (value, count) => { list = value; length = count; }));
+  return { kind: "binding-pattern", ordinal, slots, elements: read => materializeList(requirePresent(list, missingStructure), length, read) };
+}
+
+function bindingElementSlots<P extends Phase>(fields: BindingElementSyntaxFields<P>): Iterable<SyntaxChildSlot<P>> {
+  return children<P, BindingElement<P>>(["dotDotDotToken", "nullable", fields.dotDotDotToken], ["propertyName", "nullable", fields.propertyName],
+    ["name", "nullable", fields.name], ["initializer", "nullable", fields.initializer]);
+}
+
+function prepareBindingElement<P extends Phase>(node: BindingElement<P>, ordinal: number): BindingElementSyntaxReceipt<P> {
+  const dotDotDotToken = heldChild(() => node.dotDotDotToken);
+  const propertyName = heldChild(() => node.propertyName);
+  const name = heldChild(() => node.name);
+  const initializer = heldChild(() => node.initializer);
+  return { kind: "binding-element", ordinal, slots: bindingElementSlots<P>({
+    dotDotDotToken: dotDotDotToken.pull, propertyName: propertyName.pull, name: name.pull, initializer: initializer.pull,
+  }), dotDotDotToken: dotDotDotToken.read, propertyName: propertyName.read, name: name.read, initializer: initializer.read };
+}
+
 function* applicationSlots<P extends Phase>(node: CallOrNewExpression<P>,
   expression: (value: Expression<P>) => Expression<P>,
   questionDot: (value: QuestionDotToken<P> | null) => QuestionDotToken<P> | null,
@@ -392,7 +470,9 @@ export const prepareSyntaxStructure: PrepareSyntaxStructure = <P extends Phase, 
       node.kind !== "PrefixUnaryExpression" && node.kind !== "PostfixUnaryExpression" && node.kind !== "AsExpression" &&
       node.kind !== "SatisfiesExpression" && node.kind !== "ConditionalExpression" && node.kind !== "IfStatement" &&
       node.kind !== "PropertyAccessExpression" && node.kind !== "ElementAccessExpression" &&
-      node.kind !== "ArrayLiteralExpression" && node.kind !== "ObjectLiteralExpression" && !isSingleExpressionSyntax<P>(node))
+      node.kind !== "ArrayLiteralExpression" && node.kind !== "ObjectLiteralExpression" &&
+      node.kind !== "VariableStatement" && node.kind !== "VariableDeclaration" && node.kind !== "VariableDeclarationList" &&
+      node.kind !== "ObjectBindingPattern" && node.kind !== "ArrayBindingPattern" && node.kind !== "BindingElement" && !isSingleExpressionSyntax<P>(node))
     return { kind: "copied", value: null };
   const stop = reserve(node);
   if (stop !== null) return { kind: "refused", stop };
@@ -422,6 +502,18 @@ export const prepareSyntaxStructure: PrepareSyntaxStructure = <P extends Phase, 
     const list = admitList(node, "properties");
     return list === null ? { kind: "copied", value: prepareObject<P>(node, ordinal) } : { kind: "refused", stop: list };
   }
+  if (node.kind === "VariableStatement") return prepareVariableStatement<P, Stop>(node, ordinal, () => admitList(node, "modifiers"));
+  if (node.kind === "VariableDeclaration") return { kind: "copied", value: prepareVariableDeclaration<P>(node, ordinal) };
+  if (node.kind === "VariableDeclarationList") {
+    const list = admitList(node, "declarations");
+    return list === null ? { kind: "copied", value: prepareVariableList<P>(node, ordinal) } : { kind: "refused", stop: list };
+  }
+  if (node.kind === "ObjectBindingPattern" || node.kind === "ArrayBindingPattern") {
+    const list = admitList(node, "elements");
+    return list === null ? { kind: "copied", value: prepareBindingPattern<P>(node, ordinal) } : { kind: "refused", stop: list };
+  }
+  if (node.kind === "BindingElement") return { kind: "copied", value: prepareBindingElement<P>(node, ordinal) };
+  if (!isSingleExpressionSyntax<P>(node)) return throwInvariant(missingStructure);
   return { kind: "copied", value: prepareSingleExpression<P>(node, ordinal) };
 };
 
@@ -695,16 +787,19 @@ function ordinarySlots<PhaseType extends Phase>(
     case "ModuleBlock":
       return children<PhaseType, typeof node>(["statements", "list", () => node.statements]);
     case "VariableStatement":
-      return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["declarationList", "required", () => node.declarationList]);
+      return variableStatementSlots<PhaseType>(() => children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers]),
+        () => node.declarationList);
     case "VariableDeclaration":
-      return children<PhaseType, typeof node>(["name", "required", () => node.name], ["exclamationToken", "nullable", () => node.exclamationToken], ["type", "nullable", () => node.type], ["initializer", "nullable", () => node.initializer]);
+      return variableDeclarationSlots<PhaseType>({ name: () => node.name, exclamationToken: () => node.exclamationToken,
+        type: () => node.type, initializer: () => node.initializer });
     case "VariableDeclarationList":
-      return children<PhaseType, typeof node>(["declarations", "list", () => node.declarations]);
+      return variableListSlots<PhaseType>(node, (field, list) => children<PhaseType, typeof node>([field, "list", () => list]));
     case "ObjectBindingPattern":
     case "ArrayBindingPattern":
-      return children<PhaseType, typeof node>(["elements", "list", () => node.elements]);
+      return bindingPatternSlots<PhaseType>(node, (field, list) => children<PhaseType, typeof node>([field, "list", () => list]));
     case "BindingElement":
-      return children<PhaseType, typeof node>(["dotDotDotToken", "nullable", () => node.dotDotDotToken], ["propertyName", "nullable", () => node.propertyName], ["name", "nullable", () => node.name], ["initializer", "nullable", () => node.initializer]);
+      return bindingElementSlots<PhaseType>({ dotDotDotToken: () => node.dotDotDotToken, propertyName: () => node.propertyName,
+        name: () => node.name, initializer: () => node.initializer });
     case "MissingDeclaration":
       return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers]);
     case "FunctionDeclaration":

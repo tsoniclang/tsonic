@@ -140,16 +140,12 @@ function admitSyntaxHeader(scan: ProjectionInventory, node: SyntaxNode<TypedPhas
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
         ?? inventoryRecord(scan, 2);
     case "VariableStatement":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? (node.modifiers === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "VariableDeclaration":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11);
     case "VariableDeclarationList":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8)
-        ?? inventoryRecord(scan, 2);
     case "ObjectBindingPattern":     case "ArrayBindingPattern":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8)
-        ?? inventoryRecord(scan, 2);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "Parameter":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 13);
     case "BindingElement":

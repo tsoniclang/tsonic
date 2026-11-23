@@ -598,8 +598,15 @@ test("HIR copies the complete Checked constructor inventory through one paid pos
       if (selected.kind === "PropertyAccessExpression" || selected.kind === "ElementAccessExpression") {
         expectedReads.push("expression", "questionDotToken", selected.kind === "PropertyAccessExpression" ? "name" : "argumentExpression");
         for (const field of expectedReads) watch(selected, field);
-      } else if (selected.kind === "ArrayLiteralExpression" || selected.kind === "ObjectLiteralExpression") {
-        const field = selected.kind === "ArrayLiteralExpression" ? "elements" : "properties";
+      } else if (selected.kind === "VariableDeclaration" || selected.kind === "BindingElement") {
+        const fields = selected.kind === "VariableDeclaration" ? ["name", "exclamationToken", "type", "initializer"]
+          : ["dotDotDotToken", "propertyName", "name", "initializer"];
+        expectedReads.push(...fields);
+        for (const field of fields) watch(selected, field);
+      } else if (selected.kind === "ArrayLiteralExpression" || selected.kind === "ObjectLiteralExpression"
+        || selected.kind === "VariableDeclarationList" || selected.kind === "ArrayBindingPattern" || selected.kind === "ObjectBindingPattern") {
+        const field = selected.kind === "ObjectLiteralExpression" ? "properties"
+          : selected.kind === "VariableDeclarationList" ? "declarations" : "elements";
         const list = watch(selected, field);
         const rows = watch(list, "nodes");
         watch(list, "loc");
@@ -609,6 +616,16 @@ test("HIR copies the complete Checked constructor inventory through one paid pos
           watch(rows, position, display);
           expectedReads.push(display);
         }
+      } else if (selected.kind === "VariableStatement") {
+        const modifiers = watch(selected, "modifiers");
+        expectedReads.push("modifiers");
+        if (modifiers !== null) {
+          watch(modifiers, "nodes");
+          watch(modifiers, "loc");
+          expectedReads.push("nodes", "loc");
+        }
+        watch(selected, "declarationList");
+        expectedReads.push("declarationList");
       }
       const image = project(original.value);
       assert.equal(image.kind, "copied", label);

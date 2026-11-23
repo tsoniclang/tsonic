@@ -359,6 +359,21 @@ function createSyntaxPlans<P extends Phase, Stop, Image>(phase: SyntaxPhaseCopy<
   }, functionOf, node => {
     const receipt = structure(node);
     return receipt.kind === "if" ? receipt : throwInvariant(missingPreparation);
+  }, node => {
+    const receipt = structure(node);
+    return receipt.kind === "variable-statement" ? receipt : throwInvariant(missingPreparation);
+  }, node => {
+    const receipt = structure(node);
+    return receipt.kind === "variable-declaration" ? receipt : throwInvariant(missingPreparation);
+  }, node => {
+    const receipt = structure(node);
+    return receipt.kind === "variable-list" ? receipt : throwInvariant(missingPreparation);
+  }, node => {
+    const receipt = structure(node);
+    return receipt.kind === "binding-pattern" ? receipt : throwInvariant(missingPreparation);
+  }, node => {
+    const receipt = structure(node);
+    return receipt.kind === "binding-element" ? receipt : throwInvariant(missingPreparation);
   });
   const expressions = createExpressionsPlans(phase, () => ports, node => {
     const receipt = structure(node);
