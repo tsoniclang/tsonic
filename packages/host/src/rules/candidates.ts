@@ -45,7 +45,7 @@ function selectCandidate(deps: RulesDeps, input: Omit<CandidateInput, "context">
     if (parameter.kind === "rest" || parameter.passing !== "by-value")
       return notDecidedYet("the actual selected spread or non-value argument transport", origin);
     if (index >= input.arguments.length) {
-      if (candidate.api.body === null || original.typeParameters.length !== 0 || !parameter.acceptsOmission)
+      if (candidate.api.body === null || !parameter.acceptsOmission)
         return notDecidedYet("the actual selected omission capability of a fixed formal", origin);
       const declared = original.parameters[index];
       if (declared?.declaration !== parameter.declaration || declared.kind !== parameter.kind

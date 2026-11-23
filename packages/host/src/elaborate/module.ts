@@ -3,9 +3,9 @@ import { throwInvariant } from "../diag/index.js";
 import type { BodyId, DefId } from "../ids/contract.js";
 import type { BodyInstance } from "../ir-types/contract.js";
 import type { CheckedPhase, Expression, FunctionDeclaration, ParameterDeclaration, SourceFile, Statement, VariableDeclaration } from "../ir-hir/contract.js";
-import type { TirBody, TirModuleRoot, TirModuleStatement, TirReadyCallable, TypedBodyTemplate, TypedParameter, TypedPhase } from "../ir-tir/contract.js";
+import type { TirBody, TirFormalInitializer, TirModuleRoot, TirModuleStatement, TirReadyCallable, TypedBodyTemplate, TypedParameter, TypedPhase } from "../ir-tir/contract.js";
 import { typePublicationRefusalOf } from "../ir-types/index.js";
-import type { ElaborateDeps, ElaborationCause, ElaborationChild, ElaborationNoResult } from "./contract.js";
+import type { AttachFormalDefault, ElaborateDeps, ElaborationCause, ElaborationChild, ElaborationNoResult } from "./contract.js";
 import { callableTypeHeader, declarationAlias, declarationFunction, declarationInterface, declarationModifiers as modifiers, declarationName as name, declarationType as annotation } from "./declarations.js";
 import { elaborateExport, elaborateImport, moduleLinkRefusal } from "./imports.js";
 
@@ -14,6 +14,18 @@ function defect(message: string): never {
 }
 
 const templateOf = (body: TirBody): TypedBodyTemplate => ({ body: body.body, lexicalBindings: body.lexicalBindings, dependence: body.dependence });
+
+export const attachFormalDefault: AttachFormalDefault = (deps, formal, unopened, ready) => {
+  if (formal.initializer !== unopened) return defect("A required default may be attached to its actual checked slot only once.");
+  const root = ready.root;
+  if (root.kind === "SourceFile" || root.kind === "Block" || ready.owner !== formal.tsonic.declaration
+    || ready.body !== formal.tsonic.initializer || root.id !== unopened.root.id || root.parent !== formal.id
+    || ready.completion !== formal.tsonic.storage || deps.signatureOf(ready.signature).result !== ready.completion)
+    return defect("A completed formal initializer must retain its checked owner, expression and selected result.");
+  const owned: { initializer: TirFormalInitializer } = formal;
+  owned.initializer = { kind: "ready-default", root };
+  return { kind: "ok", value: undefined, diagnostics: [] };
+};
 
 export function elaborateParameter<State>(deps: ElaborateDeps<State>, node: ParameterDeclaration<CheckedPhase>, body: BodyId, selected: TypedParameter,
   initializer: ParameterDeclaration<TypedPhase>["initializer"]): Result<ParameterDeclaration<TypedPhase> & {

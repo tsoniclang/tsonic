@@ -5,6 +5,7 @@ import type { TirRecordCodec, TirSyntaxFields, TirSyntaxHeaderValues, TirTypedWo
 import type { TirBodyRoot, TirFormal, TirFormalInitializer, TirModuleRoot, TirModuleStatement, TirReadyCallable } from "./contract.js";
 import type { BlockOrExpression, FunctionDeclarationHeader, SourceFileHeader } from "../ir-hir/contract.js";
 import { requirePresent } from "../diag/index.js";
+import { decodeBodyId } from "../ids/index.js";
 import type {
   BackedConversionIdentity, ConversionDecision, ConversionIdentity, MemberSelection, ResolvedCallee, TargetAccess, TirApplication, TirArgument, TirBody, TirDemand, TirLocal, TirProtocol, TirProtocolStep, TirResolution, TirRestPart, TirSelection, TypedCallable, TypedClosure, TypedOperation, TypedOperationOf, TypedPhase, TypedSourceFile, TypedStaticBlock
 } from "./contract.js";
@@ -260,7 +261,12 @@ export const createBodyText = (kernel: TirTextKernel, read: BodyTextReads): Body
   const work_OmissionValue_absence: TirRecordCodec<(TirArgument & { readonly kind: "omitted" })["value"] & { readonly kind: "absence" }> = defineRecord<(TirArgument & { readonly kind: "omitted" })["value"] & { readonly kind: "absence" }>("OmissionValue#absence", "OmissionValue", { field: "kind", value: "absence" }, "absence", null, null, fields => fields
     .finish(() => ({ kind: "absence" })));
   const work_OmissionValue_initializer: TirRecordCodec<(TirArgument & { readonly kind: "omitted" })["value"] & { readonly kind: "initializer" }> = defineRecord<(TirArgument & { readonly kind: "omitted" })["value"] & { readonly kind: "initializer" }>("OmissionValue#initializer", "OmissionValue", { field: "kind", value: "initializer" }, "initializer", null, null, fields => fields
-    .field("instance", "BodyInstance", value => read.work_BodyInstance.write(value.instance), lazyReader(() => read.work_BodyInstance.reader))
+    .field("instance", "BodyInstance", value => {
+      const selected = value.instance;
+      const decoded = decodeBodyId(selected.body);
+      const work = read.work_BodyInstance.write(selected);
+      return decoded.kind === "decoded" ? withBindingOwner(work, decoded.value.owner) : work;
+    }, lazyReader(() => read.work_BodyInstance.reader))
     .finish((field_instance) => ({ kind: "initializer", instance: field_instance })));
   const work_OmissionValue_empty_rest: TirRecordCodec<(TirArgument & { readonly kind: "omitted" })["value"] & { readonly kind: "empty-rest" }> = defineRecord<(TirArgument & { readonly kind: "omitted" })["value"] & { readonly kind: "empty-rest" }>("OmissionValue#empty-rest", "OmissionValue", { field: "kind", value: "empty-rest" }, "empty-rest", null, null, fields => fields
     .finish(() => ({ kind: "empty-rest" })));

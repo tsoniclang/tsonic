@@ -89,6 +89,44 @@ test("two concrete uses of an executable foreign generic retain their own select
   }
 });
 
+test("only the omitted generic binding owns its ready default and required entry", async () => {
+  const fixture = await loadFrontFixture();
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const { sameInstance } = await import("../../packages/host/dist/ir-types/index.js");
+  const root = "/project/node_modules/dependency";
+  const module = fixture.moduleOf(fixture.packageOf(root), "index.ts");
+  const source = 'import { choose } from "dependency"; '
+    + "export function omitted(value:boolean):boolean { return choose(value); } "
+    + "export function supplied(value:string):string { return choose<string>(value, value); }";
+  const input = analysisInput(fixture, "sdk-minimal", source);
+  input.snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source },
+    libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
+    extraFiles: { [root + "/package.json"]: JSON.stringify({ name: "dependency", version: "1.0.0", types: "index.ts" }) },
+    otherPackages: [{ root, name: "dependency", modules: { "index.ts": ["source",
+      "export function choose<T>(value:T, other:T=value):T { return other; }", false] } }] });
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok", JSON.stringify(result.diagnostics));
+  const { index, modules } = result.value;
+  const chapter = modules.find(row => row.module === module);
+  const template = chapter.bodies.find(row => row.kind === "template" && row.tir.params.length === 2);
+  const choices = chapter.bodies.filter(row => row.kind === "selected" && row.instance.body === template.instance.body);
+  assert.equal(choices.length, 2);
+  const [withDefault, full] = [1, 2].map(provided => choices.find(row => row.mir.entries[0].provided === provided));
+  assert.deepEqual(withDefault.mir.entries.map(entry => entry.provided), [1]);
+  assert.deepEqual(full.mir.entries.map(entry => entry.provided), [2]);
+  const formal = withDefault.tir.params[1], unopened = full.tir.params[1];
+  assert.equal(formal.initializer.kind, "ready-default");
+  assert.equal(unopened.initializer.kind, "checked-default");
+  const initializer = chapter.bodies.filter(row => row.kind === "selected" && row.instance.body === formal.tsonic.initializer);
+  assert.equal(initializer.length, 1);
+  assert.equal(sameInstance(initializer[0].instance, { body: formal.tsonic.initializer, bindings: withDefault.instance.bindings }), true);
+  assert.equal(initializer[0].tir.root === formal.initializer.root, true);
+  assert.equal(index.types.signatures[initializer[0].tir.signature].result, formal.tsonic.storage);
+  assert.deepEqual(initializer[0].mir.entries.map(entry => entry.provided), [0]);
+  assert.equal(index.dependencyInventory.dependencies.some(edge => edge.reason === "initializer"
+    && edge.target.kind === "body" && sameInstance(edge.target.execution.instance, initializer[0].instance)), true);
+});
+
 test("checked Source verifies the actual foreign generic scope before declaration description", async () => {
   const fixture = await loadFrontFixture();
   const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");

@@ -3,7 +3,7 @@ import type { DefId, ModuleId, SourceNodeRef } from "../ids/contract.js";
 import type { BindingScope, BodyInstance, SignatureOf, TypeOf, TypeInterner, TypePublicationWork } from "../ir-types/contract.js";
 import type { CheckedTypingCut, CheckedTypingCuts, HirBindingViews, HirBody, HirNode } from "../ir-hir/contract.js";
 import type { ConstraintSet, RuleTable, Solution } from "../ir-infer/contract.js";
-import type { StaticStorageOf, TirBody } from "../ir-tir/contract.js";
+import type { StaticStorageOf, TirBody, TirFormal, TirFormalInitializer } from "../ir-tir/contract.js";
 
 export interface ElaborateDeps<State> extends HirBindingViews {
   readonly cuts: CheckedTypingCuts;
@@ -52,3 +52,10 @@ export interface ElaborateInput {
 
 export type ElaborationResult = Extract<Result<TirBody>, { readonly kind: "ok" }> | ElaborationNoResult;
 export type Elaborate = <State>(deps: ElaborateDeps<State>, input: ElaborateInput) => ElaborationResult;
+
+export interface FormalDefaultDeps {
+  readonly signatureOf: SignatureOf;
+}
+
+export type AttachFormalDefault = (deps: FormalDefaultDeps, formal: TirFormal,
+  unopened: Extract<TirFormalInitializer, { readonly kind: "checked-default" }>, ready: TirBody) => Result<void>;

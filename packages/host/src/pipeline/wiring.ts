@@ -10,8 +10,8 @@ import type { CreateRuleTable, DecideCaptureModes, TypePatternMatch } from "../r
 import { createRuleTable, decideCaptureModes, matchTypePattern } from "../rules/index.js";
 import type { ConstraintsOf, GroupsOf, ResumeConstraintsOf, ResumeSolveGroup, SolveGroup } from "../infer/contract.js";
 import { constraintsOf, groupsOf, resumeConstraintsOf, resumeSolveGroup, solveGroup } from "../infer/index.js";
-import type { Elaborate } from "../elaborate/contract.js";
-import { elaborate } from "../elaborate/index.js";
+import type { AttachFormalDefault, Elaborate } from "../elaborate/contract.js";
+import { attachFormalDefault, elaborate } from "../elaborate/index.js";
 import type { LowerToMir } from "../lower-mir/contract.js";
 import { lowerToMir } from "../lower-mir/index.js";
 import type { AnalyzeStorageUse } from "../analyses/liveness/contract.js";
@@ -38,7 +38,7 @@ export interface PipelineWiring {
     readonly matchTypePattern: TypePatternMatch };
   readonly infer: { readonly constraintsOf: ConstraintsOf; readonly groupsOf: GroupsOf; readonly resumeConstraintsOf: ResumeConstraintsOf;
     readonly resumeSolveGroup: ResumeSolveGroup; readonly solveGroup: SolveGroup };
-  readonly elaborate: { readonly elaborate: Elaborate };
+  readonly elaborate: { readonly attachFormalDefault: AttachFormalDefault; readonly elaborate: Elaborate };
   readonly lowerMir: { readonly lowerToMir: LowerToMir };
   readonly liveness: { readonly analyzeStorageUse: AnalyzeStorageUse };
   readonly bodyAnalysis: { readonly analyzeBodyRound: AnalyzeBodyRound; readonly proveInitialization: ProveInitialization };
@@ -79,7 +79,7 @@ export const pipelineWiring: PipelineWiring = {
     produceType, resumeProduceType },
   rules: { createRuleTable, decideCaptureModes, matchTypePattern },
   infer: { constraintsOf, groupsOf, resumeConstraintsOf, resumeSolveGroup, solveGroup },
-  elaborate: { elaborate },
+  elaborate: { attachFormalDefault, elaborate },
   lowerMir: { lowerToMir },
   liveness: { analyzeStorageUse },
   bodyAnalysis: { analyzeBodyRound, proveInitialization },

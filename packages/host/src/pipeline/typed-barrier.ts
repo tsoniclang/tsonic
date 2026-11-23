@@ -384,6 +384,7 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
     if (first === undefined) return fail("A typing refusal must retain its actual diagnostic.");
     return { kind: "refused", diagnostics: [first, ...remaining] };
   }
+  const admit = tirReadyReadAdmission(account);
   let replayResources: ProgramVerificationWork | null = null;
   const requireBody = (instance: BodyInstance): Result<TirBody> => {
     const key = instanceKey(instance);
@@ -421,6 +422,24 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
         })] });
         const placed = placement.kind === "endpoint" ? placement.selected
           : { request: null, signature: readSignature(elaboration.types, specialized.value.signature) };
+        for (let position = 0; position < specialized.value.params.length; position += 1) {
+          const step = chargeWork(account, 1);
+          if (step !== null) return analysisStop(step, unit);
+          const formal = specialized.value.params[position];
+          if (formal === undefined) return fail("A selected generic body retains its complete actual formals.");
+          const unopened = formal.initializer;
+          if (unopened.kind !== "checked-default") continue;
+          const initializer = formal.tsonic.initializer;
+          if (initializer === null) return fail("A selected generic default must have its actual initializer body.");
+          const declared = bodyOf(initializer);
+          if (declared.owner !== formal.tsonic.declaration || declared.root !== unopened.root)
+            return fail("A selected generic default must retain its actual checked declaration and root.");
+          const requested = { body: initializer, bindings: instance.bindings };
+          const reserve = admit({ kind: "artifact", instance: requested }) ?? chargeResultEntries(account, 2);
+          if (reserve !== null) return analysisStop(reserve, unit);
+          const key = instanceKey(requested);
+          attachments.push({ key, complete: ready => pipelineWiring.elaborate.attachFormalDefault(elaboration, formal, unopened, ready) });
+        }
         bodies.set(key, { placed, body: specialized.value, scopes: null });
         return { kind: "ok", diagnostics: [], value: specialized.value };
       }
@@ -529,7 +548,6 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
         : scopeRow(target.instance)?.scopes ?? null });
     } };
   };
-  const admit = tirReadyReadAdmission(account);
   for (const module of modules.values()) {
     const prepared = prepareVerifier(module.module);
     if (prepared === null) return fail("A published typed module needs its actual checked source verification input.");

@@ -8,7 +8,7 @@ import type { TargetAccess, TirArgument, TirBody, TirLocal, TirResolution, TirSe
 import type { BodyInstance, LiteralValue } from "../ir-types/contract.js";
 import { artifactBindingsKey, optionalValueDomainOf, readType, rigidBindings } from "../ir-types/index.js";
 import type { ElaborateDeps, ElaborateInput, ElaborationChild, ElaborationNoResult, ElaborationResult } from "./contract.js";
-import { elaborateModuleSyntax, elaborateParameter, elaborateVariable, isInlineModuleStatement } from "./module.js";
+import { attachFormalDefault, elaborateModuleSyntax, elaborateParameter, elaborateVariable, isInlineModuleStatement } from "./module.js";
 import { declarationAlias, declarationInterface, declarationModifiers, declarationType } from "./declarations.js";
 
 const failure = (kind: string, what: string, origin: Origin | null): InvariantFailure =>
@@ -312,31 +312,19 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
       return callerDefect("the parameter header is not its actual checked item and owning callable occurrence", rootOrigin);
     const initializer = row.initializer === null ? null : initializers.get(row.initializer)
       ?? callerDefect("the actual formal initializer body is missing", header.origin);
-    const completed = (initializer: TirBody): Expression<TypedPhase> => {
-      const root = initializer.root;
-      if (root.kind === "SourceFile" || root.kind === "Block" || initializer.owner !== row.declaration
-        || root.id !== header.initializer?.id || initializer.completion !== parameter.type
-        || deps.signatureOf(initializer.signature).result !== parameter.type)
-        return callerDefect("the completed formal initializer must retain its checked owner, expression and selected result", header.origin);
-      return root;
-    };
     if (initializer !== null && "kind" in initializer && (initializer.body.root !== header.initializer
       || initializer.body.owner !== row.declaration || header.initializer === null))
       return callerDefect("an unopened default requires its actual checked initializer and formal owner", header.origin);
     const authored = header.initializer;
     const slot: ParameterDeclaration<TypedPhase>["initializer"] = initializer === null ? { kind: "none" }
-      : "kind" in initializer ? { kind: "checked-default", root: authored ?? callerDefect("an unopened default has no checked root", header.origin) }
-      : { kind: "ready-default", root: completed(initializer) };
+      : { kind: "checked-default", root: authored ?? callerDefect("an unopened default has no checked root", header.origin) };
     const selected = elaborateParameter(deps, header, body.body, { local: { body: body.body, local: row.local }, declaration: row.declaration,
       role: row.role, passing: row.passing, initializer: row.initializer, storage: parameter.type }, slot);
     if (selected.kind === "refused") return selected;
-    if (initializer !== null && "kind" in initializer) {
+    if (initializer !== null && slot.kind === "checked-default") {
       const formal = selected.value;
-      const stopped = initializer.onRequired(ready => {
-        if (formal.initializer !== slot) return callerDefect("a required default may be attached to its actual checked slot only once", header.origin);
-        formal.initializer = { kind: "ready-default", root: completed(ready) };
-        return { kind: "ok", diagnostics: [], value: undefined };
-      });
+      const attach = (ready: TirBody) => attachFormalDefault(deps, formal, slot, ready);
+      const stopped = "kind" in initializer ? initializer.onRequired(attach) : attach(initializer);
       if (stopped.kind === "refused") return stopped;
     }
     params.push(selected.value);
