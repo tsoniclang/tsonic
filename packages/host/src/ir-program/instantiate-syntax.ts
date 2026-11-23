@@ -317,13 +317,9 @@ function admitSyntaxHeader(scan: ProjectionInventory, node: SyntaxNode<TypedPhas
     case "ElementAccessExpression":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10);
     case "CallExpression":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11)
-        ?? (node.typeArguments === null ? null : inventoryRecord(scan, 2))
-        ?? inventoryRecord(scan, 2);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 11);
     case "NewExpression":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10)
-        ?? (node.typeArguments === null ? null : inventoryRecord(scan, 2))
-        ?? (node.arguments === null ? null : inventoryRecord(scan, 2));
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 10);
     case "MetaProperty":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "SpreadElement":

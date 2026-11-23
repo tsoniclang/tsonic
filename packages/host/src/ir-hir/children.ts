@@ -5,8 +5,9 @@ import type { IterateFunctionHeaderSlots, IterateParameterHeaderSlots, IterateSo
   AsteriskToken, EndOfFile, FunctionDeclarationHeader, FunctionExpression, Identifier, ParameterDeclaration,
   PreparedFunctionHeader, PreparedSourceFileHeader, PrepareFunctionHeader, PrepareSourceFileHeader, SourceFileHeader,
   SyntaxChildSlot, TypeParameterDeclaration } from "./contract.js";
-import type { BinaryExpression, BinaryOperatorToken, BinarySyntaxReceipt, Block, BlockSyntaxReceipt, Expression, ModifierLike, ModifierList,
-  PrepareSyntaxStructure, RetainedSyntaxNode, ReturnStatement, ReturnSyntaxReceipt, SingleExpressionReceipt, SingleExpressionSyntax,
+import type { ApplicationSyntaxReceipt, BinaryExpression, BinaryOperatorToken, BinarySyntaxReceipt, Block, BlockSyntaxReceipt,
+  CallOrNewExpression, Expression, ModifierLike, ModifierList, PrepareSyntaxStructure, QuestionDotToken, RetainedSyntaxNode,
+  ReturnStatement, ReturnSyntaxReceipt, SingleExpressionReceipt, SingleExpressionSyntax,
   Statement, SyntaxCopyResult, TextRange, TypeNode } from "./contract.js";
 import { syntaxHeader } from "./copy-node.js";
 export type { SyntaxChildSlot } from "./contract.js";
@@ -198,16 +199,74 @@ function prepareReturnStructure<P extends Phase>(node: ReturnStatement<P>, ordin
     expression: () => requirePresent(expression, missingStructure) };
 }
 
+function* applicationSlots<P extends Phase>(node: CallOrNewExpression<P>,
+  expression: (value: Expression<P>) => Expression<P>,
+  questionDot: (value: QuestionDotToken<P> | null) => QuestionDotToken<P> | null,
+  typeArguments: () => Iterable<SyntaxChildSlot<P>>, callArguments: () => Iterable<SyntaxChildSlot<P>>,
+): Generator<SyntaxChildSlot<P>> {
+  yield* children<P, typeof node>(["expression", "required", () => expression(node.expression)]);
+  if (node.kind === "CallExpression") {
+    yield* children<P, typeof node>(["questionDotToken", "nullable", () => questionDot(node.questionDotToken)]);
+  }
+  yield* typeArguments();
+  yield* callArguments();
+}
+
+function prepareApplicationStructure<P extends Phase, Stop>(node: CallOrNewExpression<P>, ordinal: number,
+  admitList: (field: "typeArguments" | "arguments") => Stop | null,
+): SyntaxCopyResult<ApplicationSyntaxReceipt<P>, Stop> {
+  const typeArguments = node.typeArguments;
+  if (typeArguments !== null) {
+    const stop = admitList("typeArguments");
+    if (stop !== null) return { kind: "refused", stop };
+  }
+  let callArguments: NodeList<Expression<P>> | null;
+  if (node.kind === "CallExpression") {
+    const stop = admitList("arguments");
+    if (stop !== null) return { kind: "refused", stop };
+    callArguments = node.arguments;
+  } else {
+    callArguments = node.arguments;
+    if (callArguments !== null) {
+      const stop = admitList("arguments");
+      if (stop !== null) return { kind: "refused", stop };
+    }
+  }
+  let expression: Expression<P> | undefined;
+  let questionDot: QuestionDotToken<P> | null = null;
+  let types: RetainedSyntaxList<TypeNode<P>> | undefined;
+  let values: RetainedSyntaxList<Expression<P>> | undefined;
+  let typeCount = 0;
+  let valueCount = 0;
+  const slots = applicationSlots<P>(node, value => (expression = value), value => (questionDot = value),
+    () => typeArguments === null ? [] : readRetainedList<P, TypeNode<P>>("typeArguments", typeArguments, (list, count) => {
+      types = list;
+      typeCount = count;
+    }),
+    () => callArguments === null ? [] : readRetainedList<P, Expression<P>>("arguments", callArguments, (list, count) => {
+      values = list;
+      valueCount = count;
+    }));
+  return { kind: "copied", value: { kind: "application", ordinal, header: syntaxHeader(node), slots,
+    expression: () => requirePresent(expression, missingStructure), questionDotToken: () => questionDot,
+    typeArguments: read => typeArguments === null ? null : materializeList(requirePresent(types, missingStructure), typeCount, read),
+    arguments: read => callArguments === null ? null : materializeList(requirePresent(values, missingStructure), valueCount, read),
+  } };
+}
+
 export const prepareSyntaxStructure: PrepareSyntaxStructure = <P extends Phase, Stop>(
-  node: SyntaxNode<P>, ordinal: number, reserve: (node: RetainedSyntaxNode<P>) => Stop | null, admitModifiers: () => Stop | null,
+  node: SyntaxNode<P>, ordinal: number, reserve: (node: RetainedSyntaxNode<P>) => Stop | null,
+  admitList: (field: "modifiers" | "typeArguments" | "arguments") => Stop | null,
 ) => {
-  if (node.kind !== "Block" && node.kind !== "BinaryExpression" && node.kind !== "ReturnStatement" && !isSingleExpressionSyntax<P>(node))
+  if (node.kind !== "Block" && node.kind !== "BinaryExpression" && node.kind !== "ReturnStatement" &&
+      node.kind !== "CallExpression" && node.kind !== "NewExpression" && !isSingleExpressionSyntax<P>(node))
     return { kind: "copied", value: null };
   const stop = reserve(node);
   if (stop !== null) return { kind: "refused", stop };
   if (node.kind === "Block") return { kind: "copied", value: prepareBlockStructure<P>(node, ordinal) };
   if (node.kind === "ReturnStatement") return { kind: "copied", value: prepareReturnStructure<P>(node, ordinal) };
-  if (node.kind === "BinaryExpression") return prepareBinaryStructure<P, Stop>(node, ordinal, admitModifiers);
+  if (node.kind === "BinaryExpression") return prepareBinaryStructure<P, Stop>(node, ordinal, () => admitList("modifiers"));
+  if (node.kind === "CallExpression" || node.kind === "NewExpression") return prepareApplicationStructure<P, Stop>(node, ordinal, admitList);
   return { kind: "copied", value: prepareSingleExpression<P>(node, ordinal) };
 };
 
@@ -513,9 +572,10 @@ function ordinarySlots<PhaseType extends Phase>(
     case "ElementAccessExpression":
       return children<PhaseType, typeof node>(["expression", "required", () => node.expression], ["questionDotToken", "nullable", () => node.questionDotToken], ["argumentExpression", "required", () => node.argumentExpression]);
     case "CallExpression":
-      return children<PhaseType, typeof node>(["expression", "required", () => node.expression], ["questionDotToken", "nullable", () => node.questionDotToken], ["typeArguments", "list", () => node.typeArguments], ["arguments", "list", () => node.arguments]);
     case "NewExpression":
-      return children<PhaseType, typeof node>(["expression", "required", () => node.expression], ["typeArguments", "list", () => node.typeArguments], ["arguments", "list", () => node.arguments]);
+      return applicationSlots<PhaseType>(node, value => value, value => value,
+        () => children<PhaseType, typeof node>(["typeArguments", "list", () => node.typeArguments]),
+        () => children<PhaseType, typeof node>(["arguments", "list", () => node.arguments]));
     case "MetaProperty":
       return children<PhaseType, typeof node>(["name", "required", () => node.name]);
     case "TemplateExpression":

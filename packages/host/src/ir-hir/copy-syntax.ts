@@ -108,7 +108,10 @@ function createSyntaxPlans<P extends Phase, Stop, Image>(phase: SyntaxPhaseCopy<
   const expressions = createExpressionsPlans(phase, () => ports, node => {
     const receipt = structure(node);
     return receipt.kind === "binary" ? receipt : throwInvariant(missingPreparation);
-  }, expressionOf);
+  }, expressionOf, node => {
+    const receipt = structure(node);
+    return receipt.kind === "application" ? receipt : throwInvariant(missingPreparation);
+  });
   const types = createTypesPlans(phase, () => ports);
   const auxiliary = createAuxiliaryPlans(phase, () => ports, expressionOf);
   const ports: SyntaxCopyPorts<P, Stop, Image> = {

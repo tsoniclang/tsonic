@@ -9,8 +9,9 @@ import type {
   PropertyAssignment, ShorthandPropertyAssignment, DeleteExpression, TypeOfExpression, VoidExpression,
   AwaitExpression, TypeAssertion, ExpressionWithTypeArguments, TemplateHead, TemplateMiddle,
   TemplateTail, PartiallyEmittedExpression, SyntheticReferenceExpression,
-  Expression, Phase, SingleExpressionSyntax, SyntaxPhaseCopy,
+  ApplicationSyntaxReceipt, CallOrNewExpression, Expression, Phase, SingleExpressionSyntax, SyntaxPhaseCopy,
 } from "./contract.js";
+import { throwInvariant } from "../diag/index.js";
 import type { SyntaxCopyPorts, SyntaxPlan } from "./copy-node.js";
 import { holdSyntaxPayload, copyNodeList, memoSyntaxPlan, syntaxHeader, withSyntaxPayload } from "./copy-node.js";
 
@@ -68,7 +69,8 @@ export interface ExpressionsPlans<P extends Phase, Stop, Image> {
 
 export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: SyntaxPhaseCopy<P, Stop, Image>,
   ports: () => SyntaxCopyPorts<P, Stop, Image>, binaryOf: (node: BinaryExpression<P>) => BinarySyntaxReceipt<P>,
-  expressionOf: (node: SingleExpressionSyntax<P>) => Expression<P>): ExpressionsPlans<P, Stop, Image> {
+  expressionOf: (node: SingleExpressionSyntax<P>) => Expression<P>,
+  applicationOf: (node: CallOrNewExpression<P>) => ApplicationSyntaxReceipt<P>): ExpressionsPlans<P, Stop, Image> {
   const Identifier = new Map<Identifier<P>, SyntaxPlan<Identifier<P>, Stop, Image>>();
   const PrivateIdentifier = new Map<PrivateIdentifier<P>, SyntaxPlan<PrivateIdentifier<P>, Stop, Image>>();
   const QualifiedName = new Map<QualifiedName<P>, SyntaxPlan<QualifiedName<P>, Stop, Image>>();
@@ -411,30 +413,21 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
         tsonic,
       });
     })),
-    CallExpression: node => memoSyntaxPlan(CallExpression, node, () => withSyntaxPayload(phase.CallExpression, node.tsonic, () => {
-      const header = syntaxHeader(node);
-      const { kind, questionDotToken } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        expression: ports().Expression(node.expression).read(),
-        questionDotToken,
-        typeArguments: node.typeArguments === null ? null : copyNodeList(node.typeArguments, item => ports().TypeNode(item).read()),
-        arguments: copyNodeList(node.arguments, item => ports().Expression(item).read()),
-        tsonic,
+    CallExpression: node => memoSyntaxPlan(CallExpression, node, () => withSyntaxPayload(phase.CallExpression, node.tsonic, () => tsonic => {
+      const shape = applicationOf(node);
+      const expression = ports().Expression(shape.expression()).read();
+      const typeArguments = shape.typeArguments(item => ports().TypeNode(item).read());
+      const args = shape.arguments(item => ports().Expression(item).read());
+      if (args === null) return throwInvariant({
+        owner: "ir-hir", query: null, origin: shape.header.origin, message: "A call requires its admitted argument list.",
       });
+      return { ...shape.header, kind: "CallExpression", expression, questionDotToken: shape.questionDotToken(), typeArguments, arguments: args, tsonic };
     })),
-    NewExpression: node => memoSyntaxPlan(NewExpression, node, () => withSyntaxPayload(phase.NewExpression, node.tsonic, () => {
-      const header = syntaxHeader(node);
-      const { kind } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        expression: ports().Expression(node.expression).read(),
-        typeArguments: node.typeArguments === null ? null : copyNodeList(node.typeArguments, item => ports().TypeNode(item).read()),
-        arguments: node.arguments === null ? null : copyNodeList(node.arguments, item => ports().Expression(item).read()),
-        tsonic,
-      });
+    NewExpression: node => memoSyntaxPlan(NewExpression, node, () => withSyntaxPayload(phase.NewExpression, node.tsonic, () => tsonic => {
+      const shape = applicationOf(node);
+      return { ...shape.header, kind: "NewExpression", expression: ports().Expression(shape.expression()).read(),
+        typeArguments: shape.typeArguments(item => ports().TypeNode(item).read()),
+        arguments: shape.arguments(item => ports().Expression(item).read()), tsonic };
     })),
     MetaProperty: node => memoSyntaxPlan(MetaProperty, node, () => withSyntaxPayload(phase.MetaProperty, node.tsonic, () => {
       const header = syntaxHeader(node);

@@ -3595,6 +3595,81 @@ test("ordinary required expression slots retain their sole paid Typed read acros
   }
 });
 
+test("Program seals actual Typed call fields and paid argument rows before independent evidence", async () => {
+  const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { analyzeTypedSource } = await import("../../packages/host/dist/pipeline/analysis-barrier.js");
+  const { publishHostProgram } = await import("../../packages/host/dist/pipeline/publication.js");
+  const fixture = await loadFrontFixture();
+  const input = analysisInput(fixture, "sdk-minimal", [
+    "function second<Value>(left:Value,right:Value):Value { return right; }",
+    "export function keep(left:boolean,right:boolean):boolean { return second<boolean>(left,right); }",
+  ].join("\n"));
+  const run = maximumWork => {
+    const captured = captureSourceBarrier(input);
+    assert.equal(captured.kind, "ok");
+    const account = createAccount({ ...input.limits.dataflow, maximumWork: maximumWork ?? input.limits.dataflow.maximumWork });
+    const typed = typeSourceBarrier(input, captured.value, account);
+    assert.equal(typed.kind, "ok", JSON.stringify(typed.diagnostics));
+    const analyzed = analyzeTypedSource(input, typed.value, account);
+    assert.equal(analyzed.kind, "ok", JSON.stringify(analyzed.diagnostics));
+    const original = [...typed.value.bodies.values()].find(body => body.root.kind === "Block" && body.bindings.kind === "instantiated" &&
+      body.root.statements.nodes[0]?.expression?.kind === "CallExpression");
+    const call = original.root.statements.nodes[0].expression;
+    const args = call.arguments;
+    const types = call.typeArguments;
+    assert.equal(types.nodes.length, 1);
+    assert.equal(args.nodes.length, 2);
+    const originalNodes = args.nodes.map(node => node.id);
+    const originalType = types.nodes[0].id;
+    let opened = false;
+    const reads = [];
+    const watch = (owner, field, label, ordinary = owner[field]) => Object.defineProperty(owner, field, { get() {
+      assert.equal(opened, false, label);
+      reads.push({ label, work: InvocationAccount.stateOf(account).work });
+      return ordinary;
+    } });
+    watch(call, "expression", "callee");
+    watch(call, "questionDotToken", "chain presence");
+    watch(call, "typeArguments", "type header");
+    watch(call, "arguments", "value header");
+    watch(types, "loc", "type range");
+    watch(args, "loc", "value range");
+    watch(types.nodes, 0, "type row");
+    watch(args.nodes, 0, "value row 0");
+    watch(args.nodes, 1, "value row 1");
+    watch(types, "nodes", "type vector");
+    watch(args, "nodes", "value vector");
+    const result = publishHostProgram(input, { ...typed.value, programEvidence: owner => {
+      assert.equal(owner === account, true);
+      opened = true;
+      return typed.value.programEvidence(owner);
+    } }, analyzed.value, account);
+    return { result, opened, reads, fail: accountFailure(account), body: original.body, originalNodes, originalType };
+  };
+  const full = run();
+  assert.equal(full.result.kind, "ok", JSON.stringify(full.result.diagnostics));
+  assert.equal(full.opened, true);
+  assert.deepEqual(full.reads.map(row => row.label), [
+    "type header", "value header", "callee", "chain presence", "type vector", "type range", "type row", "value vector", "value range", "value row 0", "value row 1",
+  ]);
+  const chapter = full.result.value.modules.find(module => module.module === input.snapshot.entryPoint);
+  const body = chapter.bodies.find(row => row.kind === "selected" && row.tir.body === full.body);
+  const call = body.tir.root.statements.nodes[0].expression;
+  assert.deepEqual(call.arguments.nodes.map(node => node.id), full.originalNodes);
+  assert.equal(call.typeArguments.nodes[0].id, full.originalType);
+  for (const label of ["value header", "callee", "type row", "value row 0", "value row 1"]) {
+    const expected = full.reads.find(read => read.label === label);
+    const maximum = expected.work - 1;
+    const cut = run(maximum);
+    assert.deepEqual(cut.fail, { kind: "resource-limit", dimension: "work", maximum });
+    assert.equal(cut.result.kind, "refused");
+    assert.equal(cut.opened, false);
+    assert.deepEqual(cut.reads, full.reads.filter(read => read.work <= maximum));
+  }
+});
+
 test("Program transports the exact verified construction-part and its independent Decls inventory", async () => {
   const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
   const { indexSyntaxTree } = await import("../../packages/host/dist/ir-hir/index.js");

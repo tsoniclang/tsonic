@@ -106,7 +106,7 @@ export function createSyntaxForest<PhaseType extends NullableInitializerPhase<Ph
           const node = frame.node;
           active.add(node);
           const ordinal = nodes.length;
-          const prepared = prepareSyntaxStructure<PhaseType, Stop>(node, ordinal, admission.structure, admission.modifiers);
+          const prepared = prepareSyntaxStructure<PhaseType, Stop>(node, ordinal, admission.structure, admission.list);
           if (prepared.kind === "refused") return prepared.stop;
           const shape = prepared.value;
           wire.set(node, shape ?? ordinal);
@@ -172,7 +172,7 @@ export function createSyntaxForest<PhaseType extends NullableInitializerPhase<Ph
   };
   return { append, nodes, postorder, wireOf, structure, copyInitializer,
     firstRootSize: () => firstRootSize,
-    structureOf: (node: SyntaxNode<PhaseType>): "block" | "binary" | "return" | "single-expression" | null => {
+    structureOf: (node: SyntaxNode<PhaseType>) => {
       const entry = wire.get(node);
       return entry === undefined || typeof entry === "number" || entry.kind === "parameter" ? null : entry.kind;
     },
