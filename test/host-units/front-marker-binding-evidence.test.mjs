@@ -305,7 +305,7 @@ export const Constructed: { direct: boolean; renamed: boolean; qualified: boolea
     }, { ...opened.deps.navigationCapture, [dimension]: maximum });
     return { reads, capture };
   };
-  for (const [dimension, firstRead] of [["maximumCapturedFactsPerModule", 167], ["maximumCapturedEdgesPerModule", 71]]) {
+  for (const [dimension, firstRead] of [["maximumCapturedFactsPerModule", 219], ["maximumCapturedEdgesPerModule", 147]]) {
     const originalStop = new Error("the first actual checked binding read");
     const unread = readBindingsAt(dimension, firstRead - 1, originalStop);
     assert.equal(unread.reads, 0);

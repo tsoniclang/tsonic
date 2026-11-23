@@ -616,8 +616,10 @@ test("A7 through A13 genuine emitted contracts accept current forms and reject e
         "export function read(binding: TypedBinding) { const current: TypedBindingElement = binding; return current; }", 2322],
       ["old-library-binding", [["libraries", "LibraryExportBinding"]],
         "export type Removed = LibraryExportBinding;", 2724],
-      ["old-library-projection", [["libraries", "LibraryVerificationContext"], ["ids", "LibraryExportIdentity"]],
-        "export function read(context: LibraryVerificationContext, identity: LibraryExportIdentity) { return context.signatureOfExport(identity); }", 2339],
+      ["old-library-context", [["libraries", "LibraryVerificationContext"]],
+        "export type Removed = LibraryVerificationContext;", 2724],
+      ["old-library-projection", [["libraries", "LibraryRoleVerificationContext"], ["ids", "LibraryExportIdentity"]],
+        "export function read(context: LibraryRoleVerificationContext, identity: LibraryExportIdentity) { return context.signatureOfExport(identity); }", 2339],
       ["old-summary-single-input", [["summaries", "BindDeclaredSummary, DeclaredSummaryInput"]],
         "export function read(bind: BindDeclaredSummary, input: DeclaredSummaryInput) { return bind(input); }", 2554],
       ["unsupported-schema", [["ir-program", "SupportedProgramSchema"]],
@@ -627,15 +629,15 @@ test("A7 through A13 genuine emitted contracts accept current forms and reject e
       ...["module", "definition"].map(kind => ["removed-tir-" + kind, [["ir-tir", "TirSite"]],
         `export const value: TirSite["kind"] = ${JSON.stringify(kind)};`, 2322]),
       ["removed-library-member-rule", [["libraries", "LibraryRule"]],
-        'export const value: LibraryRule = "summary-binding-member-exact";', 2820],
+        'export const value: LibraryRule = "summary-binding-member-exact";', 2322],
     ];
     const positive = imports([
       ["ir-mir", "VerifyMir, MirBody, MirVerificationContext, MirTerminator"],
       ["dataflow", "BackwardProblem, BlockState, DataflowAccount"], ["ir-program", "ProgramVerificationContext, SupportedProgramSchema, SignatureRecord, PublishedBody"],
       ["ir-types", "AdmitTypeTable, TypeTableAdmissionStop, TypeTableAdmissionWork, TypePublicationWork, TypeTable, TypePublicationResult, SubstituteSignature, TypeInterner, BindingVector, TypeExpansionLimits"],
-      ["ir-tir", "TypedBinding, TypedBindingElement, VerifyTir, VerifyTirModule, TirVerifierInput, TirModule, TirBody, TirSite, TirReadyReadAdmission"], ["libraries", "LibraryVerificationContext, NativeExportAssociation"],
+      ["ir-tir", "TypedBinding, TypedBindingElement, VerifyTir, VerifyTirModule, TirVerifierInput, TirModule, TirBody, TirSite, TirReadyReadAdmission"], ["libraries", "LibraryRoleVerificationContext"],
       ["ids", "LibraryExportIdentity, ModuleId, NodeId, BlockId, SigId"],
-    ]) + '\nexport function current<Stop extends TypeTableAdmissionStop>(verify: VerifyMir, body: MirBody, mir: MirVerificationContext, problem: BackwardProblem<number>, account: DataflowAccount, term: MirTerminator, states: readonly BlockState<number>[], program: ProgramVerificationContext, binding: TypedBinding, libraries: LibraryVerificationContext, identity: LibraryExportIdentity, admitTable: AdmitTypeTable, table: TypeTable, typeWork: TypeTableAdmissionWork<Stop>, record: SignatureRecord, block: BlockId) {\nconst element: TypedBindingElement = { ...binding, role: "binding" }; const hole: TypedBindingElement = { role: "hole" };\nconst schema: SupportedProgramSchema = 1; const projection: readonly NativeExportAssociation[] = libraries.associations;\nreturn { findings: verify(body, mir), before: problem.terminator(term, states, null, account, block), resources: program.resources, mirVerification: program.mirVerification, element, hole, schema, projection, identity, interner: admitTable(table, typeWork), signature: program.signatureIdOf(record.definition, record.kind, record.ordinal, record.bindings) };\n}\n';
+    ]) + '\nexport function current<Stop extends TypeTableAdmissionStop>(verify: VerifyMir, body: MirBody, mir: MirVerificationContext, problem: BackwardProblem<number>, account: DataflowAccount, term: MirTerminator, states: readonly BlockState<number>[], program: ProgramVerificationContext, binding: TypedBinding, libraries: LibraryRoleVerificationContext, identity: LibraryExportIdentity, admitTable: AdmitTypeTable, table: TypeTable, typeWork: TypeTableAdmissionWork<Stop>, record: SignatureRecord, block: BlockId) {\nconst element: TypedBindingElement = { ...binding, role: "binding" }; const hole: TypedBindingElement = { role: "hole" };\nconst schema: SupportedProgramSchema = 1; const definition = libraries.definitionOfExport(identity);\nreturn { findings: verify(body, mir), before: problem.terminator(term, states, null, account, block), resources: program.resources, mirVerification: program.mirVerification, element, hole, schema, definition, interner: admitTable(table, typeWork), signature: program.signatureIdOf(record.definition, record.kind, record.ordinal, record.bindings) };\n}\n';
     write("positive.mts", positive + '\nexport function currentPublication(result: TypePublicationResult) { return result.kind === "complete" ? [result.work, result.createdRecords] : null; }\nexport function currentTir<Stop extends object>(verifyBody: VerifyTir, verifyModule: VerifyTirModule, input: TirVerifierInput, body: TirBody, module: TirModule, admit: TirReadyReadAdmission<Stop>) { const outside = verifyModule(input, module, admit); return { body: verifyBody(input, admit)(body), outside: outside.kind === "complete" ? outside.violations.map(violation => [violation.site.module, violation.site.node]) : outside.stop }; }\nexport function currentTirSite(module: ModuleId, node: NodeId): TirSite { return { kind: "node", module, node }; }\nexport function currentProgramSignature(substitute: SubstituteSignature, interner: TypeInterner, artifact: PublishedBody, bindings: BindingVector, limits: TypeExpansionLimits, work: TypePublicationWork) { return substitute(interner, [artifact.tir.signature], bindings, limits, "lexical", work); }\nexport function currentSelectedSignature(substitute: SubstituteSignature, interner: TypeInterner, signature: SigId, bindings: BindingVector, limits: TypeExpansionLimits, work: TypePublicationWork) { return substitute(interner, [signature], bindings, limits, "selected", work); }\n');
     write("positive-hir-paths.mts", imports([["ir-hir", "HirVerificationContext, HirRule"], ["ids", "BodyId, DefId"]]) +
       '\nexport function current(context: HirVerificationContext, body: BodyId, definition: DefId) { const rule: HirRule = "identity-path-exact"; return { body: context.bodyPathOf(body), definition: context.definitionPathOf(definition), rule }; }\n');
@@ -645,13 +647,16 @@ test("A7 through A13 genuine emitted contracts accept current forms and reject e
       '\nexport function current<Stop extends object>(input: TirVerifierInput, subject: TirBody, instance: BodyInstance, visit: TirBindingOwnerVisit<Stop>, admit: TirReadyReadAdmission<Stop>, verify: VerifyTir, verifyModule: VerifyTirModule): Stop | null { const body: TirBindingTarget = { kind: "body", instance }; const scope = input.bindingScopesOf(body, subject, visit); if (scope.kind === "resource-stop") return scope.stop; const checked = verify(input, admit)(subject); if (checked.kind === "resource-stop") return checked.stop; const chapter = verifyModule(input, input.module, admit); return chapter.kind === "resource-stop" ? chapter.stop : null; }\n');
     write("positive-decls-deps.mts", imports([["decls", "DeclsDeps"]]) +
       '\nexport function current(deps: DeclsDeps) { return deps.modules; }\n');
+    write("positive-library-association.mts", imports([["summaries", "DeclaredSummaryInput"], ["libraries", "NativeExportAssociation"]]) +
+      '\nexport function current(input: DeclaredSummaryInput): readonly NativeExportAssociation[] | null { return input.kind === "native" ? input.associations : null; }\n');
     for (const [name, entries, text] of rows) write(name + ".mts", imports(entries) + "\n" + text + "\n");
     write("tsconfig.json", JSON.stringify({ compilerOptions: {
       strict: true, noUncheckedIndexedAccess: true, exactOptionalPropertyTypes: true, noUnusedLocals: true,
       noUnusedParameters: true, noImplicitReturns: true, noFallthroughCasesInSwitch: true, skipLibCheck: false,
       noEmit: true, target: "es2022", lib: ["es2022"], types: [], module: "nodenext", moduleResolution: "nodenext",
       verbatimModuleSyntax: true,
-    }, files: ["positive.mts", "positive-hir-paths.mts", "positive-program-paths.mts", "positive-tir-scopes.mts", "positive-decls-deps.mts", ...rows.map(([name]) => name + ".mts")] }));
+    }, files: ["positive.mts", "positive-hir-paths.mts", "positive-program-paths.mts", "positive-tir-scopes.mts", "positive-decls-deps.mts",
+      "positive-library-association.mts", ...rows.map(([name]) => name + ".mts")] }));
     const result = spawnSync(process.execPath, [deps.compiler, "--project", resolve(root, "tsconfig.json"), "--pretty", "false"], {
       cwd: root, encoding: "utf8", maxBuffer: 4_194_304, timeout: 90_000,
     });
