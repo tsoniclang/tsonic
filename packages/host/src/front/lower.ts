@@ -178,7 +178,18 @@ function coreOf(lowering: Lowering, node: NodeId): Hir.HirCoreCapture {
     return { role: "declaration", mode: value.mode };
   });
   return {
-    provider: capturedFact(raw.provider, value => value === null ? null : definitionOf(lowering, node)), markers,
+    provider: capturedFact(raw.provider, value => {
+      if (value === null) return null;
+      if (value.node.module !== raw.node.module || value.node.node !== raw.node.node) {
+        const call = lowering.calls.get(node);
+        const declared = call?.kind === "applicable" && call.declarationOrder.kind === "available"
+          ? call.declarationOrder.value[call.declarationOrdinal] : undefined;
+        const selected = declared === undefined ? null : lowering.raw.types.signatures[declared]?.declaration;
+        if (selected?.module !== value.node.module || selected.node !== value.node.node || value.identity.signatureId === null)
+          return throwInvariant(invariant("A native call must retain its actual selected provider signature occurrence."));
+      }
+      return lowering.deps.definitionOf(value.node);
+    }), markers,
     pointerType: capturedFact(raw.pointerType, absenceOnly("pointer type")),
     pointerOperation: capturedFact(raw.pointerOperation, absenceOnly("pointer operation")),
     fieldBinding: capturedFact(raw.fieldBinding, absenceOnly("field binding")),

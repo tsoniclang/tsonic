@@ -327,7 +327,9 @@ interface CaptureScope extends CaptureAdmission {
   readonly tables: CaptureTables;
 }
 
-type CallCore = NonNullable<Extract<RawMarkers["application"], { readonly kind: "available" }>["value"]> | "ordinary";
+type CallCore = NonNullable<Extract<RawMarkers["application"], { readonly kind: "available" }>["value"]>
+  | { readonly role: "provider"; readonly receipt: RawProviderDeclaration }
+  | "ordinary";
 
 type OpenedProgramView = ReturnType<typeof OpenedProgram.checked>;
 
@@ -2595,7 +2597,8 @@ function capturedMarkers(scope: CaptureScope, node: Node, occurrence: NodeId): R
   let application: RawMarkers["application"] = available(null);
   if ((structure !== undefined || field !== undefined) && scope.checked.ast.kindName(node) === "KindCallExpression") {
     const selected = scope.callCore.get(occurrence);
-    application = selected !== undefined && selected !== "ordinary" && (selected.role === "struct" ? structure !== undefined : field !== undefined)
+    application = selected !== undefined && selected !== "ordinary" && selected.role !== "provider"
+      && (selected.role === "struct" ? structure !== undefined : field !== undefined)
       ? available(selected) : { kind: "unavailable", reason: "incomplete-association", causes: [] };
   }
   return { struct: capturedStruct, field: capturedField, defaultValue: capturedDefault, jsString, application };
@@ -3705,15 +3708,29 @@ function captureCall(scope: CaptureScope, node: Node, invocation: RawNodeRef): R
         if (!admit(scope, "facts")) return null;
         scope.callCore.set(invocation.node, { role: marker.marker, declaration });
       }
-    } else if (marker === undefined && scope.closedOrdinaryApplication && application.kind === "call") {
+    } else if (marker === undefined && application.kind === "call") {
       if (!admit(scope, "edges")) return null;
       const declaration = scope.tables.signatures[original]?.declaration;
-      if (declaration !== undefined && declaration !== null && snapshotDeclaration(scope.program, declaration)) {
-        if (!admit(scope, "edges")) return null;
-        const callable = admittedTypeUse(scope, declaration);
-        if (callable !== undefined && callable === application.signatureShape.declaration && scope.checked.ast.body(callable) !== undefined) {
-          if (!admit(scope, "facts")) return null;
-          scope.callCore.set(invocation.node, "ordinary");
+      if (declaration !== undefined && declaration !== null) {
+        const source = OpenedProgram.file(scope.program, declaration.module)?.origin;
+        const native = source?.kind === "session-document" && source.document.artifact === "canonical-export-owner";
+        const ordinary = scope.closedOrdinaryApplication && source?.kind === "snapshot";
+        if (native || ordinary) {
+          if (!admit(scope, "edges")) return null;
+          const callable = admittedTypeUse(scope, declaration);
+          if (callable !== undefined && callable === application.signatureShape.declaration) {
+            if (native) {
+              const receipt = providerDeclaration(scope, callable, declaration);
+              if (receipt === null) return null;
+              if (receipt !== undefined && receipt.identity.signatureId !== null) {
+                if (!admit(scope, "facts")) return null;
+                scope.callCore.set(invocation.node, { role: "provider", receipt });
+              }
+            } else if (scope.checked.ast.body(callable) !== undefined) {
+              if (!admit(scope, "facts")) return null;
+              scope.callCore.set(invocation.node, "ordinary");
+            }
+          }
         }
       }
     }
@@ -3946,8 +3963,10 @@ export function captureRawModule(deps: CaptureDeps, program: CheckedProgram, mod
     const literal = ast.is.IsLiteralKind(node.Kind) || kind === "KindTrueKeyword" || kind === "KindFalseKeyword" || kind === "KindNullKeyword";
     const empty = coreFacts(reference, scope.emptyCoreInventory, literal || scope.emptyObservationInventory);
     const base = markers === undefined ? empty : { ...empty, markers: available(markers) };
-    const row = provider !== undefined ? { ...base, provider: available(provider.identity) }
-      : kind === "KindCallExpression" && scope.callCore.get(id) === "ordinary" ? { ...base, provider: available(null) } : base;
+    const application = kind === "KindCallExpression" ? scope.callCore.get(id) : undefined;
+    const row = provider !== undefined ? { ...base, provider: available(provider) }
+      : application === "ordinary" ? { ...base, provider: available(null) }
+        : application?.role === "provider" ? { ...base, provider: available(application.receipt) } : base;
     const passing = kind === "KindParameter" ? declarationPassing(scope, node) : undefined;
     core.push(passing === undefined ? row : { ...row, argumentPassing: available(passing) });
   }

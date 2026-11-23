@@ -781,7 +781,7 @@ export type RawLayoutQuery = {
 
 export interface RawCoreCapture {
   readonly node: RawNodeRef;
-  readonly provider: RawFact<LibraryExportIdentity | null>;
+  readonly provider: RawFact<RawProviderDeclaration | null>;
   readonly markers: RawFact<RawMarkers>;
   readonly pointerType: RawFact<RawPointerType | null>;
   readonly pointerOperation: RawFact<RawPointerOperation | null>;

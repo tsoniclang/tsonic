@@ -144,8 +144,6 @@ export function callScheme(deps: RulesDeps): CallContributionScheme {
     },
     evaluate: input => {
       const constraint = input.constraint;
-      if (constraint.application.captured.provider.kind !== "available" || constraint.application.captured.provider.value !== null)
-        return notDecidedYet("the actual selected native provider application law", null);
       const capturedCallee = input.evidence[0];
       const result = input.evidence[1];
       const argumentStart = 2 + constraint.application.typeArguments.length;
@@ -186,6 +184,10 @@ export function callScheme(deps: RulesDeps): CallContributionScheme {
         return { kind: "ok", diagnostics: [], value: { bounds: destination === null ? [] : [{ contribution: input.contribution.key,
           variable: destination, kind: "producer", ...evidence }], decision: { kind: "error", error }, selectedCandidate: null } };
       }
+      const provider = constraint.application.captured.provider;
+      if (provider.kind !== "available") return notDecidedYet("the actual selected native provider application law", input.origin);
+      if (provider.value !== null && (candidate.declaration !== provider.value || candidate.api.body !== null))
+        return callerDefect("a native application must retain its actual selected bodyless provider endpoint", input.origin);
       const operands = { kind: "call", callee: callee.value, receiver: null,
         typeArguments: typeArguments.map(argument => argument.value), arguments: arguments_, candidates: [candidate] } satisfies Omit<CandidateInput, "context">;
       const prepared = originalCandidate(deps, operands, input.origin);

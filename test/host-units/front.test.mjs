@@ -509,7 +509,7 @@ test("provider session files share the actual opened source domain and retain re
     assert.deepEqual(entry.wellKnownDeclaration, { kind: "unavailable", reason: "not-provided", causes: [] });
     const core = rawOwner.value.core.find(candidate => candidate.node.node === entry.node.node);
     assert.equal(core.provider.kind, "available");
-    assert.equal(core.provider.value === entry.identity, true, "core transport projects the same actual captured association");
+    assert.equal(core.provider.value === entry, true, "core transport projects the same actual captured association");
   }
   const { indexSyntaxTree } = await import("../../packages/host/dist/ir-hir/index.js");
   const { createTypeInterner } = await import("../../packages/host/dist/ir-types/index.js");
@@ -719,15 +719,22 @@ test("provider overloads supply their own ABI while ordinary captured declaratio
   assert.equal(selected.declarationOrdinal, 1);
   assert.deepEqual(selected.declarationOrder.value.map(id => caller.value.types.signatures[id].declaration),
     signatures.map(row => row.node));
+  const receipt = caller.value.core.find(row => row.node.node === selected.invocation.node).provider;
+  assert.equal(receipt.kind, "available");
+  assert.deepEqual(receipt.value.node, signatures[1].node);
+  assert.deepEqual(receipt.value.identity, signatures[1].identity);
   const captured = captureSourceBarrier({ ...analysisInput(fixture, "sdk-minimal"), snapshot: callSnapshot, extensions: callSession.deps.extensions });
   assert.equal(captured.kind, "ok");
-  const callerBody = captured.value.modules.find(row => row.module.module === callSnapshot.entryPoint).module.bodies
+  const callerModule = captured.value.modules.find(row => row.module.module === callSnapshot.entryPoint);
+  const callerBody = callerModule.module.bodies
     .find(body => body.candidateLists.length === 1);
   const [candidate] = callerBody.candidateLists[0].candidates;
   const chosen = captured.value.modules.find(row => row.module.module === owner.document.module).nodes[signatures[1].node.node];
   assert.equal(callerBody.candidateLists[0].candidates.length, 1);
   assert.equal(candidate.declaration, chosen.tsonic.definition);
   assert.equal(candidate.appliedSignature.value, chosen.tsonic.signatures[0].signature);
+  assert.deepEqual(callerModule.nodes[selected.invocation.node].tsonic.core.provider,
+    { kind: "available", value: chosen.tsonic.definition });
 });
 
 /**
