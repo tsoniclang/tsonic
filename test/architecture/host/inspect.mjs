@@ -129,7 +129,7 @@ export function inspectHost(deps, inputs) {
       } else if (to !== undefined && from.name === to.name) allowed = true;
       else if (to !== undefined && from.imports.includes(to.name)) {
         allowed = to.kind === "library" ? publicEntry(to, edge.target)
-          : compositionPort(edge, from, to) || from.kind === "pipeline" && to.kind === "component" ||
+          : compositionPort(edge, from, to) || from.kind === "pipeline" && to.kind === "component" && publicEntry(to, edge.target) ||
             from.kind === "orchestration" && ["pipeline", "driver"].includes(to.kind) || from.kind === "cli" && to.kind === "orchestration";
       }
       if ([from.contract, from.contract.replace(/\.ts$/u, ".d.ts")].includes(edge.source) &&

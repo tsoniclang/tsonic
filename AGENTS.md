@@ -27,16 +27,13 @@ This file contains only host-repository deltas.
 
 ## Testing
 
-- Focused emitter/frontend/CLI iteration may use:
-  - `npm run test:emitter -- --grep <pattern>`
-  - `npm run test:frontend -- --grep <pattern>`
-  - `npm run test:cli -- --grep <pattern>`
-- Focused fixture iteration may use:
-  - `./test/scripts/run-e2e.sh --filter <pattern>`
-  - `./test/scripts/run-all.sh --no-unit --filter <pattern>`
-- Final verification is `./test/scripts/run-all.sh` with no quick mode, filter,
-  or omitted unit/golden bank, except for the workspace's exact expectation-only
-  rerun rule.
+- Run focused cases through the existing guard, for example
+  `bash test/scripts/bounded-run.sh host node --test test/host-units/front.test.mjs`.
+  Use `--test-name-pattern` for a narrower check and ensure any loaded build
+  output matches the source being verified.
+- Final verification is the unfiltered `npm test`. It builds first and then
+  runs the configured architecture, Host case, and Host unit banks. Apply the
+  workspace's exact expectation-only rerun rule when its conditions hold.
 
 ## Publishing
 

@@ -181,11 +181,24 @@ test("front alone owns the pinned SDK entry; all import forms keep the same boun
   expect([[file("front"), 'import type { Type } from "@tsonic/tsts/private";']], [at("forbidden-import", file("front"))]);
 });
 
-test("pipeline imports real component implementations; components do not import one another", () => {
+test("pipeline imports component implementations through public entries; components do not import one another", () => {
   const component = file("infer");
+  const path = file("pipeline");
+  const entry = file("infer", "index.ts");
+  const contract = file("infer", "contract.ts");
   const implementation = "export function infer(deps: { readonly bias: number }, input: number): number { return deps.bias + input; }";
-  expect([[file("pipeline"), 'import { infer } from "../infer/unit.js"; export function run(input: number): number { return infer({ bias: 1 }, input); }'],
-    [component, implementation]], []);
+  const publicContract = 'export interface InferDeps { readonly bias: number; }\nexport type Infer = (deps: InferDeps, input: number) => number;';
+  const publicImplementation = 'import type { Infer } from "./contract.js";\nexport const infer: Infer = (deps, input) => deps.bias + input;';
+  const use = 'export function run(input: number): number { return infer({ bias: 1 }, input); }';
+  expect([[path, `import { infer } from "../infer/index.js"; ${use}`], [entry, 'export { infer } from "./unit.js";'],
+    [component, publicImplementation], [contract, publicContract]], []);
+  expect([[path, `import { infer } from "../infer/unit.js"; ${use}`], [component, implementation]], [at("forbidden-import", path)]);
+  for (const extension of [".ts", ".d.ts"]) {
+    expect([[path, 'import type { Data } from "../front/contract.js"; export type Read = Data;'],
+      [file("front", `contract${extension}`), data]], []);
+    expect([[path, 'import type { Data } from "../front/capture.js"; export type Read = Data;'],
+      [file("front", `capture${extension}`), data]], [at("forbidden-import", path)]);
+  }
   expect([[file("elaborate"), 'import { infer } from "../infer/unit.js"; export function run(deps: { readonly bias: number }, input: number): number { return infer(deps, input); }'],
     [component, implementation]], [at("forbidden-import", file("elaborate"))]);
   const ownTest = "test/host-cases/infer/function/owner.test.mjs";
