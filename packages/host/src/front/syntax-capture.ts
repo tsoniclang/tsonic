@@ -710,9 +710,9 @@ function buildNode(context: SyntaxBuildContext, node: SyntaxNodeOf, parent: Node
       if (view === undefined) return defect("the checker gave no DefaultClause view of a DefaultClause node");
       const id = context.next(node);
       const header = headerOf(context, node, id, parent);
-      const expression_ = null;
       const statements_ = list(context, view.Statements, id, isGroup5);
-      return { kind: "DefaultClause", ...header, expression: expression_, statements: statements_, tsonic: null };
+      const expression_ = null;
+      return { kind: "DefaultClause", ...header, statements: statements_, expression: expression_, tsonic: null };
     }
     case "KindThrowStatement":
     {
