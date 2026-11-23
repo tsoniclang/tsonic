@@ -114,7 +114,8 @@ test("plain assignment to optional Float64 storage retains the exact selected li
   const program = await analyzeOptionalSource(source);
   assert.equal(program.kind, "ok", JSON.stringify(program.diagnostics));
   const { index, modules } = program.value;
-  const main = modules.find(module => module.tree.statements.nodes.some(node => node.kind === "FunctionDeclaration" && node.name.text === "writeLocal"));
+  const main = modules.find(module => module.tree.kind === "ready-root" && module.tree.root.statements.nodes.some(slot =>
+    slot.kind === "ready-callable" && slot.node.name.text === "writeLocal"));
   assert.ok(main);
   const text = printModuleBodies(index, main);
   const decoded = parseModuleBodies(index, text);
