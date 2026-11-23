@@ -1429,10 +1429,82 @@ test("real public Host analysis reads a declared structural field through its ac
   assert.equal(caller !== undefined, true);
   const read = caller.tir.root.statements.nodes[0].expression;
   assert.equal(read.kind, "PropertyAccessExpression");
+  const selection = read.tsonic.selection.decision.decision;
+  assert.deepEqual(selection.location, { kind: "data", receiver: "by-reference", check: { kind: "none" } });
   assert.deepEqual(result.value.index.types.terms[read.tsonic.convertedType], { kind: "primitive", primitive: "bool" });
-  assert.equal(caller.mir.places.some(place => (place.base.kind === "place" || place.base.kind === "checked")
+  const place = caller.mir.places.find(place => place.base.kind === "place"
     && place.base.projection.kind === "field" && place.base.tir.node === read.id
-    && place.storage === read.tsonic.convertedType), true);
+    && place.storage === read.tsonic.convertedType);
+  assert.notEqual(place, undefined);
+  const held = caller.mir.places[place.base.place];
+  assert.equal(caller.mir.locals[held.base.local].role.kind, "temporary");
+  assert.equal(caller.mir.blocks.flatMap(block => block.statements).filter(statement => statement.kind === "assign" && statement.place === held.id).length, 1);
+  const summary = result.value.index.summaries.find(row => row.key.kind === "body" && row.key.execution.instance.body === caller.instance.body);
+  const [parameter] = summary.parameters;
+  assert.equal(parameter.reads.kind, "complete");
+  assert.deepEqual(parameter.writes, { kind: "complete", paths: [] });
+  assert.equal(parameter.reads.paths.length, 1);
+  const projection = summary.arena.projections[parameter.reads.paths[0]].projection;
+  assert.equal(projection.kind, "field");
+  assert.equal(projection.member.decision.primary, selection.primary);
+  const fact = caller.facts[0].origins.reads.find(row => row.place === place.id);
+  assert.deepEqual(caller.facts[0].arena.origins[fact.origins].producers, [], "a scalar field read is not the receiver reference");
+});
+
+test("a verified object parameter field cannot be changed to in-place storage", async () => {
+  const { accountFailure, createAccount } = await import("../../packages/host/dist/dataflow/index.js");
+  const { InvocationAccount } = await import("../../packages/host/dist/dataflow/account.js");
+  const { captureSourceBarrier } = await import("../../packages/host/dist/pipeline/source-barrier.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const { tirReadyReadAdmission } = await import("../../packages/host/dist/ir-program/index.js");
+  const { verifyTir } = await import("../../packages/host/dist/ir-tir/index.js");
+  const input = analysisInput(await loadFrontFixture(), "sdk-minimal",
+    "export type Box = { flag: boolean; }; export type Decoy = { flag: boolean; }; export function read(box: Box): boolean { return box.flag; }");
+  const source = captureSourceBarrier(input);
+  assert.equal(source.kind, "ok");
+  const typed = typeSourceBarrier(input, source.value, createAccount(input.limits.dataflow));
+  assert.equal(typed.kind, "ok");
+  const proof = typed.value.verifierOf(input.snapshot.entryPoint);
+  const body = proof.module.bodies.find(row => row.root.kind === "Block" && row.bindings.kind === "instantiated");
+  const member = body.root.statements.nodes[0].expression.tsonic.selection.decision.decision;
+  const verify = () => verifyTir(proof, tirReadyReadAdmission(createAccount(input.limits.dataflow)))(body);
+  assert.deepEqual(verify(), { kind: "complete", violations: [] });
+  const original = member.location;
+  member.location = { ...original, receiver: "in-place" };
+  const changed = verify();
+  member.location = original;
+  assert.equal(changed.kind, "complete");
+  assert.deepEqual(changed.violations.map(row => row.rule), ["access-location"]);
+  const verifyWith = maximumWork => {
+    const account = createAccount({ ...input.limits.dataflow, maximumWork });
+    const visited = [];
+    const admitted = [];
+    const source = { ...proof, declarationSourceOf: definition => {
+      visited.push(definition);
+      return proof.declarationSourceOf(definition);
+    } };
+    const pay = tirReadyReadAdmission(account);
+    const result = verifyTir(source, request => {
+      if (request.kind === "source-declaration") admitted.push({ definition: request.definition, work: InvocationAccount.stateOf(account).work });
+      return pay(request);
+    })(body);
+    return { result, visited, admitted, failure: accountFailure(account) };
+  };
+  const full = verifyWith(input.limits.dataflow.maximumWork);
+  assert.deepEqual(full.result, { kind: "complete", violations: [] });
+  assert.deepEqual(full.admitted.slice(1).map(value => value.definition), full.visited);
+  assert.equal(full.visited.length, 2);
+  const decoy = proof.source.tree.statements.nodes.find(node => node.kind === "TypeAliasDeclaration" && node.name.text === "Decoy");
+  const crossed = { ...proof, declarationSourceOf: definition => definition === full.visited[0]
+    ? proof.declarationSourceOf(decoy.tsonic.definition) : proof.declarationSourceOf(definition) };
+  const rejected = verifyTir(crossed, tirReadyReadAdmission(createAccount(input.limits.dataflow)))(body);
+  assert.equal(rejected.kind, "complete");
+  assert.deepEqual(rejected.violations.map(row => row.rule), ["access-location"]);
+  for (const [index, step] of full.admitted.entries()) {
+    const cut = verifyWith(step.work);
+    assert.equal(cut.result.kind === "resource-stop" && cut.result.stop === cut.failure, true);
+    assert.deepEqual(cut.visited, full.visited.slice(0, Math.max(0, index - 1)));
+  }
 });
 
 for (const [form, value, unaryCount] of [["single", "!flag", 1], ["nested", "!(!flag)", 2]])

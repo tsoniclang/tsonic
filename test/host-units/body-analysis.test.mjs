@@ -23,7 +23,7 @@ const analysisLimits = { maximumProjectionDepth: 64, maximumOriginAlternatives: 
   maximumRelationalRecordsPerBody: 100000, maximumRelationalReferencesPerBody: 100000 };
 const scope = { classParameters: [], methodParameters: [], capturedParameters: [], selfOwners: [] };
 const repository = fileURLToPath(new URL("../../", import.meta.url));
-const runtimeFiles = ["index", "round", "storage", "source", "proof", "calls", "values", "value-flow", "places", "static-calls", "captures", "initialization", "writes", "exits"].map(name => resolve(repository, `packages/host/dist/analyses/body/${name}.js`));
+const runtimeFiles = ["index", "round", "storage", "source", "proof", "calls", "values", "value-flow", "places", "field-reads", "static-calls", "captures", "initialization", "writes", "exits"].map(name => resolve(repository, `packages/host/dist/analyses/body/${name}.js`));
 const session = new Session();
 const post = (method, parameters = {}) => new Promise((done, reject) =>
   session.post(method, parameters, (error, value) => error === null ? done(value) : reject(error)));
@@ -2558,6 +2558,29 @@ for (const mode of ["supplied", "omitted", "shadow", "null"]) {
     await checkOptionalDefault(mode);
   });
 }
+
+test("repeated scalar field reads share a projection but retain separate read occurrences", async () => {
+  const { loadFrontFixture } = await import("./fixtures/front/checked-module.mjs");
+  const { analysisInput } = await import("./fixtures/front/analysis-input.mjs");
+  const { analyzeHostProgram } = await import("../../packages/host/dist/pipeline/index.js");
+  const input = analysisInput(await loadFrontFixture(), "sdk-minimal", `export type Box = { flag: boolean; };
+    export function read(box: Box): boolean { box.flag; return box.flag; }`);
+  const result = analyzeHostProgram(input);
+  assert.equal(result.kind, "ok");
+  const module = result.value.modules.find(row => row.module === input.snapshot.entryPoint);
+  const body = module.bodies.find(row => row.kind === "selected" && row.tir.params.length === 1);
+  const places = body.mir.places.filter(row => row.base.kind === "place" && row.base.projection.kind === "field");
+  assert.equal(places.length, 2);
+  assert.notEqual(places[0].base.tir.node, places[1].base.tir.node);
+  const summary = result.value.index.summaries.find(row => row.key.kind === "body" && row.key.execution.instance.body === body.instance.body);
+  assert.deepEqual(summary.parameters[0].reads, { kind: "complete", paths: [0] });
+  assert.deepEqual(summary.parameters[0].writes, { kind: "complete", paths: [] });
+  assert.equal(summary.arena.projections.length, 1);
+  assert.equal(summary.arena.projections[0].projection.member.decision.primary, places[0].base.projection.member.decision.primary);
+  const reads = body.facts[0].origins.reads.filter(row => places.some(place => place.id === row.place));
+  assert.equal(reads.length, 2);
+  assert.equal(reads.every(row => body.facts[0].arena.origins[row.origins].producers.length === 0), true);
+});
 
 test("an optional reference default retains only the actual fallback or supplied actor and never retains absence", async () => {
   const { checkOptionalReferenceDefault } = await import("./fixtures/optional-reference-default.mjs");

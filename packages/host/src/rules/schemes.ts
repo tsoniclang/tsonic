@@ -2,10 +2,10 @@ import type { ErrorValue, Result } from "../diag/contract.js";
 import type { GroupId, NodeRef, TyId } from "../ids/contract.js";
 import type {
   AtomicContribution, ConstraintScheme, ContributionKey, ContributionOutcome, FlowConstraint, InferenceValue,
-  MemberContributionScheme, MemberInput, MemberRuleAnswer,
+  MemberContributionScheme, MemberDecision, MemberInput, MemberRuleAnswer,
   OperatorConstraint, RuleTable, VariableBound,
 } from "../ir-infer/contract.js";
-import type { CategoryEvidence, TypeEvidence } from "../ir-types/contract.js";
+import type { CategoryEvidence, SourceObjectParameter, TypeEvidence } from "../ir-types/contract.js";
 import { compareMemberKeys, internType, readType } from "../ir-types/index.js";
 import type { RulesDeps } from "./contract.js";
 import { decideEmbedding } from "./embed.js";
@@ -130,7 +130,8 @@ function resumeMember(deps: RulesDeps, owner: MemberOwner, paused: MemberSuspens
         if (member.kind !== "property") return notDecidedYet("an accessor or method member read", origin);
         if (!member.readOrigins.some(actual => actual.kind === "declared" && actual.declaration === phase.declaration))
           return callerDefect("a member read must retain its original readable declaration", origin);
-        return MemberSuspension.pause(owner, { kind: "type", request: { receiver: inventory.receiver, member: middle } }, destination, origin);
+        return MemberSuspension.pause(owner, { kind: "type", request: { receiver: inventory.receiver, member: middle },
+          inventory: member, storage: phase.storage, bindings: phase.bindings }, destination, origin);
       }
     }
     return callerDefect("the original member key is missing from its complete receiver inventory", origin);
@@ -142,12 +143,26 @@ function resumeMember(deps: RulesDeps, owner: MemberOwner, paused: MemberSuspens
     return callerDefect("a selected readable member requires its actual read type", origin);
   if ((readType(deps.types, answer.value.read).kind === "error") !== (answer.error !== null))
     return callerDefect("a member read must retain the cause of its own actual type answer", origin);
-  if (answer.error === null)
+  if (answer.error !== null)
+    return finishMember(deps, destination, { kind: "error", causes: [{ kind: "unit", unit: answer.origin }] });
+  const storage = phase.storage;
+  if (storage === null || phase.inventory.optional)
     return notDecidedYet("the actual selected native receiver representation of this member read", origin);
-  return finishMember(deps, destination, { kind: "error", causes: [{ kind: "unit", unit: answer.origin }] });
+  const decision: MemberDecision = { key: phase.inventory.key, origins: phase.inventory.origins,
+    selectedDeclarations: [storage.field], primary: storage.field, bindings: phase.bindings,
+    read: answer.value.read, write: answer.value.write, getter: null, setter: null,
+    location: { kind: "data", receiver: "by-reference", check: { kind: "none" } } };
+  if (destination.kind === "member") return { kind: "done", value: ok({ kind: "member", value: { kind: "decided", decision } }) };
+  const variable = variableOf(deps, destination.result, destination.occurrence, null);
+  const value = resultEvidence(deps, answer.value.read, destination.occurrence, []);
+  return { kind: "done", value: ok({ kind: "contribution", value: {
+    bounds: variable === null ? [] : [bound(destination.key, variable, "producer", { value, error: null })],
+    decision: { kind: "member", member: decision }, selectedCandidate: null,
+  } }) };
 }
 
-function decideMember(deps: RulesDeps, owner: MemberOwner, input: MemberInput, destination: MemberDestination): MemberStep {
+function decideMember(deps: RulesDeps, owner: MemberOwner, input: MemberInput, storage: SourceObjectParameter | null,
+  destination: MemberDestination): MemberStep {
   const { access, receiver, key, origins, context } = input;
   if (access !== "read") return notDecidedYet("a member write decision", context.origin);
   const origin = origins[0];
@@ -156,7 +171,11 @@ function decideMember(deps: RulesDeps, owner: MemberOwner, input: MemberInput, d
   const term = readType(deps.types, receiver.type);
   if (term.kind === "open" || term.kind === "error")
     return callerDefect("member selection requires a finalized receiver whose original errors were handled", context.origin);
-  return MemberSuspension.pause(owner, { kind: "inventory", receiver: receiver.type, key, declaration: origin.declaration },
+  if (storage !== null && (term.kind !== "shape" || storage.receiver !== receiver.type || storage.field !== origin.declaration
+    || storage.occurrence.body !== context.occurrence.body || storage.occurrence.node !== context.occurrence.node))
+    return callerDefect("a compiler-owned object read requires its exact occurrence, receiver and field", context.origin);
+  return MemberSuspension.pause(owner, { kind: "inventory", receiver: receiver.type, key, declaration: origin.declaration,
+    storage, bindings: context.bindings },
     destination, context.origin);
 }
 
@@ -179,7 +198,7 @@ export function memberRules(deps: RulesDeps): Pick<RuleTable<MemberSuspension>, 
   readonly scheme: MemberContributionScheme<MemberSuspension>;
 } {
   const owner: MemberOwner = { kind: "member-rules" };
-  return { member: input => decideMember(deps, owner, input, { kind: "member" }),
+  return { member: (input, storage) => decideMember(deps, owner, input, storage, { kind: "member" }),
     resumeMember: (paused, answers) => resumeMember(deps, owner, paused, answers), scheme: memberScheme(deps, owner) };
 }
 
@@ -206,7 +225,7 @@ function memberScheme(deps: RulesDeps, owner: MemberOwner): MemberContributionSc
           variableOf(deps, constraint.result, constraint.occurrence, null)) }) };
       return decideMember(deps, owner, {
         context: { occurrence: constraint.occurrence, bindings: constraint.bindings, origin: input.origin }, receiver: selected.value,
-        key: constraint.key, origins: constraint.origins, access: constraint.access },
+        key: constraint.key, origins: constraint.origins, access: constraint.access }, input.storage,
       { kind: "contribution", occurrence: constraint.occurrence, key: input.contribution.key, result: constraint.result });
     },
   };

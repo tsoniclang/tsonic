@@ -338,6 +338,10 @@ function genericFunctionScenario(nodes = { callable: 2, typeParameter: 3, typeNa
   const scopeReaders = new Map([...scopes].map(([body, inventory]) => [body, bodyScopeReader(body, inventory)]));
   const inputFor = selected => ({ source: initial.source, module, types, bindingScopesOf: scopeReaders.get(selected), diagnostics: [],
     declarationOf: selectedDefinition => declarations.get(selectedDefinition) ?? null,
+    declarationSourceOf: selectedDefinition => {
+      const entry = initial.source.items.find(item => item.definition === selectedDefinition);
+      return entry === undefined ? null : { kind: "item", value: { owner: entry.definition, node: entry.node } };
+    },
     staticStorageOf: () => null,
     memberTableOf: () => { throw new Error("unexpected generic-function member lookup"); },
     bodyOf: instance => module.bodies.find(body => body.body === instance.body && compareCaseValues(body.bindings, instance.bindings)) ?? null,

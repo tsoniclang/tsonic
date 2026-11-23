@@ -140,7 +140,7 @@ test(`real SDK source add with ${resultAnnotation === "" ? "inferred" : "annotat
   }
   assert.deepEqual(types.readType(interner, actualModule.completion), { kind: "intrinsic", intrinsic: "void" });
   const publication = { module, tree: { kind: "ready-root", root: actualModule.root }, bodies: checked.bodies.map(body => typed.get(body.body)) };
-  const verifier = { source: checked, module: publication, types: tableOf(), declarationOf,
+  const verifier = { source: checked, module: publication, types: tableOf(), declarationOf, declarationSourceOf: domain.declarationSourceOf,
     bindingScopesOf: suppliedTirScopes(target => {
       if (target.kind === "module") return target.module === module ? [] : null;
       const body = domain.bodyOf.get(target.instance.body);

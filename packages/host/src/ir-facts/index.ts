@@ -7,7 +7,7 @@ import { printDependencyInventory as writeInventory, printFacts as writeFacts, p
 import { verifyDependencyInventory as checkInventory } from "./verify-dependencies.js";
 import { argumentTransportKey as identifyTransport, compareBoundActivations as compareActivations,
   compareConstructionAlternatives as compareConstruction, verifyFacts as checkFacts } from "./verify-facts.js";
-import { admitArtifactIdentity as admitArtifact, admitBindingIdentity as admitBindings } from "./verification.js";
+import { admitArtifactIdentity as admitArtifact, admitBindingIdentity as admitBindings, admitSelectionIdentity as admitSelection } from "./verification.js";
 import { verifyLiveness as checkLiveness } from "./verify-liveness.js";
 import { verifyMetadata as checkMetadata } from "./verify-metadata.js";
 import { verifySummary as checkSummary } from "./verify-summary.js";
@@ -16,7 +16,7 @@ import { verifyObservations as checkObservations } from "./verify-observations.j
 import { conditionAnd as andConditions, conditionOr as orConditions, conditionEquals as equalConditions, conditionSubstitute as substituteConditions } from "./conditions.js";
 import type { ConditionAnd, ConditionOr, ConditionEquals, ConditionSubstitute } from "./contract.js";
 import type { ApplySummary, BindInitialization, StaticDeclarationKey, StaticInitializationCellOf, StaticInitializationOf, SummaryEquals } from "./contract.js";
-import type { AdmitArtifactIdentity, AdmitBindingIdentity, AdmitSummaryIdentity, ArgumentTransportKey, CompareBoundActivations,
+import type { AdmitArtifactIdentity, AdmitBindingIdentity, AdmitSelectionIdentity, AdmitSummaryIdentity, ArgumentTransportKey, CompareBoundActivations,
   CompareConstructionAlternatives, EscapeTargetKey, SummaryPositionKey } from "./contract.js";
 import { escapeTargetKey as identifyEscapeTarget } from "./escape-key.js";
 import { applySummary as apply } from "./apply-summary.js";
@@ -44,6 +44,7 @@ export const escapeTargetKey: EscapeTargetKey = identifyEscapeTarget;
 export const admitSummaryIdentity: AdmitSummaryIdentity = admitIdentity;
 export const admitArtifactIdentity: AdmitArtifactIdentity = admitArtifact;
 export const admitBindingIdentity: AdmitBindingIdentity = admitBindings;
+export const admitSelectionIdentity: AdmitSelectionIdentity = admitSelection;
 export const argumentTransportKey: ArgumentTransportKey = identifyTransport;
 export const compareBoundActivations: CompareBoundActivations = compareActivations;
 export const compareConstructionAlternatives: CompareConstructionAlternatives = compareConstruction;

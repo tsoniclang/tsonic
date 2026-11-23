@@ -725,6 +725,7 @@ export interface TirVerifierInput extends HirBindingViews {
   readonly types: TypeTable;
   readonly bindingScopesOf: TirBindingScopesOf;
   readonly declarationOf: (definition: DefId) => InferenceDeclaration | null;
+  readonly declarationSourceOf: (definition: DefId) => SourceNodeRef | null;
   readonly memberTableOf: (instance: BodyInstance, occurrence: TirMemberOccurrence) => MemberInventory | null;
   readonly requiredEntriesOf: (instance: BodyInstance) => readonly number[] | null;
   readonly bodyOf: (instance: BodyInstance) => TirBody | null;
@@ -771,6 +772,7 @@ export type TirReadyRead =
   | { readonly kind: "artifact"; readonly instance: BodyInstance }
   | { readonly kind: "bindings"; readonly bindings: BindingVector }
   | { readonly kind: "static-item"; readonly declaration: ItemNodeRef }
+  | { readonly kind: "source-declaration"; readonly definition: DefId }
   | { readonly kind: "member"; readonly instance: BodyInstance; readonly occurrence: TirMemberOccurrence }
   | { readonly kind: "module-scope"; readonly module: ModuleId };
 export type TirReadyReadAdmission<Stop extends object> = (request: TirReadyRead) => Stop | null;

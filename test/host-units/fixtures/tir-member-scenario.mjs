@@ -50,6 +50,10 @@ export function emptyVerificationInput(body, authoredNodes = [], scopeCount = 2)
   const originalNodes = new Map([[0, root], [1, end], ...authoredNodes.map(node => [node.id, node])]);
   return { source, module, types, bindingScopesOf: bodyScopeReader(body, Array.from({ length: scopeCount }, emptyScope)),
     declarationOf: definition => declarations.get(definition) ?? null,
+    declarationSourceOf: definition => {
+      const entry = source.items.find(item => item.definition === definition);
+      return entry === undefined ? null : { kind: "item", value: { owner: entry.definition, node: entry.node } };
+    },
     staticStorageOf: () => null,
     memberTableOf: () => { throw new Error("unexpected member-table lookup"); },
     bodyOf: instance => {

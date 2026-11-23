@@ -350,6 +350,14 @@ export interface MemberTypes {
   readonly write: TyId | null;
 }
 
+export interface SourceObjectParameter {
+  readonly occurrence: NodeRef;
+  readonly local: LocalRef;
+  readonly declaration: DefId;
+  readonly receiver: TyId;
+  readonly field: DefId;
+}
+
 export type MemberUnavailableReason =
   | { readonly kind: "parameter"; readonly parameter: DefId }
   | { readonly kind: "dynamic" }

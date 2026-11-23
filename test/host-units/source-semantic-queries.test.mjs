@@ -635,7 +635,7 @@ test("real bodyless call, method, construct and index formals retain definitions
   const verifyChapter = await tirFixtureVerifier(tir.verifyTirModule);
   const bodyOf = instance => instance.bindings.kind === "parametric" ? bodies.get(instance.body) ?? null : null;
   const verifier = { source: program.checked, module: publication, types: types.viewTypes(program.interner),
-    declarationOf: program.declarationOf, nominalOf: definition => definition === declaration.tsonic.definition
+    declarationOf: program.declarationOf, declarationSourceOf: program.domain.declarationSourceOf, nominalOf: definition => definition === declaration.tsonic.definition
       ? { kind: "declared", facets: ["instance"] } : null,
     staticStorageOf: () => null,
     memberTableOf: () => null, bodyOf,
@@ -1283,6 +1283,7 @@ test("real explicit and inferred calls retain their original endpoint, applied c
   const bodyOf = instance => instance.bindings.kind === "parametric" ? typedByBody.get(instance.body) ?? null
     : instance.body === body.body && fixture.types.artifactBindingsKey(instance.bindings) === fixture.types.artifactBindingsKey(bindings) ? selected.value : null;
   const verifier = { source: program.checked, module: typedModule, types: table, declarationOf: program.declarationOf,
+    declarationSourceOf: program.domain.declarationSourceOf,
     staticStorageOf: () => null,
     memberTableOf: () => null, nominalOf: () => null, bodyOf, nodeOf: program.domain.nodeOf, localExists: program.domain.localExists,
     diagnostics: program.checked.checkerDiagnostics,
@@ -1385,7 +1386,7 @@ for (const annotation of ["boolean", null]) test(`real ${annotation ?? "inferred
   const publication = { module: program.checked.module, tree: { kind: "ready-root", root: moduleBody.root }, bodies: [...typed.values(), ...selectedBodies.values()] };
   const verifier = { source: program.checked, module: publication, types: types.viewTypes(program.interner),
     staticStorageOf: () => null,
-    declarationOf: program.declarationOf, memberTableOf: () => null, nominalOf: () => null,
+    declarationOf: program.declarationOf, declarationSourceOf: program.domain.declarationSourceOf, memberTableOf: () => null, nominalOf: () => null,
     bodyOf: instance => instance.bindings.kind === "parametric" ? typed.get(instance.body) ?? null
       : types.artifactBindingsKey(instance.bindings) === types.artifactBindingsKey(bindings) ? selectedBodies.get(instance.body) ?? null : null,
     nodeOf: program.domain.nodeOf, localExists: program.domain.localExists, diagnostics: program.checked.checkerDiagnostics,
@@ -1643,7 +1644,7 @@ for (const [authored, annotation, kind, expected] of [
   const publication = { module: program.checked.module, tree: { kind: "ready-root", root: module.root }, bodies: [...typed.values()] };
   const verifier = { source: program.checked, module: publication, types: types.viewTypes(program.interner),
     staticStorageOf: () => null,
-    declarationOf: program.declarationOf, memberTableOf: () => null, nominalOf: () => null,
+    declarationOf: program.declarationOf, declarationSourceOf: program.domain.declarationSourceOf, memberTableOf: () => null, nominalOf: () => null,
     bodyOf: instance => instance.bindings.kind === "parametric" ? typed.get(instance.body) ?? null : null,
     nodeOf: program.domain.nodeOf, localExists: program.domain.localExists, diagnostics: program.checked.checkerDiagnostics,
     bindingScopesOf: suppliedTirScopes(target => {
@@ -1751,7 +1752,7 @@ test(`real ${annotation === null ? "inferred" : "annotated"} ${authored} default
   const publication = { module: program.checked.module, tree: { kind: "ready-root", root: outer.root }, bodies: [...typed.values()] };
   const verifier = { source: program.checked, module: publication, types: types.viewTypes(program.interner),
     staticStorageOf: () => null,
-    declarationOf: program.declarationOf, memberTableOf: () => null, nominalOf: () => null,
+    declarationOf: program.declarationOf, declarationSourceOf: program.domain.declarationSourceOf, memberTableOf: () => null, nominalOf: () => null,
     bodyOf: instance => instance.bindings.kind === "parametric" ? typed.get(instance.body) ?? null : null,
     nodeOf: program.domain.nodeOf, localExists: program.domain.localExists, diagnostics: program.checked.checkerDiagnostics,
     bindingScopesOf: suppliedTirScopes(target => {
@@ -1863,7 +1864,7 @@ test("an actual null return completes its inferred declaration and selected body
     bodies: [...typed.values(), selected.value] };
   const verifier = { source: program.checked, module: publication, types: types.viewTypes(program.interner),
     staticStorageOf: () => null,
-    declarationOf: program.declarationOf, memberTableOf: () => null, nominalOf: () => null,
+    declarationOf: program.declarationOf, declarationSourceOf: program.domain.declarationSourceOf, memberTableOf: () => null, nominalOf: () => null,
     bodyOf: instance => instance.bindings.kind === "parametric" ? typed.get(instance.body) ?? null
       : instance.body === callable.body && types.artifactBindingsKey(instance.bindings) === types.artifactBindingsKey(bindings) ? selected.value : null,
     nodeOf: program.domain.nodeOf, localExists: program.domain.localExists, diagnostics: program.checked.checkerDiagnostics,
@@ -2246,7 +2247,10 @@ test("actual selected member constraints retain their checked origins and distin
   assert.equal(solveRefusal.value.diagnostics.length, 1);
   assert.deepEqual(solveRefusal.value.diagnostics[0].arguments,
     [{ kind: "text", value: "atomic contributions per group" }, { kind: "number", value: 0 }]);
-  const evaluation = { constraint: member, contribution, candidates: set.candidates, evidence, reads: [], origin: access.origin };
+  const { checkedSourceObjectParameterOf } = await import("../../packages/host/dist/ir-hir/index.js");
+  const storage = checkedSourceObjectParameterOf(source, access, program.domain.nodeOf, program.inputs.inference.itemOf);
+  assert.equal(storage?.receiver, member.receiver);
+  const evaluation = { constraint: member, contribution, candidates: set.candidates, evidence, reads: [], origin: access.origin, storage };
   const awaitingInventory = scheme.evaluate(evaluation);
   assert.equal(awaitingInventory.kind, "paused");
   assert.deepEqual(awaitingInventory.requests, [{ kind: "membersOf", receiver: member.receiver }]);
@@ -2257,7 +2261,7 @@ test("actual selected member constraints retain their checked origins and distin
   const error = { kind: "error", causes: [{ kind: "unit", unit: { request: { query: "fixture-receiver", key: source.body },
     position: { kind: "result" } } }] };
   const receiverError = { error, value: { ...evidence[0].value, type: errorType } };
-  const propagated = scheme.evaluate({ ...evaluation, constraint: { ...member, receiver: errorType }, evidence: [receiverError, evidence[1]] });
+  const propagated = scheme.evaluate({ ...evaluation, storage: null, constraint: { ...member, receiver: errorType }, evidence: [receiverError, evidence[1]] });
   assert.equal(propagated.kind, "done");
   assert.equal(propagated.value.kind, "ok");
   const completed = propagated.value.value;
@@ -2299,8 +2303,14 @@ test("the real member contribution derives both declaration dependencies and kee
   const group = program.inputs.groups.find(candidate => candidate.bodies.includes(body.body));
   const receiver = field.expression.tsonic.value.views.read.value;
   const expected = { receiver, member: 0 };
-  assert.throws(() => program.database.run(program.queries.solutionOf, group.id), error =>
-    error.cause?.origin === field.origin && /actual selected native receiver representation/.test(error.message));
+  const solved = program.database.run(program.queries.solutionOf, group.id);
+  assert.equal(solved.kind, "completed");
+  const decisions = solved.value.solution.constraints.filter(row => row.constraint.body === body.body)
+    .map(row => row.decision).filter(value => value.kind === "member");
+  assert.equal(decisions.length, 1);
+  const decision = decisions[0].member;
+  assert.equal(decision.primary, field.tsonic.origins.value[0].declaration);
+  assert.deepEqual(decision.location, { kind: "data", receiver: "by-reference", check: { kind: "none" } });
   const trace = program.database.trace();
   const starts = trace.filter(event => event.kind === "start" && (event.fact.query === "membersOf" || event.fact.query === "memberTypeOf"));
   assert.deepEqual(starts.map(event => [event.fact.query, event.fact.key]),

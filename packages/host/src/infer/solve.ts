@@ -9,6 +9,7 @@ import type { GroupConstraints, GroupSolution, InferDeps, InferPaused, InferStep
 import { requirePresent, resourceLimitDiagnostic, throwInvariant } from "../diag/index.js";
 import { compareContributionKeys, inferredPartKey, inferredPartsOf } from "../ir-infer/index.js";
 import { internType } from "../ir-types/index.js";
+import { checkedSourceObjectParameterOf } from "../ir-hir/index.js";
 import type { BodyInstance, MemberInventory } from "../ir-types/contract.js";
 import { encodeKey } from "../ids/index.js";
 import { callerDefect, notInferredYet, validateInferenceLimits } from "./frontier.js";
@@ -437,7 +438,10 @@ function evaluate<State>(deps: InferDeps<State>, item: Enumerated,
   switch (item.reached.kind) {
     case "member": {
       const { constraint, origin } = item.reached;
-      return deps.rules.constraints.member.evaluate({ ...common, constraint, origin });
+      const node = deps.checkedNodeOf({ kind: "body", value: constraint.occurrence });
+      const storage = node?.kind === "PropertyAccessExpression"
+        ? checkedSourceObjectParameterOf(deps.hirBody(item.set.body), node, deps.checkedNodeOf, deps.itemOf) : null;
+      return deps.rules.constraints.member.evaluate({ ...common, constraint, origin, storage });
     }
     case "op": return deps.rules.constraints.op.evaluate({ ...common, constraint: item.reached.constraint });
     case "flow": return deps.rules.constraints.flow.evaluate({ ...common, constraint: item.reached.constraint });

@@ -183,6 +183,10 @@ export function moduleFixture(path = "src/main.ts", root = "/program", instanceB
     requiredEntriesOf: instance => lookup("requiredEntriesOf", instance),
     bindingScopesOf: target => ({ kind: "complete", scopes: lookup("tirBindingScopesOf", target) }),
     declarationOf: definition => lookup("declarationOf", definition),
+    declarationSourceOf: definition => {
+      const entry = source.items.find(item => item.definition === definition);
+      return entry === undefined ? null : { kind: "item", value: { owner: entry.definition, node: entry.node } };
+    },
     staticStorageOf: declaration => lookup("staticStorageOf", declaration),
     memberTableOf: (instance, occurrence) => lookup("memberTableOf", [instance, occurrence]),
     bodyOf: instance => lookup("bodyOf", instance), nominalOf: definition => lookup("nominalOf", definition),

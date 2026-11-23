@@ -2,7 +2,7 @@ import type { BodyId, CandidateListId, DefId, NodeId, SourceNodeRef, TyId } from
 import { encodeKey } from "../ids/index.js";
 import type { CheckedPhase, HirApplication, HirBody, HirCandidate, HirModule, HirNode, ParameterDeclaration } from "../ir-hir/contract.js";
 import type { Diagnostic, Violation } from "../diag/contract.js";
-import { checkedVariableStorageOf, childrenOfSyntax, hasOverloadEndpoints, indexSyntaxTree, readWriteRootStorageOf, resolveModuleBinding, walkSyntaxTree, writableRootStorageOf } from "../ir-hir/index.js";
+import { checkedSourceObjectParameterOf, checkedVariableStorageOf, childrenOfSyntax, hasOverloadEndpoints, indexSyntaxTree, readWriteRootStorageOf, resolveModuleBinding, walkSyntaxTree, writableRootStorageOf } from "../ir-hir/index.js";
 import type { BindingVerificationInput, BodyInstance, TypeEvidence, TypeRule, TypeTable } from "../ir-types/contract.js";
 import { sameInstance, verifyTypes } from "../ir-types/index.js";
 import type { TirBindingTarget, TirBody, TirChapterSyntax, TirModule, TirNodeSite, TirOperationsOf, TirReadyReadAdmission, TirRule, TirSite, TirSyntaxOccurrence, TirTypedSyntax, TirVerificationResult, TirVerifierInput, TypedPhase, VerifyTir, VerifyTirModule } from "./contract.js";
@@ -850,6 +850,35 @@ function verifyBody<Stop extends object>(input: TirVerifierInput, body: TirBody,
       if (receiver !== null && table.receiver !== receiver.convertedType) {
         emit("member-origin", node, "member inventory does not retain the actual receiver type");
       }
+    }
+    const original = inventory.sourceNodes.get(member.node.id);
+    if (member.occurrence.kind === "selection" && original?.kind === "PropertyAccessExpression" && inventory.original !== undefined) {
+      let stopped: Stop | null = null;
+      let missing = false;
+      const read = (reference: SourceNodeRef) => {
+        const node = input.nodeOf(reference);
+        if (node === null || node.id !== reference.value.node) { missing = true; return null; }
+        return node;
+      };
+      const holding = checkedSourceObjectParameterOf(inventory.original, original, reference => {
+        if (reference.kind !== "item") return null;
+        stopped ??= admit({ kind: "source-declaration", definition: reference.value.owner });
+        return stopped === null ? read(reference) : null;
+      }, definition => {
+        stopped ??= admit({ kind: "source-declaration", definition });
+        if (stopped !== null) return null;
+        const reference = input.declarationSourceOf(definition);
+        if (reference?.kind !== "item" || reference.value.owner !== definition) { missing = true; return null; }
+        return read(reference);
+      });
+      if (stopped !== null) return { kind: "resource-stop", stop: stopped };
+      const { location, primary } = member.decision;
+      if (holding !== null) {
+        if (table?.receiver !== holding.receiver || primary !== holding.field || location.kind !== "data"
+          || location.receiver !== "by-reference" || location.check.kind !== "none")
+          emit("access-location", member.node, "ordinary object parameter access must retain its actual reference-held field");
+      } else if (missing && location.kind === "data" && location.receiver === "by-reference")
+        emit("access-location", member.node, "reference-held access requires its independently qualified source declarations");
     }
     if (member.selection === null) verifyMemberDecision(member.decision, member.node, members, emit);
     else verifyMemberSelection(member.selection, member.node, members, emit);

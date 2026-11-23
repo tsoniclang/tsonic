@@ -42,6 +42,7 @@ export type StaticDeclarationKey = (declaration: DeclarationRequest, account: Da
 export type AdmitSummaryIdentity = (key: SummaryKey, account: DataflowAccount) => DataflowStop | null;
 export type AdmitArtifactIdentity = (bindings: ArtifactBindings, account: DataflowAccount) => DataflowStop | null;
 export type AdmitBindingIdentity = (bindings: BindingVector, account: DataflowAccount) => DataflowStop | null;
+export type AdmitSelectionIdentity = (selection: MemberSelection, account: DataflowAccount) => DataflowStop | null;
 export type ArgumentTransportKey = (transport: ArgumentTransport | null, account: DataflowAccount) => DataflowResult<string>;
 export type CompareBoundActivations = (left: BoundActivation, leftInstance: string, leftTransport: string,
   right: BoundActivation, rightInstance: string, rightTransport: string) => number;

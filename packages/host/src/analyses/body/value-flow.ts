@@ -2,6 +2,7 @@ import type { DataflowResult, DataflowStop, FlowSolution, ForwardProblem } from 
 import { accountFailure, chargeResultEntries, chargeWork, solve } from "../../dataflow/index.js";
 import { requirePresent } from "../../diag/index.js";
 import type { BlockId, OriginsId } from "../../ids/contract.js";
+import { originsId } from "../../ids/index.js";
 import type { AppliedSummary, CaptureLocation, RelationalArena } from "../../ir-facts/contract.js";
 import type { MirOperand, MirStatement, MirTerminator } from "../../ir-mir/contract.js";
 import type { BodyRoundDeps, BodyRoundInput } from "./contract.js";
@@ -10,6 +11,7 @@ import type { SelectedCall } from "./calls.js";
 import type { StaticCalleeCells } from "./static-calls.js";
 import { bodyFrontier, rootSlot } from "./places.js";
 import type { StaticSlots } from "./places.js";
+import type { HeldFieldReads } from "./field-reads.js";
 import { selectedCallAt } from "./storage.js";
 import { appliedOrigins, joinOrigins, valueKind } from "./values.js";
 import type { AdmitOrigins, ValueOrigins } from "./values.js";
@@ -162,13 +164,14 @@ export function removeUnchangedContents(deps: BodyRoundDeps, output: Map<number,
   return null;
 }
 export function operandOrigins(input: BodyRoundInput, constants: readonly OriginsId[], state: readonly OriginsId[], operand: MirOperand,
-  statics: StaticSlots = null): OriginsId {
+  statics: StaticSlots = null, fields: HeldFieldReads | null = null): OriginsId {
+  if (operand.kind === "place" && fields?.places.has(operand.place) === true) return originsId(0);
   return requirePresent(operand.kind === "constant" ? constants[operand.constant] : state[rootSlot(input.mir, operand.place, statics)],
     { owner: "analyses/body", query: null, origin: null, message: "An executing operand retains its actual value-flow Origins." });
 }
 
 export function transferValue(deps: BodyRoundDeps, input: BodyRoundInput, constants: readonly OriginsId[],
-  initial: readonly OriginsId[], state: readonly OriginsId[], statement: MirStatement, statics: StaticSlots = null):
+  initial: readonly OriginsId[], state: readonly OriginsId[], statement: MirStatement, statics: StaticSlots = null, fields: HeldFieldReads | null = null):
   DataflowResult<readonly OriginsId[]> {
   const prior = accountFailure(deps.account);
   if (prior !== null) return prior;
@@ -197,7 +200,7 @@ export function transferValue(deps: BodyRoundDeps, input: BodyRoundInput, consta
         operand = value.operand;
       }
     }
-    next[local] = operand !== null ? operandOrigins(input, constants, state, operand, statics)
+    next[local] = operand !== null ? operandOrigins(input, constants, state, operand, statics, fields)
       : requirePresent(initial[local], { owner: "analyses/body", query: null, origin: statement.origin,
         message: "A selected pure scalar operation retains its storage disposition." });
   } else next[statement.local] = requirePresent(initial[statement.local], { owner: "analyses/body", query: null,
@@ -209,7 +212,7 @@ export function valueProblem(deps: BodyRoundDeps, input: BodyRoundInput, arena: 
   values: ValueOrigins, constants: readonly OriginsId[], initial: readonly OriginsId[], boundary: CurrentValues,
   reachable: readonly boolean[], admit: AdmitOrigins,
   captures: ReadonlyMap<BlockId, readonly CaptureLocation[]>, tracked: ReadonlySet<number>, calls: ReadonlyMap<BlockId, SelectedCall> | null,
-  statics: StaticSlots = null, staticCallees: StaticCalleeCells | null = null, cellSlots: readonly number[] = []): ForwardProblem<ValueState> {
+  statics: StaticSlots = null, staticCallees: StaticCalleeCells | null = null, cellSlots: readonly number[] = [], fields: HeldFieldReads | null = null): ForwardProblem<ValueState> {
   return {
     direction: "forward", boundary,
     lattice: {
@@ -249,7 +252,7 @@ export function valueProblem(deps: BodyRoundDeps, input: BodyRoundInput, arena: 
     },
     statement: (statement, state) => {
       if (state === null) return state;
-      const next = transferValue(deps, input, constants, initial, state.origins, statement, statics);
+      const next = transferValue(deps, input, constants, initial, state.origins, statement, statics, fields);
       if (next.kind !== "complete") return state;
       const admission = chargeWork(deps.account, 1) ?? chargeResultEntries(deps.account, 1);
       if (admission !== null) return state;
@@ -321,11 +324,11 @@ export function solveValueOrigins(deps: BodyRoundDeps, input: BodyRoundInput, ar
   values: ValueOrigins, constants: readonly OriginsId[], initial: readonly OriginsId[], boundary: readonly OriginsId[],
   reachable: readonly boolean[], admit: AdmitOrigins,
   captures: ReadonlyMap<BlockId, readonly CaptureLocation[]>, cells: readonly number[], calls: ReadonlyMap<BlockId, SelectedCall> | null,
-  statics: StaticSlots, staticCallees: StaticCalleeCells | null): DataflowResult<FlowSolution<ValueState>> {
+  statics: StaticSlots, staticCallees: StaticCalleeCells | null, fields: HeldFieldReads | null): DataflowResult<FlowSolution<ValueState>> {
   const work = chargeWork(deps.account, 1 + cells.length) ?? chargeResultEntries(deps.account, 4 + cells.length);
   if (work !== null) return work;
   const tracked = new Set(cells);
   const problem = valueProblem(deps, input, arena, values, constants, initial, { origins: boundary, contents: new Set() },
-    reachable, admit, captures, tracked, calls, statics, staticCallees, cells);
+    reachable, admit, captures, tracked, calls, statics, staticCallees, cells, fields);
   return solve(input.mir, input.execution.provided, problem, deps.account);
 }

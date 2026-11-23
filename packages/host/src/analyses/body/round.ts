@@ -17,6 +17,7 @@ import { assignedEntry, selectedCallAt, solveAssigned, statementOperands, termin
 import type { AssignedState } from "./storage.js";
 import { prepareCallCaptures } from "./captures.js";
 import { bodyFrontier, staticCells, readLocal, rootSlot } from "./places.js";
+import { fieldReadEffects, heldFieldReads } from "./field-reads.js";
 import type { StaticCells } from "./places.js";
 import { staticCallInventory } from "./static-calls.js";
 import type { StaticCalleeCells, StaticCallInventory } from "./static-calls.js";
@@ -89,6 +90,29 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
   let hasReference = false;
   let hasOptional = false;
   let valueCaptureCount = 0;
+  let staticPlaces: MirPlace[] | null = null;
+  let fieldPlaces: MirPlace[] | null = null;
+  for (const place of mir.places) {
+    if (place.base.kind === "static") {
+      const growth = chargeResultEntries(account, staticPlaces === null ? 2 : 1);
+      if (growth !== null) return growth;
+      staticPlaces ??= [];
+      staticPlaces.push(place);
+    } else if (place.base.kind === "place" && place.base.projection.kind === "field") {
+      const growth = chargeResultEntries(account, fieldPlaces === null ? 2 : 1);
+      if (growth !== null) return growth;
+      fieldPlaces ??= [];
+      fieldPlaces.push(place);
+    } else if (place.base.kind !== "local")
+      return bodyFrontier("BodyAnalysis requires the actual selected projection or static-cell producer for this place.");
+  }
+  const preparedSource = fieldPlaces === null && staticPlaces === null ? null : sourceOccurrences(tir, account);
+  if (preparedSource !== null && preparedSource.kind !== "complete") return preparedSource;
+  const fieldProjection = preparedSource === null || fieldPlaces === null ? null : heldFieldReads(deps, input, preparedSource.value, fieldPlaces);
+  if (fieldProjection !== null && fieldProjection.kind !== "complete") return fieldProjection;
+  const fieldReads = fieldProjection?.value ?? null;
+  const fieldSetup = fieldReads === null ? null : chargeResultEntries(account, 3);
+  if (fieldSetup !== null) return fieldSetup;
   for (const local of mir.locals) {
     if (local.role.kind === "capture") {
       const captureWork = chargeWork(account, 1) ?? chargeResultEntries(account, 2);
@@ -101,7 +125,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       capturedEntries[local.role.index] = local.id;
     } else if (localOwnershipOfMir(local.mode) !== "body")
       return bodyFrontier("BodyAnalysis requires the actual caller-cell binding of this external storage mode.");
-    const kind = valueKind(deps, local.storage);
+    const kind = fieldReads?.references.has(local.id) === true ? "reference" : valueKind(deps, local.storage);
     if (kind === null) {
       const stop = accountFailure(account);
       return stop ?? bodyFrontier("BodyAnalysis requires the actual Origins reference/cell producer for this selected local.");
@@ -131,26 +155,13 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       parameterOrigins[local.role.index] = origins;
     } else if (local.role.kind === "receiver") receiverOrigins = origins;
   }
-  let staticPlaces: MirPlace[] | null = null;
-  for (const place of mir.places) {
-    if (place.base.kind === "static") {
-      const growth = chargeResultEntries(account, staticPlaces === null ? 2 : 1);
-      if (growth !== null) return growth;
-      staticPlaces ??= [];
-      staticPlaces.push(place);
-    }
-    else if (place.base.kind !== "local")
-      return bodyFrontier("BodyAnalysis requires the actual selected projection or static-cell producer for this place.");
-  }
-  let staticSource: Extract<ReturnType<typeof sourceOccurrences>, { readonly kind: "complete" }> | null = null;
   let statics: StaticCells | null = null;
   let staticAbsence: Set<number> | null = null;
   if (staticPlaces !== null) {
-    const source = sourceOccurrences(tir, account);
-    if (source.kind !== "complete") return source;
+    const source = requirePresent(preparedSource ?? undefined, { owner: "analyses/body", query: null, origin: tir.root.origin,
+      message: "Selected static places require their actual source occurrences." });
     const prepared = staticCells(deps, input, source.value);
     if (prepared.kind !== "complete") return prepared;
-    staticSource = source;
     statics = prepared.value;
     for (const place of staticPlaces) {
       const read = chargeWork(account, 1);
@@ -210,7 +221,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     ?? bounded("maximumConditionAlternatives", 1)
     ?? (valueEntries.length + valueCaptureCount === 0 ? null : bounded("maximumOriginAlternatives", 1));
   if (bound !== null) return bound;
-  const source = staticSource ?? sourceOccurrences(tir, account);
+  const source = preparedSource ?? sourceOccurrences(tir, account);
   if (source.kind !== "complete") return source;
   const imported: { value: StaticCallInventory | null } = { value: null };
   const calledSlot: StaticCalleeCells = (summary, sourceCell) => imported.value?.slotOf(summary, sourceCell);
@@ -319,7 +330,15 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     arguments: signature.parameters.map((_, index) => index >= execution.provided ? { kind: "omitted" }
       : { kind: "provided", origins: requirePresent(parameterOrigins[index],
         { owner: "analyses/body", query: null, origin: null, message: "Every supplied formal retains its entry origins." }) }), captures: captureLocations }];
-  const arena = { cells, projections: [], producers, boundProducers, boundaries: [], contexts,
+  const fieldEffects = fieldReads === null ? null : fieldReadEffects(deps, (records, references): DataflowStop | null => {
+    const stop = bounded("maximumRelationalRecordsPerBody", records, arena.cells.length + arena.boundProducers.length
+      + arena.producers.length + arena.contexts.length + arena.origins.length + arena.projections.length + lifetimeRecords)
+      ?? bounded("maximumRelationalReferencesPerBody", references, contextReferences);
+    if (stop !== null) return stop;
+    contextReferences += references;
+    return null;
+  });
+  const arena = { cells, projections: fieldEffects?.projections ?? [], producers, boundProducers, boundaries: [], contexts,
     origins: originRows } satisfies BodyRoundValue["facts"]["arena"];
   const values = valueOrigins(deps, originRows);
   if (values.kind !== "complete") return values;
@@ -351,7 +370,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     const alternatives = bounded("maximumOriginAlternatives", count);
     if (alternatives !== null || !retain) return alternatives;
     const bound = bounded("maximumRelationalRecordsPerBody", 1, arena.cells.length + arena.boundProducers.length
-        + arena.producers.length + arena.contexts.length + arena.origins.length + lifetimeRecords)
+        + arena.producers.length + arena.contexts.length + arena.origins.length + arena.projections.length + lifetimeRecords)
       ?? bounded("maximumRelationalReferencesPerBody", count, contextReferences);
     if (bound !== null) return bound;
     contextReferences += count;
@@ -363,9 +382,9 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     assigned: ReadonlySet<number>): DataflowStop | null => recordInitializationPoint(deps, initializationPoints, initializationState,
       { kind: "need", at: { kind: "body", execution, point, edge: null }, cell, witness }, boundarySlots, assigned);
   let currentOrigins: readonly OriginsId[] = localOrigins;
-  const originsOf = (operand: MirOperand): OriginsId => operandOrigins(input, constantOrigins, currentOrigins, operand, staticSlots);
+  const originsOf = (operand: MirOperand): OriginsId => operandOrigins(input, constantOrigins, currentOrigins, operand, staticSlots, fieldReads);
   const flow = buildFacts && (hasReference || hasOptional || cellLocals.length !== 0) ? solveValueOrigins(deps, input, arena, values.value, constantOrigins, initialOrigins,
-    localOrigins, solved.value.reachable, admitUnion, callLocations.value.calls, cellLocals, solved.value.calls, staticSlots, staticCallees) : null;
+    localOrigins, solved.value.reachable, admitUnion, callLocations.value.calls, cellLocals, solved.value.calls, staticSlots, staticCallees, fieldReads) : null;
   if (flow !== null && flow.kind !== "complete") return flow;
   let causalNeed: CallError | null = null;
   let directFailures: Map<NodeId, UninitializedRead> | null = null;
@@ -396,7 +415,8 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       } else break;
     }
     const node = witness.id;
-    const local = rootSlot(mir, operand.place, staticSlots);
+    const field = fieldReads?.places.get(operand.place);
+    const local = field?.holder ?? rootSlot(mir, operand.place, staticSlots);
     const present = assigned.written.has(local);
     const unavailable = !present && !absorbTaint(assigned, local);
     const cell = unavailable ? capturedLocals.get(local) ?? staticCell(local) : null;
@@ -408,6 +428,15 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
       return null;
     }
     if (buildFacts) {
+      if (field !== undefined && present) {
+        const effect = requirePresent(fieldEffects ?? undefined, { owner: "analyses/body", query: null, origin: witness.origin,
+          message: "A held field read requires its actual read effect inventory." });
+        const held = requirePresent(arena.origins[requirePresent(currentOrigins[local], { owner: "analyses/body", query: null,
+          origin: witness.origin, message: "A held receiver requires its actual local Origins." })], { owner: "analyses/body",
+          query: null, origin: witness.origin, message: "A held reference requires its actual Origins row." });
+        const read = effect.read(field, held, boundProducers, producers);
+        if (read !== null) return read;
+      }
       let occurrences = initialized.get(node);
       if (occurrences === undefined) {
         const growth = chargeResultEntries(account, 1);
@@ -550,7 +579,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
         const place: Extract<MirOperand, { readonly kind: "place" }> = { kind: "place", place: statement.place };
         const local = rootSlot(mir, statement.place, staticSlots);
         const capture = capturedLocals.get(local);
-        const transferred = transferValue(deps, input, constantOrigins, initialOrigins, currentOrigins, statement, staticSlots);
+        const transferred = transferValue(deps, input, constantOrigins, initialOrigins, currentOrigins, statement, staticSlots, fieldReads);
         if (transferred.kind !== "complete") return transferred;
         currentOrigins = transferred.value;
         const storeWork = chargeResultEntries(account, 3);
@@ -578,7 +607,7 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
           values: [{ source: statement.tir, origins: storedOrigins, reason: null }], boundaries: [] });
       }
       if (buildFacts && statement.kind !== "assign" && (hasReference || hasOptional)) {
-        const transferred = transferValue(deps, input, constantOrigins, initialOrigins, currentOrigins, statement, staticSlots);
+        const transferred = transferValue(deps, input, constantOrigins, initialOrigins, currentOrigins, statement, staticSlots, fieldReads);
         if (transferred.kind !== "complete") return transferred;
         currentOrigins = transferred.value;
       }
@@ -910,8 +939,15 @@ export function analyzeRound(deps: BodyRoundDeps, input: BodyRoundInput): BodyRo
     resultCells: [], backing: [], suspends: false, bindingDependent: tir.dependence === "binding-dependent" };
   const effects: Summary["parameters"][number][] = [];
   if (signature.receiver !== null) effects.push({ slot: { kind: "receiver" }, reads: { kind: "complete", paths: [] }, writes: { kind: "complete", paths: [] } });
-  for (let index = 0; index < signature.parameters.length; index += 1) effects.push({ slot: { kind: "parameter", index },
-    reads: { kind: "complete", paths: [] }, writes: { kind: "complete", paths: [] } });
+  for (let index = 0; index < signature.parameters.length; index += 1) {
+    const selected = fieldEffects?.paths(index);
+    const retention = selected === undefined ? null : chargeWork(account, selected.size) ?? chargeResultEntries(account, selected.size + 1);
+    if (retention !== null) return retention;
+    const paths = selected === undefined ? null : orderedRows([...selected], (left, right) => left - right, account);
+    if (paths !== null && paths.kind !== "complete") return paths;
+    effects.push({ slot: { kind: "parameter", index }, reads: { kind: "complete", paths: paths?.value ?? [] },
+      writes: { kind: "complete", paths: [] } });
+  }
   const value: BodyRoundValue = { facts: { execution, arena, liveness, initialization: { reads: initialization.value },
     refinements: { refinements: [], integers: integerRows.value, countedLoops: [] }, origins: { points: [], reads: readRows.value,
       subjects: subjectRows.value, writes, escapes: retained.value.escapes, invocations, callbacks: [], activations, frontiers: [],

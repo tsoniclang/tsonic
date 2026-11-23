@@ -23,6 +23,7 @@ export const tirReadyReadAdmission: CreateTirReadyReadAdmission = account => req
       return chargeWork(account, request.instance.body.length) ?? admitArtifactIdentity(request.instance.bindings, account);
     case "bindings": return admitBindingIdentity(request.bindings, account);
     case "static-item": return chargeWork(account, 2 + request.declaration.owner.length);
+    case "source-declaration": return chargeWork(account, 2 + request.definition.length);
     case "member": {
       const fixed = chargeWork(account, 2 + request.instance.body.length) ?? admitArtifactIdentity(request.instance.bindings, account);
       if (fixed !== null || request.occurrence.kind === "selection") return fixed;
