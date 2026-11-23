@@ -97,7 +97,8 @@ test("only the omitted generic binding owns its ready default and required entry
   const module = fixture.moduleOf(fixture.packageOf(root), "index.ts");
   const source = 'import { choose } from "dependency"; '
     + "export function omitted(value:boolean):boolean { return choose(value); } "
-    + "export function supplied(value:string):string { return choose<string>(value, value); }";
+    + "export function supplied(value:string):string { return choose<string>(value, value); } "
+    + "export function inferred(value:number):number { return choose(value, value); }";
   const input = analysisInput(fixture, "sdk-minimal", source);
   input.snapshot = fixture.projectSnapshot({ sourceFiles: { "main.ts": source },
     libraries: [{ name: "lib.es5.d.ts", text: fixture.sdk.barebonesLibContent }],
@@ -110,13 +111,17 @@ test("only the omitted generic binding owns its ready default and required entry
   const chapter = modules.find(row => row.module === module);
   const template = chapter.bodies.find(row => row.kind === "template" && row.tir.params.length === 2);
   const choices = chapter.bodies.filter(row => row.kind === "selected" && row.instance.body === template.instance.body);
-  assert.equal(choices.length, 2);
-  const [withDefault, full] = [1, 2].map(provided => choices.find(row => row.mir.entries[0].provided === provided));
+  assert.equal(choices.length, 3);
+  const withDefault = choices.find(row => row.mir.entries[0].provided === 1);
+  const full = choices.filter(row => row.mir.entries[0].provided === 2);
+  assert.equal(full.length, 2);
   assert.deepEqual(withDefault.mir.entries.map(entry => entry.provided), [1]);
-  assert.deepEqual(full.mir.entries.map(entry => entry.provided), [2]);
-  const formal = withDefault.tir.params[1], unopened = full.tir.params[1];
+  const formal = withDefault.tir.params[1];
   assert.equal(formal.initializer.kind, "ready-default");
-  assert.equal(unopened.initializer.kind, "checked-default");
+  for (const supplied of full) {
+    assert.deepEqual(supplied.mir.entries.map(entry => entry.provided), [2]);
+    assert.equal(supplied.tir.params[1].initializer.kind, "checked-default");
+  }
   const initializer = chapter.bodies.filter(row => row.kind === "selected" && row.instance.body === formal.tsonic.initializer);
   assert.equal(initializer.length, 1);
   assert.equal(sameInstance(initializer[0].instance, { body: formal.tsonic.initializer, bindings: withDefault.instance.bindings }), true);

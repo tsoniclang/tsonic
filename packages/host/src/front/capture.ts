@@ -1,5 +1,5 @@
 import type { ArgumentPassingFact, Diagnostic as CheckerDiagnostic, FieldFact, Node, ResolvedAliasTarget, ResolvedCallSelectionEvidence, ResolvedSourceTypeInfo, Signature, SourceFile, Symbol as CheckerSymbol, Type, TypeCheckerQueries, TypeIndexInfo, TypeReferenceArgumentInfo, TypeShapeQueries } from "@tsonic/tsts";
-import type { ResolvedCheckedComponentEvidence, ResolvedCheckerBackingConstraint } from "@tsonic/tsts";
+import type { ResolvedCallInferenceContribution, ResolvedCheckedComponentEvidence, ResolvedCheckerBackingConstraint } from "@tsonic/tsts";
 import { argumentPassingFactKey, defaultValueFactKey, fieldFactKey, providerVirtualDeclarationFactKey,
   sourceMarkerFactKey, structFactKey, TypeFlagsConditional, TypeFlagsIndexedAccess, TypeFlagsUniqueESSymbol } from "@tsonic/tsts";
 import type { Cause, CheckerDiagnosticRef, Diagnostic, InvariantFailure, Result } from "../diag/contract.js";
@@ -1439,11 +1439,13 @@ function captureTuple(scope: CaptureScope, type: Type, position: RawComponentId,
   return { kind: "tuple", readonly: selectedTuple.readonly, elements };
 }
 
-function undefinedUnionArms(scope: CaptureScope, type: Type, reference?: Type): { readonly value: Type; readonly absent: Type } | undefined {
+function undefinedUnionArms(scope: CaptureScope, type: Type, reference?: Type):
+  { readonly value: Type; readonly valueIndex: number; readonly absent: Type } | undefined {
   if (!scope.shape.isUnion(type)) return undefined;
   const arms = scope.shape.getUnionOrIntersectionTypes(type);
   if (arms.length !== (reference === undefined ? 2 : 3)) return undefined;
   let value: Type | undefined;
+  let valueIndex = -1;
   let absent: Type | undefined;
   let matchedReference = reference === undefined;
   for (let index = 0; index < arms.length; index += 1) {
@@ -1460,9 +1462,10 @@ function undefinedUnionArms(scope: CaptureScope, type: Type, reference?: Type): 
     } else {
       if (value !== undefined) return undefined;
       value = arm;
+      valueIndex = index;
     }
   }
-  return value === undefined || absent === undefined || !matchedReference ? undefined : { value, absent };
+  return value === undefined || absent === undefined || !matchedReference ? undefined : { value, valueIndex, absent };
 }
 
 function authoredOptionalFormalArms(scope: CaptureScope, type: Type, syntax: Node): AuthoredFormalArms | null {
@@ -3459,6 +3462,31 @@ function requiredCallReference(scope: CaptureScope, node: Node): RawNodeRef | nu
 
 type SelectedCall = Extract<ResolvedCallSelectionEvidence, { readonly kind: "applicable" }>["selection"];
 
+function contributedFormalType(scope: CaptureScope, application: SelectedCall["application"],
+  contribution: ResolvedCallInferenceContribution): Type | undefined {
+  if (contribution.sourcePath.length !== 0) return undefined;
+  const { origin, formalPath, formalRootType } = contribution;
+  if (formalPath.length === 0) return formalRootType;
+  if (origin.kind !== "argument" || formalPath.length !== 1 || !admit(scope, "edges")) return undefined;
+  const projection = formalPath[0];
+  if (projection?.kind !== "union-member" || projection.owner !== formalRootType || projection.member !== contribution.typeParameter)
+    return undefined;
+  const parameter = application.signatureShape.parameters[origin.parameterIndex];
+  const declaration = parameter?.declaration;
+  const ast = scope.checked.ast;
+  if (parameter?.index !== origin.parameterIndex || parameter.rest || !parameter.optional ||
+    declaration === undefined || ast.parent(declaration) !== application.signatureShape.declaration ||
+    ast.kindName(declaration) !== "KindParameter" || !admit(scope, "edges")) return undefined;
+  const formal = ast.as.AsParameterDeclaration(declaration);
+  const annotation = formal?.Type;
+  if (formal?.Initializer === undefined || formal.QuestionToken !== undefined || annotation === undefined || !admit(scope, "edges"))
+    return undefined;
+  const written = scope.checker.getTypeFromTypeNode(annotation);
+  if (written?.type !== projection.member || written.causes.length !== 0) return undefined;
+  const arms = undefinedUnionArms(scope, formalRootType);
+  return arms?.value === projection.member && arms.valueIndex === projection.index ? arms.value : undefined;
+}
+
 function captureSelectedBindings(scope: CaptureScope, selected: SelectedCall, invocation: RawNodeRef, original: RawSignatureId): {
   readonly arguments: readonly RawTypeArgument[];
   readonly contributions: RawFact<readonly RawInferenceContribution[]>;
@@ -3506,8 +3534,7 @@ function captureSelectedBindings(scope: CaptureScope, selected: SelectedCall, in
     if (contribution === undefined)
       return throwInvariant(invariant("A selected inference contribution inventory must be dense."));
     const { origin } = contribution;
-    if (contribution.sourcePath.length !== 0 || contribution.formalPath.length !== 0
-      || (origin.kind !== "argument" && origin.kind !== "contextual-result"))
+    if (origin.kind !== "argument" && origin.kind !== "contextual-result")
       throw new TypeError("front: projected, tail or receiver inference contribution capture is not implemented");
     const parameter = binders?.get(contribution.typeParameter);
     if (parameter === undefined || declared === undefined)
@@ -3518,13 +3545,18 @@ function captureSelectedBindings(scope: CaptureScope, selected: SelectedCall, in
         return throwInvariant(invariant("An inference contribution must retain its actual selected argument association."));
     } else if (origin.subject !== application.invocation)
       return throwInvariant(invariant("A contextual-result contribution must retain its original invocation."));
+    const formalType = contributedFormalType(scope, application, contribution);
+    if (formalType === undefined) {
+      if (scope.meter.refusal !== null) return null;
+      throw new TypeError("front: projected, tail or receiver inference contribution capture is not implemented");
+    }
     const subject = requiredCallReference(scope, origin.subject);
     if (subject === null) return null;
     const declaration = requiredCallReference(scope, declared);
     if (declaration === null) return null;
     const source = rawType(scope, () => withoutTypeCause(contribution.sourceRootType), component(scope, subject, null), null);
     if (source === null) return null;
-    const formal = rawType(scope, () => withoutTypeCause(contribution.formalRootType), component(scope, declaration, origin.kind === "argument"
+    const formal = rawType(scope, () => withoutTypeCause(formalType), component(scope, declaration, origin.kind === "argument"
       ? { kind: "parameter", signature: original, index: origin.parameterIndex } : { kind: "result", signature: original }), null);
     if (formal === null) return null;
     contributions.push({ declaration: parameter, origin: { ...origin, subject }, source, formal });

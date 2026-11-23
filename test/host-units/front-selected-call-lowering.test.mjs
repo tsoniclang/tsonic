@@ -2,6 +2,33 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { loadFrontFixture } from "./fixtures/front/checked-module.mjs";
 
+test("a supplied defaulted argument names its authored formal rather than the checker's synthetic absence shell", async () => {
+  const fixture = await loadFrontFixture();
+  const source = "function choose<T>(first:T, other:T=first):T { return other; } "
+    + "export function run(flag:boolean):boolean { return choose(flag, flag); }";
+  const { raw, checked } = fixture.checkedModuleOf(source);
+  const [selected] = raw.calls;
+  const signature = raw.types.signatures[selected.declarationOrder.value[0]];
+  const [candidate] = raw.types.candidates[selected.candidates].candidates;
+  const contributions = candidate.inferenceContributions.value;
+  assert.deepEqual(contributions.map(row => [row.origin.kind, row.origin.parameterIndex]),
+    [["argument", 0], ["argument", 1], ["contextual-result", undefined]]);
+  const formal = raw.types.types[contributions[1].formal];
+  const binder = raw.types.types[signature.parameters[1].type];
+  assert.deepEqual(formal.form, binder.form);
+  assert.equal(formal.form.value.kind, "parameter");
+  assert.deepEqual(formal.form.value.parameter, contributions[1].declaration);
+  assert.deepEqual(raw.types.components[formal.component].path.step,
+    { kind: "parameter", signature: signature.id, index: 1 });
+  const group = checked.bodies.find(body => body.candidateLists.length !== 0);
+  assert.deepEqual(group.candidateLists[0].candidates[0].contributions[1].component.path.map(row => [row.kind, row.index]),
+    [["parameter", 1]]);
+  const authoredUnion = source.replace("other:T=first):T { return other;", "other:T|undefined=first):T { return first;");
+  const { program, deps, module } = fixture.openedModule(authoredUnion);
+  assert.throws(() => fixture.front.captureModule(deps, program, module),
+    /projected, tail or receiver inference contribution capture is not implemented/u);
+});
+
 test("checked calls retain their selected generic signatures and the real original inference components", async () => {
   assert.ok(process.env.TSONIC_TEST_ADMISSION);
   const fixture = await loadFrontFixture();
