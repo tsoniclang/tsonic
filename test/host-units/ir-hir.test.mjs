@@ -583,13 +583,40 @@ test("HIR copies the complete Checked constructor inventory through one paid pos
       const text = product.printHir(constructorModule(node));
       const original = product.parseHir(text);
       assert.equal(original.kind, "parsed", label);
+      const originals = product.indexSyntaxTree(original.value.tree);
+      const selected = originals.find(value => value.kind === node.kind);
+      const reads = [];
+      const watch = (value, field, display = field) => {
+        const raw = value[field];
+        Object.defineProperty(value, field, { get() {
+          reads.push(display);
+          return raw;
+        } });
+        return raw;
+      };
+      const expectedReads = [];
+      if (selected.kind === "PropertyAccessExpression" || selected.kind === "ElementAccessExpression") {
+        expectedReads.push("expression", "questionDotToken", selected.kind === "PropertyAccessExpression" ? "name" : "argumentExpression");
+        for (const field of expectedReads) watch(selected, field);
+      } else if (selected.kind === "ArrayLiteralExpression" || selected.kind === "ObjectLiteralExpression") {
+        const field = selected.kind === "ArrayLiteralExpression" ? "elements" : "properties";
+        const list = watch(selected, field);
+        const rows = watch(list, "nodes");
+        watch(list, "loc");
+        expectedReads.push(field, "nodes", "loc");
+        for (let position = 0; position < rows.length; position += 1) {
+          const display = "element " + position;
+          watch(rows, position, display);
+          expectedReads.push(display);
+        }
+      }
       const image = project(original.value);
       assert.equal(image.kind, "copied", label);
+      assert.deepEqual(reads, expectedReads, label);
       const { module, syntax } = image.value;
       assert.equal(module.tree === module.bodies[0].root, true, label);
       assert.equal(module.tree !== original.value.tree && syntax.sourceFileOf(original.value.tree) === module.tree, true, label);
       assert.equal(product.printHir(module) === text, true, label);
-      const originals = product.indexSyntaxTree(original.value.tree);
       const projected = product.indexSyntaxTree(module.tree);
       assert.equal(projected.length, originals.length, label);
       for (const [position, source] of originals.entries()) {

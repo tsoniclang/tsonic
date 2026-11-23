@@ -6,9 +6,11 @@ import type { IterateFunctionHeaderSlots, IterateParameterHeaderSlots, IterateSo
   PreparedFunctionHeader, PreparedSourceFileHeader, PrepareFunctionHeader, PrepareSourceFileHeader, SourceFileHeader,
   SyntaxChildSlot, TypeParameterDeclaration } from "./contract.js";
 import type { ApplicationSyntaxReceipt, BinaryExpression, BinaryOperatorToken, BinarySyntaxReceipt, Block, BlockSyntaxReceipt,
-  AnnotatedExpressionSyntax, AnnotatedExpressionSyntaxReceipt, ColonToken, ConditionalExpression, ConditionalSyntaxReceipt,
+  AccessSyntaxFields, AnnotatedExpressionSyntax, AnnotatedExpressionSyntaxReceipt, ArrayLiteralExpression, ArraySyntaxReceipt,
+  ColonToken, ConditionalExpression, ConditionalSyntaxReceipt, ElementAccessExpression, ElementSyntaxReceipt,
   BindingName, BlockOrExpression, CallOrNewExpression, DotDotDotToken, Expression, FunctionSyntaxReceipt,
-  IfStatement, IfSyntaxReceipt, UnarySyntax, UnarySyntaxReceipt,
+  IfStatement, IfSyntaxReceipt, MemberName, ObjectLiteralElementLike, ObjectLiteralExpression, ObjectSyntaxReceipt,
+  PropertyAccessExpression, PropertySyntaxReceipt, UnarySyntax, UnarySyntaxReceipt,
   ModifierLike, ModifierList, ParameterSyntaxReceipt, SourceFile, SourceFileSyntaxReceipt, SyntaxChildListField,
   PrepareSyntaxStructure, QuestionDotToken, QuestionToken, RetainedSyntaxNode,
   ReturnStatement, ReturnSyntaxReceipt, SingleExpressionReceipt, SingleExpressionSyntax,
@@ -266,6 +268,65 @@ function prepareIf<P extends Phase>(node: IfStatement<P>, ordinal: number): IfSy
     expression: expression.read, thenStatement: thenStatement.read, elseStatement: elseStatement.read };
 }
 
+function* propertySlots<P extends Phase>(fields: AccessSyntaxFields<P>, name: () => MemberName<P>): Generator<SyntaxChildSlot<P>> {
+  yield* accessSlots<P>(fields);
+  yield* children<P, PropertyAccessExpression<P>>(["name", "required", name]);
+}
+
+function* elementSlots<P extends Phase>(fields: AccessSyntaxFields<P>, argument: () => Expression<P>): Generator<SyntaxChildSlot<P>> {
+  yield* accessSlots<P>(fields);
+  yield* children<P, ElementAccessExpression<P>>(["argumentExpression", "required", argument]);
+}
+
+function accessSlots<P extends Phase>(fields: AccessSyntaxFields<P>): Iterable<SyntaxChildSlot<P>> {
+  return children<P, PropertyAccessExpression<P> | ElementAccessExpression<P>>(
+    ["expression", "required", fields.expression], ["questionDotToken", "nullable", fields.questionDotToken]);
+}
+
+function prepareProperty<P extends Phase>(node: PropertyAccessExpression<P>, ordinal: number): PropertySyntaxReceipt<P> {
+  const expression = heldChild(() => node.expression);
+  const question = heldChild(() => node.questionDotToken);
+  const name = heldChild(() => node.name);
+  return { kind: "property-access", ordinal,
+    slots: propertySlots<P>({ expression: expression.pull, questionDotToken: question.pull }, name.pull),
+    expression: expression.read, questionDotToken: question.read, name: name.read };
+}
+
+function prepareElement<P extends Phase>(node: ElementAccessExpression<P>, ordinal: number): ElementSyntaxReceipt<P> {
+  const expression = heldChild(() => node.expression);
+  const question = heldChild(() => node.questionDotToken);
+  const argument = heldChild(() => node.argumentExpression);
+  return { kind: "element-access", ordinal,
+    slots: elementSlots<P>({ expression: expression.pull, questionDotToken: question.pull }, argument.pull),
+    expression: expression.read, questionDotToken: question.read, argument: argument.read };
+}
+
+function* arraySlots<P extends Phase>(node: ArrayLiteralExpression<P>,
+  read: (field: "elements", list: NodeList<Expression<P>>) => Iterable<SyntaxChildSlot<P>>): Generator<SyntaxChildSlot<P>> {
+  yield* read("elements", node.elements);
+}
+
+function* objectSlots<P extends Phase>(node: ObjectLiteralExpression<P>,
+  read: (field: "properties", list: NodeList<ObjectLiteralElementLike<P>>) => Iterable<SyntaxChildSlot<P>>): Generator<SyntaxChildSlot<P>> {
+  yield* read("properties", node.properties);
+}
+
+function prepareArray<P extends Phase>(node: ArrayLiteralExpression<P>, ordinal: number): ArraySyntaxReceipt<P> {
+  let list: RetainedSyntaxList<Expression<P>> | undefined;
+  let length = 0;
+  const slots = arraySlots<P>(node, (field, raw) => readRetainedList<P, Expression<P>>(field, raw,
+    (value, count) => { list = value; length = count; }));
+  return { kind: "array-literal", ordinal, slots, elements: read => materializeList(requirePresent(list, missingStructure), length, read) };
+}
+
+function prepareObject<P extends Phase>(node: ObjectLiteralExpression<P>, ordinal: number): ObjectSyntaxReceipt<P> {
+  let list: RetainedSyntaxList<ObjectLiteralElementLike<P>> | undefined;
+  let length = 0;
+  const slots = objectSlots<P>(node, (field, raw) => readRetainedList<P, ObjectLiteralElementLike<P>>(field, raw,
+    (value, count) => { list = value; length = count; }));
+  return { kind: "object-literal", ordinal, slots, properties: read => materializeList(requirePresent(list, missingStructure), length, read) };
+}
+
 function* applicationSlots<P extends Phase>(node: CallOrNewExpression<P>,
   expression: (value: Expression<P>) => Expression<P>,
   questionDot: (value: QuestionDotToken<P> | null) => QuestionDotToken<P> | null,
@@ -329,7 +390,9 @@ export const prepareSyntaxStructure: PrepareSyntaxStructure = <P extends Phase, 
       node.kind !== "CallExpression" && node.kind !== "NewExpression" && node.kind !== "Parameter" &&
       node.kind !== "SourceFile" && node.kind !== "FunctionDeclaration" && node.kind !== "FunctionExpression" &&
       node.kind !== "PrefixUnaryExpression" && node.kind !== "PostfixUnaryExpression" && node.kind !== "AsExpression" &&
-      node.kind !== "SatisfiesExpression" && node.kind !== "ConditionalExpression" && node.kind !== "IfStatement" && !isSingleExpressionSyntax<P>(node))
+      node.kind !== "SatisfiesExpression" && node.kind !== "ConditionalExpression" && node.kind !== "IfStatement" &&
+      node.kind !== "PropertyAccessExpression" && node.kind !== "ElementAccessExpression" &&
+      node.kind !== "ArrayLiteralExpression" && node.kind !== "ObjectLiteralExpression" && !isSingleExpressionSyntax<P>(node))
     return { kind: "copied", value: null };
   const stop = reserve(node);
   if (stop !== null) return { kind: "refused", stop };
@@ -349,6 +412,16 @@ export const prepareSyntaxStructure: PrepareSyntaxStructure = <P extends Phase, 
   if (node.kind === "AsExpression" || node.kind === "SatisfiesExpression") return { kind: "copied", value: prepareAnnotatedExpression<P>(node, ordinal) };
   if (node.kind === "ConditionalExpression") return { kind: "copied", value: prepareConditional<P>(node, ordinal) };
   if (node.kind === "IfStatement") return { kind: "copied", value: prepareIf<P>(node, ordinal) };
+  if (node.kind === "PropertyAccessExpression") return { kind: "copied", value: prepareProperty<P>(node, ordinal) };
+  if (node.kind === "ElementAccessExpression") return { kind: "copied", value: prepareElement<P>(node, ordinal) };
+  if (node.kind === "ArrayLiteralExpression") {
+    const list = admitList(node, "elements");
+    return list === null ? { kind: "copied", value: prepareArray<P>(node, ordinal) } : { kind: "refused", stop: list };
+  }
+  if (node.kind === "ObjectLiteralExpression") {
+    const list = admitList(node, "properties");
+    return list === null ? { kind: "copied", value: prepareObject<P>(node, ordinal) } : { kind: "refused", stop: list };
+  }
   return { kind: "copied", value: prepareSingleExpression<P>(node, ordinal) };
 };
 
@@ -724,9 +797,9 @@ function ordinarySlots<PhaseType extends Phase>(
       return conditionalSlots<PhaseType>({ condition: () => node.condition, question: () => node.questionToken, whenTrue: () => node.whenTrue,
         colon: () => node.colonToken, whenFalse: () => node.whenFalse });
     case "PropertyAccessExpression":
-      return children<PhaseType, typeof node>(["expression", "required", () => node.expression], ["questionDotToken", "nullable", () => node.questionDotToken], ["name", "required", () => node.name]);
+      return propertySlots<PhaseType>({ expression: () => node.expression, questionDotToken: () => node.questionDotToken }, () => node.name);
     case "ElementAccessExpression":
-      return children<PhaseType, typeof node>(["expression", "required", () => node.expression], ["questionDotToken", "nullable", () => node.questionDotToken], ["argumentExpression", "required", () => node.argumentExpression]);
+      return elementSlots<PhaseType>({ expression: () => node.expression, questionDotToken: () => node.questionDotToken }, () => node.argumentExpression);
     case "CallExpression":
     case "NewExpression":
       return applicationSlots<PhaseType>(node, value => value, value => value,
@@ -742,9 +815,9 @@ function ordinarySlots<PhaseType extends Phase>(
     case "TaggedTemplateExpression":
       return children<PhaseType, typeof node>(["tag", "required", () => node.tag], ["questionDotToken", "nullable", () => node.questionDotToken], ["typeArguments", "list", () => node.typeArguments], ["template", "required", () => node.template]);
     case "ArrayLiteralExpression":
-      return children<PhaseType, typeof node>(["elements", "list", () => node.elements]);
+      return arraySlots<PhaseType>(node, (field, list) => children<PhaseType, typeof node>([field, "list", () => list]));
     case "ObjectLiteralExpression":
-      return children<PhaseType, typeof node>(["properties", "list", () => node.properties]);
+      return objectSlots<PhaseType>(node, (field, list) => children<PhaseType, typeof node>([field, "list", () => list]));
     case "ShorthandPropertyAssignment":
       return children<PhaseType, typeof node>(["modifiers", "list", () => node.modifiers], ["name", "required", () => node.name], ["postfixToken", "nullable", () => node.postfixToken], ["type", "nullable", () => node.type],
         ["equalsToken", "nullable", () => node.equalsToken], ["objectAssignmentInitializer", "nullable", () => node.objectAssignmentInitializer]);

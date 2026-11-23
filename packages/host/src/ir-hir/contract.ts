@@ -4945,6 +4945,39 @@ export interface IfSyntaxReceipt<P extends Phase> {
   readonly elseStatement: () => Statement<P> | null;
 }
 
+export interface AccessSyntaxFields<P extends Phase> {
+  readonly expression: () => Expression<P>;
+  readonly questionDotToken: () => QuestionDotToken<P> | null;
+}
+
+export interface PropertySyntaxReceipt<P extends Phase> extends AccessSyntaxFields<P> {
+  readonly kind: "property-access";
+  readonly ordinal: number;
+  readonly slots: Iterable<SyntaxChildSlot<P>>;
+  readonly name: () => MemberName<P>;
+}
+
+export interface ElementSyntaxReceipt<P extends Phase> extends AccessSyntaxFields<P> {
+  readonly kind: "element-access";
+  readonly ordinal: number;
+  readonly slots: Iterable<SyntaxChildSlot<P>>;
+  readonly argument: () => Expression<P>;
+}
+
+export interface ArraySyntaxReceipt<P extends Phase> {
+  readonly kind: "array-literal";
+  readonly ordinal: number;
+  readonly slots: Iterable<SyntaxChildSlot<P>>;
+  readonly elements: (read: (node: Expression<P>) => Expression<P>) => NodeList<Expression<P>>;
+}
+
+export interface ObjectSyntaxReceipt<P extends Phase> {
+  readonly kind: "object-literal";
+  readonly ordinal: number;
+  readonly slots: Iterable<SyntaxChildSlot<P>>;
+  readonly properties: (read: (node: ObjectLiteralElementLike<P>) => ObjectLiteralElementLike<P>) => NodeList<ObjectLiteralElementLike<P>>;
+}
+
 export interface ApplicationSyntaxReceipt<P extends Phase> {
   readonly kind: "application";
   readonly ordinal: number;
@@ -4989,11 +5022,14 @@ export interface FunctionSyntaxReceipt<P extends Phase> {
 
 export type RetainedSyntaxNode<P extends Phase> = Block<P> | BinaryExpression<P> | ReturnStatement<P> | SingleExpressionSyntax<P>
   | CallOrNewExpression<P> | ParameterDeclaration<P> | SourceFile<P> | FunctionDeclaration<P> | FunctionExpression<P>
-  | UnarySyntax<P> | AnnotatedExpressionSyntax<P> | ConditionalExpression<P> | IfStatement<P>;
+  | UnarySyntax<P> | AnnotatedExpressionSyntax<P> | ConditionalExpression<P> | IfStatement<P>
+  | PropertyAccessExpression<P> | ElementAccessExpression<P> | ArrayLiteralExpression<P> | ObjectLiteralExpression<P>;
 export type SyntaxStructureReceipt<P extends Phase> = BlockSyntaxReceipt<P> | BinarySyntaxReceipt<P> | ReturnSyntaxReceipt<P>
   | SingleExpressionReceipt<P> | ApplicationSyntaxReceipt<P> | ParameterSyntaxReceipt<P> | SourceFileSyntaxReceipt<P> | FunctionSyntaxReceipt<P>
-  | UnarySyntaxReceipt<P> | AnnotatedExpressionSyntaxReceipt<P> | ConditionalSyntaxReceipt<P> | IfSyntaxReceipt<P>;
-export type SyntaxChildListField = "modifiers" | "typeParameters" | "parameters" | "typeArguments" | "arguments" | "statements";
+  | UnarySyntaxReceipt<P> | AnnotatedExpressionSyntaxReceipt<P> | ConditionalSyntaxReceipt<P> | IfSyntaxReceipt<P>
+  | PropertySyntaxReceipt<P> | ElementSyntaxReceipt<P> | ArraySyntaxReceipt<P> | ObjectSyntaxReceipt<P>;
+export type SyntaxChildListField = "modifiers" | "typeParameters" | "parameters" | "typeArguments" | "arguments" | "statements"
+  | "elements" | "properties";
 export type PrepareSyntaxStructure = <P extends Phase, Stop>(
   node: SyntaxNode<P>, ordinal: number, reserve: (node: RetainedSyntaxNode<P>) => Stop | null,
   admitList: (node: RetainedSyntaxNode<P>, field: SyntaxChildListField) => Stop | null,
@@ -5008,7 +5044,8 @@ export interface SyntaxForest<P extends Phase> {
   readonly nodes: () => Iterable<SyntaxNode<P>>;
   readonly wireOf: (node: SyntaxNode<P>) => number | undefined;
   readonly structureOf: (node: SyntaxNode<P>) => "block" | "binary" | "return" | "single-expression" | "application" |
-    "formal-header" | "source-header" | "function-header" | "unary" | "annotated-expression" | "conditional" | "if" | null;
+    "formal-header" | "source-header" | "function-header" | "unary" | "annotated-expression" | "conditional" | "if" |
+    "property-access" | "element-access" | "array-literal" | "object-literal" | null;
   readonly firstRootSize: number;
   readonly copy: <Stop, Image>(start: () => SyntaxCopyResult<SyntaxPhaseCopy<P, Stop, Image>, Stop>,
     beforeNode: (node: SyntaxNode<P>) => Stop | null, image: Image) => SyntaxCopyResult<SyntaxImage<P>, Stop>;

@@ -9,8 +9,9 @@ import type {
   PropertyAssignment, ShorthandPropertyAssignment, DeleteExpression, TypeOfExpression, VoidExpression,
   AwaitExpression, TypeAssertion, ExpressionWithTypeArguments, TemplateHead, TemplateMiddle,
   TemplateTail, PartiallyEmittedExpression, SyntheticReferenceExpression,
-  AnnotatedExpressionSyntax, AnnotatedExpressionSyntaxReceipt, ApplicationSyntaxReceipt, CallOrNewExpression, ConditionalSyntaxReceipt,
-  Expression, FunctionSyntaxReceipt, Phase, SingleExpressionSyntax, SyntaxPhaseCopy, UnarySyntax, UnarySyntaxReceipt,
+  AnnotatedExpressionSyntax, AnnotatedExpressionSyntaxReceipt, ApplicationSyntaxReceipt, ArraySyntaxReceipt, CallOrNewExpression,
+  ConditionalSyntaxReceipt, ElementSyntaxReceipt, Expression, FunctionSyntaxReceipt, ObjectSyntaxReceipt, Phase, PropertySyntaxReceipt,
+  SingleExpressionSyntax, SyntaxPhaseCopy, UnarySyntax, UnarySyntaxReceipt,
 } from "./contract.js";
 import { throwInvariant } from "../diag/index.js";
 import type { SyntaxCopyPorts, SyntaxPlan } from "./copy-node.js";
@@ -75,7 +76,11 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
   functionOf: (node: FunctionExpression<P>) => FunctionSyntaxReceipt<P>,
   unaryOf: (node: UnarySyntax<P>) => UnarySyntaxReceipt<P>,
   annotatedOf: (node: AnnotatedExpressionSyntax<P>) => AnnotatedExpressionSyntaxReceipt<P>,
-  conditionalOf: (node: ConditionalExpression<P>) => ConditionalSyntaxReceipt<P>): ExpressionsPlans<P, Stop, Image> {
+  conditionalOf: (node: ConditionalExpression<P>) => ConditionalSyntaxReceipt<P>,
+  propertyOf: (node: PropertyAccessExpression<P>) => PropertySyntaxReceipt<P>,
+  elementOf: (node: ElementAccessExpression<P>) => ElementSyntaxReceipt<P>,
+  arrayOf: (node: ArrayLiteralExpression<P>) => ArraySyntaxReceipt<P>,
+  objectOf: (node: ObjectLiteralExpression<P>) => ObjectSyntaxReceipt<P>): ExpressionsPlans<P, Stop, Image> {
   const Identifier = new Map<Identifier<P>, SyntaxPlan<Identifier<P>, Stop, Image>>();
   const PrivateIdentifier = new Map<PrivateIdentifier<P>, SyntaxPlan<PrivateIdentifier<P>, Stop, Image>>();
   const QualifiedName = new Map<QualifiedName<P>, SyntaxPlan<QualifiedName<P>, Stop, Image>>();
@@ -370,27 +375,19 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
     })),
     PropertyAccessExpression: node => memoSyntaxPlan(PropertyAccessExpression, node, () => withSyntaxPayload(phase.PropertyAccessExpression, node.tsonic, () => {
       const header = syntaxHeader(node);
-      const { kind, questionDotToken } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        expression: ports().Expression(node.expression).read(),
-        questionDotToken,
-        name: ports().MemberName(node.name).read(),
-        tsonic,
-      });
+      return tsonic => {
+        const shape = propertyOf(node);
+        return { ...header, kind: "PropertyAccessExpression", expression: ports().Expression(shape.expression()).read(),
+          questionDotToken: shape.questionDotToken(), name: ports().MemberName(shape.name()).read(), tsonic };
+      };
     })),
     ElementAccessExpression: node => memoSyntaxPlan(ElementAccessExpression, node, () => withSyntaxPayload(phase.ElementAccessExpression, node.tsonic, () => {
       const header = syntaxHeader(node);
-      const { kind, questionDotToken } = node;
-      return tsonic => ({
-        ...header,
-        kind,
-        expression: ports().Expression(node.expression).read(),
-        questionDotToken,
-        argumentExpression: ports().Expression(node.argumentExpression).read(),
-        tsonic,
-      });
+      return tsonic => {
+        const shape = elementOf(node);
+        return { ...header, kind: "ElementAccessExpression", expression: ports().Expression(shape.expression()).read(),
+          questionDotToken: shape.questionDotToken(), argumentExpression: ports().Expression(shape.argument()).read(), tsonic };
+      };
     })),
     CallExpression: node => memoSyntaxPlan(CallExpression, node, () => withSyntaxPayload(phase.CallExpression, node.tsonic, () => tsonic => {
       const shape = applicationOf(node);
@@ -490,7 +487,7 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
       return tsonic => ({
         ...header,
         kind,
-        elements: copyNodeList(node.elements, item => ports().Expression(item).read()),
+        elements: arrayOf(node).elements(item => ports().Expression(item).read()),
         multiLine,
         tsonic,
       });
@@ -501,7 +498,7 @@ export function createExpressionsPlans<P extends Phase, Stop, Image>(phase: Synt
       return tsonic => ({
         ...header,
         kind,
-        properties: copyNodeList(node.properties, item => ports().ObjectLiteralElementLike(item).read()),
+        properties: objectOf(node).properties(item => ports().ObjectLiteralElementLike(item).read()),
         multiLine,
         tsonic,
       });

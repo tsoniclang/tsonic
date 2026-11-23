@@ -328,11 +328,8 @@ function admitSyntaxHeader(scan: ProjectionInventory, node: SyntaxNode<TypedPhas
     case "ParenthesizedExpression": case "NonNullExpression":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "ArrayLiteralExpression":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? inventoryRecord(scan, 2);
     case "ObjectLiteralExpression":
-      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9)
-        ?? inventoryRecord(scan, 2);
+      return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 9);
     case "SpreadAssignment":
       return inventoryRecord(scan, 5) ?? inventoryRecord(scan, 8);
     case "PropertyAssignment":

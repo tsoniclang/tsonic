@@ -131,6 +131,18 @@ function createSyntaxPlans<P extends Phase, Stop, Image>(phase: SyntaxPhaseCopy<
   }, node => {
     const receipt = structure(node);
     return receipt.kind === "conditional" ? receipt : throwInvariant(missingPreparation);
+  }, node => {
+    const receipt = structure(node);
+    return receipt.kind === "property-access" ? receipt : throwInvariant(missingPreparation);
+  }, node => {
+    const receipt = structure(node);
+    return receipt.kind === "element-access" ? receipt : throwInvariant(missingPreparation);
+  }, node => {
+    const receipt = structure(node);
+    return receipt.kind === "array-literal" ? receipt : throwInvariant(missingPreparation);
+  }, node => {
+    const receipt = structure(node);
+    return receipt.kind === "object-literal" ? receipt : throwInvariant(missingPreparation);
   });
   const types = createTypesPlans(phase, () => ports);
   const auxiliary = createAuxiliaryPlans(phase, () => ports, expressionOf, node => {
