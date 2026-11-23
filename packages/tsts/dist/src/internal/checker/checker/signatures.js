@@ -1,4 +1,4 @@
-import { admitNativeChecker } from "../resource-admission.js";
+import { admitNativeChecker, markNativeCheckerProvisional } from "../resource-admission.js";
 import { hasExactProviderConstructorDeclarations } from "../../../extensions/provider-materialization-integration.js";
 import { beginSelectedCallEvidenceFrame, bindSelectedCallDefaultOwner, bindSelectedCallDefaultContext, bindSelectedCallInferenceContext, commitSelectedCallEvidenceFrame, journalSelectedCallEvidence, rollbackSelectedCallEvidenceFrame, retainSelectedCallDefault, selectedCallDefaultNode, selectedCallInferenceJournal, selectedCallFrameInferenceJournal, } from "./selected-call-evidence-transaction.js";
 import { retainContextualArgumentOwners, selectedCallInferenceEvidence, withSelectedCallInferenceOrigin, withSelectedCallInferenceProjection } from "./selected-call-inference-evidence.js";
@@ -7743,9 +7743,11 @@ export function Checker_isTypeUsableAsIndexSignatureDeclaration(receiver, t) {
  * }
  */
 export function Checker_getReturnTypeOfSignature(receiver, sig) {
-    if (sig.resolvedReturnType !== undefined) {
-        return sig.resolvedReturnType;
-    }
+    admitNativeChecker(receiver, "work");
+    const ready = sig.resolvedReturnType;
+    if (ready !== undefined)
+        return ready;
+    markNativeCheckerProvisional(receiver);
     if (!Checker_pushTypeResolution(receiver, sig, TypeSystemPropertyNameResolvedReturnType)) {
         return receiver.errorType;
     }
@@ -7754,7 +7756,16 @@ export function Checker_getReturnTypeOfSignature(receiver, sig) {
         t = Checker_instantiateType(receiver, Checker_getReturnTypeOfSignature(receiver, sig.target), sig.mapper);
     }
     else if (sig.composite !== undefined) {
-        t = Checker_instantiateType(receiver, Checker_getUnionOrIntersectionType(receiver, core.Map(sig.composite.signatures, (signature) => Checker_getReturnTypeOfSignature(receiver, signature)), sig.composite.isUnion, UnionReductionSubtype), sig.mapper);
+        const composite = sig.composite;
+        const rows = composite.signatures;
+        const count = rows.length;
+        admitNativeChecker(receiver, "retained", count + 1);
+        const results = [];
+        for (let position = 0; position < count; position += 1) {
+            admitNativeChecker(receiver, "work");
+            results.push(Checker_getReturnTypeOfSignature(receiver, rows[position]));
+        }
+        t = Checker_instantiateType(receiver, Checker_getUnionOrIntersectionType(receiver, results, composite.isUnion, UnionReductionSubtype), sig.mapper);
     }
     else {
         t = Checker_getReturnTypeFromAnnotation(receiver, sig.declaration);
@@ -7791,10 +7802,13 @@ export function Checker_getReturnTypeOfSignature(receiver, sig) {
         }
         t = receiver.anyType;
     }
-    if (sig.resolvedReturnType === undefined) {
-        sig.resolvedReturnType = t;
-    }
-    return sig.resolvedReturnType;
+    admitNativeChecker(receiver, "work");
+    const alreadyCompleted = sig.resolvedReturnType;
+    if (alreadyCompleted !== undefined)
+        return alreadyCompleted;
+    admitNativeChecker(receiver, "retained");
+    sig.resolvedReturnType = t;
+    return t;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/checker.go::method::Checker.getNonCircularReturnTypeOfSignature","kind":"method","status":"implemented","sigHash":"d0801936cd6491f24fcb7580847fd22c4177dc24ab088d45828e2fd19cfc8ffe","bodyHash":"af76c2327b22408270ff0ac74c48ddc3edb8209e6d8764300082981a49b141ce"}
