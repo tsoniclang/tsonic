@@ -2,6 +2,7 @@
   "limits": {
     "maximumWork": 100000
   },
+  "requiredEntries": [0],
   "source": {
     "body": "B[D[M[P[p];m];run];function;0]",
     "owner": "D[M[P[p];m];run]",

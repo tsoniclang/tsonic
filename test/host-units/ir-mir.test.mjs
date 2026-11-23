@@ -418,7 +418,8 @@ for (const level of ["function", "verifier"]) for (const name of readdirSync(res
         const value = JSON.parse(input.text);
         const declarations = new Map(value.declarations);
         const owners = new Map(value.bodyOwners);
-        const context = { limits: value.limits, source: value.source, bodyOf: () => null, types: value.types, declarationOf: definition => {
+        const context = { limits: value.limits, source: value.source, requiredEntries: value.requiredEntries,
+          bodyOf: () => null, types: value.types, declarationOf: definition => {
           assert.equal(declarations.has(definition), true, `fixture declared lookup ${definition}`);
           return declarations.get(definition);
         }, bodyOwner: body => {
@@ -2139,14 +2140,15 @@ for (const write of [false, true]) test(`MIR preserves the exact selected ${writ
       arguments: write ? [{ kind: "value", passing: "by-value", operand: { kind: "constant", constant: identities.constId(0) } }] : [],
       destination: write ? null : identities.placeId(1), next: identities.blockId(1), unwind: { kind: "escape" } } },
     { ...base.blocks[0], id: identities.blockId(1), terminator: { ...base.blocks[0].terminator, tir: { body: base.body, node: identities.nodeId(returnNode) } } }] };
-  same(verified(body, { ...context, source, types }), [], "selected activation is the explicit callee, not the member's primary definition");
+  const witness = { ...context, source, types, requiredEntries: [1] };
+  same(verified(body, witness), [], "selected activation is the explicit callee, not the member's primary definition");
   context.declarations.set(propertyDefinition, { scope: emptyScope, parameterCount: null, endpoints: [] });
   const field = { id: identities.placeId(2), storage: identities.tyId(1), origin: base.blocks[0].origin,
     base: { kind: "place", place: identities.placeId(0), projection: { kind: "field", member: selection }, tir: nodeRef } };
-  same(verified({ ...body, places: [...places, field] }, { ...context, source, types }), [],
+  same(verified({ ...body, places: [...places, field] }, witness), [],
     "the same selected getter or setter retains all actual endpoint and callee references in a field place");
   const wrongLocal = { ...body, locals: [{ ...locals[0], storage: identities.tyId(2) }, locals[1]] };
-  same(verified(wrongLocal, { ...context, source, types }), [
+  same(verified(wrongLocal, witness), [
     expectedViolation("projection-type", { kind: "local", local: 0 }),
     expectedViolation("projection-type", { kind: "place", place: 0 }),
   ], "one changed local storage disagrees with both its real source slot and its unchanged MIR root place");
@@ -2618,7 +2620,7 @@ test("MIR compound Boolean assignment retains its actual selected calculation", 
   const types = { ...context.types, signatures: [{ ...context.types.signatures[0], parameters: [
     { declaration: parameter, kind: "required", type: identities.tyId(1), passing: "by-value", initializer: null, acceptsOmission: false },
   ] }] };
-  const input = { ...context, source, types };
+  const input = { ...context, source, types, requiredEntries: [1] };
   same(verified(body, input), [], "the physical Boolean calculation matches its actual compound-assignment selection");
   const evidence = node => ({ type: identities.tyId(1), component: { kind: "body", value: { body: base.body, node: identities.nodeId(node) } },
     category: { kind: "known", category: "boolean" }, numeric: null, sum: null, nominal: null, pointer: null });

@@ -2729,9 +2729,10 @@ test("callee entries distinguish full and omitted fixed arguments and refuse inc
   const result = product.resumeEvaluate(bridge.deps, paused.paused, [{ kind: "mir-body", body: target }]);
   same(result.value.value, { kind: "value", value: { kind: "boolean", value: true, type: T.bool } }, "actual provided0 selects block1, not full block0 or ordinal0");
   for (const [body, pattern] of [
-    [{ ...target, entries: [] }, /full fixed-argument entry/u],
-    [{ ...target, entries: [{ provided: 2, block: 0 }] }, /every fixed argument/u],
+    [{ ...target, entries: [] }, /actually admissible provided entry/u],
+    [{ ...target, entries: [{ provided: 2, block: 0 }] }, /actually admissible provided entry/u],
     [{ ...target, entries: [{ provided: 1, block: 0 }] }, /actually admissible provided entry/u],
+    [{ ...target, locals: [] }, /every fixed argument/u],
     [{ ...target, locals: [{ ...parameter, role: { kind: "receiver" } }] }, /incoming storage association/u],
     [{ ...target, locals: [{ ...parameter, role: { kind: "capture", index: 0 }, source: { body: caller.entry.body, local: 9 } }] }, /incoming storage association/u],
   ]) assert.throws(() => product.resumeEvaluate(bridge.deps, begin().paused, [{ kind: "mir-body", body }]), pattern);
