@@ -475,10 +475,45 @@ test("layout capture retains the same selected application and authored operands
   const chapter = typed.value.modules.get(snapshot.entryPoint);
   const parametric = chapter.bodies.filter(candidate => candidate.bindings.kind === "parametric");
   const actualCall = parametric.find(candidate => candidate.root.id === layout.id).root;
+  assert.equal(actualCall.tsonic.layout, "value-layout");
   for (const operand of actualBodies) {
     const placed = parametric.find(candidate => candidate.body === operand.body);
     assert.equal(actualCall.arguments.nodes.find(argument => argument.id === placed.root.id) === placed.root, true);
   }
+  const { printTir, parseTir, verifyTir } = await import("../../packages/host/dist/ir-tir/index.js");
+  const { tirReadyReadAdmission } = await import("../../packages/host/dist/ir-program/index.js");
+  const selected = chapter.bodies.find(candidate => candidate.bindings.kind === "instantiated" && candidate.root.id === observation.id);
+  assert.equal(selected.root.tsonic.layout, "size");
+  const typedText = printTir(selected);
+  const parsed = parseTir(typedText);
+  assert.equal(parsed.kind, "parsed");
+  assert.equal(printTir(parsed.value), typedText);
+  const proof = typed.value.verifierOf(chapter.module);
+  const bound = verifyTir(proof, tirReadyReadAdmission(createAccount(input.limits.dataflow)));
+  const changed = { ...selected, root: { ...selected.root, tsonic: { ...selected.root.tsonic, layout: "alignment" } } };
+  const refused = bound(changed);
+  assert.equal(refused.kind, "complete");
+  assert.equal(refused.violations.some(row => row.rule === "layout-call-exact" && row.site.node === observation.id), true);
+  assert.equal(typed.value.required.operations.every(operation => operation.kind === "body"), true);
+  assert.equal(typed.value.required.operations.some(operation => operation.execution.instance.body === selected.body), true);
+  for (const candidate of chapter.bodies.filter(candidate => typed.value.layoutOnly(candidate)))
+    assert.equal(typed.value.required.operations.some(operation => operation.execution.instance.body === candidate.body), false);
+  const types = await import("../../packages/host/dist/ir-types/index.js");
+  const { lowerToMir } = await import("../../packages/host/dist/lower-mir/index.js");
+  const { verifyMir } = await import("../../packages/host/dist/ir-mir/index.js");
+  const interner = checked.value.types;
+  const defs = { completionSelector: types.internType(interner, { kind: "primitive", primitive: "int32" }),
+    exceptionStorage: types.internType(interner, { kind: "intrinsic", intrinsic: "unknown" }) };
+  const unit = { request: { query: "layout-observation", key: [] }, position: { kind: "result" } };
+  const lowered = lowerToMir({ defs, typeOf: type => types.readType(interner, type),
+    signatureOf: signature => types.readSignature(interner, signature), limits: input.limits.lowering, unit }, selected, [], [0]);
+  assert.equal(lowered.kind, "ok", JSON.stringify(lowered.diagnostics));
+  assert.deepEqual(lowered.value.constants.map(row => row.value), [{ kind: "observation", at: { body: selected.body, node: observation.id } }]);
+  assert.equal(lowered.value.blocks.some(row => row.terminator.kind === "call"), false);
+  const verified = verifyMir(lowered.value, { selectedNativeFacts: input.snapshot.nativeFacts, limits: input.limits.mirVerification,
+    source: selected, bodyOf: proof.bodyOf, types: types.viewTypes(interner), declarationOf: proof.declarationOf,
+    bodyOwner: body => checked.value.checked.bodies.get(body)?.owner ?? null, requiredEntries: [0] });
+  assert.deepEqual(verified.violations, []);
 });
 
 const plainSources = { "main.mts": "import { twice } from \"./util.mjs\";\nexport const xs: number[] = [twice(1)];\n",

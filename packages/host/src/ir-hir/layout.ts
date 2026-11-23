@@ -1,4 +1,17 @@
-import type { CheckedLayoutOperandOf } from "./contract.js";
+import type { CheckedLayoutOperandOf, CheckedLayoutRoleOf } from "./contract.js";
+
+export const checkedLayoutRoleOf: CheckedLayoutRoleOf = call => {
+  const observation = call.tsonic.observation;
+  if (observation.kind === "available" && observation.value !== null) return observation.value.operation;
+  const capture = call.tsonic.memory;
+  const descriptor = capture.kind === "available" ? capture.value : null;
+  switch (descriptor?.kind) {
+    case "value": return "value-layout";
+    case "array": return "array-layout";
+    case "field": return "field-layout";
+    default: return null;
+  }
+};
 
 export const checkedLayoutOperandOf: CheckedLayoutOperandOf = (call, position) => {
   const memory = call.tsonic.memory;

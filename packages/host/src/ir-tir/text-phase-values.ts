@@ -1,8 +1,8 @@
 import { lazyReader, literalReader, nullableReader, sequenceReader } from "./text-construction.js";
 import { unionRecord } from "./text-layouts.js";
-import type { TirRecordCodec } from "./text-layouts.js";
-import type { CapturedFact } from "../ir-hir/contract.js";
-import type { DeclarationNameExpression, TirEnumResolution, TypedCall, TypedCase, TypedValueOccurrence } from "./contract.js";
+import type { TirRecordCodec, TirRecordFields } from "./text-layouts.js";
+import type { CapturedFact, LayoutCallRole } from "../ir-hir/contract.js";
+import type { DeclarationNameExpression, TirEnumResolution, TypedCall, TypedCase, TypedLayoutApplication, TypedValueOccurrence } from "./contract.js";
 import type {
   BackedConversionIdentity, ConversionDecision, ConversionIdentity, MemberSelection, TargetAccess, TirApplication, TirDemand, TirProtocol, TirResolution, TirSelection, TypedApplication, TypedBigInt, TypedBinary, TypedConditional, TypedConstruction, TypedControlTransfer, TypedDecorator, TypedInstantiation, TypedIteration, TypedKeyword, TypedMember, TypedName, TypedNumber, TypedObjectSpread, TypedOmission, TypedOperation, TypedOperationOf, TypedPrefix, TypedProperty, TypedPropertyKey, TypedProtocolValue, TypedShorthand, TypedSpread, TypedString, TypedTemplate, TypedUnary, TypedUpdate, TypedValue
 } from "./contract.js";
@@ -535,22 +535,31 @@ export const createPhaseValuesText = (kernel: TirTextKernel, read: PhaseValuesTe
     .field("selection", "O<MemberSelection>", value => read.work_O_MemberSelection_.write(value.selection), lazyReader(() => read.work_O_MemberSelection_.reader))
     .field("access", "TargetAccess", value => read.work_TargetAccess.write(value.access), lazyReader(() => read.work_TargetAccess.reader))
     .finish((field_role, field_selection, field_access) => ({ role: field_role, selection: field_selection, access: field_access })));
-  const work_TypedApplication: TirRecordCodec<TypedApplication> = defineRecord<TypedApplication>("TypedApplication", "TypedApplication", null, "TypedApplication", null, null, fields => fields
+  const applicationFields = <Value extends TypedApplication | TypedLayoutApplication>(fields: TirRecordFields<Value, readonly []>) => fields
     .field("type", "t", value => referenceWork("t", value.type), typeReader)
     .field("convertedType", "t", value => referenceWork("t", value.convertedType), typeReader)
     .field("conversion", "ConversionDecision", value => read.work_ConversionDecision.write(value.conversion), lazyReader(() => read.work_ConversionDecision.reader))
     .field("narrowing", "?RefinementDecision", value => nullableWork(value.narrowing, actual => read.work_RefinementDecision.write(actual)), nullableReader(lazyReader(() => read.work_RefinementDecision.reader)))
     .field("evidenceIndex", "?number", value => nullableWork(value.evidenceIndex, actual => scalarWork("number", actual)), nullableReader(numberReader))
     .field("demand", "TirDemand", value => read.work_TirDemand.write(value.demand), lazyReader(() => read.work_TirDemand.reader))
-    .field("application", "O<TirApplication>", value => read.work_O_TirApplication_.write(value.application), lazyReader(() => read.work_O_TirApplication_.reader))
+    .field("application", "O<TirApplication>", value => read.work_O_TirApplication_.write(value.application), lazyReader(() => read.work_O_TirApplication_.reader));
+  const work_TypedApplication: TirRecordCodec<TypedApplication> = defineRecord<TypedApplication>("TypedApplication", "TypedApplication", null, "TypedApplication", null, null, fields => applicationFields(fields)
     .field("operation", "?O<TypedOperation>", value => nullableWork(value.operation, actual => read.work_O_TypedOperation_.write(actual)), nullableReader(lazyReader(() => read.work_O_TypedOperation_.reader)))
     .finish((field_type, field_convertedType, field_conversion, field_narrowing, field_evidenceIndex, field_demand, field_application, field_operation) => ({
       type: field_type, convertedType: field_convertedType, conversion: field_conversion, narrowing: field_narrowing,
       evidenceIndex: field_evidenceIndex, demand: field_demand, application: field_application, operation: field_operation,
     })));
+  const layoutApplication = defineRecord<TypedLayoutApplication>("TypedLayoutApplication", "TypedLayoutApplication", null,
+    "TypedLayoutApplication", null, null, fields => applicationFields(fields)
+      .field("layout", "LayoutCallRole", value => scalarWork("LayoutCallRole", value.layout),
+        literalReader<LayoutCallRole>("LayoutCallRole", ["value-layout", "array-layout", "field-layout", "size", "alignment", "stride", "field-offset"]))
+      .finish((type, convertedType, conversion, narrowing, evidenceIndex, demand, application, layout) => ({
+        type, convertedType, conversion, narrowing, evidenceIndex, demand, application, layout,
+      })));
   const work_TypedCall = unionRecord<TypedCall>("TypedCall",
-    value => "role" in value ? declarationNameExpression.write(value) : work_TypedApplication.write(value),
-    () => [work_TypedApplication.reader, declarationNameExpression.reader]);
+    value => "role" in value ? declarationNameExpression.write(value)
+      : "layout" in value ? layoutApplication.write(value) : work_TypedApplication.write(value),
+    () => [work_TypedApplication.reader, declarationNameExpression.reader, layoutApplication.reader]);
   const work_TypedProtocolValue: TirRecordCodec<TypedProtocolValue> = defineRecord<TypedProtocolValue>("TypedProtocolValue", "TypedProtocolValue", null, "TypedProtocolValue", null, null, fields => fields
     .field("type", "t", value => referenceWork("t", value.type), typeReader)
     .field("convertedType", "t", value => referenceWork("t", value.convertedType), typeReader)

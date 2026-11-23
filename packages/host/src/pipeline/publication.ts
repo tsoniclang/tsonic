@@ -127,7 +127,7 @@ function finalContext(inputs: HostAnalysisInputs, typed: TypedSourceBarrier, ana
       if (stop !== null) return stop;
       const originalBody = originalTir.module.bodies[index];
       if (originalBody === undefined) return fail("The actual typed body inventory is dense.");
-      if (typed.constantEntriesOf(originalBody) !== null) continue;
+      if (typed.constantEntriesOf(originalBody) !== null || originalBody.bindings.kind === "instantiated" && typed.layoutOnly(originalBody)) continue;
       const body = image.tirOf(originalBody);
       if (body === null) return fail("The actual typed body has no final identity-domain image.");
       const identity = chargeWork(account, body.body.length) ?? admitArtifactIdentity(body.bindings, account);
@@ -258,7 +258,7 @@ export function publishHostProgram(inputs: HostAnalysisInputs, typed: TypedSourc
   for (const module of typed.modules.values()) {
     const published: ModuleBodies["bodies"][number][] = [];
     for (const tir of module.bodies) {
-      if (typed.constantEntriesOf(tir) !== null) continue;
+      if (typed.constantEntriesOf(tir) !== null || tir.bindings.kind === "instantiated" && typed.layoutOnly(tir)) continue;
       const instance = { body: tir.body, bindings: tir.bindings };
       const common = { instance, module: module.module, owner: tir.owner, root: tir.root.id };
       if (tir.bindings.kind === "parametric") {

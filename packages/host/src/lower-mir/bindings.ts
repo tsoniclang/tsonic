@@ -3,6 +3,7 @@ import type { BodyId, LocalId, LocalRef, PlaceId, TyId } from "../ids/contract.j
 import type { Block, CaseBlock, NodeHeader, VariableDeclaration, VariableDeclarationList } from "../ir-hir/contract.js";
 import type { MirClosureCapture } from "../ir-mir/contract.js";
 import type { TirNode, TypedPhase } from "../ir-tir/contract.js";
+import { layoutBindingOf } from "../ir-tir/index.js";
 import type { InternalBodyInput } from "./contract.js";
 import type { LocalScope, Lowering, Work } from "./model.js";
 import { callerDefect, failure, localFromSource, notLoweredYet, siteOf } from "./model.js";
@@ -53,7 +54,10 @@ export function nextDeclaration(lowering: Lowering, pending: Extract<Work, { rea
   if (pending.position === list.declarations.nodes.length) return true;
   const declaration = requirePresent(list.declarations.nodes[pending.position], failure("a variable declaration list has a hole", list.origin));
   if (declaration.kind !== "VariableDeclaration") return callerDefect("a missing variable declaration", declaration.origin);
-  lowering.work.push({ ...pending, position: pending.position + 1 }, { kind: "declaration", node: declaration, lexical: pending.lexical });
+  lowering.work.push({ ...pending, position: pending.position + 1 });
+  if (layoutBindingOf(declaration.initializer) === null)
+    lowering.work.push({ kind: "declaration", node: declaration, lexical: pending.lexical });
+  else if (!list.flags.includes("Const")) return notLoweredYet("a mutable compile-time layout binding", declaration.origin);
   return true;
 }
 
@@ -89,7 +93,8 @@ export function prepareCaseLocals(lowering: Lowering, block: CaseBlock<TypedPhas
     if (!list.flags.includes("Let") && !list.flags.includes("Const")) continue;
     scope ??= { kind: "case", parent: lowering.scope, locals: [] };
     for (const declaration of list.declarations.nodes)
-      if (startLexicalLocal(lowering, scope, declaration, localBinding(lowering, declaration)) === null) return false;
+      if (layoutBindingOf(declaration.initializer) === null &&
+        startLexicalLocal(lowering, scope, declaration, localBinding(lowering, declaration)) === null) return false;
   }
   if (scope !== null) lowering.scope = scope;
   return true;
@@ -103,6 +108,7 @@ export function prepareFunctionLocals(lowering: Lowering): boolean {
       if (node.tsonic.role !== "ordinary" || node.flags.includes("Let") || node.flags.includes("Const")) continue;
       for (const declaration of node.declarations.nodes) {
         if (declaration.kind !== "VariableDeclaration") return callerDefect("a missing variable declaration", declaration.origin);
+        if (layoutBindingOf(declaration.initializer) !== null) continue;
         const source = localBinding(lowering, declaration);
         if (lowering.localOf.has(source.local)) continue;
         const local = newLocal(lowering.state, declaration.tsonic.storage, { kind: "user" }, "local", source, declaration.origin);

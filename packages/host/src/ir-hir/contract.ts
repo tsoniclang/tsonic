@@ -4104,6 +4104,10 @@ export interface HirObservationCapture {
 
 export type CheckedLayoutOperandOf = (call: CallExpression<CheckedPhase>, position: number) => SourceNodeRef | null;
 
+export type LayoutCallRole = "value-layout" | "array-layout" | "field-layout" | "size" | "alignment" | "stride" | "field-offset";
+
+export type CheckedLayoutRoleOf = (call: CallExpression<CheckedPhase>) => LayoutCallRole | null;
+
 export type HirUnaryOperator = "+" | "-" | "!" | "~" | "++" | "--" | "typeof" | "void" | "delete";
 export type HirBinaryOperator = "+" | "-" | "*" | "/" | "%" | "**" | "&" | "|" | "^"
   | "<<" | ">>" | ">>>" | "<" | "<=" | ">" | ">=" | "==" | "!=" | "===" | "!==" | "in" | "instanceof";

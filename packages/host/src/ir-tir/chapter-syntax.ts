@@ -1,11 +1,20 @@
 import { requirePresent } from "../diag/index.js";
 import type { InvariantFailure } from "../diag/contract.js";
 import type { NodeList, SyntaxChildSlot } from "../ir-hir/contract.js";
-import { iterateFunctionHeaderSlots, iterateSourceFileHeaderSlots, iterateSyntaxChildSlots } from "../ir-hir/index.js";
+import { iterateFunctionHeaderSlots, iterateSourceFileHeaderSlots, iterateSyntaxChildSlots, unparenthesizedExpression } from "../ir-hir/index.js";
+import type { LayoutBindingOf } from "./contract.js";
 import type { AdmitFormalInitializer, BodyOccurrenceSlots, ChapterStatementSyntax, ChapterSyntaxSlots, FormalInitializerSlot, FormalInitializerSyntax, IndexChapterSyntax, ReadChapterSyntaxSlot, TirBodySyntaxOf, TirChapterSyntax, TirChapterSyntaxSlot, TirFormalInitializer, TirFormalInitializerRead, TirModuleStatement, TypedPhase } from "./contract.js";
 
 const missingChild: InvariantFailure = { owner: "ir-tir", query: null, origin: null,
   message: "An authored chapter role must retain its actual dense child vector." };
+
+export const layoutBindingOf: LayoutBindingOf = initializer => {
+  if (initializer === null) return null;
+  const expression = unparenthesizedExpression<TypedPhase>(initializer);
+  if (expression.kind !== "CallExpression" || !("layout" in expression.tsonic)) return null;
+  const selected = expression.tsonic;
+  return selected.layout === "value-layout" || selected.layout === "array-layout" || selected.layout === "field-layout" ? selected : null;
+};
 
 function ordinarySlot(slot: SyntaxChildSlot<TypedPhase>): TirChapterSyntaxSlot {
   return { kind: "syntax", fields: slot.fields, read: () => {

@@ -11,7 +11,7 @@ import { instanceKey, readSignature, readType, signatureRequestKey, typePublicat
 import type { ProgramEvidenceInput, ProgramMemberEvidence, ProgramStaticStorageEvidence, ProgramVerificationWork, TirSpecializationPlacement } from "../ir-program/contract.js";
 import { createProgramVerificationWork, specializeTir, tirReadyReadAdmission } from "../ir-program/index.js";
 import type { StaticStorageOf, TirBindingOwnerVisit, TirBindingTarget, TirBody, TirModule, TirVerifierInput } from "../ir-tir/contract.js";
-import { verifyTir, verifyTirModule } from "../ir-tir/index.js";
+import { layoutBindingOf, verifyTir, verifyTirModule } from "../ir-tir/index.js";
 import type { HostAnalysisInputs } from "./contract.js";
 import type { ScopedInferencePublication, SourceSemanticInputs, SourceSemanticWitness } from "./semantic-queries.js";
 import type { Database } from "../query/contract.js";
@@ -65,6 +65,7 @@ export interface TypedSourceBarrier {
   };
   readonly placedSignatureOf: (instance: BodyInstance) => PlacedSignature | null;
   readonly constantEntriesOf: (body: TirBody) => readonly number[] | null;
+  readonly layoutOnly: (body: TirBody) => boolean;
   readonly signatureIdOf: (request: SignatureRequest) => PlacedSignature["signature"]["id"] | null;
   readonly programEvidence: (account: DataflowAccount) => DataflowResult<ProgramEvidenceInput>;
   readonly modules: ReadonlyMap<ModuleId, TirModule>;
@@ -489,8 +490,11 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
     constantEntries.set(selected.body, [selected.placed.signature.parameters.length]);
   }
   const constantEntriesOf = (body: TirBody): readonly number[] | null => constantEntries?.get(body) ?? null;
+  const layoutOnly = ({ body, root }: TirBody): boolean => source.layoutOperands?.has(body) === true ||
+    root.kind !== "SourceFile" && root.kind !== "Block" && layoutBindingOf(root) !== null;
   const required = prepareRequiredExecutions(source, sources, (function* () {
-    for (const row of bodies.values()) if (project.has(row.body.root.origin.module) && constantEntriesOf(row.body) === null) yield row.body;
+    for (const { body } of bodies.values())
+      if (project.has(body.root.origin.module) && constantEntriesOf(body) === null && !layoutOnly(body)) yield body;
     yield* explicit;
   })(), requireBody, readDeclared, account, unit);
   if (required.kind === "refused") return required;
@@ -674,7 +678,7 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
     }
     return { kind: "complete", value: { checked, members, signatures, storage } };
   };
-  return { kind: "ok", diagnostics, value: { source, modules, verifierOf, sourceNodeOf: sources.nodeOf, declarationOf, database, staticStorageOf, constantEntriesOf,
+  return { kind: "ok", diagnostics, value: { source, modules, verifierOf, sourceNodeOf: sources.nodeOf, declarationOf, database, staticStorageOf, constantEntriesOf, layoutOnly,
     bodies: { get: key => bodies.get(key)?.body, *values() { for (const entry of bodies.values()) yield entry.body; } },
     placedSignatureOf, signatureIdOf, programEvidence, required: required.value, exposure: exposure.value, initializationRoots: initialization.value } };
 }

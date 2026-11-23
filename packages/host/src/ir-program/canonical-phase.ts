@@ -5,7 +5,7 @@ import type {
   DeclarationNameExpression, TargetAccess, TirEnumResolution, TirProtocol, TirResolution, TypedAlias, TypedApplication, TypedBigInt, TypedBinary, TypedBinding,
   TypedBindingElement, TypedBodyTemplate, TypedCallable, TypedClass, TypedClassValue, TypedClosure, TypedConditional,
   TypedConstruction, TypedDecorator, TypedEnum, TypedExportAssignment, TypedHeritage, TypedIndexDeclaration, TypedInstantiation,
-  TypedInterface, TypedIteration, TypedKeyword, TypedMember, TypedName, TypedNamespace, TypedNumber, TypedObjectSpread,
+  TypedInterface, TypedIteration, TypedKeyword, TypedLayoutApplication, TypedMember, TypedName, TypedNamespace, TypedNumber, TypedObjectSpread,
   TypedOmission, TypedParameter, TypedPhase, TypedPredicate, TypedPrefix, TypedProperty, TypedPropertyKey, TypedProtocolValue,
   TypedSourceFile, TypedStaticBlock, TypedStorageDeclaration, TypedString, TypedType, TypedTypeParameter, TypedUnary, TypedUpdate,
   TypedValue, TypedValueOccurrence, TypedVariableList, TypedOperation,
@@ -218,12 +218,22 @@ function prepareTypedMember(scan: ProjectionInventory, value: TypedMember, at: s
 }
 
 function prepareTypedApplication(scan: ProjectionInventory, value: TypedApplication, at: string,
-  replay: CandidateReplayPlan | null): PreparedPhase<TypedApplication> {
+  replay: CandidateReplayPlan | null): PreparedPhase<TypedApplication>;
+function prepareTypedApplication(scan: ProjectionInventory, value: TypedApplication | TypedLayoutApplication, at: string,
+  replay: CandidateReplayPlan | null): PreparedPhase<TypedApplication | TypedLayoutApplication>;
+function prepareTypedApplication(scan: ProjectionInventory, value: TypedApplication | TypedLayoutApplication, at: string,
+  replay: CandidateReplayPlan | null): PreparedPhase<TypedApplication | TypedLayoutApplication> {
   return paidPhase(scan, 8, () => withPlan(prepareValue(scan, value, at), common =>
     withPlan(replay === null ? prepareOutcome(scan, () => value.application, application => prepareTirApplication(scan, application, "transport"), at + ".application")
-      : prepareReplayedApplication(scan, () => value.application, at + ".application", replay), application =>
-      withPlan(withOptionalPlan(value.operation, operation => operationOutcome(scan, operation, at + ".operation")), operation =>
-        ({ kind: "copied", value: image => ({ ...common(image), application: application(image), operation: operation(image) }) })))));
+      : prepareReplayedApplication(scan, () => value.application, at + ".application", replay), (application): PreparedPhase<TypedApplication | TypedLayoutApplication> =>
+      {
+        if ("layout" in value) {
+          const { layout } = value;
+          return { kind: "copied", value: image => ({ ...common(image), application: application(image), layout }) };
+        }
+        return withPlan(withOptionalPlan(value.operation, operation => operationOutcome(scan, operation, at + ".operation")), operation =>
+          ({ kind: "copied", value: image => ({ ...common(image), application: application(image), operation: operation(image) }) }));
+      })));
 }
 
 function prepareProtocolValue(scan: ProjectionInventory, value: TypedProtocolValue, at: string): PreparedPhase<TypedProtocolValue> {

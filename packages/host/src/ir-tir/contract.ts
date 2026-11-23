@@ -3,6 +3,7 @@ import type { Diagnostic, TextParseResult, Violation } from "../diag/contract.js
 import type { ArtifactBindings, BindingScope, BindingVector, BodyInstance, ExactRational, MemberInventory, MemberKey, NominalDefinition, PassingMode, TypeComponent, TypeEvidence, TypeParameter, TypeTable } from "../ir-types/contract.js";
 import type { Block, CapturedFact, CheckedPhase, CheckedUnopenedDeclaration, DeclarationTarget, Expression, FunctionDeclaration, FunctionDeclarationHeader, HirAttribute, HirBindingViews, HirCallableEndpoint, HirLexicalScope, HirModule, HirNode, ImportTarget, IntrinsicValueResolution, NodeList, NonFunctionStatement, ParameterDeclaration, Phase, SourceFile, SourceFileHeader, SyntaxNode } from "../ir-hir/contract.js";
 import type { ApplicationDecision, BodyCaptureRow, ClosureDecision, ConstructionPartDecision, DeferredDecision, EmbeddingDecision, FlowRole, InferenceDeclaration, MemberDecision, OperationDecision, OperationIdentity, RefinementDecision, RuleOutcome } from "../ir-infer/contract.js";
+import type { LayoutCallRole } from "../ir-hir/contract.js";
 
 export interface TypedOperation {
   readonly decision: OperationDecision;
@@ -200,12 +201,21 @@ export type TypedMember =
   | (TypedValue & { readonly role: "enum-member"; readonly resolution: TirEnumResolution })
   | { readonly role: "assignment-target"; readonly selection: RuleOutcome<MemberSelection>; readonly access: TargetAccess };
 
-export interface TypedApplication extends TypedValue {
+interface SelectedApplication extends TypedValue {
   readonly application: RuleOutcome<TirApplication>;
+}
+
+export interface TypedApplication extends SelectedApplication {
   readonly operation: RuleOutcome<TypedOperation> | null;
 }
 
-export type TypedCall = TypedApplication | DeclarationNameExpression;
+export interface TypedLayoutApplication extends SelectedApplication {
+  readonly layout: LayoutCallRole;
+}
+
+export type TypedCall = TypedApplication | TypedLayoutApplication | DeclarationNameExpression;
+
+export type LayoutBindingOf = (initializer: Expression<TypedPhase> | null) => TypedLayoutApplication | null;
 
 export interface TypedProtocolValue extends TypedValue {
   readonly protocol: RuleOutcome<TirProtocol>;
@@ -753,7 +763,7 @@ export type TirRule = "binding-element-role-exact" | "binding-capture-owner" | "
   | "occurrence-role" | "binary-role-operator" | "name-role-position" | "typed-value-occurrence" | "intrinsic-value-use" | "static-reference-exact" | "enum-reference-exact"
   | "argument-total" | "argument-parameter-order" | "argument-passing" | "omission-valid"
   | "authored-order-preserved" | "empty-spread-preserved" | "call-endpoints" | "completion-endpoint"
-  | "binding-vector-complete" | "member-origin" | "accessor-activation" | "access-location" | "closure-capture-total" | "closure-capture-binding" | "operation-type"
+  | "binding-vector-complete" | "member-origin" | "accessor-activation" | "access-location" | "closure-capture-total" | "closure-capture-binding" | "operation-type" | "layout-call-exact"
   | "conversion-source" | "conversion-destination" | "conversion-deferred" | "conversion-operation" | "conversion-carried" | "refinement-destination"
   | "controlled-demand" | "protocol-total" | "protocol-thrown-unknown"
   | "permission-scope" | "deferred-parameters" | "error-diagnostic" | "evidence-reference" | "evidence-order"

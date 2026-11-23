@@ -335,6 +335,16 @@ function enumOperand(lowering: Lowering, node: NodeHeader, payload: TypedValue, 
   return true;
 }
 
+function layoutOperand(lowering: Lowering, node: NodeHeader, payload: TypedValue): boolean {
+  value(lowering, payload, node);
+  const storage = rawType(payload);
+  const site = siteOf(lowering.body, node);
+  const operand = constantOperand(lowering.state, storage, { kind: "observation", at: site.tir });
+  if (operand === null) return false;
+  pushOperand(lowering, { kind: "plain", operand, pendingRead: false, storage, site });
+  return true;
+}
+
 function literal(lowering: Lowering, node: NodeHeader, payload: TypedValue, selected: LiteralValue): boolean {
   value(lowering, payload, node);
   if (lowering.work.at(-1)?.kind === "discard") {
@@ -502,6 +512,14 @@ function expression(lowering: Lowering, node: Expression<TypedPhase>): boolean {
     case "CallExpression": case "NewExpression": {
       const selected = node.tsonic;
       if (!("application" in selected)) return callerDefect("a nonexecuting declaration name in an executable call", node.origin);
+      if ("layout" in selected) {
+        switch (selected.layout) {
+          case "value-layout": case "array-layout": case "field-layout":
+            return notLoweredYet("a layout descriptor used as a runtime value", node.origin);
+          case "size": case "alignment": case "stride": case "field-offset":
+            return layoutOperand(lowering, node, selected);
+        }
+      }
       value(lowering, selected, node);
       return enterCall(lowering, node, selected);
     }

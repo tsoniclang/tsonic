@@ -5,7 +5,7 @@ import { textConversionDecision, textTirDemand, textTirResolution, textTargetAcc
 import { textRefinementDecision, textRuleOutcome, textConstructionPartDecision, textApplicationDecision, textClosureDecision } from "./text-inference.js";
 import { textMemberKey, textExactRational, textBindingVector } from "./text-types.js";
 import { textCapturedFact, textDeclarationTarget, textImportTarget } from "./text-core.js";
-import type { DeclarationNameExpression, TypedCase, TypedValueOccurrence } from "../ir-tir/contract.js";
+import type { DeclarationNameExpression, TypedCase, TypedLayoutApplication, TypedValueOccurrence } from "../ir-tir/contract.js";
 import { textTypedClass, textTypedCallable } from "./text-phase-declarations.js";
 
 export function textNameExpression(value: DeclarationNameExpression): TextWork {
@@ -510,9 +510,9 @@ export function textTypedMember(value: TypedMember): TextWork {
   });
 }
 
-export function textTypedApplication(value: TypedApplication): TextWork {
+export function textTypedApplication(value: TypedApplication | TypedLayoutApplication): TextWork {
   return deferred(value, () => {
-    return record("TypedApplication", [
+    return record("layout" in value ? "TypedLayoutApplication" : "TypedApplication", [
       field("type", numericIdentity("t", value.type)),
       field("convertedType", numericIdentity("t", value.convertedType)),
       field("conversion", textConversionDecision(value.conversion)),
@@ -520,7 +520,8 @@ export function textTypedApplication(value: TypedApplication): TextWork {
       field("evidenceIndex", (value.evidenceIndex === null ? token("null") : numeric(value.evidenceIndex))),
       field("demand", textTirDemand(value.demand)),
       field("application", textRuleOutcome(value.application, entry0 => textTirApplication(entry0))),
-      field("operation", (value.operation === null ? token("null") : textRuleOutcome(value.operation, entry0 => textTypedOperation(entry0)))),
+      "layout" in value ? field("layout", text(value.layout))
+        : field("operation", value.operation === null ? token("null") : textRuleOutcome(value.operation, textTypedOperation)),
     ]);
   });
 }

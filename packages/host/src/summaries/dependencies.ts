@@ -6,7 +6,7 @@ import type { ExecutionDependency, SummaryKey } from "../ir-facts/contract.js";
 import { admitSummaryIdentity, summaryKey } from "../ir-facts/index.js";
 import type { RuleOutcome } from "../ir-infer/contract.js";
 import type { ResolvedCallee, TirApplication, TirChapterSyntaxSlot, TirNode, TirProtocol, TirTypedSyntax, TypedOperation } from "../ir-tir/contract.js";
-import { chapterSyntaxSlots, readChapterSyntaxSlot, tirBodySyntaxOf } from "../ir-tir/index.js";
+import { chapterSyntaxSlots, layoutBindingOf, readChapterSyntaxSlot, tirBodySyntaxOf } from "../ir-tir/index.js";
 import { sameInstance } from "../ir-types/index.js";
 import type { DependenciesOf } from "./contract.js";
 
@@ -178,7 +178,7 @@ export const dependenciesOf: DependenciesOf = (deps, input) => {
         return value.role === "assignment-target" && member.setter !== null ? callee(at, member.setter, "setter") : null;
       }
       case "VariableDeclaration":
-        return node.tsonic.initializer === null ? null : initializer(at, node.tsonic.initializer);
+        return node.tsonic.initializer === null || layoutBindingOf(node.initializer) !== null ? null : initializer(at, node.tsonic.initializer);
       case "PropertyDeclaration":
         return node.tsonic.initializer === null ? null : initializer(at, node.tsonic.initializer);
       case "YieldExpression": case "AwaitExpression": case "SpreadElement":
@@ -241,7 +241,7 @@ export const dependenciesOf: DependenciesOf = (deps, input) => {
       if (admission !== null) return admission;
       selectedTarget = false;
       const node: TirNode | null = subject.kind === "ordinary" ? subject.node : null;
-      if (node?.kind === "EnumDeclaration") {
+      if (node?.kind === "EnumDeclaration" || node?.kind === "CallExpression" && "layout" in node.tsonic) {
         subject = null;
         continue;
       }

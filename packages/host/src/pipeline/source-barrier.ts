@@ -37,6 +37,7 @@ export interface SourceBarrier extends HirBindingViews {
   readonly descriptions: ReadonlyMap<DefId, DefinitionDescription>;
   readonly enums: readonly EnumSource[];
   readonly enumInitializers: ReadonlySet<BodyId>;
+  readonly layoutOperands: ReadonlySet<BodyId> | null;
   readonly definitionPaths: ReadonlyMap<DefId, DefinitionPath>;
   readonly nominalOf: (definition: DefId) => NominalDefinition | null;
   readonly libraries: Libraries;
@@ -175,7 +176,15 @@ export function captureSourceBarrier(inputs: HostAnalysisInputs): Result<SourceB
   const descriptions = new Map<DefId, DefinitionDescription>();
   const enums: EnumSource[] = [];
   const enumInitializers = new Set<BodyId>();
+  let layoutOperands: Set<BodyId> | null = null;
   for (const module of modules) {
+    const captured = raw.get(module.module.module);
+    if (captured !== undefined && captured.types.memoryDescriptors.length !== 0) {
+      for (const checked of module.module.bodies) {
+        const path = decodeBodyId(checked.body);
+        if (path.kind === "decoded" && path.value.role === "layout-operand") (layoutOperands ??= new Set()).add(checked.body);
+      }
+    }
     const names = Array.from(exportNames.get(module.module.module) ?? [], ([definition, exports]) => ({ definition, exports }));
     const declarationScopes = scopes.get(module.module.module) ?? fail("Every verified module needs its actual checked declaration scopes.");
     const described = pipelineWiring.decls.describeDefinitions(module, declarationScopes, names);
@@ -235,6 +244,6 @@ export function captureSourceBarrier(inputs: HostAnalysisInputs): Result<SourceB
     nativeGuarantees.set(guarantee.declaration, guarantee);
   }
   return { kind: "ok", diagnostics: opened.diagnostics,
-    value: { checked: sources, modules, types, typeWork, descriptions, enums, enumInitializers, definitionPaths: paths, nominalOf, libraries: admitted.value,
+    value: { checked: sources, modules, types, typeWork, descriptions, enums, enumInitializers, layoutOperands, definitionPaths: paths, nominalOf, libraries: admitted.value,
       nativeGuaranteeOf: declaration => nativeGuarantees?.get(declaration) ?? null, bindingOf: views.bindingOf } };
 }

@@ -85,7 +85,7 @@ export function analyzeTypedSource(inputs: HostAnalysisInputs, typed: TypedSourc
       if (declarationGrowth !== null) return analysisStop(declarationGrowth, unit);
       bindingDependence.set(body.owner, dependent);
     } else if (!previous && dependent) bindingDependence.set(body.owner, true);
-    if (body.bindings.kind !== "instantiated") continue;
+    if (body.bindings.kind !== "instantiated" || typed.layoutOnly(body)) continue;
     const instance: BodyInstance = { body: body.body, bindings: body.bindings };
     const identity = instanceKey(instance);
     const safe = typed.database.run(safety, instance);

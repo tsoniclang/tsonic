@@ -1,6 +1,6 @@
 import type { DefId, LocalRef, NodeId, SourceNodeRef, TyId } from "../ids/contract.js";
 import type { HirNode, SwitchStatement } from "../ir-hir/contract.js";
-import { compoundAssignmentOperatorOf, prefixOperatorOf, shortCircuitOperatorOf, unparenthesizedExpression } from "../ir-hir/index.js";
+import { checkedLayoutRoleOf, compoundAssignmentOperatorOf, prefixOperatorOf, shortCircuitOperatorOf, unparenthesizedExpression } from "../ir-hir/index.js";
 import type { Origin } from "../ids/contract.js";
 import type { ApplicationDecision, DeferredDecision, MemberDecision, OperationDecision, RuleOutcome } from "../ir-infer/contract.js";
 import type { BindingScope, BodyInstance, TypeEvidence, TypeTable } from "../ir-types/contract.js";
@@ -380,6 +380,14 @@ const assignmentTokens: readonly string[] = (["EqualsToken", "PlusEqualsToken", 
   "AmpersandAmpersandEqualsToken", "BarBarEqualsToken", "QuestionQuestionEqualsToken"]);
 
 export const verifyOccurrenceRole = (node: TirNode, original: HirNode | undefined, emit: TirOccurrenceEmit): void => {
+  if (node.kind === "CallExpression") {
+    const expected = original?.kind === "CallExpression" ? checkedLayoutRoleOf(original) : null;
+    const phase = node.tsonic;
+    const layout = "layout" in phase ? phase.layout : null;
+    if (layout !== expected || "layout" in phase && phase.application.kind === "decided"
+      && phase.application.decision.callee.activation !== null)
+      emit("layout-call-exact", node, "layout role must retain its original checked static application without runtime activation");
+  }
   if (node.tsonic !== null && "role" in node.tsonic && node.tsonic.role === "declaration-name-expression") return;
   const source = original?.tsonic;
   const target = node.tsonic;

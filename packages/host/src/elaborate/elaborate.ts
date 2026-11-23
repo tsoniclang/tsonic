@@ -3,7 +3,7 @@ import { requirePresent, throwInvariant } from "../diag/index.js";
 import type { BodyId, ItemNodeRef, LocalId, NodeId, NodeRef, Origin, SourceNodeRef, TyId } from "../ids/contract.js";
 import { decodeBodyId } from "../ids/index.js";
 import type { BinaryExpression, Block, CheckedPhase, Expression, HirBody, HirNode, Identifier, NodeHeader, ParameterDeclaration, Statement, TypeArgumentList, TypeNode, VariableDeclaration, VariableDeclarationList } from "../ir-hir/contract.js";
-import { checkedLayoutOperandOf, checkedMemberStorageOf, checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, walkSyntaxTree, writableRootStorageOf } from "../ir-hir/index.js";
+import { checkedLayoutOperandOf, checkedLayoutRoleOf, checkedMemberStorageOf, checkedVariableStorageOf, compoundAssignmentOperatorOf, prefixOperatorOf, readWriteRootStorageOf, resolveModuleBinding, shortCircuitOperatorOf, unparenthesizedExpression, walkSyntaxTree, writableRootStorageOf } from "../ir-hir/index.js";
 import type { ApplicationDecision, BodyTyping, EmbeddingDecision, FlowRole, InferredSignaturePart, MemberDecision, RuleOutcome } from "../ir-infer/contract.js";
 import type { MemberSelection, TargetAccess, TirApplication, TirArgument, TirBody, TirLocal, TirResolution, TirSelection, TypedBinary, TypedMember, TypedOperation, TypedPhase, TypedValue } from "../ir-tir/contract.js";
 import type { TirEnumResolution } from "../ir-tir/contract.js";
@@ -1071,6 +1071,7 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
           const selected: RuleOutcome<TirApplication> = application.kind === "deferred" ? application
             : { kind: "decided", decision: elaborateSelectedCall(deps, application.decision, instance.bindings,
               { provided: node.arguments.nodes.length, argumentAt: at => node.arguments.nodes[at]?.id }, node.origin) };
+          const layout = checkedLayoutRoleOf(node);
           read.applications.add(position);
           let typeArguments: TypeArgumentList<TypedPhase> | null = null;
           if (node.typeArguments !== null) {
@@ -1093,7 +1094,8 @@ function elaborateReady<State>(deps: ElaborateDeps<State>, input: ElaborateInput
                 return callerDefect("a checked layout operand must borrow its own ready expression body", argument.origin);
               return operand;
             }) }, typeArguments, questionDotToken: null,
-            tsonic: { ...valueOf(position, result, node.origin), operation: null, application: selected } };
+            tsonic: layout === null ? { ...valueOf(position, result, node.origin), operation: null, application: selected }
+              : { ...valueOf(position, result, node.origin), layout, application: selected } };
         } else {
           if (node.tsonic.memory.kind !== "available" || node.tsonic.memory.value === null)
             visitList(node.arguments.nodes, node.origin);
