@@ -377,6 +377,35 @@ test("construction retains arbitrary actual Inputs rather than encoding, copying
   }
 });
 
+test("completed borrowing preserves the actual memo value without scheduling a cold or crossed request", () => {
+  const database = product.createDatabase(null, unbounded, noCycle, "recorded");
+  const outright = diagnostic(1, "a.ts", "original producer refusal");
+  const value = { retained: true };
+  let starts = 0;
+  const query = { name: "ready", keyData: key => [key.site, key.binding], answerPolicy: { kind: "refusal-only" }, compute: (_context, key) => {
+    starts += 1;
+    if (key.site === "refused") return { kind: "refused", diagnostics: [outright] };
+    assert.throws(() => database.readCompleted({ ...query, keyData: () => assert.fail("an active read must not encode") }, key),
+      /cannot bypass an active query dependency/);
+    return { kind: "ok", value, positions: [{ position: { kind: "result" }, error: null }], emissions: [], diagnostics: [] };
+  } };
+  const key = { site: "function", binding: "bool" };
+  const other = { ...key, binding: "string" };
+  assert.equal(database.readCompleted(query, key), null);
+  assert.deepEqual(database.stats(), []);
+  assert.equal(database.run(query, key).value, value);
+  const refused = database.run(query, { ...key, site: "refused" });
+  const trace = database.trace();
+  const stats = database.stats();
+  assert.equal(database.readCompleted(query, { ...key }).value, value);
+  assert.equal(database.readCompleted(query, other), null);
+  assert.equal(database.readCompleted(query, { ...key, site: "refused" }).diagnostics[0], refused.diagnostics[0]);
+  assert.throws(() => database.readCompleted({ ...query }, key), /already bound to another definition/);
+  assert.equal(starts, 2);
+  assert.deepEqual(database.stats(), stats);
+  assert.deepEqual(database.trace(), trace);
+});
+
 test("one actual query definition receives each database's own Inputs and independent memo", () => {
   let received;
   const query = { name: "input", keyData: key => key, answerPolicy: { kind: "refusal-only" }, compute: (database, key) => {
@@ -852,7 +881,7 @@ test("the root database exposes no synchronous get and a captured reentrant run 
     calls += 1; return { kind: "ok", emissions: [], positions: [{ position: { kind: "result" }, error: null }], value: 7, diagnostics: [] };
   } };
   const database = product.createDatabase(null, unbounded, noCycle, "recorded");
-  assert.deepEqual(Object.keys(database), ["inputs", "run", "errorOf", "isRecordLimitRefusal", "diagnostics", "stats", "trace"]);
+  assert.deepEqual(Object.keys(database), ["inputs", "run", "readCompleted", "errorOf", "isRecordLimitRefusal", "diagnostics", "stats", "trace"]);
   assert.equal(database.get, undefined);
   assert.equal(calls, 0);
   assert.deepEqual(database.stats(), []);

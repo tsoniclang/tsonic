@@ -18,8 +18,14 @@ export function enterCall(lowering: Lowering, node: CallExpression<TypedPhase> |
   if (application.receiver !== null) return notLoweredYet("a call with a receiver", node.origin);
   const callee = node.expression;
   const direct = callee.kind === "Identifier" && callee.tsonic.role === "value" && callee.tsonic.resolution.kind === "definition";
-  if (direct && node.kind === "CallExpression" && callee.tsonic.resolution.definition !== application.callee.decision.advertised.declaration)
-    return callerDefect("a direct call target differs from its selected declaration", node.origin);
+  if (direct && node.kind === "CallExpression" && callee.tsonic.resolution.definition !== application.callee.decision.advertised.declaration) {
+    const { advertised, api } = application.callee.decision;
+    const carrier = lowering.typeOf(callee.tsonic.type);
+    if (application.callee.activation !== null || api.body !== null || api.role !== "api-signature"
+      || carrier.kind !== "callable" || !carrier.calls.includes(advertised.signature)
+      || lowering.signatureOf(advertised.signature).declaration !== api.declaration)
+      return callerDefect("a direct call target differs from its selected declaration", node.origin);
+  }
   lowering.work.push({ kind: "call", node, application, direct });
   const arguments_ = node.arguments?.nodes;
   for (let position = (arguments_?.length ?? 0) - 1; position >= 0; position -= 1) {

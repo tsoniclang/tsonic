@@ -2,11 +2,12 @@ import type { DataflowAccount, DataflowStop } from "../dataflow/contract.js";
 import { chargeResultEntries, chargeWork } from "../dataflow/index.js";
 import type { Result, UnitRequest } from "../diag/contract.js";
 import { throwInvariant } from "../diag/index.js";
-import type { BodyId, DefId, ModuleId, NodeRef } from "../ids/contract.js";
+import type { BodyId, DefId, ModuleId, NodeRef, SourceNodeRef } from "../ids/contract.js";
 import type { ExecutionDependency, SummaryKey } from "../ir-facts/contract.js";
+import type { ParameterMapping } from "../ir-infer/contract.js";
 import { admitArtifactIdentity, admitSummaryIdentity, summaryKey } from "../ir-facts/index.js";
 import type { TirBody } from "../ir-tir/contract.js";
-import type { BodyInstance, Execution } from "../ir-types/contract.js";
+import type { BindingScope, BodyInstance, DeclaredExecution, Execution, Signature, SignatureRequest } from "../ir-types/contract.js";
 import { artifactBindingsKey, instanceKey, readSignature } from "../ir-types/index.js";
 import type { SourceBarrier } from "./source-barrier.js";
 import type { CheckedSourceViews } from "./checked-inputs.js";
@@ -19,6 +20,14 @@ function fail(message: string): never {
 
 type BodyOperation = Extract<SummaryKey, { readonly kind: "body" }>;
 
+export interface ReadyDeclaredExecution {
+  readonly execution: DeclaredExecution;
+  readonly signature: Signature;
+  readonly source: SourceNodeRef;
+  readonly scope: BindingScope;
+  readonly parameters: readonly ParameterMapping[];
+}
+
 export interface RequiredExecutions {
   readonly operations: readonly SummaryKey[];
   readonly operationIdentities: readonly string[];
@@ -26,10 +35,12 @@ export interface RequiredExecutions {
   readonly dependencies: readonly ExecutionDependency[];
   readonly moduleExecutions: ReadonlyMap<ModuleId, Execution>;
   readonly provided: ReadonlyMap<string, readonly number[]>;
+  readonly declared: ReadonlyMap<string, ReadyDeclaredExecution> | null;
 }
 
 export function prepareRequiredExecutions(source: SourceBarrier, sources: CheckedSourceViews, roots: Iterable<TirBody>,
-  requireBody: (instance: BodyInstance) => Result<TirBody>, account: DataflowAccount, unit: UnitRequest): Result<RequiredExecutions> {
+  requireBody: (instance: BodyInstance) => Result<TirBody>, readDeclared: (request: SignatureRequest) => Signature | null,
+  account: DataflowAccount, unit: UnitRequest): Result<RequiredExecutions> {
   const setup = chargeResultEntries(account, 7);
   if (setup !== null) return analysisStop(setup, unit);
   const operations: SummaryKey[] = [];
@@ -39,6 +50,8 @@ export function prepareRequiredExecutions(source: SourceBarrier, sources: Checke
   const dependencies: ExecutionDependency[] = [];
   const moduleExecutions = new Map<ModuleId, Execution>();
   const counts = new Map<string, { readonly values: Set<number>; minimum: number; maximum: number }>();
+  let declared: Map<string, ReadyDeclaredExecution> | null = null;
+  const declaredOf = (identity: string): ReadyDeclaredExecution | undefined => declared?.get(identity);
 
   const add = (key: SummaryKey): DataflowStop | null => {
     const work = chargeWork(account, 1);
@@ -125,8 +138,13 @@ export function prepareRequiredExecutions(source: SourceBarrier, sources: Checke
   };
   for (let index = 0; index < operations.length; index += 1) {
     const operation = operations[index];
-    if (operation === undefined || operation.kind !== "body")
-      return fail("A declared required operation needs its actual selected native guarantee association and binder.");
+    if (operation === undefined) return fail("The required execution inventory must be dense.");
+    if (operation.kind === "declared") {
+      const identity = operationIdentities[index];
+      if (identity === undefined || declaredOf(identity) === undefined)
+        return fail("A declared required operation needs its actual completed signature and scope.");
+      continue;
+    }
     const required = requireBody(operation.execution.instance);
     if (required.kind === "refused") return required;
     const body = required.value;
@@ -189,9 +207,9 @@ export function prepareRequiredExecutions(source: SourceBarrier, sources: Checke
       if (original?.kind !== "CallExpression" || original.tsonic.application.kind !== "available") return null;
       const captured = original.tsonic.application.value;
       const decision = callee.decision;
+      const activation = callee.activation;
       if (captured.kind !== "call" || captured.receiver !== null || captured.arguments.length > decision.parameters.length
-        || decision.api.body === null || callee.activation === null
-        || callee.activation.body !== decision.api.body) return null;
+        || (activation === null ? decision.api.body !== null : activation.body !== decision.api.body)) return null;
       const signatureRead = chargeWork(account, 1);
       if (signatureRead !== null) return null;
       const checked = sources.bodies.get(body.body);
@@ -199,9 +217,9 @@ export function prepareRequiredExecutions(source: SourceBarrier, sources: Checke
       const candidate = list?.candidates[decision.candidate];
       if (captured.candidates.kind !== "available" || list?.id !== captured.candidates.value
         || candidate?.ordinal !== decision.candidate || candidate.declaration !== decision.advertised.declaration
-        || callee.activation.bindings.kind !== "instantiated" || callee.activation.bindings.bindings !== decision.implementationBindings) return null;
+        || activation !== null && (activation.bindings.kind !== "instantiated" || activation.bindings.bindings !== decision.implementationBindings)) return null;
       const signature = readSignature(source.types, decision.completion.signature);
-      if (sources.bodies.get(callee.activation.body)?.owner !== decision.api.declaration || signature.declaration !== decision.api.declaration
+      if (activation !== null && sources.bodies.get(activation.body)?.owner !== decision.api.declaration || signature.declaration !== decision.api.declaration
         || signature.parameters.length !== decision.parameters.length || signature.receiver !== null)
         return fail("A selected call retains its actual API body, authoritative signature and offered entry.");
       let provided = 0;
@@ -228,7 +246,47 @@ export function prepareRequiredExecutions(source: SourceBarrier, sources: Checke
         provided += 1;
       }
       if (provided !== captured.arguments.length) return null;
-      const execution: Execution = { instance: callee.activation, provided };
+      if (activation === null) {
+        if (decision.api.role !== "api-signature" || candidate.declaration !== decision.api.declaration) return null;
+        const witnessRead = chargeWork(account, 1);
+        if (witnessRead !== null) return null;
+        const site = sources.declarationSourceOf(decision.api.declaration);
+        const item = site === null ? null : sources.nodeOf(site);
+        const endpoint = item?.tsonic;
+        const scope = source.descriptions.get(decision.api.declaration)?.generics;
+        if (site === null || endpoint === undefined || endpoint === null || !("signatures" in endpoint)
+          || endpoint.definition !== decision.api.declaration || scope === undefined) return null;
+        let ordinal = 0;
+        for (let position = 0; position < endpoint.signatures.length; position += 1) {
+          const read = chargeWork(account, 1);
+          if (read !== null) return null;
+          const selected = endpoint.signatures[position];
+          if (selected === undefined) return fail("A declared endpoint inventory must be dense.");
+          if (selected.role !== decision.api.role) continue;
+          if (selected.declaration === decision.api.declaration && selected.body === null && selected.signature === decision.api.signature) {
+            const request: SignatureRequest = { definition: selected.declaration, endpoint: selected.role, ordinal,
+              bindings: { kind: "instantiated", bindings: decision.bindings } };
+            const execution: DeclaredExecution = { request, provided };
+            const key: SummaryKey = { kind: "declared", execution };
+            const stop = admitSummaryIdentity(key, account);
+            if (stop !== null) return null;
+            const actual = readDeclared(request);
+            if (actual !== signature) return fail("A declared execution must borrow its actual completed Decls signature.");
+            const identity = summaryKey(key);
+            const previous = declaredOf(identity);
+            if (previous !== undefined) return { kind: "declared", execution: previous.execution };
+            const retain = chargeResultEntries(account, declared === null ? 7 : 6);
+            if (retain !== null) return null;
+            declared ??= new Map();
+            const ready: DeclaredExecution = { request: { ...request, bindings: { kind: "instantiated", bindings: decision.bindings } }, provided };
+            declared.set(identity, { execution: ready, signature: actual, source: site, scope, parameters: decision.parameters });
+            return { kind: "declared", execution: ready };
+          }
+          ordinal += 1;
+        }
+        return null;
+      }
+      const execution: Execution = { instance: activation, provided };
       const stop = admitSummaryIdentity({ kind: "body", execution }, account);
       if (stop !== null) return null;
       return { kind: "body", execution };
@@ -263,5 +321,5 @@ export function prepareRequiredExecutions(source: SourceBarrier, sources: Checke
     }
     provided.set(key, ordered);
   }
-  return { kind: "ok", diagnostics: [], value: { operations, operationIdentities, operationsByBody, dependencies, moduleExecutions, provided } };
+  return { kind: "ok", diagnostics: [], value: { operations, operationIdentities, operationsByBody, dependencies, moduleExecutions, provided, declared } };
 }

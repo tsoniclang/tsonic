@@ -137,15 +137,15 @@ export const dependenciesOf: DependenciesOf = (deps, input) => {
     }
     return null;
   };
-  let selectedTarget: DefId | null = null;
-  const visit = (node: TirNode, accountedTarget: DefId | null): DataflowStop | null => {
+  let selectedTarget = false;
+  const visit = (node: TirNode, accountedTarget: boolean): DataflowStop | null => {
     const at: NodeRef = { body: input.tir.body, node: node.id };
     switch (node.kind) {
       case "ArrowFunction": case "FunctionExpression": return callable(at, node.tsonic.callable.definition);
       case "Identifier": case "PrivateIdentifier": case "QualifiedName": {
         const name = node.tsonic;
         if ((name.role === "value" || name.role === "shorthand-value") && name.resolution.kind === "definition") {
-          if (accountedTarget === name.resolution.definition) return null;
+          if (accountedTarget) return null;
           const lookup = chargeWork(account, 1);
           if (lookup !== null) return lookup;
           const values = deps.callableEntriesAt(at, name.resolution.definition);
@@ -159,7 +159,7 @@ export const dependenciesOf: DependenciesOf = (deps, input) => {
         const applied = selected(phase.application);
         const stop = application(at, applied, node.kind === "NewExpression" ? "constructor" : "call");
         if (stop !== null) return stop;
-        selectedTarget = applied.callee.decision.advertised.declaration;
+        selectedTarget = true;
         if (node.kind === "NewExpression") {
           const lookup = chargeWork(account, 1);
           if (lookup !== null) return lookup;
@@ -232,14 +232,14 @@ export const dependenciesOf: DependenciesOf = (deps, input) => {
       throw new TypeError("Execution headers retain every actual selected ordinary formal.");
   }
   const stack: { readonly children: Iterator<TirChapterSyntaxSlot>; readonly callable: boolean; readonly placed: boolean;
-    readonly target: DefId | null; readonly targetField: string }[] = [];
+    readonly target: boolean; readonly targetField: string }[] = [];
   let subject: TirTypedSyntax | null = tirBodySyntaxOf(input.tir.root);
-  let accountedTarget: DefId | null = null;
+  let accountedTarget = false;
   while (subject !== null || stack.length !== 0) {
     if (subject !== null) {
       const admission = chargeWork(account, 1) ?? chargeResultEntries(account, 4);
       if (admission !== null) return admission;
-      selectedTarget = null;
+      selectedTarget = false;
       const node: TirNode | null = subject.kind === "ordinary" ? subject.node : null;
       const stop = node === null ? null : visit(node, accountedTarget);
       if (stop !== null) return stop;
@@ -261,7 +261,7 @@ export const dependenciesOf: DependenciesOf = (deps, input) => {
       if (frame.placed && field === "initializer" || frame.callable && (field === "parameters" || field === "body")) continue;
       const next = readChapterSyntaxSlot(child.value);
       if (next === null || next.kind === "checked" || next.kind === "ready-callable") continue;
-      accountedTarget = field === frame.targetField ? frame.target : null;
+      accountedTarget = field === frame.targetField && frame.target;
       subject = next;
     }
   }

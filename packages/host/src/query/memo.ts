@@ -44,27 +44,28 @@ function belongsTo<Inputs, Key, Value, Witness, ErrorData>(
   return memo.definition === query;
 }
 
-export function queryMemo<Inputs, Key, Value, Witness, ErrorData>(
-  table: MemoTable, query: Query<Inputs, Key, Value, Witness, ErrorData>, encodedKey: string, admit: () => boolean,
+export function existingQueryMemo<Inputs, Key, Value, Witness, ErrorData>(
+  table: MemoTable, query: Query<Inputs, Key, Value, Witness, ErrorData>, encodedKey: string,
 ): Memo<Value> | undefined {
   const existing = table.get(query.name);
-  if (existing === undefined) {
-    if (!admit()) return undefined;
-    const created: Memo<Value> = {
-      definition: query,
-      answers: new Map(),
-      counter: { computed: 0, hits: 0 },
-    };
-    table.set(query.name, created);
-    return created;
-  }
-  if (belongsTo(existing, query)) return existing;
+  if (existing === undefined || belongsTo(existing, query)) return existing;
   return throwInvariant({
     owner: "query",
     query: { name: query.name, encodedKey },
     origin: null,
     message: `Query name ${JSON.stringify(query.name)} is already bound to another definition`,
   });
+}
+
+export function queryMemo<Inputs, Key, Value, Witness, ErrorData>(
+  table: MemoTable, query: Query<Inputs, Key, Value, Witness, ErrorData>, encodedKey: string, admit: () => boolean,
+): Memo<Value> | undefined {
+  const existing = existingQueryMemo(table, query, encodedKey);
+  if (existing !== undefined) return existing;
+  if (!admit()) return undefined;
+  const created: Memo<Value> = { definition: query, answers: new Map(), counter: { computed: 0, hits: 0 } };
+  table.set(query.name, created);
+  return created;
 }
 
 export function retainDiagnostics(diagnostics: readonly Diagnostic[]): readonly Diagnostic[] {

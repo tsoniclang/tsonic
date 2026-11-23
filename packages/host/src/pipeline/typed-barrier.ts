@@ -469,10 +469,14 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
     if (result.kind === "refused") return result;
     explicit.push(result.value);
   }
+  const readDeclared = (request: SignatureRequest): Signature | null => {
+    const answer = database.readCompleted(queries.declaredSignatureOf, request);
+    return answer?.kind === "completed" ? answer.value : null;
+  };
   const required = prepareRequiredExecutions(source, sources, (function* () {
     for (const row of bodies.values()) if (project.has(row.body.root.origin.module)) yield row.body;
     yield* explicit;
-  })(), requireBody, account, unit);
+  })(), requireBody, readDeclared, account, unit);
   if (required.kind === "refused") return required;
   for (let index = 0; index < attachments.length; index += 1) {
     const stop = chargeWork(account, 1);
@@ -581,7 +585,7 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
     for (const endpoint of declarationOf(request.definition)?.endpoints ?? []) {
       if (endpoint.role !== request.endpoint) continue;
       if (ordinal++ !== request.ordinal) continue;
-      if (endpoint.body === null) return null;
+      if (endpoint.body === null) return readDeclared(request)?.id ?? null;
       const placed = placedSignatureOf({ body: endpoint.body, bindings: request.bindings });
       return placed?.request !== null && placed !== null && signatureRequestKey(placed.request) === signatureRequestKey(request)
         ? placed.signature.id : null;

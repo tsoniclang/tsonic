@@ -133,6 +133,7 @@ export type RunResult<Value> =
 export interface Database<Inputs, Witness, ErrorData> {
   readonly inputs: Inputs;
   readonly run: <Key, Value>(query: Query<Inputs, Key, Value, Witness, ErrorData>, key: Key) => RunResult<Value>;
+  readonly readCompleted: <Key, Value>(query: Query<Inputs, Key, Value, Witness, ErrorData>, key: Key) => RunResult<Value> | null;
   readonly isRecordLimitRefusal: (refusal: QueryRefusal) => boolean;
   readonly errorOf: (unit: UnitRef) => UnitErrorRead;
   readonly diagnostics: () => readonly Diagnostic[];

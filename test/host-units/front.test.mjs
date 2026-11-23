@@ -723,7 +723,8 @@ test("provider overloads supply their own ABI while ordinary captured declaratio
   assert.equal(receipt.kind, "available");
   assert.deepEqual(receipt.value.node, signatures[1].node);
   assert.deepEqual(receipt.value.identity, signatures[1].identity);
-  const captured = captureSourceBarrier({ ...analysisInput(fixture, "sdk-minimal"), snapshot: callSnapshot, extensions: callSession.deps.extensions });
+  const callInput = { ...analysisInput(fixture, "sdk-minimal"), snapshot: callSnapshot, extensions: callSession.deps.extensions };
+  const captured = captureSourceBarrier(callInput);
   assert.equal(captured.kind, "ok");
   const callerModule = captured.value.modules.find(row => row.module.module === callSnapshot.entryPoint);
   const callerBody = callerModule.module.bodies
@@ -735,6 +736,26 @@ test("provider overloads supply their own ABI while ordinary captured declaratio
   assert.equal(candidate.appliedSignature.value, chosen.tsonic.signatures[0].signature);
   assert.deepEqual(callerModule.nodes[selected.invocation.node].tsonic.core.provider,
     { kind: "available", value: chosen.tsonic.definition });
+
+  const { createAccount } = await import("../../packages/host/dist/dataflow/index.js");
+  const { summaryKey } = await import("../../packages/host/dist/ir-facts/index.js");
+  const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
+  const typed = typeSourceBarrier(callInput, captured.value, createAccount(callInput.limits.dataflow));
+  assert.equal(typed.kind, "ok");
+  const [operation] = typed.value.required.operations.filter(row => row.kind === "declared");
+  assert.equal(operation.execution.provided, 1);
+  assert.equal(operation.execution.request.definition, chosen.tsonic.definition);
+  assert.equal(operation.execution.request.endpoint, "api-signature");
+  assert.equal(operation.execution.request.ordinal, 0);
+  const ready = typed.value.required.declared.get(summaryKey(operation));
+  assert.equal(ready.execution, operation.execution);
+  assert.equal(ready.signature, readSignature(captured.value.types, candidate.appliedSignature.value));
+  assert.deepEqual(ready.source, { kind: "item", value: { owner: chosen.tsonic.definition, node: chosen.id } });
+  assert.deepEqual(typed.value.required.dependencies.filter(row => row.at.node === selected.invocation.node).map(row => row.reason), ["call"]);
+  const stats = typed.value.database.stats();
+  assert.equal(typed.value.signatureIdOf(operation.execution.request), ready.signature.id);
+  assert.equal(typed.value.signatureIdOf({ ...operation.execution.request, ordinal: 1 }), null);
+  assert.deepEqual(typed.value.database.stats(), stats);
 });
 
 /**

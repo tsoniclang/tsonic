@@ -3,7 +3,7 @@ import { requirePresent, resourceLimitDiagnostic, throwInvariant } from "../diag
 import { encodeKey } from "../ids/index.js";
 import type { ClassifyCycle, CycleAnswerCapability, CycleMember, CycleOutcome, Database, FactKey, Query, QueryComputation, QueryContext, QueryDependency, QueryLimits, QueryRefusal, QueryRequest, QueryScheduler, RunResult, TraceEvent, TraceRecording } from "./contract.js";
 import type { Chunks, CompletedUnit, Kept, MemoTable } from "./memo.js";
-import { completedUnit, composeResult, leastFact, queryMemo, readDetectorDiagnostic, readUnitError, retainDiagnostics, snapshotDiagnostics, snapshotStatistics, snapshotTrace, validateUnits } from "./memo.js";
+import { completedUnit, composeResult, existingQueryMemo, leastFact, queryMemo, readDetectorDiagnostic, readUnitError, retainDiagnostics, snapshotDiagnostics, snapshotStatistics, snapshotTrace, validateUnits } from "./memo.js";
 
 interface Settlement {
   readonly units: number;
@@ -318,7 +318,15 @@ export function createQueryDatabase<Inputs, Witness, ErrorData>(
     }
   }
 
-  return ({ inputs, run, errorOf, isRecordLimitRefusal: refusal => refusal === exhaustion,
+  function readCompleted<Key, Value>(query: Query<Inputs, Key, Value, Witness, ErrorData>, key: Key): RunResult<Value> | null {
+    if (running) throw new TypeError("query: completed answers cannot bypass an active query dependency");
+    const encoded = encodeKey(query.keyData(key));
+    const result = existingQueryMemo(memo, query, encoded)?.answers.get(encoded)?.result;
+    if (result === undefined) return null;
+    return result.kind === "refused" ? result : { kind: "completed", value: result.value, diagnostics: result.diagnostics };
+  }
+
+  return ({ inputs, run, readCompleted, errorOf, isRecordLimitRefusal: refusal => refusal === exhaustion,
     diagnostics: () => snapshotDiagnostics(published, abandoned), stats: () => snapshotStatistics(memo),
     trace: () => snapshotTrace(trace) });
 }
