@@ -286,6 +286,30 @@ export function publishHostProgram(inputs: HostAnalysisInputs, typed: TypedSourc
     }
     modules.push({ module: module.module, tree: module.tree, bodies: published });
   }
+  const declared = typed.required.declared;
+  if (declared !== null) {
+    const placements = declared.values();
+    for (let position = 0; position < declared.size; position += 1) {
+      const read = chargeWork(account, 1);
+      if (read !== null) return analysisStop(read, unit);
+      const row = placements.next();
+      if (row.done) return fail("The retained declared signature inventory is dense.");
+      const { request, signature } = row.value.placement;
+      if (request.endpoint !== "api-signature") return fail("A declared execution retains its bodyless API signature.");
+      const identity = chargeWork(account, request.definition.length) ?? admitArtifactIdentity(request.bindings, account);
+      if (identity !== null) return analysisStop(identity, unit);
+      const key = signatureRequestKey(request);
+      const previous = signatures.get(key);
+      if (previous !== undefined) {
+        if (previous.signature !== signature.id) return fail("One selected declared signature request retains one actual answer.");
+        continue;
+      }
+      const keep = chargeResultEntries(account, 2);
+      if (keep !== null) return analysisStop(keep, unit);
+      signatures.set(key, { definition: request.definition, bindings: request.bindings, ordinal: request.ordinal,
+        signature: signature.id, kind: request.endpoint });
+    }
+  }
   modules.sort((left, right) => compareText(left.module, right.module));
   const selectedNativeFactsKey = nativeFactsKey(inputs.snapshot.nativeFacts);
   const index: ProgramIndex = {

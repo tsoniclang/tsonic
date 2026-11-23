@@ -626,6 +626,17 @@ export function typeSourceBarrier(inputs: HostAnalysisInputs, source: SourceBarr
         members.push({ instance: { body: body.body, bindings: body.bindings }, occurrence: { kind: "selection", node, ordinal: 0 }, inventory });
       }
     }
+    const declared = required.value.declared;
+    if (declared !== null) {
+      const placements = declared.values();
+      for (let position = 0; position < declared.size; position += 1) {
+        const stop = chargeWork(account, 1) ?? chargeResultEntries(account, 1);
+        if (stop !== null) return stop;
+        const row = placements.next();
+        if (row.done) return fail("The completed selected declaration evidence retains every original row.");
+        signatures.push(row.value.placement);
+      }
+    }
     const itemRows = items.entries();
     for (let position = 0; position < items.size; position += 1) {
       const stop = chargeWork(account, 1);

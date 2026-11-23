@@ -4,7 +4,7 @@ import type { Result, UnitRequest } from "../diag/contract.js";
 import { throwInvariant } from "../diag/index.js";
 import type { BodyId, DefId, ModuleId, NodeRef, SourceNodeRef } from "../ids/contract.js";
 import type { ExecutionDependency, SummaryKey } from "../ir-facts/contract.js";
-import type { ParameterMapping } from "../ir-infer/contract.js";
+import type { ParameterMapping, PlacedSignature } from "../ir-infer/contract.js";
 import { admitArtifactIdentity, admitSummaryIdentity, summaryKey } from "../ir-facts/index.js";
 import type { TirBody } from "../ir-tir/contract.js";
 import type { BindingScope, BodyInstance, DeclaredExecution, Execution, Signature, SignatureRequest } from "../ir-types/contract.js";
@@ -22,7 +22,7 @@ type BodyOperation = Extract<SummaryKey, { readonly kind: "body" }>;
 
 export interface ReadyDeclaredExecution {
   readonly execution: DeclaredExecution;
-  readonly signature: Signature;
+  readonly placement: PlacedSignature & { readonly request: SignatureRequest };
   readonly source: SourceNodeRef;
   readonly scope: BindingScope;
   readonly parameters: readonly ParameterMapping[];
@@ -275,11 +275,12 @@ export function prepareRequiredExecutions(source: SourceBarrier, sources: Checke
             const identity = summaryKey(key);
             const previous = declaredOf(identity);
             if (previous !== undefined) return { kind: "declared", execution: previous.execution };
-            const retain = chargeResultEntries(account, declared === null ? 7 : 6);
+            const retain = chargeResultEntries(account, declared === null ? 8 : 7);
             if (retain !== null) return null;
             declared ??= new Map();
             const ready: DeclaredExecution = { request: { ...request, bindings: { kind: "instantiated", bindings: decision.bindings } }, provided };
-            declared.set(identity, { execution: ready, signature: actual, source: site, scope, parameters: decision.parameters });
+            declared.set(identity, { execution: ready, placement: { request: ready.request, signature: actual },
+              source: site, scope, parameters: decision.parameters });
             return { kind: "declared", execution: ready };
           }
           ordinal += 1;

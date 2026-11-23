@@ -740,7 +740,8 @@ test("provider overloads supply their own ABI while ordinary captured declaratio
   const { createAccount } = await import("../../packages/host/dist/dataflow/index.js");
   const { summaryKey } = await import("../../packages/host/dist/ir-facts/index.js");
   const { typeSourceBarrier } = await import("../../packages/host/dist/pipeline/typed-barrier.js");
-  const typed = typeSourceBarrier(callInput, captured.value, createAccount(callInput.limits.dataflow));
+  const account = createAccount(callInput.limits.dataflow);
+  const typed = typeSourceBarrier(callInput, captured.value, account);
   assert.equal(typed.kind, "ok");
   const [operation] = typed.value.required.operations.filter(row => row.kind === "declared");
   assert.equal(operation.execution.provided, 1);
@@ -749,12 +750,16 @@ test("provider overloads supply their own ABI while ordinary captured declaratio
   assert.equal(operation.execution.request.ordinal, 0);
   const ready = typed.value.required.declared.get(summaryKey(operation));
   assert.equal(ready.execution, operation.execution);
-  assert.equal(ready.signature, readSignature(captured.value.types, candidate.appliedSignature.value));
+  assert.equal(ready.placement.signature, readSignature(captured.value.types, candidate.appliedSignature.value));
+  assert.equal(ready.placement.request, operation.execution.request);
   assert.deepEqual(ready.source, { kind: "item", value: { owner: chosen.tsonic.definition, node: chosen.id } });
   assert.deepEqual(typed.value.required.dependencies.filter(row => row.at.node === selected.invocation.node).map(row => row.reason), ["call"]);
   const stats = typed.value.database.stats();
-  assert.equal(typed.value.signatureIdOf(operation.execution.request), ready.signature.id);
+  assert.equal(typed.value.signatureIdOf(operation.execution.request), ready.placement.signature.id);
   assert.equal(typed.value.signatureIdOf({ ...operation.execution.request, ordinal: 1 }), null);
+  const evidence = typed.value.programEvidence(account);
+  assert.equal(evidence.kind, "complete");
+  assert.equal(evidence.value.signatures.filter(row => row === ready.placement).length, 1);
   assert.deepEqual(typed.value.database.stats(), stats);
 });
 
