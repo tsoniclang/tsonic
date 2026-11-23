@@ -2,6 +2,16 @@ import { goReceiverKey } from "../ast/spine.js";
 import * as core from "../core/core.js";
 import { Checker_instantiateType } from "./checker/types.js";
 import { Checker_getInferredType, Checker_inferFromIntraExpressionSites, clearCachedInferences, } from "./inference.js";
+import { admitNativeChecker } from "./resource-admission.js";
+function mappedSourceOrdinal(sources, type) {
+    const checker = type?.checker;
+    for (let ordinal = 0; ordinal < sources.length; ordinal += 1) {
+        admitNativeChecker(checker, "work");
+        if (sources[ordinal] === type)
+            return ordinal;
+    }
+    return -1;
+}
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/mapper.go::constGroup::TypeMapperKindUnknown+TypeMapperKindSimple+TypeMapperKindArray+TypeMapperKindMerged","kind":"constGroup","status":"implemented","sigHash":"ec220be11f26d6b55aeb8a72068401049ca70779df83f9902ee20f88efb1bb9c","bodyHash":"c524a031c83442b5f28749df1fe47bec2d064d3a8252ace149adcd6bf368f246"}
  *
@@ -195,7 +205,10 @@ function SimpleTypeMapper_as_TypeMapperData(receiver) {
  * }
  */
 export function SimpleTypeMapper_Map(receiver, t) {
+    const checker = t?.checker;
+    admitNativeChecker(checker, "work");
     if (t === receiver.source) {
+        admitNativeChecker(checker, "work");
         return receiver.target;
     }
     return t;
@@ -251,13 +264,11 @@ function ArrayTypeMapper_as_TypeMapperData(receiver) {
  * }
  */
 export function ArrayTypeMapper_Map(receiver, t) {
-    for (let i = 0; i < receiver.sources.length; i++) {
-        const s = receiver.sources[i];
-        if (t === s) {
-            return receiver.targets[i];
-        }
-    }
-    return t;
+    const ordinal = mappedSourceOrdinal(receiver.sources, t);
+    if (ordinal < 0)
+        return t;
+    admitNativeChecker(t?.checker, "work");
+    return receiver.targets[ordinal];
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/mapper.go::method::ArrayTypeMapper.Kind","kind":"method","status":"implemented","sigHash":"5fd27e4f543c4ee5938b7ab83a76039767614c175d6f940635badc9c30ffe139","bodyHash":"a0d057e69f019b9e0c8f7beff7854eb45eae2c25035024256f93504a4b8943b5"}
@@ -308,10 +319,10 @@ function ArrayToSingleTypeMapper_as_TypeMapperData(receiver) {
  * }
  */
 export function ArrayToSingleTypeMapper_Map(receiver, t) {
-    if (receiver.sources.includes(t)) {
-        return receiver.target;
-    }
-    return t;
+    if (mappedSourceOrdinal(receiver.sources, t) < 0)
+        return t;
+    admitNativeChecker(t?.checker, "work");
+    return receiver.target;
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/mapper.go::func::newDeferredTypeMapper","kind":"func","status":"implemented","sigHash":"2f61952977ac436ca730fb92992033a5aa0fcd9c6dad40caa8c80331c9adcda7","bodyHash":"c0744180b045c488d8029d66d4784e3800de32d163a9760d3a97c0c88d65b2a5"}
@@ -353,13 +364,11 @@ function DeferredTypeMapper_as_TypeMapperData(receiver) {
  * }
  */
 export function DeferredTypeMapper_Map(receiver, t) {
-    for (let i = 0; i < receiver.sources.length; i++) {
-        const s = receiver.sources[i];
-        if (t === s) {
-            return receiver.targets[i]();
-        }
-    }
-    return t;
+    const ordinal = mappedSourceOrdinal(receiver.sources, t);
+    if (ordinal < 0)
+        return t;
+    admitNativeChecker(t?.checker, "work");
+    return receiver.targets[ordinal]();
 }
 /**
  * @tsgo-unit {"id":"github.com/microsoft/typescript-go::internal/checker/mapper.go::func::newFunctionTypeMapper","kind":"func","status":"implemented","sigHash":"a7dd317a670447601b6ffb5fb1599bbea45f3b7ad5b2ce931bcf1bdcd478115f","bodyHash":"a7469fc84b29a13319a0426473487d1acc9968658baa4b18f4d2477c7336b64f"}
