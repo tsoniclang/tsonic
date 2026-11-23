@@ -1,7 +1,7 @@
 import type { DataflowResult, DataflowStop } from "../../dataflow/contract.js";
 import { accountFailure, chargeResultEntries, chargeWork } from "../../dataflow/index.js";
 import { requirePresent } from "../../diag/index.js";
-import type { BoundProducerId, OriginsId, TyId } from "../../ids/contract.js";
+import type { BoundProducerId, OpenBoundaryId, OriginsId, TyId } from "../../ids/contract.js";
 import { originsId } from "../../ids/index.js";
 import type { AppliedOriginsValue, Origins } from "../../ir-facts/contract.js";
 import { nativeCarrierOf, optionalValueDomainOf } from "../../ir-types/index.js";
@@ -10,6 +10,7 @@ import { orderedRows } from "./source.js";
 import { bodyFrontier } from "./places.js";
 
 const maximumSafeIdDigits = 16;
+const noBoundaries: readonly OpenBoundaryId[] = [];
 
 export interface ValueOrigins {
   readonly rows: Origins[];
@@ -44,22 +45,58 @@ export function valueOrigins(deps: BodyRoundDeps, rows: Origins[]): DataflowResu
   return { kind: "complete", value: { rows, index } };
 }
 
+function nonempty<Value>(rows: readonly Value[]): rows is readonly [Value, ...Value[]] {
+  return rows.length !== 0;
+}
+
 function internValue(deps: BodyRoundDeps, values: ValueOrigins, producers: readonly BoundProducerId[], includesAbsence: boolean,
-  admit: AdmitOrigins): OriginsId | DataflowStop {
+  boundaries: readonly OpenBoundaryId[], admit: AdmitOrigins): OriginsId | DataflowStop {
   const candidateWork = chargeWork(deps.account, 1) ?? chargeResultEntries(deps.account, 1);
   if (candidateWork !== null) return candidateWork;
-  const row = { id: originsId(values.rows.length), kind: "complete", producers, includesAbsence } satisfies Origins;
+  const id = originsId(values.rows.length);
+  const row: Origins = nonempty(boundaries) ? { id, kind: "open", producers, includesAbsence, boundaries }
+    : { id, kind: "complete", producers, includesAbsence };
   const key = valueKey(deps, row);
   if (key.kind !== "complete") return key;
   const known = values.index.get(key.value);
   if (known !== undefined) return known;
-  const bound = admit(producers.length, true);
+  const bound = admit(producers.length + boundaries.length, true);
   if (bound !== null) return bound;
   const growth = chargeResultEntries(deps.account, 1);
   if (growth !== null) return growth;
   values.rows.push(row);
   values.index.set(key.value, row.id);
   return row.id;
+}
+
+function unionCount<Reference extends number>(left: readonly Reference[], right: readonly Reference[]): number {
+  let count = left.length;
+  let position = 0;
+  for (const reference of right) {
+    while (position < left.length && Number(left[position]) < reference) position += 1;
+    if (left[position] !== reference) count += 1;
+  }
+  return count;
+}
+
+function mergeReferences<Reference extends number>(left: readonly Reference[], right: readonly Reference[]): readonly Reference[] {
+  const output: Reference[] = [];
+  let earlier = 0;
+  let later = 0;
+  while (earlier < left.length || later < right.length) {
+    const first = left[earlier];
+    const second = right[later];
+    if (second === undefined || first !== undefined && first < second) {
+      output.push(requirePresent(first, { owner: "analyses/body", query: null, origin: null,
+        message: "An admitted Origins union retains its actual reference." }));
+      earlier += 1;
+    } else {
+      output.push(second);
+      later += 1;
+      if (first === second) earlier += 1;
+    }
+  }
+  return output;
 }
 
 export function valueKind(deps: BodyRoundDeps, type: TyId): "primitive" | "absence" | "reference" | "primitive-optional" | "reference-optional" | null {
@@ -89,41 +126,23 @@ export function joinOrigins(deps: BodyRoundDeps, values: ValueOrigins, left: Ori
     message: "A returned value retains its actual complete Origins row." });
   const second = requirePresent(values.rows[right], { owner: "analyses/body", query: null, origin: null,
     message: "A returned value retains its actual complete Origins row." });
-  if (first.kind !== "complete" || second.kind !== "complete")
-    return bodyFrontier("BodyAnalysis requires the actual open Origins boundary transport for this value join.");
-  if (left === right || second.producers.length === 0 && !second.includesAbsence) return left;
-  if (first.producers.length === 0 && !first.includesAbsence) return right;
-  const admission = chargeWork(account, first.producers.length + second.producers.length);
+  if (left === right || second.kind === "complete" && second.producers.length === 0 && !second.includesAbsence) return left;
+  if (first.kind === "complete" && first.producers.length === 0 && !first.includesAbsence) return right;
+  const leftBoundaries = first.kind === "open" ? first.boundaries : noBoundaries;
+  const rightBoundaries = second.kind === "open" ? second.boundaries : noBoundaries;
+  const admission = chargeWork(account, first.producers.length + second.producers.length + leftBoundaries.length + rightBoundaries.length);
   if (admission !== null) return admission;
-  let count = first.producers.length;
-  let position = 0;
-  for (const producer of second.producers) {
-    while (position < first.producers.length && Number(first.producers[position]) < producer) position += 1;
-    if (first.producers[position] !== producer) count += 1;
-  }
-  if (count === first.producers.length && (first.includesAbsence || !second.includesAbsence)) return left;
-  if (count === second.producers.length && (second.includesAbsence || !first.includesAbsence)) return right;
+  const producers = unionCount(first.producers, second.producers);
+  const boundaries = unionCount(leftBoundaries, rightBoundaries);
+  if (producers === first.producers.length && boundaries === leftBoundaries.length && (first.includesAbsence || !second.includesAbsence)) return left;
+  if (producers === second.producers.length && boundaries === rightBoundaries.length && (second.includesAbsence || !first.includesAbsence)) return right;
+  const count = producers + boundaries;
   const alternatives = admit(count, false);
   if (alternatives !== null) return alternatives;
-  const growth = chargeWork(account, count) ?? chargeResultEntries(account, count);
+  const growth = chargeWork(account, count) ?? chargeResultEntries(account, count + (boundaries === 0 ? 0 : 1));
   if (growth !== null) return growth;
-  const producers: BoundProducerId[] = [];
-  let earlier = 0;
-  let later = 0;
-  while (earlier < first.producers.length || later < second.producers.length) {
-    const left = first.producers[earlier];
-    const right = second.producers[later];
-    if (right === undefined || left !== undefined && left < right) {
-      producers.push(requirePresent(left, { owner: "analyses/body", query: null, origin: null,
-        message: "An admitted Origins union retains its actual producer." }));
-      earlier += 1;
-    } else {
-      producers.push(right);
-      later += 1;
-      if (left === right) earlier += 1;
-    }
-  }
-  return internValue(deps, values, producers, first.includesAbsence || second.includesAbsence, admit);
+  return internValue(deps, values, mergeReferences(first.producers, second.producers), first.includesAbsence || second.includesAbsence,
+    boundaries === 0 ? noBoundaries : mergeReferences(leftBoundaries, rightBoundaries), admit);
 }
 
 export function appliedOrigins(deps: BodyRoundDeps, values: ValueOrigins, value: AppliedOriginsValue,
@@ -140,5 +159,5 @@ export function appliedOrigins(deps: BodyRoundDeps, values: ValueOrigins, value:
   for (const reference of value.caller) producers.push(reference.producer);
   const sorted = orderedRows(producers, (left, right) => left - right, deps.account);
   if (sorted.kind !== "complete") return sorted;
-  return internValue(deps, values, sorted.value, value.includesAbsence, admit);
+  return internValue(deps, values, sorted.value, value.includesAbsence, noBoundaries, admit);
 }

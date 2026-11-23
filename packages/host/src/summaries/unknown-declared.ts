@@ -8,13 +8,13 @@ import { declaredScopeBindings } from "./declared-work.js";
 
 export function unknownDeclaredSummary(account: DataflowAccount, deps: DeclaredSummaryDeps,
   input: DeclaredSummaryInput & { readonly kind: "unknown" }): DataflowResult<Summary> {
-  const setup = chargeWork(account, 4) ?? chargeResultEntries(account, 20);
+  const setup = chargeWork(account, 4) ?? chargeResultEntries(account, 18);
   if (setup !== null) return setup;
   const bindings = declaredScopeBindings(account, input.execution.request, input.scope);
   if ("kind" in bindings) return bindings;
   const context = valueContextId(0);
   const producers: Producer[] = [{ id: producerId(0), kind: "shared", definition: input.execution.request.definition, path: null }];
-  const boundProducers: BoundProducer[] = [{ id: boundProducerId(0), producer: producerId(0), bindings, context }];
+  const boundProducers: BoundProducer[] = [];
   const boundary = openBoundaryId(0);
   const boundaries: OpenBoundary[] = [{ id: boundary, kind: "opaque-invocation",
     at: { kind: "node", node: deps.source }, subject: producerId(0), owner: null, bindings, context,

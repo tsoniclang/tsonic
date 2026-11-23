@@ -189,7 +189,8 @@ test("parametric native environments use genuine ready rigid slots across all fo
   assert.deepEqual(result.arena.contexts, [{ id: 0, receiver: null, arguments: [], captures: [] }]);
   const unknown = summary(value.deps, { kind: "unknown", execution: value.input.execution,
     scope: value.association.scope, suspends: false, bindingDependent: true });
-  assert.equal(isDeepStrictEqual(unknown.arena.boundProducers[0].bindings, rigidBindings(value.association.scope)), true, "genuine qualified scope, never an invented empty environment");
+  assert.equal(isDeepStrictEqual(unknown.arena.boundaries[0].bindings, rigidBindings(value.association.scope)), true, "genuine qualified scope, never an invented empty environment");
+  assert.deepEqual(unknown.arena.boundProducers, [], "the unbound external boundary subject is not a supplied value");
 });
 
 test("genuine no-guarantee invocation retains the exact ready declaration source witness and explicit channels", () => {

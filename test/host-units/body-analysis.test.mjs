@@ -4447,10 +4447,21 @@ test("Origins rows are interned by complete payload within their actual arena, n
     { id: 1, kind: "open", producers: [0], includesAbsence: false, boundaries: [0] },
     { id: 2, kind: "open", producers: [0], includesAbsence: false, boundaries: [1] },
     { id: 3, kind: "complete", producers: [0], includesAbsence: true }];
-  const values = indexedOrigins(current, source);
+  const joined = [...source];
+  const values = indexedOrigins(current, joined);
   assert.equal(values.index.size, 4, "kind, each actual boundary and absence distinguish otherwise equal producer sets");
   assert.throws(() => valueOrigins(current.deps, [...source, { ...source[0], id: 4 }]), /distinct actual entry Origins rows/);
-  assert.throws(() => joinOrigins(current.deps, values, 0, 1, () => null), /actual open Origins boundary transport/);
+  assert.equal(joinOrigins(current.deps, values, 0, 1, () => null), 1);
+  assert.equal(joinOrigins(current.deps, values, 1, 0, () => null), 1);
+  const open = joinOrigins(current.deps, values, 1, 2, () => null);
+  assert.deepEqual(joined[open], { id: open, kind: "open", producers: [0], includesAbsence: false, boundaries: [0, 1] });
+  assert.equal(joinOrigins(current.deps, values, 2, 1, () => null), open);
+  const absent = joinOrigins(current.deps, values, open, 3, () => null);
+  assert.deepEqual(joined[absent], { id: absent, kind: "open", producers: [0], includesAbsence: true, boundaries: [0, 1] });
+  const independent = [...joined, { id: joined.length, kind: "open", producers: [], includesAbsence: false, boundaries: [2] }];
+  const openValues = indexedOrigins(current, independent);
+  const boundaryOnly = joinOrigins(current.deps, openValues, 0, independent.length - 1, () => null);
+  assert.deepEqual(independent[boundaryOnly], { id: boundaryOnly, kind: "open", producers: [0], includesAbsence: false, boundaries: [2] });
   for (const dimension of ["maximumWork", "maximumResultEntries"]) {
     let complete = false;
     for (let maximum = 0; maximum < 200; maximum += 1) {
