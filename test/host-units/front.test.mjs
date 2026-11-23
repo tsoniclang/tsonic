@@ -429,15 +429,16 @@ test("provenance that is not a loaded declaration-provider registration is an in
     error => { assert.deepEqual(error.cause, failure("The registering package of a session document is not a package of the snapshot.")); return true; });
 });
 
-test("a program file that is no module of the snapshot is an invariant failure; two files with one module identity likewise", () => {
+test("preparation refuses unowned files before opening; duplicate owned identities cannot enter a checked program", () => {
   const libraries = bundled();
   const stray = projectSnapshot({ sourceFiles: { "main.mts": "import { helper } from \"./helper.mjs\";\nexport const h: number = helper;\n" }, libraries });
   stray.source.input.packages.files.push({ kind: "physical", path: "/project/src/helper.mts", realPath: "/project/src/helper.mts", text: "export const helper: number = 1;\n" });
   stray.source.input.packages.files.sort((left, right) => left.path < right.path ? -1 : 1);
-  stray.source = preparedSource(stray.source.input);
+  const unowned = front.prepareSourceImports({ navigationCapture }, stray.source.input);
+  assert.equal(unowned.kind, "refused");
+  assert.deepEqual(unowned.diagnostics.map(row => [row.code.name, row.site]),
+    [["TSONIC_SOURCE_PREPARATION_INVALID", { kind: "file", path: "/project/src/helper.mts" }]]);
   const deps = { extensions: front.createCheckerExtensions([]), navigationCapture };
-  assert.throws(() => front.openCheckedProgram(deps, stray),
-    error => { assert.deepEqual(error.cause, failure("A file of the opened program is neither a module of the snapshot nor a session document.")); return true; });
   const repeated = projectSnapshot({ sourceFiles: plainSources, libraries });
   const sources = ["/project/src/util.mts", "/project/src/main.mts"].map(path => repeated.source.input.packages.modules.find(module => module.path === path));
   sources[0].id = repeated.entryPoint;
@@ -1074,6 +1075,40 @@ test("the public import boundary prepares distinct configured roots from the sam
   const refused = front.openCheckedProgram({ extensions: front.createCheckerExtensions([]), navigationCapture }, crossed);
   assert.equal(refused.kind, "refused");
   assert.equal(refused.diagnostics[0].code.name, "TSONIC_SOURCE_PREPARATION_INVALID");
+});
+
+test("prepared file identity comes from the actual captured file, not the spelling of its import", () => {
+  const text = "\uFEFF/* 🚀 */ export function broken() { return true;";
+  const snapshot = projectSnapshot({ sourceFiles: {
+    "main.mts": 'import "./TyPeD.mjs";',
+    "typed.mts": text,
+  }, libraries: [{ name: "lib.es5.d.ts", text: sdk.barebonesLibContent }] });
+  const { input } = snapshot.source;
+  const selected = front.prepareSourceImports({ navigationCapture }, { ...input, caseSensitive: false, roots: [snapshot.entryPoint] });
+  assert.equal(selected.kind, "ok");
+  const name = "/project/src/typed.mts";
+  const typed = moduleOf(packageOf("/project"), "src/typed.mts");
+  const reference = selected.value.preparation.files.find(file => file.fileName === "/project/src/main.mts").references[0];
+  assert.deepEqual(reference.resolution, { kind: "resolved", fileName: name });
+  const [diagnostic] = selected.value.preparation.diagnostics;
+  assert.equal(diagnostic.code.number, 1005);
+  const site = (start, length) => ({ kind: "source", origin: { module: typed, start, length, derived: [] } });
+  assert.deepEqual(diagnostic.site, site(text.length, 0));
+  assert.deepEqual(diagnostic.arguments, [{ kind: "text", value: "}" }]);
+  assert.deepEqual(diagnostic.related.map(row => [row.code.number, row.site]), [[1007, site(text.indexOf("{"), 0)]]);
+  const deps = { extensions: front.createCheckerExtensions([]), navigationCapture };
+  const opened = front.openCheckedProgram(deps, { ...snapshot, source: selected.value });
+  assert.equal(opened.kind, "ok");
+  assert.ok(front.captureProgramModules(deps, opened.value).modules.some(row => row.kind === "snapshot" && row.module === typed));
+  const unowned = { ...selected.value.input, packages: {
+    ...selected.value.input.packages, modules: input.packages.modules.filter(row => row.id !== typed),
+  } };
+  const refusal = front.prepareSourceImports({ navigationCapture }, unowned);
+  const crossed = front.openCheckedProgram(deps, { ...snapshot, source: { input: unowned, preparation: selected.value.preparation } });
+  assert.deepEqual(refusal, crossed, "the same SDK file with no captured module is refused before checked opening");
+  assert.equal(refusal.kind, "refused");
+  assert.deepEqual(refusal.diagnostics.map(row => [row.code.name, row.site]),
+    [["TSONIC_SOURCE_PREPARATION_INVALID", { kind: "file", path: name }]]);
 });
 
 // The program R2 named for the provider join. Its outcome was derived before it was run (package W5-7 part A): one identity names one

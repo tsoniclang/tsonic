@@ -182,6 +182,7 @@ test("a prepared source verifies the exact loaded roots, file membership and UTF
   const extra = "/project/src/extra.ts";
   source.input.packages.files[0].text = '\uFEFF/* 🚀 */ import "./extra.js";';
   source.input.packages.files.push({ kind: "physical", path: extra, realPath: extra, text: "export {};" });
+  source.input.packages.modules.push({ id: moduleId(packageId(), "src/extra.ts"), package: packageId(), path: extra, role: "source" });
   const parsedText = source.input.packages.files[0].text.slice(1);
   const reference = { kind: "import", placement: "statement", specifier: "./extra.js", mode: "import",
     start: parsedText.indexOf('"./extra.js"'), length: '"./extra.js"'.length, resolution: { kind: "resolved", fileName: extra } };
@@ -210,8 +211,10 @@ test("a prepared source verifies the exact loaded roots, file membership and UTF
   assert.deepEqual(rules(malformed(value => { value.input.packages.files.push(null); })), []);
   assert.deepEqual(rules(malformed(value => { value.preparation.files.push(null); })), ["prepared-file-exact"]);
   assert.deepEqual(rules(malformed(value => { value.input.packages.files.pop(); })), ["prepared-file-exact"]);
+  assert.deepEqual(rules(malformed(value => { value.input.packages.modules.pop(); })), ["prepared-file-exact"]);
   assert.deepEqual(malformed(value => { value.preparation.files[0].references[0].resolution = { kind: "unresolved" }; }), []);
-  assert.deepEqual(malformed(value => { value.input.caseSensitive = false; value.preparation.files[0].fileName = main.toUpperCase(); }), []);
+  assert.deepEqual(rules(malformed(value => { value.input.caseSensitive = false; value.preparation.files[0].fileName = main.toUpperCase(); })),
+    ["prepared-file-exact", "prepared-file-exact"]);
 });
 test("snapshot-fingerprint is one nonempty opaque captured identity, never a hash or package-name reconstruction", () => {
   for (const fingerprint of ["opaque", " ", "\0", "\uD800", "not-a-sha256"]) {

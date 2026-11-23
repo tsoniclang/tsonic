@@ -74,14 +74,17 @@ export const verifyPreparedSource: VerifyPreparedSource = ({ input, preparation 
     violations.push({ rule, site: path === undefined ? { kind: "snapshot" } : { kind: "file", path },
       detail: [{ kind: "text", value: detail }] });
   };
-  const key = (path: string): string => input.caseSensitive ? path : path.toLowerCase();
   const modules = new Map<ModuleId, string>();
-  for (const module of input.packages.modules) if (module != null) modules.set(module.id, module.path);
+  const modulePaths = new Set<string>();
+  for (const module of input.packages.modules) if (module != null) {
+    modules.set(module.id, module.path);
+    modulePaths.add(module.path);
+  }
   const expected = new Set<string>();
   const root = (id: ModuleId): void => {
     const path = modules.get(id);
     if (path === undefined) fail("prepared-roots-exact", id);
-    else expected.add(key(path));
+    else expected.add(path);
   };
   for (const id of input.roots) root(id);
   for (const id of input.declarationModules) root(id);
@@ -89,14 +92,14 @@ export const verifyPreparedSource: VerifyPreparedSource = ({ input, preparation 
   const original = new Map<string, string>();
   for (const file of input.packages.files) {
     if (file == null) continue;
-    const path = key(file.path);
+    const path = file.path;
     if (original.has(path)) fail("prepared-file-exact", "captured path", file.path);
     original.set(path, file.text);
   }
   let position = 0;
   const rootPaths = [...expected];
   for (const row of preparation.roots) {
-    if (row == null || key(row.fileName) !== rootPaths[position] || row.state !== "loaded") {
+    if (row == null || row.fileName !== rootPaths[position] || row.state !== "loaded") {
       fail("prepared-roots-exact", String(position));
     }
     position += 1;
@@ -105,20 +108,20 @@ export const verifyPreparedSource: VerifyPreparedSource = ({ input, preparation 
   const prepared = new Set<string>();
   for (const file of preparation.files) {
     if (file == null) { fail("prepared-file-exact", "missing file row"); continue; }
-    const path = key(file.fileName);
-    if (!original.has(path) || prepared.has(path)) fail("prepared-file-exact", "file membership", file.fileName);
+    const path = file.fileName;
+    if (!original.has(path) || !modulePaths.has(path) || prepared.has(path)) fail("prepared-file-exact", "file membership", path);
     prepared.add(path);
   }
   for (const rootPath of expected) if (!prepared.has(rootPath)) fail("prepared-file-exact", "root file", rootPath);
   for (const file of preparation.files) {
     if (file == null) continue;
-    const text = original.get(key(file.fileName));
+    const text = original.get(file.fileName);
     if (text === undefined) continue;
     const length = text.charCodeAt(0) === 0xfeff ? text.length - 1 : text.length;
     for (const reference of file.references) {
       if (reference == null || !Number.isSafeInteger(reference.start) || !Number.isSafeInteger(reference.length) ||
         reference.start < 0 || reference.length < 0 || reference.start > length - reference.length ||
-        (reference.resolution.kind === "resolved" && !prepared.has(key(reference.resolution.fileName)))) {
+        (reference.resolution.kind === "resolved" && !prepared.has(reference.resolution.fileName))) {
         fail("prepared-reference-exact", "reference site or resolved file", file.fileName);
       }
     }

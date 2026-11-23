@@ -184,7 +184,8 @@ export function openProgram(deps: CaptureDeps, snapshot: ProjectSnapshot): Resul
     },
   });
   const checked = session.checkSource();
-  const program = OpenedProgram.create(checked, deps.extensions, programFiles(checked, deps.extensions, inputs),
+  const actualPath = (path: string): string => inputs.useCaseSensitiveFileNames ? path : session.host.FS().Realpath(path);
+  const program = OpenedProgram.create(checked, deps.extensions, programFiles(checked, deps.extensions, inputs, actualPath),
     snapshot.source.input.packages.libraryData, snapshot.contributions);
   const diagnostics = captureSessionDiagnostics(program);
   return diagnostics === null ? { kind: "ok", value: program, diagnostics: [] } : { kind: "refused", diagnostics };
@@ -195,7 +196,8 @@ export function programModules(deps: CaptureDeps, program: CheckedProgram): Prog
   return OpenedProgram.modules(program);
 }
 
-function programFiles(checked: CheckedSourceProgram, table: CheckerExtensions, inputs: SessionInputs): readonly Omit<OpenedFile, "displacement">[] {
+function programFiles(checked: CheckedSourceProgram, table: CheckerExtensions, inputs: SessionInputs,
+  actualPath: (path: string) => string): readonly Omit<OpenedFile, "displacement">[] {
   const providers = ExtensionTable.providers(table);
   const found = new Map<ModuleId, Omit<OpenedFile, "displacement">>();
   const add = (module: ModuleId, value: Omit<OpenedFile, "displacement">): void => {
@@ -205,9 +207,10 @@ function programFiles(checked: CheckedSourceProgram, table: CheckerExtensions, i
   checked.programSourceFiles.forEach(entry => {
     const file = requirePresent(entry, invariant("The checker returned an absent source file in the opened program."));
     const name = checked.ast.getFileName(file);
-    const module = inputs.modules.get(name);
+    const path = actualPath(name);
+    const module = inputs.modules.get(path);
     if (module !== undefined) {
-      const text = requirePresent(inputs.files.get(name), invariant("A snapshot module of the opened program has no captured text."));
+      const text = requirePresent(inputs.files.get(path), invariant("A snapshot module of the opened program has no captured text."));
       add(module, { file, origin: { kind: "snapshot", module }, text });
       return;
     }
